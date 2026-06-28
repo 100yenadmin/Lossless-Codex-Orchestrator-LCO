@@ -32,7 +32,8 @@ async function main() {
     return;
   }
   if (command === "desktop" && args[0] === "see") {
-    console.log(JSON.stringify(await desktopSee({ backend: parseDesktopBackend(args[1]) }), null, 2));
+    const desktopSeeInput = parseDesktopSee(args.slice(1));
+    console.log(JSON.stringify(await desktopSee(desktopSeeInput), null, 2));
     return;
   }
   if (command === "desktop" && args[0] === "act") {
@@ -140,7 +141,7 @@ async function main() {
   console.error([
     "Usage:",
     "  loo doctor",
-    "  loo desktop see [direct|cua-driver|peekaboo]",
+    "  loo desktop see [direct|cua-driver|peekaboo] [--snapshot] [--max-nodes n] [--max-chars n]",
     "  loo desktop act [direct|cua-driver|peekaboo] <action>",
     "  loo index codex [roots...]",
     "  loo probe codex-sqlite [roots...]",
@@ -212,4 +213,30 @@ function parseDesktopAction(parts: string[]): { backend?: DesktopBackend; action
 
 function isDesktopBackend(value: string | undefined): value is DesktopBackend {
   return value === "direct" || value === "cua-driver" || value === "peekaboo";
+}
+
+function parseDesktopSee(parts: string[]): { backend?: DesktopBackend; includeSnapshot?: boolean; maxNodes?: number; maxChars?: number } {
+  const first = parts[0];
+  const hasExplicitBackend = isDesktopBackend(first);
+  const options = { backend: hasExplicitBackend ? first : undefined, includeSnapshot: false, maxNodes: undefined as number | undefined, maxChars: undefined as number | undefined };
+  const rest = parts.slice(hasExplicitBackend ? 1 : 0);
+  for (let index = 0; index < rest.length; index += 1) {
+    const token = rest[index];
+    if (token === "--snapshot") {
+      options.includeSnapshot = true;
+    } else if (token === "--max-nodes") {
+      options.maxNodes = parsePositiveInteger(rest[++index], "--max-nodes");
+    } else if (token === "--max-chars") {
+      options.maxChars = parsePositiveInteger(rest[++index], "--max-chars");
+    } else {
+      throw new Error(`Unknown desktop see option: ${token}`);
+    }
+  }
+  return options;
+}
+
+function parsePositiveInteger(value: string | undefined, name: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) throw new Error(`${name} requires a positive integer`);
+  return parsed;
 }
