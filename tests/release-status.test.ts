@@ -231,3 +231,37 @@ test("release status treats malformed approval proof shapes as unsatisfied witho
   assert.equal(payload.statusManifestPath, join(evidenceDir, "release-status.json"));
   assert.equal(existsSync(join(evidenceDir, "release-status.json")), true);
 });
+
+test("release status treats null approval proof JSON as unsatisfied without aborting", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-status-null-proof-"));
+  const nullNpmApprovalProof = join(evidenceDir, "npm-publish-approval.json");
+  writeFileSync(nullNpmApprovalProof, "null\n");
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "status",
+    "--evidence-dir",
+    evidenceDir,
+    "--npm-publish-approval-evidence",
+    nullNpmApprovalProof
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as {
+    blockers?: string[];
+    explicitApprovalsRequired?: Array<{ id: string; satisfied: boolean }>;
+  };
+  assert.deepEqual(payload.blockers, [
+    "approved_live_control_smoke_missing",
+    "npm_publish_not_approved",
+    "github_release_not_approved"
+  ]);
+  assert.deepEqual(payload.explicitApprovalsRequired?.find((approval) => approval.id === "npm_publish"), {
+    id: "npm_publish",
+    satisfied: false
+  });
+  assert.equal(existsSync(join(evidenceDir, "release-status.json")), true);
+});

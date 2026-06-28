@@ -100,6 +100,7 @@ function validateReleaseOperationApprovalProof(path: string | undefined, operati
   } catch {
     return false;
   }
+  if (!proof || typeof proof !== "object" || Array.isArray(proof)) return false;
   const allowedKeys = new Set(["kind", "operation", "approved", "approvalRef", "rawSecretIncluded"]);
   return proof.kind === "loo_release_operation_approval"
     && proof.operation === operation
