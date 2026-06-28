@@ -181,3 +181,22 @@ test("grep -> describe -> expand_query preserves Codex and read-only LCM source 
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });
+
+test("missing optional LCM peers do not break Codex recall", () => {
+  const fixture = makeRecallFixture();
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [fixture.sessions] });
+    const missingPeer = join(fixture.root, "missing-lcm.sqlite");
+
+    const grep = grepRecall(db, { query: "Codex recall", lcmDbPaths: [missingPeer], limit: 5 });
+    assert.deepEqual(grep.matches.map((match) => match.sourceRef), ["codex_thread:019f-recall-thread"]);
+
+    const expanded = expandQuery(db, { query: "Codex recall", lcmDbPaths: [missingPeer], profile: "metadata" });
+    assert.equal(expanded.sourceRef, "codex_thread:019f-recall-thread");
+    assert.equal(expanded.profile.name, "metadata");
+  } finally {
+    db.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});

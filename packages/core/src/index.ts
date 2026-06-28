@@ -626,13 +626,14 @@ function searchLcmPeers(paths: string[], query: string, limit: number): RecallSe
   const matches: RecallSearchResult[] = [];
   for (const path of paths) {
     if (matches.length >= limit) break;
-    const db = openLcmPeerDb(path);
+    let db: LooDatabase | null = null;
     try {
+      db = openLcmPeerDb(path);
       matches.push(...searchLcmPeer(db, path, query, limit - matches.length));
     } catch {
       // Peer reads are optional and must not break Codex recall.
     } finally {
-      db.close();
+      db?.close();
     }
   }
   return matches;
