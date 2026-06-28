@@ -143,7 +143,10 @@ test("probes Codex SQLite stores read-only and reports schema support", () => {
     assert.equal(existsSync(`${supported}-wal`), false);
     assert.equal(statSync(supported).mtimeMs, beforeSupported);
     assert.equal(statSync(unsupported).mtimeMs, beforeUnsupported);
-    assert.deepEqual(probeCodexSqliteStores([supported]).stores, []);
+    const directFileProbe = probeCodexSqliteStores([supported]);
+    assert.equal(directFileProbe.stores.length, 1);
+    assert.equal(directFileProbe.stores[0]?.path, supported);
+    assert.equal(directFileProbe.stores[0]?.supported, true);
   } finally {
     if (root) {
       rmSync(root, { recursive: true, force: true });

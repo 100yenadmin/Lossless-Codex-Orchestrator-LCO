@@ -525,7 +525,14 @@ function collectSqliteFiles(roots: string[], maxFiles: number): string[] {
   for (const root of roots) {
     if (!existsSync(root) || files.length >= maxFiles) continue;
     try {
-      if (!statSync(root).isDirectory()) continue;
+      const stat = statSync(root);
+      if (stat.isFile()) {
+        if (/^(state|logs)_\d+\.sqlite$/i.test(basename(root))) {
+          files.push(root);
+        }
+        continue;
+      }
+      if (!stat.isDirectory()) continue;
     } catch {
       continue;
     }
