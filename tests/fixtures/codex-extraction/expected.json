@@ -27,7 +27,7 @@
       "threadId": "019f-eval-thread",
       "callId": "call_secret",
       "toolName": "functions.exec_command",
-      "argumentsText": "{\"cmd\":\"curl -H 'authorization: <redacted-secret>' --header 'Cookie: <redacted-secret>' https://example.invalid && echo <redacted-secret> && printf '<redacted-secret>'\",\"cwd\":\"~/private\"}"
+      "argumentsText": "{\"cmd\":\"printf 'authorization: <redacted-secret>' && printf 'Cookie: <redacted-secret>' && echo <redacted-secret> && printf '<redacted-secret>' && curl https://example.invalid\",\"cwd\":\"~/private\"}"
     },
     {
       "threadId": "019f-eval-thread",
