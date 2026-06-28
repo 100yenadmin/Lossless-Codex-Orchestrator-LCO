@@ -1,4 +1,5 @@
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { assertCodexMethodAllowed } from "./policy.js";
@@ -10,6 +11,52 @@ export * from "./redaction.js";
 
 export type CodexClient = {
   request(method: string, params: Record<string, unknown>): Promise<unknown>;
+};
+
+export type DesktopBackend = "direct" | "cua-driver" | "peekaboo";
+
+export type DesktopProbe = {
+  commandStatus(command: string, args?: string[]): DesktopCommandStatus;
+  activeApplication?(): string | undefined;
+};
+
+export type DesktopCommandStatus = {
+  available: boolean;
+  command: string;
+  version?: string;
+  error?: string;
+};
+
+export type DesktopStatus = {
+  backend: DesktopBackend;
+  available: boolean;
+  preferred: boolean;
+  dryRunOnly: boolean;
+  launch: {
+    command: string;
+    args: string[];
+    transport: "stdio" | "none";
+  };
+  permissions: {
+    accessibility: DesktopPermissionStatus;
+    screenRecording: DesktopPermissionStatus;
+  };
+  focus: {
+    beforeApplication?: string;
+    afterApplication?: string;
+    changed: boolean | null;
+    proof: "status_probe_only_no_action" | "not_measured";
+  };
+  limitations: string[];
+  backgroundSafeClaim: "not_proven" | "not_supported";
+  note: string;
+  version?: string;
+  error?: string;
+};
+
+type DesktopPermissionStatus = {
+  status: "unknown" | "not_applicable";
+  note: string;
 };
 
 export type ControlResult = {
@@ -173,12 +220,31 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
   };
 }
 
-export async function desktopSee(input: { backend?: "direct" | "cua-driver" | "peekaboo"; maxChars?: number } = {}) {
+export async function desktopSee(input: { backend?: DesktopBackend; maxChars?: number; probe?: DesktopProbe } = {}): Promise<DesktopStatus> {
+  return desktopBackendStatus(input.backend ?? "direct", input.probe ?? systemDesktopProbe());
+}
+
+export function desktopFallbackDiagnostics(input: { probe?: DesktopProbe } = {}) {
+  const probe = input.probe ?? systemDesktopProbe();
+  return {
+    preferred: "cua-driver" as const,
+    backends: [
+      desktopBackendStatus("cua-driver", probe),
+      desktopBackendStatus("peekaboo", probe),
+      desktopBackendStatus("direct", probe)
+    ]
+  };
+}
+
+export function desktopActDryRun(input: { backend?: DesktopBackend; action?: string; dryRun?: boolean } = {}) {
   return {
     backend: input.backend ?? "direct",
-    available: false,
+    action: input.action ?? "unknown",
+    live: false,
     dryRunOnly: true,
-    note: "Desktop fallback adapters are packaged as permission-aware stubs in this beta. Use Codex direct protocol for thread control until CUA/Peekaboo is configured."
+    approvalRequired: true,
+    requestedLive: input.dryRun === false,
+    note: "Desktop live action is not enabled in this beta without backend-specific approval and permission proof."
   };
 }
 
@@ -202,4 +268,109 @@ function hmacDigest(key: Buffer, value: string): string {
 
 function isFileExistsError(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && (error as NodeJS.ErrnoException).code === "EEXIST";
+}
+
+function desktopBackendStatus(backend: DesktopBackend, probe: DesktopProbe): DesktopStatus {
+  const config = desktopBackendConfig(backend);
+  const command = config.command ?? "";
+  const beforeApplication = probe.activeApplication?.();
+  const commandStatus = command ? probe.commandStatus(command, config.probeArgs) : { available: false, command };
+  const afterApplication = probe.activeApplication?.();
+  const focusMeasured = Boolean(beforeApplication || afterApplication);
+  return {
+    backend,
+    available: commandStatus.available,
+    preferred: backend === "cua-driver",
+    dryRunOnly: true,
+    launch: {
+      command: commandStatus.command || command,
+      args: config.launchArgs,
+      transport: config.transport
+    },
+    permissions: config.permissions,
+    focus: {
+      beforeApplication,
+      afterApplication,
+      changed: focusMeasured ? beforeApplication !== afterApplication : null,
+      proof: focusMeasured ? "status_probe_only_no_action" : "not_measured"
+    },
+    limitations: config.limitations,
+    backgroundSafeClaim: config.backgroundSafeClaim,
+    note: config.note,
+    version: commandStatus.version,
+    error: commandStatus.error
+  };
+}
+
+function desktopBackendConfig(backend: DesktopBackend) {
+  if (backend === "cua-driver") {
+    return {
+      command: process.env.LOO_CUA_DRIVER_BIN || "cua-driver",
+      launchArgs: ["mcp"],
+      probeArgs: ["--version"],
+      transport: "stdio" as const,
+      permissions: unknownDesktopPermissions("CUA Driver permissions have not been verified by this tool; run CUA diagnostics or OS settings before live use."),
+      limitations: [
+        "Direct Codex protocol remains preferred for thread control.",
+        "No live GUI action is enabled until backend-specific approval exists.",
+        "No-focus behavior is not claimed without local no-focus proof."
+      ],
+      backgroundSafeClaim: "not_proven" as const,
+      note: "CUA Driver is the preferred desktop fallback and is expected to run as an MCP stdio backend with `cua-driver mcp`, but this diagnostic does not perform GUI actions."
+    };
+  }
+  if (backend === "peekaboo") {
+    return {
+      command: process.env.LOO_PEEKABOO_BIN || "peekaboo",
+      launchArgs: [],
+      probeArgs: ["--version"],
+      transport: "none" as const,
+      permissions: unknownDesktopPermissions("Peekaboo macOS Accessibility and Screen Recording permissions have not been verified by this tool."),
+      limitations: [
+        "Peekaboo is secondary to CUA Driver for desktop fallback.",
+        "Live Peekaboo actions require separate backend approval and permission proof.",
+        "May use visible macOS accessibility flows; no background/no-focus claim is made here."
+      ],
+      backgroundSafeClaim: "not_proven" as const,
+      note: "Peekaboo is packaged as a macOS fallback diagnostic surface only in this beta."
+    };
+  }
+  return {
+    command: "",
+    launchArgs: [],
+    probeArgs: [],
+    transport: "none" as const,
+    permissions: {
+      accessibility: { status: "not_applicable" as const, note: "Direct Codex protocol does not use desktop Accessibility permissions." },
+      screenRecording: { status: "not_applicable" as const, note: "Direct Codex protocol does not use desktop Screen Recording permissions." }
+    },
+    limitations: [
+      "Direct backend means use Codex protocol/read tools before GUI fallback.",
+      "No desktop GUI action is available through the direct backend."
+    ],
+    backgroundSafeClaim: "not_supported" as const,
+    note: "Direct backend uses Codex protocol surfaces and is preferred before GUI fallback."
+  };
+}
+
+function unknownDesktopPermissions(note: string) {
+  return {
+    accessibility: { status: "unknown" as const, note },
+    screenRecording: { status: "unknown" as const, note }
+  };
+}
+
+function systemDesktopProbe(): DesktopProbe {
+  return {
+    commandStatus(command, args = ["--version"]) {
+      const result = spawnSync(command, args, { encoding: "utf8", timeout: 3000 });
+      const output = `${result.stdout || ""}${result.stderr || ""}`.trim();
+      return {
+        available: result.status === 0,
+        command: redactValue(command) as string,
+        version: result.status === 0 && output ? output.split(/\r?\n/)[0] : undefined,
+        error: result.status === 0 ? undefined : output || result.error?.message || "command unavailable"
+      };
+    }
+  };
 }

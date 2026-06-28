@@ -16,5 +16,8 @@ Recommended OpenClaw configuration should expose the `loo_*` tools and keep live
 - Live control requires `approval_audit_id` from the dry-run result.
 - Dry-run output includes `params_hash` and message-bearing actions include `message_hash`; agents should echo those local keyed fingerprints before asking the user to approve live control.
 - `loo_audit_tail` returns recent fingerprinted audit records without raw prompt text.
+- `loo_desktop_see` may inspect CUA/Peekaboo readiness, but it must not perform GUI actions.
+- `loo_desktop_act` remains dry-run-only until backend-specific approval and permission proof exist.
+- CUA Driver is the preferred desktop fallback and is launched as MCP stdio via `cua-driver mcp` by default; do not claim no-focus behavior unless the returned focus proof says it was measured.
 
 Claude Code support is an adapter stub in this beta.
