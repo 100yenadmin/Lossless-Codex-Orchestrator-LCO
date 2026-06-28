@@ -1,11 +1,13 @@
 import {
   describeSession,
+  defaultCodexRoots,
   expandSession,
   getCodexFinalMessages,
   getCodexPlans,
   getCodexThreadMap,
   getCodexTouchedFiles,
   indexCodexSessions,
+  probeCodexSqliteStores,
   type LooDatabase,
   searchSessions
 } from "../../core/src/index.js";
@@ -31,7 +33,7 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
     tool("loo_index_sessions", "Index local Codex session JSONL files into the local orchestrator database.", {
       roots: { type: "array", items: { type: "string" } },
       max_files: { type: "integer", minimum: 1, maximum: 100000 }
-    }, (input) => indexCodexSessions(options.db, { roots: stringArray(input.roots), maxFiles: optionalNumber(input.max_files) })),
+    }, (input) => indexCodexSessions(options.db, { roots: optionalRoots(input.roots, defaultCodexRoots()), maxFiles: optionalNumber(input.max_files) })),
     tool("loo_search_sessions", "Search indexed Codex sessions with bounded safe text.", {
       query: { type: "string" },
       limit: { type: "integer", minimum: 1, maximum: 100 }
@@ -64,6 +66,10 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
     tool("loo_codex_touched_files", "Read touched files extracted for one Codex session.", {
       thread_id: { type: "string" }
     }, (input) => getCodexTouchedFiles(options.db, { threadId: requiredString(input.thread_id, "thread_id") })),
+    tool("loo_codex_sqlite_stores", "Probe local Codex state_*.sqlite and logs_*.sqlite stores read-only.", {
+      roots: { type: "array", items: { type: "string" } },
+      max_files: { type: "integer", minimum: 1, maximum: 1000 }
+    }, (input) => probeCodexSqliteStores(optionalRoots(input.roots, [`${process.env.HOME || "."}/.codex`]), optionalNumber(input.max_files))),
     tool("loo_codex_control_dry_run", "Create a dry-run audit id for a Codex control action.", {
       action: { type: "string", enum: ["send", "resume", "steer", "interrupt"] },
       thread_id: { type: "string" },
@@ -166,4 +172,14 @@ function optionalNumber(value: unknown): number | undefined {
 function stringArray(value: unknown): string[] {
   if (!Array.isArray(value)) throw new Error("roots must be an array");
   return value.map((item) => requiredString(item, "roots[]"));
+}
+
+function optionalStringArray(value: unknown): string[] | undefined {
+  if (value === undefined) return undefined;
+  return stringArray(value);
+}
+
+function optionalRoots(value: unknown, fallback: string[]): string[] {
+  const roots = optionalStringArray(value);
+  return roots && roots.length > 0 ? roots : fallback;
 }

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { codexTransportStatus, createAuditStore } from "../../adapters/src/index.js";
-import { createDatabase, defaultDatabasePath, indexCodexSessions, searchSessions } from "../../core/src/index.js";
+import { createDatabase, defaultCodexRoots, defaultDatabasePath, indexCodexSessions, probeCodexSqliteStores, searchSessions } from "../../core/src/index.js";
+import { join } from "node:path";
 
 const [, , command, ...args] = process.argv;
 
@@ -18,10 +19,15 @@ async function main() {
     const roots = args.slice(1);
     const db = createDatabase();
     try {
-      console.log(JSON.stringify(indexCodexSessions(db, { roots: roots.length ? roots : [`${process.env.HOME}/.codex/sessions`] }), null, 2));
+      console.log(JSON.stringify(indexCodexSessions(db, { roots: roots.length ? roots : defaultCodexRoots() }), null, 2));
     } finally {
       db.close();
     }
+    return;
+  }
+  if (command === "probe" && args[0] === "codex-sqlite") {
+    const roots = args.slice(1);
+    console.log(JSON.stringify(probeCodexSqliteStores(roots.length ? roots : [join(process.env.HOME || ".", ".codex")]), null, 2));
     return;
   }
   if (command === "search") {
@@ -41,7 +47,7 @@ async function main() {
     console.log(createAuditStore(process.env.LOO_AUDIT_PATH || `${process.env.HOME}/.openclaw/lossless-openclaw-orchestrator/audit.jsonl`).path);
     return;
   }
-  console.error("Usage: loo doctor | loo index codex [roots...] | loo search <query> | loo serve | loo audit-path");
+  console.error("Usage: loo doctor | loo index codex [roots...] | loo probe codex-sqlite [roots...] | loo search <query> | loo serve | loo audit-path");
   process.exitCode = 2;
 }
 
