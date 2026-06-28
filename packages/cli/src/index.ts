@@ -18,6 +18,7 @@ import {
 import { join } from "node:path";
 import { createReleaseBundle } from "./release-bundle.js";
 import { runReleasePreflight } from "./release-preflight.js";
+import { createReleaseStatus } from "./release-status.js";
 
 const [, , command, ...args] = process.argv;
 
@@ -160,6 +161,16 @@ async function main() {
     if (parsed.strict && !report.publishReady) process.exitCode = 1;
     return;
   }
+  if (command === "release" && args[0] === "status") {
+    const parsed = parseReleaseStatusArgs(args.slice(1));
+    const report = createReleaseStatus({
+      evidenceDir: parsed.evidenceDir,
+      approvedLiveControlEvidence: parsed.approvedLiveControlEvidence
+    });
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.releaseReady) process.exitCode = 1;
+    return;
+  }
   console.error([
     "Usage:",
     "  loo doctor",
@@ -175,7 +186,8 @@ async function main() {
     "  loo serve",
     "  loo audit-path",
     "  loo release preflight [--evidence-dir path] [--approved-live-control-evidence path] [--strict]",
-    "  loo release bundle --evidence-dir path [--approved-live-control-evidence path] [--strict]"
+    "  loo release bundle --evidence-dir path [--approved-live-control-evidence path] [--strict]",
+    "  loo release status --evidence-dir path [--approved-live-control-evidence path] [--strict]"
   ].join("\n"));
   process.exitCode = 2;
 }
@@ -295,5 +307,11 @@ function parseReleasePreflightArgs(input: string[]): { evidenceDir?: string; app
 function parseReleaseBundleArgs(input: string[]): { evidenceDir: string; approvedLiveControlEvidence?: string; strict: boolean } {
   const parsed = parseReleasePreflightArgs(input);
   if (!parsed.evidenceDir) throw new Error("release bundle requires --evidence-dir");
+  return { evidenceDir: parsed.evidenceDir, approvedLiveControlEvidence: parsed.approvedLiveControlEvidence, strict: parsed.strict };
+}
+
+function parseReleaseStatusArgs(input: string[]): { evidenceDir: string; approvedLiveControlEvidence?: string; strict: boolean } {
+  const parsed = parseReleasePreflightArgs(input);
+  if (!parsed.evidenceDir) throw new Error("release status requires --evidence-dir");
   return { evidenceDir: parsed.evidenceDir, approvedLiveControlEvidence: parsed.approvedLiveControlEvidence, strict: parsed.strict };
 }

@@ -68,6 +68,7 @@ loo expand-query --profile brief "billing bridge"
 loo serve
 loo release preflight --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight
 loo release bundle --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-bundle
+loo release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status
 ```
 
 Database path:
@@ -169,6 +170,14 @@ loo release bundle --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchest
 ```
 
 The bundle command copies the checked-in beta release notes, writes `release-bundle.json`, runs the same preflight checks, and explicitly records that it did not publish to npm or create a GitHub Release.
+
+Release status:
+
+```bash
+loo release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status
+```
+
+The status command writes `release-status.json`, wraps the preflight result, lists remaining explicit approvals, and records that it did not publish to npm, create a GitHub Release, run live Codex control, or mutate a desktop GUI. Use `--strict` to fail closed while release or approval blockers remain.
 
 ## Privacy
 
