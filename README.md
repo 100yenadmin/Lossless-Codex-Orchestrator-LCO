@@ -51,7 +51,7 @@ npm install
 npm test
 ```
 
-OpenClaw plugin setup lives in [docs/OPENCLAW_PLUGIN.md](docs/OPENCLAW_PLUGIN.md), with the packageable manifest at `packages/openclaw-plugin/openclaw.plugin.json`. The beta proof workflow lives in [docs/BETA_RELEASE_DEMO.md](docs/BETA_RELEASE_DEMO.md), and the public claim boundary is audited in [docs/CLAIM_AUDIT.md](docs/CLAIM_AUDIT.md).
+OpenClaw plugin setup lives in [docs/OPENCLAW_PLUGIN.md](docs/OPENCLAW_PLUGIN.md), with the packageable manifest at `packages/openclaw-plugin/openclaw.plugin.json`. The beta proof workflow lives in [docs/BETA_RELEASE_DEMO.md](docs/BETA_RELEASE_DEMO.md), the public claim boundary is audited in [docs/CLAIM_AUDIT.md](docs/CLAIM_AUDIT.md), and draft public beta notes live in [docs/RELEASE_NOTES_0.1.0-beta.0.md](docs/RELEASE_NOTES_0.1.0-beta.0.md).
 
 ## CLI
 
@@ -67,6 +67,7 @@ loo describe codex_thread:019f-example
 loo expand-query --profile brief "billing bridge"
 loo serve
 loo release preflight --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight
+loo release bundle --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-bundle
 ```
 
 Database path:
@@ -160,6 +161,14 @@ loo release preflight --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orch
 ```
 
 The preflight writes a public-safe `release-preflight.json` artifact manifest. It reports `approved_live_control_smoke_missing` until an explicit approved live-control evidence path is supplied, and `--strict` exits non-zero while any release blocker remains.
+
+Release bundle:
+
+```bash
+loo release bundle --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-bundle
+```
+
+The bundle command copies the checked-in beta release notes, writes `release-bundle.json`, runs the same preflight checks, and explicitly records that it did not publish to npm or create a GitHub Release.
 
 ## Privacy
 
