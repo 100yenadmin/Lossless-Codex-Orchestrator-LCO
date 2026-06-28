@@ -369,6 +369,81 @@ test("Peekaboo visible Codex thread map extracts redacted bounded candidates fro
   assert.equal(threads[1]?.title.includes("sk-test_1234567890"), false);
 });
 
+test("Peekaboo visible Codex windows inventory is derived from guarded Codex snapshots", async () => {
+  const status = await desktopSee({
+    backend: "peekaboo",
+    includeSnapshot: true,
+    probe: {
+      commandStatus: () => ({ available: true, command: "peekaboo", version: "Peekaboo 3.2.2" }),
+      activeApplication: () => "Codex",
+      commandOutput: (command: string, args: string[] = []) => {
+        if (args[0] === "permissions") {
+          return { status: 0, command, stdout: JSON.stringify({ success: true, data: { permissions: [] } }) };
+        }
+        return {
+          status: 0,
+          command,
+          stdout: JSON.stringify({
+            success: true,
+            data: {
+              snapshot_id: "WINDOW-SNAPSHOT",
+              application_name: "Codex",
+              window_title: "/Users/lume/private sk-test_1234567890",
+              ui_elements: []
+            }
+          })
+        };
+      }
+    }
+  });
+
+  const windows = status.visibleCodex?.windows?.windows ?? [];
+  assert.equal(status.visibleCodex?.windows?.source, "peekaboo_snapshot");
+  assert.equal(status.visibleCodex?.windows?.count, 1);
+  assert.equal(windows[0]?.visibleId.startsWith("visible-window-"), true);
+  assert.equal(windows[0]?.appName, "Codex");
+  assert.equal(windows[0]?.title?.includes("/Users/lume"), false);
+  assert.equal(windows[0]?.title?.includes("sk-test_1234567890"), false);
+  assert.equal(windows[0]?.snapshotId, "WINDOW-SNAPSHOT");
+  assert.equal(windows[0]?.frontmost, true);
+});
+
+test("Peekaboo visible Codex metadata is not extracted from non-Codex snapshots", async () => {
+  const status = await desktopSee({
+    backend: "peekaboo",
+    includeSnapshot: true,
+    probe: {
+      commandStatus: () => ({ available: true, command: "peekaboo", version: "Peekaboo 3.2.2" }),
+      activeApplication: () => "Safari",
+      commandOutput: (command: string, args: string[] = []) => {
+        if (args[0] === "permissions") {
+          return { status: 0, command, stdout: JSON.stringify({ success: true, data: { permissions: [] } }) };
+        }
+        return {
+          status: 0,
+          command,
+          stdout: JSON.stringify({
+            success: true,
+            data: {
+              application_name: "Safari",
+              window_title: "Normal browser window",
+              ui_elements: [
+                { id: "safari-thread-like", role: "button", label: "Lossless OpenClaw Orchestrator Running 2h", is_actionable: true }
+              ]
+            }
+          })
+        };
+      }
+    }
+  });
+
+  assert.equal(status.snapshot?.blocked, false);
+  assert.equal(status.snapshot?.frontmostApp, "Safari");
+  assert.equal(status.visibleCodex?.windows, undefined);
+  assert.equal(status.visibleCodex?.threadMap, undefined);
+  assert.equal(status.visibleCodex?.macros.some((macro) => macro.name === "codex_windows"), true);
+});
+
 test("MCP desktop see passes guarded Peekaboo snapshot options", async () => {
   const root = mkdtempSync(join(tmpdir(), "loo-peekaboo-mcp-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
@@ -407,11 +482,17 @@ test("MCP desktop see passes guarded Peekaboo snapshot options", async () => {
     assert.ok(see);
     const result = await see.execute({ backend: "peekaboo", include_snapshot: true, max_nodes: 1 }) as {
       snapshot?: { blocked: boolean; elements: Array<{ elementId: string }>; truncated: boolean };
-      visibleCodex?: { threadMap?: { threads: Array<{ title: string; status?: string; updatedLabel?: string }> } };
+      visibleCodex?: {
+        windows?: { count: number; windows: Array<{ appName: string; frontmost: boolean }> };
+        threadMap?: { threads: Array<{ title: string; status?: string; updatedLabel?: string }> };
+      };
     };
     assert.equal(result.snapshot?.blocked, false);
     assert.deepEqual(result.snapshot?.elements.map((element) => element.elementId), ["elem_1"]);
     assert.equal(result.snapshot?.truncated, true);
+    assert.equal(result.visibleCodex?.windows?.count, 1);
+    assert.equal(result.visibleCodex?.windows?.windows[0]?.appName, "Codex");
+    assert.equal(result.visibleCodex?.windows?.windows[0]?.frontmost, true);
     assert.equal(result.visibleCodex?.threadMap?.threads[0]?.title, "MCP visible thread");
     assert.equal(result.visibleCodex?.threadMap?.threads[0]?.status, "Running");
     assert.equal(result.visibleCodex?.threadMap?.threads[0]?.updatedLabel, "3h");

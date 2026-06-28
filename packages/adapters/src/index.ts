@@ -64,6 +64,7 @@ export type DesktopStatus = {
   visibleCodex?: {
     macros: VisibleCodexMacro[];
     safetyRules: string[];
+    windows?: VisibleCodexWindows;
     threadMap?: VisibleCodexThreadMap;
   };
   limitations: string[];
@@ -84,6 +85,24 @@ type VisibleCodexMacro = {
   legacyCommand: string[];
   sideEffects: string[];
   description: string;
+};
+
+type VisibleCodexWindows = {
+  source: "peekaboo_snapshot";
+  count: number;
+  windows: VisibleCodexWindow[];
+  warnings: string[];
+};
+
+type VisibleCodexWindow = {
+  visibleId: string;
+  index: number;
+  appName: string;
+  title?: string;
+  titleHash?: string;
+  snapshotId?: string;
+  frontmost: boolean;
+  source: "peekaboo_snapshot";
 };
 
 type VisibleCodexThreadMap = {
@@ -601,6 +620,7 @@ const threadControlPrefixLabels = ["archive chat", "automation folders", "automa
 const threadTimePattern = /^(?:now|yesterday|\d+\s?(?:s|m|h|d|w|mo|y))$/i;
 
 function visibleCodexMacroPack(snapshot?: DesktopSnapshotStatus) {
+  const codexSnapshot = snapshot && !snapshot.blocked && isCodexSnapshot(snapshot) ? snapshot : undefined;
   return {
     macros: [
       visibleMacro("codex_frontmost", ["codex", "frontmost", "--json"], "Read whether Codex Desktop is frontmost."),
@@ -615,12 +635,33 @@ function visibleCodexMacroPack(snapshot?: DesktopSnapshotStatus) {
       "Snapshot capture must pass sensitive-app denylist checks before invoking Peekaboo.",
       "Live visible GUI actions remain disabled until backend-specific approval and permission gates exist."
     ],
-    threadMap: snapshot && !snapshot.blocked ? visibleThreadMapFromSnapshot(snapshot) : undefined
+    windows: codexSnapshot ? visibleWindowsFromSnapshot(codexSnapshot) : undefined,
+    threadMap: codexSnapshot ? visibleThreadMapFromSnapshot(codexSnapshot) : undefined
   };
 }
 
 function visibleMacro(name: string, legacyCommand: string[], description: string): VisibleCodexMacro {
   return { name, legacyCommand, description, mode: "read_only", sideEffects: [] };
+}
+
+function visibleWindowsFromSnapshot(snapshot: DesktopSnapshotStatus): VisibleCodexWindows {
+  const title = snapshot.windowTitle ? capTextValue(snapshot.windowTitle, 200) : undefined;
+  const window: VisibleCodexWindow = {
+    visibleId: `visible-window-${shortHash(`${snapshot.frontmostApp || "Codex"}:${snapshot.snapshotId || ""}:${title || ""}`)}`,
+    index: 0,
+    appName: capTextValue(snapshot.frontmostApp || "Codex", 80),
+    title,
+    titleHash: title ? shortHash(title) : undefined,
+    snapshotId: snapshot.snapshotId,
+    frontmost: true,
+    source: "peekaboo_snapshot"
+  };
+  return {
+    source: "peekaboo_snapshot",
+    count: 1,
+    windows: [window],
+    warnings: snapshot.truncated ? ["Snapshot was truncated; visible window metadata is still bounded to the captured frontmost Codex window."] : []
+  };
 }
 
 function visibleThreadMapFromSnapshot(snapshot: DesktopSnapshotStatus): VisibleCodexThreadMap {
@@ -674,6 +715,11 @@ function visibleThreadMapFromSnapshot(snapshot: DesktopSnapshotStatus): VisibleC
     threads,
     warnings: snapshot.truncated ? ["Snapshot was truncated before thread-map extraction; rerun with a larger bounded max_nodes value if more visible rows are needed."] : []
   };
+}
+
+function isCodexSnapshot(snapshot: DesktopSnapshotStatus): boolean {
+  const app = (snapshot.frontmostApp || "").trim().toLowerCase();
+  return app === "codex" || app === "codex desktop";
 }
 
 function splitThreadTitleStatus(rawLabel: string): { title: string; status?: string; updatedLabel?: string } {
