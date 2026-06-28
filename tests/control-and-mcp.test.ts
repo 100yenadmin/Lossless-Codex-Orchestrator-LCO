@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -30,6 +31,8 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
     });
     assert.equal(dryRun.live, false);
     assert.match(dryRun.approvalAuditId, /^loo_audit_/);
+    assert.match(dryRun.paramsHash, /^[a-f0-9]{64}$/);
+    assert.equal(dryRun.messageHash, sha256("continue"));
     assert.equal(calls.length, 0);
 
     await assert.rejects(
@@ -58,6 +61,8 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
 
     const resumeDryRun = await control.resumeThread({ threadId: "thr_1", dryRun: true });
     assert.equal(resumeDryRun.live, false);
+    assert.match(resumeDryRun.paramsHash, /^[a-f0-9]{64}$/);
+    assert.equal(resumeDryRun.messageHash, undefined);
     await control.resumeThread({ threadId: "thr_1", dryRun: false, approvalAuditId: resumeDryRun.approvalAuditId });
     assert.equal(calls[1]?.method, "thread/resume");
 
@@ -127,11 +132,41 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     const dryRun = await sendTool.execute({ thread_id: "thr_1", message: "continue", dry_run: true }) as {
       live: boolean;
       approval_audit_id: string;
+      params_hash: string;
+      message_hash: string;
     };
     assert.equal(dryRun.live, false);
     assert.match(dryRun.approval_audit_id, /^loo_audit_/);
+    assert.match(dryRun.params_hash, /^[a-f0-9]{64}$/);
+    assert.equal(dryRun.message_hash, sha256("continue"));
+
+    const dryRunTool = tools.find((tool) => tool.name === "loo_codex_control_dry_run");
+    assert.ok(dryRunTool);
+    const genericDryRun = await dryRunTool.execute({ action: "send", thread_id: "thr_1", message: "continue" }) as {
+      approval_audit_id: string;
+      params_hash: string;
+      message_hash: string;
+    };
+    assert.match(genericDryRun.approval_audit_id, /^loo_audit_/);
+    assert.match(genericDryRun.params_hash, /^[a-f0-9]{64}$/);
+    assert.equal(genericDryRun.message_hash, sha256("continue"));
+
+    const auditTailTool = tools.find((tool) => tool.name === "loo_audit_tail");
+    assert.ok(auditTailTool);
+    const auditTail = await auditTailTool.execute({ limit: 5 }) as {
+      auditPath: string;
+      records: Array<{ id: string; paramsHash: string; messageHash?: string }>;
+    };
+    assert.equal(auditTail.auditPath, audit.path);
+    assert.equal(auditTail.records.some((record) => record.id === genericDryRun.approval_audit_id), true);
+    assert.equal(auditTail.records.some((record) => record.paramsHash === genericDryRun.params_hash), true);
+    assert.equal(JSON.stringify(auditTail).includes("continue"), false);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}

@@ -17,17 +17,21 @@ export type ControlResult = {
   threadId: string;
   live: boolean;
   approvalAuditId: string;
+  paramsHash: string;
+  messageHash?: string;
   method?: string;
   response?: unknown;
 };
 
 export type AuditStore = ReturnType<typeof createAuditStore>;
+type ControlAuditStore = Pick<AuditStore, "path" | "append" | "find">;
 
-type AuditRecord = {
+export type AuditRecord = {
   id: string;
   action: string;
   target: string;
   paramsHash: string;
+  messageHash?: string;
   live: boolean;
   createdAt: string;
 };
@@ -53,29 +57,41 @@ export function createAuditStore(path: string) {
         if (parsed.id === id) return parsed;
       }
       return null;
+    },
+    tail(limit = 20): AuditRecord[] {
+      if (!existsSync(path)) return [];
+      const boundedLimit = Math.max(1, Math.min(limit, 1000));
+      return readFileSync(path, "utf8")
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .slice(-boundedLimit)
+        .map((line) => JSON.parse(line) as AuditRecord);
     }
   };
 }
 
-export function createCodexControl(options: { audit: AuditStore; client: CodexClient }) {
+export function createCodexControl(options: { audit: ControlAuditStore; client: CodexClient }) {
   const execute = async (spec: {
     action: string;
     method: string;
     threadId: string;
     params: Record<string, unknown>;
+    message?: string;
     dryRun?: boolean;
     approvalAuditId?: string;
   }): Promise<ControlResult> => {
     assertCodexMethodAllowed(spec.method, "control");
     const paramsHash = stableHash({ action: spec.action, method: spec.method, threadId: spec.threadId, params: spec.params });
+    const messageHash = spec.message === undefined ? undefined : hashText(spec.message);
     if (spec.dryRun !== false) {
       const record = options.audit.append({
         action: spec.action,
         target: spec.threadId,
         paramsHash,
+        messageHash,
         live: false
       });
-      return { action: spec.action, threadId: spec.threadId, live: false, approvalAuditId: record.id, method: spec.method };
+      return { action: spec.action, threadId: spec.threadId, live: false, approvalAuditId: record.id, paramsHash, messageHash, method: spec.method };
     }
 
     if (!spec.approvalAuditId) {
@@ -92,8 +108,8 @@ export function createCodexControl(options: { audit: AuditStore; client: CodexCl
       throw new Error("approval_audit_id does not match this Codex control action");
     }
     const response = await options.client.request(spec.method, spec.params);
-    const liveRecord = options.audit.append({ action: spec.action, target: spec.threadId, paramsHash, live: true });
-    return { action: spec.action, threadId: spec.threadId, live: true, approvalAuditId: liveRecord.id, method: spec.method, response: redactValue(response) };
+    const liveRecord = options.audit.append({ action: spec.action, target: spec.threadId, paramsHash, messageHash, live: true });
+    return { action: spec.action, threadId: spec.threadId, live: true, approvalAuditId: liveRecord.id, paramsHash, messageHash, method: spec.method, response: redactValue(response) };
   };
 
   return {
@@ -102,6 +118,7 @@ export function createCodexControl(options: { audit: AuditStore; client: CodexCl
         action: "codex_send_message",
         method: "turn/start",
         threadId: input.threadId,
+        message: input.message,
         dryRun: input.dryRun,
         approvalAuditId: input.approvalAuditId,
         params: { threadId: input.threadId, input: [{ type: "text", text: input.message }] }
@@ -122,6 +139,7 @@ export function createCodexControl(options: { audit: AuditStore; client: CodexCl
         action: "codex_steer_thread",
         method: "turn/steer",
         threadId: input.threadId,
+        message: input.message,
         dryRun: input.dryRun,
         approvalAuditId: input.approvalAuditId,
         params: { threadId: input.threadId, input: [{ type: "text", text: input.message }] }
@@ -151,4 +169,8 @@ export async function desktopSee(input: { backend?: "direct" | "cua-driver" | "p
 
 function stableHash(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function hashText(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
 }
