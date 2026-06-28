@@ -9,7 +9,14 @@ import {
   type LooDatabase,
   searchSessions
 } from "../../core/src/index.js";
-import { createCodexControl, desktopSee, type AuditStore, type CodexClient } from "../../adapters/src/index.js";
+import {
+  LOO_COMMAND_POLICY,
+  codexTransportStatus,
+  createCodexControl,
+  desktopSee,
+  type AuditStore,
+  type CodexClient
+} from "../../adapters/src/index.js";
 
 export type LooTool = {
   name: string;
@@ -74,8 +81,17 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       action: { type: "string" },
       dry_run: { type: "boolean" }
     }, (input) => ({ backend: optionalString(input.backend) ?? "direct", action: optionalString(input.action) ?? "unknown", live: false, note: "Desktop live action is not enabled in this beta without backend-specific approval." })),
-    tool("loo_doctor", "Read local orchestrator health.", {}, () => ({ ok: true, localOnly: true, toolPrefix: "loo_*" })),
-    tool("loo_permissions", "Read safety posture for live controls.", {}, () => ({ liveControlRequires: ["dry_run", "approval_audit_id"], uploadsLocalText: false })),
+    tool("loo_doctor", "Read local orchestrator health.", {}, () => ({
+      ok: true,
+      localOnly: true,
+      toolPrefix: "loo_*",
+      codex: codexTransportStatus({ command: process.env.LOO_CODEX_BIN || "codex" })
+    })),
+    tool("loo_permissions", "Read safety posture for live controls.", {}, () => ({
+      liveControlRequires: ["dry_run", "approval_audit_id"],
+      uploadsLocalText: false,
+      commandPolicy: LOO_COMMAND_POLICY
+    })),
     tool("loo_audit_tail", "Read recent local audit records by path reference.", {}, () => ({ auditPath: options.audit.path }))
   ];
 }

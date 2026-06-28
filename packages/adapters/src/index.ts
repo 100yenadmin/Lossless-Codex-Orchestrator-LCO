@@ -1,6 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { assertCodexMethodAllowed } from "./policy.js";
+import { redactValue } from "./redaction.js";
+
+export * from "./codex-jsonrpc.js";
+export * from "./policy.js";
+export * from "./redaction.js";
 
 export type CodexClient = {
   request(method: string, params: Record<string, unknown>): Promise<unknown>;
@@ -60,6 +66,7 @@ export function createCodexControl(options: { audit: AuditStore; client: CodexCl
     dryRun?: boolean;
     approvalAuditId?: string;
   }): Promise<ControlResult> => {
+    assertCodexMethodAllowed(spec.method, "control");
     const paramsHash = stableHash({ action: spec.action, method: spec.method, threadId: spec.threadId, params: spec.params });
     if (spec.dryRun !== false) {
       const record = options.audit.append({
@@ -83,7 +90,7 @@ export function createCodexControl(options: { audit: AuditStore; client: CodexCl
     }
     const response = await options.client.request(spec.method, spec.params);
     const liveRecord = options.audit.append({ action: spec.action, target: spec.threadId, paramsHash, live: true });
-    return { action: spec.action, threadId: spec.threadId, live: true, approvalAuditId: liveRecord.id, method: spec.method, response };
+    return { action: spec.action, threadId: spec.threadId, live: true, approvalAuditId: liveRecord.id, method: spec.method, response: redactValue(response) };
   };
 
   return {

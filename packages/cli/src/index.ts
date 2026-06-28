@@ -1,12 +1,17 @@
 #!/usr/bin/env node
-import { createAuditStore } from "../../adapters/src/index.js";
+import { codexTransportStatus, createAuditStore } from "../../adapters/src/index.js";
 import { createDatabase, defaultDatabasePath, indexCodexSessions, searchSessions } from "../../core/src/index.js";
 
 const [, , command, ...args] = process.argv;
 
 async function main() {
   if (command === "doctor") {
-    console.log(JSON.stringify({ ok: true, dbPath: defaultDatabasePath(), localOnly: true }, null, 2));
+    console.log(JSON.stringify({
+      ok: true,
+      dbPath: defaultDatabasePath(),
+      localOnly: true,
+      codex: codexTransportStatus({ command: process.env.LOO_CODEX_BIN || "codex" })
+    }, null, 2));
     return;
   }
   if (command === "index" && args[0] === "codex") {

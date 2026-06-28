@@ -63,6 +63,35 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
   }
 });
 
+test("Codex control redacts live transport responses before returning them through tools", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-control-redaction-"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const control = createCodexControl({
+    audit,
+    client: {
+      request: async () => ({
+        content: `authorization: ${process.env.HOME}/secret sk-test_1234567890`
+      })
+    }
+  });
+
+  try {
+    const dryRun = await control.sendMessage({ threadId: "thr_1", message: "continue", dryRun: true });
+    const live = await control.sendMessage({
+      threadId: "thr_1",
+      message: "continue",
+      dryRun: false,
+      approvalAuditId: dryRun.approvalAuditId
+    });
+
+    assert.deepEqual(live.response, {
+      content: "authorization: <redacted-secret> <redacted-secret>"
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("MCP tool registry exposes loo-prefixed tools with local-only control safety", async () => {
   const root = mkdtempSync(join(tmpdir(), "loo-mcp-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
