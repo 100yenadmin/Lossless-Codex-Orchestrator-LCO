@@ -172,8 +172,8 @@ test("Codex control checks method policy before live transport calls", async () 
       fingerprintText(value) {
         return `test-text-${value}`;
       },
-      fingerprintValue() {
-        return "test-params";
+      fingerprintValue(value) {
+        return `test-params-${JSON.stringify(value)}`;
       },
       append(record) {
         auditRecord = { id: "loo_audit_test", createdAt: new Date().toISOString(), ...record };
@@ -237,8 +237,8 @@ test("Codex control rejects approval mismatch before live transport calls", asyn
       fingerprintText(value) {
         return `test-text-${value}`;
       },
-      fingerprintValue() {
-        return "test-params";
+      fingerprintValue(value) {
+        return `test-params-${JSON.stringify(value)}`;
       },
       append(record) {
         return { id: "loo_audit_test", createdAt: new Date().toISOString(), ...record };

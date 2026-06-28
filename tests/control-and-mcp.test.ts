@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { appendFileSync, mkdtempSync, rmSync } from "node:fs";
+import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -33,6 +33,7 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
     assert.match(dryRun.approvalAuditId, /^loo_audit_/);
     assert.match(dryRun.paramsHash, /^[a-f0-9]{64}$/);
     assert.match(dryRun.messageHash ?? "", /^[a-f0-9]{64}$/);
+    assert.equal(dryRun.messageHash, audit.fingerprintText("continue"));
     assert.notEqual(dryRun.messageHash, sha256("continue"));
     assert.equal(calls.length, 0);
 
@@ -147,6 +148,7 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.match(dryRun.approval_audit_id, /^loo_audit_/);
     assert.match(dryRun.params_hash, /^[a-f0-9]{64}$/);
     assert.match(dryRun.message_hash, /^[a-f0-9]{64}$/);
+    assert.equal(dryRun.message_hash, audit.fingerprintText("continue"));
     assert.notEqual(dryRun.message_hash, sha256("continue"));
 
     const dryRunTool = tools.find((tool) => tool.name === "loo_codex_control_dry_run");
@@ -159,6 +161,7 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.match(genericDryRun.approval_audit_id, /^loo_audit_/);
     assert.match(genericDryRun.params_hash, /^[a-f0-9]{64}$/);
     assert.match(genericDryRun.message_hash, /^[a-f0-9]{64}$/);
+    assert.equal(genericDryRun.message_hash, audit.fingerprintText("continue"));
     assert.notEqual(genericDryRun.message_hash, sha256("continue"));
     assert.equal(genericDryRun.message_hash, dryRun.message_hash);
 
@@ -176,6 +179,19 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.equal(JSON.stringify(auditTail).includes("continue"), false);
   } finally {
     db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Audit fingerprint key is memoized after first use", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-audit-key-"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+
+  try {
+    const first = audit.fingerprintText("continue");
+    writeFileSync(`${audit.path}.key`, `${"0".repeat(64)}\n`);
+    assert.equal(audit.fingerprintText("continue"), first);
+  } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });

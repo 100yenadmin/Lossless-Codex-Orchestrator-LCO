@@ -38,13 +38,18 @@ export type AuditRecord = {
 
 export function createAuditStore(path: string) {
   mkdirSync(dirname(path), { recursive: true });
+  let auditKey: Buffer | undefined;
+  const getAuditKey = () => {
+    auditKey ??= readOrCreateAuditKey(path);
+    return auditKey;
+  };
   return {
     path,
     fingerprintText(value: string): string {
-      return hmacDigest(readOrCreateAuditKey(path), value);
+      return hmacDigest(getAuditKey(), value);
     },
     fingerprintValue(value: unknown): string {
-      return hmacDigest(readOrCreateAuditKey(path), JSON.stringify(value));
+      return hmacDigest(getAuditKey(), JSON.stringify(value));
     },
     append(record: Omit<AuditRecord, "id" | "createdAt">): AuditRecord {
       const full: AuditRecord = {
@@ -179,8 +184,10 @@ export async function desktopSee(input: { backend?: "direct" | "cua-driver" | "p
 
 function readOrCreateAuditKey(auditPath: string): Buffer {
   const keyPath = `${auditPath}.key`;
-  if (!existsSync(keyPath)) {
-    writeFileSync(keyPath, `${randomBytes(32).toString("hex")}\n`, { mode: 0o600 });
+  try {
+    writeFileSync(keyPath, `${randomBytes(32).toString("hex")}\n`, { mode: 0o600, flag: "wx" });
+  } catch (error) {
+    if (!isFileExistsError(error)) throw error;
   }
   const encoded = readFileSync(keyPath, "utf8").trim();
   if (!/^[a-f0-9]{64}$/i.test(encoded)) {
@@ -191,4 +198,8 @@ function readOrCreateAuditKey(auditPath: string): Buffer {
 
 function hmacDigest(key: Buffer, value: string): string {
   return createHmac("sha256", key).update(value).digest("hex");
+}
+
+function isFileExistsError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && (error as NodeJS.ErrnoException).code === "EEXIST";
 }
