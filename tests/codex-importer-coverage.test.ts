@@ -107,56 +107,72 @@ test("reindexes same-size files when content hash changes despite matching mtime
 });
 
 test("probes Codex SQLite stores read-only and reports schema support", () => {
-  const root = mkdtempSync(join(tmpdir(), "loo-sqlite-probe-"));
-  const supported = join(root, "state_5.sqlite");
-  const unsupported = join(root, "logs_2.sqlite");
+  let root: string | null = null;
+  try {
+    root = mkdtempSync(join(tmpdir(), "loo-sqlite-probe-"));
+    const supported = join(root, "state_5.sqlite");
+    const unsupported = join(root, "logs_2.sqlite");
 
-  const stateDb = new DatabaseSync(supported);
-  stateDb.exec("CREATE TABLE threads (id TEXT PRIMARY KEY, title TEXT); INSERT INTO threads VALUES ('thr_1', 'Hello');");
-  stateDb.close();
+    const stateDb = new DatabaseSync(supported);
+    try {
+      stateDb.exec("CREATE TABLE threads (id TEXT PRIMARY KEY, title TEXT); INSERT INTO threads VALUES ('thr_1', 'Hello');");
+    } finally {
+      stateDb.close();
+    }
 
-  const logsDb = new DatabaseSync(unsupported);
-  logsDb.exec("CREATE TABLE random_table (id TEXT PRIMARY KEY); INSERT INTO random_table VALUES ('row_1');");
-  logsDb.close();
+    const logsDb = new DatabaseSync(unsupported);
+    try {
+      logsDb.exec("CREATE TABLE random_table (id TEXT PRIMARY KEY); INSERT INTO random_table VALUES ('row_1');");
+    } finally {
+      logsDb.close();
+    }
 
-  const beforeSupported = statSync(supported).mtimeMs;
-  const beforeUnsupported = statSync(unsupported).mtimeMs;
+    const beforeSupported = statSync(supported).mtimeMs;
+    const beforeUnsupported = statSync(unsupported).mtimeMs;
 
-  const result = probeCodexSqliteStores([root]);
-  const byPath = new Map(result.stores.map((store) => [store.path, store]));
+    const result = probeCodexSqliteStores([root]);
+    const byPath = new Map(result.stores.map((store) => [store.path, store]));
 
-  assert.equal(result.stores.length, 2);
-  assert.equal(byPath.get(supported)?.kind, "state");
-  assert.equal(byPath.get(supported)?.supported, true);
-  assert.deepEqual(byPath.get(supported)?.tables.includes("threads"), true);
-  assert.equal(byPath.get(unsupported)?.kind, "logs");
-  assert.equal(byPath.get(unsupported)?.supported, false);
-  assert.match(byPath.get(unsupported)?.reason ?? "", /missing supported tables/);
-  assert.equal(existsSync(`${supported}-wal`), false);
-  assert.equal(statSync(supported).mtimeMs, beforeSupported);
-  assert.equal(statSync(unsupported).mtimeMs, beforeUnsupported);
-  assert.deepEqual(probeCodexSqliteStores([supported]).stores, []);
-
-  rmSync(root, { recursive: true, force: true });
+    assert.equal(result.stores.length, 2);
+    assert.equal(byPath.get(supported)?.kind, "state");
+    assert.equal(byPath.get(supported)?.supported, true);
+    assert.deepEqual(byPath.get(supported)?.tables.includes("threads"), true);
+    assert.equal(byPath.get(unsupported)?.kind, "logs");
+    assert.equal(byPath.get(unsupported)?.supported, false);
+    assert.match(byPath.get(unsupported)?.reason ?? "", /missing supported tables/);
+    assert.equal(existsSync(`${supported}-wal`), false);
+    assert.equal(statSync(supported).mtimeMs, beforeSupported);
+    assert.equal(statSync(unsupported).mtimeMs, beforeUnsupported);
+    assert.deepEqual(probeCodexSqliteStores([supported]).stores, []);
+  } finally {
+    if (root) {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
 });
 
 test("MCP tools expose default Codex roots and read-only SQLite probes", async () => {
-  const root = mkdtempSync(join(tmpdir(), "loo-mcp-importer-"));
-  const codexHome = join(root, ".codex");
-  const active = join(codexHome, "sessions");
-  const archived = join(codexHome, "archived_sessions");
-  mkdirSync(active, { recursive: true });
-  mkdirSync(archived, { recursive: true });
-  writeJsonl(join(active, "rollout-2026-06-28T00-00-00-019f-mcp-active.jsonl"), "019f-mcp-active", "MCP active");
-  writeJsonl(join(archived, "rollout-2026-06-27T00-00-00-019f-mcp-archived.jsonl"), "019f-mcp-archived", "MCP archived");
-  const statePath = join(codexHome, "state_5.sqlite");
-  const stateDb = new DatabaseSync(statePath);
-  stateDb.exec("CREATE TABLE threads (id TEXT PRIMARY KEY);");
-  stateDb.close();
-
-  const db = createDatabase(join(root, "orchestrator.sqlite"));
   const oldHome = process.env.HOME;
+  let root: string | null = null;
+  let db: ReturnType<typeof createDatabase> | null = null;
   try {
+    root = mkdtempSync(join(tmpdir(), "loo-mcp-importer-"));
+    const codexHome = join(root, ".codex");
+    const active = join(codexHome, "sessions");
+    const archived = join(codexHome, "archived_sessions");
+    mkdirSync(active, { recursive: true });
+    mkdirSync(archived, { recursive: true });
+    writeJsonl(join(active, "rollout-2026-06-28T00-00-00-019f-mcp-active.jsonl"), "019f-mcp-active", "MCP active");
+    writeJsonl(join(archived, "rollout-2026-06-27T00-00-00-019f-mcp-archived.jsonl"), "019f-mcp-archived", "MCP archived");
+    const statePath = join(codexHome, "state_5.sqlite");
+    const stateDb = new DatabaseSync(statePath);
+    try {
+      stateDb.exec("CREATE TABLE threads (id TEXT PRIMARY KEY);");
+    } finally {
+      stateDb.close();
+    }
+
+    db = createDatabase(join(root, "orchestrator.sqlite"));
     process.env.HOME = root;
     const tools = createLooTools({
       db,
@@ -181,7 +197,9 @@ test("MCP tools expose default Codex roots and read-only SQLite probes", async (
     } else {
       process.env.HOME = oldHome;
     }
-    db.close();
-    rmSync(root, { recursive: true, force: true });
+    db?.close();
+    if (root) {
+      rmSync(root, { recursive: true, force: true });
+    }
   }
 });
