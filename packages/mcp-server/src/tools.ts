@@ -122,8 +122,17 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
     tool("loo_codex_steer_thread", "Steer a running Codex thread. Live mode requires approval_audit_id.", controlSchema(true), (input) => snakeCaseControlResult(control.steerThread(messageControlInput(input)))),
     tool("loo_codex_interrupt_thread", "Interrupt a Codex thread. Live mode requires approval_audit_id.", controlSchema(), (input) => snakeCaseControlResult(control.interruptThread(controlInput(input)))),
     tool("loo_desktop_see", "Inspect desktop fallback readiness through direct/CUA/Peekaboo backends.", {
-      backend: { type: "string", enum: ["direct", "cua-driver", "peekaboo"] }
-    }, (input) => desktopSee({ backend: optionalDesktopBackend(input.backend), probe: options.desktopProbe })),
+      backend: { type: "string", enum: ["direct", "cua-driver", "peekaboo"] },
+      include_snapshot: { type: "boolean" },
+      max_nodes: { type: "integer", minimum: 1, maximum: 500 },
+      max_chars: { type: "integer", minimum: 1, maximum: 20000 }
+    }, (input) => desktopSee({
+      backend: optionalDesktopBackend(input.backend),
+      includeSnapshot: input.include_snapshot === true,
+      maxNodes: optionalNumber(input.max_nodes),
+      maxChars: optionalNumber(input.max_chars),
+      probe: options.desktopProbe
+    })),
     tool("loo_desktop_act", "Dry-run desktop fallback action placeholder for CUA/Peekaboo.", {
       backend: { type: "string", enum: ["direct", "cua-driver", "peekaboo"] },
       action: { type: "string" },

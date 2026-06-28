@@ -55,6 +55,7 @@ npm test
 ```bash
 loo doctor
 loo desktop see cua-driver
+loo desktop see peekaboo --snapshot --max-nodes 50
 loo desktop act cua-driver "click primary"
 loo index codex ~/.codex/sessions ~/.codex/archived_sessions
 loo search "proposed plan billing bridge"
@@ -114,6 +115,8 @@ Desktop fallback:
 - `loo_desktop_act`
 
 `loo doctor` and `loo desktop see cua-driver` report CUA Driver binary availability, the preferred MCP stdio launch command (`cua-driver mcp` unless `LOO_CUA_DRIVER_BIN` overrides it), launch-readiness notes, permission status, limitations, and whether focus changed during a status-only observation. They do not start the GUI-control backend just to prove readiness. `loo_desktop_act` is dry-run-only in this beta and does not perform GUI actions.
+
+`loo desktop see peekaboo --snapshot` is an explicit read-only observation path. It runs Peekaboo with `--no-remote`, blocks denylisted sensitive frontmost apps before capture, redacts extracted text, bounds element counts, and still does not enable generic click/type/send actions.
 
 Admin:
 

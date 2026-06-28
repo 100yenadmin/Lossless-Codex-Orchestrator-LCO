@@ -17,6 +17,7 @@ export type DesktopBackend = "direct" | "cua-driver" | "peekaboo";
 
 export type DesktopProbe = {
   commandStatus(command: string, args?: string[]): DesktopCommandStatus;
+  commandOutput?(command: string, args?: string[], timeoutMs?: number): DesktopCommandOutput;
   activeApplication?(): string | undefined;
 };
 
@@ -24,6 +25,14 @@ export type DesktopCommandStatus = {
   available: boolean;
   command: string;
   version?: string;
+  error?: string;
+};
+
+export type DesktopCommandOutput = {
+  status: number;
+  command: string;
+  stdout?: string;
+  stderr?: string;
   error?: string;
 };
 
@@ -51,6 +60,11 @@ export type DesktopStatus = {
     changed: boolean | null;
     proof: "status_probe_only_no_action" | "not_measured";
   };
+  snapshot?: DesktopSnapshotStatus;
+  visibleCodex?: {
+    macros: VisibleCodexMacro[];
+    safetyRules: string[];
+  };
   limitations: string[];
   backgroundSafeClaim: "not_proven" | "not_supported";
   note: string;
@@ -59,8 +73,38 @@ export type DesktopStatus = {
 };
 
 type DesktopPermissionStatus = {
-  status: "unknown" | "not_applicable";
+  status: "unknown" | "not_applicable" | "granted" | "denied";
   note: string;
+};
+
+type VisibleCodexMacro = {
+  name: string;
+  mode: "read_only" | "dry_run_only";
+  legacyCommand: string[];
+  sideEffects: string[];
+  description: string;
+};
+
+type DesktopSnapshotStatus = {
+  requested: boolean;
+  blocked: boolean;
+  reason?: "sensitive_app_blocked" | "frontmost_app_unknown" | "peekaboo_unavailable" | "peekaboo_probe_unavailable" | "peekaboo_snapshot_failed";
+  engine?: "peekaboo";
+  frontmostApp?: string;
+  windowTitle?: string;
+  snapshotId?: string;
+  elements: DesktopSnapshotElement[];
+  truncated: boolean;
+  maxNodes: number;
+  warnings: string[];
+};
+
+type DesktopSnapshotElement = {
+  elementId: string;
+  role?: string;
+  label?: string;
+  bounds?: { x: number; y: number; width: number; height: number };
+  actionable: boolean;
 };
 
 export type ControlResult = {
@@ -224,8 +268,12 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
   };
 }
 
-export async function desktopSee(input: { backend?: DesktopBackend; maxChars?: number; probe?: DesktopProbe } = {}): Promise<DesktopStatus> {
-  return desktopBackendStatus(input.backend ?? "direct", input.probe ?? systemDesktopProbe());
+export async function desktopSee(input: { backend?: DesktopBackend; includeSnapshot?: boolean; maxChars?: number; maxNodes?: number; probe?: DesktopProbe } = {}): Promise<DesktopStatus> {
+  return desktopBackendStatus(input.backend ?? "direct", input.probe ?? systemDesktopProbe(), {
+    includeSnapshot: input.includeSnapshot === true,
+    maxChars: input.maxChars,
+    maxNodes: input.maxNodes
+  });
 }
 
 export function desktopFallbackDiagnostics(input: { probe?: DesktopProbe } = {}) {
@@ -274,13 +322,18 @@ function isFileExistsError(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && (error as NodeJS.ErrnoException).code === "EEXIST";
 }
 
-function desktopBackendStatus(backend: DesktopBackend, probe: DesktopProbe): DesktopStatus {
+function desktopBackendStatus(
+  backend: DesktopBackend,
+  probe: DesktopProbe,
+  options: { includeSnapshot?: boolean; maxChars?: number; maxNodes?: number } = {}
+): DesktopStatus {
   const config = desktopBackendConfig(backend);
   const command = config.command ?? "";
   const beforeApplication = probe.activeApplication?.();
   const commandStatus = command ? probe.commandStatus(command, config.probeArgs) : { available: false, command };
   const afterApplication = probe.activeApplication?.();
   const focusMeasured = Boolean(beforeApplication || afterApplication);
+  const permissions = backend === "peekaboo" ? peekabooPermissions(command, commandStatus.available, probe) : config.permissions;
   return {
     backend,
     available: commandStatus.available,
@@ -292,13 +345,15 @@ function desktopBackendStatus(backend: DesktopBackend, probe: DesktopProbe): Des
       transport: config.transport,
       readiness: desktopLaunchReadiness(backend, commandStatus.available)
     },
-    permissions: config.permissions,
+    permissions,
     focus: {
       beforeApplication,
       afterApplication,
       changed: focusMeasured ? beforeApplication !== afterApplication : null,
       proof: focusMeasured ? "status_probe_only_no_action" : "not_measured"
     },
+    snapshot: backend === "peekaboo" && options.includeSnapshot ? peekabooSnapshot(command, commandStatus.available, probe, options) : undefined,
+    visibleCodex: backend === "peekaboo" ? visibleCodexMacroPack() : undefined,
     limitations: config.limitations,
     backgroundSafeClaim: config.backgroundSafeClaim,
     note: config.note,
@@ -365,6 +420,198 @@ function unknownDesktopPermissions(note: string) {
   };
 }
 
+function peekabooPermissions(command: string, available: boolean, probe: DesktopProbe) {
+  const fallback = unknownDesktopPermissions("Peekaboo permissions could not be verified with `peekaboo permissions status --json --no-remote`.");
+  if (!available || !probe.commandOutput) return fallback;
+  const result = probe.commandOutput(command, ["permissions", "status", "--json", "--no-remote"], 3000);
+  if (result.status !== 0 || !result.stdout) return fallback;
+  const parsed = parseJsonObject(result.stdout);
+  const data = asRecord(asRecord(parsed)?.data);
+  const permissions = Array.isArray(data?.permissions) ? data.permissions : [];
+  return {
+    accessibility: peekabooPermissionStatus(permissions, "Accessibility"),
+    screenRecording: peekabooPermissionStatus(permissions, "Screen Recording")
+  };
+}
+
+function peekabooPermissionStatus(permissions: unknown[], name: string): DesktopPermissionStatus {
+  const permission = permissions.map(asRecord).find((item) => item?.name === name);
+  if (!permission) {
+    return { status: "unknown", note: `${name} permission was not reported by Peekaboo.` };
+  }
+  return {
+    status: permission.isGranted === true ? "granted" : "denied",
+    note: `${name} permission reported by Peekaboo permissions status.`
+  };
+}
+
+function peekabooSnapshot(
+  command: string,
+  available: boolean,
+  probe: DesktopProbe,
+  options: { maxChars?: number; maxNodes?: number }
+): DesktopSnapshotStatus {
+  const maxNodes = boundedInteger(options.maxNodes, 50, 1, 500);
+  const maxChars = boundedInteger(options.maxChars, 4000, 1, 20000);
+  const frontmostApp = probe.activeApplication?.();
+  if (!frontmostApp) {
+    return emptySnapshot({ maxNodes, blocked: true, reason: "frontmost_app_unknown", warnings: ["Frontmost app is unknown; snapshot capture was skipped."] });
+  }
+  const safeFrontmostApp = capTextValue(frontmostApp, maxChars);
+  if (isSensitiveFrontmostApp(frontmostApp)) {
+    return emptySnapshot({
+      maxNodes,
+      blocked: true,
+      reason: "sensitive_app_blocked",
+      frontmostApp: safeFrontmostApp,
+      warnings: [`Frontmost app ${safeFrontmostApp} is denylisted; Peekaboo capture was skipped.`]
+    });
+  }
+  if (!available) {
+    return emptySnapshot({ maxNodes, blocked: true, reason: "peekaboo_unavailable", frontmostApp: safeFrontmostApp, warnings: ["Peekaboo is unavailable; snapshot capture was skipped."] });
+  }
+  if (!probe.commandOutput) {
+    return emptySnapshot({ maxNodes, blocked: true, reason: "peekaboo_probe_unavailable", frontmostApp: safeFrontmostApp, warnings: ["No command output probe is configured for Peekaboo snapshot capture."] });
+  }
+
+  const result = probe.commandOutput(command, ["see", "--mode", "frontmost", "--capture-engine", "classic", "--json", "--no-remote"], 10000);
+  if (result.status !== 0 || !result.stdout) {
+    return emptySnapshot({
+      maxNodes,
+      blocked: true,
+      reason: "peekaboo_snapshot_failed",
+      frontmostApp: safeFrontmostApp,
+      warnings: [capTextValue(result.stderr || result.error || "Peekaboo snapshot command failed.", maxChars)]
+    });
+  }
+  const parsed = asRecord(parseJsonObject(result.stdout));
+  if (!parsed || parsed.success === false) {
+    return emptySnapshot({
+      maxNodes,
+      blocked: true,
+      reason: "peekaboo_snapshot_failed",
+      frontmostApp: safeFrontmostApp,
+      warnings: [capTextValue(typeof parsed?.error === "string" ? parsed.error : "Peekaboo snapshot output was not valid JSON.", maxChars)]
+    });
+  }
+  const data = asRecord(parsed.data) ?? parsed;
+  const capturedApp = typeof data.application_name === "string" ? data.application_name : frontmostApp;
+  const safeCapturedApp = capTextValue(capturedApp, maxChars);
+  if (isSensitiveFrontmostApp(capturedApp)) {
+    return emptySnapshot({
+      maxNodes,
+      blocked: true,
+      reason: "sensitive_app_blocked",
+      frontmostApp: safeCapturedApp,
+      warnings: [`Captured app ${safeCapturedApp} is denylisted; snapshot output was discarded.`]
+    });
+  }
+  const rawElements = Array.isArray(data.ui_elements) ? data.ui_elements : [];
+  const elements = rawElements.slice(0, maxNodes).map((item) => peekabooElement(item, maxChars)).filter((item): item is DesktopSnapshotElement => item !== null);
+  const elementCount = typeof data.element_count === "number" ? data.element_count : rawElements.length;
+  return {
+    requested: true,
+    blocked: false,
+    engine: "peekaboo",
+    frontmostApp: safeCapturedApp,
+    windowTitle: typeof data.window_title === "string" ? capTextValue(data.window_title, maxChars) : undefined,
+    snapshotId: typeof data.snapshot_id === "string" ? capTextValue(data.snapshot_id, maxChars) : undefined,
+    elements,
+    truncated: rawElements.length > maxNodes || elementCount > elements.length,
+    maxNodes,
+    warnings: []
+  };
+}
+
+function emptySnapshot(input: {
+  maxNodes: number;
+  blocked: boolean;
+  reason: DesktopSnapshotStatus["reason"];
+  frontmostApp?: string;
+  warnings?: string[];
+}): DesktopSnapshotStatus {
+  return {
+    requested: true,
+    blocked: input.blocked,
+    reason: input.reason,
+    frontmostApp: input.frontmostApp,
+    elements: [],
+    truncated: false,
+    maxNodes: input.maxNodes,
+    warnings: input.warnings ?? []
+  };
+}
+
+function peekabooElement(value: unknown, maxChars: number): DesktopSnapshotElement | null {
+  const item = asRecord(value);
+  if (!item) return null;
+  const bounds = asRecord(item.bounds);
+  return {
+    elementId: capTextValue(String(item.id || item.element_id || "unknown"), maxChars),
+    role: typeof item.role === "string" ? capTextValue(item.role, maxChars) : undefined,
+    label: typeof item.label === "string" ? capTextValue(item.label, maxChars) : undefined,
+    bounds: boundsToRect(bounds),
+    actionable: item.is_actionable === true || item.actionable === true
+  };
+}
+
+function visibleCodexMacroPack() {
+  return {
+    macros: [
+      visibleMacro("codex_frontmost", ["codex", "frontmost", "--json"], "Read whether Codex Desktop is frontmost."),
+      visibleMacro("codex_windows", ["codex", "windows", "--json"], "Read visible Codex Desktop window metadata."),
+      visibleMacro("codex_threads", ["codex", "threads", "--json"], "Read visible Codex Desktop thread candidates."),
+      visibleMacro("codex_thread_map", ["codex", "thread-map", "--json"], "Read a joined visible-thread and stored-thread map."),
+      visibleMacro("codex_snapshot", ["codex", "snapshot", "--json"], "Read a guarded visible Codex snapshot.")
+    ],
+    safetyRules: [
+      "Run status/frontmost/windows before visible mutation.",
+      "No generic prompt typing, send, approve, or generic click actions in this public beta surface.",
+      "Snapshot capture must pass sensitive-app denylist checks before invoking Peekaboo.",
+      "Live visible GUI actions remain disabled until backend-specific approval and permission gates exist."
+    ]
+  };
+}
+
+function visibleMacro(name: string, legacyCommand: string[], description: string): VisibleCodexMacro {
+  return { name, legacyCommand, description, mode: "read_only", sideEffects: [] };
+}
+
+function isSensitiveFrontmostApp(value: string): boolean {
+  return ["messages", "mail", "1password", "passwords", "keychain access"].includes(value.trim().toLowerCase());
+}
+
+function boundsToRect(bounds: Record<string, unknown> | null): DesktopSnapshotElement["bounds"] {
+  if (!bounds) return undefined;
+  const x = Number(bounds.x);
+  const y = Number(bounds.y);
+  const width = Number(bounds.width);
+  const height = Number(bounds.height);
+  if (![x, y, width, height].every(Number.isFinite)) return undefined;
+  return { x, y, width, height };
+}
+
+function capTextValue(value: unknown, maxChars: number): string {
+  const redacted = String(redactValue(String(value)));
+  return redacted.length > maxChars ? redacted.slice(0, maxChars) : redacted;
+}
+
+function boundedInteger(value: unknown, fallback: number, minimum: number, maximum: number): number {
+  return Math.max(minimum, Math.min(maximum, typeof value === "number" && Number.isFinite(value) ? Math.trunc(value) : fallback));
+}
+
+function parseJsonObject(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
 function desktopLaunchReadiness(backend: DesktopBackend, commandAvailable: boolean) {
   if (backend === "direct") {
     return {
@@ -397,6 +644,23 @@ function systemDesktopProbe(): DesktopProbe {
         version: result.status === 0 && safeOutput ? safeOutput.split(/\r?\n/)[0] : undefined,
         error: result.status === 0 ? undefined : safeOutput || safeError || "command unavailable"
       };
+    },
+    commandOutput(command, args = [], timeoutMs = 5000) {
+      const result = spawnSync(command, args, { encoding: "utf8", timeout: timeoutMs });
+      return {
+        status: result.status ?? (result.error ? 1 : 0),
+        command: redactValue(command) as string,
+        stdout: result.stdout || "",
+        stderr: String(redactValue(result.stderr || "")),
+        error: result.error?.message ? String(redactValue(result.error.message)) : undefined
+      };
+    },
+    activeApplication() {
+      const result = spawnSync("osascript", ["-e", 'tell application "System Events" to get name of first application process whose frontmost is true'], {
+        encoding: "utf8",
+        timeout: 3000
+      });
+      return result.status === 0 ? result.stdout.trim() || undefined : undefined;
     }
   };
 }
