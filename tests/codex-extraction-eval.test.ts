@@ -20,6 +20,7 @@ type ExpectedEval = {
   finalMessages: string[];
   touchedFiles: string[];
   toolCalls: string[];
+  toolCallDetails: Array<{ callId: string; toolName: string; argumentsText: string }>;
   safeTextRequired: string[];
   safeTextForbidden: string[];
 };
@@ -49,7 +50,8 @@ test("redacted extraction fixture meets precision and recall targets for orchest
     const plans = getCodexPlans(db, { threadId: expected.threadId }).map((plan) => plan.text);
     const finals = getCodexFinalMessages(db, { threadId: expected.threadId }).map((final) => final.text);
     const touchedFiles = getCodexTouchedFiles(db, { threadId: expected.threadId });
-    const toolCalls = getCodexToolCalls(db, { threadId: expected.threadId }).map((call) => `${call.callId}:${call.toolName}`).sort();
+    const toolCallDetails = getCodexToolCalls(db, { threadId: expected.threadId });
+    const toolCalls = toolCallDetails.map((call) => `${call.callId}:${call.toolName}`).sort();
 
     assert.deepEqual({
       plans: score(plans, expected.plans),
@@ -68,10 +70,11 @@ test("redacted extraction fixture meets precision and recall targets for orchest
     assert.deepEqual(expected.safeTextRequired.filter((term) => safeEnvelope.includes(term)).sort(), expected.safeTextRequired.sort());
     assert.deepEqual(expected.safeTextForbidden.filter((term) => safeEnvelope.includes(term)), []);
 
-    const secretCall = getCodexToolCalls(db, { threadId: expected.threadId }).find((call) => call.callId === "call_secret");
-    assert.ok(secretCall);
-    assert.match(secretCall.argumentsText, /<redacted-secret>/);
-    assert.doesNotMatch(secretCall.argumentsText, /sk-test_1234567890abcdef|Bearer abcdefghijklmnop|\/Users\/example/);
+    assert.deepEqual(toolCallDetails, expected.toolCallDetails);
+    const forbiddenPattern = new RegExp(expected.safeTextForbidden.map(escapeRegExp).join("|"));
+    for (const call of toolCallDetails) {
+      assert.doesNotMatch(call.argumentsText, forbiddenPattern);
+    }
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -85,14 +88,19 @@ test("redacted fixture expansion matches 1k and 4k bounded snapshots", () => {
   try {
     const indexed = indexCodexSessions(db, { roots: [fixtureRoot], maxFiles: 10 });
     assert.equal(indexed.errors.length, 0);
+    const forbiddenPattern = forbiddenSafeTextPattern(expected);
 
     for (const budget of [1000, 4000] as const) {
       const snapshot = readFileSync(join(fixtureRoot, `expected-expansion-${budget}.txt`), "utf8").trimEnd();
       const expanded = expandSession(db, { threadId: expected.threadId, tokenBudget: budget });
       assert.equal(expanded.tokenBudget, budget);
       assert.equal(expanded.text, snapshot);
-      assert.doesNotMatch(expanded.text, /sk-test_1234567890abcdef|Bearer abcdefghijklmnop|\/Users\/example/);
+      assert.doesNotMatch(expanded.text, forbiddenPattern);
     }
+    assert.notEqual(
+      readFileSync(join(fixtureRoot, "expected-expansion-1000.txt"), "utf8"),
+      readFileSync(join(fixtureRoot, "expected-expansion-4000.txt"), "utf8")
+    );
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -126,4 +134,12 @@ function perfectScore(count: number): CountScore {
     precision: 1,
     recall: 1
   };
+}
+
+function forbiddenSafeTextPattern(expected: ExpectedEval): RegExp {
+  return new RegExp(expected.safeTextForbidden.map(escapeRegExp).join("|"));
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
 }

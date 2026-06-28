@@ -14,7 +14,7 @@ Safe summaries are local-only recall text for helping an orchestrator agent deci
 ## Must Not Contain
 
 - Raw Codex transcripts beyond bounded extracted evidence.
-- API keys, bearer tokens, basic auth values, authorization headers, cookies, or private keys.
+- API keys, bearer tokens, basic auth values, authorization headers, cookie values, or private key material.
 - Unredacted generic home paths such as `/Users/name/...`; these become `~/...`.
 - Raw customer data copied only because it appeared in a transcript.
 - Any uploaded or cloud-synced local session content by default.

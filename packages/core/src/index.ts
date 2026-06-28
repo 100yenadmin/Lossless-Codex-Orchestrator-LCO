@@ -336,7 +336,7 @@ export function getCodexToolCalls(db: LooDatabase, options: { limit?: number; th
         SELECT thread_id AS threadId, call_id AS callId, tool_name AS toolName, arguments_text AS argumentsText
         FROM codex_tool_calls
         WHERE thread_id = ?
-        ORDER BY rowid
+        ORDER BY rowid DESC
         LIMIT ?
       `).all(options.threadId, limit)
     : db.prepare(`
@@ -694,10 +694,12 @@ function normalizeText(text: string): string {
 
 function redactSafeString(value: string): string {
   let redacted = value.replace(/\/Users\/[^/\s"'`)]+/g, "~");
+  redacted = redacted.replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "<redacted-secret>");
   redacted = redacted.replace(/sk-[A-Za-z0-9_-]{10,}/g, "<redacted-secret>");
   redacted = redacted.replace(/(Bearer\s+)[A-Za-z0-9._-]{10,}/gi, "$1<redacted-secret>");
   redacted = redacted.replace(/(Basic\s+)[A-Za-z0-9._~+/-]+=*/gi, "$1<redacted-secret>");
   redacted = redacted.replace(/(\bauthorization\s*:\s*)[^\r\n"'`)]+/gi, "$1<redacted-secret>");
+  redacted = redacted.replace(/(\bcookie\s*:\s*)[^\r\n"'`)]+/gi, "$1<redacted-secret>");
   return redacted;
 }
 
