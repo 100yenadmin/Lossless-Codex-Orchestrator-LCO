@@ -36,9 +36,10 @@ async function main() {
     return;
   }
   if (command === "desktop" && args[0] === "act") {
+    const desktopAction = parseDesktopAction(args.slice(1));
     console.log(JSON.stringify(desktopActDryRun({
-      backend: parseDesktopBackend(args[1]),
-      action: args.slice(2).join(" ").trim() || "unknown",
+      backend: desktopAction.backend,
+      action: desktopAction.action,
       dryRun: true
     }), null, 2));
     return;
@@ -196,6 +197,19 @@ function requireQuery(command: string, parts: string[]): string {
 
 function parseDesktopBackend(value: string | undefined): DesktopBackend | undefined {
   if (value === undefined) return undefined;
-  if (value === "direct" || value === "cua-driver" || value === "peekaboo") return value;
+  if (isDesktopBackend(value)) return value;
   throw new Error("desktop backend must be direct, cua-driver, or peekaboo");
+}
+
+function parseDesktopAction(parts: string[]): { backend?: DesktopBackend; action: string } {
+  const first = parts[0];
+  const hasExplicitBackend = isDesktopBackend(first);
+  return {
+    backend: hasExplicitBackend ? first : undefined,
+    action: parts.slice(hasExplicitBackend ? 1 : 0).join(" ").trim() || "unknown"
+  };
+}
+
+function isDesktopBackend(value: string | undefined): value is DesktopBackend {
+  return value === "direct" || value === "cua-driver" || value === "peekaboo";
 }

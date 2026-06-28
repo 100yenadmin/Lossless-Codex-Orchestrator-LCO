@@ -365,11 +365,13 @@ function systemDesktopProbe(): DesktopProbe {
     commandStatus(command, args = ["--version"]) {
       const result = spawnSync(command, args, { encoding: "utf8", timeout: 3000 });
       const output = `${result.stdout || ""}${result.stderr || ""}`.trim();
+      const safeOutput = String(redactValue(output));
+      const safeError = result.error?.message ? String(redactValue(result.error.message)) : undefined;
       return {
         available: result.status === 0,
         command: redactValue(command) as string,
-        version: result.status === 0 && output ? output.split(/\r?\n/)[0] : undefined,
-        error: result.status === 0 ? undefined : output || result.error?.message || "command unavailable"
+        version: result.status === 0 && safeOutput ? safeOutput.split(/\r?\n/)[0] : undefined,
+        error: result.status === 0 ? undefined : safeOutput || safeError || "command unavailable"
       };
     }
   };
