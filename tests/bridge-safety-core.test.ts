@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import { homedir } from "node:os";
+import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
 
 import {
   CodexJsonRpcClient,
+  LineProcessTransport,
   assertCodexMethodAllowed,
   buildLoopbackWebSocketConfig,
   codexTransportStatus,
@@ -33,18 +36,27 @@ class FakeTransport {
 }
 
 test("redacts local paths and common credential shapes from shareable envelopes", () => {
+  const home = homedir();
   const redacted = redactValue({
-    home: `${process.env.HOME}/.codex/config.toml`,
+    home: `${home}/.codex/config.toml`,
     apiKey: "sk-test_1234567890abcdef",
     bearer: "Bearer abcdefghijklmnop",
-    header: "authorization: secret-token-value"
+    header: "authorization: Basic secret-token-value",
+    headers: {
+      authorization: "Basic abcdefghijklmnop",
+      Authorization: "Bearer qwertyuiopasdfgh"
+    }
   });
 
   assert.deepEqual(redacted, {
     home: "~/.codex/config.toml",
     apiKey: "<redacted-secret>",
     bearer: "Bearer <redacted-secret>",
-    header: "authorization: <redacted-secret>"
+    header: "authorization: <redacted-secret>",
+    headers: {
+      authorization: "<redacted-secret>",
+      Authorization: "<redacted-secret>"
+    }
   });
 });
 
@@ -89,7 +101,7 @@ test("Codex JSON-RPC client initializes, sends initialized notification, buffers
 test("Codex JSON-RPC client reports timeout and redacts JSON-RPC errors", async () => {
   const timeoutClient = new CodexJsonRpcClient(() => new FakeTransport([
     { jsonrpc: "2.0", id: 1, result: {} }
-  ]), { timeoutMs: 5 });
+  ]), { timeoutMs: 50 });
   await timeoutClient.connect();
   const timeout = await timeoutClient.request("thread/read", { threadId: "thr_1" });
   assert.equal(timeout.ok, false);
@@ -108,8 +120,51 @@ test("Codex JSON-RPC client reports timeout and redacts JSON-RPC errors", async 
   errorClient.close();
 });
 
-test("loopback WebSocket config rejects non-loopback, paths, and non-ws schemes", () => {
+test("line process transport removes timed-out waiters before later output arrives", async () => {
+  const transport = new LineProcessTransport(process.execPath, [
+    "-e",
+    "setTimeout(() => console.log('late-line'), 80); setTimeout(() => {}, 180);"
+  ], 20);
+
+  try {
+    const timedOut = await transport.readLine(Date.now() + 10);
+    assert.equal(timedOut, null);
+    await delay(120);
+    assert.equal(await transport.readLine(Date.now() + 50), "late-line");
+  } finally {
+    transport.close();
+  }
+});
+
+test("JSON-RPC policy blocks forbidden methods before sending transport requests", async () => {
+  const transport = new FakeTransport([
+    { jsonrpc: "2.0", id: 1, result: {} }
+  ]);
+  const client = new CodexJsonRpcClient(() => transport, { timeoutMs: 50, surface: "control" });
+
+  await client.connect();
+  await assert.rejects(
+    () => client.request("config/value/write", { key: "danger", value: true }),
+    /forbidden/
+  );
+  await client.close();
+
+  assert.deepEqual(transport.sent, [
+    {
+      id: 1,
+      method: "initialize",
+      params: {
+        clientInfo: { name: "lossless-openclaw-orchestrator", title: "Lossless OpenClaw Orchestrator", version: "0.1.0-beta.0" },
+        capabilities: { experimentalApi: true, requestAttestation: false, optOutNotificationMethods: [] }
+      }
+    },
+    { method: "initialized" }
+  ]);
+});
+
+test("loopback WebSocket config rejects credentials, non-loopback, paths, and non-ws schemes", () => {
   assert.deepEqual(buildLoopbackWebSocketConfig("ws://127.0.0.1:4567"), { url: "ws://127.0.0.1:4567/" });
+  assert.throws(() => buildLoopbackWebSocketConfig("ws://user:pass@127.0.0.1:4567"), /credentials/);
   assert.throws(() => buildLoopbackWebSocketConfig("wss://127.0.0.1:4567"), /must use ws/);
   assert.throws(() => buildLoopbackWebSocketConfig("ws://example.com:4567"), /loopback/);
   assert.throws(() => buildLoopbackWebSocketConfig("ws://127.0.0.1:4567/path"), /must not include a path/);
@@ -125,13 +180,15 @@ test("Codex transport status reports command availability without starting a liv
   assert.match(status.version ?? "", /^v/);
 
   const missing = codexTransportStatus({
-    command: "/definitely/not/a/codex/binary"
+    command: `${homedir()}/definitely/not/a/codex/binary`
   });
   assert.equal(missing.available, false);
   assert.equal(missing.mode, "stdio");
+  assert.equal(missing.command, "~/definitely/not/a/codex/binary");
 });
 
-test("Codex control checks method policy before live transport calls", async () => {
+test("Codex control rejects approval mismatch before live transport calls", async () => {
+  let requestCalled = false;
   const control = createCodexControl({
     audit: {
       path: "memory",
@@ -149,11 +206,17 @@ test("Codex control checks method policy before live transport calls", async () 
         };
       }
     },
-    client: { request: async () => ({ ok: true }) }
+    client: {
+      request: async () => {
+        requestCalled = true;
+        return { ok: true };
+      }
+    }
   });
 
   await assert.rejects(
     () => control.sendMessage({ threadId: "thr_1", message: "continue", dryRun: false, approvalAuditId: "loo_audit_test" }),
     /does not match/
   );
+  assert.equal(requestCalled, false);
 });

@@ -85,6 +85,9 @@ export function createCodexControl(options: { audit: AuditStore; client: CodexCl
     if (!previous) {
       throw new Error("approval_audit_id was not found in the local audit log");
     }
+    if (previous.live !== false) {
+      throw new Error("approval_audit_id must reference a dry-run Codex control audit record");
+    }
     if (previous.action !== spec.action || previous.target !== spec.threadId || previous.paramsHash !== paramsHash) {
       throw new Error("approval_audit_id does not match this Codex control action");
     }

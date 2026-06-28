@@ -150,15 +150,17 @@ export class LineProcessTransport implements JsonRpcTransport {
 
     const remaining = Math.max(1, Math.min(this.timeoutMs, deadline - Date.now()));
     return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        const index = this.waiters.indexOf(resolve);
+      let timer: ReturnType<typeof setTimeout>;
+      const waiter = (line: string | null) => {
+        clearTimeout(timer);
+        resolve(line);
+      };
+      timer = setTimeout(() => {
+        const index = this.waiters.indexOf(waiter);
         if (index >= 0) this.waiters.splice(index, 1);
         resolve(null);
       }, remaining);
-      this.waiters.push((line) => {
-        clearTimeout(timer);
-        resolve(line);
-      });
+      this.waiters.push(waiter);
     });
   }
 
@@ -216,6 +218,7 @@ export function codexTransportStatus(options: {
   error: string | null;
 } {
   const command = options.command ?? "codex";
+  const safeCommand = String(redactValue(command));
   const completed = spawnSync(command, options.versionArgs ?? ["--version"], {
     encoding: "utf8",
     timeout: options.timeoutMs ?? 5_000
@@ -223,7 +226,7 @@ export function codexTransportStatus(options: {
   if (completed.error) {
     return {
       mode: "stdio",
-      command,
+      command: safeCommand,
       available: false,
       version: null,
       error: String(redactValue(completed.error.message))
@@ -232,7 +235,7 @@ export function codexTransportStatus(options: {
   const text = `${completed.stdout ?? ""}${completed.stderr ?? ""}`.trim();
   return {
     mode: "stdio",
-    command,
+    command: safeCommand,
     available: completed.status === 0,
     version: text || null,
     error: completed.status === 0 ? null : String(redactValue(text || `exit ${completed.status}`))
@@ -243,6 +246,7 @@ export function buildLoopbackWebSocketConfig(rawUrl: string): { url: string } {
   const parsed = new URL(rawUrl);
   if (parsed.protocol !== "ws:") throw new Error("Codex app-server websocket URLs must use ws://");
   if (!parsed.port) throw new Error("Codex app-server websocket URL must include a port");
+  if (parsed.username || parsed.password) throw new Error("Codex app-server websocket URL must not include credentials");
   if (!isLoopbackHost(parsed.hostname)) throw new Error("Codex app-server websocket URLs must be loopback endpoints");
   if (parsed.pathname !== "/") throw new Error("Codex app-server websocket URL must not include a path");
   parsed.pathname = "/";

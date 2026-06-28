@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -45,6 +45,16 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
     });
     assert.equal(live.live, true);
     assert.equal(calls[0]?.method, "turn/start");
+    await assert.rejects(
+      () => control.sendMessage({
+        threadId: "thr_1",
+        message: "continue",
+        dryRun: false,
+        approvalAuditId: live.approvalAuditId
+      }),
+      /must reference a dry-run/
+    );
+    assert.equal(calls.length, 1);
 
     const resumeDryRun = await control.resumeThread({ threadId: "thr_1", dryRun: true });
     assert.equal(resumeDryRun.live, false);
@@ -70,7 +80,7 @@ test("Codex control redacts live transport responses before returning them throu
     audit,
     client: {
       request: async () => ({
-        content: `authorization: ${process.env.HOME}/secret sk-test_1234567890`
+        content: `authorization: ${homedir()}/secret sk-test_1234567890`
       })
     }
   });
@@ -85,7 +95,7 @@ test("Codex control redacts live transport responses before returning them throu
     });
 
     assert.deepEqual(live.response, {
-      content: "authorization: <redacted-secret> <redacted-secret>"
+      content: "authorization: <redacted-secret>"
     });
   } finally {
     rmSync(root, { recursive: true, force: true });
