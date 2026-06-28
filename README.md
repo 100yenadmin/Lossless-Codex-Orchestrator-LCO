@@ -68,6 +68,7 @@ loo expand-query --profile brief "billing bridge"
 loo serve
 loo release preflight --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight
 loo release bundle --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-bundle
+loo release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --approved-live-control-evidence approved-live-control-smoke.json --npm-publish-approval-evidence npm-approval.json --github-release-approval-evidence github-release-approval.json
 ```
 
 Database path:
@@ -169,6 +170,14 @@ loo release bundle --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchest
 ```
 
 The bundle command copies the checked-in beta release notes, writes `release-bundle.json`, runs the same preflight checks, and explicitly records that it did not publish to npm or create a GitHub Release.
+
+Release status:
+
+```bash
+loo release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --approved-live-control-evidence approved-live-control-smoke.json --npm-publish-approval-evidence npm-approval.json --github-release-approval-evidence github-release-approval.json
+```
+
+The status command writes `release-status.json`, wraps the preflight result, lists remaining explicit approvals, and records that it did not publish to npm, create a GitHub Release, run live Codex control, or mutate a desktop GUI. Use `--strict` to fail closed while release or approval blockers remain. Npm and GitHub release approvals alone do not clear `approved_live_control_smoke_missing`; pass `--approved-live-control-evidence` with the structured live-control smoke proof when that gate has explicit approval. Release operation approval proofs use `kind: "loo_release_operation_approval"`, `operation: "npm_publish" | "github_release"`, `approved: true`, a non-empty `approvalRef`, and `rawSecretIncluded: false`.
 
 ## Privacy
 

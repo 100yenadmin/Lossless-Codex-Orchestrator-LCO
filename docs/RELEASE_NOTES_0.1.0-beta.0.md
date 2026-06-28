@@ -37,4 +37,10 @@ For a local release artifact bundle without publishing:
 loo release bundle --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-bundle
 ```
 
+For a local release status packet without publishing, creating a GitHub Release, live Codex control, or desktop GUI mutation:
+
+```bash
+loo release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --approved-live-control-evidence approved-live-control-smoke.json --npm-publish-approval-evidence npm-approval.json --github-release-approval-evidence github-release-approval.json
+```
+
 Do not attach raw Codex session JSONL, private SQLite databases, screenshots with secrets, credentials, or private transcripts to public release artifacts.
