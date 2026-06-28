@@ -284,6 +284,23 @@ test("CLI recall flags pass token budgets and explicit LCM peer paths override e
   }
 });
 
+test("CLI recall commands reject empty query inputs", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-lcm-cli-empty-"));
+  try {
+    const env = { ...process.env, LOO_DB_PATH: join(root, "orchestrator.sqlite") };
+
+    const grep = runCliFailure(["grep", "--token-budget", "42"], env);
+    assert.notEqual(grep.status, 0);
+    assert.equal(grep.stderr.includes("grep requires a query"), true);
+
+    const expand = runCliFailure(["expand-query", "--profile", "metadata"], env);
+    assert.notEqual(expand.status, 0);
+    assert.equal(expand.stderr.includes("expand-query requires a query"), true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 function runCli(args: string[], env: NodeJS.ProcessEnv): any {
   const result = spawnSync(process.execPath, ["--import", "tsx", "packages/cli/src/index.ts", ...args], {
     cwd: process.cwd(),
@@ -292,4 +309,12 @@ function runCli(args: string[], env: NodeJS.ProcessEnv): any {
   });
   assert.equal(result.status, 0, result.stderr);
   return JSON.parse(result.stdout);
+}
+
+function runCliFailure(args: string[], env: NodeJS.ProcessEnv): ReturnType<typeof spawnSync> {
+  return spawnSync(process.execPath, ["--import", "tsx", "packages/cli/src/index.ts", ...args], {
+    cwd: process.cwd(),
+    env,
+    encoding: "utf8"
+  });
 }

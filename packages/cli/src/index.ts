@@ -56,10 +56,11 @@ async function main() {
   }
   if (command === "grep") {
     const parsed = parseRecallArgs(args);
+    const query = requireQuery("grep", parsed.rest);
     const db = createDatabase();
     try {
       console.log(JSON.stringify(grepRecall(db, {
-        query: parsed.rest.join(" "),
+        query,
         profile: parsed.profile,
         tokenBudget: parsed.tokenBudget,
         lcmDbPaths: parsed.lcmDbPaths
@@ -83,10 +84,11 @@ async function main() {
   }
   if (command === "expand-query") {
     const parsed = parseRecallArgs(args);
+    const query = requireQuery("expand-query", parsed.rest);
     const db = createDatabase();
     try {
       console.log(JSON.stringify(expandQuery(db, {
-        query: parsed.rest.join(" "),
+        query,
         profile: parsed.profile,
         tokenBudget: parsed.tokenBudget,
         lcmDbPaths: parsed.lcmDbPaths
@@ -169,4 +171,10 @@ function parseRecallArgs(input: string[]): { rest: string[]; lcmDbPaths: string[
   }
   const lcmDbPaths = explicitLcmDbPaths.length > 0 ? explicitLcmDbPaths : configuredLcmPeerDbPaths();
   return { rest, lcmDbPaths: [...new Set(lcmDbPaths)], profile, tokenBudget };
+}
+
+function requireQuery(command: string, parts: string[]): string {
+  const query = parts.join(" ").trim();
+  if (!query) throw new Error(`${command} requires a query`);
+  return query;
 }
