@@ -80,6 +80,18 @@ test("public beta docs include install, MCP/OpenClaw, demo, and approval-boundar
   assert.match(claimAudit, /loo release preflight[^\n]+--strict/i);
 });
 
+test("release status examples include live-control evidence alongside release approvals", () => {
+  const readme = read("README.md");
+  const releaseNotes = read("docs/RELEASE_NOTES_0.1.0-beta.0.md");
+
+  for (const [surface, content] of [
+    ["README", readme],
+    ["release notes", releaseNotes]
+  ] as const) {
+    assert.match(content, /loo release status[^\n]+--approved-live-control-evidence[^\n]+--npm-publish-approval-evidence[^\n]+--github-release-approval-evidence/i, surface);
+  }
+});
+
 test("OpenClaw plugin manifest is packageable and matches the beta safety boundary", () => {
   assert.equal(existsSync("packages/openclaw-plugin/openclaw.plugin.json"), true, "OpenClaw plugin manifest must exist");
 
