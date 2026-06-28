@@ -68,3 +68,33 @@ test("public beta docs include install, MCP/OpenClaw, demo, and approval-boundar
     assert.match(claimAudit, required);
   }
 });
+
+test("OpenClaw plugin manifest is packageable and matches the beta safety boundary", () => {
+  assert.equal(existsSync("packages/openclaw-plugin/openclaw.plugin.json"), true, "OpenClaw plugin manifest must exist");
+
+  const manifest = JSON.parse(read("packages/openclaw-plugin/openclaw.plugin.json")) as {
+    id?: string;
+    name?: string;
+    description?: string;
+    mcp?: { command?: string; transport?: string };
+    tools?: { prefix?: string };
+    safety?: { localOnlyByDefault?: boolean; liveControlRequires?: string[]; forbiddenClaims?: string[] };
+  };
+
+  assert.equal(manifest.id, "lossless-openclaw-orchestrator");
+  assert.equal(manifest.name, "Lossless OpenClaw Orchestrator");
+  assert.match(manifest.description ?? "", /local Codex sessions/i);
+  assert.match(manifest.description ?? "", /approval-gated controls/i);
+  assert.doesNotMatch(manifest.description ?? "", /Claude Code remotely/i);
+  assert.equal(manifest.mcp?.command, "loo-mcp-server");
+  assert.equal(manifest.mcp?.transport, "stdio");
+  assert.equal(manifest.tools?.prefix, "loo_");
+  assert.equal(manifest.safety?.localOnlyByDefault, true);
+  assert.deepEqual(manifest.safety?.liveControlRequires, ["dry_run", "approval_audit_id"]);
+  assert.deepEqual(manifest.safety?.forbiddenClaims, [
+    "Full Claude Code parity",
+    "cloud sync",
+    "unattended desktop takeover",
+    "bypasses Codex permissions"
+  ]);
+});

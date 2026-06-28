@@ -2,6 +2,8 @@
 
 The OpenClaw plugin entry lives in `packages/openclaw-plugin`.
 
+The packageable plugin manifest is `packages/openclaw-plugin/openclaw.plugin.json`.
+
 The plugin launches the MCP server:
 
 ```bash

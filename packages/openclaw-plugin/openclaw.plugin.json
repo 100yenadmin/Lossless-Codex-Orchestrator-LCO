@@ -1,0 +1,24 @@
+{
+  "id": "lossless-openclaw-orchestrator",
+  "name": "Lossless OpenClaw Orchestrator",
+  "description": "Control and collaborate with local Codex sessions through OpenClaw using local indexing, bounded recall, and approval-gated controls.",
+  "version": "0.1.0-beta.0",
+  "kind": "tool",
+  "tools": {
+    "prefix": "loo_"
+  },
+  "mcp": {
+    "command": "loo-mcp-server",
+    "transport": "stdio"
+  },
+  "safety": {
+    "localOnlyByDefault": true,
+    "liveControlRequires": ["dry_run", "approval_audit_id"],
+    "forbiddenClaims": [
+      "Full Claude Code parity",
+      "cloud sync",
+      "unattended desktop takeover",
+      "bypasses Codex permissions"
+    ]
+  }
+}
