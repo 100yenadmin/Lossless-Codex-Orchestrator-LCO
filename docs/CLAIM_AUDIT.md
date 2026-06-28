@@ -31,7 +31,7 @@ Claude Code is an adapter stub in this beta. Public docs may mention the stub, b
 - `npm pack --dry-run`
 - `loo release preflight --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight --strict`
 - `loo release bundle --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-bundle`
-- `loo release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --strict`
+- `loo release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --approved-live-control-evidence approved-live-control-smoke.json --npm-publish-approval-evidence npm-approval.json --github-release-approval-evidence github-release-approval.json --strict`
 - GitHub CI green for the release PR
 - Demo evidence under `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/`
 - No raw session transcripts, credentials, screenshots with secrets, or private SQLite DBs in public artifacts
@@ -40,4 +40,4 @@ Claude Code is an adapter stub in this beta. Public docs may mention the stub, b
 
 `loo release bundle` writes local draft release artifacts without publishing: `RELEASE_NOTES_0.1.0-beta.0.md`, `release-preflight.json`, and `release-bundle.json`. It must record `npmPublished: false` and `githubReleaseCreated: false` until a separate explicit publish step is approved.
 
-`loo release status` writes `release-status.json` without performing gated actions. It must record `npmPublished: false`, `githubReleaseCreated: false`, `liveCodexControlRun: false`, and `desktopGuiActionRun: false`, and it must list `npm_publish_not_approved` and `github_release_not_approved` until those separate release operations are explicitly approved.
+`loo release status` writes `release-status.json` without performing gated actions. It must record `npmPublished: false`, `githubReleaseCreated: false`, `liveCodexControlRun: false`, and `desktopGuiActionRun: false`, and it must list `npm_publish_not_approved` and `github_release_not_approved` until those separate release operations are explicitly approved through safe `loo_release_operation_approval` proof markers. Release operation proof markers must include `operation: "npm_publish" | "github_release"`, `approved: true`, a non-empty `approvalRef`, and `rawSecretIncluded: false`.

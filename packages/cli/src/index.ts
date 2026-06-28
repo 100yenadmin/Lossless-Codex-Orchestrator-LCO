@@ -165,7 +165,9 @@ async function main() {
     const parsed = parseReleaseStatusArgs(args.slice(1));
     const report = createReleaseStatus({
       evidenceDir: parsed.evidenceDir,
-      approvedLiveControlEvidence: parsed.approvedLiveControlEvidence
+      approvedLiveControlEvidence: parsed.approvedLiveControlEvidence,
+      npmPublishApprovalEvidence: parsed.npmPublishApprovalEvidence,
+      githubReleaseApprovalEvidence: parsed.githubReleaseApprovalEvidence
     });
     console.log(JSON.stringify(report, null, 2));
     if (parsed.strict && !report.releaseReady) process.exitCode = 1;
@@ -187,7 +189,7 @@ async function main() {
     "  loo audit-path",
     "  loo release preflight [--evidence-dir path] [--approved-live-control-evidence path] [--strict]",
     "  loo release bundle --evidence-dir path [--approved-live-control-evidence path] [--strict]",
-    "  loo release status --evidence-dir path [--approved-live-control-evidence path] [--strict]"
+    "  loo release status --evidence-dir path [--approved-live-control-evidence path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--strict]"
   ].join("\n"));
   process.exitCode = 2;
 }
@@ -310,8 +312,46 @@ function parseReleaseBundleArgs(input: string[]): { evidenceDir: string; approve
   return { evidenceDir: parsed.evidenceDir, approvedLiveControlEvidence: parsed.approvedLiveControlEvidence, strict: parsed.strict };
 }
 
-function parseReleaseStatusArgs(input: string[]): { evidenceDir: string; approvedLiveControlEvidence?: string; strict: boolean } {
-  const parsed = parseReleasePreflightArgs(input);
-  if (!parsed.evidenceDir) throw new Error("release status requires --evidence-dir");
-  return { evidenceDir: parsed.evidenceDir, approvedLiveControlEvidence: parsed.approvedLiveControlEvidence, strict: parsed.strict };
+function parseReleaseStatusArgs(input: string[]): {
+  evidenceDir: string;
+  approvedLiveControlEvidence?: string;
+  npmPublishApprovalEvidence?: string;
+  githubReleaseApprovalEvidence?: string;
+  strict: boolean;
+} {
+  let evidenceDir: string | undefined;
+  let approvedLiveControlEvidence: string | undefined;
+  let npmPublishApprovalEvidence: string | undefined;
+  let githubReleaseApprovalEvidence: string | undefined;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--evidence-dir") {
+      evidenceDir = input[++index];
+      if (!evidenceDir) throw new Error("--evidence-dir requires a path");
+      continue;
+    }
+    if (arg === "--approved-live-control-evidence") {
+      approvedLiveControlEvidence = input[++index];
+      if (!approvedLiveControlEvidence) throw new Error("--approved-live-control-evidence requires a path");
+      continue;
+    }
+    if (arg === "--npm-publish-approval-evidence") {
+      npmPublishApprovalEvidence = input[++index];
+      if (!npmPublishApprovalEvidence) throw new Error("--npm-publish-approval-evidence requires a path");
+      continue;
+    }
+    if (arg === "--github-release-approval-evidence") {
+      githubReleaseApprovalEvidence = input[++index];
+      if (!githubReleaseApprovalEvidence) throw new Error("--github-release-approval-evidence requires a path");
+      continue;
+    }
+    if (arg === "--strict") {
+      strict = true;
+      continue;
+    }
+    throw new Error(`Unknown release status option: ${arg}`);
+  }
+  if (!evidenceDir) throw new Error("release status requires --evidence-dir");
+  return { evidenceDir, approvedLiveControlEvidence, npmPublishApprovalEvidence, githubReleaseApprovalEvidence, strict };
 }
