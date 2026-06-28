@@ -208,10 +208,19 @@ test("stale LCM refs degrade to not found without leaking peer open errors", () 
     rmSync(fixture.lcmPath, { force: true });
 
     assert.equal(describeRecallRef(db, { sourceRef: lcmRef!, lcmDbPaths: [fixture.lcmPath] }), null);
-    assert.throws(
-      () => expandRecallRef(db, { sourceRef: lcmRef!, lcmDbPaths: [fixture.lcmPath], profile: "brief" }),
-      /Unknown LCM summary ref/
-    );
+    let error: Error | null = null;
+    try {
+      expandRecallRef(db, { sourceRef: lcmRef!, lcmDbPaths: [fixture.lcmPath], profile: "brief" });
+    } catch (caught) {
+      error = caught as Error;
+    }
+    assert.ok(error);
+    assert.match(error.message, /Unknown LCM summary ref/);
+    const message = error.message.toLowerCase();
+    assert.equal(message.includes("sqlite"), false);
+    assert.equal(message.includes("cantopen"), false);
+    assert.equal(message.includes("unable to open"), false);
+    assert.equal(error.message.includes(fixture.lcmPath), false);
   } finally {
     db.close();
     rmSync(fixture.root, { recursive: true, force: true });
