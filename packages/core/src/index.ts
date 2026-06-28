@@ -170,11 +170,15 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
       const stat = statSync(path);
       const watermark = getSourceFileWatermark(db, path);
       const mtimeMs = Math.trunc(stat.mtimeMs);
+      let text: string | null = null;
       if (watermark && watermark.size === stat.size && watermark.mtimeMs === mtimeMs) {
-        result.skippedFiles += 1;
-        continue;
+        text = readFileSync(path, "utf8");
+        if (watermark.pathHash === stableId(text)) {
+          result.skippedFiles += 1;
+          continue;
+        }
       }
-      const text = readFileSync(path, "utf8");
+      text ??= readFileSync(path, "utf8");
       const session = parseCodexJsonl(path, text);
       upsertSession(db, path, text, session, { size: stat.size, mtimeMs });
       result.indexedFiles += 1;
@@ -520,6 +524,11 @@ function collectSqliteFiles(roots: string[], maxFiles: number): string[] {
   const files: string[] = [];
   for (const root of roots) {
     if (!existsSync(root) || files.length >= maxFiles) continue;
+    try {
+      if (!statSync(root).isDirectory()) continue;
+    } catch {
+      continue;
+    }
     walkSqlite(root, files, maxFiles);
   }
   return files;
@@ -527,7 +536,12 @@ function collectSqliteFiles(roots: string[], maxFiles: number): string[] {
 
 function walkSqlite(path: string, files: string[], maxFiles: number): void {
   if (files.length >= maxFiles) return;
-  const entries = readdirSync(path, { withFileTypes: true });
+  let entries;
+  try {
+    entries = readdirSync(path, { withFileTypes: true });
+  } catch {
+    return;
+  }
   for (const entry of entries) {
     if (files.length >= maxFiles) return;
     const child = join(path, entry.name);
