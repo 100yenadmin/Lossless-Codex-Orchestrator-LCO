@@ -1,7 +1,7 @@
 {
   "name": "lossless-openclaw-orchestrator",
   "version": "0.1.0-beta.0",
-  "description": "Control your Codex Desktop and Claude Code remotely via your OpenClaw agent or collaborate with them when you are on your computer in the same sessions.",
+  "description": "Index, search, and control local Codex sessions through OpenClaw with approval-gated safety; Claude Code remains an experimental adapter stub.",
   "type": "module",
   "license": "MIT",
   "private": false,
