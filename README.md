@@ -120,6 +120,8 @@ Desktop fallback:
 
 When a guarded Peekaboo snapshot succeeds, the `visibleCodex.threadMap` field exposes a bounded read-only map of visible Codex thread candidates with redacted titles, status/update labels, source element ids, bounds, centers, confidence, and stable visible ids. This is GUI inventory only; it does not join raw Codex transcripts or enable visible GUI mutation.
 
+`visibleCodex.windows` exposes the captured frontmost Codex window metadata from the same guarded snapshot. `visibleCodex.windows` and `visibleCodex.threadMap` are omitted for non-Codex snapshots, even when the frontmost app is otherwise safe to observe.
+
 Admin:
 
 - `loo_doctor`
