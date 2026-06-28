@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createInterface } from "node:readline";
-import { createAuditStore } from "../../adapters/src/index.js";
+import { createAuditStore, createCodexAppServerStdioClient } from "../../adapters/src/index.js";
 import { createDatabase } from "../../core/src/index.js";
 import { createLooTools } from "./tools.js";
 
@@ -9,11 +9,11 @@ const audit = createAuditStore(process.env.LOO_AUDIT_PATH || `${process.env.HOME
 const tools = createLooTools({
   db,
   audit,
-  codexClient: {
-    async request(method, params) {
-      return { ok: false, method, params, note: "Codex direct client is not connected in stdio beta server." };
-    }
-  }
+  codexClient: createCodexAppServerStdioClient({
+    command: process.env.LOO_CODEX_BIN || "codex",
+    args: (process.env.LOO_CODEX_APP_SERVER_ARGS || "app-server --stdio").split(/\s+/).filter(Boolean),
+    surface: "control"
+  })
 });
 
 const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
