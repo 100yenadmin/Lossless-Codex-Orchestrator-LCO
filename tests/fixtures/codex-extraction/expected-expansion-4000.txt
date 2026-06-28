@@ -8,7 +8,7 @@ Branch: feature/extraction-evals
 
 Git SHA: abc123eval
 
-Summary: Build redacted extraction evals Final: extraction eval complete. Next action: open PR with safe summary docs. Plan: 1. Add an extractor eval fixture for packages/core/src/index.ts. 2. Assert tests/extraction/orchestrator.test.ts coverage for plans, finals, touched files, tools, and safe text. 3. Keep expansion snapshots bounded and redacted. Touched 6 file(s).
+Summary: Title: Build redacted extraction evals Model: gpt-5 Branch: feature/extraction-evals@abc123eval CWD: /Volumes/LEXAR/repos/acme Final: Final: extraction eval complete. Next action: open PR with safe summary docs. Plan: 1. Add an extractor eval fixture for packages/core/src/index.ts. 2. Assert tests/extraction/orchestrator.test.ts coverage for plans, finals, touched files, tools, and safe text. 3. Keep expansion snapshots bounded and redacted. Files: ./docs/SAFE_SUMMARIES.md, /Volumes/LEXAR/repos/acme/packages/ui/Button.tsx, packages/core/src/index.ts +3 more Tools: functions.exec_command, functions.apply_patch
 
 Final message: Final: extraction eval complete. Next action: open PR with safe summary docs.
 
