@@ -225,9 +225,9 @@ function parseDesktopSee(parts: string[]): { backend?: DesktopBackend; includeSn
     if (token === "--snapshot") {
       options.includeSnapshot = true;
     } else if (token === "--max-nodes") {
-      options.maxNodes = parsePositiveInteger(rest[++index], "--max-nodes");
+      options.maxNodes = parsePositiveInteger(rest[++index], "--max-nodes", 500);
     } else if (token === "--max-chars") {
-      options.maxChars = parsePositiveInteger(rest[++index], "--max-chars");
+      options.maxChars = parsePositiveInteger(rest[++index], "--max-chars", 20000);
     } else {
       throw new Error(`Unknown desktop see option: ${token}`);
     }
@@ -235,8 +235,10 @@ function parseDesktopSee(parts: string[]): { backend?: DesktopBackend; includeSn
   return options;
 }
 
-function parsePositiveInteger(value: string | undefined, name: string): number {
+function parsePositiveInteger(value: string | undefined, name: string, max?: number): number {
   const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 1) throw new Error(`${name} requires a positive integer`);
+  if (!Number.isInteger(parsed) || parsed < 1 || (max !== undefined && parsed > max)) {
+    throw new Error(max === undefined ? `${name} requires a positive integer` : `${name} requires an integer between 1 and ${max}`);
+  }
   return parsed;
 }

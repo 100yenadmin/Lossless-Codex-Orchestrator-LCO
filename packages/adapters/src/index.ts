@@ -485,7 +485,27 @@ function peekabooSnapshot(
     });
   }
   const parsed = asRecord(parseJsonObject(result.stdout));
-  const data = asRecord(parsed?.data) ?? parsed ?? {};
+  if (!parsed || parsed.success === false) {
+    return emptySnapshot({
+      maxNodes,
+      blocked: true,
+      reason: "peekaboo_snapshot_failed",
+      frontmostApp: safeFrontmostApp,
+      warnings: [capTextValue(typeof parsed?.error === "string" ? parsed.error : "Peekaboo snapshot output was not valid JSON.", maxChars)]
+    });
+  }
+  const data = asRecord(parsed.data) ?? parsed;
+  const capturedApp = typeof data.application_name === "string" ? data.application_name : frontmostApp;
+  const safeCapturedApp = capTextValue(capturedApp, maxChars);
+  if (isSensitiveFrontmostApp(capturedApp)) {
+    return emptySnapshot({
+      maxNodes,
+      blocked: true,
+      reason: "sensitive_app_blocked",
+      frontmostApp: safeCapturedApp,
+      warnings: [`Captured app ${safeCapturedApp} is denylisted; snapshot output was discarded.`]
+    });
+  }
   const rawElements = Array.isArray(data.ui_elements) ? data.ui_elements : [];
   const elements = rawElements.slice(0, maxNodes).map((item) => peekabooElement(item, maxChars)).filter((item): item is DesktopSnapshotElement => item !== null);
   const elementCount = typeof data.element_count === "number" ? data.element_count : rawElements.length;
@@ -493,7 +513,7 @@ function peekabooSnapshot(
     requested: true,
     blocked: false,
     engine: "peekaboo",
-    frontmostApp: capTextValue(String(data.application_name || frontmostApp), maxChars),
+    frontmostApp: safeCapturedApp,
     windowTitle: typeof data.window_title === "string" ? capTextValue(data.window_title, maxChars) : undefined,
     snapshotId: typeof data.snapshot_id === "string" ? capTextValue(data.snapshot_id, maxChars) : undefined,
     elements,

@@ -237,8 +237,67 @@ test("Peekaboo snapshot extraction is bounded, redacted, and local-only", async 
   assert.equal(status.snapshot?.elements[0]?.elementId, "elem_123");
   assert.equal(status.snapshot?.elements[0]?.label?.includes("/Users/lume"), false);
   assert.equal(status.snapshot?.elements[0]?.label?.includes("sk-test_1234567890"), false);
+  assert.equal(status.snapshot?.windowTitle?.includes("/Users/lume"), false);
+  assert.equal(status.snapshot?.windowTitle?.includes("sk-test_1234567890"), false);
   assert.equal(status.snapshot?.truncated, true);
   assert.equal(commands.some((entry) => entry.args.includes("--no-remote")), true);
+});
+
+test("Peekaboo snapshot fails closed for malformed or failed JSON payloads", async () => {
+  for (const stdout of ["not-json", JSON.stringify({ success: false, error: "/Users/lume/private sk-test_1234567890" })]) {
+    const status = await desktopSee({
+      backend: "peekaboo",
+      includeSnapshot: true,
+      probe: {
+        commandStatus: () => ({ available: true, command: "peekaboo", version: "Peekaboo 3.2.2" }),
+        activeApplication: () => "Codex",
+        commandOutput: (command: string, args: string[] = []) => {
+          if (args[0] === "permissions") {
+            return { status: 0, command, stdout: JSON.stringify({ success: true, data: { permissions: [] } }) };
+          }
+          return { status: 0, command, stdout };
+        }
+      }
+    });
+
+    assert.equal(status.snapshot?.blocked, true);
+    assert.equal(status.snapshot?.reason, "peekaboo_snapshot_failed");
+    assert.equal(status.snapshot?.elements.length, 0);
+    assert.equal(status.snapshot?.warnings.join(" ").includes("/Users/lume"), false);
+    assert.equal(status.snapshot?.warnings.join(" ").includes("sk-test_1234567890"), false);
+  }
+});
+
+test("Peekaboo snapshot discards output when captured app becomes sensitive", async () => {
+  const status = await desktopSee({
+    backend: "peekaboo",
+    includeSnapshot: true,
+    probe: {
+      commandStatus: () => ({ available: true, command: "peekaboo", version: "Peekaboo 3.2.2" }),
+      activeApplication: () => "Codex",
+      commandOutput: (command: string, args: string[] = []) => {
+        if (args[0] === "permissions") {
+          return { status: 0, command, stdout: JSON.stringify({ success: true, data: { permissions: [] } }) };
+        }
+        return {
+          status: 0,
+          command,
+          stdout: JSON.stringify({
+            success: true,
+            data: {
+              application_name: "Mail",
+              ui_elements: [{ id: "mail-secret", role: "text", label: "private message" }]
+            }
+          })
+        };
+      }
+    }
+  });
+
+  assert.equal(status.snapshot?.blocked, true);
+  assert.equal(status.snapshot?.reason, "sensitive_app_blocked");
+  assert.equal(status.snapshot?.frontmostApp, "Mail");
+  assert.deepEqual(status.snapshot?.elements, []);
 });
 
 test("Peekaboo snapshot blocks sensitive frontmost apps before capture", async () => {
@@ -311,4 +370,22 @@ test("MCP desktop see passes guarded Peekaboo snapshot options", async () => {
     db.close();
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("CLI desktop see rejects snapshot bounds outside the MCP schema limits", () => {
+  const maxNodes = spawnSync(process.execPath, ["--import", "tsx", "packages/cli/src/index.ts", "desktop", "see", "direct", "--snapshot", "--max-nodes", "501"], {
+    cwd: process.cwd(),
+    env: process.env,
+    encoding: "utf8"
+  });
+  const maxChars = spawnSync(process.execPath, ["--import", "tsx", "packages/cli/src/index.ts", "desktop", "see", "direct", "--snapshot", "--max-chars", "20001"], {
+    cwd: process.cwd(),
+    env: process.env,
+    encoding: "utf8"
+  });
+
+  assert.notEqual(maxNodes.status, 0);
+  assert.match(maxNodes.stderr, /--max-nodes requires an integer between 1 and 500/);
+  assert.notEqual(maxChars.status, 0);
+  assert.match(maxChars.stderr, /--max-chars requires an integer between 1 and 20000/);
 });
