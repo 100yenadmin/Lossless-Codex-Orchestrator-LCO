@@ -16,6 +16,7 @@ import {
   type RecallProfileName
 } from "../../core/src/index.js";
 import { join } from "node:path";
+import { runReleasePreflight } from "./release-preflight.js";
 
 const [, , command, ...args] = process.argv;
 
@@ -138,6 +139,16 @@ async function main() {
     console.log(createAuditStore(process.env.LOO_AUDIT_PATH || `${process.env.HOME}/.openclaw/lossless-openclaw-orchestrator/audit.jsonl`).path);
     return;
   }
+  if (command === "release" && args[0] === "preflight") {
+    const parsed = parseReleasePreflightArgs(args.slice(1));
+    const report = runReleasePreflight({
+      evidenceDir: parsed.evidenceDir,
+      approvedLiveControlEvidence: parsed.approvedLiveControlEvidence
+    });
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.releaseReady) process.exitCode = 1;
+    return;
+  }
   console.error([
     "Usage:",
     "  loo doctor",
@@ -151,7 +162,8 @@ async function main() {
     "  loo expand-query [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <query>",
     "  loo expand-ref [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <source-ref>",
     "  loo serve",
-    "  loo audit-path"
+    "  loo audit-path",
+    "  loo release preflight [--evidence-dir path] [--approved-live-control-evidence path] [--strict]"
   ].join("\n"));
   process.exitCode = 2;
 }
@@ -241,4 +253,29 @@ function parsePositiveInteger(value: string | undefined, name: string, max?: num
     throw new Error(max === undefined ? `${name} requires a positive integer` : `${name} requires an integer between 1 and ${max}`);
   }
   return parsed;
+}
+
+function parseReleasePreflightArgs(input: string[]): { evidenceDir?: string; approvedLiveControlEvidence?: string; strict: boolean } {
+  let evidenceDir: string | undefined;
+  let approvedLiveControlEvidence: string | undefined;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--evidence-dir") {
+      evidenceDir = input[++index];
+      if (!evidenceDir) throw new Error("--evidence-dir requires a path");
+      continue;
+    }
+    if (arg === "--approved-live-control-evidence") {
+      approvedLiveControlEvidence = input[++index];
+      if (!approvedLiveControlEvidence) throw new Error("--approved-live-control-evidence requires a path");
+      continue;
+    }
+    if (arg === "--strict") {
+      strict = true;
+      continue;
+    }
+    throw new Error(`Unknown release preflight option: ${arg}`);
+  }
+  return { evidenceDir, approvedLiveControlEvidence, strict };
 }

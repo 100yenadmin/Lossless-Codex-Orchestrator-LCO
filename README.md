@@ -65,6 +65,7 @@ loo grep --lcm-db ~/.openclaw/lcm.db "billing bridge"
 loo describe codex_thread:019f-example
 loo expand-query --profile brief "billing bridge"
 loo serve
+loo release preflight --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight
 ```
 
 Database path:
@@ -150,6 +151,14 @@ npm run build
 ```
 
 The test suite uses redacted fixtures and Node's built-in test runner.
+
+Release preflight:
+
+```bash
+loo release preflight --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight
+```
+
+The preflight writes a public-safe `release-preflight.json` artifact manifest. It reports `approved_live_control_smoke_missing` until an explicit approved live-control evidence path is supplied, and `--strict` exits non-zero while any release blocker remains.
 
 ## Privacy
 

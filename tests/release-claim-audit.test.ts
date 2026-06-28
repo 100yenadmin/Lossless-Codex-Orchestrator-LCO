@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 import { test } from "node:test";
 
 function read(path: string): string {
@@ -39,6 +42,7 @@ test("public beta docs include install, MCP/OpenClaw, demo, and approval-boundar
 
   assert.match(readme, /docs\/OPENCLAW_PLUGIN\.md/);
   assert.match(readme, /docs\/BETA_RELEASE_DEMO\.md/);
+  assert.match(readme, /loo release preflight/);
   assert.match(openclawDocs, /loo-mcp-server/);
   assert.match(openclawDocs, /dry_run=true/);
   assert.match(openclawDocs, /approval_audit_id/);
@@ -63,7 +67,9 @@ test("public beta docs include install, MCP/OpenClaw, demo, and approval-boundar
     /Claude Code.*adapter stub/i,
     /No cloud sync/i,
     /No unattended desktop takeover/i,
-    /No permission bypass/i
+    /No permission bypass/i,
+    /loo release preflight/i,
+    /approved_live_control_smoke_missing/i
   ]) {
     assert.match(claimAudit, required);
   }
@@ -96,5 +102,51 @@ test("OpenClaw plugin manifest is packageable and matches the beta safety bounda
     "cloud sync",
     "unattended desktop takeover",
     "bypasses Codex permissions"
+  ]);
+});
+
+test("release preflight writes a public-safe artifact manifest without hiding live-control blockers", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-"));
+  const result = spawnSync(process.execPath, [
+    "--import",
+    "tsx",
+    "packages/cli/src/index.ts",
+    "release",
+    "preflight",
+    "--evidence-dir",
+    evidenceDir
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as {
+    ok?: boolean;
+    releaseReady?: boolean;
+    artifactManifestPath?: string;
+    checks?: Record<string, { ok: boolean }>;
+    blockers?: string[];
+  };
+
+  assert.equal(payload.ok, true);
+  assert.equal(payload.releaseReady, false);
+  assert.equal(payload.checks?.packageJson?.ok, true);
+  assert.equal(payload.checks?.openclawManifest?.ok, true);
+  assert.equal(payload.checks?.claimAudit?.ok, true);
+  assert.deepEqual(payload.blockers, ["approved_live_control_smoke_missing"]);
+  assert.equal(payload.artifactManifestPath, join(evidenceDir, "release-preflight.json"));
+  assert.equal(existsSync(join(evidenceDir, "release-preflight.json")), true);
+
+  const manifest = JSON.parse(read(join(evidenceDir, "release-preflight.json"))) as {
+    rawSessionArtifacts?: unknown[];
+    forbiddenClaims?: string[];
+    blockers?: string[];
+  };
+  assert.deepEqual(manifest.rawSessionArtifacts, []);
+  assert.deepEqual(manifest.blockers, ["approved_live_control_smoke_missing"]);
+  assert.deepEqual(manifest.forbiddenClaims, [
+    "Full Claude Code parity",
+    "cloud sync",
+    "unattended desktop takeover",
+    "bypasses Codex permissions",
+    "release-grade enterprise security"
   ]);
 });
