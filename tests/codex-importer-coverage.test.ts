@@ -27,8 +27,8 @@ function writeJsonl(path: string, threadId: string, title: string): void {
 test("default Codex roots include active and archived session stores", () => {
   const home = "/Users/example";
   assert.deepEqual(defaultCodexRoots(home), [
-    "/Users/example/.codex/sessions",
-    "/Users/example/.codex/archived_sessions"
+    join(home, ".codex", "sessions"),
+    join(home, ".codex", "archived_sessions")
   ]);
 });
 
