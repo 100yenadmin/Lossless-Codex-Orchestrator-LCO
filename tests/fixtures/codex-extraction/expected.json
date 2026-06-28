@@ -1,0 +1,34 @@
+{
+  "threadId": "019f-eval-thread",
+  "plans": [
+    "1. Add an extractor eval fixture for packages/core/src/index.ts. 2. Assert tests/extraction/orchestrator.test.ts coverage for plans, finals, touched files, tools, and safe text. 3. Keep expansion snapshots bounded and redacted.",
+    "- Verify loo_expand_session at a 1k token budget. - Verify loo_expand_session at a 4k token budget. - Confirm the 4k snapshot keeps this evidence sentence: alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau upsilon phi chi psi omega."
+  ],
+  "finalMessages": [
+    "Final: extraction eval complete. Next action: open PR with safe summary docs."
+  ],
+  "touchedFiles": [
+    "./docs/SAFE_SUMMARIES.md",
+    "/Volumes/LEXAR/repos/acme/packages/ui/Button.tsx",
+    "packages/core/src/index.ts",
+    "src/worker.ts",
+    "tests/extraction/orchestrator.test.ts",
+    "~/private"
+  ],
+  "toolCalls": [
+    "call_edit:functions.apply_patch",
+    "call_read:functions.exec_command",
+    "call_secret:functions.exec_command"
+  ],
+  "safeTextRequired": [
+    "Build redacted extraction evals",
+    "Final: extraction eval complete",
+    "<redacted-secret>",
+    "~/private"
+  ],
+  "safeTextForbidden": [
+    "sk-test_1234567890abcdef",
+    "Bearer abcdefghijklmnop",
+    "/Users/example"
+  ]
+}

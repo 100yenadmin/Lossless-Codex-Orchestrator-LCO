@@ -1,0 +1,26 @@
+Thread: Build redacted extraction evals
+
+ID: 019f-eval-thread
+
+CWD: /Volumes/LEXAR/repos/acme
+
+Branch: feature/extraction-evals
+
+Git SHA: abc123eval
+
+Summary: Build redacted extraction evals Final: extraction eval complete. Next action: open PR with safe summary docs. Plan: 1. Add an extractor eval fixture for packages/core/src/index.ts. 2. Assert tests/extraction/orchestrator.test.ts coverage for plans, finals, touched files, tools, and safe text. 3. Keep expansion snapshots bounded and redacted. Touched 6 file(s).
+
+Final message: Final: extraction eval complete. Next action: open PR with safe summary docs.
+
+Touched files:
+- ./docs/SAFE_SUMMARIES.md
+- /Volumes/LEXAR/repos/acme/packages/ui/Button.tsx
+- packages/core/src/index.ts
+- src/worker.ts
+- tests/extraction/orchestrator.test.ts
+- ~/private
+
+Plans:
+1. Add an extractor eval fixture for packages/core/src/index.ts. 2. Assert tests/extraction/orchestrator.test.ts coverage for plans, finals, touched files, tools, and safe text. 3. Keep expansion snapshots bounded and redacted.
+
+- Verify loo_expand_session at a 1k token budget. - Verify loo_expand_session at a 4k token budget. - Confirm the 4k snapshot keeps this evidence sentence: alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau upsilon phi chi psi omega.

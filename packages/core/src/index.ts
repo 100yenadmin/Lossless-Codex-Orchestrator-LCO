@@ -58,6 +58,13 @@ export type SessionDescription = {
   sourcePath: string;
 };
 
+export type CodexToolCall = {
+  threadId: string;
+  callId: string;
+  toolName: string;
+  argumentsText: string;
+};
+
 export type ExpandSessionOptions = {
   threadId: string;
   tokenBudget?: number;
@@ -322,6 +329,30 @@ export function getCodexTouchedFiles(db: LooDatabase, options: { threadId: strin
   return (db.prepare("SELECT path FROM codex_touched_files WHERE thread_id = ? ORDER BY path").all(options.threadId) as Array<{ path: string }>).map((row) => row.path);
 }
 
+export function getCodexToolCalls(db: LooDatabase, options: { limit?: number; threadId?: string } = {}): CodexToolCall[] {
+  const limit = clamp(options.limit ?? 100, 1, 1000);
+  const rows = options.threadId
+    ? db.prepare(`
+        SELECT thread_id AS threadId, call_id AS callId, tool_name AS toolName, arguments_text AS argumentsText
+        FROM codex_tool_calls
+        WHERE thread_id = ?
+        ORDER BY rowid
+        LIMIT ?
+      `).all(options.threadId, limit)
+    : db.prepare(`
+        SELECT thread_id AS threadId, call_id AS callId, tool_name AS toolName, arguments_text AS argumentsText
+        FROM codex_tool_calls
+        ORDER BY rowid DESC
+        LIMIT ?
+      `).all(limit);
+  return (rows as Array<Record<string, unknown>>).map((row) => ({
+    threadId: String(row.threadId),
+    callId: String(row.callId),
+    toolName: String(row.toolName),
+    argumentsText: String(row.argumentsText ?? "")
+  }));
+}
+
 export function expandSession(db: LooDatabase, options: ExpandSessionOptions): { threadId: string; text: string; tokenBudget: number } {
   const description = describeSession(db, options.threadId);
   if (!description) throw new Error(`Unknown Codex thread: ${options.threadId}`);
@@ -403,7 +434,8 @@ function parseCodexJsonl(sourcePath: string, text: string): ImportedSession {
     const meta = item.session_meta?.payload ?? item.session_meta ?? item.turn_context?.payload ?? null;
     if (meta) {
       session.threadId = String(meta.id ?? meta.thread_id ?? session.threadId);
-      session.cwd = stringOrNull(meta.cwd ?? meta.workdir ?? session.cwd);
+      const cwd = stringOrNull(meta.cwd ?? meta.workdir ?? session.cwd);
+      session.cwd = cwd ? redactSafeString(cwd) : null;
       session.model = stringOrNull(meta.model ?? session.model);
       session.branch = stringOrNull(meta.git?.branch ?? meta.git_branch ?? session.branch);
       session.gitSha = stringOrNull(meta.git?.commit_hash ?? meta.git_sha ?? session.gitSha);
@@ -411,13 +443,13 @@ function parseCodexJsonl(sourcePath: string, text: string): ImportedSession {
 
     const title = item.event_msg?.name ?? item.thread_name ?? item.payload?.title;
     if (typeof title === "string" && title.trim()) {
-      session.title = title.trim();
-      safeParts.push(title.trim());
+      session.title = redactSafeString(title.trim());
+      safeParts.push(session.title);
     }
 
     const textPayloads = extractTextPayloads(item);
     for (const payload of textPayloads) {
-      const clean = normalizeText(payload);
+      const clean = redactSafeString(normalizeText(payload));
       if (!clean) continue;
       safeParts.push(clean);
       for (const plan of extractPlans(clean)) session.plans.push(plan);
@@ -429,7 +461,7 @@ function parseCodexJsonl(sourcePath: string, text: string): ImportedSession {
     if (responseItem?.type === "function_call" || responseItem?.call_id || responseItem?.name?.includes?.(".")) {
       const callId = String(responseItem.call_id ?? responseItem.id ?? stableId(`${sourcePath}:${i}`));
       const toolName = String(responseItem.name ?? responseItem.tool_name ?? "unknown");
-      const args = stringifyMaybe(responseItem.arguments ?? responseItem.input ?? "");
+      const args = redactSafeString(stringifyMaybe(responseItem.arguments ?? responseItem.input ?? ""));
       session.toolCalls.push({ callId, toolName, argumentsText: args });
       for (const file of extractTouchedFiles(args)) touched.add(file);
       safeParts.push(`${toolName} ${args}`);
@@ -630,7 +662,7 @@ function extractPlans(text: string): string[] {
 
 function extractTouchedFiles(text: string): string[] {
   const matches = text.match(/(?:\/Volumes\/LEXAR|\/Users|~\/|\.\/|packages\/|src\/|tests\/)[A-Za-z0-9._~/%@:+\-=]+/g) ?? [];
-  return matches.map((match) => match.replace(/[)",'`;]+$/, "")).filter((match) => match.includes("/") && !match.endsWith("/"));
+  return matches.map((match) => match.replace(/[).,"'`;:]+$/, "")).filter((match) => match.includes("/") && !match.endsWith("/"));
 }
 
 function safeFtsTerms(query: string): string[] {
@@ -658,6 +690,15 @@ function findTimestamp(item: any): string | null {
 
 function normalizeText(text: string): string {
   return text.replace(/\s+/g, " ").trim();
+}
+
+function redactSafeString(value: string): string {
+  let redacted = value.replace(/\/Users\/[^/\s"'`)]+/g, "~");
+  redacted = redacted.replace(/sk-[A-Za-z0-9_-]{10,}/g, "<redacted-secret>");
+  redacted = redacted.replace(/(Bearer\s+)[A-Za-z0-9._-]{10,}/gi, "$1<redacted-secret>");
+  redacted = redacted.replace(/(Basic\s+)[A-Za-z0-9._~+/-]+=*/gi, "$1<redacted-secret>");
+  redacted = redacted.replace(/(\bauthorization\s*:\s*)[^\r\n"'`)]+/gi, "$1<redacted-secret>");
+  return redacted;
 }
 
 function stringifyMaybe(value: unknown): string {
