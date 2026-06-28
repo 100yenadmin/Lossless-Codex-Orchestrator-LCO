@@ -112,11 +112,11 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       action: { type: "string", enum: ["send", "resume", "steer", "interrupt"] },
       thread_id: { type: "string" },
       message: { type: "string" }
-    }, (input) => dispatchControl(control, input, true)),
-    tool("loo_codex_resume_thread", "Resume or rejoin a Codex thread. Live mode requires approval_audit_id.", controlSchema(), (input) => control.resumeThread(controlInput(input))),
+    }, (input) => snakeCaseControlResult(dispatchControl(control, input, true))),
+    tool("loo_codex_resume_thread", "Resume or rejoin a Codex thread. Live mode requires approval_audit_id.", controlSchema(), (input) => snakeCaseControlResult(control.resumeThread(controlInput(input)))),
     tool("loo_codex_send_message", "Send a message to a Codex thread. Live mode requires approval_audit_id.", controlSchema(true), (input) => snakeCaseControlResult(control.sendMessage(messageControlInput(input)))),
-    tool("loo_codex_steer_thread", "Steer a running Codex thread. Live mode requires approval_audit_id.", controlSchema(true), (input) => control.steerThread(messageControlInput(input))),
-    tool("loo_codex_interrupt_thread", "Interrupt a Codex thread. Live mode requires approval_audit_id.", controlSchema(), (input) => control.interruptThread(controlInput(input))),
+    tool("loo_codex_steer_thread", "Steer a running Codex thread. Live mode requires approval_audit_id.", controlSchema(true), (input) => snakeCaseControlResult(control.steerThread(messageControlInput(input)))),
+    tool("loo_codex_interrupt_thread", "Interrupt a Codex thread. Live mode requires approval_audit_id.", controlSchema(), (input) => snakeCaseControlResult(control.interruptThread(controlInput(input)))),
     tool("loo_desktop_see", "Inspect desktop fallback readiness through direct/CUA/Peekaboo backends.", {
       backend: { type: "string", enum: ["direct", "cua-driver", "peekaboo"] }
     }, (input) => desktopSee({ backend: optionalString(input.backend) as any })),
@@ -137,7 +137,9 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       uploadsLocalText: false,
       commandPolicy: LOO_COMMAND_POLICY
     })),
-    tool("loo_audit_tail", "Read recent local audit records by path reference.", {}, () => ({ auditPath: options.audit.path }))
+    tool("loo_audit_tail", "Read recent local audit records without raw prompt text.", {
+      limit: { type: "integer", minimum: 1, maximum: 1000 }
+    }, (input) => ({ auditPath: options.audit.path, records: options.audit.tail(optionalNumber(input.limit) ?? 20) }))
   ];
 }
 
@@ -191,7 +193,9 @@ async function snakeCaseControlResult(value: Promise<any>) {
   const result = await value;
   return {
     ...result,
-    approval_audit_id: result.approvalAuditId
+    approval_audit_id: result.approvalAuditId,
+    params_hash: result.paramsHash,
+    message_hash: result.messageHash
   };
 }
 

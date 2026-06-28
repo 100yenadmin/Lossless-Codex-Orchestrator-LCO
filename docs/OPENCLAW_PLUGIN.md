@@ -14,5 +14,7 @@ Recommended OpenClaw configuration should expose the `loo_*` tools and keep live
 - Optional LCM peer recall uses `LOO_LCM_DB_PATHS` or per-call `lcm_db_paths` and opens those DBs read-only.
 - Control tools should run `dry_run=true` first.
 - Live control requires `approval_audit_id` from the dry-run result.
+- Dry-run output includes `params_hash` and message-bearing actions include `message_hash`; agents should echo those local keyed fingerprints before asking the user to approve live control.
+- `loo_audit_tail` returns recent fingerprinted audit records without raw prompt text.
 
 Claude Code support is an adapter stub in this beta.
