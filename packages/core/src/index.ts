@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename, delimiter, dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 export type LooDatabase = DatabaseSync;
@@ -35,6 +35,8 @@ export type CodexSqliteProbe = {
 };
 
 export type SessionSearchResult = {
+  sourceKind: "codex_thread";
+  sourceRef: string;
   threadId: string;
   title: string | null;
   summary: string | null;
@@ -44,6 +46,8 @@ export type SessionSearchResult = {
 };
 
 export type SessionDescription = {
+  sourceKind: "codex_thread";
+  sourceRef: string;
   threadId: string;
   title: string | null;
   cwd: string | null;
@@ -68,6 +72,92 @@ export type CodexToolCall = {
 export type ExpandSessionOptions = {
   threadId: string;
   tokenBudget?: number;
+  profile?: RecallProfileName;
+};
+
+export type RecallProfileName = "metadata" | "brief" | "evidence";
+
+export type RecallProfile = {
+  name: RecallProfileName;
+  tokenBudget: number;
+  description: string;
+};
+
+export type RecallSourceKind = "codex_thread" | "lcm_summary";
+
+export type RecallSearchResult = {
+  sourceKind: RecallSourceKind;
+  sourceRef: string;
+  title: string | null;
+  summary: string | null;
+  updatedAt: string | null;
+  score: number;
+  snippet: string;
+  threadId?: string;
+  summaryId?: string;
+  conversationId?: number;
+  sourcePath?: string;
+};
+
+export type RecallDescription = {
+  sourceKind: RecallSourceKind;
+  sourceRef: string;
+  title: string | null;
+  summary: string | null;
+  updatedAt: string | null;
+  sourcePath: string;
+  threadId?: string;
+  summaryId?: string;
+  conversationId?: number;
+  kind?: string | null;
+  depth?: number | null;
+  tokenCount?: number | null;
+  model?: string | null;
+  cwd?: string | null;
+  branch?: string | null;
+  gitSha?: string | null;
+  finalMessage?: string | null;
+  planCount?: number;
+  touchedFiles?: string[];
+  toolCallCount?: number;
+};
+
+export type ExpandRecallResult = {
+  sourceKind: RecallSourceKind;
+  sourceRef: string;
+  text: string;
+  tokenBudget: number;
+  profile: RecallProfile;
+  threadId?: string;
+  summaryId?: string;
+  query?: string;
+  matches?: RecallSearchResult[];
+};
+
+export type LcmPeerProbe = {
+  path: string;
+  readable: boolean;
+  readOnly: boolean;
+  queryOnly: boolean;
+  supported: boolean;
+  tables: string[];
+  summaryCount: number | null;
+  ftsAvailable: boolean;
+  reason: string | null;
+};
+
+type LcmSummaryRecord = {
+  summaryId: string;
+  conversationId: number;
+  conversationTitle: string | null;
+  kind: string | null;
+  depth: number | null;
+  content: string;
+  tokenCount: number | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  model: string | null;
+  sourcePath: string;
 };
 
 type ImportedSession = {
@@ -104,6 +194,10 @@ export function defaultCodexRoots(home = process.env.HOME || "."): string[] {
     join(home, ".codex", "sessions"),
     join(home, ".codex", "archived_sessions")
   ];
+}
+
+export function configuredLcmPeerDbPaths(raw = process.env.LOO_LCM_DB_PATHS ?? ""): string[] {
+  return unique(raw.split(new RegExp(`[${escapeRegExp(delimiter)},\\n]`, "g")).map((part) => part.trim()).filter(Boolean));
 }
 
 export function migrate(db: LooDatabase): void {
@@ -238,6 +332,8 @@ export function searchSessions(db: LooDatabase, options: { query: string; limit?
 
   if (rows.length > 0) {
     return rows.map((row, index) => ({
+      sourceKind: "codex_thread",
+      sourceRef: codexThreadRef(String(row.threadId)),
       threadId: String(row.threadId),
       title: nullableString(row.title),
       summary: nullableString(row.summary),
@@ -255,6 +351,8 @@ export function searchSessions(db: LooDatabase, options: { query: string; limit?
     ORDER BY COALESCE(updated_at, indexed_at) DESC
     LIMIT ?
   `).all(like, like, like, limit) as Array<Record<string, unknown>>).map((row, index) => ({
+    sourceKind: "codex_thread",
+    sourceRef: codexThreadRef(String(row.threadId)),
     threadId: String(row.threadId),
     title: nullableString(row.title),
     summary: nullableString(row.summary),
@@ -273,6 +371,8 @@ export function describeSession(db: LooDatabase, threadId: string): SessionDescr
   `).get(threadId) as Record<string, unknown> | undefined;
   if (!row) return null;
   return {
+    sourceKind: "codex_thread",
+    sourceRef: codexThreadRef(String(row.threadId)),
     threadId: String(row.threadId),
     title: nullableString(row.title),
     cwd: nullableString(row.cwd),
@@ -353,11 +453,34 @@ export function getCodexToolCalls(db: LooDatabase, options: { limit?: number; th
   }));
 }
 
-export function expandSession(db: LooDatabase, options: ExpandSessionOptions): { threadId: string; text: string; tokenBudget: number } {
+export function expandSession(db: LooDatabase, options: ExpandSessionOptions): ExpandRecallResult & { threadId: string } {
   const description = describeSession(db, options.threadId);
   if (!description) throw new Error(`Unknown Codex thread: ${options.threadId}`);
   const plans = getCodexPlans(db, { threadId: options.threadId, limit: 10 }).map((plan) => plan.text);
-  const budget = clamp(options.tokenBudget ?? 1000, 20, 8000);
+  const profile = resolveRecallProfile(options.profile, options.tokenBudget);
+  if (profile.name === "metadata") {
+    const metadata = [
+      `Thread: ${description.title ?? description.threadId}`,
+      `Ref: ${description.sourceRef}`,
+      `ID: ${description.threadId}`,
+      description.cwd ? `CWD: ${description.cwd}` : null,
+      description.branch ? `Branch: ${description.branch}` : null,
+      description.gitSha ? `Git SHA: ${description.gitSha}` : null,
+      description.summary ? `Summary: ${description.summary}` : null,
+      `Plans: ${description.planCount}`,
+      `Touched files: ${description.touchedFiles.length}`,
+      `Tool calls: ${description.toolCallCount}`,
+      `Source path: ${description.sourcePath}`
+    ].filter(Boolean).join("\n");
+    return {
+      sourceKind: "codex_thread",
+      sourceRef: description.sourceRef,
+      threadId: options.threadId,
+      text: metadata,
+      tokenBudget: profile.tokenBudget,
+      profile
+    };
+  }
   const text = [
     `Thread: ${description.title ?? description.threadId}`,
     `ID: ${description.threadId}`,
@@ -367,9 +490,400 @@ export function expandSession(db: LooDatabase, options: ExpandSessionOptions): {
     description.summary ? `Summary: ${description.summary}` : null,
     description.finalMessage ? `Final message: ${description.finalMessage}` : null,
     description.touchedFiles.length ? `Touched files:\n${description.touchedFiles.map((file) => `- ${file}`).join("\n")}` : null,
-    plans.length ? `Plans:\n${plans.map((plan) => truncate(plan, 1600)).join("\n\n")}` : null
+    plans.length ? `Plans:\n${plans.map((plan) => truncate(plan, profile.name === "evidence" ? 3200 : 1600)).join("\n\n")}` : null
   ].filter(Boolean).join("\n\n");
-  return { threadId: options.threadId, text: truncateByApproxTokens(text, budget), tokenBudget: budget };
+  return {
+    sourceKind: "codex_thread",
+    sourceRef: description.sourceRef,
+    threadId: options.threadId,
+    text: truncateByApproxTokens(text, profile.tokenBudget),
+    tokenBudget: profile.tokenBudget,
+    profile
+  };
+}
+
+export function probeLcmPeerDbs(paths = configuredLcmPeerDbPaths()): { peers: LcmPeerProbe[] } {
+  return { peers: paths.map((path) => probeLcmPeerDb(path)) };
+}
+
+export function grepRecall(db: LooDatabase, options: {
+  query: string;
+  limit?: number;
+  profile?: RecallProfileName;
+  tokenBudget?: number;
+  lcmDbPaths?: string[];
+}): { query: string; profile: RecallProfile; matches: RecallSearchResult[] } {
+  const query = options.query.trim();
+  const limit = clamp(options.limit ?? 10, 1, 100);
+  const profile = resolveRecallProfile(options.profile, options.tokenBudget);
+  if (!query) return { query, profile, matches: [] };
+  const codexMatches: RecallSearchResult[] = searchSessions(db, { query, limit }).map((match) => ({
+    ...match,
+    sourceKind: "codex_thread",
+    sourceRef: codexThreadRef(match.threadId),
+    threadId: match.threadId
+  }));
+  const lcmMatches = searchLcmPeers(options.lcmDbPaths ?? [], query, limit);
+  const matches = [...codexMatches, ...lcmMatches].slice(0, limit).map((match, index) => ({ ...match, score: index + 1 }));
+  return { query, profile, matches };
+}
+
+export function describeRecallRef(db: LooDatabase, options: { sourceRef: string; lcmDbPaths?: string[] }): RecallDescription | null {
+  const parsed = parseSourceRef(options.sourceRef);
+  if (parsed.kind === "codex_thread") {
+    const description = describeSession(db, parsed.id);
+    if (!description) return null;
+    return {
+      sourceKind: "codex_thread",
+      sourceRef: description.sourceRef,
+      title: description.title,
+      summary: description.summary,
+      updatedAt: null,
+      sourcePath: description.sourcePath,
+      threadId: description.threadId,
+      cwd: description.cwd,
+      branch: description.branch,
+      gitSha: description.gitSha,
+      model: description.model,
+      finalMessage: description.finalMessage,
+      planCount: description.planCount,
+      touchedFiles: description.touchedFiles,
+      toolCallCount: description.toolCallCount
+    };
+  }
+  const summary = getLcmSummaryByRef(options.lcmDbPaths ?? [], parsed.dbHash, parsed.id);
+  if (!summary) return null;
+  return lcmSummaryDescription(summary);
+}
+
+export function expandRecallRef(db: LooDatabase, options: {
+  sourceRef: string;
+  lcmDbPaths?: string[];
+  profile?: RecallProfileName;
+  tokenBudget?: number;
+}): ExpandRecallResult {
+  const parsed = parseSourceRef(options.sourceRef);
+  if (parsed.kind === "codex_thread") {
+    return expandSession(db, { threadId: parsed.id, profile: options.profile, tokenBudget: options.tokenBudget });
+  }
+  const summary = getLcmSummaryByRef(options.lcmDbPaths ?? [], parsed.dbHash, parsed.id);
+  if (!summary) throw new Error(`Unknown LCM summary ref: ${options.sourceRef}`);
+  const profile = resolveRecallProfile(options.profile, options.tokenBudget);
+  const metadata = [
+    `Summary ID: ${summary.summaryId}`,
+    `Ref: ${lcmSummaryRef(summary.sourcePath, summary.summaryId)}`,
+    `Conversation: ${summary.conversationTitle ?? summary.conversationId}`,
+    `Conversation ID: ${summary.conversationId}`,
+    summary.kind ? `Kind: ${summary.kind}` : null,
+    summary.depth !== null ? `Depth: ${summary.depth}` : null,
+    summary.tokenCount !== null ? `Token count: ${summary.tokenCount}` : null,
+    summary.model ? `Model: ${summary.model}` : null,
+    summary.updatedAt ? `Updated: ${summary.updatedAt}` : null,
+    `Source path: ${summary.sourcePath}`
+  ].filter(Boolean).join("\n");
+  const text = profile.name === "metadata"
+    ? metadata
+    : truncateByApproxTokens(`${metadata}\n\nContent:\n${summary.content}`, profile.tokenBudget);
+  return {
+    sourceKind: "lcm_summary",
+    sourceRef: lcmSummaryRef(summary.sourcePath, summary.summaryId),
+    summaryId: summary.summaryId,
+    text,
+    tokenBudget: profile.tokenBudget,
+    profile
+  };
+}
+
+export function expandQuery(db: LooDatabase, options: {
+  query: string;
+  limit?: number;
+  profile?: RecallProfileName;
+  tokenBudget?: number;
+  lcmDbPaths?: string[];
+}): ExpandRecallResult {
+  const grep = grepRecall(db, options);
+  const first = grep.matches[0];
+  if (!first) {
+    const profile = resolveRecallProfile(options.profile, options.tokenBudget);
+    return {
+      sourceKind: "codex_thread",
+      sourceRef: "",
+      text: "",
+      tokenBudget: profile.tokenBudget,
+      profile,
+      query: grep.query,
+      matches: []
+    };
+  }
+  return {
+    ...expandRecallRef(db, { sourceRef: first.sourceRef, lcmDbPaths: options.lcmDbPaths, profile: options.profile, tokenBudget: options.tokenBudget }),
+    query: grep.query,
+    matches: grep.matches
+  };
+}
+
+function searchLcmPeers(paths: string[], query: string, limit: number): RecallSearchResult[] {
+  const matches: RecallSearchResult[] = [];
+  for (const path of paths) {
+    if (matches.length >= limit) break;
+    const db = openLcmPeerDb(path);
+    try {
+      matches.push(...searchLcmPeer(db, path, query, limit - matches.length));
+    } catch {
+      // Peer reads are optional and must not break Codex recall.
+    } finally {
+      db.close();
+    }
+  }
+  return matches;
+}
+
+function searchLcmPeer(db: LooDatabase, path: string, query: string, limit: number): RecallSearchResult[] {
+  if (!tableExists(db, "summaries")) return [];
+  const hasFts = tableExists(db, "summaries_fts");
+  const hasConversations = tableExists(db, "conversations");
+  const terms = queryTerms(query);
+  if (terms.length === 0) return [];
+  if (hasFts) {
+    try {
+      const rows = db.prepare(`
+        SELECT
+          s.summary_id AS summaryId,
+          s.conversation_id AS conversationId,
+          ${hasConversations ? "c.title" : "NULL"} AS conversationTitle,
+          s.kind,
+          s.depth,
+          s.content,
+          s.token_count AS tokenCount,
+          s.model,
+          s.created_at AS createdAt,
+          COALESCE(s.latest_at, s.created_at${hasConversations ? ", c.updated_at" : ""}) AS updatedAt,
+          snippet(summaries_fts, 1, '[', ']', '...', 18) AS snippet
+        FROM summaries_fts
+        JOIN summaries s ON s.summary_id = summaries_fts.summary_id
+        ${hasConversations ? "LEFT JOIN conversations c ON c.conversation_id = s.conversation_id" : ""}
+        WHERE summaries_fts MATCH ?
+        ORDER BY rank
+        LIMIT ?
+      `).all(safeFtsTerms(query).join(" "), limit) as Array<Record<string, unknown>>;
+      if (rows.length > 0) return rows.map((row, index) => lcmSearchResult(path, row, query, index));
+    } catch {
+      // Fall back to LIKE below when peer FTS is unavailable or extension-backed.
+    }
+  }
+  const where = terms.map(() => "s.content LIKE ? ESCAPE '\\'").join(" AND ");
+  const rows = db.prepare(`
+    SELECT
+      s.summary_id AS summaryId,
+      s.conversation_id AS conversationId,
+      ${hasConversations ? "c.title" : "NULL"} AS conversationTitle,
+      s.kind,
+      s.depth,
+      s.content,
+      s.token_count AS tokenCount,
+      s.model,
+      s.created_at AS createdAt,
+      COALESCE(s.latest_at, s.created_at${hasConversations ? ", c.updated_at" : ""}) AS updatedAt
+    FROM summaries s
+    ${hasConversations ? "LEFT JOIN conversations c ON c.conversation_id = s.conversation_id" : ""}
+    WHERE ${where}
+    ORDER BY COALESCE(s.latest_at, s.created_at) DESC
+    LIMIT ?
+  `).all(...terms.map((term) => `%${escapeLike(term)}%`), limit) as Array<Record<string, unknown>>;
+  return rows.map((row, index) => lcmSearchResult(path, row, query, index));
+}
+
+function lcmSearchResult(path: string, row: Record<string, unknown>, query: string, index: number): RecallSearchResult {
+  const summaryId = String(row.summaryId);
+  const content = redactSafeString(String(row.content ?? ""));
+  const title = nullableString(row.conversationTitle) ?? `LCM summary ${summaryId}`;
+  return {
+    sourceKind: "lcm_summary",
+    sourceRef: lcmSummaryRef(path, summaryId),
+    summaryId,
+    conversationId: Number(row.conversationId ?? 0),
+    title,
+    summary: truncate(content, 300),
+    updatedAt: nullableString(row.updatedAt ?? row.createdAt),
+    score: index + 1,
+    snippet: redactSafeString(String(row.snippet ?? createSnippet(content, query))),
+    sourcePath: path
+  };
+}
+
+function getLcmSummaryByRef(paths: string[], dbHash: string, summaryId: string): LcmSummaryRecord | null {
+  const path = paths.find((candidate) => lcmPeerHash(candidate) === dbHash);
+  if (!path) return null;
+  const db = openLcmPeerDb(path);
+  try {
+    if (!tableExists(db, "summaries")) return null;
+    const hasConversations = tableExists(db, "conversations");
+    const row = db.prepare(`
+      SELECT
+        s.summary_id AS summaryId,
+        s.conversation_id AS conversationId,
+        ${hasConversations ? "c.title" : "NULL"} AS conversationTitle,
+        s.kind,
+        s.depth,
+        s.content,
+        s.token_count AS tokenCount,
+        s.model,
+        s.created_at AS createdAt,
+        COALESCE(s.latest_at, s.created_at${hasConversations ? ", c.updated_at" : ""}) AS updatedAt
+      FROM summaries s
+      ${hasConversations ? "LEFT JOIN conversations c ON c.conversation_id = s.conversation_id" : ""}
+      WHERE s.summary_id = ?
+    `).get(summaryId) as Record<string, unknown> | undefined;
+    return row ? lcmSummaryRecord(path, row) : null;
+  } finally {
+    db.close();
+  }
+}
+
+function lcmSummaryRecord(path: string, row: Record<string, unknown>): LcmSummaryRecord {
+  return {
+    summaryId: String(row.summaryId),
+    conversationId: Number(row.conversationId ?? 0),
+    conversationTitle: nullableString(row.conversationTitle),
+    kind: nullableString(row.kind),
+    depth: row.depth === null || row.depth === undefined ? null : Number(row.depth),
+    content: redactSafeString(String(row.content ?? "")),
+    tokenCount: row.tokenCount === null || row.tokenCount === undefined ? null : Number(row.tokenCount),
+    createdAt: nullableString(row.createdAt),
+    updatedAt: nullableString(row.updatedAt),
+    model: nullableString(row.model),
+    sourcePath: path
+  };
+}
+
+function lcmSummaryDescription(summary: LcmSummaryRecord): RecallDescription {
+  return {
+    sourceKind: "lcm_summary",
+    sourceRef: lcmSummaryRef(summary.sourcePath, summary.summaryId),
+    title: summary.conversationTitle,
+    summary: truncate(summary.content, 500),
+    updatedAt: summary.updatedAt,
+    sourcePath: summary.sourcePath,
+    summaryId: summary.summaryId,
+    conversationId: summary.conversationId,
+    kind: summary.kind,
+    depth: summary.depth,
+    tokenCount: summary.tokenCount,
+    model: summary.model
+  };
+}
+
+function probeLcmPeerDb(path: string): LcmPeerProbe {
+  try {
+    const db = openLcmPeerDb(path);
+    try {
+      const tables = listTables(db);
+      const supported = tables.includes("summaries");
+      const summaryCount = supported ? Number((db.prepare("SELECT COUNT(*) AS count FROM summaries").get() as { count: number }).count) : null;
+      return {
+        path,
+        readable: true,
+        readOnly: true,
+        queryOnly: queryOnlyEnabled(db),
+        supported,
+        tables: tables.filter((table) => ["summaries", "summaries_fts", "conversations", "summary_messages", "summary_parents"].includes(table)),
+        summaryCount,
+        ftsAvailable: tables.includes("summaries_fts"),
+        reason: supported ? null : "missing summaries table"
+      };
+    } finally {
+      db.close();
+    }
+  } catch (error) {
+    return {
+      path,
+      readable: false,
+      readOnly: true,
+      queryOnly: false,
+      supported: false,
+      tables: [],
+      summaryCount: null,
+      ftsAvailable: false,
+      reason: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+function openLcmPeerDb(path: string): LooDatabase {
+  const db = new DatabaseSync(path, { readOnly: true });
+  db.exec("PRAGMA query_only = ON");
+  return db;
+}
+
+function tableExists(db: LooDatabase, name: string): boolean {
+  const row = db.prepare("SELECT 1 AS found FROM sqlite_master WHERE type IN ('table', 'virtual table') AND name = ?").get(name) as { found: number } | undefined;
+  return row?.found === 1;
+}
+
+function listTables(db: LooDatabase): string[] {
+  return (db.prepare("SELECT name FROM sqlite_master WHERE type IN ('table', 'virtual table') ORDER BY name").all() as Array<{ name: string }>).map((row) => row.name);
+}
+
+function queryOnlyEnabled(db: LooDatabase): boolean {
+  const row = db.prepare("PRAGMA query_only").get() as Record<string, unknown> | undefined;
+  return Number(Object.values(row ?? {})[0] ?? 0) === 1;
+}
+
+function resolveRecallProfile(profile: RecallProfileName = "brief", tokenBudget?: number): RecallProfile {
+  if (profile === "metadata") {
+    return {
+      name: "metadata",
+      tokenBudget: 0,
+      description: "Metadata-only source map with no expanded summary or plan body."
+    };
+  }
+  const defaultBudget = profile === "evidence" ? 4000 : 1000;
+  return {
+    name: profile,
+    tokenBudget: clamp(tokenBudget ?? defaultBudget, 20, 8000),
+    description: profile === "evidence" ? "4k evidence bundle." : "1k recall brief."
+  };
+}
+
+function codexThreadRef(threadId: string): string {
+  return `codex_thread:${threadId}`;
+}
+
+function lcmSummaryRef(path: string, summaryId: string): string {
+  return `lcm_summary:${lcmPeerHash(path)}:${encodeURIComponent(summaryId)}`;
+}
+
+function lcmPeerHash(path: string): string {
+  return stableId(path).slice(0, 12);
+}
+
+function parseSourceRef(sourceRef: string): { kind: "codex_thread"; id: string } | { kind: "lcm_summary"; dbHash: string; id: string } {
+  if (sourceRef.startsWith("codex_thread:")) {
+    const id = sourceRef.slice("codex_thread:".length);
+    if (!id) throw new Error("codex_thread source ref is missing thread id");
+    return { kind: "codex_thread", id };
+  }
+  if (sourceRef.startsWith("lcm_summary:")) {
+    const rest = sourceRef.slice("lcm_summary:".length);
+    const separator = rest.indexOf(":");
+    const dbHash = separator >= 0 ? rest.slice(0, separator) : "";
+    const encodedId = separator >= 0 ? rest.slice(separator + 1) : "";
+    if (!dbHash || !encodedId) throw new Error("lcm_summary source ref must be lcm_summary:<db-hash>:<summary-id>");
+    return { kind: "lcm_summary", dbHash, id: decodeURIComponent(encodedId) };
+  }
+  throw new Error(`Unsupported source ref: ${sourceRef}`);
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+function queryTerms(query: string): string[] {
+  return query.match(/[\p{L}\p{N}_-]+/gu)?.slice(0, 12) ?? [];
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function collectJsonlFiles(roots: string[], maxFiles: number): string[] {

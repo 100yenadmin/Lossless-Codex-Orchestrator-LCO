@@ -1,13 +1,18 @@
 import {
+  configuredLcmPeerDbPaths,
   describeSession,
+  describeRecallRef,
   defaultCodexRoots,
   expandSession,
+  expandQuery,
   getCodexFinalMessages,
   getCodexPlans,
   getCodexThreadMap,
   getCodexTouchedFiles,
   getCodexToolCalls,
+  grepRecall,
   indexCodexSessions,
+  probeLcmPeerDbs,
   probeCodexSqliteStores,
   type LooDatabase,
   searchSessions
@@ -39,20 +44,45 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       query: { type: "string" },
       limit: { type: "integer", minimum: 1, maximum: 100 }
     }, (input) => searchSessions(options.db, { query: requiredString(input.query, "query"), limit: optionalNumber(input.limit) })),
+    tool("loo_grep", "Search Codex index and optional read-only OpenClaw LCM peer DBs with source-prefixed refs.", {
+      query: { type: "string" },
+      limit: { type: "integer", minimum: 1, maximum: 100 },
+      profile: { type: "string", enum: ["metadata", "brief", "evidence"] },
+      token_budget: { type: "integer", minimum: 20, maximum: 8000 },
+      lcm_db_paths: { type: "array", items: { type: "string" } }
+    }, (input) => grepRecall(options.db, {
+      query: requiredString(input.query, "query"),
+      limit: optionalNumber(input.limit),
+      profile: optionalProfile(input.profile),
+      tokenBudget: optionalNumber(input.token_budget),
+      lcmDbPaths: optionalRoots(input.lcm_db_paths, configuredLcmPeerDbPaths())
+    })),
     tool("loo_describe_session", "Describe one indexed Codex session by thread id.", {
       thread_id: { type: "string" }
     }, (input) => describeSession(options.db, requiredString(input.thread_id, "thread_id"))),
+    tool("loo_describe_ref", "Describe a source-prefixed recall ref such as codex_thread:* or lcm_summary:*.", {
+      source_ref: { type: "string" },
+      lcm_db_paths: { type: "array", items: { type: "string" } }
+    }, (input) => describeRecallRef(options.db, {
+      sourceRef: requiredString(input.source_ref, "source_ref"),
+      lcmDbPaths: optionalRoots(input.lcm_db_paths, configuredLcmPeerDbPaths())
+    })),
     tool("loo_expand_session", "Expand one indexed Codex session into a bounded evidence brief.", {
       thread_id: { type: "string" },
+      profile: { type: "string", enum: ["metadata", "brief", "evidence"] },
       token_budget: { type: "integer", minimum: 20, maximum: 8000 }
-    }, (input) => expandSession(options.db, { threadId: requiredString(input.thread_id, "thread_id"), tokenBudget: optionalNumber(input.token_budget) })),
-    tool("loo_expand_query", "Search then expand the best matching Codex session.", {
+    }, (input) => expandSession(options.db, { threadId: requiredString(input.thread_id, "thread_id"), profile: optionalProfile(input.profile), tokenBudget: optionalNumber(input.token_budget) })),
+    tool("loo_expand_query", "Search then expand the best matching Codex or LCM peer recall ref.", {
       query: { type: "string" },
-      token_budget: { type: "integer", minimum: 20, maximum: 8000 }
-    }, (input) => {
-      const matches = searchSessions(options.db, { query: requiredString(input.query, "query"), limit: 1 });
-      return matches[0] ? expandSession(options.db, { threadId: matches[0].threadId, tokenBudget: optionalNumber(input.token_budget) }) : { matches: [], text: "" };
-    }),
+      profile: { type: "string", enum: ["metadata", "brief", "evidence"] },
+      token_budget: { type: "integer", minimum: 20, maximum: 8000 },
+      lcm_db_paths: { type: "array", items: { type: "string" } }
+    }, (input) => expandQuery(options.db, {
+      query: requiredString(input.query, "query"),
+      profile: optionalProfile(input.profile),
+      tokenBudget: optionalNumber(input.token_budget),
+      lcmDbPaths: optionalRoots(input.lcm_db_paths, configuredLcmPeerDbPaths())
+    })),
     tool("loo_codex_thread_map", "Read the indexed Codex thread map.", {
       limit: { type: "integer", minimum: 1, maximum: 500 }
     }, (input) => getCodexThreadMap(options.db, { limit: optionalNumber(input.limit) })),
@@ -75,6 +105,9 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       roots: { type: "array", items: { type: "string" } },
       max_files: { type: "integer", minimum: 1, maximum: 1000 }
     }, (input) => probeCodexSqliteStores(optionalRoots(input.roots, [`${process.env.HOME || "."}/.codex`]), optionalNumber(input.max_files))),
+    tool("loo_lcm_peer_dbs", "Probe configured OpenClaw LCM peer DBs read-only.", {
+      lcm_db_paths: { type: "array", items: { type: "string" } }
+    }, (input) => probeLcmPeerDbs(optionalRoots(input.lcm_db_paths, configuredLcmPeerDbPaths()))),
     tool("loo_codex_control_dry_run", "Create a dry-run audit id for a Codex control action.", {
       action: { type: "string", enum: ["send", "resume", "steer", "interrupt"] },
       thread_id: { type: "string" },
@@ -96,7 +129,8 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       ok: true,
       localOnly: true,
       toolPrefix: "loo_*",
-      codex: codexTransportStatus({ command: process.env.LOO_CODEX_BIN || "codex" })
+      codex: codexTransportStatus({ command: process.env.LOO_CODEX_BIN || "codex" }),
+      lcmPeers: probeLcmPeerDbs(configuredLcmPeerDbPaths())
     })),
     tool("loo_permissions", "Read safety posture for live controls.", {}, () => ({
       liveControlRequires: ["dry_run", "approval_audit_id"],
@@ -172,6 +206,12 @@ function optionalString(value: unknown): string | undefined {
 
 function optionalNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function optionalProfile(value: unknown): "metadata" | "brief" | "evidence" | undefined {
+  if (value === undefined) return undefined;
+  if (value === "metadata" || value === "brief" || value === "evidence") return value;
+  throw new Error("profile must be metadata, brief, or evidence");
 }
 
 function stringArray(value: unknown): string[] {
