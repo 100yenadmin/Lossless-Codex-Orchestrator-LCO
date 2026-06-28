@@ -1,6 +1,6 @@
 # Lossless OpenClaw Orchestrator
 
-Control your Codex Desktop and Claude Code remotely via your OpenClaw agent or collaborate with them when you are on your computer in the same sessions.
+Control and collaborate with local Codex sessions through OpenClaw using local indexing, bounded recall, and approval-gated controls.
 
 This public beta focuses on Codex. Claude Code support is intentionally shipped as an adapter stub until its session storage and control paths are proven.
 
@@ -50,13 +50,15 @@ npm install
 npm test
 ```
 
+OpenClaw plugin setup lives in [docs/OPENCLAW_PLUGIN.md](docs/OPENCLAW_PLUGIN.md). The beta proof workflow lives in [docs/BETA_RELEASE_DEMO.md](docs/BETA_RELEASE_DEMO.md), and the public claim boundary is audited in [docs/CLAIM_AUDIT.md](docs/CLAIM_AUDIT.md).
+
 ## CLI
 
 ```bash
 loo doctor
 loo desktop see cua-driver
 loo desktop see peekaboo --snapshot --max-nodes 50
-loo desktop act cua-driver "click primary"
+loo desktop act cua-driver "click primary" # dry-run only
 loo index codex ~/.codex/sessions ~/.codex/archived_sessions
 loo search "proposed plan billing bridge"
 loo grep --lcm-db ~/.openclaw/lcm.db "billing bridge"
