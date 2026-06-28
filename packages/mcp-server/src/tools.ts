@@ -6,6 +6,7 @@ import {
   getCodexPlans,
   getCodexThreadMap,
   getCodexTouchedFiles,
+  getCodexToolCalls,
   indexCodexSessions,
   probeCodexSqliteStores,
   type LooDatabase,
@@ -66,6 +67,10 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
     tool("loo_codex_touched_files", "Read touched files extracted for one Codex session.", {
       thread_id: { type: "string" }
     }, (input) => getCodexTouchedFiles(options.db, { threadId: requiredString(input.thread_id, "thread_id") })),
+    tool("loo_codex_tool_calls", "Read redacted tool-call metadata extracted from Codex sessions.", {
+      thread_id: { type: "string" },
+      limit: { type: "integer", minimum: 1, maximum: 1000 }
+    }, (input) => getCodexToolCalls(options.db, { threadId: optionalString(input.thread_id), limit: optionalNumber(input.limit) })),
     tool("loo_codex_sqlite_stores", "Probe local Codex state_*.sqlite and logs_*.sqlite stores read-only.", {
       roots: { type: "array", items: { type: "string" } },
       max_files: { type: "integer", minimum: 1, maximum: 1000 }

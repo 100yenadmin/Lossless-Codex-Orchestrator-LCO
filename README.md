@@ -81,6 +81,7 @@ Codex details:
 - `loo_codex_final_messages`
 - `loo_codex_plans`
 - `loo_codex_touched_files`
+- `loo_codex_tool_calls`
 
 Approval-gated controls:
 
@@ -124,3 +125,5 @@ The test suite uses redacted fixtures and Node's built-in test runner.
 ## Privacy
 
 The default index is local SQLite. The index stores safe text and metadata so agents can search and expand bounded evidence. Raw local session files remain source-of-truth and are referenced by source path; users should not commit private DB files or session transcripts.
+
+See [docs/SAFE_SUMMARIES.md](docs/SAFE_SUMMARIES.md) for the beta safe-summary contract.

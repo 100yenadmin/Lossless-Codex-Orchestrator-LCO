@@ -66,6 +66,7 @@ export const LOO_COMMAND_POLICY: Record<string, LooCommandSafety> = {
   loo_codex_final_messages: { mode: "read_only", source: "local_index", requiresApproval: false },
   loo_codex_plans: { mode: "read_only", source: "local_index", requiresApproval: false },
   loo_codex_touched_files: { mode: "read_only", source: "local_index", requiresApproval: false },
+  loo_codex_tool_calls: { mode: "read_only", source: "local_index", requiresApproval: false },
   loo_codex_sqlite_stores: { mode: "read_only", source: "local_index", requiresApproval: false },
   loo_codex_control_dry_run: { mode: "read_only", source: "audit", requiresApproval: false },
   loo_codex_resume_thread: { mode: "approval_gated_control", source: "codex_direct", requiresApproval: true },
