@@ -61,6 +61,7 @@ async function main() {
       console.log(JSON.stringify(grepRecall(db, {
         query: parsed.rest.join(" "),
         profile: parsed.profile,
+        tokenBudget: parsed.tokenBudget,
         lcmDbPaths: parsed.lcmDbPaths
       }), null, 2));
     } finally {
@@ -120,7 +121,19 @@ async function main() {
     console.log(createAuditStore(process.env.LOO_AUDIT_PATH || `${process.env.HOME}/.openclaw/lossless-openclaw-orchestrator/audit.jsonl`).path);
     return;
   }
-  console.error("Usage: loo doctor | loo index codex [roots...] | loo probe codex-sqlite [roots...] | loo search <query> | loo grep [--lcm-db path] [--profile metadata|brief|evidence] <query> | loo describe <source-ref> | loo expand-query [--lcm-db path] [--profile metadata|brief|evidence] <query> | loo expand-ref <source-ref> | loo serve | loo audit-path");
+  console.error([
+    "Usage:",
+    "  loo doctor",
+    "  loo index codex [roots...]",
+    "  loo probe codex-sqlite [roots...]",
+    "  loo search <query>",
+    "  loo grep [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <query>",
+    "  loo describe [--lcm-db path] <source-ref>",
+    "  loo expand-query [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <query>",
+    "  loo expand-ref [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <source-ref>",
+    "  loo serve",
+    "  loo audit-path"
+  ].join("\n"));
   process.exitCode = 2;
 }
 
@@ -128,7 +141,7 @@ await main();
 
 function parseRecallArgs(input: string[]): { rest: string[]; lcmDbPaths: string[]; profile?: RecallProfileName; tokenBudget?: number } {
   const rest: string[] = [];
-  const lcmDbPaths = configuredLcmPeerDbPaths();
+  const explicitLcmDbPaths: string[] = [];
   let profile: RecallProfileName | undefined;
   let tokenBudget: number | undefined;
   for (let index = 0; index < input.length; index += 1) {
@@ -136,7 +149,7 @@ function parseRecallArgs(input: string[]): { rest: string[]; lcmDbPaths: string[
     if (arg === "--lcm-db") {
       const value = input[++index];
       if (!value) throw new Error("--lcm-db requires a path");
-      lcmDbPaths.push(value);
+      explicitLcmDbPaths.push(value);
       continue;
     }
     if (arg === "--profile") {
@@ -154,5 +167,6 @@ function parseRecallArgs(input: string[]): { rest: string[]; lcmDbPaths: string[
     }
     rest.push(arg);
   }
+  const lcmDbPaths = explicitLcmDbPaths.length > 0 ? explicitLcmDbPaths : configuredLcmPeerDbPaths();
   return { rest, lcmDbPaths: [...new Set(lcmDbPaths)], profile, tokenBudget };
 }

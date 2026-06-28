@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -109,11 +111,12 @@ function makeRecallFixture() {
 
 function peerDbState(path: string) {
   const beforeStat = statSync(path);
+  const hash = createHash("sha256").update(readFileSync(path)).digest("hex");
   const db = new DatabaseSync(path, { readOnly: true });
   try {
     const row = db.prepare("SELECT COUNT(*) AS count FROM summaries").get() as { count: number };
     const schema = db.prepare("PRAGMA schema_version").get() as { schema_version: number };
-    return { mtimeMs: beforeStat.mtimeMs, count: row.count, schemaVersion: schema.schema_version };
+    return { mtimeMs: beforeStat.mtimeMs, hash, count: row.count, schemaVersion: schema.schema_version };
   } finally {
     db.close();
   }
@@ -167,11 +170,15 @@ test("grep -> describe -> expand_query preserves Codex and read-only LCM source 
     assert.equal(brief.tokenBudget, 1000);
     assert.equal(brief.text.includes("~/private"), true);
     assert.equal(brief.text.includes("authorization: <redacted-secret>"), true);
+    assert.equal(brief.text.includes("/Users/lume/private"), false);
+    assert.equal(brief.text.includes("sk-test_1234567890"), false);
 
     const evidence = expandRecallRef(db, { sourceRef: lcmRef!, lcmDbPaths: [fixture.lcmPath], profile: "evidence" });
     assert.equal(evidence.profile.name, "evidence");
     assert.equal(evidence.tokenBudget, 4000);
     assert.equal(evidence.text.length >= brief.text.length, true);
+    assert.equal(evidence.text.includes("/Users/lume/private"), false);
+    assert.equal(evidence.text.includes("sk-test_1234567890"), false);
 
     const relativePeer = relative(process.cwd(), fixture.lcmPath);
     const relativeRef = grepRecall(db, { query: "OpenClaw LCM", lcmDbPaths: [relativePeer], limit: 5 })
@@ -180,7 +187,9 @@ test("grep -> describe -> expand_query preserves Codex and read-only LCM source 
 
     const after = peerDbState(fixture.lcmPath);
     assert.deepEqual(after, before);
-    assert.equal(existsSync(`${fixture.lcmPath}-wal`), false);
+    for (const suffix of ["-wal", "-shm", "-journal"]) {
+      assert.equal(existsSync(`${fixture.lcmPath}${suffix}`), false);
+    }
   } finally {
     db.close();
     rmSync(fixture.root, { recursive: true, force: true });
@@ -205,3 +214,46 @@ test("missing optional LCM peers do not break Codex recall", () => {
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });
+
+test("CLI recall flags pass token budgets and explicit LCM peer paths override env defaults", () => {
+  const fixture = makeRecallFixture();
+  const dbPath = join(fixture.root, "orchestrator.sqlite");
+  const db = createDatabase(dbPath);
+  try {
+    indexCodexSessions(db, { roots: [fixture.sessions] });
+  } finally {
+    db.close();
+  }
+
+  try {
+    const env = { ...process.env, LOO_DB_PATH: dbPath, LOO_LCM_DB_PATHS: fixture.lcmPath };
+    const budget = runCli(["grep", "--token-budget", "42", "Codex", "recall"], env);
+    assert.equal(budget.profile.tokenBudget, 42);
+
+    const missingPeer = join(fixture.root, "missing-peer.sqlite");
+    const override = runCli(["grep", "--lcm-db", missingPeer, "OpenClaw", "LCM"], env);
+    assert.deepEqual(override.matches, []);
+
+    const usage = spawnSync(process.execPath, ["--import", "tsx", "packages/cli/src/index.ts"], {
+      cwd: process.cwd(),
+      env,
+      encoding: "utf8"
+    });
+    assert.equal(usage.status, 2);
+    assert.equal(usage.stderr.includes("--token-budget"), true);
+    assert.equal(usage.stderr.includes("describe [--lcm-db path] <source-ref>"), true);
+    assert.equal(usage.stderr.includes("expand-ref [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <source-ref>"), true);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+function runCli(args: string[], env: NodeJS.ProcessEnv): any {
+  const result = spawnSync(process.execPath, ["--import", "tsx", "packages/cli/src/index.ts", ...args], {
+    cwd: process.cwd(),
+    env,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr);
+  return JSON.parse(result.stdout);
+}
