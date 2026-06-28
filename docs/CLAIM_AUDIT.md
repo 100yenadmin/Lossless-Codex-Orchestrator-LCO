@@ -34,4 +34,4 @@ Claude Code is an adapter stub in this beta. Public docs may mention the stub, b
 - Demo evidence under `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/`
 - No raw session transcripts, credentials, screenshots with secrets, or private SQLite DBs in public artifacts
 
-`loo release preflight` writes a public-safe `release-preflight.json` artifact manifest. It must report `approved_live_control_smoke_missing` until an explicit approved live-control smoke evidence path exists, and release automation should use `--strict` so this blocker cannot be silently ignored.
+`loo release preflight` writes a public-safe `release-preflight.json` artifact manifest. It must report `approved_live_control_smoke_missing` until an explicit approved live-control smoke evidence path points to a structured `loo_approved_live_control_smoke` JSON proof marker with only audit ids, refs, hashes, approval-semantics confirmation, and `rawPromptIncluded: false`. Release automation should use `--strict` so this blocker cannot be silently ignored.

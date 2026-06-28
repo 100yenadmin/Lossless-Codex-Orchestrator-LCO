@@ -25,6 +25,17 @@ export type ReleasePreflightReport = {
   rawSessionArtifacts: [];
 };
 
+type ApprovedLiveControlSmokeProof = {
+  kind?: string;
+  approvedLiveControlSmoke?: boolean;
+  action?: string;
+  targetRef?: string;
+  approvalAuditId?: string;
+  messageHash?: string;
+  preservesCodexApprovalSemantics?: boolean;
+  rawPromptIncluded?: boolean;
+};
+
 const forbiddenClaims = [
   "Full Claude Code parity",
   "cloud sync",
@@ -46,13 +57,14 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
   } | null;
 
   const approvedLiveControlProof = options.approvedLiveControlEvidence?.trim();
+  const liveControlProof = validateApprovedLiveControlProof(approvedLiveControlProof);
   const checks: Record<string, ReleasePreflightCheck> = {
     packageJson: check(Boolean(packageJson?.name && packageJson.version && packageJson.description?.match(/local Codex sessions/i)), "package metadata keeps Codex-first beta positioning"),
     readme: check(Boolean(readme?.match(/Allowed public beta claim/i) && readme.match(/loo release preflight/i)), "README includes beta claim boundary and release preflight command"),
     openclawManifest: check(Boolean(openclawManifest?.id === "lossless-openclaw-orchestrator" && openclawManifest.mcp?.command === "loo-mcp-server" && openclawManifest.mcp.transport === "stdio" && openclawManifest.tools?.prefix === "loo_" && openclawManifest.safety?.localOnlyByDefault === true), "OpenClaw manifest is packageable and local-only by default"),
     claimAudit: check(Boolean(claimAudit?.match(/Forbidden Beta Claims/i) && claimAudit.match(/approved_live_control_smoke_missing/i)), "claim audit records forbidden claims and the live-control blocker code"),
     betaDemo: check(Boolean(betaDemo?.match(/100\+ local Codex sessions/i) && betaDemo.match(/does not run live control/i)), "demo workflow covers 100+ Codex sessions and dry-run-only control boundary"),
-    liveControlSmoke: check(Boolean(approvedLiveControlProof && existsSync(approvedLiveControlProof)), approvedLiveControlProof ? "approved live-control evidence path exists" : "approved live-control evidence was not provided")
+    liveControlSmoke: liveControlProof
   };
 
   const blockers = Object.entries(checks)
@@ -94,4 +106,29 @@ function readJson(path: string): unknown | null {
   const text = readText(path);
   if (!text) return null;
   return JSON.parse(text);
+}
+
+function validateApprovedLiveControlProof(path: string | undefined): ReleasePreflightCheck {
+  if (!path) return check(false, "approved live-control evidence was not provided");
+  if (!existsSync(path)) return check(false, "approved live-control evidence path does not exist");
+  let proof: ApprovedLiveControlSmokeProof;
+  try {
+    proof = JSON.parse(readFileSync(path, "utf8")) as ApprovedLiveControlSmokeProof;
+  } catch {
+    return check(false, "approved live-control evidence must be JSON");
+  }
+  const actionOk = proof.action === "send" || proof.action === "resume" || proof.action === "steer" || proof.action === "interrupt";
+  const hashOk = proof.action === "send" || proof.action === "steer" ? Boolean(proof.messageHash?.startsWith("sha256:")) : true;
+  const rawTextKeys = new Set(["message", "prompt", "rawPrompt", "transcript", "sessionText"]);
+  const hasRawTextField = Object.keys(proof).some((key) => rawTextKeys.has(key));
+  const ok = proof.kind === "loo_approved_live_control_smoke"
+    && proof.approvedLiveControlSmoke === true
+    && actionOk
+    && Boolean(proof.targetRef?.startsWith("codex_thread:"))
+    && Boolean(proof.approvalAuditId)
+    && hashOk
+    && proof.preservesCodexApprovalSemantics === true
+    && proof.rawPromptIncluded === false
+    && !hasRawTextField;
+  return check(ok, ok ? "structured approved live-control smoke proof accepted" : "approved live-control evidence is not a safe structured proof marker");
 }
