@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
@@ -12,9 +12,26 @@ export type IndexCodexOptions = {
 
 export type IndexCodexResult = {
   indexedFiles: number;
+  skippedFiles: number;
   indexedThreads: number;
   indexedEvents: number;
   errors: Array<{ path: string; message: string }>;
+};
+
+export type SourceFileWatermark = {
+  sourcePath: string;
+  pathHash: string;
+  size: number;
+  mtimeMs: number;
+  lastIndexedAt: string;
+};
+
+export type CodexSqliteProbe = {
+  path: string;
+  kind: "state" | "logs" | "unknown";
+  supported: boolean;
+  tables: string[];
+  reason: string | null;
 };
 
 export type SessionSearchResult = {
@@ -73,6 +90,13 @@ export function createDatabase(dbPath?: string): LooDatabase {
 
 export function defaultDatabasePath(): string {
   return process.env.LOO_DB_PATH?.trim() || join(process.env.HOME || ".", ".openclaw", "lossless-openclaw-orchestrator", "orchestrator.sqlite");
+}
+
+export function defaultCodexRoots(home = process.env.HOME || "."): string[] {
+  return [
+    join(home, ".codex", "sessions"),
+    join(home, ".codex", "archived_sessions")
+  ];
 }
 
 export function migrate(db: LooDatabase): void {
@@ -138,14 +162,21 @@ export function migrate(db: LooDatabase): void {
 
 export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions): IndexCodexResult {
   const files = collectJsonlFiles(options.roots, options.maxFiles ?? 10_000);
-  const result: IndexCodexResult = { indexedFiles: 0, indexedThreads: 0, indexedEvents: 0, errors: [] };
+  const result: IndexCodexResult = { indexedFiles: 0, skippedFiles: 0, indexedThreads: 0, indexedEvents: 0, errors: [] };
   const seenThreads = new Set<string>();
 
   for (const path of files) {
     try {
+      const stat = statSync(path);
+      const watermark = getSourceFileWatermark(db, path);
+      const mtimeMs = Math.trunc(stat.mtimeMs);
+      if (watermark && watermark.size === stat.size && watermark.mtimeMs === mtimeMs) {
+        result.skippedFiles += 1;
+        continue;
+      }
       const text = readFileSync(path, "utf8");
       const session = parseCodexJsonl(path, text);
-      upsertSession(db, path, text, session);
+      upsertSession(db, path, text, session, { size: stat.size, mtimeMs });
       result.indexedFiles += 1;
       result.indexedEvents += session.eventCount;
       seenThreads.add(session.threadId);
@@ -156,6 +187,27 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
 
   result.indexedThreads = seenThreads.size;
   return result;
+}
+
+export function getSourceFileWatermark(db: LooDatabase, sourcePath: string): SourceFileWatermark | null {
+  const row = db.prepare(`
+    SELECT source_path AS sourcePath, path_hash AS pathHash, size, mtime_ms AS mtimeMs, last_indexed_at AS lastIndexedAt
+    FROM codex_source_files
+    WHERE source_path = ?
+  `).get(sourcePath) as Record<string, unknown> | undefined;
+  if (!row) return null;
+  return {
+    sourcePath: String(row.sourcePath),
+    pathHash: String(row.pathHash),
+    size: Number(row.size ?? 0),
+    mtimeMs: Number(row.mtimeMs ?? 0),
+    lastIndexedAt: String(row.lastIndexedAt)
+  };
+}
+
+export function probeCodexSqliteStores(roots: string[], maxFiles = 100): { stores: CodexSqliteProbe[] } {
+  const paths = collectSqliteFiles(roots, maxFiles);
+  return { stores: paths.map((path) => probeCodexSqliteStore(path)) };
 }
 
 export function searchSessions(db: LooDatabase, options: { query: string; limit?: number }): SessionSearchResult[] {
@@ -397,16 +449,16 @@ function fallbackThreadId(sourcePath: string): string {
   return rolloutSuffix ?? stableId(sourcePath);
 }
 
-function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, session: ImportedSession): void {
+function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, session: ImportedSession, stat: { size: number; mtimeMs: number }): void {
   const now = new Date().toISOString();
-  const sourceHash = stableId(sourcePath);
+  const sourceHash = stableId(rawText);
   db.exec("BEGIN");
   try {
     db.prepare(`
       INSERT INTO codex_source_files (source_path, path_hash, size, mtime_ms, last_indexed_at)
       VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(source_path) DO UPDATE SET size = excluded.size, mtime_ms = excluded.mtime_ms, last_indexed_at = excluded.last_indexed_at
-    `).run(sourcePath, sourceHash, Buffer.byteLength(rawText), Date.now(), now);
+      ON CONFLICT(source_path) DO UPDATE SET path_hash = excluded.path_hash, size = excluded.size, mtime_ms = excluded.mtime_ms, last_indexed_at = excluded.last_indexed_at
+    `).run(sourcePath, sourceHash, stat.size, stat.mtimeMs, now);
     db.prepare(`
       INSERT INTO codex_sessions (
         thread_id, title, cwd, model, branch, git_sha, source_path, created_at, updated_at,
@@ -461,6 +513,60 @@ function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, ses
   } catch (error) {
     db.exec("ROLLBACK");
     throw error;
+  }
+}
+
+function collectSqliteFiles(roots: string[], maxFiles: number): string[] {
+  const files: string[] = [];
+  for (const root of roots) {
+    if (!existsSync(root) || files.length >= maxFiles) continue;
+    walkSqlite(root, files, maxFiles);
+  }
+  return files;
+}
+
+function walkSqlite(path: string, files: string[], maxFiles: number): void {
+  if (files.length >= maxFiles) return;
+  const entries = readdirSync(path, { withFileTypes: true });
+  for (const entry of entries) {
+    if (files.length >= maxFiles) return;
+    const child = join(path, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === "node_modules" || entry.name === ".git") continue;
+      walkSqlite(child, files, maxFiles);
+    } else if (entry.isFile() && /^(state|logs)_\d+\.sqlite$/i.test(entry.name)) {
+      files.push(child);
+    }
+  }
+}
+
+function probeCodexSqliteStore(path: string): CodexSqliteProbe {
+  const name = basename(path).toLowerCase();
+  const kind: CodexSqliteProbe["kind"] = name.startsWith("state_") ? "state" : name.startsWith("logs_") ? "logs" : "unknown";
+  try {
+    const db = new DatabaseSync(path, { readOnly: true });
+    try {
+      db.exec("PRAGMA query_only = ON");
+      const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as Array<{ name: string }>).map((row) => row.name);
+      const supported = kind === "state" ? tables.some((table) => ["threads", "sessions", "conversations"].includes(table)) : tables.some((table) => ["events", "logs", "turns"].includes(table));
+      return {
+        path,
+        kind,
+        supported,
+        tables,
+        reason: supported ? null : `missing supported tables for ${kind} store`
+      };
+    } finally {
+      db.close();
+    }
+  } catch (error) {
+    return {
+      path,
+      kind,
+      supported: false,
+      tables: [],
+      reason: error instanceof Error ? error.message : String(error)
+    };
   }
 }
 
