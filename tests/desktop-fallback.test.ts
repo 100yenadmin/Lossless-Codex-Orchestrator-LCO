@@ -23,7 +23,11 @@ test("CUA desktop diagnostics report command, permissions, limitations, and focu
   assert.deepEqual(status.launch, {
     command: "cua-driver",
     args: ["mcp"],
-    transport: "stdio"
+    transport: "stdio",
+    readiness: {
+      status: "not_probed",
+      note: "Binary status probe succeeded; stdio launch readiness is not probed because starting the backend would run a GUI-control server."
+    }
   });
   assert.equal(status.permissions.accessibility.status, "unknown");
   assert.equal(status.permissions.screenRecording.status, "unknown");
@@ -112,7 +116,7 @@ test("MCP doctor and desktop tools expose CUA diagnostics while desktop act stay
         preferred: string;
         backends: Array<{
           backend: string;
-          launch: { command: string; args: string[] };
+          launch: { command: string; args: string[]; readiness: { status: string } };
           permissions: { accessibility: { status: string }; screenRecording: { status: string } };
           limitations: string[];
         }>;
@@ -122,6 +126,7 @@ test("MCP doctor and desktop tools expose CUA diagnostics while desktop act stay
     const cuaBackend = doctorResult.desktopFallbacks.backends.find((backend) => backend.backend === "cua-driver");
     assert.ok(cuaBackend);
     assert.equal(cuaBackend.launch.command, "cua-driver");
+    assert.equal(cuaBackend.launch.readiness.status, "unavailable");
     assert.equal(cuaBackend.permissions.accessibility.status, "unknown");
     assert.equal(cuaBackend.permissions.screenRecording.status, "unknown");
     assert.ok(cuaBackend.limitations.some((limitation) => limitation.includes("No live GUI action")));

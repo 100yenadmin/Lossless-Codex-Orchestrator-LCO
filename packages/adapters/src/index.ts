@@ -36,6 +36,10 @@ export type DesktopStatus = {
     command: string;
     args: string[];
     transport: "stdio" | "none";
+    readiness: {
+      status: "not_probed" | "unavailable" | "not_applicable";
+      note: string;
+    };
   };
   permissions: {
     accessibility: DesktopPermissionStatus;
@@ -285,7 +289,8 @@ function desktopBackendStatus(backend: DesktopBackend, probe: DesktopProbe): Des
     launch: {
       command: commandStatus.command || command,
       args: config.launchArgs,
-      transport: config.transport
+      transport: config.transport,
+      readiness: desktopLaunchReadiness(backend, commandStatus.available)
     },
     permissions: config.permissions,
     focus: {
@@ -357,6 +362,25 @@ function unknownDesktopPermissions(note: string) {
   return {
     accessibility: { status: "unknown" as const, note },
     screenRecording: { status: "unknown" as const, note }
+  };
+}
+
+function desktopLaunchReadiness(backend: DesktopBackend, commandAvailable: boolean) {
+  if (backend === "direct") {
+    return {
+      status: "not_applicable" as const,
+      note: "Direct Codex protocol does not launch a desktop fallback backend."
+    };
+  }
+  if (!commandAvailable) {
+    return {
+      status: "unavailable" as const,
+      note: "Binary status probe failed; launch readiness was not checked."
+    };
+  }
+  return {
+    status: "not_probed" as const,
+    note: "Binary status probe succeeded; stdio launch readiness is not probed because starting the backend would run a GUI-control server."
   };
 }
 
