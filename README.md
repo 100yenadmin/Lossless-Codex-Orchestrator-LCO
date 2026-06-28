@@ -118,6 +118,8 @@ Desktop fallback:
 
 `loo desktop see peekaboo --snapshot` is an explicit read-only observation path. It runs Peekaboo with `--no-remote`, blocks denylisted sensitive frontmost apps before capture, redacts extracted text, bounds element counts, and still does not enable generic click/type/send actions.
 
+When a guarded Peekaboo snapshot succeeds, the `visibleCodex.threadMap` field exposes a bounded read-only map of visible Codex thread candidates with redacted titles, status/update labels, source element ids, bounds, centers, confidence, and stable visible ids. This is GUI inventory only; it does not join raw Codex transcripts or enable visible GUI mutation.
+
 Admin:
 
 - `loo_doctor`
