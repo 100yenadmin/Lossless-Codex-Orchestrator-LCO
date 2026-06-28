@@ -1168,11 +1168,18 @@ function probeCodexSqliteStore(path: string): CodexSqliteProbe {
 }
 
 function buildSummary(session: ImportedSession): string {
+  const tools = unique(session.toolCalls.map((call) => call.toolName).filter(Boolean));
+  const branch = session.branch ? `${session.branch}${session.gitSha ? `@${truncate(session.gitSha, 12)}` : ""}` : null;
+  const files = session.touchedFiles.slice(0, 3);
   const parts = [
-    session.title,
-    session.finalMessage,
+    session.title ? `Title: ${session.title}` : null,
+    session.model ? `Model: ${session.model}` : null,
+    branch ? `Branch: ${branch}` : null,
+    session.cwd ? `CWD: ${session.cwd}` : null,
+    session.finalMessage ? `Final: ${truncate(session.finalMessage, 240)}` : null,
     session.plans[0] ? `Plan: ${truncate(session.plans[0], 240)}` : null,
-    session.touchedFiles.length ? `Touched ${session.touchedFiles.length} file(s).` : null
+    files.length ? `Files: ${files.join(", ")}${session.touchedFiles.length > files.length ? ` +${session.touchedFiles.length - files.length} more` : ""}` : null,
+    tools.length ? `Tools: ${tools.slice(0, 5).join(", ")}${tools.length > 5 ? ` +${tools.length - 5} more` : ""}` : null
   ].filter(Boolean);
   return truncate(parts.join(" "), 900);
 }

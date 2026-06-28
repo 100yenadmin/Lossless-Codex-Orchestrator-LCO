@@ -2,6 +2,8 @@
 
 Safe summaries are local-only recall text for helping an orchestrator agent decide which Codex session to inspect next. They are not a replacement for the raw local Codex session file, and they are not a public artifact.
 
+The beta summary line is deterministic and bounded. It may combine title, model, branch/Git SHA, redacted CWD, final handoff text, first proposed plan, touched-file hints, and tool names so an orchestrator can route before requesting a larger expansion.
+
 ## May Contain
 
 - Thread title, thread id, model, branch, git SHA, and redacted working directory.

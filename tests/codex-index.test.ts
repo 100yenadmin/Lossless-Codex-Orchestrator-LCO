@@ -81,6 +81,10 @@ test("indexes Codex sessions with plans, finals, touched files, and search text"
 
     const description = describeSession(db, "019f-test-thread");
     assert.equal(description?.summary?.includes("billing bridge smoke passed"), true);
+    assert.equal(description?.summary?.includes("Model: gpt-5.5"), true);
+    assert.equal(description?.summary?.includes("Branch: main@abc1234"), true);
+    assert.equal(description?.summary?.includes("Files: /Volumes/LEXAR/repos/example/src/billing.ts"), true);
+    assert.equal(description?.summary?.includes("Tools: functions.exec_command"), true);
     assert.equal(description?.planCount, 1);
     assert.equal(description?.touchedFiles.length, 1);
     assert.equal(description?.touchedFiles[0], "/Volumes/LEXAR/repos/example/src/billing.ts");
