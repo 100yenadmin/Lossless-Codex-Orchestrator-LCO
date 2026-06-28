@@ -58,7 +58,9 @@ export type LooCommandSafety = {
 
 export const LOO_COMMAND_POLICY: Record<string, LooCommandSafety> = {
   loo_index_sessions: { mode: "read_only", source: "local_index", requiresApproval: false },
+  loo_grep: { mode: "read_only", source: "local_index", requiresApproval: false },
   loo_search_sessions: { mode: "read_only", source: "local_index", requiresApproval: false },
+  loo_describe_ref: { mode: "read_only", source: "local_index", requiresApproval: false },
   loo_describe_session: { mode: "read_only", source: "local_index", requiresApproval: false },
   loo_expand_session: { mode: "read_only", source: "local_index", requiresApproval: false },
   loo_expand_query: { mode: "read_only", source: "local_index", requiresApproval: false },
@@ -68,6 +70,7 @@ export const LOO_COMMAND_POLICY: Record<string, LooCommandSafety> = {
   loo_codex_touched_files: { mode: "read_only", source: "local_index", requiresApproval: false },
   loo_codex_tool_calls: { mode: "read_only", source: "local_index", requiresApproval: false },
   loo_codex_sqlite_stores: { mode: "read_only", source: "local_index", requiresApproval: false },
+  loo_lcm_peer_dbs: { mode: "read_only", source: "local_index", requiresApproval: false },
   loo_codex_control_dry_run: { mode: "read_only", source: "audit", requiresApproval: false },
   loo_codex_resume_thread: { mode: "approval_gated_control", source: "codex_direct", requiresApproval: true },
   loo_codex_send_message: { mode: "approval_gated_control", source: "codex_direct", requiresApproval: true },

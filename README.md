@@ -9,6 +9,7 @@ This public beta focuses on Codex. Claude Code support is intentionally shipped 
 - Indexes local Codex session JSONL into a local SQLite database.
 - Lets an OpenClaw agent search, describe, and expand Codex sessions without reading raw thousand-call transcripts.
 - Extracts session metadata, proposed plans, final messages, touched files, tool-call metadata, and safe summaries.
+- Optionally reads OpenClaw LCM peer summary DBs read-only for `grep -> describe -> expand_query` recall without merging stores.
 - Exposes `loo_*` MCP tools for OpenClaw and other MCP clients.
 - Provides approval-gated Codex controls for resume, send, steer, and interrupt.
 - Keeps CUA Driver and Peekaboo behind a desktop fallback adapter boundary.
@@ -18,6 +19,7 @@ This public beta focuses on Codex. Claude Code support is intentionally shipped 
 - Local-only by default.
 - No transcript upload.
 - No raw Codex transcript merge into OpenClaw LCM.
+- Optional OpenClaw LCM peer reads use source-prefixed refs and do not mutate the peer DB.
 - Read/search works without live control.
 - Live Codex control requires a prior dry-run audit record plus `approval_audit_id`.
 - The project does not bypass Codex approvals, permission profiles, or sandbox behavior.
@@ -54,6 +56,9 @@ npm test
 loo doctor
 loo index codex ~/.codex/sessions ~/.codex/archived_sessions
 loo search "proposed plan billing bridge"
+loo grep --lcm-db ~/.openclaw/lcm.db "billing bridge"
+loo describe codex_thread:019f-example
+loo expand-query --profile brief "billing bridge"
 loo serve
 ```
 
@@ -63,6 +68,12 @@ Database path:
 export LOO_DB_PATH="$HOME/.openclaw/lossless-openclaw-orchestrator/orchestrator.sqlite"
 ```
 
+Optional read-only OpenClaw LCM peer DBs:
+
+```bash
+export LOO_LCM_DB_PATHS="$HOME/.openclaw/lcm.db"
+```
+
 ## MCP / OpenClaw Tools
 
 Tool prefix: `loo_*`.
@@ -70,7 +81,9 @@ Tool prefix: `loo_*`.
 Read/search:
 
 - `loo_index_sessions`
+- `loo_grep`
 - `loo_search_sessions`
+- `loo_describe_ref`
 - `loo_describe_session`
 - `loo_expand_session`
 - `loo_expand_query`
@@ -99,6 +112,7 @@ Desktop fallback:
 Admin:
 
 - `loo_doctor`
+- `loo_lcm_peer_dbs`
 - `loo_permissions`
 - `loo_audit_tail`
 
@@ -124,6 +138,6 @@ The test suite uses redacted fixtures and Node's built-in test runner.
 
 ## Privacy
 
-The default index is local SQLite. The index stores safe text and metadata so agents can search and expand bounded evidence. Raw local session files remain source-of-truth and are referenced by source path; users should not commit private DB files or session transcripts.
+The default index is local SQLite. The index stores safe text and metadata so agents can search and expand bounded evidence. Raw local session files remain source-of-truth and are referenced by source path; users should not commit private DB files or session transcripts. LCM peers are configured explicitly and read through `lcm_summary:*` refs without copying summaries into the Codex index.
 
 See [docs/SAFE_SUMMARIES.md](docs/SAFE_SUMMARIES.md) for the beta safe-summary contract.

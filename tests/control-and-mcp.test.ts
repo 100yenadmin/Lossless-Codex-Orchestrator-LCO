@@ -115,7 +115,9 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
   try {
     const toolNames = tools.map((tool) => tool.name).sort();
     assert.equal(toolNames.includes("loo_index_sessions"), true);
+    assert.equal(toolNames.includes("loo_grep"), true);
     assert.equal(toolNames.includes("loo_search_sessions"), true);
+    assert.equal(toolNames.includes("loo_describe_ref"), true);
     assert.equal(toolNames.includes("loo_codex_send_message"), true);
     assert.equal(toolNames.includes("loo_desktop_see"), true);
     assert.deepEqual(toolNames.filter((name) => !LOO_COMMAND_POLICY[name]), []);
