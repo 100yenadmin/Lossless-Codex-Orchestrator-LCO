@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { test } from "node:test";
+
+const tsxImport = createRequire(import.meta.url).resolve("tsx");
 
 function read(path: string): string {
   return readFileSync(path, "utf8");
@@ -73,6 +76,7 @@ test("public beta docs include install, MCP/OpenClaw, demo, and approval-boundar
   ]) {
     assert.match(claimAudit, required);
   }
+  assert.match(claimAudit, /loo release preflight[^\n]+--strict/i);
 });
 
 test("OpenClaw plugin manifest is packageable and matches the beta safety boundary", () => {
@@ -109,7 +113,7 @@ test("release preflight writes a public-safe artifact manifest without hiding li
   const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-"));
   const result = spawnSync(process.execPath, [
     "--import",
-    "tsx",
+    tsxImport,
     "packages/cli/src/index.ts",
     "release",
     "preflight",
@@ -158,7 +162,7 @@ test("release preflight only clears live-control blocker for structured approval
 
   const arbitraryResult = spawnSync(process.execPath, [
     "--import",
-    "tsx",
+    tsxImport,
     "packages/cli/src/index.ts",
     "release",
     "preflight",
@@ -190,7 +194,7 @@ test("release preflight only clears live-control blocker for structured approval
 
   const proofResult = spawnSync(process.execPath, [
     "--import",
-    "tsx",
+    tsxImport,
     "packages/cli/src/index.ts",
     "release",
     "preflight",
@@ -207,4 +211,59 @@ test("release preflight only clears live-control blocker for structured approval
   assert.equal(proofPayload.releaseReady, true);
   assert.equal(proofPayload.checks?.liveControlSmoke?.ok, true);
   assert.deepEqual(proofPayload.blockers, []);
+});
+
+test("release preflight checks package files from the package root regardless of caller cwd", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-cwd-"));
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    join(process.cwd(), "packages/cli/src/index.ts"),
+    "release",
+    "preflight",
+    "--evidence-dir",
+    evidenceDir
+  ], { cwd: evidenceDir, encoding: "utf8" });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as {
+    checks?: Record<string, { ok: boolean }>;
+    blockers?: string[];
+  };
+  assert.equal(payload.checks?.packageJson?.ok, true);
+  assert.equal(payload.checks?.readme?.ok, true);
+  assert.equal(payload.checks?.openclawManifest?.ok, true);
+  assert.equal(payload.checks?.claimAudit?.ok, true);
+  assert.equal(payload.checks?.betaDemo?.ok, true);
+  assert.deepEqual(payload.blockers, ["approved_live_control_smoke_missing"]);
+});
+
+test("release preflight reports raw artifacts already present in the evidence directory", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-raw-"));
+  writeFileSync(join(evidenceDir, "session.jsonl"), "{}\n");
+  writeFileSync(join(evidenceDir, "private.sqlite"), "");
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "preflight",
+    "--evidence-dir",
+    evidenceDir
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as {
+    ok?: boolean;
+    releaseReady?: boolean;
+    blockers?: string[];
+    rawSessionArtifacts?: Array<{ name: string; reason: string }>;
+  };
+  assert.equal(payload.ok, false);
+  assert.equal(payload.releaseReady, false);
+  assert.deepEqual(payload.blockers, ["raw_session_artifacts_present", "approved_live_control_smoke_missing"]);
+  assert.deepEqual(payload.rawSessionArtifacts, [
+    { name: "private.sqlite", reason: "sqlite_database" },
+    { name: "session.jsonl", reason: "raw_codex_jsonl" }
+  ]);
 });

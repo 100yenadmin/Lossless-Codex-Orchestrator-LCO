@@ -1,10 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { basename, dirname, extname, join, resolve } from "node:path";
 
 export type ReleasePreflightOptions = {
   evidenceDir?: string;
   approvedLiveControlEvidence?: string;
   now?: string;
+  rootDir?: string;
 };
 
 export type ReleasePreflightCheck = {
@@ -22,7 +24,7 @@ export type ReleasePreflightReport = {
   checks: Record<string, ReleasePreflightCheck>;
   blockers: string[];
   forbiddenClaims: string[];
-  rawSessionArtifacts: [];
+  rawSessionArtifacts: RawSessionArtifact[];
 };
 
 type ApprovedLiveControlSmokeProof = {
@@ -36,6 +38,11 @@ type ApprovedLiveControlSmokeProof = {
   rawPromptIncluded?: boolean;
 };
 
+type RawSessionArtifact = {
+  name: string;
+  reason: "raw_codex_jsonl" | "sqlite_database" | "screenshot_or_image" | "video_capture";
+};
+
 const forbiddenClaims = [
   "Full Claude Code parity",
   "cloud sync",
@@ -45,11 +52,12 @@ const forbiddenClaims = [
 ];
 
 export function runReleasePreflight(options: ReleasePreflightOptions = {}): ReleasePreflightReport {
-  const packageJson = readJson("package.json") as { name?: string; version?: string; description?: string } | null;
-  const readme = readText("README.md");
-  const claimAudit = readText("docs/CLAIM_AUDIT.md");
-  const betaDemo = readText("docs/BETA_RELEASE_DEMO.md");
-  const openclawManifest = readJson("packages/openclaw-plugin/openclaw.plugin.json") as {
+  const packageRoot = options.rootDir ? resolve(options.rootDir) : findPackageRoot(dirname(fileURLToPath(import.meta.url))) ?? process.cwd();
+  const packageJson = readJson(packageRoot, "package.json") as { name?: string; version?: string; description?: string } | null;
+  const readme = readText(packageRoot, "README.md");
+  const claimAudit = readText(packageRoot, "docs/CLAIM_AUDIT.md");
+  const betaDemo = readText(packageRoot, "docs/BETA_RELEASE_DEMO.md");
+  const openclawManifest = readJson(packageRoot, "packages/openclaw-plugin/openclaw.plugin.json") as {
     id?: string;
     mcp?: { command?: string; transport?: string };
     tools?: { prefix?: string };
@@ -58,18 +66,21 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
 
   const approvedLiveControlProof = options.approvedLiveControlEvidence?.trim();
   const liveControlProof = validateApprovedLiveControlProof(approvedLiveControlProof);
+  const rawSessionArtifacts = scanRawSessionArtifacts(options.evidenceDir);
   const checks: Record<string, ReleasePreflightCheck> = {
     packageJson: check(Boolean(packageJson?.name && packageJson.version && packageJson.description?.match(/local Codex sessions/i)), "package metadata keeps Codex-first beta positioning"),
     readme: check(Boolean(readme?.match(/Allowed public beta claim/i) && readme.match(/loo release preflight/i)), "README includes beta claim boundary and release preflight command"),
     openclawManifest: check(Boolean(openclawManifest?.id === "lossless-openclaw-orchestrator" && openclawManifest.mcp?.command === "loo-mcp-server" && openclawManifest.mcp.transport === "stdio" && openclawManifest.tools?.prefix === "loo_" && openclawManifest.safety?.localOnlyByDefault === true), "OpenClaw manifest is packageable and local-only by default"),
     claimAudit: check(Boolean(claimAudit?.match(/Forbidden Beta Claims/i) && claimAudit.match(/approved_live_control_smoke_missing/i)), "claim audit records forbidden claims and the live-control blocker code"),
     betaDemo: check(Boolean(betaDemo?.match(/100\+ local Codex sessions/i) && betaDemo.match(/does not run live control/i)), "demo workflow covers 100+ Codex sessions and dry-run-only control boundary"),
+    rawArtifacts: check(rawSessionArtifacts.length === 0, rawSessionArtifacts.length === 0 ? "no raw session/private DB/screenshot artifacts found" : "raw session/private DB/screenshot artifacts are present"),
     liveControlSmoke: liveControlProof
   };
 
   const blockers = Object.entries(checks)
-    .filter(([key, value]) => !value.ok && key !== "liveControlSmoke")
+    .filter(([key, value]) => !value.ok && key !== "liveControlSmoke" && key !== "rawArtifacts")
     .map(([key]) => `${key}_failed`);
+  if (rawSessionArtifacts.length > 0) blockers.push("raw_session_artifacts_present");
   if (!checks.liveControlSmoke?.ok) blockers.push("approved_live_control_smoke_missing");
 
   const report: ReleasePreflightReport = {
@@ -82,7 +93,7 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
     checks,
     blockers,
     forbiddenClaims,
-    rawSessionArtifacts: []
+    rawSessionArtifacts
   };
 
   if (report.artifactManifestPath) {
@@ -97,15 +108,53 @@ function check(ok: boolean, detail: string): ReleasePreflightCheck {
   return { ok, detail };
 }
 
-function readText(path: string): string | null {
-  if (!existsSync(path)) return null;
-  return readFileSync(path, "utf8");
+function readText(root: string, path: string): string | null {
+  const resolved = join(root, path);
+  if (!existsSync(resolved)) return null;
+  return readFileSync(resolved, "utf8");
 }
 
-function readJson(path: string): unknown | null {
-  const text = readText(path);
+function readJson(root: string, path: string): unknown | null {
+  const text = readText(root, path);
   if (!text) return null;
   return JSON.parse(text);
+}
+
+function findPackageRoot(start: string): string | null {
+  let cursor = start;
+  while (true) {
+    const packageJsonPath = join(cursor, "package.json");
+    if (existsSync(packageJsonPath)) {
+      try {
+        const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { name?: string };
+        if (packageJson.name === "lossless-openclaw-orchestrator") return cursor;
+      } catch {
+        return null;
+      }
+    }
+    const parent = dirname(cursor);
+    if (parent === cursor) return null;
+    cursor = parent;
+  }
+}
+
+function scanRawSessionArtifacts(evidenceDir: string | undefined): RawSessionArtifact[] {
+  if (!evidenceDir || !existsSync(evidenceDir)) return [];
+  return readdirSync(evidenceDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => rawArtifactForName(entry.name))
+    .filter((entry): entry is RawSessionArtifact => entry !== null)
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function rawArtifactForName(name: string): RawSessionArtifact | null {
+  if (name === "release-preflight.json") return null;
+  const extension = extname(name).toLowerCase();
+  if (extension === ".jsonl") return { name: basename(name), reason: "raw_codex_jsonl" };
+  if (extension === ".sqlite" || extension === ".sqlite3" || extension === ".db") return { name: basename(name), reason: "sqlite_database" };
+  if (extension === ".png" || extension === ".jpg" || extension === ".jpeg" || extension === ".heic" || extension === ".webp") return { name: basename(name), reason: "screenshot_or_image" };
+  if (extension === ".mov" || extension === ".mp4" || extension === ".webm") return { name: basename(name), reason: "video_capture" };
+  return null;
 }
 
 function validateApprovedLiveControlProof(path: string | undefined): ReleasePreflightCheck {

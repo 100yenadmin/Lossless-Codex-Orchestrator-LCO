@@ -29,7 +29,7 @@ Claude Code is an adapter stub in this beta. Public docs may mention the stub, b
 - `npm run check`
 - `npm run build`
 - `npm pack --dry-run`
-- `loo release preflight --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight`
+- `loo release preflight --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight --strict`
 - GitHub CI green for the release PR
 - Demo evidence under `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/`
 - No raw session transcripts, credentials, screenshots with secrets, or private SQLite DBs in public artifacts
