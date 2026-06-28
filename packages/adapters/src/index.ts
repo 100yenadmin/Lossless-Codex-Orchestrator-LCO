@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -64,6 +64,7 @@ export type DesktopStatus = {
   visibleCodex?: {
     macros: VisibleCodexMacro[];
     safetyRules: string[];
+    threadMap?: VisibleCodexThreadMap;
   };
   limitations: string[];
   backgroundSafeClaim: "not_proven" | "not_supported";
@@ -83,6 +84,32 @@ type VisibleCodexMacro = {
   legacyCommand: string[];
   sideEffects: string[];
   description: string;
+};
+
+type VisibleCodexThreadMap = {
+  source: "peekaboo_snapshot";
+  count: number;
+  maxItems: number;
+  threads: VisibleCodexThreadCandidate[];
+  warnings: string[];
+};
+
+type VisibleCodexThreadCandidate = {
+  visibleId: string;
+  index: number;
+  title: string;
+  rawTitle: string;
+  project?: string;
+  status?: string;
+  updatedLabel?: string;
+  titleHash: string;
+  role?: string;
+  sourceElementId: string;
+  bounds?: { x: number; y: number; width: number; height: number };
+  center?: { x: number; y: number };
+  confidence: "low" | "medium" | "high";
+  source: "peekaboo_snapshot";
+  titleAvailable: boolean;
 };
 
 type DesktopSnapshotStatus = {
@@ -334,6 +361,7 @@ function desktopBackendStatus(
   const afterApplication = probe.activeApplication?.();
   const focusMeasured = Boolean(beforeApplication || afterApplication);
   const permissions = backend === "peekaboo" ? peekabooPermissions(command, commandStatus.available, probe) : config.permissions;
+  const snapshot = backend === "peekaboo" && options.includeSnapshot ? peekabooSnapshot(command, commandStatus.available, probe, options) : undefined;
   return {
     backend,
     available: commandStatus.available,
@@ -352,8 +380,8 @@ function desktopBackendStatus(
       changed: focusMeasured ? beforeApplication !== afterApplication : null,
       proof: focusMeasured ? "status_probe_only_no_action" : "not_measured"
     },
-    snapshot: backend === "peekaboo" && options.includeSnapshot ? peekabooSnapshot(command, commandStatus.available, probe, options) : undefined,
-    visibleCodex: backend === "peekaboo" ? visibleCodexMacroPack() : undefined,
+    snapshot,
+    visibleCodex: backend === "peekaboo" ? visibleCodexMacroPack(snapshot) : undefined,
     limitations: config.limitations,
     backgroundSafeClaim: config.backgroundSafeClaim,
     note: config.note,
@@ -555,7 +583,24 @@ function peekabooElement(value: unknown, maxChars: number): DesktopSnapshotEleme
   };
 }
 
-function visibleCodexMacroPack() {
+const threadStatusLabels = [
+  "Awaiting response",
+  "Running",
+  "Working",
+  "Thinking",
+  "Needs approval",
+  "Approval needed",
+  "Queued",
+  "Done",
+  "Failed",
+  "Error"
+];
+const threadSectionLabels = new Set(["pinned", "projects", "chats", "recent", "show more"]);
+const threadControlLabels = new Set(["archive chat", "automation folders", "automations", "unarchive chat", "pin chat", "unpin chat", "continue", "copy", "copy message", "new chat", "new thread", "search", "settings", "send", "plugins"]);
+const threadControlPrefixLabels = ["archive chat", "automation folders", "automations", "pin chat", "unarchive chat", "unpin chat"];
+const threadTimePattern = /^(?:now|yesterday|\d+\s?(?:s|m|h|d|w|mo|y))$/i;
+
+function visibleCodexMacroPack(snapshot?: DesktopSnapshotStatus) {
   return {
     macros: [
       visibleMacro("codex_frontmost", ["codex", "frontmost", "--json"], "Read whether Codex Desktop is frontmost."),
@@ -569,12 +614,141 @@ function visibleCodexMacroPack() {
       "No generic prompt typing, send, approve, or generic click actions in this public beta surface.",
       "Snapshot capture must pass sensitive-app denylist checks before invoking Peekaboo.",
       "Live visible GUI actions remain disabled until backend-specific approval and permission gates exist."
-    ]
+    ],
+    threadMap: snapshot && !snapshot.blocked ? visibleThreadMapFromSnapshot(snapshot) : undefined
   };
 }
 
 function visibleMacro(name: string, legacyCommand: string[], description: string): VisibleCodexMacro {
   return { name, legacyCommand, description, mode: "read_only", sideEffects: [] };
+}
+
+function visibleThreadMapFromSnapshot(snapshot: DesktopSnapshotStatus): VisibleCodexThreadMap {
+  const threads: VisibleCodexThreadCandidate[] = [];
+  const seen = new Set<string>();
+  let currentProject: string | undefined;
+  let inProjects = false;
+  for (const element of snapshot.elements) {
+    if (threads.length >= snapshot.maxNodes) break;
+    const rawLabel = element.label?.trim();
+    if (!rawLabel || !isThreadCandidateRole(element.role)) continue;
+    const lowered = rawLabel.toLowerCase();
+    if (threadSectionLabels.has(lowered)) {
+      inProjects = lowered === "projects" || inProjects;
+      continue;
+    }
+    if (inProjects && isStaticThreadRole(element.role) && looksLikeProjectHeader(rawLabel)) {
+      currentProject = capTextValue(rawLabel, 160);
+      continue;
+    }
+    if (isThreadControlLabel(lowered)) continue;
+    const split = splitThreadTitleStatus(rawLabel);
+    if (!split.title || isThreadControlLabel(split.title.toLowerCase())) continue;
+    if (split.title.length < 3 || ["codex", "vantage"].includes(split.title.toLowerCase())) continue;
+    const visibleId = visibleThreadId({ index: threads.length, title: split.title, sourceElementId: element.elementId });
+    if (seen.has(visibleId)) continue;
+    seen.add(visibleId);
+    const center = centerFromBounds(element.bounds);
+    threads.push({
+      visibleId,
+      index: threads.length,
+      title: split.title,
+      rawTitle: capTextValue(rawLabel, 200),
+      project: currentProject,
+      status: split.status,
+      updatedLabel: split.updatedLabel,
+      titleHash: shortHash(split.title),
+      role: element.role,
+      sourceElementId: element.elementId,
+      bounds: element.bounds,
+      center,
+      confidence: threadConfidence({ role: element.role, center, status: split.status, updatedLabel: split.updatedLabel, project: currentProject }),
+      source: "peekaboo_snapshot",
+      titleAvailable: true
+    });
+  }
+  return {
+    source: "peekaboo_snapshot",
+    count: threads.length,
+    maxItems: snapshot.maxNodes,
+    threads,
+    warnings: snapshot.truncated ? ["Snapshot was truncated before thread-map extraction; rerun with a larger bounded max_nodes value if more visible rows are needed."] : []
+  };
+}
+
+function splitThreadTitleStatus(rawLabel: string): { title: string; status?: string; updatedLabel?: string } {
+  const parts = rawLabel.trim().split(/\s+/);
+  let updatedLabel: string | undefined;
+  let titleText = rawLabel.trim();
+  if (parts.length && threadTimePattern.test(parts[parts.length - 1]!)) {
+    updatedLabel = parts.pop();
+    titleText = parts.join(" ").trim();
+  }
+  let status: string | undefined;
+  for (const label of threadStatusLabels) {
+    const suffix = ` ${label}`.toLowerCase();
+    if (titleText.toLowerCase().endsWith(suffix)) {
+      status = label;
+      titleText = titleText.slice(0, -label.length).trim();
+      break;
+    }
+  }
+  return { title: capTextValue(titleText, 160), status, updatedLabel };
+}
+
+function isThreadCandidateRole(role: string | undefined): boolean {
+  const value = (role || "").toLowerCase();
+  return ["button", "statictext", "text", "textfield", "group", "row", "link"].some((candidate) => value.includes(candidate));
+}
+
+function isStaticThreadRole(role: string | undefined): boolean {
+  const value = (role || "").toLowerCase();
+  return value.includes("statictext") || value === "text";
+}
+
+function isThreadControlLabel(lowered: string): boolean {
+  if (threadControlLabels.has(lowered)) return true;
+  if (threadControlPrefixLabels.some((control) => lowered.startsWith(control))) return true;
+  return ["archive chat", "unpin chat", "pin chat"].some((control) => lowered.includes(control));
+}
+
+function looksLikeProjectHeader(label: string): boolean {
+  const trimmed = label.trim();
+  if (!trimmed || trimmed.length > 80) return false;
+  const lowered = trimmed.toLowerCase();
+  if (threadSectionLabels.has(lowered) || isThreadControlLabel(lowered)) return false;
+  return !threadTimePattern.test(lowered);
+}
+
+function visibleThreadId(input: { index: number; title: string; sourceElementId: string }): string {
+  return `visible-${input.index}-${shortHash(`${input.sourceElementId}:${input.index}:${input.title}`)}`;
+}
+
+function shortHash(value: string): string {
+  return createHash("sha256").update(value).digest("hex").slice(0, 12);
+}
+
+function centerFromBounds(bounds: DesktopSnapshotElement["bounds"]): { x: number; y: number } | undefined {
+  if (!bounds) return undefined;
+  return { x: Math.trunc(bounds.x + bounds.width / 2), y: Math.trunc(bounds.y + bounds.height / 2) };
+}
+
+function threadConfidence(input: {
+  role?: string;
+  center?: { x: number; y: number };
+  status?: string;
+  updatedLabel?: string;
+  project?: string;
+}): "low" | "medium" | "high" {
+  let score = 0;
+  if (input.center) score += 2;
+  const role = (input.role || "").toLowerCase();
+  if (role.includes("button") || role.includes("row") || role.includes("group")) score += 1;
+  if (input.status || input.updatedLabel) score += 1;
+  if (input.project) score += 1;
+  if (score >= 4) return "high";
+  if (score >= 2) return "medium";
+  return "low";
 }
 
 function isSensitiveFrontmostApp(value: string): boolean {

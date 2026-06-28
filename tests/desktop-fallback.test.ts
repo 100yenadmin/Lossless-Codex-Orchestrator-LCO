@@ -324,6 +324,51 @@ test("Peekaboo snapshot blocks sensitive frontmost apps before capture", async (
   assert.equal(seeCalls, 0);
 });
 
+test("Peekaboo visible Codex thread map extracts redacted bounded candidates from snapshot elements", async () => {
+  const status = await desktopSee({
+    backend: "peekaboo",
+    includeSnapshot: true,
+    probe: {
+      commandStatus: () => ({ available: true, command: "peekaboo", version: "Peekaboo 3.2.2" }),
+      activeApplication: () => "Codex",
+      commandOutput: (command: string, args: string[] = []) => {
+        if (args[0] === "permissions") {
+          return { status: 0, command, stdout: JSON.stringify({ success: true, data: { permissions: [] } }) };
+        }
+        return {
+          status: 0,
+          command,
+          stdout: JSON.stringify({
+            success: true,
+            data: {
+              application_name: "Codex",
+              ui_elements: [
+                { id: "section", role: "text", label: "Recent", bounds: { x: 20, y: 90, width: 120, height: 20 } },
+                { id: "thread-a", role: "button", label: "Lossless OpenClaw Orchestrator Running 2h", bounds: { x: 20, y: 120, width: 280, height: 44 }, is_actionable: true },
+                { id: "control", role: "button", label: "Archive chat Pin chat", bounds: { x: 20, y: 170, width: 160, height: 32 }, is_actionable: true },
+                { id: "secret", role: "button", label: "Fix /Users/lume/private sk-test_1234567890 Done 1d", bounds: { x: 20, y: 220, width: 280, height: 44 }, is_actionable: true }
+              ]
+            }
+          })
+        };
+      }
+    }
+  });
+
+  const threads = status.visibleCodex?.threadMap?.threads ?? [];
+  assert.equal(status.visibleCodex?.threadMap?.source, "peekaboo_snapshot");
+  assert.equal(status.visibleCodex?.threadMap?.count, 2);
+  assert.equal(threads[0]?.title, "Lossless OpenClaw Orchestrator");
+  assert.equal(threads[0]?.status, "Running");
+  assert.equal(threads[0]?.updatedLabel, "2h");
+  assert.equal(threads[0]?.confidence, "high");
+  assert.equal(threads[0]?.center?.x, 160);
+  assert.equal(threads[0]?.sourceElementId, "thread-a");
+  assert.equal(threads.some((thread) => thread.rawTitle.includes("Archive chat")), false);
+  assert.equal(threads[1]?.title.includes("/Users/lume"), false);
+  assert.equal(threads[1]?.title.includes("sk-test_1234567890"), false);
+});
+
 test("MCP desktop see passes guarded Peekaboo snapshot options", async () => {
   const root = mkdtempSync(join(tmpdir(), "loo-peekaboo-mcp-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
@@ -347,7 +392,7 @@ test("MCP desktop see passes guarded Peekaboo snapshot options", async () => {
             data: {
               application_name: "Codex",
               ui_elements: [
-                { id: "elem_1", role: "button", label: "Continue", is_actionable: true },
+                { id: "elem_1", role: "button", label: "MCP visible thread Running 3h", is_actionable: true },
                 { id: "elem_2", role: "button", label: "Overflow", is_actionable: true }
               ]
             }
@@ -362,10 +407,14 @@ test("MCP desktop see passes guarded Peekaboo snapshot options", async () => {
     assert.ok(see);
     const result = await see.execute({ backend: "peekaboo", include_snapshot: true, max_nodes: 1 }) as {
       snapshot?: { blocked: boolean; elements: Array<{ elementId: string }>; truncated: boolean };
+      visibleCodex?: { threadMap?: { threads: Array<{ title: string; status?: string; updatedLabel?: string }> } };
     };
     assert.equal(result.snapshot?.blocked, false);
     assert.deepEqual(result.snapshot?.elements.map((element) => element.elementId), ["elem_1"]);
     assert.equal(result.snapshot?.truncated, true);
+    assert.equal(result.visibleCodex?.threadMap?.threads[0]?.title, "MCP visible thread");
+    assert.equal(result.visibleCodex?.threadMap?.threads[0]?.status, "Running");
+    assert.equal(result.visibleCodex?.threadMap?.threads[0]?.updatedLabel, "3h");
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
