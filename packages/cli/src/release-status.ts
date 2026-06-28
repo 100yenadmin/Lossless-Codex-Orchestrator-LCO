@@ -104,7 +104,8 @@ function validateReleaseOperationApprovalProof(path: string | undefined, operati
   return proof.kind === "loo_release_operation_approval"
     && proof.operation === operation
     && proof.approved === true
-    && Boolean(proof.approvalRef?.trim())
+    && typeof proof.approvalRef === "string"
+    && Boolean(proof.approvalRef.trim())
     && proof.rawSecretIncluded === false
     && Object.keys(proof).every((key) => allowedKeys.has(key));
 }

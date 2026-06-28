@@ -170,3 +170,64 @@ test("release status --strict passes with safe approval proofs without performin
     desktopGuiActionRun: false
   });
 });
+
+test("release status rejects approval evidence options when the next token is another flag", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-status-missing-value-"));
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "status",
+    "--evidence-dir",
+    evidenceDir,
+    "--github-release-approval-evidence",
+    "--strict"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.match(result.stderr, /--github-release-approval-evidence requires a path/);
+  assert.equal(result.stdout, "");
+});
+
+test("release status treats malformed approval proof shapes as unsatisfied without aborting", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-status-malformed-proof-"));
+  const malformedNpmApprovalProof = join(evidenceDir, "npm-publish-approval.json");
+  writeFileSync(malformedNpmApprovalProof, `${JSON.stringify({
+    kind: "loo_release_operation_approval",
+    operation: "npm_publish",
+    approved: true,
+    approvalRef: 123,
+    rawSecretIncluded: false
+  }, null, 2)}\n`);
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "status",
+    "--evidence-dir",
+    evidenceDir,
+    "--npm-publish-approval-evidence",
+    malformedNpmApprovalProof
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as {
+    blockers?: string[];
+    explicitApprovalsRequired?: Array<{ id: string; satisfied: boolean }>;
+    statusManifestPath?: string;
+  };
+  assert.deepEqual(payload.blockers, [
+    "approved_live_control_smoke_missing",
+    "npm_publish_not_approved",
+    "github_release_not_approved"
+  ]);
+  assert.deepEqual(payload.explicitApprovalsRequired?.find((approval) => approval.id === "npm_publish"), {
+    id: "npm_publish",
+    satisfied: false
+  });
+  assert.equal(payload.statusManifestPath, join(evidenceDir, "release-status.json"));
+  assert.equal(existsSync(join(evidenceDir, "release-status.json")), true);
+});

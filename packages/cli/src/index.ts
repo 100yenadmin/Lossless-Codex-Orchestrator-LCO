@@ -327,23 +327,19 @@ function parseReleaseStatusArgs(input: string[]): {
   for (let index = 0; index < input.length; index += 1) {
     const arg = input[index]!;
     if (arg === "--evidence-dir") {
-      evidenceDir = input[++index];
-      if (!evidenceDir) throw new Error("--evidence-dir requires a path");
+      evidenceDir = readReleaseStatusPath(input, ++index, "--evidence-dir");
       continue;
     }
     if (arg === "--approved-live-control-evidence") {
-      approvedLiveControlEvidence = input[++index];
-      if (!approvedLiveControlEvidence) throw new Error("--approved-live-control-evidence requires a path");
+      approvedLiveControlEvidence = readReleaseStatusPath(input, ++index, "--approved-live-control-evidence");
       continue;
     }
     if (arg === "--npm-publish-approval-evidence") {
-      npmPublishApprovalEvidence = input[++index];
-      if (!npmPublishApprovalEvidence) throw new Error("--npm-publish-approval-evidence requires a path");
+      npmPublishApprovalEvidence = readReleaseStatusPath(input, ++index, "--npm-publish-approval-evidence");
       continue;
     }
     if (arg === "--github-release-approval-evidence") {
-      githubReleaseApprovalEvidence = input[++index];
-      if (!githubReleaseApprovalEvidence) throw new Error("--github-release-approval-evidence requires a path");
+      githubReleaseApprovalEvidence = readReleaseStatusPath(input, ++index, "--github-release-approval-evidence");
       continue;
     }
     if (arg === "--strict") {
@@ -354,4 +350,10 @@ function parseReleaseStatusArgs(input: string[]): {
   }
   if (!evidenceDir) throw new Error("release status requires --evidence-dir");
   return { evidenceDir, approvedLiveControlEvidence, npmPublishApprovalEvidence, githubReleaseApprovalEvidence, strict };
+}
+
+function readReleaseStatusPath(input: string[], index: number, flag: string): string {
+  const value = input[index];
+  if (!value || value.startsWith("--")) throw new Error(`${flag} requires a path`);
+  return value;
 }
