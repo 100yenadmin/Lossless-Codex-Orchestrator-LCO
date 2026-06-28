@@ -4,6 +4,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
 
 import {
+  CODEX_CONTROL_METHODS,
   CodexJsonRpcClient,
   LineProcessTransport,
   assertCodexMethodAllowed,
@@ -160,6 +161,41 @@ test("JSON-RPC policy blocks forbidden methods before sending transport requests
     },
     { method: "initialized" }
   ]);
+});
+
+test("Codex control checks method policy before live transport calls", async () => {
+  let requestCalled = false;
+  let auditRecord: any = null;
+  const control = createCodexControl({
+    audit: {
+      path: "memory",
+      append(record) {
+        auditRecord = { id: "loo_audit_test", createdAt: new Date().toISOString(), ...record };
+        return auditRecord;
+      },
+      find(id) {
+        return auditRecord?.id === id ? auditRecord : null;
+      }
+    },
+    client: {
+      request: async () => {
+        requestCalled = true;
+        return { ok: true };
+      }
+    }
+  });
+  const dryRun = await control.sendMessage({ threadId: "thr_1", message: "continue", dryRun: true });
+  const removed = CODEX_CONTROL_METHODS.delete("turn/start");
+
+  try {
+    await assert.rejects(
+      () => control.sendMessage({ threadId: "thr_1", message: "continue", dryRun: false, approvalAuditId: dryRun.approvalAuditId }),
+      /not allowlisted/
+    );
+    assert.equal(requestCalled, false);
+  } finally {
+    if (removed) CODEX_CONTROL_METHODS.add("turn/start");
+  }
 });
 
 test("loopback WebSocket config rejects credentials, non-loopback, paths, and non-ws schemes", () => {
