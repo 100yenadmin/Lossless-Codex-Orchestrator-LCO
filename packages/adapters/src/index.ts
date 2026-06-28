@@ -1,5 +1,5 @@
-import { createHash, randomUUID } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { assertCodexMethodAllowed } from "./policy.js";
 import { redactValue } from "./redaction.js";
@@ -24,7 +24,7 @@ export type ControlResult = {
 };
 
 export type AuditStore = ReturnType<typeof createAuditStore>;
-type ControlAuditStore = Pick<AuditStore, "path" | "append" | "find">;
+type ControlAuditStore = Pick<AuditStore, "path" | "append" | "find" | "fingerprintText" | "fingerprintValue">;
 
 export type AuditRecord = {
   id: string;
@@ -40,6 +40,12 @@ export function createAuditStore(path: string) {
   mkdirSync(dirname(path), { recursive: true });
   return {
     path,
+    fingerprintText(value: string): string {
+      return hmacDigest(readOrCreateAuditKey(path), value);
+    },
+    fingerprintValue(value: unknown): string {
+      return hmacDigest(readOrCreateAuditKey(path), JSON.stringify(value));
+    },
     append(record: Omit<AuditRecord, "id" | "createdAt">): AuditRecord {
       const full: AuditRecord = {
         id: `loo_audit_${randomUUID().replaceAll("-", "")}`,
@@ -61,11 +67,15 @@ export function createAuditStore(path: string) {
     tail(limit = 20): AuditRecord[] {
       if (!existsSync(path)) return [];
       const boundedLimit = Math.max(1, Math.min(limit, 1000));
-      return readFileSync(path, "utf8")
-        .split(/\r?\n/)
-        .filter(Boolean)
-        .slice(-boundedLimit)
-        .map((line) => JSON.parse(line) as AuditRecord);
+      const records: AuditRecord[] = [];
+      for (const line of readFileSync(path, "utf8").split(/\r?\n/).filter(Boolean)) {
+        try {
+          records.push(JSON.parse(line) as AuditRecord);
+        } catch {
+          // Ignore corrupt partial writes so audit inspection stays available.
+        }
+      }
+      return records.slice(-boundedLimit);
     }
   };
 }
@@ -81,8 +91,8 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
     approvalAuditId?: string;
   }): Promise<ControlResult> => {
     assertCodexMethodAllowed(spec.method, "control");
-    const paramsHash = stableHash({ action: spec.action, method: spec.method, threadId: spec.threadId, params: spec.params });
-    const messageHash = spec.message === undefined ? undefined : hashText(spec.message);
+    const paramsHash = options.audit.fingerprintValue({ action: spec.action, method: spec.method, threadId: spec.threadId, params: spec.params });
+    const messageHash = spec.message === undefined ? undefined : options.audit.fingerprintText(spec.message);
     if (spec.dryRun !== false) {
       const record = options.audit.append({
         action: spec.action,
@@ -167,10 +177,18 @@ export async function desktopSee(input: { backend?: "direct" | "cua-driver" | "p
   };
 }
 
-function stableHash(value: unknown): string {
-  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+function readOrCreateAuditKey(auditPath: string): Buffer {
+  const keyPath = `${auditPath}.key`;
+  if (!existsSync(keyPath)) {
+    writeFileSync(keyPath, `${randomBytes(32).toString("hex")}\n`, { mode: 0o600 });
+  }
+  const encoded = readFileSync(keyPath, "utf8").trim();
+  if (!/^[a-f0-9]{64}$/i.test(encoded)) {
+    throw new Error(`Audit fingerprint key is invalid: ${keyPath}`);
+  }
+  return Buffer.from(encoded, "hex");
 }
 
-function hashText(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
+function hmacDigest(key: Buffer, value: string): string {
+  return createHmac("sha256", key).update(value).digest("hex");
 }

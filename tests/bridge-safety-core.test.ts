@@ -169,6 +169,12 @@ test("Codex control checks method policy before live transport calls", async () 
   const control = createCodexControl({
     audit: {
       path: "memory",
+      fingerprintText(value) {
+        return `test-text-${value}`;
+      },
+      fingerprintValue() {
+        return "test-params";
+      },
       append(record) {
         auditRecord = { id: "loo_audit_test", createdAt: new Date().toISOString(), ...record };
         return auditRecord;
@@ -228,6 +234,12 @@ test("Codex control rejects approval mismatch before live transport calls", asyn
   const control = createCodexControl({
     audit: {
       path: "memory",
+      fingerprintText(value) {
+        return `test-text-${value}`;
+      },
+      fingerprintValue() {
+        return "test-params";
+      },
       append(record) {
         return { id: "loo_audit_test", createdAt: new Date().toISOString(), ...record };
       },

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { appendFileSync, mkdtempSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -32,8 +32,16 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
     assert.equal(dryRun.live, false);
     assert.match(dryRun.approvalAuditId, /^loo_audit_/);
     assert.match(dryRun.paramsHash, /^[a-f0-9]{64}$/);
-    assert.equal(dryRun.messageHash, sha256("continue"));
+    assert.match(dryRun.messageHash ?? "", /^[a-f0-9]{64}$/);
+    assert.notEqual(dryRun.messageHash, sha256("continue"));
     assert.equal(calls.length, 0);
+
+    const repeatedDryRun = await control.sendMessage({
+      threadId: "thr_1",
+      message: "continue",
+      dryRun: true
+    });
+    assert.equal(repeatedDryRun.messageHash, dryRun.messageHash);
 
     await assert.rejects(
       () => control.sendMessage({ threadId: "thr_1", message: "continue", dryRun: false }),
@@ -138,7 +146,8 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.equal(dryRun.live, false);
     assert.match(dryRun.approval_audit_id, /^loo_audit_/);
     assert.match(dryRun.params_hash, /^[a-f0-9]{64}$/);
-    assert.equal(dryRun.message_hash, sha256("continue"));
+    assert.match(dryRun.message_hash, /^[a-f0-9]{64}$/);
+    assert.notEqual(dryRun.message_hash, sha256("continue"));
 
     const dryRunTool = tools.find((tool) => tool.name === "loo_codex_control_dry_run");
     assert.ok(dryRunTool);
@@ -149,7 +158,11 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     };
     assert.match(genericDryRun.approval_audit_id, /^loo_audit_/);
     assert.match(genericDryRun.params_hash, /^[a-f0-9]{64}$/);
-    assert.equal(genericDryRun.message_hash, sha256("continue"));
+    assert.match(genericDryRun.message_hash, /^[a-f0-9]{64}$/);
+    assert.notEqual(genericDryRun.message_hash, sha256("continue"));
+    assert.equal(genericDryRun.message_hash, dryRun.message_hash);
+
+    appendFileSync(audit.path, "{malformed audit jsonl\n");
 
     const auditTailTool = tools.find((tool) => tool.name === "loo_audit_tail");
     assert.ok(auditTailTool);

@@ -104,7 +104,7 @@ Approval-gated controls:
 - `loo_codex_steer_thread`
 - `loo_codex_interrupt_thread`
 
-Dry-run control results include `approval_audit_id`, `params_hash`, and, for message-bearing actions, `message_hash`. Live control must provide the matching `approval_audit_id`; `loo_audit_tail` exposes recent audit records with hashes and no raw prompt text.
+Dry-run control results include `approval_audit_id`, `params_hash`, and, for message-bearing actions, `message_hash`. These are local keyed fingerprints, not raw prompt text. Live control must provide the matching `approval_audit_id`; `loo_audit_tail` exposes recent audit records with fingerprints and no raw prompt text.
 
 Desktop fallback:
 
