@@ -2,12 +2,13 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
 import {
+  configuredLcmPeerDbPaths,
   createDatabase,
   describeRecallRef,
   expandQuery,
@@ -183,7 +184,7 @@ test("grep -> describe -> expand_query preserves Codex and read-only LCM source 
     const relativePeer = relative(process.cwd(), fixture.lcmPath);
     const relativeRef = grepRecall(db, { query: "OpenClaw LCM", lcmDbPaths: [relativePeer], limit: 5 })
       .matches.find((match) => match.sourceKind === "lcm_summary")?.sourceRef;
-    assert.equal(describeRecallRef(db, { sourceRef: relativeRef!, lcmDbPaths: [fixture.lcmPath] })?.summaryId, "sum_peer_recall");
+    assert.equal(describeRecallRef(db, { sourceRef: relativeRef!, lcmDbPaths: [relativePeer] })?.summaryId, "sum_peer_recall");
 
     const after = peerDbState(fixture.lcmPath);
     assert.deepEqual(after, before);
@@ -193,6 +194,41 @@ test("grep -> describe -> expand_query preserves Codex and read-only LCM source 
   } finally {
     db.close();
     rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("stale LCM refs degrade to not found without leaking peer open errors", () => {
+  const fixture = makeRecallFixture();
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    const lcmRef = grepRecall(db, { query: "OpenClaw LCM", lcmDbPaths: [fixture.lcmPath], limit: 5 })
+      .matches.find((match) => match.sourceKind === "lcm_summary")?.sourceRef;
+    assert.ok(lcmRef?.startsWith("lcm_summary:"));
+
+    rmSync(fixture.lcmPath, { force: true });
+
+    assert.equal(describeRecallRef(db, { sourceRef: lcmRef!, lcmDbPaths: [fixture.lcmPath] }), null);
+    assert.throws(
+      () => expandRecallRef(db, { sourceRef: lcmRef!, lcmDbPaths: [fixture.lcmPath], profile: "brief" }),
+      /Unknown LCM summary ref/
+    );
+  } finally {
+    db.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("configured LCM peer paths resolve home-relative paths from the OS home", () => {
+  const previousHome = process.env.HOME;
+  try {
+    delete process.env.HOME;
+    assert.deepEqual(configuredLcmPeerDbPaths("~/peer.sqlite"), [join(homedir(), "peer.sqlite")]);
+  } finally {
+    if (previousHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = previousHome;
+    }
   }
 });
 

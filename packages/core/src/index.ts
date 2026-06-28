@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
@@ -197,7 +198,7 @@ export function defaultCodexRoots(home = process.env.HOME || "."): string[] {
 }
 
 export function configuredLcmPeerDbPaths(raw = process.env.LOO_LCM_DB_PATHS ?? ""): string[] {
-  return unique(raw.split(new RegExp(`[${escapeRegExp(delimiter)},\\n]`, "g")).map((part) => part.trim()).filter(Boolean).map(normalizePeerPath));
+  return unique(normalizePeerPaths(raw.split(new RegExp(`[${escapeRegExp(delimiter)},\\n]`, "g")).map((part) => part.trim()).filter(Boolean)));
 }
 
 export function migrate(db: LooDatabase): void {
@@ -627,8 +628,8 @@ function searchLcmPeers(paths: string[], query: string, limit: number): RecallSe
   for (const path of paths) {
     if (matches.length >= limit) break;
     let db: LooDatabase | null = null;
-    const normalizedPath = normalizePeerPath(path);
     try {
+      const normalizedPath = normalizePeerPath(path);
       db = openLcmPeerDb(normalizedPath);
       matches.push(...searchLcmPeer(db, normalizedPath, query, limit - matches.length));
     } catch {
@@ -714,10 +715,11 @@ function lcmSearchResult(path: string, row: Record<string, unknown>, query: stri
 }
 
 function getLcmSummaryByRef(paths: string[], dbHash: string, summaryId: string): LcmSummaryRecord | null {
-  const path = paths.map(normalizePeerPath).find((candidate) => lcmPeerHash(candidate) === dbHash);
+  const path = normalizePeerPaths(paths).find((candidate) => lcmPeerHash(candidate) === dbHash);
   if (!path) return null;
-  const db = openLcmPeerDb(path);
+  let db: LooDatabase | null = null;
   try {
+    db = openLcmPeerDb(path);
     if (!tableExists(db, "summaries")) return null;
     const hasConversations = tableExists(db, "conversations");
     const row = db.prepare(`
@@ -737,8 +739,10 @@ function getLcmSummaryByRef(paths: string[], dbHash: string, summaryId: string):
       WHERE s.summary_id = ?
     `).get(summaryId) as Record<string, unknown> | undefined;
     return row ? lcmSummaryRecord(path, row) : null;
+  } catch {
+    return null;
   } finally {
-    db.close();
+    db?.close();
   }
 }
 
@@ -776,8 +780,9 @@ function lcmSummaryDescription(summary: LcmSummaryRecord): RecallDescription {
 }
 
 function probeLcmPeerDb(path: string): LcmPeerProbe {
-  const normalizedPath = normalizePeerPath(path);
+  let normalizedPath = path;
   try {
+    normalizedPath = normalizePeerPath(path);
     const db = openLcmPeerDb(normalizedPath);
     try {
       const tables = listTables(db);
@@ -881,13 +886,30 @@ function unique(values: string[]): string[] {
   return [...new Set(values)];
 }
 
+function normalizePeerPaths(paths: string[]): string[] {
+  return paths.flatMap((path) => {
+    try {
+      return [normalizePeerPath(path)];
+    } catch {
+      return [];
+    }
+  });
+}
+
 function queryTerms(query: string): string[] {
   return query.match(/[\p{L}\p{N}_-]+/gu)?.slice(0, 12) ?? [];
 }
 
 function normalizePeerPath(path: string): string {
-  if (path.startsWith("~/")) return resolve(join(process.env.HOME || ".", path.slice(2)));
+  if (path === "~") return resolve(homeDirectory());
+  if (path.startsWith("~/")) return resolve(join(homeDirectory(), path.slice(2)));
   return resolve(path);
+}
+
+function homeDirectory(): string {
+  const home = homedir();
+  if (!home) throw new Error("Cannot resolve home-relative LCM peer path");
+  return home;
 }
 
 function escapeRegExp(value: string): string {
