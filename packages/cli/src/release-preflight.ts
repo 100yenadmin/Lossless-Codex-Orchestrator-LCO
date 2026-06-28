@@ -43,6 +43,11 @@ type RawSessionArtifact = {
   reason: "raw_codex_jsonl" | "sqlite_database" | "screenshot_or_image" | "video_capture";
 };
 
+type JsonReadResult = {
+  value: unknown | null;
+  error: string | null;
+};
+
 const forbiddenClaims = [
   "Full Claude Code parity",
   "cloud sync",
@@ -53,11 +58,14 @@ const forbiddenClaims = [
 
 export function runReleasePreflight(options: ReleasePreflightOptions = {}): ReleasePreflightReport {
   const packageRoot = options.rootDir ? resolve(options.rootDir) : findPackageRoot(dirname(fileURLToPath(import.meta.url))) ?? process.cwd();
-  const packageJson = readJson(packageRoot, "package.json") as { name?: string; version?: string; description?: string } | null;
+  const packageJsonRead = readJson(packageRoot, "package.json");
+  const packageJson = packageJsonRead.value as { name?: string; version?: string; description?: string } | null;
   const readme = readText(packageRoot, "README.md");
+  const normalizedReadme = readme?.toLowerCase() ?? "";
   const claimAudit = readText(packageRoot, "docs/CLAIM_AUDIT.md");
   const betaDemo = readText(packageRoot, "docs/BETA_RELEASE_DEMO.md");
-  const openclawManifest = readJson(packageRoot, "packages/openclaw-plugin/openclaw.plugin.json") as {
+  const openclawManifestRead = readJson(packageRoot, "packages/openclaw-plugin/openclaw.plugin.json");
+  const openclawManifest = openclawManifestRead.value as {
     id?: string;
     mcp?: { command?: string; transport?: string };
     tools?: { prefix?: string };
@@ -68,9 +76,9 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
   const liveControlProof = validateApprovedLiveControlProof(approvedLiveControlProof);
   const rawSessionArtifacts = scanRawSessionArtifacts(options.evidenceDir);
   const checks: Record<string, ReleasePreflightCheck> = {
-    packageJson: check(Boolean(packageJson?.name && packageJson.version && packageJson.description?.match(/local Codex sessions/i)), "package metadata keeps Codex-first beta positioning"),
-    readme: check(Boolean(readme?.match(/Allowed public beta claim/i) && readme.match(/loo release preflight/i)), "README includes beta claim boundary and release preflight command"),
-    openclawManifest: check(Boolean(openclawManifest?.id === "lossless-openclaw-orchestrator" && openclawManifest.mcp?.command === "loo-mcp-server" && openclawManifest.mcp.transport === "stdio" && openclawManifest.tools?.prefix === "loo_" && openclawManifest.safety?.localOnlyByDefault === true), "OpenClaw manifest is packageable and local-only by default"),
+    packageJson: check(Boolean(!packageJsonRead.error && packageJson?.name && packageJson.version && packageJson.description?.match(/local Codex sessions/i)), packageJsonRead.error ?? "package metadata keeps Codex-first beta positioning"),
+    readme: check(Boolean(readme?.match(/Allowed public beta claim/i) && readme.match(/loo release preflight/i) && forbiddenClaims.every((claim) => normalizedReadme.includes(claim.toLowerCase()))), "README includes beta claim boundary, forbidden claims, and release preflight command"),
+    openclawManifest: check(Boolean(!openclawManifestRead.error && openclawManifest?.id === "lossless-openclaw-orchestrator" && openclawManifest.mcp?.command === "loo-mcp-server" && openclawManifest.mcp.transport === "stdio" && openclawManifest.tools?.prefix === "loo_" && openclawManifest.safety?.localOnlyByDefault === true), openclawManifestRead.error ?? "OpenClaw manifest is packageable and local-only by default"),
     claimAudit: check(Boolean(claimAudit?.match(/Forbidden Beta Claims/i) && claimAudit.match(/approved_live_control_smoke_missing/i)), "claim audit records forbidden claims and the live-control blocker code"),
     betaDemo: check(Boolean(betaDemo?.match(/100\+ local Codex sessions/i) && betaDemo.match(/does not run live control/i)), "demo workflow covers 100+ Codex sessions and dry-run-only control boundary"),
     rawArtifacts: check(rawSessionArtifacts.length === 0, rawSessionArtifacts.length === 0 ? "no raw session/private DB/screenshot artifacts found" : "raw session/private DB/screenshot artifacts are present"),
@@ -114,10 +122,14 @@ function readText(root: string, path: string): string | null {
   return readFileSync(resolved, "utf8");
 }
 
-function readJson(root: string, path: string): unknown | null {
+function readJson(root: string, path: string): JsonReadResult {
   const text = readText(root, path);
-  if (!text) return null;
-  return JSON.parse(text);
+  if (!text) return { value: null, error: null };
+  try {
+    return { value: JSON.parse(text), error: null };
+  } catch {
+    return { value: null, error: `invalid JSON in ${path}` };
+  }
 }
 
 function findPackageRoot(start: string): string | null {
@@ -168,8 +180,17 @@ function validateApprovedLiveControlProof(path: string | undefined): ReleasePref
   }
   const actionOk = proof.action === "send" || proof.action === "resume" || proof.action === "steer" || proof.action === "interrupt";
   const hashOk = proof.action === "send" || proof.action === "steer" ? Boolean(proof.messageHash?.startsWith("sha256:")) : true;
-  const rawTextKeys = new Set(["message", "prompt", "rawPrompt", "transcript", "sessionText"]);
-  const hasRawTextField = Object.keys(proof).some((key) => rawTextKeys.has(key));
+  const allowedKeys = new Set([
+    "kind",
+    "approvedLiveControlSmoke",
+    "action",
+    "targetRef",
+    "approvalAuditId",
+    "messageHash",
+    "preservesCodexApprovalSemantics",
+    "rawPromptIncluded"
+  ]);
+  const hasOnlyAllowedKeys = Object.keys(proof).every((key) => allowedKeys.has(key));
   const ok = proof.kind === "loo_approved_live_control_smoke"
     && proof.approvedLiveControlSmoke === true
     && actionOk
@@ -178,6 +199,6 @@ function validateApprovedLiveControlProof(path: string | undefined): ReleasePref
     && hashOk
     && proof.preservesCodexApprovalSemantics === true
     && proof.rawPromptIncluded === false
-    && !hasRawTextField;
+    && hasOnlyAllowedKeys;
   return check(ok, ok ? "structured approved live-control smoke proof accepted" : "approved live-control evidence is not a safe structured proof marker");
 }

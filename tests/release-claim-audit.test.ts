@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { test } from "node:test";
+import { runReleasePreflight } from "../packages/cli/src/release-preflight.js";
 
 const tsxImport = createRequire(import.meta.url).resolve("tsx");
 
@@ -213,6 +214,80 @@ test("release preflight only clears live-control blocker for structured approval
   assert.deepEqual(proofPayload.blockers, []);
 });
 
+test("release preflight rejects proof markers with unexpected private fields", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-extra-proof-"));
+  const proofFile = join(evidenceDir, "approved-live-control-smoke.json");
+  writeFileSync(proofFile, `${JSON.stringify({
+    kind: "loo_approved_live_control_smoke",
+    approvedLiveControlSmoke: true,
+    action: "send",
+    targetRef: "codex_thread:test-thread",
+    approvalAuditId: "audit_test",
+    messageHash: "sha256:test",
+    preservesCodexApprovalSemantics: true,
+    rawPromptIncluded: false,
+    screenshotPath: "/private/tmp/codex.png"
+  }, null, 2)}\n`);
+
+  const payload = runReleasePreflight({ approvedLiveControlEvidence: proofFile });
+  assert.equal(payload.releaseReady, false);
+  assert.equal(payload.checks.liveControlSmoke?.ok, false);
+  assert.deepEqual(payload.blockers, ["approved_live_control_smoke_missing"]);
+});
+
+test("release preflight reports malformed package JSON as a structured blocker", () => {
+  const rootDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-invalid-root-"));
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-invalid-evidence-"));
+  writeProjectSkeleton(rootDir);
+  writeFileSync(join(rootDir, "package.json"), "{not json\n");
+
+  const payload = runReleasePreflight({ rootDir, evidenceDir });
+
+  assert.equal(payload.ok, false);
+  assert.equal(payload.releaseReady, false);
+  assert.equal(payload.checks.packageJson?.ok, false);
+  assert.match(payload.checks.packageJson?.detail ?? "", /invalid JSON/i);
+  assert.equal(existsSync(join(evidenceDir, "release-preflight.json")), true);
+  assert.deepEqual(payload.blockers, ["packageJson_failed", "approved_live_control_smoke_missing"]);
+});
+
+test("release preflight README gate enforces the full forbidden-claims boundary", () => {
+  const rootDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-readme-root-"));
+  writeProjectSkeleton(rootDir, {
+    readme: [
+      "# Lossless OpenClaw Orchestrator",
+      "Allowed public beta claim:",
+      "loo release preflight",
+      "Full Claude Code parity",
+      "cloud sync",
+      "unattended desktop takeover",
+      "bypasses Codex permissions"
+    ].join("\n")
+  });
+
+  const payload = runReleasePreflight({ rootDir });
+
+  assert.equal(payload.checks.readme?.ok, false);
+  assert.match(payload.checks.readme?.detail ?? "", /forbidden claims/i);
+  assert.deepEqual(payload.blockers, ["readme_failed", "approved_live_control_smoke_missing"]);
+});
+
+test("release preflight --strict exits non-zero when blockers remain", () => {
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "preflight",
+    "--strict"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as { releaseReady?: boolean; blockers?: string[] };
+  assert.equal(payload.releaseReady, false);
+  assert.deepEqual(payload.blockers, ["approved_live_control_smoke_missing"]);
+});
+
 test("release preflight checks package files from the package root regardless of caller cwd", () => {
   const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-cwd-"));
   const result = spawnSync(process.execPath, [
@@ -267,3 +342,37 @@ test("release preflight reports raw artifacts already present in the evidence di
     { name: "session.jsonl", reason: "raw_codex_jsonl" }
   ]);
 });
+
+function writeProjectSkeleton(rootDir: string, overrides: { readme?: string } = {}): void {
+  mkdirSync(join(rootDir, "docs"), { recursive: true });
+  mkdirSync(join(rootDir, "packages/openclaw-plugin"), { recursive: true });
+  writeFileSync(join(rootDir, "package.json"), JSON.stringify({
+    name: "lossless-openclaw-orchestrator",
+    version: "0.1.0-beta.0",
+    description: "Index, search, and control local Codex sessions through OpenClaw with approval-gated safety."
+  }));
+  writeFileSync(join(rootDir, "README.md"), overrides.readme ?? [
+    "# Lossless OpenClaw Orchestrator",
+    "Allowed public beta claim:",
+    "loo release preflight",
+    "Full Claude Code parity",
+    "cloud sync",
+    "unattended desktop takeover",
+    "bypasses Codex permissions",
+    "release-grade enterprise security"
+  ].join("\n"));
+  writeFileSync(join(rootDir, "docs/CLAIM_AUDIT.md"), [
+    "Forbidden Beta Claims",
+    "approved_live_control_smoke_missing"
+  ].join("\n"));
+  writeFileSync(join(rootDir, "docs/BETA_RELEASE_DEMO.md"), [
+    "100+ local Codex sessions",
+    "does not run live control"
+  ].join("\n"));
+  writeFileSync(join(rootDir, "packages/openclaw-plugin/openclaw.plugin.json"), JSON.stringify({
+    id: "lossless-openclaw-orchestrator",
+    mcp: { command: "loo-mcp-server", transport: "stdio" },
+    tools: { prefix: "loo_" },
+    safety: { localOnlyByDefault: true }
+  }));
+}

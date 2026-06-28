@@ -34,6 +34,7 @@ Forbidden beta claims:
 - Cloud sync
 - Unattended desktop takeover
 - Bypasses Codex permissions
+- Release-grade enterprise security
 
 ## Install
 
