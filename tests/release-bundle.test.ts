@@ -1,0 +1,111 @@
+import assert from "node:assert/strict";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { spawnSync } from "node:child_process";
+import { test } from "node:test";
+import { createReleaseBundle } from "../packages/cli/src/release-bundle.js";
+
+const tsxImport = createRequire(import.meta.url).resolve("tsx");
+
+function read(path: string): string {
+  return readFileSync(path, "utf8");
+}
+
+test("public beta release notes exist and preserve the proof boundary", () => {
+  assert.equal(existsSync("docs/RELEASE_NOTES_0.1.0-beta.0.md"), true, "release notes must exist before a GitHub Release");
+  const notes = read("docs/RELEASE_NOTES_0.1.0-beta.0.md");
+
+  assert.match(notes, /0\.1\.0-beta\.0/);
+  assert.match(notes, /local Codex sessions/i);
+  assert.match(notes, /approved_live_control_smoke_missing/);
+  assert.match(notes, /Claude Code.*adapter stub/i);
+  assert.match(notes, /No cloud sync/i);
+  assert.match(notes, /No unattended desktop takeover/i);
+  assert.match(notes, /No release-grade enterprise security/i);
+  assert.doesNotMatch(notes, /Full Claude Code parity/i);
+});
+
+test("release bundle writes public-safe local artifacts without publishing", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-bundle-"));
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "bundle",
+    "--evidence-dir",
+    evidenceDir
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as {
+    ok?: boolean;
+    publishReady?: boolean;
+    npmPublished?: boolean;
+    githubReleaseCreated?: boolean;
+    releaseNotesPath?: string;
+    bundleManifestPath?: string;
+    blockers?: string[];
+    rawSessionArtifacts?: unknown[];
+  };
+
+  assert.equal(payload.ok, true);
+  assert.equal(payload.publishReady, false);
+  assert.equal(payload.npmPublished, false);
+  assert.equal(payload.githubReleaseCreated, false);
+  assert.deepEqual(payload.blockers, ["approved_live_control_smoke_missing"]);
+  assert.deepEqual(payload.rawSessionArtifacts, []);
+  assert.equal(payload.releaseNotesPath, join(evidenceDir, "RELEASE_NOTES_0.1.0-beta.0.md"));
+  assert.equal(payload.bundleManifestPath, join(evidenceDir, "release-bundle.json"));
+  assert.equal(existsSync(join(evidenceDir, "RELEASE_NOTES_0.1.0-beta.0.md")), true);
+  assert.equal(existsSync(join(evidenceDir, "release-bundle.json")), true);
+
+  const notes = read(join(evidenceDir, "RELEASE_NOTES_0.1.0-beta.0.md"));
+  assert.match(notes, /approved_live_control_smoke_missing/);
+  assert.match(notes, /not publish to npm/i);
+  assert.match(notes, /not create a GitHub Release/i);
+  assert.doesNotMatch(notes, /Full Claude Code parity/i);
+
+  const manifest = JSON.parse(read(join(evidenceDir, "release-bundle.json"))) as {
+    releasePreflight?: { releaseReady?: boolean };
+    artifacts?: { releaseNotes?: string; preflightManifest?: string };
+  };
+  assert.equal(manifest.releasePreflight?.releaseReady, false);
+  assert.equal(manifest.artifacts?.releaseNotes, "RELEASE_NOTES_0.1.0-beta.0.md");
+  assert.equal(manifest.artifacts?.preflightManifest, "release-preflight.json");
+});
+
+test("release bundle --strict fails closed while live-control approval is missing", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-bundle-strict-"));
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "bundle",
+    "--evidence-dir",
+    evidenceDir,
+    "--strict"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as { blockers?: string[] };
+  assert.deepEqual(payload.blockers, ["approved_live_control_smoke_missing"]);
+});
+
+test("release bundle requires version-specific release notes", () => {
+  const rootDir = mkdtempSync(join(tmpdir(), "loo-release-bundle-root-"));
+  mkdirSync(join(rootDir, "docs"), { recursive: true });
+  writeFileSync(join(rootDir, "package.json"), JSON.stringify({
+    name: "lossless-openclaw-orchestrator",
+    version: "9.9.9-test.0",
+    description: "Test package for local Codex sessions"
+  }));
+
+  assert.throws(
+    () => createReleaseBundle({ evidenceDir: join(rootDir, "evidence"), rootDir }),
+    /docs\/RELEASE_NOTES_9\.9\.9-test\.0\.md/
+  );
+});

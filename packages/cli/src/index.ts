@@ -16,6 +16,7 @@ import {
   type RecallProfileName
 } from "../../core/src/index.js";
 import { join } from "node:path";
+import { createReleaseBundle } from "./release-bundle.js";
 import { runReleasePreflight } from "./release-preflight.js";
 
 const [, , command, ...args] = process.argv;
@@ -149,6 +150,16 @@ async function main() {
     if (parsed.strict && !report.releaseReady) process.exitCode = 1;
     return;
   }
+  if (command === "release" && args[0] === "bundle") {
+    const parsed = parseReleaseBundleArgs(args.slice(1));
+    const report = createReleaseBundle({
+      evidenceDir: parsed.evidenceDir,
+      approvedLiveControlEvidence: parsed.approvedLiveControlEvidence
+    });
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.publishReady) process.exitCode = 1;
+    return;
+  }
   console.error([
     "Usage:",
     "  loo doctor",
@@ -163,7 +174,8 @@ async function main() {
     "  loo expand-ref [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <source-ref>",
     "  loo serve",
     "  loo audit-path",
-    "  loo release preflight [--evidence-dir path] [--approved-live-control-evidence path] [--strict]"
+    "  loo release preflight [--evidence-dir path] [--approved-live-control-evidence path] [--strict]",
+    "  loo release bundle --evidence-dir path [--approved-live-control-evidence path] [--strict]"
   ].join("\n"));
   process.exitCode = 2;
 }
@@ -278,4 +290,10 @@ function parseReleasePreflightArgs(input: string[]): { evidenceDir?: string; app
     throw new Error(`Unknown release preflight option: ${arg}`);
   }
   return { evidenceDir, approvedLiveControlEvidence, strict };
+}
+
+function parseReleaseBundleArgs(input: string[]): { evidenceDir: string; approvedLiveControlEvidence?: string; strict: boolean } {
+  const parsed = parseReleasePreflightArgs(input);
+  if (!parsed.evidenceDir) throw new Error("release bundle requires --evidence-dir");
+  return { evidenceDir: parsed.evidenceDir, approvedLiveControlEvidence: parsed.approvedLiveControlEvidence, strict: parsed.strict };
 }
