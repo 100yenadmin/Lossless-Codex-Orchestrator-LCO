@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
@@ -172,6 +172,11 @@ test("grep -> describe -> expand_query preserves Codex and read-only LCM source 
     assert.equal(evidence.profile.name, "evidence");
     assert.equal(evidence.tokenBudget, 4000);
     assert.equal(evidence.text.length >= brief.text.length, true);
+
+    const relativePeer = relative(process.cwd(), fixture.lcmPath);
+    const relativeRef = grepRecall(db, { query: "OpenClaw LCM", lcmDbPaths: [relativePeer], limit: 5 })
+      .matches.find((match) => match.sourceKind === "lcm_summary")?.sourceRef;
+    assert.equal(describeRecallRef(db, { sourceRef: relativeRef!, lcmDbPaths: [fixture.lcmPath] })?.summaryId, "sum_peer_recall");
 
     const after = peerDbState(fixture.lcmPath);
     assert.deepEqual(after, before);

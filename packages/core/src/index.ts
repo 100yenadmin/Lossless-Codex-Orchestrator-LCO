@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, delimiter, dirname, join } from "node:path";
+import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 export type LooDatabase = DatabaseSync;
@@ -197,7 +197,7 @@ export function defaultCodexRoots(home = process.env.HOME || "."): string[] {
 }
 
 export function configuredLcmPeerDbPaths(raw = process.env.LOO_LCM_DB_PATHS ?? ""): string[] {
-  return unique(raw.split(new RegExp(`[${escapeRegExp(delimiter)},\\n]`, "g")).map((part) => part.trim()).filter(Boolean));
+  return unique(raw.split(new RegExp(`[${escapeRegExp(delimiter)},\\n]`, "g")).map((part) => part.trim()).filter(Boolean).map(normalizePeerPath));
 }
 
 export function migrate(db: LooDatabase): void {
@@ -627,9 +627,10 @@ function searchLcmPeers(paths: string[], query: string, limit: number): RecallSe
   for (const path of paths) {
     if (matches.length >= limit) break;
     let db: LooDatabase | null = null;
+    const normalizedPath = normalizePeerPath(path);
     try {
-      db = openLcmPeerDb(path);
-      matches.push(...searchLcmPeer(db, path, query, limit - matches.length));
+      db = openLcmPeerDb(normalizedPath);
+      matches.push(...searchLcmPeer(db, normalizedPath, query, limit - matches.length));
     } catch {
       // Peer reads are optional and must not break Codex recall.
     } finally {
@@ -713,7 +714,7 @@ function lcmSearchResult(path: string, row: Record<string, unknown>, query: stri
 }
 
 function getLcmSummaryByRef(paths: string[], dbHash: string, summaryId: string): LcmSummaryRecord | null {
-  const path = paths.find((candidate) => lcmPeerHash(candidate) === dbHash);
+  const path = paths.map(normalizePeerPath).find((candidate) => lcmPeerHash(candidate) === dbHash);
   if (!path) return null;
   const db = openLcmPeerDb(path);
   try {
@@ -775,14 +776,15 @@ function lcmSummaryDescription(summary: LcmSummaryRecord): RecallDescription {
 }
 
 function probeLcmPeerDb(path: string): LcmPeerProbe {
+  const normalizedPath = normalizePeerPath(path);
   try {
-    const db = openLcmPeerDb(path);
+    const db = openLcmPeerDb(normalizedPath);
     try {
       const tables = listTables(db);
       const supported = tables.includes("summaries");
       const summaryCount = supported ? Number((db.prepare("SELECT COUNT(*) AS count FROM summaries").get() as { count: number }).count) : null;
       return {
-        path,
+        path: normalizedPath,
         readable: true,
         readOnly: true,
         queryOnly: queryOnlyEnabled(db),
@@ -797,7 +799,7 @@ function probeLcmPeerDb(path: string): LcmPeerProbe {
     }
   } catch (error) {
     return {
-      path,
+      path: normalizedPath,
       readable: false,
       readOnly: true,
       queryOnly: false,
@@ -855,7 +857,7 @@ function lcmSummaryRef(path: string, summaryId: string): string {
 }
 
 function lcmPeerHash(path: string): string {
-  return stableId(path).slice(0, 12);
+  return stableId(normalizePeerPath(path)).slice(0, 12);
 }
 
 function parseSourceRef(sourceRef: string): { kind: "codex_thread"; id: string } | { kind: "lcm_summary"; dbHash: string; id: string } {
@@ -881,6 +883,11 @@ function unique(values: string[]): string[] {
 
 function queryTerms(query: string): string[] {
   return query.match(/[\p{L}\p{N}_-]+/gu)?.slice(0, 12) ?? [];
+}
+
+function normalizePeerPath(path: string): string {
+  if (path.startsWith("~/")) return resolve(join(process.env.HOME || ".", path.slice(2)));
+  return resolve(path);
 }
 
 function escapeRegExp(value: string): string {
