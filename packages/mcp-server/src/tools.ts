@@ -21,9 +21,13 @@ import {
   LOO_COMMAND_POLICY,
   codexTransportStatus,
   createCodexControl,
+  desktopActDryRun,
+  desktopFallbackDiagnostics,
   desktopSee,
   type AuditStore,
-  type CodexClient
+  type DesktopBackend,
+  type CodexClient,
+  type DesktopProbe
 } from "../../adapters/src/index.js";
 
 export type LooTool = {
@@ -33,7 +37,7 @@ export type LooTool = {
   execute(input: Record<string, unknown>): Promise<unknown> | unknown;
 };
 
-export function createLooTools(options: { db: LooDatabase; audit: AuditStore; codexClient: CodexClient }): LooTool[] {
+export function createLooTools(options: { db: LooDatabase; audit: AuditStore; codexClient: CodexClient; desktopProbe?: DesktopProbe }): LooTool[] {
   const control = createCodexControl({ audit: options.audit, client: options.codexClient });
   return [
     tool("loo_index_sessions", "Index local Codex session JSONL files into the local orchestrator database.", {
@@ -119,18 +123,23 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
     tool("loo_codex_interrupt_thread", "Interrupt a Codex thread. Live mode requires approval_audit_id.", controlSchema(), (input) => snakeCaseControlResult(control.interruptThread(controlInput(input)))),
     tool("loo_desktop_see", "Inspect desktop fallback readiness through direct/CUA/Peekaboo backends.", {
       backend: { type: "string", enum: ["direct", "cua-driver", "peekaboo"] }
-    }, (input) => desktopSee({ backend: optionalString(input.backend) as any })),
+    }, (input) => desktopSee({ backend: optionalDesktopBackend(input.backend), probe: options.desktopProbe })),
     tool("loo_desktop_act", "Dry-run desktop fallback action placeholder for CUA/Peekaboo.", {
       backend: { type: "string", enum: ["direct", "cua-driver", "peekaboo"] },
       action: { type: "string" },
       dry_run: { type: "boolean" }
-    }, (input) => ({ backend: optionalString(input.backend) ?? "direct", action: optionalString(input.action) ?? "unknown", live: false, note: "Desktop live action is not enabled in this beta without backend-specific approval." })),
+    }, (input) => desktopActDryRun({
+      backend: optionalDesktopBackend(input.backend),
+      action: optionalString(input.action),
+      dryRun: input.dry_run !== false
+    })),
     tool("loo_doctor", "Read local orchestrator health.", {}, () => ({
       ok: true,
       localOnly: true,
       toolPrefix: "loo_*",
       codex: codexTransportStatus({ command: process.env.LOO_CODEX_BIN || "codex" }),
-      lcmPeers: probeLcmPeerDbs(configuredLcmPeerDbPaths())
+      lcmPeers: probeLcmPeerDbs(configuredLcmPeerDbPaths()),
+      desktopFallbacks: desktopFallbackDiagnostics({ probe: options.desktopProbe })
     })),
     tool("loo_permissions", "Read safety posture for live controls.", {}, () => ({
       liveControlRequires: ["dry_run", "approval_audit_id"],
@@ -216,6 +225,12 @@ function optionalProfile(value: unknown): "metadata" | "brief" | "evidence" | un
   if (value === undefined) return undefined;
   if (value === "metadata" || value === "brief" || value === "evidence") return value;
   throw new Error("profile must be metadata, brief, or evidence");
+}
+
+function optionalDesktopBackend(value: unknown): DesktopBackend | undefined {
+  if (value === undefined) return undefined;
+  if (value === "direct" || value === "cua-driver" || value === "peekaboo") return value;
+  throw new Error("desktop backend must be direct, cua-driver, or peekaboo");
 }
 
 function stringArray(value: unknown): string[] {

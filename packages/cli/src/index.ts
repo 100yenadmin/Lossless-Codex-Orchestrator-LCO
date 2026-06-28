@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { codexTransportStatus, createAuditStore } from "../../adapters/src/index.js";
+import { codexTransportStatus, createAuditStore, desktopActDryRun, desktopFallbackDiagnostics, desktopSee, type DesktopBackend } from "../../adapters/src/index.js";
 import {
   configuredLcmPeerDbPaths,
   createDatabase,
@@ -26,8 +26,22 @@ async function main() {
       dbPath: defaultDatabasePath(),
       localOnly: true,
       codex: codexTransportStatus({ command: process.env.LOO_CODEX_BIN || "codex" }),
-      lcmPeers: probeLcmPeerDbs(configuredLcmPeerDbPaths())
+      lcmPeers: probeLcmPeerDbs(configuredLcmPeerDbPaths()),
+      desktopFallbacks: desktopFallbackDiagnostics()
     }, null, 2));
+    return;
+  }
+  if (command === "desktop" && args[0] === "see") {
+    console.log(JSON.stringify(await desktopSee({ backend: parseDesktopBackend(args[1]) }), null, 2));
+    return;
+  }
+  if (command === "desktop" && args[0] === "act") {
+    const desktopAction = parseDesktopAction(args.slice(1));
+    console.log(JSON.stringify(desktopActDryRun({
+      backend: desktopAction.backend,
+      action: desktopAction.action,
+      dryRun: true
+    }), null, 2));
     return;
   }
   if (command === "index" && args[0] === "codex") {
@@ -126,6 +140,8 @@ async function main() {
   console.error([
     "Usage:",
     "  loo doctor",
+    "  loo desktop see [direct|cua-driver|peekaboo]",
+    "  loo desktop act [direct|cua-driver|peekaboo] <action>",
     "  loo index codex [roots...]",
     "  loo probe codex-sqlite [roots...]",
     "  loo search <query>",
@@ -177,4 +193,23 @@ function requireQuery(command: string, parts: string[]): string {
   const query = parts.join(" ").trim();
   if (!query) throw new Error(`${command} requires a query`);
   return query;
+}
+
+function parseDesktopBackend(value: string | undefined): DesktopBackend | undefined {
+  if (value === undefined) return undefined;
+  if (isDesktopBackend(value)) return value;
+  throw new Error("desktop backend must be direct, cua-driver, or peekaboo");
+}
+
+function parseDesktopAction(parts: string[]): { backend?: DesktopBackend; action: string } {
+  const first = parts[0];
+  const hasExplicitBackend = isDesktopBackend(first);
+  return {
+    backend: hasExplicitBackend ? first : undefined,
+    action: parts.slice(hasExplicitBackend ? 1 : 0).join(" ").trim() || "unknown"
+  };
+}
+
+function isDesktopBackend(value: string | undefined): value is DesktopBackend {
+  return value === "direct" || value === "cua-driver" || value === "peekaboo";
 }
