@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { test } from "node:test";
+import { createReleaseBundle } from "../packages/cli/src/release-bundle.js";
 
 const tsxImport = createRequire(import.meta.url).resolve("tsx");
 
@@ -74,4 +75,37 @@ test("release bundle writes public-safe local artifacts without publishing", () 
   assert.equal(manifest.releasePreflight?.releaseReady, false);
   assert.equal(manifest.artifacts?.releaseNotes, "RELEASE_NOTES_0.1.0-beta.0.md");
   assert.equal(manifest.artifacts?.preflightManifest, "release-preflight.json");
+});
+
+test("release bundle --strict fails closed while live-control approval is missing", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-bundle-strict-"));
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "bundle",
+    "--evidence-dir",
+    evidenceDir,
+    "--strict"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as { blockers?: string[] };
+  assert.deepEqual(payload.blockers, ["approved_live_control_smoke_missing"]);
+});
+
+test("release bundle requires version-specific release notes", () => {
+  const rootDir = mkdtempSync(join(tmpdir(), "loo-release-bundle-root-"));
+  mkdirSync(join(rootDir, "docs"), { recursive: true });
+  writeFileSync(join(rootDir, "package.json"), JSON.stringify({
+    name: "lossless-openclaw-orchestrator",
+    version: "9.9.9-test.0",
+    description: "Test package for local Codex sessions"
+  }));
+
+  assert.throws(
+    () => createReleaseBundle({ evidenceDir: join(rootDir, "evidence"), rootDir }),
+    /docs\/RELEASE_NOTES_9\.9\.9-test\.0\.md/
+  );
 });

@@ -14,7 +14,7 @@
 
 ## Proof Boundary
 
-- `approved_live_control_smoke_missing` remains until a user explicitly selects a Codex thread and approves an exact harmless live prompt.
+- `approved_live_control_smoke_missing` remains until a user provides a structured `loo_approved_live_control_smoke` JSON proof with `rawPromptIncluded: false`.
 - The bundled release artifact does not publish to npm.
 - The bundled release artifact does not create a GitHub Release.
 - Claude Code remains an adapter stub until storage and control paths are proven.

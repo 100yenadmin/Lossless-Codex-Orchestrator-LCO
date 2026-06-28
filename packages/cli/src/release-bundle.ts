@@ -31,15 +31,9 @@ export type ReleaseBundleReport = {
   releasePreflight: ReleasePreflightReport;
 };
 
-const releaseNotesFile = "RELEASE_NOTES_0.1.0-beta.0.md";
-
 export function createReleaseBundle(options: ReleaseBundleOptions): ReleaseBundleReport {
   const evidenceDir = resolve(options.evidenceDir);
   const packageRoot = options.rootDir ? resolve(options.rootDir) : findPackageRoot(dirname(fileURLToPath(import.meta.url))) ?? process.cwd();
-  const releaseNotesSource = join(packageRoot, "docs", releaseNotesFile);
-  if (!existsSync(releaseNotesSource)) {
-    throw new Error(`Release notes are missing: docs/${releaseNotesFile}`);
-  }
 
   mkdirSync(evidenceDir, { recursive: true });
   const preflight = runReleasePreflight({
@@ -48,6 +42,14 @@ export function createReleaseBundle(options: ReleaseBundleOptions): ReleaseBundl
     now: options.now,
     rootDir: packageRoot
   });
+  if (!preflight.packageVersion) {
+    throw new Error("Release bundle requires package.json version");
+  }
+  const releaseNotesFile = `RELEASE_NOTES_${preflight.packageVersion}.md`;
+  const releaseNotesSource = join(packageRoot, "docs", releaseNotesFile);
+  if (!existsSync(releaseNotesSource)) {
+    throw new Error(`Release notes are missing: docs/${releaseNotesFile}`);
+  }
   const releaseNotesPath = join(evidenceDir, releaseNotesFile);
   const bundleManifestPath = join(evidenceDir, "release-bundle.json");
 
