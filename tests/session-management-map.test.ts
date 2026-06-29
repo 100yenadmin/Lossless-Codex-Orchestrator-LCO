@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { createAuditStore } from "../packages/adapters/src/index.js";
 import {
@@ -15,6 +16,7 @@ import {
 import { createLooTools } from "../packages/mcp-server/src/tools.js";
 
 const tsxImport = createRequire(import.meta.url).resolve("tsx");
+const cliEntry = fileURLToPath(new URL("../packages/cli/src/index.ts", import.meta.url));
 
 type FixtureSession = {
   id: string;
@@ -24,6 +26,7 @@ type FixtureSession = {
   blocker?: string;
   nextAction: string;
   refs?: boolean;
+  updatedAt?: string;
 };
 
 test("session management map answers active blocked expansion archive fork and resume lanes from 20 metadata-only sessions", () => {
@@ -149,8 +152,9 @@ test("session management map answers active blocked expansion archive fork and r
 
     const expand = map.recommendations.find((entry) => entry.action === "expand");
     assert.equal(expand?.targetTool, "loo_expand_session");
+    assert.equal(expand?.requiresDryRun, false);
     assert.equal(expand?.requiresApproval, false);
-    assert.equal(JSON.stringify(map).includes("raw transcript"), false);
+    assertNoTranscriptFields(map);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -234,7 +238,7 @@ test("session management map is available through MCP tools and CLI without raw 
     const cliResult = spawnSync(process.execPath, [
       "--import",
       tsxImport,
-      "packages/cli/src/index.ts",
+      cliEntry,
       "session-map",
       "--project",
       "lossless-openclaw-orchestrator",
@@ -243,16 +247,119 @@ test("session management map is available through MCP tools and CLI without raw 
       "--priority-order",
       "urgent,high,medium,low"
     ], {
-      cwd: process.cwd(),
+      cwd: root,
       env: { ...process.env, LOO_DB_PATH: dbPath },
-      encoding: "utf8"
+      encoding: "utf8",
+      timeout: 15_000
     });
     assert.equal(cliResult.status, 0, cliResult.stderr || cliResult.stdout);
     const cliMap = JSON.parse(cliResult.stdout) as ReturnType<typeof getCodexSessionManagementMap>;
     assert.equal(cliMap.publicSafe, true);
     assert.equal(cliMap.summary.total, 4);
     assert.deepEqual(cliMap.groups.blockedWork.map((entry) => entry.threadId), ["019f-public-blocked"]);
-    assert.equal(JSON.stringify(cliMap).includes("raw transcript"), false);
+    assertNoTranscriptFields(cliMap);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("session management map emits one primary recommendation per thread and uses recency for stale paused work", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-session-management-exclusive-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+
+  const fixtures: FixtureSession[] = [
+    {
+      id: "019f-complete-missing-refs",
+      title: "Complete without refs",
+      status: "complete",
+      priority: "high",
+      nextAction: "archive after closeout",
+      updatedAt: "2026-06-29T12:00:00.000Z"
+    },
+    {
+      id: "019f-paused-old-archive",
+      title: "Old paused archive",
+      status: "paused",
+      priority: "high",
+      nextAction: "archive after stale review",
+      refs: true,
+      updatedAt: "2025-01-01T00:00:00.000Z"
+    },
+    {
+      id: "019f-paused-fresh-resume",
+      title: "Fresh paused resume",
+      status: "paused",
+      priority: "high",
+      nextAction: "resume with bounded prompt",
+      refs: true,
+      updatedAt: "2026-06-29T11:00:00.000Z"
+    },
+    {
+      id: "019f-high-older-active",
+      title: "Older active",
+      status: "active",
+      priority: "high",
+      nextAction: "continue implementation after bounded review",
+      refs: true,
+      updatedAt: "2026-06-29T09:00:00.000Z"
+    },
+    {
+      id: "019f-high-newer-active",
+      title: "Newer active",
+      status: "active",
+      priority: "high",
+      nextAction: "continue implementation after bounded review",
+      refs: true,
+      updatedAt: "2026-06-29T10:00:00.000Z"
+    },
+    {
+      id: "019f-active-expand",
+      title: "Active expansion needed",
+      status: "active",
+      priority: "medium",
+      nextAction: "expand metadata brief before choosing action",
+      updatedAt: "2026-06-29T08:00:00.000Z"
+    }
+  ];
+
+  for (const fixture of fixtures) writeSessionFixture(sessions, fixture);
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+
+    const map = getCodexSessionManagementMap(db, {
+      project: "lossless-openclaw-orchestrator",
+      limit: 20,
+      priorityOrder: ["high", "medium"]
+    });
+
+    assert.deepEqual(map.groups.activeWork.map((entry) => entry.threadId), [
+      "019f-high-newer-active",
+      "019f-high-older-active"
+    ]);
+    assert.deepEqual(map.groups.needsExpansion.map((entry) => entry.threadId), ["019f-active-expand"]);
+    assert.deepEqual(map.groups.safeToArchive.map((entry) => entry.threadId), [
+      "019f-complete-missing-refs",
+      "019f-paused-old-archive"
+    ]);
+    assert.deepEqual(map.groups.shouldResume.map((entry) => entry.threadId), ["019f-paused-fresh-resume"]);
+
+    const recommendationsByRef = new Map<string, string[]>();
+    for (const recommendation of map.recommendations) {
+      const actions = recommendationsByRef.get(recommendation.sourceRef) ?? [];
+      actions.push(recommendation.action);
+      recommendationsByRef.set(recommendation.sourceRef, actions);
+    }
+    for (const [sourceRef, actions] of recommendationsByRef) {
+      assert.equal(actions.length, 1, `${sourceRef} had conflicting recommendations: ${actions.join(",")}`);
+    }
+    assert.deepEqual(recommendationsByRef.get("codex_thread:019f-complete-missing-refs"), ["archive"]);
+    assert.deepEqual(recommendationsByRef.get("codex_thread:019f-paused-old-archive"), ["archive"]);
+    assert.deepEqual(recommendationsByRef.get("codex_thread:019f-paused-fresh-resume"), ["resume"]);
+    assert.deepEqual(recommendationsByRef.get("codex_thread:019f-active-expand"), ["expand"]);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -260,6 +367,7 @@ test("session management map is available through MCP tools and CLI without raw 
 });
 
 function writeSessionFixture(root: string, fixture: FixtureSession): void {
+  const updatedAt = fixture.updatedAt ?? "2026-06-29T00:00:00.000Z";
   const refs = fixture.refs === true
     ? [
         `Proposed plan refs: codex_event:${fixture.id}-plan`,
@@ -269,6 +377,7 @@ function writeSessionFixture(root: string, fixture: FixtureSession): void {
     : [];
   const lines = [
     {
+      timestamp: updatedAt,
       session_meta: {
         payload: {
           id: fixture.id,
@@ -278,8 +387,9 @@ function writeSessionFixture(root: string, fixture: FixtureSession): void {
         }
       }
     },
-    { event_msg: { type: "thread_name", name: fixture.title } },
+    { timestamp: updatedAt, event_msg: { type: "thread_name", name: fixture.title } },
     {
+      timestamp: updatedAt,
       event_msg: {
         type: "agent_message",
         message: [
@@ -297,4 +407,16 @@ function writeSessionFixture(root: string, fixture: FixtureSession): void {
     }
   ];
   writeFileSync(join(root, `rollout-2026-06-29T00-00-00-${fixture.id}.jsonl`), `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
+}
+
+function assertNoTranscriptFields(value: unknown, path = "root"): void {
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) assertNoTranscriptFields(value[index], `${path}[${index}]`);
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    assert.equal(/transcript/i.test(key), false, `${path}.${key} exposes a transcript-like field`);
+    assertNoTranscriptFields(child, `${path}.${key}`);
+  }
 }
