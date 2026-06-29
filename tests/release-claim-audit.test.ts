@@ -238,8 +238,8 @@ test("OpenClaw plugin manifest is packageable and matches the beta safety bounda
   assert.equal(packageJson.name, "lossless-openclaw-orchestrator");
   assert.equal(packageJson.type, "module");
   assert.equal(packageJson.files?.includes("openclaw.plugin.json"), true);
-  assert.deepEqual(packageJson.openclaw?.extensions, ["./packages/openclaw-plugin/src/index.ts"]);
-  assert.deepEqual(packageJson.openclaw?.runtimeExtensions, ["./dist/packages/openclaw-plugin/src/index.js"]);
+  assert.deepEqual(packageJson.openclaw?.extensions, ["./dist/packages/openclaw-plugin/src/index.js"]);
+  assert.equal(packageJson.openclaw?.runtimeExtensions, undefined);
   assert.equal(packageJson.openclaw?.compat?.pluginApi, ">=2026.6.8");
   assert.equal(packageJson.openclaw?.build?.openclawVersion, ">=2026.6.8");
   assert.equal(manifest.id, "lossless-openclaw-orchestrator");
@@ -570,8 +570,7 @@ function writeProjectSkeleton(rootDir: string, overrides: { readme?: string; run
     description: "Index, search, and control local Codex sessions through OpenClaw with approval-gated safety.",
     files: overrides.packageFiles ?? ["dist", "packages", "docs", "openclaw.plugin.json", "README.md", "LICENSE", "SECURITY.md"],
     openclaw: {
-      extensions: ["./packages/openclaw-plugin/src/index.ts"],
-      runtimeExtensions: ["./dist/packages/openclaw-plugin/src/index.js"],
+      extensions: ["./dist/packages/openclaw-plugin/src/index.js"],
       compat: { pluginApi: ">=2026.6.8" },
       build: { openclawVersion: ">=2026.6.8" }
     }
