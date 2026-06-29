@@ -3,7 +3,7 @@
 **Lossless OpenClaw Orchestrator** turns local agent sessions into searchable,
 summarizable, product-management objects for OpenClaw.
 
-CCC is the working shorthand for **Codex + Claude Code + Lossless**. The beta is
+3C+L is the working shorthand for **Codex + Claude Code + Lossless**. The beta is
 Codex-first: Claude Code support is intentionally shipped as an adapter stub
 until its storage and control paths are proven.
 
