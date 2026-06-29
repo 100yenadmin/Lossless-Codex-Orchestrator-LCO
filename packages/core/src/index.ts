@@ -155,7 +155,7 @@ export type RecallProfile = {
   description: string;
 };
 
-const SESSION_METADATA_SCHEMA_VERSION = 3;
+const SESSION_METADATA_SCHEMA_VERSION = 4;
 
 export type RecallSourceKind = "codex_thread" | "lcm_summary";
 
@@ -249,6 +249,9 @@ type ImportedSession = {
   touchedFiles: string[];
   toolCalls: Array<{ callId: string; toolName: string; argumentsText: string }>;
   metadata: SessionMetadata;
+  closeoutEnvelopeText: string | null;
+  closeoutEnvelopeOpenCount: number;
+  closeoutEnvelopeCloseCount: number;
   safeText: string;
   eventCount: number;
 };
@@ -348,6 +351,9 @@ export function migrate(db: LooDatabase): void {
       final_message_refs_json TEXT NOT NULL DEFAULT '[]',
       touched_file_refs_json TEXT NOT NULL DEFAULT '[]',
       metadata_schema_version INTEGER NOT NULL DEFAULT 0,
+      closeout_envelope_text TEXT,
+      closeout_envelope_open_count INTEGER NOT NULL DEFAULT 0,
+      closeout_envelope_close_count INTEGER NOT NULL DEFAULT 0,
       source_refs_json TEXT NOT NULL DEFAULT '[]'
     );
 
@@ -362,6 +368,9 @@ export function migrate(db: LooDatabase): void {
   ensureColumn(db, "codex_session_metadata", "touched_file_refs_json", "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn(db, "codex_session_metadata", "metadata_schema_version", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "codex_session_metadata", "plan_completion_state", "TEXT");
+  ensureColumn(db, "codex_session_metadata", "closeout_envelope_text", "TEXT");
+  ensureColumn(db, "codex_session_metadata", "closeout_envelope_open_count", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "codex_session_metadata", "closeout_envelope_close_count", "INTEGER NOT NULL DEFAULT 0");
 }
 
 function ensureColumn(db: LooDatabase, table: string, column: string, definition: string): void {
@@ -661,7 +670,6 @@ export function createCloseoutEnvelopeReport(db: LooDatabase, options: CloseoutE
           s.thread_id AS threadId,
           s.title,
           s.updated_at AS updatedAt,
-          s.safe_text AS safeText,
           m.project,
           m.status,
           m.priority,
@@ -673,18 +681,21 @@ export function createCloseoutEnvelopeReport(db: LooDatabase, options: CloseoutE
           m.proposed_plan_refs_json AS proposedPlanRefsJson,
           m.final_message_refs_json AS finalMessageRefsJson,
           m.touched_file_refs_json AS touchedFileRefsJson,
+          m.closeout_envelope_text AS closeoutEnvelopeText,
+          m.closeout_envelope_open_count AS closeoutEnvelopeOpenCount,
+          m.closeout_envelope_close_count AS closeoutEnvelopeCloseCount,
           m.source_refs_json AS sourceRefsJson
         FROM codex_sessions s
         LEFT JOIN codex_session_metadata m ON m.thread_id = s.thread_id
         WHERE s.thread_id = ?
         LIMIT 1
       `).all(options.threadId) as Array<Record<string, unknown>>
-    : db.prepare(`
+    : options.includeUnavailable === true
+      ? db.prepare(`
         SELECT
           s.thread_id AS threadId,
           s.title,
           s.updated_at AS updatedAt,
-          s.safe_text AS safeText,
           m.project,
           m.status,
           m.priority,
@@ -696,11 +707,55 @@ export function createCloseoutEnvelopeReport(db: LooDatabase, options: CloseoutE
           m.proposed_plan_refs_json AS proposedPlanRefsJson,
           m.final_message_refs_json AS finalMessageRefsJson,
           m.touched_file_refs_json AS touchedFileRefsJson,
+          m.closeout_envelope_text AS closeoutEnvelopeText,
+          m.closeout_envelope_open_count AS closeoutEnvelopeOpenCount,
+          m.closeout_envelope_close_count AS closeoutEnvelopeCloseCount,
           m.source_refs_json AS sourceRefsJson
         FROM codex_sessions s
         LEFT JOIN codex_session_metadata m ON m.thread_id = s.thread_id
         ORDER BY COALESCE(s.updated_at, s.indexed_at) DESC
-      `).all() as Array<Record<string, unknown>>;
+        LIMIT ?
+      `).all(limit) as Array<Record<string, unknown>>
+      : db.prepare(`
+        SELECT
+          s.thread_id AS threadId,
+          s.title,
+          s.updated_at AS updatedAt,
+          m.project,
+          m.status,
+          m.priority,
+          m.owner,
+          m.blocker,
+          m.next_action AS nextAction,
+          m.closeout_state AS closeoutState,
+          m.plan_completion_state AS planCompletionState,
+          m.proposed_plan_refs_json AS proposedPlanRefsJson,
+          m.final_message_refs_json AS finalMessageRefsJson,
+          m.touched_file_refs_json AS touchedFileRefsJson,
+          m.closeout_envelope_text AS closeoutEnvelopeText,
+          m.closeout_envelope_open_count AS closeoutEnvelopeOpenCount,
+          m.closeout_envelope_close_count AS closeoutEnvelopeCloseCount,
+          m.source_refs_json AS sourceRefsJson
+        FROM codex_sessions s
+        LEFT JOIN codex_session_metadata m ON m.thread_id = s.thread_id
+        WHERE
+          COALESCE(m.closeout_envelope_open_count, 0) > 0 OR
+          COALESCE(m.closeout_envelope_close_count, 0) > 0 OR
+          m.project IS NOT NULL OR
+          m.status IS NOT NULL OR
+          m.priority IS NOT NULL OR
+          m.owner IS NOT NULL OR
+          m.blocker IS NOT NULL OR
+          m.next_action IS NOT NULL OR
+          m.closeout_state IS NOT NULL OR
+          m.plan_completion_state IS NOT NULL OR
+          COALESCE(m.proposed_plan_refs_json, '[]') <> '[]' OR
+          COALESCE(m.final_message_refs_json, '[]') <> '[]' OR
+          COALESCE(m.touched_file_refs_json, '[]') <> '[]' OR
+          COALESCE(m.source_refs_json, '[]') <> '[]'
+        ORDER BY COALESCE(s.updated_at, s.indexed_at) DESC
+        LIMIT ?
+      `).all(limit) as Array<Record<string, unknown>>;
 
   const candidates = rows
     .map((row) => closeoutEnvelopeCandidateFromRow(row))
@@ -725,9 +780,11 @@ export function createCloseoutEnvelopeReport(db: LooDatabase, options: CloseoutE
 function closeoutEnvelopeCandidateFromRow(row: Record<string, unknown>): CloseoutEnvelopeCandidate {
   const threadId = String(row.threadId);
   const sessionMetadata = sessionMetadataFromRow(row);
-  const safeText = String(row.safeText ?? "");
-  const envelopeStats = closeoutEnvelopeStats(safeText);
-  const envelopeText = latestBalancedCloseoutEnvelopeText(safeText);
+  const envelopeStats = {
+    openCount: Number(row.closeoutEnvelopeOpenCount ?? 0),
+    closeCount: Number(row.closeoutEnvelopeCloseCount ?? 0)
+  };
+  const envelopeText = nullableString(row.closeoutEnvelopeText);
   const metadata = envelopeText === null ? emptySessionMetadata() : extractCloseoutEnvelopeMetadata(envelopeText);
   const missingFields = closeoutEnvelopeMissingFields(metadata);
   const warnings: string[] = [];
@@ -804,9 +861,17 @@ function latestBalancedCloseoutEnvelopeText(text: string): string | null {
   return latest;
 }
 
+function recordCloseoutEnvelopeEvidence(session: ImportedSession, text: string): void {
+  const stats = closeoutEnvelopeStats(text);
+  session.closeoutEnvelopeOpenCount += stats.openCount;
+  session.closeoutEnvelopeCloseCount += stats.closeCount;
+  const envelopeText = latestBalancedCloseoutEnvelopeText(text);
+  if (envelopeText !== null) session.closeoutEnvelopeText = truncate(envelopeText, 50_000);
+}
+
 function extractCloseoutEnvelopeMetadata(text: string): SessionMetadata {
   const labelPattern = CLOSEOUT_ENVELOPE_LABEL_BOUNDARIES.map(escapeRegExp).join("|");
-  const withLabelBreaks = text.replace(new RegExp(`\\s+(${labelPattern})\\s*:`, "g"), "\n$1:");
+  const withLabelBreaks = text.replace(new RegExp(`\\s+(${labelPattern})\\s*:`, "gi"), "\n$1:");
   return extractSessionMetadata(withLabelBreaks).metadata;
 }
 
@@ -1340,6 +1405,9 @@ function parseCodexJsonl(sourcePath: string, text: string): ImportedSession {
     touchedFiles: [],
     toolCalls: [],
     metadata: emptySessionMetadata(),
+    closeoutEnvelopeText: null,
+    closeoutEnvelopeOpenCount: 0,
+    closeoutEnvelopeCloseCount: 0,
     safeText: "",
     eventCount: 0
   };
@@ -1379,7 +1447,10 @@ function parseCodexJsonl(sourcePath: string, text: string): ImportedSession {
     const textPayloads = extractTextPayloads(item);
     for (const payload of textPayloads) {
       const metadataText = redactSafeString(payload.trim());
-      if (metadataText) mergeSessionMetadata(session.metadata, extractSessionMetadata(metadataText));
+      if (metadataText) {
+        mergeSessionMetadata(session.metadata, extractSessionMetadata(metadataText));
+        recordCloseoutEnvelopeEvidence(session, metadataText);
+      }
       const clean = redactSafeString(normalizeText(payload));
       if (!clean) continue;
       safeParts.push(clean);
@@ -1469,8 +1540,10 @@ function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, ses
     db.prepare(`
       INSERT INTO codex_session_metadata (
         thread_id, project, status, priority, owner, blocker, next_action, closeout_state, plan_completion_state,
-        proposed_plan_refs_json, final_message_refs_json, touched_file_refs_json, source_refs_json, metadata_schema_version
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        proposed_plan_refs_json, final_message_refs_json, touched_file_refs_json,
+        closeout_envelope_text, closeout_envelope_open_count, closeout_envelope_close_count,
+        source_refs_json, metadata_schema_version
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(thread_id) DO UPDATE SET
         project = excluded.project,
         status = excluded.status,
@@ -1483,6 +1556,9 @@ function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, ses
         proposed_plan_refs_json = excluded.proposed_plan_refs_json,
         final_message_refs_json = excluded.final_message_refs_json,
         touched_file_refs_json = excluded.touched_file_refs_json,
+        closeout_envelope_text = excluded.closeout_envelope_text,
+        closeout_envelope_open_count = excluded.closeout_envelope_open_count,
+        closeout_envelope_close_count = excluded.closeout_envelope_close_count,
         source_refs_json = excluded.source_refs_json,
         metadata_schema_version = excluded.metadata_schema_version
     `).run(
@@ -1498,6 +1574,9 @@ function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, ses
       JSON.stringify(session.metadata.proposedPlanRefs),
       JSON.stringify(session.metadata.finalMessageRefs),
       JSON.stringify(session.metadata.touchedFileRefs),
+      session.closeoutEnvelopeText,
+      session.closeoutEnvelopeOpenCount,
+      session.closeoutEnvelopeCloseCount,
       JSON.stringify(session.metadata.sourceRefs),
       SESSION_METADATA_SCHEMA_VERSION
     );

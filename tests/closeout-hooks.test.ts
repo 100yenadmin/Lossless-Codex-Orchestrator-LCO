@@ -36,6 +36,26 @@ function writeSession(root: string, threadId: string, title: string, messages: s
   writeFileSync(threadPath, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
 }
 
+function writeFunctionCallSession(root: string, threadId: string, title: string, toolArguments: string): void {
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const threadPath = join(sessions, `rollout-2026-06-29T00-00-00-${threadId}.jsonl`);
+  const lines = [
+    { timestamp: "2026-06-29T00:00:00Z", session_meta: { payload: { id: threadId, cwd: "/Volumes/LEXAR/repos/lossless-openclaw-orchestrator" } } },
+    { timestamp: "2026-06-29T00:00:01Z", event_msg: { type: "thread_name", name: title } },
+    {
+      timestamp: "2026-06-29T00:00:02Z",
+      response_item: {
+        type: "function_call",
+        call_id: `${threadId}-tool-call`,
+        name: "shell.write_file",
+        arguments: toolArguments
+      }
+    }
+  ];
+  writeFileSync(threadPath, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+}
+
 test("closeout dry-run report distinguishes ready, partial, duplicate, and malformed envelopes without mutating Codex", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-closeout-hooks-"));
   try {
@@ -169,6 +189,109 @@ test("closeout dry-run report distinguishes ready, partial, duplicate, and malfo
       assert.equal(cliReport.summary.total, 1);
       assert.equal(cliReport.candidates[0]?.threadId, "019f-closeout-ready");
       assert.equal(cliReport.candidates[0]?.wouldAttach, true);
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("closeout dry-run uses full message envelope evidence beyond safe-text truncation", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-closeout-hooks-full-source-"));
+  try {
+    writeSession(root, "019f-closeout-after-padding", "Envelope after long context", [
+      "Public-safe progress padding. ".repeat(12_000),
+      [
+        "<loo_closeout>",
+        "Project: lossless-openclaw-orchestrator",
+        "Status: complete",
+        "Next action: merge issue #50",
+        "Closeout state: complete",
+        "Proposed plan completion: complete",
+        "Final-message refs: codex_event:final-after-padding",
+        "Source refs: codex_thread:019f-closeout-after-padding",
+        "</loo_closeout>"
+      ].join("\n")
+    ]);
+
+    const db = createDatabase(join(root, "orchestrator.sqlite"));
+    try {
+      const indexed = indexCodexSessions(db, { roots: [join(root, "sessions")], maxFiles: 10 });
+      assert.equal(indexed.errors.length, 0);
+
+      const report = createCloseoutEnvelopeReport(db, { threadId: "019f-closeout-after-padding" });
+      assert.equal(report.summary.ready, 1);
+      assert.equal(report.candidates[0]?.wouldAttach, true);
+      assert.equal(report.candidates[0]?.metadata.project, "lossless-openclaw-orchestrator");
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("closeout dry-run parses envelope labels case-insensitively", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-closeout-hooks-lowercase-"));
+  try {
+    writeSession(root, "019f-closeout-lowercase", "Lowercase closeout envelope", [
+      [
+        "<loo_closeout>",
+        "project: lossless-openclaw-orchestrator",
+        "status: complete",
+        "next action: merge issue #50",
+        "closeout state: complete",
+        "proposed plan completion: complete",
+        "final-message refs: codex_event:final-lowercase",
+        "source refs: codex_thread:019f-closeout-lowercase",
+        "</loo_closeout>"
+      ].join("\n")
+    ]);
+
+    const db = createDatabase(join(root, "orchestrator.sqlite"));
+    try {
+      const indexed = indexCodexSessions(db, { roots: [join(root, "sessions")], maxFiles: 10 });
+      assert.equal(indexed.errors.length, 0);
+
+      const report = createCloseoutEnvelopeReport(db, { threadId: "019f-closeout-lowercase" });
+      assert.equal(report.summary.ready, 1);
+      assert.equal(report.candidates[0]?.metadata.status, "complete");
+      assert.equal(report.candidates[0]?.metadata.planCompletionState, "complete");
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("closeout dry-run ignores sample envelopes inside tool-call payloads", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-closeout-hooks-tool-payload-"));
+  try {
+    writeFunctionCallSession(root, "019f-closeout-tool-sample", "Tool payload sample envelope", [
+      "Writing a fixture that contains a sample envelope:",
+      "<loo_closeout>",
+      "Project: lossless-openclaw-orchestrator",
+      "Status: complete",
+      "Next action: do not attach this sample",
+      "Closeout state: complete",
+      "Proposed plan completion: complete",
+      "Final-message refs: codex_event:sample-final",
+      "Source refs: codex_thread:019f-closeout-tool-sample",
+      "</loo_closeout>"
+    ].join("\n"));
+
+    const db = createDatabase(join(root, "orchestrator.sqlite"));
+    try {
+      const indexed = indexCodexSessions(db, { roots: [join(root, "sessions")], maxFiles: 10 });
+      assert.equal(indexed.errors.length, 0);
+
+      const report = createCloseoutEnvelopeReport(db, { limit: 10, includeUnavailable: true });
+      const candidate = report.candidates.find((item) => item.threadId === "019f-closeout-tool-sample");
+      assert.equal(candidate?.state, "unavailable");
+      assert.equal(candidate?.wouldAttach, false);
+      assert.equal(candidate?.closeoutEnvelopeCount, 0);
     } finally {
       db.close();
     }
