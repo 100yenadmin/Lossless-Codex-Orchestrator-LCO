@@ -115,14 +115,18 @@ test("scorecard sweep blocks raw artifacts in the evidence directory", () => {
   const scorecardDir = mkdtempSync(join(tmpdir(), "loo-scorecard-clean-source-"));
   writeRequiredScorecards(scorecardDir);
   writeFileSync(join(evidenceDir, "session.jsonl"), "{}\n");
+  writeFileSync(join(evidenceDir, "archive.jsonl.gz"), "");
   writeFileSync(join(evidenceDir, "private.sqlite"), "");
+  writeFileSync(join(evidenceDir, "private.sqlite-wal"), "");
 
   const report = createScorecardSweep({ evidenceDir, scorecardDir });
 
   assert.equal(report.publicSafe, false);
   assert.equal(report.sweepReady, false);
   assert.match(report.blockers.join("\n"), /raw_artifact:raw_codex_jsonl:session\.jsonl/);
+  assert.match(report.blockers.join("\n"), /raw_artifact:raw_codex_jsonl:archive\.jsonl\.gz/);
   assert.match(report.blockers.join("\n"), /raw_artifact:sqlite_database:private\.sqlite/);
+  assert.match(report.blockers.join("\n"), /raw_artifact:sqlite_database:private\.sqlite-wal/);
 });
 
 test("scorecard sweep treats missing v1 fields and failing scores as blockers", () => {
@@ -135,6 +139,18 @@ test("scorecard sweep treats missing v1 fields and failing scores as blockers", 
   const missingFieldReport = createScorecardSweep({ evidenceDir: missingFieldEvidenceDir, scorecardDir: missingFieldScorecardDir });
   assert.equal(missingFieldReport.sweepReady, false);
   assert.match(missingFieldReport.blockers.join("\n"), /scorecard_missing_field:safety-bypass-review:proof_boundary/);
+
+  const emptyFieldEvidenceDir = mkdtempSync(join(tmpdir(), "loo-scorecard-empty-field-"));
+  const emptyFieldScorecardDir = mkdtempSync(join(tmpdir(), "loo-scorecard-empty-field-source-"));
+  writeRequiredScorecards(emptyFieldScorecardDir);
+  const emptyField = minimalScoredScorecard();
+  emptyField.pass_criteria = [];
+  emptyField.proof_boundary = "";
+  writeFileSync(join(emptyFieldScorecardDir, "public-claim-review.json"), `${JSON.stringify(emptyField, null, 2)}\n`);
+  const emptyFieldReport = createScorecardSweep({ evidenceDir: emptyFieldEvidenceDir, scorecardDir: emptyFieldScorecardDir });
+  assert.equal(emptyFieldReport.sweepReady, false);
+  assert.match(emptyFieldReport.blockers.join("\n"), /scorecard_missing_field:public-claim-review:pass_criteria/);
+  assert.match(emptyFieldReport.blockers.join("\n"), /scorecard_missing_field:public-claim-review:proof_boundary/);
 
   const failedScoreEvidenceDir = mkdtempSync(join(tmpdir(), "loo-scorecard-failed-"));
   const failedScorecardDir = mkdtempSync(join(tmpdir(), "loo-scorecard-failed-source-"));

@@ -64,7 +64,7 @@ type ScorecardJson = {
   proof_boundary?: unknown;
 };
 
-type RawEvidenceArtifact = {
+export type RawEvidenceArtifact = {
   name: string;
   reason: "raw_codex_jsonl" | "sqlite_database" | "screenshot_or_image" | "video_capture";
 };
@@ -94,7 +94,7 @@ const REQUIRED_SCORECARD_FIELDS: Array<keyof ScorecardJson> = [
   "next_action",
   "proof_boundary"
 ];
-const PASSING_SCORES = new Set(["pass", "passed", "green"]);
+const PASSING_SCORES = new Set(["pass", "passed", "green", "ok"]);
 const DEFAULT_PRIVATE_DATA_EXCLUSIONS = [
   "raw Codex transcripts",
   "raw prompts or message text",
@@ -186,7 +186,7 @@ function readScorecard(path: string, file: string, evidenceDir: string): Scoreca
     const invalid = scorecard.scorecard_version !== SCORECARD_VERSION;
     const pending = currentScore === "example-not-run";
     const missingFieldBlockers = REQUIRED_SCORECARD_FIELDS
-      .filter((field) => !Object.hasOwn(scorecard, field))
+      .filter((field) => !hasRequiredFieldValue(scorecard[field]))
       .map((field) => `scorecard_missing_field:${name}:${field}`);
     const failedScore = !pending && currentScore !== "missing" && !isPassingScore(currentScore);
     const blockers = [
@@ -244,6 +244,12 @@ function isPassingScore(value: string): boolean {
   return PASSING_SCORES.has(value.toLowerCase());
 }
 
+function hasRequiredFieldValue(value: unknown): boolean {
+  if (typeof value === "string") return value.trim().length > 0;
+  if (Array.isArray(value)) return value.some((item) => typeof item === "string" && item.trim().length > 0);
+  return value !== undefined && value !== null;
+}
+
 function scanRawEvidenceArtifacts(evidenceDir: string): RawEvidenceArtifact[] {
   if (!existsSync(evidenceDir)) return [];
   const artifacts: RawEvidenceArtifact[] = [];
@@ -266,10 +272,18 @@ function scanRawEvidenceArtifacts(evidenceDir: string): RawEvidenceArtifact[] {
 }
 
 function rawArtifactReason(name: string): RawEvidenceArtifact["reason"] | null {
-  const extension = extname(name).toLowerCase();
-  if (extension === ".jsonl") return "raw_codex_jsonl";
-  if (extension === ".sqlite" || extension === ".sqlite3" || extension === ".db") return "sqlite_database";
-  if (extension === ".png" || extension === ".jpg" || extension === ".jpeg" || extension === ".gif" || extension === ".webp") return "screenshot_or_image";
+  const normalizedName = name.toLowerCase();
+  const extension = extname(normalizedName);
+  if (normalizedName.endsWith(".jsonl") || normalizedName.endsWith(".jsonl.gz")) return "raw_codex_jsonl";
+  if (
+    normalizedName.endsWith(".sqlite")
+    || normalizedName.endsWith(".sqlite3")
+    || normalizedName.endsWith(".db")
+    || normalizedName.endsWith(".sqlite-wal")
+    || normalizedName.endsWith(".sqlite-shm")
+    || normalizedName.endsWith(".db-journal")
+  ) return "sqlite_database";
+  if (extension === ".png" || extension === ".jpg" || extension === ".jpeg" || extension === ".gif" || extension === ".heic" || extension === ".webp") return "screenshot_or_image";
   if (extension === ".mov" || extension === ".mp4" || extension === ".webm") return "video_capture";
   return null;
 }
