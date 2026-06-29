@@ -400,6 +400,42 @@ test("release status rejects approval evidence options when the next token is an
   assert.equal(result.stdout, "");
 });
 
+test("release status --help exits zero with proof-marker and restricted-action guidance", () => {
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "status",
+    "--help"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.doesNotMatch(result.stderr, /Unknown release status option|Error:/);
+  assert.match(result.stdout, /loo release status --evidence-dir path --candidate-sha sha/);
+  assert.match(result.stdout, /loo_release_check_evidence/);
+  assert.match(result.stdout, /loo_release_operation_approval/);
+  assert.match(result.stdout, /does not publish npm/i);
+  assert.match(result.stdout, /does not create a GitHub Release/i);
+  assert.match(result.stdout, /does not run live Codex control/i);
+  assert.match(result.stdout, /desktop GUI mutation/i);
+});
+
+test("release status unknown options still fail closed after help support", () => {
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "status",
+    "--definitely-not-real"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.match(result.stderr, /Unknown release status option: --definitely-not-real/);
+  assert.equal(result.stdout, "");
+});
+
 test("release status treats malformed approval proof shapes as unsatisfied without aborting", () => {
   const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-status-malformed-proof-"));
   const malformedNpmApprovalProof = join(evidenceDir, "npm-publish-approval.json");
