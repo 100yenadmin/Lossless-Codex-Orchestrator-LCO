@@ -18,7 +18,7 @@ import {
   type RecallProfileName
 } from "../../core/src/index.js";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { createReleaseBundle } from "./release-bundle.js";
 import { createReleaseDemoStatus } from "./release-demo-status.js";
 import { runReleasePreflight } from "./release-preflight.js";
@@ -179,7 +179,7 @@ async function main() {
   if (command === "eval" && args[0] === "retrieval") {
     const parsed = parseRetrievalEvalArgs(args.slice(1));
     const payload = readRetrievalScenarioFile(parsed.scenarioFile);
-    const db = createDatabase();
+    const db = createDatabase(payload.codexRoots.length > 0 ? ":memory:" : undefined);
     try {
       if (payload.codexRoots.length > 0) {
         indexCodexSessions(db, {
@@ -353,11 +353,19 @@ function readRetrievalScenarioFile(path: string): {
   maxEventsPerFile?: number;
   scenarios: Parameters<typeof evaluateRetrievalScenarios>[1]["scenarios"];
 } {
-  if (!existsSync(path)) throw new Error(`Scenario file does not exist: ${path}`);
-  const payload = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+  const scenarioPath = resolve(path);
+  if (!existsSync(scenarioPath)) throw new Error(`Scenario file does not exist: ${path}`);
+  const payload = JSON.parse(readFileSync(scenarioPath, "utf8")) as Record<string, unknown>;
+  const scenarioDir = dirname(scenarioPath);
   const scenarios = Array.isArray(payload.scenarios) ? payload.scenarios : [];
   return {
-    codexRoots: Array.isArray(payload.codexRoots) ? payload.codexRoots.filter((item): item is string => typeof item === "string") : [],
+    codexRoots: Array.isArray(payload.codexRoots)
+      ? payload.codexRoots
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0)
+        .map((item) => resolve(scenarioDir, item))
+      : [],
     maxFiles: optionalJsonPositiveInteger(payload.maxFiles, "maxFiles", 100000),
     maxBytesPerFile: optionalJsonPositiveInteger(payload.maxBytesPerFile, "maxBytesPerFile", 1073741824),
     maxEventsPerFile: optionalJsonPositiveInteger(payload.maxEventsPerFile, "maxEventsPerFile", 1000000),
