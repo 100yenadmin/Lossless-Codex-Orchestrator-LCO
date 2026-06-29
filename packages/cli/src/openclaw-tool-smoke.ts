@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
@@ -7,6 +8,9 @@ export const DEFAULT_REQUIRED_TOOL_CALLS = [
   "loo_search_sessions",
   "loo_describe_session",
   "loo_expand_query",
+  "loo_codex_plans",
+  "loo_codex_final_messages",
+  "loo_codex_thread_map",
   "loo_codex_control_dry_run"
 ];
 
@@ -114,6 +118,7 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
   const query = options.query || "Proposed plan";
   const expandProfile = options.expandProfile || "brief";
   const tokenBudget = options.tokenBudget ?? 1000;
+  const runId = randomUUID();
 
   const catalogCall = callGatewayJson(openclawBin, baseArgs, gatewayOptions, "tools.catalog", {});
   const catalogToolNames = catalogCall.parsed ? extractCatalogToolNames(unwrapGatewayPayload(catalogCall.parsed)) : [];
@@ -146,7 +151,7 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
         args: args ?? {},
         sessionKey,
         confirm: false,
-        idempotencyKey: `loo-tool-smoke-${toolName}`
+        idempotencyKey: `loo-tool-smoke-${runId}-${toolName}`
       });
       const summary = summarizeInvocation(toolName, call);
       invocations.push(summary);
@@ -229,6 +234,13 @@ function buildToolArgs(params: {
   if (params.toolName === "loo_search_sessions") return { query: params.query, limit: 3 };
   if (params.toolName === "loo_describe_session") return params.threadId ? { thread_id: params.threadId } : null;
   if (params.toolName === "loo_expand_query") return { query: params.query, profile: params.expandProfile, token_budget: params.tokenBudget };
+  if (params.toolName === "loo_codex_plans" || params.toolName === "loo_codex_final_messages") {
+    return {
+      ...(params.threadId ? { thread_id: params.threadId } : {}),
+      limit: 3
+    };
+  }
+  if (params.toolName === "loo_codex_thread_map") return { limit: 20 };
   if (params.toolName === "loo_codex_control_dry_run") {
     return params.threadId ? {
       action: "send",
@@ -240,11 +252,12 @@ function buildToolArgs(params: {
 }
 
 function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenClawToolInvocationSummary {
+  const payload = call.parsed ? unwrapGatewayPayload(call.parsed) : undefined;
   const blockers = [
     ...gatewayFailureBlockers(call, `openclaw_tool_invoke_failed:${toolName}`, toolName),
-    ...(call.status === 0 && !call.parsed ? [`openclaw_tool_result_invalid_json:${toolName}`] : [])
+    ...(call.status === 0 && !call.parsed ? [`openclaw_tool_result_invalid_json:${toolName}`] : []),
+    ...toolPayloadBlockers(toolName, payload)
   ];
-  const payload = call.parsed ? unwrapGatewayPayload(call.parsed) : undefined;
   const output = unwrapToolOutput(payload);
   const sourceRefs = output ? collectSourceRefs(output).slice(0, 5) : [];
   const threadId = output ? extractThreadId(output, sourceRefs) : undefined;
@@ -287,6 +300,13 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
     summary,
     blockers
   };
+}
+
+function toolPayloadBlockers(toolName: string, payload: unknown): string[] {
+  if (!isRecord(payload) || payload.ok !== false) return [];
+  const code = stringPath(payload, ["error", "code"]);
+  const safeCode = code && /^[a-z0-9_.-]+$/i.test(code) ? `:${code}` : "";
+  return [`openclaw_tool_result_not_ok:${toolName}${safeCode}`];
 }
 
 function gatewayFailureBlockers(call: GatewayCallResult, fallback: string, toolName?: string): string[] {
