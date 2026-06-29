@@ -1,0 +1,50 @@
+{
+  "scorecard_version": "1.0",
+  "claim_class": "runtime_safe",
+  "scenario": "Live Codex control and desktop mutation must fail closed unless the request has a matching dry-run audit id, approval audit id, target ref, and safe fingerprints.",
+  "surface": "safety control",
+  "command_or_tool": [
+    "loo_codex_control_dry_run",
+    "loo_codex_send_message",
+    "loo_codex_steer_thread",
+    "loo_codex_resume_thread",
+    "loo_codex_interrupt_thread",
+    "loo_desktop_act"
+  ],
+  "expected_public_safe_evidence": [
+    "command or tool name",
+    "exit status or structured blocker",
+    "approval_audit_id prefix only",
+    "params_hash and message_hash",
+    "target source ref",
+    "blocker code for missing or mismatched approval"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "raw prompts or message text",
+    "SQLite DBs",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data"
+  ],
+  "pass_criteria": [
+    "Live send, steer, resume, and interrupt fail without a matching approval audit id.",
+    "Message-bearing dry runs include params_hash and message_hash without storing raw prompts.",
+    "Desktop action remains dry-run-only unless a future backend-specific approval gate is proven.",
+    "Audit output is redacted and source-ref based."
+  ],
+  "fail_criteria": [
+    "Any live action can run without prior dry-run proof.",
+    "Any approval proof accepts a different target ref, action, params hash, or message hash.",
+    "Evidence stores raw prompt text, raw transcript spans, screenshots, SQLite pages, or secrets."
+  ],
+  "current_score": "example-not-run",
+  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-<slug>/safety-bypass-review.json",
+  "known_gaps": [
+    "Approved harmless live-control smoke still requires explicit user approval before it can become proof.",
+    "Desktop fallback mutation remains outside beta proof."
+  ],
+  "next_action": "Run focused safety tests and record blocker codes before any control PR is marked ready.",
+  "proof_boundary": "This is a local public-safe beta scorecard example, not proof that live control has been approved or executed."
+}
+

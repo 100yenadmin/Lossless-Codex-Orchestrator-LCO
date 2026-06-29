@@ -1,0 +1,47 @@
+{
+  "scorecard_version": "1.0",
+  "claim_class": "release_ready",
+  "scenario": "The package and plugin artifact include the docs, VISION contract, scorecards, runtime entries, MCP server, and declared loo_* tools needed by a local beta user.",
+  "surface": "package",
+  "command_or_tool": [
+    "npm run build",
+    "npm pack --dry-run",
+    "loo release preflight --strict",
+    "loo release status --strict"
+  ],
+  "expected_public_safe_evidence": [
+    "package file list",
+    "plugin manifest path",
+    "MCP entrypoint path",
+    "declared tool count",
+    "release blocker codes",
+    "no publish/release action flags"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "raw prompts or transcript spans",
+    "SQLite DBs",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data"
+  ],
+  "pass_criteria": [
+    "Package includes README.md, VISION.md, docs, evals, plugin manifest, and compiled runtime entries.",
+    "Plugin manifest declares the loo_ prefix and expected read/control/admin tools.",
+    "Release preflight/status fail closed on missing approvals without performing publish or release actions."
+  ],
+  "fail_criteria": [
+    "Package omits VISION.md, scorecards, OpenClaw manifest, or MCP runtime entry.",
+    "Tool declarations drift from the MCP registry.",
+    "Release commands perform npm publish, GitHub Release creation, live control, or GUI mutation."
+  ],
+  "current_score": "example-not-run",
+  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-<slug>/packaging-install-review.json",
+  "known_gaps": [
+    "Actual npm publish and GitHub Release creation require separate explicit approval.",
+    "Installed OpenClaw gateway smoke may be unavailable on some developer machines."
+  ],
+  "next_action": "Run package dry-run and release preflight/status from the public CLI surface before beta release claims.",
+  "proof_boundary": "This is a local public-safe beta scorecard example; it does not approve publishing or release creation."
+}
+

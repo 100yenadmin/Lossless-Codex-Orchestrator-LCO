@@ -6,6 +6,8 @@ This public beta focuses on Codex. Claude Code support is intentionally shipped 
 
 The product and eval contract lives in [VISION.md](VISION.md). Use it to keep issue work, scorecards, local OpenClaw gateway dogfooding, and release claims aligned.
 
+Versioned beta scorecard examples live in [`evals/scorecards/v1.0`](evals/scorecards/v1.0/). They define the public-safe evidence shape for safety, retrieval quality, packaging/install, public-claim, and local-agent usability reviews.
+
 ## What It Does
 
 - Indexes local Codex session JSONL into a local SQLite database.

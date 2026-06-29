@@ -37,6 +37,7 @@
     "dist",
     "packages",
     "docs",
+    "evals",
     "openclaw.plugin.json",
     "README.md",
     "VISION.md",
