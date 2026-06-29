@@ -94,7 +94,24 @@ test("release status examples include live-control evidence alongside release ap
     ["release notes", releaseNotes]
   ] as const) {
     assert.match(content, /loo release status[^\n]+--approved-live-control-evidence[^\n]+--npm-publish-approval-evidence[^\n]+--github-release-approval-evidence/i, surface);
+    assert.match(content, /loo release status[^\n]+--candidate-sha[^\n]+--github-ci-evidence[^\n]+--codeql-evidence/i, surface);
+    assert.doesNotMatch(content, /loo release status[^\n]+--desktop-gui-approval-evidence/i, `${surface} must not pass GUI approval evidence in a non-GUI release example`);
   }
+});
+
+test("release workflows use non-deprecated action majors", () => {
+  const ciWorkflow = read(".github/workflows/ci.yml");
+  const codeqlWorkflow = read(".github/workflows/codeql.yml");
+  const workflows = `${ciWorkflow}\n${codeqlWorkflow}`;
+
+  assert.match(ciWorkflow, /actions\/checkout@v7/);
+  assert.match(ciWorkflow, /actions\/setup-node@v6/);
+  assert.match(codeqlWorkflow, /actions\/checkout@v7/);
+  assert.match(codeqlWorkflow, /github\/codeql-action\/init@v4/);
+  assert.match(codeqlWorkflow, /github\/codeql-action\/analyze@v4/);
+  assert.doesNotMatch(workflows, /actions\/checkout@v4/);
+  assert.doesNotMatch(workflows, /actions\/setup-node@v4/);
+  assert.doesNotMatch(workflows, /github\/codeql-action\/(?:init|analyze)@v3/);
 });
 
 test("beta release runbook defines RC cadence and keeps main distinct from releases", () => {
@@ -112,18 +129,32 @@ test("beta release runbook defines RC cadence and keeps main distinct from relea
     /npm run check/i,
     /main is the integration branch, not a release/i,
     /release candidate/i,
+    /Release Context Freshness Scan/i,
     /long-context release-review agent/i,
     /gpt-5\.4/i,
     /1M-context/i,
     /docs, workflows, skills, and runbooks/i,
     /update this runbook/i,
+    /release-context-freshness/i,
+    /package scripts/i,
+    /local release skills/i,
     /CodeQL code scanning/i,
     /node \.\/dist\/packages\/cli\/src\/index\.js release preflight/i,
     /node \.\/dist\/packages\/cli\/src\/index\.js release bundle/i,
     /node \.\/dist\/packages\/cli\/src\/index\.js release demo-status/i,
-    /node \.\/dist\/packages\/cli\/src\/index\.js release status/i,
+    /node \.\/dist\/packages\/cli\/src\/index\.js release status[^\n]+--candidate-sha "\$release_candidate_sha"[^\n]+--github-ci-evidence[^\n]+--codeql-evidence/i,
     /high-context document\/workflow scan/i,
     /README\.md, `VISION\.md`, release notes, claim audit, GitHub workflows, and CLI release gates/i,
+    /repository gate evidence/i,
+    /gh workflow list/i,
+    /gh run list[^\n]+--commit "\$release_candidate_sha"[^\n]+--workflow CI/i,
+    /gh run list[^\n]+--commit "\$release_candidate_sha"[^\n]+--workflow CodeQL/i,
+    /gh api repos\/100yenadmin\/Lossless-Codex-Orchestrator-LCO\/rulesets/i,
+    /code-scanning\/alerts\?state=open/i,
+    /loo_release_check_evidence/i,
+    /warnings: \[\]/i,
+    /github_ci_warnings_present/i,
+    /codeql_warnings_present/i,
     /safety bypass review/i,
     /retrieval quality review/i,
     /packaging\/install review/i,
@@ -133,6 +164,8 @@ test("beta release runbook defines RC cadence and keeps main distinct from relea
     /--approved-live-control-evidence \/Volumes\/LEXAR\/Codex\/lossless-openclaw-orchestrator\/YYYY-MM-DD\/release-status\/approved-live-control-smoke\.json/i,
     /--npm-publish-approval-evidence \/Volumes\/LEXAR\/Codex\/lossless-openclaw-orchestrator\/YYYY-MM-DD\/release-status\/npm-approval\.json/i,
     /--github-release-approval-evidence \/Volumes\/LEXAR\/Codex\/lossless-openclaw-orchestrator\/YYYY-MM-DD\/release-status\/github-release-approval\.json/i,
+    /--github-ci-evidence \/Volumes\/LEXAR\/Codex\/lossless-openclaw-orchestrator\/YYYY-MM-DD\/release-status\/github-ci\.json/i,
+    /--codeql-evidence \/Volumes\/LEXAR\/Codex\/lossless-openclaw-orchestrator\/YYYY-MM-DD\/release-status\/codeql\.json/i,
     /--desktop-gui-required --desktop-gui-approval-evidence \/Volumes\/LEXAR\/Codex\/lossless-openclaw-orchestrator\/YYYY-MM-DD\/release-status\/desktop-gui-approval\.json/i,
     /desktopBackend/i,
     /targetApp/i,
@@ -143,6 +176,9 @@ test("beta release runbook defines RC cadence and keeps main distinct from relea
     /GitHub Release/i,
     /npm publish/i,
     /explicit user approval/i,
+    /public release means both the npm package surface and the\s+GitHub Release surface/i,
+    /requires\s+both `operation: "npm_publish"` and `operation: "github_release"` approval\s+markers/i,
+    /single-surface maintenance\s+publication/i,
     /do not run live Codex control/i,
     /do not run GUI mutation/i,
     /evidence.*\/Volumes\/LEXAR\/Codex\/lossless-openclaw-orchestrator/i,
@@ -154,10 +190,17 @@ test("beta release runbook defines RC cadence and keeps main distinct from relea
 
   for (const required of [
     /loo scorecards sweep/i,
+    /--candidate-sha <release-candidate-sha>/i,
+    /--github-ci-evidence/i,
+    /--codeql-evidence/i,
     /high-context document\/workflow scan/i,
     /safety bypass review/i,
     /public-claim review/i,
-    /local-agent usability review/i
+    /local-agent usability review/i,
+    /github_ci_warnings_present/i,
+    /codeql_warnings_present/i,
+    /public release means both npm package publication and\s+GitHub Release creation/i,
+    /single-surface maintenance\s+publication/i
   ]) {
     assert.match(read("docs/CLAIM_AUDIT.md"), required);
   }

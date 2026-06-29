@@ -187,10 +187,13 @@ async function main() {
     const parsed = parseReleaseStatusArgs(args.slice(1));
     const report = createReleaseStatus({
       evidenceDir: parsed.evidenceDir,
+      candidateSha: parsed.candidateSha,
       approvedLiveControlEvidence: parsed.approvedLiveControlEvidence,
       npmPublishApprovalEvidence: parsed.npmPublishApprovalEvidence,
       githubReleaseApprovalEvidence: parsed.githubReleaseApprovalEvidence,
       desktopGuiApprovalEvidence: parsed.desktopGuiApprovalEvidence,
+      githubCiEvidence: parsed.githubCiEvidence,
+      codeqlEvidence: parsed.codeqlEvidence,
       desktopGuiRequired: parsed.desktopGuiRequired
     });
     console.log(JSON.stringify(report, null, 2));
@@ -226,7 +229,7 @@ async function main() {
     "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--strict]",
     "  loo release preflight [--evidence-dir path] [--approved-live-control-evidence path] [--strict]",
     "  loo release bundle --evidence-dir path [--approved-live-control-evidence path] [--strict]",
-    "  loo release status --evidence-dir path [--approved-live-control-evidence path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--desktop-gui-required --desktop-gui-approval-evidence path] [--strict]",
+    "  loo release status --evidence-dir path --candidate-sha sha [--approved-live-control-evidence path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--github-ci-evidence path] [--codeql-evidence path] [--desktop-gui-required --desktop-gui-approval-evidence path] [--strict]",
     "  loo release demo-status --evidence-dir path [--approved-live-control-evidence path] [--min-sessions n] [--strict]"
   ].join("\n"));
   process.exitCode = 2;
@@ -446,24 +449,34 @@ function parseReleaseBundleArgs(input: string[]): { evidenceDir: string; approve
 
 function parseReleaseStatusArgs(input: string[]): {
   evidenceDir: string;
+  candidateSha?: string;
   approvedLiveControlEvidence?: string;
   npmPublishApprovalEvidence?: string;
   githubReleaseApprovalEvidence?: string;
   desktopGuiApprovalEvidence?: string;
+  githubCiEvidence?: string;
+  codeqlEvidence?: string;
   desktopGuiRequired: boolean;
   strict: boolean;
 } {
   let evidenceDir: string | undefined;
+  let candidateSha: string | undefined;
   let approvedLiveControlEvidence: string | undefined;
   let npmPublishApprovalEvidence: string | undefined;
   let githubReleaseApprovalEvidence: string | undefined;
   let desktopGuiApprovalEvidence: string | undefined;
+  let githubCiEvidence: string | undefined;
+  let codeqlEvidence: string | undefined;
   let desktopGuiRequired = false;
   let strict = false;
   for (let index = 0; index < input.length; index += 1) {
     const arg = input[index]!;
     if (arg === "--evidence-dir") {
       evidenceDir = readReleaseStatusPath(input, ++index, "--evidence-dir");
+      continue;
+    }
+    if (arg === "--candidate-sha") {
+      candidateSha = readReleaseStatusValue(input, ++index, "--candidate-sha");
       continue;
     }
     if (arg === "--approved-live-control-evidence") {
@@ -482,6 +495,14 @@ function parseReleaseStatusArgs(input: string[]): {
       desktopGuiApprovalEvidence = readReleaseStatusPath(input, ++index, "--desktop-gui-approval-evidence");
       continue;
     }
+    if (arg === "--github-ci-evidence") {
+      githubCiEvidence = readReleaseStatusPath(input, ++index, "--github-ci-evidence");
+      continue;
+    }
+    if (arg === "--codeql-evidence") {
+      codeqlEvidence = readReleaseStatusPath(input, ++index, "--codeql-evidence");
+      continue;
+    }
     if (arg === "--desktop-gui-required") {
       desktopGuiRequired = true;
       continue;
@@ -493,12 +514,32 @@ function parseReleaseStatusArgs(input: string[]): {
     throw new Error(`Unknown release status option: ${arg}`);
   }
   if (!evidenceDir) throw new Error("release status requires --evidence-dir");
-  return { evidenceDir, approvedLiveControlEvidence, npmPublishApprovalEvidence, githubReleaseApprovalEvidence, desktopGuiApprovalEvidence, desktopGuiRequired, strict };
+  if (desktopGuiApprovalEvidence && !desktopGuiRequired) {
+    throw new Error("--desktop-gui-approval-evidence requires --desktop-gui-required");
+  }
+  return {
+    evidenceDir,
+    candidateSha,
+    approvedLiveControlEvidence,
+    npmPublishApprovalEvidence,
+    githubReleaseApprovalEvidence,
+    desktopGuiApprovalEvidence,
+    githubCiEvidence,
+    codeqlEvidence,
+    desktopGuiRequired,
+    strict
+  };
 }
 
 function readReleaseStatusPath(input: string[], index: number, flag: string): string {
   const value = input[index];
   if (!value || value.startsWith("--")) throw new Error(`${flag} requires a path`);
+  return value;
+}
+
+function readReleaseStatusValue(input: string[], index: number, flag: string): string {
+  const value = input[index];
+  if (!value || value.startsWith("--")) throw new Error(`${flag} requires a value`);
   return value;
 }
 

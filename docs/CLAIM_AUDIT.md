@@ -32,19 +32,27 @@ Claude Code is an adapter stub in this beta. Public docs may mention the stub, b
 - `loo scorecards sweep --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-scorecards --strict`
 - `loo release preflight --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight --strict`
 - `loo release bundle --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-bundle`
-- `loo release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --npm-publish-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/npm-approval.json --github-release-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-release-approval.json --strict`
+- `loo release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --candidate-sha <release-candidate-sha> --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --npm-publish-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/npm-approval.json --github-release-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-release-approval.json --github-ci-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-ci.json --codeql-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/codeql.json --strict`
 - GitHub CI green for the release PR
+- GitHub CI and CodeQL proof markers match the release candidate SHA and have
+  empty `warnings` arrays
 - Demo evidence under `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/`
 - High-context document/workflow scan evidence covering safety bypass review,
   retrieval quality review, packaging/install review, public-claim review, and
   local-agent usability review across README.md, `VISION.md`, release notes,
-  claim audit, GitHub workflows, and CLI release gates
+  claim audit, GitHub workflows, CLI release gates, docs, workflows, skills, and
+  runbooks
 - No raw session transcripts, credentials, screenshots with secrets, or private SQLite DBs in public artifacts
 
 `loo release preflight` writes a public-safe `release-preflight.json` artifact manifest. It must report `approved_live_control_smoke_missing` until an explicit approved live-control smoke evidence path points to a structured `loo_approved_live_control_smoke` JSON proof marker with only audit ids, refs, hashes, approval-semantics confirmation, and `rawPromptIncluded: false`. Release automation should use `--strict` so this blocker cannot be silently ignored.
 
 `loo release bundle` writes local draft release artifacts without publishing: `RELEASE_NOTES_0.1.0-beta.0.md`, `release-preflight.json`, and `release-bundle.json`. It must record `npmPublished: false` and `githubReleaseCreated: false` until a separate explicit publish step is approved.
 
-`loo release status` writes `release-status.json` without performing gated actions. It must record `npmPublished: false`, `githubReleaseCreated: false`, `liveCodexControlRun: false`, and `desktopGuiActionRun: false`, and it must list `npm_publish_not_approved` and `github_release_not_approved` until those separate release operations are explicitly approved through safe `loo_release_operation_approval` proof markers. Release operation proof markers must include `operation: "npm_publish" | "github_release"`, `approved: true`, a non-empty `approvalRef`, and `rawSecretIncluded: false`.
+`loo release status` writes `release-status.json` without performing gated actions. It must record `npmPublished: false`, `githubReleaseCreated: false`, `liveCodexControlRun: false`, and `desktopGuiActionRun: false`, and it must list `npm_publish_not_approved` and `github_release_not_approved` until those separate release operations are explicitly approved through safe `loo_release_operation_approval` proof markers. It must also list `candidate_sha_missing` or `candidate_sha_invalid`, `github_ci_evidence_missing` or `github_ci_sha_mismatch`, and `codeql_evidence_missing` or `codeql_sha_mismatch` until exact release candidate SHA evidence is supplied. Any non-empty CI or CodeQL `warnings` array, including workflow/action deprecation warnings, must keep release status blocked with `github_ci_warnings_present` or `codeql_warnings_present`. Release operation proof markers must include `operation: "npm_publish" | "github_release"`, `approved: true`, a non-empty `approvalRef`, and `rawSecretIncluded: false`.
+
+For this beta train, public release means both npm package publication and
+GitHub Release creation. A single-surface maintenance publication needs an
+explicit planned-operation contract change before `loo release status --strict`
+can be used as the final ready gate.
 
 Desktop GUI mutation is not required for a normal beta publication. If a release plan includes GUI mutation, `loo release status --strict` must be run with `--desktop-gui-required --desktop-gui-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/desktop-gui-approval.json`, and that `loo_release_operation_approval` proof marker must include `operation: "desktop_gui_mutation"`, `approved: true`, a non-empty `approvalRef`, `desktopBackend`, `targetApp`, `targetWindow`, `action`, and `rawSecretIncluded: false`.
