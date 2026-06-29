@@ -179,6 +179,76 @@ test("release demo-status accepts public-safe demo evidence and optional live-co
   });
 });
 
+test("release demo-status accepts documented MCP plan and final text outputs", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-mcp-text-"));
+  const liveControlProof = writePassingDemoEvidence(evidenceDir);
+  writeJson(join(evidenceDir, "plans-search.json"), [
+    {
+      sourceRef: "codex_thread:plan-thread",
+      threadId: "plan-thread",
+      text: "- Add fixture coverage\n- Run focused validation"
+    }
+  ]);
+  writeJson(join(evidenceDir, "finals-search.json"), [
+    {
+      source_ref: "codex_thread:final-thread",
+      thread_id: "final-thread",
+      text: "Done."
+    }
+  ]);
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "demo-status",
+    "--evidence-dir",
+    evidenceDir,
+    "--approved-live-control-evidence",
+    liveControlProof,
+    "--strict"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as { blockers?: string[]; checks?: Record<string, { ok: boolean }> };
+  assert.deepEqual(payload.blockers, []);
+  assert.equal(payload.checks?.planSearch?.ok, true);
+  assert.equal(payload.checks?.finalSearch?.ok, true);
+});
+
+test("release demo-status matches Codex adapter action names to approved proof", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-action-"));
+  const liveControlProof = writePassingDemoEvidence(evidenceDir);
+  writeJson(join(evidenceDir, "control-dry-run.json"), {
+    action: "codex_send_message",
+    threadId: "plan-thread",
+    live: false,
+    approvalAuditId: "loo_audit_test",
+    paramsHash: "a".repeat(64),
+    messageHash: "b".repeat(64)
+  });
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "demo-status",
+    "--evidence-dir",
+    evidenceDir,
+    "--approved-live-control-evidence",
+    liveControlProof,
+    "--strict"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as { blockers?: string[]; checks?: Record<string, { ok: boolean }> };
+  assert.deepEqual(payload.blockers, []);
+  assert.equal(payload.checks?.controlDryRun?.ok, true);
+  assert.equal(payload.checks?.approvedLiveControlMatchesDryRun?.ok, true);
+});
+
 test("release demo-status resolves relative approval proof paths from the evidence directory", () => {
   const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-relative-"));
   writePassingDemoEvidence(evidenceDir);
@@ -352,4 +422,38 @@ test("release demo-status rejects nested raw artifacts and mismatched approval p
   assert.equal(payload.blockers?.includes("raw_session_artifacts_present"), true);
   assert.equal(payload.blockers?.includes("approved_live_control_dry_run_mismatch"), true);
   assert.deepEqual(payload.rawSessionArtifacts, [{ name: "raw/session.jsonl", reason: "raw_codex_jsonl" }]);
+});
+
+test("release demo-status rejects SQLite sidecar evidence artifacts", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-sidecars-"));
+  const liveControlProof = writePassingDemoEvidence(evidenceDir);
+  writeFileSync(join(evidenceDir, "orchestrator.sqlite-wal"), "private pages");
+  writeFileSync(join(evidenceDir, "orchestrator.sqlite-shm"), "private pages");
+  writeFileSync(join(evidenceDir, "orchestrator.db-journal"), "private pages");
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "demo-status",
+    "--evidence-dir",
+    evidenceDir,
+    "--approved-live-control-evidence",
+    liveControlProof
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as {
+    demoReady?: boolean;
+    blockers?: string[];
+    rawSessionArtifacts?: Array<{ name: string; reason: string }>;
+  };
+  assert.equal(payload.demoReady, false);
+  assert.equal(payload.blockers?.includes("raw_session_artifacts_present"), true);
+  assert.deepEqual(payload.rawSessionArtifacts, [
+    { name: "orchestrator.db-journal", reason: "sqlite_database" },
+    { name: "orchestrator.sqlite-shm", reason: "sqlite_database" },
+    { name: "orchestrator.sqlite-wal", reason: "sqlite_database" }
+  ]);
 });

@@ -193,8 +193,7 @@ function hasSearchHit(value: unknown, kind: SearchEvidenceKind): boolean {
     const record = asRecord(entry);
     if (!record) return false;
     const sourceRef = stringField(record, "sourceRef") ?? stringField(record, "source_ref");
-    const threadId = stringField(record, "threadId") ?? stringField(record, "thread_id");
-    return Boolean((sourceRef?.startsWith("codex_thread:") || threadId) && hasSearchProof(record, kind));
+    return Boolean(sourceRef?.startsWith("codex_thread:") && hasSearchProof(record, kind));
   });
 }
 
@@ -211,7 +210,7 @@ function hasExpansion(value: unknown, expectedProfile: "brief" | "evidence"): bo
 function parseControlDryRun(value: unknown): ControlDryRunProof | null {
   const record = asRecord(value);
   if (!record) return null;
-  const action = stringField(record, "action");
+  const action = normalizeControlAction(stringField(record, "action"));
   const threadId = stringField(record, "threadId") ?? stringField(record, "thread_id");
   const approvalAuditId = stringField(record, "approvalAuditId") ?? stringField(record, "approval_audit_id");
   const paramsHash = stringField(record, "paramsHash") ?? stringField(record, "params_hash");
@@ -224,6 +223,29 @@ function parseControlDryRun(value: unknown): ControlDryRunProof | null {
     && isSafeFingerprint(paramsHash)
     && (!actionRequiresMessageHash || isSafeFingerprint(messageHash));
   return ok ? { action: action!, threadId: threadId!, approvalAuditId: approvalAuditId!, paramsHash: paramsHash!, messageHash: messageHash ?? undefined } : null;
+}
+
+function normalizeControlAction(action: string | null): string | null {
+  switch (action) {
+    case "send":
+    case "codex_send_message":
+    case "loo_codex_send_message":
+      return "send";
+    case "resume":
+    case "codex_resume_thread":
+    case "loo_codex_resume_thread":
+      return "resume";
+    case "steer":
+    case "codex_steer_thread":
+    case "loo_codex_steer_thread":
+      return "steer";
+    case "interrupt":
+    case "codex_interrupt_thread":
+    case "loo_codex_interrupt_thread":
+      return "interrupt";
+    default:
+      return null;
+  }
 }
 
 function validateApprovedLiveControlProof(path: string): ApprovedProofResult {
@@ -274,11 +296,13 @@ function hasSearchProof(record: Record<string, unknown>, kind: SearchEvidenceKin
   if (kind === "plan" && numericField(record, "planCount") > 0) return true;
   if (kind === "plan" && Array.isArray(record.plans) && record.plans.length > 0) return true;
   if (kind === "final" && (stringField(record, "finalMessage") || stringField(record, "final_message"))) return true;
+  const text = stringField(record, "text");
+  if (text?.trim()) return true;
   const searchable = [
     stringField(record, "snippet"),
     stringField(record, "title"),
     stringField(record, "summary"),
-    stringField(record, "text")
+    text
   ].filter(Boolean).join("\n");
   return kind === "plan" ? /proposed\s+plan|plan/i.test(searchable) : /final\s+message|final/i.test(searchable);
 }
@@ -340,9 +364,10 @@ function collectEvidenceFileNames(root: string, current = root): string[] {
 
 function rawArtifactForName(name: string): RawDemoArtifact | null {
   if (name === "release-demo-status.json") return null;
+  const normalizedName = name.toLowerCase();
   const extension = extname(name).toLowerCase();
   if (extension === ".jsonl") return { name, reason: "raw_codex_jsonl" };
-  if (extension === ".sqlite" || extension === ".sqlite3" || extension === ".db") return { name, reason: "sqlite_database" };
+  if (/(?:\.sqlite3?|\.db)(?:-(?:wal|shm|journal))?$/.test(normalizedName)) return { name, reason: "sqlite_database" };
   if (extension === ".png" || extension === ".jpg" || extension === ".jpeg" || extension === ".heic" || extension === ".webp") return { name, reason: "screenshot_or_image" };
   if (extension === ".mov" || extension === ".mp4" || extension === ".webm") return { name, reason: "video_capture" };
   return null;
