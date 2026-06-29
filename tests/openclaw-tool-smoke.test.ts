@@ -104,6 +104,31 @@ process.exit(7);
   return { bin, callsPath };
 }
 
+function createGatewayAuthFailureFakeOpenClaw(dir: string, failureText: string): { bin: string; callsPath: string } {
+  const callsPath = join(dir, "calls.jsonl");
+  const bin = join(dir, "openclaw-auth-failure-fake.mjs");
+  writeFileSync(bin, `#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
+const args = process.argv.slice(2);
+const callIndex = args.indexOf("call");
+const method = callIndex >= 0 ? args[callIndex + 1] : "";
+const paramsIndex = args.indexOf("--params");
+const params = paramsIndex >= 0 ? JSON.parse(args[paramsIndex + 1] || "{}") : {};
+appendFileSync(process.env.OPENCLAW_FAKE_CALLS, JSON.stringify({ method, params, args, envTokenPresent: Boolean(process.env.OPENCLAW_GATEWAY_TOKEN) }) + "\\n");
+if (method === "tools.catalog") {
+  console.log(JSON.stringify({ groups: [{ tools: [{ id: "loo_doctor" }] }] }));
+  process.exit(0);
+}
+if (method === "tools.invoke") {
+  console.error(${JSON.stringify(failureText)});
+  process.exit(1);
+}
+process.exit(7);
+`);
+  chmodSync(bin, 0o755);
+  return { bin, callsPath };
+}
+
 function createInvalidCatalogFakeOpenClaw(dir: string): { bin: string; callsPath: string } {
   const callsPath = join(dir, "calls.jsonl");
   const bin = join(dir, "openclaw-invalid-catalog-fake.mjs");
@@ -428,5 +453,49 @@ test("OpenClaw tool smoke classifies gateway scope-upgrade blocks without storin
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke classifies gateway device and credential blockers without storing raw stderr", () => {
+  const cases = [
+    {
+      failureText: "gateway connect failed: device identity required",
+      expectedBlocker: "openclaw_gateway_device_identity_required:loo_doctor",
+      rawLeak: /device identity required/
+    },
+    {
+      failureText: "unauthorized: device token mismatch (rotate/reissue device token)",
+      expectedBlocker: "openclaw_gateway_device_token_mismatch:loo_doctor",
+      rawLeak: /device token mismatch/
+    },
+    {
+      failureText: "gateway tools.invoke requires credentials before opening a websocket",
+      expectedBlocker: "openclaw_gateway_credentials_required:loo_doctor",
+      rawLeak: /requires credentials before opening a websocket/
+    }
+  ];
+
+  for (const testCase of cases) {
+    const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-auth-"));
+    const evidencePath = join(dir, "tool-smoke.json");
+    const { bin, callsPath } = createGatewayAuthFailureFakeOpenClaw(dir, testCase.failureText);
+    const previous = process.env.OPENCLAW_FAKE_CALLS;
+    process.env.OPENCLAW_FAKE_CALLS = callsPath;
+    try {
+      const report = runOpenClawToolSmoke({
+        openclawBin: bin,
+        profile: "lco-issue-85",
+        sessionKey: "agent:main:lco-issue-85",
+        evidencePath,
+        requiredTools: ["loo_doctor"]
+      });
+
+      assert.equal(report.toolSmokeReady, false);
+      assert.deepEqual(report.blockers, [testCase.expectedBlocker]);
+      assert.doesNotMatch(readFileSync(evidencePath, "utf8"), testCase.rawLeak);
+    } finally {
+      if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+      else process.env.OPENCLAW_FAKE_CALLS = previous;
+    }
   }
 });

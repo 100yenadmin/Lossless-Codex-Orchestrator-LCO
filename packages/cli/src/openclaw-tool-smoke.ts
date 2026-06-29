@@ -344,7 +344,13 @@ function gatewayFailureBlockers(call: GatewayCallResult, fallback: string, toolN
   if (/scope upgrade pending approval/i.test(combined)) {
     return [toolName ? `openclaw_gateway_scope_upgrade_pending:${toolName}` : "openclaw_gateway_scope_upgrade_pending"];
   }
-  if (/GatewayExplicitAuthRequiredError|GatewayCredentialsRequiredError|gateway .*requires credentials/i.test(combined)) {
+  if (/device identity required/i.test(combined)) {
+    return [toolName ? `openclaw_gateway_device_identity_required:${toolName}` : "openclaw_gateway_device_identity_required"];
+  }
+  if (/device token mismatch/i.test(combined)) {
+    return [toolName ? `openclaw_gateway_device_token_mismatch:${toolName}` : "openclaw_gateway_device_token_mismatch"];
+  }
+  if (/GatewayExplicitAuthRequiredError|GatewayCredentialsRequiredError|requires credentials before opening a websocket|gateway .*requires credentials/i.test(combined)) {
     return [toolName ? `openclaw_gateway_credentials_required:${toolName}` : "openclaw_gateway_credentials_required"];
   }
   return [fallback];
