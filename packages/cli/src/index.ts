@@ -54,7 +54,9 @@ async function main() {
     try {
       console.log(JSON.stringify(indexCodexSessions(db, {
         roots: parsed.roots.length ? parsed.roots : defaultCodexRoots(),
-        maxFiles: parsed.maxFiles
+        maxFiles: parsed.maxFiles,
+        maxBytesPerFile: parsed.maxBytesPerFile,
+        maxEventsPerFile: parsed.maxEventsPerFile
       }), null, 2));
     } finally {
       db.close();
@@ -181,7 +183,7 @@ async function main() {
     "  loo doctor",
     "  loo desktop see [direct|cua-driver|peekaboo] [--snapshot] [--max-nodes n] [--max-chars n]",
     "  loo desktop act [direct|cua-driver|peekaboo] <action>",
-    "  loo index codex [--max-files n] [roots...]",
+    "  loo index codex [--max-files n] [--max-bytes-per-file n] [--max-events-per-file n] [roots...]",
     "  loo probe codex-sqlite [roots...]",
     "  loo search <query>",
     "  loo grep [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <query>",
@@ -237,19 +239,29 @@ function requireQuery(command: string, parts: string[]): string {
   return query;
 }
 
-function parseIndexCodexArgs(input: string[]): { roots: string[]; maxFiles?: number } {
+function parseIndexCodexArgs(input: string[]): { roots: string[]; maxFiles?: number; maxBytesPerFile?: number; maxEventsPerFile?: number } {
   const roots: string[] = [];
   let maxFiles: number | undefined;
+  let maxBytesPerFile: number | undefined;
+  let maxEventsPerFile: number | undefined;
   for (let index = 0; index < input.length; index += 1) {
     const arg = input[index]!;
     if (arg === "--max-files") {
       maxFiles = parsePositiveInteger(input[++index], "--max-files", 100000);
       continue;
     }
+    if (arg === "--max-bytes-per-file") {
+      maxBytesPerFile = parsePositiveInteger(input[++index], "--max-bytes-per-file", 1073741824);
+      continue;
+    }
+    if (arg === "--max-events-per-file") {
+      maxEventsPerFile = parsePositiveInteger(input[++index], "--max-events-per-file", 1000000);
+      continue;
+    }
     if (arg.startsWith("--")) throw new Error(`Unknown index codex option: ${arg}`);
     roots.push(arg);
   }
-  return { roots, maxFiles };
+  return { roots, maxFiles, maxBytesPerFile, maxEventsPerFile };
 }
 
 function parseDesktopBackend(value: string | undefined): DesktopBackend | undefined {

@@ -60,7 +60,7 @@ loo doctor
 loo desktop see cua-driver
 loo desktop see peekaboo --snapshot --max-nodes 50
 loo desktop act cua-driver "click primary" # dry-run only
-loo index codex --max-files 150 ~/.codex/sessions ~/.codex/archived_sessions
+loo index codex --max-files 150 --max-bytes-per-file 52428800 --max-events-per-file 50000 ~/.codex/sessions ~/.codex/archived_sessions
 loo search "proposed plan billing bridge"
 loo grep --lcm-db ~/.openclaw/lcm.db "billing bridge"
 loo describe codex_thread:019f-example

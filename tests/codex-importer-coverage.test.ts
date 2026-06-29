@@ -106,6 +106,76 @@ test("reindexes same-size files when content hash changes despite matching mtime
   }
 });
 
+test("skips Codex JSONL files that exceed byte or event ceilings without indexing partial evidence", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-importer-ceilings-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const tooLargePath = join(sessions, "rollout-2026-06-28T00-00-00-019f-too-large.jsonl");
+  const tooManyEventsPath = join(sessions, "rollout-2026-06-28T00-00-00-019f-too-many-events.jsonl");
+  writeJsonl(tooLargePath, "019f-too-large", "Private oversize marker should not index");
+  writeJsonl(tooManyEventsPath, "019f-too-many-events", "Private event marker should not index");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const byteLimited = indexCodexSessions(db, { roots: [sessions], maxFiles: 10, maxBytesPerFile: 1 });
+    assert.equal(byteLimited.indexedFiles, 0);
+    assert.equal(byteLimited.skippedFiles, 2);
+    assert.deepEqual(byteLimited.errors, []);
+    assert.equal(byteLimited.limitedFiles.length, 2);
+    assert.deepEqual(new Set(byteLimited.limitedFiles.map((file) => file.reason)), new Set(["max_bytes_per_file"]));
+    assert.equal(searchSessions(db, { query: "oversize marker", limit: 5 }).length, 0);
+
+    const eventLimited = indexCodexSessions(db, {
+      roots: [sessions],
+      maxFiles: 10,
+      maxBytesPerFile: 100_000,
+      maxEventsPerFile: 2
+    });
+    assert.equal(eventLimited.indexedFiles, 0);
+    assert.equal(eventLimited.skippedFiles, 2);
+    assert.deepEqual(eventLimited.errors, []);
+    assert.equal(eventLimited.limitedFiles.length, 2);
+    assert.deepEqual(new Set(eventLimited.limitedFiles.map((file) => file.reason)), new Set(["max_events_per_file"]));
+    assert.equal(eventLimited.limitedFiles[0]?.limit, 2);
+    assert.equal(eventLimited.limitedFiles[0]?.actual, 3);
+    assert.equal(searchSessions(db, { query: "event marker", limit: 5 }).length, 0);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("clears previously indexed Codex evidence when a source file exceeds a later ceiling", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-importer-ceiling-stale-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const sourcePath = join(sessions, "rollout-2026-06-28T00-00-00-019f-stale-ceiling.jsonl");
+  writeJsonl(sourcePath, "019f-stale-ceiling", "Stale ceiling marker");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const first = indexCodexSessions(db, { roots: [sessions], maxFiles: 10, maxEventsPerFile: 10 });
+    assert.equal(first.indexedFiles, 1);
+    assert.equal(searchSessions(db, { query: "Stale ceiling marker", limit: 5 }).length, 1);
+    assert.ok(getSourceFileWatermark(db, sourcePath));
+
+    const limited = indexCodexSessions(db, { roots: [sessions], maxFiles: 10, maxEventsPerFile: 2 });
+    assert.equal(limited.indexedFiles, 0);
+    assert.equal(limited.skippedFiles, 1);
+    assert.deepEqual(limited.limitedFiles, [{
+      path: sourcePath,
+      reason: "max_events_per_file",
+      limit: 2,
+      actual: 3
+    }]);
+    assert.equal(searchSessions(db, { query: "Stale ceiling marker", limit: 5 }).length, 0);
+    assert.equal(getSourceFileWatermark(db, sourcePath), null);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("probes Codex SQLite stores read-only and reports schema support", () => {
   let root: string | null = null;
   try {
@@ -148,6 +218,46 @@ test("probes Codex SQLite stores read-only and reports schema support", () => {
     assert.equal(directFileProbe.stores[0]?.path, supported);
     assert.equal(directFileProbe.stores[0]?.supported, true);
   } finally {
+    if (root) {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("MCP index tool forwards byte and event ceilings", async () => {
+  let root: string | null = null;
+  let db: ReturnType<typeof createDatabase> | null = null;
+  try {
+    root = mkdtempSync(join(tmpdir(), "loo-mcp-importer-ceilings-"));
+    const active = join(root, ".codex", "sessions");
+    mkdirSync(active, { recursive: true });
+    writeJsonl(join(active, "rollout-2026-06-28T00-00-00-019f-mcp-ceiling.jsonl"), "019f-mcp-ceiling", "MCP ceiling");
+    db = createDatabase(join(root, "orchestrator.sqlite"));
+    const tools = createLooTools({
+      db,
+      audit: createAuditStore(join(root, "audit.jsonl")),
+      codexClient: { request: async () => ({ ok: true }) }
+    });
+    const indexTool = tools.find((tool) => tool.name === "loo_index_sessions");
+    assert.ok(indexTool);
+
+    const indexed = await indexTool.execute({
+      roots: [active],
+      max_files: 10,
+      max_bytes_per_file: 100_000,
+      max_events_per_file: 2
+    }) as { indexedFiles: number; skippedFiles: number; limitedFiles: Array<{ reason: string; limit: number; actual: number }> };
+
+    assert.equal(indexed.indexedFiles, 0);
+    assert.equal(indexed.skippedFiles, 1);
+    assert.deepEqual(indexed.limitedFiles, [{
+      path: join(active, "rollout-2026-06-28T00-00-00-019f-mcp-ceiling.jsonl"),
+      reason: "max_events_per_file",
+      limit: 2,
+      actual: 3
+    }]);
+  } finally {
+    db?.close();
     if (root) {
       rmSync(root, { recursive: true, force: true });
     }

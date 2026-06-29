@@ -16,10 +16,10 @@ The doctor output should report `localOnly: true`, the Codex transport status, L
 
 ```bash
 export LOO_DB_PATH="$HOME/.openclaw/lossless-openclaw-orchestrator/orchestrator.sqlite"
-node dist/packages/cli/src/index.js index codex --max-files 150 "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
+node dist/packages/cli/src/index.js index codex --max-files 150 --max-bytes-per-file 52428800 --max-events-per-file 50000 "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
 ```
 
-Acceptance for the beta demo is 100+ local Codex sessions indexed with zero importer errors. Use `--max-files` to keep the smoke bounded; raise the cap only when the local store needs it to reach 100 sessions. Save only counts and redacted metadata in public evidence; do not attach raw session files or the SQLite database.
+Acceptance for the beta demo is 100+ local Codex sessions indexed with zero importer errors and no unexpected `limitedFiles`. Use `--max-files`, `--max-bytes-per-file`, and `--max-events-per-file` to keep the smoke bounded; raise the caps only when the local store needs it to reach 100 sessions. Save only counts and redacted metadata in public evidence; do not attach raw session files or the SQLite database.
 
 ## 3. Search Plans And Finals
 
