@@ -677,8 +677,8 @@ export function createCloseoutEnvelopeReport(db: LooDatabase, options: CloseoutE
         FROM codex_sessions s
         LEFT JOIN codex_session_metadata m ON m.thread_id = s.thread_id
         WHERE s.thread_id = ?
-        LIMIT ?
-      `).all(options.threadId, limit) as Array<Record<string, unknown>>
+        LIMIT 1
+      `).all(options.threadId) as Array<Record<string, unknown>>
     : db.prepare(`
         SELECT
           s.thread_id AS threadId,
@@ -700,12 +700,12 @@ export function createCloseoutEnvelopeReport(db: LooDatabase, options: CloseoutE
         FROM codex_sessions s
         LEFT JOIN codex_session_metadata m ON m.thread_id = s.thread_id
         ORDER BY COALESCE(s.updated_at, s.indexed_at) DESC
-        LIMIT ?
-      `).all(limit) as Array<Record<string, unknown>>;
+      `).all() as Array<Record<string, unknown>>;
 
   const candidates = rows
     .map((row) => closeoutEnvelopeCandidateFromRow(row))
-    .filter((candidate) => options.includeUnavailable === true || candidate.state !== "unavailable");
+    .filter((candidate) => options.includeUnavailable === true || candidate.state !== "unavailable")
+    .slice(0, limit);
   const summary = {
     total: candidates.length,
     ready: candidates.filter((candidate) => candidate.state === "ready").length,
@@ -724,20 +724,24 @@ export function createCloseoutEnvelopeReport(db: LooDatabase, options: CloseoutE
 
 function closeoutEnvelopeCandidateFromRow(row: Record<string, unknown>): CloseoutEnvelopeCandidate {
   const threadId = String(row.threadId);
-  const metadata = sessionMetadataFromRow(row);
-  const envelopeStats = closeoutEnvelopeStats(String(row.safeText ?? ""));
+  const sessionMetadata = sessionMetadataFromRow(row);
+  const safeText = String(row.safeText ?? "");
+  const envelopeStats = closeoutEnvelopeStats(safeText);
+  const envelopeText = latestBalancedCloseoutEnvelopeText(safeText);
+  const metadata = envelopeText === null ? emptySessionMetadata() : extractCloseoutEnvelopeMetadata(envelopeText);
   const missingFields = closeoutEnvelopeMissingFields(metadata);
   const warnings: string[] = [];
+  if (envelopeStats.openCount === 0 && sessionMetadataHasAnyValue(sessionMetadata)) warnings.push("closeout_envelope_missing");
   if (envelopeStats.openCount > 1) warnings.push("duplicate_closeout_envelopes");
   if (envelopeStats.openCount !== envelopeStats.closeCount) warnings.push("malformed_closeout_envelope");
   if (metadata.finalMessageRefs.length === 0) warnings.push("final_message_ref_missing");
   if (metadata.sourceRefs.length === 0) warnings.push("source_ref_missing");
 
-  const hasMetadata = sessionMetadataHasAnyValue(metadata);
+  const hasCloseoutSignal = sessionMetadataHasAnyValue(sessionMetadata) || envelopeStats.openCount > 0 || envelopeStats.closeCount > 0;
   const malformed = warnings.includes("malformed_closeout_envelope");
-  const state: CloseoutEnvelopeState = missingFields.length === 0 && !malformed
+  const state: CloseoutEnvelopeState = envelopeText !== null && missingFields.length === 0 && !malformed
     ? "ready"
-    : hasMetadata || envelopeStats.openCount > 0
+    : hasCloseoutSignal
       ? "partial"
       : "unavailable";
 
@@ -790,6 +794,24 @@ function closeoutEnvelopeStats(text: string): { openCount: number; closeCount: n
     openCount: text.match(/<loo_closeout\b[^>]*>/gi)?.length ?? 0,
     closeCount: text.match(/<\/loo_closeout>/gi)?.length ?? 0
   };
+}
+
+function latestBalancedCloseoutEnvelopeText(text: string): string | null {
+  let latest: string | null = null;
+  for (const match of text.matchAll(/<loo_closeout\b[^>]*>([\s\S]*?)<\/loo_closeout>/gi)) {
+    latest = match[1]?.trim() ?? "";
+  }
+  return latest;
+}
+
+function extractCloseoutEnvelopeMetadata(text: string): SessionMetadata {
+  const labelPattern = CLOSEOUT_ENVELOPE_LABEL_BOUNDARIES.map(escapeRegExp).join("|");
+  const withLabelBreaks = text.replace(new RegExp(`\\s+(${labelPattern})\\s*:`, "g"), "\n$1:");
+  return extractSessionMetadata(withLabelBreaks).metadata;
+}
+
+function capitalizeLabelStart(label: string): string {
+  return label ? `${label.slice(0, 1).toUpperCase()}${label.slice(1)}` : label;
 }
 
 export function expandSession(db: LooDatabase, options: ExpandSessionOptions): ExpandRecallResult & { threadId: string } {
@@ -1601,6 +1623,11 @@ const SESSION_METADATA_REF_LABELS: Array<{ field: keyof Pick<SessionMetadata, "p
   { field: "touchedFileRefs", labels: ["touched file refs", "touched-file refs", "file refs"] },
   { field: "sourceRefs", labels: ["source refs", "source ref", "refs", "ref"] }
 ];
+
+const CLOSEOUT_ENVELOPE_LABEL_BOUNDARIES = unique([
+  ...SESSION_METADATA_LABELS.flatMap((definition) => definition.labels),
+  ...SESSION_METADATA_REF_LABELS.flatMap((definition) => definition.labels)
+].map(capitalizeLabelStart)).sort((left, right) => right.length - left.length);
 
 type SessionMetadataTextField = keyof Omit<SessionMetadata, "proposedPlanRefs" | "finalMessageRefs" | "touchedFileRefs" | "sourceRefs">;
 type SessionMetadataRefField = keyof Pick<SessionMetadata, "proposedPlanRefs" | "finalMessageRefs" | "touchedFileRefs" | "sourceRefs">;
