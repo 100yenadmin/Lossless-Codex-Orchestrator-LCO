@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -96,6 +96,41 @@ test("OpenClaw dogfood report uses runtime inspect tools when plugin list omits 
   assert.deepEqual(report.blockers, []);
 });
 
+test("OpenClaw dogfood report tolerates OpenClaw log preambles before runtime JSON", () => {
+  const report = createOpenClawDogfoodReport({
+    pluginListExitStatus: 0,
+    pluginListStdout: JSON.stringify({
+      plugins: [{
+        id: "lossless-openclaw-orchestrator",
+        enabled: true,
+        status: "loaded",
+        toolNames: []
+      }]
+    }),
+    runtimeInspectExitStatus: 0,
+    runtimeInspectStdout: [
+      "warning: migrating OpenClaw plugin state",
+      JSON.stringify({
+        plugin: {
+          id: "lossless-openclaw-orchestrator",
+          enabled: true,
+          status: "loaded"
+        },
+        tools: [
+          { names: ["loo_search_sessions"] },
+          { names: ["loo_describe_session"] },
+          { names: ["loo_expand_query"] },
+          { names: ["loo_codex_control_dry_run"] }
+        ]
+      })
+    ].join("\n")
+  });
+
+  assert.equal(report.dogfoodReady, true);
+  assert.equal(report.targetPlugin?.toolCount, 4);
+  assert.deepEqual(report.blockers, []);
+});
+
 test("loo openclaw dogfood writes public-safe evidence and honors strict mode", () => {
   const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-dogfood-"));
   const pluginListJson = join(dir, "plugins.json");
@@ -120,6 +155,32 @@ test("loo openclaw dogfood writes public-safe evidence and honors strict mode", 
   assert.deepEqual(report.blockers, ["target_plugin_not_loaded"]);
   assert.equal(report.publicSafe, true);
   assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /plugins\\.json/);
+});
+
+test("loo openclaw dogfood creates parent directories for evidence output", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-dogfood-"));
+  const pluginListJson = join(dir, "plugins.json");
+  const evidencePath = join(dir, "fresh", "packet", "dogfood.json");
+  writeJson(pluginListJson, []);
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "openclaw",
+    "dogfood",
+    "--plugin-list-json",
+    pluginListJson,
+    "--evidence-path",
+    evidencePath,
+    "--strict"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.equal(existsSync(evidencePath), true);
+  const report = JSON.parse(readFileSync(evidencePath, "utf8")) as { blockers?: string[]; publicSafe?: boolean };
+  assert.deepEqual(report.blockers, ["target_plugin_not_loaded"]);
+  assert.equal(report.publicSafe, true);
 });
 
 test("OpenClaw dogfood omits force when installing a linked plugin", () => {

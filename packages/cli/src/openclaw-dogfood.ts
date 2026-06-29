@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
 export const DEFAULT_REQUIRED_LOO_TOOLS = [
   "loo_search_sessions",
@@ -104,7 +105,10 @@ export function runOpenClawDogfood(options: RunOpenClawDogfoodOptions = {}): Ope
     command: `${openclawBin} ${[...baseArgs, "plugins", "list", "--json"].join(" ")}`,
     evidencePath: options.evidencePath
   });
-  if (options.evidencePath) writeFileSync(options.evidencePath, `${JSON.stringify(report, null, 2)}\n`);
+  if (options.evidencePath) {
+    mkdirSync(dirname(options.evidencePath), { recursive: true });
+    writeFileSync(options.evidencePath, `${JSON.stringify(report, null, 2)}\n`);
+  }
   return report;
 }
 
@@ -158,7 +162,7 @@ export function createOpenClawDogfoodReport(input: OpenClawDogfoodInput): OpenCl
 
 function parseRuntimeInspect(stdout: string): PluginListEntry | null {
   try {
-    const payload = JSON.parse(stdout || "null") as unknown;
+    const payload = parseJsonPayload(stdout);
     if (isRecord(payload) && pluginId(payload) === TARGET_PLUGIN_ID) return payload;
   } catch {
     return null;
@@ -168,13 +172,38 @@ function parseRuntimeInspect(stdout: string): PluginListEntry | null {
 
 function parsePluginList(stdout: string): { ok: true; plugins: PluginListEntry[] } | { ok: false; plugins: [] } {
   try {
-    const payload = JSON.parse(stdout || "null") as unknown;
+    const payload = parseJsonPayload(stdout);
     if (Array.isArray(payload)) return { ok: true, plugins: payload.filter(isRecord) };
     if (isRecord(payload) && Array.isArray(payload.plugins)) return { ok: true, plugins: payload.plugins.filter(isRecord) };
   } catch {
     return { ok: false, plugins: [] };
   }
   return { ok: false, plugins: [] };
+}
+
+function parseJsonPayload(stdout: string): unknown {
+  const text = (stdout || "null").trim();
+  try {
+    return JSON.parse(text) as unknown;
+  } catch (error) {
+    for (const index of jsonStartIndexes(text)) {
+      try {
+        return JSON.parse(text.slice(index)) as unknown;
+      } catch {
+        // Try the next plausible JSON payload start.
+      }
+    }
+    throw error;
+  }
+}
+
+function jsonStartIndexes(text: string): number[] {
+  const indexes: number[] = [];
+  for (let index = 1; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === "{" || char === "[") indexes.push(index);
+  }
+  return indexes;
 }
 
 function pluginId(entry: PluginListEntry): string {
