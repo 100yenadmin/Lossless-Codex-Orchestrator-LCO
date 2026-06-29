@@ -236,7 +236,7 @@ function validateApprovedLiveControlProof(path: string | undefined): ReleasePref
     return check(false, "approved live-control evidence must be JSON");
   }
   const actionOk = proof.action === "send" || proof.action === "resume" || proof.action === "steer" || proof.action === "interrupt";
-  const hashOk = proof.action === "send" || proof.action === "steer" ? Boolean(proof.messageHash?.startsWith("sha256:")) : true;
+  const hashOk = proof.action === "send" || proof.action === "steer" ? isSafeFingerprint(proof.messageHash) : true;
   const allowedKeys = new Set([
     "kind",
     "approvedLiveControlSmoke",
@@ -258,4 +258,8 @@ function validateApprovedLiveControlProof(path: string | undefined): ReleasePref
     && proof.rawPromptIncluded === false
     && hasOnlyAllowedKeys;
   return check(ok, ok ? "structured approved live-control smoke proof accepted" : "approved live-control evidence is not a safe structured proof marker");
+}
+
+function isSafeFingerprint(value: string | undefined | null): boolean {
+  return typeof value === "string" && (/^[a-f0-9]{64}$/i.test(value) || /^sha256:[A-Za-z0-9._:-]+$/.test(value));
 }

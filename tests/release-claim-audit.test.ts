@@ -49,6 +49,7 @@ test("public beta docs include install, MCP/OpenClaw, demo, and approval-boundar
   assert.match(readme, /docs\/OPENCLAW_PLUGIN\.md/);
   assert.match(readme, /docs\/BETA_RELEASE_DEMO\.md/);
   assert.match(readme, /loo release preflight/);
+  assert.match(readme, /loo release demo-status/);
   assert.match(readme, /loo index codex --max-files \d+/);
   assert.match(openclawDocs, /loo-mcp-server/);
   assert.match(openclawDocs, /dry_run=true/);
@@ -63,7 +64,8 @@ test("public beta docs include install, MCP/OpenClaw, demo, and approval-boundar
     /expand.*two sessions/i,
     /loo_codex_control_dry_run/i,
     /approval_audit_id/i,
-    /does not run live control/i
+    /does not run live control/i,
+    /loo release demo-status/i
   ]) {
     assert.match(demo, required);
   }
@@ -234,7 +236,7 @@ test("release preflight only clears live-control blocker for structured approval
     action: "send",
     targetRef: "codex_thread:test-thread",
     approvalAuditId: "audit_test",
-    messageHash: "sha256:test",
+    messageHash: "b".repeat(64),
     preservesCodexApprovalSemantics: true,
     rawPromptIncluded: false
   }, null, 2)}\n`);

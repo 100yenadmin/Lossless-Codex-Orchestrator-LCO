@@ -63,6 +63,25 @@ loo_codex_control_dry_run({
 
 The dry-run returns `approval_audit_id`, `params_hash`, and `message_hash`. This demo does not run live control. A live continue requires the user to approve the exact target thread and provide the matching `approval_audit_id`, while Codex still owns its own approval and sandbox semantics.
 
+## 5a. Demo Evidence Status
+
+Save public-safe JSON outputs in one evidence directory using these names:
+
+- `index-codex.json`
+- `plans-search.json`
+- `finals-search.json`
+- `expand-brief.json`
+- `expand-evidence.json`
+- `control-dry-run.json`
+
+Then validate the demo proof without performing any gated action:
+
+```bash
+node dist/packages/cli/src/index.js release demo-status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/demo --strict
+```
+
+`loo release demo-status` writes `release-demo-status.json`, checks for 100+ indexed sessions, plan/final search proof, two expansion proofs, dry-run control proof, raw artifact leakage, and optional approved live-control proof. It records that it did not run live Codex control, mutate a GUI, publish npm, or create a GitHub Release. Until an explicitly approved live-control smoke proof is supplied, `--strict` fails with `approved_live_control_smoke_missing`.
+
 ## 6. Desktop Fallback Readiness
 
 ```bash
