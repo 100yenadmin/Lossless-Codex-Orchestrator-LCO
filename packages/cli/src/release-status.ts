@@ -7,22 +7,25 @@ export type ReleaseStatusOptions = {
   approvedLiveControlEvidence?: string;
   npmPublishApprovalEvidence?: string;
   githubReleaseApprovalEvidence?: string;
+  desktopGuiApprovalEvidence?: string;
   now?: string;
   rootDir?: string;
 };
 
 export type ReleaseApprovalStatus = {
-  id: "approved_live_control_smoke" | "npm_publish" | "github_release";
+  id: "approved_live_control_smoke" | "npm_publish" | "github_release" | "desktop_gui_mutation";
   satisfied: boolean;
 };
 
 type ReleaseOperationApprovalProof = {
   kind?: string;
-  operation?: "npm_publish" | "github_release";
+  operation?: ReleaseOperationApproval;
   approved?: boolean;
   approvalRef?: string;
   rawSecretIncluded?: boolean;
 };
+
+type ReleaseOperationApproval = "npm_publish" | "github_release" | "desktop_gui_mutation";
 
 export type ReleaseStatusReport = {
   ok: boolean;
@@ -55,14 +58,17 @@ export function createReleaseStatus(options: ReleaseStatusOptions): ReleaseStatu
   const liveControlSmokeSatisfied = !releasePreflight.blockers.includes("approved_live_control_smoke_missing");
   const npmPublishSatisfied = validateReleaseOperationApprovalProof(options.npmPublishApprovalEvidence, "npm_publish");
   const githubReleaseSatisfied = validateReleaseOperationApprovalProof(options.githubReleaseApprovalEvidence, "github_release");
+  const desktopGuiSatisfied = validateReleaseOperationApprovalProof(options.desktopGuiApprovalEvidence, "desktop_gui_mutation");
   const explicitApprovalsRequired: ReleaseApprovalStatus[] = [
     { id: "approved_live_control_smoke", satisfied: liveControlSmokeSatisfied },
     { id: "npm_publish", satisfied: npmPublishSatisfied },
-    { id: "github_release", satisfied: githubReleaseSatisfied }
+    { id: "github_release", satisfied: githubReleaseSatisfied },
+    { id: "desktop_gui_mutation", satisfied: desktopGuiSatisfied }
   ];
   const blockers = [...releasePreflight.blockers];
   if (!npmPublishSatisfied) blockers.push("npm_publish_not_approved");
   if (!githubReleaseSatisfied) blockers.push("github_release_not_approved");
+  if (!desktopGuiSatisfied) blockers.push("desktop_gui_mutation_not_approved");
   const statusManifestPath = join(evidenceDir, "release-status.json");
   const report: ReleaseStatusReport = {
     ok: blockers.length === 0,
@@ -92,7 +98,7 @@ export function createReleaseStatus(options: ReleaseStatusOptions): ReleaseStatu
   return report;
 }
 
-function validateReleaseOperationApprovalProof(path: string | undefined, operation: "npm_publish" | "github_release"): boolean {
+function validateReleaseOperationApprovalProof(path: string | undefined, operation: ReleaseOperationApproval): boolean {
   if (!path || !existsSync(path)) return false;
   let proof: ReleaseOperationApprovalProof;
   try {

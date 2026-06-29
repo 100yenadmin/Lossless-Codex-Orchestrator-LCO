@@ -47,7 +47,8 @@ test("release status writes an approval packet without performing gated actions"
   assert.deepEqual(payload.blockers, [
     "approved_live_control_smoke_missing",
     "npm_publish_not_approved",
-    "github_release_not_approved"
+    "github_release_not_approved",
+    "desktop_gui_mutation_not_approved"
   ]);
   assert.deepEqual(payload.actionsPerformed, {
     npmPublished: false,
@@ -58,7 +59,8 @@ test("release status writes an approval packet without performing gated actions"
   assert.deepEqual(payload.explicitApprovalsRequired, [
     { id: "approved_live_control_smoke", satisfied: false },
     { id: "npm_publish", satisfied: false },
-    { id: "github_release", satisfied: false }
+    { id: "github_release", satisfied: false },
+    { id: "desktop_gui_mutation", satisfied: false }
   ]);
   assert.equal(existsSync(join(evidenceDir, "release-status.json")), true);
 
@@ -90,7 +92,8 @@ test("release status --strict fails closed while approvals are missing", () => {
   assert.deepEqual(payload.blockers, [
     "approved_live_control_smoke_missing",
     "npm_publish_not_approved",
-    "github_release_not_approved"
+    "github_release_not_approved",
+    "desktop_gui_mutation_not_approved"
   ]);
 });
 
@@ -99,6 +102,7 @@ test("release status --strict passes with safe approval proofs without performin
   const liveControlProof = join(evidenceDir, "approved-live-control-smoke.json");
   const npmApprovalProof = join(evidenceDir, "npm-publish-approval.json");
   const githubReleaseApprovalProof = join(evidenceDir, "github-release-approval.json");
+  const desktopGuiApprovalProof = join(evidenceDir, "desktop-gui-approval.json");
   writeFileSync(liveControlProof, `${JSON.stringify({
     kind: "loo_approved_live_control_smoke",
     approvedLiveControlSmoke: true,
@@ -123,6 +127,13 @@ test("release status --strict passes with safe approval proofs without performin
     approvalRef: "issue-14-user-approval",
     rawSecretIncluded: false
   }, null, 2)}\n`);
+  writeFileSync(desktopGuiApprovalProof, `${JSON.stringify({
+    kind: "loo_release_operation_approval",
+    operation: "desktop_gui_mutation",
+    approved: true,
+    approvalRef: "issue-14-user-approval",
+    rawSecretIncluded: false
+  }, null, 2)}\n`);
 
   const result = spawnSync(process.execPath, [
     "--import",
@@ -138,6 +149,8 @@ test("release status --strict passes with safe approval proofs without performin
     npmApprovalProof,
     "--github-release-approval-evidence",
     githubReleaseApprovalProof,
+    "--desktop-gui-approval-evidence",
+    desktopGuiApprovalProof,
     "--strict"
   ], { encoding: "utf8" });
 
@@ -161,7 +174,8 @@ test("release status --strict passes with safe approval proofs without performin
   assert.deepEqual(payload.explicitApprovalsRequired, [
     { id: "approved_live_control_smoke", satisfied: true },
     { id: "npm_publish", satisfied: true },
-    { id: "github_release", satisfied: true }
+    { id: "github_release", satisfied: true },
+    { id: "desktop_gui_mutation", satisfied: true }
   ]);
   assert.deepEqual(payload.actionsPerformed, {
     npmPublished: false,
@@ -222,7 +236,8 @@ test("release status treats malformed approval proof shapes as unsatisfied witho
   assert.deepEqual(payload.blockers, [
     "approved_live_control_smoke_missing",
     "npm_publish_not_approved",
-    "github_release_not_approved"
+    "github_release_not_approved",
+    "desktop_gui_mutation_not_approved"
   ]);
   assert.deepEqual(payload.explicitApprovalsRequired?.find((approval) => approval.id === "npm_publish"), {
     id: "npm_publish",
@@ -257,7 +272,8 @@ test("release status treats null approval proof JSON as unsatisfied without abor
   assert.deepEqual(payload.blockers, [
     "approved_live_control_smoke_missing",
     "npm_publish_not_approved",
-    "github_release_not_approved"
+    "github_release_not_approved",
+    "desktop_gui_mutation_not_approved"
   ]);
   assert.deepEqual(payload.explicitApprovalsRequired?.find((approval) => approval.id === "npm_publish"), {
     id: "npm_publish",

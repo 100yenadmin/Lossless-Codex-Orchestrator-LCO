@@ -48,11 +48,11 @@ or CI-backed branch:
 ```bash
 npm run check
 npm pack --dry-run
-loo scorecards sweep --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-scorecards --strict
-loo release preflight --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight --strict
-loo release bundle --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-bundle --strict
-loo release demo-status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/demo --strict
-loo release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --npm-publish-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/npm-approval.json --github-release-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-release-approval.json --strict
+node ./dist/packages/cli/src/index.js scorecards sweep --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-scorecards --strict
+node ./dist/packages/cli/src/index.js release preflight --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --strict
+node ./dist/packages/cli/src/index.js release bundle --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-bundle --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --strict
+node ./dist/packages/cli/src/index.js release demo-status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/demo --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --strict
+node ./dist/packages/cli/src/index.js release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --npm-publish-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/npm-approval.json --github-release-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-release-approval.json --desktop-gui-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/desktop-gui-approval.json --strict
 ```
 
 If `--strict` fails because an approval-gated operation is intentionally missing,
@@ -62,25 +62,30 @@ names include:
 - `approved_live_control_smoke_missing`
 - `npm_publish_not_approved`
 - `github_release_not_approved`
+- `desktop_gui_mutation_not_approved`
 
-## OpenClaw User-Path Smoke
+## OpenClaw Install And Tool Declaration Smoke
 
-The local OpenClaw gateway is a first-class beta user. Before a release
-candidate can be called usable, run the plugin through the same path an OpenClaw
-agent would use:
+The local OpenClaw gateway is a first-class beta user. First run metadata-only
+install/tool-declaration coverage from the candidate checkout:
 
 ```bash
-loo openclaw dogfood --profile lco-dogfood --install-source . --link --required-tool loo_doctor --required-tool loo_search_sessions --required-tool loo_describe_session --required-tool loo_expand_query --required-tool loo_codex_plans --required-tool loo_codex_final_messages --required-tool loo_codex_thread_map --required-tool loo_codex_control_dry_run --evidence-path /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/openclaw-dogfood/plugin-load.json --strict
+node ./dist/packages/cli/src/index.js openclaw dogfood --profile lco-dogfood --install-source . --link --required-tool loo_doctor --required-tool loo_search_sessions --required-tool loo_describe_session --required-tool loo_expand_query --required-tool loo_codex_plans --required-tool loo_codex_final_messages --required-tool loo_codex_thread_map --required-tool loo_codex_control_dry_run --evidence-path /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/openclaw-dogfood/plugin-load.json --strict
 ```
 
-The smoke should verify:
+This command verifies:
 
 - plugin install/load status
 - declared `loo_*` tool coverage
-- read-only calls for doctor, search, describe, expand, plans, finals, and
-  thread map where relevant
-- dry-run control audit creation without mutating a real Codex thread
 - public-safe evidence only
+
+Before the OpenClaw user path is called usable, also capture real OpenClaw
+gateway tool-call evidence or record an explicit blocker. That public-safe
+evidence must prove the gateway invoked `loo_doctor`, `loo_search_sessions`,
+`loo_describe_session`, `loo_expand_query`, `loo_codex_plans`,
+`loo_codex_final_messages`, `loo_codex_thread_map`, and
+`loo_codex_control_dry_run`, including dry-run control audit creation without
+mutating a real Codex thread.
 
 Do not use the OpenClaw smoke to run live Codex control, GUI mutation, npm
 publish, or GitHub Release creation.
@@ -109,7 +114,8 @@ Do not run live Codex control without explicit user approval for the exact targe
 thread and harmless prompt.
 
 Do not run GUI mutation without explicit user approval for the backend, target
-app/window, and action.
+app/window, and action, plus a `loo_release_operation_approval` proof marker for
+`operation: "desktop_gui_mutation"`.
 
 Do not run `npm publish` without explicit user approval and a
 `loo_release_operation_approval` proof marker for `operation: "npm_publish"`.
@@ -118,9 +124,9 @@ Do not create a GitHub Release without explicit user approval and a
 `loo_release_operation_approval` proof marker for
 `operation: "github_release"`.
 
-The release status command must continue to report `npmPublished: false` and
-`githubReleaseCreated: false` until those separate operations are actually
-approved and executed.
+The release status command must continue to report `npmPublished: false`,
+`githubReleaseCreated: false`, and `desktopGuiActionRun: false` until those
+separate operations are actually approved and executed.
 
 ## Public Release Steps
 
