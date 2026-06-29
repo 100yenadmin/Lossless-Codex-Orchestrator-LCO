@@ -226,7 +226,7 @@ OpenClaw setup lives in [docs/OPENCLAW_PLUGIN.md](docs/OPENCLAW_PLUGIN.md).
 - `packages/openclaw-plugin`: OpenClaw plugin metadata and registration.
 - `packages/cli`: `loo` CLI.
 - `packages/adapters`: Codex control, CUA/Peekaboo boundary, Claude Code stub.
-- `evals/scorecards/v1.0`: beta scorecards for safety, retrieval, install, claims, usability, and orchestrator leverage.
+- `evals/scorecards/v1.0`: beta scorecards for safety, retrieval, install, claims, usability, local Mac search UI, and orchestrator leverage.
 - `docs/`: install, demo, privacy, safe summaries, release proof, release runbook, and public-claim boundaries.
 
 Direct Codex protocol is preferred for thread work. GUI automation is a fallback
