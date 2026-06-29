@@ -82,16 +82,18 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
     tools?: { prefix?: string };
     safety?: { localOnlyByDefault?: boolean; liveControlRequires?: string[] };
   } | null;
-  const runtimeExtensions = packageJson?.openclaw?.runtimeExtensions ?? [];
   const runtimeExtensionEntry = "./dist/packages/openclaw-plugin/src/index.js";
+  const openclawExtensions = packageJson?.openclaw?.extensions ?? [];
   const openclawPackageMetadataOk = packageJsonRead.error ? true : Boolean(
-    packageJson?.openclaw?.extensions?.includes("./packages/openclaw-plugin/src/index.ts")
-    && runtimeExtensions.includes(runtimeExtensionEntry)
-    && runtimeExtensions.every((entry) => packageRuntimeFileExists(packageRoot, entry))
+    packageJson
+    && packageJson.openclaw?.runtimeExtensions === undefined
+    && openclawExtensions.length === 1
+    && openclawExtensions[0] === runtimeExtensionEntry
+    && packageRuntimeFileExists(packageRoot, runtimeExtensionEntry)
     && packageFilesIncludePath(packageJson.files, "openclaw.plugin.json")
     && packageFilesIncludePath(packageJson.files, runtimeExtensionEntry)
-    && packageJson.openclaw.compat?.pluginApi === ">=2026.6.8"
-    && packageJson.openclaw.build?.openclawVersion === ">=2026.6.8"
+    && packageJson.openclaw?.compat?.pluginApi === ">=2026.6.8"
+    && packageJson.openclaw?.build?.openclawVersion === ">=2026.6.8"
   );
 
   const approvedLiveControlProof = options.approvedLiveControlEvidence?.trim();

@@ -225,21 +225,22 @@ test("OpenClaw plugin manifest is packageable and matches the beta safety bounda
     tools?: { prefix?: string };
     configSchema?: { type?: string; additionalProperties?: boolean; properties?: Record<string, unknown> };
     activation?: { onStartup?: boolean };
-    contracts?: { tools?: string[] };
+    contracts?: { tools?: unknown[]; toolDeclarations?: unknown[] };
     safety?: { localOnlyByDefault?: boolean; liveControlRequires?: string[]; forbiddenClaims?: string[] };
   };
   const sourceManifest = JSON.parse(read("packages/openclaw-plugin/openclaw.plugin.json")) as {
     id?: string;
     mcp?: { command?: string; transport?: string };
-    contracts?: { tools?: string[] };
+    contracts?: { tools?: unknown[]; toolDeclarations?: unknown[] };
   };
-  const expectedToolNames = createLooToolDeclarations().map((tool) => tool.name);
+  const expectedTools = createLooToolDeclarations();
+  const expectedToolNames = expectedTools.map((tool) => tool.name);
 
   assert.equal(packageJson.name, "lossless-openclaw-orchestrator");
   assert.equal(packageJson.type, "module");
   assert.equal(packageJson.files?.includes("openclaw.plugin.json"), true);
-  assert.deepEqual(packageJson.openclaw?.extensions, ["./packages/openclaw-plugin/src/index.ts"]);
-  assert.deepEqual(packageJson.openclaw?.runtimeExtensions, ["./dist/packages/openclaw-plugin/src/index.js"]);
+  assert.deepEqual(packageJson.openclaw?.extensions, ["./dist/packages/openclaw-plugin/src/index.js"]);
+  assert.equal(packageJson.openclaw?.runtimeExtensions, undefined);
   assert.equal(packageJson.openclaw?.compat?.pluginApi, ">=2026.6.8");
   assert.equal(packageJson.openclaw?.build?.openclawVersion, ">=2026.6.8");
   assert.equal(manifest.id, "lossless-openclaw-orchestrator");
@@ -257,6 +258,8 @@ test("OpenClaw plugin manifest is packageable and matches the beta safety bounda
   assert.equal(manifest.activation?.onStartup, true);
   assert.deepEqual(manifest.contracts?.tools, expectedToolNames);
   assert.deepEqual(sourceManifest.contracts?.tools, expectedToolNames);
+  assert.deepEqual(manifest.contracts?.toolDeclarations, expectedTools);
+  assert.deepEqual(sourceManifest.contracts?.toolDeclarations, expectedTools);
   assert.equal(manifest.safety?.localOnlyByDefault, true);
   assert.deepEqual(manifest.safety?.liveControlRequires, ["dry_run", "approval_audit_id"]);
   assert.deepEqual(manifest.safety?.forbiddenClaims, [
@@ -448,6 +451,35 @@ test("release preflight fails closed when OpenClaw artifacts are missing from th
   assert.deepEqual(payload.blockers, ["openclawManifest_failed"]);
 });
 
+test("release preflight rejects stale OpenClaw runtimeExtensions metadata", () => {
+  const rootDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-stale-runtime-"));
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-stale-runtime-evidence-"));
+  const liveControlProof = join(evidenceDir, "approved-live-control-smoke.json");
+  writeProjectSkeleton(rootDir, {
+    runtimeExtensions: ["./packages/openclaw-plugin/src/index.ts"]
+  });
+  writeFileSync(liveControlProof, `${JSON.stringify({
+    kind: "loo_approved_live_control_smoke",
+    approvedLiveControlSmoke: true,
+    action: "send",
+    targetRef: "codex_thread:test-thread",
+    approvalAuditId: "audit_test",
+    messageHash: "sha256:test",
+    preservesCodexApprovalSemantics: true,
+    rawPromptIncluded: false
+  }, null, 2)}\n`);
+
+  const payload = runReleasePreflight({
+    rootDir,
+    evidenceDir,
+    approvedLiveControlEvidence: liveControlProof
+  });
+
+  assert.equal(payload.releaseReady, false);
+  assert.equal(payload.checks.openclawManifest?.ok, false);
+  assert.deepEqual(payload.blockers, ["openclawManifest_failed"]);
+});
+
 test("release preflight reports malformed package JSON as a structured blocker", () => {
   const rootDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-invalid-root-"));
   const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-invalid-evidence-"));
@@ -556,22 +588,22 @@ test("release preflight reports raw artifacts already present in the evidence di
   ]);
 });
 
-function writeProjectSkeleton(rootDir: string, overrides: { readme?: string; runtimeArtifact?: boolean; packageFiles?: string[] } = {}): void {
+function writeProjectSkeleton(rootDir: string, overrides: { readme?: string; runtimeArtifact?: boolean; packageFiles?: string[]; runtimeExtensions?: string[] } = {}): void {
   mkdirSync(join(rootDir, "docs"), { recursive: true });
   mkdirSync(join(rootDir, "packages/openclaw-plugin"), { recursive: true });
   if (overrides.runtimeArtifact !== false) {
     mkdirSync(join(rootDir, "dist/packages/openclaw-plugin/src"), { recursive: true });
     writeFileSync(join(rootDir, "dist/packages/openclaw-plugin/src/index.js"), "export default {};\n");
   }
-  const toolNames = createLooToolDeclarations().map((tool) => tool.name);
+  const tools = createLooToolDeclarations();
   writeFileSync(join(rootDir, "package.json"), JSON.stringify({
     name: "lossless-openclaw-orchestrator",
     version: "0.1.0-beta.0",
     description: "Index, search, and control local Codex sessions through OpenClaw with approval-gated safety.",
     files: overrides.packageFiles ?? ["dist", "packages", "docs", "openclaw.plugin.json", "README.md", "LICENSE", "SECURITY.md"],
     openclaw: {
-      extensions: ["./packages/openclaw-plugin/src/index.ts"],
-      runtimeExtensions: ["./dist/packages/openclaw-plugin/src/index.js"],
+      extensions: ["./dist/packages/openclaw-plugin/src/index.js"],
+      ...(overrides.runtimeExtensions ? { runtimeExtensions: overrides.runtimeExtensions } : {}),
       compat: { pluginApi: ">=2026.6.8" },
       build: { openclawVersion: ">=2026.6.8" }
     }
@@ -602,7 +634,7 @@ function writeProjectSkeleton(rootDir: string, overrides: { readme?: string; run
     tools: { prefix: "loo_" },
     configSchema: { type: "object", additionalProperties: false, properties: {} },
     activation: { onStartup: true },
-    contracts: { tools: toolNames },
+    contracts: { tools: tools.map((tool) => tool.name), toolDeclarations: tools },
     safety: {
       localOnlyByDefault: true,
       liveControlRequires: ["dry_run", "approval_audit_id"],
