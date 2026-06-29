@@ -10,6 +10,7 @@ Use the JSON examples for repeatable sweeps:
 - `packaging-install-review.json`
 - `public-claim-review.json`
 - `local-agent-usability-review.json`
+- `local-mac-search-ui-review.json`
 
 Use `issue-scorecard-update-template.md` for issue and PR comments after focused validation.
 

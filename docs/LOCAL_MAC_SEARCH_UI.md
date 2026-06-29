@@ -1,0 +1,80 @@
+# Local Mac Search UI Contract
+
+This document stages the macOS-only local search UI for Lossless OpenClaw Orchestrator. It is a product and eval contract, not a release-ready macOS app claim.
+
+## Purpose
+
+The UI helps a user search Codex, OpenClaw, and future Claude Code sessions from the same local recall loop that already powers the CLI, MCP server, and OpenClaw plugin. It should make safe summaries, source refs, project/status/priority filters, and bounded expansion easy to use without rendering raw transcripts.
+
+The UI exists after the CLI, MCP, and OpenClaw gateway paths prove the underlying recall loop. It should not outrun the tools or imply unsupported adapter parity.
+
+## Data Contract
+
+The first app shell reads from public-safe `loo_*` surfaces:
+
+- `loo_search_sessions` for bounded search results.
+- `loo_grep` for Codex plus optional read-only OpenClaw LCM peer search.
+- `loo_describe_session` for metadata and safe summaries.
+- `loo_describe_ref` for source-prefixed refs such as `codex_thread:*` and `lcm_summary:*`.
+- `loo_expand_query` for bounded brief or evidence profiles.
+- `loo_codex_thread_map` for active, blocked, needs-expansion, archive, fork, and resume lanes.
+- `loo_codex_plans`, `loo_codex_final_messages`, and `loo_codex_touched_files` for cited detail views.
+- `loo_doctor`, `loo_permissions`, and `loo_desktop_see` for status surfaces.
+
+The UI may display copied source refs such as `codex_thread:*`, `codex_event:*`, and `lcm_summary:*`. Copy actions copy refs and public-safe summaries only. They must not copy raw prompts, raw transcript spans, local SQLite rows, screenshots, tokens, cookies, API keys, or credentials.
+
+## Required Workflows
+
+- Search indexed sessions by text and show safe summaries, source refs, status, priority, project, updated time, and blocker state.
+- Filter by project, status, priority, and blocker.
+- Inspect one selected result without raw transcript rendering.
+- Copy source refs and selected public-safe summary text for an OpenClaw agent.
+- Ask for a bounded expansion profile before showing more detail.
+- Show a session-management map that separates active, blocked, needs-expansion, archive, fork, and resume lanes.
+- Show CUA and Peekaboo readiness as status surfaces only.
+- Show proof-boundary warnings wherever a user might expect live control, Claude parity, one-click install, or release-ready macOS app behavior.
+
+## Fail-Closed States
+
+The app shell must fail closed when:
+
+- The local DB is unavailable or unreadable.
+- Required plugin tools are unavailable.
+- The OpenClaw plugin is not loaded.
+- The query would require raw transcript access.
+- A requested expansion exceeds the bounded profile.
+- CUA or Peekaboo cannot provide honest readiness.
+- A user asks for GUI mutation without explicit approval and backend-specific proof.
+
+Fail-closed output should explain the blocker code and the CLI/MCP command that can produce diagnostic evidence. It must not silently fall back to raw file reads.
+
+## Safety Boundaries
+
+This UI does not prove:
+
+- one-click install,
+- release-ready macOS app packaging,
+- signed or notarized app readiness,
+- Claude parity,
+- unattended desktop takeover,
+- GUI mutation,
+- live Codex control,
+- CUA no-focus proof,
+- Peekaboo snapshot safety beyond explicit approved diagnostic use.
+
+Any live Codex control still requires dry-run plus `approval_audit_id`. Any GUI mutation requires explicit approval and a separate backend-specific proof path.
+
+## Acceptance Evidence
+
+Public-safe evidence may include:
+
+- command names and exit statuses,
+- result counts,
+- source refs,
+- redacted summaries,
+- filter selections,
+- blocker codes,
+- hashes,
+- links to GitHub issues and PRs.
+
+Evidence must not include raw transcripts, raw prompts, local SQLite DBs, screenshots, videos, tokens, credentials, API keys, cookies, or private customer data.

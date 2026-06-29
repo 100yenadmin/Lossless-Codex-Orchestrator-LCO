@@ -31,7 +31,7 @@ Expected product-management workflows:
 - Expand only the few sessions that need review, using bounded 1k or 4k evidence bundles with citations and omitted markers.
 - Archive inactive sessions, fork useful sessions, and dry-run resume/steer/send actions only after the target and intent are clear.
 - Use hybrid search, such as BM25 plus vectors, query expansion, and reranking, only after fixture and local evals show better signal per token than the simpler index.
-- Provide a simple local Mac search UI after the CLI, MCP, and OpenClaw gateway paths prove the underlying recall loop.
+- Provide a simple local Mac search UI through [docs/LOCAL_MAC_SEARCH_UI.md](docs/LOCAL_MAC_SEARCH_UI.md) and `local-mac-search-ui-review.json` after the CLI, MCP, and OpenClaw gateway paths prove the underlying recall loop, without rendering raw transcripts.
 - Offer a session sanitizer lane that scans indexed sessions for secret-like strings and produces redacted repair tasks without publishing raw local data.
 
 ## Product Shape
@@ -83,6 +83,7 @@ Versioned examples live under `evals/scorecards/v1.0/`. Use them as the shared s
 - `packaging-install-review.json`
 - `public-claim-review.json`
 - `local-agent-usability-review.json`
+- `local-mac-search-ui-review.json`
 
 Run `loo scorecards sweep --evidence-dir <path> --strict` to materialize a public-safe sweep packet. Strict mode should fail closed while scorecards still have `example-not-run` scores, so the packet records remaining evidence gaps instead of converting examples into beta readiness claims.
 
@@ -100,6 +101,7 @@ For implementation issues, copy `evals/scorecards/v1.0/issue-scorecard-update-te
 | Touched-file extraction | Touched files remain visible or accurately omitted in bounded briefs | file count, omitted marker |
 | Control safety | Live actions fail closed without matching dry-run and `approval_audit_id` | control tests and audit evidence |
 | Desktop fallback readiness | CUA/Peekaboo report honest readiness without overclaiming action support | `loo_desktop_see` evidence |
+| Local Mac search UI | User can search, filter, inspect safe summaries, and copy source refs without raw transcript rendering | `local-mac-search-ui-review.json` score movement |
 | OpenClaw packageability | Plugin installs/loads with declared `loo_*` contracts | manifest/tool count and package smoke |
 | Public claims | README/docs/release notes stay inside allowed beta wording | claim audit result |
 | Privacy | Evidence contains no raw session files, SQLite DBs, screenshots, tokens, or secrets | artifact scan result |
@@ -120,6 +122,7 @@ Core eval scenarios:
 - Attempt live send/steer/resume/interrupt without approval and verify fail-closed behavior.
 - Load the OpenClaw plugin package and verify declared `loo_*` tool contracts.
 - Run release preflight/status commands and verify remaining blockers are explicit.
+- Stage the local Mac search UI contract and scorecard, then verify it still routes through CLI, MCP, and OpenClaw gateway proof instead of raw transcripts.
 
 ## Adversarial Milestone Sweeps
 

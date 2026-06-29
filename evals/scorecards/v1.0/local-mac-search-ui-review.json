@@ -1,0 +1,62 @@
+{
+  "scorecard_version": "1.0",
+  "claim_class": "advisory",
+  "scenario": "A local macOS app shell lets a user search Codex/OpenClaw/future Claude Code sessions through the same public-safe recall surfaces, inspect safe summaries and source refs, filter by project/status/priority, and hand high-signal refs to an agent without raw transcript rendering.",
+  "surface": "local macOS app shell",
+  "command_or_tool": [
+    "loo_search_sessions",
+    "loo_grep",
+    "loo_describe_session",
+    "loo_describe_ref",
+    "loo_expand_query",
+    "loo_codex_thread_map",
+    "loo_doctor",
+    "loo_permissions",
+    "loo_desktop_see"
+  ],
+  "expected_public_safe_evidence": [
+    "query string with no private transcript text",
+    "result count",
+    "source-prefixed refs",
+    "safe summary snippets",
+    "project, status, and priority filter state",
+    "selected bounded expansion profile",
+    "copy action target refs",
+    "CUA and Peekaboo readiness statuses",
+    "blocker codes for unavailable local DB or plugin tools"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "raw prompts or message text",
+    "SQLite DBs",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data"
+  ],
+  "pass_criteria": [
+    "User can search indexed sessions and see safe summaries with source refs.",
+    "User can filter results by project, status, priority, and blocker state.",
+    "User can copy source refs and selected public-safe summary text for an OpenClaw agent.",
+    "User can request bounded expansion through existing loo_* profiles before more detail is shown.",
+    "The shell must fail closed when local DB access, required plugin tools, or OpenClaw plugin loading is unavailable.",
+    "CUA and Peekaboo appear as readiness/status surfaces only unless a future backend-specific approval gate is proven."
+  ],
+  "fail_criteria": [
+    "UI renders raw Codex transcripts or raw prompts.",
+    "UI captures screenshots or videos as public evidence.",
+    "UI performs live GUI mutation or live Codex control without explicit approval.",
+    "UI claims one-click install, Claude Code adapter parity, unattended takeover, or release-ready macOS app status.",
+    "UI falls back to raw file reads when plugin tools or the local DB are unavailable."
+  ],
+  "current_score": "example-not-run",
+  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-55-local-mac-ui/local-mac-search-ui-review.json",
+  "known_gaps": [
+    "No local macOS app shell has been built in this issue.",
+    "No signed or notarized app artifact has been produced.",
+    "No live OpenClaw gateway UI smoke has been run.",
+    "No CUA no-focus proof or Peekaboo snapshot safety proof has been produced.",
+    "Claude Code remains a future adapter boundary, not a proved equivalent adapter."
+  ],
+  "next_action": "Build a thin local shell only after CLI, MCP, and OpenClaw gateway paths prove the underlying recall loop and this scorecard has a public-safe run packet.",
+  "proof_boundary": "This advisory local public-safe beta scorecard does not prove a signed or release-ready macOS app, one-click install, Claude Code adapter parity, live Codex control, GUI mutation, or safe desktop automation."
+}

@@ -72,6 +72,7 @@ export type RawEvidenceArtifact = {
 const SCORECARD_VERSION = "1.0";
 const REQUIRED_SCORECARD_NAMES = [
   "local-agent-usability-review",
+  "local-mac-search-ui-review",
   "orchestrator-leverage-prioritization",
   "packaging-install-review",
   "public-claim-review",
