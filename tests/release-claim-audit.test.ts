@@ -112,11 +112,23 @@ test("beta release runbook defines RC cadence and keeps main distinct from relea
     /npm run check/i,
     /main is the integration branch, not a release/i,
     /release candidate/i,
+    /long-context release-review agent/i,
+    /gpt-5\.4/i,
+    /1M-context/i,
+    /docs, workflows, skills, and runbooks/i,
+    /update this runbook/i,
     /CodeQL code scanning/i,
     /node \.\/dist\/packages\/cli\/src\/index\.js release preflight/i,
     /node \.\/dist\/packages\/cli\/src\/index\.js release bundle/i,
     /node \.\/dist\/packages\/cli\/src\/index\.js release demo-status/i,
     /node \.\/dist\/packages\/cli\/src\/index\.js release status/i,
+    /high-context document\/workflow scan/i,
+    /README\.md, `VISION\.md`, release notes, claim audit, GitHub workflows, and CLI release gates/i,
+    /safety bypass review/i,
+    /retrieval quality review/i,
+    /packaging\/install review/i,
+    /public-claim review/i,
+    /local-agent usability review/i,
     /node \.\/dist\/packages\/cli\/src\/index\.js openclaw dogfood[^\n]+--required-tool loo_doctor[^\n]+--required-tool loo_search_sessions[^\n]+--required-tool loo_describe_session[^\n]+--required-tool loo_expand_query[^\n]+--required-tool loo_codex_plans[^\n]+--required-tool loo_codex_final_messages[^\n]+--required-tool loo_codex_thread_map[^\n]+--required-tool loo_codex_control_dry_run/i,
     /--approved-live-control-evidence \/Volumes\/LEXAR\/Codex\/lossless-openclaw-orchestrator\/YYYY-MM-DD\/release-status\/approved-live-control-smoke\.json/i,
     /--npm-publish-approval-evidence \/Volumes\/LEXAR\/Codex\/lossless-openclaw-orchestrator\/YYYY-MM-DD\/release-status\/npm-approval\.json/i,
@@ -138,6 +150,16 @@ test("beta release runbook defines RC cadence and keeps main distinct from relea
     /issue #14/i
   ]) {
     assert.match(runbook, required);
+  }
+
+  for (const required of [
+    /loo scorecards sweep/i,
+    /high-context document\/workflow scan/i,
+    /safety bypass review/i,
+    /public-claim review/i,
+    /local-agent usability review/i
+  ]) {
+    assert.match(read("docs/CLAIM_AUDIT.md"), required);
   }
 });
 

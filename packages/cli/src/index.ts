@@ -2,10 +2,12 @@
 import { codexTransportStatus, createAuditStore, desktopActDryRun, desktopFallbackDiagnostics, desktopSee, type DesktopBackend } from "../../adapters/src/index.js";
 import {
   configuredLcmPeerDbPaths,
+  createCloseoutEnvelopeReport,
   createDatabase,
   defaultCodexRoots,
   defaultDatabasePath,
   describeRecallRef,
+  evaluateRetrievalScenarios,
   expandQuery,
   expandRecallRef,
   grepRecall,
@@ -15,7 +17,8 @@ import {
   searchSessions,
   type RecallProfileName
 } from "../../core/src/index.js";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { createReleaseBundle } from "./release-bundle.js";
 import { createReleaseDemoStatus } from "./release-demo-status.js";
 import { runReleasePreflight } from "./release-preflight.js";
@@ -141,6 +144,16 @@ async function main() {
     }
     return;
   }
+  if (command === "closeout" && args[0] === "dry-run") {
+    const parsed = parseCloseoutDryRunArgs(args.slice(1));
+    const db = createDatabase();
+    try {
+      console.log(JSON.stringify(createCloseoutEnvelopeReport(db, parsed), null, 2));
+    } finally {
+      db.close();
+    }
+    return;
+  }
   if (command === "serve") {
     await import("../../mcp-server/src/server.js");
     return;
@@ -161,6 +174,31 @@ async function main() {
     const report = createScorecardSweep(parsed);
     console.log(JSON.stringify(report, null, 2));
     if (parsed.strict && !report.sweepReady) process.exitCode = 1;
+    return;
+  }
+  if (command === "eval" && args[0] === "retrieval") {
+    const parsed = parseRetrievalEvalArgs(args.slice(1));
+    const payload = readRetrievalScenarioFile(parsed.scenarioFile);
+    const db = createDatabase();
+    try {
+      if (payload.codexRoots.length > 0) {
+        indexCodexSessions(db, {
+          roots: payload.codexRoots,
+          maxFiles: payload.maxFiles,
+          maxBytesPerFile: payload.maxBytesPerFile,
+          maxEventsPerFile: payload.maxEventsPerFile
+        });
+      }
+      const report = evaluateRetrievalScenarios(db, { scenarios: payload.scenarios });
+      if (parsed.evidencePath) {
+        mkdirSync(dirname(parsed.evidencePath), { recursive: true });
+        writeFileSync(parsed.evidencePath, `${JSON.stringify(report, null, 2)}\n`);
+      }
+      console.log(JSON.stringify(report, null, 2));
+      if (parsed.strict && !report.ok) process.exitCode = 1;
+    } finally {
+      db.close();
+    }
     return;
   }
   if (command === "release" && args[0] === "preflight") {
@@ -220,10 +258,12 @@ async function main() {
     "  loo describe [--lcm-db path] <source-ref>",
     "  loo expand-query [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <query>",
     "  loo expand-ref [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <source-ref>",
+    "  loo closeout dry-run [--thread-id id] [--limit n] [--include-unavailable]",
     "  loo serve",
     "  loo audit-path",
     "  loo openclaw dogfood [--dev] [--profile name] [--install-source path] [--link] [--force-install] [--evidence-path path] [--strict]",
     "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--strict]",
+    "  loo eval retrieval --scenario-file path [--evidence-path path] [--strict]",
     "  loo release preflight [--evidence-dir path] [--approved-live-control-evidence path] [--strict]",
     "  loo release bundle --evidence-dir path [--approved-live-control-evidence path] [--strict]",
     "  loo release status --evidence-dir path [--approved-live-control-evidence path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--desktop-gui-required --desktop-gui-approval-evidence path] [--strict]",
@@ -233,6 +273,23 @@ async function main() {
 }
 
 await main();
+
+function parseCloseoutDryRunArgs(input: string[]): { threadId?: string; limit?: number; includeUnavailable?: boolean } {
+  const parsed: { threadId?: string; limit?: number; includeUnavailable?: boolean } = {};
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--thread-id") {
+      parsed.threadId = requireOptionValue(input[++index], arg);
+    } else if (arg === "--limit") {
+      parsed.limit = parsePositiveInteger(input[++index], "--limit", 500);
+    } else if (arg === "--include-unavailable") {
+      parsed.includeUnavailable = true;
+    } else {
+      throw new Error(`Unknown closeout dry-run option: ${arg}`);
+    }
+  }
+  return parsed;
+}
 
 function parseRecallArgs(input: string[]): { rest: string[]; lcmDbPaths: string[]; profile?: RecallProfileName; tokenBudget?: number } {
   const rest: string[] = [];
@@ -264,6 +321,76 @@ function parseRecallArgs(input: string[]): { rest: string[]; lcmDbPaths: string[
   }
   const lcmDbPaths = explicitLcmDbPaths.length > 0 ? explicitLcmDbPaths : configuredLcmPeerDbPaths();
   return { rest, lcmDbPaths: [...new Set(lcmDbPaths)], profile, tokenBudget };
+}
+
+function parseRetrievalEvalArgs(input: string[]): { scenarioFile: string; evidencePath?: string; strict: boolean } {
+  let scenarioFile = "";
+  let evidencePath: string | undefined;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--scenario-file") {
+      scenarioFile = requireOptionValue(input[++index], arg);
+    } else if (arg === "--evidence-path") {
+      evidencePath = requireOptionValue(input[++index], arg);
+    } else if (arg === "--strict") {
+      strict = true;
+    } else {
+      throw new Error(`Unknown eval retrieval option: ${arg}`);
+    }
+  }
+  if (!scenarioFile) throw new Error("eval retrieval requires --scenario-file");
+  return { scenarioFile, evidencePath, strict };
+}
+
+function readRetrievalScenarioFile(path: string): {
+  codexRoots: string[];
+  maxFiles?: number;
+  maxBytesPerFile?: number;
+  maxEventsPerFile?: number;
+  scenarios: Parameters<typeof evaluateRetrievalScenarios>[1]["scenarios"];
+} {
+  if (!existsSync(path)) throw new Error(`Scenario file does not exist: ${path}`);
+  const payload = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+  const scenarios = Array.isArray(payload.scenarios) ? payload.scenarios : [];
+  return {
+    codexRoots: Array.isArray(payload.codexRoots) ? payload.codexRoots.filter((item): item is string => typeof item === "string") : [],
+    maxFiles: optionalJsonPositiveInteger(payload.maxFiles, "maxFiles", 100000),
+    maxBytesPerFile: optionalJsonPositiveInteger(payload.maxBytesPerFile, "maxBytesPerFile", 1073741824),
+    maxEventsPerFile: optionalJsonPositiveInteger(payload.maxEventsPerFile, "maxEventsPerFile", 1000000),
+    scenarios: scenarios.map((scenario) => normalizeRetrievalScenario(scenario))
+  };
+}
+
+function normalizeRetrievalScenario(value: unknown): Parameters<typeof evaluateRetrievalScenarios>[1]["scenarios"][number] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Each retrieval scenario must be an object");
+  const record = value as Record<string, unknown>;
+  const expectedSourceRefs = Array.isArray(record.expectedSourceRefs)
+    ? record.expectedSourceRefs.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+  const expansionQueries = Array.isArray(record.expansionQueries)
+    ? record.expansionQueries.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+  return {
+    id: requiredJsonString(record.id, "id"),
+    query: requiredJsonString(record.query, "query"),
+    expectedSourceRefs,
+    expansionQueries,
+    limit: optionalJsonPositiveInteger(record.limit, "limit", 100)
+  };
+}
+
+function requiredJsonString(value: unknown, name: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) throw new Error(`${name} requires a non-empty string`);
+  return value.trim();
+}
+
+function optionalJsonPositiveInteger(value: unknown, name: string, max?: number): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || (max !== undefined && value > max)) {
+    throw new Error(max === undefined ? `${name} requires a positive integer` : `${name} requires an integer between 1 and ${max}`);
+  }
+  return value;
 }
 
 function requireQuery(command: string, parts: string[]): string {
