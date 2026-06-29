@@ -88,10 +88,18 @@ test("redacted fixture expansion matches 1k and 4k bounded snapshots", () => {
     const indexed = indexCodexSessions(db, { roots: [fixtureRoot], maxFiles: 10 });
     assert.equal(indexed.errors.length, 0);
 
-    for (const budget of [1000, 4000] as const) {
-      const snapshot = readFileSync(join(fixtureRoot, `expected-expansion-${budget}.txt`), "utf8").trimEnd();
-      const expanded = expandSession(db, { threadId: expected.threadId, tokenBudget: budget });
-      assert.equal(expanded.tokenBudget, budget);
+    for (const snapshotCase of [
+      { name: "expected-expansion-1000.txt", profile: "brief" as const, budget: 1000 },
+      { name: "expected-expansion-4000.txt", profile: "evidence" as const, budget: 4000 }
+    ]) {
+      const snapshot = readFileSync(join(fixtureRoot, snapshotCase.name), "utf8").trimEnd();
+      const expanded = expandSession(db, {
+        threadId: expected.threadId,
+        profile: snapshotCase.profile,
+        tokenBudget: snapshotCase.budget
+      });
+      assert.equal(expanded.profile.name, snapshotCase.profile);
+      assert.equal(expanded.tokenBudget, snapshotCase.budget);
       assert.equal(expanded.text, snapshot);
       assertForbiddenAbsent(expanded.text, expected.safeTextForbidden);
     }

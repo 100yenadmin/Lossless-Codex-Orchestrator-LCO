@@ -7,7 +7,7 @@ import test from "node:test";
 
 import { createDatabase } from "../packages/core/src/index.js";
 import { LOO_COMMAND_POLICY, createAuditStore, createCodexControl } from "../packages/adapters/src/index.js";
-import { createLooTools } from "../packages/mcp-server/src/tools.js";
+import { createLooToolDeclarations, createLooTools } from "../packages/mcp-server/src/tools.js";
 
 test("Codex control requires dry-run audit before live message, steer, resume, or interrupt", async () => {
   const root = mkdtempSync(join(tmpdir(), "loo-control-"));
@@ -128,6 +128,8 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
 
   try {
     const toolNames = tools.map((tool) => tool.name).sort();
+    const declaredToolNames = createLooToolDeclarations().map((tool) => tool.name).sort();
+    assert.deepEqual(declaredToolNames, toolNames);
     assert.equal(toolNames.includes("loo_index_sessions"), true);
     assert.equal(toolNames.includes("loo_grep"), true);
     assert.equal(toolNames.includes("loo_search_sessions"), true);
