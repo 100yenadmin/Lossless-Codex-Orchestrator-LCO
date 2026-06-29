@@ -100,6 +100,7 @@ export function createReleaseDemoStatus(options: ReleaseDemoStatusOptions): Rele
     finalSearch: check(hasSearchHit(finalSearchEvidence.value, "final"), demoReadError(finalSearchEvidence) ?? "final-message search evidence must include at least one codex_thread hit with final-message proof"),
     briefExpansion: check(hasExpansion(briefExpansionEvidence.value, "brief"), demoReadError(briefExpansionEvidence) ?? "brief expansion evidence must include codex_thread text with the brief profile"),
     evidenceExpansion: check(hasExpansion(evidenceExpansionEvidence.value, "evidence"), demoReadError(evidenceExpansionEvidence) ?? "evidence expansion proof must include codex_thread text with the evidence profile"),
+    distinctExpansionRefs: check(hasDistinctExpansionRefs(briefExpansionEvidence.value, evidenceExpansionEvidence.value), "brief and evidence expansion files must reference two distinct codex_thread refs"),
     controlDryRun: check(Boolean(controlDryRunProof), demoReadError(controlDryRunEvidence) ?? "control dry-run evidence must include live=false, approval audit id, params hash, and message hash for send/steer"),
     rawArtifacts: check(rawSessionArtifacts.length === 0, rawSessionArtifacts.length === 0 ? "no raw session/private DB/screenshot artifacts found" : "raw/private artifacts are present in demo evidence"),
     approvedLiveControl: approvedLiveControl.check,
@@ -114,6 +115,7 @@ export function createReleaseDemoStatus(options: ReleaseDemoStatusOptions): Rele
     checks.finalSearch.ok ? null : "final_search_evidence_missing",
     checks.briefExpansion.ok ? null : "brief_expansion_evidence_missing",
     checks.evidenceExpansion.ok ? null : "evidence_expansion_evidence_missing",
+    checks.distinctExpansionRefs.ok ? null : "expansion_refs_not_distinct",
     checks.controlDryRun.ok ? null : "control_dry_run_evidence_missing",
     checks.rawArtifacts.ok ? null : "raw_session_artifacts_present",
     checks.approvedLiveControl.ok ? null : "approved_live_control_smoke_missing",
@@ -193,7 +195,9 @@ function hasSearchHit(value: unknown, kind: SearchEvidenceKind): boolean {
     const record = asRecord(entry);
     if (!record) return false;
     const sourceRef = stringField(record, "sourceRef") ?? stringField(record, "source_ref");
-    return Boolean(sourceRef?.startsWith("codex_thread:") && hasSearchProof(record, kind));
+    const threadId = stringField(record, "threadId") ?? stringField(record, "thread_id");
+    const isCodexThreadEvidence = Boolean(sourceRef?.startsWith("codex_thread:")) || Boolean(threadId && hasToolExtractedTextProof(record));
+    return Boolean(isCodexThreadEvidence && hasSearchProof(record, kind));
   });
 }
 
@@ -205,6 +209,20 @@ function hasExpansion(value: unknown, expectedProfile: "brief" | "evidence"): bo
   const profile = asRecord(record.profile);
   const profileName = stringField(profile, "name") ?? stringField(record, "profile");
   return Boolean(sourceRef?.startsWith("codex_thread:") && text?.trim() && profileName === expectedProfile && hasExpansionProofText(text));
+}
+
+function hasDistinctExpansionRefs(left: unknown, right: unknown): boolean {
+  const leftRef = expansionSourceRef(left);
+  const rightRef = expansionSourceRef(right);
+  if (!leftRef || !rightRef) return true;
+  return leftRef !== rightRef;
+}
+
+function expansionSourceRef(value: unknown): string | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  const sourceRef = stringField(record, "sourceRef") ?? stringField(record, "source_ref");
+  return sourceRef?.startsWith("codex_thread:") ? sourceRef : null;
 }
 
 function parseControlDryRun(value: unknown): ControlDryRunProof | null {
@@ -307,6 +325,10 @@ function hasSearchProof(record: Record<string, unknown>, kind: SearchEvidenceKin
   return kind === "plan" ? /proposed\s+plan|plan/i.test(searchable) : /final\s+message|final/i.test(searchable);
 }
 
+function hasToolExtractedTextProof(record: Record<string, unknown>): boolean {
+  return Boolean(stringField(record, "text")?.trim());
+}
+
 function hasExpansionProofText(text: string | null): boolean {
   if (!text) return false;
   return /final/i.test(text) && /plan/i.test(text) && /touched|file/i.test(text) && /metadata|thread|source/i.test(text);
@@ -366,7 +388,7 @@ function rawArtifactForName(name: string): RawDemoArtifact | null {
   if (name === "release-demo-status.json") return null;
   const normalizedName = name.toLowerCase();
   const extension = extname(name).toLowerCase();
-  if (extension === ".jsonl") return { name, reason: "raw_codex_jsonl" };
+  if (/\.jsonl(?:\.(?:gz|zip|zst|br|xz))?$/.test(normalizedName)) return { name, reason: "raw_codex_jsonl" };
   if (/(?:\.sqlite3?|\.db)(?:-(?:wal|shm|journal))?$/.test(normalizedName)) return { name, reason: "sqlite_database" };
   if (extension === ".png" || extension === ".jpg" || extension === ".jpeg" || extension === ".heic" || extension === ".webp") return { name, reason: "screenshot_or_image" };
   if (extension === ".mov" || extension === ".mp4" || extension === ".webm") return { name, reason: "video_capture" };

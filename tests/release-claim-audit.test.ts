@@ -236,7 +236,7 @@ test("release preflight only clears live-control blocker for structured approval
     action: "send",
     targetRef: "codex_thread:test-thread",
     approvalAuditId: "audit_test",
-    messageHash: "sha256:test",
+    messageHash: "b".repeat(64),
     preservesCodexApprovalSemantics: true,
     rawPromptIncluded: false
   }, null, 2)}\n`);

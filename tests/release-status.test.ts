@@ -105,7 +105,7 @@ test("release status --strict passes with safe approval proofs without performin
     action: "send",
     targetRef: "codex_thread:test-thread",
     approvalAuditId: "audit_test",
-    messageHash: "sha256:test",
+    messageHash: "b".repeat(64),
     preservesCodexApprovalSemantics: true,
     rawPromptIncluded: false
   }, null, 2)}\n`);

@@ -184,14 +184,12 @@ test("release demo-status accepts documented MCP plan and final text outputs", (
   const liveControlProof = writePassingDemoEvidence(evidenceDir);
   writeJson(join(evidenceDir, "plans-search.json"), [
     {
-      sourceRef: "codex_thread:plan-thread",
       threadId: "plan-thread",
       text: "- Add fixture coverage\n- Run focused validation"
     }
   ]);
   writeJson(join(evidenceDir, "finals-search.json"), [
     {
-      source_ref: "codex_thread:final-thread",
       thread_id: "final-thread",
       text: "Done."
     }
@@ -307,6 +305,7 @@ test("release demo-status rejects raw artifacts and malformed dry-run proof", ()
   const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-raw-"));
   const liveControlProof = writePassingDemoEvidence(evidenceDir);
   writeFileSync(join(evidenceDir, "session.jsonl"), "{}\n");
+  writeFileSync(join(evidenceDir, "compressed-session.jsonl.gz"), "compressed private transcript");
   writeJson(join(evidenceDir, "control-dry-run.json"), {
     action: "send",
     threadId: "plan-thread",
@@ -335,7 +334,10 @@ test("release demo-status rejects raw artifacts and malformed dry-run proof", ()
   assert.equal(payload.demoReady, false);
   assert.equal(payload.blockers?.includes("control_dry_run_evidence_missing"), true);
   assert.equal(payload.blockers?.includes("raw_session_artifacts_present"), true);
-  assert.deepEqual(payload.rawSessionArtifacts, [{ name: "session.jsonl", reason: "raw_codex_jsonl" }]);
+  assert.deepEqual(payload.rawSessionArtifacts, [
+    { name: "compressed-session.jsonl.gz", reason: "raw_codex_jsonl" },
+    { name: "session.jsonl", reason: "raw_codex_jsonl" }
+  ]);
   assert.match(read(join(evidenceDir, "release-demo-status.json")), /raw_session_artifacts_present/);
 });
 
@@ -456,4 +458,34 @@ test("release demo-status rejects SQLite sidecar evidence artifacts", () => {
     { name: "orchestrator.sqlite-shm", reason: "sqlite_database" },
     { name: "orchestrator.sqlite-wal", reason: "sqlite_database" }
   ]);
+});
+
+test("release demo-status requires brief and evidence expansion refs to be distinct", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-distinct-expansions-"));
+  const liveControlProof = writePassingDemoEvidence(evidenceDir);
+  writeJson(join(evidenceDir, "expand-evidence.json"), {
+    sourceKind: "codex_thread",
+    sourceRef: "codex_thread:plan-thread",
+    text: "Metadata\nFinal message\nProposed plan\nTouched files\nSafe summary",
+    profile: { name: "evidence" },
+    tokenBudget: 4000
+  });
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "demo-status",
+    "--evidence-dir",
+    evidenceDir,
+    "--approved-live-control-evidence",
+    liveControlProof
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as { demoReady?: boolean; blockers?: string[]; checks?: Record<string, { ok: boolean }> };
+  assert.equal(payload.demoReady, false);
+  assert.equal(payload.checks?.distinctExpansionRefs?.ok, false);
+  assert.equal(payload.blockers?.includes("expansion_refs_not_distinct"), true);
 });
