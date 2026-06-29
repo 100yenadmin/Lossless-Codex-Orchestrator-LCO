@@ -150,6 +150,30 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.equal(closeoutReport.mutatesCodex, false);
     assert.equal(closeoutReport.summary.total, 0);
 
+    db.prepare(`
+      INSERT INTO codex_sessions (thread_id, title, source_path, indexed_at, safe_text, event_count, tool_call_count)
+      VALUES (?, ?, ?, ?, '', 0, 0)
+    `).run(
+      "thr_unavailable_closeout",
+      "Unavailable closeout seed",
+      join(root, "seed.jsonl"),
+      "2026-06-29T00:00:00Z"
+    );
+    const mappedCloseoutReport = closeoutTool.execute({
+      thread_id: "thr_unavailable_closeout",
+      include_unavailable: true
+    }) as {
+      dryRun: boolean;
+      summary: { total: number; unavailable: number };
+      candidates: Array<{ threadId: string; state: string; wouldAttach: boolean }>;
+    };
+    assert.equal(mappedCloseoutReport.dryRun, true);
+    assert.equal(mappedCloseoutReport.summary.total, 1);
+    assert.equal(mappedCloseoutReport.summary.unavailable, 1);
+    assert.equal(mappedCloseoutReport.candidates[0]?.threadId, "thr_unavailable_closeout");
+    assert.equal(mappedCloseoutReport.candidates[0]?.state, "unavailable");
+    assert.equal(mappedCloseoutReport.candidates[0]?.wouldAttach, false);
+
     const sendTool = tools.find((tool) => tool.name === "loo_codex_send_message");
     assert.ok(sendTool);
     const dryRun = await sendTool.execute({ thread_id: "thr_1", message: "continue", dry_run: true }) as {
