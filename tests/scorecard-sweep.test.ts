@@ -110,6 +110,53 @@ test("scorecard sweep writes evidence files for missing directories and invalid 
   assert.match(invalidReport.blockers.join("\n"), /scorecard_invalid_json:broken/);
 });
 
+test("scorecard sweep blocks raw artifacts in the evidence directory", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-scorecard-raw-"));
+  const scorecardDir = mkdtempSync(join(tmpdir(), "loo-scorecard-clean-source-"));
+  writeRequiredScorecards(scorecardDir);
+  writeFileSync(join(evidenceDir, "session.jsonl"), "{}\n");
+  writeFileSync(join(evidenceDir, "private.sqlite"), "");
+
+  const report = createScorecardSweep({ evidenceDir, scorecardDir });
+
+  assert.equal(report.publicSafe, false);
+  assert.equal(report.sweepReady, false);
+  assert.match(report.blockers.join("\n"), /raw_artifact:raw_codex_jsonl:session\.jsonl/);
+  assert.match(report.blockers.join("\n"), /raw_artifact:sqlite_database:private\.sqlite/);
+});
+
+test("scorecard sweep treats missing v1 fields and failing scores as blockers", () => {
+  const missingFieldEvidenceDir = mkdtempSync(join(tmpdir(), "loo-scorecard-field-"));
+  const missingFieldScorecardDir = mkdtempSync(join(tmpdir(), "loo-scorecard-field-source-"));
+  writeRequiredScorecards(missingFieldScorecardDir);
+  const missingField = minimalScoredScorecard();
+  delete (missingField as { proof_boundary?: string }).proof_boundary;
+  writeFileSync(join(missingFieldScorecardDir, "safety-bypass-review.json"), `${JSON.stringify(missingField, null, 2)}\n`);
+  const missingFieldReport = createScorecardSweep({ evidenceDir: missingFieldEvidenceDir, scorecardDir: missingFieldScorecardDir });
+  assert.equal(missingFieldReport.sweepReady, false);
+  assert.match(missingFieldReport.blockers.join("\n"), /scorecard_missing_field:safety-bypass-review:proof_boundary/);
+
+  const failedScoreEvidenceDir = mkdtempSync(join(tmpdir(), "loo-scorecard-failed-"));
+  const failedScorecardDir = mkdtempSync(join(tmpdir(), "loo-scorecard-failed-source-"));
+  writeRequiredScorecards(failedScorecardDir);
+  writeFileSync(join(failedScorecardDir, "retrieval-quality-review.json"), `${JSON.stringify(minimalScorecard("failed"), null, 2)}\n`);
+  const failedScoreReport = createScorecardSweep({ evidenceDir: failedScoreEvidenceDir, scorecardDir: failedScorecardDir });
+  assert.equal(failedScoreReport.sweepReady, false);
+  assert.match(failedScoreReport.blockers.join("\n"), /scorecard_failed:retrieval-quality-review:failed/);
+});
+
+test("scorecard sweep can pass for complete public-safe passing scorecards", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-scorecard-pass-"));
+  const scorecardDir = mkdtempSync(join(tmpdir(), "loo-scorecard-pass-source-"));
+  writeRequiredScorecards(scorecardDir);
+
+  const report = createScorecardSweep({ evidenceDir, scorecardDir });
+
+  assert.equal(report.publicSafe, true);
+  assert.equal(report.sweepReady, true);
+  assert.deepEqual(report.blockers, []);
+});
+
 test("VISION and README document the scorecard sweep command", () => {
   assert.match(readFileSync("VISION.md", "utf8"), /loo scorecards sweep/);
   assert.match(readFileSync("README.md", "utf8"), /loo scorecards sweep/);
@@ -117,15 +164,30 @@ test("VISION and README document the scorecard sweep command", () => {
 });
 
 function minimalScoredScorecard() {
+  return minimalScorecard("pass");
+}
+
+function minimalScorecard(currentScore: string) {
   return {
     scorecard_version: "1.0",
     claim_class: "advisory",
+    scenario: "test scenario",
     surface: "test",
-    current_score: "scored",
+    command_or_tool: ["test command"],
     expected_public_safe_evidence: ["count"],
     private_data_exclusions: ["raw Codex transcripts"],
+    pass_criteria: ["pass"],
+    fail_criteria: ["fail"],
+    current_score: currentScore,
+    evidence_path: "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/test/scorecard.json",
     known_gaps: ["none"],
     next_action: "none",
     proof_boundary: "local public-safe test fixture"
   };
+}
+
+function writeRequiredScorecards(scorecardDir: string): void {
+  for (const name of expectedScorecards) {
+    writeFileSync(join(scorecardDir, `${name}.json`), `${JSON.stringify(minimalScoredScorecard(), null, 2)}\n`);
+  }
 }
