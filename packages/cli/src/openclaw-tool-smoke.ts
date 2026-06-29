@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { basename, dirname, isAbsolute } from "node:path";
 
 export const DEFAULT_REQUIRED_TOOL_CALLS = [
   "loo_doctor",
@@ -27,6 +27,7 @@ export type OpenClawToolSmokeOptions = {
   tokenBudget?: number;
   evidencePath?: string;
   requiredTools?: string[];
+  gatewayTimeoutMs?: number;
 };
 
 export type OpenClawToolInvocationSummary = {
@@ -111,21 +112,25 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
     ...(options.profile ? ["--profile", options.profile] : [])
   ];
   const gatewayOptions = [
-    ...(options.gatewayUrl ? ["--url", options.gatewayUrl] : []),
-    ...(options.token ? ["--token", options.token] : [])
+    ...(options.gatewayUrl ? ["--url", options.gatewayUrl] : [])
   ];
+  const gatewayEnv = options.token ? { OPENCLAW_GATEWAY_TOKEN: options.token } : undefined;
+  const gatewayTimeoutMs = options.gatewayTimeoutMs ?? 60_000;
   const sessionKey = options.sessionKey || "agent:main:lco-tool-smoke";
   const query = options.query || "Proposed plan";
   const expandProfile = options.expandProfile || "brief";
   const tokenBudget = options.tokenBudget ?? 1000;
   const runId = randomUUID();
 
-  const catalogCall = callGatewayJson(openclawBin, baseArgs, gatewayOptions, "tools.catalog", {});
-  const catalogToolNames = catalogCall.parsed ? extractCatalogToolNames(unwrapGatewayPayload(catalogCall.parsed)) : [];
-  const missingRequiredTools = requiredTools.filter((name) => !catalogToolNames.includes(name));
+  const gatewayCallOptions = { env: gatewayEnv, timeoutMs: gatewayTimeoutMs };
+  const catalogCall = callGatewayJson(openclawBin, baseArgs, gatewayOptions, "tools.catalog", {}, gatewayCallOptions);
+  const catalogParsed = catalogCall.parsed !== undefined;
+  const catalogComparable = catalogCall.status === 0 && catalogParsed;
+  const catalogToolNames = catalogComparable ? extractCatalogToolNames(unwrapGatewayPayload(catalogCall.parsed)) : [];
+  const missingRequiredTools = catalogComparable ? requiredTools.filter((name) => !catalogToolNames.includes(name)) : [];
   const blockers = [
     ...gatewayFailureBlockers(catalogCall, "openclaw_catalog_failed"),
-    ...(catalogCall.status === 0 && !catalogCall.parsed ? ["openclaw_catalog_invalid_json"] : []),
+    ...(catalogCall.status === 0 && !catalogParsed ? ["openclaw_catalog_invalid_json"] : []),
     ...(missingRequiredTools.length > 0 ? ["openclaw_catalog_missing_required_tools"] : [])
   ];
 
@@ -152,7 +157,7 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
         sessionKey,
         confirm: false,
         idempotencyKey: `loo-tool-smoke-${runId}-${toolName}`
-      });
+      }, gatewayCallOptions);
       const summary = summarizeInvocation(toolName, call);
       invocations.push(summary);
       blockers.push(...summary.blockers);
@@ -167,17 +172,17 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
     ok: uniqueBlockers.length === 0,
     toolSmokeReady: uniqueBlockers.length === 0,
     publicSafe: true,
-    command: `${openclawBin} ${[...baseArgs, "gateway", "call", "tools.catalog", "--json", "--params", "<redacted>"].join(" ")}`,
+    command: `${sanitizeCommandBinary(openclawBin)} ${[...baseArgs, "gateway", "call", "tools.catalog", "--json", "--params", "<redacted>"].join(" ")}`,
     catalog: {
       exitStatus: catalogCall.status,
       requiredTools,
-      requiredToolsPresent: missingRequiredTools.length === 0,
+      requiredToolsPresent: catalogComparable && missingRequiredTools.length === 0,
       missingRequiredTools,
       toolCount: catalogToolNames.length
     },
     invocations,
     blockers: uniqueBlockers,
-    ...(options.evidencePath ? { evidencePath: options.evidencePath } : {}),
+    ...(options.evidencePath ? { evidencePath: sanitizeEvidencePath(options.evidencePath) } : {}),
     actionsPerformed: {
       liveCodexControlRun: false,
       desktopGuiActionRun: false,
@@ -200,7 +205,14 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
   return report;
 }
 
-function callGatewayJson(openclawBin: string, baseArgs: string[], gatewayOptions: string[], method: string, params: unknown): GatewayJsonResult {
+function callGatewayJson(
+  openclawBin: string,
+  baseArgs: string[],
+  gatewayOptions: string[],
+  method: string,
+  params: unknown,
+  options: { env?: Record<string, string>; timeoutMs?: number } = {}
+): GatewayJsonResult {
   const call = spawnSync(openclawBin, [
     ...baseArgs,
     "gateway",
@@ -210,7 +222,12 @@ function callGatewayJson(openclawBin: string, baseArgs: string[], gatewayOptions
     "--params",
     JSON.stringify(params),
     ...gatewayOptions
-  ], { encoding: "utf8", maxBuffer: 20 * 1024 * 1024 });
+  ], {
+    encoding: "utf8",
+    env: options.env ? { ...process.env, ...options.env } : process.env,
+    maxBuffer: 20 * 1024 * 1024,
+    timeout: options.timeoutMs ?? 60_000
+  });
   const result: GatewayJsonResult = {
     status: call.status,
     stdout: call.stdout,
@@ -222,6 +239,17 @@ function callGatewayJson(openclawBin: string, baseArgs: string[], gatewayOptions
     result.parseError = error instanceof Error ? error.message : "invalid JSON";
   }
   return result;
+}
+
+function sanitizeCommandBinary(openclawBin: string): string {
+  return openclawBin.includes("/") ? basename(openclawBin) : openclawBin;
+}
+
+function sanitizeEvidencePath(evidencePath: string): string {
+  if (isAbsolute(evidencePath) || evidencePath.startsWith("~")) {
+    return `<redacted-local-path>/${basename(evidencePath) || "evidence.json"}`;
+  }
+  return evidencePath;
 }
 
 function buildToolArgs(params: {
@@ -276,6 +304,7 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
     if (tokenBudget !== undefined) summary.tokenBudget = tokenBudget;
   }
   if (toolName === "loo_codex_control_dry_run") {
+    const upstreamBlocked = blockers.length > 0;
     summary.live = booleanPath(output, ["live"]);
     const approvalAuditId = stringPath(output, ["approval_audit_id"]) || stringPath(output, ["approvalAuditId"]);
     const paramsHash = stringPath(output, ["params_hash"]) || stringPath(output, ["paramsHash"]);
@@ -287,7 +316,7 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
     if (messageHash) summary.messageHash = messageHash;
     if (method) summary.method = method;
     if (action) summary.action = action;
-    if (summary.live !== false || !approvalAuditId || !paramsHash || !messageHash) {
+    if (!upstreamBlocked && (summary.live !== false || !approvalAuditId || !paramsHash || !messageHash)) {
       blockers.push("openclaw_control_dry_run_not_proven");
     }
   }

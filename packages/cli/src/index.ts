@@ -293,7 +293,7 @@ async function main() {
     "  loo serve",
     "  loo audit-path",
     "  loo openclaw dogfood [--dev] [--profile name] [--install-source path] [--link] [--force-install] [--evidence-path path] [--strict]",
-    "  loo openclaw tool-smoke [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--session-key key] [--query text] [--thread-id id] [--expand-profile metadata|brief|evidence] [--token-budget n] [--required-tool name] [--evidence-path path] [--strict]",
+    "  loo openclaw tool-smoke [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--thread-id id] [--expand-profile metadata|brief|evidence] [--token-budget n] [--required-tool name] [--evidence-path path] [--strict]",
     "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--strict]",
     "  loo eval retrieval --scenario-file path [--evidence-path path] [--strict]",
     "  loo release preflight [--evidence-dir path] [--approved-live-control-evidence path] [--strict]",
@@ -559,6 +559,7 @@ function parseOpenClawToolSmokeArgs(input: string[]): {
   tokenBudget?: number;
   evidencePath?: string;
   requiredTools?: string[];
+  gatewayTimeoutMs?: number;
   strict?: boolean;
 } {
   const parsed: ReturnType<typeof parseOpenClawToolSmokeArgs> = {};
@@ -575,6 +576,8 @@ function parseOpenClawToolSmokeArgs(input: string[]): {
       parsed.gatewayUrl = requireOptionValue(input[++index], arg);
     } else if (arg === "--token") {
       parsed.token = requireOptionValue(input[++index], arg);
+    } else if (arg === "--gateway-timeout-ms") {
+      parsed.gatewayTimeoutMs = parsePositiveInteger(input[++index], arg, 600_000);
     } else if (arg === "--session-key") {
       parsed.sessionKey = requireOptionValue(input[++index], arg);
     } else if (arg === "--query") {

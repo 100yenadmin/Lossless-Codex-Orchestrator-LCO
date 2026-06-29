@@ -22,7 +22,7 @@ const callIndex = args.indexOf("call");
 const method = callIndex >= 0 ? args[callIndex + 1] : "";
 const paramsIndex = args.indexOf("--params");
 const params = paramsIndex >= 0 ? JSON.parse(args[paramsIndex + 1] || "{}") : {};
-appendFileSync(process.env.OPENCLAW_FAKE_CALLS, JSON.stringify({ method, params, args }) + "\\n");
+appendFileSync(process.env.OPENCLAW_FAKE_CALLS, JSON.stringify({ method, params, args, envTokenPresent: Boolean(process.env.OPENCLAW_GATEWAY_TOKEN) }) + "\\n");
 if (method === "tools.catalog") {
   console.log(JSON.stringify(${JSON.stringify(catalogPayload)}));
   process.exit(0);
@@ -80,7 +80,7 @@ const callIndex = args.indexOf("call");
 const method = callIndex >= 0 ? args[callIndex + 1] : "";
 const paramsIndex = args.indexOf("--params");
 const params = paramsIndex >= 0 ? JSON.parse(args[paramsIndex + 1] || "{}") : {};
-appendFileSync(process.env.OPENCLAW_FAKE_CALLS, JSON.stringify({ method, params, args }) + "\\n");
+appendFileSync(process.env.OPENCLAW_FAKE_CALLS, JSON.stringify({ method, params, args, envTokenPresent: Boolean(process.env.OPENCLAW_GATEWAY_TOKEN) }) + "\\n");
 if (method === "tools.catalog") {
   console.log(JSON.stringify({ groups: [{ tools: [
     { id: "loo_doctor" },
@@ -97,6 +97,51 @@ if (method === "tools.catalog") {
 if (method === "tools.invoke") {
   console.error("gateway connect failed: GatewayClientRequestError: scope upgrade pending approval (requestId: req-123)");
   process.exit(1);
+}
+process.exit(7);
+`);
+  chmodSync(bin, 0o755);
+  return { bin, callsPath };
+}
+
+function createInvalidCatalogFakeOpenClaw(dir: string): { bin: string; callsPath: string } {
+  const callsPath = join(dir, "calls.jsonl");
+  const bin = join(dir, "openclaw-invalid-catalog-fake.mjs");
+  writeFileSync(bin, `#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
+const args = process.argv.slice(2);
+const callIndex = args.indexOf("call");
+const method = callIndex >= 0 ? args[callIndex + 1] : "";
+appendFileSync(process.env.OPENCLAW_FAKE_CALLS, JSON.stringify({ method, args }) + "\\n");
+if (method === "tools.catalog") {
+  process.stdout.write("not json");
+  process.exit(0);
+}
+process.exit(7);
+`);
+  chmodSync(bin, 0o755);
+  return { bin, callsPath };
+}
+
+function createSlowCatalogFakeOpenClaw(dir: string): { bin: string; callsPath: string } {
+  const callsPath = join(dir, "calls.jsonl");
+  const bin = join(dir, "openclaw-slow-catalog-fake.mjs");
+  writeFileSync(bin, `#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
+const args = process.argv.slice(2);
+const callIndex = args.indexOf("call");
+const method = callIndex >= 0 ? args[callIndex + 1] : "";
+const paramsIndex = args.indexOf("--params");
+const params = paramsIndex >= 0 ? JSON.parse(args[paramsIndex + 1] || "{}") : {};
+appendFileSync(process.env.OPENCLAW_FAKE_CALLS, JSON.stringify({ method, params, args }) + "\\n");
+if (method === "tools.catalog") {
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+  console.log(JSON.stringify({ tools: [{ name: "loo_doctor" }] }));
+  process.exit(0);
+}
+if (method === "tools.invoke") {
+  console.log(JSON.stringify({ ok: true, toolName: params.name, output: { ok: true } }));
+  process.exit(0);
 }
 process.exit(7);
 `);
@@ -150,13 +195,86 @@ test("OpenClaw tool smoke invokes required loo tools through gateway call and wr
     assert.equal(report.invocations.find((call) => call.toolName === "loo_codex_control_dry_run")?.summary.approvalAuditId, "loo_audit_test");
     assert.equal(report.actionsPerformed.liveCodexControlRun, false);
     assert.equal(report.actionsPerformed.channelDelivery, false);
+    assert.equal(report.command.includes(dir), false);
+    assert.equal(report.evidencePath, "<redacted-local-path>/tool-smoke.json");
     assert.equal(existsSync(evidencePath), true);
     assert.doesNotMatch(JSON.stringify(report), /super-secret-transcript-span|Harmless beta smoke/);
 
-    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { method: string; params: { name?: string; args?: Record<string, unknown> } });
+    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { method: string; params: { name?: string; args?: Record<string, unknown> }; args: string[] });
     assert.equal(calls[0]?.method, "tools.catalog");
     assert.deepEqual(calls.slice(1).map((call) => call.params.name), report.invocations.map((call) => call.toolName));
     assert.equal(calls.find((call) => call.params.name === "loo_describe_session")?.params.args?.thread_id, "thread-1");
+    assert.equal(calls.some((call) => call.args.includes("--token")), false);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke passes gateway token through env instead of argv", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-token-"));
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_doctor"]);
+  const previousCalls = process.env.OPENCLAW_FAKE_CALLS;
+  const previousToken = process.env.OPENCLAW_GATEWAY_TOKEN;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  delete process.env.OPENCLAW_GATEWAY_TOKEN;
+  try {
+    runOpenClawToolSmoke({
+      openclawBin: bin,
+      profile: "lco-issue-80",
+      requiredTools: ["loo_doctor"],
+      token: "test-gateway-token"
+    });
+
+    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { args: string[]; envTokenPresent?: boolean });
+    assert.equal(calls.every((call) => call.envTokenPresent === true), true);
+    assert.equal(calls.some((call) => call.args.includes("--token")), false);
+    assert.equal(calls.some((call) => call.args.includes("test-gateway-token")), false);
+  } finally {
+    if (previousCalls === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previousCalls;
+    if (previousToken === undefined) delete process.env.OPENCLAW_GATEWAY_TOKEN;
+    else process.env.OPENCLAW_GATEWAY_TOKEN = previousToken;
+  }
+});
+
+test("OpenClaw tool smoke reports catalog parse failure without synthetic missing-tool blockers", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-invalid-catalog-"));
+  const evidencePath = join(dir, "tool-smoke.json");
+  const { bin, callsPath } = createInvalidCatalogFakeOpenClaw(dir);
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      evidencePath,
+      requiredTools: ["loo_doctor", "loo_search_sessions"]
+    });
+
+    assert.deepEqual(report.blockers, ["openclaw_catalog_invalid_json"]);
+    assert.deepEqual(report.catalog.missingRequiredTools, []);
+    assert.equal(report.catalog.requiredToolsPresent, false);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke times out stalled gateway calls", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-timeout-"));
+  const { bin, callsPath } = createSlowCatalogFakeOpenClaw(dir);
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const startedAt = Date.now();
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      requiredTools: ["loo_doctor"],
+      gatewayTimeoutMs: 50
+    });
+
+    assert.equal(Date.now() - startedAt < 1000, true);
+    assert.deepEqual(report.blockers, ["openclaw_catalog_failed"]);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;
@@ -299,11 +417,13 @@ test("OpenClaw tool smoke classifies gateway scope-upgrade blocks without storin
       openclawBin: bin,
       profile: "lco-issue-80",
       sessionKey: "agent:main:lco-issue-80",
-      evidencePath
+      evidencePath,
+      threadId: "thread-1"
     });
 
     assert.equal(report.toolSmokeReady, false);
     assert.match(report.blockers.join("\n"), /openclaw_gateway_scope_upgrade_pending:loo_doctor/);
+    assert.equal(report.blockers.includes("openclaw_control_dry_run_not_proven"), false);
     assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /GatewayClientRequestError|requestId: req-123/);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
