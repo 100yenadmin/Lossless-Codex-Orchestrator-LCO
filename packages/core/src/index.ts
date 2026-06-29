@@ -846,7 +846,8 @@ function closeoutEnvelopeCandidateFromRow(row: Record<string, unknown>): Closeou
 
   const hasCloseoutSignal = sessionMetadataHasAnyValue(sessionMetadata) || envelopeStats.openCount > 0 || envelopeStats.closeCount > 0;
   const malformed = warnings.includes("malformed_closeout_envelope");
-  const state: CloseoutEnvelopeState = envelopeText !== null && missingFields.length === 0 && !malformed
+  const duplicate = warnings.includes("duplicate_closeout_envelopes");
+  const state: CloseoutEnvelopeState = envelopeText !== null && missingFields.length === 0 && !malformed && !duplicate
     ? "ready"
     : hasCloseoutSignal
       ? "partial"
@@ -1123,16 +1124,18 @@ export function evaluateRetrievalScenarios(db: LooDatabase, options: {
   now?: string;
 }): RetrievalEvalReport {
   const scenarios = options.scenarios.map((scenario) => evaluateRetrievalScenario(db, scenario));
-  const blockers = [
-    ...(scenarios.length === 0 ? ["no_scenarios"] : []),
-    ...scenarios.flatMap((scenario) => scenario.hybrid.hitAtK ? [] : [`scenario_missed:${scenario.id}`])
-  ];
   const baselineHitRate = rate(scenarios.filter((scenario) => scenario.baseline.hitAtK).length, scenarios.length);
   const hybridHitRate = rate(scenarios.filter((scenario) => scenario.hybrid.hitAtK).length, scenarios.length);
   const baselineMrr = average(scenarios.map((scenario) => scenario.baseline.reciprocalRank));
   const hybridMrr = average(scenarios.map((scenario) => scenario.hybrid.reciprocalRank));
+  const blockers = [
+    ...(scenarios.length === 0 ? ["no_scenarios"] : []),
+    ...scenarios.flatMap((scenario) => scenario.hybrid.hitAtK ? [] : [`scenario_missed:${scenario.id}`]),
+    ...(hybridHitRate < baselineHitRate ? ["hybrid_hit_rate_regressed"] : []),
+    ...(hybridMrr < baselineMrr ? ["hybrid_mrr_regressed"] : [])
+  ];
   return {
-    ok: blockers.length === 0 && hybridHitRate >= baselineHitRate && hybridMrr >= baselineMrr,
+    ok: blockers.length === 0,
     publicSafe: true,
     generatedAt: options.now ?? new Date().toISOString(),
     strategy: "hybrid-expansion-rerank",
