@@ -17,6 +17,7 @@ import {
 } from "../../core/src/index.js";
 import { join } from "node:path";
 import { createReleaseBundle } from "./release-bundle.js";
+import { createReleaseDemoStatus } from "./release-demo-status.js";
 import { runReleasePreflight } from "./release-preflight.js";
 import { createReleaseStatus } from "./release-status.js";
 
@@ -178,6 +179,17 @@ async function main() {
     if (parsed.strict && !report.releaseReady) process.exitCode = 1;
     return;
   }
+  if (command === "release" && args[0] === "demo-status") {
+    const parsed = parseReleaseDemoStatusArgs(args.slice(1));
+    const report = createReleaseDemoStatus({
+      evidenceDir: parsed.evidenceDir,
+      approvedLiveControlEvidence: parsed.approvedLiveControlEvidence,
+      minSessions: parsed.minSessions
+    });
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.demoReady) process.exitCode = 1;
+    return;
+  }
   console.error([
     "Usage:",
     "  loo doctor",
@@ -194,7 +206,8 @@ async function main() {
     "  loo audit-path",
     "  loo release preflight [--evidence-dir path] [--approved-live-control-evidence path] [--strict]",
     "  loo release bundle --evidence-dir path [--approved-live-control-evidence path] [--strict]",
-    "  loo release status --evidence-dir path [--approved-live-control-evidence path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--strict]"
+    "  loo release status --evidence-dir path [--approved-live-control-evidence path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--strict]",
+    "  loo release demo-status --evidence-dir path [--approved-live-control-evidence path] [--min-sessions n] [--strict]"
   ].join("\n"));
   process.exitCode = 2;
 }
@@ -386,4 +399,33 @@ function readReleaseStatusPath(input: string[], index: number, flag: string): st
   const value = input[index];
   if (!value || value.startsWith("--")) throw new Error(`${flag} requires a path`);
   return value;
+}
+
+function parseReleaseDemoStatusArgs(input: string[]): { evidenceDir: string; approvedLiveControlEvidence?: string; minSessions?: number; strict: boolean } {
+  let evidenceDir: string | undefined;
+  let approvedLiveControlEvidence: string | undefined;
+  let minSessions: number | undefined;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--evidence-dir") {
+      evidenceDir = readReleaseStatusPath(input, ++index, "--evidence-dir");
+      continue;
+    }
+    if (arg === "--approved-live-control-evidence") {
+      approvedLiveControlEvidence = readReleaseStatusPath(input, ++index, "--approved-live-control-evidence");
+      continue;
+    }
+    if (arg === "--min-sessions") {
+      minSessions = parsePositiveInteger(input[++index], "--min-sessions", 100000);
+      continue;
+    }
+    if (arg === "--strict") {
+      strict = true;
+      continue;
+    }
+    throw new Error(`Unknown release demo-status option: ${arg}`);
+  }
+  if (!evidenceDir) throw new Error("release demo-status requires --evidence-dir");
+  return { evidenceDir, approvedLiveControlEvidence, minSessions, strict };
 }
