@@ -41,7 +41,7 @@ Expected product-management workflows:
 - `packages/mcp-server` exposes the `loo_*` tool surface for OpenClaw and other MCP clients.
 - `packages/cli` is the operator and evidence surface for `doctor`, `index`, `search`, `grep`, `describe`, `expand`, `desktop`, and release commands.
 - `packages/openclaw-plugin` is the OpenClaw package and manifest layer.
-- `docs/` explains install, demo workflow, privacy, safe summaries, release proof, and claim boundaries.
+- `docs/` explains install, demo workflow, privacy, safe summaries, release proof, the beta release runbook, and claim boundaries.
 
 ## Build Loop
 
@@ -141,6 +141,8 @@ Review milestone state at three moments:
 - Before closing a milestone or claiming beta readiness.
 
 Each review should update the relevant tracker issue with the current scorecard movement, evidence path, commands run, CI/review status, working/not-working list, proof boundary, and exact next action. If the next action crosses a stop condition, pause for explicit user approval instead of converting the approval gate into an implementation task.
+
+Release candidates follow [docs/BETA_RELEASE_RUNBOOK.md](docs/BETA_RELEASE_RUNBOOK.md). `main` is the integration branch, not a release; npm publish and GitHub Release creation remain separate approval-gated operations.
 
 ## Proof Boundary
 
