@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   createDatabase,
   describeSession,
+  describeRecallRef,
   expandSession,
   getCodexFinalMessages,
   getCodexPlans,
@@ -142,6 +143,9 @@ test("extracts public-safe session metadata and closeout fields", () => {
           "- Owner: codex",
           "- Blocker: CodeRabbit approval pending",
           "- Next action: re-check PR gate",
+          "- Proposed plan refs: codex_event:plan-1",
+          "- Final-message refs: codex_event:final-1",
+          "- Touched-file refs: codex_event:file-1",
           "- Source refs: codex_thread:019f-metadata-thread"
         ].join("\n")
       }
@@ -162,6 +166,9 @@ test("extracts public-safe session metadata and closeout fields", () => {
       blocker: "CodeRabbit approval pending",
       nextAction: "re-check PR gate",
       closeoutState: "blocked",
+      proposedPlanRefs: ["codex_event:plan-1"],
+      finalMessageRefs: ["codex_event:final-1"],
+      touchedFileRefs: ["codex_event:file-1"],
       sourceRefs: ["codex_thread:019f-metadata-thread"]
     });
 
@@ -169,11 +176,21 @@ test("extracts public-safe session metadata and closeout fields", () => {
     assert.equal(threadMapEntry?.metadata.status, "external-review-wait");
     assert.equal(threadMapEntry?.metadata.nextAction, "re-check PR gate");
 
+    const recallDescription = describeRecallRef(db, { sourceRef: "codex_thread:019f-metadata-thread" });
+    assert.deepEqual(recallDescription?.metadata, description?.metadata);
+
     const expanded = expandSession(db, { threadId: "019f-metadata-thread", profile: "metadata" });
     assert.equal(expanded.text.includes("Project: lossless-openclaw-orchestrator"), true);
     assert.equal(expanded.text.includes("Blocker: CodeRabbit approval pending"), true);
     assert.equal(expanded.text.includes("Next action: re-check PR gate"), true);
+    assert.equal(expanded.text.includes("Proposed plan refs: codex_event:plan-1"), true);
+    assert.equal(expanded.text.includes("Final-message refs: codex_event:final-1"), true);
+    assert.equal(expanded.text.includes("Touched-file refs: codex_event:file-1"), true);
     assert.equal(expanded.text.includes("Source refs: codex_thread:019f-metadata-thread"), true);
+    const brief = expandSession(db, { threadId: "019f-metadata-thread", profile: "brief" });
+    const evidence = expandSession(db, { threadId: "019f-metadata-thread", profile: "evidence" });
+    assert.equal(brief.text.includes("\nProject: lossless-openclaw-orchestrator"), false);
+    assert.equal(evidence.text.includes("\nProject: lossless-openclaw-orchestrator"), false);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -254,6 +271,9 @@ test("extracts newline-only closeout labels before safe text normalization", () 
       blocker: "CodeRabbit approval pending",
       nextAction: "re-check PR gate",
       closeoutState: "blocked",
+      proposedPlanRefs: [],
+      finalMessageRefs: [],
+      touchedFileRefs: [],
       sourceRefs: ["codex_thread:019f-newline-thread"]
     });
   } finally {
@@ -301,6 +321,78 @@ test("uses the latest closeout metadata when sessions revise status", () => {
     assert.equal(metadata?.status, "complete");
     assert.equal(metadata?.nextAction, "merge after review");
     assert.equal(metadata?.closeoutState, "ready");
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("thread map filters and ranks by session metadata", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-thread-map-metadata-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const fixtures = [
+    {
+      id: "019f-map-low",
+      title: "Low priority metadata",
+      status: "blocked",
+      priority: "low",
+      blocker: "waiting on docs",
+      nextAction: "document gap"
+    },
+    {
+      id: "019f-map-high",
+      title: "High priority metadata",
+      status: "blocked",
+      priority: "high",
+      blocker: "CodeRabbit approval pending",
+      nextAction: "patch review"
+    },
+    {
+      id: "019f-map-open",
+      title: "Open metadata",
+      status: "ready",
+      priority: "medium",
+      blocker: "none",
+      nextAction: "merge after review"
+    }
+  ];
+  for (const fixture of fixtures) {
+    const threadPath = join(sessions, `rollout-2026-06-29T00-00-00-${fixture.id}.jsonl`);
+    const lines = [
+      { session_meta: { payload: { id: fixture.id, cwd: "/Volumes/LEXAR/repos/lossless-openclaw-orchestrator" } } },
+      { event_msg: { type: "thread_name", name: fixture.title } },
+      {
+        event_msg: {
+          type: "agent_message",
+          message: [
+            "Project: lossless-openclaw-orchestrator",
+            `Status: ${fixture.status}`,
+            `Priority: ${fixture.priority}`,
+            `Blocker: ${fixture.blocker}`,
+            `Next action: ${fixture.nextAction}`
+          ].join("\n")
+        }
+      }
+    ];
+    writeFileSync(threadPath, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+  }
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    const blocked = getCodexThreadMap(db, {
+      limit: 10,
+      project: "lossless-openclaw-orchestrator",
+      status: "blocked",
+      priorityOrder: ["high", "medium", "low"]
+    });
+
+    assert.deepEqual(blocked.map((entry) => entry.threadId), ["019f-map-high", "019f-map-low"]);
+    assert.equal(blocked[0]?.metadata.priority, "high");
+
+    const blockerMatches = getCodexThreadMap(db, { limit: 10, blocker: "coderabbit" });
+    assert.deepEqual(blockerMatches.map((entry) => entry.threadId), ["019f-map-high"]);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
