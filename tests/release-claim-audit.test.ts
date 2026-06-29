@@ -139,6 +139,10 @@ test("beta release runbook defines RC cadence and keeps main distinct from relea
     /package scripts/i,
     /local release skills/i,
     /CodeQL code scanning/i,
+    /release_scorecard_source/i,
+    /cp evals\/scorecards\/v1\.0\/\*\.json "\$release_scorecard_source"/i,
+    /fill the copied scorecards/i,
+    /node \.\/dist\/packages\/cli\/src\/index\.js scorecards sweep[^\n]+--scorecard-dir "\$release_scorecard_source"/i,
     /node \.\/dist\/packages\/cli\/src\/index\.js release preflight/i,
     /node \.\/dist\/packages\/cli\/src\/index\.js release bundle/i,
     /node \.\/dist\/packages\/cli\/src\/index\.js release demo-status/i,
@@ -190,7 +194,10 @@ test("beta release runbook defines RC cadence and keeps main distinct from relea
   }
 
   for (const required of [
-    /loo scorecards sweep/i,
+    /release_scorecard_source/i,
+    /cp evals\/scorecards\/v1\.0\/\*\.json "\$release_scorecard_source"/i,
+    /fill the copied scorecards/i,
+    /loo scorecards sweep[^\n]+--scorecard-dir "\$release_scorecard_source"/i,
     /--candidate-sha <release-candidate-sha>/i,
     /--github-ci-evidence/i,
     /--codeql-evidence/i,
