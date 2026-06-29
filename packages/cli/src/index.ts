@@ -10,6 +10,7 @@ import {
   evaluateRetrievalScenarios,
   expandQuery,
   expandRecallRef,
+  getCodexSessionManagementMap,
   grepRecall,
   indexCodexSessions,
   probeCodexSqliteStores,
@@ -78,6 +79,16 @@ async function main() {
     const db = createDatabase();
     try {
       console.log(JSON.stringify(searchSessions(db, { query: args.join(" "), limit: 10 }), null, 2));
+    } finally {
+      db.close();
+    }
+    return;
+  }
+  if (command === "session-map") {
+    const parsed = parseSessionMapArgs(args);
+    const db = createDatabase();
+    try {
+      console.log(JSON.stringify(getCodexSessionManagementMap(db, parsed), null, 2));
     } finally {
       db.close();
     }
@@ -265,6 +276,7 @@ async function main() {
     "  loo index codex [--max-files n] [--max-bytes-per-file n] [--max-events-per-file n] [roots...]",
     "  loo probe codex-sqlite [roots...]",
     "  loo search <query>",
+    "  loo session-map [--project name] [--status value] [--priority value] [--blocker value] [--priority-order urgent,high,medium,low] [--limit n]",
     "  loo grep [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <query>",
     "  loo describe [--lcm-db path] <source-ref>",
     "  loo expand-query [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <query>",
@@ -340,6 +352,39 @@ function parseCloseoutDryRunArgs(input: string[]): { threadId?: string; limit?: 
       parsed.includeUnavailable = true;
     } else {
       throw new Error(`Unknown closeout dry-run option: ${arg}`);
+    }
+  }
+  return parsed;
+}
+
+function parseSessionMapArgs(input: string[]): {
+  project?: string;
+  status?: string;
+  priority?: string;
+  blocker?: string;
+  priorityOrder?: string[];
+  limit?: number;
+} {
+  const parsed: ReturnType<typeof parseSessionMapArgs> = {};
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--project") {
+      parsed.project = requireOptionValue(input[++index], arg);
+    } else if (arg === "--status") {
+      parsed.status = requireOptionValue(input[++index], arg);
+    } else if (arg === "--priority") {
+      parsed.priority = requireOptionValue(input[++index], arg);
+    } else if (arg === "--blocker") {
+      parsed.blocker = requireOptionValue(input[++index], arg);
+    } else if (arg === "--priority-order") {
+      parsed.priorityOrder = requireOptionValue(input[++index], arg)
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
+    } else if (arg === "--limit") {
+      parsed.limit = parsePositiveInteger(input[++index], "--limit", 500);
+    } else {
+      throw new Error(`Unknown session-map option: ${arg}`);
     }
   }
   return parsed;

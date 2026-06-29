@@ -8,6 +8,7 @@ import {
   expandQuery,
   getCodexFinalMessages,
   getCodexPlans,
+  getCodexSessionManagementMap,
   getCodexThreadMap,
   getCodexTouchedFiles,
   getCodexToolCalls,
@@ -138,6 +139,21 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       blocker: { type: "string" },
       priority_order: { type: "array", items: { type: "string" } }
     }, (input) => getCodexThreadMap(options.db, {
+      limit: optionalNumber(input.limit),
+      project: optionalString(input.project),
+      status: optionalString(input.status),
+      priority: optionalString(input.priority),
+      blocker: optionalString(input.blocker),
+      priorityOrder: optionalStringArray(input.priority_order)
+    })),
+    tool("loo_codex_session_management_map", "Read a public-safe orchestration map for active, blocked, expansion, archive, fork, and resume lanes.", {
+      limit: { type: "integer", minimum: 1, maximum: 500 },
+      project: { type: "string" },
+      status: { type: "string" },
+      priority: { type: "string" },
+      blocker: { type: "string" },
+      priority_order: { type: "array", items: { type: "string" } }
+    }, (input) => getCodexSessionManagementMap(options.db, {
       limit: optionalNumber(input.limit),
       project: optionalString(input.project),
       status: optionalString(input.status),

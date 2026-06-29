@@ -42,6 +42,7 @@
       "loo_expand_session",
       "loo_expand_query",
       "loo_codex_thread_map",
+      "loo_codex_session_management_map",
       "loo_codex_final_messages",
       "loo_codex_plans",
       "loo_codex_touched_files",
@@ -240,6 +241,39 @@
       {
         "name": "loo_codex_thread_map",
         "description": "Read the indexed Codex thread map.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "project": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "priority": {
+              "type": "string"
+            },
+            "blocker": {
+              "type": "string"
+            },
+            "priority_order": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_session_management_map",
+        "description": "Read a public-safe orchestration map for active, blocked, expansion, archive, fork, and resume lanes.",
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
