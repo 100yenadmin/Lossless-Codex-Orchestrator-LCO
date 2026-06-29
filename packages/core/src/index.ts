@@ -64,10 +64,47 @@ export type SessionMetadata = {
   blocker: string | null;
   nextAction: string | null;
   closeoutState: string | null;
+  planCompletionState: string | null;
   proposedPlanRefs: string[];
   finalMessageRefs: string[];
   touchedFileRefs: string[];
   sourceRefs: string[];
+};
+
+export type CloseoutEnvelopeState = "ready" | "partial" | "unavailable";
+
+export type CloseoutEnvelopeCandidate = {
+  threadId: string;
+  sourceRef: string;
+  title: string | null;
+  updatedAt: string | null;
+  state: CloseoutEnvelopeState;
+  wouldAttach: boolean;
+  metadata: SessionMetadata;
+  missingFields: string[];
+  warnings: string[];
+  closeoutEnvelopeCount: number;
+  publicSafe: true;
+};
+
+export type CloseoutEnvelopeReport = {
+  dryRun: true;
+  mutatesCodex: false;
+  hookAgentReady: false;
+  approvalRequiredForHookExecution: true;
+  candidates: CloseoutEnvelopeCandidate[];
+  summary: {
+    total: number;
+    ready: number;
+    partial: number;
+    unavailable: number;
+  };
+};
+
+export type CloseoutEnvelopeReportOptions = {
+  threadId?: string;
+  limit?: number;
+  includeUnavailable?: boolean;
 };
 
 export type CodexThreadMapOptions = {
@@ -118,7 +155,7 @@ export type RecallProfile = {
   description: string;
 };
 
-const SESSION_METADATA_SCHEMA_VERSION = 2;
+const SESSION_METADATA_SCHEMA_VERSION = 4;
 
 export type RecallSourceKind = "codex_thread" | "lcm_summary";
 
@@ -172,6 +209,56 @@ export type ExpandRecallResult = {
   matches?: RecallSearchResult[];
 };
 
+export type RetrievalEvalScenario = {
+  id: string;
+  query: string;
+  expectedSourceRefs: string[];
+  expansionQueries?: string[];
+  limit?: number;
+};
+
+export type RetrievalEvalStageResult = {
+  hitAtK: boolean;
+  firstExpectedRank: number | null;
+  reciprocalRank: number;
+  topRefs: string[];
+};
+
+export type RetrievalEvalScenarioResult = {
+  id: string;
+  query: string;
+  expectedSourceRefs: string[];
+  limit: number;
+  baseline: RetrievalEvalStageResult;
+  hybrid: RetrievalEvalStageResult & {
+    expansionQueries: string[];
+    reranker: "query-expansion-term-overlap";
+  };
+};
+
+export type RetrievalEvalReport = {
+  ok: boolean;
+  publicSafe: true;
+  generatedAt: string;
+  strategy: "hybrid-expansion-rerank";
+  vector: {
+    enabled: false;
+    reason: string;
+  };
+  metrics: {
+    scenarioCount: number;
+    baselineHitRate: number;
+    hybridHitRate: number;
+    baselineMrr: number;
+    hybridMrr: number;
+  };
+  scenarios: RetrievalEvalScenarioResult[];
+  blockers: string[];
+  privateDataExclusions: string[];
+  proofBoundary: string;
+  nextAction: string;
+};
+
 export type LcmPeerProbe = {
   path: string;
   readable: boolean;
@@ -212,6 +299,9 @@ type ImportedSession = {
   touchedFiles: string[];
   toolCalls: Array<{ callId: string; toolName: string; argumentsText: string }>;
   metadata: SessionMetadata;
+  closeoutEnvelopeText: string | null;
+  closeoutEnvelopeOpenCount: number;
+  closeoutEnvelopeCloseCount: number;
   safeText: string;
   eventCount: number;
 };
@@ -306,10 +396,14 @@ export function migrate(db: LooDatabase): void {
       blocker TEXT,
       next_action TEXT,
       closeout_state TEXT,
+      plan_completion_state TEXT,
       proposed_plan_refs_json TEXT NOT NULL DEFAULT '[]',
       final_message_refs_json TEXT NOT NULL DEFAULT '[]',
       touched_file_refs_json TEXT NOT NULL DEFAULT '[]',
       metadata_schema_version INTEGER NOT NULL DEFAULT 0,
+      closeout_envelope_text TEXT,
+      closeout_envelope_open_count INTEGER NOT NULL DEFAULT 0,
+      closeout_envelope_close_count INTEGER NOT NULL DEFAULT 0,
       source_refs_json TEXT NOT NULL DEFAULT '[]'
     );
 
@@ -323,6 +417,10 @@ export function migrate(db: LooDatabase): void {
   ensureColumn(db, "codex_session_metadata", "final_message_refs_json", "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn(db, "codex_session_metadata", "touched_file_refs_json", "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn(db, "codex_session_metadata", "metadata_schema_version", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "codex_session_metadata", "plan_completion_state", "TEXT");
+  ensureColumn(db, "codex_session_metadata", "closeout_envelope_text", "TEXT");
+  ensureColumn(db, "codex_session_metadata", "closeout_envelope_open_count", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "codex_session_metadata", "closeout_envelope_close_count", "INTEGER NOT NULL DEFAULT 0");
 }
 
 function ensureColumn(db: LooDatabase, table: string, column: string, definition: string): void {
@@ -550,6 +648,7 @@ export function getCodexThreadMap(db: LooDatabase, options: CodexThreadMapOption
       m.blocker,
       m.next_action AS nextAction,
       m.closeout_state AS closeoutState,
+      m.plan_completion_state AS planCompletionState,
       m.proposed_plan_refs_json AS proposedPlanRefsJson,
       m.final_message_refs_json AS finalMessageRefsJson,
       m.touched_file_refs_json AS touchedFileRefsJson,
@@ -611,6 +710,223 @@ export function getCodexToolCalls(db: LooDatabase, options: { limit?: number; th
     toolName: String(row.toolName),
     argumentsText: String(row.argumentsText ?? "")
   }));
+}
+
+export function createCloseoutEnvelopeReport(db: LooDatabase, options: CloseoutEnvelopeReportOptions = {}): CloseoutEnvelopeReport {
+  const limit = clamp(options.limit ?? 50, 1, 500);
+  const rows = options.threadId
+    ? db.prepare(`
+        SELECT
+          s.thread_id AS threadId,
+          s.title,
+          s.updated_at AS updatedAt,
+          m.project,
+          m.status,
+          m.priority,
+          m.owner,
+          m.blocker,
+          m.next_action AS nextAction,
+          m.closeout_state AS closeoutState,
+          m.plan_completion_state AS planCompletionState,
+          m.proposed_plan_refs_json AS proposedPlanRefsJson,
+          m.final_message_refs_json AS finalMessageRefsJson,
+          m.touched_file_refs_json AS touchedFileRefsJson,
+          m.closeout_envelope_text AS closeoutEnvelopeText,
+          m.closeout_envelope_open_count AS closeoutEnvelopeOpenCount,
+          m.closeout_envelope_close_count AS closeoutEnvelopeCloseCount,
+          m.source_refs_json AS sourceRefsJson
+        FROM codex_sessions s
+        LEFT JOIN codex_session_metadata m ON m.thread_id = s.thread_id
+        WHERE s.thread_id = ?
+        LIMIT 1
+      `).all(options.threadId) as Array<Record<string, unknown>>
+    : options.includeUnavailable === true
+      ? db.prepare(`
+        SELECT
+          s.thread_id AS threadId,
+          s.title,
+          s.updated_at AS updatedAt,
+          m.project,
+          m.status,
+          m.priority,
+          m.owner,
+          m.blocker,
+          m.next_action AS nextAction,
+          m.closeout_state AS closeoutState,
+          m.plan_completion_state AS planCompletionState,
+          m.proposed_plan_refs_json AS proposedPlanRefsJson,
+          m.final_message_refs_json AS finalMessageRefsJson,
+          m.touched_file_refs_json AS touchedFileRefsJson,
+          m.closeout_envelope_text AS closeoutEnvelopeText,
+          m.closeout_envelope_open_count AS closeoutEnvelopeOpenCount,
+          m.closeout_envelope_close_count AS closeoutEnvelopeCloseCount,
+          m.source_refs_json AS sourceRefsJson
+        FROM codex_sessions s
+        LEFT JOIN codex_session_metadata m ON m.thread_id = s.thread_id
+        ORDER BY COALESCE(s.updated_at, s.indexed_at) DESC
+        LIMIT ?
+      `).all(limit) as Array<Record<string, unknown>>
+      : db.prepare(`
+        SELECT
+          s.thread_id AS threadId,
+          s.title,
+          s.updated_at AS updatedAt,
+          m.project,
+          m.status,
+          m.priority,
+          m.owner,
+          m.blocker,
+          m.next_action AS nextAction,
+          m.closeout_state AS closeoutState,
+          m.plan_completion_state AS planCompletionState,
+          m.proposed_plan_refs_json AS proposedPlanRefsJson,
+          m.final_message_refs_json AS finalMessageRefsJson,
+          m.touched_file_refs_json AS touchedFileRefsJson,
+          m.closeout_envelope_text AS closeoutEnvelopeText,
+          m.closeout_envelope_open_count AS closeoutEnvelopeOpenCount,
+          m.closeout_envelope_close_count AS closeoutEnvelopeCloseCount,
+          m.source_refs_json AS sourceRefsJson
+        FROM codex_sessions s
+        LEFT JOIN codex_session_metadata m ON m.thread_id = s.thread_id
+        WHERE
+          COALESCE(m.closeout_envelope_open_count, 0) > 0 OR
+          COALESCE(m.closeout_envelope_close_count, 0) > 0 OR
+          m.project IS NOT NULL OR
+          m.status IS NOT NULL OR
+          m.priority IS NOT NULL OR
+          m.owner IS NOT NULL OR
+          m.blocker IS NOT NULL OR
+          m.next_action IS NOT NULL OR
+          m.closeout_state IS NOT NULL OR
+          m.plan_completion_state IS NOT NULL OR
+          COALESCE(m.proposed_plan_refs_json, '[]') <> '[]' OR
+          COALESCE(m.final_message_refs_json, '[]') <> '[]' OR
+          COALESCE(m.touched_file_refs_json, '[]') <> '[]' OR
+          COALESCE(m.source_refs_json, '[]') <> '[]'
+        ORDER BY COALESCE(s.updated_at, s.indexed_at) DESC
+        LIMIT ?
+      `).all(limit) as Array<Record<string, unknown>>;
+
+  const candidates = rows
+    .map((row) => closeoutEnvelopeCandidateFromRow(row))
+    .filter((candidate) => options.includeUnavailable === true || candidate.state !== "unavailable")
+    .slice(0, limit);
+  const summary = {
+    total: candidates.length,
+    ready: candidates.filter((candidate) => candidate.state === "ready").length,
+    partial: candidates.filter((candidate) => candidate.state === "partial").length,
+    unavailable: candidates.filter((candidate) => candidate.state === "unavailable").length
+  };
+  return {
+    dryRun: true,
+    mutatesCodex: false,
+    hookAgentReady: false,
+    approvalRequiredForHookExecution: true,
+    candidates,
+    summary
+  };
+}
+
+function closeoutEnvelopeCandidateFromRow(row: Record<string, unknown>): CloseoutEnvelopeCandidate {
+  const threadId = String(row.threadId);
+  const sessionMetadata = sessionMetadataFromRow(row);
+  const envelopeStats = {
+    openCount: Number(row.closeoutEnvelopeOpenCount ?? 0),
+    closeCount: Number(row.closeoutEnvelopeCloseCount ?? 0)
+  };
+  const envelopeText = nullableString(row.closeoutEnvelopeText);
+  const metadata = envelopeText === null ? emptySessionMetadata() : extractCloseoutEnvelopeMetadata(envelopeText);
+  const missingFields = closeoutEnvelopeMissingFields(metadata);
+  const warnings: string[] = [];
+  if (envelopeStats.openCount === 0 && sessionMetadataHasAnyValue(sessionMetadata)) warnings.push("closeout_envelope_missing");
+  if (envelopeStats.openCount > 1) warnings.push("duplicate_closeout_envelopes");
+  if (envelopeStats.openCount !== envelopeStats.closeCount) warnings.push("malformed_closeout_envelope");
+  if (metadata.finalMessageRefs.length === 0) warnings.push("final_message_ref_missing");
+  if (metadata.sourceRefs.length === 0) warnings.push("source_ref_missing");
+
+  const hasCloseoutSignal = sessionMetadataHasAnyValue(sessionMetadata) || envelopeStats.openCount > 0 || envelopeStats.closeCount > 0;
+  const malformed = warnings.includes("malformed_closeout_envelope");
+  const state: CloseoutEnvelopeState = envelopeText !== null && missingFields.length === 0 && !malformed
+    ? "ready"
+    : hasCloseoutSignal
+      ? "partial"
+      : "unavailable";
+
+  return {
+    threadId,
+    sourceRef: codexThreadRef(threadId),
+    title: nullableString(row.title),
+    updatedAt: nullableString(row.updatedAt),
+    state,
+    wouldAttach: state === "ready",
+    metadata,
+    missingFields,
+    warnings,
+    closeoutEnvelopeCount: envelopeStats.openCount,
+    publicSafe: true
+  };
+}
+
+function closeoutEnvelopeMissingFields(metadata: SessionMetadata): string[] {
+  const missing: string[] = [];
+  if (!metadata.project) missing.push("project");
+  if (!metadata.status) missing.push("status");
+  if (!metadata.nextAction) missing.push("nextAction");
+  if (!metadata.closeoutState) missing.push("closeoutState");
+  if (!metadata.planCompletionState) missing.push("planCompletionState");
+  if (metadata.finalMessageRefs.length === 0) missing.push("finalMessageRefs");
+  if (metadata.sourceRefs.length === 0) missing.push("sourceRefs");
+  return missing;
+}
+
+function sessionMetadataHasAnyValue(metadata: SessionMetadata): boolean {
+  return Boolean(
+    metadata.project ||
+    metadata.status ||
+    metadata.priority ||
+    metadata.owner ||
+    metadata.blocker ||
+    metadata.nextAction ||
+    metadata.closeoutState ||
+    metadata.planCompletionState ||
+    metadata.proposedPlanRefs.length ||
+    metadata.finalMessageRefs.length ||
+    metadata.touchedFileRefs.length ||
+    metadata.sourceRefs.length
+  );
+}
+
+function closeoutEnvelopeStats(text: string): { openCount: number; closeCount: number } {
+  return {
+    openCount: text.match(/<loo_closeout\b[^>]*>/gi)?.length ?? 0,
+    closeCount: text.match(/<\/loo_closeout>/gi)?.length ?? 0
+  };
+}
+
+function latestBalancedCloseoutEnvelopeText(text: string): string | null {
+  let latest: string | null = null;
+  for (const match of text.matchAll(/<loo_closeout\b[^>]*>([\s\S]*?)<\/loo_closeout>/gi)) {
+    latest = match[1]?.trim() ?? "";
+  }
+  return latest;
+}
+
+function recordCloseoutEnvelopeEvidence(session: ImportedSession, text: string): void {
+  const stats = closeoutEnvelopeStats(text);
+  session.closeoutEnvelopeOpenCount += stats.openCount;
+  session.closeoutEnvelopeCloseCount += stats.closeCount;
+  const envelopeText = latestBalancedCloseoutEnvelopeText(text);
+  if (envelopeText !== null) session.closeoutEnvelopeText = truncate(envelopeText, 50_000);
+}
+
+function extractCloseoutEnvelopeMetadata(text: string): SessionMetadata {
+  const labelPattern = CLOSEOUT_ENVELOPE_LABEL_BOUNDARIES.map(escapeRegExp).join("|");
+  const withLabelBreaks = text.replace(new RegExp(`\\s+(${labelPattern})\\s*:`, "gi"), "\n$1:");
+  return extractSessionMetadata(withLabelBreaks).metadata;
+}
+
+function capitalizeLabelStart(label: string): string {
+  return label ? `${label.slice(0, 1).toUpperCase()}${label.slice(1)}` : label;
 }
 
 export function expandSession(db: LooDatabase, options: ExpandSessionOptions): ExpandRecallResult & { threadId: string } {
@@ -802,6 +1118,52 @@ export function expandQuery(db: LooDatabase, options: {
   };
 }
 
+export function evaluateRetrievalScenarios(db: LooDatabase, options: {
+  scenarios: RetrievalEvalScenario[];
+  now?: string;
+}): RetrievalEvalReport {
+  const scenarios = options.scenarios.map((scenario) => evaluateRetrievalScenario(db, scenario));
+  const blockers = [
+    ...(scenarios.length === 0 ? ["no_scenarios"] : []),
+    ...scenarios.flatMap((scenario) => scenario.hybrid.hitAtK ? [] : [`scenario_missed:${scenario.id}`])
+  ];
+  const baselineHitRate = rate(scenarios.filter((scenario) => scenario.baseline.hitAtK).length, scenarios.length);
+  const hybridHitRate = rate(scenarios.filter((scenario) => scenario.hybrid.hitAtK).length, scenarios.length);
+  const baselineMrr = average(scenarios.map((scenario) => scenario.baseline.reciprocalRank));
+  const hybridMrr = average(scenarios.map((scenario) => scenario.hybrid.reciprocalRank));
+  return {
+    ok: blockers.length === 0 && hybridHitRate >= baselineHitRate && hybridMrr >= baselineMrr,
+    publicSafe: true,
+    generatedAt: options.now ?? new Date().toISOString(),
+    strategy: "hybrid-expansion-rerank",
+    vector: {
+      enabled: false,
+      reason: "Vector retrieval is not configured; this prototype scores query expansion and reranking only."
+    },
+    metrics: {
+      scenarioCount: scenarios.length,
+      baselineHitRate,
+      hybridHitRate,
+      baselineMrr,
+      hybridMrr
+    },
+    scenarios,
+    blockers,
+    privateDataExclusions: [
+      "raw Codex transcripts",
+      "raw prompts or transcript spans",
+      "SQLite DBs",
+      "screenshots or videos",
+      "tokens, credentials, API keys, cookies",
+      "private customer data"
+    ],
+    proofBoundary: "This public-safe eval compares source refs and ranking metrics only; it does not prove production semantic search, vector quality, or private-store retrieval quality.",
+    nextAction: blockers.length === 0
+      ? "Add more redacted scenarios before enabling any hybrid retrieval path by default."
+      : "Inspect missed scenario refs and improve expansion/reranking before claiming retrieval-quality movement."
+  };
+}
+
 function searchLcmPeers(paths: string[], query: string, limit: number): RecallSearchResult[] {
   const matches: RecallSearchResult[] = [];
   for (const path of paths) {
@@ -818,6 +1180,65 @@ function searchLcmPeers(paths: string[], query: string, limit: number): RecallSe
     }
   }
   return matches;
+}
+
+function evaluateRetrievalScenario(db: LooDatabase, scenario: RetrievalEvalScenario): RetrievalEvalScenarioResult {
+  const limit = clamp(scenario.limit ?? 5, 1, 20);
+  const expectedSourceRefs = unique(scenario.expectedSourceRefs.filter(Boolean));
+  const baselineMatches = grepRecall(db, { query: scenario.query, limit }).matches;
+  const expansionQueries = unique((scenario.expansionQueries ?? []).map((query) => query.trim()).filter(Boolean));
+  const hybridMatches = rerankHybridMatches(db, scenario.query, expansionQueries, limit);
+  return {
+    id: scenario.id,
+    query: scenario.query,
+    expectedSourceRefs,
+    limit,
+    baseline: stageResult(baselineMatches, expectedSourceRefs, limit),
+    hybrid: {
+      ...stageResult(hybridMatches, expectedSourceRefs, limit),
+      expansionQueries,
+      reranker: "query-expansion-term-overlap"
+    }
+  };
+}
+
+function rerankHybridMatches(db: LooDatabase, query: string, expansionQueries: string[], limit: number): RecallSearchResult[] {
+  const candidateLimit = clamp(Math.max(limit, 5), 1, 100);
+  const queries = unique([query, ...expansionQueries]);
+  const candidates = new Map<string, { match: RecallSearchResult; score: number; bestRank: number }>();
+  queries.forEach((candidateQuery, queryIndex) => {
+    grepRecall(db, { query: candidateQuery, limit: candidateLimit }).matches.forEach((match, matchIndex) => {
+      const existing = candidates.get(match.sourceRef);
+      const score = retrievalTermScore(match, candidateQuery) + (queryIndex === 0 ? 1 : 2);
+      const bestRank = Math.min(existing?.bestRank ?? Number.POSITIVE_INFINITY, matchIndex + 1);
+      candidates.set(match.sourceRef, {
+        match,
+        score: (existing?.score ?? 0) + score,
+        bestRank
+      });
+    });
+  });
+  return [...candidates.values()]
+    .sort((left, right) => right.score - left.score || left.bestRank - right.bestRank || left.match.sourceRef.localeCompare(right.match.sourceRef))
+    .slice(0, limit)
+    .map((entry, index) => ({ ...entry.match, score: index + 1 }));
+}
+
+function retrievalTermScore(match: RecallSearchResult, query: string): number {
+  const haystack = [match.title, match.summary, match.snippet, match.sourceRef].filter(Boolean).join(" ").toLowerCase();
+  return safeFtsTerms(query).reduce((score, term) => score + (haystack.includes(term.toLowerCase()) ? 1 : 0), 0);
+}
+
+function stageResult(matches: RecallSearchResult[], expectedSourceRefs: string[], limit: number): RetrievalEvalStageResult {
+  const topRefs = matches.slice(0, limit).map((match) => match.sourceRef);
+  const firstExpectedIndex = topRefs.findIndex((ref) => expectedSourceRefs.includes(ref));
+  const firstExpectedRank = firstExpectedIndex >= 0 ? firstExpectedIndex + 1 : null;
+  return {
+    hitAtK: firstExpectedRank !== null,
+    firstExpectedRank,
+    reciprocalRank: firstExpectedRank === null ? 0 : 1 / firstExpectedRank,
+    topRefs
+  };
 }
 
 function searchLcmPeer(db: LooDatabase, path: string, query: string, limit: number): RecallSearchResult[] {
@@ -1139,6 +1560,9 @@ function parseCodexJsonl(sourcePath: string, text: string): ImportedSession {
     touchedFiles: [],
     toolCalls: [],
     metadata: emptySessionMetadata(),
+    closeoutEnvelopeText: null,
+    closeoutEnvelopeOpenCount: 0,
+    closeoutEnvelopeCloseCount: 0,
     safeText: "",
     eventCount: 0
   };
@@ -1178,7 +1602,10 @@ function parseCodexJsonl(sourcePath: string, text: string): ImportedSession {
     const textPayloads = extractTextPayloads(item);
     for (const payload of textPayloads) {
       const metadataText = redactSafeString(payload.trim());
-      if (metadataText) mergeSessionMetadata(session.metadata, extractSessionMetadata(metadataText));
+      if (metadataText) {
+        mergeSessionMetadata(session.metadata, extractSessionMetadata(metadataText));
+        recordCloseoutEnvelopeEvidence(session, metadataText);
+      }
       const clean = redactSafeString(normalizeText(payload));
       if (!clean) continue;
       safeParts.push(clean);
@@ -1267,9 +1694,11 @@ function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, ses
     db.prepare("DELETE FROM codex_safe_text_fts WHERE thread_id = ?").run(session.threadId);
     db.prepare(`
       INSERT INTO codex_session_metadata (
-        thread_id, project, status, priority, owner, blocker, next_action, closeout_state,
-        proposed_plan_refs_json, final_message_refs_json, touched_file_refs_json, source_refs_json, metadata_schema_version
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        thread_id, project, status, priority, owner, blocker, next_action, closeout_state, plan_completion_state,
+        proposed_plan_refs_json, final_message_refs_json, touched_file_refs_json,
+        closeout_envelope_text, closeout_envelope_open_count, closeout_envelope_close_count,
+        source_refs_json, metadata_schema_version
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(thread_id) DO UPDATE SET
         project = excluded.project,
         status = excluded.status,
@@ -1278,9 +1707,13 @@ function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, ses
         blocker = excluded.blocker,
         next_action = excluded.next_action,
         closeout_state = excluded.closeout_state,
+        plan_completion_state = excluded.plan_completion_state,
         proposed_plan_refs_json = excluded.proposed_plan_refs_json,
         final_message_refs_json = excluded.final_message_refs_json,
         touched_file_refs_json = excluded.touched_file_refs_json,
+        closeout_envelope_text = excluded.closeout_envelope_text,
+        closeout_envelope_open_count = excluded.closeout_envelope_open_count,
+        closeout_envelope_close_count = excluded.closeout_envelope_close_count,
         source_refs_json = excluded.source_refs_json,
         metadata_schema_version = excluded.metadata_schema_version
     `).run(
@@ -1292,9 +1725,13 @@ function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, ses
       session.metadata.blocker,
       session.metadata.nextAction,
       session.metadata.closeoutState,
+      session.metadata.planCompletionState,
       JSON.stringify(session.metadata.proposedPlanRefs),
       JSON.stringify(session.metadata.finalMessageRefs),
       JSON.stringify(session.metadata.touchedFileRefs),
+      session.closeoutEnvelopeText,
+      session.closeoutEnvelopeOpenCount,
+      session.closeoutEnvelopeCloseCount,
       JSON.stringify(session.metadata.sourceRefs),
       SESSION_METADATA_SCHEMA_VERSION
     );
@@ -1405,6 +1842,7 @@ function buildSummary(session: ImportedSession): string {
 
 const SESSION_METADATA_LABELS: Array<{ field: keyof Omit<SessionMetadata, "proposedPlanRefs" | "finalMessageRefs" | "touchedFileRefs" | "sourceRefs">; labels: string[] }> = [
   { field: "closeoutState", labels: ["closeout state", "closeout"] },
+  { field: "planCompletionState", labels: ["proposed plan completion", "plan completion", "completion marker"] },
   { field: "project", labels: ["project", "repo", "repository"] },
   { field: "status", labels: ["status"] },
   { field: "priority", labels: ["priority", "urgency"] },
@@ -1419,6 +1857,11 @@ const SESSION_METADATA_REF_LABELS: Array<{ field: keyof Pick<SessionMetadata, "p
   { field: "touchedFileRefs", labels: ["touched file refs", "touched-file refs", "file refs"] },
   { field: "sourceRefs", labels: ["source refs", "source ref", "refs", "ref"] }
 ];
+
+const CLOSEOUT_ENVELOPE_LABEL_BOUNDARIES = unique([
+  ...SESSION_METADATA_LABELS.flatMap((definition) => definition.labels),
+  ...SESSION_METADATA_REF_LABELS.flatMap((definition) => definition.labels)
+].map(capitalizeLabelStart)).sort((left, right) => right.length - left.length);
 
 type SessionMetadataTextField = keyof Omit<SessionMetadata, "proposedPlanRefs" | "finalMessageRefs" | "touchedFileRefs" | "sourceRefs">;
 type SessionMetadataRefField = keyof Pick<SessionMetadata, "proposedPlanRefs" | "finalMessageRefs" | "touchedFileRefs" | "sourceRefs">;
@@ -1438,6 +1881,7 @@ function emptySessionMetadata(): SessionMetadata {
     blocker: null,
     nextAction: null,
     closeoutState: null,
+    planCompletionState: null,
     proposedPlanRefs: [],
     finalMessageRefs: [],
     touchedFileRefs: [],
@@ -1468,7 +1912,7 @@ function extractSessionMetadata(text: string): ExtractedSessionMetadata {
 
 function mergeSessionMetadata(target: SessionMetadata, source: ExtractedSessionMetadata): void {
   const metadata = source.metadata;
-  for (const field of ["project", "status", "priority", "owner", "blocker", "nextAction", "closeoutState"] as const) {
+  for (const field of ["project", "status", "priority", "owner", "blocker", "nextAction", "closeoutState", "planCompletionState"] as const) {
     if (source.presentTextFields.has(field)) target[field] = metadata[field];
   }
   for (const field of ["proposedPlanRefs", "finalMessageRefs", "touchedFileRefs", "sourceRefs"] as const) {
@@ -1509,6 +1953,7 @@ function formatSessionMetadata(metadata: SessionMetadata): string | null {
     metadata.blocker ? `Blocker: ${metadata.blocker}` : null,
     metadata.nextAction ? `Next action: ${metadata.nextAction}` : null,
     metadata.closeoutState ? `Closeout state: ${metadata.closeoutState}` : null,
+    metadata.planCompletionState ? `Proposed plan completion: ${metadata.planCompletionState}` : null,
     metadata.proposedPlanRefs.length ? `Proposed plan refs: ${metadata.proposedPlanRefs.join(", ")}` : null,
     metadata.finalMessageRefs.length ? `Final-message refs: ${metadata.finalMessageRefs.join(", ")}` : null,
     metadata.touchedFileRefs.length ? `Touched-file refs: ${metadata.touchedFileRefs.join(", ")}` : null,
@@ -1527,6 +1972,7 @@ function getSessionMetadata(db: LooDatabase, threadId: string): SessionMetadata 
       blocker,
       next_action AS nextAction,
       closeout_state AS closeoutState,
+      plan_completion_state AS planCompletionState,
       proposed_plan_refs_json AS proposedPlanRefsJson,
       final_message_refs_json AS finalMessageRefsJson,
       touched_file_refs_json AS touchedFileRefsJson,
@@ -1547,6 +1993,7 @@ function sessionMetadataFromRow(row: Record<string, unknown>): SessionMetadata {
     blocker: nullableString(row.blocker),
     nextAction: nullableString(row.nextAction),
     closeoutState: nullableString(row.closeoutState),
+    planCompletionState: nullableString(row.planCompletionState),
     proposedPlanRefs: parseSourceRefsJson(row.proposedPlanRefsJson),
     finalMessageRefs: parseSourceRefsJson(row.finalMessageRefsJson),
     touchedFileRefs: parseSourceRefsJson(row.touchedFileRefsJson),
@@ -1656,6 +2103,14 @@ function truncateByApproxTokens(text: string, tokenBudget: number): string {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, Math.floor(value)));
+}
+
+function rate(numerator: number, denominator: number): number {
+  return denominator === 0 ? 0 : numerator / denominator;
+}
+
+function average(values: number[]): number {
+  return values.length === 0 ? 0 : values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
 function nullableString(value: unknown): string | null {
