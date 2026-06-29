@@ -324,7 +324,7 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
         continue;
       }
       if (watermark && watermark.size === stat.size && watermark.mtimeMs === mtimeMs) {
-        if (watermark.pathHash === stableId(text)) {
+        if (watermark.pathHash === stableId(text) && !sourceNeedsMetadataBackfill(db, path)) {
           result.skippedFiles += 1;
           continue;
         }
@@ -384,6 +384,16 @@ export function getSourceFileWatermark(db: LooDatabase, sourcePath: string): Sou
     mtimeMs: Number(row.mtimeMs ?? 0),
     lastIndexedAt: String(row.lastIndexedAt)
   };
+}
+
+function sourceNeedsMetadataBackfill(db: LooDatabase, sourcePath: string): boolean {
+  const rows = db.prepare(`
+    SELECT s.thread_id AS threadId, m.thread_id AS metadataThreadId
+    FROM codex_sessions s
+    LEFT JOIN codex_session_metadata m ON m.thread_id = s.thread_id
+    WHERE s.source_path = ?
+  `).all(sourcePath) as Array<{ threadId: string; metadataThreadId: string | null }>;
+  return rows.length === 0 || rows.some((row) => !row.metadataThreadId);
 }
 
 export function probeCodexSqliteStores(roots: string[], maxFiles = 100): { stores: CodexSqliteProbe[] } {
@@ -1096,13 +1106,14 @@ function parseCodexJsonl(sourcePath: string, text: string): ImportedSession {
 
     const textPayloads = extractTextPayloads(item);
     for (const payload of textPayloads) {
+      const metadataText = redactSafeString(payload.trim());
+      if (metadataText) mergeSessionMetadata(session.metadata, extractSessionMetadata(metadataText));
       const clean = redactSafeString(normalizeText(payload));
       if (!clean) continue;
       safeParts.push(clean);
       for (const plan of extractPlans(clean)) session.plans.push(plan);
       if (isLikelyFinal(clean)) session.finalMessage = clean;
       for (const file of extractTouchedFiles(clean)) touched.add(file);
-      mergeSessionMetadata(session.metadata, extractSessionMetadata(clean));
     }
 
     const responseItem = item.response_item ?? item.item ?? item.payload;
@@ -1347,7 +1358,7 @@ function extractSessionMetadata(text: string): SessionMetadata {
 
 function mergeSessionMetadata(target: SessionMetadata, source: SessionMetadata): void {
   for (const field of ["project", "status", "priority", "owner", "blocker", "nextAction", "closeoutState"] as const) {
-    target[field] ??= source[field];
+    if (source[field]) target[field] = source[field];
   }
   target.sourceRefs = unique([...target.sourceRefs, ...source.sourceRefs]);
 }
