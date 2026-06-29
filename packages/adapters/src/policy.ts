@@ -65,6 +65,7 @@ export const LOO_COMMAND_POLICY: Record<string, LooCommandSafety> = {
   loo_expand_session: { mode: "read_only", source: "local_index", requiresApproval: false },
   loo_expand_query: { mode: "read_only", source: "local_index", requiresApproval: false },
   loo_codex_thread_map: { mode: "read_only", source: "local_index", requiresApproval: false },
+  loo_codex_session_management_map: { mode: "read_only", source: "local_index", requiresApproval: false },
   loo_codex_final_messages: { mode: "read_only", source: "local_index", requiresApproval: false },
   loo_codex_plans: { mode: "read_only", source: "local_index", requiresApproval: false },
   loo_codex_touched_files: { mode: "read_only", source: "local_index", requiresApproval: false },

@@ -116,6 +116,53 @@ export type CodexThreadMapOptions = {
   priorityOrder?: string[];
 };
 
+export type SessionManagementAction = "expand" | "archive" | "fork" | "resume";
+
+export type SessionManagementEntry = {
+  threadId: string;
+  sourceRef: string;
+  title: string | null;
+  updatedAt: string | null;
+  status: string | null;
+  priority: string | null;
+  nextAction: string | null;
+  reason: string;
+  metadata: SessionMetadata;
+};
+
+export type SessionManagementRecommendation = SessionManagementEntry & {
+  action: SessionManagementAction;
+  targetTool: string | null;
+  requiresDryRun: boolean;
+  requiresApproval: boolean;
+  approvalAuditIdRequired: boolean;
+};
+
+export type CodexSessionManagementMap = {
+  publicSafe: true;
+  dryRun: true;
+  mutatesCodex: false;
+  liveControlRequires: ["dry_run", "approval_audit_id"];
+  summary: {
+    total: number;
+    active: number;
+    blocked: number;
+    needsExpansion: number;
+    safeToArchive: number;
+    shouldFork: number;
+    shouldResume: number;
+  };
+  groups: {
+    activeWork: SessionManagementEntry[];
+    blockedWork: SessionManagementEntry[];
+    needsExpansion: SessionManagementEntry[];
+    safeToArchive: SessionManagementEntry[];
+    shouldFork: SessionManagementEntry[];
+    shouldResume: SessionManagementEntry[];
+  };
+  recommendations: SessionManagementRecommendation[];
+};
+
 export type SessionDescription = {
   sourceKind: "codex_thread";
   sourceRef: string;
@@ -666,6 +713,173 @@ export function getCodexThreadMap(db: LooDatabase, options: CodexThreadMapOption
     sourcePath: String(row.sourcePath),
     metadata: sessionMetadataFromRow(row)
   }));
+}
+
+export function getCodexSessionManagementMap(db: LooDatabase, options: CodexThreadMapOptions = {}): CodexSessionManagementMap {
+  const entries = getCodexThreadMap(db, options);
+  const compare = managementEntryComparator(options.priorityOrder);
+  const activeWork = entries
+    .filter((entry) => isActiveWork(entry.metadata))
+    .map((entry) => managementEntry(entry, "active work with enough refs for low-context triage"))
+    .sort(compare);
+  const blockedWork = entries
+    .filter((entry) => isBlockedWork(entry.metadata))
+    .map((entry) => managementEntry(entry, `blocked: ${entry.metadata.blocker || entry.metadata.status || "metadata indicates blocked work"}`))
+    .sort(compare);
+  const needsExpansion = entries
+    .filter((entry) => needsExpansionBeforeAction(entry.metadata))
+    .map((entry) => managementEntry(entry, "missing plan/final/file refs or next action asks for bounded expansion"))
+    .sort(compare);
+  const safeToArchive = entries
+    .filter((entry) => isSafeArchiveCandidate(entry.metadata))
+    .map((entry) => managementEntry(entry, "complete work with no active blocker; archive remains recommendation-only"))
+    .sort(compare);
+  const shouldFork = entries
+    .filter((entry) => shouldForkSession(entry.metadata))
+    .map((entry) => managementEntry(entry, "metadata asks for a forked follow-up lane"))
+    .sort(compare);
+  const shouldResume = entries
+    .filter((entry) => shouldResumeSession(entry.metadata))
+    .map((entry) => managementEntry(entry, "metadata asks to resume or continue the session"))
+    .sort(compare);
+
+  return {
+    publicSafe: true,
+    dryRun: true,
+    mutatesCodex: false,
+    liveControlRequires: ["dry_run", "approval_audit_id"],
+    summary: {
+      total: entries.length,
+      active: activeWork.length,
+      blocked: blockedWork.length,
+      needsExpansion: needsExpansion.length,
+      safeToArchive: safeToArchive.length,
+      shouldFork: shouldFork.length,
+      shouldResume: shouldResume.length
+    },
+    groups: {
+      activeWork,
+      blockedWork,
+      needsExpansion,
+      safeToArchive,
+      shouldFork,
+      shouldResume
+    },
+    recommendations: [
+      ...needsExpansion.map((entry) => recommendation("expand", entry, "loo_expand_session", false, false)),
+      ...safeToArchive.map((entry) => recommendation("archive", entry, null, true, false)),
+      ...shouldFork.map((entry) => recommendation("fork", entry, null, true, false)),
+      ...shouldResume.map((entry) => recommendation("resume", entry, "loo_codex_resume_thread", true, true))
+    ]
+  };
+}
+
+type CodexThreadMapEntry = {
+  threadId: string;
+  title: string | null;
+  updatedAt: string | null;
+  metadata: SessionMetadata;
+};
+
+function managementEntry(entry: CodexThreadMapEntry, reason: string): SessionManagementEntry {
+  return {
+    threadId: entry.threadId,
+    sourceRef: codexThreadRef(entry.threadId),
+    title: entry.title,
+    updatedAt: entry.updatedAt,
+    status: entry.metadata.status,
+    priority: entry.metadata.priority,
+    nextAction: entry.metadata.nextAction,
+    reason,
+    metadata: entry.metadata
+  };
+}
+
+function recommendation(
+  action: SessionManagementAction,
+  entry: SessionManagementEntry,
+  targetTool: string | null,
+  requiresApproval: boolean,
+  approvalAuditIdRequired: boolean
+): SessionManagementRecommendation {
+  return {
+    ...entry,
+    action,
+    targetTool,
+    requiresDryRun: true,
+    requiresApproval,
+    approvalAuditIdRequired
+  };
+}
+
+function managementEntryComparator(priorityOrder: string[] | undefined): (left: SessionManagementEntry, right: SessionManagementEntry) => number {
+  const priorityRank = new Map(unique((priorityOrder ?? []).map(normalizedMetadataValue).filter(Boolean)).map((value, index) => [value, index]));
+  const fallbackRank = priorityRank.size;
+  return (left, right) => {
+    const leftRank = priorityRank.get(normalizedMetadataValue(left.priority)) ?? fallbackRank;
+    const rightRank = priorityRank.get(normalizedMetadataValue(right.priority)) ?? fallbackRank;
+    if (leftRank !== rightRank) return leftRank - rightRank;
+    return left.threadId.localeCompare(right.threadId);
+  };
+}
+
+function isActiveWork(metadata: SessionMetadata): boolean {
+  const status = normalizedMetadataValue(metadata.status);
+  return ["active", "in-progress", "ready"].includes(status)
+    && !isBlockedWork(metadata)
+    && hasEvidenceRefs(metadata);
+}
+
+function isBlockedWork(metadata: SessionMetadata): boolean {
+  const status = normalizedMetadataValue(metadata.status);
+  return status.includes("blocked")
+    || status === "external-review-wait"
+    || hasRealBlocker(metadata.blocker);
+}
+
+function needsExpansionBeforeAction(metadata: SessionMetadata): boolean {
+  const nextAction = normalizedMetadataValue(metadata.nextAction);
+  return nextAction.includes("expand")
+    || metadata.proposedPlanRefs.length === 0
+    || metadata.finalMessageRefs.length === 0
+    || metadata.touchedFileRefs.length === 0;
+}
+
+function isSafeArchiveCandidate(metadata: SessionMetadata): boolean {
+  const status = normalizedMetadataValue(metadata.status);
+  const nextAction = normalizedMetadataValue(metadata.nextAction);
+  return ["complete", "completed", "done", "merged", "closed"].includes(status)
+    && !hasRealBlocker(metadata.blocker)
+    && (nextAction.includes("archive") || nextAction.includes("close"));
+}
+
+function shouldForkSession(metadata: SessionMetadata): boolean {
+  const status = normalizedMetadataValue(metadata.status);
+  const nextAction = normalizedMetadataValue(metadata.nextAction);
+  return status.includes("fork") || nextAction.includes("fork");
+}
+
+function shouldResumeSession(metadata: SessionMetadata): boolean {
+  const status = normalizedMetadataValue(metadata.status);
+  const nextAction = normalizedMetadataValue(metadata.nextAction);
+  return ["paused", "stale", "resume"].includes(status)
+    || nextAction.includes("resume");
+}
+
+function hasEvidenceRefs(metadata: SessionMetadata): boolean {
+  return metadata.proposedPlanRefs.length > 0
+    && metadata.finalMessageRefs.length > 0
+    && metadata.touchedFileRefs.length > 0;
+}
+
+function hasRealBlocker(value: string | null): boolean {
+  const normalized = normalizedMetadataValue(value);
+  return Boolean(normalized)
+    && !["none", "no", "n/a", "na", "not blocked", "unblocked"].includes(normalized);
+}
+
+function normalizedMetadataValue(value: string | null): string {
+  return (value ?? "").trim().toLowerCase();
 }
 
 export function getCodexFinalMessages(db: LooDatabase, options: { limit?: number; threadId?: string } = {}): Array<{ threadId: string; text: string }> {
