@@ -12,6 +12,45 @@ function read(path: string): string {
   return readFileSync(path, "utf8");
 }
 
+const candidateSha = "a".repeat(40);
+
+function writeLiveControlProof(path: string): void {
+  writeFileSync(path, `${JSON.stringify({
+    kind: "loo_approved_live_control_smoke",
+    approvedLiveControlSmoke: true,
+    action: "send",
+    targetRef: "codex_thread:test-thread",
+    approvalAuditId: "audit_test",
+    messageHash: "b".repeat(64),
+    preservesCodexApprovalSemantics: true,
+    rawPromptIncluded: false
+  }, null, 2)}\n`);
+}
+
+function writeReleaseOperationApprovalProof(path: string, operation: "npm_publish" | "github_release" | "desktop_gui_mutation", extra: Record<string, string> = {}): void {
+  writeFileSync(path, `${JSON.stringify({
+    kind: "loo_release_operation_approval",
+    operation,
+    approved: true,
+    approvalRef: "issue-14-user-approval",
+    ...extra,
+    rawSecretIncluded: false
+  }, null, 2)}\n`);
+}
+
+function writeReleaseCheckProof(path: string, check: "github_ci" | "codeql", commitSha = candidateSha, warnings: string[] = []): void {
+  writeFileSync(path, `${JSON.stringify({
+    kind: "loo_release_check_evidence",
+    check,
+    commitSha,
+    status: "completed",
+    conclusion: "success",
+    warnings,
+    runUrl: `https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/actions/runs/${check}`,
+    rawSecretIncluded: false
+  }, null, 2)}\n`);
+}
+
 test("release status writes an approval packet without performing gated actions", () => {
   const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-status-"));
   const result = spawnSync(process.execPath, [
@@ -47,7 +86,10 @@ test("release status writes an approval packet without performing gated actions"
   assert.deepEqual(payload.blockers, [
     "approved_live_control_smoke_missing",
     "npm_publish_not_approved",
-    "github_release_not_approved"
+    "github_release_not_approved",
+    "candidate_sha_missing",
+    "github_ci_evidence_missing",
+    "codeql_evidence_missing"
   ]);
   assert.deepEqual(payload.actionsPerformed, {
     npmPublished: false,
@@ -90,39 +132,21 @@ test("release status --strict fails closed while approvals are missing", () => {
   assert.deepEqual(payload.blockers, [
     "approved_live_control_smoke_missing",
     "npm_publish_not_approved",
-    "github_release_not_approved"
+    "github_release_not_approved",
+    "candidate_sha_missing",
+    "github_ci_evidence_missing",
+    "codeql_evidence_missing"
   ]);
 });
 
-test("release status --strict passes with publication approval proofs without requiring GUI mutation", () => {
+test("release status --strict fails closed while CI and CodeQL evidence are missing", () => {
   const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-status-approved-"));
   const liveControlProof = join(evidenceDir, "approved-live-control-smoke.json");
   const npmApprovalProof = join(evidenceDir, "npm-publish-approval.json");
   const githubReleaseApprovalProof = join(evidenceDir, "github-release-approval.json");
-  writeFileSync(liveControlProof, `${JSON.stringify({
-    kind: "loo_approved_live_control_smoke",
-    approvedLiveControlSmoke: true,
-    action: "send",
-    targetRef: "codex_thread:test-thread",
-    approvalAuditId: "audit_test",
-    messageHash: "b".repeat(64),
-    preservesCodexApprovalSemantics: true,
-    rawPromptIncluded: false
-  }, null, 2)}\n`);
-  writeFileSync(npmApprovalProof, `${JSON.stringify({
-    kind: "loo_release_operation_approval",
-    operation: "npm_publish",
-    approved: true,
-    approvalRef: "issue-14-user-approval",
-    rawSecretIncluded: false
-  }, null, 2)}\n`);
-  writeFileSync(githubReleaseApprovalProof, `${JSON.stringify({
-    kind: "loo_release_operation_approval",
-    operation: "github_release",
-    approved: true,
-    approvalRef: "issue-14-user-approval",
-    rawSecretIncluded: false
-  }, null, 2)}\n`);
+  writeLiveControlProof(liveControlProof);
+  writeReleaseOperationApprovalProof(npmApprovalProof, "npm_publish");
+  writeReleaseOperationApprovalProof(githubReleaseApprovalProof, "github_release");
   const result = spawnSync(process.execPath, [
     "--import",
     tsxImport,
@@ -137,6 +161,51 @@ test("release status --strict passes with publication approval proofs without re
     npmApprovalProof,
     "--github-release-approval-evidence",
     githubReleaseApprovalProof,
+    "--candidate-sha",
+    candidateSha,
+    "--strict"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as {
+    ok?: boolean;
+    releaseReady?: boolean;
+    blockers?: string[];
+  };
+
+  assert.equal(payload.ok, false);
+  assert.equal(payload.releaseReady, false);
+  assert.deepEqual(payload.blockers, ["github_ci_evidence_missing", "codeql_evidence_missing"]);
+});
+
+test("release status --strict passes with exact-sha CI and CodeQL proofs without requiring GUI mutation", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-status-ci-approved-"));
+  writeLiveControlProof(join(evidenceDir, "approved-live-control-smoke.json"));
+  writeReleaseOperationApprovalProof(join(evidenceDir, "npm-publish-approval.json"), "npm_publish");
+  writeReleaseOperationApprovalProof(join(evidenceDir, "github-release-approval.json"), "github_release");
+  writeReleaseCheckProof(join(evidenceDir, "github-ci.json"), "github_ci");
+  writeReleaseCheckProof(join(evidenceDir, "codeql.json"), "codeql");
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "status",
+    "--evidence-dir",
+    evidenceDir,
+    "--approved-live-control-evidence",
+    "approved-live-control-smoke.json",
+    "--npm-publish-approval-evidence",
+    "npm-publish-approval.json",
+    "--github-release-approval-evidence",
+    "github-release-approval.json",
+    "--candidate-sha",
+    candidateSha,
+    "--github-ci-evidence",
+    "github-ci.json",
+    "--codeql-evidence",
+    "codeql.json",
     "--strict"
   ], { encoding: "utf8" });
 
@@ -146,6 +215,7 @@ test("release status --strict passes with publication approval proofs without re
     releaseReady?: boolean;
     blockers?: string[];
     explicitApprovalsRequired?: Array<{ id: string; satisfied: boolean }>;
+    releaseChecks?: Array<{ id: string; satisfied: boolean }>;
     actionsPerformed?: {
       npmPublished?: boolean;
       githubReleaseCreated?: boolean;
@@ -162,6 +232,11 @@ test("release status --strict passes with publication approval proofs without re
     { id: "npm_publish", satisfied: true },
     { id: "github_release", satisfied: true }
   ]);
+  assert.deepEqual(payload.releaseChecks, [
+    { id: "candidate_sha", satisfied: true },
+    { id: "github_ci", satisfied: true },
+    { id: "codeql", satisfied: true }
+  ]);
   assert.deepEqual(payload.actionsPerformed, {
     npmPublished: false,
     githubReleaseCreated: false,
@@ -175,50 +250,22 @@ test("release status --strict requires GUI target details only when GUI mutation
   const liveControlProof = join(evidenceDir, "approved-live-control-smoke.json");
   const npmApprovalProof = join(evidenceDir, "npm-publish-approval.json");
   const githubReleaseApprovalProof = join(evidenceDir, "github-release-approval.json");
+  const githubCiProof = join(evidenceDir, "github-ci.json");
+  const codeqlProof = join(evidenceDir, "codeql.json");
   const broadDesktopGuiApprovalProof = join(evidenceDir, "desktop-gui-approval-broad.json");
   const detailedDesktopGuiApprovalProof = join(evidenceDir, "desktop-gui-approval-detailed.json");
-  writeFileSync(liveControlProof, `${JSON.stringify({
-    kind: "loo_approved_live_control_smoke",
-    approvedLiveControlSmoke: true,
-    action: "send",
-    targetRef: "codex_thread:test-thread",
-    approvalAuditId: "audit_test",
-    messageHash: "b".repeat(64),
-    preservesCodexApprovalSemantics: true,
-    rawPromptIncluded: false
-  }, null, 2)}\n`);
-  writeFileSync(npmApprovalProof, `${JSON.stringify({
-    kind: "loo_release_operation_approval",
-    operation: "npm_publish",
-    approved: true,
-    approvalRef: "issue-14-user-approval",
-    rawSecretIncluded: false
-  }, null, 2)}\n`);
-  writeFileSync(githubReleaseApprovalProof, `${JSON.stringify({
-    kind: "loo_release_operation_approval",
-    operation: "github_release",
-    approved: true,
-    approvalRef: "issue-14-user-approval",
-    rawSecretIncluded: false
-  }, null, 2)}\n`);
-  writeFileSync(broadDesktopGuiApprovalProof, `${JSON.stringify({
-    kind: "loo_release_operation_approval",
-    operation: "desktop_gui_mutation",
-    approved: true,
-    approvalRef: "issue-14-user-approval",
-    rawSecretIncluded: false
-  }, null, 2)}\n`);
-  writeFileSync(detailedDesktopGuiApprovalProof, `${JSON.stringify({
-    kind: "loo_release_operation_approval",
-    operation: "desktop_gui_mutation",
-    approved: true,
-    approvalRef: "issue-14-user-approval",
+  writeLiveControlProof(liveControlProof);
+  writeReleaseOperationApprovalProof(npmApprovalProof, "npm_publish");
+  writeReleaseOperationApprovalProof(githubReleaseApprovalProof, "github_release");
+  writeReleaseCheckProof(githubCiProof, "github_ci");
+  writeReleaseCheckProof(codeqlProof, "codeql");
+  writeReleaseOperationApprovalProof(broadDesktopGuiApprovalProof, "desktop_gui_mutation");
+  writeReleaseOperationApprovalProof(detailedDesktopGuiApprovalProof, "desktop_gui_mutation", {
     desktopBackend: "cua-driver",
     targetApp: "Codex",
     targetWindow: "PR release smoke",
-    action: "read-only visual smoke",
-    rawSecretIncluded: false
-  }, null, 2)}\n`);
+    action: "read-only visual smoke"
+  });
 
   const commonArgs = [
     "--import",
@@ -234,6 +281,12 @@ test("release status --strict requires GUI target details only when GUI mutation
     npmApprovalProof,
     "--github-release-approval-evidence",
     githubReleaseApprovalProof,
+    "--candidate-sha",
+    candidateSha,
+    "--github-ci-evidence",
+    githubCiProof,
+    "--codeql-evidence",
+    codeqlProof,
     "--desktop-gui-required",
     "--strict"
   ];
@@ -270,6 +323,62 @@ test("release status --strict requires GUI target details only when GUI mutation
     id: "desktop_gui_mutation",
     satisfied: true
   });
+});
+
+test("release status rejects desktop GUI approval evidence unless GUI mutation is required", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-status-dangling-gui-"));
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "status",
+    "--evidence-dir",
+    evidenceDir,
+    "--desktop-gui-approval-evidence",
+    "desktop-gui-approval.json",
+    "--strict"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.match(result.stderr, /--desktop-gui-approval-evidence requires --desktop-gui-required/);
+  assert.equal(result.stdout, "");
+});
+
+test("release status rejects CI or CodeQL evidence with warnings or SHA mismatch", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-status-warning-checks-"));
+  writeLiveControlProof(join(evidenceDir, "approved-live-control-smoke.json"));
+  writeReleaseOperationApprovalProof(join(evidenceDir, "npm-publish-approval.json"), "npm_publish");
+  writeReleaseOperationApprovalProof(join(evidenceDir, "github-release-approval.json"), "github_release");
+  writeReleaseCheckProof(join(evidenceDir, "github-ci.json"), "github_ci", "c".repeat(40));
+  writeReleaseCheckProof(join(evidenceDir, "codeql.json"), "codeql", candidateSha, ["CodeQL Action v3 will be deprecated"]);
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "status",
+    "--evidence-dir",
+    evidenceDir,
+    "--approved-live-control-evidence",
+    "approved-live-control-smoke.json",
+    "--npm-publish-approval-evidence",
+    "npm-publish-approval.json",
+    "--github-release-approval-evidence",
+    "github-release-approval.json",
+    "--candidate-sha",
+    candidateSha,
+    "--github-ci-evidence",
+    "github-ci.json",
+    "--codeql-evidence",
+    "codeql.json",
+    "--strict"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as { blockers?: string[] };
+  assert.deepEqual(payload.blockers, ["github_ci_sha_mismatch", "codeql_warnings_present"]);
 });
 
 test("release status rejects approval evidence options when the next token is another flag", () => {
@@ -323,7 +432,10 @@ test("release status treats malformed approval proof shapes as unsatisfied witho
   assert.deepEqual(payload.blockers, [
     "approved_live_control_smoke_missing",
     "npm_publish_not_approved",
-    "github_release_not_approved"
+    "github_release_not_approved",
+    "candidate_sha_missing",
+    "github_ci_evidence_missing",
+    "codeql_evidence_missing"
   ]);
   assert.deepEqual(payload.explicitApprovalsRequired?.find((approval) => approval.id === "npm_publish"), {
     id: "npm_publish",
@@ -358,7 +470,10 @@ test("release status treats null approval proof JSON as unsatisfied without abor
   assert.deepEqual(payload.blockers, [
     "approved_live_control_smoke_missing",
     "npm_publish_not_approved",
-    "github_release_not_approved"
+    "github_release_not_approved",
+    "candidate_sha_missing",
+    "github_ci_evidence_missing",
+    "codeql_evidence_missing"
   ]);
   assert.deepEqual(payload.explicitApprovalsRequired?.find((approval) => approval.id === "npm_publish"), {
     id: "npm_publish",

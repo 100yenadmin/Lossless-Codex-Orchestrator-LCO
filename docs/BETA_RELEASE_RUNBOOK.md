@@ -28,8 +28,8 @@ Use this cadence for beta work:
    gates below have a named evidence directory.
 4. Validate the release candidate through the public CLI, MCP/OpenClaw plugin,
    scorecard, and claim-audit surfaces.
-5. Publish npm or create a GitHub Release only after explicit user approval for
-   that operation.
+5. Publish npm and create a GitHub Release only after explicit user approval for
+   each operation.
 6. After publication, install from the published artifact and rerun the same
    public user-path smoke before calling the release complete.
 
@@ -40,19 +40,45 @@ Recommended naming:
 - Evidence slug:
   `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-0.1.0-beta.0-rc`
 
+## Release Context Freshness Scan
+
+At every release candidate and every public release, run a high-context
+document/workflow scan before calling the release ready. This is an adversarial
+review, not a publishing action.
+
+Use a long-context release-review agent for this pass. The preferred profile is
+an approved long-context model alias such as `gpt-5.4` with `1M-context` when
+that profile is available in the maintainer environment; otherwise record the
+actual agent/model/context window used and keep the review blocked if it cannot
+inspect the release docs, workflows, skills, and runbooks together.
+
+The scan must inspect README.md, `VISION.md`, release notes, claim audit, GitHub workflows, and CLI release gates together, plus package scripts, repo guidance, local release skills, and this runbook, so the release story cannot pass by checking only one file or one command. If the scan finds stale or incomplete release instructions, update this runbook in the same PR before treating the release candidate as ready.
+
+Record findings under:
+`/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/<release-slug>/release-context-freshness/`.
+
+The high-context scan must cover these named scorecard lenses:
+
+- safety bypass review
+- retrieval quality review
+- packaging/install review
+- public-claim review
+- local-agent usability review
+
 ## Pre-RC Gates
 
 Before a release candidate is treated as ready, prove these from a clean checkout
 or CI-backed branch:
 
 ```bash
+release_candidate_sha="$(git rev-parse HEAD)"
 npm run check
 npm pack --dry-run
 node ./dist/packages/cli/src/index.js scorecards sweep --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-scorecards --strict
 node ./dist/packages/cli/src/index.js release preflight --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --strict
 node ./dist/packages/cli/src/index.js release bundle --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-bundle --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --strict
 node ./dist/packages/cli/src/index.js release demo-status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/demo --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --strict
-node ./dist/packages/cli/src/index.js release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --npm-publish-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/npm-approval.json --github-release-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-release-approval.json --strict
+node ./dist/packages/cli/src/index.js release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --candidate-sha "$release_candidate_sha" --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --npm-publish-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/npm-approval.json --github-release-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-release-approval.json --github-ci-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-ci.json --codeql-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/codeql.json --strict
 ```
 
 If `--strict` fails because an approval-gated operation is intentionally missing,
@@ -62,8 +88,34 @@ names include:
 - `approved_live_control_smoke_missing`
 - `npm_publish_not_approved`
 - `github_release_not_approved`
+- `candidate_sha_missing` or `candidate_sha_invalid`
+- `github_ci_evidence_missing`, `github_ci_sha_mismatch`,
+  `github_ci_warnings_present`, `github_ci_pending`, or `github_ci_failed`
+- `codeql_evidence_missing`, `codeql_sha_mismatch`,
+  `codeql_warnings_present`, `codeql_pending`, or `codeql_failed`
 - `desktop_gui_mutation_not_approved`, only when `--desktop-gui-required` is
   present
+
+Repository gate evidence must be tied to the exact release candidate SHA, not
+just the latest branch run. Capture workflow and repository-gate inventory before
+writing the `github-ci.json` and `codeql.json` proof markers:
+
+```bash
+gh workflow list
+gh run list --commit "$release_candidate_sha" --workflow CI --limit 1 --json databaseId,headSha,status,conclusion,url
+gh run list --commit "$release_candidate_sha" --workflow CodeQL --limit 1 --json databaseId,headSha,status,conclusion,url
+gh api repos/100yenadmin/Lossless-Codex-Orchestrator-LCO/rulesets
+gh api 'repos/100yenadmin/Lossless-Codex-Orchestrator-LCO/code-scanning/alerts?state=open'
+```
+
+Each release check proof marker must use
+`kind: "loo_release_check_evidence"`, `check: "github_ci" | "codeql"`, the
+exact `commitSha`, `status: "completed"`, `conclusion: "success"`, a run URL,
+`warnings: []`, and `rawSecretIncluded: false`. If a workflow log or GitHub UI
+shows action/runtime deprecation warnings such as CodeQL Action v3, a Node 20
+action runtime warning, or another soon-disabled workflow action major, record
+that text in `warnings`; `loo release status --strict` must remain blocked until
+the warning is removed.
 
 If desktop GUI mutation is part of the release plan, rerun release status with
 `--desktop-gui-required --desktop-gui-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/desktop-gui-approval.json`.
@@ -104,10 +156,17 @@ A release candidate may be announced internally when all of these are true:
 - issue #6 and issue #14 have current status comments
 - GitHub CI is green for the release candidate commit
 - CodeQL code scanning is green for the release candidate commit
+- repository ruleset, workflow, and open code-scanning alert inventory has been
+  captured
+- CI and CodeQL proof markers are for the exact release candidate SHA and have
+  empty `warnings` arrays
 - `npm run check` passed locally or in CI
 - `npm pack --dry-run` passed
 - release preflight, release bundle, demo status, release status, and scorecard
   sweep wrote public-safe evidence
+- high-context document/workflow scan evidence covers README.md, `VISION.md`,
+  release notes, claim audit, GitHub workflows, CLI release gates, docs,
+  workflows, skills, and runbooks, plus the named adversarial scorecard lenses
 - OpenClaw dogfood has a current pass or an explicit blocker
 - README, `VISION.md`, release notes, and claim audit agree on the proof
   boundary
@@ -117,6 +176,13 @@ A release candidate may be announced internally when all of these are true:
 ## Publication Approval Gates
 
 Publishing is separate from proving a release candidate.
+
+For this beta train, a public release means both the npm package surface and the
+GitHub Release surface. `loo release status --strict` intentionally requires
+both `operation: "npm_publish"` and `operation: "github_release"` approval
+markers before it can report `releaseReady: true`. A single-surface maintenance
+publication must stop and add planned-operation flags and tests before using
+strict release status as the final gate.
 
 Do not run live Codex control without explicit user approval for the exact target
 thread and harmless prompt.
@@ -163,6 +229,14 @@ Stop and leave the release candidate unpublished if any of these occur:
   proven
 - the OpenClaw package installs but does not expose the expected `loo_*` tools
 - GitHub CI or CodeQL code scanning is red, pending, or missing
+- GitHub CI or CodeQL evidence is for a different commit than the release
+  candidate SHA
+- workflow/action deprecation warnings are present, including CodeQL Action v3
+  or Node 20 action runtime warnings
+- the release plan omits either npm publication or GitHub Release creation
+  without a prior planned-operation contract change in `loo release status`
+- the release context freshness scan is missing, stale, or finds docs, workflows,
+  skills, and runbooks that disagree with the current release gate
 - review threads contain valid actionable defects
 
 ## Closeout
@@ -173,6 +247,8 @@ Every release-candidate or release closeout should include:
 - issue #6 and issue #14 status links
 - commands run and exit status
 - evidence path
+- release context freshness scan evidence
+- repository ruleset, workflow, CI, CodeQL, and code-scanning alert inventory
 - OpenClaw dogfood result
 - scorecard movement
 - what is working
