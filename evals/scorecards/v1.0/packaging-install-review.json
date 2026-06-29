@@ -7,7 +7,7 @@
     "npm run build",
     "npm pack --dry-run",
     "loo release preflight --strict",
-    "loo release status --strict"
+    "loo release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-<slug>/ --strict"
   ],
   "expected_public_safe_evidence": [
     "package file list",
@@ -44,4 +44,3 @@
   "next_action": "Run package dry-run and release preflight/status from the public CLI surface before beta release claims.",
   "proof_boundary": "This is a local public-safe beta scorecard example; it does not approve publishing or release creation."
 }
-

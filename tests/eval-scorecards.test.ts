@@ -95,6 +95,17 @@ test("local-agent usability scorecard requires OpenClaw gateway dogfood without 
   assert.match(JSON.stringify(scorecard.private_data_exclusions), /raw Codex transcripts/i);
 });
 
+test("release status scorecard commands include required evidence directory placeholders", () => {
+  for (const file of ["packaging-install-review.json", "public-claim-review.json"]) {
+    const commands = assertStringArray(readScorecard(file).command_or_tool, "command_or_tool", file);
+    const releaseStatusCommands = commands.filter((command) => /\bloo release status\b/.test(command));
+    assert.equal(releaseStatusCommands.length > 0, true, `${file} must include release status coverage`);
+    for (const command of releaseStatusCommands) {
+      assert.match(command, /--evidence-dir\s+\S+/, `${file} release status command must include --evidence-dir`);
+    }
+  }
+});
+
 test("VISION.md routes milestone sweeps and issue updates to scorecard v1 examples", () => {
   const vision = read("VISION.md");
   const readme = read("README.md");

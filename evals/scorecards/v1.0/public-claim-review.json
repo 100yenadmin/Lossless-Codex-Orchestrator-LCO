@@ -6,7 +6,7 @@
   "command_or_tool": [
     "node --test --import tsx tests/release-claim-audit.test.ts",
     "loo release preflight",
-    "loo release status"
+    "loo release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-<slug>/"
   ],
   "expected_public_safe_evidence": [
     "claim audit test output",
@@ -43,4 +43,3 @@
   "next_action": "Run claim audit tests and compare README/docs/release notes against VISION.md before release PRs merge.",
   "proof_boundary": "This is a local public-safe beta scorecard example; it does not certify final public release copy."
 }
-
