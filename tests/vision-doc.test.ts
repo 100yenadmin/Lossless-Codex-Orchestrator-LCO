@@ -15,6 +15,7 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
   for (const heading of [
     "## North Star",
     "## Primary User Stories",
+    "## Orchestrator Product-Management Mode",
     "## Scorecards",
     "## Eval Scenarios",
     "## Local OpenClaw Gateway Dogfood",
@@ -27,6 +28,15 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
 
   for (const required of [
     /100\+ local Codex sessions/i,
+    /hundreds of local agent sessions/i,
+    /least context/i,
+    /thread metadata/i,
+    /project/i,
+    /status/i,
+    /archive/i,
+    /fork/i,
+    /hybrid search/i,
+    /session sanitizer/i,
     /bounded file, byte, and event limits/i,
     /loo_codex_control_dry_run/i,
     /local OpenClaw gateway/i,

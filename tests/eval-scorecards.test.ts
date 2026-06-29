@@ -58,6 +58,7 @@ test("scorecard v1 examples exist, are versioned, and preserve the beta evidence
   const expectedFiles = [
     "safety-bypass-review.json",
     "retrieval-quality-review.json",
+    "orchestrator-leverage-prioritization.json",
     "packaging-install-review.json",
     "public-claim-review.json",
     "local-agent-usability-review.json"
@@ -95,6 +96,36 @@ test("local-agent usability scorecard requires OpenClaw gateway dogfood without 
   assert.match(JSON.stringify(scorecard.private_data_exclusions), /raw Codex transcripts/i);
 });
 
+test("orchestrator leverage scorecard prioritizes highest-signal session management for bounded context", () => {
+  const scorecard = readScorecard("orchestrator-leverage-prioritization.json") as Scorecard & {
+    scoring_weights?: unknown;
+    highest_priority_examples?: unknown;
+  };
+  assert.equal(scorecard.surface, "product roadmap");
+  assert.match(String(scorecard.scenario), /hundreds of (Codex|agent) sessions/i);
+  assert.match(String(scorecard.scenario), /least context/i);
+
+  const weights = scorecard.scoring_weights as Record<string, unknown>;
+  assert.equal(typeof weights, "object", "orchestrator leverage scorecard must include scoring_weights");
+  assert.equal(weights.context_compression_signal_per_token, 30);
+  assert.equal(weights.session_management_leverage, 20);
+  assert.equal(weights.retrieval_quality, 15);
+  assert.equal(weights.safe_actionability, 15);
+  assert.equal(weights.automation_hook_leverage, 10);
+  assert.equal(weights.user_facing_utility, 5);
+  assert.equal(weights.implementation_reuse, 5);
+
+  const examples = assertStringArray(scorecard.highest_priority_examples, "highest_priority_examples", "orchestrator-leverage-prioritization.json").join("\n");
+  assert.match(examples, /thread metadata/i);
+  assert.match(examples, /closeout/i);
+  assert.match(examples, /project/i);
+  assert.match(examples, /status/i);
+  assert.match(examples, /archive/i);
+  assert.match(examples, /fork/i);
+  assert.match(examples, /hybrid search/i);
+  assert.match(examples, /sanitizer/i);
+});
+
 test("release status scorecard commands include required evidence directory placeholders", () => {
   for (const file of ["packaging-install-review.json", "public-claim-review.json"]) {
     const commands = assertStringArray(readScorecard(file).command_or_tool, "command_or_tool", file);
@@ -114,6 +145,7 @@ test("VISION.md routes milestone sweeps and issue updates to scorecard v1 exampl
   assert.match(vision, /evals\/scorecards\/v1\.0/);
   assert.match(vision, /per-issue scorecard update template/i);
   assert.match(vision, /safety-bypass-review\.json/);
+  assert.match(vision, /orchestrator-leverage-prioritization\.json/);
   assert.match(vision, /local-agent-usability-review\.json/);
   assert.match(readme, /evals\/scorecards\/v1\.0/);
   assert.equal(packageJson.files?.includes("evals"), true, "npm package must include versioned scorecard examples");

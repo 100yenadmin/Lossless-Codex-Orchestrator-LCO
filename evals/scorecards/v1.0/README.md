@@ -6,6 +6,7 @@ Use the JSON examples for repeatable sweeps:
 
 - `safety-bypass-review.json`
 - `retrieval-quality-review.json`
+- `orchestrator-leverage-prioritization.json`
 - `packaging-install-review.json`
 - `public-claim-review.json`
 - `local-agent-usability-review.json`
@@ -13,4 +14,3 @@ Use the JSON examples for repeatable sweeps:
 Use `issue-scorecard-update-template.md` for issue and PR comments after focused validation.
 
 These examples are not proof that beta readiness is complete. They define the minimum public-safe evidence shape, scoring boundary, and next-action language that future issues must fill in.
-
