@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { createScorecardSweep } from "../packages/cli/src/scorecard-sweep.js";
@@ -37,7 +37,7 @@ test("scorecard sweep writes a public-safe fail-closed aggregate packet", () => 
   });
   assert.deepEqual(report.scorecards.map((scorecard) => scorecard.name).sort(), expectedScorecards);
   assert.equal(report.scorecards.every((scorecard) => scorecard.status === "pending_evidence"), true);
-  assert.equal(report.scorecards.every((scorecard) => scorecard.evidencePath.startsWith(`${evidenceDir}/`)), true);
+  assert.equal(report.scorecards.every((scorecard) => dirname(scorecard.evidencePath) === evidenceDir), true);
   assert.equal(report.blockers.length, expectedScorecards.length);
   assert.match(report.blockers.join("\n"), /scorecard_not_run:safety-bypass-review/);
   assert.equal(existsSync(join(evidenceDir, "scorecard-sweep.json")), true);
@@ -72,7 +72,60 @@ test("loo scorecards sweep strict mode exits non-zero until scorecards have evid
   assert.match((report.blockers ?? []).join("\n"), /scorecard_not_run/);
 });
 
+test("scorecard sweep rejects evidence directory that would overwrite source scorecards", () => {
+  const scorecardDir = mkdtempSync(join(tmpdir(), "loo-scorecard-source-"));
+
+  assert.throws(
+    () => createScorecardSweep({ evidenceDir: scorecardDir, scorecardDir }),
+    /--evidence-dir must be different from --scorecard-dir/
+  );
+});
+
+test("scorecard sweep fails closed when required scorecards are missing", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-scorecard-missing-"));
+  const scorecardDir = mkdtempSync(join(tmpdir(), "loo-scorecard-partial-"));
+  writeFileSync(join(scorecardDir, "safety-bypass-review.json"), `${JSON.stringify(minimalScoredScorecard(), null, 2)}\n`);
+
+  const report = createScorecardSweep({ evidenceDir, scorecardDir });
+
+  assert.equal(report.sweepReady, false);
+  assert.match(report.blockers.join("\n"), /scorecard_missing:retrieval-quality-review/);
+  assert.match(report.blockers.join("\n"), /scorecard_missing:orchestrator-leverage-prioritization/);
+});
+
+test("scorecard sweep writes evidence files for missing directories and invalid JSON", () => {
+  const missingEvidenceDir = mkdtempSync(join(tmpdir(), "loo-scorecard-missing-dir-"));
+  const missingReport = createScorecardSweep({
+    evidenceDir: missingEvidenceDir,
+    scorecardDir: join(missingEvidenceDir, "does-not-exist")
+  });
+  assert.equal(existsSync(join(missingEvidenceDir, "scorecard-directory.json")), true);
+  assert.match(missingReport.blockers.join("\n"), /scorecard_directory_missing/);
+
+  const invalidEvidenceDir = mkdtempSync(join(tmpdir(), "loo-scorecard-invalid-"));
+  const invalidScorecardDir = mkdtempSync(join(tmpdir(), "loo-scorecard-invalid-source-"));
+  writeFileSync(join(invalidScorecardDir, "broken.json"), "{not json");
+  const invalidReport = createScorecardSweep({ evidenceDir: invalidEvidenceDir, scorecardDir: invalidScorecardDir });
+  assert.equal(existsSync(join(invalidEvidenceDir, "broken.json")), true);
+  assert.match(invalidReport.blockers.join("\n"), /scorecard_invalid_json:broken/);
+});
+
 test("VISION and README document the scorecard sweep command", () => {
   assert.match(readFileSync("VISION.md", "utf8"), /loo scorecards sweep/);
   assert.match(readFileSync("README.md", "utf8"), /loo scorecards sweep/);
+  assert.match(readFileSync("README.md", "utf8"), /issue-<number>-scorecard-sweep/);
 });
+
+function minimalScoredScorecard() {
+  return {
+    scorecard_version: "1.0",
+    claim_class: "advisory",
+    surface: "test",
+    current_score: "scored",
+    expected_public_safe_evidence: ["count"],
+    private_data_exclusions: ["raw Codex transcripts"],
+    known_gaps: ["none"],
+    next_action: "none",
+    proof_boundary: "local public-safe test fixture"
+  };
+}

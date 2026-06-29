@@ -59,6 +59,14 @@ type ScorecardJson = {
 };
 
 const SCORECARD_VERSION = "1.0";
+const REQUIRED_SCORECARD_NAMES = [
+  "local-agent-usability-review",
+  "orchestrator-leverage-prioritization",
+  "packaging-install-review",
+  "public-claim-review",
+  "retrieval-quality-review",
+  "safety-bypass-review"
+];
 const DEFAULT_PRIVATE_DATA_EXCLUSIONS = [
   "raw Codex transcripts",
   "raw prompts or message text",
@@ -72,11 +80,17 @@ export function createScorecardSweep(options: ScorecardSweepOptions): ScorecardS
   const evidenceDir = resolve(options.evidenceDir);
   const packageRoot = options.rootDir ? resolve(options.rootDir) : findPackageRoot(dirname(fileURLToPath(import.meta.url))) ?? process.cwd();
   const scorecardDir = options.scorecardDir ? resolve(options.scorecardDir) : join(packageRoot, "evals", "scorecards", "v1.0");
+  if (evidenceDir === scorecardDir) {
+    throw new Error("--evidence-dir must be different from --scorecard-dir");
+  }
   const sourceDirForReport = scorecardDir.startsWith(`${packageRoot}/`) ? scorecardDir.slice(packageRoot.length + 1) : scorecardDir;
 
   mkdirSync(evidenceDir, { recursive: true });
   const scorecards = readScorecards(scorecardDir, evidenceDir);
-  const blockers = scorecards.flatMap((scorecard) => scorecard.blockers);
+  const missingRequiredScorecards = REQUIRED_SCORECARD_NAMES
+    .filter((name) => !scorecards.some((scorecard) => scorecard.name === name))
+    .map((name) => `scorecard_missing:${name}`);
+  const blockers = [...scorecards.flatMap((scorecard) => scorecard.blockers), ...missingRequiredScorecards];
   const sweepPath = join(evidenceDir, "scorecard-sweep.json");
   const report: ScorecardSweepReport = {
     ok: blockers.length === 0,
@@ -107,7 +121,7 @@ export function createScorecardSweep(options: ScorecardSweepOptions): ScorecardS
 
 function readScorecards(scorecardDir: string, evidenceDir: string): ScorecardSweepEntry[] {
   if (!existsSync(scorecardDir)) {
-    return [{
+    const entry: ScorecardSweepEntry = {
       name: "scorecard-directory",
       file: scorecardDir,
       claimClass: "unknown",
@@ -121,7 +135,9 @@ function readScorecards(scorecardDir: string, evidenceDir: string): ScorecardSwe
       nextAction: "Restore evals/scorecards/v1.0 before running milestone sweeps.",
       proofBoundary: "No scorecard proof exists because the scorecard directory is missing.",
       blockers: ["scorecard_directory_missing"]
-    }];
+    };
+    writeScorecardEntry(entry);
+    return [entry];
   }
 
   return readdirSync(scorecardDir)
@@ -163,7 +179,7 @@ function readScorecard(path: string, file: string, evidenceDir: string): Scoreca
     writeFileSync(evidencePath, `${JSON.stringify(entry, null, 2)}\n`);
     return entry;
   } catch {
-    return {
+    const entry: ScorecardSweepEntry = {
       name,
       file,
       claimClass: "unknown",
@@ -178,7 +194,13 @@ function readScorecard(path: string, file: string, evidenceDir: string): Scoreca
       proofBoundary: "Invalid scorecard JSON cannot prove beta readiness.",
       blockers: [`scorecard_invalid_json:${name}`]
     };
+    writeScorecardEntry(entry);
+    return entry;
   }
+}
+
+function writeScorecardEntry(entry: ScorecardSweepEntry): void {
+  writeFileSync(entry.evidencePath, `${JSON.stringify(entry, null, 2)}\n`);
 }
 
 function stringArray(value: unknown): string[] {
