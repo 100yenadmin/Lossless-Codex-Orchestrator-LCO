@@ -17,6 +17,23 @@ The beta should feel like a local orchestration cockpit: OpenClaw can see what C
 - As a maintainer, I can prove the package is local-only, bounded, and honest about unsupported features before public release.
 - As a future adapter author, I can add Claude Code or another agent desktop behind the same index, recall, safety, and proof-boundary patterns without claiming parity early.
 
+## Orchestrator Product-Management Mode
+
+The strongest product direction is an OpenClaw orchestrator agent that can act like a local product-management operator across hundreds of local agent sessions while spending the least context possible. The orchestrator should know which Codex, OpenClaw, and future adapter sessions exist; what project each belongs to; current status; priority; owner or driving agent; blocker state; final closeout; proposed plan; touched files; source refs; and safest next action.
+
+Features should be prioritized by the `orchestrator-leverage-prioritization.json` scorecard when they change roadmap order. High-priority work gives the agent more session-management leverage per token: thread metadata, closeout hooks, project/status/priority tagging, archive and fork workflows, cited bounded expansion, and hybrid search when it improves top-k retrieval quality. Lower-priority work can still matter, but should wait when it makes the product more visually complete without reducing the orchestrator's rereading burden.
+
+Expected product-management workflows:
+
+- Tag threads with thread metadata such as project, status, priority, owner, blocker, next action, closeout state, and source refs.
+- Use closeout or hook agents to attach public-safe summaries and sortable metadata when a plan or thread finishes.
+- Search and triage hundreds of local agent sessions by project, status, plan, final message, touched files, tool metadata, safe summary, and source ref.
+- Expand only the few sessions that need review, using bounded 1k or 4k evidence bundles with citations and omitted markers.
+- Archive inactive sessions, fork useful sessions, and dry-run resume/steer/send actions only after the target and intent are clear.
+- Use hybrid search, such as BM25 plus vectors, query expansion, and reranking, only after fixture and local evals show better signal per token than the simpler index.
+- Provide a simple local Mac search UI after the CLI, MCP, and OpenClaw gateway paths prove the underlying recall loop.
+- Offer a session sanitizer lane that scans indexed sessions for secret-like strings and produces redacted repair tasks without publishing raw local data.
+
 ## Product Shape
 
 - `packages/core` is the local index, recall, safe-summary, source-ref, and SQLite layer.
@@ -62,6 +79,7 @@ Versioned examples live under `evals/scorecards/v1.0/`. Use them as the shared s
 
 - `safety-bypass-review.json`
 - `retrieval-quality-review.json`
+- `orchestrator-leverage-prioritization.json`
 - `packaging-install-review.json`
 - `public-claim-review.json`
 - `local-agent-usability-review.json`
@@ -74,6 +92,7 @@ For implementation issues, copy `evals/scorecards/v1.0/issue-scorecard-update-te
 | --- | --- | --- |
 | Codex indexing | 100+ local sessions indexed with bounded file, byte, and event limits | session count, event count, `errors`, `limitedFiles` |
 | Session map | Agent can list useful active/recent sessions without raw transcript reads | `loo_codex_thread_map` evidence |
+| Orchestrator leverage | Roadmap priority favors highest signal per token for managing many sessions | `orchestrator-leverage-prioritization.json` score movement |
 | Search quality | Known plan/final queries return expected sessions in top results | query, refs, top-k hits |
 | Bounded expansion | 1k and 4k briefs preserve metadata, plans, finals, touched files, and safe summaries | expansion profile, token budget, omitted markers |
 | Final-message extraction | Final assistant/status messages are searchable and attributable | `loo_codex_final_messages` evidence |

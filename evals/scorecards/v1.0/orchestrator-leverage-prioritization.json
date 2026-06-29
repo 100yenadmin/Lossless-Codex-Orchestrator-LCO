@@ -1,0 +1,73 @@
+{
+  "scorecard_version": "1.0",
+  "claim_class": "advisory",
+  "scenario": "Prioritize features by how much they help an OpenClaw orchestrator agent manage hundreds of Codex sessions and other agent sessions with the least context, least rereading, and safest next-action selection.",
+  "surface": "product roadmap",
+  "command_or_tool": [
+    "VISION.md",
+    "GitHub issue prioritization",
+    "loo scorecards sweep --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-<slug>/ --strict",
+    "loo_search_sessions",
+    "loo_describe_ref",
+    "loo_expand_query",
+    "loo_codex_thread_map"
+  ],
+  "expected_public_safe_evidence": [
+    "feature name",
+    "score total",
+    "weighted dimension scores",
+    "expected context saved",
+    "session-management workflow improved",
+    "safe-action boundary",
+    "reuse path",
+    "next issue or milestone"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "raw prompts or message text",
+    "SQLite DBs",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data"
+  ],
+  "pass_criteria": [
+    "A feature scores highest when it gives the orchestrator more accurate session understanding with fewer tokens.",
+    "The highest-scoring work improves session metadata, project/status/priority routing, closeout quality, archive/fork handling, or bounded retrieval.",
+    "Retrieval improvements favor cited, source-prefixed refs and honest omitted markers over larger raw expansions.",
+    "Automation hooks improve metadata and closeout quality without performing live control or GUI mutation.",
+    "Roadmap decisions record why lower-scoring visual, adapter, or desktop features wait behind orchestrator leverage work."
+  ],
+  "fail_criteria": [
+    "A feature is prioritized mainly because it is visually impressive while leaving the orchestrator with more context to read.",
+    "A feature requires broad raw transcript reads to manage sessions.",
+    "A feature blurs read-only recall with live control or GUI mutation.",
+    "A feature creates public evidence from raw sessions, DBs, screenshots, prompts, or secrets.",
+    "Roadmap scoring cannot explain why one feature outranks another."
+  ],
+  "current_score": "example-not-run",
+  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-<slug>/orchestrator-leverage-prioritization.json",
+  "known_gaps": [
+    "Weights are a v1 product rubric and should be recalibrated after local OpenClaw gateway dogfood and retrieval evals produce real score movement.",
+    "Hybrid retrieval, hook agents, archive/fork controls, Mac UI, and session sanitizer features still need child issues before implementation."
+  ],
+  "next_action": "Use this scorecard to rank the post-first-release backlog before filing the next sprint issues.",
+  "proof_boundary": "This advisory public-safe prioritization scorecard guides roadmap order only; it does not prove beta readiness, live control safety, adapter parity, or release approval.",
+  "scoring_weights": {
+    "context_compression_signal_per_token": 30,
+    "session_management_leverage": 20,
+    "retrieval_quality": 15,
+    "safe_actionability": 15,
+    "automation_hook_leverage": 10,
+    "user_facing_utility": 5,
+    "implementation_reuse": 5
+  },
+  "highest_priority_examples": [
+    "thread metadata and closeout schema for project, status, priority, owner, blocker, next action, and source refs",
+    "closeout or hook agents that tag finished threads and plans with public-safe metadata",
+    "session map that lets the orchestrator sort, archive, fork, and resume sessions without raw transcript reads",
+    "LCM-style grep, describe, and expand-query workflow with citations and bounded evidence bundles",
+    "hybrid search using BM25, vector retrieval, query expansion, and reranking when fixture evals prove it improves top-k relevance",
+    "session sanitizer addon that scans indexed sessions for secret-like strings and produces redacted repair tasks",
+    "simple local Mac search UI after the CLI, MCP, and OpenClaw gateway surfaces prove the underlying recall loop"
+  ]
+}

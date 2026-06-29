@@ -11,6 +11,7 @@ const tsxImport = createRequire(import.meta.url).resolve("tsx");
 
 const expectedScorecards = [
   "local-agent-usability-review",
+  "orchestrator-leverage-prioritization",
   "packaging-install-review",
   "public-claim-review",
   "retrieval-quality-review",
