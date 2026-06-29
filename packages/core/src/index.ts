@@ -505,15 +505,18 @@ export function expandSession(db: LooDatabase, options: ExpandSessionOptions): E
 
 function formatTouchedFiles(files: string[], limit: number, maxChars: number): string {
   const perPathLimit = maxChars > 1000 ? 180 : 120;
-  const omittedMarker = files.length > limit ? `- ... ${files.length - limit} more touched files omitted` : null;
-  const visibleMaxChars = omittedMarker ? Math.max(0, maxChars - omittedMarker.length - 1) : maxChars;
   const visible: string[] = [];
   for (const file of files.slice(0, limit)) {
     const next = `- ${truncate(file, perPathLimit)}`;
+    const hiddenIfAccepted = files.length - (visible.length + 1);
+    const markerIfAccepted = hiddenIfAccepted > 0 ? `- ... ${hiddenIfAccepted} more touched files omitted` : null;
+    const visibleMaxChars = markerIfAccepted ? Math.max(0, maxChars - markerIfAccepted.length - 1) : maxChars;
     const candidate = [...visible, next].join("\n");
     if (candidate.length > visibleMaxChars) break;
     visible.push(next);
   }
+  const omittedMarker = files.length > visible.length ? `- ... ${files.length - visible.length} more touched files omitted` : null;
+  const visibleMaxChars = omittedMarker ? Math.max(0, maxChars - omittedMarker.length - 1) : maxChars;
   const visibleText = truncate(visible.join("\n"), visibleMaxChars);
   return [visibleText, omittedMarker].filter(Boolean).join("\n");
 }

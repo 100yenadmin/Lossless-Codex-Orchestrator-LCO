@@ -33,6 +33,31 @@
     "onStartup": true
   },
   "contracts": {
-    "tools": []
+    "tools": [
+      "loo_index_sessions",
+      "loo_search_sessions",
+      "loo_grep",
+      "loo_describe_session",
+      "loo_describe_ref",
+      "loo_expand_session",
+      "loo_expand_query",
+      "loo_codex_thread_map",
+      "loo_codex_final_messages",
+      "loo_codex_plans",
+      "loo_codex_touched_files",
+      "loo_codex_tool_calls",
+      "loo_codex_sqlite_stores",
+      "loo_lcm_peer_dbs",
+      "loo_codex_control_dry_run",
+      "loo_codex_resume_thread",
+      "loo_codex_send_message",
+      "loo_codex_steer_thread",
+      "loo_codex_interrupt_thread",
+      "loo_desktop_see",
+      "loo_desktop_act",
+      "loo_doctor",
+      "loo_permissions",
+      "loo_audit_tail"
+    ]
   }
 }

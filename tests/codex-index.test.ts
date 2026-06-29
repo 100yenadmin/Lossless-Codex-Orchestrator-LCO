@@ -151,6 +151,10 @@ test("bounded expansion keeps proposed plans and touched files visible when fina
     assert.equal(expanded.text.includes("Touched files:"), true);
     assert.equal(expanded.text.includes("really-long-path-segment"), true);
     assert.equal(expanded.text.includes("more touched files omitted"), true);
+    const touchedBlock = expanded.text.match(/Touched files:\n(?<block>[\s\S]*?)\n\nPlans:/)?.groups?.block ?? "";
+    const renderedFiles = touchedBlock.split("\n").filter((line) => line.startsWith("- ") && !line.startsWith("- ... ")).length;
+    const omittedFiles = Number(touchedBlock.match(/- \.\.\. (?<count>\d+) more touched files omitted/)?.groups?.count ?? 0);
+    assert.equal(renderedFiles + omittedFiles, getCodexTouchedFiles(db, { threadId: "019f-long-final" }).length);
     assert.equal(expanded.text.length <= 4000, true);
     assert.equal(expanded.text.includes("Plans:"), true);
     assert.equal(expanded.text.includes("Keep the plan visible"), true);

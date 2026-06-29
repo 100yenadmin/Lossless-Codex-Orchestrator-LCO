@@ -5,7 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { test } from "node:test";
+import { LOO_COMMAND_POLICY } from "../packages/adapters/src/index.js";
 import { runReleasePreflight } from "../packages/cli/src/release-preflight.js";
+import { createLooToolDeclarations } from "../packages/mcp-server/src/tools.js";
 
 const tsxImport = createRequire(import.meta.url).resolve("tsx");
 
@@ -118,7 +120,9 @@ test("OpenClaw plugin manifest is packageable and matches the beta safety bounda
   const sourceManifest = JSON.parse(read("packages/openclaw-plugin/openclaw.plugin.json")) as {
     id?: string;
     mcp?: { command?: string; transport?: string };
+    contracts?: { tools?: string[] };
   };
+  const expectedToolNames = createLooToolDeclarations().map((tool) => tool.name);
 
   assert.equal(packageJson.name, "lossless-openclaw-orchestrator");
   assert.equal(packageJson.type, "module");
@@ -130,6 +134,7 @@ test("OpenClaw plugin manifest is packageable and matches the beta safety bounda
   assert.equal(manifest.id, "lossless-openclaw-orchestrator");
   assert.equal(sourceManifest.id, manifest.id);
   assert.equal(sourceManifest.mcp?.command, manifest.mcp?.command);
+  assert.deepEqual([...expectedToolNames].sort(), Object.keys(LOO_COMMAND_POLICY).sort());
   assert.equal(manifest.name, "Lossless OpenClaw Orchestrator");
   assert.match(manifest.description ?? "", /local Codex sessions/i);
   assert.match(manifest.description ?? "", /approval-gated controls/i);
@@ -139,7 +144,8 @@ test("OpenClaw plugin manifest is packageable and matches the beta safety bounda
   assert.equal(manifest.tools?.prefix, "loo_");
   assert.deepEqual(manifest.configSchema, { type: "object", additionalProperties: false, properties: {} });
   assert.equal(manifest.activation?.onStartup, true);
-  assert.deepEqual(manifest.contracts?.tools, []);
+  assert.deepEqual(manifest.contracts?.tools, expectedToolNames);
+  assert.deepEqual(sourceManifest.contracts?.tools, expectedToolNames);
   assert.equal(manifest.safety?.localOnlyByDefault, true);
   assert.deepEqual(manifest.safety?.liveControlRequires, ["dry_run", "approval_audit_id"]);
   assert.deepEqual(manifest.safety?.forbiddenClaims, [
@@ -275,6 +281,33 @@ test("release preflight rejects proof markers with unexpected private fields", (
   assert.deepEqual(payload.blockers, ["approved_live_control_smoke_missing"]);
 });
 
+test("release preflight fails closed when the OpenClaw runtime extension artifact is missing", () => {
+  const rootDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-missing-runtime-root-"));
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-missing-runtime-evidence-"));
+  const liveControlProof = join(evidenceDir, "approved-live-control-smoke.json");
+  writeProjectSkeleton(rootDir, { runtimeArtifact: false });
+  writeFileSync(liveControlProof, `${JSON.stringify({
+    kind: "loo_approved_live_control_smoke",
+    approvedLiveControlSmoke: true,
+    action: "send",
+    targetRef: "codex_thread:test-thread",
+    approvalAuditId: "audit_test",
+    messageHash: "sha256:test",
+    preservesCodexApprovalSemantics: true,
+    rawPromptIncluded: false
+  }, null, 2)}\n`);
+
+  const payload = runReleasePreflight({
+    rootDir,
+    evidenceDir,
+    approvedLiveControlEvidence: liveControlProof
+  });
+
+  assert.equal(payload.releaseReady, false);
+  assert.equal(payload.checks.openclawManifest?.ok, false);
+  assert.deepEqual(payload.blockers, ["openclawManifest_failed"]);
+});
+
 test("release preflight reports malformed package JSON as a structured blocker", () => {
   const rootDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-invalid-root-"));
   const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-invalid-evidence-"));
@@ -383,9 +416,13 @@ test("release preflight reports raw artifacts already present in the evidence di
   ]);
 });
 
-function writeProjectSkeleton(rootDir: string, overrides: { readme?: string } = {}): void {
+function writeProjectSkeleton(rootDir: string, overrides: { readme?: string; runtimeArtifact?: boolean } = {}): void {
   mkdirSync(join(rootDir, "docs"), { recursive: true });
   mkdirSync(join(rootDir, "packages/openclaw-plugin"), { recursive: true });
+  if (overrides.runtimeArtifact !== false) {
+    mkdirSync(join(rootDir, "dist/packages/openclaw-plugin/src"), { recursive: true });
+    writeFileSync(join(rootDir, "dist/packages/openclaw-plugin/src/index.js"), "export default {};\n");
+  }
   writeFileSync(join(rootDir, "package.json"), JSON.stringify({
     name: "lossless-openclaw-orchestrator",
     version: "0.1.0-beta.0",

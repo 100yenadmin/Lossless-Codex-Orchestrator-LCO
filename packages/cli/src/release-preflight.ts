@@ -1,6 +1,6 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { basename, dirname, extname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, resolve, sep } from "node:path";
 
 export type ReleasePreflightOptions = {
   evidenceDir?: string;
@@ -81,8 +81,10 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
     tools?: { prefix?: string };
     safety?: { localOnlyByDefault?: boolean; liveControlRequires?: string[] };
   } | null;
+  const runtimeExtensions = packageJson?.openclaw?.runtimeExtensions ?? [];
   const openclawPackageMetadataOk = packageJson?.openclaw?.extensions?.includes("./packages/openclaw-plugin/src/index.ts")
-    && packageJson.openclaw.runtimeExtensions?.includes("./dist/packages/openclaw-plugin/src/index.js")
+    && runtimeExtensions.includes("./dist/packages/openclaw-plugin/src/index.js")
+    && runtimeExtensions.every((entry) => packageRuntimeFileExists(packageRoot, entry))
     && packageJson.openclaw.compat?.pluginApi === ">=2026.6.8"
     && packageJson.openclaw.build?.openclawVersion === ">=2026.6.8";
 
@@ -143,6 +145,17 @@ function readJson(root: string, path: string): JsonReadResult {
     return { value: JSON.parse(text), error: null };
   } catch {
     return { value: null, error: `invalid JSON in ${path}` };
+  }
+}
+
+function packageRuntimeFileExists(root: string, entry: string): boolean {
+  const packageRoot = resolve(root);
+  const resolved = resolve(packageRoot, entry);
+  if (resolved !== packageRoot && !resolved.startsWith(`${packageRoot}${sep}`)) return false;
+  try {
+    return statSync(resolved).isFile();
+  } catch {
+    return false;
   }
 }
 

@@ -37,6 +37,41 @@ export type LooTool = {
   execute(input: Record<string, unknown>): Promise<unknown> | unknown;
 };
 
+export type LooToolDeclaration = Pick<LooTool, "name" | "description" | "inputSchema">;
+
+const metadataOnlyAudit: AuditStore = {
+  path: "metadata-only",
+  append() {
+    throw new Error("metadata-only audit store cannot append records");
+  },
+  find() {
+    return null;
+  },
+  tail() {
+    return [];
+  },
+  fingerprintText() {
+    return "metadata-only";
+  },
+  fingerprintValue() {
+    return "metadata-only";
+  }
+};
+
+const metadataOnlyCodexClient: CodexClient = {
+  async request() {
+    throw new Error("metadata-only Codex client cannot execute requests");
+  }
+};
+
+export function createLooToolDeclarations(): LooToolDeclaration[] {
+  return createLooTools({
+    db: {} as LooDatabase,
+    audit: metadataOnlyAudit,
+    codexClient: metadataOnlyCodexClient
+  }).map(({ name, description, inputSchema }) => ({ name, description, inputSchema }));
+}
+
 export function createLooTools(options: { db: LooDatabase; audit: AuditStore; codexClient: CodexClient; desktopProbe?: DesktopProbe }): LooTool[] {
   const control = createCodexControl({ audit: options.audit, client: options.codexClient });
   return [
