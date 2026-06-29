@@ -190,7 +190,8 @@ async function main() {
       approvedLiveControlEvidence: parsed.approvedLiveControlEvidence,
       npmPublishApprovalEvidence: parsed.npmPublishApprovalEvidence,
       githubReleaseApprovalEvidence: parsed.githubReleaseApprovalEvidence,
-      desktopGuiApprovalEvidence: parsed.desktopGuiApprovalEvidence
+      desktopGuiApprovalEvidence: parsed.desktopGuiApprovalEvidence,
+      desktopGuiRequired: parsed.desktopGuiRequired
     });
     console.log(JSON.stringify(report, null, 2));
     if (parsed.strict && !report.releaseReady) process.exitCode = 1;
@@ -225,7 +226,7 @@ async function main() {
     "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--strict]",
     "  loo release preflight [--evidence-dir path] [--approved-live-control-evidence path] [--strict]",
     "  loo release bundle --evidence-dir path [--approved-live-control-evidence path] [--strict]",
-    "  loo release status --evidence-dir path [--approved-live-control-evidence path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--desktop-gui-approval-evidence path] [--strict]",
+    "  loo release status --evidence-dir path [--approved-live-control-evidence path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--desktop-gui-required --desktop-gui-approval-evidence path] [--strict]",
     "  loo release demo-status --evidence-dir path [--approved-live-control-evidence path] [--min-sessions n] [--strict]"
   ].join("\n"));
   process.exitCode = 2;
@@ -449,6 +450,7 @@ function parseReleaseStatusArgs(input: string[]): {
   npmPublishApprovalEvidence?: string;
   githubReleaseApprovalEvidence?: string;
   desktopGuiApprovalEvidence?: string;
+  desktopGuiRequired: boolean;
   strict: boolean;
 } {
   let evidenceDir: string | undefined;
@@ -456,6 +458,7 @@ function parseReleaseStatusArgs(input: string[]): {
   let npmPublishApprovalEvidence: string | undefined;
   let githubReleaseApprovalEvidence: string | undefined;
   let desktopGuiApprovalEvidence: string | undefined;
+  let desktopGuiRequired = false;
   let strict = false;
   for (let index = 0; index < input.length; index += 1) {
     const arg = input[index]!;
@@ -479,6 +482,10 @@ function parseReleaseStatusArgs(input: string[]): {
       desktopGuiApprovalEvidence = readReleaseStatusPath(input, ++index, "--desktop-gui-approval-evidence");
       continue;
     }
+    if (arg === "--desktop-gui-required") {
+      desktopGuiRequired = true;
+      continue;
+    }
     if (arg === "--strict") {
       strict = true;
       continue;
@@ -486,7 +493,7 @@ function parseReleaseStatusArgs(input: string[]): {
     throw new Error(`Unknown release status option: ${arg}`);
   }
   if (!evidenceDir) throw new Error("release status requires --evidence-dir");
-  return { evidenceDir, approvedLiveControlEvidence, npmPublishApprovalEvidence, githubReleaseApprovalEvidence, desktopGuiApprovalEvidence, strict };
+  return { evidenceDir, approvedLiveControlEvidence, npmPublishApprovalEvidence, githubReleaseApprovalEvidence, desktopGuiApprovalEvidence, desktopGuiRequired, strict };
 }
 
 function readReleaseStatusPath(input: string[], index: number, flag: string): string {
