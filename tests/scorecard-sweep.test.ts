@@ -72,6 +72,41 @@ test("loo scorecards sweep strict mode exits non-zero until scorecards have evid
   assert.match((report.blockers ?? []).join("\n"), /scorecard_not_run/);
 });
 
+test("loo scorecards sweep --help exits zero with strict-mode and evidence guidance", () => {
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "scorecards",
+    "sweep",
+    "--help"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.doesNotMatch(result.stderr, /Unknown scorecards sweep option|Error:/);
+  assert.match(result.stdout, /loo scorecards sweep --evidence-dir path/);
+  assert.match(result.stdout, /--evidence-dir is required/);
+  assert.match(result.stdout, /--strict exits non-zero/i);
+  assert.match(result.stdout, /scorecard_not_run/);
+  assert.match(result.stdout, /does not run live Codex control/i);
+  assert.match(result.stdout, /does not publish npm/i);
+});
+
+test("loo scorecards sweep unknown options still fail closed after help support", () => {
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "scorecards",
+    "sweep",
+    "--not-a-real-option"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.match(result.stderr, /Unknown scorecards sweep option: --not-a-real-option/);
+  assert.equal(result.stdout, "");
+});
+
 test("scorecard sweep rejects evidence directory that would overwrite source scorecards", () => {
   const scorecardDir = mkdtempSync(join(tmpdir(), "loo-scorecard-source-"));
 

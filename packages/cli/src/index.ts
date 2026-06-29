@@ -170,6 +170,10 @@ async function main() {
     return;
   }
   if (command === "scorecards" && args[0] === "sweep") {
+    if (hasHelpFlag(args.slice(1))) {
+      printScorecardSweepHelp();
+      return;
+    }
     const parsed = parseScorecardSweepArgs(args.slice(1));
     const report = createScorecardSweep(parsed);
     console.log(JSON.stringify(report, null, 2));
@@ -222,6 +226,10 @@ async function main() {
     return;
   }
   if (command === "release" && args[0] === "status") {
+    if (hasHelpFlag(args.slice(1))) {
+      printReleaseStatusHelp();
+      return;
+    }
     const parsed = parseReleaseStatusArgs(args.slice(1));
     const report = createReleaseStatus({
       evidenceDir: parsed.evidenceDir,
@@ -276,6 +284,49 @@ async function main() {
 }
 
 await main();
+
+function hasHelpFlag(input: string[]): boolean {
+  return input.includes("--help") || input.includes("-h");
+}
+
+function printScorecardSweepHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--strict]",
+    "",
+    "Writes a public-safe scorecard sweep packet for the beta acceptance scorecards.",
+    "",
+    "Required:",
+    "  --evidence-dir is required and must not be the same directory as --scorecard-dir.",
+    "",
+    "Strict mode:",
+    "  --strict exits non-zero when scorecards are missing, invalid, example-not-run, failed, or when raw evidence artifacts are present.",
+    "  Common blockers include scorecard_not_run:<name>, scorecard_missing:<name>, and raw_artifact:<reason>:<name>.",
+    "",
+    "Safety boundary:",
+    "  The command does not run live Codex control, does not mutate a desktop GUI, does not publish npm, and does not create a GitHub Release."
+  ].join("\n"));
+}
+
+function printReleaseStatusHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo release status --evidence-dir path --candidate-sha sha [--approved-live-control-evidence path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--github-ci-evidence path] [--codeql-evidence path] [--desktop-gui-required --desktop-gui-approval-evidence path] [--strict]",
+    "",
+    "Writes a public-safe release status packet without performing gated release actions.",
+    "",
+    "Proof markers:",
+    "  CI and CodeQL checks use kind: \"loo_release_check_evidence\" with check, commitSha, status, conclusion, runUrl, warnings, and rawSecretIncluded: false.",
+    "  npm, GitHub Release, and optional desktop GUI approvals use kind: \"loo_release_operation_approval\" with operation, approved: true, approvalRef, and rawSecretIncluded: false.",
+    "  Live-control proof is validated through release preflight and must be a structured approved live-control smoke marker.",
+    "",
+    "Strict mode:",
+    "  --strict exits non-zero until the candidate SHA, CI/CodeQL proofs, explicit release approvals, and approved live-control smoke evidence satisfy the release gates.",
+    "",
+    "Safety boundary:",
+    "  The command does not publish npm, does not create a GitHub Release, does not run live Codex control, and does not perform desktop GUI mutation."
+  ].join("\n"));
+}
 
 function parseCloseoutDryRunArgs(input: string[]): { threadId?: string; limit?: number; includeUnavailable?: boolean } {
   const parsed: { threadId?: string; limit?: number; includeUnavailable?: boolean } = {};
