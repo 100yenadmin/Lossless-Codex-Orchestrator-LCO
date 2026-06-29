@@ -5,9 +5,11 @@
   "surface": "local macOS app shell",
   "command_or_tool": [
     "loo_search_sessions",
+    "loo_grep",
     "loo_describe_session",
+    "loo_describe_ref",
     "loo_expand_query",
-    "loo_codex_session_management_map",
+    "loo_codex_thread_map",
     "loo_doctor",
     "loo_permissions",
     "loo_desktop_see"

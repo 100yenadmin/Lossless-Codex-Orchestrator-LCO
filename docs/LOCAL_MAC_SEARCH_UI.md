@@ -13,9 +13,11 @@ The UI exists after the CLI, MCP, and OpenClaw gateway paths prove the underlyin
 The first app shell reads from public-safe `loo_*` surfaces:
 
 - `loo_search_sessions` for bounded search results.
+- `loo_grep` for Codex plus optional read-only OpenClaw LCM peer search.
 - `loo_describe_session` for metadata and safe summaries.
+- `loo_describe_ref` for source-prefixed refs such as `codex_thread:*` and `lcm_summary:*`.
 - `loo_expand_query` for bounded brief or evidence profiles.
-- `loo_codex_session_management_map` for active, blocked, needs-expansion, archive, fork, and resume lanes.
+- `loo_codex_thread_map` for active, blocked, needs-expansion, archive, fork, and resume lanes.
 - `loo_codex_plans`, `loo_codex_final_messages`, and `loo_codex_touched_files` for cited detail views.
 - `loo_doctor`, `loo_permissions`, and `loo_desktop_see` for status surfaces.
 

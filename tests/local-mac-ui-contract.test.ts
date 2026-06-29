@@ -28,9 +28,11 @@ test("local Mac search UI contract defines a staged safe-summary app shell witho
     /local DB/i,
     /plugin tools/i,
     /loo_search_sessions/i,
+    /loo_grep/i,
     /loo_describe_session/i,
+    /loo_describe_ref/i,
     /loo_expand_query/i,
-    /loo_codex_session_management_map/i,
+    /loo_codex_thread_map/i,
     /CUA/i,
     /Peekaboo/i,
     /status surfaces/i,
@@ -55,7 +57,10 @@ test("local Mac search UI scorecard records acceptance criteria and proof bounda
   assert.equal(scorecard.surface, "local macOS app shell");
   assert.match(String(scorecard.scenario), /search Codex\/OpenClaw\/future Claude Code sessions/i);
   assert.match(JSON.stringify(scorecard.command_or_tool), /loo_search_sessions/i);
-  assert.match(JSON.stringify(scorecard.command_or_tool), /loo_codex_session_management_map/i);
+  assert.match(JSON.stringify(scorecard.command_or_tool), /loo_grep/i);
+  assert.match(JSON.stringify(scorecard.command_or_tool), /loo_describe_ref/i);
+  assert.match(JSON.stringify(scorecard.command_or_tool), /loo_codex_thread_map/i);
+  assert.doesNotMatch(JSON.stringify(scorecard.command_or_tool), /loo_codex_session_management_map/i);
   assert.match(JSON.stringify(scorecard.pass_criteria), /copy.*source refs/i);
   assert.match(JSON.stringify(scorecard.pass_criteria), /fail closed/i);
   assert.match(JSON.stringify(scorecard.pass_criteria), /project/i);
