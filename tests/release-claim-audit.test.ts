@@ -97,6 +97,50 @@ test("release status examples include live-control evidence alongside release ap
   }
 });
 
+test("beta release runbook defines RC cadence and keeps main distinct from releases", () => {
+  assert.equal(existsSync("docs/BETA_RELEASE_RUNBOOK.md"), true, "docs/BETA_RELEASE_RUNBOOK.md must exist");
+  assert.equal(existsSync(".github/workflows/codeql.yml"), true, ".github/workflows/codeql.yml must exist");
+
+  const readme = read("README.md");
+  const vision = read("VISION.md");
+  const runbook = read("docs/BETA_RELEASE_RUNBOOK.md");
+
+  assert.match(readme, /docs\/BETA_RELEASE_RUNBOOK\.md/);
+  assert.match(vision, /docs\/BETA_RELEASE_RUNBOOK\.md/);
+
+  for (const required of [
+    /npm run check/i,
+    /main is the integration branch, not a release/i,
+    /release candidate/i,
+    /CodeQL code scanning/i,
+    /node \.\/dist\/packages\/cli\/src\/index\.js release preflight/i,
+    /node \.\/dist\/packages\/cli\/src\/index\.js release bundle/i,
+    /node \.\/dist\/packages\/cli\/src\/index\.js release demo-status/i,
+    /node \.\/dist\/packages\/cli\/src\/index\.js release status/i,
+    /node \.\/dist\/packages\/cli\/src\/index\.js openclaw dogfood[^\n]+--required-tool loo_doctor[^\n]+--required-tool loo_search_sessions[^\n]+--required-tool loo_describe_session[^\n]+--required-tool loo_expand_query[^\n]+--required-tool loo_codex_plans[^\n]+--required-tool loo_codex_final_messages[^\n]+--required-tool loo_codex_thread_map[^\n]+--required-tool loo_codex_control_dry_run/i,
+    /--approved-live-control-evidence \/Volumes\/LEXAR\/Codex\/lossless-openclaw-orchestrator\/YYYY-MM-DD\/release-status\/approved-live-control-smoke\.json/i,
+    /--npm-publish-approval-evidence \/Volumes\/LEXAR\/Codex\/lossless-openclaw-orchestrator\/YYYY-MM-DD\/release-status\/npm-approval\.json/i,
+    /--github-release-approval-evidence \/Volumes\/LEXAR\/Codex\/lossless-openclaw-orchestrator\/YYYY-MM-DD\/release-status\/github-release-approval\.json/i,
+    /--desktop-gui-required --desktop-gui-approval-evidence \/Volumes\/LEXAR\/Codex\/lossless-openclaw-orchestrator\/YYYY-MM-DD\/release-status\/desktop-gui-approval\.json/i,
+    /desktopBackend/i,
+    /targetApp/i,
+    /targetWindow/i,
+    /metadata-only\s+install\/tool-declaration coverage/i,
+    /real OpenClaw\s+gateway tool-call evidence/i,
+    /npm pack --dry-run/i,
+    /GitHub Release/i,
+    /npm publish/i,
+    /explicit user approval/i,
+    /do not run live Codex control/i,
+    /do not run GUI mutation/i,
+    /evidence.*\/Volumes\/LEXAR\/Codex\/lossless-openclaw-orchestrator/i,
+    /issue #6/i,
+    /issue #14/i
+  ]) {
+    assert.match(runbook, required);
+  }
+});
+
 test("OpenClaw plugin manifest is packageable and matches the beta safety boundary", () => {
   assert.equal(existsSync("openclaw.plugin.json"), true, "root OpenClaw plugin manifest must exist");
   assert.equal(existsSync("packages/openclaw-plugin/openclaw.plugin.json"), true, "OpenClaw plugin manifest must exist");

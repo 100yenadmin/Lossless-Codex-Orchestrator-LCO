@@ -1,83 +1,119 @@
-# Lossless OpenClaw Orchestrator
+# Orchestrator CCC+L
 
-Control and collaborate with local Codex sessions through OpenClaw using local indexing, bounded recall, and approval-gated controls.
+**Lossless OpenClaw Orchestrator** turns local agent sessions into searchable,
+summarizable, product-management objects for OpenClaw.
 
-This public beta focuses on Codex. Claude Code support is intentionally shipped as an adapter stub until its session storage and control paths are proven.
+3C+L is the working shorthand for **Codex + Claude Code + Lossless**. The beta is
+Codex-first: Claude Code support is intentionally shipped as an adapter stub
+until its storage and control paths are proven.
 
-The product and eval contract lives in [VISION.md](VISION.md). Use it to keep issue work, scorecards, local OpenClaw gateway dogfooding, and release claims aligned.
+[Vision](VISION.md) · [OpenClaw Plugin](docs/OPENCLAW_PLUGIN.md) · [Beta Demo](docs/BETA_RELEASE_DEMO.md) · [Beta Release Runbook](docs/BETA_RELEASE_RUNBOOK.md) · [Claim Audit](docs/CLAIM_AUDIT.md) · [MIT](LICENSE)
 
-Versioned beta scorecard examples live in [`evals/scorecards/v1.0`](evals/scorecards/v1.0/). They define the public-safe evidence shape for safety, retrieval quality, packaging/install, public-claim, and local-agent usability reviews.
+## Why This Exists
 
-## What It Does
+OpenClaw should be able to manage hundreds of local agent sessions without
+spending its whole context window rereading raw transcripts.
 
-- Indexes local Codex session JSONL into a local SQLite database.
-- Lets an OpenClaw agent search, describe, and expand Codex sessions without reading raw thousand-call transcripts.
-- Extracts session metadata, proposed plans, final messages, touched files, tool-call metadata, and safe summaries.
-- Optionally reads OpenClaw LCM peer summary DBs read-only for `grep -> describe -> expand_query` recall without merging stores.
-- Exposes `loo_*` MCP tools for OpenClaw and other MCP clients.
-- Provides approval-gated Codex controls for resume, send, steer, and interrupt.
-- Keeps CUA Driver and Peekaboo behind a desktop fallback adapter boundary.
+LCO gives an orchestrator agent a staged recall loop:
 
-## Safety Model
+1. Find likely sessions cheaply.
+2. Describe the session as compact metadata.
+3. Expand only the few sessions that need evidence.
+4. Recommend or dry-run the next action with source refs.
 
-- Local-only by default.
-- No transcript upload.
-- No raw Codex transcript merge into OpenClaw LCM.
-- Optional OpenClaw LCM peer reads use source-prefixed refs and do not mutate the peer DB.
-- Read/search works without live control.
-- Live Codex control requires a prior dry-run audit record plus `approval_audit_id`.
-- The project does not bypass Codex approvals, permission profiles, or sandbox behavior.
+The product goal is not "search all the logs." The goal is to help an
+orchestrator decide what matters next with the least possible token load.
 
-Allowed public beta claim:
+## Product Spine
 
-> Control and collaborate with local Codex sessions through OpenClaw using local indexing, bounded recall, and approval-gated controls.
+The core product object is a managed session.
 
-Forbidden beta claims:
+A useful managed session should expose:
 
-- Full Claude Code parity
-- Cloud sync
-- Unattended desktop takeover
-- Bypasses Codex permissions
-- Release-grade enterprise security
+- project, status, priority, owner, blocker, and next action
+- proposed-plan refs, final-message refs, and closeout refs
+- touched files, tool metadata, safe summaries, and source refs
+- archive, fork, resume, steer, send, or interrupt recommendations
+- bounded expansion profiles such as metadata-only, brief, and evidence bundle
 
-## Install
+The current beta already indexes and recalls Codex session evidence. The next
+roadmap push is to make this spine explicit enough that an OpenClaw agent can
+triage, prioritize, and manage many sessions as work objects instead of
+rediscovering state from text every time.
+
+## What Works Now
+
+| Area | Status | Notes |
+| --- | --- | --- |
+| Codex session indexing | Beta | Imports local Codex session JSONL/archive data into local SQLite. |
+| Search / describe / expand | Beta | Supports the staged `grep -> describe -> expand_query` recall loop. |
+| Plans, finals, files, tools | Beta | Extracts proposed plans, final messages, touched files, tool-call metadata, and safe summaries. |
+| MCP / OpenClaw tools | Beta | Exposes `loo_*` tools for OpenClaw and other MCP clients. |
+| OpenClaw LCM peer reads | Experimental | Reads peer summary DBs read-only without merging stores. |
+| Codex direct controls | Beta boundary | Resume/send/steer/interrupt are approval-gated and dry-run first. |
+| Desktop fallback | Experimental | CUA Driver and Peekaboo live behind explicit adapter and permission diagnostics. |
+| Scorecards and release proof | Beta | Public-safe scorecards and release-status commands track what is proven. |
+| Claude Code adapter | Stub | No Claude parity claim until the adapter is proven. |
+
+## Upcoming Roadmap
+
+The roadmap is ranked by one question:
+
+> Does this help an OpenClaw orchestrator manage hundreds of sessions with less
+> context, less rereading, and safer action?
+
+1. **Metadata and closeout spine**
+   Track project, status, priority, owner, blocker, next action, closeout state,
+   source refs, and management fields. See
+   [#49](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/49).
+
+2. **Closeout and hook-agent capture**
+   Capture the best metadata when the thread or plan finishes, while context is
+   fresh. See [#50](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/50).
+
+3. **Session map cockpit**
+   Show what is active, blocked, stale, done, safe to archive, or worth
+   expanding. See [#51](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/51).
+
+4. **Retrieval quality and hybrid search**
+   Keep the simple recall loop as the baseline. Add BM25/vector/query expansion
+   and reranking only where evals show better signal per token. See
+   [#52](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/52).
+
+5. **Archive, fork, and closeout controls**
+   Start as recommendations and dry-runs from the session map. Live mutation
+   stays approval-gated.
+
+6. **Session sanitizer lane**
+   Scan locally for secret-like strings and produce redacted repair tasks, not
+   raw secret evidence. See [#54](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/54).
+
+7. **Local Mac search UI**
+   Add a simple user-facing search surface after the CLI, MCP, and OpenClaw
+   gateway paths prove the API shape. See
+   [#55](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/55).
+
+The current sprint tracker is
+[#48](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/48).
+
+## Quick Start
+
+Node.js 22 or newer is required.
+
+```bash
+git clone https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO.git
+cd Lossless-Codex-Orchestrator-LCO
+npm install
+npm run build
+```
+
+Published package target:
 
 ```bash
 npm install -g lossless-openclaw-orchestrator
 ```
 
-For local development:
-
-```bash
-git clone https://github.com/100yenadmin/lossless-openclaw-orchestrator.git
-cd lossless-openclaw-orchestrator
-npm install
-npm test
-```
-
-OpenClaw plugin setup lives in [docs/OPENCLAW_PLUGIN.md](docs/OPENCLAW_PLUGIN.md), with the packageable manifest at `openclaw.plugin.json` and source under `packages/openclaw-plugin`. The beta proof workflow lives in [docs/BETA_RELEASE_DEMO.md](docs/BETA_RELEASE_DEMO.md), the public claim boundary is audited in [docs/CLAIM_AUDIT.md](docs/CLAIM_AUDIT.md), and draft public beta notes live in [docs/RELEASE_NOTES_0.1.0-beta.0.md](docs/RELEASE_NOTES_0.1.0-beta.0.md).
-
-## CLI
-
-```bash
-loo doctor
-loo desktop see cua-driver
-loo desktop see peekaboo --snapshot --max-nodes 50
-loo desktop act cua-driver "click primary" # dry-run only
-loo index codex --max-files 150 --max-bytes-per-file 52428800 --max-events-per-file 50000 ~/.codex/sessions ~/.codex/archived_sessions
-loo search "proposed plan billing bridge"
-loo grep --lcm-db ~/.openclaw/lcm.db "billing bridge"
-loo describe codex_thread:019f-example
-loo expand-query --profile brief "billing bridge"
-loo serve
-loo scorecards sweep --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-scorecard-sweep --strict
-loo release preflight --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight
-loo release bundle --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-bundle
-loo release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --approved-live-control-evidence approved-live-control-smoke.json --npm-publish-approval-evidence npm-approval.json --github-release-approval-evidence github-release-approval.json
-loo release demo-status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/demo --approved-live-control-evidence approved-live-control-smoke.json
-```
-
-Database path:
+Default local database:
 
 ```bash
 export LOO_DB_PATH="$HOME/.openclaw/lossless-openclaw-orchestrator/orchestrator.sqlite"
@@ -88,6 +124,56 @@ Optional read-only OpenClaw LCM peer DBs:
 ```bash
 export LOO_LCM_DB_PATHS="$HOME/.openclaw/lcm.db"
 ```
+
+## CLI
+
+```bash
+loo doctor
+loo index codex --max-files 150 ~/.codex/sessions ~/.codex/archived_sessions
+loo search "proposed plan billing bridge"
+loo grep --lcm-db ~/.openclaw/lcm.db "billing bridge"
+loo describe codex_thread:019f-example
+loo expand-query --profile brief "billing bridge"
+loo serve
+```
+
+Desktop readiness checks:
+
+```bash
+loo desktop see cua-driver
+loo desktop see peekaboo --snapshot --max-nodes 50
+loo desktop act cua-driver "click primary" # dry-run only in this beta
+```
+
+Scorecard and release proof commands:
+
+```bash
+loo scorecards sweep --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-scorecard-sweep --strict
+loo release preflight --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight
+loo release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --approved-live-control-evidence approved-live-control-smoke.json --npm-publish-approval-evidence npm-approval.json --github-release-approval-evidence github-release-approval.json --desktop-gui-approval-evidence desktop-gui-approval.json
+loo release demo-status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/demo
+```
+
+The beta proof workflow lives in [docs/BETA_RELEASE_DEMO.md](docs/BETA_RELEASE_DEMO.md).
+The release cadence and approval gates live in
+[docs/BETA_RELEASE_RUNBOOK.md](docs/BETA_RELEASE_RUNBOOK.md).
+
+## Beta Claim Boundary
+
+Allowed public beta claim:
+
+> Control and collaborate with local Codex sessions through OpenClaw using local
+> indexing, bounded recall, and approval-gated controls.
+
+Forbidden beta claims:
+
+- Full Claude Code parity
+- cloud sync
+- unattended desktop takeover
+- bypasses Codex permissions
+- release-grade enterprise security
+
+Detailed public-claim checks live in [docs/CLAIM_AUDIT.md](docs/CLAIM_AUDIT.md).
 
 ## MCP / OpenClaw Tools
 
@@ -119,20 +205,10 @@ Approval-gated controls:
 - `loo_codex_steer_thread`
 - `loo_codex_interrupt_thread`
 
-Dry-run control results include `approval_audit_id`, `params_hash`, and, for message-bearing actions, `message_hash`. These are local keyed fingerprints, not raw prompt text. Live control must provide the matching `approval_audit_id`; `loo_audit_tail` exposes recent audit records with fingerprints and no raw prompt text.
-
 Desktop fallback:
 
 - `loo_desktop_see`
 - `loo_desktop_act`
-
-`loo doctor` and `loo desktop see cua-driver` report CUA Driver binary availability, the preferred MCP stdio launch command (`cua-driver mcp` unless `LOO_CUA_DRIVER_BIN` overrides it), launch-readiness notes, permission status, limitations, and whether focus changed during a status-only observation. They do not start the GUI-control backend just to prove readiness. `loo_desktop_act` is dry-run-only in this beta and does not perform GUI actions.
-
-`loo desktop see peekaboo --snapshot` is an explicit read-only observation path. It runs Peekaboo with `--no-remote`, blocks denylisted sensitive frontmost apps before capture, redacts extracted text, bounds element counts, and still does not enable generic click/type/send actions.
-
-When a guarded Peekaboo snapshot succeeds, the `visibleCodex.threadMap` field exposes a bounded read-only map of visible Codex thread candidates with redacted titles, status/update labels, source element ids, bounds, centers, confidence, and stable visible ids. This is GUI inventory only; it does not join raw Codex transcripts or enable visible GUI mutation.
-
-`visibleCodex.windows` exposes the captured frontmost Codex window metadata from the same guarded snapshot. `visibleCodex.windows` and `visibleCodex.threadMap` are omitted for non-Codex snapshots, even when the frontmost app is otherwise safe to observe.
 
 Admin:
 
@@ -141,15 +217,20 @@ Admin:
 - `loo_permissions`
 - `loo_audit_tail`
 
+OpenClaw setup lives in [docs/OPENCLAW_PLUGIN.md](docs/OPENCLAW_PLUGIN.md).
+
 ## Architecture
 
-- `packages/core`: SQLite schema, Codex import, search, expansion, extraction.
+- `packages/core`: SQLite schema, Codex import, search, expansion, extraction, source refs.
 - `packages/mcp-server`: stdio MCP tool server.
-- `packages/openclaw-plugin`: OpenClaw plugin metadata.
+- `packages/openclaw-plugin`: OpenClaw plugin metadata and registration.
 - `packages/cli`: `loo` CLI.
 - `packages/adapters`: Codex control, CUA/Peekaboo boundary, Claude Code stub.
+- `evals/scorecards/v1.0`: beta scorecards for safety, retrieval, install, claims, usability, and orchestrator leverage.
+- `docs/`: install, demo, privacy, safe summaries, release proof, release runbook, and public-claim boundaries.
 
-Direct Codex protocol is preferred for thread work. GUI automation is a fallback for visible app collaboration only.
+Direct Codex protocol is preferred for thread work. GUI automation is a fallback
+for visible app collaboration only.
 
 ## Development
 
@@ -157,44 +238,27 @@ Direct Codex protocol is preferred for thread work. GUI automation is a fallback
 npm run typecheck
 npm test
 npm run build
+npm run check
 ```
 
 The test suite uses redacted fixtures and Node's built-in test runner.
 
-Release preflight:
-
-```bash
-loo release preflight --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight
-```
-
-The preflight writes a public-safe `release-preflight.json` artifact manifest. It reports `approved_live_control_smoke_missing` until an explicit approved live-control evidence path is supplied, and `--strict` exits non-zero while any release blocker remains.
-
-Release bundle:
-
-```bash
-loo release bundle --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-bundle
-```
-
-The bundle command copies the checked-in beta release notes, writes `release-bundle.json`, runs the same preflight checks, and explicitly records that it did not publish to npm or create a GitHub Release.
-
-Release status:
-
-```bash
-loo release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --approved-live-control-evidence approved-live-control-smoke.json --npm-publish-approval-evidence npm-approval.json --github-release-approval-evidence github-release-approval.json
-```
-
-The status command writes `release-status.json`, wraps the preflight result, lists remaining explicit approvals, and records that it did not publish to npm, create a GitHub Release, run live Codex control, or mutate a desktop GUI. Use `--strict` to fail closed while release or approval blockers remain. Npm and GitHub release approvals alone do not clear `approved_live_control_smoke_missing`; pass `--approved-live-control-evidence` with the structured live-control smoke proof when that gate has explicit approval. Release operation approval proofs use `kind: "loo_release_operation_approval"`, `operation: "npm_publish" | "github_release"`, `approved: true`, a non-empty `approvalRef`, and `rawSecretIncluded: false`.
-
-Release demo status:
-
-```bash
-loo release demo-status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/demo --approved-live-control-evidence approved-live-control-smoke.json
-```
-
-The demo-status command validates public-safe JSON evidence from the beta demo workflow and writes `release-demo-status.json`. It expects bounded evidence files such as `index-codex.json`, `plans-search.json`, `finals-search.json`, `expand-brief.json`, `expand-evidence.json`, and `control-dry-run.json`; it reports explicit blockers instead of running live Codex control, mutating a desktop GUI, publishing npm, or creating a GitHub Release. Use `--strict` to fail closed while demo proof or approval evidence is missing.
+Every meaningful issue should include a failing test, fixture, smoke, or eval
+scenario; minimal implementation; focused validation; public-safe evidence; and
+an issue or PR status update.
 
 ## Privacy
 
-The default index is local SQLite. The index stores safe text and metadata so agents can search and expand bounded evidence. Raw local session files remain source-of-truth and are referenced by source path; users should not commit private DB files or session transcripts. LCM peers are configured explicitly and read through `lcm_summary:*` refs without copying summaries into the Codex index.
+The default index is local SQLite. The index stores safe text and metadata so
+agents can search and expand bounded evidence. Raw local session files remain
+the source of truth and should not be committed.
 
-See [docs/SAFE_SUMMARIES.md](docs/SAFE_SUMMARIES.md) for the beta safe-summary contract.
+Public evidence should contain counts, refs, hashes, statuses, and redacted
+metadata. It should not contain raw transcripts, raw prompts, SQLite databases,
+tokens, cookies, API keys, screenshots, videos, or private customer data.
+
+See [docs/PRIVACY.md](docs/PRIVACY.md) and [docs/SAFE_SUMMARIES.md](docs/SAFE_SUMMARIES.md).
+
+## License
+
+MIT.

@@ -130,8 +130,20 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       lcmDbPaths: optionalRoots(input.lcm_db_paths, configuredLcmPeerDbPaths())
     })),
     tool("loo_codex_thread_map", "Read the indexed Codex thread map.", {
-      limit: { type: "integer", minimum: 1, maximum: 500 }
-    }, (input) => getCodexThreadMap(options.db, { limit: optionalNumber(input.limit) })),
+      limit: { type: "integer", minimum: 1, maximum: 500 },
+      project: { type: "string" },
+      status: { type: "string" },
+      priority: { type: "string" },
+      blocker: { type: "string" },
+      priority_order: { type: "array", items: { type: "string" } }
+    }, (input) => getCodexThreadMap(options.db, {
+      limit: optionalNumber(input.limit),
+      project: optionalString(input.project),
+      status: optionalString(input.status),
+      priority: optionalString(input.priority),
+      blocker: optionalString(input.blocker),
+      priorityOrder: optionalStringArray(input.priority_order)
+    })),
     tool("loo_codex_final_messages", "Read final assistant/status messages extracted from Codex sessions.", {
       thread_id: { type: "string" },
       limit: { type: "integer", minimum: 1, maximum: 500 }
