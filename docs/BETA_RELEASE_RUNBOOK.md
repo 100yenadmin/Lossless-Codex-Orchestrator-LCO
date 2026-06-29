@@ -146,6 +146,19 @@ evidence must prove the gateway invoked `loo_doctor`, `loo_search_sessions`,
 `loo_codex_control_dry_run`, including dry-run control audit creation without
 mutating a real Codex thread.
 
+Use the narrow gateway tool-call smoke for that proof:
+
+```bash
+node ./dist/packages/cli/src/index.js openclaw tool-smoke --profile lco-dogfood --session-key agent:main:lco-dogfood --required-tool loo_doctor --required-tool loo_search_sessions --required-tool loo_describe_session --required-tool loo_expand_query --required-tool loo_codex_plans --required-tool loo_codex_final_messages --required-tool loo_codex_thread_map --required-tool loo_codex_control_dry_run --evidence-path /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/openclaw-dogfood/tool-smoke.json --strict
+```
+
+This command calls OpenClaw Gateway `tools.catalog` and `tools.invoke`, then
+stores only required-tool coverage, source-prefixed refs, counts, bounded
+profile names, dry-run `approval_audit_id`, `params_hash`, `message_hash`, and
+blocker codes. It must not store raw gateway stdout/stderr, raw tool output, raw
+Codex transcript text, raw prompts, SQLite DBs, screenshots, tokens, or
+credentials.
+
 Do not use the OpenClaw smoke to run live Codex control, GUI mutation, npm
 publish, or GitHub Release creation.
 

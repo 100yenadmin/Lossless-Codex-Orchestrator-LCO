@@ -25,6 +25,7 @@ import { createReleaseDemoStatus } from "./release-demo-status.js";
 import { runReleasePreflight } from "./release-preflight.js";
 import { createReleaseStatus } from "./release-status.js";
 import { runOpenClawDogfood } from "./openclaw-dogfood.js";
+import { runOpenClawToolSmoke } from "./openclaw-tool-smoke.js";
 import { createScorecardSweep } from "./scorecard-sweep.js";
 
 const [, , command, ...args] = process.argv;
@@ -180,6 +181,13 @@ async function main() {
     if (parsed.strict && !report.dogfoodReady) process.exitCode = 1;
     return;
   }
+  if (command === "openclaw" && args[0] === "tool-smoke") {
+    const parsed = parseOpenClawToolSmokeArgs(args.slice(1));
+    const report = runOpenClawToolSmoke(parsed);
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.toolSmokeReady) process.exitCode = 1;
+    return;
+  }
   if (command === "scorecards" && args[0] === "sweep") {
     if (hasHelpFlag(args.slice(1))) {
       printScorecardSweepHelp();
@@ -285,6 +293,7 @@ async function main() {
     "  loo serve",
     "  loo audit-path",
     "  loo openclaw dogfood [--dev] [--profile name] [--install-source path] [--link] [--force-install] [--evidence-path path] [--strict]",
+    "  loo openclaw tool-smoke [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--thread-id id] [--expand-profile metadata|brief|evidence] [--token-budget n] [--required-tool name] [--evidence-path path] [--strict]",
     "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--strict]",
     "  loo eval retrieval --scenario-file path [--evidence-path path] [--strict]",
     "  loo release preflight [--evidence-dir path] [--approved-live-control-evidence path] [--strict]",
@@ -535,6 +544,64 @@ function parseDesktopBackend(value: string | undefined): DesktopBackend | undefi
   if (value === undefined) return undefined;
   if (isDesktopBackend(value)) return value;
   throw new Error("desktop backend must be direct, cua-driver, or peekaboo");
+}
+
+function parseOpenClawToolSmokeArgs(input: string[]): {
+  openclawBin?: string;
+  dev?: boolean;
+  profile?: string;
+  gatewayUrl?: string;
+  token?: string;
+  sessionKey?: string;
+  query?: string;
+  threadId?: string;
+  expandProfile?: "metadata" | "brief" | "evidence";
+  tokenBudget?: number;
+  evidencePath?: string;
+  requiredTools?: string[];
+  gatewayTimeoutMs?: number;
+  strict?: boolean;
+} {
+  const parsed: ReturnType<typeof parseOpenClawToolSmokeArgs> = {};
+  const requiredTools: string[] = [];
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--openclaw-bin") {
+      parsed.openclawBin = requireOptionValue(input[++index], arg);
+    } else if (arg === "--dev") {
+      parsed.dev = true;
+    } else if (arg === "--profile") {
+      parsed.profile = requireOptionValue(input[++index], arg);
+    } else if (arg === "--gateway-url") {
+      parsed.gatewayUrl = requireOptionValue(input[++index], arg);
+    } else if (arg === "--token") {
+      parsed.token = requireOptionValue(input[++index], arg);
+    } else if (arg === "--gateway-timeout-ms") {
+      parsed.gatewayTimeoutMs = parsePositiveInteger(input[++index], arg, 600_000);
+    } else if (arg === "--session-key") {
+      parsed.sessionKey = requireOptionValue(input[++index], arg);
+    } else if (arg === "--query") {
+      parsed.query = requireOptionValue(input[++index], arg);
+    } else if (arg === "--thread-id") {
+      parsed.threadId = requireOptionValue(input[++index], arg);
+    } else if (arg === "--expand-profile") {
+      const value = requireOptionValue(input[++index], arg);
+      if (value !== "metadata" && value !== "brief" && value !== "evidence") throw new Error("--expand-profile must be metadata, brief, or evidence");
+      parsed.expandProfile = value;
+    } else if (arg === "--token-budget") {
+      parsed.tokenBudget = parsePositiveInteger(input[++index], arg, 8000);
+    } else if (arg === "--required-tool") {
+      requiredTools.push(requireOptionValue(input[++index], arg));
+    } else if (arg === "--evidence-path") {
+      parsed.evidencePath = requireOptionValue(input[++index], arg);
+    } else if (arg === "--strict") {
+      parsed.strict = true;
+    } else {
+      throw new Error(`Unknown openclaw tool-smoke option: ${arg}`);
+    }
+  }
+  if (requiredTools.length > 0) parsed.requiredTools = requiredTools;
+  return parsed;
 }
 
 function parseDesktopAction(parts: string[]): { backend?: DesktopBackend; action: string } {
