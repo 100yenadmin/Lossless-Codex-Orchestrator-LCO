@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -60,7 +60,7 @@ function writePassingDemoEvidence(evidenceDir: string): string {
     action: "send",
     targetRef: "codex_thread:plan-thread",
     approvalAuditId: "loo_audit_test",
-    messageHash: "sha256:test",
+    messageHash: "b".repeat(64),
     preservesCodexApprovalSemantics: true,
     rawPromptIncluded: false
   });
@@ -179,6 +179,60 @@ test("release demo-status accepts public-safe demo evidence and optional live-co
   });
 });
 
+test("release demo-status resolves relative approval proof paths from the evidence directory", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-relative-"));
+  writePassingDemoEvidence(evidenceDir);
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "demo-status",
+    "--evidence-dir",
+    evidenceDir,
+    "--approved-live-control-evidence",
+    "approved-live-control-smoke.json",
+    "--strict"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as { demoReady?: boolean; blockers?: string[] };
+  assert.equal(payload.demoReady, true);
+  assert.deepEqual(payload.blockers, []);
+});
+
+test("release demo-status counts warm-cache skipped Codex session files", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-skipped-"));
+  const liveControlProof = writePassingDemoEvidence(evidenceDir);
+  writeJson(join(evidenceDir, "index-codex.json"), {
+    indexedFiles: 0,
+    skippedFiles: 125,
+    indexedThreads: 0,
+    indexedEvents: 0,
+    limitedFiles: [],
+    errors: []
+  });
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "demo-status",
+    "--evidence-dir",
+    evidenceDir,
+    "--approved-live-control-evidence",
+    liveControlProof,
+    "--strict"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as { checks?: Record<string, { ok: boolean }>; blockers?: string[] };
+  assert.equal(payload.checks?.indexedSessions?.ok, true);
+  assert.deepEqual(payload.blockers, []);
+});
+
 test("release demo-status rejects raw artifacts and malformed dry-run proof", () => {
   const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-raw-"));
   const liveControlProof = writePassingDemoEvidence(evidenceDir);
@@ -213,4 +267,89 @@ test("release demo-status rejects raw artifacts and malformed dry-run proof", ()
   assert.equal(payload.blockers?.includes("raw_session_artifacts_present"), true);
   assert.deepEqual(payload.rawSessionArtifacts, [{ name: "session.jsonl", reason: "raw_codex_jsonl" }]);
   assert.match(read(join(evidenceDir, "release-demo-status.json")), /raw_session_artifacts_present/);
+});
+
+test("release demo-status rejects proof gaps that would overstate demo readiness", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-gaps-"));
+  const liveControlProof = writePassingDemoEvidence(evidenceDir);
+  writeJson(join(evidenceDir, "plans-search.json"), [
+    { sourceRef: "codex_thread:plan-thread", threadId: "plan-thread", snippet: "Unrelated thread map row" }
+  ]);
+  writeJson(join(evidenceDir, "finals-search.json"), [
+    { sourceRef: "codex_thread:final-thread", threadId: "final-thread", snippet: "Unrelated thread map row" }
+  ]);
+  writeJson(join(evidenceDir, "expand-brief.json"), {
+    sourceKind: "codex_thread",
+    sourceRef: "codex_thread:plan-thread",
+    text: "ok",
+    profile: { name: "brief" },
+    tokenBudget: 1000
+  });
+  writeJson(join(evidenceDir, "control-dry-run.json"), {
+    action: "send",
+    threadId: "plan-thread",
+    live: false,
+    approvalAuditId: "loo_audit_test",
+    paramsHash: "a".repeat(64)
+  });
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "demo-status",
+    "--evidence-dir",
+    evidenceDir,
+    "--approved-live-control-evidence",
+    liveControlProof
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as { demoReady?: boolean; blockers?: string[] };
+  assert.equal(payload.demoReady, false);
+  assert.equal(payload.blockers?.includes("plan_search_evidence_missing"), true);
+  assert.equal(payload.blockers?.includes("final_search_evidence_missing"), true);
+  assert.equal(payload.blockers?.includes("brief_expansion_evidence_missing"), true);
+  assert.equal(payload.blockers?.includes("control_dry_run_evidence_missing"), true);
+});
+
+test("release demo-status rejects nested raw artifacts and mismatched approval proof", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-nested-"));
+  const liveControlProof = writePassingDemoEvidence(evidenceDir);
+  mkdirSync(join(evidenceDir, "raw"));
+  writeFileSync(join(evidenceDir, "raw", "session.jsonl"), "{}\n");
+  writeJson(liveControlProof, {
+    kind: "loo_approved_live_control_smoke",
+    approvedLiveControlSmoke: true,
+    action: "send",
+    targetRef: "codex_thread:different-thread",
+    approvalAuditId: "loo_audit_different",
+    messageHash: "sha256:different",
+    preservesCodexApprovalSemantics: true,
+    rawPromptIncluded: false
+  });
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "demo-status",
+    "--evidence-dir",
+    evidenceDir,
+    "--approved-live-control-evidence",
+    liveControlProof
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as {
+    demoReady?: boolean;
+    blockers?: string[];
+    rawSessionArtifacts?: Array<{ name: string; reason: string }>;
+  };
+  assert.equal(payload.demoReady, false);
+  assert.equal(payload.blockers?.includes("raw_session_artifacts_present"), true);
+  assert.equal(payload.blockers?.includes("approved_live_control_dry_run_mismatch"), true);
+  assert.deepEqual(payload.rawSessionArtifacts, [{ name: "raw/session.jsonl", reason: "raw_codex_jsonl" }]);
 });
