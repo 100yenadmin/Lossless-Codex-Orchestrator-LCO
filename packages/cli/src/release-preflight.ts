@@ -66,6 +66,7 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
     files?: string[];
     openclaw?: {
       extensions?: string[];
+      runtimeExtensions?: string[];
       compat?: { pluginApi?: string };
       build?: { openclawVersion?: string };
     };
@@ -85,6 +86,7 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
   const openclawExtensions = packageJson?.openclaw?.extensions ?? [];
   const openclawPackageMetadataOk = packageJsonRead.error ? true : Boolean(
     packageJson
+    && packageJson.openclaw?.runtimeExtensions === undefined
     && openclawExtensions.length === 1
     && openclawExtensions[0] === runtimeExtensionEntry
     && packageRuntimeFileExists(packageRoot, runtimeExtensionEntry)

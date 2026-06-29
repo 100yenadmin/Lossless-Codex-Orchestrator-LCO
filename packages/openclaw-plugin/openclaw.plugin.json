@@ -59,6 +59,541 @@
       "loo_doctor",
       "loo_permissions",
       "loo_audit_tail"
+    ],
+    "toolDeclarations": [
+      {
+        "name": "loo_index_sessions",
+        "description": "Index local Codex session JSONL files into the local orchestrator database.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "roots": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "max_files": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100000
+            },
+            "max_bytes_per_file": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1073741824
+            },
+            "max_events_per_file": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_search_sessions",
+        "description": "Search indexed Codex sessions with bounded safe text.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "query": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_grep",
+        "description": "Search Codex index and optional read-only OpenClaw LCM peer DBs with source-prefixed refs.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "query": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "profile": {
+              "type": "string",
+              "enum": [
+                "metadata",
+                "brief",
+                "evidence"
+              ]
+            },
+            "token_budget": {
+              "type": "integer",
+              "minimum": 20,
+              "maximum": 8000
+            },
+            "lcm_db_paths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_describe_session",
+        "description": "Describe one indexed Codex session by thread id.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "thread_id": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_describe_ref",
+        "description": "Describe a source-prefixed recall ref such as codex_thread:* or lcm_summary:*.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "source_ref": {
+              "type": "string"
+            },
+            "lcm_db_paths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_expand_session",
+        "description": "Expand one indexed Codex session into a bounded evidence brief.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "thread_id": {
+              "type": "string"
+            },
+            "profile": {
+              "type": "string",
+              "enum": [
+                "metadata",
+                "brief",
+                "evidence"
+              ]
+            },
+            "token_budget": {
+              "type": "integer",
+              "minimum": 20,
+              "maximum": 8000
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_expand_query",
+        "description": "Search then expand the best matching Codex or LCM peer recall ref.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "query": {
+              "type": "string"
+            },
+            "profile": {
+              "type": "string",
+              "enum": [
+                "metadata",
+                "brief",
+                "evidence"
+              ]
+            },
+            "token_budget": {
+              "type": "integer",
+              "minimum": 20,
+              "maximum": 8000
+            },
+            "lcm_db_paths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_thread_map",
+        "description": "Read the indexed Codex thread map.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "project": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "priority": {
+              "type": "string"
+            },
+            "blocker": {
+              "type": "string"
+            },
+            "priority_order": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_final_messages",
+        "description": "Read final assistant/status messages extracted from Codex sessions.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "thread_id": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_plans",
+        "description": "Read proposed_plan blocks extracted from Codex sessions.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "thread_id": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_touched_files",
+        "description": "Read touched files extracted for one Codex session.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "thread_id": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_tool_calls",
+        "description": "Read redacted tool-call metadata extracted from Codex sessions.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "thread_id": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_closeout_dry_run",
+        "description": "Preview public-safe closeout envelopes that a hook-agent could attach without mutating Codex.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "thread_id": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "include_unavailable": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_sqlite_stores",
+        "description": "Probe local Codex state_*.sqlite and logs_*.sqlite stores read-only.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "roots": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "max_files": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_lcm_peer_dbs",
+        "description": "Probe configured OpenClaw LCM peer DBs read-only.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "lcm_db_paths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_control_dry_run",
+        "description": "Create a dry-run audit id for a Codex control action.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "send",
+                "resume",
+                "steer",
+                "interrupt"
+              ]
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_resume_thread",
+        "description": "Resume or rejoin a Codex thread. Live mode requires approval_audit_id.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "thread_id": {
+              "type": "string"
+            },
+            "dry_run": {
+              "type": "boolean",
+              "default": true
+            },
+            "approval_audit_id": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_send_message",
+        "description": "Send a message to a Codex thread. Live mode requires approval_audit_id.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "thread_id": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "dry_run": {
+              "type": "boolean",
+              "default": true
+            },
+            "approval_audit_id": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_steer_thread",
+        "description": "Steer a running Codex thread. Live mode requires approval_audit_id.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "thread_id": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "dry_run": {
+              "type": "boolean",
+              "default": true
+            },
+            "approval_audit_id": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_interrupt_thread",
+        "description": "Interrupt a Codex thread. Live mode requires approval_audit_id.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "thread_id": {
+              "type": "string"
+            },
+            "dry_run": {
+              "type": "boolean",
+              "default": true
+            },
+            "approval_audit_id": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_desktop_see",
+        "description": "Inspect desktop fallback readiness through direct/CUA/Peekaboo backends.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "backend": {
+              "type": "string",
+              "enum": [
+                "direct",
+                "cua-driver",
+                "peekaboo"
+              ]
+            },
+            "include_snapshot": {
+              "type": "boolean"
+            },
+            "max_nodes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "max_chars": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20000
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_desktop_act",
+        "description": "Dry-run desktop fallback action placeholder for CUA/Peekaboo.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "backend": {
+              "type": "string",
+              "enum": [
+                "direct",
+                "cua-driver",
+                "peekaboo"
+              ]
+            },
+            "action": {
+              "type": "string"
+            },
+            "dry_run": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_doctor",
+        "description": "Read local orchestrator health.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        }
+      },
+      {
+        "name": "loo_permissions",
+        "description": "Read safety posture for live controls.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        }
+      },
+      {
+        "name": "loo_audit_tail",
+        "description": "Read recent local audit records without raw prompt text.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            }
+          }
+        }
+      }
     ]
   }
 }

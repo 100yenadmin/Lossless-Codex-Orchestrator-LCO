@@ -19,10 +19,11 @@ test("OpenClaw package metadata points at the compiled native tool plugin entry"
 
 test("OpenClaw plugin contracts match the exported loo tool declarations", () => {
   const manifest = readJson("openclaw.plugin.json");
-  const contracts = manifest.contracts as { tools?: unknown } | undefined;
-  const expectedTools = createLooToolDeclarations().map((tool) => tool.name);
+  const contracts = manifest.contracts as { tools?: unknown; toolDeclarations?: unknown } | undefined;
+  const expectedTools = createLooToolDeclarations();
 
-  assert.deepEqual(contracts?.tools, expectedTools);
+  assert.deepEqual(contracts?.tools, expectedTools.map((tool) => tool.name));
+  assert.deepEqual(contracts?.toolDeclarations, expectedTools);
   assert.deepEqual(manifest.activation, { onStartup: true });
   assert.deepEqual(manifest.configSchema, {
     type: "object",
