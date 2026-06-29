@@ -136,8 +136,8 @@ test("closeout dry-run report distinguishes ready, partial, duplicate, and malfo
       assert.equal(report.hookAgentReady, false);
       assert.equal(report.approvalRequiredForHookExecution, true);
       assert.equal(report.summary.total, 4);
-      assert.equal(report.summary.ready, 2);
-      assert.equal(report.summary.partial, 2);
+      assert.equal(report.summary.ready, 1);
+      assert.equal(report.summary.partial, 3);
 
       const byThread = new Map(report.candidates.map((candidate) => [candidate.threadId, candidate]));
       const ready = byThread.get("019f-closeout-ready");
@@ -157,8 +157,8 @@ test("closeout dry-run report distinguishes ready, partial, duplicate, and malfo
       assert.equal(partial?.missingFields.includes("finalMessageRefs"), true);
 
       const duplicate = byThread.get("019f-closeout-duplicate");
-      assert.equal(duplicate?.state, "ready");
-      assert.equal(duplicate?.wouldAttach, true);
+      assert.equal(duplicate?.state, "partial");
+      assert.equal(duplicate?.wouldAttach, false);
       assert.equal(duplicate?.metadata.status, "complete");
       assert.deepEqual(duplicate?.metadata.finalMessageRefs, ["codex_event:final-new"]);
       assert.equal(duplicate?.warnings.includes("duplicate_closeout_envelopes"), true);
