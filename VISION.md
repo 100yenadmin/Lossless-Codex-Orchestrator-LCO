@@ -101,6 +101,16 @@ Before closing a major milestone or re-orienting the sprint, run an adversarial 
 - Packaging failure: package installs but exposes no tools, omits runtime artifacts, or overclaims unsupported adapters.
 - Public claim drift: Claude parity, cloud sync, unattended takeover, permission bypass, or release-grade enterprise security language.
 
+## Milestone Review Cadence
+
+Review milestone state at three moments:
+
+- After every merged PR that changes product behavior, tool contracts, release evidence, safety gates, or public claims.
+- Before opening the next child issue when the remaining work could require live control, GUI mutation, npm publish, or GitHub Release creation.
+- Before closing a milestone or claiming beta readiness.
+
+Each review should update the relevant tracker issue with the current scorecard movement, evidence path, commands run, CI/review status, working/not-working list, proof boundary, and exact next action. If the next action crosses a stop condition, pause for explicit user approval instead of converting the approval gate into an implementation task.
+
 ## Proof Boundary
 
 Allowed public beta claim:
