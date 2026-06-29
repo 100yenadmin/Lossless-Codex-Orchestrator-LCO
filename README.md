@@ -70,6 +70,7 @@ loo grep --lcm-db ~/.openclaw/lcm.db "billing bridge"
 loo describe codex_thread:019f-example
 loo expand-query --profile brief "billing bridge"
 loo serve
+loo scorecards sweep --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/scorecard-sweep --strict
 loo release preflight --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight
 loo release bundle --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-bundle
 loo release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --approved-live-control-evidence approved-live-control-smoke.json --npm-publish-approval-evidence npm-approval.json --github-release-approval-evidence github-release-approval.json

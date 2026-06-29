@@ -66,6 +66,8 @@ Versioned examples live under `evals/scorecards/v1.0/`. Use them as the shared s
 - `public-claim-review.json`
 - `local-agent-usability-review.json`
 
+Run `loo scorecards sweep --evidence-dir <path> --strict` to materialize a public-safe sweep packet. Strict mode should fail closed while scorecards still have `example-not-run` scores, so the packet records remaining evidence gaps instead of converting examples into beta readiness claims.
+
 For implementation issues, copy `evals/scorecards/v1.0/issue-scorecard-update-template.md` into the GitHub issue or PR comment and fill in the failing test, minimal implementation, focused validation, OpenClaw gateway dogfood result, evidence path, proof boundary, and next action. This per-issue scorecard update template keeps issue comments compact while preserving the beta proof boundary.
 
 | Area | Target | Current proof field |

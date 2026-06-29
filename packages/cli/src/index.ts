@@ -21,6 +21,7 @@ import { createReleaseDemoStatus } from "./release-demo-status.js";
 import { runReleasePreflight } from "./release-preflight.js";
 import { createReleaseStatus } from "./release-status.js";
 import { runOpenClawDogfood } from "./openclaw-dogfood.js";
+import { createScorecardSweep } from "./scorecard-sweep.js";
 
 const [, , command, ...args] = process.argv;
 
@@ -155,6 +156,13 @@ async function main() {
     if (parsed.strict && !report.dogfoodReady) process.exitCode = 1;
     return;
   }
+  if (command === "scorecards" && args[0] === "sweep") {
+    const parsed = parseScorecardSweepArgs(args.slice(1));
+    const report = createScorecardSweep(parsed);
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.sweepReady) process.exitCode = 1;
+    return;
+  }
   if (command === "release" && args[0] === "preflight") {
     const parsed = parseReleasePreflightArgs(args.slice(1));
     const report = runReleasePreflight({
@@ -213,6 +221,7 @@ async function main() {
     "  loo serve",
     "  loo audit-path",
     "  loo openclaw dogfood [--dev] [--profile name] [--install-source path] [--link] [--force-install] [--evidence-path path] [--strict]",
+    "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--strict]",
     "  loo release preflight [--evidence-dir path] [--approved-live-control-evidence path] [--strict]",
     "  loo release bundle --evidence-dir path [--approved-live-control-evidence path] [--strict]",
     "  loo release status --evidence-dir path [--approved-live-control-evidence path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--strict]",
@@ -372,6 +381,26 @@ function parseOpenClawDogfoodArgs(input: string[]): {
 function requireOptionValue(value: string | undefined, option: string): string {
   if (!value || value.startsWith("--")) throw new Error(`${option} requires a value`);
   return value;
+}
+
+function parseScorecardSweepArgs(input: string[]): { evidenceDir: string; scorecardDir?: string; strict: boolean } {
+  let evidenceDir: string | undefined;
+  let scorecardDir: string | undefined;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--evidence-dir") {
+      evidenceDir = requireOptionValue(input[++index], arg);
+    } else if (arg === "--scorecard-dir") {
+      scorecardDir = requireOptionValue(input[++index], arg);
+    } else if (arg === "--strict") {
+      strict = true;
+    } else {
+      throw new Error(`Unknown scorecards sweep option: ${arg}`);
+    }
+  }
+  if (!evidenceDir) throw new Error("scorecards sweep requires --evidence-dir");
+  return { evidenceDir, scorecardDir, strict };
 }
 
 function parsePositiveInteger(value: string | undefined, name: string, max?: number): number {
