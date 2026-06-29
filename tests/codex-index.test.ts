@@ -358,6 +358,14 @@ test("thread map filters and ranks by session metadata", () => {
       priority: "medium",
       blocker: "none",
       nextAction: "merge after review"
+    },
+    {
+      id: "019f-map-escaped-blocker",
+      title: "Escaped blocker metadata",
+      status: "blocked",
+      priority: "medium",
+      blocker: "100% ci_required",
+      nextAction: "fix escaped blocker query"
     }
   ];
   for (const fixture of fixtures) {
@@ -391,11 +399,14 @@ test("thread map filters and ranks by session metadata", () => {
       priorityOrder: ["high", "medium", "low"]
     });
 
-    assert.deepEqual(blocked.map((entry) => entry.threadId), ["019f-map-high", "019f-map-low"]);
+    assert.deepEqual(blocked.map((entry) => entry.threadId), ["019f-map-high", "019f-map-escaped-blocker", "019f-map-low"]);
     assert.equal(blocked[0]?.metadata.priority, "high");
 
     const blockerMatches = getCodexThreadMap(db, { limit: 10, blocker: "coderabbit" });
     assert.deepEqual(blockerMatches.map((entry) => entry.threadId), ["019f-map-high"]);
+
+    const escapedBlockerMatches = getCodexThreadMap(db, { limit: 10, blocker: "100% ci_required" });
+    assert.deepEqual(escapedBlockerMatches.map((entry) => entry.threadId), ["019f-map-escaped-blocker"]);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });

@@ -527,7 +527,7 @@ export function getCodexThreadMap(db: LooDatabase, options: CodexThreadMapOption
   }
   const blocker = options.blocker?.trim().toLowerCase();
   if (blocker) {
-    where.push("LOWER(COALESCE(m.blocker, '')) LIKE ?");
+    where.push("LOWER(COALESCE(m.blocker, '')) LIKE ? ESCAPE '\\'");
     params.push(`%${escapeLike(blocker)}%`);
   }
   const priorityOrder = unique((options.priorityOrder ?? []).map((value) => value.trim().toLowerCase()).filter(Boolean)).slice(0, 10);
