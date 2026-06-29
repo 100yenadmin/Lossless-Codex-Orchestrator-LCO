@@ -77,8 +77,15 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
   return [
     tool("loo_index_sessions", "Index local Codex session JSONL files into the local orchestrator database.", {
       roots: { type: "array", items: { type: "string" } },
-      max_files: { type: "integer", minimum: 1, maximum: 100000 }
-    }, (input) => indexCodexSessions(options.db, { roots: optionalRoots(input.roots, defaultCodexRoots()), maxFiles: optionalNumber(input.max_files) })),
+      max_files: { type: "integer", minimum: 1, maximum: 100000 },
+      max_bytes_per_file: { type: "integer", minimum: 1, maximum: 1073741824 },
+      max_events_per_file: { type: "integer", minimum: 1, maximum: 1000000 }
+    }, (input) => indexCodexSessions(options.db, {
+      roots: optionalRoots(input.roots, defaultCodexRoots()),
+      maxFiles: optionalNumber(input.max_files),
+      maxBytesPerFile: optionalNumber(input.max_bytes_per_file),
+      maxEventsPerFile: optionalNumber(input.max_events_per_file)
+    })),
     tool("loo_search_sessions", "Search indexed Codex sessions with bounded safe text.", {
       query: { type: "string" },
       limit: { type: "integer", minimum: 1, maximum: 100 }

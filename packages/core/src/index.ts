@@ -9,6 +9,15 @@ export type LooDatabase = DatabaseSync;
 export type IndexCodexOptions = {
   roots: string[];
   maxFiles?: number;
+  maxBytesPerFile?: number;
+  maxEventsPerFile?: number;
+};
+
+export type LimitedCodexFile = {
+  path: string;
+  reason: "max_bytes_per_file" | "max_events_per_file";
+  limit: number;
+  actual: number;
 };
 
 export type IndexCodexResult = {
@@ -16,6 +25,7 @@ export type IndexCodexResult = {
   skippedFiles: number;
   indexedThreads: number;
   indexedEvents: number;
+  limitedFiles: LimitedCodexFile[];
   errors: Array<{ path: string; message: string }>;
 };
 
@@ -178,6 +188,9 @@ type ImportedSession = {
   eventCount: number;
 };
 
+const DEFAULT_CODEX_MAX_BYTES_PER_FILE = 50 * 1024 * 1024;
+const DEFAULT_CODEX_MAX_EVENTS_PER_FILE = 50_000;
+
 export function createDatabase(dbPath?: string): LooDatabase {
   const resolved = dbPath ?? defaultDatabasePath();
   mkdirSync(dirname(resolved), { recursive: true });
@@ -264,23 +277,32 @@ export function migrate(db: LooDatabase): void {
 
 export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions): IndexCodexResult {
   const files = collectJsonlFiles(options.roots, options.maxFiles ?? 10_000);
-  const result: IndexCodexResult = { indexedFiles: 0, skippedFiles: 0, indexedThreads: 0, indexedEvents: 0, errors: [] };
+  const maxBytesPerFile = positiveLimit(options.maxBytesPerFile, DEFAULT_CODEX_MAX_BYTES_PER_FILE, "maxBytesPerFile");
+  const maxEventsPerFile = positiveLimit(options.maxEventsPerFile, DEFAULT_CODEX_MAX_EVENTS_PER_FILE, "maxEventsPerFile");
+  const result: IndexCodexResult = { indexedFiles: 0, skippedFiles: 0, indexedThreads: 0, indexedEvents: 0, limitedFiles: [], errors: [] };
   const seenThreads = new Set<string>();
 
   for (const path of files) {
     try {
       const stat = statSync(path);
+      if (stat.size > maxBytesPerFile) {
+        recordLimitedFile(result, path, "max_bytes_per_file", maxBytesPerFile, stat.size);
+        continue;
+      }
       const watermark = getSourceFileWatermark(db, path);
       const mtimeMs = Math.trunc(stat.mtimeMs);
-      let text: string | null = null;
+      const text = readFileSync(path, "utf8");
+      const eventCount = countJsonlEvents(text);
+      if (eventCount > maxEventsPerFile) {
+        recordLimitedFile(result, path, "max_events_per_file", maxEventsPerFile, eventCount);
+        continue;
+      }
       if (watermark && watermark.size === stat.size && watermark.mtimeMs === mtimeMs) {
-        text = readFileSync(path, "utf8");
         if (watermark.pathHash === stableId(text)) {
           result.skippedFiles += 1;
           continue;
         }
       }
-      text ??= readFileSync(path, "utf8");
       const session = parseCodexJsonl(path, text);
       upsertSession(db, path, text, session, { size: stat.size, mtimeMs });
       result.indexedFiles += 1;
@@ -293,6 +315,17 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
 
   result.indexedThreads = seenThreads.size;
   return result;
+}
+
+function positiveLimit(value: number | undefined, fallback: number, name: string): number {
+  const limit = value ?? fallback;
+  if (!Number.isInteger(limit) || limit < 1) throw new Error(`${name} requires a positive integer`);
+  return limit;
+}
+
+function recordLimitedFile(result: IndexCodexResult, path: string, reason: LimitedCodexFile["reason"], limit: number, actual: number): void {
+  result.skippedFiles += 1;
+  result.limitedFiles.push({ path, reason, limit, actual });
 }
 
 export function getSourceFileWatermark(db: LooDatabase, sourcePath: string): SourceFileWatermark | null {
@@ -956,6 +989,10 @@ function walk(path: string, files: string[], maxFiles: number): void {
       files.push(child);
     }
   }
+}
+
+function countJsonlEvents(text: string): number {
+  return text.split(/\r?\n/).filter((line) => line.trim().length > 0).length;
 }
 
 function parseCodexJsonl(sourcePath: string, text: string): ImportedSession {
