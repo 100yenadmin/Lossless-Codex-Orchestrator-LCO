@@ -64,10 +64,47 @@ export type SessionMetadata = {
   blocker: string | null;
   nextAction: string | null;
   closeoutState: string | null;
+  planCompletionState: string | null;
   proposedPlanRefs: string[];
   finalMessageRefs: string[];
   touchedFileRefs: string[];
   sourceRefs: string[];
+};
+
+export type CloseoutEnvelopeState = "ready" | "partial" | "unavailable";
+
+export type CloseoutEnvelopeCandidate = {
+  threadId: string;
+  sourceRef: string;
+  title: string | null;
+  updatedAt: string | null;
+  state: CloseoutEnvelopeState;
+  wouldAttach: boolean;
+  metadata: SessionMetadata;
+  missingFields: string[];
+  warnings: string[];
+  closeoutEnvelopeCount: number;
+  publicSafe: true;
+};
+
+export type CloseoutEnvelopeReport = {
+  dryRun: true;
+  mutatesCodex: false;
+  hookAgentReady: false;
+  approvalRequiredForHookExecution: true;
+  candidates: CloseoutEnvelopeCandidate[];
+  summary: {
+    total: number;
+    ready: number;
+    partial: number;
+    unavailable: number;
+  };
+};
+
+export type CloseoutEnvelopeReportOptions = {
+  threadId?: string;
+  limit?: number;
+  includeUnavailable?: boolean;
 };
 
 export type CodexThreadMapOptions = {
@@ -118,7 +155,7 @@ export type RecallProfile = {
   description: string;
 };
 
-const SESSION_METADATA_SCHEMA_VERSION = 2;
+const SESSION_METADATA_SCHEMA_VERSION = 3;
 
 export type RecallSourceKind = "codex_thread" | "lcm_summary";
 
@@ -306,6 +343,7 @@ export function migrate(db: LooDatabase): void {
       blocker TEXT,
       next_action TEXT,
       closeout_state TEXT,
+      plan_completion_state TEXT,
       proposed_plan_refs_json TEXT NOT NULL DEFAULT '[]',
       final_message_refs_json TEXT NOT NULL DEFAULT '[]',
       touched_file_refs_json TEXT NOT NULL DEFAULT '[]',
@@ -323,6 +361,7 @@ export function migrate(db: LooDatabase): void {
   ensureColumn(db, "codex_session_metadata", "final_message_refs_json", "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn(db, "codex_session_metadata", "touched_file_refs_json", "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn(db, "codex_session_metadata", "metadata_schema_version", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "codex_session_metadata", "plan_completion_state", "TEXT");
 }
 
 function ensureColumn(db: LooDatabase, table: string, column: string, definition: string): void {
@@ -550,6 +589,7 @@ export function getCodexThreadMap(db: LooDatabase, options: CodexThreadMapOption
       m.blocker,
       m.next_action AS nextAction,
       m.closeout_state AS closeoutState,
+      m.plan_completion_state AS planCompletionState,
       m.proposed_plan_refs_json AS proposedPlanRefsJson,
       m.final_message_refs_json AS finalMessageRefsJson,
       m.touched_file_refs_json AS touchedFileRefsJson,
@@ -611,6 +651,145 @@ export function getCodexToolCalls(db: LooDatabase, options: { limit?: number; th
     toolName: String(row.toolName),
     argumentsText: String(row.argumentsText ?? "")
   }));
+}
+
+export function createCloseoutEnvelopeReport(db: LooDatabase, options: CloseoutEnvelopeReportOptions = {}): CloseoutEnvelopeReport {
+  const limit = clamp(options.limit ?? 50, 1, 500);
+  const rows = options.threadId
+    ? db.prepare(`
+        SELECT
+          s.thread_id AS threadId,
+          s.title,
+          s.updated_at AS updatedAt,
+          s.safe_text AS safeText,
+          m.project,
+          m.status,
+          m.priority,
+          m.owner,
+          m.blocker,
+          m.next_action AS nextAction,
+          m.closeout_state AS closeoutState,
+          m.plan_completion_state AS planCompletionState,
+          m.proposed_plan_refs_json AS proposedPlanRefsJson,
+          m.final_message_refs_json AS finalMessageRefsJson,
+          m.touched_file_refs_json AS touchedFileRefsJson,
+          m.source_refs_json AS sourceRefsJson
+        FROM codex_sessions s
+        LEFT JOIN codex_session_metadata m ON m.thread_id = s.thread_id
+        WHERE s.thread_id = ?
+        LIMIT ?
+      `).all(options.threadId, limit) as Array<Record<string, unknown>>
+    : db.prepare(`
+        SELECT
+          s.thread_id AS threadId,
+          s.title,
+          s.updated_at AS updatedAt,
+          s.safe_text AS safeText,
+          m.project,
+          m.status,
+          m.priority,
+          m.owner,
+          m.blocker,
+          m.next_action AS nextAction,
+          m.closeout_state AS closeoutState,
+          m.plan_completion_state AS planCompletionState,
+          m.proposed_plan_refs_json AS proposedPlanRefsJson,
+          m.final_message_refs_json AS finalMessageRefsJson,
+          m.touched_file_refs_json AS touchedFileRefsJson,
+          m.source_refs_json AS sourceRefsJson
+        FROM codex_sessions s
+        LEFT JOIN codex_session_metadata m ON m.thread_id = s.thread_id
+        ORDER BY COALESCE(s.updated_at, s.indexed_at) DESC
+        LIMIT ?
+      `).all(limit) as Array<Record<string, unknown>>;
+
+  const candidates = rows
+    .map((row) => closeoutEnvelopeCandidateFromRow(row))
+    .filter((candidate) => options.includeUnavailable === true || candidate.state !== "unavailable");
+  const summary = {
+    total: candidates.length,
+    ready: candidates.filter((candidate) => candidate.state === "ready").length,
+    partial: candidates.filter((candidate) => candidate.state === "partial").length,
+    unavailable: candidates.filter((candidate) => candidate.state === "unavailable").length
+  };
+  return {
+    dryRun: true,
+    mutatesCodex: false,
+    hookAgentReady: false,
+    approvalRequiredForHookExecution: true,
+    candidates,
+    summary
+  };
+}
+
+function closeoutEnvelopeCandidateFromRow(row: Record<string, unknown>): CloseoutEnvelopeCandidate {
+  const threadId = String(row.threadId);
+  const metadata = sessionMetadataFromRow(row);
+  const envelopeStats = closeoutEnvelopeStats(String(row.safeText ?? ""));
+  const missingFields = closeoutEnvelopeMissingFields(metadata);
+  const warnings: string[] = [];
+  if (envelopeStats.openCount > 1) warnings.push("duplicate_closeout_envelopes");
+  if (envelopeStats.openCount !== envelopeStats.closeCount) warnings.push("malformed_closeout_envelope");
+  if (metadata.finalMessageRefs.length === 0) warnings.push("final_message_ref_missing");
+  if (metadata.sourceRefs.length === 0) warnings.push("source_ref_missing");
+
+  const hasMetadata = sessionMetadataHasAnyValue(metadata);
+  const malformed = warnings.includes("malformed_closeout_envelope");
+  const state: CloseoutEnvelopeState = missingFields.length === 0 && !malformed
+    ? "ready"
+    : hasMetadata || envelopeStats.openCount > 0
+      ? "partial"
+      : "unavailable";
+
+  return {
+    threadId,
+    sourceRef: codexThreadRef(threadId),
+    title: nullableString(row.title),
+    updatedAt: nullableString(row.updatedAt),
+    state,
+    wouldAttach: state === "ready",
+    metadata,
+    missingFields,
+    warnings,
+    closeoutEnvelopeCount: envelopeStats.openCount,
+    publicSafe: true
+  };
+}
+
+function closeoutEnvelopeMissingFields(metadata: SessionMetadata): string[] {
+  const missing: string[] = [];
+  if (!metadata.project) missing.push("project");
+  if (!metadata.status) missing.push("status");
+  if (!metadata.nextAction) missing.push("nextAction");
+  if (!metadata.closeoutState) missing.push("closeoutState");
+  if (!metadata.planCompletionState) missing.push("planCompletionState");
+  if (metadata.finalMessageRefs.length === 0) missing.push("finalMessageRefs");
+  if (metadata.sourceRefs.length === 0) missing.push("sourceRefs");
+  return missing;
+}
+
+function sessionMetadataHasAnyValue(metadata: SessionMetadata): boolean {
+  return Boolean(
+    metadata.project ||
+    metadata.status ||
+    metadata.priority ||
+    metadata.owner ||
+    metadata.blocker ||
+    metadata.nextAction ||
+    metadata.closeoutState ||
+    metadata.planCompletionState ||
+    metadata.proposedPlanRefs.length ||
+    metadata.finalMessageRefs.length ||
+    metadata.touchedFileRefs.length ||
+    metadata.sourceRefs.length
+  );
+}
+
+function closeoutEnvelopeStats(text: string): { openCount: number; closeCount: number } {
+  return {
+    openCount: text.match(/<loo_closeout\b[^>]*>/gi)?.length ?? 0,
+    closeCount: text.match(/<\/loo_closeout>/gi)?.length ?? 0
+  };
 }
 
 export function expandSession(db: LooDatabase, options: ExpandSessionOptions): ExpandRecallResult & { threadId: string } {
@@ -1267,9 +1446,9 @@ function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, ses
     db.prepare("DELETE FROM codex_safe_text_fts WHERE thread_id = ?").run(session.threadId);
     db.prepare(`
       INSERT INTO codex_session_metadata (
-        thread_id, project, status, priority, owner, blocker, next_action, closeout_state,
+        thread_id, project, status, priority, owner, blocker, next_action, closeout_state, plan_completion_state,
         proposed_plan_refs_json, final_message_refs_json, touched_file_refs_json, source_refs_json, metadata_schema_version
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(thread_id) DO UPDATE SET
         project = excluded.project,
         status = excluded.status,
@@ -1278,6 +1457,7 @@ function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, ses
         blocker = excluded.blocker,
         next_action = excluded.next_action,
         closeout_state = excluded.closeout_state,
+        plan_completion_state = excluded.plan_completion_state,
         proposed_plan_refs_json = excluded.proposed_plan_refs_json,
         final_message_refs_json = excluded.final_message_refs_json,
         touched_file_refs_json = excluded.touched_file_refs_json,
@@ -1292,6 +1472,7 @@ function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, ses
       session.metadata.blocker,
       session.metadata.nextAction,
       session.metadata.closeoutState,
+      session.metadata.planCompletionState,
       JSON.stringify(session.metadata.proposedPlanRefs),
       JSON.stringify(session.metadata.finalMessageRefs),
       JSON.stringify(session.metadata.touchedFileRefs),
@@ -1405,6 +1586,7 @@ function buildSummary(session: ImportedSession): string {
 
 const SESSION_METADATA_LABELS: Array<{ field: keyof Omit<SessionMetadata, "proposedPlanRefs" | "finalMessageRefs" | "touchedFileRefs" | "sourceRefs">; labels: string[] }> = [
   { field: "closeoutState", labels: ["closeout state", "closeout"] },
+  { field: "planCompletionState", labels: ["proposed plan completion", "plan completion", "completion marker"] },
   { field: "project", labels: ["project", "repo", "repository"] },
   { field: "status", labels: ["status"] },
   { field: "priority", labels: ["priority", "urgency"] },
@@ -1438,6 +1620,7 @@ function emptySessionMetadata(): SessionMetadata {
     blocker: null,
     nextAction: null,
     closeoutState: null,
+    planCompletionState: null,
     proposedPlanRefs: [],
     finalMessageRefs: [],
     touchedFileRefs: [],
@@ -1468,7 +1651,7 @@ function extractSessionMetadata(text: string): ExtractedSessionMetadata {
 
 function mergeSessionMetadata(target: SessionMetadata, source: ExtractedSessionMetadata): void {
   const metadata = source.metadata;
-  for (const field of ["project", "status", "priority", "owner", "blocker", "nextAction", "closeoutState"] as const) {
+  for (const field of ["project", "status", "priority", "owner", "blocker", "nextAction", "closeoutState", "planCompletionState"] as const) {
     if (source.presentTextFields.has(field)) target[field] = metadata[field];
   }
   for (const field of ["proposedPlanRefs", "finalMessageRefs", "touchedFileRefs", "sourceRefs"] as const) {
@@ -1509,6 +1692,7 @@ function formatSessionMetadata(metadata: SessionMetadata): string | null {
     metadata.blocker ? `Blocker: ${metadata.blocker}` : null,
     metadata.nextAction ? `Next action: ${metadata.nextAction}` : null,
     metadata.closeoutState ? `Closeout state: ${metadata.closeoutState}` : null,
+    metadata.planCompletionState ? `Proposed plan completion: ${metadata.planCompletionState}` : null,
     metadata.proposedPlanRefs.length ? `Proposed plan refs: ${metadata.proposedPlanRefs.join(", ")}` : null,
     metadata.finalMessageRefs.length ? `Final-message refs: ${metadata.finalMessageRefs.join(", ")}` : null,
     metadata.touchedFileRefs.length ? `Touched-file refs: ${metadata.touchedFileRefs.join(", ")}` : null,
@@ -1527,6 +1711,7 @@ function getSessionMetadata(db: LooDatabase, threadId: string): SessionMetadata 
       blocker,
       next_action AS nextAction,
       closeout_state AS closeoutState,
+      plan_completion_state AS planCompletionState,
       proposed_plan_refs_json AS proposedPlanRefsJson,
       final_message_refs_json AS finalMessageRefsJson,
       touched_file_refs_json AS touchedFileRefsJson,
@@ -1547,6 +1732,7 @@ function sessionMetadataFromRow(row: Record<string, unknown>): SessionMetadata {
     blocker: nullableString(row.blocker),
     nextAction: nullableString(row.nextAction),
     closeoutState: nullableString(row.closeoutState),
+    planCompletionState: nullableString(row.planCompletionState),
     proposedPlanRefs: parseSourceRefsJson(row.proposedPlanRefsJson),
     finalMessageRefs: parseSourceRefsJson(row.finalMessageRefsJson),
     touchedFileRefs: parseSourceRefsJson(row.touchedFileRefsJson),

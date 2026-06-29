@@ -2,6 +2,7 @@
 import { codexTransportStatus, createAuditStore, desktopActDryRun, desktopFallbackDiagnostics, desktopSee, type DesktopBackend } from "../../adapters/src/index.js";
 import {
   configuredLcmPeerDbPaths,
+  createCloseoutEnvelopeReport,
   createDatabase,
   defaultCodexRoots,
   defaultDatabasePath,
@@ -141,6 +142,16 @@ async function main() {
     }
     return;
   }
+  if (command === "closeout" && args[0] === "dry-run") {
+    const parsed = parseCloseoutDryRunArgs(args.slice(1));
+    const db = createDatabase();
+    try {
+      console.log(JSON.stringify(createCloseoutEnvelopeReport(db, parsed), null, 2));
+    } finally {
+      db.close();
+    }
+    return;
+  }
   if (command === "serve") {
     await import("../../mcp-server/src/server.js");
     return;
@@ -218,6 +229,7 @@ async function main() {
     "  loo describe [--lcm-db path] <source-ref>",
     "  loo expand-query [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <query>",
     "  loo expand-ref [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <source-ref>",
+    "  loo closeout dry-run [--thread-id id] [--limit n] [--include-unavailable]",
     "  loo serve",
     "  loo audit-path",
     "  loo openclaw dogfood [--dev] [--profile name] [--install-source path] [--link] [--force-install] [--evidence-path path] [--strict]",
@@ -231,6 +243,23 @@ async function main() {
 }
 
 await main();
+
+function parseCloseoutDryRunArgs(input: string[]): { threadId?: string; limit?: number; includeUnavailable?: boolean } {
+  const parsed: { threadId?: string; limit?: number; includeUnavailable?: boolean } = {};
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--thread-id") {
+      parsed.threadId = requireOptionValue(input[++index], arg);
+    } else if (arg === "--limit") {
+      parsed.limit = parsePositiveInteger(input[++index], "--limit", 500);
+    } else if (arg === "--include-unavailable") {
+      parsed.includeUnavailable = true;
+    } else {
+      throw new Error(`Unknown closeout dry-run option: ${arg}`);
+    }
+  }
+  return parsed;
+}
 
 function parseRecallArgs(input: string[]): { rest: string[]; lcmDbPaths: string[]; profile?: RecallProfileName; tokenBudget?: number } {
   const rest: string[] = [];

@@ -1,5 +1,6 @@
 import {
   configuredLcmPeerDbPaths,
+  createCloseoutEnvelopeReport,
   describeSession,
   describeRecallRef,
   defaultCodexRoots,
@@ -159,6 +160,15 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       thread_id: { type: "string" },
       limit: { type: "integer", minimum: 1, maximum: 1000 }
     }, (input) => getCodexToolCalls(options.db, { threadId: optionalString(input.thread_id), limit: optionalNumber(input.limit) })),
+    tool("loo_closeout_dry_run", "Preview public-safe closeout envelopes that a hook-agent could attach without mutating Codex.", {
+      thread_id: { type: "string" },
+      limit: { type: "integer", minimum: 1, maximum: 500 },
+      include_unavailable: { type: "boolean" }
+    }, (input) => createCloseoutEnvelopeReport(options.db, {
+      threadId: optionalString(input.thread_id),
+      limit: optionalNumber(input.limit),
+      includeUnavailable: input.include_unavailable === true
+    })),
     tool("loo_codex_sqlite_stores", "Probe local Codex state_*.sqlite and logs_*.sqlite stores read-only.", {
       roots: { type: "array", items: { type: "string" } },
       max_files: { type: "integer", minimum: 1, maximum: 1000 }
