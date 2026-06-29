@@ -7,7 +7,7 @@ summarizable, product-management objects for OpenClaw.
 Codex-first: Claude Code support is intentionally shipped as an adapter stub
 until its storage and control paths are proven.
 
-[Vision](VISION.md) · [OpenClaw Plugin](docs/OPENCLAW_PLUGIN.md) · [Beta Demo](docs/BETA_RELEASE_DEMO.md) · [Claim Audit](docs/CLAIM_AUDIT.md) · [MIT](LICENSE)
+[Vision](VISION.md) · [OpenClaw Plugin](docs/OPENCLAW_PLUGIN.md) · [Beta Demo](docs/BETA_RELEASE_DEMO.md) · [Beta Release Runbook](docs/BETA_RELEASE_RUNBOOK.md) · [Claim Audit](docs/CLAIM_AUDIT.md) · [MIT](LICENSE)
 
 ## Why This Exists
 
@@ -150,11 +150,13 @@ Scorecard and release proof commands:
 ```bash
 loo scorecards sweep --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-scorecard-sweep --strict
 loo release preflight --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight
-loo release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --approved-live-control-evidence approved-live-control-smoke.json --npm-publish-approval-evidence npm-approval.json --github-release-approval-evidence github-release-approval.json
+loo release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --approved-live-control-evidence approved-live-control-smoke.json --npm-publish-approval-evidence npm-approval.json --github-release-approval-evidence github-release-approval.json --desktop-gui-approval-evidence desktop-gui-approval.json
 loo release demo-status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/demo
 ```
 
 The beta proof workflow lives in [docs/BETA_RELEASE_DEMO.md](docs/BETA_RELEASE_DEMO.md).
+The release cadence and approval gates live in
+[docs/BETA_RELEASE_RUNBOOK.md](docs/BETA_RELEASE_RUNBOOK.md).
 
 ## Beta Claim Boundary
 
@@ -225,7 +227,7 @@ OpenClaw setup lives in [docs/OPENCLAW_PLUGIN.md](docs/OPENCLAW_PLUGIN.md).
 - `packages/cli`: `loo` CLI.
 - `packages/adapters`: Codex control, CUA/Peekaboo boundary, Claude Code stub.
 - `evals/scorecards/v1.0`: beta scorecards for safety, retrieval, install, claims, usability, and orchestrator leverage.
-- `docs/`: install, demo, privacy, safe summaries, release proof, and public-claim boundaries.
+- `docs/`: install, demo, privacy, safe summaries, release proof, release runbook, and public-claim boundaries.
 
 Direct Codex protocol is preferred for thread work. GUI automation is a fallback
 for visible app collaboration only.

@@ -7,22 +7,30 @@ export type ReleaseStatusOptions = {
   approvedLiveControlEvidence?: string;
   npmPublishApprovalEvidence?: string;
   githubReleaseApprovalEvidence?: string;
+  desktopGuiApprovalEvidence?: string;
+  desktopGuiRequired?: boolean;
   now?: string;
   rootDir?: string;
 };
 
 export type ReleaseApprovalStatus = {
-  id: "approved_live_control_smoke" | "npm_publish" | "github_release";
+  id: "approved_live_control_smoke" | "npm_publish" | "github_release" | "desktop_gui_mutation";
   satisfied: boolean;
 };
 
 type ReleaseOperationApprovalProof = {
   kind?: string;
-  operation?: "npm_publish" | "github_release";
+  operation?: ReleaseOperationApproval;
   approved?: boolean;
   approvalRef?: string;
+  desktopBackend?: string;
+  targetApp?: string;
+  targetWindow?: string;
+  action?: string;
   rawSecretIncluded?: boolean;
 };
+
+type ReleaseOperationApproval = "npm_publish" | "github_release" | "desktop_gui_mutation";
 
 export type ReleaseStatusReport = {
   ok: boolean;
@@ -55,14 +63,20 @@ export function createReleaseStatus(options: ReleaseStatusOptions): ReleaseStatu
   const liveControlSmokeSatisfied = !releasePreflight.blockers.includes("approved_live_control_smoke_missing");
   const npmPublishSatisfied = validateReleaseOperationApprovalProof(options.npmPublishApprovalEvidence, "npm_publish");
   const githubReleaseSatisfied = validateReleaseOperationApprovalProof(options.githubReleaseApprovalEvidence, "github_release");
+  const desktopGuiRequired = options.desktopGuiRequired === true;
+  const desktopGuiSatisfied = desktopGuiRequired
+    ? validateReleaseOperationApprovalProof(options.desktopGuiApprovalEvidence, "desktop_gui_mutation")
+    : false;
   const explicitApprovalsRequired: ReleaseApprovalStatus[] = [
     { id: "approved_live_control_smoke", satisfied: liveControlSmokeSatisfied },
     { id: "npm_publish", satisfied: npmPublishSatisfied },
     { id: "github_release", satisfied: githubReleaseSatisfied }
   ];
+  if (desktopGuiRequired) explicitApprovalsRequired.push({ id: "desktop_gui_mutation", satisfied: desktopGuiSatisfied });
   const blockers = [...releasePreflight.blockers];
   if (!npmPublishSatisfied) blockers.push("npm_publish_not_approved");
   if (!githubReleaseSatisfied) blockers.push("github_release_not_approved");
+  if (desktopGuiRequired && !desktopGuiSatisfied) blockers.push("desktop_gui_mutation_not_approved");
   const statusManifestPath = join(evidenceDir, "release-status.json");
   const report: ReleaseStatusReport = {
     ok: blockers.length === 0,
@@ -92,7 +106,7 @@ export function createReleaseStatus(options: ReleaseStatusOptions): ReleaseStatu
   return report;
 }
 
-function validateReleaseOperationApprovalProof(path: string | undefined, operation: "npm_publish" | "github_release"): boolean {
+function validateReleaseOperationApprovalProof(path: string | undefined, operation: ReleaseOperationApproval): boolean {
   if (!path || !existsSync(path)) return false;
   let proof: ReleaseOperationApprovalProof;
   try {
@@ -102,11 +116,29 @@ function validateReleaseOperationApprovalProof(path: string | undefined, operati
   }
   if (!proof || typeof proof !== "object" || Array.isArray(proof)) return false;
   const allowedKeys = new Set(["kind", "operation", "approved", "approvalRef", "rawSecretIncluded"]);
-  return proof.kind === "loo_release_operation_approval"
+  const commonApprovalValid = proof.kind === "loo_release_operation_approval"
     && proof.operation === operation
     && proof.approved === true
     && typeof proof.approvalRef === "string"
     && Boolean(proof.approvalRef.trim())
-    && proof.rawSecretIncluded === false
-    && Object.keys(proof).every((key) => allowedKeys.has(key));
+    && proof.rawSecretIncluded === false;
+  if (!commonApprovalValid) return false;
+  if (operation !== "desktop_gui_mutation") return Object.keys(proof).every((key) => allowedKeys.has(key));
+
+  const desktopAllowedKeys = new Set([
+    ...allowedKeys,
+    "desktopBackend",
+    "targetApp",
+    "targetWindow",
+    "action"
+  ]);
+  return stringFieldPresent(proof.desktopBackend)
+    && stringFieldPresent(proof.targetApp)
+    && stringFieldPresent(proof.targetWindow)
+    && stringFieldPresent(proof.action)
+    && Object.keys(proof).every((key) => desktopAllowedKeys.has(key));
+}
+
+function stringFieldPresent(value: unknown): value is string {
+  return typeof value === "string" && Boolean(value.trim());
 }
