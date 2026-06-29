@@ -104,6 +104,82 @@ test("indexes Codex sessions with plans, finals, touched files, and search text"
   }
 });
 
+test("extracts public-safe session metadata and closeout fields", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-metadata-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const threadPath = join(sessions, "rollout-2026-06-29T00-00-00-019f-metadata-thread.jsonl");
+  const lines = [
+    {
+      session_meta: {
+        payload: {
+          id: "019f-metadata-thread",
+          cwd: "/Volumes/LEXAR/repos/lossless-openclaw-orchestrator",
+          model: "gpt-5.5",
+          git: { branch: "issue-49-session-metadata-closeout", commit_hash: "def5678" }
+        }
+      }
+    },
+    { event_msg: { type: "thread_name", name: "Session metadata closeout schema" } },
+    {
+      response_item: {
+        type: "message",
+        role: "assistant",
+        content: [{
+          type: "output_text",
+          text: "<proposed_plan>\n# Session metadata\nExtract public-safe closeout fields.\n</proposed_plan>"
+        }]
+      }
+    },
+    {
+      event_msg: {
+        type: "agent_message",
+        message: [
+          "Closeout state: blocked",
+          "- Project: lossless-openclaw-orchestrator",
+          "- Status: external-review-wait",
+          "- Priority: high",
+          "- Owner: codex",
+          "- Blocker: CodeRabbit approval pending",
+          "- Next action: re-check PR gate",
+          "- Source refs: codex_thread:019f-metadata-thread"
+        ].join("\n")
+      }
+    }
+  ];
+  writeFileSync(threadPath, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+
+    const description = describeSession(db, "019f-metadata-thread");
+    assert.deepEqual(description?.metadata, {
+      project: "lossless-openclaw-orchestrator",
+      status: "external-review-wait",
+      priority: "high",
+      owner: "codex",
+      blocker: "CodeRabbit approval pending",
+      nextAction: "re-check PR gate",
+      closeoutState: "blocked",
+      sourceRefs: ["codex_thread:019f-metadata-thread"]
+    });
+
+    const [threadMapEntry] = getCodexThreadMap(db, { limit: 10 });
+    assert.equal(threadMapEntry?.metadata.status, "external-review-wait");
+    assert.equal(threadMapEntry?.metadata.nextAction, "re-check PR gate");
+
+    const expanded = expandSession(db, { threadId: "019f-metadata-thread", profile: "metadata" });
+    assert.equal(expanded.text.includes("Project: lossless-openclaw-orchestrator"), true);
+    assert.equal(expanded.text.includes("Blocker: CodeRabbit approval pending"), true);
+    assert.equal(expanded.text.includes("Next action: re-check PR gate"), true);
+    assert.equal(expanded.text.includes("Source refs: codex_thread:019f-metadata-thread"), true);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("bounded expansion keeps proposed plans and touched files visible when final message is long", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-codex-long-final-"));
   const sessions = join(root, "sessions");
