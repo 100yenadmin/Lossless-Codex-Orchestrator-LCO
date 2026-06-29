@@ -16,7 +16,7 @@ The doctor output should report `localOnly: true`, the Codex transport status, L
 
 ```bash
 export LOO_DB_PATH="$HOME/.openclaw/lossless-openclaw-orchestrator/orchestrator.sqlite"
-loo index codex --max-files 150 "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
+node dist/packages/cli/src/index.js index codex --max-files 150 "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
 ```
 
 Acceptance for the beta demo is 100+ local Codex sessions indexed with zero importer errors. Use `--max-files` to keep the smoke bounded; raise the cap only when the local store needs it to reach 100 sessions. Save only counts and redacted metadata in public evidence; do not attach raw session files or the SQLite database.
@@ -26,8 +26,8 @@ Acceptance for the beta demo is 100+ local Codex sessions indexed with zero impo
 CLI:
 
 ```bash
-loo search "proposed plan"
-loo search "final message"
+node dist/packages/cli/src/index.js search "proposed plan"
+node dist/packages/cli/src/index.js search "final message"
 ```
 
 MCP/OpenClaw:
@@ -43,8 +43,8 @@ The expected proof is that searches return bounded safe-text refs such as `codex
 Use search results from step 3 and expand two sessions, one brief and one evidence bundle:
 
 ```bash
-loo expand-ref --profile brief codex_thread:<thread-id-a>
-loo expand-ref --profile evidence --token-budget 4000 codex_thread:<thread-id-b>
+node dist/packages/cli/src/index.js expand-ref --profile brief codex_thread:<thread-id-a>
+node dist/packages/cli/src/index.js expand-ref --profile evidence --token-budget 4000 codex_thread:<thread-id-b>
 ```
 
 The result should include metadata, final messages, proposed plans, touched files, and safe summaries within the selected budget.
@@ -66,8 +66,8 @@ The dry-run returns `approval_audit_id`, `params_hash`, and `message_hash`. This
 ## 6. Desktop Fallback Readiness
 
 ```bash
-loo desktop see cua-driver
-loo desktop see peekaboo
+node dist/packages/cli/src/index.js desktop see cua-driver
+node dist/packages/cli/src/index.js desktop see peekaboo
 ```
 
-`loo desktop see peekaboo --snapshot` is optional and should be used only when the user accepts a local visible snapshot. `loo_desktop_act` remains dry-run-only in this beta.
+`node dist/packages/cli/src/index.js desktop see peekaboo --snapshot` is optional and should be used only when the user accepts a local visible snapshot. `loo_desktop_act` remains dry-run-only in this beta.

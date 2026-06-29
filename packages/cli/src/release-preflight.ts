@@ -63,6 +63,7 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
     name?: string;
     version?: string;
     description?: string;
+    files?: string[];
     openclaw?: {
       extensions?: string[];
       runtimeExtensions?: string[];
@@ -82,11 +83,16 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
     safety?: { localOnlyByDefault?: boolean; liveControlRequires?: string[] };
   } | null;
   const runtimeExtensions = packageJson?.openclaw?.runtimeExtensions ?? [];
-  const openclawPackageMetadataOk = packageJson?.openclaw?.extensions?.includes("./packages/openclaw-plugin/src/index.ts")
-    && runtimeExtensions.includes("./dist/packages/openclaw-plugin/src/index.js")
+  const runtimeExtensionEntry = "./dist/packages/openclaw-plugin/src/index.js";
+  const openclawPackageMetadataOk = packageJsonRead.error ? true : Boolean(
+    packageJson?.openclaw?.extensions?.includes("./packages/openclaw-plugin/src/index.ts")
+    && runtimeExtensions.includes(runtimeExtensionEntry)
     && runtimeExtensions.every((entry) => packageRuntimeFileExists(packageRoot, entry))
+    && packageFilesIncludePath(packageJson.files, "openclaw.plugin.json")
+    && packageFilesIncludePath(packageJson.files, runtimeExtensionEntry)
     && packageJson.openclaw.compat?.pluginApi === ">=2026.6.8"
-    && packageJson.openclaw.build?.openclawVersion === ">=2026.6.8";
+    && packageJson.openclaw.build?.openclawVersion === ">=2026.6.8"
+  );
 
   const approvedLiveControlProof = options.approvedLiveControlEvidence?.trim();
   const liveControlProof = validateApprovedLiveControlProof(approvedLiveControlProof);
@@ -157,6 +163,30 @@ function packageRuntimeFileExists(root: string, entry: string): boolean {
   } catch {
     return false;
   }
+}
+
+function packageFilesIncludePath(files: string[] | undefined, path: string): boolean {
+  if (!files) return false;
+  const target = normalizePackagePath(path);
+  return files.some((entry) => {
+    const normalizedEntry = normalizePackagePath(entry);
+    if (!normalizedEntry) return false;
+    if (normalizedEntry === target || normalizedEntry === ".") return true;
+    if (normalizedEntry.endsWith("/**")) {
+      const prefix = normalizedEntry.slice(0, -3);
+      return target === prefix || target.startsWith(`${prefix}/`);
+    }
+    if (normalizedEntry.endsWith("/*")) {
+      const prefix = normalizedEntry.slice(0, -2);
+      const remainder = target.slice(prefix.length + 1);
+      return target.startsWith(`${prefix}/`) && !remainder.includes("/");
+    }
+    return target.startsWith(`${normalizedEntry}/`);
+  });
+}
+
+function normalizePackagePath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "");
 }
 
 function findPackageRoot(start: string): string | null {
