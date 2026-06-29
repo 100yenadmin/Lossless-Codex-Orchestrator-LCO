@@ -5,9 +5,11 @@ import { createSessionSanitizerReport } from "../packages/core/src/session-sanit
 
 const syntheticApiKey = ["sk", "test_1234567890abcdef"].join("-");
 const syntheticBearerToken = ["abcdefghijklmnop", "12345"].join("");
+const syntheticBearerWithSuffix = ["abcdefghijklmnop", "+private=="].join("");
 const syntheticCookie = ["sessionid", "supersecret12345"].join("=");
 const syntheticPrivateKeyBody = ["fake-private", "key-body"].join("-");
 const syntheticLocalPath = ["/Users/exampleuser", ".ssh/id_ed25519"].join("/");
+const syntheticMacPathWithSpaces = ["/Users/exampleuser/Library", "Application Support/Codex/session.jsonl"].join("/");
 
 const syntheticSecretText = [
   "Final closeout: remove leaked synthetic credentials before sharing.",
@@ -42,7 +44,7 @@ test("session sanitizer reports synthetic sensitive patterns without raw values"
   const classes = report.findings.map((finding) => finding.patternClass).sort();
   assert.deepEqual(classes, ["api_key", "bearer_token", "cookie", "local_path", "private_key"]);
   assert.equal(report.findings.every((finding) => finding.sourceRef === "codex_thread:synthetic-sanitizer"), true);
-  assert.equal(report.findings.every((finding) => finding.fingerprint.startsWith("sha256:")), true);
+  assert.equal(report.findings.every((finding) => finding.fingerprint.startsWith("hmac-sha256:")), true);
   assert.equal(report.findings.every((finding) => finding.suggestedRepair.length > 0), true);
 
   const serialized = JSON.stringify(report);
@@ -53,6 +55,58 @@ test("session sanitizer reports synthetic sensitive patterns without raw values"
   assert.equal(serialized.includes(syntheticLocalPath), false);
   assert.match(serialized, /<redacted-secret>/);
   assert.match(serialized, /~\/<redacted-path>/);
+});
+
+test("session sanitizer public previews never include raw source text or adjacent findings", () => {
+  const rawPromptText = "private customer prompt text";
+  const rawToolText = "tool arguments should stay local";
+  const report = createSessionSanitizerReport({
+    sources: [
+      {
+        sourceRef: "codex_event:multi-secret-preview",
+        text: [
+          `${rawPromptText} api_key=${syntheticApiKey} path=${syntheticMacPathWithSpaces} Authorization: Bearer ${syntheticBearerWithSuffix}`,
+          `Cookie: ${syntheticCookie}; ${rawToolText}`
+        ].join("\n")
+      }
+    ],
+    now: "2026-06-29T11:28:00.000Z",
+    auditKey: "synthetic-audit-key"
+  });
+
+  assert.equal(report.findingCount, 4);
+  assert.equal(report.findings.every((finding) => finding.evidencePreview.includes("source text omitted")), true);
+
+  const serialized = JSON.stringify(report);
+  assert.equal(serialized.includes(syntheticApiKey), false);
+  assert.equal(serialized.includes(syntheticBearerWithSuffix), false);
+  assert.equal(serialized.includes(syntheticCookie), false);
+  assert.equal(serialized.includes(syntheticMacPathWithSpaces), false);
+  assert.equal(serialized.includes("Application Support"), false);
+  assert.equal(serialized.includes(rawPromptText), false);
+  assert.equal(serialized.includes(rawToolText), false);
+});
+
+test("session sanitizer fingerprints are keyed local audit markers", () => {
+  const source = {
+    sourceRef: "codex_thread:fingerprint-sanitizer",
+    text: `api_key=${syntheticApiKey}`
+  };
+  const firstReport = createSessionSanitizerReport({
+    sources: [source],
+    now: "2026-06-29T11:29:00.000Z",
+    auditKey: "synthetic-audit-key-one"
+  });
+  const secondReport = createSessionSanitizerReport({
+    sources: [source],
+    now: "2026-06-29T11:29:00.000Z",
+    auditKey: "synthetic-audit-key-two"
+  });
+
+  assert.equal(firstReport.findingCount, 1);
+  assert.equal(secondReport.findingCount, 1);
+  assert.match(firstReport.findings[0]?.fingerprint ?? "", /^hmac-sha256:/);
+  assert.notEqual(firstReport.findings[0]?.fingerprint, secondReport.findings[0]?.fingerprint);
 });
 
 test("session sanitizer ignores benign keyword-only text", () => {
@@ -82,6 +136,18 @@ test("session sanitizer rejects raw source refs in public evidence shape", () =>
         }
       ],
       now: "2026-06-29T11:27:00.000Z"
+    }),
+    /sourceRef must use a supported source prefix/
+  );
+  assert.throws(
+    () => createSessionSanitizerReport({
+      sources: [
+        {
+          sourceRef: ["codex_thread:", "/Users/exampleuser/.codex/sessions/raw.jsonl"].join(""),
+          text: `api_key=${syntheticApiKey}`
+        }
+      ],
+      now: "2026-06-29T11:30:00.000Z"
     }),
     /sourceRef must use a supported source prefix/
   );

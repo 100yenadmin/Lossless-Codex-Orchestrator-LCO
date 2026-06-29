@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 
 export type SessionSanitizerPatternClass =
   | "api_key"
@@ -73,7 +73,7 @@ const PATTERNS: SanitizerPattern[] = [
   {
     patternClass: "bearer_token",
     confidence: "high",
-    regex: /\bBearer\s+[A-Za-z0-9._-]{16,}/gi,
+    regex: /\bBearer\s+[^\s\r\n]{16,}/gi,
     redactedValue: () => "Bearer <redacted-secret>",
     suggestedRepair: "Rotate the bearer token and replace the session evidence with a redacted authorization marker."
   },
@@ -94,7 +94,7 @@ const PATTERNS: SanitizerPattern[] = [
   {
     patternClass: "local_path",
     confidence: "medium",
-    regex: /(?:\/Users\/[^/\s"'`)]+|\/Volumes\/[^/\s"'`)]+|\/private\/var\/[^\s"'`)]+)(?:\/[^\s"'`)]+)+/g,
+    regex: /(?:\/Users\/[^/\r\n"'`)]+|\/Volumes\/[^/\r\n"'`)]+|\/private\/var\/[^/\r\n"'`)]+)(?:\/[^\r\n"'`)]+)+/g,
     redactedValue: () => "~/<redacted-path>",
     suggestedRepair: "Replace the local path with a source ref or redacted path before sharing evidence."
   }
@@ -103,9 +103,11 @@ const PATTERNS: SanitizerPattern[] = [
 export function createSessionSanitizerReport(options: {
   sources: SessionSanitizerSource[];
   now?: string;
+  auditKey?: string;
 }): SessionSanitizerReport {
   for (const source of options.sources) assertSupportedSourceRef(source.sourceRef);
-  const findings = options.sources.flatMap((source) => scanSource(source));
+  const auditKey = options.auditKey ?? randomBytes(32).toString("hex");
+  const findings = options.sources.flatMap((source) => scanSource(source, auditKey));
 
   return {
     ok: true,
@@ -123,7 +125,7 @@ export function createSessionSanitizerReport(options: {
   };
 }
 
-function scanSource(source: SessionSanitizerSource): SessionSanitizerFinding[] {
+function scanSource(source: SessionSanitizerSource, auditKey: string): SessionSanitizerFinding[] {
   const findings: SessionSanitizerFinding[] = [];
   for (const pattern of PATTERNS) {
     pattern.regex.lastIndex = 0;
@@ -136,8 +138,8 @@ function scanSource(source: SessionSanitizerSource): SessionSanitizerFinding[] {
         patternClass: pattern.patternClass,
         confidence: pattern.confidence,
         redactedValue,
-        evidencePreview: redactedPreview(source.text, match.index ?? 0, rawValue, redactedValue),
-        fingerprint: fingerprint(rawValue),
+        evidencePreview: `${pattern.patternClass} detected; surrounding source text omitted from public-safe evidence.`,
+        fingerprint: fingerprint(rawValue, auditKey),
         suggestedRepair: pattern.suggestedRepair
       });
     }
@@ -146,20 +148,13 @@ function scanSource(source: SessionSanitizerSource): SessionSanitizerFinding[] {
 }
 
 function assertSupportedSourceRef(sourceRef: string): void {
-  if (!SUPPORTED_SOURCE_REF_PREFIXES.some((prefix) => sourceRef.startsWith(prefix))) {
+  const matchingPrefix = SUPPORTED_SOURCE_REF_PREFIXES.find((prefix) => sourceRef.startsWith(prefix));
+  const sourceId = matchingPrefix ? sourceRef.slice(matchingPrefix.length) : "";
+  if (!matchingPrefix || !/^[A-Za-z0-9._:-]{1,160}$/.test(sourceId)) {
     throw new Error(`sourceRef must use a supported source prefix: ${SUPPORTED_SOURCE_REF_PREFIXES.join(", ")}`);
   }
 }
 
-function redactedPreview(text: string, index: number, rawValue: string, redactedValue: string): string {
-  const lineStart = text.lastIndexOf("\n", index - 1) + 1;
-  const lineEndIndex = text.indexOf("\n", index);
-  const lineEnd = lineEndIndex === -1 ? text.length : lineEndIndex;
-  const line = text.slice(lineStart, lineEnd);
-  if (rawValue.includes("\n")) return redactedValue;
-  return line.replace(rawValue, redactedValue);
-}
-
-function fingerprint(value: string): string {
-  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
+function fingerprint(value: string, auditKey: string): string {
+  return `hmac-sha256:${createHmac("sha256", auditKey).update(value).digest("hex")}`;
 }
