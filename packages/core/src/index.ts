@@ -56,6 +56,29 @@ export type SessionSearchResult = {
   snippet: string;
 };
 
+export type SessionMetadata = {
+  project: string | null;
+  status: string | null;
+  priority: string | null;
+  owner: string | null;
+  blocker: string | null;
+  nextAction: string | null;
+  closeoutState: string | null;
+  proposedPlanRefs: string[];
+  finalMessageRefs: string[];
+  touchedFileRefs: string[];
+  sourceRefs: string[];
+};
+
+export type CodexThreadMapOptions = {
+  limit?: number;
+  project?: string;
+  status?: string;
+  priority?: string;
+  blocker?: string;
+  priorityOrder?: string[];
+};
+
 export type SessionDescription = {
   sourceKind: "codex_thread";
   sourceRef: string;
@@ -71,6 +94,7 @@ export type SessionDescription = {
   touchedFiles: string[];
   toolCallCount: number;
   sourcePath: string;
+  metadata: SessionMetadata;
 };
 
 export type CodexToolCall = {
@@ -93,6 +117,8 @@ export type RecallProfile = {
   tokenBudget: number;
   description: string;
 };
+
+const SESSION_METADATA_SCHEMA_VERSION = 2;
 
 export type RecallSourceKind = "codex_thread" | "lcm_summary";
 
@@ -131,6 +157,7 @@ export type RecallDescription = {
   planCount?: number;
   touchedFiles?: string[];
   toolCallCount?: number;
+  metadata?: SessionMetadata;
 };
 
 export type ExpandRecallResult = {
@@ -184,6 +211,7 @@ type ImportedSession = {
   plans: string[];
   touchedFiles: string[];
   toolCalls: Array<{ callId: string; toolName: string; argumentsText: string }>;
+  metadata: SessionMetadata;
   safeText: string;
   eventCount: number;
 };
@@ -237,6 +265,8 @@ export function migrate(db: LooDatabase): void {
       indexed_at TEXT NOT NULL
     );
 
+    CREATE INDEX IF NOT EXISTS codex_sessions_source_path_idx ON codex_sessions(source_path);
+
     CREATE TABLE IF NOT EXISTS codex_source_files (
       source_path TEXT PRIMARY KEY,
       path_hash TEXT NOT NULL,
@@ -267,12 +297,37 @@ export function migrate(db: LooDatabase): void {
       arguments_text TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS codex_session_metadata (
+      thread_id TEXT PRIMARY KEY REFERENCES codex_sessions(thread_id) ON DELETE CASCADE,
+      project TEXT,
+      status TEXT,
+      priority TEXT,
+      owner TEXT,
+      blocker TEXT,
+      next_action TEXT,
+      closeout_state TEXT,
+      proposed_plan_refs_json TEXT NOT NULL DEFAULT '[]',
+      final_message_refs_json TEXT NOT NULL DEFAULT '[]',
+      touched_file_refs_json TEXT NOT NULL DEFAULT '[]',
+      metadata_schema_version INTEGER NOT NULL DEFAULT 0,
+      source_refs_json TEXT NOT NULL DEFAULT '[]'
+    );
+
     CREATE VIRTUAL TABLE IF NOT EXISTS codex_safe_text_fts USING fts5(
       thread_id UNINDEXED,
       content,
       tokenize = 'unicode61'
     );
   `);
+  ensureColumn(db, "codex_session_metadata", "proposed_plan_refs_json", "TEXT NOT NULL DEFAULT '[]'");
+  ensureColumn(db, "codex_session_metadata", "final_message_refs_json", "TEXT NOT NULL DEFAULT '[]'");
+  ensureColumn(db, "codex_session_metadata", "touched_file_refs_json", "TEXT NOT NULL DEFAULT '[]'");
+  ensureColumn(db, "codex_session_metadata", "metadata_schema_version", "INTEGER NOT NULL DEFAULT 0");
+}
+
+function ensureColumn(db: LooDatabase, table: string, column: string, definition: string): void {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!columns.some((row) => row.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }
 
 export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions): IndexCodexResult {
@@ -298,7 +353,7 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
         continue;
       }
       if (watermark && watermark.size === stat.size && watermark.mtimeMs === mtimeMs) {
-        if (watermark.pathHash === stableId(text)) {
+        if (watermark.pathHash === stableId(text) && !sourceNeedsMetadataBackfill(db, path)) {
           result.skippedFiles += 1;
           continue;
         }
@@ -358,6 +413,16 @@ export function getSourceFileWatermark(db: LooDatabase, sourcePath: string): Sou
     mtimeMs: Number(row.mtimeMs ?? 0),
     lastIndexedAt: String(row.lastIndexedAt)
   };
+}
+
+function sourceNeedsMetadataBackfill(db: LooDatabase, sourcePath: string): boolean {
+  const rows = db.prepare(`
+    SELECT s.thread_id AS threadId, m.thread_id AS metadataThreadId, m.metadata_schema_version AS metadataSchemaVersion
+    FROM codex_sessions s
+    LEFT JOIN codex_session_metadata m ON m.thread_id = s.thread_id
+    WHERE s.source_path = ?
+  `).all(sourcePath) as Array<{ threadId: string; metadataThreadId: string | null; metadataSchemaVersion: number | null }>;
+  return rows.length === 0 || rows.some((row) => !row.metadataThreadId || Number(row.metadataSchemaVersion ?? 0) < SESSION_METADATA_SCHEMA_VERSION);
 }
 
 export function probeCodexSqliteStores(roots: string[], maxFiles = 100): { stores: CodexSqliteProbe[] } {
@@ -434,28 +499,73 @@ export function describeSession(db: LooDatabase, threadId: string): SessionDescr
     planCount: Number((db.prepare("SELECT COUNT(*) AS count FROM codex_plans WHERE thread_id = ?").get(threadId) as { count: number }).count),
     touchedFiles: getCodexTouchedFiles(db, { threadId }),
     toolCallCount: Number(row.toolCallCount ?? 0),
-    sourcePath: String(row.sourcePath)
+    sourcePath: String(row.sourcePath),
+    metadata: getSessionMetadata(db, threadId)
   };
 }
 
-export function getCodexThreadMap(db: LooDatabase, options: { limit?: number } = {}): Array<{
+export function getCodexThreadMap(db: LooDatabase, options: CodexThreadMapOptions = {}): Array<{
   threadId: string;
   title: string | null;
   summary: string | null;
   updatedAt: string | null;
   sourcePath: string;
+  metadata: SessionMetadata;
 }> {
+  const where: string[] = [];
+  const params: Array<string | number> = [];
+  const metadataFilters = [
+    ["project", options.project],
+    ["status", options.status],
+    ["priority", options.priority]
+  ] as const;
+  for (const [column, value] of metadataFilters) {
+    const normalized = value?.trim().toLowerCase();
+    if (!normalized) continue;
+    where.push(`LOWER(COALESCE(m.${column}, '')) = ?`);
+    params.push(normalized);
+  }
+  const blocker = options.blocker?.trim().toLowerCase();
+  if (blocker) {
+    where.push("LOWER(COALESCE(m.blocker, '')) LIKE ? ESCAPE '\\'");
+    params.push(`%${escapeLike(blocker)}%`);
+  }
+  const priorityOrder = unique((options.priorityOrder ?? []).map((value) => value.trim().toLowerCase()).filter(Boolean)).slice(0, 10);
+  const priorityRank = priorityOrder.length > 0
+    ? `CASE LOWER(COALESCE(m.priority, '')) ${priorityOrder.map(() => "WHEN ? THEN ?").join(" ")} ELSE ${priorityOrder.length} END,`
+    : "";
+  const priorityParams: Array<string | number> = priorityOrder.flatMap((value, index) => [value, index]);
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
   return (db.prepare(`
-    SELECT thread_id AS threadId, title, summary, updated_at AS updatedAt, source_path AS sourcePath
-    FROM codex_sessions
-    ORDER BY COALESCE(updated_at, indexed_at) DESC
+    SELECT
+      s.thread_id AS threadId,
+      s.title,
+      s.summary,
+      s.updated_at AS updatedAt,
+      s.source_path AS sourcePath,
+      m.project,
+      m.status,
+      m.priority,
+      m.owner,
+      m.blocker,
+      m.next_action AS nextAction,
+      m.closeout_state AS closeoutState,
+      m.proposed_plan_refs_json AS proposedPlanRefsJson,
+      m.final_message_refs_json AS finalMessageRefsJson,
+      m.touched_file_refs_json AS touchedFileRefsJson,
+      m.source_refs_json AS sourceRefsJson
+    FROM codex_sessions s
+    LEFT JOIN codex_session_metadata m ON m.thread_id = s.thread_id
+    ${whereSql}
+    ORDER BY ${priorityRank} COALESCE(s.updated_at, s.indexed_at) DESC
     LIMIT ?
-  `).all(clamp(options.limit ?? 50, 1, 500)) as Array<Record<string, unknown>>).map((row) => ({
+  `).all(...params, ...priorityParams, clamp(options.limit ?? 50, 1, 500)) as Array<Record<string, unknown>>).map((row) => ({
     threadId: String(row.threadId),
     title: nullableString(row.title),
     summary: nullableString(row.summary),
     updatedAt: nullableString(row.updatedAt),
-    sourcePath: String(row.sourcePath)
+    sourcePath: String(row.sourcePath),
+    metadata: sessionMetadataFromRow(row)
   }));
 }
 
@@ -517,6 +627,7 @@ export function expandSession(db: LooDatabase, options: ExpandSessionOptions): E
       description.branch ? `Branch: ${description.branch}` : null,
       description.gitSha ? `Git SHA: ${description.gitSha}` : null,
       description.summary ? `Summary: ${description.summary}` : null,
+      formatSessionMetadata(description.metadata),
       `Plans: ${description.planCount}`,
       `Touched files: ${description.touchedFiles.length}`,
       `Tool calls: ${description.toolCallCount}`,
@@ -616,7 +727,8 @@ export function describeRecallRef(db: LooDatabase, options: { sourceRef: string;
       finalMessage: description.finalMessage,
       planCount: description.planCount,
       touchedFiles: description.touchedFiles,
-      toolCallCount: description.toolCallCount
+      toolCallCount: description.toolCallCount,
+      metadata: description.metadata
     };
   }
   const summary = getLcmSummaryByRef(options.lcmDbPaths ?? [], parsed.dbHash, parsed.id);
@@ -1026,6 +1138,7 @@ function parseCodexJsonl(sourcePath: string, text: string): ImportedSession {
     plans: [],
     touchedFiles: [],
     toolCalls: [],
+    metadata: emptySessionMetadata(),
     safeText: "",
     eventCount: 0
   };
@@ -1064,6 +1177,8 @@ function parseCodexJsonl(sourcePath: string, text: string): ImportedSession {
 
     const textPayloads = extractTextPayloads(item);
     for (const payload of textPayloads) {
+      const metadataText = redactSafeString(payload.trim());
+      if (metadataText) mergeSessionMetadata(session.metadata, extractSessionMetadata(metadataText));
       const clean = redactSafeString(normalizeText(payload));
       if (!clean) continue;
       safeParts.push(clean);
@@ -1150,6 +1265,39 @@ function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, ses
     db.prepare("DELETE FROM codex_touched_files WHERE thread_id = ?").run(session.threadId);
     db.prepare("DELETE FROM codex_tool_calls WHERE thread_id = ?").run(session.threadId);
     db.prepare("DELETE FROM codex_safe_text_fts WHERE thread_id = ?").run(session.threadId);
+    db.prepare(`
+      INSERT INTO codex_session_metadata (
+        thread_id, project, status, priority, owner, blocker, next_action, closeout_state,
+        proposed_plan_refs_json, final_message_refs_json, touched_file_refs_json, source_refs_json, metadata_schema_version
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(thread_id) DO UPDATE SET
+        project = excluded.project,
+        status = excluded.status,
+        priority = excluded.priority,
+        owner = excluded.owner,
+        blocker = excluded.blocker,
+        next_action = excluded.next_action,
+        closeout_state = excluded.closeout_state,
+        proposed_plan_refs_json = excluded.proposed_plan_refs_json,
+        final_message_refs_json = excluded.final_message_refs_json,
+        touched_file_refs_json = excluded.touched_file_refs_json,
+        source_refs_json = excluded.source_refs_json,
+        metadata_schema_version = excluded.metadata_schema_version
+    `).run(
+      session.threadId,
+      session.metadata.project,
+      session.metadata.status,
+      session.metadata.priority,
+      session.metadata.owner,
+      session.metadata.blocker,
+      session.metadata.nextAction,
+      session.metadata.closeoutState,
+      JSON.stringify(session.metadata.proposedPlanRefs),
+      JSON.stringify(session.metadata.finalMessageRefs),
+      JSON.stringify(session.metadata.touchedFileRefs),
+      JSON.stringify(session.metadata.sourceRefs),
+      SESSION_METADATA_SCHEMA_VERSION
+    );
     session.plans.forEach((plan, index) => {
       db.prepare("INSERT INTO codex_plans (plan_id, thread_id, text, ordinal) VALUES (?, ?, ?, ?)").run(stableId(`${session.threadId}:plan:${index}:${plan}`), session.threadId, plan, index);
     });
@@ -1253,6 +1401,166 @@ function buildSummary(session: ImportedSession): string {
     tools.length ? `Tools: ${tools.slice(0, 5).join(", ")}${tools.length > 5 ? ` +${tools.length - 5} more` : ""}` : null
   ].filter(Boolean);
   return truncate(parts.join(" "), 900);
+}
+
+const SESSION_METADATA_LABELS: Array<{ field: keyof Omit<SessionMetadata, "proposedPlanRefs" | "finalMessageRefs" | "touchedFileRefs" | "sourceRefs">; labels: string[] }> = [
+  { field: "closeoutState", labels: ["closeout state", "closeout"] },
+  { field: "project", labels: ["project", "repo", "repository"] },
+  { field: "status", labels: ["status"] },
+  { field: "priority", labels: ["priority", "urgency"] },
+  { field: "owner", labels: ["owner", "agent"] },
+  { field: "blocker", labels: ["blocker", "blocked by"] },
+  { field: "nextAction", labels: ["next action", "next"] }
+];
+
+const SESSION_METADATA_REF_LABELS: Array<{ field: keyof Pick<SessionMetadata, "proposedPlanRefs" | "finalMessageRefs" | "touchedFileRefs" | "sourceRefs">; labels: string[] }> = [
+  { field: "proposedPlanRefs", labels: ["proposed plan refs", "proposed-plan refs", "plan refs"] },
+  { field: "finalMessageRefs", labels: ["final message refs", "final-message refs", "final refs"] },
+  { field: "touchedFileRefs", labels: ["touched file refs", "touched-file refs", "file refs"] },
+  { field: "sourceRefs", labels: ["source refs", "source ref", "refs", "ref"] }
+];
+
+type SessionMetadataTextField = keyof Omit<SessionMetadata, "proposedPlanRefs" | "finalMessageRefs" | "touchedFileRefs" | "sourceRefs">;
+type SessionMetadataRefField = keyof Pick<SessionMetadata, "proposedPlanRefs" | "finalMessageRefs" | "touchedFileRefs" | "sourceRefs">;
+
+type ExtractedSessionMetadata = {
+  metadata: SessionMetadata;
+  presentTextFields: Set<SessionMetadataTextField>;
+  presentRefFields: Set<SessionMetadataRefField>;
+};
+
+function emptySessionMetadata(): SessionMetadata {
+  return {
+    project: null,
+    status: null,
+    priority: null,
+    owner: null,
+    blocker: null,
+    nextAction: null,
+    closeoutState: null,
+    proposedPlanRefs: [],
+    finalMessageRefs: [],
+    touchedFileRefs: [],
+    sourceRefs: []
+  };
+}
+
+function extractSessionMetadata(text: string): ExtractedSessionMetadata {
+  const metadata = emptySessionMetadata();
+  const presentTextFields = new Set<SessionMetadataTextField>();
+  const presentRefFields = new Set<SessionMetadataRefField>();
+  for (const definition of SESSION_METADATA_LABELS) {
+    const raw = extractRawLabeledValue(text, definition.labels);
+    if (raw !== null) {
+      presentTextFields.add(definition.field);
+      metadata[definition.field] = cleanMetadataValue(raw);
+    }
+  }
+  for (const definition of SESSION_METADATA_REF_LABELS) {
+    const raw = extractRawLabeledValue(text, definition.labels);
+    if (raw !== null) {
+      presentRefFields.add(definition.field);
+      metadata[definition.field] = extractSourceRefs(raw);
+    }
+  }
+  return { metadata, presentTextFields, presentRefFields };
+}
+
+function mergeSessionMetadata(target: SessionMetadata, source: ExtractedSessionMetadata): void {
+  const metadata = source.metadata;
+  for (const field of ["project", "status", "priority", "owner", "blocker", "nextAction", "closeoutState"] as const) {
+    if (source.presentTextFields.has(field)) target[field] = metadata[field];
+  }
+  for (const field of ["proposedPlanRefs", "finalMessageRefs", "touchedFileRefs", "sourceRefs"] as const) {
+    if (source.presentRefFields.has(field)) target[field] = metadata[field];
+  }
+}
+
+function extractRawLabeledValue(text: string, labels: string[]): string | null {
+  const labelPattern = labels.map(escapeRegExp).join("|");
+  const allLabels = [
+    ...SESSION_METADATA_LABELS.flatMap((definition) => definition.labels),
+    ...SESSION_METADATA_REF_LABELS.flatMap((definition) => definition.labels)
+  ];
+  const nextLabelPattern = allLabels.sort((left, right) => right.length - left.length).map(escapeRegExp).join("|");
+  const labelStart = "(?:^\\s*(?:[-*]\\s*)?|[\\r\\n;.]\\s*(?:[-*]\\s*)?|\\s[-*]\\s*)";
+  const nextLabelStart = "(?:[\\r\\n;.]\\s*(?:[-*]\\s*)?|\\s[-*]\\s*)";
+  const match = text.match(new RegExp(`${labelStart}(${labelPattern})\\s*:\\s*([\\s\\S]*?)(?=\\s*${nextLabelStart}(?:${nextLabelPattern})\\s*:|$)`, "i"));
+  return match ? (match[2]?.trim() ?? "") : null;
+}
+
+function cleanMetadataValue(value: string): string | null {
+  const clean = value.replace(/^[\s:;-]+/, "").replace(/[\s;]+$/, "").trim();
+  if (!clean || /^none$/i.test(clean) || /^n\/a$/i.test(clean)) return null;
+  return truncate(clean, 180);
+}
+
+function extractSourceRefs(text: string): string[] {
+  const refs = text.match(/\b(?:codex_thread|codex_event|lcm_summary):[A-Za-z0-9._:/%-]+/g) ?? [];
+  return unique(refs.map((ref) => ref.replace(/[).,"'`;]+$/, "")));
+}
+
+function formatSessionMetadata(metadata: SessionMetadata): string | null {
+  const lines = [
+    metadata.project ? `Project: ${metadata.project}` : null,
+    metadata.status ? `Status: ${metadata.status}` : null,
+    metadata.priority ? `Priority: ${metadata.priority}` : null,
+    metadata.owner ? `Owner: ${metadata.owner}` : null,
+    metadata.blocker ? `Blocker: ${metadata.blocker}` : null,
+    metadata.nextAction ? `Next action: ${metadata.nextAction}` : null,
+    metadata.closeoutState ? `Closeout state: ${metadata.closeoutState}` : null,
+    metadata.proposedPlanRefs.length ? `Proposed plan refs: ${metadata.proposedPlanRefs.join(", ")}` : null,
+    metadata.finalMessageRefs.length ? `Final-message refs: ${metadata.finalMessageRefs.join(", ")}` : null,
+    metadata.touchedFileRefs.length ? `Touched-file refs: ${metadata.touchedFileRefs.join(", ")}` : null,
+    metadata.sourceRefs.length ? `Source refs: ${metadata.sourceRefs.join(", ")}` : null
+  ].filter(Boolean);
+  return lines.length ? lines.join("\n") : null;
+}
+
+function getSessionMetadata(db: LooDatabase, threadId: string): SessionMetadata {
+  const row = db.prepare(`
+    SELECT
+      project,
+      status,
+      priority,
+      owner,
+      blocker,
+      next_action AS nextAction,
+      closeout_state AS closeoutState,
+      proposed_plan_refs_json AS proposedPlanRefsJson,
+      final_message_refs_json AS finalMessageRefsJson,
+      touched_file_refs_json AS touchedFileRefsJson,
+      source_refs_json AS sourceRefsJson
+    FROM codex_session_metadata
+    WHERE thread_id = ?
+  `).get(threadId) as Record<string, unknown> | undefined;
+  if (!row) return emptySessionMetadata();
+  return sessionMetadataFromRow(row);
+}
+
+function sessionMetadataFromRow(row: Record<string, unknown>): SessionMetadata {
+  return {
+    project: nullableString(row.project),
+    status: nullableString(row.status),
+    priority: nullableString(row.priority),
+    owner: nullableString(row.owner),
+    blocker: nullableString(row.blocker),
+    nextAction: nullableString(row.nextAction),
+    closeoutState: nullableString(row.closeoutState),
+    proposedPlanRefs: parseSourceRefsJson(row.proposedPlanRefsJson),
+    finalMessageRefs: parseSourceRefsJson(row.finalMessageRefsJson),
+    touchedFileRefs: parseSourceRefsJson(row.touchedFileRefsJson),
+    sourceRefs: parseSourceRefsJson(row.sourceRefsJson)
+  };
+}
+
+function parseSourceRefsJson(value: unknown): string[] {
+  try {
+    const parsed = JSON.parse(typeof value === "string" ? value : "[]");
+    return Array.isArray(parsed) ? unique(parsed.filter((item): item is string => typeof item === "string" && item.trim().length > 0)) : [];
+  } catch {
+    return [];
+  }
 }
 
 function extractTextPayloads(item: any): string[] {
