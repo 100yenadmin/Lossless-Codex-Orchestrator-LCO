@@ -10,6 +10,14 @@ The installed plugin declares native `loo_*` tool wrappers backed by the same lo
 loo-mcp-server
 ```
 
+Before beta release, dogfood the local OpenClaw plugin path from an isolated profile:
+
+```bash
+loo openclaw dogfood --profile lco-dogfood --install-source . --link --evidence-path /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-44-local-openclaw-gateway-dogfood/plugin-load.json --strict
+```
+
+This command wraps `openclaw plugins list --json` plus runtime inspection into a public-safe status report. It records only loaded/enabled state, required `loo_*` tool coverage, blocker codes, and install/list exit status. It does not write raw OpenClaw plugin JSON, raw Codex transcripts, expanded text, local SQLite contents, screenshots, tokens, or credentials.
+
 Recommended OpenClaw configuration should expose the `loo_*` tools and keep live controls approval-gated:
 
 - Read tools may run immediately.

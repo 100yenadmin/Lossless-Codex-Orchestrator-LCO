@@ -1,0 +1,228 @@
+import { spawnSync } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
+
+export const DEFAULT_REQUIRED_LOO_TOOLS = [
+  "loo_search_sessions",
+  "loo_describe_session",
+  "loo_expand_query",
+  "loo_codex_control_dry_run"
+];
+
+type PluginListEntry = Record<string, unknown>;
+
+export type OpenClawDogfoodReport = {
+  ok: boolean;
+  dogfoodReady: boolean;
+  publicSafe: true;
+  command: string;
+  pluginListExitStatus: number | null;
+  runtimeInspectExitStatus: number | null;
+  parsedPluginCount: number;
+  targetPlugin: null | {
+    id: string;
+    enabled: boolean | null;
+    loaded: boolean | null;
+    toolCount: number;
+  };
+  requiredTools: string[];
+  requiredToolsPresent: boolean;
+  missingRequiredTools: string[];
+  blockers: string[];
+  installAttempted: boolean;
+  installExitStatus: number | null;
+  evidencePath?: string;
+  privateDataExclusions: string[];
+};
+
+export type OpenClawDogfoodInput = {
+  pluginListExitStatus: number | null;
+  pluginListStdout: string;
+  runtimeInspectExitStatus?: number | null;
+  runtimeInspectStdout?: string;
+  requiredTools?: string[];
+  installAttempted?: boolean;
+  installExitStatus?: number | null;
+  command?: string;
+  evidencePath?: string;
+};
+
+export type RunOpenClawDogfoodOptions = {
+  openclawBin?: string;
+  dev?: boolean;
+  profile?: string;
+  pluginListJsonPath?: string;
+  evidencePath?: string;
+  requiredTools?: string[];
+  installSource?: string;
+  link?: boolean;
+  forceInstall?: boolean;
+};
+
+const TARGET_PLUGIN_ID = "lossless-openclaw-orchestrator";
+const PRIVATE_DATA_EXCLUSIONS = [
+  "raw OpenClaw plugin JSON output",
+  "raw Codex transcripts",
+  "tokens",
+  "credentials",
+  "SQLite DB contents",
+  "screenshots"
+];
+
+export function runOpenClawDogfood(options: RunOpenClawDogfoodOptions = {}): OpenClawDogfoodReport {
+  const openclawBin = options.openclawBin || "openclaw";
+  const baseArgs = [
+    ...(options.dev ? ["--dev"] : []),
+    ...(options.profile ? ["--profile", options.profile] : [])
+  ];
+  let installExitStatus: number | null = null;
+  if (options.installSource) {
+    const installArgs = [
+      ...baseArgs,
+      "plugins",
+      "install",
+      ...(options.link ? ["--link"] : []),
+      ...(options.forceInstall && !options.link ? ["--force"] : []),
+      options.installSource
+    ];
+    installExitStatus = spawnSync(openclawBin, installArgs, { encoding: "utf8", maxBuffer: 20 * 1024 * 1024 }).status;
+  }
+
+  const pluginList = options.pluginListJsonPath
+    ? { status: 0, stdout: readFileSync(options.pluginListJsonPath, "utf8") }
+    : spawnSync(openclawBin, [...baseArgs, "plugins", "list", "--json"], { encoding: "utf8", maxBuffer: 20 * 1024 * 1024 });
+  const runtimeInspect = options.pluginListJsonPath
+    ? { status: null, stdout: "" }
+    : spawnSync(openclawBin, [...baseArgs, "plugins", "inspect", TARGET_PLUGIN_ID, "--json", "--runtime"], { encoding: "utf8", maxBuffer: 20 * 1024 * 1024 });
+  const report = createOpenClawDogfoodReport({
+    pluginListExitStatus: pluginList.status,
+    pluginListStdout: pluginList.stdout,
+    runtimeInspectExitStatus: runtimeInspect.status,
+    runtimeInspectStdout: runtimeInspect.stdout,
+    requiredTools: options.requiredTools,
+    installAttempted: Boolean(options.installSource),
+    installExitStatus,
+    command: `${openclawBin} ${[...baseArgs, "plugins", "list", "--json"].join(" ")}`,
+    evidencePath: options.evidencePath
+  });
+  if (options.evidencePath) writeFileSync(options.evidencePath, `${JSON.stringify(report, null, 2)}\n`);
+  return report;
+}
+
+export function createOpenClawDogfoodReport(input: OpenClawDogfoodInput): OpenClawDogfoodReport {
+  const requiredTools = [...new Set(input.requiredTools?.length ? input.requiredTools : DEFAULT_REQUIRED_LOO_TOOLS)];
+  const parsed = parsePluginList(input.pluginListStdout);
+  const entries = parsed.ok ? parsed.plugins : [];
+  const runtimeTarget = parseRuntimeInspect(input.runtimeInspectStdout || "");
+  const target = runtimeTarget ?? entries.find((entry) => pluginId(entry) === TARGET_PLUGIN_ID) ?? null;
+  const targetToolNames = target ? pluginToolNames(target) : [];
+  const missingRequiredTools = requiredTools.filter((tool) => !targetToolNames.includes(tool));
+  const enabled = target ? pluginEnabled(target) : null;
+  const loaded = target ? pluginLoaded(target) : null;
+  const blockers: string[] = [];
+
+  if (input.pluginListExitStatus !== 0) blockers.push("openclaw_plugin_list_failed");
+  if (!parsed.ok) blockers.push("openclaw_plugin_list_invalid_json");
+  if (!target) blockers.push("target_plugin_not_loaded");
+  if (target && input.runtimeInspectExitStatus !== null && input.runtimeInspectExitStatus !== undefined && input.runtimeInspectExitStatus !== 0) blockers.push("openclaw_runtime_inspect_failed");
+  if (target && enabled === false) blockers.push("target_plugin_disabled");
+  if (target && loaded === false) blockers.push("target_plugin_not_loaded");
+  if (target && missingRequiredTools.length > 0) blockers.push("target_plugin_missing_required_loo_tools");
+  if (input.installAttempted && input.installExitStatus !== 0) blockers.push("openclaw_plugin_install_failed");
+
+  const requiredToolsPresent = missingRequiredTools.length === 0;
+  const dogfoodReady = blockers.length === 0 && requiredToolsPresent && Boolean(target);
+  return {
+    ok: dogfoodReady,
+    dogfoodReady,
+    publicSafe: true,
+    command: input.command || "openclaw plugins list --json",
+    pluginListExitStatus: input.pluginListExitStatus,
+    runtimeInspectExitStatus: input.runtimeInspectExitStatus ?? null,
+    parsedPluginCount: entries.length,
+    targetPlugin: target ? {
+      id: TARGET_PLUGIN_ID,
+      enabled,
+      loaded,
+      toolCount: targetToolNames.length
+    } : null,
+    requiredTools,
+    requiredToolsPresent,
+    missingRequiredTools,
+    blockers: [...new Set(blockers)],
+    installAttempted: input.installAttempted === true,
+    installExitStatus: input.installExitStatus ?? null,
+    ...(input.evidencePath ? { evidencePath: input.evidencePath } : {}),
+    privateDataExclusions: PRIVATE_DATA_EXCLUSIONS
+  };
+}
+
+function parseRuntimeInspect(stdout: string): PluginListEntry | null {
+  try {
+    const payload = JSON.parse(stdout || "null") as unknown;
+    if (isRecord(payload) && pluginId(payload) === TARGET_PLUGIN_ID) return payload;
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function parsePluginList(stdout: string): { ok: true; plugins: PluginListEntry[] } | { ok: false; plugins: [] } {
+  try {
+    const payload = JSON.parse(stdout || "null") as unknown;
+    if (Array.isArray(payload)) return { ok: true, plugins: payload.filter(isRecord) };
+    if (isRecord(payload) && Array.isArray(payload.plugins)) return { ok: true, plugins: payload.plugins.filter(isRecord) };
+  } catch {
+    return { ok: false, plugins: [] };
+  }
+  return { ok: false, plugins: [] };
+}
+
+function pluginId(entry: PluginListEntry): string {
+  const plugin = asRecord(entry.plugin);
+  const manifest = asRecord(plugin?.manifest);
+  return stringValue(entry.id)
+    || stringValue(plugin?.id)
+    || stringValue(manifest?.id)
+    || "";
+}
+
+function pluginToolNames(entry: PluginListEntry): string[] {
+  const plugin = asRecord(entry.plugin);
+  const arrays = [entry.tools, entry.toolNames, plugin?.tools, plugin?.toolNames].filter(Array.isArray) as unknown[][];
+  const names = arrays.flatMap((items) => items.flatMap(toolNames).filter(Boolean));
+  return [...new Set(names)];
+}
+
+function pluginEnabled(entry: PluginListEntry): boolean | null {
+  const value = entry.enabled ?? asRecord(entry.plugin)?.enabled;
+  return typeof value === "boolean" ? value : null;
+}
+
+function pluginLoaded(entry: PluginListEntry): boolean | null {
+  const value = entry.loaded ?? asRecord(entry.plugin)?.loaded;
+  if (typeof value === "boolean") return value;
+  const status = stringValue(entry.status) || stringValue(asRecord(entry.plugin)?.status);
+  if (status === "loaded") return true;
+  if (status === "failed" || status === "disabled") return false;
+  return null;
+}
+
+function toolNames(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (!isRecord(value)) return [];
+  const name = stringValue(value.name);
+  const names = Array.isArray(value.names) ? value.names.filter((item): item is string => typeof item === "string") : [];
+  return name ? [name, ...names] : names;
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return isRecord(value) ? value : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
