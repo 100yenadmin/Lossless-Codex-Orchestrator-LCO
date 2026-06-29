@@ -4,6 +4,8 @@ Control and collaborate with local Codex sessions through OpenClaw using local i
 
 This public beta focuses on Codex. Claude Code support is intentionally shipped as an adapter stub until its session storage and control paths are proven.
 
+The product and eval contract lives in [VISION.md](VISION.md). Use it to keep issue work, scorecards, local OpenClaw gateway dogfooding, and release claims aligned.
+
 ## What It Does
 
 - Indexes local Codex session JSONL into a local SQLite database.

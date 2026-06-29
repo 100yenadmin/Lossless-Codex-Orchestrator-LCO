@@ -1,0 +1,150 @@
+# Lossless OpenClaw Orchestrator Vision
+
+This document is the product and eval contract for the public beta. GitHub issues remain the implementation source of truth. This file defines what the product is trying to become, how agents should evaluate progress, and which claims remain outside the proof boundary.
+
+## North Star
+
+An OpenClaw agent can understand, search, summarize, and safely coordinate a user's local Codex sessions without reading huge raw transcripts or bypassing Codex permissions.
+
+The beta should feel like a local orchestration cockpit: OpenClaw can see what Codex sessions exist, what each session is working on, which plans and final messages matter, which files were touched, and which next action would be safe to dry-run.
+
+## Primary User Stories
+
+- As a user, I can ask OpenClaw what my local Codex sessions are doing.
+- As an OpenClaw agent, I can find relevant Codex sessions by plan, final message, files touched, tool metadata, safe summary, or source ref.
+- As a user, I can expand one or two sessions into a bounded brief instead of exposing a raw transcript.
+- As a user, I can dry-run a Codex continue, send, steer, resume, or interrupt action and inspect the exact target/action before approval.
+- As a maintainer, I can prove the package is local-only, bounded, and honest about unsupported features before public release.
+- As a future adapter author, I can add Claude Code or another agent desktop behind the same index, recall, safety, and proof-boundary patterns without claiming parity early.
+
+## Product Shape
+
+- `packages/core` is the local index, recall, safe-summary, source-ref, and SQLite layer.
+- `packages/adapters` is the safety and integration boundary for Codex transport, audit, redaction, CUA Driver, Peekaboo, and future adapters.
+- `packages/mcp-server` exposes the `loo_*` tool surface for OpenClaw and other MCP clients.
+- `packages/cli` is the operator and evidence surface for `doctor`, `index`, `search`, `grep`, `describe`, `expand`, `desktop`, and release commands.
+- `packages/openclaw-plugin` is the OpenClaw package and manifest layer.
+- `docs/` explains install, demo workflow, privacy, safe summaries, release proof, and claim boundaries.
+
+## Build Loop
+
+Every meaningful issue should follow this loop:
+
+1. Start from a GitHub issue or create one before implementation.
+2. Write a failing test, fixture, smoke, or eval scenario first.
+3. Implement the smallest product change that makes the scenario pass.
+4. Run focused validation.
+5. Run `npm run check` when source behavior, package contracts, or tool schemas changed.
+6. Smoke through the public CLI, MCP server, or local OpenClaw gateway when that is the user-facing surface.
+7. Save public-safe evidence under `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/<issue-slug>/`.
+8. Update the GitHub issue and PR with what works, what is not proven, commands run, evidence path, and next action.
+9. Keep sprint state oriented to this vision before filing follow-up issues.
+
+## Local OpenClaw Gateway Dogfood
+
+The local OpenClaw gateway is a first-class beta user. When a change affects OpenClaw plugin behavior, MCP tools, tool schemas, packaging, or agent workflow, validation should include the same path an OpenClaw agent would use.
+
+Expected dogfood checks:
+
+- Load or inspect the OpenClaw plugin manifest and runtime entry.
+- Verify `loo_*` tools are declared and callable through the installed or packaged surface.
+- Call read-only tools such as `loo_doctor`, `loo_index_sessions`, `loo_search_sessions`, `loo_describe_session`, `loo_expand_query`, `loo_codex_plans`, and `loo_codex_final_messages`.
+- Verify dry-run control tools produce audit ids without mutating a real Codex thread.
+- Confirm evidence contains counts, refs, hashes, statuses, and redacted metadata only.
+
+Do not use gateway dogfooding to run live Codex control, GUI mutation, npm publish, or GitHub Release creation without explicit user approval.
+
+## Scorecards
+
+Scorecards should be updated in issue comments or evidence summaries when a PR meaningfully changes product behavior.
+
+| Area | Target | Current proof field |
+| --- | --- | --- |
+| Codex indexing | 100+ local sessions indexed with bounded file, byte, and event limits | session count, event count, `errors`, `limitedFiles` |
+| Session map | Agent can list useful active/recent sessions without raw transcript reads | `loo_codex_thread_map` evidence |
+| Search quality | Known plan/final queries return expected sessions in top results | query, refs, top-k hits |
+| Bounded expansion | 1k and 4k briefs preserve metadata, plans, finals, touched files, and safe summaries | expansion profile, token budget, omitted markers |
+| Final-message extraction | Final assistant/status messages are searchable and attributable | `loo_codex_final_messages` evidence |
+| Proposed-plan extraction | Proposed plans are extracted without leaking unrelated raw transcript spans | `loo_codex_plans` evidence |
+| Touched-file extraction | Touched files remain visible or accurately omitted in bounded briefs | file count, omitted marker |
+| Control safety | Live actions fail closed without matching dry-run and `approval_audit_id` | control tests and audit evidence |
+| Desktop fallback readiness | CUA/Peekaboo report honest readiness without overclaiming action support | `loo_desktop_see` evidence |
+| OpenClaw packageability | Plugin installs/loads with declared `loo_*` contracts | manifest/tool count and package smoke |
+| Public claims | README/docs/release notes stay inside allowed beta wording | claim audit result |
+| Privacy | Evidence contains no raw session files, SQLite DBs, screenshots, tokens, or secrets | artifact scan result |
+
+## Eval Scenarios
+
+Use small redacted fixtures for deterministic CI and local private stores only for local smoke. Do not upload private raw Codex data.
+
+Core eval scenarios:
+
+- Build a session map from 100+ local Codex sessions.
+- Search for a known proposed plan and verify the right session appears.
+- Search for a known final message and verify the right session appears.
+- Expand one session with a 1k-token brief and verify metadata, plans, finals, touched files, and safe summary survive.
+- Expand one session with a 4k-token evidence bundle and verify omitted markers remain honest.
+- Extract touched files from a session with many long paths and verify visible plus omitted counts match the indexed total.
+- Run `loo_codex_control_dry_run` and verify the returned audit id, parameter hash, and message hash.
+- Attempt live send/steer/resume/interrupt without approval and verify fail-closed behavior.
+- Load the OpenClaw plugin package and verify declared `loo_*` tool contracts.
+- Run release preflight/status commands and verify remaining blockers are explicit.
+
+## Adversarial Milestone Sweeps
+
+Before closing a major milestone or re-orienting the sprint, run an adversarial review pass focused on:
+
+- Safety bypasses: live action without dry-run and matching approval id.
+- Privacy leaks: raw transcript, raw prompt, screenshots, SQLite DBs, tokens, credentials, local paths in public evidence.
+- Retrieval false confidence: summaries or expansions that imply complete recall when limits skipped or omitted data.
+- Protocol drift: Codex transport method changes, unsupported app-server assumptions, stale OpenClaw plugin contracts.
+- Packaging failure: package installs but exposes no tools, omits runtime artifacts, or overclaims unsupported adapters.
+- Public claim drift: Claude parity, cloud sync, unattended takeover, permission bypass, or release-grade enterprise security language.
+
+## Proof Boundary
+
+Allowed public beta claim:
+
+> Control and collaborate with local Codex sessions through OpenClaw using local indexing, bounded recall, and approval-gated controls.
+
+Do not claim:
+
+- Full Claude Code parity.
+- Cloud sync.
+- Unattended desktop takeover.
+- Codex permission or sandbox bypass.
+- Release-grade enterprise security.
+- Live control proof unless a user explicitly approved the exact target thread and harmless prompt and the evidence proves Codex approval semantics were preserved.
+
+## Current Release Gates
+
+The beta is not complete until these gates are proven from the public CLI, MCP, or OpenClaw plugin surface:
+
+- Local Codex indexing works on 100+ sessions with bounded limits.
+- Search, describe, plans, finals, touched files, tool metadata, and bounded expansion work.
+- OpenClaw plugin package declares and exposes the expected `loo_*` tools.
+- Control tools fail closed without dry-run plus matching approval.
+- One harmless approved live Codex control smoke is proven with explicit user approval.
+- CUA/Peekaboo readiness is honest and does not imply unsupported generic GUI action.
+- Release preflight/status/bundle commands produce public-safe evidence.
+- npm publish and GitHub Release are separately approved before execution.
+
+## Evidence Rules
+
+Evidence may include:
+
+- command names and exit status
+- counts
+- source-prefixed refs
+- redacted metadata
+- hashes
+- blocker codes
+- links to CI, PRs, and issues
+
+Evidence must not include:
+
+- raw Codex JSONL files
+- local SQLite databases
+- raw prompts or transcript spans
+- screenshots or videos unless explicitly approved and redacted
+- tokens, cookies, API keys, credentials, or private customer data
