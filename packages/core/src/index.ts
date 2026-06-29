@@ -145,6 +145,56 @@ export type ExpandRecallResult = {
   matches?: RecallSearchResult[];
 };
 
+export type RetrievalEvalScenario = {
+  id: string;
+  query: string;
+  expectedSourceRefs: string[];
+  expansionQueries?: string[];
+  limit?: number;
+};
+
+export type RetrievalEvalStageResult = {
+  hitAtK: boolean;
+  firstExpectedRank: number | null;
+  reciprocalRank: number;
+  topRefs: string[];
+};
+
+export type RetrievalEvalScenarioResult = {
+  id: string;
+  query: string;
+  expectedSourceRefs: string[];
+  limit: number;
+  baseline: RetrievalEvalStageResult;
+  hybrid: RetrievalEvalStageResult & {
+    expansionQueries: string[];
+    reranker: "query-expansion-term-overlap";
+  };
+};
+
+export type RetrievalEvalReport = {
+  ok: boolean;
+  publicSafe: true;
+  generatedAt: string;
+  strategy: "hybrid-expansion-rerank";
+  vector: {
+    enabled: false;
+    reason: string;
+  };
+  metrics: {
+    scenarioCount: number;
+    baselineHitRate: number;
+    hybridHitRate: number;
+    baselineMrr: number;
+    hybridMrr: number;
+  };
+  scenarios: RetrievalEvalScenarioResult[];
+  blockers: string[];
+  privateDataExclusions: string[];
+  proofBoundary: string;
+  nextAction: string;
+};
+
 export type LcmPeerProbe = {
   path: string;
   readable: boolean;
@@ -690,6 +740,52 @@ export function expandQuery(db: LooDatabase, options: {
   };
 }
 
+export function evaluateRetrievalScenarios(db: LooDatabase, options: {
+  scenarios: RetrievalEvalScenario[];
+  now?: string;
+}): RetrievalEvalReport {
+  const scenarios = options.scenarios.map((scenario) => evaluateRetrievalScenario(db, scenario));
+  const blockers = [
+    ...(scenarios.length === 0 ? ["no_scenarios"] : []),
+    ...scenarios.flatMap((scenario) => scenario.hybrid.hitAtK ? [] : [`scenario_missed:${scenario.id}`])
+  ];
+  const baselineHitRate = rate(scenarios.filter((scenario) => scenario.baseline.hitAtK).length, scenarios.length);
+  const hybridHitRate = rate(scenarios.filter((scenario) => scenario.hybrid.hitAtK).length, scenarios.length);
+  const baselineMrr = average(scenarios.map((scenario) => scenario.baseline.reciprocalRank));
+  const hybridMrr = average(scenarios.map((scenario) => scenario.hybrid.reciprocalRank));
+  return {
+    ok: blockers.length === 0 && hybridHitRate >= baselineHitRate && hybridMrr >= baselineMrr,
+    publicSafe: true,
+    generatedAt: options.now ?? new Date().toISOString(),
+    strategy: "hybrid-expansion-rerank",
+    vector: {
+      enabled: false,
+      reason: "Vector retrieval is not configured; this prototype scores query expansion and reranking only."
+    },
+    metrics: {
+      scenarioCount: scenarios.length,
+      baselineHitRate,
+      hybridHitRate,
+      baselineMrr,
+      hybridMrr
+    },
+    scenarios,
+    blockers,
+    privateDataExclusions: [
+      "raw Codex transcripts",
+      "raw prompts or transcript spans",
+      "SQLite DBs",
+      "screenshots or videos",
+      "tokens, credentials, API keys, cookies",
+      "private customer data"
+    ],
+    proofBoundary: "This public-safe eval compares source refs and ranking metrics only; it does not prove production semantic search, vector quality, or private-store retrieval quality.",
+    nextAction: blockers.length === 0
+      ? "Add more redacted scenarios before enabling any hybrid retrieval path by default."
+      : "Inspect missed scenario refs and improve expansion/reranking before claiming retrieval-quality movement."
+  };
+}
+
 function searchLcmPeers(paths: string[], query: string, limit: number): RecallSearchResult[] {
   const matches: RecallSearchResult[] = [];
   for (const path of paths) {
@@ -706,6 +802,65 @@ function searchLcmPeers(paths: string[], query: string, limit: number): RecallSe
     }
   }
   return matches;
+}
+
+function evaluateRetrievalScenario(db: LooDatabase, scenario: RetrievalEvalScenario): RetrievalEvalScenarioResult {
+  const limit = clamp(scenario.limit ?? 5, 1, 20);
+  const expectedSourceRefs = unique(scenario.expectedSourceRefs.filter(Boolean));
+  const baselineMatches = grepRecall(db, { query: scenario.query, limit }).matches;
+  const expansionQueries = unique((scenario.expansionQueries ?? []).map((query) => query.trim()).filter(Boolean));
+  const hybridMatches = rerankHybridMatches(db, scenario.query, expansionQueries, limit);
+  return {
+    id: scenario.id,
+    query: scenario.query,
+    expectedSourceRefs,
+    limit,
+    baseline: stageResult(baselineMatches, expectedSourceRefs, limit),
+    hybrid: {
+      ...stageResult(hybridMatches, expectedSourceRefs, limit),
+      expansionQueries,
+      reranker: "query-expansion-term-overlap"
+    }
+  };
+}
+
+function rerankHybridMatches(db: LooDatabase, query: string, expansionQueries: string[], limit: number): RecallSearchResult[] {
+  const candidateLimit = clamp(Math.max(limit, 5), 1, 100);
+  const queries = unique([query, ...expansionQueries]);
+  const candidates = new Map<string, { match: RecallSearchResult; score: number; bestRank: number }>();
+  queries.forEach((candidateQuery, queryIndex) => {
+    grepRecall(db, { query: candidateQuery, limit: candidateLimit }).matches.forEach((match, matchIndex) => {
+      const existing = candidates.get(match.sourceRef);
+      const score = retrievalTermScore(match, candidateQuery) + (queryIndex === 0 ? 1 : 2);
+      const bestRank = Math.min(existing?.bestRank ?? Number.POSITIVE_INFINITY, matchIndex + 1);
+      candidates.set(match.sourceRef, {
+        match,
+        score: (existing?.score ?? 0) + score,
+        bestRank
+      });
+    });
+  });
+  return [...candidates.values()]
+    .sort((left, right) => right.score - left.score || left.bestRank - right.bestRank || left.match.sourceRef.localeCompare(right.match.sourceRef))
+    .slice(0, limit)
+    .map((entry, index) => ({ ...entry.match, score: index + 1 }));
+}
+
+function retrievalTermScore(match: RecallSearchResult, query: string): number {
+  const haystack = [match.title, match.summary, match.snippet, match.sourceRef].filter(Boolean).join(" ").toLowerCase();
+  return safeFtsTerms(query).reduce((score, term) => score + (haystack.includes(term.toLowerCase()) ? 1 : 0), 0);
+}
+
+function stageResult(matches: RecallSearchResult[], expectedSourceRefs: string[], limit: number): RetrievalEvalStageResult {
+  const topRefs = matches.slice(0, limit).map((match) => match.sourceRef);
+  const firstExpectedIndex = topRefs.findIndex((ref) => expectedSourceRefs.includes(ref));
+  const firstExpectedRank = firstExpectedIndex >= 0 ? firstExpectedIndex + 1 : null;
+  return {
+    hitAtK: firstExpectedRank !== null,
+    firstExpectedRank,
+    reciprocalRank: firstExpectedRank === null ? 0 : 1 / firstExpectedRank,
+    topRefs
+  };
 }
 
 function searchLcmPeer(db: LooDatabase, path: string, query: string, limit: number): RecallSearchResult[] {
@@ -1348,6 +1503,14 @@ function truncateByApproxTokens(text: string, tokenBudget: number): string {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, Math.floor(value)));
+}
+
+function rate(numerator: number, denominator: number): number {
+  return denominator === 0 ? 0 : numerator / denominator;
+}
+
+function average(values: number[]): number {
+  return values.length === 0 ? 0 : values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
 function nullableString(value: unknown): string | null {
