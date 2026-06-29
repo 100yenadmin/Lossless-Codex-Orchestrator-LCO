@@ -265,6 +265,8 @@ export function migrate(db: LooDatabase): void {
       indexed_at TEXT NOT NULL
     );
 
+    CREATE INDEX IF NOT EXISTS codex_sessions_source_path_idx ON codex_sessions(source_path);
+
     CREATE TABLE IF NOT EXISTS codex_source_files (
       source_path TEXT PRIMARY KEY,
       path_hash TEXT NOT NULL,
@@ -1418,6 +1420,15 @@ const SESSION_METADATA_REF_LABELS: Array<{ field: keyof Pick<SessionMetadata, "p
   { field: "sourceRefs", labels: ["source refs", "source ref", "refs", "ref"] }
 ];
 
+type SessionMetadataTextField = keyof Omit<SessionMetadata, "proposedPlanRefs" | "finalMessageRefs" | "touchedFileRefs" | "sourceRefs">;
+type SessionMetadataRefField = keyof Pick<SessionMetadata, "proposedPlanRefs" | "finalMessageRefs" | "touchedFileRefs" | "sourceRefs">;
+
+type ExtractedSessionMetadata = {
+  metadata: SessionMetadata;
+  presentTextFields: Set<SessionMetadataTextField>;
+  presentRefFields: Set<SessionMetadataRefField>;
+};
+
 function emptySessionMetadata(): SessionMetadata {
   return {
     project: null,
@@ -1434,31 +1445,35 @@ function emptySessionMetadata(): SessionMetadata {
   };
 }
 
-function extractSessionMetadata(text: string): SessionMetadata {
+function extractSessionMetadata(text: string): ExtractedSessionMetadata {
   const metadata = emptySessionMetadata();
+  const presentTextFields = new Set<SessionMetadataTextField>();
+  const presentRefFields = new Set<SessionMetadataRefField>();
   for (const definition of SESSION_METADATA_LABELS) {
-    const value = extractLabeledValue(text, definition.labels);
-    if (value) metadata[definition.field] = value;
+    const raw = extractRawLabeledValue(text, definition.labels);
+    if (raw !== null) {
+      presentTextFields.add(definition.field);
+      metadata[definition.field] = cleanMetadataValue(raw);
+    }
   }
   for (const definition of SESSION_METADATA_REF_LABELS) {
-    metadata[definition.field] = extractRefsForLabels(text, definition.labels);
+    const raw = extractRawLabeledValue(text, definition.labels);
+    if (raw !== null) {
+      presentRefFields.add(definition.field);
+      metadata[definition.field] = extractSourceRefs(raw);
+    }
   }
-  return metadata;
+  return { metadata, presentTextFields, presentRefFields };
 }
 
-function mergeSessionMetadata(target: SessionMetadata, source: SessionMetadata): void {
+function mergeSessionMetadata(target: SessionMetadata, source: ExtractedSessionMetadata): void {
+  const metadata = source.metadata;
   for (const field of ["project", "status", "priority", "owner", "blocker", "nextAction", "closeoutState"] as const) {
-    if (source[field]) target[field] = source[field];
+    if (source.presentTextFields.has(field)) target[field] = metadata[field];
   }
-  target.proposedPlanRefs = unique([...target.proposedPlanRefs, ...source.proposedPlanRefs]);
-  target.finalMessageRefs = unique([...target.finalMessageRefs, ...source.finalMessageRefs]);
-  target.touchedFileRefs = unique([...target.touchedFileRefs, ...source.touchedFileRefs]);
-  target.sourceRefs = unique([...target.sourceRefs, ...source.sourceRefs]);
-}
-
-function extractLabeledValue(text: string, labels: string[]): string | null {
-  const raw = extractRawLabeledValue(text, labels);
-  return raw ? cleanMetadataValue(raw) : null;
+  for (const field of ["proposedPlanRefs", "finalMessageRefs", "touchedFileRefs", "sourceRefs"] as const) {
+    if (source.presentRefFields.has(field)) target[field] = metadata[field];
+  }
 }
 
 function extractRawLabeledValue(text: string, labels: string[]): string | null {
@@ -1469,9 +1484,9 @@ function extractRawLabeledValue(text: string, labels: string[]): string | null {
   ];
   const nextLabelPattern = allLabels.sort((left, right) => right.length - left.length).map(escapeRegExp).join("|");
   const labelStart = "(?:^\\s*(?:[-*]\\s*)?|[\\r\\n;.]\\s*(?:[-*]\\s*)?|\\s[-*]\\s*)";
-  const nextLabelStart = "(?:[\\r\\n;.]\\s*(?:[-*]\\s*)?|\\s[-*]\\s*)?";
+  const nextLabelStart = "(?:[\\r\\n;.]\\s*(?:[-*]\\s*)?|\\s[-*]\\s*)";
   const match = text.match(new RegExp(`${labelStart}(${labelPattern})\\s*:\\s*([\\s\\S]*?)(?=\\s*${nextLabelStart}(?:${nextLabelPattern})\\s*:|$)`, "i"));
-  return match?.[2]?.trim() || null;
+  return match ? (match[2]?.trim() ?? "") : null;
 }
 
 function cleanMetadataValue(value: string): string | null {
@@ -1480,13 +1495,8 @@ function cleanMetadataValue(value: string): string | null {
   return truncate(clean, 180);
 }
 
-function extractRefsForLabels(text: string, labels: string[]): string[] {
-  const value = extractRawLabeledValue(text, labels);
-  return value ? extractSourceRefs(value) : [];
-}
-
 function extractSourceRefs(text: string): string[] {
-  const refs = text.match(/\b(?:codex_thread|codex_event|lcm_summary):[A-Za-z0-9._:/-]+/g) ?? [];
+  const refs = text.match(/\b(?:codex_thread|codex_event|lcm_summary):[A-Za-z0-9._:/%-]+/g) ?? [];
   return unique(refs.map((ref) => ref.replace(/[).,"'`;]+$/, "")));
 }
 

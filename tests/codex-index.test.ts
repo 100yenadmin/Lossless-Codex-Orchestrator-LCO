@@ -296,6 +296,7 @@ test("uses the latest closeout metadata when sessions revise status", () => {
         message: [
           "Project: lossless-openclaw-orchestrator",
           "Status: in-progress",
+          "Blocker: CodeRabbit review pending",
           "Next action: patch implementation"
         ].join("\n")
       }
@@ -306,6 +307,7 @@ test("uses the latest closeout metadata when sessions revise status", () => {
         message: [
           "Project: lossless-openclaw-orchestrator",
           "Status: complete",
+          "Blocker: none",
           "Next action: merge after review",
           "Closeout state: ready"
         ].join("\n")
@@ -319,6 +321,7 @@ test("uses the latest closeout metadata when sessions revise status", () => {
     indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
     const metadata = describeSession(db, "019f-latest-thread")?.metadata;
     assert.equal(metadata?.status, "complete");
+    assert.equal(metadata?.blocker, null);
     assert.equal(metadata?.nextAction, "merge after review");
     assert.equal(metadata?.closeoutState, "ready");
   } finally {
@@ -393,6 +396,52 @@ test("thread map filters and ranks by session metadata", () => {
 
     const blockerMatches = getCodexThreadMap(db, { limit: 10, blocker: "coderabbit" });
     assert.deepEqual(blockerMatches.map((entry) => entry.threadId), ["019f-map-high"]);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("preserves percent-encoded source refs and avoids false label splits", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-metadata-ref-parser-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const threadPath = join(sessions, "rollout-2026-06-29T00-00-00-019f-ref-parser-thread.jsonl");
+  const lines = [
+    { session_meta: { payload: { id: "019f-ref-parser-thread", cwd: "/Volumes/LEXAR/repos/lossless-openclaw-orchestrator" } } },
+    { event_msg: { type: "thread_name", name: "Ref parser metadata" } },
+    {
+      event_msg: {
+        type: "agent_message",
+        message: [
+          "Project: lossless-openclaw-orchestrator",
+          "Blocker: waiting for CI status: required check pending",
+          "Source refs: lcm_summary:abc123:folder%2Fsummary%20one"
+        ].join("\n")
+      }
+    }
+  ];
+  writeFileSync(threadPath, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    const metadata = describeSession(db, "019f-ref-parser-thread")?.metadata;
+    assert.equal(metadata?.blocker, "waiting for CI status: required check pending");
+    assert.equal(metadata?.status, null);
+    assert.deepEqual(metadata?.sourceRefs, ["lcm_summary:abc123:folder%2Fsummary%20one"]);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("indexes source paths for metadata backfill checks", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-source-path-index-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const indexes = db.prepare("PRAGMA index_list(codex_sessions)").all() as Array<{ name: string }>;
+    assert.equal(indexes.some((row) => row.name === "codex_sessions_source_path_idx"), true);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
