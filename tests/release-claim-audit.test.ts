@@ -161,6 +161,7 @@ test("beta release runbook defines RC cadence and keeps main distinct from relea
     /public-claim review/i,
     /local-agent usability review/i,
     /node \.\/dist\/packages\/cli\/src\/index\.js openclaw dogfood[^\n]+--required-tool loo_doctor[^\n]+--required-tool loo_search_sessions[^\n]+--required-tool loo_describe_session[^\n]+--required-tool loo_expand_query[^\n]+--required-tool loo_codex_plans[^\n]+--required-tool loo_codex_final_messages[^\n]+--required-tool loo_codex_thread_map[^\n]+--required-tool loo_codex_control_dry_run/i,
+    /node \.\/dist\/packages\/cli\/src\/index\.js openclaw tool-smoke[^\n]+--profile lco-dogfood[^\n]+--session-key agent:main:lco-dogfood[^\n]+--required-tool loo_doctor[^\n]+--required-tool loo_search_sessions[^\n]+--required-tool loo_describe_session[^\n]+--required-tool loo_expand_query[^\n]+--required-tool loo_codex_control_dry_run/i,
     /--approved-live-control-evidence \/Volumes\/LEXAR\/Codex\/lossless-openclaw-orchestrator\/YYYY-MM-DD\/release-status\/approved-live-control-smoke\.json/i,
     /--npm-publish-approval-evidence \/Volumes\/LEXAR\/Codex\/lossless-openclaw-orchestrator\/YYYY-MM-DD\/release-status\/npm-approval\.json/i,
     /--github-release-approval-evidence \/Volumes\/LEXAR\/Codex\/lossless-openclaw-orchestrator\/YYYY-MM-DD\/release-status\/github-release-approval\.json/i,
