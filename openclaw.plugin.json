@@ -46,6 +46,7 @@
       "loo_codex_plans",
       "loo_codex_touched_files",
       "loo_codex_tool_calls",
+      "loo_closeout_dry_run",
       "loo_codex_sqlite_stores",
       "loo_lcm_peer_dbs",
       "loo_codex_control_dry_run",
