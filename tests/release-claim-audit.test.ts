@@ -99,6 +99,7 @@ test("release status examples include live-control evidence alongside release ap
 
 test("beta release runbook defines RC cadence and keeps main distinct from releases", () => {
   assert.equal(existsSync("docs/BETA_RELEASE_RUNBOOK.md"), true, "docs/BETA_RELEASE_RUNBOOK.md must exist");
+  assert.equal(existsSync(".github/workflows/codeql.yml"), true, ".github/workflows/codeql.yml must exist");
 
   const readme = read("README.md");
   const vision = read("VISION.md");
@@ -111,6 +112,7 @@ test("beta release runbook defines RC cadence and keeps main distinct from relea
     /npm run check/i,
     /main is the integration branch, not a release/i,
     /release candidate/i,
+    /CodeQL code scanning/i,
     /node \.\/dist\/packages\/cli\/src\/index\.js release preflight/i,
     /node \.\/dist\/packages\/cli\/src\/index\.js release bundle/i,
     /node \.\/dist\/packages\/cli\/src\/index\.js release demo-status/i,

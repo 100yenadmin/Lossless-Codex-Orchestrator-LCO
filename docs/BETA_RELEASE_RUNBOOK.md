@@ -96,6 +96,7 @@ A release candidate may be announced internally when all of these are true:
 
 - issue #6 and issue #14 have current status comments
 - GitHub CI is green for the release candidate commit
+- CodeQL code scanning is green for the release candidate commit
 - `npm run check` passed locally or in CI
 - `npm pack --dry-run` passed
 - release preflight, release bundle, demo status, release status, and scorecard
@@ -154,7 +155,8 @@ Stop and leave the release candidate unpublished if any of these occur:
 - CUA/Peekaboo readiness implies no-focus or mutation support that was not
   proven
 - the OpenClaw package installs but does not expose the expected `loo_*` tools
-- GitHub CI is red or review threads contain valid actionable defects
+- GitHub CI or CodeQL code scanning is red, pending, or missing
+- review threads contain valid actionable defects
 
 ## Closeout
 
