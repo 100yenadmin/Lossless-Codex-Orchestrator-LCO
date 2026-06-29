@@ -20,6 +20,7 @@ import { createReleaseBundle } from "./release-bundle.js";
 import { createReleaseDemoStatus } from "./release-demo-status.js";
 import { runReleasePreflight } from "./release-preflight.js";
 import { createReleaseStatus } from "./release-status.js";
+import { runOpenClawDogfood } from "./openclaw-dogfood.js";
 
 const [, , command, ...args] = process.argv;
 
@@ -147,6 +148,13 @@ async function main() {
     console.log(createAuditStore(process.env.LOO_AUDIT_PATH || `${process.env.HOME}/.openclaw/lossless-openclaw-orchestrator/audit.jsonl`).path);
     return;
   }
+  if (command === "openclaw" && args[0] === "dogfood") {
+    const parsed = parseOpenClawDogfoodArgs(args.slice(1));
+    const report = runOpenClawDogfood(parsed);
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.dogfoodReady) process.exitCode = 1;
+    return;
+  }
   if (command === "release" && args[0] === "preflight") {
     const parsed = parseReleasePreflightArgs(args.slice(1));
     const report = runReleasePreflight({
@@ -204,6 +212,7 @@ async function main() {
     "  loo expand-ref [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <source-ref>",
     "  loo serve",
     "  loo audit-path",
+    "  loo openclaw dogfood [--dev] [--profile name] [--install-source path] [--link] [--force-install] [--evidence-path path] [--strict]",
     "  loo release preflight [--evidence-dir path] [--approved-live-control-evidence path] [--strict]",
     "  loo release bundle --evidence-dir path [--approved-live-control-evidence path] [--strict]",
     "  loo release status --evidence-dir path [--approved-live-control-evidence path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--strict]",
@@ -314,6 +323,55 @@ function parseDesktopSee(parts: string[]): { backend?: DesktopBackend; includeSn
     }
   }
   return options;
+}
+
+function parseOpenClawDogfoodArgs(input: string[]): {
+  openclawBin?: string;
+  dev?: boolean;
+  profile?: string;
+  pluginListJsonPath?: string;
+  evidencePath?: string;
+  requiredTools?: string[];
+  installSource?: string;
+  link?: boolean;
+  forceInstall?: boolean;
+  strict?: boolean;
+} {
+  const parsed: ReturnType<typeof parseOpenClawDogfoodArgs> = {};
+  const requiredTools: string[] = [];
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--openclaw-bin") {
+      parsed.openclawBin = requireOptionValue(input[++index], arg);
+    } else if (arg === "--dev") {
+      parsed.dev = true;
+    } else if (arg === "--profile") {
+      parsed.profile = requireOptionValue(input[++index], arg);
+    } else if (arg === "--plugin-list-json") {
+      parsed.pluginListJsonPath = requireOptionValue(input[++index], arg);
+    } else if (arg === "--evidence-path") {
+      parsed.evidencePath = requireOptionValue(input[++index], arg);
+    } else if (arg === "--required-tool") {
+      requiredTools.push(requireOptionValue(input[++index], arg));
+    } else if (arg === "--install-source") {
+      parsed.installSource = requireOptionValue(input[++index], arg);
+    } else if (arg === "--link") {
+      parsed.link = true;
+    } else if (arg === "--force-install") {
+      parsed.forceInstall = true;
+    } else if (arg === "--strict") {
+      parsed.strict = true;
+    } else {
+      throw new Error(`Unknown openclaw dogfood option: ${arg}`);
+    }
+  }
+  if (requiredTools.length > 0) parsed.requiredTools = requiredTools;
+  return parsed;
+}
+
+function requireOptionValue(value: string | undefined, option: string): string {
+  if (!value || value.startsWith("--")) throw new Error(`${option} requires a value`);
+  return value;
 }
 
 function parsePositiveInteger(value: string | undefined, name: string, max?: number): number {
