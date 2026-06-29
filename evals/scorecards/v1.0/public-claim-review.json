@@ -1,0 +1,45 @@
+{
+  "scorecard_version": "1.0",
+  "claim_class": "release_ready",
+  "scenario": "Public README, docs, release notes, and issue updates stay inside the proven beta boundary and avoid unsupported product claims.",
+  "surface": "docs",
+  "command_or_tool": [
+    "node --test --import tsx tests/release-claim-audit.test.ts",
+    "loo release preflight",
+    "loo release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-<slug>/"
+  ],
+  "expected_public_safe_evidence": [
+    "claim audit test output",
+    "file paths reviewed",
+    "allowed beta wording present",
+    "forbidden claim checks",
+    "remaining explicit blockers"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "raw prompts or transcript spans",
+    "SQLite DBs",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data"
+  ],
+  "pass_criteria": [
+    "Docs describe local Codex orchestration as beta and approval-gated.",
+    "Unsupported adapters are named as experimental or stubbed.",
+    "Release text records remaining blockers instead of converting them into proof.",
+    "Forbidden actions are recorded as not performed unless explicitly approved."
+  ],
+  "fail_criteria": [
+    "Docs imply unsupported adapter parity, remote sync, autonomous desktop control, permission bypass, or enterprise security proof.",
+    "Issue or release text claims live control proof without explicit approved smoke evidence.",
+    "Public evidence includes private local data or secrets."
+  ],
+  "current_score": "example-not-run",
+  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-<slug>/public-claim-review.json",
+  "known_gaps": [
+    "Claim audit needs periodic expansion as new docs and adapters are added.",
+    "Human release wording review remains required before public beta announcement."
+  ],
+  "next_action": "Run claim audit tests and compare README/docs/release notes against VISION.md before release PRs merge.",
+  "proof_boundary": "This is a local public-safe beta scorecard example; it does not certify final public release copy."
+}

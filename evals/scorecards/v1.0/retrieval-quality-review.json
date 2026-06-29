@@ -1,0 +1,53 @@
+{
+  "scorecard_version": "1.0",
+  "claim_class": "pr_ready",
+  "scenario": "An agent can search, describe, and expand Codex sessions from indexed safe summaries while preserving plans, finals, touched files, tool metadata, and honest omitted markers.",
+  "surface": "MCP",
+  "command_or_tool": [
+    "loo_index_sessions",
+    "loo_search_sessions",
+    "loo_grep",
+    "loo_describe_session",
+    "loo_describe_ref",
+    "loo_expand_query",
+    "loo_codex_plans",
+    "loo_codex_final_messages",
+    "loo_codex_touched_files"
+  ],
+  "expected_public_safe_evidence": [
+    "fixture or bounded local session count",
+    "query string with no private transcript text",
+    "top-k source refs",
+    "expansion profile and token budget",
+    "plan/final/touched-file presence markers",
+    "omitted count or limit markers"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "raw prompts or transcript spans",
+    "SQLite DBs",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data"
+  ],
+  "pass_criteria": [
+    "Known plan and final-message fixture queries return the expected codex_thread refs.",
+    "Describe output identifies status and source refs without raw transcript dumps.",
+    "1k and 4k expansion profiles retain metadata, plans, finals, touched files, and safe summaries.",
+    "Skipped, truncated, or omitted data is named explicitly."
+  ],
+  "fail_criteria": [
+    "Search returns unrelated source families as successful Codex-thread evidence.",
+    "Expansion claims complete recall while limits skipped or omitted data.",
+    "Evidence includes raw transcript spans, local DB files, or secret-like strings."
+  ],
+  "current_score": "example-not-run",
+  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-<slug>/retrieval-quality-review.json",
+  "known_gaps": [
+    "Large private-store retrieval quality must be scored from public-safe summaries only.",
+    "Semantic relevance thresholds should be calibrated after more redacted fixtures exist."
+  ],
+  "next_action": "Run fixture tests first, then bounded local smoke with public-safe summary evidence.",
+  "proof_boundary": "This is a local public-safe beta scorecard example; it proves the review shape, not current retrieval quality."
+}
+

@@ -58,6 +58,16 @@ Do not use gateway dogfooding to run live Codex control, GUI mutation, npm publi
 
 Scorecards should be updated in issue comments or evidence summaries when a PR meaningfully changes product behavior.
 
+Versioned examples live under `evals/scorecards/v1.0/`. Use them as the shared scorecard contract before milestone sweeps, release gates, and local-agent dogfood claims:
+
+- `safety-bypass-review.json`
+- `retrieval-quality-review.json`
+- `packaging-install-review.json`
+- `public-claim-review.json`
+- `local-agent-usability-review.json`
+
+For implementation issues, copy `evals/scorecards/v1.0/issue-scorecard-update-template.md` into the GitHub issue or PR comment and fill in the failing test, minimal implementation, focused validation, OpenClaw gateway dogfood result, evidence path, proof boundary, and next action. This per-issue scorecard update template keeps issue comments compact while preserving the beta proof boundary.
+
 | Area | Target | Current proof field |
 | --- | --- | --- |
 | Codex indexing | 100+ local sessions indexed with bounded file, byte, and event limits | session count, event count, `errors`, `limitedFiles` |
