@@ -1,11 +1,17 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { runReleasePreflight, type ReleasePreflightReport } from "./release-preflight.js";
+import {
+  releaseClaimScopeRequiresLiveControl,
+  type ReleaseClaimScope,
+  type ReleaseExcludedClaim
+} from "./release-claim-scope.js";
 
 export type ReleaseStatusOptions = {
   evidenceDir: string;
   candidateSha?: string;
   approvedLiveControlEvidence?: string;
+  claimScope?: ReleaseClaimScope;
   npmPublishApprovalEvidence?: string;
   githubReleaseApprovalEvidence?: string;
   desktopGuiApprovalEvidence?: string;
@@ -61,6 +67,8 @@ export type ReleaseStatusReport = {
   ok: boolean;
   releaseReady: boolean;
   generatedAt: string;
+  claimScope: ReleaseClaimScope;
+  excludedClaims: ReleaseExcludedClaim[];
   packageName: string | null;
   packageVersion: string | null;
   statusManifestPath: string;
@@ -91,10 +99,12 @@ export function createReleaseStatus(options: ReleaseStatusOptions): ReleaseStatu
   const releasePreflight = runReleasePreflight({
     evidenceDir,
     approvedLiveControlEvidence,
+    claimScope: options.claimScope,
     now: options.now,
     rootDir: options.rootDir
   });
-  const liveControlSmokeSatisfied = !releasePreflight.blockers.includes("approved_live_control_smoke_missing");
+  const liveControlRequired = releaseClaimScopeRequiresLiveControl(releasePreflight.claimScope);
+  const liveControlSmokeSatisfied = liveControlRequired && !releasePreflight.blockers.includes("approved_live_control_smoke_missing");
   const npmPublishSatisfied = validateReleaseOperationApprovalProof(npmPublishApprovalEvidence, "npm_publish");
   const githubReleaseSatisfied = validateReleaseOperationApprovalProof(githubReleaseApprovalEvidence, "github_release");
   const desktopGuiRequired = options.desktopGuiRequired === true;
@@ -104,10 +114,10 @@ export function createReleaseStatus(options: ReleaseStatusOptions): ReleaseStatu
   const githubCiValidation = validateReleaseCheckProof(githubCiEvidence, "github_ci", candidateSha);
   const codeqlValidation = validateReleaseCheckProof(codeqlEvidence, "codeql", candidateSha);
   const explicitApprovalsRequired: ReleaseApprovalStatus[] = [
-    { id: "approved_live_control_smoke", satisfied: liveControlSmokeSatisfied },
     { id: "npm_publish", satisfied: npmPublishSatisfied },
     { id: "github_release", satisfied: githubReleaseSatisfied }
   ];
+  if (liveControlRequired) explicitApprovalsRequired.unshift({ id: "approved_live_control_smoke", satisfied: liveControlSmokeSatisfied });
   if (desktopGuiRequired) explicitApprovalsRequired.push({ id: "desktop_gui_mutation", satisfied: desktopGuiSatisfied });
   const releaseChecks: ReleaseCheckStatus[] = [
     { id: "candidate_sha", satisfied: candidateShaSatisfied },
@@ -126,6 +136,8 @@ export function createReleaseStatus(options: ReleaseStatusOptions): ReleaseStatu
     ok: blockers.length === 0,
     releaseReady: blockers.length === 0,
     generatedAt: options.now ?? new Date().toISOString(),
+    claimScope: releasePreflight.claimScope,
+    excludedClaims: releasePreflight.excludedClaims,
     packageName: releasePreflight.packageName,
     packageVersion: releasePreflight.packageVersion,
     statusManifestPath,

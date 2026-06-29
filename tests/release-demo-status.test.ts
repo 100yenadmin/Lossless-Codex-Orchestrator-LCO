@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -177,6 +177,43 @@ test("release demo-status accepts public-safe demo evidence and optional live-co
     npmPublished: false,
     githubReleaseCreated: false
   });
+});
+
+test("release demo-status --claim-scope codex-read-search-expand-dry-run accepts dry-run demo evidence without live-control proof", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-read-scope-"));
+  const liveControlProof = writePassingDemoEvidence(evidenceDir);
+  unlinkSync(liveControlProof);
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "demo-status",
+    "--evidence-dir",
+    evidenceDir,
+    "--claim-scope",
+    "codex-read-search-expand-dry-run",
+    "--strict"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as {
+    claimScope?: string;
+    demoReady?: boolean;
+    blockers?: string[];
+    excludedClaims?: Array<{ id: string; blockerIfClaimed: string }>;
+    checks?: Record<string, { ok: boolean; detail: string }>;
+  };
+
+  assert.equal(payload.claimScope, "codex-read-search-expand-dry-run");
+  assert.equal(payload.demoReady, true);
+  assert.deepEqual(payload.blockers, []);
+  assert.equal(payload.checks?.approvedLiveControl?.ok, true);
+  assert.match(payload.checks?.approvedLiveControl?.detail ?? "", /excluded by claim scope/i);
+  assert.deepEqual(payload.excludedClaims, [
+    { id: "approved_live_control_smoke", blockerIfClaimed: "approved_live_control_smoke_missing" }
+  ]);
 });
 
 test("release demo-status accepts documented MCP plan and final text outputs", () => {

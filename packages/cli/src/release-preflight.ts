@@ -1,10 +1,19 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
+import {
+  excludedClaimsForScope,
+  liveControlExcludedDetail,
+  normalizeReleaseClaimScope,
+  releaseClaimScopeRequiresLiveControl,
+  type ReleaseClaimScope,
+  type ReleaseExcludedClaim
+} from "./release-claim-scope.js";
 
 export type ReleasePreflightOptions = {
   evidenceDir?: string;
   approvedLiveControlEvidence?: string;
+  claimScope?: ReleaseClaimScope;
   now?: string;
   rootDir?: string;
 };
@@ -18,6 +27,8 @@ export type ReleasePreflightReport = {
   ok: boolean;
   releaseReady: boolean;
   generatedAt: string;
+  claimScope: ReleaseClaimScope;
+  excludedClaims: ReleaseExcludedClaim[];
   artifactManifestPath: string | null;
   packageName: string | null;
   packageVersion: string | null;
@@ -57,6 +68,9 @@ const forbiddenClaims = [
 ];
 
 export function runReleasePreflight(options: ReleasePreflightOptions = {}): ReleasePreflightReport {
+  const claimScope = normalizeReleaseClaimScope(options.claimScope);
+  const liveControlRequired = releaseClaimScopeRequiresLiveControl(claimScope);
+  const excludedClaims = excludedClaimsForScope(claimScope);
   const packageRoot = options.rootDir ? resolve(options.rootDir) : findPackageRoot(dirname(fileURLToPath(import.meta.url))) ?? process.cwd();
   const packageJsonRead = readJson(packageRoot, "package.json");
   const packageJson = packageJsonRead.value as {
@@ -97,7 +111,9 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
   );
 
   const approvedLiveControlProof = options.approvedLiveControlEvidence?.trim();
-  const liveControlProof = validateApprovedLiveControlProof(approvedLiveControlProof);
+  const liveControlProof = liveControlRequired
+    ? validateApprovedLiveControlProof(approvedLiveControlProof)
+    : check(true, liveControlExcludedDetail(claimScope));
   const rawSessionArtifacts = scanRawSessionArtifacts(options.evidenceDir);
   const checks: Record<string, ReleasePreflightCheck> = {
     packageJson: check(Boolean(!packageJsonRead.error && packageJson?.name && packageJson.version && packageJson.description?.match(/local Codex sessions/i)), packageJsonRead.error ?? "package metadata keeps Codex-first beta positioning"),
@@ -113,12 +129,14 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
     .filter(([key, value]) => !value.ok && key !== "liveControlSmoke" && key !== "rawArtifacts")
     .map(([key]) => `${key}_failed`);
   if (rawSessionArtifacts.length > 0) blockers.push("raw_session_artifacts_present");
-  if (!checks.liveControlSmoke?.ok) blockers.push("approved_live_control_smoke_missing");
+  if (liveControlRequired && !checks.liveControlSmoke?.ok) blockers.push("approved_live_control_smoke_missing");
 
   const report: ReleasePreflightReport = {
     ok: blockers.every((blocker) => blocker === "approved_live_control_smoke_missing"),
     releaseReady: blockers.length === 0,
     generatedAt: options.now ?? new Date().toISOString(),
+    claimScope,
+    excludedClaims,
     artifactManifestPath: options.evidenceDir ? join(options.evidenceDir, "release-preflight.json") : null,
     packageName: packageJson?.name ?? null,
     packageVersion: packageJson?.version ?? null,
