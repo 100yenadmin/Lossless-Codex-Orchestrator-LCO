@@ -1,8 +1,8 @@
 # OpenClaw Plugin
 
-The OpenClaw plugin entry lives in `packages/openclaw-plugin`.
+The OpenClaw plugin source entry lives in `packages/openclaw-plugin`.
 
-The packageable plugin manifest is `packages/openclaw-plugin/openclaw.plugin.json`.
+The root npm package is the OpenClaw install source. Its packageable plugin manifest is `openclaw.plugin.json`, and `package.json` points OpenClaw at the TypeScript source plus the compiled runtime entry `dist/packages/openclaw-plugin/src/index.js` for package installs.
 
 The plugin launches the MCP server:
 

@@ -49,10 +49,13 @@ async function main() {
     return;
   }
   if (command === "index" && args[0] === "codex") {
-    const roots = args.slice(1);
+    const parsed = parseIndexCodexArgs(args.slice(1));
     const db = createDatabase();
     try {
-      console.log(JSON.stringify(indexCodexSessions(db, { roots: roots.length ? roots : defaultCodexRoots() }), null, 2));
+      console.log(JSON.stringify(indexCodexSessions(db, {
+        roots: parsed.roots.length ? parsed.roots : defaultCodexRoots(),
+        maxFiles: parsed.maxFiles
+      }), null, 2));
     } finally {
       db.close();
     }
@@ -178,7 +181,7 @@ async function main() {
     "  loo doctor",
     "  loo desktop see [direct|cua-driver|peekaboo] [--snapshot] [--max-nodes n] [--max-chars n]",
     "  loo desktop act [direct|cua-driver|peekaboo] <action>",
-    "  loo index codex [roots...]",
+    "  loo index codex [--max-files n] [roots...]",
     "  loo probe codex-sqlite [roots...]",
     "  loo search <query>",
     "  loo grep [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <query>",
@@ -232,6 +235,21 @@ function requireQuery(command: string, parts: string[]): string {
   const query = parts.join(" ").trim();
   if (!query) throw new Error(`${command} requires a query`);
   return query;
+}
+
+function parseIndexCodexArgs(input: string[]): { roots: string[]; maxFiles?: number } {
+  const roots: string[] = [];
+  let maxFiles: number | undefined;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--max-files") {
+      maxFiles = parsePositiveInteger(input[++index], "--max-files", 100000);
+      continue;
+    }
+    if (arg.startsWith("--")) throw new Error(`Unknown index codex option: ${arg}`);
+    roots.push(arg);
+  }
+  return { roots, maxFiles };
 }
 
 function parseDesktopBackend(value: string | undefined): DesktopBackend | undefined {

@@ -489,9 +489,9 @@ export function expandSession(db: LooDatabase, options: ExpandSessionOptions): E
     description.branch ? `Branch: ${description.branch}` : null,
     description.gitSha ? `Git SHA: ${description.gitSha}` : null,
     description.summary ? `Summary: ${description.summary}` : null,
-    description.finalMessage ? `Final message: ${description.finalMessage}` : null,
-    description.touchedFiles.length ? `Touched files:\n${description.touchedFiles.map((file) => `- ${file}`).join("\n")}` : null,
-    plans.length ? `Plans:\n${plans.map((plan) => truncate(plan, profile.name === "evidence" ? 3200 : 1600)).join("\n\n")}` : null
+    description.finalMessage ? `Final message: ${truncate(description.finalMessage, profile.name === "evidence" ? 3200 : 900)}` : null,
+    description.touchedFiles.length ? `Touched files:\n${formatTouchedFiles(description.touchedFiles, profile.name === "evidence" ? 50 : 12, profile.name === "evidence" ? 3200 : 900)}` : null,
+    plans.length ? `Plans:\n${plans.map((plan) => truncate(plan, profile.name === "evidence" ? 3200 : 1200)).join("\n\n")}` : null
   ].filter(Boolean).join("\n\n");
   return {
     sourceKind: "codex_thread",
@@ -501,6 +501,21 @@ export function expandSession(db: LooDatabase, options: ExpandSessionOptions): E
     tokenBudget: profile.tokenBudget,
     profile
   };
+}
+
+function formatTouchedFiles(files: string[], limit: number, maxChars: number): string {
+  const perPathLimit = maxChars > 1000 ? 180 : 120;
+  const omittedMarker = files.length > limit ? `- ... ${files.length - limit} more touched files omitted` : null;
+  const visibleMaxChars = omittedMarker ? Math.max(0, maxChars - omittedMarker.length - 1) : maxChars;
+  const visible: string[] = [];
+  for (const file of files.slice(0, limit)) {
+    const next = `- ${truncate(file, perPathLimit)}`;
+    const candidate = [...visible, next].join("\n");
+    if (candidate.length > visibleMaxChars) break;
+    visible.push(next);
+  }
+  const visibleText = truncate(visible.join("\n"), visibleMaxChars);
+  return [visibleText, omittedMarker].filter(Boolean).join("\n");
 }
 
 export function probeLcmPeerDbs(paths = configuredLcmPeerDbPaths()): { peers: LcmPeerProbe[] } {

@@ -9,6 +9,20 @@
     "loo": "./dist/packages/cli/src/index.js",
     "loo-mcp-server": "./dist/packages/mcp-server/src/server.js"
   },
+  "openclaw": {
+    "extensions": [
+      "./packages/openclaw-plugin/src/index.ts"
+    ],
+    "runtimeExtensions": [
+      "./dist/packages/openclaw-plugin/src/index.js"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.6.8"
+    },
+    "build": {
+      "openclawVersion": ">=2026.6.8"
+    }
+  },
   "scripts": {
     "test": "node --test --import tsx tests/*.test.ts",
     "typecheck": "tsc --noEmit",
@@ -23,6 +37,7 @@
     "dist",
     "packages",
     "docs",
+    "openclaw.plugin.json",
     "README.md",
     "LICENSE",
     "SECURITY.md"

@@ -51,7 +51,7 @@ npm install
 npm test
 ```
 
-OpenClaw plugin setup lives in [docs/OPENCLAW_PLUGIN.md](docs/OPENCLAW_PLUGIN.md), with the packageable manifest at `packages/openclaw-plugin/openclaw.plugin.json`. The beta proof workflow lives in [docs/BETA_RELEASE_DEMO.md](docs/BETA_RELEASE_DEMO.md), the public claim boundary is audited in [docs/CLAIM_AUDIT.md](docs/CLAIM_AUDIT.md), and draft public beta notes live in [docs/RELEASE_NOTES_0.1.0-beta.0.md](docs/RELEASE_NOTES_0.1.0-beta.0.md).
+OpenClaw plugin setup lives in [docs/OPENCLAW_PLUGIN.md](docs/OPENCLAW_PLUGIN.md), with the packageable manifest at `openclaw.plugin.json` and source under `packages/openclaw-plugin`. The beta proof workflow lives in [docs/BETA_RELEASE_DEMO.md](docs/BETA_RELEASE_DEMO.md), the public claim boundary is audited in [docs/CLAIM_AUDIT.md](docs/CLAIM_AUDIT.md), and draft public beta notes live in [docs/RELEASE_NOTES_0.1.0-beta.0.md](docs/RELEASE_NOTES_0.1.0-beta.0.md).
 
 ## CLI
 
@@ -60,7 +60,7 @@ loo doctor
 loo desktop see cua-driver
 loo desktop see peekaboo --snapshot --max-nodes 50
 loo desktop act cua-driver "click primary" # dry-run only
-loo index codex ~/.codex/sessions ~/.codex/archived_sessions
+loo index codex --max-files 150 ~/.codex/sessions ~/.codex/archived_sessions
 loo search "proposed plan billing bridge"
 loo grep --lcm-db ~/.openclaw/lcm.db "billing bridge"
 loo describe codex_thread:019f-example

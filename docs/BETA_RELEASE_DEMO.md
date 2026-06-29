@@ -16,10 +16,10 @@ The doctor output should report `localOnly: true`, the Codex transport status, L
 
 ```bash
 export LOO_DB_PATH="$HOME/.openclaw/lossless-openclaw-orchestrator/orchestrator.sqlite"
-loo index codex "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
+loo index codex --max-files 150 "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
 ```
 
-Acceptance for the beta demo is 100+ local Codex sessions indexed with zero importer errors. Save only counts and redacted metadata in public evidence; do not attach raw session files or the SQLite database.
+Acceptance for the beta demo is 100+ local Codex sessions indexed with zero importer errors. Use `--max-files` to keep the smoke bounded; raise the cap only when the local store needs it to reach 100 sessions. Save only counts and redacted metadata in public evidence; do not attach raw session files or the SQLite database.
 
 ## 3. Search Plans And Finals
 
@@ -71,4 +71,3 @@ loo desktop see peekaboo
 ```
 
 `loo desktop see peekaboo --snapshot` is optional and should be used only when the user accepts a local visible snapshot. `loo_desktop_act` remains dry-run-only in this beta.
-

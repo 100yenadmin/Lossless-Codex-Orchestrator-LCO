@@ -47,13 +47,14 @@ test("public beta docs include install, MCP/OpenClaw, demo, and approval-boundar
   assert.match(readme, /docs\/OPENCLAW_PLUGIN\.md/);
   assert.match(readme, /docs\/BETA_RELEASE_DEMO\.md/);
   assert.match(readme, /loo release preflight/);
+  assert.match(readme, /loo index codex --max-files \d+/);
   assert.match(openclawDocs, /loo-mcp-server/);
   assert.match(openclawDocs, /dry_run=true/);
   assert.match(openclawDocs, /approval_audit_id/);
 
   for (const required of [
     /100\+ local Codex sessions/i,
-    /loo index codex/i,
+    /loo index codex --max-files \d+/i,
     /loo search/i,
     /loo_codex_plans/i,
     /loo_codex_final_messages/i,
@@ -93,18 +94,42 @@ test("release status examples include live-control evidence alongside release ap
 });
 
 test("OpenClaw plugin manifest is packageable and matches the beta safety boundary", () => {
+  assert.equal(existsSync("openclaw.plugin.json"), true, "root OpenClaw plugin manifest must exist");
   assert.equal(existsSync("packages/openclaw-plugin/openclaw.plugin.json"), true, "OpenClaw plugin manifest must exist");
+  assert.equal(existsSync("packages/openclaw-plugin/package.json"), false, "nested plugin source must not shadow the root package install source");
 
-  const manifest = JSON.parse(read("packages/openclaw-plugin/openclaw.plugin.json")) as {
+  const packageJson = JSON.parse(read("package.json")) as {
+    name?: string;
+    type?: string;
+    files?: string[];
+    openclaw?: { extensions?: string[]; runtimeExtensions?: string[]; compat?: { pluginApi?: string }; build?: { openclawVersion?: string } };
+  };
+  const manifest = JSON.parse(read("openclaw.plugin.json")) as {
     id?: string;
     name?: string;
     description?: string;
     mcp?: { command?: string; transport?: string };
     tools?: { prefix?: string };
+    configSchema?: { type?: string; additionalProperties?: boolean; properties?: Record<string, unknown> };
+    activation?: { onStartup?: boolean };
+    contracts?: { tools?: string[] };
     safety?: { localOnlyByDefault?: boolean; liveControlRequires?: string[]; forbiddenClaims?: string[] };
   };
+  const sourceManifest = JSON.parse(read("packages/openclaw-plugin/openclaw.plugin.json")) as {
+    id?: string;
+    mcp?: { command?: string; transport?: string };
+  };
 
+  assert.equal(packageJson.name, "lossless-openclaw-orchestrator");
+  assert.equal(packageJson.type, "module");
+  assert.equal(packageJson.files?.includes("openclaw.plugin.json"), true);
+  assert.deepEqual(packageJson.openclaw?.extensions, ["./packages/openclaw-plugin/src/index.ts"]);
+  assert.deepEqual(packageJson.openclaw?.runtimeExtensions, ["./dist/packages/openclaw-plugin/src/index.js"]);
+  assert.equal(packageJson.openclaw?.compat?.pluginApi, ">=2026.6.8");
+  assert.equal(packageJson.openclaw?.build?.openclawVersion, ">=2026.6.8");
   assert.equal(manifest.id, "lossless-openclaw-orchestrator");
+  assert.equal(sourceManifest.id, manifest.id);
+  assert.equal(sourceManifest.mcp?.command, manifest.mcp?.command);
   assert.equal(manifest.name, "Lossless OpenClaw Orchestrator");
   assert.match(manifest.description ?? "", /local Codex sessions/i);
   assert.match(manifest.description ?? "", /approval-gated controls/i);
@@ -112,6 +137,9 @@ test("OpenClaw plugin manifest is packageable and matches the beta safety bounda
   assert.equal(manifest.mcp?.command, "loo-mcp-server");
   assert.equal(manifest.mcp?.transport, "stdio");
   assert.equal(manifest.tools?.prefix, "loo_");
+  assert.deepEqual(manifest.configSchema, { type: "object", additionalProperties: false, properties: {} });
+  assert.equal(manifest.activation?.onStartup, true);
+  assert.deepEqual(manifest.contracts?.tools, []);
   assert.equal(manifest.safety?.localOnlyByDefault, true);
   assert.deepEqual(manifest.safety?.liveControlRequires, ["dry_run", "approval_audit_id"]);
   assert.deepEqual(manifest.safety?.forbiddenClaims, [
@@ -260,7 +288,7 @@ test("release preflight reports malformed package JSON as a structured blocker",
   assert.equal(payload.checks.packageJson?.ok, false);
   assert.match(payload.checks.packageJson?.detail ?? "", /invalid JSON/i);
   assert.equal(existsSync(join(evidenceDir, "release-preflight.json")), true);
-  assert.deepEqual(payload.blockers, ["packageJson_failed", "approved_live_control_smoke_missing"]);
+  assert.deepEqual(payload.blockers, ["packageJson_failed", "openclawManifest_failed", "approved_live_control_smoke_missing"]);
 });
 
 test("release preflight README gate enforces the full forbidden-claims boundary", () => {
@@ -361,7 +389,13 @@ function writeProjectSkeleton(rootDir: string, overrides: { readme?: string } = 
   writeFileSync(join(rootDir, "package.json"), JSON.stringify({
     name: "lossless-openclaw-orchestrator",
     version: "0.1.0-beta.0",
-    description: "Index, search, and control local Codex sessions through OpenClaw with approval-gated safety."
+    description: "Index, search, and control local Codex sessions through OpenClaw with approval-gated safety.",
+    openclaw: {
+      extensions: ["./packages/openclaw-plugin/src/index.ts"],
+      runtimeExtensions: ["./dist/packages/openclaw-plugin/src/index.js"],
+      compat: { pluginApi: ">=2026.6.8" },
+      build: { openclawVersion: ">=2026.6.8" }
+    }
   }));
   writeFileSync(join(rootDir, "README.md"), overrides.readme ?? [
     "# Lossless OpenClaw Orchestrator",
@@ -381,10 +415,12 @@ function writeProjectSkeleton(rootDir: string, overrides: { readme?: string } = 
     "100+ local Codex sessions",
     "does not run live control"
   ].join("\n"));
-  writeFileSync(join(rootDir, "packages/openclaw-plugin/openclaw.plugin.json"), JSON.stringify({
+  const manifest = JSON.stringify({
     id: "lossless-openclaw-orchestrator",
     mcp: { command: "loo-mcp-server", transport: "stdio" },
     tools: { prefix: "loo_" },
     safety: { localOnlyByDefault: true }
-  }));
+  });
+  writeFileSync(join(rootDir, "openclaw.plugin.json"), manifest);
+  writeFileSync(join(rootDir, "packages/openclaw-plugin/openclaw.plugin.json"), manifest);
 }

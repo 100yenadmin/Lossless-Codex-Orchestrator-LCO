@@ -103,3 +103,59 @@ test("indexes Codex sessions with plans, finals, touched files, and search text"
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });
+
+test("bounded expansion keeps proposed plans and touched files visible when final message is long", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-long-final-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const threadPath = join(sessions, "rollout-2026-06-28T00-00-00-019f-long-final.jsonl");
+  const lines = [
+    { session_meta: { payload: { id: "019f-long-final", cwd: "/Volumes/LEXAR/repos/example" } } },
+    { event_msg: { type: "thread_name", name: "Long final expansion" } },
+    {
+      response_item: {
+        type: "message",
+        role: "assistant",
+        content: [{ type: "output_text", text: "<proposed_plan>\n1. Keep the plan visible.\n</proposed_plan>" }]
+      }
+    },
+    {
+      response_item: {
+        type: "function_call",
+        call_id: "call_long",
+        name: "functions.exec_command",
+        arguments: JSON.stringify({
+          cmd: [
+            "sed -n '1,20p' /Volumes/LEXAR/repos/example/src/expansion.ts",
+            ...Array.from({ length: 12 }, (_, index) => `/Volumes/LEXAR/repos/example/packages/really-long-path-segment-${index}/nested/with/many/directories/for/expansion-${index}.ts`)
+          ].join(" ")
+        })
+      }
+    },
+    {
+      event_msg: {
+        type: "agent_message",
+        message: `Final: ${"long final evidence ".repeat(500)}`
+      }
+    }
+  ];
+  writeFileSync(threadPath, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+
+    const expanded = expandSession(db, { threadId: "019f-long-final", profile: "brief" });
+
+    assert.equal(expanded.text.includes("Final message:"), true);
+    assert.equal(expanded.text.includes("Touched files:"), true);
+    assert.equal(expanded.text.includes("really-long-path-segment"), true);
+    assert.equal(expanded.text.includes("more touched files omitted"), true);
+    assert.equal(expanded.text.length <= 4000, true);
+    assert.equal(expanded.text.includes("Plans:"), true);
+    assert.equal(expanded.text.includes("Keep the plan visible"), true);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

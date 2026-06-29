@@ -59,18 +59,32 @@ const forbiddenClaims = [
 export function runReleasePreflight(options: ReleasePreflightOptions = {}): ReleasePreflightReport {
   const packageRoot = options.rootDir ? resolve(options.rootDir) : findPackageRoot(dirname(fileURLToPath(import.meta.url))) ?? process.cwd();
   const packageJsonRead = readJson(packageRoot, "package.json");
-  const packageJson = packageJsonRead.value as { name?: string; version?: string; description?: string } | null;
+  const packageJson = packageJsonRead.value as {
+    name?: string;
+    version?: string;
+    description?: string;
+    openclaw?: {
+      extensions?: string[];
+      runtimeExtensions?: string[];
+      compat?: { pluginApi?: string };
+      build?: { openclawVersion?: string };
+    };
+  } | null;
   const readme = readText(packageRoot, "README.md");
   const normalizedReadme = readme?.toLowerCase() ?? "";
   const claimAudit = readText(packageRoot, "docs/CLAIM_AUDIT.md");
   const betaDemo = readText(packageRoot, "docs/BETA_RELEASE_DEMO.md");
-  const openclawManifestRead = readJson(packageRoot, "packages/openclaw-plugin/openclaw.plugin.json");
+  const openclawManifestRead = readJson(packageRoot, "openclaw.plugin.json");
   const openclawManifest = openclawManifestRead.value as {
     id?: string;
     mcp?: { command?: string; transport?: string };
     tools?: { prefix?: string };
     safety?: { localOnlyByDefault?: boolean; liveControlRequires?: string[] };
   } | null;
+  const openclawPackageMetadataOk = packageJson?.openclaw?.extensions?.includes("./packages/openclaw-plugin/src/index.ts")
+    && packageJson.openclaw.runtimeExtensions?.includes("./dist/packages/openclaw-plugin/src/index.js")
+    && packageJson.openclaw.compat?.pluginApi === ">=2026.6.8"
+    && packageJson.openclaw.build?.openclawVersion === ">=2026.6.8";
 
   const approvedLiveControlProof = options.approvedLiveControlEvidence?.trim();
   const liveControlProof = validateApprovedLiveControlProof(approvedLiveControlProof);
@@ -78,7 +92,7 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
   const checks: Record<string, ReleasePreflightCheck> = {
     packageJson: check(Boolean(!packageJsonRead.error && packageJson?.name && packageJson.version && packageJson.description?.match(/local Codex sessions/i)), packageJsonRead.error ?? "package metadata keeps Codex-first beta positioning"),
     readme: check(Boolean(readme?.match(/Allowed public beta claim/i) && readme.match(/loo release preflight/i) && forbiddenClaims.every((claim) => normalizedReadme.includes(claim.toLowerCase()))), "README includes beta claim boundary, forbidden claims, and release preflight command"),
-    openclawManifest: check(Boolean(!openclawManifestRead.error && openclawManifest?.id === "lossless-openclaw-orchestrator" && openclawManifest.mcp?.command === "loo-mcp-server" && openclawManifest.mcp.transport === "stdio" && openclawManifest.tools?.prefix === "loo_" && openclawManifest.safety?.localOnlyByDefault === true), openclawManifestRead.error ?? "OpenClaw manifest is packageable and local-only by default"),
+    openclawManifest: check(Boolean(!openclawManifestRead.error && openclawPackageMetadataOk && openclawManifest?.id === "lossless-openclaw-orchestrator" && openclawManifest.mcp?.command === "loo-mcp-server" && openclawManifest.mcp.transport === "stdio" && openclawManifest.tools?.prefix === "loo_" && openclawManifest.safety?.localOnlyByDefault === true), openclawManifestRead.error ?? "root OpenClaw manifest and package runtime entry are packageable and local-only by default"),
     claimAudit: check(Boolean(claimAudit?.match(/Forbidden Beta Claims/i) && claimAudit.match(/approved_live_control_smoke_missing/i)), "claim audit records forbidden claims and the live-control blocker code"),
     betaDemo: check(Boolean(betaDemo?.match(/100\+ local Codex sessions/i) && betaDemo.match(/does not run live control/i)), "demo workflow covers 100+ Codex sessions and dry-run-only control boundary"),
     rawArtifacts: check(rawSessionArtifacts.length === 0, rawSessionArtifacts.length === 0 ? "no raw session/private DB/screenshot artifacts found" : "raw session/private DB/screenshot artifacts are present"),
