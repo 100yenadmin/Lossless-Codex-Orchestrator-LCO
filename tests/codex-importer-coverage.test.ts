@@ -145,6 +145,37 @@ test("skips Codex JSONL files that exceed byte or event ceilings without indexin
   }
 });
 
+test("clears previously indexed Codex evidence when a source file exceeds a later ceiling", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-importer-ceiling-stale-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const sourcePath = join(sessions, "rollout-2026-06-28T00-00-00-019f-stale-ceiling.jsonl");
+  writeJsonl(sourcePath, "019f-stale-ceiling", "Stale ceiling marker");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const first = indexCodexSessions(db, { roots: [sessions], maxFiles: 10, maxEventsPerFile: 10 });
+    assert.equal(first.indexedFiles, 1);
+    assert.equal(searchSessions(db, { query: "Stale ceiling marker", limit: 5 }).length, 1);
+    assert.ok(getSourceFileWatermark(db, sourcePath));
+
+    const limited = indexCodexSessions(db, { roots: [sessions], maxFiles: 10, maxEventsPerFile: 2 });
+    assert.equal(limited.indexedFiles, 0);
+    assert.equal(limited.skippedFiles, 1);
+    assert.deepEqual(limited.limitedFiles, [{
+      path: sourcePath,
+      reason: "max_events_per_file",
+      limit: 2,
+      actual: 3
+    }]);
+    assert.equal(searchSessions(db, { query: "Stale ceiling marker", limit: 5 }).length, 0);
+    assert.equal(getSourceFileWatermark(db, sourcePath), null);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("probes Codex SQLite stores read-only and reports schema support", () => {
   let root: string | null = null;
   try {

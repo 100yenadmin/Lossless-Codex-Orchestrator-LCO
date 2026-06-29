@@ -286,7 +286,7 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
     try {
       const stat = statSync(path);
       if (stat.size > maxBytesPerFile) {
-        recordLimitedFile(result, path, "max_bytes_per_file", maxBytesPerFile, stat.size);
+        recordLimitedFile(db, result, path, "max_bytes_per_file", maxBytesPerFile, stat.size);
         continue;
       }
       const watermark = getSourceFileWatermark(db, path);
@@ -294,7 +294,7 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
       const text = readFileSync(path, "utf8");
       const eventCount = countJsonlEvents(text);
       if (eventCount > maxEventsPerFile) {
-        recordLimitedFile(result, path, "max_events_per_file", maxEventsPerFile, eventCount);
+        recordLimitedFile(db, result, path, "max_events_per_file", maxEventsPerFile, eventCount);
         continue;
       }
       if (watermark && watermark.size === stat.size && watermark.mtimeMs === mtimeMs) {
@@ -323,9 +323,25 @@ function positiveLimit(value: number | undefined, fallback: number, name: string
   return limit;
 }
 
-function recordLimitedFile(result: IndexCodexResult, path: string, reason: LimitedCodexFile["reason"], limit: number, actual: number): void {
+function recordLimitedFile(db: LooDatabase, result: IndexCodexResult, path: string, reason: LimitedCodexFile["reason"], limit: number, actual: number): void {
+  clearSourceFileIndex(db, path);
   result.skippedFiles += 1;
   result.limitedFiles.push({ path, reason, limit, actual });
+}
+
+function clearSourceFileIndex(db: LooDatabase, sourcePath: string): void {
+  const rows = db.prepare("SELECT thread_id AS threadId FROM codex_sessions WHERE source_path = ?").all(sourcePath) as Array<{ threadId: string }>;
+  db.exec("BEGIN");
+  try {
+    const deleteFts = db.prepare("DELETE FROM codex_safe_text_fts WHERE thread_id = ?");
+    for (const row of rows) deleteFts.run(String(row.threadId));
+    db.prepare("DELETE FROM codex_sessions WHERE source_path = ?").run(sourcePath);
+    db.prepare("DELETE FROM codex_source_files WHERE source_path = ?").run(sourcePath);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
 }
 
 export function getSourceFileWatermark(db: LooDatabase, sourcePath: string): SourceFileWatermark | null {
