@@ -71,6 +71,29 @@ That proof marker must include `operation: "desktop_gui_mutation"`,
 `approved: true`, a non-empty `approvalRef`, `desktopBackend`, `targetApp`,
 `targetWindow`, `action`, and `rawSecretIncluded: false`.
 
+Also run a high-context document/workflow scan before calling the release
+candidate ready. This is an adversarial review, not a publishing action. It must
+inspect README.md, `VISION.md`, release notes, claim audit, GitHub workflows, and CLI release gates
+together so the release story cannot pass by checking only one file or one
+command. Record findings under the release evidence directory and update issue
+#6 or issue #14 with the result.
+
+Use a long-context release-review agent for this pass. The preferred profile is
+an approved long-context model alias such as `gpt-5.4` with `1M-context` when
+that profile is available in the maintainer environment; otherwise record the
+actual agent/model/context window used and keep the review blocked if it cannot
+inspect the release docs, workflows, skills, and runbooks together. If the scan
+finds stale or incomplete release instructions, update this runbook in the same
+PR before treating the release candidate as ready.
+
+The high-context scan must cover these named scorecard lenses:
+
+- safety bypass review
+- retrieval quality review
+- packaging/install review
+- public-claim review
+- local-agent usability review
+
 ## OpenClaw Install And Tool Declaration Smoke
 
 The local OpenClaw gateway is a first-class beta user. First run metadata-only
@@ -108,6 +131,9 @@ A release candidate may be announced internally when all of these are true:
 - `npm pack --dry-run` passed
 - release preflight, release bundle, demo status, release status, and scorecard
   sweep wrote public-safe evidence
+- high-context document/workflow scan evidence covers README.md, `VISION.md`,
+  release notes, claim audit, GitHub workflows, CLI release gates, and the named
+  adversarial scorecard lenses
 - OpenClaw dogfood has a current pass or an explicit blocker
 - README, `VISION.md`, release notes, and claim audit agree on the proof
   boundary
