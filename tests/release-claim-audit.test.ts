@@ -296,12 +296,14 @@ test("OpenClaw plugin manifest is packageable and matches the beta safety bounda
 
   const packageJson = JSON.parse(read("package.json")) as {
     name?: string;
+    version?: string;
     type?: string;
     files?: string[];
     openclaw?: { extensions?: string[]; runtimeExtensions?: string[]; compat?: { pluginApi?: string }; build?: { openclawVersion?: string } };
   };
   const manifest = JSON.parse(read("openclaw.plugin.json")) as {
     id?: string;
+    version?: string;
     name?: string;
     description?: string;
     mcp?: { command?: string; transport?: string };
@@ -313,6 +315,7 @@ test("OpenClaw plugin manifest is packageable and matches the beta safety bounda
   };
   const sourceManifest = JSON.parse(read("packages/openclaw-plugin/openclaw.plugin.json")) as {
     id?: string;
+    version?: string;
     mcp?: { command?: string; transport?: string };
     contracts?: { tools?: unknown[]; toolDeclarations?: unknown[] };
   };
@@ -328,6 +331,8 @@ test("OpenClaw plugin manifest is packageable and matches the beta safety bounda
   assert.equal(packageJson.openclaw?.build?.openclawVersion, ">=2026.6.8");
   assert.equal(manifest.id, "lossless-openclaw-orchestrator");
   assert.equal(sourceManifest.id, manifest.id);
+  assert.equal(manifest.version, packageJson.version);
+  assert.equal(sourceManifest.version, packageJson.version);
   assert.equal(sourceManifest.mcp?.command, manifest.mcp?.command);
   assert.deepEqual([...expectedToolNames].sort(), Object.keys(LOO_COMMAND_POLICY).sort());
   assert.equal(manifest.name, "Lossless OpenClaw Orchestrator");
