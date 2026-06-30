@@ -165,6 +165,7 @@ Scorecard and release proof commands:
 ```bash
 loo scorecards sweep --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-scorecard-sweep --strict
 loo eval scenarios --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-qa-lab-v1 --strict
+loo eval scenarios --scenario-dir evals/scenarios/v1.1 --runtime-proof-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/runtime-proofs --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-qa-lab-v1.1 --strict
 loo release preflight --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight
 loo release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --candidate-sha <release-candidate-sha> --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --npm-publish-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/npm-approval.json --github-release-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-release-approval.json --github-ci-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-ci.json --codeql-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/codeql.json
 loo release demo-status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/demo
@@ -172,9 +173,11 @@ loo release demo-status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-or
 
 QA Lab dry-run scenarios live in `evals/scenarios/v1`. Runtime-required working
 app proof scenarios live in `evals/scenarios/v1.1`. The current
-`loo eval scenarios` command validates `v1` dry-run contracts and writes
-public-safe per-scenario scorecards. Milestone 7 issue #157 must add the
-runtime-proof runner/gate before `v1.1` can be used as completion evidence.
+`loo eval scenarios` command validates `v1` dry-run contracts and `v1.1`
+runtime-required proof markers without performing the live actions itself.
+Milestone 7 runtime scenarios stay incomplete until `--runtime-proof-dir`
+contains public-safe `<scenario-id>.runtime-proof.json` markers from the later
+child issues.
 
 For a release candidate that intentionally claims only read/search/describe/expand
 plus dry-run control, name the smaller scope explicitly and do not pass

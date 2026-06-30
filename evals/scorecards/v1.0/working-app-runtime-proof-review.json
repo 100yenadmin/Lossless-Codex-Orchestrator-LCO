@@ -12,7 +12,8 @@
     "loo_describe_session",
     "loo_expand_query",
     "loo desktop live-proof-harness",
-    "loo desktop proof-report"
+    "loo desktop proof-report",
+    "loo eval scenarios --scenario-dir evals/scenarios/v1.1 --runtime-proof-dir <proof-dir> --evidence-dir <evidence-dir> --strict"
   ],
   "expected_public_safe_evidence": [
     "installed plugin id and version",
@@ -53,12 +54,11 @@
   "current_score": "example-not-run",
   "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-156-working-app-proof/working-app-runtime-proof-review.json",
   "known_gaps": [
-    "The current beta has gateway dry-run dogfood and a CLI live-control smoke, but not the full installed gateway live-control and post-action refresh loop.",
+    "The runtime proof runner can validate public-safe v1.1 proof markers, but the full installed gateway live-control and post-action refresh loop still needs real runtime evidence.",
     "Desktop collaboration has backend-specific scratch proofs, but not a product-level action path.",
     "The local Mac search UI is not yet connected to live user-path tools.",
     "Claude Code remains an adapter inventory item, not an equivalent working path."
   ],
-  "next_action": "Run Milestone 7 child issues #157 through #162 and update this scorecard from example-not-run to pass only after runtime proof markers exist.",
+  "next_action": "Run Milestone 7 child issues #158 through #162 and update this scorecard from example-not-run to pass only after real runtime proof markers exist.",
   "proof_boundary": "This local public-safe scorecard defines Milestone 7 working-app proof. It is not proof until runtime evidence from the installed gateway and named local surfaces exists."
 }
-
