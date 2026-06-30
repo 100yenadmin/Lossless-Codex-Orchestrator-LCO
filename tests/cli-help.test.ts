@@ -68,3 +68,27 @@ test("loo openclaw dogfood --help exits zero with command-specific usage", () =>
   assert.match(result.stdout, /With --install-source, it may run OpenClaw plugin install/i);
   assert.equal(result.stderr.trim(), "");
 });
+
+test("loo openclaw tool-smoke --help exits zero with proof-boundary usage", () => {
+  const result = runLoo(["openclaw", "tool-smoke", "--help"]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Usage:\n  loo openclaw tool-smoke/);
+  assert.match(result.stdout, /--required-tool name/);
+  assert.match(result.stdout, /loo_codex_control_dry_run/);
+  assert.match(result.stdout, /does not run live Codex control/i);
+  assert.match(result.stdout, /does not publish npm/i);
+  assert.equal(result.stderr.trim(), "");
+});
+
+test("loo release preflight --help exits zero with claim-scope usage", () => {
+  const result = runLoo(["release", "preflight", "--help"]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Usage:\n  loo release preflight/);
+  assert.match(result.stdout, /--claim-scope codex-live-control\|codex-read-search-expand-dry-run\|codex-working-app-proof/);
+  assert.match(result.stdout, /approved_live_control_smoke_missing/);
+  assert.match(result.stdout, /does not publish npm/i);
+  assert.match(result.stdout, /does not run live Codex control/i);
+  assert.equal(result.stderr.trim(), "");
+});
