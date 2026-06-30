@@ -73,7 +73,7 @@ Disallowed for the next proof:
 
 ## First Adapter Proof Step
 
-The first adapter proof step should be **read-only session inventory**:
+The first adapter proof step is **read-only session inventory**:
 
 1. Add a Claude adapter fixture importer for redacted public-safe metadata only.
 2. Produce source refs such as `claude_session:*` without raw transcript text.
@@ -84,13 +84,17 @@ The first adapter proof step should be **read-only session inventory**:
 
 The implementation issue is
 [#166](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/166).
-It requires a failing fixture test first, a public-safe evidence packet, and
-claim-audit checks proving the docs still say Claude Code remains a future
-adapter boundary.
+It adds `indexClaudeSessionInventory` for explicit redacted fixtures and
+`claude_session:*` refs that can be routed through the same recall
+`grep -> describe -> expand` boundary as Codex and LCM refs.
+
+Metadata-only fixture inventory is proven. Local Claude Code transcript
+discovery, broad Claude indexing, live Claude control, Claude GUI mutation,
+MCP control, hooks mutation, cloud sync, and parity remain unproven.
 
 ## Proof Boundary
 
-This issue is complete only when the repo contains this inventory, claim-audit
-tests, and a first-step issue for read-only metadata proof.
+This lane is complete only when the repo contains this inventory, claim-audit
+tests, and the #166 fixture proof for read-only metadata refs.
 
 This issue does not prove Claude Code indexing, control, parity, GUI mutation, or cloud sync.

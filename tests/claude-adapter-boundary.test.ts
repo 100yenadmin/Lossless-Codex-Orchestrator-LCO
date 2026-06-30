@@ -16,6 +16,9 @@ test("Claude adapter boundary inventory exists without claiming parity", () => {
 
   assert.match(boundary, /#163/);
   assert.match(boundary, /#166/);
+  assert.match(boundary, /indexClaudeSessionInventory/);
+  assert.match(boundary, /claude_session:\*/);
+  assert.match(boundary, /metadata-only fixture inventory is proven/i);
   assert.match(boundary, /read-only session inventory/i);
   assert.match(boundary, /first adapter proof step/i);
   assert.match(boundary, /storage path/i);
@@ -28,7 +31,9 @@ test("Claude adapter boundary inventory exists without claiming parity", () => {
   assert.doesNotMatch(boundary, /full Claude Code parity|control Claude Code remotely|unattended Claude takeover/i);
 
   assert.match(readme, /docs\/CLAUDE_ADAPTER_BOUNDARY\.md/);
+  assert.match(readme, /Claude Code adapter \| Fixture inventory/i);
   assert.match(vision, /CLAUDE_ADAPTER_BOUNDARY\.md/);
+  assert.match(vision, /Claude metadata fixture inventory/i);
 });
 
 test("Claude adapter stub exposes proof boundary metadata", () => {
