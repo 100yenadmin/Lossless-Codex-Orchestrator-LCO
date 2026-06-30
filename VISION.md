@@ -164,7 +164,11 @@ Do not claim:
 
 ## Current Release Gates
 
-The beta is not complete until these gates are proven from the public CLI, MCP, or OpenClaw plugin surface:
+Release candidates should be scoped to the evidence they actually prove. `main` may be RC-ready for one claim scope while broader 1.0 work remains open.
+
+For `0.1.x` reduced-scope release candidates, the allowed claim scope is `codex-read-search-expand-dry-run` when the evidence proves Codex indexing, search, describe, bounded expansion, and dry-run control through CLI, MCP, or the OpenClaw gateway. In that scope, live Codex control is an excluded claim, GUI mutation is an excluded claim, and Claude parity is an excluded claim. Those exclusions must remain visible in release status, scorecards, docs, and issue updates instead of becoming hidden blockers.
+
+For 1.0 or any expanded-scope release that claims live control, desktop collaboration, or adapter parity, the broader gates below must be proven from the public CLI, MCP, OpenClaw plugin, or approved desktop surface:
 
 - Local Codex indexing works on 100+ sessions with bounded limits.
 - Search, describe, plans, finals, touched files, tool metadata, and bounded expansion work.
@@ -173,7 +177,7 @@ The beta is not complete until these gates are proven from the public CLI, MCP, 
 - One harmless approved live Codex control smoke is proven with explicit user approval.
 - CUA/Peekaboo readiness is honest and does not imply unsupported generic GUI action.
 - Release preflight/status/bundle commands produce public-safe evidence.
-- npm publish and GitHub Release are separately approved before execution.
+- npm publish and GitHub Release are separately and explicitly approved before execution.
 
 ## Evidence Rules
 
