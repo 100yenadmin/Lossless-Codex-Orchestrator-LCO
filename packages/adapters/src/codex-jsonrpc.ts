@@ -22,6 +22,18 @@ export type JsonRpcNotification = {
   params: Record<string, unknown>;
 };
 
+export type JsonRpcServerRequest = {
+  id: string | number;
+  method: string;
+  params: Record<string, unknown>;
+};
+
+export type NotificationWaitResult = {
+  matched: boolean;
+  notifications: JsonRpcNotification[];
+  serverRequests: JsonRpcServerRequest[];
+};
+
 export type CodexJsonRpcClientOptions = {
   timeoutMs?: number;
   surface?: CodexMethodSurface;
@@ -36,6 +48,7 @@ const CLIENT_INFO = {
 
 export class CodexJsonRpcClient {
   readonly notifications: JsonRpcNotification[] = [];
+  readonly serverRequests: JsonRpcServerRequest[] = [];
   private transport: JsonRpcTransport | null = null;
   private nextId = 1;
   private readonly timeoutMs: number;
@@ -69,6 +82,46 @@ export class CodexJsonRpcClient {
   async request(method: string, params: Record<string, unknown> = {}): Promise<CodexJsonRpcResponse> {
     assertCodexMethodAllowed(method, this.surface);
     return this.requestRaw(method, params);
+  }
+
+  async readNotificationsUntil(
+    predicate: (notification: JsonRpcNotification) => boolean,
+    options: { timeoutMs?: number; stopOnServerRequest?: boolean } = {}
+  ): Promise<NotificationWaitResult> {
+    const transport = this.requireTransport();
+    const deadline = Date.now() + (options.timeoutMs ?? this.timeoutMs);
+    const notifications: JsonRpcNotification[] = [];
+    const serverRequests: JsonRpcServerRequest[] = [];
+
+    while (Date.now() < deadline) {
+      const line = await transport.readLine(deadline);
+      if (!line) {
+        await delay(2);
+        continue;
+      }
+      const payload = parsePayload(line);
+      if (!payload) continue;
+
+      const serverRequest = serverRequestFromPayload(payload);
+      if (serverRequest) {
+        this.serverRequests.push(serverRequest);
+        serverRequests.push(serverRequest);
+        if (options.stopOnServerRequest) {
+          return { matched: false, notifications, serverRequests };
+        }
+        continue;
+      }
+
+      const notification = notificationFromPayload(payload);
+      if (!notification) continue;
+      this.notifications.push(notification);
+      notifications.push(notification);
+      if (predicate(notification)) {
+        return { matched: true, notifications, serverRequests };
+      }
+    }
+
+    return { matched: false, notifications, serverRequests };
   }
 
   async close(): Promise<void> {
@@ -282,6 +335,19 @@ function parsePayload(line: string): Record<string, unknown> | null {
 function notificationFromPayload(payload: Record<string, unknown>): JsonRpcNotification | null {
   if ("id" in payload || typeof payload.method !== "string") return null;
   return {
+    method: payload.method,
+    params: payload.params && typeof payload.params === "object" && !Array.isArray(payload.params)
+      ? payload.params as Record<string, unknown>
+      : {}
+  };
+}
+
+function serverRequestFromPayload(payload: Record<string, unknown>): JsonRpcServerRequest | null {
+  const id = payload.id;
+  if ((typeof id !== "string" && typeof id !== "number") || typeof payload.method !== "string") return null;
+  if ("result" in payload || "error" in payload) return null;
+  return {
+    id,
     method: payload.method,
     params: payload.params && typeof payload.params === "object" && !Array.isArray(payload.params)
       ? payload.params as Record<string, unknown>
