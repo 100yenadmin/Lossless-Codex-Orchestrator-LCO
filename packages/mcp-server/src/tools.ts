@@ -5,6 +5,7 @@ import {
   describeRecallRef,
   defaultCodexRoots,
   createIndexedSessionSanitizerReport,
+  createIndexedSessionSanitizerRepairPlan,
   expandSession,
   expandQuery,
   getCodexFinalMessages,
@@ -191,11 +192,17 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
     })),
     tool("loo_session_sanitizer", "Dry-run public-safe sanitizer findings from indexed Codex safe text without reading raw transcripts or mutating sessions.", {
       thread_id: { type: "string" },
-      limit: { type: "integer", minimum: 1, maximum: 500 }
-    }, (input) => createIndexedSessionSanitizerReport(options.db, {
-      threadId: optionalString(input.thread_id),
-      limit: optionalNumber(input.limit)
-    })),
+      limit: { type: "integer", minimum: 1, maximum: 500 },
+      repair_plan: { type: "boolean" }
+    }, (input) => {
+      const report = createIndexedSessionSanitizerReport(options.db, {
+        threadId: optionalString(input.thread_id),
+        limit: optionalNumber(input.limit)
+      });
+      return input.repair_plan === true
+        ? { ...report, repairPlan: createIndexedSessionSanitizerRepairPlan(report) }
+        : report;
+    }),
     tool("loo_codex_sqlite_stores", "Probe local Codex state_*.sqlite and logs_*.sqlite stores read-only.", {
       roots: { type: "array", items: { type: "string" } },
       max_files: { type: "integer", minimum: 1, maximum: 1000 }

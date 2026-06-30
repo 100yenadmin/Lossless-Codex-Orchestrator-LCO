@@ -150,6 +150,7 @@ loo search "proposed plan billing bridge"
 loo grep --lcm-db ~/.openclaw/lcm.db "billing bridge"
 loo describe codex_thread:019f-example
 loo expand-query --profile brief "billing bridge"
+loo sanitize sessions --thread-id 019f-example --repair-plan --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-sanitizer
 loo serve
 ```
 

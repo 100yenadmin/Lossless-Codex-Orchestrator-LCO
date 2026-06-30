@@ -409,6 +409,9 @@
               "type": "integer",
               "minimum": 1,
               "maximum": 500
+            },
+            "repair_plan": {
+              "type": "boolean"
             }
           }
         }

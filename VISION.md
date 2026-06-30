@@ -49,7 +49,7 @@ Expected product-management workflows:
 - Archive inactive sessions, fork useful sessions, and dry-run resume/steer/send actions only after the target and intent are clear.
 - Use hybrid search, such as BM25 plus vectors, query expansion, and reranking, only after fixture and local evals show better signal per token than the simpler index.
 - Provide a simple local Mac search UI prototype through [docs/LOCAL_MAC_SEARCH_UI.md](docs/LOCAL_MAC_SEARCH_UI.md), `loo ui local-mac-search`, and `local-mac-search-ui-review.json` after the CLI, MCP, and OpenClaw gateway paths prove the underlying recall loop, without rendering raw transcripts. The `--live-cli` mode is the first connected local UI proof: it records read-only `loo_*` tool source metadata, source refs, copy targets, and bounded expansion state without claiming a packaged macOS app or OpenClaw gateway UI event loop.
-- Offer a session sanitizer lane that scans indexed sessions for secret-like strings and produces redacted repair tasks without publishing raw local data.
+- Offer a session sanitizer lane that scans indexed sessions for secret-like strings and writes redacted dry-run repair tasks without publishing raw local data or mutating sessions.
 - Keep Claude metadata fixture inventory separate from parity: `indexClaudeSessionInventory` can prove public-safe `claude_session:*` refs from explicit redacted fixtures, but it does not prove local Claude transcript indexing, live control, GUI mutation, MCP control, hooks mutation, cloud sync, or parity.
 
 ## Product Shape

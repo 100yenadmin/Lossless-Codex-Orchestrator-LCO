@@ -48,7 +48,7 @@
   "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-<slug>/orchestrator-leverage-prioritization.json",
   "known_gaps": [
     "Weights are a v1 product rubric and should be recalibrated after local OpenClaw gateway dogfood and retrieval evals produce real score movement.",
-    "Hybrid retrieval, hook agents, archive/fork controls, Mac UI, and session sanitizer features still need child issues before implementation."
+    "Hybrid retrieval, hook agents, archive/fork controls, Mac UI, and sanitizer repair execution still need child issues before implementation."
   ],
   "next_action": "Use this scorecard to rank the post-first-release backlog before filing the next sprint issues.",
   "proof_boundary": "This advisory public-safe prioritization scorecard guides roadmap order only; it does not prove beta readiness, live control safety, adapter parity, or release approval.",
@@ -67,7 +67,7 @@
     "session map that lets the orchestrator sort, archive, fork, and resume sessions without raw transcript reads",
     "LCM-style grep, describe, and expand-query workflow with citations and bounded evidence bundles",
     "hybrid search using BM25, vector retrieval, query expansion, and reranking when fixture evals prove it improves top-k relevance",
-    "session sanitizer addon that scans indexed sessions for secret-like strings and produces redacted repair tasks",
+    "session sanitizer addon that scans indexed sessions for secret-like strings and produces redacted dry-run repair tasks",
     "simple local Mac search UI after the CLI, MCP, and OpenClaw gateway surfaces prove the underlying recall loop"
   ]
 }
