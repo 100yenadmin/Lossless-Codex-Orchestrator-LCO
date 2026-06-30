@@ -17,26 +17,28 @@ function read(path: string): string {
   return readFileSync(path, "utf8");
 }
 
-test("0.1.0-beta.5 release metadata captures CUA proof closeout without overclaiming publication", () => {
+test("0.1.0-beta.6 release metadata captures dogfood idempotency fix without widening claims", () => {
   const packageJson = JSON.parse(read("package.json")) as { version?: string };
   const packageLock = JSON.parse(read("package-lock.json")) as { version?: string; packages?: Record<string, { version?: string }> };
 
-  assert.equal(packageJson.version, "0.1.0-beta.5");
-  assert.equal(packageLock.version, "0.1.0-beta.5");
-  assert.equal(packageLock.packages?.[""]?.version, "0.1.0-beta.5");
-  assert.equal(existsSync("docs/RELEASE_NOTES_0.1.0-beta.5.md"), true, "0.1.0-beta.5 release notes must exist");
+  assert.equal(packageJson.version, "0.1.0-beta.6");
+  assert.equal(packageLock.version, "0.1.0-beta.6");
+  assert.equal(packageLock.packages?.[""]?.version, "0.1.0-beta.6");
+  assert.equal(existsSync("docs/RELEASE_NOTES_0.1.0-beta.6.md"), true, "0.1.0-beta.6 release notes must exist");
 
-  const releaseNotes = read("docs/RELEASE_NOTES_0.1.0-beta.5.md");
-  assert.match(releaseNotes, /loo desktop live-proof-harness/i);
-  assert.match(releaseNotes, /loo_desktop_live_proof_harness/i);
-  assert.match(releaseNotes, /CUA Driver telemetry opt-out/i);
-  assert.match(releaseNotes, /CUA Driver scratch-window no-focus proof/i);
-  assert.match(releaseNotes, /one approved TextEdit launch_app action/i);
-  assert.match(releaseNotes, /does not enable generic GUI mutation/i);
-  assert.match(releaseNotes, /does not publish to npm/i);
-  assert.match(releaseNotes, /does not create a GitHub Release/i);
+  const releaseNotes = read("docs/RELEASE_NOTES_0.1.0-beta.6.md");
+  assert.match(releaseNotes, /OpenClaw dogfood/i);
+  assert.match(releaseNotes, /install\/link/i);
+  assert.match(releaseNotes, /openclaw_plugin_install_failed_but_plugin_ready/i);
+  assert.match(releaseNotes, /warning/i);
+  assert.match(releaseNotes, /not a blocker/i);
+  assert.match(releaseNotes, /already enabled, loaded, and exposes required loo_\* tools/i);
+  assert.match(releaseNotes, /latest.*0\.1\.0-beta\.4/i);
+  assert.match(releaseNotes, /beta.*0\.1\.0-beta\.6/i);
   assert.match(releaseNotes, /codex-read-search-expand-dry-run/i);
-  assert.doesNotMatch(releaseNotes, /Full Claude Code parity|cloud sync supported|unattended desktop takeover supported/i);
+  assert.match(releaseNotes, /does not run live Codex control/i);
+  assert.match(releaseNotes, /does not perform desktop GUI mutation/i);
+  assert.doesNotMatch(releaseNotes, /Full Claude Code parity|cloud sync supported|unattended desktop takeover supported|generic GUI mutation supported/i);
 });
 
 test("public beta package and README do not overclaim Claude or desktop control", () => {
