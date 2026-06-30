@@ -14,10 +14,20 @@ const MESSAGE_HASH = "b".repeat(64);
 const DRY_RUN_AUDIT_ID = "loo_audit_abcd1234";
 const LIVE_AUDIT_ID = "loo_audit_def45678";
 
-function createFakeOpenClaw(dir: string, options: { mismatchedLiveMessageHash?: boolean } = {}): { bin: string; callsPath: string } {
+function createFakeOpenClaw(dir: string, options: { mismatchedLiveMessageHash?: boolean; auditDetailsEnvelope?: boolean } = {}): { bin: string; callsPath: string } {
   const callsPath = join(dir, "calls.jsonl");
   const bin = join(dir, "openclaw-live-fake.mjs");
   const liveMessageHash = options.mismatchedLiveMessageHash ? "c".repeat(64) : MESSAGE_HASH;
+  const auditTailPayload = `{
+      auditPath: "metadata-only",
+      records: [
+        { id: "${DRY_RUN_AUDIT_ID}", live: false, paramsHash: "${PARAMS_HASH}" },
+        { id: "${LIVE_AUDIT_ID}", live: true, paramsHash: "${PARAMS_HASH}" }
+      ]
+    }`;
+  const auditTailResponse = options.auditDetailsEnvelope
+    ? `{ ok: true, content: [{ type: "text", text: JSON.stringify(${auditTailPayload}) }], details: ${auditTailPayload} }`
+    : `{ ok: true, output: ${auditTailPayload} }`;
   writeFileSync(bin, `#!/usr/bin/env node
 import { appendFileSync } from "node:fs";
 const args = process.argv.slice(2);
@@ -73,13 +83,7 @@ if (method === "tools.invoke") {
     process.exit(0);
   }
   if (name === "loo_audit_tail") {
-    console.log(JSON.stringify({ ok: true, output: {
-      auditPath: "metadata-only",
-      records: [
-        { id: "${DRY_RUN_AUDIT_ID}", live: false, paramsHash: "${PARAMS_HASH}" },
-        { id: "${LIVE_AUDIT_ID}", live: true, paramsHash: "${PARAMS_HASH}" }
-      ]
-    } }));
+    console.log(JSON.stringify(${auditTailResponse}));
     process.exit(0);
   }
 }
@@ -147,6 +151,32 @@ test("OpenClaw live-control smoke proves dry-run live send and audit tail throug
     assert.equal(calls[2]?.params.args?.approval_audit_id, DRY_RUN_AUDIT_ID);
     assert.equal(calls[2]?.params.args?.dry_run, false);
     assert.equal(calls[3]?.params.name, "loo_audit_tail");
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw live-control smoke accepts audit tail records from tool details envelope", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-smoke-audit-details-"));
+  const evidenceDir = join(root, "evidence");
+  const { bin, callsPath } = createFakeOpenClaw(root, { auditDetailsEnvelope: true });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+
+  try {
+    const report = runOpenClawGatewayLiveControlSmoke({
+      openclawBin: bin,
+      evidenceDir,
+      threadId: "thr_gateway_live",
+      now: "2026-07-01T00:00:00.000Z"
+    });
+
+    assert.equal(report.ok, true);
+    assert.equal(report.audit.matchingDryRunRecord, true);
+    assert.equal(report.audit.matchingLiveRecord, true);
+    assert.deepEqual(report.blockers, []);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;
