@@ -32,6 +32,8 @@ test("0.1.0-beta.10 release metadata captures post-beta.9 proof gates without wi
   assert.match(releaseNotes, /Claude read-only inventory/i);
   assert.match(releaseNotes, /runtime scenario proof gate/i);
   assert.match(releaseNotes, /working-app release claim gate/i);
+  assert.match(releaseNotes, /--claim-scope codex-read-search-expand-dry-run/i);
+  assert.match(releaseNotes, /excludedClaims/i);
   assert.match(releaseNotes, /0\.1\.0-beta\.10/i);
   assert.match(releaseNotes, /#166/i);
   assert.match(releaseNotes, /#157/i);
