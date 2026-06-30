@@ -106,7 +106,7 @@ cp evals/scorecards/v1.0/*.json "$release_scorecard_source"
 # example scorecards in place for an RC claim.
 npm run check
 npm pack --dry-run
-node ./dist/packages/cli/src/index.js scorecards sweep --claim-scope codex-read-search-expand-dry-run --scorecard-dir "$release_scorecard_source" --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-scorecards --strict
+node ./dist/packages/cli/src/index.js scorecards sweep --claim-scope codex-live-control --scorecard-dir "$release_scorecard_source" --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-scorecards --strict
 node ./dist/packages/cli/src/index.js release preflight --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --strict
 node ./dist/packages/cli/src/index.js release bundle --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-bundle --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --strict
 node ./dist/packages/cli/src/index.js release demo-status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/demo --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --strict
@@ -118,6 +118,7 @@ only read/search/describe/expand plus dry-run control, use this scope on every
 release gate instead of passing live-control evidence:
 
 ```bash
+node ./dist/packages/cli/src/index.js scorecards sweep --claim-scope codex-read-search-expand-dry-run --scorecard-dir "$release_scorecard_source" --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-scorecards --strict
 node ./dist/packages/cli/src/index.js release preflight --claim-scope codex-read-search-expand-dry-run --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight --strict
 node ./dist/packages/cli/src/index.js release bundle --claim-scope codex-read-search-expand-dry-run --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-bundle --strict
 node ./dist/packages/cli/src/index.js release demo-status --claim-scope codex-read-search-expand-dry-run --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/demo --strict

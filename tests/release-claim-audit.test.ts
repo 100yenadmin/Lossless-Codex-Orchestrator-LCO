@@ -223,6 +223,8 @@ test("beta release runbook defines RC cadence and keeps main distinct from relea
     /cp evals\/scorecards\/v1\.0\/\*\.json "\$release_scorecard_source"/i,
     /fill the copied scorecards/i,
     /node \.\/dist\/packages\/cli\/src\/index\.js scorecards sweep[^\n]+--scorecard-dir "\$release_scorecard_source"/i,
+    /node \.\/dist\/packages\/cli\/src\/index\.js scorecards sweep[^\n]+--claim-scope codex-live-control[^\n]+--scorecard-dir "\$release_scorecard_source"/i,
+    /If the release candidate intentionally excludes live Codex control[\s\S]+node \.\/dist\/packages\/cli\/src\/index\.js scorecards sweep[^\n]+--claim-scope codex-read-search-expand-dry-run/i,
     /node \.\/dist\/packages\/cli\/src\/index\.js release preflight/i,
     /node \.\/dist\/packages\/cli\/src\/index\.js release bundle/i,
     /node \.\/dist\/packages\/cli\/src\/index\.js release demo-status/i,

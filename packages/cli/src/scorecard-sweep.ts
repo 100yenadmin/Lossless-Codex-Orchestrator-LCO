@@ -125,7 +125,10 @@ export function createScorecardSweep(options: ScorecardSweepOptions): ScorecardS
   const sourceDirForReport = scorecardDir.startsWith(`${packageRoot}/`) ? scorecardDir.slice(packageRoot.length + 1) : scorecardDir;
 
   mkdirSync(evidenceDir, { recursive: true });
-  const scorecards = readScorecards(scorecardDir, evidenceDir);
+  const scorecards = readScorecards(scorecardDir, evidenceDir)
+    .filter((scorecard) => requiredScorecardNames.includes(scorecard.name)
+      || scorecard.name === "scorecard-directory"
+      || scorecard.status === "invalid");
   const rawEvidenceArtifacts = scanRawEvidenceArtifacts(evidenceDir);
   const missingRequiredScorecards = requiredScorecardNames
     .filter((name) => !scorecards.some((scorecard) => scorecard.name === name))

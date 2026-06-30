@@ -19,6 +19,8 @@ const expectedScorecards = [
   "safety-bypass-review",
   "working-app-runtime-proof-review"
 ];
+const liveControlScorecards = expectedScorecards
+  .filter((name) => name !== "working-app-runtime-proof-review");
 
 test("scorecard sweep writes a public-safe fail-closed aggregate packet", () => {
   const evidenceDir = mkdtempSync(join(tmpdir(), "loo-scorecard-sweep-"));
@@ -37,16 +39,16 @@ test("scorecard sweep writes a public-safe fail-closed aggregate packet", () => 
     npmPublished: false,
     githubReleaseCreated: false
   });
-  assert.deepEqual(report.scorecards.map((scorecard) => scorecard.name).sort(), expectedScorecards);
+  assert.deepEqual(report.scorecards.map((scorecard) => scorecard.name).sort(), liveControlScorecards);
   assert.equal(report.scorecards.every((scorecard) => scorecard.status === "pending_evidence"), true);
   assert.equal(report.scorecards.every((scorecard) => dirname(scorecard.evidencePath) === evidenceDir), true);
-  assert.equal(report.blockers.length, expectedScorecards.length);
+  assert.equal(report.blockers.length, liveControlScorecards.length);
   assert.match(report.blockers.join("\n"), /scorecard_not_run:safety-bypass-review/);
   assert.equal(existsSync(join(evidenceDir, "scorecard-sweep.json")), true);
 
   const saved = JSON.parse(readFileSync(join(evidenceDir, "scorecard-sweep.json"), "utf8")) as typeof report;
   assert.equal(saved.publicSafe, true);
-  assert.equal(saved.scorecards.length, expectedScorecards.length);
+  assert.equal(saved.scorecards.length, liveControlScorecards.length);
   assert.doesNotMatch(JSON.stringify(saved), /raw prompt text value|BEGIN PRIVATE|SECRET_/);
 });
 
@@ -70,7 +72,7 @@ test("loo scorecards sweep strict mode exits non-zero until scorecards have evid
     scorecards?: unknown[];
   };
   assert.equal(report.sweepReady, false);
-  assert.equal(report.scorecards?.length, expectedScorecards.length);
+  assert.equal(report.scorecards?.length, liveControlScorecards.length);
   assert.match((report.blockers ?? []).join("\n"), /scorecard_not_run/);
 });
 
@@ -144,6 +146,23 @@ test("scorecard sweep claim scope does not require working-app proof for reduced
   assert.equal(report.sweepReady, true);
   assert.equal(report.scorecards.some((scorecard) => scorecard.name === "working-app-runtime-proof-review"), false);
   assert.deepEqual(report.blockers, []);
+});
+
+test("scorecard sweep excludes present non-scope working-app scorecard blockers for reduced beta releases", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-scorecard-reduced-scope-present-"));
+  const scorecardDir = mkdtempSync(join(tmpdir(), "loo-scorecard-reduced-scope-present-source-"));
+  writeRequiredScorecards(scorecardDir);
+  writeFileSync(join(scorecardDir, "working-app-runtime-proof-review.json"), `${JSON.stringify(minimalScorecard("example-not-run"), null, 2)}\n`);
+
+  const report = createScorecardSweep({
+    evidenceDir,
+    scorecardDir,
+    claimScope: "codex-read-search-expand-dry-run"
+  });
+
+  assert.equal(report.sweepReady, true);
+  assert.equal(report.scorecards.some((scorecard) => scorecard.name === "working-app-runtime-proof-review"), false);
+  assert.doesNotMatch(report.blockers.join("\n"), /working-app-runtime-proof-review/);
 });
 
 test("scorecard sweep keeps working-app proof required for working-app claim scope", () => {
