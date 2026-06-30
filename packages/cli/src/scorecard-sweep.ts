@@ -1,10 +1,16 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
+import {
+  normalizeReleaseClaimScope,
+  releaseClaimScopeRequiresWorkingAppRuntimeProof,
+  type ReleaseClaimScope
+} from "./release-claim-scope.js";
 
 export type ScorecardSweepOptions = {
   evidenceDir: string;
   scorecardDir?: string;
+  claimScope?: ReleaseClaimScope;
   now?: string;
   rootDir?: string;
 };
@@ -30,6 +36,7 @@ export type ScorecardSweepReport = {
   sweepReady: boolean;
   publicSafe: boolean;
   generatedAt: string;
+  claimScope: ReleaseClaimScope;
   scorecardVersion: string;
   scorecardSourceDir: string;
   sweepPath: string;
@@ -110,15 +117,20 @@ export function createScorecardSweep(options: ScorecardSweepOptions): ScorecardS
   const evidenceDir = resolve(options.evidenceDir);
   const packageRoot = options.rootDir ? resolve(options.rootDir) : findPackageRoot(dirname(fileURLToPath(import.meta.url))) ?? process.cwd();
   const scorecardDir = options.scorecardDir ? resolve(options.scorecardDir) : join(packageRoot, "evals", "scorecards", "v1.0");
+  const claimScope = normalizeReleaseClaimScope(options.claimScope);
+  const requiredScorecardNames = requiredScorecardsForScope(claimScope);
   if (evidenceDir === scorecardDir) {
     throw new Error("--evidence-dir must be different from --scorecard-dir");
   }
   const sourceDirForReport = scorecardDir.startsWith(`${packageRoot}/`) ? scorecardDir.slice(packageRoot.length + 1) : scorecardDir;
 
   mkdirSync(evidenceDir, { recursive: true });
-  const scorecards = readScorecards(scorecardDir, evidenceDir);
+  const scorecards = readScorecards(scorecardDir, evidenceDir)
+    .filter((scorecard) => requiredScorecardNames.includes(scorecard.name)
+      || scorecard.name === "scorecard-directory"
+      || scorecard.status === "invalid");
   const rawEvidenceArtifacts = scanRawEvidenceArtifacts(evidenceDir);
-  const missingRequiredScorecards = REQUIRED_SCORECARD_NAMES
+  const missingRequiredScorecards = requiredScorecardNames
     .filter((name) => !scorecards.some((scorecard) => scorecard.name === name))
     .map((name) => `scorecard_missing:${name}`);
   const rawArtifactBlockers = rawEvidenceArtifacts.map((artifact) => `raw_artifact:${artifact.reason}:${artifact.name}`);
@@ -129,6 +141,7 @@ export function createScorecardSweep(options: ScorecardSweepOptions): ScorecardS
     sweepReady: blockers.length === 0,
     publicSafe: rawEvidenceArtifacts.length === 0,
     generatedAt: options.now ?? new Date().toISOString(),
+    claimScope,
     scorecardVersion: SCORECARD_VERSION,
     scorecardSourceDir: sourceDirForReport,
     sweepPath,
@@ -150,6 +163,11 @@ export function createScorecardSweep(options: ScorecardSweepOptions): ScorecardS
 
   writeFileSync(sweepPath, `${JSON.stringify(report, null, 2)}\n`);
   return report;
+}
+
+function requiredScorecardsForScope(claimScope: ReleaseClaimScope): string[] {
+  if (releaseClaimScopeRequiresWorkingAppRuntimeProof(claimScope)) return REQUIRED_SCORECARD_NAMES;
+  return REQUIRED_SCORECARD_NAMES.filter((name) => name !== "working-app-runtime-proof-review");
 }
 
 function readScorecards(scorecardDir: string, evidenceDir: string): ScorecardSweepEntry[] {

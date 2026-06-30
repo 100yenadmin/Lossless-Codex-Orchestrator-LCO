@@ -447,7 +447,7 @@ async function main() {
     "  loo codex live-control-smoke --evidence-dir path [--thread-id id] [--message text] [--cwd path] [--timeout-ms ms] [--audit-path path] [--codex-bin path] [--app-server-args \"app-server --stdio\"]",
     "  loo openclaw dogfood [--dev] [--profile name] [--install-source path] [--link] [--force-install] [--evidence-path path] [--strict]",
     "  loo openclaw tool-smoke [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--thread-id id] [--expand-profile metadata|brief|evidence] [--token-budget n] [--required-tool name] [--evidence-path path] [--strict]",
-    "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--strict]",
+    "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--strict]",
     "  loo ui local-mac-search --evidence-dir path [--sample] [--strict]",
     "  loo eval retrieval --scenario-file path [--evidence-path path] [--strict]",
     "  loo eval scenarios --evidence-dir path [--scenario-dir path] [--runtime-proof-dir path] [--strict]",
@@ -508,12 +508,13 @@ function printOpenClawDogfoodHelp(): void {
 function printScorecardSweepHelp(): void {
   console.log([
     "Usage:",
-    "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--strict]",
+    "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--strict]",
     "",
     "Writes a public-safe scorecard sweep packet for the beta acceptance scorecards.",
     "",
     "Required:",
     "  --evidence-dir is required and must not be the same directory as --scorecard-dir.",
+    "  --claim-scope follows the release gate scope; reduced-scope beta sweeps do not require working-app runtime proof scorecards.",
     "",
     "Strict mode:",
     "  --strict exits non-zero when scorecards are missing, invalid, example-not-run, failed, or when raw evidence artifacts are present.",
@@ -1187,9 +1188,10 @@ function requireOptionValue(value: string | undefined, option: string): string {
   return value;
 }
 
-function parseScorecardSweepArgs(input: string[]): { evidenceDir: string; scorecardDir?: string; strict: boolean } {
+function parseScorecardSweepArgs(input: string[]): { evidenceDir: string; scorecardDir?: string; claimScope?: ReleaseClaimScope; strict: boolean } {
   let evidenceDir: string | undefined;
   let scorecardDir: string | undefined;
+  let claimScope: ReleaseClaimScope | undefined;
   let strict = false;
   for (let index = 0; index < input.length; index += 1) {
     const arg = input[index]!;
@@ -1197,6 +1199,8 @@ function parseScorecardSweepArgs(input: string[]): { evidenceDir: string; scorec
       evidenceDir = requireOptionValue(input[++index], arg);
     } else if (arg === "--scorecard-dir") {
       scorecardDir = requireOptionValue(input[++index], arg);
+    } else if (arg === "--claim-scope") {
+      claimScope = parseReleaseClaimScope(input, ++index, arg);
     } else if (arg === "--strict") {
       strict = true;
     } else {
@@ -1204,7 +1208,7 @@ function parseScorecardSweepArgs(input: string[]): { evidenceDir: string; scorec
     }
   }
   if (!evidenceDir) throw new Error("scorecards sweep requires --evidence-dir");
-  return { evidenceDir, scorecardDir, strict };
+  return { evidenceDir, scorecardDir, claimScope, strict };
 }
 
 function parsePositiveInteger(value: string | undefined, name: string, max?: number): number {

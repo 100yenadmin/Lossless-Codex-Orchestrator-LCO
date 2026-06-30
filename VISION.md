@@ -104,7 +104,7 @@ Versioned examples live under `evals/scorecards/v1.0/`. Use them as the shared s
 - `local-mac-search-ui-review.json`
 - `working-app-runtime-proof-review.json`
 
-Run `loo scorecards sweep --evidence-dir <path> --strict` to materialize a public-safe sweep packet. Strict mode should fail closed while scorecards still have `example-not-run` scores, so the packet records remaining evidence gaps instead of converting examples into beta readiness claims.
+Run `loo scorecards sweep --claim-scope <scope> --evidence-dir <path> --strict` to materialize a public-safe sweep packet. Strict mode should fail closed while scorecards still have `example-not-run` scores, so the packet records remaining evidence gaps instead of converting examples into beta readiness claims. Reduced-scope beta sweeps use `codex-read-search-expand-dry-run`; working-app sweeps use `codex-working-app-proof` and keep runtime proof scorecards required.
 
 For implementation issues, copy `evals/scorecards/v1.0/issue-scorecard-update-template.md` into the GitHub issue or PR comment and fill in the failing test, minimal implementation, focused validation, OpenClaw gateway dogfood result, evidence path, proof boundary, and next action. This per-issue scorecard update template keeps issue comments compact while preserving the beta proof boundary.
 
