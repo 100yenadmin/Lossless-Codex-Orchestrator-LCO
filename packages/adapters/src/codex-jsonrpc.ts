@@ -127,6 +127,7 @@ export class LineProcessTransport implements JsonRpcTransport {
   private readonly readline: Interface;
   private readonly lines: string[] = [];
   private readonly waiters: Array<(line: string | null) => void> = [];
+  private stdoutClosed = false;
 
   constructor(command: string, args: string[], private readonly timeoutMs = DEFAULT_TIMEOUT_MS) {
     this.process = spawn(command, args, {
@@ -135,8 +136,8 @@ export class LineProcessTransport implements JsonRpcTransport {
     });
     this.readline = createInterface({ input: this.process.stdout, crlfDelay: Infinity });
     this.readline.on("line", (line) => this.pushLine(line));
-    this.process.on("exit", () => this.pushLine(null));
-    this.process.on("error", () => this.pushLine(null));
+    this.readline.on("close", () => this.finishOutput());
+    this.process.on("error", () => this.finishOutput());
   }
 
   sendJson(payload: unknown): void {
@@ -146,7 +147,7 @@ export class LineProcessTransport implements JsonRpcTransport {
   readLine(deadline: number): Promise<string | null> {
     const existing = this.lines.shift();
     if (existing !== undefined) return Promise.resolve(existing);
-    if (this.process.exitCode !== null) return Promise.resolve(null);
+    if (this.stdoutClosed) return Promise.resolve(null);
 
     const remaining = Math.max(1, Math.min(this.timeoutMs, deadline - Date.now()));
     return new Promise((resolve) => {
@@ -173,12 +174,26 @@ export class LineProcessTransport implements JsonRpcTransport {
   }
 
   private pushLine(line: string | null): void {
+    if (line === null) {
+      this.finishOutput();
+      return;
+    }
     const waiter = this.waiters.shift();
     if (waiter) {
       waiter(line);
       return;
     }
-    if (line !== null) this.lines.push(line);
+    this.lines.push(line);
+  }
+
+  private finishOutput(): void {
+    if (this.stdoutClosed) return;
+    this.stdoutClosed = true;
+    let waiter = this.waiters.shift();
+    while (waiter) {
+      waiter(null);
+      waiter = this.waiters.shift();
+    }
   }
 }
 
