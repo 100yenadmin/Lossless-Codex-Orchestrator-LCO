@@ -29,6 +29,12 @@ import { runOpenClawToolSmoke } from "./openclaw-tool-smoke.js";
 import { createScorecardSweep } from "./scorecard-sweep.js";
 import { normalizeReleaseClaimScope, type ReleaseClaimScope } from "./release-claim-scope.js";
 import { AppServerLiveControlSmokeClient, runLiveControlSmoke } from "./live-control-smoke.js";
+import {
+  createLocalMacSearchUiShell,
+  sampleLocalMacSearchUiShell,
+  writeLocalMacSearchUiEvidence,
+  type LocalMacSearchUiFilters
+} from "../../local-mac-ui/src/shell.js";
 
 const [, , command, ...args] = process.argv;
 
@@ -224,6 +230,35 @@ async function main() {
     if (parsed.strict && !report.sweepReady) process.exitCode = 1;
     return;
   }
+  if (command === "ui" && args[0] === "local-mac-search") {
+    if (hasHelpFlag(args.slice(1))) {
+      printLocalMacSearchUiHelp();
+      return;
+    }
+    const parsed = parseLocalMacSearchUiArgs(args.slice(1));
+    const shell = parsed.sample
+      ? sampleLocalMacSearchUiShell()
+      : createLocalMacSearchUiShell({
+        status: {
+          platform: process.platform,
+          localDbAvailable: false,
+          openclawPluginLoaded: false,
+          availableTools: []
+        },
+        filters: parsed.filters,
+        expansionProfile: parsed.expansionProfile
+      });
+    const sourceScorecard = "evals/scorecards/v1.0/local-mac-search-ui-review.json";
+    const report = writeLocalMacSearchUiEvidence({
+      evidenceDir: parsed.evidenceDir,
+      shell,
+      scorecardSourcePath: existsSync(sourceScorecard) ? sourceScorecard : undefined
+    });
+    const { html: _html, ...publicReport } = report;
+    console.log(JSON.stringify(publicReport, null, 2));
+    if (parsed.strict && !report.shellReady) process.exitCode = 1;
+    return;
+  }
   if (command === "eval" && args[0] === "retrieval") {
     const parsed = parseRetrievalEvalArgs(args.slice(1));
     const payload = readRetrievalScenarioFile(parsed.scenarioFile);
@@ -325,6 +360,7 @@ async function main() {
     "  loo openclaw dogfood [--dev] [--profile name] [--install-source path] [--link] [--force-install] [--evidence-path path] [--strict]",
     "  loo openclaw tool-smoke [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--thread-id id] [--expand-profile metadata|brief|evidence] [--token-budget n] [--required-tool name] [--evidence-path path] [--strict]",
     "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--strict]",
+    "  loo ui local-mac-search --evidence-dir path [--sample] [--strict]",
     "  loo eval retrieval --scenario-file path [--evidence-path path] [--strict]",
     "  loo release preflight [--evidence-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run] [--approved-live-control-evidence path] [--strict]",
     "  loo release bundle --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run] [--approved-live-control-evidence path] [--strict]",
@@ -398,6 +434,24 @@ function printLiveControlSmokeHelp(): void {
   ].join("\n"));
 }
 
+function printLocalMacSearchUiHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo ui local-mac-search --evidence-dir path [--sample] [--query text] [--project name] [--status value] [--priority value] [--blocker value] [--expansion-profile metadata|brief|evidence] [--strict]",
+    "",
+    "Writes a static public-safe local Mac search UI prototype packet.",
+    "",
+    "Outputs:",
+    "  local-mac-search-ui.html",
+    "  local-mac-search-ui-report.json",
+    "  local-mac-search-ui-scorecard.json",
+    "",
+    "Safety boundary:",
+    "  The command does not read raw Codex transcripts, does not run live Codex control, does not mutate the GUI, and does not claim a signed or release-ready macOS app.",
+    "  Without --sample, the shell intentionally fails closed until local DB, OpenClaw plugin, and required loo_* tools are proven available."
+  ].join("\n"));
+}
+
 function parseLiveControlSmokeArgs(input: string[]): {
   evidenceDir: string;
   threadId?: string;
@@ -433,6 +487,48 @@ function parseLiveControlSmokeArgs(input: string[]): {
   }
   if (!parsed.evidenceDir) throw new Error("codex live-control-smoke requires --evidence-dir");
   return parsed as ReturnType<typeof parseLiveControlSmokeArgs>;
+}
+
+function parseLocalMacSearchUiArgs(input: string[]): {
+  evidenceDir: string;
+  sample: boolean;
+  strict: boolean;
+  filters: LocalMacSearchUiFilters;
+  expansionProfile?: "metadata" | "brief" | "evidence";
+} {
+  let evidenceDir = "";
+  let sample = false;
+  let strict = false;
+  const filters: LocalMacSearchUiFilters = {};
+  let expansionProfile: "metadata" | "brief" | "evidence" | undefined;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--evidence-dir") {
+      evidenceDir = requireOptionValue(input[++index], arg);
+    } else if (arg === "--sample") {
+      sample = true;
+    } else if (arg === "--strict") {
+      strict = true;
+    } else if (arg === "--query") {
+      filters.query = requireOptionValue(input[++index], arg);
+    } else if (arg === "--project") {
+      filters.project = requireOptionValue(input[++index], arg);
+    } else if (arg === "--status") {
+      filters.status = requireOptionValue(input[++index], arg);
+    } else if (arg === "--priority") {
+      filters.priority = requireOptionValue(input[++index], arg);
+    } else if (arg === "--blocker") {
+      filters.blocker = requireOptionValue(input[++index], arg);
+    } else if (arg === "--expansion-profile") {
+      const value = requireOptionValue(input[++index], arg);
+      if (value !== "metadata" && value !== "brief" && value !== "evidence") throw new Error("--expansion-profile must be metadata, brief, or evidence");
+      expansionProfile = value;
+    } else {
+      throw new Error(`Unknown ui local-mac-search option: ${arg}`);
+    }
+  }
+  if (!evidenceDir) throw new Error("ui local-mac-search requires --evidence-dir");
+  return { evidenceDir, sample, strict, filters, expansionProfile };
 }
 
 function parseCloseoutDryRunArgs(input: string[]): { threadId?: string; limit?: number; includeUnavailable?: boolean } {
