@@ -17,27 +17,29 @@ function read(path: string): string {
   return readFileSync(path, "utf8");
 }
 
-test("0.1.0-beta.11 release metadata captures working-app proof without widening claims", () => {
+test("0.1.0-beta.12 release metadata captures onboarding and working-app proof without widening claims", () => {
   const packageJson = JSON.parse(read("package.json")) as { version?: string };
   const packageLock = JSON.parse(read("package-lock.json")) as { version?: string; packages?: Record<string, { version?: string }> };
 
-  assert.equal(packageJson.version, "0.1.0-beta.11");
-  assert.equal(packageLock.version, "0.1.0-beta.11");
-  assert.equal(packageLock.packages?.[""]?.version, "0.1.0-beta.11");
-  assert.equal(existsSync("docs/RELEASE_NOTES_0.1.0-beta.11.md"), true, "0.1.0-beta.11 release notes must exist");
+  assert.equal(packageJson.version, "0.1.0-beta.12");
+  assert.equal(packageLock.version, "0.1.0-beta.12");
+  assert.equal(packageLock.packages?.[""]?.version, "0.1.0-beta.12");
+  assert.equal(existsSync("docs/RELEASE_NOTES_0.1.0-beta.12.md"), true, "0.1.0-beta.12 release notes must exist");
 
-  const releaseNotes = read("docs/RELEASE_NOTES_0.1.0-beta.11.md");
+  const releaseNotes = read("docs/RELEASE_NOTES_0.1.0-beta.12.md");
   assert.match(releaseNotes, /Codex-first working-app proof/i);
   assert.match(releaseNotes, /installed OpenClaw gateway/i);
+  assert.match(releaseNotes, /loo onboard status/i);
+  assert.match(releaseNotes, /#188/i);
   assert.match(releaseNotes, /#158/i);
   assert.match(releaseNotes, /#159/i);
   assert.match(releaseNotes, /#172/i);
   assert.match(releaseNotes, /--claim-scope codex-working-app-proof/i);
   assert.match(releaseNotes, /openclaw-gateway-live-codex-v1-1/i);
   assert.match(releaseNotes, /post-action-refresh-reasoning-v1-1/i);
-  assert.match(releaseNotes, /0\.1\.0-beta\.11/i);
+  assert.match(releaseNotes, /0\.1\.0-beta\.12/i);
   assert.match(releaseNotes, /latest.*0\.1\.0-beta\.4/i);
-  assert.match(releaseNotes, /beta.*0\.1\.0-beta\.11/i);
+  assert.match(releaseNotes, /beta.*0\.1\.0-beta\.12/i);
   assert.match(releaseNotes, /desktop fallback.*claim-conditional/i);
   assert.match(releaseNotes, /connected local UI.*claim-conditional/i);
   assert.match(releaseNotes, /Claude Code remains.*read-only/i);
