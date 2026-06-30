@@ -91,6 +91,22 @@ with the matching `approval_audit_id`, then reads `loo_audit_tail` for
 public-safe audit metadata. Do not use it for broad gateway scope approval,
 generic live control, GUI mutation, or raw transcript inspection.
 
+For #159, consume the #158 report and refresh through public OpenClaw tools:
+
+```bash
+loo openclaw post-action-refresh-smoke \
+  --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-159-post-action-refresh-reasoning/runtime-proof \
+  --thread-id <selected-harmless-codex-thread-id> \
+  --live-proof-report /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-158-gateway-live-codex-proof/runtime-proof/openclaw-gateway-live-control-smoke-report.json \
+  --strict
+```
+
+The command writes `post-action-refresh-reasoning-v1-1.runtime-proof.json` and
+`post-action-refresh-reasoning-report.json`. It invokes only read/recall tools
+through OpenClaw Gateway: `loo_codex_thread_map`, `loo_search_sessions`,
+`loo_describe_session`, and `loo_expand_query`. It must not run live Codex
+control, mutate a GUI, or store raw transcript/prompt text.
+
 ## Working App Claim
 
 Allowed only after #157, #158, #159, and #162 pass:
