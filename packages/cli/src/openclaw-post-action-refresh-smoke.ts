@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
@@ -87,6 +88,7 @@ const PRIVATE_DATA_EXCLUSIONS = [
 ];
 const DEFAULT_QUERY = "gateway live smoke acknowledged";
 const RAW_PRIVATE_PATTERN = /(RAW_TRANSCRIPT|private raw session|BEGIN [A-Z ]*PRIVATE KEY|npm_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9]{20,}|Bearer\s+[A-Za-z0-9._-]{20,})/i;
+const POST_ACTION_DELTA_PATTERN = /(post[- ]action|safe summary delta|delta marker|gateway live smoke|acknowledged|refreshed after)/i;
 
 export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRefreshSmokeOptions): OpenClawPostActionRefreshSmokeReport {
   mkdirSync(options.evidenceDir, { recursive: true });
@@ -96,10 +98,8 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
     ...(options.profile ? ["--profile", options.profile] : [])
   ];
   const gatewayTimeoutMs = options.gatewayTimeoutMs ?? 120_000;
-  const gatewayToken = options.token || process.env.OPENCLAW_GATEWAY_TOKEN;
   const gatewayOptions = [
     ...(options.gatewayUrl ? ["--url", options.gatewayUrl] : []),
-    ...gatewayTokenArgs(gatewayToken),
     "--timeout",
     String(gatewayTimeoutMs)
   ];
@@ -109,6 +109,7 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
   const query = options.query || DEFAULT_QUERY;
   const expandProfile = options.expandProfile || "brief";
   const tokenBudget = options.tokenBudget ?? 1000;
+  const idempotencyNonce = sanitizeId(`${options.now ?? new Date().toISOString()}-${randomUUID()}`);
   const blockers: string[] = [];
 
   const liveProof = readLiveProof(options.liveProofReportPath, targetRef);
@@ -125,7 +126,7 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
       args: { limit: 100 },
       sessionKey,
       confirm: false,
-      idempotencyKey: `loo-post-action-thread-map-${options.threadId}`
+      idempotencyKey: `loo-post-action-thread-map-${options.threadId}-${idempotencyNonce}`
     }, callOptions)
     : null;
   blockers.push(...(threadMap ? gatewayCallBlockers(threadMap, "post_action_thread_map_failed") : []));
@@ -136,7 +137,7 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
       args: { query, limit: 10 },
       sessionKey,
       confirm: false,
-      idempotencyKey: `loo-post-action-search-${options.threadId}`
+      idempotencyKey: `loo-post-action-search-${options.threadId}-${idempotencyNonce}`
     }, callOptions)
     : null;
   blockers.push(...(search ? gatewayCallBlockers(search, "post_action_search_failed") : []));
@@ -147,7 +148,7 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
       args: { thread_id: options.threadId },
       sessionKey,
       confirm: false,
-      idempotencyKey: `loo-post-action-describe-${options.threadId}`
+      idempotencyKey: `loo-post-action-describe-${options.threadId}-${idempotencyNonce}`
     }, callOptions)
     : null;
   blockers.push(...(describe ? gatewayCallBlockers(describe, "post_action_describe_failed") : []));
@@ -158,31 +159,44 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
       args: { query, profile: expandProfile, token_budget: tokenBudget },
       sessionKey,
       confirm: false,
-      idempotencyKey: `loo-post-action-expand-${options.threadId}`
+      idempotencyKey: `loo-post-action-expand-${options.threadId}-${idempotencyNonce}`
     }, callOptions)
     : null;
   blockers.push(...(expand ? gatewayCallBlockers(expand, "post_action_expand_failed") : []));
 
   const outputs = [threadMap, search, describe, expand]
     .flatMap((call) => call?.parsed === undefined ? [] : [unwrapToolOutput(unwrapGatewayPayload(call.parsed))]);
-  const sourceRefs = unique(outputs.flatMap((output) => collectSourceRefs(output))).filter((ref) => ref.startsWith("codex_thread:"));
   const textPreview = outputs.map((output) => JSON.stringify(output)).join("\n");
   const containsRawPrivate = RAW_PRIVATE_PATTERN.test(textPreview);
   if (containsRawPrivate) blockers.push("post_action_refresh_raw_private_output");
-  if (!sourceRefs.includes(targetRef) && blockers.length === 0) blockers.push("post_action_refresh_target_ref_missing");
 
   const threadMapOutput = threadMap?.parsed ? unwrapToolOutput(unwrapGatewayPayload(threadMap.parsed)) : undefined;
   const searchOutput = search?.parsed ? unwrapToolOutput(unwrapGatewayPayload(search.parsed)) : undefined;
   const describeOutput = describe?.parsed ? unwrapToolOutput(unwrapGatewayPayload(describe.parsed)) : undefined;
   const expandOutput = expand?.parsed ? unwrapToolOutput(unwrapGatewayPayload(expand.parsed)) : undefined;
-  const refreshedAt = firstString(threadMapOutput, ["refreshedAt", "refreshed_at", "updatedAt", "updated_at"]);
-  const statusBucket = firstString(threadMapOutput, ["statusBucket", "status_bucket", "status"]);
-  const safeSummaryDelta = Boolean(
-    firstString(searchOutput, ["safeSummary", "safe_summary", "summary", "text"])
-    || firstString(describeOutput, ["safeSummary", "safe_summary", "summary", "finalAssistantMessage", "final_assistant_message"])
-  );
-  const boundedExpansionProfile = firstString(expandOutput, ["profile"]) || expandProfile;
-  if (blockers.length === 0 && !safeSummaryDelta) blockers.push("post_action_refresh_safe_summary_delta_missing");
+
+  const targetThreadMapOutput = findTargetRecord(threadMapOutput, targetRef);
+  const targetSearchOutput = findTargetRecord(searchOutput, targetRef);
+  const targetDescribeOutput = findTargetRecord(describeOutput, targetRef);
+  const targetExpandOutput = findTargetRecord(expandOutput, targetRef);
+  const sourceRefs = unique([targetThreadMapOutput, targetSearchOutput, targetDescribeOutput, targetExpandOutput]
+    .flatMap((output) => output === undefined ? [] : collectSourceRefs(output)))
+    .filter((ref) => ref.startsWith("codex_thread:"));
+
+  const refreshedAt = targetThreadMapOutput ? firstString(targetThreadMapOutput, ["refreshedAt", "refreshed_at", "updatedAt", "updated_at"]) : null;
+  const statusBucket = targetThreadMapOutput ? firstString(targetThreadMapOutput, ["statusBucket", "status_bucket", "status"]) : null;
+  const safeSummaryDelta = hasTargetSafeSummaryDelta(targetSearchOutput, targetDescribeOutput, query);
+  const boundedExpansionProfile = targetExpandOutput ? firstString(targetExpandOutput, ["profile"]) || expandProfile : null;
+  if (blockers.length === 0) {
+    if (!targetThreadMapOutput) blockers.push("post_action_refresh_thread_map_target_missing");
+    if (!targetSearchOutput) blockers.push("post_action_refresh_search_target_missing");
+    if (!targetDescribeOutput) blockers.push("post_action_refresh_describe_target_missing");
+    if (!targetExpandOutput) blockers.push("post_action_refresh_expand_target_missing");
+    if (!sourceRefs.includes(targetRef)) blockers.push("post_action_refresh_target_ref_missing");
+    if (!refreshedAt) blockers.push("post_action_refresh_timestamp_missing");
+    if (!statusBucket) blockers.push("post_action_refresh_status_bucket_missing");
+    if (!safeSummaryDelta) blockers.push("post_action_refresh_safe_summary_delta_missing");
+  }
 
   const uniqueBlockers = unique(blockers);
   const reportPath = join(options.evidenceDir, "post-action-refresh-reasoning-report.json");
@@ -241,7 +255,7 @@ function readLiveProof(path: string, targetRef: string): LiveProofSummary {
   try {
     parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
   } catch {
-    return { accepted: false, targetRef: null, blockers: ["post_action_live_proof_missing_or_invalid"] };
+    return { accepted: false, targetRef: null, blockers: ["post_action_refresh_proof_missing"] };
   }
   const record = isRecord(parsed) ? parsed : {};
   const proofTarget = stringPath(record, ["targetRef"]) || stringPath(record, ["target_ref"]);
@@ -323,11 +337,6 @@ function gatewayCallBlockers(call: GatewayCallResult, fallback: string): string[
   return [];
 }
 
-function gatewayTokenArgs(token: string | undefined): string[] {
-  if (!token || token === "__OPENCLAW_REDACTED__") return [];
-  return ["--token", token];
-}
-
 function gatewayProcessTimeoutMs(timeoutMs: number): number {
   const graceMs = Math.min(5_000, Math.max(250, Math.ceil(timeoutMs * 0.2)));
   return timeoutMs + graceMs;
@@ -405,6 +414,55 @@ function collectSourceRefs(value: unknown): string[] {
     if ((key === "sourceRefs" || key === "source_refs") && Array.isArray(nested)) return nested.filter((item): item is string => typeof item === "string");
     return collectSourceRefs(nested);
   });
+}
+
+function findTargetRecord(value: unknown, targetRef: string): unknown | undefined {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findTargetRecord(item, targetRef);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  }
+  if (!isRecord(value)) return undefined;
+  if (directSourceRefs(value).includes(targetRef)) return value;
+  for (const nested of Object.values(value)) {
+    const found = findTargetRecord(nested, targetRef);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+function directSourceRefs(value: Record<string, unknown>): string[] {
+  return Object.entries(value).flatMap(([key, nested]) => {
+    if ((key === "sourceRef" || key === "source_ref" || key === "targetRef" || key === "target_ref" || key === "ref")
+      && typeof nested === "string"
+      && nested.startsWith("codex_thread:")) {
+      return [nested];
+    }
+    if ((key === "sourceRefs" || key === "source_refs") && Array.isArray(nested)) {
+      return nested.filter((item): item is string => typeof item === "string" && item.startsWith("codex_thread:"));
+    }
+    return [];
+  });
+}
+
+function hasTargetSafeSummaryDelta(searchOutput: unknown, describeOutput: unknown, query: string): boolean {
+  const text = [
+    ...findStrings(searchOutput, ["safeSummary", "safe_summary", "summary", "text", "finalAssistantMessage", "final_assistant_message"]),
+    ...findStrings(describeOutput, ["safeSummary", "safe_summary", "summary", "text", "finalAssistantMessage", "final_assistant_message"])
+  ].join("\n");
+  if (!text) return false;
+  if (POST_ACTION_DELTA_PATTERN.test(text)) return true;
+  const queryTerms = query.toLowerCase().split(/[^a-z0-9]+/).filter((term) => term.length >= 5);
+  if (queryTerms.length === 0) return false;
+  const normalized = text.toLowerCase();
+  return queryTerms.some((term) => normalized.includes(term));
+}
+
+function sanitizeId(value: string): string {
+  const sanitized = value.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+  return sanitized || "run";
 }
 
 function firstString(value: unknown, keys: string[]): string | null {
