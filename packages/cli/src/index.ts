@@ -802,8 +802,8 @@ function printOnboardingStatusHelp(): void {
     "",
     "Safety boundary:",
     "  The command reads local package metadata and manifests only.",
-    "  It does not install plugins, read raw Codex transcripts, run live Codex control, mutate a GUI, publish npm, or create a GitHub Release.",
-    "  It does not publish npm packages."
+    "  It does not install plugins, read raw Codex transcripts, run live Codex control, or mutate a GUI.",
+    "  It does not publish npm packages or create a GitHub Release."
   ].join("\n"));
 }
 
