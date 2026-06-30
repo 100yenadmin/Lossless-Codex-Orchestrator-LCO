@@ -22,9 +22,13 @@ export function isDesktopBackend(value: unknown): value is DesktopBackend {
 }
 
 export type DesktopProbe = {
-  commandStatus(command: string, args?: string[]): DesktopCommandStatus;
-  commandOutput?(command: string, args?: string[], timeoutMs?: number): DesktopCommandOutput;
+  commandStatus(command: string, args?: string[], options?: DesktopCommandOptions): DesktopCommandStatus;
+  commandOutput?(command: string, args?: string[], timeoutMs?: number, options?: DesktopCommandOptions): DesktopCommandOutput;
   activeApplication?(): string | undefined;
+};
+
+export type DesktopCommandOptions = {
+  env?: Record<string, string>;
 };
 
 export type DesktopCommandStatus = {
@@ -701,7 +705,7 @@ function desktopBackendStatus(
   const config = desktopBackendConfig(backend);
   const command = config.command ?? "";
   const beforeApplication = probe.activeApplication?.();
-  const commandStatus = command ? probe.commandStatus(command, config.probeArgs) : { available: false, command };
+  const commandStatus = command ? probe.commandStatus(command, config.probeArgs, { env: config.env }) : { available: false, command };
   const afterApplication = probe.activeApplication?.();
   const focusMeasured = Boolean(beforeApplication || afterApplication);
   const permissions = backend === "peekaboo" ? peekabooPermissions(command, commandStatus.available, probe) : config.permissions;
@@ -740,6 +744,9 @@ function desktopBackendConfig(backend: DesktopBackend) {
       command: process.env.LOO_CUA_DRIVER_BIN || "cua-driver",
       launchArgs: ["mcp"],
       probeArgs: ["--version"],
+      env: {
+        CUA_DRIVER_RS_TELEMETRY_ENABLED: "0"
+      },
       transport: "stdio" as const,
       permissions: unknownDesktopPermissions("CUA Driver permissions have not been verified by this tool; run CUA diagnostics or OS settings before live use."),
       limitations: [
@@ -1192,8 +1199,8 @@ function desktopLaunchReadiness(backend: DesktopBackend, commandAvailable: boole
 
 function systemDesktopProbe(): DesktopProbe {
   return {
-    commandStatus(command, args = ["--version"]) {
-      const result = spawnSync(command, args, { encoding: "utf8", timeout: 3000 });
+    commandStatus(command, args = ["--version"], options) {
+      const result = spawnSync(command, args, { encoding: "utf8", timeout: 3000, env: mergedDesktopEnv(options) });
       const output = `${result.stdout || ""}${result.stderr || ""}`.trim();
       const safeOutput = String(redactValue(output));
       const safeError = result.error?.message ? String(redactValue(result.error.message)) : undefined;
@@ -1204,8 +1211,8 @@ function systemDesktopProbe(): DesktopProbe {
         error: result.status === 0 ? undefined : safeOutput || safeError || "command unavailable"
       };
     },
-    commandOutput(command, args = [], timeoutMs = 5000) {
-      const result = spawnSync(command, args, { encoding: "utf8", timeout: timeoutMs });
+    commandOutput(command, args = [], timeoutMs = 5000, options) {
+      const result = spawnSync(command, args, { encoding: "utf8", timeout: timeoutMs, env: mergedDesktopEnv(options) });
       return {
         status: result.status ?? (result.error ? 1 : 0),
         command: redactValue(command) as string,
@@ -1222,4 +1229,8 @@ function systemDesktopProbe(): DesktopProbe {
       return result.status === 0 ? result.stdout.trim() || undefined : undefined;
     }
   };
+}
+
+function mergedDesktopEnv(options?: DesktopCommandOptions): NodeJS.ProcessEnv {
+  return options?.env ? { ...process.env, ...options.env } : process.env;
 }

@@ -41,6 +41,22 @@ test("CUA desktop diagnostics report command, permissions, limitations, and focu
   assert.ok(status.limitations.some((limitation) => limitation.includes("no-focus")));
 });
 
+test("CUA desktop diagnostics force telemetry opt-out on subprocess probes", async () => {
+  let observedEnv: Record<string, string> | undefined;
+  await desktopSee({
+    backend: "cua-driver",
+    probe: {
+      commandStatus: (_command, _args, options) => {
+        observedEnv = options?.env;
+        return { available: true, command: "cua-driver", version: "cua-driver 0.6.8" };
+      },
+      activeApplication: () => "Codex"
+    }
+  });
+
+  assert.equal(observedEnv?.CUA_DRIVER_RS_TELEMETRY_ENABLED, "0");
+});
+
 test("CUA focus proof covers the status command probe itself", async () => {
   let activeApplication = "Codex";
   const status = await desktopSee({
