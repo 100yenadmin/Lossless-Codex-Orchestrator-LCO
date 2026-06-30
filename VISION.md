@@ -57,7 +57,7 @@ Expected product-management workflows:
 - `packages/core` is the local index, recall, safe-summary, source-ref, and SQLite layer.
 - `packages/adapters` is the safety and integration boundary for Codex transport, audit, redaction, CUA Driver, Peekaboo, and future adapters.
 - `packages/mcp-server` exposes the `loo_*` tool surface for OpenClaw and other MCP clients.
-- `packages/cli` is the operator and evidence surface for `doctor`, `index`, `search`, `grep`, `describe`, `expand`, `desktop`, and release commands.
+- `packages/cli` is the operator and evidence surface for `onboard status`, `doctor`, `index`, `search`, `grep`, `describe`, `expand`, `desktop`, and release commands.
 - `packages/openclaw-plugin` is the OpenClaw package and manifest layer.
 - `docs/` explains install, demo workflow, privacy, safe summaries, release proof, the beta release runbook, and claim boundaries.
 
@@ -82,7 +82,7 @@ The local OpenClaw gateway is a first-class beta user. When a change affects Ope
 Expected dogfood checks:
 
 - Load or inspect the OpenClaw plugin manifest and runtime entry.
-- Verify `loo_*` tools are declared and callable through the installed or packaged surface.
+- Verify package/plugin first-run readiness with `loo onboard status`, then verify `loo_*` tools are declared and callable through the installed or packaged surface.
 - Call read-only tools such as `loo_doctor`, `loo_index_sessions`, `loo_search_sessions`, `loo_describe_session`, `loo_expand_query`, `loo_codex_plans`, and `loo_codex_final_messages`.
 - Verify dry-run control tools produce audit ids without mutating a real Codex thread.
 - Confirm evidence contains counts, refs, hashes, statuses, and redacted metadata only.

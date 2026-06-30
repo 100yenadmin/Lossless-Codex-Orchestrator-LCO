@@ -69,6 +69,17 @@ test("loo openclaw dogfood --help exits zero with command-specific usage", () =>
   assert.equal(result.stderr.trim(), "");
 });
 
+test("loo onboard status --help exits zero with first-run safety guidance", () => {
+  const result = runLoo(["onboard", "status", "--help"]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Usage:\n  loo onboard status/);
+  assert.match(result.stdout, /first-run readiness report/i);
+  assert.match(result.stdout, /does not install plugins/i);
+  assert.match(result.stdout, /does not publish npm/i);
+  assert.equal(result.stderr.trim(), "");
+});
+
 test("loo openclaw tool-smoke --help exits zero with proof-boundary usage", () => {
   const result = runLoo(["openclaw", "tool-smoke", "--help"]);
 
