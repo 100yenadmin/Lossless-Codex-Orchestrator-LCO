@@ -237,6 +237,16 @@ The release status command must continue to report `npmPublished: false`,
 `githubReleaseCreated: false`, and `desktopGuiActionRun: false` until those
 separate operations are actually approved and executed.
 
+## npm dist-tag policy
+
+Record `npm dist-tag ls lossless-openclaw-orchestrator` in the release evidence
+after every npm publication. Until the first stable release exists, npm `latest`
+may follow the newest public beta so the default install command resolves to the
+current beta instead of a stale beta. The `beta` tag must also point at the
+newest public beta. At the first stable release, move `latest` to the stable
+version and keep beta and other prereleases on prerelease tags. Do not publish a
+fake stable package just to move a dist-tag.
+
 ## Public Release Steps
 
 Only after the approval gates are satisfied:
