@@ -210,6 +210,59 @@ test("CLI desktop proof-report reports observation-file path for malformed JSON"
   }
 });
 
+test("CLI desktop live-proof-harness fails closed for direct backend without running GUI action", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-desktop-live-harness-"));
+
+  try {
+    const result = spawnSync(process.execPath, [
+      "--import",
+      "tsx",
+      "packages/cli/src/index.ts",
+      "desktop",
+      "live-proof-harness",
+      "--evidence-dir",
+      root,
+      "--backend",
+      "direct",
+      "--target-app",
+      "Codex",
+      "--target-window",
+      "Lossless OpenClaw Orchestrator",
+      "--action",
+      "focus-safe noop",
+      "--approval-ref",
+      "issue-119-local-fixture",
+      "--strict"
+    ], {
+      cwd: process.cwd(),
+      env: process.env,
+      encoding: "utf8"
+    });
+
+    assert.equal(result.status, 1, result.stderr || result.stdout);
+    const parsed = JSON.parse(result.stdout) as {
+      ok?: boolean;
+      proofHarnessReady?: boolean;
+      blockers?: string[];
+      actionsPerformed?: { desktopGuiActionRun?: boolean; screenshotCaptured?: boolean };
+      proofBoundary?: string;
+      evidencePath?: string;
+    };
+    assert.equal(parsed.ok, false);
+    assert.equal(parsed.proofHarnessReady, false);
+    assert.ok(parsed.blockers?.includes("desktop_backend_not_gui_fallback"));
+    assert.deepEqual(parsed.actionsPerformed, {
+      desktopGuiActionRun: false,
+      screenshotCaptured: false
+    });
+    assert.match(parsed.proofBoundary ?? "", /does not perform desktop GUI mutation/i);
+    assert.equal(parsed.evidencePath, join(root, "desktop-live-proof-harness.json"));
+    assert.equal(existsSync(join(root, "desktop-live-proof-harness.json")), true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("MCP doctor and desktop tools expose CUA diagnostics while desktop act stays dry-run-only", async () => {
   const root = mkdtempSync(join(tmpdir(), "loo-desktop-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
@@ -292,6 +345,86 @@ test("MCP doctor and desktop tools expose CUA diagnostics while desktop act stay
     assert.equal(invalidProof.approval, null);
     assert.ok(invalidProof.blockers.includes("desktop_backend_not_gui_fallback"));
     assert.ok(invalidProof.blockers.includes("focus_proof_diagnostic_only"));
+
+    const harness = tools.find((tool) => tool.name === "loo_desktop_live_proof_harness");
+    assert.ok(harness);
+    const harnessResult = await harness.execute({
+      backend: "cua-driver",
+      target_app: "Codex",
+      target_window: "Lossless OpenClaw Orchestrator",
+      action: "focus-safe noop",
+      approval_ref: "issue-119-local-fixture"
+    }) as {
+      ok: boolean;
+      proofHarnessReady: boolean;
+      actionHash?: string;
+      blockers: string[];
+      backendStatus?: { available?: boolean; focus?: { changed?: boolean; proof?: string } };
+      actionsPerformed?: { desktopGuiActionRun?: boolean; screenshotCaptured?: boolean };
+    };
+    assert.equal(harnessResult.ok, false);
+    assert.equal(harnessResult.proofHarnessReady, false);
+    assert.ok(harnessResult.blockers.includes("desktop_backend_unavailable"));
+    assert.equal(harnessResult.backendStatus?.available, false);
+    assert.deepEqual(harnessResult.actionsPerformed, {
+      desktopGuiActionRun: false,
+      screenshotCaptured: false
+    });
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("MCP desktop live-proof-harness can produce a ready public-safe proof plan with stable CUA diagnostics", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-desktop-live-ready-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const tools = createLooTools({
+    db,
+    audit,
+    codexClient: { request: async () => ({ ok: true }) },
+    desktopProbe: {
+      commandStatus: () => ({ available: true, command: "cua-driver", version: "cua-driver 0.1.0" }),
+      activeApplication: () => "Codex"
+    }
+  });
+
+  try {
+    const harness = tools.find((tool) => tool.name === "loo_desktop_live_proof_harness");
+    assert.ok(harness);
+    const result = await harness.execute({
+      backend: "cua-driver",
+      target_app: "Codex",
+      target_window: "Lossless OpenClaw Orchestrator",
+      action: "focus-safe noop",
+      approval_ref: "issue-119-local-fixture"
+    }) as {
+      ok: boolean;
+      proofHarnessReady: boolean;
+      publicSafe: boolean;
+      actionHash?: string;
+      blockers: string[];
+      backendStatus?: { available?: boolean; focus?: { changed?: boolean; proof?: string } };
+      actionsPerformed?: { desktopGuiActionRun?: boolean; screenshotCaptured?: boolean };
+      nextAction?: string;
+    };
+
+    assert.equal(result.ok, true);
+    assert.equal(result.proofHarnessReady, true);
+    assert.equal(result.publicSafe, true);
+    assert.deepEqual(result.blockers, []);
+    assert.match(result.actionHash ?? "", /^[a-f0-9]{64}$/);
+    assert.equal(result.backendStatus?.available, true);
+    assert.deepEqual(result.backendStatus?.focus, {
+      changed: false,
+      proof: "status_probe_only_no_action"
+    });
+    assert.deepEqual(result.actionsPerformed, {
+      desktopGuiActionRun: false,
+      screenshotCaptured: false
+    });
+    assert.match(result.nextAction ?? "", /run the backend-specific live action outside this harness/i);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });

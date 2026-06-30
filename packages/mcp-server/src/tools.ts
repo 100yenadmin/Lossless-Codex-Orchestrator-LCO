@@ -24,6 +24,7 @@ import {
   codexTransportStatus,
   createCodexControl,
   createDesktopGuiProofReport,
+  createDesktopLiveProofHarness,
   desktopActDryRun,
   desktopFallbackDiagnostics,
   desktopSee,
@@ -230,6 +231,20 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
         additionalProperties: true
       }
     }, (input) => createDesktopGuiProofReport(input.observation)),
+    tool("loo_desktop_live_proof_harness", "Prepare a public-safe desktop live/no-focus proof packet without running the GUI action.", {
+      backend: { type: "string", enum: ["direct", "cua-driver", "peekaboo"] },
+      target_app: { type: "string" },
+      target_window: { type: "string" },
+      action: { type: "string" },
+      approval_ref: { type: "string" }
+    }, (input) => createDesktopLiveProofHarness({
+      backend: optionalDesktopBackend(input.backend),
+      targetApp: optionalString(input.target_app),
+      targetWindow: optionalString(input.target_window),
+      action: optionalString(input.action),
+      approvalRef: optionalString(input.approval_ref),
+      probe: options.desktopProbe
+    })),
     tool("loo_doctor", "Read local orchestrator health.", {}, () => ({
       ok: true,
       localOnly: true,

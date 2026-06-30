@@ -58,6 +58,7 @@
       "loo_desktop_see",
       "loo_desktop_act",
       "loo_desktop_proof_report",
+      "loo_desktop_live_proof_harness",
       "loo_doctor",
       "loo_permissions",
       "loo_audit_tail"
@@ -606,6 +607,36 @@
             "observation": {
               "type": "object",
               "additionalProperties": true
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_desktop_live_proof_harness",
+        "description": "Prepare a public-safe desktop live/no-focus proof packet without running the GUI action.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "backend": {
+              "type": "string",
+              "enum": [
+                "direct",
+                "cua-driver",
+                "peekaboo"
+              ]
+            },
+            "target_app": {
+              "type": "string"
+            },
+            "target_window": {
+              "type": "string"
+            },
+            "action": {
+              "type": "string"
+            },
+            "approval_ref": {
+              "type": "string"
             }
           }
         }
