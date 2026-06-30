@@ -75,6 +75,22 @@ and tracker issue
 - #162: Runtime-proven release claim gate and docs promotion.
 - #163: Claude Code adapter proof-boundary inventory.
 
+For #158, use the installed gateway path rather than the direct Codex smoke:
+
+```bash
+loo openclaw live-control-smoke \
+  --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-158-gateway-live-codex-proof/runtime-proof \
+  --thread-id <selected-harmless-codex-thread-id> \
+  --strict
+```
+
+The command writes `openclaw-gateway-live-codex-v1-1.runtime-proof.json` and
+`openclaw-gateway-live-control-smoke-report.json`. It must be preceded by an
+explicit target choice, invokes `loo_codex_control_dry_run` first, sends only
+with the matching `approval_audit_id`, then reads `loo_audit_tail` for
+public-safe audit metadata. Do not use it for broad gateway scope approval,
+generic live control, GUI mutation, or raw transcript inspection.
+
 ## Working App Claim
 
 Allowed only after #157, #158, #159, and #162 pass:
@@ -91,4 +107,3 @@ Still forbidden after this sprint unless separately proven:
 - Permission or sandbox bypass.
 - Release-grade security or customer readiness.
 - Generic GUI mutation.
-
