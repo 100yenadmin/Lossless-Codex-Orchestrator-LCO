@@ -200,9 +200,7 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
     },
     privateDataExclusions: PRIVATE_DATA_EXCLUSIONS,
     proofBoundary: "This OpenClaw tool-call smoke proves public-safe gateway invocation of selected loo_* tools only. It does not approve live Codex control, GUI mutation, npm publish, GitHub Release creation, channel delivery, broad gateway scope approval, Claude parity, or release-grade customer readiness.",
-    nextAction: uniqueBlockers.length === 0
-      ? "Use this packet to update the local-agent usability scorecard before RC signoff."
-      : "Fix or document the gateway tool-call blocker before claiming first-class OpenClaw agent usability."
+    nextAction: nextActionForBlockers(uniqueBlockers)
   };
 
   if (options.evidencePath) {
@@ -492,6 +490,27 @@ function gatewayFailureBlockers(call: GatewayCallResult, fallback: string, toolN
     return [toolName ? `openclaw_gateway_credentials_required:${toolName}` : "openclaw_gateway_credentials_required"];
   }
   return [fallback];
+}
+
+function nextActionForBlockers(blockers: string[]): string {
+  if (blockers.length === 0) return "Use this packet to update the local-agent usability scorecard before RC signoff.";
+  if (hasBlocker(blockers, "openclaw_gateway_scope_upgrade_pending")) {
+    return "Resolve the OpenClaw gateway scope approval for the listed loo_* tools, then rerun the tool-smoke. Do not treat this as approval for live Codex control or broad gateway scope.";
+  }
+  if (hasBlocker(blockers, "openclaw_gateway_device_identity_required")) {
+    return "Pair or approve the local OpenClaw device identity, or run an explicit loopback token-auth gateway for local dogfood, then rerun the tool-smoke.";
+  }
+  if (hasBlocker(blockers, "openclaw_gateway_device_token_mismatch")) {
+    return "Rotate or reissue the OpenClaw gateway device token, confirm the caller uses the current token, then rerun the tool-smoke without storing the token in evidence.";
+  }
+  if (hasBlocker(blockers, "openclaw_gateway_credentials_required")) {
+    return "Provide the required OpenClaw gateway credentials or token, or run an explicit loopback token-auth gateway for local dogfood, then rerun the tool-smoke.";
+  }
+  return "Fix or document the gateway tool-call blocker before claiming first-class OpenClaw agent usability.";
+}
+
+function hasBlocker(blockers: string[], prefix: string): boolean {
+  return blockers.some((blocker) => blocker === prefix || blocker.startsWith(`${prefix}:`));
 }
 
 function parseJsonPayload(stdout: string): unknown {

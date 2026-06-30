@@ -583,6 +583,7 @@ test("OpenClaw tool smoke classifies gateway scope-upgrade blocks without storin
 
     assert.equal(report.toolSmokeReady, false);
     assert.match(report.blockers.join("\n"), /openclaw_gateway_scope_upgrade_pending:loo_doctor/);
+    assert.match(report.nextAction, /scope approval/i);
     assert.equal(report.blockers.includes("openclaw_control_dry_run_not_proven"), false);
     assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /GatewayClientRequestError|requestId: req-123/);
   } finally {
@@ -596,17 +597,20 @@ test("OpenClaw tool smoke classifies gateway device and credential blockers with
     {
       failureText: "gateway connect failed: device identity required",
       expectedBlocker: "openclaw_gateway_device_identity_required:loo_doctor",
-      rawLeak: /device identity required/
+      rawLeak: /device identity required/,
+      expectedNextAction: /pair or approve/i
     },
     {
       failureText: "unauthorized: device token mismatch (rotate/reissue device token)",
       expectedBlocker: "openclaw_gateway_device_token_mismatch:loo_doctor",
-      rawLeak: /device token mismatch/
+      rawLeak: /device token mismatch/,
+      expectedNextAction: /(rotate|reissue).*(current token)/i
     },
     {
       failureText: "gateway tools.invoke requires credentials before opening a websocket",
       expectedBlocker: "openclaw_gateway_credentials_required:loo_doctor",
-      rawLeak: /requires credentials before opening a websocket/
+      rawLeak: /requires credentials before opening a websocket/,
+      expectedNextAction: /(?=.*credentials)(?=.*loopback token-auth gateway)/i
     }
   ];
 
@@ -627,6 +631,7 @@ test("OpenClaw tool smoke classifies gateway device and credential blockers with
 
       assert.equal(report.toolSmokeReady, false);
       assert.deepEqual(report.blockers, [testCase.expectedBlocker]);
+      assert.match(report.nextAction, testCase.expectedNextAction);
       assert.doesNotMatch(readFileSync(evidencePath, "utf8"), testCase.rawLeak);
     } finally {
       if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
