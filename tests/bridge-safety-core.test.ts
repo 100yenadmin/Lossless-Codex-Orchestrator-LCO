@@ -36,6 +36,16 @@ class FakeTransport {
   }
 }
 
+type ExitObservable = {
+  exitCode: number | null;
+  once(event: "exit", listener: () => void): void;
+};
+
+async function waitForExit(child: ExitObservable): Promise<void> {
+  if (child.exitCode !== null) return;
+  await new Promise<void>((resolve) => child.once("exit", resolve));
+}
+
 test("redacts local paths and common credential shapes from shareable envelopes", () => {
   const home = homedir();
   const redacted = redactValue({
@@ -132,6 +142,40 @@ test("line process transport removes timed-out waiters before later output arriv
     assert.equal(timedOut, null);
     await delay(120);
     assert.equal(await transport.readLine(Date.now() + 50), "late-line");
+  } finally {
+    transport.close();
+  }
+});
+
+test("line process transport drains final stdout after child exit before returning EOF", async () => {
+  const transport = new LineProcessTransport(process.execPath, [
+    "-e",
+    "process.stdout.write('late-line');"
+  ], 100);
+  const child = (transport as any).process as ExitObservable;
+
+  try {
+    await waitForExit(child);
+    assert.equal(await transport.readLine(Date.now() + 100), "late-line");
+    assert.equal(await transport.readLine(Date.now() + 100), null);
+  } finally {
+    transport.close();
+  }
+});
+
+test("line process transport does not treat child exit as EOF before stdout closes", async () => {
+  const transport = new LineProcessTransport(process.execPath, [
+    "-e",
+    "setTimeout(() => {}, 500);"
+  ], 100);
+  const child = (transport as any).process as { exitCode: number | null };
+  const pushLine = (transport as any).pushLine as (line: string | null) => void;
+
+  try {
+    child.exitCode = 0;
+    const pendingLine = transport.readLine(Date.now() + 100);
+    setTimeout(() => pushLine.call(transport, "late-line"), 10);
+    assert.equal(await pendingLine, "late-line");
   } finally {
     transport.close();
   }
