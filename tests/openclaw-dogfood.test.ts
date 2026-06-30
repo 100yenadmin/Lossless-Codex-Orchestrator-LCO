@@ -96,6 +96,55 @@ test("OpenClaw dogfood report uses runtime inspect tools when plugin list omits 
   assert.deepEqual(report.blockers, []);
 });
 
+test("OpenClaw dogfood report treats failed link install as non-blocking when plugin is already loaded", () => {
+  const report = createOpenClawDogfoodReport({
+    pluginListExitStatus: 0,
+    pluginListStdout: JSON.stringify({
+      plugins: [{
+        id: "lossless-openclaw-orchestrator",
+        enabled: true,
+        status: "loaded",
+        toolNames: []
+      }]
+    }),
+    runtimeInspectExitStatus: 0,
+    runtimeInspectStdout: JSON.stringify({
+      id: "lossless-openclaw-orchestrator",
+      enabled: true,
+      status: "loaded",
+      tools: [
+        { names: ["loo_doctor"] },
+        { names: ["loo_search_sessions"] },
+        { names: ["loo_describe_session"] },
+        { names: ["loo_expand_query"] },
+        { names: ["loo_codex_plans"] },
+        { names: ["loo_codex_final_messages"] },
+        { names: ["loo_codex_thread_map"] },
+        { names: ["loo_codex_control_dry_run"] }
+      ]
+    }),
+    requiredTools: [
+      "loo_doctor",
+      "loo_search_sessions",
+      "loo_describe_session",
+      "loo_expand_query",
+      "loo_codex_plans",
+      "loo_codex_final_messages",
+      "loo_codex_thread_map",
+      "loo_codex_control_dry_run"
+    ],
+    installAttempted: true,
+    installExitStatus: 1
+  });
+
+  assert.equal(report.ok, true);
+  assert.equal(report.dogfoodReady, true);
+  assert.deepEqual(report.blockers, []);
+  assert.deepEqual(report.warnings, ["openclaw_plugin_install_failed_but_plugin_ready"]);
+  assert.equal(report.requiredToolsPresent, true);
+  assert.equal(report.targetPlugin?.loaded, true);
+});
+
 test("OpenClaw dogfood report tolerates OpenClaw log preambles before runtime JSON", () => {
   const report = createOpenClawDogfoodReport({
     pluginListExitStatus: 0,
