@@ -62,7 +62,8 @@ test("scorecard v1 examples exist, are versioned, and preserve the beta evidence
     "packaging-install-review.json",
     "public-claim-review.json",
     "local-agent-usability-review.json",
-    "local-mac-search-ui-review.json"
+    "local-mac-search-ui-review.json",
+    "working-app-runtime-proof-review.json"
   ];
 
   for (const file of expectedFiles) {
@@ -149,6 +150,7 @@ test("VISION.md routes milestone sweeps and issue updates to scorecard v1 exampl
   assert.match(vision, /orchestrator-leverage-prioritization\.json/);
   assert.match(vision, /local-agent-usability-review\.json/);
   assert.match(vision, /local-mac-search-ui-review\.json/);
+  assert.match(vision, /working-app-runtime-proof-review\.json/);
   assert.match(readme, /evals\/scorecards\/v1\.0/);
   assert.equal(packageJson.files?.includes("evals"), true, "npm package must include versioned scorecard examples");
 

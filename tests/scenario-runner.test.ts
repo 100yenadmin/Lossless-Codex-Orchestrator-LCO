@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -115,6 +115,36 @@ test("VISION and README document the scenario runner command", () => {
   assert.match(readFileSync("VISION.md", "utf8"), /loo eval scenarios/);
   assert.match(readFileSync("README.md", "utf8"), /loo eval scenarios/);
   assert.match(readFileSync("README.md", "utf8"), /evals\/scenarios\/v1/);
+});
+
+test("runtime-required v1.1 scenarios define working-app proof beyond dry-run contracts", () => {
+  const scenarioDir = join("evals", "scenarios", "v1.1");
+  const files = readdirSync(scenarioDir).filter((file) => file.endsWith(".json")).sort();
+  assert.deepEqual(files, [
+    "connected-local-ui-proof.json",
+    "desktop-collaboration-action-bound.json",
+    "openclaw-gateway-live-codex.json",
+    "post-action-refresh-reasoning.json"
+  ]);
+
+  for (const file of files) {
+    const scenario = JSON.parse(readFileSync(join(scenarioDir, file), "utf8")) as {
+      scenario_version?: unknown;
+      proof_mode?: unknown;
+      claim_scope?: unknown;
+      expected_public_safe_evidence?: unknown;
+      forbidden_behaviors?: unknown;
+      proof_boundary?: unknown;
+      issue?: unknown;
+    };
+    assert.equal(scenario.scenario_version, "1.1", `${file} must use runtime scenario version 1.1`);
+    assert.equal(scenario.proof_mode, "runtime_required", `${file} must require runtime proof`);
+    assert.equal(scenario.claim_scope, "codex-working-app-proof", `${file} must target the working-app claim scope`);
+    assert.match(String(scenario.issue), /^#1(5[8-9]|6[0-1])$/);
+    assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /source ref|plugin id|tool surface|desktop backend/i);
+    assert.match(JSON.stringify(scenario.forbidden_behaviors), /raw|unauthorized|secret/i);
+    assert.match(String(scenario.proof_boundary), /Proves one|Proves only|does not prove/i);
+  }
 });
 
 function minimalScenario() {

@@ -1,0 +1,57 @@
+{
+  "scenario_version": "1.1",
+  "id": "openclaw-gateway-live-codex-v1-1",
+  "title": "Installed OpenClaw gateway approved live Codex proof",
+  "claim_scope": "codex-working-app-proof",
+  "proof_mode": "runtime_required",
+  "issue": "#158",
+  "user_task": "Use the installed OpenClaw gateway path to dry-run and then perform one approved harmless live Codex action.",
+  "surface": "installed-openclaw-gateway",
+  "required_tools": [
+    "loo_codex_control_dry_run",
+    "loo_codex_send_message",
+    "loo_audit_tail"
+  ],
+  "allowed_tools": [
+    "loo_codex_control_dry_run",
+    "loo_codex_send_message",
+    "loo_audit_tail"
+  ],
+  "allowed_live_behaviors": [
+    "one approved harmless Codex turn on a selected or disposable target thread"
+  ],
+  "forbidden_behaviors": [
+    "unauthorized_live_control",
+    "raw_transcript_read",
+    "unscoped_gui_mutation",
+    "secret_or_private_data_output"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "raw prompts or message text",
+    "SQLite DBs",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data"
+  ],
+  "expected_public_safe_evidence": [
+    "plugin id and version",
+    "target source ref",
+    "action type",
+    "approval audit id prefix",
+    "params hash",
+    "message hash",
+    "Codex notification count and types",
+    "completion status",
+    "rawPromptIncluded false"
+  ],
+  "metrics": {
+    "requires_installed_gateway_path": true,
+    "requires_matching_approval_audit_id": true,
+    "max_live_actions": 1,
+    "max_raw_prompt_chars": 0,
+    "requires_public_safe_scan": true
+  },
+  "proof_boundary": "Proves one approved harmless live Codex action through the installed OpenClaw gateway path only.",
+  "next_action": "Implement #158 after #157 can enforce runtime-required proof markers."
+}

@@ -6,7 +6,22 @@ This document is the product and eval contract for the public beta. GitHub issue
 
 An OpenClaw agent can understand, search, summarize, and safely coordinate a user's local Codex sessions without reading huge raw transcripts or bypassing Codex permissions.
 
-The beta should feel like a local orchestration cockpit: OpenClaw can see what Codex sessions exist, what each session is working on, which plans and final messages matter, which files were touched, and which next action would be safe to dry-run.
+The beta should feel like a local orchestration cockpit: OpenClaw can see what Codex sessions exist, what each session is working on, which plans and final messages matter, which files were touched, and which next action would be safe to dry-run or execute only after explicit approval.
+
+## Current Milestone: Working App Proof Sprint
+
+Milestone 7 is the next product/eval target: [Working App Proof Sprint](docs/WORKING_APP_PROOF_SPRINT.md), tracked by [#156](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/156) and GitHub milestone [#8](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/milestone/8).
+
+The milestone exists because `0.1.x` has strong reduced-scope beta evidence, but a working app claim needs more than dry-run contracts. The target proof is:
+
+- Installed OpenClaw gateway path, not only internal CLI helpers.
+- Live `loo_*` tool calls through the same surface an OpenClaw agent uses.
+- One harmless approved Codex action through that surface, with dry-run first and a matching approval audit id.
+- Post-action session refresh and safe agent reasoning from source refs and bounded summaries.
+- Action-bound desktop collaboration proof only where direct Codex protocol is insufficient.
+- Connected local search/cockpit proof from live tool calls, not only a static shell.
+
+Milestone 7 does not turn the project into a broad automation product. It is still Codex-first and local-first. Claude Code parity, remote sync, broad unattended desktop control, permission bypass, and release-grade security stay outside the proof boundary until separate evidence exists.
 
 ## Primary User Stories
 
@@ -14,6 +29,8 @@ The beta should feel like a local orchestration cockpit: OpenClaw can see what C
 - As an OpenClaw agent, I can find relevant Codex sessions by plan, final message, files touched, tool metadata, safe summary, or source ref.
 - As a user, I can expand one or two sessions into a bounded brief instead of exposing a raw transcript.
 - As a user, I can dry-run a Codex continue, send, steer, resume, or interrupt action and inspect the exact target/action before approval.
+- As a user, I can approve one harmless Codex action through the installed OpenClaw gateway path and then see LCO refresh the session state.
+- As an OpenClaw agent, I can reason about the updated session from safe summaries and source refs without reading raw transcripts.
 - As a maintainer, I can prove the package is local-only, bounded, and honest about unsupported features before public release.
 - As a future adapter author, I can add Claude Code or another agent desktop behind the same index, recall, safety, and proof-boundary patterns without claiming parity early.
 
@@ -84,6 +101,7 @@ Versioned examples live under `evals/scorecards/v1.0/`. Use them as the shared s
 - `public-claim-review.json`
 - `local-agent-usability-review.json`
 - `local-mac-search-ui-review.json`
+- `working-app-runtime-proof-review.json`
 
 Run `loo scorecards sweep --evidence-dir <path> --strict` to materialize a public-safe sweep packet. Strict mode should fail closed while scorecards still have `example-not-run` scores, so the packet records remaining evidence gaps instead of converting examples into beta readiness claims.
 
@@ -104,6 +122,7 @@ For implementation issues, copy `evals/scorecards/v1.0/issue-scorecard-update-te
 | Desktop live/no-focus harness | GUI fallback proof attempts fail closed until backend, approval ref, target, action, and no-focus status probe are ready | `loo desktop live-proof-harness` / `loo_desktop_live_proof_harness` evidence |
 | Desktop GUI proof contract | Backend-specific live/no-focus observations can be validated without running the action in the reporting command | `loo desktop proof-report` / `loo_desktop_proof_report` evidence |
 | Local Mac search UI | User can search, filter, inspect safe summaries, and copy source refs without raw transcript rendering | `local-mac-search-ui-review.json` score movement |
+| Working app runtime proof | Installed user path proves search/describe/expand, approved live Codex action, post-action refresh, and safe reasoning | `working-app-runtime-proof-review.json` score movement |
 | OpenClaw packageability | Plugin installs/loads with declared `loo_*` contracts | manifest/tool count and package smoke |
 | Public claims | README/docs/release notes stay inside allowed beta wording | claim audit result |
 | Privacy | Evidence contains no raw session files, SQLite DBs, screenshots, tokens, or secrets | artifact scan result |
@@ -120,6 +139,13 @@ evidence, metrics, and proof boundaries; it does not execute private evals,
 read raw transcripts, run live Codex control, mutate a GUI, publish npm, or
 create a GitHub Release.
 
+Milestone 7 runtime-required contracts live under `evals/scenarios/v1.1/`. Those
+contracts are not satisfied by `loo eval scenarios` dry-run output alone. They
+name the proof markers that #157 must enforce before a working-app claim can be
+made: installed OpenClaw gateway proof, approved live Codex action proof,
+post-action refresh/reasoning proof, desktop collaboration proof when claimed,
+and connected local UI proof when claimed.
+
 Core eval scenarios:
 
 - Build a session map from 100+ local Codex sessions.
@@ -133,6 +159,7 @@ Core eval scenarios:
 - Load the OpenClaw plugin package and verify declared `loo_*` tool contracts.
 - Run release preflight/status commands and verify remaining blockers are explicit.
 - Stage the local Mac search UI contract and scorecard, then verify it still routes through CLI, MCP, and OpenClaw gateway proof instead of raw transcripts.
+- Prove the Milestone 7 working-app runtime path from `evals/scenarios/v1.1`: installed gateway, approved live Codex action, post-action refresh, and safe agent reasoning.
 
 ## Adversarial Milestone Sweeps
 
@@ -178,18 +205,25 @@ Release candidates should be scoped to the evidence they actually prove. `main` 
 
 For `0.1.x` reduced-scope release candidates, the allowed claim scope is `codex-read-search-expand-dry-run` when the evidence proves Codex indexing, search, describe, bounded expansion, and dry-run control through CLI, MCP, or the OpenClaw gateway. In that scope, live Codex control is an excluded claim, GUI mutation is an excluded claim, and Claude parity is an excluded claim. Those exclusions must remain visible in release status, scorecards, docs, and issue updates instead of becoming hidden blockers.
 
-For 1.0 or any expanded-scope release that claims live control, desktop collaboration, or adapter parity, the broader gates below must be proven from the public CLI, MCP, OpenClaw plugin, or approved desktop surface:
+For Milestone 7, 1.0, or any expanded-scope release that claims live control, desktop collaboration, or adapter parity, the broader gates below must be proven from the public CLI, MCP, OpenClaw plugin, or approved desktop surface:
 
 - Local Codex indexing works on 100+ sessions with bounded limits.
 - Search, describe, plans, finals, touched files, tool metadata, and bounded expansion work.
 - OpenClaw plugin package declares and exposes the expected `loo_*` tools.
 - Control tools fail closed without dry-run plus matching approval.
 - One harmless approved live Codex control smoke is proven with explicit user approval.
+- Installed OpenClaw gateway path proves the approved live Codex action, not only a CLI helper.
+- Post-action refresh proves the target session can be searched/described/expanded after the live action, with safe agent reasoning from source refs.
 - CUA/Peekaboo readiness is honest and does not imply unsupported generic GUI action.
 - Desktop GUI live/no-focus proof attempts use `loo desktop live-proof-harness` or `loo_desktop_live_proof_harness` first to confirm the proof plan is public-safe and fail-closed before any backend-specific action is attempted.
 - Desktop GUI mutation claims require a backend-specific observation validated by `loo desktop proof-report` or `loo_desktop_proof_report`; the proof-report command itself must not perform the GUI action.
 - Release preflight/status/bundle commands produce public-safe evidence.
 - npm publish and GitHub Release are separately and explicitly approved before execution.
+
+A future `codex-working-app-proof` claim scope may be introduced by #162 only
+after #157, #158, and #159 produce runtime proof. Until then, public release
+claims should keep using the existing reduced `0.1.x` scopes or explicitly list
+runtime proof as missing.
 
 ## Evidence Rules
 

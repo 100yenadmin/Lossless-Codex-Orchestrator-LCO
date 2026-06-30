@@ -14,6 +14,7 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
 
   for (const heading of [
     "## North Star",
+    "## Current Milestone: Working App Proof Sprint",
     "## Primary User Stories",
     "## Orchestrator Product-Management Mode",
     "## Scorecards",
@@ -37,6 +38,10 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
     /fork/i,
     /hybrid search/i,
     /session sanitizer/i,
+    /Milestone 7/i,
+    /Working App Proof Sprint/i,
+    /evals\/scenarios\/v1\.1/i,
+    /working-app-runtime-proof-review\.json/i,
     /bounded file, byte, and event limits/i,
     /loo_codex_control_dry_run/i,
     /local OpenClaw gateway/i,
@@ -64,6 +69,9 @@ test("VISION.md distinguishes 0.1.x reduced-scope RCs from expanded live-control
   assert.match(vision, /GUI mutation[\s\S]+excluded/i);
   assert.match(vision, /Claude parity[\s\S]+excluded/i);
   assert.match(vision, /1\.0[\s\S]+approved live Codex control smoke/i);
+  assert.match(vision, /Installed OpenClaw gateway path[\s\S]+approved live Codex action/i);
+  assert.match(vision, /Post-action refresh[\s\S]+safe agent reasoning/i);
+  assert.match(vision, /codex-working-app-proof/i);
   assert.match(vision, /expanded-scope[\s\S]+live Codex control/i);
   assert.match(vision, /npm publish[\s\S]+GitHub Release[\s\S]+explicit/i);
 });

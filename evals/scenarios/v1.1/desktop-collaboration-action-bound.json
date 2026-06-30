@@ -1,0 +1,54 @@
+{
+  "scenario_version": "1.1",
+  "id": "desktop-collaboration-action-bound-v1-1",
+  "title": "Action-bound desktop collaboration proof",
+  "claim_scope": "codex-working-app-proof",
+  "proof_mode": "runtime_required",
+  "issue": "#160",
+  "user_task": "Prove one backend-specific desktop collaboration action with approval, no-focus observation, and public-safe proof.",
+  "surface": "cua-driver-or-peekaboo",
+  "required_tools": [
+    "loo_desktop_live_proof_harness",
+    "loo_desktop_proof_report"
+  ],
+  "allowed_tools": [
+    "loo_desktop_live_proof_harness",
+    "loo_desktop_proof_report"
+  ],
+  "allowed_live_behaviors": [
+    "one approved action-bound desktop fallback action on a named harmless target"
+  ],
+  "forbidden_behaviors": [
+    "unapproved_gui_action",
+    "raw_transcript_read",
+    "focus_steal_when_no_focus_claimed",
+    "raw_screenshot_publication",
+    "secret_or_private_data_output"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "raw prompts or message text",
+    "SQLite DBs",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data"
+  ],
+  "expected_public_safe_evidence": [
+    "desktop backend",
+    "target app and window label",
+    "action class and action hash",
+    "approval ref",
+    "focus before and after application labels",
+    "focusChanged false when no-focus is claimed",
+    "rawScreenshotIncluded false",
+    "rawSecretIncluded false"
+  ],
+  "metrics": {
+    "requires_action_bound_target": true,
+    "requires_backend_specific_observation": true,
+    "requires_no_focus_measurement": true,
+    "max_screenshots_in_public_evidence": 0
+  },
+  "proof_boundary": "Proves one named backend/action/target desktop collaboration path only.",
+  "next_action": "Implement #160 after #157 can distinguish runtime desktop proof from dry-run desktop diagnostics."
+}

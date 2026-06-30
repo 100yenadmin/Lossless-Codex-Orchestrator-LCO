@@ -16,7 +16,8 @@ const expectedScorecards = [
   "packaging-install-review",
   "public-claim-review",
   "retrieval-quality-review",
-  "safety-bypass-review"
+  "safety-bypass-review",
+  "working-app-runtime-proof-review"
 ];
 
 test("scorecard sweep writes a public-safe fail-closed aggregate packet", () => {
