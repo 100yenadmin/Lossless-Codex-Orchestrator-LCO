@@ -8,24 +8,29 @@ import test from "node:test";
 import { runOpenClawToolSmoke } from "../packages/cli/src/openclaw-tool-smoke.js";
 
 const tsxImport = createRequire(import.meta.url).resolve("tsx");
+type DryRunOutputShape = "plain" | "content" | "details" | "both";
 
 function createFakeOpenClaw(
   dir: string,
   catalogTools: string[],
   catalogShape: "flat" | "groups" = "flat",
-  options: { wrapDryRunOutput?: boolean } = {}
+  options: { dryRunOutputShape?: DryRunOutputShape; wrapDryRunOutput?: boolean } = {}
 ): { bin: string; callsPath: string } {
   const callsPath = join(dir, "calls.jsonl");
   const bin = join(dir, "openclaw-fake.mjs");
   const catalogPayload = catalogShape === "groups"
     ? { groups: [{ id: "plugin:lossless-openclaw-orchestrator", tools: catalogTools.map((id) => ({ id, label: id, source: "plugin" })) }] }
     : { tools: catalogTools.map((name) => ({ name, description: "fake" })) };
-  const dryRunOutputCode = options.wrapDryRunOutput
-    ? `{
-      content: [{ type: "text", text: JSON.stringify({ action: "codex_send_message", threadId: toolArgs.thread_id, live: false, approvalAuditId: "loo_audit_test", paramsHash: "params-hash", messageHash: "message-hash", method: "turn/start", approval_audit_id: "loo_audit_test", params_hash: "params-hash", message_hash: "message-hash" }) }],
-      details: { action: "codex_send_message", threadId: toolArgs.thread_id, live: false, approvalAuditId: "loo_audit_test", paramsHash: "params-hash", messageHash: "message-hash", method: "turn/start", approval_audit_id: "loo_audit_test", params_hash: "params-hash", message_hash: "message-hash" }
-    }`
-    : `{ action: "codex_send_message", threadId: toolArgs.thread_id, live: false, approval_audit_id: "loo_audit_test", params_hash: "params-hash", message_hash: "message-hash" }`;
+  const dryRunOutputShape = options.dryRunOutputShape ?? (options.wrapDryRunOutput ? "both" : "plain");
+  const dryRunDetailsCode = `{ action: "codex_send_message", threadId: toolArgs.thread_id, live: false, approvalAuditId: "loo_audit_test", paramsHash: "params-hash", messageHash: "message-hash", method: "turn/start", approval_audit_id: "loo_audit_test", params_hash: "params-hash", message_hash: "message-hash" }`;
+  const dryRunContentCode = `[{ type: "text", text: JSON.stringify(${dryRunDetailsCode}) }]`;
+  const dryRunOutputCode = dryRunOutputShape === "both"
+    ? `{ content: ${dryRunContentCode}, details: ${dryRunDetailsCode} }`
+    : dryRunOutputShape === "content"
+      ? `{ content: ${dryRunContentCode} }`
+      : dryRunOutputShape === "details"
+        ? `{ details: ${dryRunDetailsCode} }`
+        : dryRunDetailsCode;
   writeFileSync(bin, `#!/usr/bin/env node
 import { appendFileSync } from "node:fs";
 const args = process.argv.slice(2);
@@ -259,7 +264,48 @@ test("OpenClaw tool smoke accepts gateway content/details wrapped dry-run proof"
     "loo_codex_final_messages",
     "loo_codex_thread_map",
     "loo_codex_control_dry_run"
-  ], "flat", { wrapDryRunOutput: true });
+  ], "flat", { dryRunOutputShape: "both" });
+
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      profile: "default",
+      sessionKey: "agent:main:lco-issue-80",
+      evidencePath,
+      query: "Proposed plan"
+    });
+
+    const dryRun = report.invocations.find((call) => call.toolName === "loo_codex_control_dry_run");
+    assert.equal(report.ok, true);
+    assert.equal(report.blockers.includes("openclaw_control_dry_run_not_proven"), false);
+    assert.equal(dryRun?.summary.live, false);
+    assert.equal(dryRun?.summary.approvalAuditId, "loo_audit_test");
+    assert.equal(dryRun?.summary.paramsHash, "params-hash");
+    assert.equal(dryRun?.summary.messageHash, "message-hash");
+    assert.equal(dryRun?.summary.method, "turn/start");
+    assert.equal(dryRun?.summary.action, "codex_send_message");
+    assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /Harmless beta smoke/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke accepts gateway content-only dry-run proof", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-content-only-"));
+  const evidencePath = join(dir, "tool-smoke.json");
+  const { bin, callsPath } = createFakeOpenClaw(dir, [
+    "loo_doctor",
+    "loo_search_sessions",
+    "loo_describe_session",
+    "loo_expand_query",
+    "loo_codex_plans",
+    "loo_codex_final_messages",
+    "loo_codex_thread_map",
+    "loo_codex_control_dry_run"
+  ], "flat", { dryRunOutputShape: "content" });
 
   const previous = process.env.OPENCLAW_FAKE_CALLS;
   process.env.OPENCLAW_FAKE_CALLS = callsPath;
