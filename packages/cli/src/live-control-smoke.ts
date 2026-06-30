@@ -14,6 +14,7 @@ export type LiveControlSmokeWaitResult = {
   status: string | null;
   notificationMethods: string[];
   approvalRequestCount: number;
+  serverRequestCount: number;
 };
 
 export type LiveControlSmokeClient = {
@@ -56,6 +57,7 @@ export type LiveControlSmokeReport = {
     status: string | null;
     notificationMethods: string[];
     approvalRequestCount: number;
+    serverRequestCount: number;
   };
   proof: LiveControlSmokeProof;
   rawPromptIncluded: false;
@@ -111,7 +113,8 @@ export class AppServerLiveControlSmokeClient implements LiveControlSmokeClient {
       completed: wait.matched,
       status,
       notificationMethods: wait.notifications.map((notification) => notification.method),
-      approvalRequestCount: wait.serverRequests.filter((request) => isApprovalRequest(request.method)).length
+      approvalRequestCount: wait.serverRequests.filter((request) => isApprovalRequest(request.method)).length,
+      serverRequestCount: wait.serverRequests.length
     };
   }
 
@@ -150,6 +153,9 @@ export async function runLiveControlSmoke(options: LiveControlSmokeOptions): Pro
     if (completion.approvalRequestCount > 0) {
       throw new Error("live Codex control smoke observed a Codex approval request; harmless smoke must not require approvals");
     }
+    if (completion.serverRequestCount > 0) {
+      throw new Error("live Codex control smoke observed a server request; harmless smoke must not require client-side decisions");
+    }
     if (!completion.completed || completion.status !== "completed") {
       throw new Error(`live Codex control smoke did not complete cleanly: ${completion.status ?? "timeout"}`);
     }
@@ -187,7 +193,8 @@ export async function runLiveControlSmoke(options: LiveControlSmokeOptions): Pro
         completed: completion.completed,
         status: completion.status,
         notificationMethods: summarizeMethods(completion.notificationMethods),
-        approvalRequestCount: completion.approvalRequestCount
+        approvalRequestCount: completion.approvalRequestCount,
+        serverRequestCount: completion.serverRequestCount
       },
       proof,
       rawPromptIncluded: false

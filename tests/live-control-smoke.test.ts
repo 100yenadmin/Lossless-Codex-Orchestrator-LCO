@@ -32,12 +32,13 @@ class FakeLiveControlSmokeClient implements LiveControlSmokeClient {
     throw new Error(`unexpected method ${method}`);
   }
 
-  async waitForTurnCompletion(): Promise<{ completed: boolean; status: string | null; notificationMethods: string[]; approvalRequestCount: number }> {
+  async waitForTurnCompletion(): Promise<{ completed: boolean; status: string | null; notificationMethods: string[]; approvalRequestCount: number; serverRequestCount: number }> {
     return {
       completed: true,
       status: "completed",
       notificationMethods: ["thread/started", "turn/started", "turn/completed"],
-      approvalRequestCount: 0
+      approvalRequestCount: 0,
+      serverRequestCount: 0
     };
   }
 
@@ -98,7 +99,8 @@ test("live control smoke fails closed when Codex requests approval during the ha
     completed: true,
     status: "completed",
     notificationMethods: ["execCommandApproval", "turn/completed"],
-    approvalRequestCount: 1
+    approvalRequestCount: 1,
+    serverRequestCount: 1
   });
 
   try {
@@ -110,6 +112,32 @@ test("live control smoke fails closed when Codex requests approval during the ha
         message: "Approval-triggering prompt"
       }),
       /approval request/
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("live control smoke fails closed on unexpected server requests during the harmless prompt", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-live-smoke-server-request-"));
+  const client = new FakeLiveControlSmokeClient();
+  client.waitForTurnCompletion = async () => ({
+    completed: true,
+    status: "completed",
+    notificationMethods: ["tool/requestUserInput", "turn/completed"],
+    approvalRequestCount: 0,
+    serverRequestCount: 1
+  });
+
+  try {
+    await assert.rejects(
+      () => runLiveControlSmoke({
+        client,
+        audit: createAuditStore(join(root, "audit.jsonl")),
+        evidenceDir: root,
+        message: "Server request triggering prompt"
+      }),
+      /server request/
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
