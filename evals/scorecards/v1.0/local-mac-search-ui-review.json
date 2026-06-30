@@ -18,11 +18,13 @@
   ],
   "expected_public_safe_evidence": [
     "query string with no private transcript text",
+    "tool source mode and surface",
+    "live tool names when connected through CLI, MCP, or OpenClaw gateway",
     "result count",
     "source-prefixed refs",
     "safe summary snippets",
     "project, status, and priority filter state",
-    "selected bounded expansion profile",
+    "selected bounded expansion profile and token budget",
     "copy action target refs",
     "CUA and Peekaboo readiness statuses",
     "desktop live/no-focus proof harness blockers or readiness status",
@@ -42,6 +44,7 @@
     "User can filter results by project, status, priority, and blocker state.",
     "User can copy source refs and selected public-safe summary text for an OpenClaw agent.",
     "User can request bounded expansion through existing loo_* profiles before more detail is shown.",
+    "The live CLI proof mode records read-only loo_* tool source metadata without raw transcript rendering.",
     "The shell must fail closed when local DB access, required plugin tools, or OpenClaw plugin loading is unavailable.",
     "CUA and Peekaboo appear as readiness/status surfaces only unless a future backend-specific approval gate is proven.",
     "Desktop live/no-focus proof harness output prepares an action-bound proof plan without performing GUI mutation.",
@@ -57,13 +60,13 @@
   "current_score": "example-not-run",
   "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-55-local-mac-ui/local-mac-search-ui-review.json",
   "known_gaps": [
-    "The repo includes only a static prototype shell generator; no packaged macOS app shell has been produced.",
+    "The repo includes a static prototype shell and live CLI proof mode, but no packaged macOS app shell has been produced.",
     "No signed or notarized app artifact has been produced.",
-    "No live OpenClaw gateway UI smoke has been run.",
+    "No live OpenClaw gateway UI event-loop smoke has been run.",
     "A Peekaboo scratch-window no-focus proof exists for one approved TextEdit window move; this does not prove generic GUI mutation or Codex GUI mutation.",
     "A CUA Driver scratch-window no-focus proof exists for one approved TextEdit launch_app action; this does not prove generic GUI mutation or Codex GUI mutation.",
     "Claude Code remains a future adapter boundary, not a proved equivalent adapter."
   ],
-  "next_action": "Wire the prototype shell to live loo_* tool calls or a packaged macOS wrapper only after the public-safe shell packet stays clean under gateway dogfood.",
+  "next_action": "Run the live CLI UI proof against the local orchestrator DB, then decide whether the next proof should be OpenClaw gateway UI event-loop smoke or a packaged macOS wrapper.",
   "proof_boundary": "This advisory local public-safe beta scorecard records a Peekaboo scratch-window proof and a CUA Driver scratch-window no-focus proof for one approved TextEdit launch_app action, not generic GUI mutation. It does not prove a signed or release-ready macOS app, one-click install, Claude Code adapter parity, live Codex control, Codex GUI mutation, or safe desktop automation."
 }

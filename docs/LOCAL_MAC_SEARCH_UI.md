@@ -23,6 +23,8 @@ The first app shell reads from public-safe `loo_*` surfaces:
 
 The UI may display copied source refs such as `codex_thread:*`, `codex_event:*`, and `lcm_summary:*`. Copy actions copy refs and public-safe summaries only. They must not copy raw prompts, raw transcript spans, local SQLite rows, screenshots, tokens, cookies, API keys, or credentials.
 
+Every connected proof packet records live tool source metadata: tool source mode, tool surface, live tool names, source refs, selected bounded expansion profile, token budget, and copy source-ref target. Static/sample packets must not be used as proof that the local UI is connected to live tools.
+
 ## Required Workflows
 
 - Search indexed sessions by text and show safe summaries, source refs, status, priority, project, updated time, and blocker state.
@@ -42,13 +44,25 @@ The first shippable slice is a static local shell packet, not a signed macOS app
 loo ui local-mac-search --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-55-local-mac-ui --sample
 ```
 
+The connected CLI proof path uses the local orchestrator DB through read-only `loo_*` recall surfaces and records live tool source metadata:
+
+```sh
+loo ui local-mac-search \
+  --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-161-connected-local-ui-proof \
+  --live-cli \
+  --query "release handoff" \
+  --expansion-profile brief \
+  --token-budget 1000 \
+  --strict
+```
+
 The command writes:
 
 - `local-mac-search-ui.html`: a local prototype shell with filters, safe summaries, source refs, copy-ref controls, expansion profile state, and CUA/Peekaboo status surfaces.
-- `local-mac-search-ui-report.json`: a public-safe shell report with blocker codes, required tool names, result counts, copy targets, and proof boundary.
+- `local-mac-search-ui-report.json`: a public-safe shell report with blocker codes, required tool names, result counts, copy targets, live tool source metadata, and proof boundary.
 - `local-mac-search-ui-scorecard.json`: a run-specific scorecard copy with the shell result and remaining gaps.
 
-Without `--sample`, the command intentionally fails closed until the local DB, OpenClaw plugin, and required `loo_*` tools are proven available. This prevents the UI lane from silently falling back to raw file reads.
+Without `--sample` or `--live-cli`, the command intentionally fails closed until the local DB, OpenClaw plugin, and required `loo_*` tools are proven available. This prevents the UI lane from silently falling back to raw file reads.
 
 ## Fail-Closed States
 

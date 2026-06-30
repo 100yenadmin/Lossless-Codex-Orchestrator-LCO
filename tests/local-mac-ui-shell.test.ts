@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
+import { createDatabase } from "../packages/core/src/index.js";
 import {
   createLocalMacSearchUiShell,
   REQUIRED_LOCAL_MAC_SEARCH_UI_TOOLS
@@ -120,6 +121,100 @@ test("local Mac search UI shell omits unsafe refs from rendered and copied outpu
   assert.match(shell.html, /codex_thread:safe/);
 });
 
+test("local Mac search UI shell records live CLI tool provenance and bounded expansion state", () => {
+  const shell = createLocalMacSearchUiShell({
+    requireLiveToolSource: true,
+    status: {
+      platform: "darwin",
+      localDbAvailable: true,
+      openclawPluginLoaded: true,
+      availableTools: REQUIRED_LOCAL_MAC_SEARCH_UI_TOOLS
+    },
+    filters: { query: "release handoff" },
+    expansionProfile: "brief",
+    toolSource: {
+      mode: "live",
+      surface: "cli",
+      queryId: "query_123",
+      toolsCalled: [
+        "loo_search_sessions",
+        "loo_describe_session",
+        "loo_expand_query",
+        "loo_codex_thread_map"
+      ],
+      boundedExpansion: {
+        profile: "brief",
+        tokenBudget: 1000,
+        sourceRef: "codex_thread:thread-1"
+      },
+      copyAction: {
+        sourceRef: "codex_thread:thread-1",
+        publicSafe: true
+      }
+    },
+    results: [
+      {
+        title: "Live Codex thread",
+        sourceRef: "codex_thread:thread-1",
+        safeSummary: "Safe summary from live read-only recall tools.",
+        project: "lco",
+        status: "active",
+        priority: "high",
+        blocker: "none"
+      }
+    ]
+  });
+
+  assert.equal(shell.shellReady, true);
+  assert.equal(shell.toolSource.mode, "live");
+  assert.equal(shell.toolSource.surface, "cli");
+  assert.equal(shell.toolSource.queryId, "query_123");
+  assert.deepEqual(shell.toolSource.toolsCalled, [
+    "loo_search_sessions",
+    "loo_describe_session",
+    "loo_expand_query",
+    "loo_codex_thread_map"
+  ]);
+  assert.equal(shell.toolSource.resultCount, 1);
+  assert.deepEqual(shell.toolSource.sourceRefs, ["codex_thread:thread-1"]);
+  assert.deepEqual(shell.toolSource.boundedExpansion, {
+    profile: "brief",
+    tokenBudget: 1000,
+    sourceRef: "codex_thread:thread-1"
+  });
+  assert.deepEqual(shell.toolSource.copyAction, {
+    sourceRef: "codex_thread:thread-1",
+    publicSafe: true
+  });
+  assert.match(shell.html, /tool source: cli/);
+  assert.match(shell.html, /bounded expansion: brief/);
+  assert.doesNotMatch(JSON.stringify(shell), /PRIVATE_TRANSCRIPT_SHOULD_NOT_RENDER|npm_[A-Za-z0-9]/i);
+});
+
+test("local Mac search UI shell fails closed when live tool provenance is required but absent", () => {
+  const shell = createLocalMacSearchUiShell({
+    requireLiveToolSource: true,
+    status: {
+      platform: "darwin",
+      localDbAvailable: true,
+      openclawPluginLoaded: true,
+      availableTools: REQUIRED_LOCAL_MAC_SEARCH_UI_TOOLS
+    },
+    results: [
+      {
+        title: "Static Codex thread",
+        sourceRef: "codex_thread:thread-1",
+        safeSummary: "Safe static summary."
+      }
+    ]
+  });
+
+  assert.equal(shell.shellReady, false);
+  assert.match(shell.blockers.join("\n"), /live_tool_source_missing/);
+  assert.equal(shell.toolSource.mode, "static");
+  assert.equal(shell.toolSource.resultCount, 1);
+});
+
 test("loo ui local-mac-search writes a public-safe prototype shell packet", () => {
   const evidenceDir = mkdtempSync(join(tmpdir(), "loo-local-mac-ui-"));
 
@@ -188,6 +283,126 @@ test("loo ui local-mac-search writes a public-safe prototype shell packet", () =
     assert.doesNotMatch(`${result.stdout}\n${html}\n${JSON.stringify(report)}\n${JSON.stringify(scorecard)}`, /PRIVATE_TRANSCRIPT|npm_[A-Za-z0-9]/i);
   } finally {
     rmSync(evidenceDir, { recursive: true, force: true });
+  }
+});
+
+test("loo ui local-mac-search live CLI mode writes connected public-safe tool proof", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-local-mac-ui-live-"));
+  const evidenceDir = join(dir, "evidence");
+  const runtimeProofDir = join(dir, "runtime-proof");
+  const dbPath = join(dir, "orchestrator.sqlite");
+  const db = createDatabase(dbPath);
+  db.prepare(`
+    INSERT INTO codex_sessions (
+      thread_id, title, cwd, source_path, updated_at, summary, final_message,
+      safe_text, event_count, tool_call_count, indexed_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    "thread-live-1",
+    "Live UI proof thread",
+    "/Volumes/LEXAR/repos/lossless-openclaw-orchestrator",
+    "/Volumes/LEXAR/Codex/redacted/thread-live-1.jsonl",
+    "2026-07-01T00:00:00Z",
+    "Safe live UI summary.",
+    "Safe final closeout.",
+    "release handoff safe live UI summary source refs bounded expansion",
+    3,
+    0,
+    "2026-07-01T00:00:00Z"
+  );
+  db.close();
+
+  try {
+    const result = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "ui",
+      "local-mac-search",
+      "--evidence-dir",
+      evidenceDir,
+      "--live-cli",
+      "--query",
+      "release handoff",
+      "--expansion-profile",
+      "brief",
+      "--token-budget",
+      "1000",
+      "--runtime-proof-dir",
+      runtimeProofDir,
+      "--strict"
+    ], {
+      ...cliSpawnOptions,
+      env: {
+        ...process.env,
+        LOO_DB_PATH: dbPath
+      }
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const report = JSON.parse(readFileSync(join(evidenceDir, "local-mac-search-ui-report.json"), "utf8")) as {
+      shellReady?: boolean;
+      resultCount?: number;
+      copyTargets?: string[];
+      toolSource?: {
+        mode?: string;
+        surface?: string;
+        toolsCalled?: string[];
+        resultCount?: number;
+        sourceRefs?: string[];
+        boundedExpansion?: { profile?: string; tokenBudget?: number; sourceRef?: string };
+        copyAction?: { sourceRef?: string; publicSafe?: boolean };
+      };
+      rawTranscriptRendered?: boolean;
+    };
+    const html = readFileSync(join(evidenceDir, "local-mac-search-ui.html"), "utf8");
+    const runtimeProof = JSON.parse(readFileSync(
+      join(runtimeProofDir, "connected-local-ui-proof-v1-1.runtime-proof.json"),
+      "utf8"
+    )) as {
+      scenario_id?: string;
+      public_safe?: boolean;
+      proof_markers?: Record<string, boolean>;
+      raw_transcript_spans?: number;
+      screenshot_included?: boolean;
+      tool_surface?: string;
+      result_count?: number;
+    };
+
+    assert.equal(report.shellReady, true);
+    assert.equal(report.resultCount, 1);
+    assert.equal(report.rawTranscriptRendered, false);
+    assert.equal(report.toolSource?.mode, "live");
+    assert.equal(report.toolSource?.surface, "cli");
+    assert.deepEqual(report.toolSource?.toolsCalled, [
+      "loo_search_sessions",
+      "loo_describe_session",
+      "loo_expand_query",
+      "loo_codex_thread_map"
+    ]);
+    assert.equal(report.toolSource?.resultCount, 1);
+    assert.deepEqual(report.toolSource?.sourceRefs, ["codex_thread:thread-live-1"]);
+    assert.equal(report.toolSource?.boundedExpansion?.profile, "brief");
+    assert.equal(report.toolSource?.boundedExpansion?.tokenBudget, 1000);
+    assert.equal(report.toolSource?.boundedExpansion?.sourceRef, "codex_thread:thread-live-1");
+    assert.equal(report.toolSource?.copyAction?.sourceRef, "codex_thread:thread-live-1");
+    assert.equal(report.toolSource?.copyAction?.publicSafe, true);
+    assert.equal(runtimeProof.scenario_id, "connected-local-ui-proof-v1-1");
+    assert.equal(runtimeProof.public_safe, true);
+    assert.deepEqual(runtimeProof.proof_markers, {
+      live_tool_source: true,
+      public_safe_scan: true,
+      source_refs: true
+    });
+    assert.equal(runtimeProof.raw_transcript_spans, 0);
+    assert.equal(runtimeProof.screenshot_included, false);
+    assert.equal(runtimeProof.tool_surface, "cli");
+    assert.equal(runtimeProof.result_count, 1);
+    assert.match(html, /tool source: cli/);
+    assert.match(html, /bounded expansion: brief/);
+    assert.doesNotMatch(`${result.stdout}\n${html}\n${JSON.stringify(report)}`, /PRIVATE_TRANSCRIPT|npm_[A-Za-z0-9]|raw sqlite/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
