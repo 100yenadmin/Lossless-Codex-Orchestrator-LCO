@@ -18,6 +18,7 @@ import {
   defaultCodexRoots,
   defaultDatabasePath,
   describeRecallRef,
+  describeSession,
   evaluateRetrievalScenarios,
   expandQuery,
   expandRecallRef,
@@ -53,6 +54,7 @@ import {
   type LocalMacSearchUiResult,
   type LocalMacSearchUiShellReport
 } from "../../local-mac-ui/src/shell.js";
+import { createHash } from "node:crypto";
 
 const [, , command, ...args] = process.argv;
 
@@ -517,9 +519,9 @@ function createLiveCliLocalMacSearchUiShell(parsed: ParsedLocalMacSearchUiArgs):
   const db = createDatabase();
   const query = parsed.filters.query?.trim() || "handoff";
   const expansionProfile = parsed.expansionProfile ?? "brief";
-  const tokenBudget = parsed.tokenBudget ?? 1000;
+  const requestedTokenBudget = parsed.tokenBudget;
   try {
-    const search = searchSessions(db, { query, limit: 10 });
+    const allSearch = searchSessions(db, { query, limit: 10 });
     const threadMap = getCodexThreadMap(db, {
       limit: 50,
       project: parsed.filters.project,
@@ -528,6 +530,11 @@ function createLiveCliLocalMacSearchUiShell(parsed: ParsedLocalMacSearchUiArgs):
       blocker: parsed.filters.blocker
     });
     const mapByRef = new Map(threadMap.map((entry) => [`codex_thread:${entry.threadId}`, entry]));
+    const hasMetadataFilters = Boolean(parsed.filters.project?.trim()
+      || parsed.filters.status?.trim()
+      || parsed.filters.priority?.trim()
+      || parsed.filters.blocker?.trim());
+    const search = hasMetadataFilters ? allSearch.filter((result) => mapByRef.has(result.sourceRef)) : allSearch;
     const results: LocalMacSearchUiResult[] = search.map((result) => {
       const mapped = mapByRef.get(result.sourceRef);
       return {
@@ -542,16 +549,20 @@ function createLiveCliLocalMacSearchUiShell(parsed: ParsedLocalMacSearchUiArgs):
       };
     });
     const firstSourceRef = search[0]?.sourceRef;
-    if (firstSourceRef) {
+    const firstThreadId = firstSourceRef?.startsWith("codex_thread:") ? firstSourceRef.slice("codex_thread:".length) : undefined;
+    if (firstThreadId) {
+      describeSession(db, firstThreadId);
+    } else if (firstSourceRef) {
       describeRecallRef(db, { sourceRef: firstSourceRef, lcmDbPaths: configuredLcmPeerDbPaths() });
     }
     const expansion = expandQuery(db, {
       query,
       profile: expansionProfile,
-      tokenBudget,
+      tokenBudget: requestedTokenBudget,
       lcmDbPaths: configuredLcmPeerDbPaths()
     });
-    const expandedSourceRef = expansion.sourceRef || firstSourceRef;
+    const searchSourceRefs = new Set(search.map((result) => result.sourceRef));
+    const expandedSourceRef = expansion.sourceRef && searchSourceRefs.has(expansion.sourceRef) ? expansion.sourceRef : firstSourceRef;
     return createLocalMacSearchUiShell({
       requireLiveToolSource: true,
       status: {
@@ -571,7 +582,7 @@ function createLiveCliLocalMacSearchUiShell(parsed: ParsedLocalMacSearchUiArgs):
       toolSource: {
         mode: "live",
         surface: "cli",
-        queryId: `cli-${Buffer.from(query).toString("base64url").slice(0, 24)}`,
+        queryId: `cli-${createHash("sha256").update(query).digest("base64url").slice(0, 24)}`,
         toolsCalled: [
           "loo_search_sessions",
           "loo_describe_session",
@@ -580,8 +591,8 @@ function createLiveCliLocalMacSearchUiShell(parsed: ParsedLocalMacSearchUiArgs):
         ],
         sourceRefs: search.map((result) => result.sourceRef),
         boundedExpansion: {
-          profile: expansionProfile,
-          tokenBudget,
+          profile: expansion.profile.name,
+          tokenBudget: expansion.profile.tokenBudget,
           ...(expandedSourceRef ? { sourceRef: expandedSourceRef } : {})
         },
         copyAction: {

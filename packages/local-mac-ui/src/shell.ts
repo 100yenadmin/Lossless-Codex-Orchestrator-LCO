@@ -288,7 +288,9 @@ function normalizeToolSource(
     ? source.boundedExpansion.profile
     : fallback.expansionProfile;
   const tokenBudget = typeof source?.boundedExpansion?.tokenBudget === "number" && Number.isFinite(source.boundedExpansion.tokenBudget)
-    ? Math.max(20, Math.min(8000, Math.trunc(source.boundedExpansion.tokenBudget)))
+    ? source.boundedExpansion.tokenBudget <= 0
+      ? 0
+      : Math.max(20, Math.min(8000, Math.trunc(source.boundedExpansion.tokenBudget)))
     : undefined;
   return {
     mode,
@@ -299,7 +301,7 @@ function normalizeToolSource(
     sourceRefs,
     boundedExpansion: {
       profile: boundedProfile,
-      ...(tokenBudget ? { tokenBudget } : {}),
+      ...(tokenBudget !== undefined ? { tokenBudget } : {}),
       ...(boundedSourceRef ? { sourceRef: boundedSourceRef } : {})
     },
     copyAction: {
