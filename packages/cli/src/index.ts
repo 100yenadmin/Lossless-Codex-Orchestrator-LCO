@@ -237,7 +237,10 @@ async function main() {
     }
     const parsed = parseLocalMacSearchUiArgs(args.slice(1));
     const shell = parsed.sample
-      ? sampleLocalMacSearchUiShell()
+      ? sampleLocalMacSearchUiShell({
+        filters: parsed.filters,
+        expansionProfile: parsed.expansionProfile
+      })
       : createLocalMacSearchUiShell({
         status: {
           platform: process.platform,

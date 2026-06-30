@@ -93,16 +93,18 @@ export type LocalMacSearchUiShellReport = {
 };
 
 export function createLocalMacSearchUiShell(options: LocalMacSearchUiShellOptions): LocalMacSearchUiShellReport {
+  const platform = options.status.platform ?? process.platform;
   const filters = normalizeFilters(options.filters);
   const expansionProfile = options.expansionProfile ?? "metadata";
   const results = (options.results ?? []).map(normalizeResult);
+  const renderableResults = results.filter((result) => isSafeSourceRef(result.sourceRef));
   const missingTools = REQUIRED_LOCAL_MAC_SEARCH_UI_TOOLS.filter((tool) => !options.status.availableTools.includes(tool));
   const rawFieldBlockers = collectRawFieldBlockers(options.results ?? []);
   const unsafeRefBlockers = results
     .map((result, index) => isSafeSourceRef(result.sourceRef) ? "" : `unsafe_source_ref:${index}`)
     .filter(Boolean);
   const blockerCodes = [
-    ...(options.status.platform && options.status.platform !== "darwin" ? ["macos_platform_required"] : []),
+    ...(platform !== "darwin" ? ["macos_platform_required"] : []),
     ...(options.status.localDbAvailable ? [] : ["local_db_unavailable"]),
     ...(options.status.openclawPluginLoaded ? [] : ["openclaw_plugin_unavailable"]),
     ...missingTools.map((tool) => `required_tool_missing:${tool}`),
@@ -110,7 +112,7 @@ export function createLocalMacSearchUiShell(options: LocalMacSearchUiShellOption
     ...unsafeRefBlockers
   ];
   const shellReady = blockerCodes.length === 0;
-  const copyTargets = results.filter((result) => isSafeSourceRef(result.sourceRef)).map((result) => result.sourceRef);
+  const copyTargets = renderableResults.map((result) => result.sourceRef);
   const statusSurfaces = {
     cua: sanitizeStatus(options.status.cuaStatus ?? "not-probed"),
     peekaboo: sanitizeStatus(options.status.peekabooStatus ?? "not-probed")
@@ -121,14 +123,14 @@ export function createLocalMacSearchUiShell(options: LocalMacSearchUiShellOption
     shellReady,
     publicSafe: true as const,
     generatedAt: new Date().toISOString(),
-    platform: options.status.platform ?? process.platform,
+    platform,
     blockerCodes,
     blockers: blockerCodes,
     requiredTools: [...REQUIRED_LOCAL_MAC_SEARCH_UI_TOOLS],
     missingTools,
     filters,
     expansionProfile,
-    resultCount: results.length,
+    resultCount: renderableResults.length,
     copyTargets,
     statusSurfaces,
     rawTranscriptRendered: false as const,
@@ -143,7 +145,7 @@ export function createLocalMacSearchUiShell(options: LocalMacSearchUiShellOption
     ]
   };
 
-  const html = renderLocalMacSearchUiHtml({ ...reportBase, results });
+  const html = renderLocalMacSearchUiHtml({ ...reportBase, results: renderableResults });
   return { ...reportBase, html };
 }
 
@@ -170,7 +172,10 @@ export function writeLocalMacSearchUiEvidence(options: {
   return shell;
 }
 
-export function sampleLocalMacSearchUiShell(): LocalMacSearchUiShellReport {
+export function sampleLocalMacSearchUiShell(options: {
+  filters?: LocalMacSearchUiFilters;
+  expansionProfile?: "metadata" | "brief" | "evidence";
+} = {}): LocalMacSearchUiShellReport {
   return createLocalMacSearchUiShell({
     status: {
       platform: "darwin",
@@ -185,9 +190,10 @@ export function sampleLocalMacSearchUiShell(): LocalMacSearchUiShellReport {
       project: "lco",
       status: "active",
       priority: "high",
-      blocker: "none"
+      blocker: "none",
+      ...options.filters
     },
-    expansionProfile: "brief",
+    expansionProfile: options.expansionProfile ?? "brief",
     results: [
       {
         title: "Active Codex beta thread",
