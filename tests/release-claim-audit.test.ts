@@ -17,6 +17,26 @@ function read(path: string): string {
   return readFileSync(path, "utf8");
 }
 
+test("0.1.0-beta.4 release metadata captures the desktop proof harness without overclaiming publication", () => {
+  const packageJson = JSON.parse(read("package.json")) as { version?: string };
+  const packageLock = JSON.parse(read("package-lock.json")) as { version?: string; packages?: Record<string, { version?: string }> };
+
+  assert.equal(packageJson.version, "0.1.0-beta.4");
+  assert.equal(packageLock.version, "0.1.0-beta.4");
+  assert.equal(packageLock.packages?.[""]?.version, "0.1.0-beta.4");
+  assert.equal(existsSync("docs/RELEASE_NOTES_0.1.0-beta.4.md"), true, "0.1.0-beta.4 release notes must exist");
+
+  const releaseNotes = read("docs/RELEASE_NOTES_0.1.0-beta.4.md");
+  assert.match(releaseNotes, /loo desktop live-proof-harness/i);
+  assert.match(releaseNotes, /loo_desktop_live_proof_harness/i);
+  assert.match(releaseNotes, /desktop live\/no-focus proof harness/i);
+  assert.match(releaseNotes, /does not run live GUI mutation/i);
+  assert.match(releaseNotes, /does not publish to npm/i);
+  assert.match(releaseNotes, /does not create a GitHub Release/i);
+  assert.match(releaseNotes, /codex-read-search-expand-dry-run/i);
+  assert.doesNotMatch(releaseNotes, /Full Claude Code parity|cloud sync supported|unattended desktop takeover supported/i);
+});
+
 test("public beta package and README do not overclaim Claude or desktop control", () => {
   const packageJson = JSON.parse(read("package.json")) as { description?: string };
   const readme = read("README.md");
