@@ -150,6 +150,14 @@ That proof marker must include `operation: "desktop_gui_mutation"`,
 Diagnostic-only focus proofs such as `status_probe_only_no_action` and
 `not_measured` are not accepted for desktop GUI mutation approval.
 
+Before attempting a backend-specific live GUI proof, run
+`loo desktop live-proof-harness --evidence-dir <path> --backend cua-driver|peekaboo --target-app <app> --target-window <title> --action <action> --approval-ref <ref> --strict`
+or call `loo_desktop_live_proof_harness` through MCP/OpenClaw. The harness
+writes `desktop-live-proof-harness.json` and fails closed until the proof plan
+has a GUI fallback backend, action-bound target fields, an approval reference,
+backend availability, and a stable no-focus status probe. The harness itself
+does not perform the GUI action or capture screenshots.
+
 Use `loo desktop proof-report --evidence-dir <path> --observation-file <path> --strict`
 to validate a supplied backend-specific observation and write
 `desktop-gui-proof-report.json`. When the observation passes all proof checks,

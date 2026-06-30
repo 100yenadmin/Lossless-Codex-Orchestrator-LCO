@@ -151,6 +151,29 @@ export type DesktopGuiProofReport = {
   nextAction: string;
 };
 
+export type DesktopLiveProofHarnessReport = {
+  ok: boolean;
+  proofHarnessReady: boolean;
+  publicSafe: boolean;
+  kind: "loo_desktop_live_proof_harness";
+  desktopBackend?: DesktopBackend;
+  targetApp?: string;
+  targetWindow?: string;
+  action?: string;
+  actionHash?: string;
+  approvalRef?: string;
+  backendStatus?: DesktopStatus;
+  blockers: string[];
+  evidencePath?: string;
+  actionsPerformed: {
+    desktopGuiActionRun: false;
+    screenshotCaptured: false;
+  };
+  privateDataExclusions: string[];
+  proofBoundary: string;
+  nextAction: string;
+};
+
 type DesktopPermissionStatus = {
   status: "unknown" | "not_applicable" | "granted" | "denied";
   note: string;
@@ -549,6 +572,103 @@ export function writeDesktopGuiProofReport(input: { evidenceDir: string; observa
     writeFileSync(approvalPath, `${JSON.stringify(report.approval, null, 2)}\n`);
   }
   return withPaths;
+}
+
+export function createDesktopLiveProofHarness(input: {
+  backend?: DesktopBackend;
+  targetApp?: string;
+  targetWindow?: string;
+  action?: string;
+  approvalRef?: string;
+  probe?: DesktopProbe;
+} = {}): DesktopLiveProofHarnessReport {
+  const desktopBackend = input.backend;
+  const targetApp = publicTextField(input.targetApp, 120);
+  const targetWindow = publicTextField(input.targetWindow, 160);
+  const action = publicTextField(input.action, 160);
+  const approvalRef = publicTextField(input.approvalRef, 160);
+  const backendStatus = desktopBackend
+    ? desktopBackendStatus(desktopBackend, input.probe ?? systemDesktopProbe())
+    : undefined;
+  const blockers: string[] = [];
+
+  if (!desktopBackend) blockers.push("desktop_backend_missing");
+  if (desktopBackend === "direct") blockers.push("desktop_backend_not_gui_fallback");
+  if (!targetApp) blockers.push("target_app_missing");
+  if (!targetWindow) blockers.push("target_window_missing");
+  if (!action) blockers.push("action_missing");
+  if (!approvalRef) blockers.push("approval_ref_missing");
+  if (desktopBackend && desktopBackend !== "direct" && backendStatus) {
+    if (!backendStatus.available) blockers.push("desktop_backend_unavailable");
+    if (backendStatus.focus.changed === null) {
+      blockers.push("focus_not_measured");
+    } else if (backendStatus.focus.changed) {
+      blockers.push("focus_probe_changed_application");
+    }
+  }
+
+  const actionHash = desktopBackend && targetApp && targetWindow && action
+    ? createHash("sha256").update(JSON.stringify({ desktopBackend, targetApp, targetWindow, action })).digest("hex")
+    : undefined;
+  const proofHarnessReady = blockers.length === 0;
+  const publicBackendStatus = backendStatus
+    ? {
+      ...backendStatus,
+      focus: {
+        changed: backendStatus.focus.changed,
+        proof: backendStatus.focus.proof
+      }
+    }
+    : undefined;
+
+  return {
+    ok: proofHarnessReady,
+    proofHarnessReady,
+    publicSafe: true,
+    kind: "loo_desktop_live_proof_harness",
+    desktopBackend,
+    targetApp,
+    targetWindow,
+    action,
+    actionHash,
+    approvalRef,
+    backendStatus: publicBackendStatus,
+    blockers,
+    actionsPerformed: {
+      desktopGuiActionRun: false,
+      screenshotCaptured: false
+    },
+    privateDataExclusions: [
+      "raw screenshots or videos",
+      "raw accessibility trees",
+      "raw Codex transcripts",
+      "raw prompts or message text",
+      "tokens, credentials, API keys, cookies",
+      "private customer data"
+    ],
+    proofBoundary: "This harness prepares a public-safe live/no-focus desktop fallback proof plan. It does not perform desktop GUI mutation, capture screenshots, run live Codex control, or authorize unattended desktop takeover.",
+    nextAction: proofHarnessReady
+      ? "Run the backend-specific live action outside this harness, capture a public-safe no-focus observation, then validate it with loo desktop proof-report."
+      : "Resolve the listed blockers before attempting any backend-specific live desktop proof."
+  };
+}
+
+export function writeDesktopLiveProofHarness(input: {
+  evidenceDir: string;
+  backend?: DesktopBackend;
+  targetApp?: string;
+  targetWindow?: string;
+  action?: string;
+  approvalRef?: string;
+  probe?: DesktopProbe;
+}): DesktopLiveProofHarnessReport {
+  const evidenceDir = resolve(input.evidenceDir);
+  mkdirSync(evidenceDir, { recursive: true });
+  const evidencePath = join(evidenceDir, "desktop-live-proof-harness.json");
+  const report = createDesktopLiveProofHarness(input);
+  const withPath = { ...report, evidencePath };
+  writeFileSync(evidencePath, `${JSON.stringify(withPath, null, 2)}\n`);
+  return withPath;
 }
 
 function readOrCreateAuditKey(auditPath: string): Buffer {

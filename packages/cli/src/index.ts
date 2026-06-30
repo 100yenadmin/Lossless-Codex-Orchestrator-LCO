@@ -7,6 +7,7 @@ import {
   desktopSee,
   isDesktopBackend,
   writeDesktopGuiProofReport,
+  writeDesktopLiveProofHarness,
   type DesktopBackend
 } from "../../adapters/src/index.js";
 import {
@@ -87,6 +88,17 @@ async function main() {
     });
     console.log(JSON.stringify(report, null, 2));
     if (parsed.strict && !report.proofReady) process.exitCode = 1;
+    return;
+  }
+  if (command === "desktop" && args[0] === "live-proof-harness") {
+    if (hasHelpFlag(args.slice(1))) {
+      printDesktopLiveProofHarnessHelp();
+      return;
+    }
+    const parsed = parseDesktopLiveProofHarnessArgs(args.slice(1));
+    const report = writeDesktopLiveProofHarness(parsed);
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.proofHarnessReady) process.exitCode = 1;
     return;
   }
   if (command === "index" && args[0] === "codex") {
@@ -386,6 +398,7 @@ async function main() {
     "  loo desktop see [direct|cua-driver|peekaboo] [--snapshot] [--max-nodes n] [--max-chars n]",
     "  loo desktop act [direct|cua-driver|peekaboo] <action>",
     "  loo desktop proof-report --evidence-dir path --observation-file path [--strict]",
+    "  loo desktop live-proof-harness --evidence-dir path [--backend direct|cua-driver|peekaboo] [--target-app app] [--target-window title] [--action text] [--approval-ref ref] [--strict]",
     "  loo index codex [--max-files n] [--max-bytes-per-file n] [--max-events-per-file n] [roots...]",
     "  loo probe codex-sqlite [roots...]",
     "  loo search <query>",
@@ -516,6 +529,24 @@ function printDesktopProofReportHelp(): void {
   ].join("\n"));
 }
 
+function printDesktopLiveProofHarnessHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo desktop live-proof-harness --evidence-dir path [--backend direct|cua-driver|peekaboo] [--target-app app] [--target-window title] [--action text] [--approval-ref ref] [--strict]",
+    "",
+    "Writes a public-safe desktop live/no-focus proof harness packet without performing the action.",
+    "",
+    "Outputs:",
+    "  desktop-live-proof-harness.json",
+    "",
+    "Strict mode:",
+    "  --strict exits non-zero until a GUI fallback backend, target app/window, action, approval ref, available backend, and stable no-focus status probe are present.",
+    "",
+    "Safety boundary:",
+    "  This command does not run a desktop GUI action, does not capture screenshots, does not run live Codex control, and does not authorize unattended desktop takeover."
+  ].join("\n"));
+}
+
 function printLocalMacSearchUiHelp(): void {
   console.log([
     "Usage:",
@@ -594,6 +625,46 @@ function parseDesktopProofReportArgs(input: string[]): {
   if (!evidenceDir) throw new Error("desktop proof-report requires --evidence-dir");
   if (!observationFile) throw new Error("desktop proof-report requires --observation-file");
   return { evidenceDir, observationFile, strict };
+}
+
+function parseDesktopLiveProofHarnessArgs(input: string[]): {
+  evidenceDir: string;
+  backend?: DesktopBackend;
+  targetApp?: string;
+  targetWindow?: string;
+  action?: string;
+  approvalRef?: string;
+  strict: boolean;
+} {
+  let evidenceDir = "";
+  let backend: DesktopBackend | undefined;
+  let targetApp: string | undefined;
+  let targetWindow: string | undefined;
+  let action: string | undefined;
+  let approvalRef: string | undefined;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--evidence-dir") {
+      evidenceDir = requireOptionValue(input[++index], arg);
+    } else if (arg === "--backend") {
+      backend = parseDesktopBackend(requireOptionValue(input[++index], arg));
+    } else if (arg === "--target-app") {
+      targetApp = requireOptionValue(input[++index], arg);
+    } else if (arg === "--target-window") {
+      targetWindow = requireOptionValue(input[++index], arg);
+    } else if (arg === "--action") {
+      action = requireOptionValue(input[++index], arg);
+    } else if (arg === "--approval-ref") {
+      approvalRef = requireOptionValue(input[++index], arg);
+    } else if (arg === "--strict") {
+      strict = true;
+    } else {
+      throw new Error(`Unknown desktop live-proof-harness option: ${arg}`);
+    }
+  }
+  if (!evidenceDir) throw new Error("desktop live-proof-harness requires --evidence-dir");
+  return { evidenceDir, backend, targetApp, targetWindow, action, approvalRef, strict };
 }
 
 function readDesktopProofReportObservation(path: string): unknown {
