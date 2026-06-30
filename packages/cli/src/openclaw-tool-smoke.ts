@@ -111,11 +111,13 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
     ...(options.dev ? ["--dev"] : []),
     ...(options.profile ? ["--profile", options.profile] : [])
   ];
+  const gatewayTimeoutMs = options.gatewayTimeoutMs ?? 60_000;
   const gatewayOptions = [
-    ...(options.gatewayUrl ? ["--url", options.gatewayUrl] : [])
+    ...(options.gatewayUrl ? ["--url", options.gatewayUrl] : []),
+    "--timeout",
+    String(gatewayTimeoutMs)
   ];
   const gatewayEnv = options.token ? { OPENCLAW_GATEWAY_TOKEN: options.token } : undefined;
-  const gatewayTimeoutMs = options.gatewayTimeoutMs ?? 60_000;
   const sessionKey = options.sessionKey || "agent:main:lco-tool-smoke";
   const query = options.query || "Proposed plan";
   const expandProfile = options.expandProfile || "brief";
@@ -226,7 +228,7 @@ function callGatewayJson(
     encoding: "utf8",
     env: options.env ? { ...process.env, ...options.env } : process.env,
     maxBuffer: 20 * 1024 * 1024,
-    timeout: options.timeoutMs ?? 60_000
+    timeout: gatewayProcessTimeoutMs(options.timeoutMs ?? 60_000)
   });
   const result: GatewayJsonResult = {
     status: call.status,
@@ -239,6 +241,11 @@ function callGatewayJson(
     result.parseError = error instanceof Error ? error.message : "invalid JSON";
   }
   return result;
+}
+
+function gatewayProcessTimeoutMs(timeoutMs: number): number {
+  const graceMs = Math.min(5_000, Math.max(250, Math.ceil(timeoutMs * 0.2)));
+  return timeoutMs + graceMs;
 }
 
 function sanitizeCommandBinary(openclawBin: string): string {
@@ -305,12 +312,13 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
   }
   if (toolName === "loo_codex_control_dry_run") {
     const upstreamBlocked = blockers.length > 0;
-    summary.live = booleanPath(output, ["live"]);
-    const approvalAuditId = stringPath(output, ["approval_audit_id"]) || stringPath(output, ["approvalAuditId"]);
-    const paramsHash = stringPath(output, ["params_hash"]) || stringPath(output, ["paramsHash"]);
-    const messageHash = stringPath(output, ["message_hash"]) || stringPath(output, ["messageHash"]);
-    const method = stringPath(output, ["method"]);
-    const action = stringPath(output, ["action"]);
+    const dryRunOutput = unwrapToolDetails(output) ?? output;
+    summary.live = booleanPath(dryRunOutput, ["live"]);
+    const approvalAuditId = stringPath(dryRunOutput, ["approval_audit_id"]) || stringPath(dryRunOutput, ["approvalAuditId"]);
+    const paramsHash = stringPath(dryRunOutput, ["params_hash"]) || stringPath(dryRunOutput, ["paramsHash"]);
+    const messageHash = stringPath(dryRunOutput, ["message_hash"]) || stringPath(dryRunOutput, ["messageHash"]);
+    const method = stringPath(dryRunOutput, ["method"]);
+    const action = stringPath(dryRunOutput, ["action"]);
     if (approvalAuditId) summary.approvalAuditId = approvalAuditId;
     if (paramsHash) summary.paramsHash = paramsHash;
     if (messageHash) summary.messageHash = messageHash;
@@ -393,6 +401,23 @@ function unwrapToolOutput(value: unknown): unknown {
   if ("output" in value) return value.output;
   if ("result" in value) return value.result;
   return value;
+}
+
+function unwrapToolDetails(value: unknown): unknown {
+  if (!isRecord(value)) return undefined;
+  if (isRecord(value.details)) return value.details;
+  if (Array.isArray(value.content)) {
+    for (const item of value.content) {
+      if (!isRecord(item) || typeof item.text !== "string") continue;
+      try {
+        const parsed = JSON.parse(item.text) as unknown;
+        if (isRecord(parsed)) return parsed;
+      } catch {
+        // Non-JSON text content is not useful for public-safe proof extraction.
+      }
+    }
+  }
+  return undefined;
 }
 
 function extractCatalogToolNames(value: unknown): string[] {
