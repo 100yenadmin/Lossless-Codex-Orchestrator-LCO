@@ -117,7 +117,7 @@ export function createLocalMacSearchUiShell(options: LocalMacSearchUiShellOption
     cua: sanitizeStatus(options.status.cuaStatus ?? "not-probed"),
     peekaboo: sanitizeStatus(options.status.peekabooStatus ?? "not-probed")
   };
-  const proofBoundary = "Prototype local Mac search shell only; not a signed or release-ready macOS app, not Claude parity, not live Codex control, and not GUI mutation.";
+  const proofBoundary = "Prototype local Mac search shell only; not a signed or release-ready macOS app, not Claude parity, not live Codex control, and not GUI mutation. CUA Driver scratch-window no-focus proof exists only for one approved TextEdit launch_app action; this shell does not prove generic GUI mutation or Codex GUI mutation.";
   const reportBase = {
     kind: "loo_local_mac_search_ui_shell" as const,
     shellReady,
@@ -363,7 +363,9 @@ function createIssueScorecard(sourcePath: string | undefined, shell: LocalMacSea
     known_gaps: [
       "Prototype shell only; no signed or notarized macOS app artifact.",
       "No live OpenClaw gateway UI event loop is driven by this command.",
-      "No GUI mutation, screenshots, videos, CUA no-focus proof, or Peekaboo snapshot proof is claimed.",
+      "No GUI mutation, screenshots, or videos are claimed.",
+      "CUA Driver scratch-window no-focus proof exists only for one approved TextEdit launch_app action; this shell does not prove generic GUI mutation or Codex GUI mutation.",
+      "Peekaboo snapshot proof is not claimed beyond explicit approved diagnostic use.",
       "Claude Code remains a future adapter boundary."
     ],
     next_action: "Wire the shell to live loo_* tool calls or a packaged macOS wrapper only after this prototype remains public-safe under gateway dogfood.",
