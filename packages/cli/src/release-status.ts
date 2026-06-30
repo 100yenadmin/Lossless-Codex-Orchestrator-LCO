@@ -12,6 +12,7 @@ export type ReleaseStatusOptions = {
   candidateSha?: string;
   approvedLiveControlEvidence?: string;
   claimScope?: ReleaseClaimScope;
+  runtimeProofDir?: string;
   npmPublishApprovalEvidence?: string;
   githubReleaseApprovalEvidence?: string;
   desktopGuiApprovalEvidence?: string;
@@ -110,6 +111,7 @@ export function createReleaseStatus(options: ReleaseStatusOptions): ReleaseStatu
     evidenceDir,
     approvedLiveControlEvidence,
     claimScope: options.claimScope,
+    runtimeProofDir: options.runtimeProofDir,
     now: options.now,
     rootDir: options.rootDir
   });

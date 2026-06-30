@@ -6,14 +6,17 @@ import {
   liveControlExcludedDetail,
   normalizeReleaseClaimScope,
   releaseClaimScopeRequiresLiveControl,
+  releaseClaimScopeRequiresWorkingAppRuntimeProof,
   type ReleaseClaimScope,
   type ReleaseExcludedClaim
 } from "./release-claim-scope.js";
+import { validateWorkingAppRuntimeProof } from "./runtime-proof-gate.js";
 
 export type ReleasePreflightOptions = {
   evidenceDir?: string;
   approvedLiveControlEvidence?: string;
   claimScope?: ReleaseClaimScope;
+  runtimeProofDir?: string;
   now?: string;
   rootDir?: string;
 };
@@ -70,6 +73,7 @@ const forbiddenClaims = [
 export function runReleasePreflight(options: ReleasePreflightOptions = {}): ReleasePreflightReport {
   const claimScope = normalizeReleaseClaimScope(options.claimScope);
   const liveControlRequired = releaseClaimScopeRequiresLiveControl(claimScope);
+  const workingAppRuntimeProofRequired = releaseClaimScopeRequiresWorkingAppRuntimeProof(claimScope);
   const excludedClaims = excludedClaimsForScope(claimScope);
   const packageRoot = options.rootDir ? resolve(options.rootDir) : findPackageRoot(dirname(fileURLToPath(import.meta.url))) ?? process.cwd();
   const packageJsonRead = readJson(packageRoot, "package.json");
@@ -114,6 +118,9 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
   const liveControlProof = liveControlRequired
     ? validateApprovedLiveControlProof(approvedLiveControlProof)
     : check(false, liveControlExcludedDetail(claimScope));
+  const workingAppRuntimeProof = workingAppRuntimeProofRequired
+    ? validateWorkingAppRuntimeProof(options.runtimeProofDir)
+    : null;
   const rawSessionArtifacts = scanRawSessionArtifacts(options.evidenceDir);
   const checks: Record<string, ReleasePreflightCheck> = {
     packageJson: check(Boolean(!packageJsonRead.error && packageJson?.name && packageJson.version && packageJson.description?.match(/local Codex sessions/i)), packageJsonRead.error ?? "package metadata keeps Codex-first beta positioning"),
@@ -122,14 +129,25 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
     claimAudit: check(Boolean(claimAudit?.match(/Forbidden Beta Claims/i) && claimAudit.match(/approved_live_control_smoke_missing/i)), "claim audit records forbidden claims and the live-control blocker code"),
     betaDemo: check(Boolean(betaDemo?.match(/100\+ local Codex sessions/i) && betaDemo.match(/does not run live control/i)), "demo workflow covers 100+ Codex sessions and dry-run-only control boundary"),
     rawArtifacts: check(rawSessionArtifacts.length === 0, rawSessionArtifacts.length === 0 ? "no raw session/private DB/screenshot artifacts found" : "raw session/private DB/screenshot artifacts are present"),
-    liveControlSmoke: liveControlProof
+    liveControlSmoke: liveControlProof,
+    workingAppRuntimeProof: workingAppRuntimeProof
+      ? check(
+        workingAppRuntimeProof.ok,
+        workingAppRuntimeProof.ok
+          ? `${workingAppRuntimeProof.acceptedMarkerCount} runtime proof markers accepted for codex-working-app-proof`
+          : "codex-working-app-proof requires public-safe runtime proof markers for #158 and #159 via --runtime-proof-dir"
+      )
+      : check(false, "working-app runtime proof is excluded by claim scope")
   };
 
   const blockers = Object.entries(checks)
-    .filter(([key, value]) => !value.ok && key !== "liveControlSmoke" && key !== "rawArtifacts")
+    .filter(([key, value]) => !value.ok && key !== "liveControlSmoke" && key !== "rawArtifacts" && key !== "workingAppRuntimeProof")
     .map(([key]) => `${key}_failed`);
   if (rawSessionArtifacts.length > 0) blockers.push("raw_session_artifacts_present");
   if (liveControlRequired && !checks.liveControlSmoke?.ok) blockers.push("approved_live_control_smoke_missing");
+  if (workingAppRuntimeProofRequired && workingAppRuntimeProof && !workingAppRuntimeProof.ok) {
+    blockers.push(...workingAppRuntimeProof.blockers);
+  }
 
   const report: ReleasePreflightReport = {
     ok: blockers.every((blocker) => blocker === "approved_live_control_smoke_missing"),

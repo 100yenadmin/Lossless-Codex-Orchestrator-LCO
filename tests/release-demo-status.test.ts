@@ -212,7 +212,8 @@ test("release demo-status --claim-scope codex-read-search-expand-dry-run accepts
   assert.equal(payload.checks?.approvedLiveControl?.ok, false);
   assert.match(payload.checks?.approvedLiveControl?.detail ?? "", /excluded by claim scope/i);
   assert.deepEqual(payload.excludedClaims, [
-    { id: "approved_live_control_smoke", blockerIfClaimed: "approved_live_control_smoke_missing" }
+    { id: "approved_live_control_smoke", blockerIfClaimed: "approved_live_control_smoke_missing" },
+    { id: "codex_working_app_runtime_proof", blockerIfClaimed: "working_app_runtime_proof_missing" }
   ]);
 });
 

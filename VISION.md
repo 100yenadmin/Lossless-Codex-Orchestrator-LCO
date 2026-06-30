@@ -222,10 +222,15 @@ For Milestone 7, 1.0, or any expanded-scope release that claims live control, de
 - Release preflight/status/bundle commands produce public-safe evidence.
 - npm publish and GitHub Release are separately and explicitly approved before execution.
 
-A future `codex-working-app-proof` claim scope may be introduced by #162 only
-after #157, #158, and #159 produce runtime proof. Until then, public release
-claims should keep using the existing reduced `0.1.x` scopes or explicitly list
-runtime proof as missing.
+The `codex-working-app-proof` claim scope exists as a fail-closed release gate.
+It is not satisfied by dry-run packets. It requires approved live-control proof
+plus public-safe v1.1 runtime marker files for #158
+(`openclaw-gateway-live-codex-v1-1.runtime-proof.json`) and #159
+(`post-action-refresh-reasoning-v1-1.runtime-proof.json`) through
+`--runtime-proof-dir`. Until those markers exist, public release claims should
+keep using the reduced `codex-read-search-expand-dry-run` scope or the plain
+`codex-live-control` scope, and `codex-working-app-proof` must report
+`runtime_proof_missing:*` blockers.
 
 ## Evidence Rules
 

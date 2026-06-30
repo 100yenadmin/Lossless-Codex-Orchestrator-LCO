@@ -369,7 +369,8 @@ async function main() {
     const report = runReleasePreflight({
       evidenceDir: parsed.evidenceDir,
       approvedLiveControlEvidence: parsed.approvedLiveControlEvidence,
-      claimScope: parsed.claimScope
+      claimScope: parsed.claimScope,
+      runtimeProofDir: parsed.runtimeProofDir
     });
     console.log(JSON.stringify(report, null, 2));
     if (parsed.strict && !report.releaseReady) process.exitCode = 1;
@@ -380,7 +381,8 @@ async function main() {
     const report = createReleaseBundle({
       evidenceDir: parsed.evidenceDir,
       approvedLiveControlEvidence: parsed.approvedLiveControlEvidence,
-      claimScope: parsed.claimScope
+      claimScope: parsed.claimScope,
+      runtimeProofDir: parsed.runtimeProofDir
     });
     console.log(JSON.stringify(report, null, 2));
     if (parsed.strict && !report.publishReady) process.exitCode = 1;
@@ -397,6 +399,7 @@ async function main() {
       candidateSha: parsed.candidateSha,
       approvedLiveControlEvidence: parsed.approvedLiveControlEvidence,
       claimScope: parsed.claimScope,
+      runtimeProofDir: parsed.runtimeProofDir,
       npmPublishApprovalEvidence: parsed.npmPublishApprovalEvidence,
       githubReleaseApprovalEvidence: parsed.githubReleaseApprovalEvidence,
       desktopGuiApprovalEvidence: parsed.desktopGuiApprovalEvidence,
@@ -415,6 +418,7 @@ async function main() {
       evidenceDir: parsed.evidenceDir,
       approvedLiveControlEvidence: parsed.approvedLiveControlEvidence,
       claimScope: parsed.claimScope,
+      runtimeProofDir: parsed.runtimeProofDir,
       minSessions: parsed.minSessions
     });
     console.log(JSON.stringify(report, null, 2));
@@ -447,10 +451,10 @@ async function main() {
     "  loo ui local-mac-search --evidence-dir path [--sample] [--strict]",
     "  loo eval retrieval --scenario-file path [--evidence-path path] [--strict]",
     "  loo eval scenarios --evidence-dir path [--scenario-dir path] [--runtime-proof-dir path] [--strict]",
-    "  loo release preflight [--evidence-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run] [--approved-live-control-evidence path] [--strict]",
-    "  loo release bundle --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run] [--approved-live-control-evidence path] [--strict]",
-    "  loo release status --evidence-dir path --candidate-sha sha [--claim-scope codex-live-control|codex-read-search-expand-dry-run] [--approved-live-control-evidence path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--github-ci-evidence path] [--codeql-evidence path] [--desktop-gui-required --desktop-gui-approval-evidence path] [--now iso] [--strict]",
-    "  loo release demo-status --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run] [--approved-live-control-evidence path] [--min-sessions n] [--strict]"
+    "  loo release preflight [--evidence-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--strict]",
+    "  loo release bundle --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--strict]",
+    "  loo release status --evidence-dir path --candidate-sha sha [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--github-ci-evidence path] [--codeql-evidence path] [--desktop-gui-required --desktop-gui-approval-evidence path] [--now iso] [--strict]",
+    "  loo release demo-status --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--min-sessions n] [--strict]"
   ].join("\n"));
   process.exitCode = 2;
 }
@@ -563,7 +567,7 @@ function printSanitizeSessionsHelp(): void {
 function printReleaseStatusHelp(): void {
   console.log([
     "Usage:",
-    "  loo release status --evidence-dir path --candidate-sha sha [--claim-scope codex-live-control|codex-read-search-expand-dry-run] [--approved-live-control-evidence path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--github-ci-evidence path] [--codeql-evidence path] [--desktop-gui-required --desktop-gui-approval-evidence path] [--strict]",
+    "  loo release status --evidence-dir path --candidate-sha sha [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--github-ci-evidence path] [--codeql-evidence path] [--desktop-gui-required --desktop-gui-approval-evidence path] [--strict]",
     "",
     "Writes a public-safe release status packet without performing gated release actions.",
     "",
@@ -572,6 +576,7 @@ function printReleaseStatusHelp(): void {
     "  npm, GitHub Release, and optional desktop GUI approvals use kind: \"loo_release_operation_approval\" with operation, approved: true, approvalRef, and rawSecretIncluded: false.",
     "  Desktop GUI approvals also require desktopBackend, targetApp, targetWindow, action, actionHash, approvalNonce, issuedAt, expiresAt, focusBeforeApplication, focusAfterApplication, focusChanged: false, focusProof, and rawScreenshotIncluded: false.",
     "  Live-control proof is validated through release preflight and must be a structured approved live-control smoke marker unless --claim-scope codex-read-search-expand-dry-run explicitly excludes live-control claims.",
+    "  The codex-working-app-proof scope also requires --runtime-proof-dir with public-safe #158 and #159 v1.1 marker files.",
     "",
     "Strict mode:",
     "  --strict exits non-zero until the candidate SHA, CI/CodeQL proofs, explicit release approvals, and scope-required approved live-control smoke evidence satisfy the release gates.",
@@ -1210,10 +1215,11 @@ function parsePositiveInteger(value: string | undefined, name: string, max?: num
   return parsed;
 }
 
-function parseReleasePreflightArgs(input: string[]): { evidenceDir?: string; approvedLiveControlEvidence?: string; claimScope?: ReleaseClaimScope; strict: boolean } {
+function parseReleasePreflightArgs(input: string[]): { evidenceDir?: string; approvedLiveControlEvidence?: string; claimScope?: ReleaseClaimScope; runtimeProofDir?: string; strict: boolean } {
   let evidenceDir: string | undefined;
   let approvedLiveControlEvidence: string | undefined;
   let claimScope: ReleaseClaimScope | undefined;
+  let runtimeProofDir: string | undefined;
   let strict = false;
   for (let index = 0; index < input.length; index += 1) {
     const arg = input[index]!;
@@ -1231,19 +1237,24 @@ function parseReleasePreflightArgs(input: string[]): { evidenceDir?: string; app
       claimScope = parseReleaseClaimScope(input, ++index, "--claim-scope");
       continue;
     }
+    if (arg === "--runtime-proof-dir") {
+      runtimeProofDir = input[++index];
+      if (!runtimeProofDir) throw new Error("--runtime-proof-dir requires a path");
+      continue;
+    }
     if (arg === "--strict") {
       strict = true;
       continue;
     }
     throw new Error(`Unknown release preflight option: ${arg}`);
   }
-  return { evidenceDir, approvedLiveControlEvidence, claimScope, strict };
+  return { evidenceDir, approvedLiveControlEvidence, claimScope, runtimeProofDir, strict };
 }
 
-function parseReleaseBundleArgs(input: string[]): { evidenceDir: string; approvedLiveControlEvidence?: string; claimScope?: ReleaseClaimScope; strict: boolean } {
+function parseReleaseBundleArgs(input: string[]): { evidenceDir: string; approvedLiveControlEvidence?: string; claimScope?: ReleaseClaimScope; runtimeProofDir?: string; strict: boolean } {
   const parsed = parseReleasePreflightArgs(input);
   if (!parsed.evidenceDir) throw new Error("release bundle requires --evidence-dir");
-  return { evidenceDir: parsed.evidenceDir, approvedLiveControlEvidence: parsed.approvedLiveControlEvidence, claimScope: parsed.claimScope, strict: parsed.strict };
+  return { evidenceDir: parsed.evidenceDir, approvedLiveControlEvidence: parsed.approvedLiveControlEvidence, claimScope: parsed.claimScope, runtimeProofDir: parsed.runtimeProofDir, strict: parsed.strict };
 }
 
 function parseReleaseStatusArgs(input: string[]): {
@@ -1251,6 +1262,7 @@ function parseReleaseStatusArgs(input: string[]): {
   candidateSha?: string;
   approvedLiveControlEvidence?: string;
   claimScope?: ReleaseClaimScope;
+  runtimeProofDir?: string;
   npmPublishApprovalEvidence?: string;
   githubReleaseApprovalEvidence?: string;
   desktopGuiApprovalEvidence?: string;
@@ -1264,6 +1276,7 @@ function parseReleaseStatusArgs(input: string[]): {
   let candidateSha: string | undefined;
   let approvedLiveControlEvidence: string | undefined;
   let claimScope: ReleaseClaimScope | undefined;
+  let runtimeProofDir: string | undefined;
   let npmPublishApprovalEvidence: string | undefined;
   let githubReleaseApprovalEvidence: string | undefined;
   let desktopGuiApprovalEvidence: string | undefined;
@@ -1288,6 +1301,10 @@ function parseReleaseStatusArgs(input: string[]): {
     }
     if (arg === "--claim-scope") {
       claimScope = parseReleaseClaimScope(input, ++index, "--claim-scope");
+      continue;
+    }
+    if (arg === "--runtime-proof-dir") {
+      runtimeProofDir = readReleaseStatusPath(input, ++index, "--runtime-proof-dir");
       continue;
     }
     if (arg === "--npm-publish-approval-evidence") {
@@ -1333,6 +1350,7 @@ function parseReleaseStatusArgs(input: string[]): {
     candidateSha,
     approvedLiveControlEvidence,
     claimScope,
+    runtimeProofDir,
     npmPublishApprovalEvidence,
     githubReleaseApprovalEvidence,
     desktopGuiApprovalEvidence,
@@ -1356,10 +1374,11 @@ function readReleaseStatusValue(input: string[], index: number, flag: string): s
   return value;
 }
 
-function parseReleaseDemoStatusArgs(input: string[]): { evidenceDir: string; approvedLiveControlEvidence?: string; claimScope?: ReleaseClaimScope; minSessions?: number; strict: boolean } {
+function parseReleaseDemoStatusArgs(input: string[]): { evidenceDir: string; approvedLiveControlEvidence?: string; claimScope?: ReleaseClaimScope; runtimeProofDir?: string; minSessions?: number; strict: boolean } {
   let evidenceDir: string | undefined;
   let approvedLiveControlEvidence: string | undefined;
   let claimScope: ReleaseClaimScope | undefined;
+  let runtimeProofDir: string | undefined;
   let minSessions: number | undefined;
   let strict = false;
   for (let index = 0; index < input.length; index += 1) {
@@ -1376,6 +1395,10 @@ function parseReleaseDemoStatusArgs(input: string[]): { evidenceDir: string; app
       claimScope = parseReleaseClaimScope(input, ++index, "--claim-scope");
       continue;
     }
+    if (arg === "--runtime-proof-dir") {
+      runtimeProofDir = readReleaseStatusPath(input, ++index, "--runtime-proof-dir");
+      continue;
+    }
     if (arg === "--min-sessions") {
       minSessions = parsePositiveInteger(input[++index], "--min-sessions", 100000);
       continue;
@@ -1387,7 +1410,7 @@ function parseReleaseDemoStatusArgs(input: string[]): { evidenceDir: string; app
     throw new Error(`Unknown release demo-status option: ${arg}`);
   }
   if (!evidenceDir) throw new Error("release demo-status requires --evidence-dir");
-  return { evidenceDir, approvedLiveControlEvidence, claimScope, minSessions, strict };
+  return { evidenceDir, approvedLiveControlEvidence, claimScope, runtimeProofDir, minSessions, strict };
 }
 
 function parseReleaseClaimScope(input: string[], index: number, flag: string): ReleaseClaimScope {
