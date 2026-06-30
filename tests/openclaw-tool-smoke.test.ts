@@ -604,13 +604,13 @@ test("OpenClaw tool smoke classifies gateway device and credential blockers with
       failureText: "unauthorized: device token mismatch (rotate/reissue device token)",
       expectedBlocker: "openclaw_gateway_device_token_mismatch:loo_doctor",
       rawLeak: /device token mismatch/,
-      expectedNextAction: /token/i
+      expectedNextAction: /(rotate|reissue).*(current token)/i
     },
     {
       failureText: "gateway tools.invoke requires credentials before opening a websocket",
       expectedBlocker: "openclaw_gateway_credentials_required:loo_doctor",
       rawLeak: /requires credentials before opening a websocket/,
-      expectedNextAction: /credentials|token-auth loopback/i
+      expectedNextAction: /(?=.*credentials)(?=.*loopback token-auth gateway)/i
     }
   ];
 
