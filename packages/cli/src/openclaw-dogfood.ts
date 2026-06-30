@@ -29,6 +29,7 @@ export type OpenClawDogfoodReport = {
   requiredToolsPresent: boolean;
   missingRequiredTools: string[];
   blockers: string[];
+  warnings: string[];
   installAttempted: boolean;
   installExitStatus: number | null;
   evidencePath?: string;
@@ -123,6 +124,7 @@ export function createOpenClawDogfoodReport(input: OpenClawDogfoodInput): OpenCl
   const enabled = target ? pluginEnabled(target) : null;
   const loaded = target ? pluginLoaded(target) : null;
   const blockers: string[] = [];
+  const warnings: string[] = [];
 
   if (input.pluginListExitStatus !== 0) blockers.push("openclaw_plugin_list_failed");
   if (!parsed.ok) blockers.push("openclaw_plugin_list_invalid_json");
@@ -131,9 +133,13 @@ export function createOpenClawDogfoodReport(input: OpenClawDogfoodInput): OpenCl
   if (target && enabled === false) blockers.push("target_plugin_disabled");
   if (target && loaded === false) blockers.push("target_plugin_not_loaded");
   if (target && missingRequiredTools.length > 0) blockers.push("target_plugin_missing_required_loo_tools");
-  if (input.installAttempted && input.installExitStatus !== 0) blockers.push("openclaw_plugin_install_failed");
 
   const requiredToolsPresent = missingRequiredTools.length === 0;
+  const readyWithoutInstall = blockers.length === 0 && requiredToolsPresent && Boolean(target);
+  if (input.installAttempted && input.installExitStatus !== 0) {
+    if (readyWithoutInstall) warnings.push("openclaw_plugin_install_failed_but_plugin_ready");
+    else blockers.push("openclaw_plugin_install_failed");
+  }
   const dogfoodReady = blockers.length === 0 && requiredToolsPresent && Boolean(target);
   return {
     ok: dogfoodReady,
@@ -153,6 +159,7 @@ export function createOpenClawDogfoodReport(input: OpenClawDogfoodInput): OpenCl
     requiredToolsPresent,
     missingRequiredTools,
     blockers: [...new Set(blockers)],
+    warnings: [...new Set(warnings)],
     installAttempted: input.installAttempted === true,
     installExitStatus: input.installExitStatus ?? null,
     ...(input.evidencePath ? { evidencePath: input.evidencePath } : {}),
