@@ -4,6 +4,7 @@
   "scenario": "The package and plugin artifact include the docs, VISION contract, scorecards, runtime entries, MCP server, and declared loo_* tools needed by a local beta user.",
   "surface": "package",
   "command_or_tool": [
+    "loo onboard status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-<slug>/ --strict",
     "npm run build",
     "npm pack --dry-run",
     "loo release preflight --strict",
@@ -12,6 +13,7 @@
   "expected_public_safe_evidence": [
     "package file list",
     "plugin manifest path",
+    "onboarding blocker and warning codes",
     "MCP entrypoint path",
     "declared tool count",
     "release blocker codes",
