@@ -18,9 +18,11 @@ import {
   defaultCodexRoots,
   defaultDatabasePath,
   describeRecallRef,
+  describeSession,
   evaluateRetrievalScenarios,
   expandQuery,
   expandRecallRef,
+  getCodexThreadMap,
   getCodexSessionManagementMap,
   grepRecall,
   indexCodexSessions,
@@ -45,10 +47,14 @@ import { normalizeReleaseClaimScope, type ReleaseClaimScope } from "./release-cl
 import { AppServerLiveControlSmokeClient, runLiveControlSmoke } from "./live-control-smoke.js";
 import {
   createLocalMacSearchUiShell,
+  REQUIRED_LOCAL_MAC_SEARCH_UI_TOOLS,
   sampleLocalMacSearchUiShell,
   writeLocalMacSearchUiEvidence,
-  type LocalMacSearchUiFilters
+  type LocalMacSearchUiFilters,
+  type LocalMacSearchUiResult,
+  type LocalMacSearchUiShellReport
 } from "../../local-mac-ui/src/shell.js";
+import { createHash } from "node:crypto";
 
 const [, , command, ...args] = process.argv;
 
@@ -335,22 +341,25 @@ async function main() {
         filters: parsed.filters,
         expansionProfile: parsed.expansionProfile
       })
-      : createLocalMacSearchUiShell({
-        status: {
-          platform: process.platform,
-          localDbAvailable: false,
-          openclawPluginLoaded: false,
-          availableTools: []
-        },
-        filters: parsed.filters,
-        expansionProfile: parsed.expansionProfile
-      });
+      : parsed.liveCli
+        ? createLiveCliLocalMacSearchUiShell(parsed)
+        : createLocalMacSearchUiShell({
+          status: {
+            platform: process.platform,
+            localDbAvailable: false,
+            openclawPluginLoaded: false,
+            availableTools: []
+          },
+          filters: parsed.filters,
+          expansionProfile: parsed.expansionProfile
+        });
     const sourceScorecard = "evals/scorecards/v1.0/local-mac-search-ui-review.json";
     const report = writeLocalMacSearchUiEvidence({
       evidenceDir: parsed.evidenceDir,
       shell,
       scorecardSourcePath: existsSync(sourceScorecard) ? sourceScorecard : undefined
     });
+    if (parsed.runtimeProofDir) writeConnectedLocalUiRuntimeProof(parsed.runtimeProofDir, report);
     const { html: _html, ...publicReport } = report;
     console.log(JSON.stringify(publicReport, null, 2));
     if (parsed.strict && !report.shellReady) process.exitCode = 1;
@@ -494,6 +503,155 @@ async function main() {
 }
 
 await main();
+
+type ParsedLocalMacSearchUiArgs = {
+  evidenceDir: string;
+  sample: boolean;
+  liveCli: boolean;
+  strict: boolean;
+  filters: LocalMacSearchUiFilters;
+  expansionProfile?: "metadata" | "brief" | "evidence";
+  tokenBudget?: number;
+  runtimeProofDir?: string;
+};
+
+function createLiveCliLocalMacSearchUiShell(parsed: ParsedLocalMacSearchUiArgs): LocalMacSearchUiShellReport {
+  const db = createDatabase();
+  const query = parsed.filters.query?.trim() || "handoff";
+  const expansionProfile = parsed.expansionProfile ?? "brief";
+  const requestedTokenBudget = parsed.tokenBudget;
+  try {
+    const allSearch = searchSessions(db, { query, limit: 10 });
+    const threadMap = getCodexThreadMap(db, {
+      limit: 50,
+      project: parsed.filters.project,
+      status: parsed.filters.status,
+      priority: parsed.filters.priority,
+      blocker: parsed.filters.blocker
+    });
+    const mapByRef = new Map(threadMap.map((entry) => [`codex_thread:${entry.threadId}`, entry]));
+    const hasMetadataFilters = Boolean(parsed.filters.project?.trim()
+      || parsed.filters.status?.trim()
+      || parsed.filters.priority?.trim()
+      || parsed.filters.blocker?.trim());
+    const search = hasMetadataFilters ? allSearch.filter((result) => mapByRef.has(result.sourceRef)) : allSearch;
+    const results: LocalMacSearchUiResult[] = search.map((result) => {
+      const mapped = mapByRef.get(result.sourceRef);
+      return {
+        title: result.title ?? result.threadId,
+        sourceRef: result.sourceRef,
+        safeSummary: result.summary ?? result.snippet ?? "Safe summary unavailable for this result.",
+        project: mapped?.metadata.project ?? "unknown",
+        status: mapped?.metadata.status ?? "unknown",
+        priority: mapped?.metadata.priority ?? "unknown",
+        blocker: mapped?.metadata.blocker ?? "unknown",
+        updatedAt: result.updatedAt ?? mapped?.updatedAt ?? "unknown"
+      };
+    });
+    const firstSourceRef = search[0]?.sourceRef;
+    const firstThreadId = firstSourceRef?.startsWith("codex_thread:") ? firstSourceRef.slice("codex_thread:".length) : undefined;
+    if (firstThreadId) {
+      describeSession(db, firstThreadId);
+    } else if (firstSourceRef) {
+      describeRecallRef(db, { sourceRef: firstSourceRef, lcmDbPaths: configuredLcmPeerDbPaths() });
+    }
+    const expansion = expandQuery(db, {
+      query,
+      profile: expansionProfile,
+      tokenBudget: requestedTokenBudget,
+      lcmDbPaths: configuredLcmPeerDbPaths()
+    });
+    const searchSourceRefs = new Set(search.map((result) => result.sourceRef));
+    const expandedSourceRef = expansion.sourceRef && searchSourceRefs.has(expansion.sourceRef) ? expansion.sourceRef : firstSourceRef;
+    return createLocalMacSearchUiShell({
+      requireLiveToolSource: true,
+      status: {
+        platform: process.platform,
+        localDbAvailable: true,
+        openclawPluginLoaded: true,
+        availableTools: [...REQUIRED_LOCAL_MAC_SEARCH_UI_TOOLS],
+        cuaStatus: "diagnostics-only",
+        peekabooStatus: "permissions-status-only"
+      },
+      filters: {
+        ...parsed.filters,
+        query
+      },
+      expansionProfile,
+      results,
+      toolSource: {
+        mode: "live",
+        surface: "cli",
+        queryId: `cli-${createHash("sha256").update(query).digest("base64url").slice(0, 24)}`,
+        toolsCalled: [
+          "loo_search_sessions",
+          "loo_describe_session",
+          "loo_expand_query",
+          "loo_codex_thread_map"
+        ],
+        sourceRefs: search.map((result) => result.sourceRef),
+        boundedExpansion: {
+          profile: expansion.profile.name,
+          tokenBudget: expansion.profile.tokenBudget,
+          ...(expandedSourceRef ? { sourceRef: expandedSourceRef } : {})
+        },
+        copyAction: {
+          ...(firstSourceRef ? { sourceRef: firstSourceRef } : {}),
+          publicSafe: true
+        }
+      }
+    });
+  } finally {
+    db.close();
+  }
+}
+
+function writeConnectedLocalUiRuntimeProof(runtimeProofDir: string, shell: LocalMacSearchUiShellReport): void {
+  const proofDir = resolve(runtimeProofDir);
+  mkdirSync(proofDir, { recursive: true });
+  const localMacShellReady = shell.shellReady === true && shell.platform === "darwin";
+  const sourceRefsPresent = shell.toolSource.sourceRefs.length > 0;
+  const liveToolSource = shell.toolSource.mode === "live"
+    && (shell.toolSource.surface === "cli" || shell.toolSource.surface === "mcp" || shell.toolSource.surface === "openclaw-gateway")
+    && shell.toolSource.toolsCalled.includes("loo_search_sessions")
+    && shell.toolSource.toolsCalled.includes("loo_describe_session")
+    && shell.toolSource.toolsCalled.includes("loo_expand_query")
+    && shell.toolSource.toolsCalled.includes("loo_codex_thread_map");
+  const publicSafe = localMacShellReady && shell.publicSafe === true && shell.rawTranscriptRendered === false && !shell.blockerCodes.some((blocker) =>
+    blocker.startsWith("raw_result_field_rejected") || blocker.startsWith("unsafe_source_ref")
+  );
+  const proof = {
+    kind: "loo_runtime_scenario_proof",
+    scenario_id: "connected-local-ui-proof-v1-1",
+    scenario_version: "1.1",
+    proof_mode: "runtime_required",
+    claim_scope: "codex-working-app-proof",
+    public_safe: publicSafe,
+    proof_markers: {
+      local_mac_shell_ready: localMacShellReady,
+      live_tool_source: liveToolSource,
+      public_safe_scan: publicSafe,
+      source_refs: sourceRefsPresent
+    },
+    raw_transcript_read: false,
+    raw_prompt_included: false,
+    raw_secret_included: false,
+    screenshot_included: false,
+    sqlite_included: false,
+    live_action_count: 0,
+    raw_prompt_chars: 0,
+    raw_transcript_spans: 0,
+    screenshot_count: 0,
+    tool_surface: shell.toolSource.surface,
+    result_count: shell.resultCount,
+    source_ref_count: shell.toolSource.sourceRefs.length,
+    bounded_expansion_profile: shell.toolSource.boundedExpansion.profile,
+    copy_source_ref_present: Boolean(shell.toolSource.copyAction.sourceRef),
+    platform: shell.platform,
+    shell_ready: shell.shellReady
+  };
+  writeFileSync(join(proofDir, "connected-local-ui-proof-v1-1.runtime-proof.json"), `${JSON.stringify(proof, null, 2)}\n`);
+}
 
 function hasHelpFlag(input: string[]): boolean {
   return input.includes("--help") || input.includes("-h");
@@ -767,18 +925,21 @@ function printDesktopLiveProofHarnessHelp(): void {
 function printLocalMacSearchUiHelp(): void {
   console.log([
     "Usage:",
-    "  loo ui local-mac-search --evidence-dir path [--sample] [--query text] [--project name] [--status value] [--priority value] [--blocker value] [--expansion-profile metadata|brief|evidence] [--strict]",
+    "  loo ui local-mac-search --evidence-dir path [--sample|--live-cli] [--query text] [--project name] [--status value] [--priority value] [--blocker value] [--expansion-profile metadata|brief|evidence] [--token-budget n] [--runtime-proof-dir path] [--strict]",
     "",
-    "Writes a static public-safe local Mac search UI prototype packet.",
+    "Writes a public-safe local Mac search UI packet.",
     "",
     "Outputs:",
     "  local-mac-search-ui.html",
     "  local-mac-search-ui-report.json",
     "  local-mac-search-ui-scorecard.json",
+    "  connected-local-ui-proof-v1-1.runtime-proof.json when --runtime-proof-dir is provided",
     "",
     "Safety boundary:",
     "  The command does not read raw Codex transcripts, does not run live Codex control, does not mutate the GUI, and does not claim a signed or release-ready macOS app.",
-    "  Without --sample, the shell intentionally fails closed until local DB, OpenClaw plugin, and required loo_* tools are proven available."
+    "  --live-cli uses the local orchestrator DB through read-only CLI recall surfaces and records tool provenance.",
+    "  Runtime proof marks local_mac_shell_ready only when the shell is actually ready on macOS.",
+    "  Without --sample or --live-cli, the shell intentionally fails closed until local DB, OpenClaw plugin, and required loo_* tools are proven available."
   ].join("\n"));
 }
 
@@ -892,24 +1053,23 @@ function readDesktopProofReportObservation(path: string): unknown {
   }
 }
 
-function parseLocalMacSearchUiArgs(input: string[]): {
-  evidenceDir: string;
-  sample: boolean;
-  strict: boolean;
-  filters: LocalMacSearchUiFilters;
-  expansionProfile?: "metadata" | "brief" | "evidence";
-} {
+function parseLocalMacSearchUiArgs(input: string[]): ParsedLocalMacSearchUiArgs {
   let evidenceDir = "";
   let sample = false;
+  let liveCli = false;
   let strict = false;
   const filters: LocalMacSearchUiFilters = {};
   let expansionProfile: "metadata" | "brief" | "evidence" | undefined;
+  let tokenBudget: number | undefined;
+  let runtimeProofDir: string | undefined;
   for (let index = 0; index < input.length; index += 1) {
     const arg = input[index]!;
     if (arg === "--evidence-dir") {
       evidenceDir = requireOptionValue(input[++index], arg);
     } else if (arg === "--sample") {
       sample = true;
+    } else if (arg === "--live-cli") {
+      liveCli = true;
     } else if (arg === "--strict") {
       strict = true;
     } else if (arg === "--query") {
@@ -926,12 +1086,17 @@ function parseLocalMacSearchUiArgs(input: string[]): {
       const value = requireOptionValue(input[++index], arg);
       if (value !== "metadata" && value !== "brief" && value !== "evidence") throw new Error("--expansion-profile must be metadata, brief, or evidence");
       expansionProfile = value;
+    } else if (arg === "--token-budget") {
+      tokenBudget = parsePositiveInteger(input[++index], arg, 8000);
+    } else if (arg === "--runtime-proof-dir") {
+      runtimeProofDir = requireOptionValue(input[++index], arg);
     } else {
       throw new Error(`Unknown ui local-mac-search option: ${arg}`);
     }
   }
   if (!evidenceDir) throw new Error("ui local-mac-search requires --evidence-dir");
-  return { evidenceDir, sample, strict, filters, expansionProfile };
+  if (sample && liveCli) throw new Error("ui local-mac-search accepts only one of --sample or --live-cli");
+  return { evidenceDir, sample, liveCli, strict, filters, expansionProfile, tokenBudget, runtimeProofDir };
 }
 
 function parseCloseoutDryRunArgs(input: string[]): { threadId?: string; limit?: number; includeUnavailable?: boolean } {

@@ -56,11 +56,31 @@ export type LocalMacSearchUiResult = {
   [key: string]: unknown;
 };
 
+export type LocalMacSearchUiToolSource = {
+  mode: "static" | "sample" | "live";
+  surface: "static" | "sample" | "cli" | "mcp" | "openclaw-gateway";
+  queryId?: string;
+  toolsCalled: string[];
+  resultCount: number;
+  sourceRefs: string[];
+  boundedExpansion: {
+    profile: "metadata" | "brief" | "evidence";
+    tokenBudget?: number;
+    sourceRef?: string;
+  };
+  copyAction: {
+    sourceRef?: string;
+    publicSafe: true;
+  };
+};
+
 export type LocalMacSearchUiShellOptions = {
   status: LocalMacSearchUiStatus;
   filters?: LocalMacSearchUiFilters;
   expansionProfile?: "metadata" | "brief" | "evidence";
   results?: LocalMacSearchUiResult[];
+  requireLiveToolSource?: boolean;
+  toolSource?: Partial<LocalMacSearchUiToolSource>;
 };
 
 export type LocalMacSearchUiShellReport = {
@@ -77,6 +97,7 @@ export type LocalMacSearchUiShellReport = {
   expansionProfile: "metadata" | "brief" | "evidence";
   resultCount: number;
   copyTargets: string[];
+  toolSource: LocalMacSearchUiToolSource;
   statusSurfaces: {
     cua: string;
     peekaboo: string;
@@ -98,21 +119,28 @@ export function createLocalMacSearchUiShell(options: LocalMacSearchUiShellOption
   const expansionProfile = options.expansionProfile ?? "metadata";
   const results = (options.results ?? []).map(normalizeResult);
   const renderableResults = results.filter((result) => isSafeSourceRef(result.sourceRef));
+  const copyTargets = renderableResults.map((result) => result.sourceRef);
+  const toolSource = normalizeToolSource(options.toolSource, {
+    copyTargets,
+    expansionProfile,
+    resultCount: renderableResults.length
+  });
   const missingTools = REQUIRED_LOCAL_MAC_SEARCH_UI_TOOLS.filter((tool) => !options.status.availableTools.includes(tool));
   const rawFieldBlockers = collectRawFieldBlockers(options.results ?? []);
   const unsafeRefBlockers = results
     .map((result, index) => isSafeSourceRef(result.sourceRef) ? "" : `unsafe_source_ref:${index}`)
     .filter(Boolean);
+  const liveToolBlockers = collectLiveToolBlockers(toolSource, options.requireLiveToolSource === true);
   const blockerCodes = [
     ...(platform !== "darwin" ? ["macos_platform_required"] : []),
     ...(options.status.localDbAvailable ? [] : ["local_db_unavailable"]),
     ...(options.status.openclawPluginLoaded ? [] : ["openclaw_plugin_unavailable"]),
     ...missingTools.map((tool) => `required_tool_missing:${tool}`),
     ...rawFieldBlockers,
-    ...unsafeRefBlockers
+    ...unsafeRefBlockers,
+    ...liveToolBlockers
   ];
   const shellReady = blockerCodes.length === 0;
-  const copyTargets = renderableResults.map((result) => result.sourceRef);
   const statusSurfaces = {
     cua: sanitizeStatus(options.status.cuaStatus ?? "not-probed"),
     peekaboo: sanitizeStatus(options.status.peekabooStatus ?? "not-probed")
@@ -132,6 +160,7 @@ export function createLocalMacSearchUiShell(options: LocalMacSearchUiShellOption
     expansionProfile,
     resultCount: renderableResults.length,
     copyTargets,
+    toolSource,
     statusSurfaces,
     rawTranscriptRendered: false as const,
     proofBoundary,
@@ -194,6 +223,21 @@ export function sampleLocalMacSearchUiShell(options: {
       ...options.filters
     },
     expansionProfile: options.expansionProfile ?? "brief",
+    toolSource: {
+      mode: "sample",
+      surface: "sample",
+      queryId: "sample-local-mac-search",
+      toolsCalled: [...REQUIRED_LOCAL_MAC_SEARCH_UI_TOOLS],
+      boundedExpansion: {
+        profile: options.expansionProfile ?? "brief",
+        tokenBudget: 1000,
+        sourceRef: "codex_thread:sample-active"
+      },
+      copyAction: {
+        sourceRef: "codex_thread:sample-active",
+        publicSafe: true
+      }
+    },
     results: [
       {
         title: "Active Codex beta thread",
@@ -217,6 +261,83 @@ export function sampleLocalMacSearchUiShell(options: {
       }
     ]
   });
+}
+
+function normalizeToolSource(
+  source: Partial<LocalMacSearchUiToolSource> | undefined,
+  fallback: {
+    copyTargets: string[];
+    expansionProfile: "metadata" | "brief" | "evidence";
+    resultCount: number;
+  }
+): LocalMacSearchUiToolSource {
+  const mode = source?.mode === "live" || source?.mode === "sample" ? source.mode : "static";
+  const surface = source?.surface === "cli" || source?.surface === "mcp" || source?.surface === "openclaw-gateway"
+    ? source.surface
+    : mode === "sample" ? "sample" : "static";
+  const explicitSourceRefs = source?.sourceRefs ?? [];
+  const sourceRefs = uniqueSafeRefs(mode === "live" || explicitSourceRefs.length > 0 ? explicitSourceRefs : fallback.copyTargets);
+  const copiedSourceRef = source?.copyAction?.sourceRef && isSafeSourceRef(source.copyAction.sourceRef)
+    ? source.copyAction.sourceRef
+    : mode === "live" ? undefined : sourceRefs[0];
+  const boundedSourceRef = source?.boundedExpansion?.sourceRef && isSafeSourceRef(source.boundedExpansion.sourceRef)
+    ? source.boundedExpansion.sourceRef
+    : mode === "live" ? undefined : sourceRefs[0];
+  const boundedProfile = source?.boundedExpansion?.profile === "metadata"
+    || source?.boundedExpansion?.profile === "brief"
+    || source?.boundedExpansion?.profile === "evidence"
+    ? source.boundedExpansion.profile
+    : fallback.expansionProfile;
+  const tokenBudget = typeof source?.boundedExpansion?.tokenBudget === "number" && Number.isFinite(source.boundedExpansion.tokenBudget)
+    ? source.boundedExpansion.tokenBudget <= 0
+      ? 0
+      : Math.max(20, Math.min(8000, Math.trunc(source.boundedExpansion.tokenBudget)))
+    : undefined;
+  return {
+    mode,
+    surface,
+    ...(source?.queryId ? { queryId: safeText(source.queryId, 80) } : {}),
+    toolsCalled: uniqueSafeToolNames(source?.toolsCalled ?? []),
+    resultCount: fallback.resultCount,
+    sourceRefs,
+    boundedExpansion: {
+      profile: boundedProfile,
+      ...(tokenBudget !== undefined ? { tokenBudget } : {}),
+      ...(boundedSourceRef ? { sourceRef: boundedSourceRef } : {})
+    },
+    copyAction: {
+      ...(copiedSourceRef ? { sourceRef: copiedSourceRef } : {}),
+      publicSafe: true
+    }
+  };
+}
+
+function uniqueSafeToolNames(values: string[]): string[] {
+  return [...new Set(values.map((value) => safeText(value, 80)).filter((value) => /^loo_[A-Za-z0-9_]+$/.test(value)))];
+}
+
+function uniqueSafeRefs(values: string[]): string[] {
+  return [...new Set(values.map((value) => safeText(value, 240)).filter(isSafeSourceRef))];
+}
+
+function collectLiveToolBlockers(toolSource: LocalMacSearchUiToolSource, required: boolean): string[] {
+  if (!required) return [];
+  const missingTools = [
+    "loo_search_sessions",
+    "loo_describe_session",
+    "loo_expand_query",
+    "loo_codex_thread_map"
+  ].filter((tool) => !toolSource.toolsCalled.includes(tool));
+  return [
+    ...(toolSource.mode === "live" ? [] : ["live_tool_source_missing"]),
+    ...(toolSource.surface === "cli" || toolSource.surface === "mcp" || toolSource.surface === "openclaw-gateway" ? [] : ["live_tool_surface_missing"]),
+    ...(toolSource.resultCount > 0 ? [] : ["live_tool_result_count_missing"]),
+    ...(toolSource.sourceRefs.length > 0 ? [] : ["live_tool_source_refs_missing"]),
+    ...(toolSource.boundedExpansion.tokenBudget !== undefined ? [] : ["live_tool_bounded_token_budget_missing"]),
+    ...(toolSource.boundedExpansion.sourceRef ? [] : ["live_tool_bounded_source_ref_missing"]),
+    ...(toolSource.copyAction.sourceRef ? [] : ["live_tool_copy_source_ref_missing"]),
+    ...missingTools.map((tool) => `live_tool_required_tool_missing:${tool}`)
+  ];
 }
 
 function normalizeFilters(filters: LocalMacSearchUiFilters | undefined): LocalMacSearchUiFilters {
@@ -283,6 +404,7 @@ function renderLocalMacSearchUiHtml(input: {
   resultCount: number;
   statusSurfaces: { cua: string; peekaboo: string };
   proofBoundary: string;
+  toolSource: LocalMacSearchUiToolSource;
   results: LocalMacSearchUiResult[];
 }): string {
   const results = input.results.map((result) => [
@@ -331,6 +453,8 @@ function renderLocalMacSearchUiHtml(input: {
     "    <section class=\"status\" aria-label=\"Status surfaces\">",
     `      <div class="pill">CUA: ${escapeHtml(input.statusSurfaces.cua)}</div>`,
     `      <div class="pill">Peekaboo: ${escapeHtml(input.statusSurfaces.peekaboo)}</div>`,
+    `      <div class="pill">tool source: ${escapeHtml(input.toolSource.surface)}</div>`,
+    `      <div class="pill">bounded expansion: ${escapeHtml(input.toolSource.boundedExpansion.profile)}</div>`,
     `      <div class="pill">results: ${input.resultCount}</div>`,
     "    </section>",
     "    <section aria-label=\"Search results\">",
@@ -356,13 +480,19 @@ function createIssueScorecard(sourcePath: string | undefined, shell: LocalMacSea
     expected_public_safe_evidence: [
       "static local Mac search shell HTML",
       "public-safe shell report",
+      "tool source mode and surface",
+      "live tool names when the shell is connected to a read-only loo_* surface",
       "source refs and safe summary snippets",
       "filter state and status surfaces",
+      "bounded expansion profile and copy source-ref target",
       "fail-closed blocker codes when dependencies are missing"
     ],
+    tool_source: shell.toolSource,
     known_gaps: [
       "Prototype shell only; no signed or notarized macOS app artifact.",
-      "No live OpenClaw gateway UI event loop is driven by this command.",
+      shell.toolSource.surface === "openclaw-gateway"
+        ? "OpenClaw gateway tool calls are recorded in this packet, but no packaged macOS app event loop is claimed."
+        : "No live OpenClaw gateway UI event loop is driven by this command.",
       "No GUI mutation, screenshots, or videos are claimed.",
       "CUA Driver scratch-window no-focus proof exists only for one approved TextEdit launch_app action; this shell does not prove generic GUI mutation or Codex GUI mutation.",
       "Peekaboo snapshot proof is not claimed beyond explicit approved diagnostic use.",
