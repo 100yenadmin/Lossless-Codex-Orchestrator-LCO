@@ -56,6 +56,8 @@ loo ui local-mac-search \
   --strict
 ```
 
+When `--runtime-proof-dir` is provided, the connected proof also writes `connected-local-ui-proof-v1-1.runtime-proof.json`. That marker records live tool source, source refs, and public-safe scan state, but the `local_mac_shell_ready` marker only clears when the shell is actually ready on macOS.
+
 The command writes:
 
 - `local-mac-search-ui.html`: a local prototype shell with filters, safe summaries, source refs, copy-ref controls, expansion profile state, and CUA/Peekaboo status surfaces.

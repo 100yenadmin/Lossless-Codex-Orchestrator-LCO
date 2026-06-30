@@ -48,6 +48,7 @@
     "unavailable gateway blocker if applicable"
   ],
   "metrics": {
+    "requires_local_mac_shell_ready": true,
     "requires_live_tool_source": true,
     "requires_source_refs": true,
     "max_raw_transcript_spans": 0,

@@ -598,6 +598,7 @@ function createLiveCliLocalMacSearchUiShell(parsed: ParsedLocalMacSearchUiArgs):
 function writeConnectedLocalUiRuntimeProof(runtimeProofDir: string, shell: LocalMacSearchUiShellReport): void {
   const proofDir = resolve(runtimeProofDir);
   mkdirSync(proofDir, { recursive: true });
+  const localMacShellReady = shell.shellReady === true && shell.platform === "darwin";
   const sourceRefsPresent = shell.toolSource.sourceRefs.length > 0;
   const liveToolSource = shell.toolSource.mode === "live"
     && (shell.toolSource.surface === "cli" || shell.toolSource.surface === "mcp" || shell.toolSource.surface === "openclaw-gateway")
@@ -616,6 +617,7 @@ function writeConnectedLocalUiRuntimeProof(runtimeProofDir: string, shell: Local
     claim_scope: "codex-working-app-proof",
     public_safe: publicSafe,
     proof_markers: {
+      local_mac_shell_ready: localMacShellReady,
       live_tool_source: liveToolSource,
       public_safe_scan: publicSafe,
       source_refs: sourceRefsPresent
@@ -633,7 +635,9 @@ function writeConnectedLocalUiRuntimeProof(runtimeProofDir: string, shell: Local
     result_count: shell.resultCount,
     source_ref_count: shell.toolSource.sourceRefs.length,
     bounded_expansion_profile: shell.toolSource.boundedExpansion.profile,
-    copy_source_ref_present: Boolean(shell.toolSource.copyAction.sourceRef)
+    copy_source_ref_present: Boolean(shell.toolSource.copyAction.sourceRef),
+    platform: shell.platform,
+    shell_ready: shell.shellReady
   };
   writeFileSync(join(proofDir, "connected-local-ui-proof-v1-1.runtime-proof.json"), `${JSON.stringify(proof, null, 2)}\n`);
 }
@@ -923,6 +927,7 @@ function printLocalMacSearchUiHelp(): void {
     "Safety boundary:",
     "  The command does not read raw Codex transcripts, does not run live Codex control, does not mutate the GUI, and does not claim a signed or release-ready macOS app.",
     "  --live-cli uses the local orchestrator DB through read-only CLI recall surfaces and records tool provenance.",
+    "  Runtime proof marks local_mac_shell_ready only when the shell is actually ready on macOS.",
     "  Without --sample or --live-cli, the shell intentionally fails closed until local DB, OpenClaw plugin, and required loo_* tools are proven available."
   ].join("\n"));
 }

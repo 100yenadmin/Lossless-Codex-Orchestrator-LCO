@@ -339,7 +339,8 @@ test("loo ui local-mac-search live CLI mode writes connected public-safe tool pr
       }
     });
 
-    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const isLocalMac = process.platform === "darwin";
+    assert.equal(result.status, isLocalMac ? 0 : 1, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
     const report = JSON.parse(readFileSync(join(evidenceDir, "local-mac-search-ui-report.json"), "utf8")) as {
       shellReady?: boolean;
       resultCount?: number;
@@ -367,9 +368,16 @@ test("loo ui local-mac-search live CLI mode writes connected public-safe tool pr
       screenshot_included?: boolean;
       tool_surface?: string;
       result_count?: number;
+      platform?: string;
+      shell_ready?: boolean;
     };
 
-    assert.equal(report.shellReady, true);
+    assert.equal(report.shellReady, isLocalMac);
+    if (isLocalMac) {
+      assert.deepEqual((report as { blockerCodes?: string[] }).blockerCodes, []);
+    } else {
+      assert.match(((report as { blockerCodes?: string[] }).blockerCodes ?? []).join("\n"), /macos_platform_required/);
+    }
     assert.equal(report.resultCount, 1);
     assert.equal(report.rawTranscriptRendered, false);
     assert.equal(report.toolSource?.mode, "live");
@@ -390,10 +398,13 @@ test("loo ui local-mac-search live CLI mode writes connected public-safe tool pr
     assert.equal(runtimeProof.scenario_id, "connected-local-ui-proof-v1-1");
     assert.equal(runtimeProof.public_safe, true);
     assert.deepEqual(runtimeProof.proof_markers, {
+      local_mac_shell_ready: isLocalMac,
       live_tool_source: true,
       public_safe_scan: true,
       source_refs: true
     });
+    assert.equal(runtimeProof.platform, process.platform);
+    assert.equal(runtimeProof.shell_ready, isLocalMac);
     assert.equal(runtimeProof.raw_transcript_spans, 0);
     assert.equal(runtimeProof.screenshot_included, false);
     assert.equal(runtimeProof.tool_surface, "cli");

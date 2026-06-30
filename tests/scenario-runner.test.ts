@@ -192,6 +192,7 @@ test("loo eval scenarios accepts v1.1 runtime proof markers through the CLI", ()
     no_focus_measurement: true
   }, { screenshot_count: 0 });
   writeRuntimeProof(runtimeProofDir, "connected-local-ui-proof-v1-1", {
+    local_mac_shell_ready: true,
     live_tool_source: true,
     public_safe_scan: true,
     source_refs: true
