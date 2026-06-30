@@ -27,6 +27,7 @@ import {
   desktopActDryRun,
   desktopFallbackDiagnostics,
   desktopSee,
+  isDesktopBackend,
   type AuditStore,
   type DesktopBackend,
   type CodexClient,
@@ -325,7 +326,7 @@ function optionalProfile(value: unknown): "metadata" | "brief" | "evidence" | un
 
 function optionalDesktopBackend(value: unknown): DesktopBackend | undefined {
   if (value === undefined) return undefined;
-  if (value === "direct" || value === "cua-driver" || value === "peekaboo") return value;
+  if (isDesktopBackend(value)) return value;
   throw new Error("desktop backend must be direct, cua-driver, or peekaboo");
 }
 

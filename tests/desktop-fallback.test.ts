@@ -155,6 +155,9 @@ test("CLI desktop proof-report writes a release-compatible approval fixture for 
       kind?: string;
       operation?: string;
       actionHash?: string;
+      approvalNonce?: string;
+      issuedAt?: string;
+      expiresAt?: string;
       focusChanged?: boolean;
       focusProof?: string;
       rawScreenshotIncluded?: boolean;
@@ -163,10 +166,45 @@ test("CLI desktop proof-report writes a release-compatible approval fixture for 
     assert.equal(approval.kind, "loo_release_operation_approval");
     assert.equal(approval.operation, "desktop_gui_mutation");
     assert.equal(approval.actionHash, parsed.actionHash);
+    assert.match(approval.approvalNonce ?? "", /^[a-f0-9]{32}$/);
+    assert.equal(Number.isFinite(Date.parse(approval.issuedAt ?? "")), true);
+    assert.equal(Number.isFinite(Date.parse(approval.expiresAt ?? "")), true);
+    assert.ok(Date.parse(approval.expiresAt ?? "") > Date.parse(approval.issuedAt ?? ""));
     assert.equal(approval.focusChanged, false);
     assert.equal(approval.focusProof, "cua_driver_live_no_focus_fixture_v1");
     assert.equal(approval.rawScreenshotIncluded, false);
     assert.equal(approval.rawSecretIncluded, false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("CLI desktop proof-report reports observation-file path for malformed JSON", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-desktop-proof-malformed-"));
+  const observationPath = join(root, "desktop-gui-observation.json");
+  writeFileSync(observationPath, "{not-json\n");
+
+  try {
+    const result = spawnSync(process.execPath, [
+      "--import",
+      "tsx",
+      "packages/cli/src/index.ts",
+      "desktop",
+      "proof-report",
+      "--evidence-dir",
+      root,
+      "--observation-file",
+      observationPath,
+      "--strict"
+    ], {
+      cwd: process.cwd(),
+      env: process.env,
+      encoding: "utf8"
+    });
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, new RegExp(`Failed to read observation file ${observationPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+    assert.doesNotMatch(result.stderr, /ENOENT: no such file or directory/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

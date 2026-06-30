@@ -14,6 +14,12 @@ export type CodexClient = {
 };
 
 export type DesktopBackend = "direct" | "cua-driver" | "peekaboo";
+export const DESKTOP_BACKENDS = ["direct", "cua-driver", "peekaboo"] as const satisfies readonly DesktopBackend[];
+export const DESKTOP_GUI_APPROVAL_TTL_MS = 24 * 60 * 60 * 1000;
+
+export function isDesktopBackend(value: unknown): value is DesktopBackend {
+  return typeof value === "string" && (DESKTOP_BACKENDS as readonly string[]).includes(value);
+}
 
 export type DesktopProbe = {
   commandStatus(command: string, args?: string[]): DesktopCommandStatus;
@@ -101,6 +107,9 @@ export type DesktopGuiReleaseApprovalProof = {
   targetWindow: string;
   action: string;
   actionHash: string;
+  approvalNonce: string;
+  issuedAt: string;
+  expiresAt: string;
   focusBeforeApplication: string;
   focusAfterApplication: string;
   focusChanged: false;
@@ -119,6 +128,9 @@ export type DesktopGuiProofReport = {
   targetWindow?: string;
   action?: string;
   actionHash?: string;
+  approvalNonce?: string;
+  issuedAt?: string;
+  expiresAt?: string;
   approvalRef?: string;
   liveActionObserved: boolean;
   focusBeforeApplication?: string;
@@ -425,6 +437,9 @@ export function createDesktopGuiProofReport(input: unknown): DesktopGuiProofRepo
   const rawSecretIncluded = typeof observation.rawSecretIncluded === "boolean" ? observation.rawSecretIncluded : null;
   const focusChanged = typeof observation.focusChanged === "boolean" ? observation.focusChanged : undefined;
   const liveActionObserved = observation.liveActionObserved === true;
+  const issuedAt = new Date().toISOString();
+  const expiresAt = new Date(Date.parse(issuedAt) + DESKTOP_GUI_APPROVAL_TTL_MS).toISOString();
+  const approvalNonce = randomBytes(16).toString("hex");
   const blockers: string[] = [];
 
   if (observation.kind !== "loo_desktop_gui_action_observation") blockers.push("observation_kind_invalid");
@@ -465,6 +480,9 @@ export function createDesktopGuiProofReport(input: unknown): DesktopGuiProofRepo
       targetWindow,
       action,
       actionHash,
+      approvalNonce,
+      issuedAt,
+      expiresAt,
       focusBeforeApplication,
       focusAfterApplication,
       focusChanged: false as const,
@@ -484,6 +502,9 @@ export function createDesktopGuiProofReport(input: unknown): DesktopGuiProofRepo
     targetWindow,
     action,
     actionHash,
+    approvalNonce: approval ? approvalNonce : undefined,
+    issuedAt: approval ? issuedAt : undefined,
+    expiresAt: approval ? expiresAt : undefined,
     approvalRef,
     liveActionObserved,
     focusBeforeApplication,
@@ -1017,7 +1038,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 function optionalDesktopBackendObservation(value: unknown): DesktopBackend | undefined {
-  return value === "direct" || value === "cua-driver" || value === "peekaboo" ? value : undefined;
+  return isDesktopBackend(value) ? value : undefined;
 }
 
 function publicTextField(value: unknown, maxChars: number): string | undefined {

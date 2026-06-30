@@ -5,6 +5,7 @@ import {
   desktopActDryRun,
   desktopFallbackDiagnostics,
   desktopSee,
+  isDesktopBackend,
   writeDesktopGuiProofReport,
   type DesktopBackend
 } from "../../adapters/src/index.js";
@@ -79,7 +80,7 @@ async function main() {
       return;
     }
     const parsed = parseDesktopProofReportArgs(args.slice(1));
-    const observation = JSON.parse(readFileSync(parsed.observationFile, "utf8"));
+    const observation = readDesktopProofReportObservation(parsed.observationFile);
     const report = writeDesktopGuiProofReport({
       evidenceDir: parsed.evidenceDir,
       observation
@@ -360,7 +361,8 @@ async function main() {
       desktopGuiApprovalEvidence: parsed.desktopGuiApprovalEvidence,
       githubCiEvidence: parsed.githubCiEvidence,
       codeqlEvidence: parsed.codeqlEvidence,
-      desktopGuiRequired: parsed.desktopGuiRequired
+      desktopGuiRequired: parsed.desktopGuiRequired,
+      now: parsed.now
     });
     console.log(JSON.stringify(report, null, 2));
     if (parsed.strict && !report.releaseReady) process.exitCode = 1;
@@ -404,7 +406,7 @@ async function main() {
     "  loo eval scenarios --evidence-dir path [--scenario-dir path] [--strict]",
     "  loo release preflight [--evidence-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run] [--approved-live-control-evidence path] [--strict]",
     "  loo release bundle --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run] [--approved-live-control-evidence path] [--strict]",
-    "  loo release status --evidence-dir path --candidate-sha sha [--claim-scope codex-live-control|codex-read-search-expand-dry-run] [--approved-live-control-evidence path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--github-ci-evidence path] [--codeql-evidence path] [--desktop-gui-required --desktop-gui-approval-evidence path] [--strict]",
+    "  loo release status --evidence-dir path --candidate-sha sha [--claim-scope codex-live-control|codex-read-search-expand-dry-run] [--approved-live-control-evidence path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--github-ci-evidence path] [--codeql-evidence path] [--desktop-gui-required --desktop-gui-approval-evidence path] [--now iso] [--strict]",
     "  loo release demo-status --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run] [--approved-live-control-evidence path] [--min-sessions n] [--strict]"
   ].join("\n"));
   process.exitCode = 2;
@@ -465,7 +467,7 @@ function printReleaseStatusHelp(): void {
     "Proof markers:",
     "  CI and CodeQL checks use kind: \"loo_release_check_evidence\" with check, commitSha, status, conclusion, runUrl, warnings, and rawSecretIncluded: false.",
     "  npm, GitHub Release, and optional desktop GUI approvals use kind: \"loo_release_operation_approval\" with operation, approved: true, approvalRef, and rawSecretIncluded: false.",
-    "  Desktop GUI approvals also require desktopBackend, targetApp, targetWindow, action, actionHash, focusBeforeApplication, focusAfterApplication, focusChanged: false, focusProof, and rawScreenshotIncluded: false.",
+    "  Desktop GUI approvals also require desktopBackend, targetApp, targetWindow, action, actionHash, approvalNonce, issuedAt, expiresAt, focusBeforeApplication, focusAfterApplication, focusChanged: false, focusProof, and rawScreenshotIncluded: false.",
     "  Live-control proof is validated through release preflight and must be a structured approved live-control smoke marker unless --claim-scope codex-read-search-expand-dry-run explicitly excludes live-control claims.",
     "",
     "Strict mode:",
@@ -592,6 +594,14 @@ function parseDesktopProofReportArgs(input: string[]): {
   if (!evidenceDir) throw new Error("desktop proof-report requires --evidence-dir");
   if (!observationFile) throw new Error("desktop proof-report requires --observation-file");
   return { evidenceDir, observationFile, strict };
+}
+
+function readDesktopProofReportObservation(path: string): unknown {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    throw new Error(`Failed to read observation file ${path}: ${(error as Error).message}`);
+  }
 }
 
 function parseLocalMacSearchUiArgs(input: string[]): {
@@ -920,10 +930,6 @@ function parseDesktopAction(parts: string[]): { backend?: DesktopBackend; action
   };
 }
 
-function isDesktopBackend(value: string | undefined): value is DesktopBackend {
-  return value === "direct" || value === "cua-driver" || value === "peekaboo";
-}
-
 function parseDesktopSee(parts: string[]): { backend?: DesktopBackend; includeSnapshot?: boolean; maxNodes?: number; maxChars?: number } {
   const first = parts[0];
   const hasExplicitBackend = isDesktopBackend(first);
@@ -1068,6 +1074,7 @@ function parseReleaseStatusArgs(input: string[]): {
   githubCiEvidence?: string;
   codeqlEvidence?: string;
   desktopGuiRequired: boolean;
+  now?: string;
   strict: boolean;
 } {
   let evidenceDir: string | undefined;
@@ -1080,6 +1087,7 @@ function parseReleaseStatusArgs(input: string[]): {
   let githubCiEvidence: string | undefined;
   let codeqlEvidence: string | undefined;
   let desktopGuiRequired = false;
+  let now: string | undefined;
   let strict = false;
   for (let index = 0; index < input.length; index += 1) {
     const arg = input[index]!;
@@ -1123,6 +1131,10 @@ function parseReleaseStatusArgs(input: string[]): {
       desktopGuiRequired = true;
       continue;
     }
+    if (arg === "--now") {
+      now = readReleaseStatusValue(input, ++index, "--now");
+      continue;
+    }
     if (arg === "--strict") {
       strict = true;
       continue;
@@ -1144,6 +1156,7 @@ function parseReleaseStatusArgs(input: string[]): {
     githubCiEvidence,
     codeqlEvidence,
     desktopGuiRequired,
+    now,
     strict
   };
 }
