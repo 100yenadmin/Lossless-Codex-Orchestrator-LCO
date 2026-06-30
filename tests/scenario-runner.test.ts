@@ -228,6 +228,54 @@ test("loo eval scenarios accepts v1.1 runtime proof markers through the CLI", ()
   assert.equal(report.scenarios?.every((scenario) => scenario.runtimeProof?.publicSafe === true), true);
 });
 
+test("loo eval scenarios can scope runtime-required sweeps to claimed scenario ids", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-runtime-scenario-scoped-evidence-"));
+  const runtimeProofDir = mkdtempSync(join(tmpdir(), "loo-runtime-scenario-scoped-proof-"));
+  writeRuntimeProof(runtimeProofDir, "openclaw-gateway-live-codex-v1-1", {
+    installed_gateway_path: true,
+    matching_approval_audit_id: true,
+    public_safe_scan: true
+  }, { live_action_count: 1, raw_prompt_chars: 0 });
+  writeRuntimeProof(runtimeProofDir, "post-action-refresh-reasoning-v1-1", {
+    agent_reasoning_note: true,
+    post_action_refresh: true,
+    source_refs: true
+  }, { raw_transcript_spans: 0 });
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "eval",
+    "scenarios",
+    "--scenario-dir",
+    join("evals", "scenarios", "v1.1"),
+    "--runtime-proof-dir",
+    runtimeProofDir,
+    "--scenario-id",
+    "openclaw-gateway-live-codex-v1-1",
+    "--scenario-id",
+    "post-action-refresh-reasoning-v1-1",
+    "--evidence-dir",
+    evidenceDir,
+    "--strict"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const report = JSON.parse(readFileSync(join(evidenceDir, "scenario-sweep.json"), "utf8")) as {
+    scenarioReady?: boolean;
+    scenarios?: Array<{ id?: string; status?: string }>;
+    blockers?: string[];
+  };
+  assert.equal(report.scenarioReady, true);
+  assert.deepEqual(report.blockers, []);
+  assert.deepEqual(report.scenarios?.map((scenario) => scenario.id), [
+    "openclaw-gateway-live-codex-v1-1",
+    "post-action-refresh-reasoning-v1-1"
+  ]);
+  assert.equal(report.scenarios?.every((scenario) => scenario.status === "runtime_proof_ready"), true);
+});
+
 test("scenario sweep rejects secret-like values inside runtime proof markers", () => {
   const evidenceDir = mkdtempSync(join(tmpdir(), "loo-runtime-scenario-secret-evidence-"));
   const runtimeProofDir = mkdtempSync(join(tmpdir(), "loo-runtime-scenario-secret-proof-"));
