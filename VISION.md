@@ -83,7 +83,7 @@ Expected dogfood checks:
 
 - Load or inspect the OpenClaw plugin manifest and runtime entry.
 - Verify package/plugin first-run readiness with `loo onboard status`, then verify `loo_*` tools are declared and callable through the installed or packaged surface.
-- Call read-only tools such as `loo_doctor`, `loo_index_sessions`, `loo_search_sessions`, `loo_describe_session`, `loo_expand_query`, `loo_codex_plans`, and `loo_codex_final_messages`.
+- Call read-only tools such as `loo_doctor`, `loo_index_sessions`, `loo_search_sessions`, `loo_describe_session`, `loo_expand_session`, `loo_expand_query`, `loo_codex_plans`, and `loo_codex_final_messages`.
 - Verify dry-run control tools produce audit ids without mutating a real Codex thread.
 - Confirm evidence contains counts, refs, hashes, statuses, and redacted metadata only.
 

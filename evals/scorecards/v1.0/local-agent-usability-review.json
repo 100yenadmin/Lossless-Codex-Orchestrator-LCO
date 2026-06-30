@@ -9,6 +9,7 @@
     "loo_index_sessions",
     "loo_search_sessions",
     "loo_describe_session",
+    "loo_expand_session",
     "loo_expand_query",
     "loo_codex_control_dry_run"
   ],
@@ -17,7 +18,7 @@
     "declared loo_* tool names",
     "bounded index counts",
     "search refs and score summaries",
-    "describe and expand profile names",
+    "describe and direct-session/query expand profile names",
     "dry-run approval_audit_id, params_hash, and message_hash",
     "agent reasoning note based only on safe summaries"
   ],
@@ -51,4 +52,3 @@
   "next_action": "Run a read-only gateway dogfood smoke after package/plugin changes and record only public-safe summaries.",
   "proof_boundary": "This is a local public-safe beta scorecard example; it does not prove customer readiness until the gateway smoke is actually run."
 }
-

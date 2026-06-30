@@ -66,6 +66,14 @@ if (method === "tools.invoke") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { sourceRef: "codex_thread:thread-1", profile: { name: toolArgs.profile || "brief" }, tokenBudget: toolArgs.token_budget, text: "super-secret-transcript-span" } }));
     process.exit(0);
   }
+  if (name === "loo_expand_session") {
+    if (!toolArgs.thread_id) {
+      console.log(JSON.stringify({ ok: false, toolName: name, source: "plugin", error: { code: "missing_thread_id", message: "thread_id is required" } }));
+      process.exit(0);
+    }
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { sourceRef: "codex_thread:" + toolArgs.thread_id, threadId: toolArgs.thread_id, text: "super-secret-transcript-span" } }));
+    process.exit(0);
+  }
   if (name === "loo_codex_plans" || name === "loo_codex_final_messages") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: [{ sourceRef: "codex_thread:" + toolArgs.thread_id, threadId: toolArgs.thread_id, count: 1, text: "super-secret-transcript-span" }] }));
     process.exit(0);
@@ -246,6 +254,44 @@ test("OpenClaw tool smoke invokes required loo tools through gateway call and wr
     assert.deepEqual(calls.slice(1).map((call) => call.params.name), report.invocations.map((call) => call.toolName));
     assert.equal(calls.find((call) => call.params.name === "loo_describe_session")?.params.args?.thread_id, "thread-1");
     assert.equal(calls.some((call) => call.args.includes("--token")), false);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke passes discovered thread id to loo_expand_session", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-expand-session-"));
+  const evidencePath = join(dir, "tool-smoke.json");
+  const { bin, callsPath } = createFakeOpenClaw(dir, [
+    "loo_search_sessions",
+    "loo_expand_session"
+  ]);
+
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      profile: "lco-issue-192",
+      sessionKey: "agent:main:lco-issue-192",
+      evidencePath,
+      requiredTools: ["loo_search_sessions", "loo_expand_session"],
+      query: "Proposed plan"
+    });
+
+    assert.equal(report.ok, true);
+    assert.equal(report.toolSmokeReady, true);
+    assert.deepEqual(report.blockers, []);
+    assert.equal(report.invocations.find((call) => call.toolName === "loo_expand_session")?.summary.threadId, "thread-1");
+    assert.equal(report.invocations.find((call) => call.toolName === "loo_expand_session")?.summary.profile, "brief");
+    assert.equal(report.invocations.find((call) => call.toolName === "loo_expand_session")?.summary.tokenBudget, 1000);
+    assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /super-secret-transcript-span|thread_id is required/);
+
+    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { method: string; params: { name?: string; args?: Record<string, unknown> } });
+    assert.equal(calls.find((call) => call.params.name === "loo_expand_session")?.params.args?.thread_id, "thread-1");
+    assert.equal(calls.find((call) => call.params.name === "loo_expand_session")?.params.args?.profile, "brief");
+    assert.equal(calls.find((call) => call.params.name === "loo_expand_session")?.params.args?.token_budget, 1000);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;

@@ -150,7 +150,7 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
         expandProfile,
         tokenBudget
       });
-      if (toolName === "loo_describe_session" || toolName === "loo_codex_control_dry_run") {
+      if (toolName === "loo_describe_session" || toolName === "loo_expand_session" || toolName === "loo_codex_control_dry_run") {
         if (!args) {
           blockers.push("openclaw_tool_smoke_missing_thread_ref");
           continue;
@@ -164,6 +164,7 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
         idempotencyKey: `loo-tool-smoke-${runId}-${toolName}`
       }, gatewayCallOptions);
       const summary = summarizeInvocation(toolName, call);
+      annotateRequestedExpansionProfile(summary, args);
       invocations.push(summary);
       blockers.push(...summary.blockers);
       if (toolName === "loo_search_sessions" && !selectedThreadId) {
@@ -208,6 +209,13 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
     writeFileSync(options.evidencePath, `${JSON.stringify(report, null, 2)}\n`);
   }
   return report;
+}
+
+function annotateRequestedExpansionProfile(summary: OpenClawToolInvocationSummary, args: Record<string, unknown> | null): void {
+  if (summary.toolName !== "loo_expand_query" && summary.toolName !== "loo_expand_session") return;
+  if (!args) return;
+  if (summary.summary.profile === undefined && typeof args.profile === "string") summary.summary.profile = args.profile;
+  if (summary.summary.tokenBudget === undefined && typeof args.token_budget === "number") summary.summary.tokenBudget = args.token_budget;
 }
 
 function gatewayTokenArgs(token: string | undefined): string[] {
@@ -396,6 +404,9 @@ function buildToolArgs(params: {
 }): Record<string, unknown> | null {
   if (params.toolName === "loo_search_sessions") return { query: params.query, limit: 3 };
   if (params.toolName === "loo_describe_session") return params.threadId ? { thread_id: params.threadId } : null;
+  if (params.toolName === "loo_expand_session") {
+    return params.threadId ? { thread_id: params.threadId, profile: params.expandProfile, token_budget: params.tokenBudget } : null;
+  }
   if (params.toolName === "loo_expand_query") return { query: params.query, profile: params.expandProfile, token_budget: params.tokenBudget };
   if (params.toolName === "loo_codex_plans" || params.toolName === "loo_codex_final_messages") {
     return {
@@ -432,7 +443,7 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
 
   const count = outputCount(output);
   if (count !== undefined) summary.count = count;
-  if (toolName === "loo_expand_query") {
+  if (toolName === "loo_expand_query" || toolName === "loo_expand_session") {
     const profile = stringPath(output, ["profile", "name"]) || stringPath(output, ["profile"]);
     if (profile) summary.profile = profile;
     const tokenBudget = numberPath(output, ["tokenBudget"]) ?? numberPath(output, ["token_budget"]);

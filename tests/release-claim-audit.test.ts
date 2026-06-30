@@ -17,29 +17,30 @@ function read(path: string): string {
   return readFileSync(path, "utf8");
 }
 
-test("0.1.0-beta.12 release metadata captures onboarding and working-app proof without widening claims", () => {
+test("0.1.0-beta.13 release metadata captures onboarding, gateway expand, and working-app proof without widening claims", () => {
   const packageJson = JSON.parse(read("package.json")) as { version?: string };
   const packageLock = JSON.parse(read("package-lock.json")) as { version?: string; packages?: Record<string, { version?: string }> };
 
-  assert.equal(packageJson.version, "0.1.0-beta.12");
-  assert.equal(packageLock.version, "0.1.0-beta.12");
-  assert.equal(packageLock.packages?.[""]?.version, "0.1.0-beta.12");
-  assert.equal(existsSync("docs/RELEASE_NOTES_0.1.0-beta.12.md"), true, "0.1.0-beta.12 release notes must exist");
+  assert.equal(packageJson.version, "0.1.0-beta.13");
+  assert.equal(packageLock.version, "0.1.0-beta.13");
+  assert.equal(packageLock.packages?.[""]?.version, "0.1.0-beta.13");
+  assert.equal(existsSync("docs/RELEASE_NOTES_0.1.0-beta.13.md"), true, "0.1.0-beta.13 release notes must exist");
 
-  const releaseNotes = read("docs/RELEASE_NOTES_0.1.0-beta.12.md");
+  const releaseNotes = read("docs/RELEASE_NOTES_0.1.0-beta.13.md");
   assert.match(releaseNotes, /Codex-first working-app proof/i);
   assert.match(releaseNotes, /installed OpenClaw gateway/i);
   assert.match(releaseNotes, /loo onboard status/i);
   assert.match(releaseNotes, /#188/i);
+  assert.match(releaseNotes, /#192/i);
   assert.match(releaseNotes, /#158/i);
   assert.match(releaseNotes, /#159/i);
   assert.match(releaseNotes, /#172/i);
   assert.match(releaseNotes, /--claim-scope codex-working-app-proof/i);
   assert.match(releaseNotes, /openclaw-gateway-live-codex-v1-1/i);
   assert.match(releaseNotes, /post-action-refresh-reasoning-v1-1/i);
-  assert.match(releaseNotes, /0\.1\.0-beta\.12/i);
+  assert.match(releaseNotes, /0\.1\.0-beta\.13/i);
   assert.match(releaseNotes, /latest.*0\.1\.0-beta\.4/i);
-  assert.match(releaseNotes, /beta.*0\.1\.0-beta\.12/i);
+  assert.match(releaseNotes, /beta.*0\.1\.0-beta\.13/i);
   assert.match(releaseNotes, /desktop fallback.*claim-conditional/i);
   assert.match(releaseNotes, /connected local UI.*claim-conditional/i);
   assert.match(releaseNotes, /Claude Code remains.*read-only/i);
@@ -248,8 +249,8 @@ test("beta release runbook defines RC cadence and keeps main distinct from relea
     /packaging\/install review/i,
     /public-claim review/i,
     /local-agent usability review/i,
-    /node \.\/dist\/packages\/cli\/src\/index\.js openclaw dogfood[^\n]+--required-tool loo_doctor[^\n]+--required-tool loo_search_sessions[^\n]+--required-tool loo_describe_session[^\n]+--required-tool loo_expand_query[^\n]+--required-tool loo_codex_plans[^\n]+--required-tool loo_codex_final_messages[^\n]+--required-tool loo_codex_thread_map[^\n]+--required-tool loo_codex_control_dry_run/i,
-    /node \.\/dist\/packages\/cli\/src\/index\.js openclaw tool-smoke[^\n]+--profile lco-dogfood[^\n]+--session-key agent:main:lco-dogfood[^\n]+--required-tool loo_doctor[^\n]+--required-tool loo_search_sessions[^\n]+--required-tool loo_describe_session[^\n]+--required-tool loo_expand_query[^\n]+--required-tool loo_codex_plans[^\n]+--required-tool loo_codex_final_messages[^\n]+--required-tool loo_codex_thread_map[^\n]+--required-tool loo_codex_control_dry_run[^\n]+--evidence-path[^\n]+--strict/i,
+    /node \.\/dist\/packages\/cli\/src\/index\.js openclaw dogfood[^\n]+--required-tool loo_doctor[^\n]+--required-tool loo_search_sessions[^\n]+--required-tool loo_describe_session[^\n]+--required-tool loo_expand_session[^\n]+--required-tool loo_expand_query[^\n]+--required-tool loo_codex_plans[^\n]+--required-tool loo_codex_final_messages[^\n]+--required-tool loo_codex_thread_map[^\n]+--required-tool loo_codex_control_dry_run/i,
+    /node \.\/dist\/packages\/cli\/src\/index\.js openclaw tool-smoke[^\n]+--profile lco-dogfood[^\n]+--session-key agent:main:lco-dogfood[^\n]+--required-tool loo_doctor[^\n]+--required-tool loo_search_sessions[^\n]+--required-tool loo_describe_session[^\n]+--required-tool loo_expand_session[^\n]+--required-tool loo_expand_query[^\n]+--required-tool loo_codex_plans[^\n]+--required-tool loo_codex_final_messages[^\n]+--required-tool loo_codex_thread_map[^\n]+--required-tool loo_codex_control_dry_run[^\n]+--evidence-path[^\n]+--strict/i,
     /--approved-live-control-evidence \/Volumes\/LEXAR\/Codex\/lossless-openclaw-orchestrator\/YYYY-MM-DD\/release-status\/approved-live-control-smoke\.json/i,
     /--npm-publish-approval-evidence \/Volumes\/LEXAR\/Codex\/lossless-openclaw-orchestrator\/YYYY-MM-DD\/release-status\/npm-approval\.json/i,
     /--github-release-approval-evidence \/Volumes\/LEXAR\/Codex\/lossless-openclaw-orchestrator\/YYYY-MM-DD\/release-status\/github-release-approval\.json/i,
