@@ -23,9 +23,11 @@ import {
   LOO_COMMAND_POLICY,
   codexTransportStatus,
   createCodexControl,
+  createDesktopGuiProofReport,
   desktopActDryRun,
   desktopFallbackDiagnostics,
   desktopSee,
+  isDesktopBackend,
   type AuditStore,
   type DesktopBackend,
   type CodexClient,
@@ -222,6 +224,12 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       action: optionalString(input.action),
       dryRun: input.dry_run !== false
     })),
+    tool("loo_desktop_proof_report", "Validate a supplied public-safe desktop GUI action observation and return release-compatible proof when it satisfies no-focus/action-bound gates.", {
+      observation: {
+        type: "object",
+        additionalProperties: true
+      }
+    }, (input) => createDesktopGuiProofReport(input.observation)),
     tool("loo_doctor", "Read local orchestrator health.", {}, () => ({
       ok: true,
       localOnly: true,
@@ -318,7 +326,7 @@ function optionalProfile(value: unknown): "metadata" | "brief" | "evidence" | un
 
 function optionalDesktopBackend(value: unknown): DesktopBackend | undefined {
   if (value === undefined) return undefined;
-  if (value === "direct" || value === "cua-driver" || value === "peekaboo") return value;
+  if (isDesktopBackend(value)) return value;
   throw new Error("desktop backend must be direct, cua-driver, or peekaboo");
 }
 

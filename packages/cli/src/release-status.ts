@@ -42,6 +42,9 @@ type ReleaseOperationApprovalProof = {
   targetWindow?: string;
   action?: string;
   actionHash?: string;
+  approvalNonce?: string;
+  issuedAt?: string;
+  expiresAt?: string;
   focusBeforeApplication?: string;
   focusAfterApplication?: string;
   focusChanged?: boolean;
@@ -94,6 +97,7 @@ export type ReleaseStatusReport = {
 export function createReleaseStatus(options: ReleaseStatusOptions): ReleaseStatusReport {
   const evidenceDir = resolve(options.evidenceDir);
   mkdirSync(evidenceDir, { recursive: true });
+  const generatedAt = options.now ?? new Date().toISOString();
   const candidateSha = options.candidateSha?.trim();
   const candidateShaSatisfied = Boolean(candidateSha && /^[0-9a-f]{40}$/i.test(candidateSha));
   const approvedLiveControlEvidence = resolveEvidencePath(evidenceDir, options.approvedLiveControlEvidence);
@@ -111,11 +115,11 @@ export function createReleaseStatus(options: ReleaseStatusOptions): ReleaseStatu
   });
   const liveControlRequired = releaseClaimScopeRequiresLiveControl(releasePreflight.claimScope);
   const liveControlSmokeSatisfied = liveControlRequired && !releasePreflight.blockers.includes("approved_live_control_smoke_missing");
-  const npmPublishSatisfied = validateReleaseOperationApprovalProof(npmPublishApprovalEvidence, "npm_publish");
-  const githubReleaseSatisfied = validateReleaseOperationApprovalProof(githubReleaseApprovalEvidence, "github_release");
+  const npmPublishSatisfied = validateReleaseOperationApprovalProof(npmPublishApprovalEvidence, "npm_publish", generatedAt);
+  const githubReleaseSatisfied = validateReleaseOperationApprovalProof(githubReleaseApprovalEvidence, "github_release", generatedAt);
   const desktopGuiRequired = options.desktopGuiRequired === true;
   const desktopGuiSatisfied = desktopGuiRequired
-    ? validateReleaseOperationApprovalProof(desktopGuiApprovalEvidence, "desktop_gui_mutation")
+    ? validateReleaseOperationApprovalProof(desktopGuiApprovalEvidence, "desktop_gui_mutation", generatedAt)
     : false;
   const githubCiValidation = validateReleaseCheckProof(githubCiEvidence, "github_ci", candidateSha);
   const codeqlValidation = validateReleaseCheckProof(codeqlEvidence, "codeql", candidateSha);
@@ -141,7 +145,7 @@ export function createReleaseStatus(options: ReleaseStatusOptions): ReleaseStatu
   const report: ReleaseStatusReport = {
     ok: blockers.length === 0,
     releaseReady: blockers.length === 0,
-    generatedAt: options.now ?? new Date().toISOString(),
+    generatedAt,
     claimScope: releasePreflight.claimScope,
     excludedClaims: releasePreflight.excludedClaims,
     packageName: releasePreflight.packageName,
@@ -174,7 +178,7 @@ function resolveEvidencePath(evidenceDir: string, path: string | undefined): str
   return isAbsolute(path) ? path : join(evidenceDir, path);
 }
 
-function validateReleaseOperationApprovalProof(path: string | undefined, operation: ReleaseOperationApproval): boolean {
+function validateReleaseOperationApprovalProof(path: string | undefined, operation: ReleaseOperationApproval, nowIso: string): boolean {
   if (!path || !existsSync(path)) return false;
   let proof: ReleaseOperationApprovalProof;
   try {
@@ -200,6 +204,9 @@ function validateReleaseOperationApprovalProof(path: string | undefined, operati
     "targetWindow",
     "action",
     "actionHash",
+    "approvalNonce",
+    "issuedAt",
+    "expiresAt",
     "focusBeforeApplication",
     "focusAfterApplication",
     "focusChanged",
@@ -211,6 +218,8 @@ function validateReleaseOperationApprovalProof(path: string | undefined, operati
     && stringFieldPresent(proof.targetWindow)
     && stringFieldPresent(proof.action)
     && hashFieldPresent(proof.actionHash)
+    && stringFieldPresent(proof.approvalNonce)
+    && desktopGuiApprovalFresh(proof, nowIso)
     && stringFieldPresent(proof.focusBeforeApplication)
     && stringFieldPresent(proof.focusAfterApplication)
     && proof.focusBeforeApplication === proof.focusAfterApplication
@@ -218,6 +227,18 @@ function validateReleaseOperationApprovalProof(path: string | undefined, operati
     && actionFocusProofFieldPresent(proof.focusProof)
     && proof.rawScreenshotIncluded === false
     && Object.keys(proof).every((key) => desktopAllowedKeys.has(key));
+}
+
+function desktopGuiApprovalFresh(proof: ReleaseOperationApprovalProof, nowIso: string): boolean {
+  if (!stringFieldPresent(proof.issuedAt) || !stringFieldPresent(proof.expiresAt)) return false;
+  const nowMs = Date.parse(nowIso);
+  const issuedAtMs = Date.parse(proof.issuedAt);
+  const expiresAtMs = Date.parse(proof.expiresAt);
+  if (!Number.isFinite(nowMs) || !Number.isFinite(issuedAtMs) || !Number.isFinite(expiresAtMs)) return false;
+  if (expiresAtMs <= issuedAtMs) return false;
+  const futureSkewMs = 5 * 60 * 1000;
+  if (issuedAtMs > nowMs + futureSkewMs) return false;
+  return expiresAtMs > nowMs;
 }
 
 function validateReleaseCheckProof(path: string | undefined, check: ReleaseCheckId, candidateSha: string | undefined): ReleaseCheckValidation {

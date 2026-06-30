@@ -28,6 +28,7 @@ Recommended OpenClaw configuration should expose the `loo_*` tools and keep live
 - `loo_audit_tail` returns recent fingerprinted audit records without raw prompt text.
 - `loo_desktop_see` may inspect CUA/Peekaboo readiness, but it must not perform GUI actions.
 - `loo_desktop_act` remains dry-run-only until backend-specific approval and permission proof exist.
+- `loo_desktop_proof_report` validates a supplied public-safe desktop GUI action observation and may return release-compatible approval proof. The tool does not perform the GUI action itself and does not prove backend behavior without a real observation.
 - CUA Driver is the preferred desktop fallback and its default launch shape is MCP stdio via `cua-driver mcp`; binary availability is reported separately from launch readiness, and agents must not claim no-focus behavior unless the returned focus proof says it was measured.
 - Peekaboo snapshot observation must be explicit (`include_snapshot=true` or CLI `--snapshot`), must use local `--no-remote` commands, and must block sensitive frontmost apps before capture.
 - Visible Codex macro metadata is read-only planning guidance; generic prompt typing, send, approve, and click actions remain live-disabled in this beta.

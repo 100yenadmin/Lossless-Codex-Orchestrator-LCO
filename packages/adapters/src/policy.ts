@@ -80,6 +80,7 @@ export const LOO_COMMAND_POLICY: Record<string, LooCommandSafety> = {
   loo_codex_interrupt_thread: { mode: "approval_gated_control", source: "codex_direct", requiresApproval: true },
   loo_desktop_see: { mode: "read_only", source: "desktop_fallback", requiresApproval: false },
   loo_desktop_act: { mode: "dry_run_only", source: "desktop_fallback", requiresApproval: true },
+  loo_desktop_proof_report: { mode: "read_only", source: "desktop_fallback", requiresApproval: false },
   loo_doctor: { mode: "read_only", source: "audit", requiresApproval: false },
   loo_permissions: { mode: "read_only", source: "audit", requiresApproval: false },
   loo_audit_tail: { mode: "read_only", source: "audit", requiresApproval: false }

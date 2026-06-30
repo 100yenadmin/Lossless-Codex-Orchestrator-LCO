@@ -101,6 +101,7 @@ For implementation issues, copy `evals/scorecards/v1.0/issue-scorecard-update-te
 | Touched-file extraction | Touched files remain visible or accurately omitted in bounded briefs | file count, omitted marker |
 | Control safety | Live actions fail closed without matching dry-run and `approval_audit_id` | control tests and audit evidence |
 | Desktop fallback readiness | CUA/Peekaboo report honest readiness without overclaiming action support | `loo_desktop_see` evidence |
+| Desktop GUI proof contract | Backend-specific live/no-focus observations can be validated without running the action in the reporting command | `loo desktop proof-report` / `loo_desktop_proof_report` evidence |
 | Local Mac search UI | User can search, filter, inspect safe summaries, and copy source refs without raw transcript rendering | `local-mac-search-ui-review.json` score movement |
 | OpenClaw packageability | Plugin installs/loads with declared `loo_*` contracts | manifest/tool count and package smoke |
 | Public claims | README/docs/release notes stay inside allowed beta wording | claim audit result |
@@ -184,6 +185,7 @@ For 1.0 or any expanded-scope release that claims live control, desktop collabor
 - Control tools fail closed without dry-run plus matching approval.
 - One harmless approved live Codex control smoke is proven with explicit user approval.
 - CUA/Peekaboo readiness is honest and does not imply unsupported generic GUI action.
+- Desktop GUI mutation claims require a backend-specific observation validated by `loo desktop proof-report` or `loo_desktop_proof_report`; the proof-report command itself must not perform the GUI action.
 - Release preflight/status/bundle commands produce public-safe evidence.
 - npm publish and GitHub Release are separately and explicitly approved before execution.
 

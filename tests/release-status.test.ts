@@ -28,11 +28,19 @@ function writeLiveControlProof(path: string): void {
 }
 
 function writeReleaseOperationApprovalProof(path: string, operation: "npm_publish" | "github_release" | "desktop_gui_mutation", extra: Record<string, string | boolean> = {}): void {
+  const desktopFreshness = operation === "desktop_gui_mutation"
+    ? {
+      approvalNonce: "0123456789abcdef0123456789abcdef",
+      issuedAt: "2026-06-30T10:00:00.000Z",
+      expiresAt: "2026-07-01T10:00:00.000Z"
+    }
+    : {};
   writeFileSync(path, `${JSON.stringify({
     kind: "loo_release_operation_approval",
     operation,
     approved: true,
     approvalRef: "issue-14-user-approval",
+    ...desktopFreshness,
     ...extra,
     rawSecretIncluded: false
   }, null, 2)}\n`);
@@ -351,6 +359,7 @@ test("release status --strict requires GUI target details only when GUI mutation
   const detailedDesktopGuiApprovalProof = join(evidenceDir, "desktop-gui-approval-detailed.json");
   const diagnosticFocusDesktopGuiApprovalProof = join(evidenceDir, "desktop-gui-approval-diagnostic-focus.json");
   const changedFocusDesktopGuiApprovalProof = join(evidenceDir, "desktop-gui-approval-focus-changed.json");
+  const expiredDesktopGuiApprovalProof = join(evidenceDir, "desktop-gui-approval-expired.json");
   const noFocusDesktopGuiApprovalProof = join(evidenceDir, "desktop-gui-approval-no-focus.json");
   writeLiveControlProof(liveControlProof);
   writeReleaseOperationApprovalProof(npmApprovalProof, "npm_publish");
@@ -388,6 +397,21 @@ test("release status --strict requires GUI target details only when GUI mutation
     focusProof: "before_after_active_application",
     rawScreenshotIncluded: false
   });
+  writeReleaseOperationApprovalProof(expiredDesktopGuiApprovalProof, "desktop_gui_mutation", {
+    desktopBackend: "cua-driver",
+    targetApp: "Codex",
+    targetWindow: "PR release smoke",
+    action: "read-only visual smoke",
+    actionHash: "e".repeat(64),
+    approvalNonce: "fedcba9876543210fedcba9876543210",
+    issuedAt: "2026-06-28T10:00:00.000Z",
+    expiresAt: "2026-06-29T10:00:00.000Z",
+    focusBeforeApplication: "Codex",
+    focusAfterApplication: "Codex",
+    focusChanged: false,
+    focusProof: "before_after_active_application",
+    rawScreenshotIncluded: false
+  });
   writeReleaseOperationApprovalProof(noFocusDesktopGuiApprovalProof, "desktop_gui_mutation", {
     desktopBackend: "cua-driver",
     targetApp: "Codex",
@@ -422,6 +446,8 @@ test("release status --strict requires GUI target details only when GUI mutation
     "--codeql-evidence",
     codeqlProof,
     "--desktop-gui-required",
+    "--now",
+    "2026-06-30T10:00:00.000Z",
     "--strict"
   ];
   const broadResult = spawnSync(process.execPath, [
@@ -488,6 +514,23 @@ test("release status --strict requires GUI target details only when GUI mutation
   };
   assert.deepEqual(changedFocusPayload.blockers, ["desktop_gui_mutation_not_approved"]);
   assert.deepEqual(changedFocusPayload.explicitApprovalsRequired?.find((approval) => approval.id === "desktop_gui_mutation"), {
+    id: "desktop_gui_mutation",
+    satisfied: false
+  });
+
+  const expiredResult = spawnSync(process.execPath, [
+    ...commonArgs,
+    "--desktop-gui-approval-evidence",
+    expiredDesktopGuiApprovalProof
+  ], { encoding: "utf8" });
+
+  assert.equal(expiredResult.status, 1, expiredResult.stderr || expiredResult.stdout);
+  const expiredPayload = JSON.parse(expiredResult.stdout) as {
+    blockers?: string[];
+    explicitApprovalsRequired?: Array<{ id: string; satisfied: boolean }>;
+  };
+  assert.deepEqual(expiredPayload.blockers, ["desktop_gui_mutation_not_approved"]);
+  assert.deepEqual(expiredPayload.explicitApprovalsRequired?.find((approval) => approval.id === "desktop_gui_mutation"), {
     id: "desktop_gui_mutation",
     satisfied: false
   });

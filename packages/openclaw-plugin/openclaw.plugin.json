@@ -57,6 +57,7 @@
       "loo_codex_interrupt_thread",
       "loo_desktop_see",
       "loo_desktop_act",
+      "loo_desktop_proof_report",
       "loo_doctor",
       "loo_permissions",
       "loo_audit_tail"
@@ -591,6 +592,20 @@
             },
             "dry_run": {
               "type": "boolean"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_desktop_proof_report",
+        "description": "Validate a supplied public-safe desktop GUI action observation and return release-compatible proof when it satisfies no-focus/action-bound gates.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "observation": {
+              "type": "object",
+              "additionalProperties": true
             }
           }
         }
