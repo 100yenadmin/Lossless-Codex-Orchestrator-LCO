@@ -303,12 +303,16 @@ test("release status --claim-scope codex-read-search-expand-dry-run passes stric
   assert.equal(payload.releasePreflight?.claimScope, "codex-read-search-expand-dry-run");
   assert.deepEqual(payload.releasePreflight?.blockers, []);
   assert.deepEqual(payload.releasePreflight?.excludedClaims, payload.excludedClaims);
-  assert.equal(payload.releasePreflight?.checks?.liveControlSmoke?.ok, true);
+  assert.equal(payload.releasePreflight?.checks?.liveControlSmoke?.ok, false);
   assert.match(payload.releasePreflight?.checks?.liveControlSmoke?.detail ?? "", /excluded by claim scope/i);
 });
 
 test("release status rejects unknown claim scopes", () => {
   const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-status-unknown-scope-"));
+  writeReleaseOperationApprovalProof(join(evidenceDir, "npm-publish-approval.json"), "npm_publish");
+  writeReleaseOperationApprovalProof(join(evidenceDir, "github-release-approval.json"), "github_release");
+  writeReleaseCheckProof(join(evidenceDir, "github-ci.json"), "github_ci");
+  writeReleaseCheckProof(join(evidenceDir, "codeql.json"), "codeql");
   const result = spawnSync(process.execPath, [
     "--import",
     tsxImport,
@@ -317,6 +321,16 @@ test("release status rejects unknown claim scopes", () => {
     "status",
     "--evidence-dir",
     evidenceDir,
+    "--npm-publish-approval-evidence",
+    "npm-publish-approval.json",
+    "--github-release-approval-evidence",
+    "github-release-approval.json",
+    "--candidate-sha",
+    candidateSha,
+    "--github-ci-evidence",
+    "github-ci.json",
+    "--codeql-evidence",
+    "codeql.json",
     "--claim-scope",
     "codex-everything-everywhere",
     "--strict"

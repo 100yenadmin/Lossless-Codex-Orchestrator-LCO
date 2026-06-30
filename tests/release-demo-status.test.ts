@@ -209,7 +209,7 @@ test("release demo-status --claim-scope codex-read-search-expand-dry-run accepts
   assert.equal(payload.claimScope, "codex-read-search-expand-dry-run");
   assert.equal(payload.demoReady, true);
   assert.deepEqual(payload.blockers, []);
-  assert.equal(payload.checks?.approvedLiveControl?.ok, true);
+  assert.equal(payload.checks?.approvedLiveControl?.ok, false);
   assert.match(payload.checks?.approvedLiveControl?.detail ?? "", /excluded by claim scope/i);
   assert.deepEqual(payload.excludedClaims, [
     { id: "approved_live_control_smoke", blockerIfClaimed: "approved_live_control_smoke_missing" }

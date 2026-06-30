@@ -113,7 +113,7 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
   const approvedLiveControlProof = options.approvedLiveControlEvidence?.trim();
   const liveControlProof = liveControlRequired
     ? validateApprovedLiveControlProof(approvedLiveControlProof)
-    : check(true, liveControlExcludedDetail(claimScope));
+    : check(false, liveControlExcludedDetail(claimScope));
   const rawSessionArtifacts = scanRawSessionArtifacts(options.evidenceDir);
   const checks: Record<string, ReleasePreflightCheck> = {
     packageJson: check(Boolean(!packageJsonRead.error && packageJson?.name && packageJson.version && packageJson.description?.match(/local Codex sessions/i)), packageJsonRead.error ?? "package metadata keeps Codex-first beta positioning"),

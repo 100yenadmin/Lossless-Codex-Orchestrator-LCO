@@ -105,7 +105,7 @@ export function createReleaseDemoStatus(options: ReleaseDemoStatusOptions): Rele
   const controlDryRunProof = parseControlDryRun(controlDryRunEvidence.value);
   const approvedLiveControl = liveControlRequired
     ? validateApprovedLiveControlProof(evidenceFiles.approvedLiveControl)
-    : { check: check(true, liveControlExcludedDetail(claimScope)), proof: null };
+    : { check: check(false, liveControlExcludedDetail(claimScope)), proof: null };
   const rawSessionArtifacts = scanRawDemoArtifacts(evidenceDir);
 
   const checks: Record<string, ReleaseDemoStatusCheck> = {

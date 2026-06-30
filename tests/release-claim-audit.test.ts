@@ -111,10 +111,11 @@ test("read-search-expand-dry-run release examples name the explicit claim scope 
     assert.match(content, /codex-read-search-expand-dry-run/i, `${surface} must name the read/search/expand/dry-run claim scope`);
     assert.match(content, /--claim-scope\s+codex-read-search-expand-dry-run/i, `${surface} must show the explicit claim-scope flag`);
   }
+  assert.match(read("README.md"), /loo release bundle[^\n]+--claim-scope\s+codex-read-search-expand-dry-run/i);
 
   const claimAudit = read("docs/CLAIM_AUDIT.md");
   assert.match(claimAudit, /excludedClaims/i);
-  assert.match(claimAudit, /approved_live_control_smoke.*excluded/i);
+  assert.match(claimAudit, /approved_live_control_smoke[\s\S]*excluded/i);
 });
 
 test("release workflows use non-deprecated action majors", () => {
@@ -368,7 +369,7 @@ test("release preflight --claim-scope codex-read-search-expand-dry-run excludes 
 
   assert.equal(payload.claimScope, "codex-read-search-expand-dry-run");
   assert.equal(payload.releaseReady, true);
-  assert.equal(payload.checks?.liveControlSmoke?.ok, true);
+  assert.equal(payload.checks?.liveControlSmoke?.ok, false);
   assert.match(payload.checks?.liveControlSmoke?.detail ?? "", /excluded by claim scope/i);
   assert.deepEqual(payload.blockers, []);
   assert.deepEqual(payload.excludedClaims, [
