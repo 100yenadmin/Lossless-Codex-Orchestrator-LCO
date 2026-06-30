@@ -12,7 +12,8 @@
     "loo_codex_thread_map",
     "loo_doctor",
     "loo_permissions",
-    "loo_desktop_see"
+    "loo_desktop_see",
+    "loo_desktop_proof_report"
   ],
   "expected_public_safe_evidence": [
     "query string with no private transcript text",
@@ -23,6 +24,7 @@
     "selected bounded expansion profile",
     "copy action target refs",
     "CUA and Peekaboo readiness statuses",
+    "desktop GUI proof-report blocker or approval-fixture status",
     "blocker codes for unavailable local DB or plugin tools"
   ],
   "private_data_exclusions": [
@@ -39,7 +41,8 @@
     "User can copy source refs and selected public-safe summary text for an OpenClaw agent.",
     "User can request bounded expansion through existing loo_* profiles before more detail is shown.",
     "The shell must fail closed when local DB access, required plugin tools, or OpenClaw plugin loading is unavailable.",
-    "CUA and Peekaboo appear as readiness/status surfaces only unless a future backend-specific approval gate is proven."
+    "CUA and Peekaboo appear as readiness/status surfaces only unless a future backend-specific approval gate is proven.",
+    "Desktop GUI proof-report output validates supplied public-safe observations without itself performing GUI mutation."
   ],
   "fail_criteria": [
     "UI renders raw Codex transcripts or raw prompts.",
@@ -54,7 +57,7 @@
     "The repo includes only a static prototype shell generator; no packaged macOS app shell has been produced.",
     "No signed or notarized app artifact has been produced.",
     "No live OpenClaw gateway UI smoke has been run.",
-    "No CUA no-focus proof or Peekaboo snapshot safety proof has been produced.",
+    "The proof-report contract exists, but no CUA no-focus live action proof or Peekaboo live action proof has been produced.",
     "Claude Code remains a future adapter boundary, not a proved equivalent adapter."
   ],
   "next_action": "Wire the prototype shell to live loo_* tool calls or a packaged macOS wrapper only after the public-safe shell packet stays clean under gateway dogfood.",

@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { assertCodexMethodAllowed } from "./policy.js";
 import { redactValue } from "./redaction.js";
 
@@ -72,6 +72,71 @@ export type DesktopStatus = {
   note: string;
   version?: string;
   error?: string;
+};
+
+export type DesktopGuiActionObservation = {
+  kind?: string;
+  desktopBackend?: DesktopBackend;
+  targetApp?: string;
+  targetWindow?: string;
+  action?: string;
+  approvalRef?: string;
+  approved?: boolean;
+  liveActionObserved?: boolean;
+  focusBeforeApplication?: string;
+  focusAfterApplication?: string;
+  focusChanged?: boolean;
+  focusProof?: string;
+  rawScreenshotIncluded?: boolean;
+  rawSecretIncluded?: boolean;
+};
+
+export type DesktopGuiReleaseApprovalProof = {
+  kind: "loo_release_operation_approval";
+  operation: "desktop_gui_mutation";
+  approved: true;
+  approvalRef: string;
+  desktopBackend: "cua-driver" | "peekaboo";
+  targetApp: string;
+  targetWindow: string;
+  action: string;
+  actionHash: string;
+  focusBeforeApplication: string;
+  focusAfterApplication: string;
+  focusChanged: false;
+  focusProof: string;
+  rawScreenshotIncluded: false;
+  rawSecretIncluded: false;
+};
+
+export type DesktopGuiProofReport = {
+  ok: boolean;
+  proofReady: boolean;
+  publicSafe: boolean;
+  kind: "loo_desktop_gui_proof_report";
+  desktopBackend?: DesktopBackend;
+  targetApp?: string;
+  targetWindow?: string;
+  action?: string;
+  actionHash?: string;
+  approvalRef?: string;
+  liveActionObserved: boolean;
+  focusBeforeApplication?: string;
+  focusAfterApplication?: string;
+  focusChanged?: boolean;
+  focusProof?: string;
+  rawScreenshotIncluded: boolean | null;
+  rawSecretIncluded: boolean | null;
+  blockers: string[];
+  approval: DesktopGuiReleaseApprovalProof | null;
+  proofReportPath?: string;
+  approvalEvidencePath?: string;
+  actionsPerformed: {
+    desktopGuiActionRun: false;
+  };
+  privateDataExclusions: string[];
+  proofBoundary: string;
+  nextAction: string;
 };
 
 type DesktopPermissionStatus = {
@@ -344,6 +409,125 @@ export function desktopActDryRun(input: { backend?: DesktopBackend; action?: str
     requestedLive: input.dryRun === false,
     note: "Desktop live action is not enabled in this beta without backend-specific approval and permission proof."
   };
+}
+
+export function createDesktopGuiProofReport(input: unknown): DesktopGuiProofReport {
+  const observation = asRecord(input) ?? {};
+  const desktopBackend = optionalDesktopBackendObservation(observation.desktopBackend);
+  const targetApp = publicTextField(observation.targetApp, 120);
+  const targetWindow = publicTextField(observation.targetWindow, 160);
+  const action = publicTextField(observation.action, 160);
+  const approvalRef = publicTextField(observation.approvalRef, 160);
+  const focusBeforeApplication = publicTextField(observation.focusBeforeApplication, 120);
+  const focusAfterApplication = publicTextField(observation.focusAfterApplication, 120);
+  const focusProof = publicTextField(observation.focusProof, 120);
+  const rawScreenshotIncluded = typeof observation.rawScreenshotIncluded === "boolean" ? observation.rawScreenshotIncluded : null;
+  const rawSecretIncluded = typeof observation.rawSecretIncluded === "boolean" ? observation.rawSecretIncluded : null;
+  const focusChanged = typeof observation.focusChanged === "boolean" ? observation.focusChanged : undefined;
+  const liveActionObserved = observation.liveActionObserved === true;
+  const blockers: string[] = [];
+
+  if (observation.kind !== "loo_desktop_gui_action_observation") blockers.push("observation_kind_invalid");
+  if (!desktopBackend) blockers.push("desktop_backend_missing");
+  if (desktopBackend === "direct") blockers.push("desktop_backend_not_gui_fallback");
+  if (!targetApp) blockers.push("target_app_missing");
+  if (!targetWindow) blockers.push("target_window_missing");
+  if (!action) blockers.push("action_missing");
+  if (!approvalRef) blockers.push("approval_ref_missing");
+  if (observation.approved !== true) blockers.push("approval_missing");
+  if (!liveActionObserved) blockers.push("desktop_live_action_not_observed");
+  if (!focusBeforeApplication) blockers.push("focus_before_application_missing");
+  if (!focusAfterApplication) blockers.push("focus_after_application_missing");
+  if (focusChanged !== false) blockers.push("focus_changed_or_unmeasured");
+  if (focusBeforeApplication && focusAfterApplication && focusBeforeApplication !== focusAfterApplication) blockers.push("focus_application_changed");
+  if (!focusProof) {
+    blockers.push("focus_proof_missing");
+  } else if (isDiagnosticOnlyFocusProof(focusProof)) {
+    blockers.push("focus_proof_diagnostic_only");
+  }
+  if (rawScreenshotIncluded !== false) blockers.push("raw_screenshot_included");
+  if (rawSecretIncluded !== false) blockers.push("raw_secret_included");
+
+  const actionHash = desktopBackend && targetApp && targetWindow && action
+    ? createHash("sha256").update(JSON.stringify({ desktopBackend, targetApp, targetWindow, action })).digest("hex")
+    : undefined;
+  const guiBackend = desktopBackend === "cua-driver" || desktopBackend === "peekaboo" ? desktopBackend : undefined;
+  const proofReady = blockers.length === 0;
+  const publicSafe = rawScreenshotIncluded === false && rawSecretIncluded === false;
+  const approval = proofReady && guiBackend && targetApp && targetWindow && action && actionHash && approvalRef && focusBeforeApplication && focusAfterApplication && focusProof
+    ? {
+      kind: "loo_release_operation_approval" as const,
+      operation: "desktop_gui_mutation" as const,
+      approved: true as const,
+      approvalRef,
+      desktopBackend: guiBackend,
+      targetApp,
+      targetWindow,
+      action,
+      actionHash,
+      focusBeforeApplication,
+      focusAfterApplication,
+      focusChanged: false as const,
+      focusProof,
+      rawScreenshotIncluded: false as const,
+      rawSecretIncluded: false as const
+    }
+    : null;
+
+  return {
+    ok: proofReady,
+    proofReady,
+    publicSafe,
+    kind: "loo_desktop_gui_proof_report",
+    desktopBackend,
+    targetApp,
+    targetWindow,
+    action,
+    actionHash,
+    approvalRef,
+    liveActionObserved,
+    focusBeforeApplication,
+    focusAfterApplication,
+    focusChanged,
+    focusProof,
+    rawScreenshotIncluded,
+    rawSecretIncluded,
+    blockers,
+    approval,
+    actionsPerformed: {
+      desktopGuiActionRun: false
+    },
+    privateDataExclusions: [
+      "raw screenshots or videos",
+      "raw accessibility trees",
+      "raw Codex transcripts",
+      "raw prompts or message text",
+      "tokens, credentials, API keys, cookies",
+      "private customer data"
+    ],
+    proofBoundary: "This report validates a supplied public-safe desktop GUI action observation and may emit release approval evidence. It does not perform desktop GUI mutation, prove backend behavior by itself, or authorize unattended desktop takeover.",
+    nextAction: proofReady
+      ? "Use desktop-gui-approval.json only with release status gates that intentionally claim desktop GUI mutation readiness."
+      : "Collect a backend-specific live/no-focus observation with public-safe fields and rerun the proof report."
+  };
+}
+
+export function writeDesktopGuiProofReport(input: { evidenceDir: string; observation: unknown }): DesktopGuiProofReport {
+  const evidenceDir = resolve(input.evidenceDir);
+  mkdirSync(evidenceDir, { recursive: true });
+  const reportPath = join(evidenceDir, "desktop-gui-proof-report.json");
+  const approvalPath = join(evidenceDir, "desktop-gui-approval.json");
+  const report = createDesktopGuiProofReport(input.observation);
+  const withPaths = {
+    ...report,
+    proofReportPath: reportPath,
+    approvalEvidencePath: report.approval ? approvalPath : undefined
+  };
+  writeFileSync(reportPath, `${JSON.stringify(withPaths, null, 2)}\n`);
+  if (report.approval) {
+    writeFileSync(approvalPath, `${JSON.stringify(report.approval, null, 2)}\n`);
+  }
+  return withPaths;
 }
 
 function readOrCreateAuditKey(auditPath: string): Buffer {
@@ -830,6 +1014,20 @@ function parseJsonObject(value: string): unknown {
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function optionalDesktopBackendObservation(value: unknown): DesktopBackend | undefined {
+  return value === "direct" || value === "cua-driver" || value === "peekaboo" ? value : undefined;
+}
+
+function publicTextField(value: unknown, maxChars: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? capTextValue(trimmed, maxChars) : undefined;
+}
+
+function isDiagnosticOnlyFocusProof(value: string): boolean {
+  return ["not_measured", "status_probe_only_no_action"].includes(value.trim().toLowerCase());
 }
 
 function desktopLaunchReadiness(backend: DesktopBackend, commandAvailable: boolean) {

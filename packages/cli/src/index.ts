@@ -1,5 +1,13 @@
 #!/usr/bin/env node
-import { codexTransportStatus, createAuditStore, desktopActDryRun, desktopFallbackDiagnostics, desktopSee, type DesktopBackend } from "../../adapters/src/index.js";
+import {
+  codexTransportStatus,
+  createAuditStore,
+  desktopActDryRun,
+  desktopFallbackDiagnostics,
+  desktopSee,
+  writeDesktopGuiProofReport,
+  type DesktopBackend
+} from "../../adapters/src/index.js";
 import {
   configuredLcmPeerDbPaths,
   createCloseoutEnvelopeReport,
@@ -63,6 +71,21 @@ async function main() {
       action: desktopAction.action,
       dryRun: true
     }), null, 2));
+    return;
+  }
+  if (command === "desktop" && args[0] === "proof-report") {
+    if (hasHelpFlag(args.slice(1))) {
+      printDesktopProofReportHelp();
+      return;
+    }
+    const parsed = parseDesktopProofReportArgs(args.slice(1));
+    const observation = JSON.parse(readFileSync(parsed.observationFile, "utf8"));
+    const report = writeDesktopGuiProofReport({
+      evidenceDir: parsed.evidenceDir,
+      observation
+    });
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.proofReady) process.exitCode = 1;
     return;
   }
   if (command === "index" && args[0] === "codex") {
@@ -360,6 +383,7 @@ async function main() {
     "  loo doctor",
     "  loo desktop see [direct|cua-driver|peekaboo] [--snapshot] [--max-nodes n] [--max-chars n]",
     "  loo desktop act [direct|cua-driver|peekaboo] <action>",
+    "  loo desktop proof-report --evidence-dir path --observation-file path [--strict]",
     "  loo index codex [--max-files n] [--max-bytes-per-file n] [--max-events-per-file n] [roots...]",
     "  loo probe codex-sqlite [roots...]",
     "  loo search <query>",
@@ -471,6 +495,25 @@ function printLiveControlSmokeHelp(): void {
   ].join("\n"));
 }
 
+function printDesktopProofReportHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo desktop proof-report --evidence-dir path --observation-file path [--strict]",
+    "",
+    "Validates a public-safe desktop GUI action observation and writes proof evidence.",
+    "",
+    "Inputs:",
+    "  Observation kind must be \"loo_desktop_gui_action_observation\" and include desktopBackend, targetApp, targetWindow, action, approvalRef, approved: true, liveActionObserved: true, focus-before/after app labels, focusChanged: false, non-diagnostic focusProof, rawScreenshotIncluded: false, and rawSecretIncluded: false.",
+    "",
+    "Outputs:",
+    "  desktop-gui-proof-report.json",
+    "  desktop-gui-approval.json when the observation satisfies the release approval contract",
+    "",
+    "Safety boundary:",
+    "  This command does not run a desktop GUI action, does not capture screenshots, and does not authorize unattended desktop takeover."
+  ].join("\n"));
+}
+
 function printLocalMacSearchUiHelp(): void {
   console.log([
     "Usage:",
@@ -524,6 +567,31 @@ function parseLiveControlSmokeArgs(input: string[]): {
   }
   if (!parsed.evidenceDir) throw new Error("codex live-control-smoke requires --evidence-dir");
   return parsed as ReturnType<typeof parseLiveControlSmokeArgs>;
+}
+
+function parseDesktopProofReportArgs(input: string[]): {
+  evidenceDir: string;
+  observationFile: string;
+  strict: boolean;
+} {
+  let evidenceDir = "";
+  let observationFile = "";
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--evidence-dir") {
+      evidenceDir = requireOptionValue(input[++index], arg);
+    } else if (arg === "--observation-file") {
+      observationFile = requireOptionValue(input[++index], arg);
+    } else if (arg === "--strict") {
+      strict = true;
+    } else {
+      throw new Error(`Unknown desktop proof-report option: ${arg}`);
+    }
+  }
+  if (!evidenceDir) throw new Error("desktop proof-report requires --evidence-dir");
+  if (!observationFile) throw new Error("desktop proof-report requires --observation-file");
+  return { evidenceDir, observationFile, strict };
 }
 
 function parseLocalMacSearchUiArgs(input: string[]): {

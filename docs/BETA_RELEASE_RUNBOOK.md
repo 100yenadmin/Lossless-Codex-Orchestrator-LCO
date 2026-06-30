@@ -149,6 +149,12 @@ That proof marker must include `operation: "desktop_gui_mutation"`,
 Diagnostic-only focus proofs such as `status_probe_only_no_action` and
 `not_measured` are not accepted for desktop GUI mutation approval.
 
+Use `loo desktop proof-report --evidence-dir <path> --observation-file <path> --strict`
+to validate a supplied backend-specific observation and write
+`desktop-gui-proof-report.json` plus `desktop-gui-approval.json`. The proof-report
+command does not run the GUI action; it only validates that the supplied
+observation is public-safe, action-bound, and no-focus.
+
 ## OpenClaw Install And Tool Declaration Smoke
 
 The local OpenClaw gateway is a first-class beta user. First run metadata-only

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -94,6 +94,84 @@ test("CLI desktop act defaults backend when the action starts immediately", () =
   assert.equal(parsed.dryRunOnly, true);
 });
 
+test("CLI desktop proof-report writes a release-compatible approval fixture for a valid live no-focus observation", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-desktop-proof-"));
+  const observationPath = join(root, "desktop-gui-observation.json");
+  writeFileSync(observationPath, `${JSON.stringify({
+    kind: "loo_desktop_gui_action_observation",
+    desktopBackend: "cua-driver",
+    targetApp: "Codex",
+    targetWindow: "Lossless OpenClaw Orchestrator",
+    action: "focus-safe noop",
+    approvalRef: "issue-117-local-fixture",
+    approved: true,
+    liveActionObserved: true,
+    focusBeforeApplication: "Codex",
+    focusAfterApplication: "Codex",
+    focusChanged: false,
+    focusProof: "cua_driver_live_no_focus_fixture_v1",
+    rawScreenshotIncluded: false,
+    rawSecretIncluded: false
+  }, null, 2)}\n`);
+
+  try {
+    const result = spawnSync(process.execPath, [
+      "--import",
+      "tsx",
+      "packages/cli/src/index.ts",
+      "desktop",
+      "proof-report",
+      "--evidence-dir",
+      root,
+      "--observation-file",
+      observationPath,
+      "--strict"
+    ], {
+      cwd: process.cwd(),
+      env: process.env,
+      encoding: "utf8"
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const parsed = JSON.parse(result.stdout) as {
+      ok?: boolean;
+      proofReady?: boolean;
+      publicSafe?: boolean;
+      approvalEvidencePath?: string;
+      blockers?: string[];
+      actionHash?: string;
+      actionsPerformed?: { desktopGuiActionRun?: boolean };
+    };
+    assert.equal(parsed.ok, true);
+    assert.equal(parsed.proofReady, true);
+    assert.equal(parsed.publicSafe, true);
+    assert.deepEqual(parsed.blockers, []);
+    assert.match(parsed.actionHash ?? "", /^[a-f0-9]{64}$/);
+    assert.equal(parsed.actionsPerformed?.desktopGuiActionRun, false);
+    assert.equal(existsSync(join(root, "desktop-gui-proof-report.json")), true);
+    assert.equal(existsSync(join(root, "desktop-gui-approval.json")), true);
+
+    const approval = JSON.parse(readFileSync(join(root, "desktop-gui-approval.json"), "utf8")) as {
+      kind?: string;
+      operation?: string;
+      actionHash?: string;
+      focusChanged?: boolean;
+      focusProof?: string;
+      rawScreenshotIncluded?: boolean;
+      rawSecretIncluded?: boolean;
+    };
+    assert.equal(approval.kind, "loo_release_operation_approval");
+    assert.equal(approval.operation, "desktop_gui_mutation");
+    assert.equal(approval.actionHash, parsed.actionHash);
+    assert.equal(approval.focusChanged, false);
+    assert.equal(approval.focusProof, "cua_driver_live_no_focus_fixture_v1");
+    assert.equal(approval.rawScreenshotIncluded, false);
+    assert.equal(approval.rawSecretIncluded, false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("MCP doctor and desktop tools expose CUA diagnostics while desktop act stays dry-run-only", async () => {
   const root = mkdtempSync(join(tmpdir(), "loo-desktop-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
@@ -150,6 +228,32 @@ test("MCP doctor and desktop tools expose CUA diagnostics while desktop act stay
     assert.equal(actResult.live, false);
     assert.equal(actResult.dryRunOnly, true);
     assert.equal(actResult.approvalRequired, true);
+
+    const proofReport = tools.find((tool) => tool.name === "loo_desktop_proof_report");
+    assert.ok(proofReport);
+    const invalidProof = await proofReport.execute({
+      observation: {
+        kind: "loo_desktop_gui_action_observation",
+        desktopBackend: "direct",
+        targetApp: "Codex",
+        targetWindow: "Lossless OpenClaw Orchestrator",
+        action: "focus-safe noop",
+        approvalRef: "issue-117-local-fixture",
+        approved: true,
+        liveActionObserved: true,
+        focusBeforeApplication: "Codex",
+        focusAfterApplication: "Codex",
+        focusChanged: false,
+        focusProof: "status_probe_only_no_action",
+        rawScreenshotIncluded: false,
+        rawSecretIncluded: false
+      }
+    }) as { ok: boolean; proofReady: boolean; blockers: string[]; approval: unknown };
+    assert.equal(invalidProof.ok, false);
+    assert.equal(invalidProof.proofReady, false);
+    assert.equal(invalidProof.approval, null);
+    assert.ok(invalidProof.blockers.includes("desktop_backend_not_gui_fallback"));
+    assert.ok(invalidProof.blockers.includes("focus_proof_diagnostic_only"));
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });

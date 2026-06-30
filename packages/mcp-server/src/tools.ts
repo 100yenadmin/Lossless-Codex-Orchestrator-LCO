@@ -23,6 +23,7 @@ import {
   LOO_COMMAND_POLICY,
   codexTransportStatus,
   createCodexControl,
+  createDesktopGuiProofReport,
   desktopActDryRun,
   desktopFallbackDiagnostics,
   desktopSee,
@@ -222,6 +223,12 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       action: optionalString(input.action),
       dryRun: input.dry_run !== false
     })),
+    tool("loo_desktop_proof_report", "Validate a supplied public-safe desktop GUI action observation and return release-compatible proof when it satisfies no-focus/action-bound gates.", {
+      observation: {
+        type: "object",
+        additionalProperties: true
+      }
+    }, (input) => createDesktopGuiProofReport(input.observation)),
     tool("loo_doctor", "Read local orchestrator health.", {}, () => ({
       ok: true,
       localOnly: true,
