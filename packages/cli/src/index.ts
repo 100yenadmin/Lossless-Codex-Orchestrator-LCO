@@ -28,6 +28,7 @@ import { runOpenClawDogfood } from "./openclaw-dogfood.js";
 import { runOpenClawToolSmoke } from "./openclaw-tool-smoke.js";
 import { createScorecardSweep } from "./scorecard-sweep.js";
 import { normalizeReleaseClaimScope, type ReleaseClaimScope } from "./release-claim-scope.js";
+import { AppServerLiveControlSmokeClient, runLiveControlSmoke } from "./live-control-smoke.js";
 
 const [, , command, ...args] = process.argv;
 
@@ -175,6 +176,29 @@ async function main() {
     console.log(createAuditStore(process.env.LOO_AUDIT_PATH || `${process.env.HOME}/.openclaw/lossless-openclaw-orchestrator/audit.jsonl`).path);
     return;
   }
+  if (command === "codex" && args[0] === "live-control-smoke") {
+    if (hasHelpFlag(args.slice(1))) {
+      printLiveControlSmokeHelp();
+      return;
+    }
+    const parsed = parseLiveControlSmokeArgs(args.slice(1));
+    const audit = createAuditStore(parsed.auditPath ?? process.env.LOO_AUDIT_PATH ?? `${process.env.HOME}/.openclaw/lossless-openclaw-orchestrator/audit.jsonl`);
+    const report = await runLiveControlSmoke({
+      client: new AppServerLiveControlSmokeClient({
+        command: parsed.codexBin ?? process.env.LOO_CODEX_BIN ?? "codex",
+        args: parsed.appServerArgs,
+        timeoutMs: parsed.timeoutMs
+      }),
+      audit,
+      evidenceDir: parsed.evidenceDir,
+      message: parsed.message,
+      threadId: parsed.threadId,
+      cwd: parsed.cwd,
+      timeoutMs: parsed.timeoutMs
+    });
+    console.log(JSON.stringify(report, null, 2));
+    return;
+  }
   if (command === "openclaw" && args[0] === "dogfood") {
     const parsed = parseOpenClawDogfoodArgs(args.slice(1));
     const report = runOpenClawDogfood(parsed);
@@ -297,6 +321,7 @@ async function main() {
     "  loo closeout dry-run [--thread-id id] [--limit n] [--include-unavailable]",
     "  loo serve",
     "  loo audit-path",
+    "  loo codex live-control-smoke --evidence-dir path [--thread-id id] [--message text] [--cwd path] [--timeout-ms ms] [--audit-path path] [--codex-bin path] [--app-server-args \"app-server --stdio\"]",
     "  loo openclaw dogfood [--dev] [--profile name] [--install-source path] [--link] [--force-install] [--evidence-path path] [--strict]",
     "  loo openclaw tool-smoke [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--thread-id id] [--expand-profile metadata|brief|evidence] [--token-budget n] [--required-tool name] [--evidence-path path] [--strict]",
     "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--strict]",
@@ -352,6 +377,62 @@ function printReleaseStatusHelp(): void {
     "Safety boundary:",
     "  The command does not publish npm, does not create a GitHub Release, does not run live Codex control, and does not perform desktop GUI mutation."
   ].join("\n"));
+}
+
+function printLiveControlSmokeHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo codex live-control-smoke --evidence-dir path [--thread-id id] [--message text] [--cwd path] [--timeout-ms ms] [--audit-path path] [--codex-bin path] [--app-server-args \"app-server --stdio\"]",
+    "",
+    "Runs one approval-gated live Codex send smoke with a harmless prompt.",
+    "",
+    "Outputs:",
+    "  approved-live-control-smoke.json",
+    "  live-control-smoke-report.json",
+    "",
+    "Safety boundary:",
+    "  The command creates a dry-run audit id first, then uses the matching approval_audit_id for live send.",
+    "  Evidence contains refs, audit ids, hashes, notification method names, and status only.",
+    "  It does not write raw prompt text, raw transcript spans, screenshots, SQLite DBs, tokens, or credentials.",
+    "  When --thread-id is omitted, it starts an ephemeral Codex thread as the disposable target."
+  ].join("\n"));
+}
+
+function parseLiveControlSmokeArgs(input: string[]): {
+  evidenceDir: string;
+  threadId?: string;
+  message?: string;
+  cwd?: string;
+  timeoutMs?: number;
+  auditPath?: string;
+  codexBin?: string;
+  appServerArgs?: string[];
+} {
+  const parsed: Partial<ReturnType<typeof parseLiveControlSmokeArgs>> = {};
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--evidence-dir") {
+      parsed.evidenceDir = requireOptionValue(input[++index], arg);
+    } else if (arg === "--thread-id") {
+      parsed.threadId = requireOptionValue(input[++index], arg);
+    } else if (arg === "--message") {
+      parsed.message = requireOptionValue(input[++index], arg);
+    } else if (arg === "--cwd") {
+      parsed.cwd = requireOptionValue(input[++index], arg);
+    } else if (arg === "--timeout-ms") {
+      parsed.timeoutMs = parsePositiveInteger(input[++index], arg, 600_000);
+    } else if (arg === "--audit-path") {
+      parsed.auditPath = requireOptionValue(input[++index], arg);
+    } else if (arg === "--codex-bin") {
+      parsed.codexBin = requireOptionValue(input[++index], arg);
+    } else if (arg === "--app-server-args") {
+      parsed.appServerArgs = requireOptionValue(input[++index], arg).split(/\s+/).filter(Boolean);
+    } else {
+      throw new Error(`Unknown codex live-control-smoke option: ${arg}`);
+    }
+  }
+  if (!parsed.evidenceDir) throw new Error("codex live-control-smoke requires --evidence-dir");
+  return parsed as ReturnType<typeof parseLiveControlSmokeArgs>;
 }
 
 function parseCloseoutDryRunArgs(input: string[]): { threadId?: string; limit?: number; includeUnavailable?: boolean } {
