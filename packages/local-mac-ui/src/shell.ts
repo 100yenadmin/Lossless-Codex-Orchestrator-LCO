@@ -275,13 +275,14 @@ function normalizeToolSource(
   const surface = source?.surface === "cli" || source?.surface === "mcp" || source?.surface === "openclaw-gateway"
     ? source.surface
     : mode === "sample" ? "sample" : "static";
-  const sourceRefs = uniqueSafeRefs(source?.sourceRefs?.length ? source.sourceRefs : fallback.copyTargets);
+  const explicitSourceRefs = source?.sourceRefs ?? [];
+  const sourceRefs = uniqueSafeRefs(mode === "live" || explicitSourceRefs.length > 0 ? explicitSourceRefs : fallback.copyTargets);
   const copiedSourceRef = source?.copyAction?.sourceRef && isSafeSourceRef(source.copyAction.sourceRef)
     ? source.copyAction.sourceRef
-    : sourceRefs[0];
+    : mode === "live" ? undefined : sourceRefs[0];
   const boundedSourceRef = source?.boundedExpansion?.sourceRef && isSafeSourceRef(source.boundedExpansion.sourceRef)
     ? source.boundedExpansion.sourceRef
-    : sourceRefs[0];
+    : mode === "live" ? undefined : sourceRefs[0];
   const boundedProfile = source?.boundedExpansion?.profile === "metadata"
     || source?.boundedExpansion?.profile === "brief"
     || source?.boundedExpansion?.profile === "evidence"
@@ -330,7 +331,11 @@ function collectLiveToolBlockers(toolSource: LocalMacSearchUiToolSource, require
   return [
     ...(toolSource.mode === "live" ? [] : ["live_tool_source_missing"]),
     ...(toolSource.surface === "cli" || toolSource.surface === "mcp" || toolSource.surface === "openclaw-gateway" ? [] : ["live_tool_surface_missing"]),
+    ...(toolSource.resultCount > 0 ? [] : ["live_tool_result_count_missing"]),
     ...(toolSource.sourceRefs.length > 0 ? [] : ["live_tool_source_refs_missing"]),
+    ...(toolSource.boundedExpansion.tokenBudget !== undefined ? [] : ["live_tool_bounded_token_budget_missing"]),
+    ...(toolSource.boundedExpansion.sourceRef ? [] : ["live_tool_bounded_source_ref_missing"]),
+    ...(toolSource.copyAction.sourceRef ? [] : ["live_tool_copy_source_ref_missing"]),
     ...missingTools.map((tool) => `live_tool_required_tool_missing:${tool}`)
   ];
 }

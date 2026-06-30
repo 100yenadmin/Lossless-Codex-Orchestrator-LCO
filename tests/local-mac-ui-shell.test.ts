@@ -142,6 +142,7 @@ test("local Mac search UI shell records live CLI tool provenance and bounded exp
         "loo_expand_query",
         "loo_codex_thread_map"
       ],
+      sourceRefs: ["codex_thread:thread-1"],
       boundedExpansion: {
         profile: "brief",
         tokenBudget: 1000,
@@ -233,6 +234,48 @@ test("local Mac search UI shell preserves metadata profile zero token budget", (
   assert.equal(shell.shellReady, true);
   assert.equal(shell.toolSource.boundedExpansion.profile, "metadata");
   assert.equal(shell.toolSource.boundedExpansion.tokenBudget, 0);
+});
+
+test("local Mac search UI shell fails closed when live proof contract fields are incomplete", () => {
+  const shell = createLocalMacSearchUiShell({
+    requireLiveToolSource: true,
+    status: {
+      platform: "darwin",
+      localDbAvailable: true,
+      openclawPluginLoaded: true,
+      availableTools: REQUIRED_LOCAL_MAC_SEARCH_UI_TOOLS
+    },
+    expansionProfile: "brief",
+    toolSource: {
+      mode: "live",
+      surface: "cli",
+      toolsCalled: [
+        "loo_search_sessions",
+        "loo_describe_session",
+        "loo_expand_query",
+        "loo_codex_thread_map"
+      ],
+      sourceRefs: ["codex_thread:thread-1"],
+      boundedExpansion: {
+        profile: "brief"
+      },
+      copyAction: {
+        publicSafe: true
+      }
+    },
+    results: [
+      {
+        title: "Incomplete live proof thread",
+        sourceRef: "codex_thread:thread-1",
+        safeSummary: "Safe summary with incomplete live proof metadata."
+      }
+    ]
+  });
+
+  assert.equal(shell.shellReady, false);
+  assert.match(shell.blockers.join("\n"), /live_tool_bounded_token_budget_missing/);
+  assert.match(shell.blockers.join("\n"), /live_tool_bounded_source_ref_missing/);
+  assert.match(shell.blockers.join("\n"), /live_tool_copy_source_ref_missing/);
 });
 
 test("local Mac search UI shell fails closed when live tool provenance is required but absent", () => {
