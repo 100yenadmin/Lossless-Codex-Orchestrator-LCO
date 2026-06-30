@@ -2,6 +2,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { runReleasePreflight, type ReleasePreflightReport } from "./release-preflight.js";
 import {
+  validateDesktopCollaborationRuntimeProof,
+  type WorkingAppRuntimeProofReport
+} from "./runtime-proof-gate.js";
+import {
   releaseClaimScopeRequiresLiveControl,
   type ReleaseClaimScope,
   type ReleaseExcludedClaim
@@ -93,6 +97,7 @@ export type ReleaseStatusReport = {
   };
   forbiddenActions: string[];
   releasePreflight: ReleasePreflightReport;
+  desktopCollaborationRuntimeProof: WorkingAppRuntimeProofReport | null;
 };
 
 export function createReleaseStatus(options: ReleaseStatusOptions): ReleaseStatusReport {
@@ -123,6 +128,9 @@ export function createReleaseStatus(options: ReleaseStatusOptions): ReleaseStatu
   const desktopGuiSatisfied = desktopGuiRequired
     ? validateReleaseOperationApprovalProof(desktopGuiApprovalEvidence, "desktop_gui_mutation", generatedAt)
     : false;
+  const desktopCollaborationRuntimeProof = desktopGuiRequired
+    ? validateDesktopCollaborationRuntimeProof(options.runtimeProofDir)
+    : null;
   const githubCiValidation = validateReleaseCheckProof(githubCiEvidence, "github_ci", candidateSha);
   const codeqlValidation = validateReleaseCheckProof(codeqlEvidence, "codeql", candidateSha);
   const explicitApprovalsRequired: ReleaseApprovalStatus[] = [
@@ -140,6 +148,9 @@ export function createReleaseStatus(options: ReleaseStatusOptions): ReleaseStatu
   if (!npmPublishSatisfied) blockers.push("npm_publish_not_approved");
   if (!githubReleaseSatisfied) blockers.push("github_release_not_approved");
   if (desktopGuiRequired && !desktopGuiSatisfied) blockers.push("desktop_gui_mutation_not_approved");
+  if (desktopGuiRequired && desktopCollaborationRuntimeProof && !desktopCollaborationRuntimeProof.ok) {
+    blockers.push(...desktopCollaborationRuntimeProof.blockers);
+  }
   if (!candidateShaSatisfied) blockers.push(candidateSha ? "candidate_sha_invalid" : "candidate_sha_missing");
   if (githubCiValidation.blocker) blockers.push(githubCiValidation.blocker);
   if (codeqlValidation.blocker) blockers.push(codeqlValidation.blocker);
@@ -168,7 +179,8 @@ export function createReleaseStatus(options: ReleaseStatusOptions): ReleaseStatu
       "live Codex control",
       "desktop GUI mutation"
     ],
-    releasePreflight
+    releasePreflight,
+    desktopCollaborationRuntimeProof
   };
 
   writeFileSync(statusManifestPath, `${JSON.stringify(report, null, 2)}\n`);
