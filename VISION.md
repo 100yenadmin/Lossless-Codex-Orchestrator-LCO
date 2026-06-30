@@ -31,7 +31,7 @@ Expected product-management workflows:
 - Expand only the few sessions that need review, using bounded 1k or 4k evidence bundles with citations and omitted markers.
 - Archive inactive sessions, fork useful sessions, and dry-run resume/steer/send actions only after the target and intent are clear.
 - Use hybrid search, such as BM25 plus vectors, query expansion, and reranking, only after fixture and local evals show better signal per token than the simpler index.
-- Provide a simple local Mac search UI through [docs/LOCAL_MAC_SEARCH_UI.md](docs/LOCAL_MAC_SEARCH_UI.md) and `local-mac-search-ui-review.json` after the CLI, MCP, and OpenClaw gateway paths prove the underlying recall loop, without rendering raw transcripts.
+- Provide a simple local Mac search UI prototype through [docs/LOCAL_MAC_SEARCH_UI.md](docs/LOCAL_MAC_SEARCH_UI.md), `loo ui local-mac-search`, and `local-mac-search-ui-review.json` after the CLI, MCP, and OpenClaw gateway paths prove the underlying recall loop, without rendering raw transcripts.
 - Offer a session sanitizer lane that scans indexed sessions for secret-like strings and produces redacted repair tasks without publishing raw local data.
 
 ## Product Shape

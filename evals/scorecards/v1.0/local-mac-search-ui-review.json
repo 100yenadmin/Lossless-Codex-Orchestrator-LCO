@@ -51,12 +51,12 @@
   "current_score": "example-not-run",
   "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-55-local-mac-ui/local-mac-search-ui-review.json",
   "known_gaps": [
-    "No local macOS app shell has been built in this issue.",
+    "The repo includes only a static prototype shell generator; no packaged macOS app shell has been produced.",
     "No signed or notarized app artifact has been produced.",
     "No live OpenClaw gateway UI smoke has been run.",
     "No CUA no-focus proof or Peekaboo snapshot safety proof has been produced.",
     "Claude Code remains a future adapter boundary, not a proved equivalent adapter."
   ],
-  "next_action": "Build a thin local shell only after CLI, MCP, and OpenClaw gateway paths prove the underlying recall loop and this scorecard has a public-safe run packet.",
+  "next_action": "Wire the prototype shell to live loo_* tool calls or a packaged macOS wrapper only after the public-safe shell packet stays clean under gateway dogfood.",
   "proof_boundary": "This advisory local public-safe beta scorecard does not prove a signed or release-ready macOS app, one-click install, Claude Code adapter parity, live Codex control, GUI mutation, or safe desktop automation."
 }

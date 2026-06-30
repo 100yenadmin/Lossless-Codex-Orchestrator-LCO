@@ -89,8 +89,8 @@ The roadmap is ranked by one question:
    raw secret evidence. See [#54](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/54).
 
 7. **Local Mac search UI**
-   Add a simple user-facing search surface after the CLI, MCP, and OpenClaw
-   gateway paths prove the API shape. See
+   Keep the static prototype shell public-safe while the packaged app and live
+   gateway wiring mature. See
    [#55](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/55).
 
 The current sprint tracker is
