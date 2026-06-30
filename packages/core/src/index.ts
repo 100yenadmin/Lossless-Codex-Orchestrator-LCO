@@ -97,6 +97,43 @@ export type SessionMetadata = {
   sourceRefs: string[];
 };
 
+export type ClaudeSessionInventoryFixture = Record<string, unknown> & {
+  sessionId?: string;
+  title?: string | null;
+  project?: string | null;
+  workspaceHint?: string | null;
+  status?: string | null;
+  safeSummary?: string | null;
+  updatedAt?: string | null;
+  sourcePath?: string | null;
+  sourceRefs?: string[];
+};
+
+export type ClaudeSessionInventoryRejected = {
+  sessionId: string | null;
+  reason: "missing_session_id" | "forbidden_fixture_field";
+  field?: string;
+};
+
+export type IndexClaudeSessionInventoryResult = {
+  indexedSessions: number;
+  rejectedSessions: ClaudeSessionInventoryRejected[];
+};
+
+export type ClaudeSessionInventoryDescription = {
+  sourceKind: "claude_session";
+  sourceRef: string;
+  sessionId: string;
+  title: string | null;
+  project: string | null;
+  workspaceHint: string | null;
+  status: string | null;
+  summary: string | null;
+  updatedAt: string | null;
+  sourcePath: string;
+  sourceRefs: string[];
+};
+
 export type CloseoutEnvelopeState = "ready" | "partial" | "unavailable";
 
 export type CloseoutEnvelopeCandidate = {
@@ -247,7 +284,7 @@ export type RecallProfile = {
 
 const SESSION_METADATA_SCHEMA_VERSION = 4;
 
-export type RecallSourceKind = "codex_thread" | "lcm_summary";
+export type RecallSourceKind = "codex_thread" | "lcm_summary" | "claude_session";
 
 export type RecallSearchResult = {
   sourceKind: RecallSourceKind;
@@ -258,6 +295,7 @@ export type RecallSearchResult = {
   score: number;
   snippet: string;
   threadId?: string;
+  sessionId?: string;
   summaryId?: string;
   conversationId?: number;
   sourcePath?: string;
@@ -271,8 +309,12 @@ export type RecallDescription = {
   updatedAt: string | null;
   sourcePath: string;
   threadId?: string;
+  sessionId?: string;
   summaryId?: string;
   conversationId?: number;
+  project?: string | null;
+  workspaceHint?: string | null;
+  status?: string | null;
   kind?: string | null;
   depth?: number | null;
   tokenCount?: number | null;
@@ -294,6 +336,7 @@ export type ExpandRecallResult = {
   tokenBudget: number;
   profile: RecallProfile;
   threadId?: string;
+  sessionId?: string;
   summaryId?: string;
   query?: string;
   matches?: RecallSearchResult[];
@@ -503,6 +546,26 @@ export function migrate(db: LooDatabase): void {
       content,
       tokenize = 'unicode61'
     );
+
+    CREATE TABLE IF NOT EXISTS claude_sessions (
+      session_id TEXT PRIMARY KEY,
+      title TEXT,
+      project TEXT,
+      workspace_hint TEXT,
+      status TEXT,
+      source_path TEXT NOT NULL,
+      updated_at TEXT,
+      safe_summary TEXT,
+      safe_text TEXT NOT NULL DEFAULT '',
+      source_refs_json TEXT NOT NULL DEFAULT '[]',
+      indexed_at TEXT NOT NULL
+    );
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS claude_safe_text_fts USING fts5(
+      session_id UNINDEXED,
+      content,
+      tokenize = 'unicode61'
+    );
   `);
   ensureColumn(db, "codex_session_metadata", "proposed_plan_refs_json", "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn(db, "codex_session_metadata", "final_message_refs_json", "TEXT NOT NULL DEFAULT '[]'");
@@ -559,6 +622,138 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
 
   result.indexedThreads = seenThreads.size;
   return result;
+}
+
+const CLAUDE_FORBIDDEN_FIXTURE_FIELDS = [
+  "rawTranscript",
+  "raw_transcript",
+  "transcript",
+  "rawPrompt",
+  "raw_prompt",
+  "prompt",
+  "messages",
+  "toolCalls",
+  "tool_calls",
+  "toolResults",
+  "tool_results",
+  "toolPayloads",
+  "tool_payloads",
+  "screenshot",
+  "screenshots",
+  "video",
+  "cookies",
+  "token",
+  "tokens",
+  "credentials",
+  "apiKey"
+] as const;
+
+export function indexClaudeSessionInventory(
+  db: LooDatabase,
+  options: { sessions: ClaudeSessionInventoryFixture[]; now?: string }
+): IndexClaudeSessionInventoryResult {
+  const now = options.now ?? new Date().toISOString();
+  const rejectedSessions: ClaudeSessionInventoryRejected[] = [];
+  const rejectedSessionIds = new Set<string>();
+  const accepted = options.sessions.flatMap((fixture) => {
+    const rawSessionId = stringOrNull(fixture.sessionId);
+    const sessionId = rawSessionId ? safeClaudeSessionId(rawSessionId) : null;
+    if (!sessionId) {
+      rejectedSessions.push({ sessionId: null, reason: "missing_session_id" });
+      return [];
+    }
+    const forbiddenField = CLAUDE_FORBIDDEN_FIXTURE_FIELDS.find((field) => Object.prototype.hasOwnProperty.call(fixture, field));
+    if (forbiddenField) {
+      rejectedSessions.push({ sessionId, reason: "forbidden_fixture_field", field: forbiddenField });
+      rejectedSessionIds.add(sessionId);
+      return [];
+    }
+    const title = safeNullableFixtureString(fixture.title);
+    const project = safeNullableFixtureString(fixture.project);
+    const workspaceHint = safeNullableFixtureString(fixture.workspaceHint);
+    const status = safeNullableFixtureString(fixture.status);
+    const safeSummary = safeNullableFixtureString(fixture.safeSummary);
+    const updatedAt = safeNullableFixtureString(fixture.updatedAt) ?? now;
+    const sourcePath = safeNullableFixtureString(fixture.sourcePath) ?? `fixture:${sessionId}`;
+    const sourceRefs = unique([
+      claudeSessionRef(sessionId),
+      ...(Array.isArray(fixture.sourceRefs) ? fixture.sourceRefs.flatMap((ref) => {
+        const normalized = normalizeClaudeSessionRef(ref);
+        return normalized ? [normalized] : [];
+      }) : [])
+    ]);
+    const safeText = [
+      title,
+      project ? `Project: ${project}` : null,
+      workspaceHint ? `Workspace: ${workspaceHint}` : null,
+      status ? `Status: ${status}` : null,
+      safeSummary,
+      sourceRefs.join(" ")
+    ].filter(Boolean).join("\n");
+    return [{
+      sessionId,
+      title,
+      project,
+      workspaceHint,
+      status,
+      safeSummary,
+      updatedAt,
+      sourcePath,
+      sourceRefs,
+      safeText
+    }];
+  });
+
+  db.exec("BEGIN");
+  try {
+    const deleteSession = db.prepare("DELETE FROM claude_sessions WHERE session_id = ?");
+    const deleteFts = db.prepare("DELETE FROM claude_safe_text_fts WHERE session_id = ?");
+    for (const sessionId of rejectedSessionIds) {
+      deleteFts.run(sessionId);
+      deleteSession.run(sessionId);
+    }
+    const upsert = db.prepare(`
+      INSERT INTO claude_sessions (
+        session_id, title, project, workspace_hint, status, source_path, updated_at,
+        safe_summary, safe_text, source_refs_json, indexed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(session_id) DO UPDATE SET
+        title = excluded.title,
+        project = excluded.project,
+        workspace_hint = excluded.workspace_hint,
+        status = excluded.status,
+        source_path = excluded.source_path,
+        updated_at = excluded.updated_at,
+        safe_summary = excluded.safe_summary,
+        safe_text = excluded.safe_text,
+        source_refs_json = excluded.source_refs_json,
+        indexed_at = excluded.indexed_at
+    `);
+    const insertFts = db.prepare("INSERT INTO claude_safe_text_fts (session_id, content) VALUES (?, ?)");
+    for (const session of accepted) {
+      upsert.run(
+        session.sessionId,
+        session.title,
+        session.project,
+        session.workspaceHint,
+        session.status,
+        session.sourcePath,
+        session.updatedAt,
+        session.safeSummary,
+        session.safeText,
+        JSON.stringify(session.sourceRefs),
+        now
+      );
+      deleteFts.run(session.sessionId);
+      insertFts.run(session.sessionId, session.safeText);
+    }
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+
+  return { indexedSessions: accepted.length, rejectedSessions };
 }
 
 function positiveLimit(value: number | undefined, fallback: number, name: string): number {
@@ -666,6 +861,57 @@ export function searchSessions(db: LooDatabase, options: { query: string; limit?
   }));
 }
 
+function searchClaudeSessions(db: LooDatabase, options: { query: string; limit?: number }): RecallSearchResult[] {
+  const query = options.query.trim();
+  if (!query) return [];
+  const limit = clamp(options.limit ?? 10, 1, 100);
+  const rows = safeFtsTerms(query).length > 0
+    ? db.prepare(`
+        SELECT s.session_id AS sessionId, s.title, s.safe_summary AS summary, s.updated_at AS updatedAt,
+          s.source_path AS sourcePath, snippet(claude_safe_text_fts, 1, '[', ']', '...', 18) AS snippet, rank AS rank
+        FROM claude_safe_text_fts
+        JOIN claude_sessions s ON s.session_id = claude_safe_text_fts.session_id
+        WHERE claude_safe_text_fts MATCH ?
+        ORDER BY rank
+        LIMIT ?
+      `).all(safeFtsTerms(query).join(" "), limit) as Array<Record<string, unknown>>
+    : [];
+
+  if (rows.length > 0) {
+    return rows.map((row, index) => ({
+      sourceKind: "claude_session",
+      sourceRef: claudeSessionRef(String(row.sessionId)),
+      sessionId: String(row.sessionId),
+      title: nullableString(row.title),
+      summary: nullableString(row.summary),
+      updatedAt: nullableString(row.updatedAt),
+      sourcePath: String(row.sourcePath ?? ""),
+      score: index + 1,
+      snippet: String(row.snippet ?? "")
+    }));
+  }
+
+  const like = `%${escapeLike(query)}%`;
+  return (db.prepare(`
+    SELECT session_id AS sessionId, title, safe_summary AS summary, updated_at AS updatedAt, source_path AS sourcePath, safe_text AS safeText
+    FROM claude_sessions
+    WHERE title LIKE ? ESCAPE '\\' OR project LIKE ? ESCAPE '\\' OR workspace_hint LIKE ? ESCAPE '\\'
+      OR status LIKE ? ESCAPE '\\' OR safe_summary LIKE ? ESCAPE '\\' OR safe_text LIKE ? ESCAPE '\\'
+    ORDER BY COALESCE(updated_at, indexed_at) DESC
+    LIMIT ?
+  `).all(like, like, like, like, like, like, limit) as Array<Record<string, unknown>>).map((row, index) => ({
+    sourceKind: "claude_session",
+    sourceRef: claudeSessionRef(String(row.sessionId)),
+    sessionId: String(row.sessionId),
+    title: nullableString(row.title),
+    summary: nullableString(row.summary),
+    updatedAt: nullableString(row.updatedAt),
+    sourcePath: String(row.sourcePath ?? ""),
+    score: index + 1,
+    snippet: createSnippet(String(row.safeText ?? ""), query)
+  }));
+}
+
 export function describeSession(db: LooDatabase, threadId: string): SessionDescription | null {
   const row = db.prepare(`
     SELECT thread_id AS threadId, title, cwd, model, branch, git_sha AS gitSha, summary, final_message AS finalMessage,
@@ -691,6 +937,52 @@ export function describeSession(db: LooDatabase, threadId: string): SessionDescr
     sourcePath: String(row.sourcePath),
     metadata: getSessionMetadata(db, threadId)
   };
+}
+
+export function describeClaudeSessionInventory(db: LooDatabase, sessionId: string): ClaudeSessionInventoryDescription | null {
+  const row = db.prepare(`
+    SELECT
+      session_id AS sessionId,
+      title,
+      project,
+      workspace_hint AS workspaceHint,
+      status,
+      safe_summary AS safeSummary,
+      updated_at AS updatedAt,
+      source_path AS sourcePath,
+      source_refs_json AS sourceRefsJson
+    FROM claude_sessions
+    WHERE session_id = ?
+  `).get(sessionId) as Record<string, unknown> | undefined;
+  if (!row) return null;
+  return {
+    sourceKind: "claude_session",
+    sourceRef: claudeSessionRef(String(row.sessionId)),
+    sessionId: String(row.sessionId),
+    title: nullableString(row.title),
+    project: nullableString(row.project),
+    workspaceHint: nullableString(row.workspaceHint),
+    status: nullableString(row.status),
+    summary: nullableString(row.safeSummary),
+    updatedAt: nullableString(row.updatedAt),
+    sourcePath: String(row.sourcePath),
+    sourceRefs: parseSourceRefsJson(row.sourceRefsJson)
+  };
+}
+
+function formatClaudeSessionInventoryMetadata(description: ClaudeSessionInventoryDescription): string {
+  return [
+    `Claude session ID: ${description.sessionId}`,
+    `Ref: ${description.sourceRef}`,
+    description.title ? `Title: ${description.title}` : null,
+    description.project ? `Project: ${description.project}` : null,
+    description.workspaceHint ? `Workspace: ${description.workspaceHint}` : null,
+    description.status ? `Status: ${description.status}` : null,
+    description.updatedAt ? `Updated: ${description.updatedAt}` : null,
+    `Source path: ${description.sourcePath}`,
+    description.sourceRefs.length ? `Source refs: ${description.sourceRefs.join(", ")}` : null,
+    "Proof boundary: read-only Claude metadata fixture inventory only; no private transcript content, live control, GUI mutation, parity, or cloud sync proof."
+  ].filter(Boolean).join("\n");
 }
 
 export function getCodexThreadMap(db: LooDatabase, options: CodexThreadMapOptions = {}): Array<{
@@ -1360,8 +1652,9 @@ export function grepRecall(db: LooDatabase, options: {
     sourceRef: codexThreadRef(match.threadId),
     threadId: match.threadId
   }));
+  const claudeMatches = searchClaudeSessions(db, { query, limit });
   const lcmMatches = searchLcmPeers(options.lcmDbPaths ?? [], query, limit);
-  const matches = [...codexMatches, ...lcmMatches].slice(0, limit).map((match, index) => ({ ...match, score: index + 1 }));
+  const matches = [...codexMatches, ...claudeMatches, ...lcmMatches].slice(0, limit).map((match, index) => ({ ...match, score: index + 1 }));
   return { query, profile, matches };
 }
 
@@ -1389,6 +1682,22 @@ export function describeRecallRef(db: LooDatabase, options: { sourceRef: string;
       metadata: description.metadata
     };
   }
+  if (parsed.kind === "claude_session") {
+    const description = describeClaudeSessionInventory(db, parsed.id);
+    if (!description) return null;
+    return {
+      sourceKind: "claude_session",
+      sourceRef: description.sourceRef,
+      title: description.title,
+      summary: description.summary,
+      updatedAt: description.updatedAt,
+      sourcePath: description.sourcePath,
+      sessionId: description.sessionId,
+      project: description.project,
+      workspaceHint: description.workspaceHint,
+      status: description.status
+    };
+  }
   const summary = getLcmSummaryByRef(options.lcmDbPaths ?? [], parsed.dbHash, parsed.id);
   if (!summary) return null;
   return lcmSummaryDescription(summary);
@@ -1403,6 +1712,23 @@ export function expandRecallRef(db: LooDatabase, options: {
   const parsed = parseSourceRef(options.sourceRef);
   if (parsed.kind === "codex_thread") {
     return expandSession(db, { threadId: parsed.id, profile: options.profile, tokenBudget: options.tokenBudget });
+  }
+  if (parsed.kind === "claude_session") {
+    const description = describeClaudeSessionInventory(db, parsed.id);
+    if (!description) throw new Error(`Unknown Claude session ref: ${options.sourceRef}`);
+    const profile = resolveRecallProfile(options.profile, options.tokenBudget);
+    const metadata = formatClaudeSessionInventoryMetadata(description);
+    const text = profile.name === "metadata"
+      ? metadata
+      : truncateByApproxTokens(`${metadata}\n\nSafe summary:\n${description.summary ?? ""}`, profile.tokenBudget);
+    return {
+      sourceKind: "claude_session",
+      sourceRef: description.sourceRef,
+      sessionId: description.sessionId,
+      text,
+      tokenBudget: profile.tokenBudget,
+      profile
+    };
   }
   const summary = getLcmSummaryByRef(options.lcmDbPaths ?? [], parsed.dbHash, parsed.id);
   if (!summary) throw new Error(`Unknown LCM summary ref: ${options.sourceRef}`);
@@ -1802,6 +2128,30 @@ function codexThreadRef(threadId: string): string {
   return `codex_thread:${threadId}`;
 }
 
+function claudeSessionRef(sessionId: string): string {
+  return `claude_session:${encodeURIComponent(sessionId)}`;
+}
+
+function safeClaudeSessionId(value: string): string {
+  const trimmed = value.trim();
+  const redacted = redactSafeString(trimmed);
+  if (trimmed && redacted === trimmed && /^[A-Za-z0-9._-]{1,96}$/.test(trimmed)) return trimmed;
+  return `claude_${stableId(trimmed).slice(0, 16)}`;
+}
+
+function normalizeClaudeSessionRef(value: unknown): string | null {
+  if (typeof value !== "string" || !value.startsWith("claude_session:")) return null;
+  const encodedId = value.slice("claude_session:".length);
+  if (!encodedId) return null;
+  let decodedId = encodedId;
+  try {
+    decodedId = decodeURIComponent(encodedId);
+  } catch {
+    decodedId = encodedId;
+  }
+  return claudeSessionRef(safeClaudeSessionId(decodedId));
+}
+
 function lcmSummaryRef(path: string, summaryId: string): string {
   return `lcm_summary:${lcmPeerHash(path)}:${encodeURIComponent(summaryId)}`;
 }
@@ -1810,11 +2160,16 @@ function lcmPeerHash(path: string): string {
   return stableId(normalizePeerPath(path)).slice(0, 12);
 }
 
-function parseSourceRef(sourceRef: string): { kind: "codex_thread"; id: string } | { kind: "lcm_summary"; dbHash: string; id: string } {
+function parseSourceRef(sourceRef: string): { kind: "codex_thread"; id: string } | { kind: "claude_session"; id: string } | { kind: "lcm_summary"; dbHash: string; id: string } {
   if (sourceRef.startsWith("codex_thread:")) {
     const id = sourceRef.slice("codex_thread:".length);
     if (!id) throw new Error("codex_thread source ref is missing thread id");
     return { kind: "codex_thread", id };
+  }
+  if (sourceRef.startsWith("claude_session:")) {
+    const id = sourceRef.slice("claude_session:".length);
+    if (!id) throw new Error("claude_session source ref is missing session id");
+    return { kind: "claude_session", id: decodeURIComponent(id) };
   }
   if (sourceRef.startsWith("lcm_summary:")) {
     const rest = sourceRef.slice("lcm_summary:".length);
@@ -2286,7 +2641,7 @@ function cleanMetadataValue(value: string): string | null {
 }
 
 function extractSourceRefs(text: string): string[] {
-  const refs = text.match(/\b(?:codex_thread|codex_event|lcm_summary):[A-Za-z0-9._:/%-]+/g) ?? [];
+  const refs = text.match(/\b(?:codex_thread|codex_event|lcm_summary|claude_session):[A-Za-z0-9._:/%-]+/g) ?? [];
   return unique(refs.map((ref) => ref.replace(/[).,"'`;]+$/, "")));
 }
 
@@ -2461,6 +2816,11 @@ function average(values: number[]): number {
 
 function nullableString(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function safeNullableFixtureString(value: unknown): string | null {
+  const raw = stringOrNull(value);
+  return raw ? redactSafeString(raw) : null;
 }
 
 function stringOrNull(value: unknown): string | null {

@@ -55,7 +55,7 @@ rediscovering state from text every time.
 | Scorecards and release proof | Beta | Public-safe scorecards and release-status commands track what is proven. |
 | QA Lab scenarios | Beta | Dry-run scenario contracts under `evals/scenarios/v1` turn orchestrator workflows into public-safe eval tasks. |
 | Working app runtime proof | Next sprint | `evals/scenarios/v1.1` and #156 track installed gateway, approved live Codex action, post-action refresh, desktop collaboration, and connected UI proof. |
-| Claude Code adapter | Stub | No Claude parity claim until the adapter is proven. |
+| Claude Code adapter | Fixture inventory | Supports redacted metadata-only fixtures with `claude_session:*` refs; no Claude parity, live control, GUI mutation, or cloud sync claim. |
 
 ## Current Sprint: Working App Proof
 
