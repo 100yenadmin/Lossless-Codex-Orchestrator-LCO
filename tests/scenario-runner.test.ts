@@ -92,6 +92,25 @@ test("scenario sweep fails closed for malformed scenarios and raw artifacts", ()
   assert.match(report.blockers.join("\n"), /raw_artifact:sqlite_database:private\.sqlite/);
 });
 
+test("scenario sweep rejects unsafe ids before writing evidence paths", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-scenario-unsafe-id-"));
+  const evidenceDir = join(root, "evidence");
+  const scenarioDir = join(root, "scenarios");
+  mkdirSync(scenarioDir, { recursive: true });
+  writeFileSync(join(scenarioDir, "unsafe.json"), `${JSON.stringify({
+    ...minimalScenario(),
+    id: "../outside"
+  }, null, 2)}\n`);
+
+  const report = createScenarioSweep({ evidenceDir, scenarioDir });
+
+  assert.equal(report.ok, false);
+  assert.equal(report.scenarios[0]?.id, "unsafe");
+  assert.equal(report.scenarios[0]?.evidencePath, join(evidenceDir, "unsafe.json"));
+  assert.match(report.blockers.join("\n"), /scenario_invalid_id:unsafe/);
+  assert.equal(existsSync(join(root, "outside.json")), false);
+});
+
 test("VISION and README document the scenario runner command", () => {
   assert.match(readFileSync("VISION.md", "utf8"), /loo eval scenarios/);
   assert.match(readFileSync("README.md", "utf8"), /loo eval scenarios/);

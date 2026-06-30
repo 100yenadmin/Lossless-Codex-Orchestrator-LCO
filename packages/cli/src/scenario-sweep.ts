@@ -190,7 +190,9 @@ function readScenarios(scenarioDir: string, evidenceDir: string): ScenarioSweepE
 function readScenario(path: string, file: string, evidenceDir: string): ScenarioSweepEntry {
   try {
     const scenario = JSON.parse(readFileSync(path, "utf8")) as ScenarioJson;
-    const id = stringValue(scenario.id) || basename(file, ".json");
+    const requestedId = stringValue(scenario.id);
+    const fallbackId = safeEvidenceStem(basename(file, ".json")) || "scenario";
+    const id = isSafeScenarioId(requestedId) ? requestedId : fallbackId;
     const allowedTools = stringArray(scenario.allowed_tools);
     const forbiddenBehaviors = stringArray(scenario.forbidden_behaviors);
     const expectedPublicSafeEvidence = stringArray(scenario.expected_public_safe_evidence);
@@ -205,7 +207,8 @@ function readScenario(path: string, file: string, evidenceDir: string): Scenario
       .filter((behavior) => !forbiddenBehaviors.includes(behavior))
       .map((behavior) => `scenario_missing_required_forbidden_behavior:${id}:${behavior}`);
     const invalidVersionBlockers = scenario.scenario_version === SCENARIO_VERSION ? [] : [`scenario_invalid_version:${id}`];
-    const blockers = [...invalidVersionBlockers, ...missingFieldBlockers, ...missingForbiddenBehaviorBlockers];
+    const invalidIdBlockers = requestedId && !isSafeScenarioId(requestedId) ? [`scenario_invalid_id:${id}`] : [];
+    const blockers = [...invalidVersionBlockers, ...invalidIdBlockers, ...missingFieldBlockers, ...missingForbiddenBehaviorBlockers];
     const entry: ScenarioSweepEntry = {
       id,
       title: stringValue(scenario.title) || id,
@@ -312,6 +315,18 @@ function uniqueStrings(values: string[]): string[] {
 
 function camelScenarioField(field: keyof ScenarioJson): string {
   return field.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase());
+}
+
+function isSafeScenarioId(value: string): boolean {
+  return /^[a-z0-9][a-z0-9._-]{0,127}$/.test(value);
+}
+
+function safeEvidenceStem(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^[._-]+|[._-]+$/g, "")
+    .slice(0, 128);
 }
 
 function scanRawEvidenceArtifacts(evidenceDir: string): RawEvidenceArtifact[] {
