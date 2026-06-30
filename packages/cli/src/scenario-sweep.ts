@@ -449,9 +449,10 @@ function validateRuntimeProof(input: {
     };
   }
 
+  const proofText = readFileSync(proofPath, "utf8");
   let proof: RuntimeProofJson;
   try {
-    proof = JSON.parse(readFileSync(proofPath, "utf8")) as RuntimeProofJson;
+    proof = JSON.parse(proofText) as RuntimeProofJson;
   } catch {
     return {
       blockers: [`runtime_proof_invalid_json:${input.id}`],
@@ -478,6 +479,7 @@ function validateRuntimeProof(input: {
     ...(proof.raw_secret_included === false ? [] : [`runtime_proof_raw_private:${input.id}:raw_secret_included`]),
     ...(proof.screenshot_included === false ? [] : [`runtime_proof_raw_private:${input.id}:screenshot_included`]),
     ...(proof.sqlite_included === false ? [] : [`runtime_proof_raw_private:${input.id}:sqlite_included`]),
+    ...(SECRET_LIKE_PATTERN.test(proofText) ? [`runtime_proof_secret_like:${input.id}`] : []),
     ...input.requiredMarkers
       .filter((marker) => markerRecord[marker] !== true)
       .map((marker) => `runtime_proof_missing:${input.id}:${marker}`),
@@ -488,7 +490,9 @@ function validateRuntimeProof(input: {
     blockers,
     proofPath,
     presentMarkers,
-    publicSafe: proof.public_safe === true && blockers.every((blocker) => !blocker.startsWith(`runtime_proof_raw_private:${input.id}`))
+    publicSafe: proof.public_safe === true && blockers.every((blocker) =>
+      !blocker.startsWith(`runtime_proof_raw_private:${input.id}`) && blocker !== `runtime_proof_secret_like:${input.id}`
+    )
   };
 }
 

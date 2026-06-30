@@ -226,6 +226,31 @@ test("loo eval scenarios accepts v1.1 runtime proof markers through the CLI", ()
   assert.equal(report.scenarios?.every((scenario) => scenario.runtimeProof?.publicSafe === true), true);
 });
 
+test("scenario sweep rejects secret-like values inside runtime proof markers", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-runtime-scenario-secret-evidence-"));
+  const runtimeProofDir = mkdtempSync(join(tmpdir(), "loo-runtime-scenario-secret-proof-"));
+  writeRuntimeProof(runtimeProofDir, "openclaw-gateway-live-codex-v1-1", {
+    installed_gateway_path: true,
+    matching_approval_audit_id: true,
+    public_safe_scan: true
+  }, { live_action_count: 1, raw_prompt_chars: 0 }, {
+    accidental_token: `npm_${"A".repeat(24)}`
+  });
+
+  const report = createScenarioSweep({
+    evidenceDir,
+    scenarioDir: join("evals", "scenarios", "v1.1"),
+    runtimeProofDir
+  });
+
+  assert.equal(report.ok, false);
+  assert.match(report.blockers.join("\n"), /runtime_proof_secret_like:openclaw-gateway-live-codex-v1-1/);
+  assert.equal(
+    report.scenarios.find((scenario) => scenario.id === "openclaw-gateway-live-codex-v1-1")?.runtimeProof?.publicSafe,
+    false
+  );
+});
+
 function minimalScenario() {
   return {
     scenario_version: "1.0",
@@ -252,7 +277,8 @@ function writeRuntimeProof(
   runtimeProofDir: string,
   scenarioId: string,
   proofMarkers: Record<string, boolean>,
-  limits: Record<string, number>
+  limits: Record<string, number>,
+  extra: Record<string, unknown> = {}
 ) {
   writeFileSync(join(runtimeProofDir, `${scenarioId}.runtime-proof.json`), `${JSON.stringify({
     kind: "loo_runtime_scenario_proof",
@@ -267,6 +293,7 @@ function writeRuntimeProof(
     raw_secret_included: false,
     screenshot_included: false,
     sqlite_included: false,
-    ...limits
+    ...limits,
+    ...extra
   }, null, 2)}\n`);
 }
