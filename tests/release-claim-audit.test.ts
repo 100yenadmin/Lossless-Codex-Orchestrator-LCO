@@ -10,6 +10,8 @@ import { runReleasePreflight } from "../packages/cli/src/release-preflight.js";
 import { createLooToolDeclarations } from "../packages/mcp-server/src/tools.js";
 
 const tsxImport = createRequire(import.meta.url).resolve("tsx");
+const packageVersion = JSON.parse(readFileSync("package.json", "utf8")).version as string;
+const releaseNotesPath = `docs/RELEASE_NOTES_${packageVersion}.md`;
 
 function read(path: string): string {
   return readFileSync(path, "utf8");
@@ -87,7 +89,7 @@ test("public beta docs include install, MCP/OpenClaw, demo, and approval-boundar
 
 test("release status examples include live-control evidence alongside release approvals", () => {
   const readme = read("README.md");
-  const releaseNotes = read("docs/RELEASE_NOTES_0.1.0-beta.0.md");
+  const releaseNotes = read(releaseNotesPath);
 
   for (const [surface, content] of [
     ["README", readme],
@@ -104,7 +106,7 @@ test("read-search-expand-dry-run release examples name the explicit claim scope 
     ["README", read("README.md")],
     ["claim audit", read("docs/CLAIM_AUDIT.md")],
     ["release runbook", read("docs/BETA_RELEASE_RUNBOOK.md")],
-    ["release notes", read("docs/RELEASE_NOTES_0.1.0-beta.0.md")]
+    ["release notes", read(releaseNotesPath)]
   ] as const;
 
   for (const [surface, content] of surfaces) {

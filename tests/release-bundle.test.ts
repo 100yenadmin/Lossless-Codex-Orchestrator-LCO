@@ -8,16 +8,19 @@ import { test } from "node:test";
 import { createReleaseBundle } from "../packages/cli/src/release-bundle.js";
 
 const tsxImport = createRequire(import.meta.url).resolve("tsx");
+const packageVersion = JSON.parse(readFileSync("package.json", "utf8")).version as string;
+const releaseNotesFile = `RELEASE_NOTES_${packageVersion}.md`;
+const releaseNotesPath = `docs/${releaseNotesFile}`;
 
 function read(path: string): string {
   return readFileSync(path, "utf8");
 }
 
 test("public beta release notes exist and preserve the proof boundary", () => {
-  assert.equal(existsSync("docs/RELEASE_NOTES_0.1.0-beta.0.md"), true, "release notes must exist before a GitHub Release");
-  const notes = read("docs/RELEASE_NOTES_0.1.0-beta.0.md");
+  assert.equal(existsSync(releaseNotesPath), true, "release notes must exist before a GitHub Release");
+  const notes = read(releaseNotesPath);
 
-  assert.match(notes, /0\.1\.0-beta\.0/);
+  assert.match(notes, new RegExp(packageVersion.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.match(notes, /local Codex sessions/i);
   assert.match(notes, /approved_live_control_smoke_missing/);
   assert.match(notes, /Claude Code.*adapter stub/i);
@@ -57,12 +60,12 @@ test("release bundle writes public-safe local artifacts without publishing", () 
   assert.equal(payload.githubReleaseCreated, false);
   assert.deepEqual(payload.blockers, ["approved_live_control_smoke_missing"]);
   assert.deepEqual(payload.rawSessionArtifacts, []);
-  assert.equal(payload.releaseNotesPath, join(evidenceDir, "RELEASE_NOTES_0.1.0-beta.0.md"));
+  assert.equal(payload.releaseNotesPath, join(evidenceDir, releaseNotesFile));
   assert.equal(payload.bundleManifestPath, join(evidenceDir, "release-bundle.json"));
-  assert.equal(existsSync(join(evidenceDir, "RELEASE_NOTES_0.1.0-beta.0.md")), true);
+  assert.equal(existsSync(join(evidenceDir, releaseNotesFile)), true);
   assert.equal(existsSync(join(evidenceDir, "release-bundle.json")), true);
 
-  const notes = read(join(evidenceDir, "RELEASE_NOTES_0.1.0-beta.0.md"));
+  const notes = read(join(evidenceDir, releaseNotesFile));
   assert.match(notes, /approved_live_control_smoke_missing/);
   assert.match(notes, /not publish to npm/i);
   assert.match(notes, /not create a GitHub Release/i);
@@ -73,7 +76,7 @@ test("release bundle writes public-safe local artifacts without publishing", () 
     artifacts?: { releaseNotes?: string; preflightManifest?: string };
   };
   assert.equal(manifest.releasePreflight?.releaseReady, false);
-  assert.equal(manifest.artifacts?.releaseNotes, "RELEASE_NOTES_0.1.0-beta.0.md");
+  assert.equal(manifest.artifacts?.releaseNotes, releaseNotesFile);
   assert.equal(manifest.artifacts?.preflightManifest, "release-preflight.json");
 });
 
