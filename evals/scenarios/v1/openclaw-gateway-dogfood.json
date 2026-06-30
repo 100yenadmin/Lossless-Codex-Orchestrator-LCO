@@ -1,0 +1,46 @@
+{
+  "scenario_version": "1.0",
+  "id": "openclaw-gateway-dogfood-v1",
+  "title": "OpenClaw gateway dogfood tool contract",
+  "claim_scope": "codex-read-search-expand-dry-run",
+  "user_task": "Verify an OpenClaw agent can load and call the required loo_* read/search/expand/dry-run tools through the installed plugin surface.",
+  "surface": "openclaw-gateway",
+  "allowed_tools": [
+    "loo_doctor",
+    "loo_search_sessions",
+    "loo_describe_session",
+    "loo_expand_query",
+    "loo_codex_plans",
+    "loo_codex_final_messages",
+    "loo_codex_thread_map",
+    "loo_codex_control_dry_run"
+  ],
+  "forbidden_behaviors": [
+    "raw_transcript_read",
+    "live_control",
+    "gui_mutation",
+    "secret_or_private_data_output"
+  ],
+  "expected_public_safe_evidence": [
+    "plugin id",
+    "tool declaration count",
+    "required tool call statuses",
+    "dry-run audit id",
+    "public-safe output scan result"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "raw prompts or transcript spans",
+    "SQLite DBs",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data"
+  ],
+  "metrics": {
+    "required_tool_count": 8,
+    "requires_all_required_tools_callable": true,
+    "requires_public_safe_evidence": true
+  },
+  "proof_boundary": "Dry-run scenario contract only; local gateway execution remains separate smoke evidence.",
+  "next_action": "Run `loo openclaw tool-smoke` through default or isolated local gateway profile."
+}

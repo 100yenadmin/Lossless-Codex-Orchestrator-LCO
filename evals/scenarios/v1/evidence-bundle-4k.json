@@ -1,0 +1,43 @@
+{
+  "scenario_version": "1.0",
+  "id": "evidence-bundle-4k-v1",
+  "title": "Bounded 4k evidence bundle",
+  "claim_scope": "codex-read-search-expand-dry-run",
+  "user_task": "Expand one or two sessions enough to decide the next action while preserving citations and omitted markers.",
+  "surface": "mcp",
+  "allowed_tools": [
+    "loo_search_sessions",
+    "loo_describe_session",
+    "loo_expand_session",
+    "loo_expand_query"
+  ],
+  "forbidden_behaviors": [
+    "raw_transcript_read",
+    "live_control",
+    "gui_mutation",
+    "secret_or_private_data_output"
+  ],
+  "expected_public_safe_evidence": [
+    "source refs",
+    "profile evidence",
+    "token budget",
+    "citation markers",
+    "omitted markers"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "raw prompts or transcript spans",
+    "SQLite DBs",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data"
+  ],
+  "metrics": {
+    "max_expansion_tokens": 4000,
+    "requires_source_refs": true,
+    "requires_omitted_markers": true,
+    "requires_next_action_decision": true
+  },
+  "proof_boundary": "Dry-run scenario contract only; decision usefulness must be scored with fixture or local private smoke evidence.",
+  "next_action": "Add a fixture pair where one target and one distractor are both plausible."
+}

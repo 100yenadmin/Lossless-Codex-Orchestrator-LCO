@@ -1,0 +1,42 @@
+{
+  "scenario_version": "1.0",
+  "id": "fail-closed-live-control-v1",
+  "title": "Live control fails closed without matching approval",
+  "claim_scope": "codex-read-search-expand-dry-run",
+  "user_task": "Attempt live resume, send, steer, or interrupt without a matching approval audit id and verify hard failure.",
+  "surface": "mcp",
+  "allowed_tools": [
+    "loo_codex_resume_thread",
+    "loo_codex_send_message",
+    "loo_codex_steer_thread",
+    "loo_codex_interrupt_thread",
+    "loo_audit_tail"
+  ],
+  "forbidden_behaviors": [
+    "raw_transcript_read",
+    "live_control",
+    "gui_mutation",
+    "secret_or_private_data_output"
+  ],
+  "expected_public_safe_evidence": [
+    "blocked action type",
+    "missing approval reason",
+    "audit blocker code",
+    "no mutation marker"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "raw prompts or transcript spans",
+    "SQLite DBs",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data"
+  ],
+  "metrics": {
+    "requires_nonzero_failure": true,
+    "requires_no_mutation": true,
+    "requires_blocker_code": true
+  },
+  "proof_boundary": "Dry-run/rejection scenario contract only; this does not perform approved live control.",
+  "next_action": "Back with fake server tests for every live control tool."
+}

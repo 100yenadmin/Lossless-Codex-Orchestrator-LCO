@@ -1,0 +1,43 @@
+{
+  "scenario_version": "1.0",
+  "id": "brief-expansion-1k-v1",
+  "title": "Bounded 1k session brief",
+  "claim_scope": "codex-read-search-expand-dry-run",
+  "user_task": "Expand one session into a 1k-token brief that keeps metadata, plans, finals, touched files, and safe summary.",
+  "surface": "mcp",
+  "allowed_tools": [
+    "loo_describe_session",
+    "loo_expand_session",
+    "loo_expand_query"
+  ],
+  "forbidden_behaviors": [
+    "raw_transcript_read",
+    "live_control",
+    "gui_mutation",
+    "secret_or_private_data_output"
+  ],
+  "expected_public_safe_evidence": [
+    "source ref",
+    "profile brief",
+    "token budget",
+    "metadata markers",
+    "omitted markers"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "raw prompts or transcript spans",
+    "SQLite DBs",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data"
+  ],
+  "metrics": {
+    "max_expansion_tokens": 1000,
+    "requires_plans": true,
+    "requires_finals": true,
+    "requires_touched_files": true,
+    "requires_omitted_markers": true
+  },
+  "proof_boundary": "Dry-run scenario contract only; token accounting and content survival must be verified by fixture evals.",
+  "next_action": "Use the existing extraction fixture and expected 1000-token expansion snapshot."
+}
