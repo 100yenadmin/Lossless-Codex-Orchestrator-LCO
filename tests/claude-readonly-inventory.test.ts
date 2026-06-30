@@ -67,6 +67,18 @@ test("Claude inventory rejects transcript-shaped fixture fields without indexing
   const root = mkdtempSync(join(tmpdir(), "loo-claude-readonly-reject-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
   try {
+    indexClaudeSessionInventory(db, {
+      sessions: [
+        {
+          sessionId: "claude-unsafe-1",
+          title: "Stale Claude fixture",
+          safeSummary: "Previously safe metadata that must be cleared on rejected re-index.",
+          updatedAt: "2026-06-30T17:24:00Z"
+        }
+      ]
+    });
+    assert.equal(grepRecall(db, { query: "Previously safe metadata", limit: 5 }).matches.length, 1);
+
     const result = indexClaudeSessionInventory(db, {
       sessions: [
         {
@@ -88,7 +100,79 @@ test("Claude inventory rejects transcript-shaped fixture fields without indexing
       }
     ]);
     assert.equal(grepRecall(db, { query: "Unsafe Claude fixture", limit: 5 }).matches.length, 0);
+    assert.equal(grepRecall(db, { query: "Previously safe metadata", limit: 5 }).matches.length, 0);
     assert.equal(describeRecallRef(db, { sourceRef: "claude_session:claude-unsafe-1" }), null);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Claude inventory rejects snake_case transcript-shaped fixture fields", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-claude-readonly-snake-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const result = indexClaudeSessionInventory(db, {
+      sessions: [
+        {
+          sessionId: "claude-snake-unsafe-1",
+          title: "Snake unsafe Claude fixture",
+          safeSummary: "This row must not be indexed.",
+          updatedAt: "2026-06-30T17:26:00Z",
+          raw_transcript: "redacted fixture generator accidentally included transcript-shaped text"
+        }
+      ]
+    });
+
+    assert.equal(result.indexedSessions, 0);
+    assert.deepEqual(result.rejectedSessions, [
+      {
+        sessionId: "claude-snake-unsafe-1",
+        reason: "forbidden_fixture_field",
+        field: "raw_transcript"
+      }
+    ]);
+    assert.equal(grepRecall(db, { query: "Snake unsafe Claude fixture", limit: 5 }).matches.length, 0);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Claude inventory hashes unsafe session ids and supplied refs before public indexing", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-claude-readonly-safe-id-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const result = indexClaudeSessionInventory(db, {
+      sessions: [
+        {
+          sessionId: "/Users/lume/private/claude-session.jsonl sk-test_1234567890",
+          title: "Unsafe identifier Claude fixture",
+          safeSummary: "Metadata-only row with unsafe source identifiers normalized before indexing.",
+          updatedAt: "2026-06-30T17:27:00Z",
+          sourceRefs: [
+            "claude_session:/Users/lume/private/source-ref sk-test_1234567890",
+            "lcm_summary:not-accepted"
+          ]
+        }
+      ]
+    });
+
+    assert.equal(result.indexedSessions, 1);
+    assert.deepEqual(result.rejectedSessions, []);
+
+    const match = grepRecall(db, { query: "unsafe source identifiers normalized", limit: 5 }).matches[0];
+    assert.equal(match?.sourceKind, "claude_session");
+    assert.match(match?.sourceRef ?? "", /^claude_session:claude_[a-f0-9]{16}$/);
+    assert.equal(match?.sourceRef.includes("/Users/lume"), false);
+    assert.equal(match?.sourceRef.includes("sk-test_1234567890"), false);
+
+    const description = describeRecallRef(db, { sourceRef: match!.sourceRef });
+    assert.match(description?.sourcePath ?? "", /^fixture:claude_[a-f0-9]{16}$/);
+    const brief = expandRecallRef(db, { sourceRef: match!.sourceRef, profile: "brief" });
+    assert.equal(brief.text.includes("/Users/lume"), false);
+    assert.equal(brief.text.includes("sk-test_1234567890"), false);
+    assert.equal(brief.text.includes("lcm_summary:not-accepted"), false);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });

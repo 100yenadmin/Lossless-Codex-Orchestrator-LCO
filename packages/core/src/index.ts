@@ -626,13 +626,18 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
 
 const CLAUDE_FORBIDDEN_FIXTURE_FIELDS = [
   "rawTranscript",
+  "raw_transcript",
   "transcript",
   "rawPrompt",
+  "raw_prompt",
   "prompt",
   "messages",
   "toolCalls",
+  "tool_calls",
   "toolResults",
+  "tool_results",
   "toolPayloads",
+  "tool_payloads",
   "screenshot",
   "screenshots",
   "video",
@@ -649,8 +654,10 @@ export function indexClaudeSessionInventory(
 ): IndexClaudeSessionInventoryResult {
   const now = options.now ?? new Date().toISOString();
   const rejectedSessions: ClaudeSessionInventoryRejected[] = [];
+  const rejectedSessionIds = new Set<string>();
   const accepted = options.sessions.flatMap((fixture) => {
-    const sessionId = stringOrNull(fixture.sessionId)?.trim() || null;
+    const rawSessionId = stringOrNull(fixture.sessionId);
+    const sessionId = rawSessionId ? safeClaudeSessionId(rawSessionId) : null;
     if (!sessionId) {
       rejectedSessions.push({ sessionId: null, reason: "missing_session_id" });
       return [];
@@ -658,6 +665,7 @@ export function indexClaudeSessionInventory(
     const forbiddenField = CLAUDE_FORBIDDEN_FIXTURE_FIELDS.find((field) => Object.prototype.hasOwnProperty.call(fixture, field));
     if (forbiddenField) {
       rejectedSessions.push({ sessionId, reason: "forbidden_fixture_field", field: forbiddenField });
+      rejectedSessionIds.add(sessionId);
       return [];
     }
     const title = safeNullableFixtureString(fixture.title);
@@ -669,7 +677,10 @@ export function indexClaudeSessionInventory(
     const sourcePath = safeNullableFixtureString(fixture.sourcePath) ?? `fixture:${sessionId}`;
     const sourceRefs = unique([
       claudeSessionRef(sessionId),
-      ...((Array.isArray(fixture.sourceRefs) ? fixture.sourceRefs : []).filter((ref): ref is string => typeof ref === "string" && ref.startsWith("claude_session:")))
+      ...(Array.isArray(fixture.sourceRefs) ? fixture.sourceRefs.flatMap((ref) => {
+        const normalized = normalizeClaudeSessionRef(ref);
+        return normalized ? [normalized] : [];
+      }) : [])
     ]);
     const safeText = [
       title,
@@ -695,6 +706,12 @@ export function indexClaudeSessionInventory(
 
   db.exec("BEGIN");
   try {
+    const deleteSession = db.prepare("DELETE FROM claude_sessions WHERE session_id = ?");
+    const deleteFts = db.prepare("DELETE FROM claude_safe_text_fts WHERE session_id = ?");
+    for (const sessionId of rejectedSessionIds) {
+      deleteFts.run(sessionId);
+      deleteSession.run(sessionId);
+    }
     const upsert = db.prepare(`
       INSERT INTO claude_sessions (
         session_id, title, project, workspace_hint, status, source_path, updated_at,
@@ -712,7 +729,6 @@ export function indexClaudeSessionInventory(
         source_refs_json = excluded.source_refs_json,
         indexed_at = excluded.indexed_at
     `);
-    const deleteFts = db.prepare("DELETE FROM claude_safe_text_fts WHERE session_id = ?");
     const insertFts = db.prepare("INSERT INTO claude_safe_text_fts (session_id, content) VALUES (?, ?)");
     for (const session of accepted) {
       upsert.run(
@@ -2114,6 +2130,26 @@ function codexThreadRef(threadId: string): string {
 
 function claudeSessionRef(sessionId: string): string {
   return `claude_session:${encodeURIComponent(sessionId)}`;
+}
+
+function safeClaudeSessionId(value: string): string {
+  const trimmed = value.trim();
+  const redacted = redactSafeString(trimmed);
+  if (trimmed && redacted === trimmed && /^[A-Za-z0-9._-]{1,96}$/.test(trimmed)) return trimmed;
+  return `claude_${stableId(trimmed).slice(0, 16)}`;
+}
+
+function normalizeClaudeSessionRef(value: unknown): string | null {
+  if (typeof value !== "string" || !value.startsWith("claude_session:")) return null;
+  const encodedId = value.slice("claude_session:".length);
+  if (!encodedId) return null;
+  let decodedId = encodedId;
+  try {
+    decodedId = decodeURIComponent(encodedId);
+  } catch {
+    decodedId = encodedId;
+  }
+  return claudeSessionRef(safeClaudeSessionId(decodedId));
 }
 
 function lcmSummaryRef(path: string, summaryId: string): string {
