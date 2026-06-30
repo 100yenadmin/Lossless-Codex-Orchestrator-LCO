@@ -6,6 +6,7 @@ export type ScenarioSweepOptions = {
   evidenceDir: string;
   scenarioDir?: string;
   runtimeProofDir?: string;
+  scenarioIds?: string[];
   now?: string;
   rootDir?: string;
 };
@@ -178,7 +179,7 @@ export function createScenarioSweep(options: ScenarioSweepOptions): ScenarioSwee
   const sourceDirForReport = scenarioDir.startsWith(`${packageRoot}/`) ? scenarioDir.slice(packageRoot.length + 1) : scenarioDir;
 
   mkdirSync(evidenceDir, { recursive: true });
-  const scenarios = readScenarios(scenarioDir, evidenceDir, runtimeProofDir);
+  const scenarios = readScenarios(scenarioDir, evidenceDir, runtimeProofDir, options.scenarioIds);
   const rawEvidenceArtifacts = scanRawEvidenceArtifacts(evidenceDir);
   const secretLikeEvidenceFindings = scanSecretLikeEvidence(evidenceDir);
   const rawArtifactBlockers = rawEvidenceArtifacts.map((artifact) => `raw_artifact:${artifact.reason}:${artifact.name}`);
@@ -228,7 +229,7 @@ export function createScenarioSweep(options: ScenarioSweepOptions): ScenarioSwee
   return report;
 }
 
-function readScenarios(scenarioDir: string, evidenceDir: string, runtimeProofDir: string | undefined): ScenarioSweepEntry[] {
+function readScenarios(scenarioDir: string, evidenceDir: string, runtimeProofDir: string | undefined, scenarioIds: string[] | undefined): ScenarioSweepEntry[] {
   if (!existsSync(scenarioDir)) {
     const entry: ScenarioSweepEntry = invalidScenarioEntry({
       id: "scenario-directory",
@@ -242,10 +243,36 @@ function readScenarios(scenarioDir: string, evidenceDir: string, runtimeProofDir
     return [entry];
   }
 
-  return readdirSync(scenarioDir)
+  const selectedIds = scenarioIds && scenarioIds.length > 0 ? new Set(scenarioIds) : null;
+  const entries = readdirSync(scenarioDir)
     .filter((file) => file.endsWith(".json"))
     .sort()
+    .filter((file) => !selectedIds || selectedIds.has(scenarioIdForFile(join(scenarioDir, file), file)))
     .map((file) => readScenario(join(scenarioDir, file), file, evidenceDir, runtimeProofDir));
+  if (!selectedIds) return entries;
+  const foundIds = new Set(entries.map((entry) => entry.id));
+  const missing = [...selectedIds].filter((id) => !foundIds.has(id));
+  return [
+    ...entries,
+    ...missing.map((id) => invalidScenarioEntry({
+      id: safeEvidenceStem(id) || "scenario-filter",
+      title: id,
+      file: id,
+      evidenceDir,
+      blockers: [`scenario_filter_missing:${id}`],
+      proofBoundary: "No scenario proof exists because the requested scenario id was not found."
+    }))
+  ];
+}
+
+function scenarioIdForFile(path: string, file: string): string {
+  try {
+    const scenario = JSON.parse(readFileSync(path, "utf8")) as ScenarioJson;
+    const requestedId = stringValue(scenario.id);
+    return isSafeScenarioId(requestedId) ? requestedId : safeEvidenceStem(basename(file, ".json")) || "scenario";
+  } catch {
+    return safeEvidenceStem(basename(file, ".json")) || "scenario";
+  }
 }
 
 function readScenario(path: string, file: string, evidenceDir: string, runtimeProofDir: string | undefined): ScenarioSweepEntry {

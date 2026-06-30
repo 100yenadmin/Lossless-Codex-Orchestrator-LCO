@@ -146,6 +146,13 @@ contracts are not satisfied by `loo eval scenarios` dry-run output alone. Issue
 `<scenario-id>.runtime-proof.json` markers for installed OpenClaw gateway proof,
 approved live Codex action proof, post-action refresh/reasoning proof, desktop
 collaboration proof when claimed, and connected local UI proof when claimed.
+Use repeated `--scenario-id` flags when a release claim intentionally covers only
+some runtime surfaces. The Codex-first working-app claim uses
+`openclaw-gateway-live-codex-v1-1` and
+`post-action-refresh-reasoning-v1-1`; add
+`desktop-collaboration-action-bound-v1-1` or
+`connected-local-ui-proof-v1-1` only when the public release copy claims those
+surfaces.
 
 Core eval scenarios:
 

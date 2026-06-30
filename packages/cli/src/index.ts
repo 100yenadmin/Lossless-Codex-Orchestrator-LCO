@@ -584,7 +584,7 @@ function printScorecardSweepHelp(): void {
 function printScenarioSweepHelp(): void {
   console.log([
     "Usage:",
-    "  loo eval scenarios --evidence-dir path [--scenario-dir path] [--runtime-proof-dir path] [--strict]",
+    "  loo eval scenarios --evidence-dir path [--scenario-dir path] [--runtime-proof-dir path] [--scenario-id id ...] [--strict]",
     "",
     "Writes public-safe QA Lab scenario scorecards for orchestrator eval tasks.",
     "",
@@ -594,6 +594,7 @@ function printScenarioSweepHelp(): void {
     "Runtime proof:",
     "  --runtime-proof-dir provides public-safe v1.1 proof marker JSON files named <scenario-id>.runtime-proof.json.",
     "  v1.1 runtime-required scenarios fail closed with runtime_proof_missing:<id>:<marker> until those proof markers exist.",
+    "  --scenario-id may be repeated to scope a runtime sweep to the explicitly claimed surfaces.",
     "",
     "Strict mode:",
     "  --strict exits non-zero when scenarios are missing, malformed, omit required forbidden behaviors, or when raw evidence artifacts are present.",
@@ -1054,10 +1055,11 @@ function parseRetrievalEvalArgs(input: string[]): { scenarioFile: string; eviden
   return { scenarioFile, evidencePath, strict };
 }
 
-function parseScenarioSweepArgs(input: string[]): { evidenceDir: string; scenarioDir?: string; runtimeProofDir?: string; strict: boolean } {
+function parseScenarioSweepArgs(input: string[]): { evidenceDir: string; scenarioDir?: string; runtimeProofDir?: string; scenarioIds?: string[]; strict: boolean } {
   let evidenceDir = "";
   let scenarioDir: string | undefined;
   let runtimeProofDir: string | undefined;
+  const scenarioIds: string[] = [];
   let strict = false;
   for (let index = 0; index < input.length; index += 1) {
     const arg = input[index]!;
@@ -1067,6 +1069,8 @@ function parseScenarioSweepArgs(input: string[]): { evidenceDir: string; scenari
       scenarioDir = requireOptionValue(input[++index], arg);
     } else if (arg === "--runtime-proof-dir") {
       runtimeProofDir = requireOptionValue(input[++index], arg);
+    } else if (arg === "--scenario-id") {
+      scenarioIds.push(requireOptionValue(input[++index], arg));
     } else if (arg === "--strict") {
       strict = true;
     } else {
@@ -1074,7 +1078,7 @@ function parseScenarioSweepArgs(input: string[]): { evidenceDir: string; scenari
     }
   }
   if (!evidenceDir) throw new Error("eval scenarios requires --evidence-dir");
-  return { evidenceDir, scenarioDir, runtimeProofDir, strict };
+  return { evidenceDir, scenarioDir, runtimeProofDir, scenarioIds: scenarioIds.length ? scenarioIds : undefined, strict };
 }
 
 function readRetrievalScenarioFile(path: string): {
