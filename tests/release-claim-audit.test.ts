@@ -17,25 +17,23 @@ function read(path: string): string {
   return readFileSync(path, "utf8");
 }
 
-test("0.1.0-beta.7 release metadata captures manifest version drift fix without widening claims", () => {
+test("0.1.0-beta.8 release metadata captures install-policy drift fix without widening claims", () => {
   const packageJson = JSON.parse(read("package.json")) as { version?: string };
   const packageLock = JSON.parse(read("package-lock.json")) as { version?: string; packages?: Record<string, { version?: string }> };
 
-  assert.equal(packageJson.version, "0.1.0-beta.7");
-  assert.equal(packageLock.version, "0.1.0-beta.7");
-  assert.equal(packageLock.packages?.[""]?.version, "0.1.0-beta.7");
-  assert.equal(existsSync("docs/RELEASE_NOTES_0.1.0-beta.7.md"), true, "0.1.0-beta.7 release notes must exist");
+  assert.equal(packageJson.version, "0.1.0-beta.8");
+  assert.equal(packageLock.version, "0.1.0-beta.8");
+  assert.equal(packageLock.packages?.[""]?.version, "0.1.0-beta.8");
+  assert.equal(existsSync("docs/RELEASE_NOTES_0.1.0-beta.8.md"), true, "0.1.0-beta.8 release notes must exist");
 
-  const releaseNotes = read("docs/RELEASE_NOTES_0.1.0-beta.7.md");
-  assert.match(releaseNotes, /OpenClaw plugin manifest version/i);
-  assert.match(releaseNotes, /0\.1\.0-beta\.1/i);
-  assert.match(releaseNotes, /0\.1\.0-beta\.7/i);
-  assert.match(releaseNotes, /published package dogfood/i);
-  assert.match(releaseNotes, /#140/i);
-  assert.match(releaseNotes, /#141/i);
-  assert.match(releaseNotes, /PR #142/i);
+  const releaseNotes = read("docs/RELEASE_NOTES_0.1.0-beta.8.md");
+  assert.match(releaseNotes, /install-policy/i);
+  assert.match(releaseNotes, /npm install -g lossless-openclaw-orchestrator@beta/i);
+  assert.match(releaseNotes, /0\.1\.0-beta\.8/i);
+  assert.match(releaseNotes, /#145/i);
+  assert.match(releaseNotes, /#146/i);
   assert.match(releaseNotes, /latest.*0\.1\.0-beta\.4/i);
-  assert.match(releaseNotes, /beta.*0\.1\.0-beta\.7/i);
+  assert.match(releaseNotes, /beta.*0\.1\.0-beta\.8/i);
   assert.match(releaseNotes, /codex-read-search-expand-dry-run/i);
   assert.match(releaseNotes, /does not run live Codex control/i);
   assert.match(releaseNotes, /does not perform desktop GUI mutation/i);
