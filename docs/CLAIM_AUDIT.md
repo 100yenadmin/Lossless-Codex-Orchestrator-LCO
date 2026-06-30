@@ -10,9 +10,11 @@ When a release candidate is scoped to read/search/describe/expand plus dry-run
 control only, use `--claim-scope codex-read-search-expand-dry-run` on release
 preflight, bundle, demo-status, and status commands. That scope must omit
 `--approved-live-control-evidence` and the generated JSON must list
-`excludedClaims` with `approved_live_control_smoke` excluded. Use the default
-`codex-live-control` scope only when the release claim includes an approved live
-Codex send/resume/steer/interrupt smoke.
+`excludedClaims` with `approved_live_control_smoke` and
+`codex_working_app_runtime_proof` excluded. Use the default `codex-live-control`
+scope only when the release claim includes an approved live Codex
+send/resume/steer/interrupt smoke but does not claim the installed gateway plus
+post-action refresh working-app loop.
 
 ## Forbidden Beta Claims
 
@@ -49,9 +51,13 @@ alone. It requires all of these public-safe proof markers:
 - evidence scan reports no raw transcript, raw prompt, SQLite, screenshot,
   token, cookie, credential, or private customer data
 
-Until #162 adds and validates a runtime-proven claim scope, public releases
-should continue using either the reduced `codex-read-search-expand-dry-run`
-scope or an explicit blocker that working-app runtime proof is incomplete.
+The `codex-working-app-proof` release claim scope is available but fail-closed.
+It requires `--runtime-proof-dir` with public-safe v1.1 proof markers named
+`openclaw-gateway-live-codex-v1-1.runtime-proof.json` and
+`post-action-refresh-reasoning-v1-1.runtime-proof.json`, plus the approved
+live-control proof marker. Without those markers, release preflight/status,
+bundle, and demo-status must report `runtime_proof_missing:*` blockers instead
+of allowing a working-app claim.
 
 ## npm dist-tag policy
 
@@ -95,8 +101,9 @@ stable version and keep beta and other prereleases on prerelease tags. Do not pu
 The only exception is an explicitly scoped read/search/expand/dry-run release
 candidate using `--claim-scope codex-read-search-expand-dry-run`. In that mode,
 the release reports must include `excludedClaims` showing
-`approved_live_control_smoke` as excluded, and public copy must not claim live
-Codex continue/steer/send/interrupt proof.
+`approved_live_control_smoke` and `codex_working_app_runtime_proof` as excluded,
+and public copy must not claim live Codex continue/steer/send/interrupt proof or
+runtime-proven installed working-app behavior.
 
 `loo release bundle` writes local draft release artifacts without publishing: `RELEASE_NOTES_<package-version>.md`, `release-preflight.json`, and `release-bundle.json`. It must record `npmPublished: false` and `githubReleaseCreated: false` until a separate explicit publish step is approved.
 

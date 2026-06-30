@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -56,6 +56,29 @@ function writeReleaseCheckProof(path: string, check: "github_ci" | "codeql", com
     warnings,
     runUrl: `https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/actions/runs/${check}`,
     rawSecretIncluded: false
+  }, null, 2)}\n`);
+}
+
+function writeRuntimeScenarioProof(
+  path: string,
+  scenarioId: "openclaw-gateway-live-codex-v1-1" | "post-action-refresh-reasoning-v1-1",
+  proofMarkers: Record<string, true>,
+  counts: Record<string, number> = {}
+): void {
+  writeFileSync(path, `${JSON.stringify({
+    kind: "loo_runtime_scenario_proof",
+    scenario_id: scenarioId,
+    scenario_version: "1.1",
+    proof_mode: "runtime_required",
+    claim_scope: "codex-working-app-proof",
+    public_safe: true,
+    proof_markers: proofMarkers,
+    raw_transcript_read: false,
+    raw_prompt_included: false,
+    raw_secret_included: false,
+    screenshot_included: false,
+    sqlite_included: false,
+    ...counts
   }, null, 2)}\n`);
 }
 
@@ -306,13 +329,111 @@ test("release status --claim-scope codex-read-search-expand-dry-run passes stric
     { id: "github_release", satisfied: true }
   ]);
   assert.deepEqual(payload.excludedClaims, [
-    { id: "approved_live_control_smoke", blockerIfClaimed: "approved_live_control_smoke_missing" }
+    { id: "approved_live_control_smoke", blockerIfClaimed: "approved_live_control_smoke_missing" },
+    { id: "codex_working_app_runtime_proof", blockerIfClaimed: "working_app_runtime_proof_missing" }
   ]);
   assert.equal(payload.releasePreflight?.claimScope, "codex-read-search-expand-dry-run");
   assert.deepEqual(payload.releasePreflight?.blockers, []);
   assert.deepEqual(payload.releasePreflight?.excludedClaims, payload.excludedClaims);
   assert.equal(payload.releasePreflight?.checks?.liveControlSmoke?.ok, false);
   assert.match(payload.releasePreflight?.checks?.liveControlSmoke?.detail ?? "", /excluded by claim scope/i);
+});
+
+test("release status --claim-scope codex-working-app-proof requires gateway and post-action runtime markers", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-status-working-app-"));
+  const runtimeProofDir = join(evidenceDir, "runtime-proof");
+  writeLiveControlProof(join(evidenceDir, "approved-live-control-smoke.json"));
+  writeReleaseOperationApprovalProof(join(evidenceDir, "npm-publish-approval.json"), "npm_publish");
+  writeReleaseOperationApprovalProof(join(evidenceDir, "github-release-approval.json"), "github_release");
+  writeReleaseCheckProof(join(evidenceDir, "github-ci.json"), "github_ci");
+  writeReleaseCheckProof(join(evidenceDir, "codeql.json"), "codeql");
+
+  const commonArgs = [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "status",
+    "--evidence-dir",
+    evidenceDir,
+    "--claim-scope",
+    "codex-working-app-proof",
+    "--approved-live-control-evidence",
+    "approved-live-control-smoke.json",
+    "--npm-publish-approval-evidence",
+    "npm-publish-approval.json",
+    "--github-release-approval-evidence",
+    "github-release-approval.json",
+    "--candidate-sha",
+    candidateSha,
+    "--github-ci-evidence",
+    "github-ci.json",
+    "--codeql-evidence",
+    "codeql.json",
+    "--strict"
+  ];
+
+  const missingRuntimeProof = spawnSync(process.execPath, commonArgs, { encoding: "utf8" });
+
+  assert.equal(missingRuntimeProof.status, 1, missingRuntimeProof.stderr || missingRuntimeProof.stdout);
+  const missingPayload = JSON.parse(missingRuntimeProof.stdout) as {
+    claimScope?: string;
+    releaseReady?: boolean;
+    blockers?: string[];
+    releasePreflight?: {
+      checks?: Record<string, { ok: boolean; detail: string }>;
+    };
+  };
+  assert.equal(missingPayload.claimScope, "codex-working-app-proof");
+  assert.equal(missingPayload.releaseReady, false);
+  assert.deepEqual(missingPayload.blockers, [
+    "runtime_proof_dir_missing",
+    "runtime_proof_missing:openclaw-gateway-live-codex-v1-1:installed_gateway_path",
+    "runtime_proof_missing:openclaw-gateway-live-codex-v1-1:matching_approval_audit_id",
+    "runtime_proof_missing:openclaw-gateway-live-codex-v1-1:public_safe_scan",
+    "runtime_proof_missing:post-action-refresh-reasoning-v1-1:agent_reasoning_note",
+    "runtime_proof_missing:post-action-refresh-reasoning-v1-1:post_action_refresh",
+    "runtime_proof_missing:post-action-refresh-reasoning-v1-1:source_refs"
+  ]);
+  assert.equal(missingPayload.releasePreflight?.checks?.workingAppRuntimeProof?.ok, false);
+  assert.match(missingPayload.releasePreflight?.checks?.workingAppRuntimeProof?.detail ?? "", /requires public-safe runtime proof markers/i);
+
+  mkdirSync(runtimeProofDir, { recursive: true });
+  writeRuntimeScenarioProof(join(runtimeProofDir, "openclaw-gateway-live-codex-v1-1.runtime-proof.json"), "openclaw-gateway-live-codex-v1-1", {
+    installed_gateway_path: true,
+    matching_approval_audit_id: true,
+    public_safe_scan: true
+  }, {
+    live_action_count: 1,
+    raw_prompt_chars: 0
+  });
+  writeRuntimeScenarioProof(join(runtimeProofDir, "post-action-refresh-reasoning-v1-1.runtime-proof.json"), "post-action-refresh-reasoning-v1-1", {
+    agent_reasoning_note: true,
+    post_action_refresh: true,
+    source_refs: true
+  }, {
+    raw_transcript_spans: 0
+  });
+
+  const ready = spawnSync(process.execPath, [
+    ...commonArgs.slice(0, -1),
+    "--runtime-proof-dir",
+    runtimeProofDir,
+    "--strict"
+  ], { encoding: "utf8" });
+
+  assert.equal(ready.status, 0, ready.stderr || ready.stdout);
+  const readyPayload = JSON.parse(ready.stdout) as {
+    releaseReady?: boolean;
+    blockers?: string[];
+    releasePreflight?: {
+      checks?: Record<string, { ok: boolean; detail: string }>;
+    };
+  };
+  assert.equal(readyPayload.releaseReady, true);
+  assert.deepEqual(readyPayload.blockers, []);
+  assert.equal(readyPayload.releasePreflight?.checks?.workingAppRuntimeProof?.ok, true);
+  assert.match(readyPayload.releasePreflight?.checks?.workingAppRuntimeProof?.detail ?? "", /2 runtime proof markers accepted/i);
 });
 
 test("release status rejects unknown claim scopes", () => {

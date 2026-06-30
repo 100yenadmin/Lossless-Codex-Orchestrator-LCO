@@ -124,14 +124,35 @@ node ./dist/packages/cli/src/index.js release status --claim-scope codex-read-se
 
 Those reports must include `claimScope:
 "codex-read-search-expand-dry-run"` and `excludedClaims` for
-`approved_live_control_smoke`. They are not proof of live Codex
-send/resume/steer/interrupt.
+`approved_live_control_smoke` and `codex_working_app_runtime_proof`. They are
+not proof of live Codex send/resume/steer/interrupt or runtime-proven installed
+working-app behavior.
+
+If the release candidate claims the Milestone 7 working-app path, use
+`codex-working-app-proof` on every release gate and pass the same
+`--runtime-proof-dir` used by the v1.1 scenario sweep:
+
+```bash
+node ./dist/packages/cli/src/index.js release preflight --claim-scope codex-working-app-proof --runtime-proof-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/runtime-proof --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --strict
+node ./dist/packages/cli/src/index.js release bundle --claim-scope codex-working-app-proof --runtime-proof-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/runtime-proof --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-bundle --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --strict
+node ./dist/packages/cli/src/index.js release demo-status --claim-scope codex-working-app-proof --runtime-proof-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/runtime-proof --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/demo --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --strict
+node ./dist/packages/cli/src/index.js release status --claim-scope codex-working-app-proof --runtime-proof-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/runtime-proof --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --candidate-sha "$release_candidate_sha" --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --npm-publish-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/npm-approval.json --github-release-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-release-approval.json --github-ci-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-ci.json --codeql-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/codeql.json --strict
+```
+
+That scope requires
+`openclaw-gateway-live-codex-v1-1.runtime-proof.json` and
+`post-action-refresh-reasoning-v1-1.runtime-proof.json`. Missing or unsafe
+markers must block with `runtime_proof_missing:*`,
+`runtime_proof_not_public_safe:*`, `runtime_proof_raw_private:*`, or
+`runtime_proof_secret_like:*`.
 
 If `--strict` fails because an approval-gated operation is intentionally missing,
 record that as a blocker rather than lowering the gate. The expected blocker
 names include:
 
 - `approved_live_control_smoke_missing`
+- `runtime_proof_dir_missing`
+- `runtime_proof_missing:<scenario-id>:<marker>`
 - `npm_publish_not_approved`
 - `github_release_not_approved`
 - `candidate_sha_missing` or `candidate_sha_invalid`

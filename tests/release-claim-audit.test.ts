@@ -443,7 +443,8 @@ test("release preflight --claim-scope codex-read-search-expand-dry-run excludes 
   assert.match(payload.checks?.liveControlSmoke?.detail ?? "", /excluded by claim scope/i);
   assert.deepEqual(payload.blockers, []);
   assert.deepEqual(payload.excludedClaims, [
-    { id: "approved_live_control_smoke", blockerIfClaimed: "approved_live_control_smoke_missing" }
+    { id: "approved_live_control_smoke", blockerIfClaimed: "approved_live_control_smoke_missing" },
+    { id: "codex_working_app_runtime_proof", blockerIfClaimed: "working_app_runtime_proof_missing" }
   ]);
 
   const manifest = JSON.parse(read(join(evidenceDir, "release-preflight.json"))) as {

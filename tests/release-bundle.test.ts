@@ -129,7 +129,8 @@ test("release bundle --claim-scope codex-read-search-expand-dry-run passes stric
   assert.equal(payload.publishReady, true);
   assert.deepEqual(payload.blockers, []);
   assert.deepEqual(payload.excludedClaims, [
-    { id: "approved_live_control_smoke", blockerIfClaimed: "approved_live_control_smoke_missing" }
+    { id: "approved_live_control_smoke", blockerIfClaimed: "approved_live_control_smoke_missing" },
+    { id: "codex_working_app_runtime_proof", blockerIfClaimed: "working_app_runtime_proof_missing" }
   ]);
   assert.equal(payload.releasePreflight?.claimScope, "codex-read-search-expand-dry-run");
   assert.deepEqual(payload.releasePreflight?.excludedClaims, payload.excludedClaims);

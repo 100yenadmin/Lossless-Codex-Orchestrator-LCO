@@ -80,7 +80,7 @@ Then validate the demo proof without performing any gated action:
 node dist/packages/cli/src/index.js release demo-status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/demo --strict
 ```
 
-`loo release demo-status` writes `release-demo-status.json`, checks for 100+ indexed sessions, plan/final search proof, two expansion proofs, dry-run control proof, raw artifact leakage, and optional approved live-control proof. It records that it did not run live Codex control, mutate a GUI, publish npm, or create a GitHub Release. Until an explicitly approved live-control smoke proof is supplied, `--strict` fails with `approved_live_control_smoke_missing`.
+`loo release demo-status` writes `release-demo-status.json`, checks for 100+ indexed sessions, plan/final search proof, two expansion proofs, dry-run control proof, raw artifact leakage, and optional approved live-control proof. It records that it did not run live Codex control, mutate a GUI, publish npm, or create a GitHub Release. Until an explicitly approved live-control smoke proof is supplied, `--strict` fails with `approved_live_control_smoke_missing`. A `codex-working-app-proof` demo-status run must also pass `--runtime-proof-dir` with the public-safe #158 and #159 v1.1 marker files; otherwise it fails closed with `runtime_proof_missing:*`.
 
 ## 6. Desktop Fallback Readiness
 

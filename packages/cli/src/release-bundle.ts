@@ -8,6 +8,7 @@ export type ReleaseBundleOptions = {
   evidenceDir: string;
   approvedLiveControlEvidence?: string;
   claimScope?: ReleaseClaimScope;
+  runtimeProofDir?: string;
   now?: string;
   rootDir?: string;
 };
@@ -44,6 +45,7 @@ export function createReleaseBundle(options: ReleaseBundleOptions): ReleaseBundl
     evidenceDir,
     approvedLiveControlEvidence: options.approvedLiveControlEvidence,
     claimScope: options.claimScope,
+    runtimeProofDir: options.runtimeProofDir,
     now: options.now,
     rootDir: packageRoot
   });

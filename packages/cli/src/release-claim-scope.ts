@@ -1,14 +1,20 @@
 export const RELEASE_CLAIM_SCOPES = [
   "codex-live-control",
-  "codex-read-search-expand-dry-run"
+  "codex-read-search-expand-dry-run",
+  "codex-working-app-proof"
 ] as const;
 
 export type ReleaseClaimScope = typeof RELEASE_CLAIM_SCOPES[number];
 
-export type ReleaseExcludedClaim = {
-  id: "approved_live_control_smoke";
-  blockerIfClaimed: "approved_live_control_smoke_missing";
-};
+export type ReleaseExcludedClaim =
+  | {
+    id: "approved_live_control_smoke";
+    blockerIfClaimed: "approved_live_control_smoke_missing";
+  }
+  | {
+    id: "codex_working_app_runtime_proof";
+    blockerIfClaimed: "working_app_runtime_proof_missing";
+  };
 
 export const DEFAULT_RELEASE_CLAIM_SCOPE: ReleaseClaimScope = "codex-live-control";
 
@@ -19,17 +25,31 @@ export function normalizeReleaseClaimScope(value: string | undefined): ReleaseCl
 }
 
 export function releaseClaimScopeRequiresLiveControl(scope: ReleaseClaimScope): boolean {
-  return scope === "codex-live-control";
+  return scope === "codex-live-control" || scope === "codex-working-app-proof";
+}
+
+export function releaseClaimScopeRequiresWorkingAppRuntimeProof(scope: ReleaseClaimScope): boolean {
+  return scope === "codex-working-app-proof";
 }
 
 export function excludedClaimsForScope(scope: ReleaseClaimScope): ReleaseExcludedClaim[] {
-  if (releaseClaimScopeRequiresLiveControl(scope)) return [];
-  return [
+  if (releaseClaimScopeRequiresWorkingAppRuntimeProof(scope)) return [];
+  const exclusions: ReleaseExcludedClaim[] = [];
+  if (!releaseClaimScopeRequiresLiveControl(scope)) {
+    exclusions.push(
+      {
+        id: "approved_live_control_smoke",
+        blockerIfClaimed: "approved_live_control_smoke_missing"
+      }
+    );
+  }
+  exclusions.push(
     {
-      id: "approved_live_control_smoke",
-      blockerIfClaimed: "approved_live_control_smoke_missing"
+      id: "codex_working_app_runtime_proof",
+      blockerIfClaimed: "working_app_runtime_proof_missing"
     }
-  ];
+  );
+  return exclusions;
 }
 
 export function liveControlExcludedDetail(scope: ReleaseClaimScope): string {

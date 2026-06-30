@@ -5,14 +5,17 @@ import {
   liveControlExcludedDetail,
   normalizeReleaseClaimScope,
   releaseClaimScopeRequiresLiveControl,
+  releaseClaimScopeRequiresWorkingAppRuntimeProof,
   type ReleaseClaimScope,
   type ReleaseExcludedClaim
 } from "./release-claim-scope.js";
+import { validateWorkingAppRuntimeProof } from "./runtime-proof-gate.js";
 
 export type ReleaseDemoStatusOptions = {
   evidenceDir: string;
   approvedLiveControlEvidence?: string;
   claimScope?: ReleaseClaimScope;
+  runtimeProofDir?: string;
   minSessions?: number;
   now?: string;
 };
@@ -84,6 +87,7 @@ export function createReleaseDemoStatus(options: ReleaseDemoStatusOptions): Rele
 
   const claimScope = normalizeReleaseClaimScope(options.claimScope);
   const liveControlRequired = releaseClaimScopeRequiresLiveControl(claimScope);
+  const workingAppRuntimeProofRequired = releaseClaimScopeRequiresWorkingAppRuntimeProof(claimScope);
   const excludedClaims = excludedClaimsForScope(claimScope);
   const minSessions = options.minSessions ?? DEFAULT_MIN_SESSIONS;
   const evidenceFiles = {
@@ -106,6 +110,9 @@ export function createReleaseDemoStatus(options: ReleaseDemoStatusOptions): Rele
   const approvedLiveControl = liveControlRequired
     ? validateApprovedLiveControlProof(evidenceFiles.approvedLiveControl)
     : { check: check(false, liveControlExcludedDetail(claimScope)), proof: null };
+  const workingAppRuntimeProof = workingAppRuntimeProofRequired
+    ? validateWorkingAppRuntimeProof(options.runtimeProofDir)
+    : null;
   const rawSessionArtifacts = scanRawDemoArtifacts(evidenceDir);
 
   const checks: Record<string, ReleaseDemoStatusCheck> = {
@@ -120,7 +127,15 @@ export function createReleaseDemoStatus(options: ReleaseDemoStatusOptions): Rele
     controlDryRun: check(Boolean(controlDryRunProof), demoReadError(controlDryRunEvidence) ?? "control dry-run evidence must include live=false, approval audit id, params hash, and message hash for send/steer"),
     rawArtifacts: check(rawSessionArtifacts.length === 0, rawSessionArtifacts.length === 0 ? "no raw session/private DB/screenshot artifacts found" : "raw/private artifacts are present in demo evidence"),
     approvedLiveControl: approvedLiveControl.check,
-    approvedLiveControlMatchesDryRun: matchApprovedLiveControlToDryRun(approvedLiveControl.proof, controlDryRunProof)
+    approvedLiveControlMatchesDryRun: matchApprovedLiveControlToDryRun(approvedLiveControl.proof, controlDryRunProof),
+    workingAppRuntimeProof: workingAppRuntimeProof
+      ? check(
+        workingAppRuntimeProof.ok,
+        workingAppRuntimeProof.ok
+          ? `${workingAppRuntimeProof.acceptedMarkerCount} runtime proof markers accepted for codex-working-app-proof`
+          : "codex-working-app-proof requires public-safe runtime proof markers for #158 and #159 via --runtime-proof-dir"
+      )
+      : check(false, "working-app runtime proof is excluded by claim scope")
   };
 
   const blockers = [
@@ -135,7 +150,8 @@ export function createReleaseDemoStatus(options: ReleaseDemoStatusOptions): Rele
     checks.controlDryRun.ok ? null : "control_dry_run_evidence_missing",
     checks.rawArtifacts.ok ? null : "raw_session_artifacts_present",
     liveControlRequired && !checks.approvedLiveControl.ok ? "approved_live_control_smoke_missing" : null,
-    checks.approvedLiveControlMatchesDryRun.ok ? null : "approved_live_control_dry_run_mismatch"
+    checks.approvedLiveControlMatchesDryRun.ok ? null : "approved_live_control_dry_run_mismatch",
+    ...(workingAppRuntimeProofRequired && workingAppRuntimeProof ? workingAppRuntimeProof.blockers : [])
   ].filter((blocker): blocker is string => blocker !== null);
 
   const demoStatusManifestPath = join(evidenceDir, "release-demo-status.json");
