@@ -136,13 +136,14 @@ test("Codex JSON-RPC client reports timeout and redacts JSON-RPC errors", async 
 test("line process transport removes timed-out waiters before later output arrives", async () => {
   const transport = new LineProcessTransport(process.execPath, [
     "-e",
-    "setTimeout(() => console.log('late-line'), 80); setTimeout(() => {}, 180);"
+    "setTimeout(() => {}, 500);"
   ], 20);
+  const pushLine = (transport as any).pushLine as (line: string | null) => void;
 
   try {
     const timedOut = await transport.readLine(Date.now() + 10);
     assert.equal(timedOut, null);
-    await delay(120);
+    pushLine.call(transport, "late-line");
     assert.equal(await transport.readLine(Date.now() + 50), "late-line");
   } finally {
     transport.close();
