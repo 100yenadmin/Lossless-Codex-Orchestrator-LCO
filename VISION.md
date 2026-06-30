@@ -110,6 +110,14 @@ For implementation issues, copy `evals/scorecards/v1.0/issue-scorecard-update-te
 
 Use small redacted fixtures for deterministic CI and local private stores only for local smoke. Do not upload private raw Codex data.
 
+Versioned QA Lab scenario contracts live under `evals/scenarios/v1/`.
+Run `loo eval scenarios --evidence-dir <path> --strict` to materialize
+public-safe dry-run scorecards for those contracts. This command validates
+scenario shape, allowed tools, forbidden behaviors, expected public-safe
+evidence, metrics, and proof boundaries; it does not execute private evals,
+read raw transcripts, run live Codex control, mutate a GUI, publish npm, or
+create a GitHub Release.
+
 Core eval scenarios:
 
 - Build a session map from 100+ local Codex sessions.

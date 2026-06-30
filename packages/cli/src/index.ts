@@ -27,6 +27,7 @@ import { createReleaseStatus } from "./release-status.js";
 import { runOpenClawDogfood } from "./openclaw-dogfood.js";
 import { runOpenClawToolSmoke } from "./openclaw-tool-smoke.js";
 import { createScorecardSweep } from "./scorecard-sweep.js";
+import { createScenarioSweep } from "./scenario-sweep.js";
 import { normalizeReleaseClaimScope, type ReleaseClaimScope } from "./release-claim-scope.js";
 import { AppServerLiveControlSmokeClient, runLiveControlSmoke } from "./live-control-smoke.js";
 import {
@@ -287,6 +288,17 @@ async function main() {
     }
     return;
   }
+  if (command === "eval" && args[0] === "scenarios") {
+    if (hasHelpFlag(args.slice(1))) {
+      printScenarioSweepHelp();
+      return;
+    }
+    const parsed = parseScenarioSweepArgs(args.slice(1));
+    const report = createScenarioSweep(parsed);
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.scenarioReady) process.exitCode = 1;
+    return;
+  }
   if (command === "release" && args[0] === "preflight") {
     const parsed = parseReleasePreflightArgs(args.slice(1));
     const report = runReleasePreflight({
@@ -365,6 +377,7 @@ async function main() {
     "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--strict]",
     "  loo ui local-mac-search --evidence-dir path [--sample] [--strict]",
     "  loo eval retrieval --scenario-file path [--evidence-path path] [--strict]",
+    "  loo eval scenarios --evidence-dir path [--scenario-dir path] [--strict]",
     "  loo release preflight [--evidence-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run] [--approved-live-control-evidence path] [--strict]",
     "  loo release bundle --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run] [--approved-live-control-evidence path] [--strict]",
     "  loo release status --evidence-dir path --candidate-sha sha [--claim-scope codex-live-control|codex-read-search-expand-dry-run] [--approved-live-control-evidence path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--github-ci-evidence path] [--codeql-evidence path] [--desktop-gui-required --desktop-gui-approval-evidence path] [--strict]",
@@ -395,6 +408,26 @@ function printScorecardSweepHelp(): void {
     "",
     "Safety boundary:",
     "  The command does not run live Codex control, does not mutate a desktop GUI, does not publish npm, and does not create a GitHub Release."
+  ].join("\n"));
+}
+
+function printScenarioSweepHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo eval scenarios --evidence-dir path [--scenario-dir path] [--strict]",
+    "",
+    "Writes public-safe QA Lab dry-run scenario scorecards for orchestrator eval tasks.",
+    "",
+    "Required:",
+    "  --evidence-dir is required and must not be the same directory as --scenario-dir.",
+    "",
+    "Strict mode:",
+    "  --strict exits non-zero when scenarios are missing, malformed, omit required forbidden behaviors, or when raw evidence artifacts are present.",
+    "  Common blockers include scenario_missing_field:<id>:<field>, scenario_missing_required_forbidden_behavior:<id>:<behavior>, and raw_artifact:<reason>:<name>.",
+    "",
+    "Safety boundary:",
+    "  The command validates dry-run scenario contracts only.",
+    "  It does not read raw Codex transcripts, run live Codex control, mutate a desktop GUI, publish npm, or create a GitHub Release."
   ].join("\n"));
 }
 
@@ -634,6 +667,26 @@ function parseRetrievalEvalArgs(input: string[]): { scenarioFile: string; eviden
   }
   if (!scenarioFile) throw new Error("eval retrieval requires --scenario-file");
   return { scenarioFile, evidencePath, strict };
+}
+
+function parseScenarioSweepArgs(input: string[]): { evidenceDir: string; scenarioDir?: string; strict: boolean } {
+  let evidenceDir = "";
+  let scenarioDir: string | undefined;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--evidence-dir") {
+      evidenceDir = requireOptionValue(input[++index], arg);
+    } else if (arg === "--scenario-dir") {
+      scenarioDir = requireOptionValue(input[++index], arg);
+    } else if (arg === "--strict") {
+      strict = true;
+    } else {
+      throw new Error(`Unknown eval scenarios option: ${arg}`);
+    }
+  }
+  if (!evidenceDir) throw new Error("eval scenarios requires --evidence-dir");
+  return { evidenceDir, scenarioDir, strict };
 }
 
 function readRetrievalScenarioFile(path: string): {

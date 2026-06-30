@@ -1,0 +1,42 @@
+{
+  "scenario_version": "1.0",
+  "id": "plan-retrieval-v1",
+  "title": "Known proposed-plan retrieval",
+  "claim_scope": "codex-read-search-expand-dry-run",
+  "user_task": "Find the session where a known proposed plan was discussed and cite the plan source ref.",
+  "surface": "openclaw-gateway",
+  "allowed_tools": [
+    "loo_search_sessions",
+    "loo_codex_plans",
+    "loo_expand_query"
+  ],
+  "forbidden_behaviors": [
+    "raw_transcript_read",
+    "live_control",
+    "gui_mutation",
+    "secret_or_private_data_output"
+  ],
+  "expected_public_safe_evidence": [
+    "query id",
+    "top-k source refs",
+    "plan presence marker",
+    "plan source refs",
+    "omitted markers"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "raw prompts or transcript spans",
+    "SQLite DBs",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data"
+  ],
+  "metrics": {
+    "top_k_hit_required": 5,
+    "max_expansion_tokens": 1000,
+    "requires_source_refs": true,
+    "requires_omitted_markers": true
+  },
+  "proof_boundary": "Dry-run scenario contract only; this does not prove live local retrieval quality.",
+  "next_action": "Back this scenario with a redacted fixture containing one target plan and distractors."
+}

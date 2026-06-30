@@ -1,0 +1,41 @@
+{
+  "scenario_version": "1.0",
+  "id": "final-message-retrieval-v1",
+  "title": "Known final-message retrieval",
+  "claim_scope": "codex-read-search-expand-dry-run",
+  "user_task": "Find the last closeout or final status message for a known work item without scanning raw JSONL.",
+  "surface": "openclaw-gateway",
+  "allowed_tools": [
+    "loo_search_sessions",
+    "loo_codex_final_messages",
+    "loo_describe_session"
+  ],
+  "forbidden_behaviors": [
+    "raw_transcript_read",
+    "live_control",
+    "gui_mutation",
+    "secret_or_private_data_output"
+  ],
+  "expected_public_safe_evidence": [
+    "query id",
+    "top-k source refs",
+    "final-message presence marker",
+    "final-message source refs",
+    "bounded summary"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "raw prompts or transcript spans",
+    "SQLite DBs",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data"
+  ],
+  "metrics": {
+    "top_k_hit_required": 5,
+    "requires_final_message_ref": true,
+    "max_raw_transcript_spans": 0
+  },
+  "proof_boundary": "Dry-run scenario contract only; fixture or local private smoke evidence must prove actual final-message accuracy.",
+  "next_action": "Pair with redacted fixture finals and distractor sessions."
+}

@@ -1,0 +1,41 @@
+{
+  "scenario_version": "1.0",
+  "id": "touched-files-accuracy-v1",
+  "title": "Touched-file accuracy with omitted counts",
+  "claim_scope": "codex-read-search-expand-dry-run",
+  "user_task": "List the files a session touched and report what was omitted when the file list is long.",
+  "surface": "mcp",
+  "allowed_tools": [
+    "loo_codex_touched_files",
+    "loo_describe_session",
+    "loo_expand_session"
+  ],
+  "forbidden_behaviors": [
+    "raw_transcript_read",
+    "live_control",
+    "gui_mutation",
+    "secret_or_private_data_output"
+  ],
+  "expected_public_safe_evidence": [
+    "source ref",
+    "visible file count",
+    "omitted file count",
+    "total indexed file count",
+    "path redaction marker if needed"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "raw prompts or transcript spans",
+    "SQLite DBs",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data"
+  ],
+  "metrics": {
+    "requires_visible_plus_omitted_equals_total": true,
+    "max_raw_local_home_paths": 0,
+    "requires_source_refs": true
+  },
+  "proof_boundary": "Dry-run scenario contract only; exact touched-file counts must be fixture-proven.",
+  "next_action": "Use a redacted fixture with many long paths and known omission counts."
+}

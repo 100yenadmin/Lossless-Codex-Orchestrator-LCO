@@ -1,0 +1,42 @@
+{
+  "scenario_version": "1.0",
+  "id": "session-map-triage-v1",
+  "title": "Session map triage across many Codex sessions",
+  "claim_scope": "codex-read-search-expand-dry-run",
+  "user_task": "Show active, blocked, stale, done, and worth-expanding Codex sessions without reading raw transcripts.",
+  "surface": "openclaw-gateway",
+  "allowed_tools": [
+    "loo_codex_thread_map",
+    "loo_search_sessions",
+    "loo_describe_session"
+  ],
+  "forbidden_behaviors": [
+    "raw_transcript_read",
+    "live_control",
+    "gui_mutation",
+    "secret_or_private_data_output"
+  ],
+  "expected_public_safe_evidence": [
+    "bounded session count",
+    "status buckets",
+    "source refs",
+    "metadata completeness counts",
+    "unknown or omitted markers"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "raw prompts or transcript spans",
+    "SQLite DBs",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data"
+  ],
+  "metrics": {
+    "min_sessions": 100,
+    "requires_status_buckets": true,
+    "requires_source_refs": true,
+    "max_raw_transcript_spans": 0
+  },
+  "proof_boundary": "Dry-run scenario contract only; live local triage quality requires fixture or local private smoke evidence.",
+  "next_action": "Run against redacted fixtures first, then a bounded local private store with counts and refs only."
+}

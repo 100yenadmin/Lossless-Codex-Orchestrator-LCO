@@ -53,6 +53,7 @@ rediscovering state from text every time.
 | Codex direct controls | Beta boundary | Resume/send/steer/interrupt are approval-gated and dry-run first. |
 | Desktop fallback | Experimental | CUA Driver and Peekaboo live behind explicit adapter and permission diagnostics. |
 | Scorecards and release proof | Beta | Public-safe scorecards and release-status commands track what is proven. |
+| QA Lab scenarios | Beta | Dry-run scenario contracts under `evals/scenarios/v1` turn orchestrator workflows into public-safe eval tasks. |
 | Claude Code adapter | Stub | No Claude parity claim until the adapter is proven. |
 
 ## Upcoming Roadmap
@@ -149,10 +150,17 @@ Scorecard and release proof commands:
 
 ```bash
 loo scorecards sweep --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-scorecard-sweep --strict
+loo eval scenarios --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-qa-lab-v1 --strict
 loo release preflight --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight
 loo release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --candidate-sha <release-candidate-sha> --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --npm-publish-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/npm-approval.json --github-release-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-release-approval.json --github-ci-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-ci.json --codeql-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/codeql.json
 loo release demo-status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/demo
 ```
+
+QA Lab scenarios live in `evals/scenarios/v1`. The `loo eval scenarios`
+command validates those dry-run contracts and writes public-safe per-scenario
+scorecards. It does not execute private local evals by itself, read raw
+transcripts, run live Codex control, mutate a GUI, publish npm, or create a
+GitHub Release.
 
 For a release candidate that intentionally claims only read/search/describe/expand
 plus dry-run control, name the smaller scope explicitly and do not pass
@@ -242,6 +250,7 @@ OpenClaw setup lives in [docs/OPENCLAW_PLUGIN.md](docs/OPENCLAW_PLUGIN.md).
 - `packages/cli`: `loo` CLI.
 - `packages/adapters`: Codex control, CUA/Peekaboo boundary, Claude Code stub.
 - `evals/scorecards/v1.0`: beta scorecards for safety, retrieval, install, claims, usability, local Mac search UI, and orchestrator leverage.
+- `evals/scenarios/v1`: QA Lab dry-run scenario contracts for session map triage, retrieval, bounded expansion, control safety, gateway dogfood, and release claims.
 - `docs/`: install, demo, privacy, safe summaries, release proof, release runbook, and public-claim boundaries.
 
 Direct Codex protocol is preferred for thread work. GUI automation is a fallback
