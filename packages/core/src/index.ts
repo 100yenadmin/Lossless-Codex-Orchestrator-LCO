@@ -1,10 +1,22 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { basename, delimiter, dirname, join, resolve } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync as NodeDatabaseSync } from "node:sqlite";
 
-export type LooDatabase = DatabaseSync;
+export type LooDatabase = NodeDatabaseSync;
+type DatabaseSyncConstructor = new (path: string, options?: { readOnly?: boolean }) => NodeDatabaseSync;
+
+const require = createRequire(import.meta.url);
+let cachedDatabaseSync: DatabaseSyncConstructor | null = null;
+
+function getDatabaseSync(): DatabaseSyncConstructor {
+  if (!cachedDatabaseSync) {
+    cachedDatabaseSync = (require("node:sqlite") as { DatabaseSync: DatabaseSyncConstructor }).DatabaseSync;
+  }
+  return cachedDatabaseSync;
+}
 
 export type IndexCodexOptions = {
   roots: string[];
@@ -361,6 +373,7 @@ const DEFAULT_CODEX_MAX_EVENTS_PER_FILE = 50_000;
 export function createDatabase(dbPath?: string): LooDatabase {
   const resolved = dbPath ?? defaultDatabasePath();
   mkdirSync(dirname(resolved), { recursive: true });
+  const DatabaseSync = getDatabaseSync();
   const db = new DatabaseSync(resolved);
   migrate(db);
   return db;
@@ -1676,6 +1689,7 @@ function probeLcmPeerDb(path: string): LcmPeerProbe {
 }
 
 function openLcmPeerDb(path: string): LooDatabase {
+  const DatabaseSync = getDatabaseSync();
   const db = new DatabaseSync(path, { readOnly: true });
   db.exec("PRAGMA query_only = ON");
   return db;
@@ -2055,6 +2069,7 @@ function probeCodexSqliteStore(path: string): CodexSqliteProbe {
   const name = basename(path).toLowerCase();
   const kind: CodexSqliteProbe["kind"] = name.startsWith("state_") ? "state" : name.startsWith("logs_") ? "logs" : "unknown";
   try {
+    const DatabaseSync = getDatabaseSync();
     const db = new DatabaseSync(path, { readOnly: true });
     try {
       db.exec("PRAGMA query_only = ON");
