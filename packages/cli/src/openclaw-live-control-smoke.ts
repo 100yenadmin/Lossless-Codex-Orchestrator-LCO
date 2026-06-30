@@ -174,7 +174,7 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
     : null;
   blockers.push(...(auditTail ? gatewayCallBlockers(auditTail, "openclaw_live_audit_tail_failed") : []));
   const auditOutput = auditTail?.parsed ? unwrapToolOutput(unwrapGatewayPayload(auditTail.parsed)) : undefined;
-  const auditRecords = collectAuditRecords(auditOutput);
+  const auditRecords = collectAuditRecords(unwrapToolDetails(auditOutput) ?? auditOutput);
   const matchingDryRunRecord = Boolean(dryRunSummary.approvalAuditId && auditRecords.some((record) =>
     record.id === dryRunSummary.approvalAuditId && record.live === false && record.paramsHash === dryRunSummary.paramsHash
   ));
