@@ -60,9 +60,10 @@
     "The repo includes only a static prototype shell generator; no packaged macOS app shell has been produced.",
     "No signed or notarized app artifact has been produced.",
     "No live OpenClaw gateway UI smoke has been run.",
-    "The proof harness and proof-report contracts exist, but no CUA no-focus live action proof or Peekaboo live action proof has been produced.",
+    "A Peekaboo scratch-window no-focus proof exists for one approved TextEdit window move; this does not prove generic GUI mutation or Codex GUI mutation.",
+    "CUA Driver no-focus live action behavior remains unproven.",
     "Claude Code remains a future adapter boundary, not a proved equivalent adapter."
   ],
   "next_action": "Wire the prototype shell to live loo_* tool calls or a packaged macOS wrapper only after the public-safe shell packet stays clean under gateway dogfood.",
-  "proof_boundary": "This advisory local public-safe beta scorecard does not prove a signed or release-ready macOS app, one-click install, Claude Code adapter parity, live Codex control, GUI mutation, or safe desktop automation."
+  "proof_boundary": "This advisory local public-safe beta scorecard records a Peekaboo scratch-window proof, not generic GUI mutation. It does not prove a signed or release-ready macOS app, one-click install, Claude Code adapter parity, live Codex control, CUA Driver no-focus behavior, or safe desktop automation."
 }

@@ -68,6 +68,9 @@ test("local Mac search UI scorecard records acceptance criteria and proof bounda
   assert.match(JSON.stringify(scorecard.pass_criteria), /priority/i);
   assert.match(JSON.stringify(scorecard.private_data_exclusions), /raw Codex transcripts/i);
   assert.match(JSON.stringify(scorecard.private_data_exclusions), /screenshots or videos/i);
+  assert.match(JSON.stringify(scorecard.known_gaps), /Peekaboo scratch.*proof/i);
+  assert.match(JSON.stringify(scorecard.known_gaps), /CUA.*unproven/i);
+  assert.match(String(scorecard.proof_boundary), /Peekaboo scratch.*not.*generic GUI mutation/i);
   assert.equal(scorecard.current_score, "example-not-run");
   assert.match(String(scorecard.proof_boundary), /does not prove a signed|release-ready macOS app/i);
 });
