@@ -218,10 +218,12 @@ test("loo eval scenarios accepts v1.1 runtime proof markers through the CLI", ()
     scenarioVersion?: string;
     scenarios?: Array<{ status?: string; runtimeProof?: { publicSafe?: boolean } }>;
     blockers?: string[];
+    nextAction?: string;
   };
   assert.equal(report.scenarioReady, true);
   assert.equal(report.scenarioVersion, "1.1");
   assert.deepEqual(report.blockers, []);
+  assert.match(String(report.nextAction), /runtime-proof-ready scenario markers/i);
   assert.equal(report.scenarios?.every((scenario) => scenario.status === "runtime_proof_ready"), true);
   assert.equal(report.scenarios?.every((scenario) => scenario.runtimeProof?.publicSafe === true), true);
 });
@@ -244,11 +246,53 @@ test("scenario sweep rejects secret-like values inside runtime proof markers", (
   });
 
   assert.equal(report.ok, false);
+  assert.equal(report.publicSafe, false);
   assert.match(report.blockers.join("\n"), /runtime_proof_secret_like:openclaw-gateway-live-codex-v1-1/);
   assert.equal(
     report.scenarios.find((scenario) => scenario.id === "openclaw-gateway-live-codex-v1-1")?.runtimeProof?.publicSafe,
     false
   );
+});
+
+test("scenario sweep scans malformed runtime proof JSON for secret-like values", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-runtime-scenario-malformed-secret-evidence-"));
+  const runtimeProofDir = mkdtempSync(join(tmpdir(), "loo-runtime-scenario-malformed-secret-proof-"));
+  writeFileSync(
+    join(runtimeProofDir, "openclaw-gateway-live-codex-v1-1.runtime-proof.json"),
+    `{ "kind": "loo_runtime_scenario_proof", "accidental_token": "npm_${"B".repeat(24)}" `
+  );
+
+  const report = createScenarioSweep({
+    evidenceDir,
+    scenarioDir: join("evals", "scenarios", "v1.1"),
+    runtimeProofDir
+  });
+
+  assert.match(report.blockers.join("\n"), /runtime_proof_invalid_json:openclaw-gateway-live-codex-v1-1/);
+  assert.match(report.blockers.join("\n"), /runtime_proof_secret_like:openclaw-gateway-live-codex-v1-1/);
+  assert.equal(
+    report.scenarios.find((scenario) => scenario.id === "openclaw-gateway-live-codex-v1-1")?.runtimeProof?.publicSafe,
+    false
+  );
+});
+
+test("scenario sweep rejects negative and fractional runtime proof count markers", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-runtime-scenario-invalid-count-evidence-"));
+  const runtimeProofDir = mkdtempSync(join(tmpdir(), "loo-runtime-scenario-invalid-count-proof-"));
+  writeRuntimeProof(runtimeProofDir, "openclaw-gateway-live-codex-v1-1", {
+    installed_gateway_path: true,
+    matching_approval_audit_id: true,
+    public_safe_scan: true
+  }, { live_action_count: -1, raw_prompt_chars: 0.5 });
+
+  const report = createScenarioSweep({
+    evidenceDir,
+    scenarioDir: join("evals", "scenarios", "v1.1"),
+    runtimeProofDir
+  });
+
+  assert.match(report.blockers.join("\n"), /runtime_proof_invalid:openclaw-gateway-live-codex-v1-1:live_action_count/);
+  assert.match(report.blockers.join("\n"), /runtime_proof_invalid:openclaw-gateway-live-codex-v1-1:raw_prompt_chars/);
 });
 
 function minimalScenario() {

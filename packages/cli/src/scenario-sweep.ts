@@ -190,10 +190,14 @@ export function createScenarioSweep(options: ScenarioSweepOptions): ScenarioSwee
     ...secretBlockers
   ];
   const sweepPath = join(evidenceDir, "scenario-sweep.json");
+  const hasRuntimeScenarios = scenarios.some((scenario) => scenario.dryRunPlan.mode === "runtime_required");
+  const runtimeProofUnsafeBlockers = scenarios.flatMap((scenario) => scenario.blockers).filter((blocker) =>
+    /^runtime_proof_(?:not_public_safe|raw_private|secret_like):/.test(blocker)
+  );
   const report: ScenarioSweepReport = {
     ok: blockers.length === 0,
     scenarioReady: blockers.length === 0,
-    publicSafe: rawEvidenceArtifacts.length === 0 && secretLikeEvidenceFindings.length === 0,
+    publicSafe: rawEvidenceArtifacts.length === 0 && secretLikeEvidenceFindings.length === 0 && runtimeProofUnsafeBlockers.length === 0,
     generatedAt: options.now ?? new Date().toISOString(),
     scenarioVersion: scenarioVersionForReport(scenarios),
     scenarioSourceDir: sourceDirForReport,
@@ -210,11 +214,13 @@ export function createScenarioSweep(options: ScenarioSweepOptions): ScenarioSwee
     secretLikeEvidenceFindings,
     blockers,
     privateDataExclusions: uniqueStrings(scenarios.flatMap((scenario) => scenario.privateDataExclusions).concat(DEFAULT_PRIVATE_DATA_EXCLUSIONS)),
-    proofBoundary: scenarios.some((scenario) => scenario.status === "runtime_proof_required" || scenario.status === "runtime_proof_ready")
+    proofBoundary: hasRuntimeScenarios
       ? "This QA Lab scenario sweep validates runtime-required working-app proof markers without performing live Codex control, mutating a GUI, publishing npm, or creating a GitHub Release."
       : "This QA Lab scenario sweep validates dry-run eval contracts only; it does not read raw transcripts, run live Codex control, mutate a GUI, publish npm, or create a GitHub Release.",
     nextAction: blockers.length === 0
-      ? "Use these dry-run-ready scenario contracts as the QA Lab task pack for fixture, CLI, MCP, and OpenClaw gateway evals."
+      ? hasRuntimeScenarios
+        ? "Use these runtime-proof-ready scenario markers as the QA Lab working-app evidence packet."
+        : "Use these dry-run-ready scenario contracts as the QA Lab task pack for fixture, CLI, MCP, and OpenClaw gateway evals."
       : "Repair malformed scenario contracts or remove unsafe evidence artifacts before using this QA Lab packet."
   };
 
@@ -450,12 +456,13 @@ function validateRuntimeProof(input: {
   }
 
   const proofText = readFileSync(proofPath, "utf8");
+  const secretLikeBlockers = SECRET_LIKE_PATTERN.test(proofText) ? [`runtime_proof_secret_like:${input.id}`] : [];
   let proof: RuntimeProofJson;
   try {
     proof = JSON.parse(proofText) as RuntimeProofJson;
   } catch {
     return {
-      blockers: [`runtime_proof_invalid_json:${input.id}`],
+      blockers: [`runtime_proof_invalid_json:${input.id}`, ...secretLikeBlockers],
       proofPath,
       presentMarkers: [],
       publicSafe: false
@@ -479,7 +486,7 @@ function validateRuntimeProof(input: {
     ...(proof.raw_secret_included === false ? [] : [`runtime_proof_raw_private:${input.id}:raw_secret_included`]),
     ...(proof.screenshot_included === false ? [] : [`runtime_proof_raw_private:${input.id}:screenshot_included`]),
     ...(proof.sqlite_included === false ? [] : [`runtime_proof_raw_private:${input.id}:sqlite_included`]),
-    ...(SECRET_LIKE_PATTERN.test(proofText) ? [`runtime_proof_secret_like:${input.id}`] : []),
+    ...secretLikeBlockers,
     ...input.requiredMarkers
       .filter((marker) => markerRecord[marker] !== true)
       .map((marker) => `runtime_proof_missing:${input.id}:${marker}`),
@@ -513,6 +520,7 @@ function runtimeLimitBlockers(id: string, metrics: Record<string, unknown>, proo
   return checks.flatMap(([field, maxValue, actualValue]) => {
     if (typeof maxValue !== "number") return [];
     if (typeof actualValue !== "number") return [`runtime_proof_missing:${id}:${field}`];
+    if (!Number.isInteger(actualValue) || actualValue < 0) return [`runtime_proof_invalid:${id}:${field}`];
     return actualValue <= maxValue ? [] : [`runtime_proof_limit_exceeded:${id}:${field}`];
   });
 }
