@@ -54,3 +54,16 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
   assert.match(readme, /VISION\.md/);
   assert.equal(packageJson.files?.includes("VISION.md"), true, "npm package must include VISION.md because README links to it");
 });
+
+test("VISION.md distinguishes 0.1.x reduced-scope RCs from expanded live-control gates", () => {
+  const vision = read("VISION.md");
+
+  assert.match(vision, /0\.1\.x/i);
+  assert.match(vision, /codex-read-search-expand-dry-run/i);
+  assert.match(vision, /live Codex control[\s\S]+excluded/i);
+  assert.match(vision, /GUI mutation[\s\S]+excluded/i);
+  assert.match(vision, /Claude parity[\s\S]+excluded/i);
+  assert.match(vision, /1\.0[\s\S]+approved live Codex control smoke/i);
+  assert.match(vision, /expanded-scope[\s\S]+live Codex control/i);
+  assert.match(vision, /npm publish[\s\S]+GitHub Release[\s\S]+explicit/i);
+});
