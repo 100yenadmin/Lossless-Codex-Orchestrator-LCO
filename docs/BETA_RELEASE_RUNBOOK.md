@@ -35,10 +35,10 @@ Use this cadence for beta work:
 
 Recommended naming:
 
-- Branch: `release/0.1.0-beta.0`
-- Tag: `v0.1.0-beta.0`
+- Branch: `release/0.1.0-beta.1`
+- Tag: `v0.1.0-beta.1`
 - Evidence slug:
-  `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-0.1.0-beta.0-rc`
+  `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-0.1.0-beta.1-rc`
 
 ## Release Context Freshness Scan
 

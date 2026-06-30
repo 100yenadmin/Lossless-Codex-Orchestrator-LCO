@@ -101,7 +101,7 @@ test("Codex JSON-RPC client initializes, sends initialized notification, buffers
       id: 1,
       method: "initialize",
       params: {
-        clientInfo: { name: "lossless-openclaw-orchestrator", title: "Lossless OpenClaw Orchestrator", version: "0.1.0-beta.0" },
+        clientInfo: { name: "lossless-openclaw-orchestrator", title: "Lossless OpenClaw Orchestrator", version: "0.1.0-beta.1" },
         capabilities: { experimentalApi: true, requestAttestation: false, optOutNotificationMethods: [] }
       }
     },
@@ -201,7 +201,7 @@ test("JSON-RPC policy blocks forbidden methods before sending transport requests
       id: 1,
       method: "initialize",
       params: {
-        clientInfo: { name: "lossless-openclaw-orchestrator", title: "Lossless OpenClaw Orchestrator", version: "0.1.0-beta.0" },
+        clientInfo: { name: "lossless-openclaw-orchestrator", title: "Lossless OpenClaw Orchestrator", version: "0.1.0-beta.1" },
         capabilities: { experimentalApi: true, requestAttestation: false, optOutNotificationMethods: [] }
       }
     },
