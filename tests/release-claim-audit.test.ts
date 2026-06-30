@@ -99,6 +99,25 @@ test("release status examples include live-control evidence alongside release ap
   }
 });
 
+test("read-search-expand-dry-run release examples name the explicit claim scope before omitting live-control proof", () => {
+  const surfaces = [
+    ["README", read("README.md")],
+    ["claim audit", read("docs/CLAIM_AUDIT.md")],
+    ["release runbook", read("docs/BETA_RELEASE_RUNBOOK.md")],
+    ["release notes", read("docs/RELEASE_NOTES_0.1.0-beta.0.md")]
+  ] as const;
+
+  for (const [surface, content] of surfaces) {
+    assert.match(content, /codex-read-search-expand-dry-run/i, `${surface} must name the read/search/expand/dry-run claim scope`);
+    assert.match(content, /--claim-scope\s+codex-read-search-expand-dry-run/i, `${surface} must show the explicit claim-scope flag`);
+  }
+  assert.match(read("README.md"), /loo release bundle[^\n]+--claim-scope\s+codex-read-search-expand-dry-run/i);
+
+  const claimAudit = read("docs/CLAIM_AUDIT.md");
+  assert.match(claimAudit, /excludedClaims/i);
+  assert.match(claimAudit, /approved_live_control_smoke[\s\S]*excluded/i);
+});
+
 test("release workflows use non-deprecated action majors", () => {
   const ciWorkflow = read(".github/workflows/ci.yml");
   const codeqlWorkflow = read(".github/workflows/codeql.yml");
@@ -322,6 +341,47 @@ test("release preflight writes a public-safe artifact manifest without hiding li
     "bypasses Codex permissions",
     "release-grade enterprise security"
   ]);
+});
+
+test("release preflight --claim-scope codex-read-search-expand-dry-run excludes live-control proof without hiding the boundary", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-read-scope-"));
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "preflight",
+    "--evidence-dir",
+    evidenceDir,
+    "--claim-scope",
+    "codex-read-search-expand-dry-run",
+    "--strict"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as {
+    claimScope?: string;
+    releaseReady?: boolean;
+    checks?: Record<string, { ok: boolean; detail: string }>;
+    blockers?: string[];
+    excludedClaims?: Array<{ id: string; blockerIfClaimed: string }>;
+  };
+
+  assert.equal(payload.claimScope, "codex-read-search-expand-dry-run");
+  assert.equal(payload.releaseReady, true);
+  assert.equal(payload.checks?.liveControlSmoke?.ok, false);
+  assert.match(payload.checks?.liveControlSmoke?.detail ?? "", /excluded by claim scope/i);
+  assert.deepEqual(payload.blockers, []);
+  assert.deepEqual(payload.excludedClaims, [
+    { id: "approved_live_control_smoke", blockerIfClaimed: "approved_live_control_smoke_missing" }
+  ]);
+
+  const manifest = JSON.parse(read(join(evidenceDir, "release-preflight.json"))) as {
+    claimScope?: string;
+    excludedClaims?: Array<{ id: string; blockerIfClaimed: string }>;
+  };
+  assert.equal(manifest.claimScope, "codex-read-search-expand-dry-run");
+  assert.deepEqual(manifest.excludedClaims, payload.excludedClaims);
 });
 
 test("release preflight only clears live-control blocker for structured approval-smoke proof", () => {

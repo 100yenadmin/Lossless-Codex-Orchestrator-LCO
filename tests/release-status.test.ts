@@ -245,6 +245,101 @@ test("release status --strict passes with exact-sha CI and CodeQL proofs without
   });
 });
 
+test("release status --claim-scope codex-read-search-expand-dry-run passes strict without live-control proof", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-status-read-scope-"));
+  writeReleaseOperationApprovalProof(join(evidenceDir, "npm-publish-approval.json"), "npm_publish");
+  writeReleaseOperationApprovalProof(join(evidenceDir, "github-release-approval.json"), "github_release");
+  writeReleaseCheckProof(join(evidenceDir, "github-ci.json"), "github_ci");
+  writeReleaseCheckProof(join(evidenceDir, "codeql.json"), "codeql");
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "status",
+    "--evidence-dir",
+    evidenceDir,
+    "--claim-scope",
+    "codex-read-search-expand-dry-run",
+    "--npm-publish-approval-evidence",
+    "npm-publish-approval.json",
+    "--github-release-approval-evidence",
+    "github-release-approval.json",
+    "--candidate-sha",
+    candidateSha,
+    "--github-ci-evidence",
+    "github-ci.json",
+    "--codeql-evidence",
+    "codeql.json",
+    "--strict"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as {
+    claimScope?: string;
+    releaseReady?: boolean;
+    blockers?: string[];
+    excludedClaims?: Array<{ id: string; blockerIfClaimed: string }>;
+    explicitApprovalsRequired?: Array<{ id: string; satisfied: boolean }>;
+    releasePreflight?: {
+      claimScope?: string;
+      blockers?: string[];
+      excludedClaims?: Array<{ id: string; blockerIfClaimed: string }>;
+      checks?: Record<string, { ok: boolean; detail: string }>;
+    };
+  };
+
+  assert.equal(payload.claimScope, "codex-read-search-expand-dry-run");
+  assert.equal(payload.releaseReady, true);
+  assert.deepEqual(payload.blockers, []);
+  assert.deepEqual(payload.explicitApprovalsRequired, [
+    { id: "npm_publish", satisfied: true },
+    { id: "github_release", satisfied: true }
+  ]);
+  assert.deepEqual(payload.excludedClaims, [
+    { id: "approved_live_control_smoke", blockerIfClaimed: "approved_live_control_smoke_missing" }
+  ]);
+  assert.equal(payload.releasePreflight?.claimScope, "codex-read-search-expand-dry-run");
+  assert.deepEqual(payload.releasePreflight?.blockers, []);
+  assert.deepEqual(payload.releasePreflight?.excludedClaims, payload.excludedClaims);
+  assert.equal(payload.releasePreflight?.checks?.liveControlSmoke?.ok, false);
+  assert.match(payload.releasePreflight?.checks?.liveControlSmoke?.detail ?? "", /excluded by claim scope/i);
+});
+
+test("release status rejects unknown claim scopes", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-status-unknown-scope-"));
+  writeReleaseOperationApprovalProof(join(evidenceDir, "npm-publish-approval.json"), "npm_publish");
+  writeReleaseOperationApprovalProof(join(evidenceDir, "github-release-approval.json"), "github_release");
+  writeReleaseCheckProof(join(evidenceDir, "github-ci.json"), "github_ci");
+  writeReleaseCheckProof(join(evidenceDir, "codeql.json"), "codeql");
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "status",
+    "--evidence-dir",
+    evidenceDir,
+    "--npm-publish-approval-evidence",
+    "npm-publish-approval.json",
+    "--github-release-approval-evidence",
+    "github-release-approval.json",
+    "--candidate-sha",
+    candidateSha,
+    "--github-ci-evidence",
+    "github-ci.json",
+    "--codeql-evidence",
+    "codeql.json",
+    "--claim-scope",
+    "codex-everything-everywhere",
+    "--strict"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.match(result.stderr, /Unknown release claim scope: codex-everything-everywhere/);
+});
+
 test("release status --strict requires GUI target details only when GUI mutation is planned", () => {
   const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-status-gui-required-"));
   const liveControlProof = join(evidenceDir, "approved-live-control-smoke.json");

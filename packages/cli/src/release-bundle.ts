@@ -2,10 +2,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { runReleasePreflight, type ReleasePreflightReport } from "./release-preflight.js";
+import type { ReleaseClaimScope, ReleaseExcludedClaim } from "./release-claim-scope.js";
 
 export type ReleaseBundleOptions = {
   evidenceDir: string;
   approvedLiveControlEvidence?: string;
+  claimScope?: ReleaseClaimScope;
   now?: string;
   rootDir?: string;
 };
@@ -14,6 +16,8 @@ export type ReleaseBundleReport = {
   ok: boolean;
   publishReady: boolean;
   generatedAt: string;
+  claimScope: ReleaseClaimScope;
+  excludedClaims: ReleaseExcludedClaim[];
   packageName: string | null;
   packageVersion: string | null;
   npmPublished: false;
@@ -39,6 +43,7 @@ export function createReleaseBundle(options: ReleaseBundleOptions): ReleaseBundl
   const preflight = runReleasePreflight({
     evidenceDir,
     approvedLiveControlEvidence: options.approvedLiveControlEvidence,
+    claimScope: options.claimScope,
     now: options.now,
     rootDir: packageRoot
   });
@@ -59,6 +64,8 @@ export function createReleaseBundle(options: ReleaseBundleOptions): ReleaseBundl
     ok: preflight.ok,
     publishReady: preflight.releaseReady,
     generatedAt: options.now ?? new Date().toISOString(),
+    claimScope: preflight.claimScope,
+    excludedClaims: preflight.excludedClaims,
     packageName: preflight.packageName,
     packageVersion: preflight.packageVersion,
     npmPublished: false,

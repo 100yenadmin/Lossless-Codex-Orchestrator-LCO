@@ -27,6 +27,7 @@ import { createReleaseStatus } from "./release-status.js";
 import { runOpenClawDogfood } from "./openclaw-dogfood.js";
 import { runOpenClawToolSmoke } from "./openclaw-tool-smoke.js";
 import { createScorecardSweep } from "./scorecard-sweep.js";
+import { normalizeReleaseClaimScope, type ReleaseClaimScope } from "./release-claim-scope.js";
 
 const [, , command, ...args] = process.argv;
 
@@ -228,7 +229,8 @@ async function main() {
     const parsed = parseReleasePreflightArgs(args.slice(1));
     const report = runReleasePreflight({
       evidenceDir: parsed.evidenceDir,
-      approvedLiveControlEvidence: parsed.approvedLiveControlEvidence
+      approvedLiveControlEvidence: parsed.approvedLiveControlEvidence,
+      claimScope: parsed.claimScope
     });
     console.log(JSON.stringify(report, null, 2));
     if (parsed.strict && !report.releaseReady) process.exitCode = 1;
@@ -238,7 +240,8 @@ async function main() {
     const parsed = parseReleaseBundleArgs(args.slice(1));
     const report = createReleaseBundle({
       evidenceDir: parsed.evidenceDir,
-      approvedLiveControlEvidence: parsed.approvedLiveControlEvidence
+      approvedLiveControlEvidence: parsed.approvedLiveControlEvidence,
+      claimScope: parsed.claimScope
     });
     console.log(JSON.stringify(report, null, 2));
     if (parsed.strict && !report.publishReady) process.exitCode = 1;
@@ -254,6 +257,7 @@ async function main() {
       evidenceDir: parsed.evidenceDir,
       candidateSha: parsed.candidateSha,
       approvedLiveControlEvidence: parsed.approvedLiveControlEvidence,
+      claimScope: parsed.claimScope,
       npmPublishApprovalEvidence: parsed.npmPublishApprovalEvidence,
       githubReleaseApprovalEvidence: parsed.githubReleaseApprovalEvidence,
       desktopGuiApprovalEvidence: parsed.desktopGuiApprovalEvidence,
@@ -270,6 +274,7 @@ async function main() {
     const report = createReleaseDemoStatus({
       evidenceDir: parsed.evidenceDir,
       approvedLiveControlEvidence: parsed.approvedLiveControlEvidence,
+      claimScope: parsed.claimScope,
       minSessions: parsed.minSessions
     });
     console.log(JSON.stringify(report, null, 2));
@@ -296,10 +301,10 @@ async function main() {
     "  loo openclaw tool-smoke [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--thread-id id] [--expand-profile metadata|brief|evidence] [--token-budget n] [--required-tool name] [--evidence-path path] [--strict]",
     "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--strict]",
     "  loo eval retrieval --scenario-file path [--evidence-path path] [--strict]",
-    "  loo release preflight [--evidence-dir path] [--approved-live-control-evidence path] [--strict]",
-    "  loo release bundle --evidence-dir path [--approved-live-control-evidence path] [--strict]",
-    "  loo release status --evidence-dir path --candidate-sha sha [--approved-live-control-evidence path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--github-ci-evidence path] [--codeql-evidence path] [--desktop-gui-required --desktop-gui-approval-evidence path] [--strict]",
-    "  loo release demo-status --evidence-dir path [--approved-live-control-evidence path] [--min-sessions n] [--strict]"
+    "  loo release preflight [--evidence-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run] [--approved-live-control-evidence path] [--strict]",
+    "  loo release bundle --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run] [--approved-live-control-evidence path] [--strict]",
+    "  loo release status --evidence-dir path --candidate-sha sha [--claim-scope codex-live-control|codex-read-search-expand-dry-run] [--approved-live-control-evidence path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--github-ci-evidence path] [--codeql-evidence path] [--desktop-gui-required --desktop-gui-approval-evidence path] [--strict]",
+    "  loo release demo-status --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run] [--approved-live-control-evidence path] [--min-sessions n] [--strict]"
   ].join("\n"));
   process.exitCode = 2;
 }
@@ -332,17 +337,17 @@ function printScorecardSweepHelp(): void {
 function printReleaseStatusHelp(): void {
   console.log([
     "Usage:",
-    "  loo release status --evidence-dir path --candidate-sha sha [--approved-live-control-evidence path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--github-ci-evidence path] [--codeql-evidence path] [--desktop-gui-required --desktop-gui-approval-evidence path] [--strict]",
+    "  loo release status --evidence-dir path --candidate-sha sha [--claim-scope codex-live-control|codex-read-search-expand-dry-run] [--approved-live-control-evidence path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--github-ci-evidence path] [--codeql-evidence path] [--desktop-gui-required --desktop-gui-approval-evidence path] [--strict]",
     "",
     "Writes a public-safe release status packet without performing gated release actions.",
     "",
     "Proof markers:",
     "  CI and CodeQL checks use kind: \"loo_release_check_evidence\" with check, commitSha, status, conclusion, runUrl, warnings, and rawSecretIncluded: false.",
     "  npm, GitHub Release, and optional desktop GUI approvals use kind: \"loo_release_operation_approval\" with operation, approved: true, approvalRef, and rawSecretIncluded: false.",
-    "  Live-control proof is validated through release preflight and must be a structured approved live-control smoke marker.",
+    "  Live-control proof is validated through release preflight and must be a structured approved live-control smoke marker unless --claim-scope codex-read-search-expand-dry-run explicitly excludes live-control claims.",
     "",
     "Strict mode:",
-    "  --strict exits non-zero until the candidate SHA, CI/CodeQL proofs, explicit release approvals, and approved live-control smoke evidence satisfy the release gates.",
+    "  --strict exits non-zero until the candidate SHA, CI/CodeQL proofs, explicit release approvals, and scope-required approved live-control smoke evidence satisfy the release gates.",
     "",
     "Safety boundary:",
     "  The command does not publish npm, does not create a GitHub Release, does not run live Codex control, and does not perform desktop GUI mutation."
@@ -714,9 +719,10 @@ function parsePositiveInteger(value: string | undefined, name: string, max?: num
   return parsed;
 }
 
-function parseReleasePreflightArgs(input: string[]): { evidenceDir?: string; approvedLiveControlEvidence?: string; strict: boolean } {
+function parseReleasePreflightArgs(input: string[]): { evidenceDir?: string; approvedLiveControlEvidence?: string; claimScope?: ReleaseClaimScope; strict: boolean } {
   let evidenceDir: string | undefined;
   let approvedLiveControlEvidence: string | undefined;
+  let claimScope: ReleaseClaimScope | undefined;
   let strict = false;
   for (let index = 0; index < input.length; index += 1) {
     const arg = input[index]!;
@@ -730,25 +736,30 @@ function parseReleasePreflightArgs(input: string[]): { evidenceDir?: string; app
       if (!approvedLiveControlEvidence) throw new Error("--approved-live-control-evidence requires a path");
       continue;
     }
+    if (arg === "--claim-scope") {
+      claimScope = parseReleaseClaimScope(input, ++index, "--claim-scope");
+      continue;
+    }
     if (arg === "--strict") {
       strict = true;
       continue;
     }
     throw new Error(`Unknown release preflight option: ${arg}`);
   }
-  return { evidenceDir, approvedLiveControlEvidence, strict };
+  return { evidenceDir, approvedLiveControlEvidence, claimScope, strict };
 }
 
-function parseReleaseBundleArgs(input: string[]): { evidenceDir: string; approvedLiveControlEvidence?: string; strict: boolean } {
+function parseReleaseBundleArgs(input: string[]): { evidenceDir: string; approvedLiveControlEvidence?: string; claimScope?: ReleaseClaimScope; strict: boolean } {
   const parsed = parseReleasePreflightArgs(input);
   if (!parsed.evidenceDir) throw new Error("release bundle requires --evidence-dir");
-  return { evidenceDir: parsed.evidenceDir, approvedLiveControlEvidence: parsed.approvedLiveControlEvidence, strict: parsed.strict };
+  return { evidenceDir: parsed.evidenceDir, approvedLiveControlEvidence: parsed.approvedLiveControlEvidence, claimScope: parsed.claimScope, strict: parsed.strict };
 }
 
 function parseReleaseStatusArgs(input: string[]): {
   evidenceDir: string;
   candidateSha?: string;
   approvedLiveControlEvidence?: string;
+  claimScope?: ReleaseClaimScope;
   npmPublishApprovalEvidence?: string;
   githubReleaseApprovalEvidence?: string;
   desktopGuiApprovalEvidence?: string;
@@ -760,6 +771,7 @@ function parseReleaseStatusArgs(input: string[]): {
   let evidenceDir: string | undefined;
   let candidateSha: string | undefined;
   let approvedLiveControlEvidence: string | undefined;
+  let claimScope: ReleaseClaimScope | undefined;
   let npmPublishApprovalEvidence: string | undefined;
   let githubReleaseApprovalEvidence: string | undefined;
   let desktopGuiApprovalEvidence: string | undefined;
@@ -779,6 +791,10 @@ function parseReleaseStatusArgs(input: string[]): {
     }
     if (arg === "--approved-live-control-evidence") {
       approvedLiveControlEvidence = readReleaseStatusPath(input, ++index, "--approved-live-control-evidence");
+      continue;
+    }
+    if (arg === "--claim-scope") {
+      claimScope = parseReleaseClaimScope(input, ++index, "--claim-scope");
       continue;
     }
     if (arg === "--npm-publish-approval-evidence") {
@@ -819,6 +835,7 @@ function parseReleaseStatusArgs(input: string[]): {
     evidenceDir,
     candidateSha,
     approvedLiveControlEvidence,
+    claimScope,
     npmPublishApprovalEvidence,
     githubReleaseApprovalEvidence,
     desktopGuiApprovalEvidence,
@@ -841,9 +858,10 @@ function readReleaseStatusValue(input: string[], index: number, flag: string): s
   return value;
 }
 
-function parseReleaseDemoStatusArgs(input: string[]): { evidenceDir: string; approvedLiveControlEvidence?: string; minSessions?: number; strict: boolean } {
+function parseReleaseDemoStatusArgs(input: string[]): { evidenceDir: string; approvedLiveControlEvidence?: string; claimScope?: ReleaseClaimScope; minSessions?: number; strict: boolean } {
   let evidenceDir: string | undefined;
   let approvedLiveControlEvidence: string | undefined;
+  let claimScope: ReleaseClaimScope | undefined;
   let minSessions: number | undefined;
   let strict = false;
   for (let index = 0; index < input.length; index += 1) {
@@ -854,6 +872,10 @@ function parseReleaseDemoStatusArgs(input: string[]): { evidenceDir: string; app
     }
     if (arg === "--approved-live-control-evidence") {
       approvedLiveControlEvidence = readReleaseStatusPath(input, ++index, "--approved-live-control-evidence");
+      continue;
+    }
+    if (arg === "--claim-scope") {
+      claimScope = parseReleaseClaimScope(input, ++index, "--claim-scope");
       continue;
     }
     if (arg === "--min-sessions") {
@@ -867,5 +889,9 @@ function parseReleaseDemoStatusArgs(input: string[]): { evidenceDir: string; app
     throw new Error(`Unknown release demo-status option: ${arg}`);
   }
   if (!evidenceDir) throw new Error("release demo-status requires --evidence-dir");
-  return { evidenceDir, approvedLiveControlEvidence, minSessions, strict };
+  return { evidenceDir, approvedLiveControlEvidence, claimScope, minSessions, strict };
+}
+
+function parseReleaseClaimScope(input: string[], index: number, flag: string): ReleaseClaimScope {
+  return normalizeReleaseClaimScope(readReleaseStatusValue(input, index, flag));
 }

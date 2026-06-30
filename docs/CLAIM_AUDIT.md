@@ -6,6 +6,14 @@ Control and collaborate with local Codex sessions through OpenClaw using local i
 
 This claim is limited to the Codex beta path that has tests and local smoke coverage: indexing, search, describe, bounded expansion, read-only LCM peer recall, Codex direct protocol diagnostics, dry-run approval audits, and read-only CUA/Peekaboo readiness.
 
+When a release candidate is scoped to read/search/describe/expand plus dry-run
+control only, use `--claim-scope codex-read-search-expand-dry-run` on release
+preflight, bundle, demo-status, and status commands. That scope must omit
+`--approved-live-control-evidence` and the generated JSON must list
+`excludedClaims` with `approved_live_control_smoke` excluded. Use the default
+`codex-live-control` scope only when the release claim includes an approved live
+Codex send/resume/steer/interrupt smoke.
+
 ## Forbidden Beta Claims
 
 - No full Claude Code parity.
@@ -37,6 +45,7 @@ Claude Code is an adapter stub in this beta. Public docs may mention the stub, b
 - `loo release preflight --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight --strict`
 - `loo release bundle --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-bundle`
 - `loo release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --candidate-sha <release-candidate-sha> --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --npm-publish-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/npm-approval.json --github-release-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-release-approval.json --github-ci-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-ci.json --codeql-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/codeql.json --strict`
+- Read/search/expand/dry-run scoped RC only: `loo release status --claim-scope codex-read-search-expand-dry-run --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --candidate-sha <release-candidate-sha> --npm-publish-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/npm-approval.json --github-release-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-release-approval.json --github-ci-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-ci.json --codeql-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/codeql.json --strict`
 - GitHub CI green for the release PR
 - GitHub CI and CodeQL proof markers match the release candidate SHA and have
   empty `warnings` arrays
@@ -49,6 +58,12 @@ Claude Code is an adapter stub in this beta. Public docs may mention the stub, b
 - No raw session transcripts, credentials, screenshots with secrets, or private SQLite DBs in public artifacts
 
 `loo release preflight` writes a public-safe `release-preflight.json` artifact manifest. It must report `approved_live_control_smoke_missing` until an explicit approved live-control smoke evidence path points to a structured `loo_approved_live_control_smoke` JSON proof marker with only audit ids, refs, hashes, approval-semantics confirmation, and `rawPromptIncluded: false`. Release automation should use `--strict` so this blocker cannot be silently ignored.
+
+The only exception is an explicitly scoped read/search/expand/dry-run release
+candidate using `--claim-scope codex-read-search-expand-dry-run`. In that mode,
+the release reports must include `excludedClaims` showing
+`approved_live_control_smoke` as excluded, and public copy must not claim live
+Codex continue/steer/send/interrupt proof.
 
 `loo release bundle` writes local draft release artifacts without publishing: `RELEASE_NOTES_0.1.0-beta.0.md`, `release-preflight.json`, and `release-bundle.json`. It must record `npmPublished: false` and `githubReleaseCreated: false` until a separate explicit publish step is approved.
 

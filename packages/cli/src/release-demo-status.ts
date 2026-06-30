@@ -1,9 +1,18 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, extname, isAbsolute, join, relative, resolve } from "node:path";
+import {
+  excludedClaimsForScope,
+  liveControlExcludedDetail,
+  normalizeReleaseClaimScope,
+  releaseClaimScopeRequiresLiveControl,
+  type ReleaseClaimScope,
+  type ReleaseExcludedClaim
+} from "./release-claim-scope.js";
 
 export type ReleaseDemoStatusOptions = {
   evidenceDir: string;
   approvedLiveControlEvidence?: string;
+  claimScope?: ReleaseClaimScope;
   minSessions?: number;
   now?: string;
 };
@@ -17,6 +26,8 @@ export type ReleaseDemoStatusReport = {
   ok: boolean;
   demoReady: boolean;
   generatedAt: string;
+  claimScope: ReleaseClaimScope;
+  excludedClaims: ReleaseExcludedClaim[];
   demoStatusManifestPath: string;
   minSessions: number;
   blockers: string[];
@@ -71,6 +82,9 @@ export function createReleaseDemoStatus(options: ReleaseDemoStatusOptions): Rele
   const evidenceDir = resolve(options.evidenceDir);
   mkdirSync(evidenceDir, { recursive: true });
 
+  const claimScope = normalizeReleaseClaimScope(options.claimScope);
+  const liveControlRequired = releaseClaimScopeRequiresLiveControl(claimScope);
+  const excludedClaims = excludedClaimsForScope(claimScope);
   const minSessions = options.minSessions ?? DEFAULT_MIN_SESSIONS;
   const evidenceFiles = {
     index: join(evidenceDir, "index-codex.json"),
@@ -89,7 +103,9 @@ export function createReleaseDemoStatus(options: ReleaseDemoStatusOptions): Rele
   const evidenceExpansionEvidence = readJson(evidenceFiles.evidenceExpansion);
   const controlDryRunEvidence = readJson(evidenceFiles.controlDryRun);
   const controlDryRunProof = parseControlDryRun(controlDryRunEvidence.value);
-  const approvedLiveControl = validateApprovedLiveControlProof(evidenceFiles.approvedLiveControl);
+  const approvedLiveControl = liveControlRequired
+    ? validateApprovedLiveControlProof(evidenceFiles.approvedLiveControl)
+    : { check: check(false, liveControlExcludedDetail(claimScope)), proof: null };
   const rawSessionArtifacts = scanRawDemoArtifacts(evidenceDir);
 
   const checks: Record<string, ReleaseDemoStatusCheck> = {
@@ -118,7 +134,7 @@ export function createReleaseDemoStatus(options: ReleaseDemoStatusOptions): Rele
     checks.distinctExpansionRefs.ok ? null : "expansion_refs_not_distinct",
     checks.controlDryRun.ok ? null : "control_dry_run_evidence_missing",
     checks.rawArtifacts.ok ? null : "raw_session_artifacts_present",
-    checks.approvedLiveControl.ok ? null : "approved_live_control_smoke_missing",
+    liveControlRequired && !checks.approvedLiveControl.ok ? "approved_live_control_smoke_missing" : null,
     checks.approvedLiveControlMatchesDryRun.ok ? null : "approved_live_control_dry_run_mismatch"
   ].filter((blocker): blocker is string => blocker !== null);
 
@@ -127,6 +143,8 @@ export function createReleaseDemoStatus(options: ReleaseDemoStatusOptions): Rele
     ok: blockers.length === 0,
     demoReady: blockers.length === 0,
     generatedAt: options.now ?? new Date().toISOString(),
+    claimScope,
+    excludedClaims,
     demoStatusManifestPath,
     minSessions,
     blockers,
