@@ -617,7 +617,7 @@ function writeConnectedLocalUiRuntimeProof(runtimeProofDir: string, shell: Local
     && shell.toolSource.toolsCalled.includes("loo_describe_session")
     && shell.toolSource.toolsCalled.includes("loo_expand_query")
     && shell.toolSource.toolsCalled.includes("loo_codex_thread_map");
-  const publicSafe = shell.publicSafe === true && shell.rawTranscriptRendered === false && !shell.blockerCodes.some((blocker) =>
+  const publicSafe = localMacShellReady && shell.publicSafe === true && shell.rawTranscriptRendered === false && !shell.blockerCodes.some((blocker) =>
     blocker.startsWith("raw_result_field_rejected") || blocker.startsWith("unsafe_source_ref")
   );
   const proof = {

@@ -487,11 +487,11 @@ test("loo ui local-mac-search live CLI mode writes connected public-safe tool pr
     assert.equal(report.toolSource?.copyAction?.sourceRef, "codex_thread:thread-live-1");
     assert.equal(report.toolSource?.copyAction?.publicSafe, true);
     assert.equal(runtimeProof.scenario_id, "connected-local-ui-proof-v1-1");
-    assert.equal(runtimeProof.public_safe, true);
+    assert.equal(runtimeProof.public_safe, isLocalMac);
     assert.deepEqual(runtimeProof.proof_markers, {
       local_mac_shell_ready: isLocalMac,
       live_tool_source: true,
-      public_safe_scan: true,
+      public_safe_scan: isLocalMac,
       source_refs: true
     });
     assert.equal(runtimeProof.platform, process.platform);
