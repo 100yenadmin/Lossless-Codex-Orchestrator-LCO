@@ -40,6 +40,28 @@ Recommended naming:
 - Evidence slug:
   `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-0.1.0-beta.1-rc`
 
+## Working App Proof Lane
+
+Milestone 7 is tracked separately from the `0.1.x` reduced-scope beta train:
+[Working App Proof Sprint](WORKING_APP_PROOF_SPRINT.md), issue #156, and GitHub
+milestone #8.
+
+A release candidate may keep using `--claim-scope
+codex-read-search-expand-dry-run` for maintenance betas. A future
+working-app claim must not reuse that reduced-scope proof. It must first pass
+the runtime proof lane from #157 through #162:
+
+- runtime-required scenarios from `evals/scenarios/v1.1`
+- `working-app-runtime-proof-review.json`
+- installed OpenClaw gateway live Codex proof
+- post-action refresh and safe reasoning proof
+- desktop collaboration proof only when the claim mentions desktop fallback
+- public-safe evidence scan with no raw/private artifacts
+
+Until #162 adds and validates a release claim scope for that runtime proof,
+operators should record `working_app_runtime_proof_missing` as a blocker rather
+than describing the package as a fully working app.
+
 ## Release Context Freshness Scan
 
 At every release candidate and every public release, run a high-context
@@ -64,6 +86,8 @@ The high-context scan must cover these named scorecard lenses:
 - packaging/install review
 - public-claim review
 - local-agent usability review
+- working-app runtime proof review when the release claims more than the reduced
+  `codex-read-search-expand-dry-run` scope
 
 ## Pre-RC Gates
 

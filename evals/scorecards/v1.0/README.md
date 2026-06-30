@@ -11,7 +11,8 @@ Use the JSON examples for repeatable sweeps:
 - `public-claim-review.json`
 - `local-agent-usability-review.json`
 - `local-mac-search-ui-review.json`
+- `working-app-runtime-proof-review.json`
 
 Use `issue-scorecard-update-template.md` for issue and PR comments after focused validation.
 
-These examples are not proof that beta readiness is complete. They define the minimum public-safe evidence shape, scoring boundary, and next-action language that future issues must fill in.
+These examples are not proof that beta readiness or working-app readiness is complete. They define the minimum public-safe evidence shape, scoring boundary, and next-action language that future issues must fill in. `working-app-runtime-proof-review.json` is the Milestone 7 scorecard for actual installed-user-path proof; it must stay `example-not-run` until runtime evidence exists.

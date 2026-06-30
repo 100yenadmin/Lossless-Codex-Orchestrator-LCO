@@ -1,0 +1,64 @@
+{
+  "scorecard_version": "1.0",
+  "claim_class": "runtime_safe",
+  "scenario": "The installed OpenClaw gateway path proves LCO as a working Codex-first local app: search, describe, expand, approved harmless live Codex control, post-action refresh, and safe agent reasoning from source refs.",
+  "surface": "installed OpenClaw gateway and local app surfaces",
+  "command_or_tool": [
+    "loo openclaw dogfood",
+    "loo openclaw tool-smoke",
+    "loo_codex_control_dry_run",
+    "loo_codex_send_message",
+    "loo_codex_thread_map",
+    "loo_describe_session",
+    "loo_expand_query",
+    "loo desktop live-proof-harness",
+    "loo desktop proof-report"
+  ],
+  "expected_public_safe_evidence": [
+    "installed plugin id and version",
+    "declared and callable loo_* tool count",
+    "bounded local Codex session count",
+    "approved live action source ref",
+    "approval audit id prefix",
+    "params and message hashes",
+    "Codex notification counts and completion status",
+    "post-action refresh timestamp and source refs",
+    "agent reasoning note from safe summaries only",
+    "desktop proof marker when desktop collaboration is claimed",
+    "rawPromptIncluded false",
+    "rawSecretIncluded false"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "raw prompts or message text",
+    "SQLite DBs",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data"
+  ],
+  "pass_criteria": [
+    "Installed OpenClaw gateway invokes required read/search/expand tools and records public-safe output.",
+    "One harmless Codex action is dry-run first and live second with a matching approval audit id through the same user-facing path.",
+    "Session state is refreshed after the live action and the agent can cite source refs without raw transcript reads.",
+    "Runtime proof runner accepts the proof packet with zero raw/private evidence findings.",
+    "Release claim gates distinguish this working-app proof from broader unproven claims."
+  ],
+  "fail_criteria": [
+    "The proof uses only internal CLI helpers while the installed gateway path remains unproven.",
+    "Any live action runs without matching approval evidence.",
+    "The agent must read raw transcripts to reason about the updated session.",
+    "Evidence stores raw prompt text, raw transcript spans, screenshots, SQLite pages, or secrets.",
+    "Docs imply unsupported adapter parity, broad desktop control, remote sync, or enterprise readiness."
+  ],
+  "current_score": "example-not-run",
+  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-156-working-app-proof/working-app-runtime-proof-review.json",
+  "known_gaps": [
+    "The current beta has gateway dry-run dogfood and a CLI live-control smoke, but not the full installed gateway live-control and post-action refresh loop.",
+    "Desktop collaboration has backend-specific scratch proofs, but not a product-level action path.",
+    "The local Mac search UI is not yet connected to live user-path tools.",
+    "Claude Code remains an adapter inventory item, not an equivalent working path."
+  ],
+  "next_action": "Run Milestone 7 child issues #157 through #162 and update this scorecard from example-not-run to pass only after runtime proof markers exist.",
+  "proof_boundary": "This local public-safe scorecard defines Milestone 7 working-app proof. It is not proof until runtime evidence from the installed gateway and named local surfaces exists."
+}
+

@@ -18,6 +18,15 @@ loo openclaw dogfood --profile lco-dogfood --install-source . --link --evidence-
 
 This command wraps `openclaw plugins list --json` plus runtime inspection into a public-safe status report. It records only loaded/enabled state, required `loo_*` tool coverage, blocker codes, and install/list exit status. It does not write raw OpenClaw plugin JSON, raw Codex transcripts, expanded text, local SQLite contents, screenshots, tokens, or credentials.
 
+Milestone 7 raises the bar from declaration proof to working-app proof. Issue
+[#158](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/158)
+must prove one approved harmless live Codex action through the installed
+OpenClaw gateway path, and
+[#159](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/159)
+must prove post-action refresh and safe source-ref-based reasoning. Tool
+declaration, package install, and dry-run audit proof are necessary but no
+longer sufficient for a working-app claim.
+
 Recommended OpenClaw configuration should expose the `loo_*` tools and keep live controls approval-gated:
 
 - Read tools may run immediately.

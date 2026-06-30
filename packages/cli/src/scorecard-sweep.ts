@@ -77,7 +77,8 @@ const REQUIRED_SCORECARD_NAMES = [
   "packaging-install-review",
   "public-claim-review",
   "retrieval-quality-review",
-  "safety-bypass-review"
+  "safety-bypass-review",
+  "working-app-runtime-proof-review"
 ];
 const REQUIRED_SCORECARD_FIELDS: Array<keyof ScorecardJson> = [
   "scorecard_version",

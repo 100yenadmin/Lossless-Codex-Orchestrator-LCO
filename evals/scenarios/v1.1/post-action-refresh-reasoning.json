@@ -1,0 +1,56 @@
+{
+  "scenario_version": "1.1",
+  "id": "post-action-refresh-reasoning-v1-1",
+  "title": "Post-action session refresh and safe reasoning",
+  "claim_scope": "codex-working-app-proof",
+  "proof_mode": "runtime_required",
+  "issue": "#159",
+  "user_task": "Refresh the Codex session after an approved live action and produce a safe agent reasoning packet.",
+  "surface": "openclaw-gateway-or-mcp",
+  "required_tools": [
+    "loo_codex_thread_map",
+    "loo_search_sessions",
+    "loo_describe_session",
+    "loo_expand_query"
+  ],
+  "allowed_tools": [
+    "loo_codex_thread_map",
+    "loo_search_sessions",
+    "loo_describe_session",
+    "loo_expand_query"
+  ],
+  "allowed_live_behaviors": [
+    "post-action index refresh of the selected target thread"
+  ],
+  "forbidden_behaviors": [
+    "raw_transcript_read",
+    "unauthorized_live_control",
+    "unscoped_gui_mutation",
+    "secret_or_private_data_output"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "raw prompts or message text",
+    "SQLite DBs",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data"
+  ],
+  "expected_public_safe_evidence": [
+    "pre-action target source ref",
+    "post-action refresh timestamp",
+    "session map status bucket",
+    "safe summary delta marker",
+    "bounded expansion profile",
+    "omitted markers",
+    "agent next-action reasoning note from safe summaries only"
+  ],
+  "metrics": {
+    "requires_post_action_refresh": true,
+    "requires_agent_reasoning_note": true,
+    "max_raw_transcript_spans": 0,
+    "requires_source_refs": true
+  },
+  "proof_boundary": "Proves one refresh and reasoning loop after a named approved action; it does not prove continuous sync.",
+  "next_action": "Implement #159 after #158 produces a live action proof marker."
+}

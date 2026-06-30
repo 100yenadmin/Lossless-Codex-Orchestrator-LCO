@@ -7,7 +7,7 @@ summarizable, product-management objects for OpenClaw.
 Codex-first: Claude Code support is intentionally shipped as an adapter stub
 until its storage and control paths are proven.
 
-[Vision](VISION.md) · [OpenClaw Plugin](docs/OPENCLAW_PLUGIN.md) · [Beta Demo](docs/BETA_RELEASE_DEMO.md) · [Beta Release Runbook](docs/BETA_RELEASE_RUNBOOK.md) · [Claim Audit](docs/CLAIM_AUDIT.md) · [MIT](LICENSE)
+[Vision](VISION.md) · [Working App Proof Sprint](docs/WORKING_APP_PROOF_SPRINT.md) · [OpenClaw Plugin](docs/OPENCLAW_PLUGIN.md) · [Beta Demo](docs/BETA_RELEASE_DEMO.md) · [Beta Release Runbook](docs/BETA_RELEASE_RUNBOOK.md) · [Claim Audit](docs/CLAIM_AUDIT.md) · [MIT](LICENSE)
 
 ## Why This Exists
 
@@ -50,52 +50,57 @@ rediscovering state from text every time.
 | Plans, finals, files, tools | Beta | Extracts proposed plans, final messages, touched files, tool-call metadata, and safe summaries. |
 | MCP / OpenClaw tools | Beta | Exposes `loo_*` tools for OpenClaw and other MCP clients. |
 | OpenClaw LCM peer reads | Experimental | Reads peer summary DBs read-only without merging stores. |
-| Codex direct controls | Beta boundary | Resume/send/steer/interrupt are approval-gated and dry-run first. |
-| Desktop fallback | Experimental | CUA Driver and Peekaboo live behind explicit adapter and permission diagnostics. |
+| Codex direct controls | Beta boundary | Resume/send/steer/interrupt are approval-gated and dry-run first; a CLI live-control smoke exists, while Milestone 7 targets installed OpenClaw gateway live proof. |
+| Desktop fallback | Experimental | CUA Driver and Peekaboo have backend-specific scratch no-focus proof; product GUI mutation still needs an action-bound proof gate. |
 | Scorecards and release proof | Beta | Public-safe scorecards and release-status commands track what is proven. |
 | QA Lab scenarios | Beta | Dry-run scenario contracts under `evals/scenarios/v1` turn orchestrator workflows into public-safe eval tasks. |
+| Working app runtime proof | Next sprint | `evals/scenarios/v1.1` and #156 track installed gateway, approved live Codex action, post-action refresh, desktop collaboration, and connected UI proof. |
 | Claude Code adapter | Stub | No Claude parity claim until the adapter is proven. |
 
-## Upcoming Roadmap
+## Current Sprint: Working App Proof
 
-The roadmap is ranked by one question:
+The roadmap is now ranked by one question:
 
 > Does this help an OpenClaw orchestrator manage hundreds of sessions with less
 > context, less rereading, and safer action?
 
-1. **Metadata and closeout spine**
-   Track project, status, priority, owner, blocker, next action, closeout state,
-   source refs, and management fields. See
-   [#49](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/49).
+Milestone 7 is the
+[Working App Proof Sprint](docs/WORKING_APP_PROOF_SPRINT.md), tracked by
+[#156](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/156)
+and GitHub milestone
+[#8](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/milestone/8).
 
-2. **Closeout and hook-agent capture**
-   Capture the best metadata when the thread or plan finishes, while context is
-   fresh. See [#50](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/50).
+The target is an actual Codex-first working app proof, not another dry-run-only
+release iteration:
 
-3. **Session map cockpit**
-   Show what is active, blocked, stale, done, safe to archive, or worth
-   expanding. See [#51](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/51).
+1. **Runtime proof runner**
+   Make `evals/scenarios/v1.1` fail closed until real public-safe runtime proof
+   markers exist. See [#157](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/157).
 
-4. **Retrieval quality and hybrid search**
-   Keep the simple recall loop as the baseline. Add BM25/vector/query expansion
-   and reranking only where evals show better signal per token. See
-   [#52](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/52).
+2. **Installed OpenClaw gateway live Codex proof**
+   Dry-run and then execute one harmless approved Codex action through the
+   installed gateway path. See [#158](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/158).
 
-5. **Archive, fork, and closeout controls**
-   Start as recommendations and dry-runs from the session map. Live mutation
-   stays approval-gated.
+3. **Post-action refresh and reasoning**
+   Refresh the target session after the live action and produce safe
+   source-ref-based reasoning without raw transcript reads. See
+   [#159](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/159).
 
-6. **Session sanitizer lane**
-   Scan locally for secret-like strings and produce redacted repair tasks, not
-   raw secret evidence. See [#54](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/54).
+4. **Action-bound desktop collaboration**
+   Prove one backend-specific desktop fallback action only when direct Codex
+   protocol is insufficient. See [#160](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/160).
 
-7. **Local Mac search UI**
-   Keep the static prototype shell public-safe while the packaged app and live
-   gateway wiring mature. See
-   [#55](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/55).
+5. **Connected local search UI**
+   Connect the local cockpit/search UI to real `loo_*` calls instead of static
+   shell output. See [#161](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/161).
 
-The current sprint tracker is
-[#48](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/48).
+6. **Runtime-proven claim gate**
+   Add release/doc gates for a future working-app claim scope after runtime proof
+   exists. See [#162](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/162).
+
+7. **Claude Code adapter inventory**
+   Keep Claude Code honest by proving storage/control boundaries before any
+   adapter parity work. See [#163](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/163).
 
 ## Quick Start
 
@@ -165,11 +170,11 @@ loo release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchest
 loo release demo-status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/demo
 ```
 
-QA Lab scenarios live in `evals/scenarios/v1`. The `loo eval scenarios`
-command validates those dry-run contracts and writes public-safe per-scenario
-scorecards. It does not execute private local evals by itself, read raw
-transcripts, run live Codex control, mutate a GUI, publish npm, or create a
-GitHub Release.
+QA Lab dry-run scenarios live in `evals/scenarios/v1`. Runtime-required working
+app proof scenarios live in `evals/scenarios/v1.1`. The current
+`loo eval scenarios` command validates `v1` dry-run contracts and writes
+public-safe per-scenario scorecards. Milestone 7 issue #157 must add the
+runtime-proof runner/gate before `v1.1` can be used as completion evidence.
 
 For a release candidate that intentionally claims only read/search/describe/expand
 plus dry-run control, name the smaller scope explicitly and do not pass
@@ -259,7 +264,9 @@ OpenClaw setup lives in [docs/OPENCLAW_PLUGIN.md](docs/OPENCLAW_PLUGIN.md).
 - `packages/cli`: `loo` CLI.
 - `packages/adapters`: Codex control, CUA/Peekaboo boundary, Claude Code stub.
 - `evals/scorecards/v1.0`: beta scorecards for safety, retrieval, install, claims, usability, local Mac search UI, and orchestrator leverage.
+- `evals/scorecards/v1.0/working-app-runtime-proof-review.json`: Milestone 7 runtime proof scorecard.
 - `evals/scenarios/v1`: QA Lab dry-run scenario contracts for session map triage, retrieval, bounded expansion, control safety, gateway dogfood, and release claims.
+- `evals/scenarios/v1.1`: runtime-required working-app proof contracts for installed gateway live control, post-action refresh, desktop collaboration, and connected UI proof.
 - `docs/`: install, demo, privacy, safe summaries, release proof, release runbook, and public-claim boundaries.
 
 Direct Codex protocol is preferred for thread work. GUI automation is a fallback

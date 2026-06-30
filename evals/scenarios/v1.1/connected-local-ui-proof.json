@@ -1,0 +1,58 @@
+{
+  "scenario_version": "1.1",
+  "id": "connected-local-ui-proof-v1-1",
+  "title": "Connected local search UI live tool proof",
+  "claim_scope": "codex-working-app-proof",
+  "proof_mode": "runtime_required",
+  "issue": "#161",
+  "user_task": "Use the local Mac search/cockpit surface to call live LCO tools, search sessions, inspect safe summaries, and copy source refs.",
+  "surface": "local-mac-search-ui",
+  "required_tools": [
+    "loo_search_sessions",
+    "loo_describe_session",
+    "loo_expand_query",
+    "loo_codex_thread_map"
+  ],
+  "allowed_tools": [
+    "loo_search_sessions",
+    "loo_describe_session",
+    "loo_expand_query",
+    "loo_codex_thread_map"
+  ],
+  "allowed_live_behaviors": [
+    "read-only live tool calls through CLI, MCP, or OpenClaw gateway"
+  ],
+  "forbidden_behaviors": [
+    "raw_transcript_rendering",
+    "raw_transcript_read",
+    "unauthorized_live_control",
+    "unscoped_gui_mutation",
+    "secret_or_private_data_output"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "raw prompts or message text",
+    "SQLite DBs",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data"
+  ],
+  "expected_public_safe_evidence": [
+    "tool surface used",
+    "query id",
+    "result count",
+    "source refs",
+    "safe summary snippet markers",
+    "selected expansion profile",
+    "copy source ref action",
+    "unavailable gateway blocker if applicable"
+  ],
+  "metrics": {
+    "requires_live_tool_source": true,
+    "requires_source_refs": true,
+    "max_raw_transcript_spans": 0,
+    "requires_public_safe_scan": true
+  },
+  "proof_boundary": "Proves one connected local UI recall path; it does not prove signed packaging or adapter parity.",
+  "next_action": "Implement #161 after #159 proves the underlying refresh/reasoning path."
+}

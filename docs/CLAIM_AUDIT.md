@@ -32,6 +32,27 @@ Claude Code is an adapter stub in this beta. Public docs may mention the stub, b
 - Peekaboo is a secondary macOS fallback for permission diagnostics and guarded snapshots; desktop action remains dry-run-only.
 - OpenClaw LCM peer DBs are read-only and remain separate from the Codex index.
 
+## Working App Proof Boundary
+
+Milestone 7 introduces a stricter working-app target in
+[#156](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/156).
+The future runtime-proven claim is not satisfied by dry-run scenario packets
+alone. It requires all of these public-safe proof markers:
+
+- installed OpenClaw gateway path invokes the required `loo_*` tools
+- one harmless Codex action is dry-run first and live second with a matching
+  approval audit id through that installed path
+- the target session is refreshed after the live action
+- an agent reasoning packet cites source refs and bounded safe summaries only
+- desktop collaboration proof is included only if the claim mentions desktop
+  fallback behavior
+- evidence scan reports no raw transcript, raw prompt, SQLite, screenshot,
+  token, cookie, credential, or private customer data
+
+Until #162 adds and validates a runtime-proven claim scope, public releases
+should continue using either the reduced `codex-read-search-expand-dry-run`
+scope or an explicit blocker that working-app runtime proof is incomplete.
+
 ## npm dist-tag policy
 
 Until the first stable release exists, install the public beta through the
@@ -64,6 +85,9 @@ stable version and keep beta and other prereleases on prerelease tags. Do not pu
   local-agent usability review across README.md, `VISION.md`, release notes,
   claim audit, GitHub workflows, CLI release gates, docs, workflows, skills, and
   runbooks
+- Working-app claims only: runtime proof scenario packet and
+  `working-app-runtime-proof-review.json` must pass with installed gateway,
+  approved live Codex action, post-action refresh, and safe reasoning evidence
 - No raw session transcripts, credentials, screenshots with secrets, or private SQLite DBs in public artifacts
 
 `loo release preflight` writes a public-safe `release-preflight.json` artifact manifest. It must report `approved_live_control_smoke_missing` until an explicit approved live-control smoke evidence path points to a structured `loo_approved_live_control_smoke` JSON proof marker with only audit ids, refs, hashes, approval-semantics confirmation, and `rawPromptIncluded: false`. Release automation should use `--strict` so this blocker cannot be silently ignored.
