@@ -5,16 +5,20 @@ import { homedir } from "node:os";
 import { basename, delimiter, dirname, join, resolve } from "node:path";
 import type { DatabaseSync as NodeDatabaseSync } from "node:sqlite";
 import {
+  createSessionSanitizerRepairPlan,
   createSessionSanitizerReport,
+  type SessionSanitizerRepairPlan,
   type SessionSanitizerReport,
   type SessionSanitizerSource
 } from "./session-sanitizer.js";
 
-export { createSessionSanitizerReport } from "./session-sanitizer.js";
+export { createSessionSanitizerRepairPlan, createSessionSanitizerReport } from "./session-sanitizer.js";
 export type {
   SessionSanitizerConfidence,
   SessionSanitizerFinding,
   SessionSanitizerPatternClass,
+  SessionSanitizerRepairPlan,
+  SessionSanitizerRepairTask,
   SessionSanitizerReport,
   SessionSanitizerSource
 } from "./session-sanitizer.js";
@@ -263,6 +267,12 @@ export type IndexedSessionSanitizerOptions = {
 export type IndexedSessionSanitizerReport = SessionSanitizerReport & {
   dryRun: true;
   mutatesCodex: false;
+  source: "indexed-safe-text";
+  sourceLimit: number;
+  scannedRefs: string[];
+};
+
+export type IndexedSessionSanitizerRepairPlan = SessionSanitizerRepairPlan & {
   source: "indexed-safe-text";
   sourceLimit: number;
   scannedRefs: string[];
@@ -1342,6 +1352,20 @@ export function createIndexedSessionSanitizerReport(db: LooDatabase, options: In
       : blockers.length > 0
         ? "Index or select at least one local session before using the sanitizer report as evidence."
         : "No sanitizer findings were detected in the selected indexed safe text."
+  };
+}
+
+export function createIndexedSessionSanitizerRepairPlan(report: IndexedSessionSanitizerReport): IndexedSessionSanitizerRepairPlan {
+  const plan = createSessionSanitizerRepairPlan(report, {
+    source: report.source,
+    sourceLimit: report.sourceLimit,
+    scannedRefs: report.scannedRefs
+  });
+  return {
+    ...plan,
+    source: report.source,
+    sourceLimit: report.sourceLimit,
+    scannedRefs: report.scannedRefs
   };
 }
 

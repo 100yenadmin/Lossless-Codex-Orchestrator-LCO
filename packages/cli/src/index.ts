@@ -14,6 +14,7 @@ import {
   configuredLcmPeerDbPaths,
   createCloseoutEnvelopeReport,
   createDatabase,
+  createIndexedSessionSanitizerRepairPlan,
   createIndexedSessionSanitizerReport,
   defaultCodexRoots,
   defaultDatabasePath,
@@ -236,6 +237,10 @@ async function main() {
       if (parsed.evidenceDir) {
         mkdirSync(parsed.evidenceDir, { recursive: true });
         writeFileSync(join(parsed.evidenceDir, "session-sanitizer-report.json"), `${JSON.stringify(report, null, 2)}\n`);
+        if (parsed.repairPlan) {
+          const repairPlan = createIndexedSessionSanitizerRepairPlan(report);
+          writeFileSync(join(parsed.evidenceDir, "session-sanitizer-repair-plan.json"), `${JSON.stringify(repairPlan, null, 2)}\n`);
+        }
       }
       console.log(JSON.stringify(report, null, 2));
       if (parsed.strict && (!report.ok || report.findingCount > 0)) process.exitCode = 1;
@@ -767,9 +772,10 @@ function printScenarioSweepHelp(): void {
 function printSanitizeSessionsHelp(): void {
   console.log([
     "Usage:",
-    "  loo sanitize sessions [--thread-id id] [--limit n] [--evidence-dir path] [--strict]",
+    "  loo sanitize sessions [--thread-id id] [--limit n] [--evidence-dir path] [--repair-plan] [--strict]",
     "",
     "Writes a public-safe sanitizer report from local indexed Codex safe text.",
+    "  --repair-plan also writes session-sanitizer-repair-plan.json with redacted dry-run repair tasks.",
     "",
     "Strict mode:",
     "  --strict exits non-zero when no indexed source is selected or when sanitizer findings are present.",
@@ -1117,8 +1123,8 @@ function parseCloseoutDryRunArgs(input: string[]): { threadId?: string; limit?: 
   return parsed;
 }
 
-function parseSanitizeSessionsArgs(input: string[]): { threadId?: string; limit?: number; evidenceDir?: string; strict: boolean } {
-  const parsed: { threadId?: string; limit?: number; evidenceDir?: string; strict: boolean } = { strict: false };
+function parseSanitizeSessionsArgs(input: string[]): { threadId?: string; limit?: number; evidenceDir?: string; repairPlan: boolean; strict: boolean } {
+  const parsed: { threadId?: string; limit?: number; evidenceDir?: string; repairPlan: boolean; strict: boolean } = { repairPlan: false, strict: false };
   for (let index = 0; index < input.length; index += 1) {
     const arg = input[index]!;
     if (arg === "--thread-id") {
@@ -1127,6 +1133,8 @@ function parseSanitizeSessionsArgs(input: string[]): { threadId?: string; limit?
       parsed.limit = parsePositiveInteger(input[++index], "--limit", 500);
     } else if (arg === "--evidence-dir") {
       parsed.evidenceDir = requireOptionValue(input[++index], arg);
+    } else if (arg === "--repair-plan") {
+      parsed.repairPlan = true;
     } else if (arg === "--strict") {
       parsed.strict = true;
     } else {

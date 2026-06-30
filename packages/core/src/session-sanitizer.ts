@@ -24,6 +24,19 @@ export type SessionSanitizerFinding = {
   suggestedRepair: string;
 };
 
+export type SessionSanitizerRepairTask = {
+  taskId: string;
+  sourceRef: string;
+  patternClass: SessionSanitizerPatternClass;
+  confidence: SessionSanitizerConfidence;
+  fingerprint: string;
+  redactedValue: string;
+  suggestedRepair: string;
+  checklist: string[];
+  requiresLocalReview: true;
+  mutationStatus: "not_performed";
+};
+
 export type SessionSanitizerReport = {
   ok: boolean;
   publicSafe: true;
@@ -31,6 +44,25 @@ export type SessionSanitizerReport = {
   sourceCount: number;
   findingCount: number;
   findings: SessionSanitizerFinding[];
+  blockers: string[];
+  privateDataExclusions: string[];
+  proofBoundary: string;
+  nextAction: string;
+};
+
+export type SessionSanitizerRepairPlan = {
+  ok: boolean;
+  publicSafe: true;
+  dryRun: true;
+  mutatesCodex: false;
+  generatedAt: string;
+  source?: string;
+  sourceLimit?: number;
+  sourceCount: number;
+  findingCount: number;
+  taskCount: number;
+  scannedRefs?: string[];
+  tasks: SessionSanitizerRepairTask[];
   blockers: string[];
   privateDataExclusions: string[];
   proofBoundary: string;
@@ -125,6 +157,44 @@ export function createSessionSanitizerReport(options: {
   };
 }
 
+export function createSessionSanitizerRepairPlan(
+  report: SessionSanitizerReport,
+  options: { source?: string; sourceLimit?: number; scannedRefs?: string[] } = {}
+): SessionSanitizerRepairPlan {
+  const tasks = report.findings.map((finding) => ({
+    taskId: `repair:${finding.fingerprint}`,
+    sourceRef: finding.sourceRef,
+    patternClass: finding.patternClass,
+    confidence: finding.confidence,
+    fingerprint: finding.fingerprint,
+    redactedValue: finding.redactedValue,
+    suggestedRepair: finding.suggestedRepair,
+    checklist: repairChecklist(finding),
+    requiresLocalReview: true as const,
+    mutationStatus: "not_performed" as const
+  }));
+  return {
+    ok: report.ok,
+    publicSafe: true,
+    dryRun: true,
+    mutatesCodex: false,
+    generatedAt: report.generatedAt,
+    source: options.source,
+    sourceLimit: options.sourceLimit,
+    sourceCount: report.sourceCount,
+    findingCount: report.findingCount,
+    taskCount: tasks.length,
+    scannedRefs: options.scannedRefs,
+    tasks,
+    blockers: report.blockers,
+    privateDataExclusions: report.privateDataExclusions,
+    proofBoundary: "This sanitizer repair plan is a public-safe dry run derived from redacted findings only; it does not mutate sessions, read raw transcripts, rotate secrets, edit files, run live Codex control, or mutate a desktop GUI.",
+    nextAction: tasks.length > 0
+      ? "Review each redacted task locally, rotate any real credential, and perform any session or evidence repair only through a separately approved action."
+      : report.nextAction
+  };
+}
+
 function scanSource(source: SessionSanitizerSource, auditKey: string): SessionSanitizerFinding[] {
   const findings: SessionSanitizerFinding[] = [];
   for (const pattern of PATTERNS) {
@@ -145,6 +215,26 @@ function scanSource(source: SessionSanitizerSource, auditKey: string): SessionSa
     }
   }
   return findings;
+}
+
+function repairChecklist(finding: SessionSanitizerFinding): string[] {
+  const common = [
+    "Review the source ref locally without copying raw transcript text into public evidence.",
+    "Confirm whether the redacted finding represents a real secret or private local detail.",
+    "Keep the fingerprint and source ref as the public tracking handle; do not paste the raw value."
+  ];
+  if (finding.patternClass === "local_path") {
+    return [
+      ...common,
+      "Replace shareable evidence with a source ref or redacted path marker.",
+      "Re-run the sanitizer and attach only the updated public-safe report."
+    ];
+  }
+  return [
+    ...common,
+    "Rotate or invalidate the credential if it was real.",
+    "Re-run the sanitizer and attach only the updated public-safe report."
+  ];
 }
 
 function assertSupportedSourceRef(sourceRef: string): void {

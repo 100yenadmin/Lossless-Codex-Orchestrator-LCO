@@ -228,7 +228,8 @@ test("indexed session sanitizer is available through core, CLI, and MCP without 
       "--limit",
       "5",
       "--evidence-dir",
-      evidenceDir
+      evidenceDir,
+      "--repair-plan"
     ], {
       env: { ...process.env, LOO_DB_PATH: dbPath },
       encoding: "utf8",
@@ -241,6 +242,44 @@ test("indexed session sanitizer is available through core, CLI, and MCP without 
     assert.equal(existsSync(join(evidenceDir, "session-sanitizer-report.json")), true);
     assertNoSanitizerLeaks(cliResult.stdout, [syntheticIndexedSecret, syntheticIndexedPath]);
     assertNoSanitizerLeaks(readFileSync(join(evidenceDir, "session-sanitizer-report.json"), "utf8"), [syntheticIndexedSecret, syntheticIndexedPath]);
+    const repairPlanPath = join(evidenceDir, "session-sanitizer-repair-plan.json");
+    assert.equal(existsSync(repairPlanPath), true);
+    const repairPlan = JSON.parse(readFileSync(repairPlanPath, "utf8")) as {
+      dryRun: boolean;
+      mutatesCodex: boolean;
+      source: string;
+      sourceCount: number;
+      findingCount: number;
+      taskCount: number;
+      scannedRefs: string[];
+      tasks: Array<{
+        taskId: string;
+        sourceRef: string;
+        patternClass: string;
+        confidence: string;
+        fingerprint: string;
+        redactedValue: string;
+        suggestedRepair: string;
+        checklist: string[];
+        requiresLocalReview: boolean;
+        mutationStatus: string;
+      }>;
+      proofBoundary: string;
+    };
+    assert.equal(repairPlan.dryRun, true);
+    assert.equal(repairPlan.mutatesCodex, false);
+    assert.equal(repairPlan.source, "indexed-safe-text");
+    assert.equal(repairPlan.sourceCount, 1);
+    assert.equal(repairPlan.findingCount, 2);
+    assert.equal(repairPlan.taskCount, 2);
+    assert.deepEqual(repairPlan.scannedRefs, [`codex_thread:${threadId}`]);
+    assert.equal(repairPlan.tasks.every((task) => task.taskId.startsWith("repair:hmac-sha256:")), true);
+    assert.equal(repairPlan.tasks.every((task) => task.sourceRef === `codex_thread:${threadId}`), true);
+    assert.equal(repairPlan.tasks.every((task) => task.requiresLocalReview === true), true);
+    assert.equal(repairPlan.tasks.every((task) => task.mutationStatus === "not_performed"), true);
+    assert.equal(repairPlan.tasks.every((task) => task.checklist.some((step) => /rotate|review/i.test(step))), true);
+    assert.match(repairPlan.proofBoundary, /does not mutate sessions/i);
+    assertNoSanitizerLeaks(repairPlan, [syntheticIndexedSecret, syntheticIndexedPath]);
 
     const tools = createLooTools({
       db,
@@ -254,6 +293,15 @@ test("indexed session sanitizer is available through core, CLI, and MCP without 
     assert.equal(toolReport.findingCount, 2);
     assert.deepEqual(toolReport.scannedRefs, [`codex_thread:${threadId}`]);
     assertNoSanitizerLeaks(toolReport, [syntheticIndexedSecret, syntheticIndexedPath]);
+    const toolReportWithPlan = await sanitizerTool.execute({ thread_id: threadId, limit: 5, repair_plan: true }) as ReturnType<typeof createIndexedSessionSanitizerReport> & {
+      repairPlan: typeof repairPlan;
+    };
+    assert.equal(toolReportWithPlan.findingCount, 2);
+    assert.equal(toolReportWithPlan.repairPlan.dryRun, true);
+    assert.equal(toolReportWithPlan.repairPlan.taskCount, 2);
+    assert.deepEqual(toolReportWithPlan.repairPlan.scannedRefs, [`codex_thread:${threadId}`]);
+    assert.equal(toolReportWithPlan.repairPlan.tasks.every((task) => task.mutationStatus === "not_performed"), true);
+    assertNoSanitizerLeaks(toolReportWithPlan, [syntheticIndexedSecret, syntheticIndexedPath]);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
