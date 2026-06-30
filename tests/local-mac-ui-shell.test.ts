@@ -156,10 +156,16 @@ test("loo ui local-mac-search writes a public-safe prototype shell packet", () =
       filters?: { query?: string };
       expansionProfile?: string;
       rawTranscriptRendered?: boolean;
+      proofBoundary?: string;
       artifacts?: { html?: string; scorecard?: string };
     };
     const html = readFileSync(htmlPath, "utf8");
-    const scorecard = JSON.parse(readFileSync(scorecardPath, "utf8")) as { current_score?: string; evidence_path?: string };
+    const scorecard = JSON.parse(readFileSync(scorecardPath, "utf8")) as {
+      current_score?: string;
+      evidence_path?: string;
+      known_gaps?: string[];
+      proof_boundary?: string;
+    };
 
     assert.equal(report.shellReady, true);
     assert.equal(report.publicSafe, true);
@@ -170,8 +176,12 @@ test("loo ui local-mac-search writes a public-safe prototype shell packet", () =
     assert.equal(report.rawTranscriptRendered, false);
     assert.equal(report.artifacts?.html, "local-mac-search-ui.html");
     assert.equal(report.artifacts?.scorecard, "local-mac-search-ui-scorecard.json");
+    assert.match(report.proofBoundary ?? "", /CUA Driver scratch-window no-focus proof exists only for one approved TextEdit launch_app action/i);
     assert.equal(scorecard.current_score, "partial");
     assert.match(String(scorecard.evidence_path), /local-mac-search-ui-scorecard\.json/);
+    assert.match(String(scorecard.proof_boundary), /one approved TextEdit launch_app action/i);
+    assert.match((scorecard.known_gaps ?? []).join("\n"), /CUA Driver scratch-window no-focus proof exists only for one approved TextEdit launch_app action/i);
+    assert.doesNotMatch((scorecard.known_gaps ?? []).join("\n"), /CUA no-focus proof/i);
     assert.match(html, /Lossless Local Search/);
     assert.match(html, /codex_thread:sample-active/);
     assert.match(html, /lcm_summary:sample-handoff/);

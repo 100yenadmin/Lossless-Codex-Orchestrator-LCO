@@ -42,10 +42,12 @@ test("local Mac search UI contract defines a staged safe-summary app shell witho
     /release-ready macOS app/i,
     /Claude parity/i,
     /GUI mutation/i,
+    /CUA Driver scratch-window no-focus proof exists only for one approved TextEdit launch_app action/i,
     /explicit approval/i
   ]) {
     assert.match(doc, required);
   }
+  assert.doesNotMatch(doc, /CUA no-focus proof,/i);
 });
 
 test("local Mac search UI scorecard records acceptance criteria and proof boundary", () => {
@@ -69,8 +71,12 @@ test("local Mac search UI scorecard records acceptance criteria and proof bounda
   assert.match(JSON.stringify(scorecard.private_data_exclusions), /raw Codex transcripts/i);
   assert.match(JSON.stringify(scorecard.private_data_exclusions), /screenshots or videos/i);
   assert.match(JSON.stringify(scorecard.known_gaps), /Peekaboo scratch.*proof/i);
-  assert.match(JSON.stringify(scorecard.known_gaps), /CUA.*unproven/i);
-  assert.match(String(scorecard.proof_boundary), /Peekaboo scratch.*not.*generic GUI mutation/i);
+  assert.match(
+    JSON.stringify(scorecard.known_gaps),
+    /CUA Driver scratch-window no-focus proof.*TextEdit launch_app/i
+  );
+  assert.match(String(scorecard.proof_boundary), /Peekaboo scratch.*CUA Driver scratch.*not.*generic GUI mutation/i);
+  assert.match(String(scorecard.proof_boundary), /one approved TextEdit launch_app action/i);
   assert.equal(scorecard.current_score, "example-not-run");
   assert.match(String(scorecard.proof_boundary), /does not prove a signed|release-ready macOS app/i);
 });

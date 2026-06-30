@@ -75,8 +75,9 @@ This UI does not prove:
 - unattended desktop takeover,
 - GUI mutation,
 - live Codex control,
-- CUA no-focus proof,
 - Peekaboo snapshot safety beyond explicit approved diagnostic use.
+
+CUA Driver scratch-window no-focus proof exists only for one approved TextEdit launch_app action; it does not prove generic GUI mutation, Codex GUI mutation, or broad CUA no-focus behavior.
 
 Any live Codex control still requires dry-run plus `approval_audit_id`. Any GUI mutation requires explicit approval and a separate backend-specific proof path.
 
