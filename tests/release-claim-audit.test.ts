@@ -160,9 +160,12 @@ test("npm beta dist-tag policy is explicit until the first stable release", () =
     assert.match(content, /beta/i, surface);
     assert.match(content, /first stable release/i, surface);
     assert.match(content, /Do not publish\s+a\s+fake stable/i, surface);
+    assert.doesNotMatch(content, /latest[\s\S]{0,200}(?:follows|point at|resolves to)[\s\S]{0,120}newest public beta/i, `${surface} must not imply latest follows the newest beta`);
   }
 
-  assert.match(readme, /latest[\s\S]{0,200}newest public beta/i);
+  assert.match(readme, /npm install -g lossless-openclaw-orchestrator@beta/i);
+  assert.match(readme, /latest[\s\S]{0,200}0\.1\.0-beta\.4/i);
+  assert.match(readme, /beta[\s\S]{0,200}newest public beta/i);
   assert.match(runbook, /npm dist-tag ls lossless-openclaw-orchestrator/i);
   assert.match(runbook, /move `latest` to the stable/i);
 });

@@ -108,20 +108,20 @@ npm install
 npm run build
 ```
 
-Published package target:
+Published beta package target:
 
 ```bash
-npm install -g lossless-openclaw-orchestrator
+npm install -g lossless-openclaw-orchestrator@beta
 ```
 
 ### npm dist-tag policy
 
-Until the first stable release exists, npm `latest` intentionally follows the
-newest public beta so the default install command above does not resolve to a
-stale beta. The `beta` tag must also point at the newest public beta. At the
-first stable release, move `latest` to the stable version and keep prereleases
-on prerelease tags such as `beta`. Do not publish a fake stable package just to
-move a dist-tag.
+Until the first stable release exists, install the public beta through the
+`beta` dist-tag. The `beta` tag must point at the newest public beta. The
+`latest` tag currently remains `0.1.0-beta.4` and must not be promoted during
+`0.1.x` beta releases unless a separate latest-promotion operation explicitly
+claims and proves that change. At the first stable release, move `latest` to the
+stable version and keep prereleases on prerelease tags such as `beta`. Do not publish a fake stable package just to move a dist-tag.
 
 Default local database:
 
