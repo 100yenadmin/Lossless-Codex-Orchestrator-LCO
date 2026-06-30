@@ -100,7 +100,8 @@ release iteration:
 
 7. **Claude Code adapter inventory**
    Keep Claude Code honest by proving storage/control boundaries before any
-   adapter parity work. See [#163](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/163).
+   adapter parity work. See [docs/CLAUDE_ADAPTER_BOUNDARY.md](docs/CLAUDE_ADAPTER_BOUNDARY.md)
+   and [#163](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/163).
 
 ## Quick Start
 
