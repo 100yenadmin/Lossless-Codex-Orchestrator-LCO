@@ -114,6 +114,15 @@ Published package target:
 npm install -g lossless-openclaw-orchestrator
 ```
 
+### npm dist-tag policy
+
+Until the first stable release exists, npm `latest` intentionally follows the
+newest public beta so the default install command above does not resolve to a
+stale beta. The `beta` tag must also point at the newest public beta. At the
+first stable release, move `latest` to the stable version and keep prereleases
+on prerelease tags such as `beta`. Do not publish a fake stable package just to
+move a dist-tag.
+
 Default local database:
 
 ```bash

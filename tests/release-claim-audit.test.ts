@@ -120,6 +120,28 @@ test("read-search-expand-dry-run release examples name the explicit claim scope 
   assert.match(claimAudit, /approved_live_control_smoke[\s\S]*excluded/i);
 });
 
+test("npm beta dist-tag policy is explicit until the first stable release", () => {
+  const readme = read("README.md");
+  const claimAudit = read("docs/CLAIM_AUDIT.md");
+  const runbook = read("docs/BETA_RELEASE_RUNBOOK.md");
+
+  for (const [surface, content] of [
+    ["README", readme],
+    ["claim audit", claimAudit],
+    ["release runbook", runbook]
+  ] as const) {
+    assert.match(content, /npm dist-tag policy/i, surface);
+    assert.match(content, /latest/i, surface);
+    assert.match(content, /beta/i, surface);
+    assert.match(content, /first stable release/i, surface);
+    assert.match(content, /Do not publish\s+a\s+fake stable/i, surface);
+  }
+
+  assert.match(readme, /latest[\s\S]{0,200}newest public beta/i);
+  assert.match(runbook, /npm dist-tag ls lossless-openclaw-orchestrator/i);
+  assert.match(runbook, /move `latest` to the stable/i);
+});
+
 test("release workflows use non-deprecated action majors", () => {
   const ciWorkflow = read(".github/workflows/ci.yml");
   const codeqlWorkflow = read(".github/workflows/codeql.yml");

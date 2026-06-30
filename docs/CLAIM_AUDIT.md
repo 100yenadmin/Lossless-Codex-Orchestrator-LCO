@@ -32,6 +32,15 @@ Claude Code is an adapter stub in this beta. Public docs may mention the stub, b
 - Peekaboo is a secondary macOS fallback for permission diagnostics and guarded snapshots; desktop action remains dry-run-only.
 - OpenClaw LCM peer DBs are read-only and remain separate from the Codex index.
 
+## npm dist-tag policy
+
+Until the first stable release exists, npm `latest` may point at the newest
+public beta because npm requires a `latest` tag and the public install docs use
+the default package target. The `beta` tag must point at the newest public beta.
+At the first stable release, move `latest` to the stable version and keep beta
+and other prereleases on prerelease tags. Do not publish a fake stable package
+just to move a dist-tag.
+
 ## Release Checklist
 
 - `npm run check`
