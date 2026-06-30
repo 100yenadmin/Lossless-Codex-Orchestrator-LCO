@@ -1,4 +1,4 @@
-export type CodexMethodSurface = "generic" | "read" | "control";
+export type CodexMethodSurface = "generic" | "read" | "control" | "smoke_setup";
 
 export const CODEX_READ_METHODS = new Set([
   "initialize",
@@ -86,12 +86,13 @@ export const LOO_COMMAND_POLICY: Record<string, LooCommandSafety> = {
 };
 
 export function assertCodexMethodAllowed(method: string, surface: CodexMethodSurface = "generic"): void {
+  if (surface === "smoke_setup" && method === "thread/start") return;
   if (CODEX_FORBIDDEN_METHODS.has(method)) {
     throw new Error(`Codex method ${method} is forbidden on the ${surface} surface`);
   }
   if (CODEX_READ_METHODS.has(method)) return;
   if (CODEX_CONTROL_METHODS.has(method)) {
-    if (surface === "control") return;
+    if (surface === "control" || surface === "smoke_setup") return;
     throw new Error(`Codex method ${method} is not allowed on generic Codex surfaces`);
   }
   throw new Error(`Codex method ${method} is not allowlisted on the ${surface} surface`);
