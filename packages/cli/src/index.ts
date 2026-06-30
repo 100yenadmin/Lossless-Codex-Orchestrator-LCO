@@ -446,7 +446,7 @@ async function main() {
     "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--strict]",
     "  loo ui local-mac-search --evidence-dir path [--sample] [--strict]",
     "  loo eval retrieval --scenario-file path [--evidence-path path] [--strict]",
-    "  loo eval scenarios --evidence-dir path [--scenario-dir path] [--strict]",
+    "  loo eval scenarios --evidence-dir path [--scenario-dir path] [--runtime-proof-dir path] [--strict]",
     "  loo release preflight [--evidence-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run] [--approved-live-control-evidence path] [--strict]",
     "  loo release bundle --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run] [--approved-live-control-evidence path] [--strict]",
     "  loo release status --evidence-dir path --candidate-sha sha [--claim-scope codex-live-control|codex-read-search-expand-dry-run] [--approved-live-control-evidence path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--github-ci-evidence path] [--codeql-evidence path] [--desktop-gui-required --desktop-gui-approval-evidence path] [--now iso] [--strict]",
@@ -523,19 +523,23 @@ function printScorecardSweepHelp(): void {
 function printScenarioSweepHelp(): void {
   console.log([
     "Usage:",
-    "  loo eval scenarios --evidence-dir path [--scenario-dir path] [--strict]",
+    "  loo eval scenarios --evidence-dir path [--scenario-dir path] [--runtime-proof-dir path] [--strict]",
     "",
-    "Writes public-safe QA Lab dry-run scenario scorecards for orchestrator eval tasks.",
+    "Writes public-safe QA Lab scenario scorecards for orchestrator eval tasks.",
     "",
     "Required:",
     "  --evidence-dir is required and must not be the same directory as --scenario-dir.",
     "",
+    "Runtime proof:",
+    "  --runtime-proof-dir provides public-safe v1.1 proof marker JSON files named <scenario-id>.runtime-proof.json.",
+    "  v1.1 runtime-required scenarios fail closed with runtime_proof_missing:<id>:<marker> until those proof markers exist.",
+    "",
     "Strict mode:",
     "  --strict exits non-zero when scenarios are missing, malformed, omit required forbidden behaviors, or when raw evidence artifacts are present.",
-    "  Common blockers include scenario_missing_field:<id>:<field>, scenario_missing_required_forbidden_behavior:<id>:<behavior>, and raw_artifact:<reason>:<name>.",
+    "  Common blockers include scenario_missing_field:<id>:<field>, runtime_proof_missing:<id>:<marker>, and raw_artifact:<reason>:<name>.",
     "",
     "Safety boundary:",
-    "  The command validates dry-run scenario contracts only.",
+    "  The command validates dry-run contracts or supplied public-safe runtime proof markers.",
     "  It does not read raw Codex transcripts, run live Codex control, mutate a desktop GUI, publish npm, or create a GitHub Release."
   ].join("\n"));
 }
@@ -924,9 +928,10 @@ function parseRetrievalEvalArgs(input: string[]): { scenarioFile: string; eviden
   return { scenarioFile, evidencePath, strict };
 }
 
-function parseScenarioSweepArgs(input: string[]): { evidenceDir: string; scenarioDir?: string; strict: boolean } {
+function parseScenarioSweepArgs(input: string[]): { evidenceDir: string; scenarioDir?: string; runtimeProofDir?: string; strict: boolean } {
   let evidenceDir = "";
   let scenarioDir: string | undefined;
+  let runtimeProofDir: string | undefined;
   let strict = false;
   for (let index = 0; index < input.length; index += 1) {
     const arg = input[index]!;
@@ -934,6 +939,8 @@ function parseScenarioSweepArgs(input: string[]): { evidenceDir: string; scenari
       evidenceDir = requireOptionValue(input[++index], arg);
     } else if (arg === "--scenario-dir") {
       scenarioDir = requireOptionValue(input[++index], arg);
+    } else if (arg === "--runtime-proof-dir") {
+      runtimeProofDir = requireOptionValue(input[++index], arg);
     } else if (arg === "--strict") {
       strict = true;
     } else {
@@ -941,7 +948,7 @@ function parseScenarioSweepArgs(input: string[]): { evidenceDir: string; scenari
     }
   }
   if (!evidenceDir) throw new Error("eval scenarios requires --evidence-dir");
-  return { evidenceDir, scenarioDir, strict };
+  return { evidenceDir, scenarioDir, runtimeProofDir, strict };
 }
 
 function readRetrievalScenarioFile(path: string): {

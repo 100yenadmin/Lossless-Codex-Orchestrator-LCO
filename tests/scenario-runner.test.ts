@@ -147,6 +147,154 @@ test("runtime-required v1.1 scenarios define working-app proof beyond dry-run co
   }
 });
 
+test("scenario sweep fails closed for v1.1 runtime scenarios until proof markers exist", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-runtime-scenario-missing-proof-"));
+
+  const report = createScenarioSweep({
+    evidenceDir,
+    scenarioDir: join("evals", "scenarios", "v1.1"),
+    now: "2026-06-30T16:40:00.000Z"
+  });
+
+  assert.equal(report.ok, false);
+  assert.equal(report.scenarioReady, false);
+  assert.equal(report.publicSafe, true);
+  assert.equal(report.scenarioVersion, "1.1");
+  assert.equal(report.scenarios.length, 4);
+  assert.equal(report.scenarios.every((scenario) => scenario.status === "runtime_proof_required"), true);
+  assert.match(report.blockers.join("\n"), /runtime_proof_missing:openclaw-gateway-live-codex-v1-1:installed_gateway_path/);
+  assert.match(report.blockers.join("\n"), /runtime_proof_missing:openclaw-gateway-live-codex-v1-1:matching_approval_audit_id/);
+  assert.match(report.blockers.join("\n"), /runtime_proof_missing:post-action-refresh-reasoning-v1-1:post_action_refresh/);
+  assert.doesNotMatch(report.blockers.join("\n"), /scenario_invalid_version/);
+  assert.doesNotMatch(report.blockers.join("\n"), /scenario_missing_required_forbidden_behavior:.*:live_control/);
+
+  const saved = JSON.parse(readFileSync(join(evidenceDir, "scenario-sweep.json"), "utf8")) as typeof report;
+  assert.equal(saved.scenarioVersion, "1.1");
+  assert.equal(saved.scenarios[0]?.status, "runtime_proof_required");
+});
+
+test("loo eval scenarios accepts v1.1 runtime proof markers through the CLI", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-runtime-scenario-cli-evidence-"));
+  const runtimeProofDir = mkdtempSync(join(tmpdir(), "loo-runtime-scenario-cli-proof-"));
+  writeRuntimeProof(runtimeProofDir, "openclaw-gateway-live-codex-v1-1", {
+    installed_gateway_path: true,
+    matching_approval_audit_id: true,
+    public_safe_scan: true
+  }, { live_action_count: 1, raw_prompt_chars: 0 });
+  writeRuntimeProof(runtimeProofDir, "post-action-refresh-reasoning-v1-1", {
+    agent_reasoning_note: true,
+    post_action_refresh: true,
+    source_refs: true
+  }, { raw_transcript_spans: 0 });
+  writeRuntimeProof(runtimeProofDir, "desktop-collaboration-action-bound-v1-1", {
+    action_bound_target: true,
+    backend_specific_observation: true,
+    no_focus_measurement: true
+  }, { screenshot_count: 0 });
+  writeRuntimeProof(runtimeProofDir, "connected-local-ui-proof-v1-1", {
+    live_tool_source: true,
+    public_safe_scan: true,
+    source_refs: true
+  }, { raw_transcript_spans: 0 });
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "eval",
+    "scenarios",
+    "--scenario-dir",
+    join("evals", "scenarios", "v1.1"),
+    "--runtime-proof-dir",
+    runtimeProofDir,
+    "--evidence-dir",
+    evidenceDir,
+    "--strict"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const report = JSON.parse(readFileSync(join(evidenceDir, "scenario-sweep.json"), "utf8")) as {
+    scenarioReady?: boolean;
+    scenarioVersion?: string;
+    scenarios?: Array<{ status?: string; runtimeProof?: { publicSafe?: boolean } }>;
+    blockers?: string[];
+    nextAction?: string;
+  };
+  assert.equal(report.scenarioReady, true);
+  assert.equal(report.scenarioVersion, "1.1");
+  assert.deepEqual(report.blockers, []);
+  assert.match(String(report.nextAction), /runtime-proof-ready scenario markers/i);
+  assert.equal(report.scenarios?.every((scenario) => scenario.status === "runtime_proof_ready"), true);
+  assert.equal(report.scenarios?.every((scenario) => scenario.runtimeProof?.publicSafe === true), true);
+});
+
+test("scenario sweep rejects secret-like values inside runtime proof markers", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-runtime-scenario-secret-evidence-"));
+  const runtimeProofDir = mkdtempSync(join(tmpdir(), "loo-runtime-scenario-secret-proof-"));
+  writeRuntimeProof(runtimeProofDir, "openclaw-gateway-live-codex-v1-1", {
+    installed_gateway_path: true,
+    matching_approval_audit_id: true,
+    public_safe_scan: true
+  }, { live_action_count: 1, raw_prompt_chars: 0 }, {
+    accidental_token: `npm_${"A".repeat(24)}`
+  });
+
+  const report = createScenarioSweep({
+    evidenceDir,
+    scenarioDir: join("evals", "scenarios", "v1.1"),
+    runtimeProofDir
+  });
+
+  assert.equal(report.ok, false);
+  assert.equal(report.publicSafe, false);
+  assert.match(report.blockers.join("\n"), /runtime_proof_secret_like:openclaw-gateway-live-codex-v1-1/);
+  assert.equal(
+    report.scenarios.find((scenario) => scenario.id === "openclaw-gateway-live-codex-v1-1")?.runtimeProof?.publicSafe,
+    false
+  );
+});
+
+test("scenario sweep scans malformed runtime proof JSON for secret-like values", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-runtime-scenario-malformed-secret-evidence-"));
+  const runtimeProofDir = mkdtempSync(join(tmpdir(), "loo-runtime-scenario-malformed-secret-proof-"));
+  writeFileSync(
+    join(runtimeProofDir, "openclaw-gateway-live-codex-v1-1.runtime-proof.json"),
+    `{ "kind": "loo_runtime_scenario_proof", "accidental_token": "npm_${"B".repeat(24)}" `
+  );
+
+  const report = createScenarioSweep({
+    evidenceDir,
+    scenarioDir: join("evals", "scenarios", "v1.1"),
+    runtimeProofDir
+  });
+
+  assert.match(report.blockers.join("\n"), /runtime_proof_invalid_json:openclaw-gateway-live-codex-v1-1/);
+  assert.match(report.blockers.join("\n"), /runtime_proof_secret_like:openclaw-gateway-live-codex-v1-1/);
+  assert.equal(
+    report.scenarios.find((scenario) => scenario.id === "openclaw-gateway-live-codex-v1-1")?.runtimeProof?.publicSafe,
+    false
+  );
+});
+
+test("scenario sweep rejects negative and fractional runtime proof count markers", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-runtime-scenario-invalid-count-evidence-"));
+  const runtimeProofDir = mkdtempSync(join(tmpdir(), "loo-runtime-scenario-invalid-count-proof-"));
+  writeRuntimeProof(runtimeProofDir, "openclaw-gateway-live-codex-v1-1", {
+    installed_gateway_path: true,
+    matching_approval_audit_id: true,
+    public_safe_scan: true
+  }, { live_action_count: -1, raw_prompt_chars: 0.5 });
+
+  const report = createScenarioSweep({
+    evidenceDir,
+    scenarioDir: join("evals", "scenarios", "v1.1"),
+    runtimeProofDir
+  });
+
+  assert.match(report.blockers.join("\n"), /runtime_proof_invalid:openclaw-gateway-live-codex-v1-1:live_action_count/);
+  assert.match(report.blockers.join("\n"), /runtime_proof_invalid:openclaw-gateway-live-codex-v1-1:raw_prompt_chars/);
+});
+
 function minimalScenario() {
   return {
     scenario_version: "1.0",
@@ -167,4 +315,29 @@ function minimalScenario() {
     },
     proof_boundary: "Dry-run scenario contract only; this does not prove live local retrieval quality."
   };
+}
+
+function writeRuntimeProof(
+  runtimeProofDir: string,
+  scenarioId: string,
+  proofMarkers: Record<string, boolean>,
+  limits: Record<string, number>,
+  extra: Record<string, unknown> = {}
+) {
+  writeFileSync(join(runtimeProofDir, `${scenarioId}.runtime-proof.json`), `${JSON.stringify({
+    kind: "loo_runtime_scenario_proof",
+    scenario_id: scenarioId,
+    scenario_version: "1.1",
+    proof_mode: "runtime_required",
+    claim_scope: "codex-working-app-proof",
+    public_safe: true,
+    proof_markers: proofMarkers,
+    raw_transcript_read: false,
+    raw_prompt_included: false,
+    raw_secret_included: false,
+    screenshot_included: false,
+    sqlite_included: false,
+    ...limits,
+    ...extra
+  }, null, 2)}\n`);
 }

@@ -20,6 +20,8 @@
   ],
   "forbidden_behaviors": [
     "unapproved_gui_action",
+    "unauthorized_live_control",
+    "unscoped_gui_mutation",
     "raw_transcript_read",
     "focus_steal_when_no_focus_claimed",
     "raw_screenshot_publication",
