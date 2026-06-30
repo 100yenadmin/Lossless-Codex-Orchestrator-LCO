@@ -184,7 +184,7 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
     .filter((ref) => ref.startsWith("codex_thread:"));
 
   const refreshedAt = targetThreadMapOutput ? firstString(targetThreadMapOutput, ["refreshedAt", "refreshed_at", "updatedAt", "updated_at"]) : null;
-  const statusBucket = targetThreadMapOutput ? firstString(targetThreadMapOutput, ["statusBucket", "status_bucket", "status"]) : null;
+  const statusBucket = targetThreadMapOutput ? firstString(targetThreadMapOutput, ["statusBucket", "status_bucket", "status"]) ?? (refreshedAt ? "refreshed" : null) : null;
   const safeSummaryDelta = hasTargetSafeSummaryDelta(targetSearchOutput, targetDescribeOutput, query);
   const boundedExpansionProfile = targetExpandOutput ? firstString(targetExpandOutput, ["profile"]) || expandProfile : null;
   if (blockers.length === 0) {
@@ -412,6 +412,7 @@ function collectSourceRefs(value: unknown): string[] {
   return Object.entries(value).flatMap(([key, nested]) => {
     if ((key === "sourceRef" || key === "source_ref") && typeof nested === "string") return [nested];
     if ((key === "sourceRefs" || key === "source_refs") && Array.isArray(nested)) return nested.filter((item): item is string => typeof item === "string");
+    if ((key === "threadId" || key === "thread_id") && typeof nested === "string") return [codexThreadRef(nested)];
     return collectSourceRefs(nested);
   });
 }
@@ -440,11 +441,19 @@ function directSourceRefs(value: Record<string, unknown>): string[] {
       && nested.startsWith("codex_thread:")) {
       return [nested];
     }
+    if ((key === "threadId" || key === "thread_id") && typeof nested === "string" && nested.trim()) {
+      return [codexThreadRef(nested)];
+    }
     if ((key === "sourceRefs" || key === "source_refs") && Array.isArray(nested)) {
       return nested.filter((item): item is string => typeof item === "string" && item.startsWith("codex_thread:"));
     }
     return [];
   });
+}
+
+function codexThreadRef(threadId: string): string {
+  const trimmed = threadId.trim();
+  return trimmed.startsWith("codex_thread:") ? trimmed : `codex_thread:${trimmed}`;
 }
 
 function hasTargetSafeSummaryDelta(searchOutput: unknown, describeOutput: unknown, query: string): boolean {
