@@ -48,6 +48,7 @@
       "loo_codex_touched_files",
       "loo_codex_tool_calls",
       "loo_closeout_dry_run",
+      "loo_session_sanitizer",
       "loo_codex_sqlite_stores",
       "loo_lcm_peer_dbs",
       "loo_codex_control_dry_run",
@@ -390,6 +391,24 @@
             },
             "include_unavailable": {
               "type": "boolean"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_session_sanitizer",
+        "description": "Dry-run public-safe sanitizer findings from indexed Codex safe text without reading raw transcripts or mutating sessions.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "thread_id": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
             }
           }
         }

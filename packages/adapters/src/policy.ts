@@ -71,6 +71,7 @@ export const LOO_COMMAND_POLICY: Record<string, LooCommandSafety> = {
   loo_codex_touched_files: { mode: "read_only", source: "local_index", requiresApproval: false },
   loo_codex_tool_calls: { mode: "read_only", source: "local_index", requiresApproval: false },
   loo_closeout_dry_run: { mode: "read_only", source: "local_index", requiresApproval: false },
+  loo_session_sanitizer: { mode: "read_only", source: "local_index", requiresApproval: false },
   loo_codex_sqlite_stores: { mode: "read_only", source: "local_index", requiresApproval: false },
   loo_lcm_peer_dbs: { mode: "read_only", source: "local_index", requiresApproval: false },
   loo_codex_control_dry_run: { mode: "read_only", source: "audit", requiresApproval: false },

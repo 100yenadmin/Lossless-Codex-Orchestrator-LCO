@@ -4,6 +4,20 @@ import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { basename, delimiter, dirname, join, resolve } from "node:path";
 import type { DatabaseSync as NodeDatabaseSync } from "node:sqlite";
+import {
+  createSessionSanitizerReport,
+  type SessionSanitizerReport,
+  type SessionSanitizerSource
+} from "./session-sanitizer.js";
+
+export { createSessionSanitizerReport } from "./session-sanitizer.js";
+export type {
+  SessionSanitizerConfidence,
+  SessionSanitizerFinding,
+  SessionSanitizerPatternClass,
+  SessionSanitizerReport,
+  SessionSanitizerSource
+} from "./session-sanitizer.js";
 
 export type LooDatabase = NodeDatabaseSync;
 type DatabaseSyncConstructor = new (path: string, options?: { readOnly?: boolean }) => NodeDatabaseSync;
@@ -200,6 +214,21 @@ export type CodexToolCall = {
   callId: string;
   toolName: string;
   argumentsText: string;
+};
+
+export type IndexedSessionSanitizerOptions = {
+  threadId?: string;
+  limit?: number;
+  now?: string;
+  auditKey?: string;
+};
+
+export type IndexedSessionSanitizerReport = SessionSanitizerReport & {
+  dryRun: true;
+  mutatesCodex: false;
+  source: "indexed-safe-text";
+  sourceLimit: number;
+  scannedRefs: string[];
 };
 
 export type ExpandSessionOptions = {
@@ -978,6 +1007,50 @@ export function getCodexToolCalls(db: LooDatabase, options: { limit?: number; th
     toolName: String(row.toolName),
     argumentsText: String(row.argumentsText ?? "")
   }));
+}
+
+export function createIndexedSessionSanitizerReport(db: LooDatabase, options: IndexedSessionSanitizerOptions = {}): IndexedSessionSanitizerReport {
+  const limit = clamp(options.limit ?? 50, 1, 500);
+  const rows = options.threadId
+    ? db.prepare(`
+        SELECT thread_id AS threadId, safe_text AS safeText
+        FROM codex_sessions
+        WHERE thread_id = ?
+        ORDER BY COALESCE(updated_at, indexed_at) DESC
+        LIMIT ?
+      `).all(options.threadId, limit)
+    : db.prepare(`
+        SELECT thread_id AS threadId, safe_text AS safeText
+        FROM codex_sessions
+        ORDER BY COALESCE(updated_at, indexed_at) DESC
+        LIMIT ?
+      `).all(limit);
+  const sources: SessionSanitizerSource[] = (rows as Array<Record<string, unknown>>).map((row) => ({
+    sourceRef: codexThreadRef(String(row.threadId)),
+    text: String(row.safeText ?? "")
+  }));
+  const report = createSessionSanitizerReport({
+    sources,
+    now: options.now,
+    auditKey: options.auditKey
+  });
+  const blockers = sources.length === 0 ? ["no_indexed_session_sanitizer_sources"] : [];
+  return {
+    ...report,
+    ok: report.ok && blockers.length === 0,
+    blockers: [...report.blockers, ...blockers],
+    dryRun: true,
+    mutatesCodex: false,
+    source: "indexed-safe-text",
+    sourceLimit: limit,
+    scannedRefs: sources.map((source) => source.sourceRef),
+    proofBoundary: "This indexed-session sanitizer report scans local indexed safe text only. It does not read raw Codex transcripts directly, upload local data, mutate sessions, perform repairs, run live Codex control, or mutate a desktop GUI.",
+    nextAction: report.findingCount > 0
+      ? "Review redacted findings locally, rotate any real secrets, and create separately approved repair tasks without attaching raw session text."
+      : blockers.length > 0
+        ? "Index or select at least one local session before using the sanitizer report as evidence."
+        : "No sanitizer findings were detected in the selected indexed safe text."
+  };
 }
 
 export function createCloseoutEnvelopeReport(db: LooDatabase, options: CloseoutEnvelopeReportOptions = {}): CloseoutEnvelopeReport {
