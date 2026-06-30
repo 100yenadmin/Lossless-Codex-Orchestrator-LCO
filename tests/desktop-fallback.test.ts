@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -257,7 +258,10 @@ test("CLI desktop live-proof-harness fails closed for direct backend without run
     });
     assert.match(parsed.proofBoundary ?? "", /does not perform desktop GUI mutation/i);
     assert.equal(parsed.evidencePath, join(root, "desktop-live-proof-harness.json"));
-    assert.equal(existsSync(join(root, "desktop-live-proof-harness.json")), true);
+    const evidenceFile = join(root, "desktop-live-proof-harness.json");
+    assert.equal(existsSync(evidenceFile), true);
+    const persisted = JSON.parse(readFileSync(evidenceFile, "utf8")) as typeof parsed;
+    assert.deepEqual(persisted, parsed);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -410,11 +414,20 @@ test("MCP desktop live-proof-harness can produce a ready public-safe proof plan 
       nextAction?: string;
     };
 
+    const expectedActionHash = createHash("sha256")
+      .update(JSON.stringify({
+        desktopBackend: "cua-driver",
+        targetApp: "Codex",
+        targetWindow: "Lossless OpenClaw Orchestrator",
+        action: "focus-safe noop"
+      }))
+      .digest("hex");
+
     assert.equal(result.ok, true);
     assert.equal(result.proofHarnessReady, true);
     assert.equal(result.publicSafe, true);
     assert.deepEqual(result.blockers, []);
-    assert.match(result.actionHash ?? "", /^[a-f0-9]{64}$/);
+    assert.equal(result.actionHash, expectedActionHash);
     assert.equal(result.backendStatus?.available, true);
     assert.deepEqual(result.backendStatus?.focus, {
       changed: false,
