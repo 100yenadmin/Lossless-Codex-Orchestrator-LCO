@@ -281,6 +281,10 @@ async function main() {
     return;
   }
   if (command === "openclaw" && args[0] === "tool-smoke") {
+    if (hasHelpFlag(args.slice(1))) {
+      printOpenClawToolSmokeHelp();
+      return;
+    }
     const parsed = parseOpenClawToolSmokeArgs(args.slice(1));
     const report = runOpenClawToolSmoke(parsed);
     console.log(JSON.stringify(report, null, 2));
@@ -389,6 +393,10 @@ async function main() {
     return;
   }
   if (command === "release" && args[0] === "preflight") {
+    if (hasHelpFlag(args.slice(1))) {
+      printReleasePreflightHelp();
+      return;
+    }
     const parsed = parseReleasePreflightArgs(args.slice(1));
     const report = runReleasePreflight({
       evidenceDir: parsed.evidenceDir,
@@ -531,6 +539,28 @@ function printOpenClawDogfoodHelp(): void {
   ].join("\n"));
 }
 
+function printOpenClawToolSmokeHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo openclaw tool-smoke [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--thread-id id] [--expand-profile metadata|brief|evidence] [--token-budget n] [--required-tool name] [--evidence-path path] [--strict]",
+    "",
+    "Runs a public-safe OpenClaw gateway smoke for selected loo_* tools.",
+    "",
+    "Default tools:",
+    "  loo_doctor, loo_search_sessions, loo_describe_session, loo_expand_query, loo_codex_plans, loo_codex_final_messages, loo_codex_thread_map, loo_codex_control_dry_run",
+    "",
+    "Options:",
+    "  --required-tool name    Replace the default required loo_* tool set with explicit entries; may be repeated.",
+    "  --evidence-path path    Write a public-safe tool-smoke report.",
+    "  --strict                Exit non-zero when the catalog or required tool calls are not ready.",
+    "",
+    "Safety boundary:",
+    "  The command invokes selected tools through OpenClaw Gateway and stores only public-safe summaries.",
+    "  loo_codex_control_dry_run remains dry-run only; the command does not run live Codex control.",
+    "  It does not mutate a desktop GUI, does not publish npm, does not create a GitHub Release, does not deliver messages, and does not approve broad gateway scope."
+  ].join("\n"));
+}
+
 function printScorecardSweepHelp(): void {
   console.log([
     "Usage:",
@@ -607,6 +637,30 @@ function printReleaseStatusHelp(): void {
     "",
     "Strict mode:",
     "  --strict exits non-zero until the candidate SHA, CI/CodeQL proofs, explicit release approvals, and scope-required approved live-control smoke evidence satisfy the release gates.",
+    "",
+    "Safety boundary:",
+    "  The command does not publish npm, does not create a GitHub Release, does not run live Codex control, and does not perform desktop GUI mutation."
+  ].join("\n"));
+}
+
+function printReleasePreflightHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo release preflight [--evidence-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--strict]",
+    "",
+    "Writes a public-safe release preflight packet without performing gated release actions.",
+    "",
+    "Claim scopes:",
+    "  codex-read-search-expand-dry-run excludes live-control and working-app runtime proof claims.",
+    "  codex-working-app-proof requires approved live-control proof and public-safe #158/#159 v1.1 runtime proof markers.",
+    "",
+    "Common blockers:",
+    "  approved_live_control_smoke_missing",
+    "  runtime_proof_missing:<scenario-id>:<marker>",
+    "  release_notes_missing",
+    "",
+    "Strict mode:",
+    "  --strict exits non-zero while scope-required evidence is missing or unsafe.",
     "",
     "Safety boundary:",
     "  The command does not publish npm, does not create a GitHub Release, does not run live Codex control, and does not perform desktop GUI mutation."
