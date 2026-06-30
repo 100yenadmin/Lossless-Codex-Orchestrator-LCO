@@ -143,7 +143,11 @@ If desktop GUI mutation is part of the release plan, rerun release status with
 `--desktop-gui-required --desktop-gui-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/desktop-gui-approval.json`.
 That proof marker must include `operation: "desktop_gui_mutation"`,
 `approved: true`, a non-empty `approvalRef`, `desktopBackend`, `targetApp`,
-`targetWindow`, `action`, and `rawSecretIncluded: false`.
+`targetWindow`, `action`, `actionHash`, `focusBeforeApplication`,
+`focusAfterApplication`, `focusChanged: false`, `focusProof`,
+`rawScreenshotIncluded: false`, and `rawSecretIncluded: false`.
+Diagnostic-only focus proofs such as `status_probe_only_no_action` and
+`not_measured` are not accepted for desktop GUI mutation approval.
 
 ## OpenClaw Install And Tool Declaration Smoke
 
@@ -223,7 +227,8 @@ Do not run live Codex control without explicit user approval for the exact targe
 thread and harmless prompt.
 
 Do not run GUI mutation without explicit user approval for the backend, target
-app/window, and action, plus a `loo_release_operation_approval` proof marker for
+app/window, action, action hash, before/after focus proof, and raw-screenshot
+exclusion, plus a `loo_release_operation_approval` proof marker for
 `operation: "desktop_gui_mutation"`.
 
 Do not run `npm publish` without explicit user approval and a

@@ -27,7 +27,7 @@ function writeLiveControlProof(path: string): void {
   }, null, 2)}\n`);
 }
 
-function writeReleaseOperationApprovalProof(path: string, operation: "npm_publish" | "github_release" | "desktop_gui_mutation", extra: Record<string, string> = {}): void {
+function writeReleaseOperationApprovalProof(path: string, operation: "npm_publish" | "github_release" | "desktop_gui_mutation", extra: Record<string, string | boolean> = {}): void {
   writeFileSync(path, `${JSON.stringify({
     kind: "loo_release_operation_approval",
     operation,
@@ -349,6 +349,9 @@ test("release status --strict requires GUI target details only when GUI mutation
   const codeqlProof = join(evidenceDir, "codeql.json");
   const broadDesktopGuiApprovalProof = join(evidenceDir, "desktop-gui-approval-broad.json");
   const detailedDesktopGuiApprovalProof = join(evidenceDir, "desktop-gui-approval-detailed.json");
+  const diagnosticFocusDesktopGuiApprovalProof = join(evidenceDir, "desktop-gui-approval-diagnostic-focus.json");
+  const changedFocusDesktopGuiApprovalProof = join(evidenceDir, "desktop-gui-approval-focus-changed.json");
+  const noFocusDesktopGuiApprovalProof = join(evidenceDir, "desktop-gui-approval-no-focus.json");
   writeLiveControlProof(liveControlProof);
   writeReleaseOperationApprovalProof(npmApprovalProof, "npm_publish");
   writeReleaseOperationApprovalProof(githubReleaseApprovalProof, "github_release");
@@ -360,6 +363,42 @@ test("release status --strict requires GUI target details only when GUI mutation
     targetApp: "Codex",
     targetWindow: "PR release smoke",
     action: "read-only visual smoke"
+  });
+  writeReleaseOperationApprovalProof(diagnosticFocusDesktopGuiApprovalProof, "desktop_gui_mutation", {
+    desktopBackend: "cua-driver",
+    targetApp: "Codex",
+    targetWindow: "PR release smoke",
+    action: "read-only visual smoke",
+    actionHash: "b".repeat(64),
+    focusBeforeApplication: "Codex",
+    focusAfterApplication: "Codex",
+    focusChanged: false,
+    focusProof: "status_probe_only_no_action",
+    rawScreenshotIncluded: false
+  });
+  writeReleaseOperationApprovalProof(changedFocusDesktopGuiApprovalProof, "desktop_gui_mutation", {
+    desktopBackend: "cua-driver",
+    targetApp: "Codex",
+    targetWindow: "PR release smoke",
+    action: "read-only visual smoke",
+    actionHash: "c".repeat(64),
+    focusBeforeApplication: "Codex",
+    focusAfterApplication: "Safari",
+    focusChanged: true,
+    focusProof: "before_after_active_application",
+    rawScreenshotIncluded: false
+  });
+  writeReleaseOperationApprovalProof(noFocusDesktopGuiApprovalProof, "desktop_gui_mutation", {
+    desktopBackend: "cua-driver",
+    targetApp: "Codex",
+    targetWindow: "PR release smoke",
+    action: "read-only visual smoke",
+    actionHash: "d".repeat(64),
+    focusBeforeApplication: "Codex",
+    focusAfterApplication: "Codex",
+    focusChanged: false,
+    focusProof: "before_after_active_application",
+    rawScreenshotIncluded: false
   });
 
   const commonArgs = [
@@ -408,13 +447,64 @@ test("release status --strict requires GUI target details only when GUI mutation
     detailedDesktopGuiApprovalProof
   ], { encoding: "utf8" });
 
-  assert.equal(detailedResult.status, 0, detailedResult.stderr || detailedResult.stdout);
+  assert.equal(detailedResult.status, 1, detailedResult.stderr || detailedResult.stdout);
   const detailedPayload = JSON.parse(detailedResult.stdout) as {
     blockers?: string[];
     explicitApprovalsRequired?: Array<{ id: string; satisfied: boolean }>;
   };
-  assert.deepEqual(detailedPayload.blockers, []);
+  assert.deepEqual(detailedPayload.blockers, ["desktop_gui_mutation_not_approved"]);
   assert.deepEqual(detailedPayload.explicitApprovalsRequired?.find((approval) => approval.id === "desktop_gui_mutation"), {
+    id: "desktop_gui_mutation",
+    satisfied: false
+  });
+
+  const diagnosticFocusResult = spawnSync(process.execPath, [
+    ...commonArgs,
+    "--desktop-gui-approval-evidence",
+    diagnosticFocusDesktopGuiApprovalProof
+  ], { encoding: "utf8" });
+
+  assert.equal(diagnosticFocusResult.status, 1, diagnosticFocusResult.stderr || diagnosticFocusResult.stdout);
+  const diagnosticFocusPayload = JSON.parse(diagnosticFocusResult.stdout) as {
+    blockers?: string[];
+    explicitApprovalsRequired?: Array<{ id: string; satisfied: boolean }>;
+  };
+  assert.deepEqual(diagnosticFocusPayload.blockers, ["desktop_gui_mutation_not_approved"]);
+  assert.deepEqual(diagnosticFocusPayload.explicitApprovalsRequired?.find((approval) => approval.id === "desktop_gui_mutation"), {
+    id: "desktop_gui_mutation",
+    satisfied: false
+  });
+
+  const changedFocusResult = spawnSync(process.execPath, [
+    ...commonArgs,
+    "--desktop-gui-approval-evidence",
+    changedFocusDesktopGuiApprovalProof
+  ], { encoding: "utf8" });
+
+  assert.equal(changedFocusResult.status, 1, changedFocusResult.stderr || changedFocusResult.stdout);
+  const changedFocusPayload = JSON.parse(changedFocusResult.stdout) as {
+    blockers?: string[];
+    explicitApprovalsRequired?: Array<{ id: string; satisfied: boolean }>;
+  };
+  assert.deepEqual(changedFocusPayload.blockers, ["desktop_gui_mutation_not_approved"]);
+  assert.deepEqual(changedFocusPayload.explicitApprovalsRequired?.find((approval) => approval.id === "desktop_gui_mutation"), {
+    id: "desktop_gui_mutation",
+    satisfied: false
+  });
+
+  const noFocusResult = spawnSync(process.execPath, [
+    ...commonArgs,
+    "--desktop-gui-approval-evidence",
+    noFocusDesktopGuiApprovalProof
+  ], { encoding: "utf8" });
+
+  assert.equal(noFocusResult.status, 0, noFocusResult.stderr || noFocusResult.stdout);
+  const noFocusPayload = JSON.parse(noFocusResult.stdout) as {
+    blockers?: string[];
+    explicitApprovalsRequired?: Array<{ id: string; satisfied: boolean }>;
+  };
+  assert.deepEqual(noFocusPayload.blockers, []);
+  assert.deepEqual(noFocusPayload.explicitApprovalsRequired?.find((approval) => approval.id === "desktop_gui_mutation"), {
     id: "desktop_gui_mutation",
     satisfied: true
   });
@@ -510,6 +600,12 @@ test("release status --help exits zero with proof-marker and restricted-action g
   assert.match(result.stdout, /loo release status --evidence-dir path --candidate-sha sha/);
   assert.match(result.stdout, /loo_release_check_evidence/);
   assert.match(result.stdout, /loo_release_operation_approval/);
+  assert.match(result.stdout, /actionHash/);
+  assert.match(result.stdout, /focusBeforeApplication/);
+  assert.match(result.stdout, /focusAfterApplication/);
+  assert.match(result.stdout, /focusChanged: false/);
+  assert.match(result.stdout, /focusProof/);
+  assert.match(result.stdout, /rawScreenshotIncluded: false/);
   assert.match(result.stdout, /does not publish npm/i);
   assert.match(result.stdout, /does not create a GitHub Release/i);
   assert.match(result.stdout, /does not run live Codex control/i);
