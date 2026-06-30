@@ -14,6 +14,7 @@ import {
   configuredLcmPeerDbPaths,
   createCloseoutEnvelopeReport,
   createDatabase,
+  createIndexedSessionSanitizerReport,
   defaultCodexRoots,
   defaultDatabasePath,
   describeRecallRef,
@@ -210,6 +211,26 @@ async function main() {
     const db = createDatabase();
     try {
       console.log(JSON.stringify(createCloseoutEnvelopeReport(db, parsed), null, 2));
+    } finally {
+      db.close();
+    }
+    return;
+  }
+  if (command === "sanitize" && args[0] === "sessions") {
+    if (hasHelpFlag(args.slice(1))) {
+      printSanitizeSessionsHelp();
+      return;
+    }
+    const parsed = parseSanitizeSessionsArgs(args.slice(1));
+    const db = createDatabase();
+    try {
+      const report = createIndexedSessionSanitizerReport(db, parsed);
+      if (parsed.evidenceDir) {
+        mkdirSync(parsed.evidenceDir, { recursive: true });
+        writeFileSync(join(parsed.evidenceDir, "session-sanitizer-report.json"), `${JSON.stringify(report, null, 2)}\n`);
+      }
+      console.log(JSON.stringify(report, null, 2));
+      if (parsed.strict && (!report.ok || report.findingCount > 0)) process.exitCode = 1;
     } finally {
       db.close();
     }
@@ -416,6 +437,7 @@ async function main() {
     "  loo expand-query [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <query>",
     "  loo expand-ref [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <source-ref>",
     "  loo closeout dry-run [--thread-id id] [--limit n] [--include-unavailable]",
+    "  loo sanitize sessions [--thread-id id] [--limit n] [--evidence-dir path] [--strict]",
     "  loo serve",
     "  loo audit-path",
     "  loo codex live-control-smoke --evidence-dir path [--thread-id id] [--message text] [--cwd path] [--timeout-ms ms] [--audit-path path] [--codex-bin path] [--app-server-args \"app-server --stdio\"]",
@@ -515,6 +537,22 @@ function printScenarioSweepHelp(): void {
     "Safety boundary:",
     "  The command validates dry-run scenario contracts only.",
     "  It does not read raw Codex transcripts, run live Codex control, mutate a desktop GUI, publish npm, or create a GitHub Release."
+  ].join("\n"));
+}
+
+function printSanitizeSessionsHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo sanitize sessions [--thread-id id] [--limit n] [--evidence-dir path] [--strict]",
+    "",
+    "Writes a public-safe sanitizer report from local indexed Codex safe text.",
+    "",
+    "Strict mode:",
+    "  --strict exits non-zero when no indexed source is selected or when sanitizer findings are present.",
+    "",
+    "Safety boundary:",
+    "  The command reads the local orchestrator index only.",
+    "  It does not read raw Codex transcripts directly, perform repairs, run live Codex control, mutate a GUI, publish npm, or create a GitHub Release."
   ].join("\n"));
 }
 
@@ -777,6 +815,25 @@ function parseCloseoutDryRunArgs(input: string[]): { threadId?: string; limit?: 
       parsed.includeUnavailable = true;
     } else {
       throw new Error(`Unknown closeout dry-run option: ${arg}`);
+    }
+  }
+  return parsed;
+}
+
+function parseSanitizeSessionsArgs(input: string[]): { threadId?: string; limit?: number; evidenceDir?: string; strict: boolean } {
+  const parsed: { threadId?: string; limit?: number; evidenceDir?: string; strict: boolean } = { strict: false };
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--thread-id") {
+      parsed.threadId = requireOptionValue(input[++index], arg);
+    } else if (arg === "--limit") {
+      parsed.limit = parsePositiveInteger(input[++index], "--limit", 500);
+    } else if (arg === "--evidence-dir") {
+      parsed.evidenceDir = requireOptionValue(input[++index], arg);
+    } else if (arg === "--strict") {
+      parsed.strict = true;
+    } else {
+      throw new Error(`Unknown sanitize sessions option: ${arg}`);
     }
   }
   return parsed;
