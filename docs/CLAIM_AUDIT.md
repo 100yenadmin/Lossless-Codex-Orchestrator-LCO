@@ -83,4 +83,6 @@ GitHub Release creation. A single-surface maintenance publication needs an
 explicit planned-operation contract change before `loo release status --strict`
 can be used as the final ready gate.
 
-Desktop GUI mutation is not required for a normal beta publication. If a release plan includes GUI mutation, `loo release status --strict` must be run with `--desktop-gui-required --desktop-gui-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/desktop-gui-approval.json`, and that `loo_release_operation_approval` proof marker must include `operation: "desktop_gui_mutation"`, `approved: true`, a non-empty `approvalRef`, `desktopBackend`, `targetApp`, `targetWindow`, `action`, and `rawSecretIncluded: false`.
+Desktop GUI mutation is not required for a normal beta publication. If a release plan includes GUI mutation, `loo release status --strict` must be run with `--desktop-gui-required --desktop-gui-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/desktop-gui-approval.json`, and that `loo_release_operation_approval` proof marker must include `operation: "desktop_gui_mutation"`, `approved: true`, a non-empty `approvalRef`, `desktopBackend`, `targetApp`, `targetWindow`, `action`, `actionHash`, `focusBeforeApplication`, `focusAfterApplication`, `focusChanged: false`, `focusProof`, `rawScreenshotIncluded: false`, and `rawSecretIncluded: false`.
+Diagnostic-only focus proofs such as `status_probe_only_no_action` and
+`not_measured` do not satisfy desktop GUI mutation approval.

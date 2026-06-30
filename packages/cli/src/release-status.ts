@@ -41,6 +41,12 @@ type ReleaseOperationApprovalProof = {
   targetApp?: string;
   targetWindow?: string;
   action?: string;
+  actionHash?: string;
+  focusBeforeApplication?: string;
+  focusAfterApplication?: string;
+  focusChanged?: boolean;
+  focusProof?: string;
+  rawScreenshotIncluded?: boolean;
   rawSecretIncluded?: boolean;
 };
 
@@ -192,12 +198,25 @@ function validateReleaseOperationApprovalProof(path: string | undefined, operati
     "desktopBackend",
     "targetApp",
     "targetWindow",
-    "action"
+    "action",
+    "actionHash",
+    "focusBeforeApplication",
+    "focusAfterApplication",
+    "focusChanged",
+    "focusProof",
+    "rawScreenshotIncluded"
   ]);
   return stringFieldPresent(proof.desktopBackend)
     && stringFieldPresent(proof.targetApp)
     && stringFieldPresent(proof.targetWindow)
     && stringFieldPresent(proof.action)
+    && hashFieldPresent(proof.actionHash)
+    && stringFieldPresent(proof.focusBeforeApplication)
+    && stringFieldPresent(proof.focusAfterApplication)
+    && proof.focusBeforeApplication === proof.focusAfterApplication
+    && proof.focusChanged === false
+    && actionFocusProofFieldPresent(proof.focusProof)
+    && proof.rawScreenshotIncluded === false
     && Object.keys(proof).every((key) => desktopAllowedKeys.has(key));
 }
 
@@ -233,4 +252,14 @@ function validateReleaseCheckProof(path: string | undefined, check: ReleaseCheck
 
 function stringFieldPresent(value: unknown): value is string {
   return typeof value === "string" && Boolean(value.trim());
+}
+
+function hashFieldPresent(value: unknown): value is string {
+  return typeof value === "string" && /^[a-f0-9]{64}$/i.test(value);
+}
+
+function actionFocusProofFieldPresent(value: unknown): value is string {
+  if (!stringFieldPresent(value)) return false;
+  const diagnosticOnlyProofs = new Set(["not_measured", "status_probe_only_no_action"]);
+  return !diagnosticOnlyProofs.has(value.trim().toLowerCase());
 }
