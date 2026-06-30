@@ -61,7 +61,7 @@ function writeReleaseCheckProof(path: string, check: "github_ci" | "codeql", com
 
 function writeRuntimeScenarioProof(
   path: string,
-  scenarioId: "openclaw-gateway-live-codex-v1-1" | "post-action-refresh-reasoning-v1-1",
+  scenarioId: "openclaw-gateway-live-codex-v1-1" | "post-action-refresh-reasoning-v1-1" | "desktop-collaboration-action-bound-v1-1",
   proofMarkers: Record<string, true>,
   counts: Record<string, number> = {}
 ): void {
@@ -476,6 +476,7 @@ test("release status --strict requires GUI target details only when GUI mutation
   const githubReleaseApprovalProof = join(evidenceDir, "github-release-approval.json");
   const githubCiProof = join(evidenceDir, "github-ci.json");
   const codeqlProof = join(evidenceDir, "codeql.json");
+  const runtimeProofDir = join(evidenceDir, "runtime-proof");
   const broadDesktopGuiApprovalProof = join(evidenceDir, "desktop-gui-approval-broad.json");
   const detailedDesktopGuiApprovalProof = join(evidenceDir, "desktop-gui-approval-detailed.json");
   const diagnosticFocusDesktopGuiApprovalProof = join(evidenceDir, "desktop-gui-approval-diagnostic-focus.json");
@@ -487,6 +488,12 @@ test("release status --strict requires GUI target details only when GUI mutation
   writeReleaseOperationApprovalProof(githubReleaseApprovalProof, "github_release");
   writeReleaseCheckProof(githubCiProof, "github_ci");
   writeReleaseCheckProof(codeqlProof, "codeql");
+  mkdirSync(runtimeProofDir);
+  writeRuntimeScenarioProof(join(runtimeProofDir, "desktop-collaboration-action-bound-v1-1.runtime-proof.json"), "desktop-collaboration-action-bound-v1-1", {
+    action_bound_target: true,
+    backend_specific_observation: true,
+    no_focus_measurement: true
+  }, { screenshot_count: 0 });
   writeReleaseOperationApprovalProof(broadDesktopGuiApprovalProof, "desktop_gui_mutation");
   writeReleaseOperationApprovalProof(detailedDesktopGuiApprovalProof, "desktop_gui_mutation", {
     desktopBackend: "cua-driver",
@@ -566,6 +573,8 @@ test("release status --strict requires GUI target details only when GUI mutation
     githubCiProof,
     "--codeql-evidence",
     codeqlProof,
+    "--runtime-proof-dir",
+    runtimeProofDir,
     "--desktop-gui-required",
     "--now",
     "2026-06-30T10:00:00.000Z",
@@ -674,6 +683,123 @@ test("release status --strict requires GUI target details only when GUI mutation
   });
 });
 
+test("release status --desktop-gui-required requires desktop collaboration runtime proof", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-status-desktop-runtime-proof-"));
+  const liveControlProof = join(evidenceDir, "approved-live-control-smoke.json");
+  const npmApprovalProof = join(evidenceDir, "npm-publish-approval.json");
+  const githubReleaseApprovalProof = join(evidenceDir, "github-release-approval.json");
+  const githubCiProof = join(evidenceDir, "github-ci.json");
+  const codeqlProof = join(evidenceDir, "codeql.json");
+  const desktopGuiApprovalProof = join(evidenceDir, "desktop-gui-approval.json");
+  writeLiveControlProof(liveControlProof);
+  writeReleaseOperationApprovalProof(npmApprovalProof, "npm_publish");
+  writeReleaseOperationApprovalProof(githubReleaseApprovalProof, "github_release");
+  writeReleaseCheckProof(githubCiProof, "github_ci");
+  writeReleaseCheckProof(codeqlProof, "codeql");
+  writeReleaseOperationApprovalProof(desktopGuiApprovalProof, "desktop_gui_mutation", {
+    desktopBackend: "cua-driver",
+    targetApp: "TextEdit",
+    targetWindow: "lco-desktop-proof.txt",
+    action: "type harmless proof text",
+    actionHash: "d".repeat(64),
+    focusBeforeApplication: "Claude",
+    focusAfterApplication: "Claude",
+    focusChanged: false,
+    focusProof: "before_after_active_application",
+    rawScreenshotIncluded: false
+  });
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "status",
+    "--evidence-dir",
+    evidenceDir,
+    "--approved-live-control-evidence",
+    liveControlProof,
+    "--npm-publish-approval-evidence",
+    npmApprovalProof,
+    "--github-release-approval-evidence",
+    githubReleaseApprovalProof,
+    "--candidate-sha",
+    candidateSha,
+    "--github-ci-evidence",
+    githubCiProof,
+    "--codeql-evidence",
+    codeqlProof,
+    "--desktop-gui-required",
+    "--desktop-gui-approval-evidence",
+    desktopGuiApprovalProof,
+    "--now",
+    "2026-06-30T10:00:00.000Z",
+    "--strict"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as {
+    blockers?: string[];
+    explicitApprovalsRequired?: Array<{ id: string; satisfied: boolean }>;
+  };
+  assert.ok(payload.blockers?.includes("desktop_collaboration_proof_missing"));
+  assert.deepEqual(payload.explicitApprovalsRequired?.find((approval) => approval.id === "desktop_gui_mutation"), {
+    id: "desktop_gui_mutation",
+    satisfied: true
+  });
+
+  const runtimeProofDir = join(evidenceDir, "runtime-proof");
+  mkdirSync(runtimeProofDir);
+  writeRuntimeScenarioProof(join(runtimeProofDir, "desktop-collaboration-action-bound-v1-1.runtime-proof.json"), "desktop-collaboration-action-bound-v1-1", {
+    action_bound_target: true,
+    backend_specific_observation: true,
+    no_focus_measurement: true
+  }, { screenshot_count: 0 });
+
+  const readyResult = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "status",
+    "--evidence-dir",
+    evidenceDir,
+    "--approved-live-control-evidence",
+    liveControlProof,
+    "--npm-publish-approval-evidence",
+    npmApprovalProof,
+    "--github-release-approval-evidence",
+    githubReleaseApprovalProof,
+    "--candidate-sha",
+    candidateSha,
+    "--github-ci-evidence",
+    githubCiProof,
+    "--codeql-evidence",
+    codeqlProof,
+    "--runtime-proof-dir",
+    runtimeProofDir,
+    "--desktop-gui-required",
+    "--desktop-gui-approval-evidence",
+    desktopGuiApprovalProof,
+    "--now",
+    "2026-06-30T10:00:00.000Z",
+    "--strict"
+  ], { encoding: "utf8" });
+
+  assert.equal(readyResult.status, 0, readyResult.stderr || readyResult.stdout);
+  const readyPayload = JSON.parse(readyResult.stdout) as {
+    blockers?: string[];
+    desktopCollaborationRuntimeProof?: { ok?: boolean; acceptedMarkerCount?: number };
+  };
+  assert.deepEqual(readyPayload.blockers, []);
+  assert.deepEqual(readyPayload.desktopCollaborationRuntimeProof, {
+    ok: true,
+    proofDir: runtimeProofDir,
+    acceptedMarkerCount: 1,
+    blockers: []
+  });
+});
+
 test("release status rejects desktop GUI approval evidence unless GUI mutation is required", () => {
   const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-status-dangling-gui-"));
   const result = spawnSync(process.execPath, [
@@ -770,6 +896,7 @@ test("release status --help exits zero with proof-marker and restricted-action g
   assert.match(result.stdout, /focusChanged: false/);
   assert.match(result.stdout, /focusProof/);
   assert.match(result.stdout, /rawScreenshotIncluded: false/);
+  assert.match(result.stdout, /desktop-collaboration-action-bound-v1-1\.runtime-proof\.json/);
   assert.match(result.stdout, /does not publish npm/i);
   assert.match(result.stdout, /does not create a GitHub Release/i);
   assert.match(result.stdout, /does not run live Codex control/i);

@@ -52,5 +52,5 @@
     "max_screenshots_in_public_evidence": 0
   },
   "proof_boundary": "Proves one named backend/action/target desktop collaboration path only.",
-  "next_action": "Implement #160 after #157 can distinguish runtime desktop proof from dry-run desktop diagnostics."
+  "next_action": "When desktop GUI collaboration is claimed, provide this runtime proof marker alongside the desktop GUI approval fixture; otherwise release status must fail closed with desktop_collaboration_proof_missing."
 }

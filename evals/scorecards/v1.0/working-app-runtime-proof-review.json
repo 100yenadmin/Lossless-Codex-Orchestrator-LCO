@@ -55,10 +55,10 @@
   "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-156-working-app-proof/working-app-runtime-proof-review.json",
   "known_gaps": [
     "The runtime proof runner can validate public-safe v1.1 proof markers, but the full installed gateway live-control and post-action refresh loop still needs real runtime evidence.",
-    "Desktop collaboration has backend-specific scratch proofs, but not a product-level action path.",
-    "The local Mac search UI is not yet connected to live user-path tools.",
+    "Desktop collaboration has backend-specific scratch proofs and release status now requires the action-bound runtime marker when desktop GUI collaboration is claimed, but not a generic product-level action path.",
+    "The local Mac search UI has a connected live CLI proof path, but not packaged/signed macOS product UI readiness.",
     "Claude Code remains an adapter inventory item, not an equivalent working path."
   ],
-  "next_action": "Run Milestone 7 child issues #158 through #162 and update this scorecard from example-not-run to pass only after real runtime proof markers exist.",
+  "next_action": "Keep claim-scoped runtime markers tied to their release claims: #158/#159 for Codex working-app proof, #160 only when desktop GUI collaboration is claimed, and #161 only when connected local UI readiness is claimed.",
   "proof_boundary": "This local public-safe scorecard defines Milestone 7 working-app proof. It is not proof until runtime evidence from the installed gateway and named local surfaces exists."
 }

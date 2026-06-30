@@ -17,12 +17,17 @@ type RuntimeProofJson = {
   live_action_count?: number;
   raw_prompt_chars?: number;
   raw_transcript_spans?: number;
+  screenshot_count?: number;
 };
 
-type RuntimeProofRequirement = {
+export type RuntimeProofRequirement = {
   id: string;
   requiredMarkers: string[];
   maxCounts: Record<string, number>;
+};
+
+type RuntimeProofSelectionOptions = {
+  includeDesktopCollaborationProof?: boolean;
 };
 
 export type WorkingAppRuntimeProofReport = {
@@ -52,7 +57,32 @@ export const WORKING_APP_RUNTIME_PROOF_REQUIREMENTS: RuntimeProofRequirement[] =
   }
 ];
 
-export function validateWorkingAppRuntimeProof(runtimeProofDir: string | undefined): WorkingAppRuntimeProofReport {
+export const DESKTOP_COLLABORATION_RUNTIME_PROOF_REQUIREMENT: RuntimeProofRequirement = {
+  id: "desktop-collaboration-action-bound-v1-1",
+  requiredMarkers: ["action_bound_target", "backend_specific_observation", "no_focus_measurement"],
+  maxCounts: {
+    screenshot_count: 0
+  }
+};
+
+export function validateWorkingAppRuntimeProof(runtimeProofDir: string | undefined, options: RuntimeProofSelectionOptions = {}): WorkingAppRuntimeProofReport {
+  const requirements = [
+    ...WORKING_APP_RUNTIME_PROOF_REQUIREMENTS,
+    ...(options.includeDesktopCollaborationProof ? [DESKTOP_COLLABORATION_RUNTIME_PROOF_REQUIREMENT] : [])
+  ];
+  return validateRuntimeProofRequirements(runtimeProofDir, requirements);
+}
+
+export function validateDesktopCollaborationRuntimeProof(runtimeProofDir: string | undefined): WorkingAppRuntimeProofReport {
+  const report = validateRuntimeProofRequirements(runtimeProofDir, [DESKTOP_COLLABORATION_RUNTIME_PROOF_REQUIREMENT]);
+  if (report.ok) return report;
+  return {
+    ...report,
+    blockers: ["desktop_collaboration_proof_missing", ...report.blockers]
+  };
+}
+
+function validateRuntimeProofRequirements(runtimeProofDir: string | undefined, requirements: RuntimeProofRequirement[]): WorkingAppRuntimeProofReport {
   const proofDir = runtimeProofDir ? resolve(runtimeProofDir) : null;
   if (!proofDir) {
     return {
@@ -61,7 +91,7 @@ export function validateWorkingAppRuntimeProof(runtimeProofDir: string | undefin
       acceptedMarkerCount: 0,
       blockers: [
         "runtime_proof_dir_missing",
-        ...WORKING_APP_RUNTIME_PROOF_REQUIREMENTS.flatMap((requirement) => missingMarkerBlockers(requirement))
+        ...requirements.flatMap((requirement) => missingMarkerBlockers(requirement))
       ]
     };
   }
@@ -72,18 +102,18 @@ export function validateWorkingAppRuntimeProof(runtimeProofDir: string | undefin
       acceptedMarkerCount: 0,
       blockers: [
         "runtime_proof_dir_missing",
-        ...WORKING_APP_RUNTIME_PROOF_REQUIREMENTS.flatMap((requirement) => missingMarkerBlockers(requirement))
+        ...requirements.flatMap((requirement) => missingMarkerBlockers(requirement))
       ]
     };
   }
 
-  const blockers = WORKING_APP_RUNTIME_PROOF_REQUIREMENTS.flatMap((requirement) =>
+  const blockers = requirements.flatMap((requirement) =>
     validateRuntimeProofFile(proofDir, requirement)
   );
   return {
     ok: blockers.length === 0,
     proofDir,
-    acceptedMarkerCount: blockers.length === 0 ? WORKING_APP_RUNTIME_PROOF_REQUIREMENTS.length : 0,
+    acceptedMarkerCount: blockers.length === 0 ? requirements.length : 0,
     blockers
   };
 }

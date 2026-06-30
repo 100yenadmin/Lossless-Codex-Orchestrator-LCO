@@ -152,6 +152,9 @@ markers must block with `runtime_proof_missing:*`,
 Add `--scenario-id desktop-collaboration-action-bound-v1-1` or
 `--scenario-id connected-local-ui-proof-v1-1` only when the release copy claims
 desktop fallback or connected local UI behavior.
+When `--desktop-gui-required` is present, `loo release status --strict` also
+requires `desktop-collaboration-action-bound-v1-1.runtime-proof.json` in
+`--runtime-proof-dir`; desktop GUI approval evidence alone is not enough.
 
 If `--strict` fails because an approval-gated operation is intentionally missing,
 record that as a blocker rather than lowering the gate. The expected blocker
@@ -169,6 +172,8 @@ names include:
   `codeql_warnings_present`, `codeql_pending`, or `codeql_failed`
 - `desktop_gui_mutation_not_approved`, only when `--desktop-gui-required` is
   present
+- `desktop_collaboration_proof_missing`, only when `--desktop-gui-required` is
+  present without the action-bound runtime proof marker
 
 Repository gate evidence must be tied to the exact release candidate SHA, not
 just the latest branch run. Capture workflow and repository-gate inventory before
@@ -192,7 +197,7 @@ that text in `warnings`; `loo release status --strict` must remain blocked until
 the warning is removed.
 
 If desktop GUI mutation is part of the release plan, rerun release status with
-`--desktop-gui-required --desktop-gui-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/desktop-gui-approval.json`.
+`--runtime-proof-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/runtime-proof --desktop-gui-required --desktop-gui-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/desktop-gui-approval.json`.
 That proof marker must include `operation: "desktop_gui_mutation"`,
 `approved: true`, a non-empty `approvalRef`, `desktopBackend`, `targetApp`,
 `targetWindow`, `action`, `actionHash`, `approvalNonce`, `issuedAt`,
