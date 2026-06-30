@@ -114,17 +114,20 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
   const gatewayTimeoutMs = options.gatewayTimeoutMs ?? 60_000;
   const gatewayOptions = [
     ...(options.gatewayUrl ? ["--url", options.gatewayUrl] : []),
+    ...gatewayTokenArgs(options.token || process.env.OPENCLAW_GATEWAY_TOKEN),
     "--timeout",
     String(gatewayTimeoutMs)
   ];
+  const gatewayToken = options.token || process.env.OPENCLAW_GATEWAY_TOKEN;
   const gatewayEnv = options.token ? { OPENCLAW_GATEWAY_TOKEN: options.token } : undefined;
+  const usesBackendGateway = Boolean(options.gatewayUrl && gatewayToken && gatewayToken !== "__OPENCLAW_REDACTED__");
   const sessionKey = options.sessionKey || "agent:main:lco-tool-smoke";
   const query = options.query || "Proposed plan";
   const expandProfile = options.expandProfile || "brief";
   const tokenBudget = options.tokenBudget ?? 1000;
   const runId = randomUUID();
 
-  const gatewayCallOptions = { env: gatewayEnv, timeoutMs: gatewayTimeoutMs };
+  const gatewayCallOptions = { env: gatewayEnv, timeoutMs: gatewayTimeoutMs, backendUrl: options.gatewayUrl, token: gatewayToken };
   const catalogCall = callGatewayJson(openclawBin, baseArgs, gatewayOptions, "tools.catalog", {}, gatewayCallOptions);
   const catalogParsed = catalogCall.parsed !== undefined;
   const catalogComparable = catalogCall.status === 0 && catalogParsed;
@@ -174,7 +177,9 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
     ok: uniqueBlockers.length === 0,
     toolSmokeReady: uniqueBlockers.length === 0,
     publicSafe: true,
-    command: `${sanitizeCommandBinary(openclawBin)} ${[...baseArgs, "gateway", "call", "tools.catalog", "--json", "--params", "<redacted>"].join(" ")}`,
+    command: usesBackendGateway
+      ? "loo backend-gateway tools.catalog --json --params <redacted>"
+      : `${sanitizeCommandBinary(openclawBin)} ${[...baseArgs, "gateway", "call", "tools.catalog", "--json", "--params", "<redacted>"].join(" ")}`,
     catalog: {
       exitStatus: catalogCall.status,
       requiredTools,
@@ -207,14 +212,22 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
   return report;
 }
 
+function gatewayTokenArgs(token: string | undefined): string[] {
+  if (!token || token === "__OPENCLAW_REDACTED__") return [];
+  return ["--token", token];
+}
+
 function callGatewayJson(
   openclawBin: string,
   baseArgs: string[],
   gatewayOptions: string[],
   method: string,
   params: unknown,
-  options: { env?: Record<string, string>; timeoutMs?: number } = {}
+  options: { env?: Record<string, string>; timeoutMs?: number; backendUrl?: string; token?: string } = {}
 ): GatewayJsonResult {
+  if (options.backendUrl && options.token && options.token !== "__OPENCLAW_REDACTED__") {
+    return callGatewayBackendJson(options.backendUrl, options.token, method, params, options.timeoutMs ?? 60_000);
+  }
   const call = spawnSync(openclawBin, [
     ...baseArgs,
     "gateway",
@@ -242,6 +255,123 @@ function callGatewayJson(
   }
   return result;
 }
+
+function callGatewayBackendJson(
+  gatewayUrl: string,
+  token: string,
+  method: string,
+  params: unknown,
+  timeoutMs: number
+): GatewayJsonResult {
+  const request = JSON.stringify({
+    url: gatewayUrl,
+    method,
+    params,
+    timeoutMs,
+    userAgent: "loo-openclaw-tool-smoke"
+  });
+  const call = spawnSync(process.execPath, ["--input-type=module", "-e", GATEWAY_BACKEND_CALL_SCRIPT], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      LOO_GATEWAY_BACKEND_REQUEST: request,
+      LOO_GATEWAY_BACKEND_TOKEN: token
+    },
+    maxBuffer: 20 * 1024 * 1024,
+    timeout: gatewayProcessTimeoutMs(timeoutMs)
+  });
+  const result: GatewayJsonResult = {
+    status: call.status,
+    stdout: call.stdout,
+    stderr: call.stderr
+  };
+  try {
+    result.parsed = parseJsonPayload(call.stdout);
+  } catch (error) {
+    result.parseError = error instanceof Error ? error.message : "invalid JSON";
+  }
+  return result;
+}
+
+const GATEWAY_BACKEND_CALL_SCRIPT = `
+const rawRequest = process.env.LOO_GATEWAY_BACKEND_REQUEST || "{}";
+const token = process.env.LOO_GATEWAY_BACKEND_TOKEN || "";
+const request = JSON.parse(rawRequest);
+const timeoutMs = Math.max(250, Number(request.timeoutMs) || 60000);
+const ws = new WebSocket(request.url);
+const timer = setTimeout(() => {
+  try { ws.close(); } catch {}
+  console.error("gateway backend call timed out");
+  process.exit(124);
+}, timeoutMs);
+let connectSent = false;
+function sendConnect() {
+  if (connectSent) return;
+  connectSent = true;
+  ws.send(JSON.stringify({
+    type: "req",
+    id: "connect-1",
+    method: "connect",
+    params: {
+      minProtocol: 3,
+      maxProtocol: 4,
+      client: {
+        id: "gateway-client",
+        version: "loo",
+        platform: process.platform,
+        mode: "backend"
+      },
+      role: "operator",
+      scopes: ["operator.read", "operator.write"],
+      caps: [],
+      commands: [],
+      permissions: {},
+      auth: { token },
+      locale: "en-US",
+      userAgent: request.userAgent || "loo-openclaw-tool-smoke"
+    }
+  }));
+}
+ws.addEventListener("open", () => setTimeout(sendConnect, 10));
+ws.addEventListener("message", (event) => {
+  let message;
+  try {
+    message = JSON.parse(String(event.data || ""));
+  } catch {
+    return;
+  }
+  if (message.type === "event" && message.event === "connect.challenge") sendConnect();
+  if (message.type !== "res") return;
+  if (message.id === "connect-1") {
+    if (!message.ok) {
+      clearTimeout(timer);
+      console.error(JSON.stringify(message.error || { message: "gateway connect failed" }));
+      process.exit(1);
+    }
+    ws.send(JSON.stringify({
+      type: "req",
+      id: "call-1",
+      method: request.method,
+      params: request.params || {}
+    }));
+    return;
+  }
+  if (message.id === "call-1") {
+    clearTimeout(timer);
+    if (!message.ok) {
+      console.error(JSON.stringify(message.error || { message: "gateway call failed" }));
+      process.exit(2);
+    }
+    console.log(JSON.stringify(message.payload));
+    ws.close();
+  }
+});
+ws.addEventListener("error", () => {
+  clearTimeout(timer);
+  console.error("gateway websocket error");
+  process.exit(1);
+});
+`;
 
 function gatewayProcessTimeoutMs(timeoutMs: number): number {
   const graceMs = Math.min(5_000, Math.max(250, Math.ceil(timeoutMs * 0.2)));
