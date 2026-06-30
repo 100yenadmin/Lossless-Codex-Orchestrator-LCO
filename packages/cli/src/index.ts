@@ -67,7 +67,10 @@ async function main() {
       return;
     }
     const parsed = parseOnboardingStatusArgs(args.slice(1));
-    const report = createOnboardingStatusReport();
+    const report = createOnboardingStatusReport({
+      rootDir: parsed.rootDir,
+      now: parsed.now
+    });
     if (parsed.evidenceDir) writeOnboardingStatusReport(report, parsed.evidenceDir);
     console.log(JSON.stringify(report, null, 2));
     if (parsed.strict && !report.ok) process.exitCode = 1;
@@ -486,7 +489,7 @@ async function main() {
   }
   console.error([
     "Usage:",
-    "  loo onboard status [--evidence-dir path] [--strict]",
+    "  loo onboard status [--evidence-dir path] [--root path] [--now iso] [--strict]",
     "  loo doctor",
     "  loo desktop see [direct|cua-driver|peekaboo] [--snapshot] [--max-nodes n] [--max-chars n]",
     "  loo desktop act [direct|cua-driver|peekaboo] <action>",
@@ -786,12 +789,16 @@ function printScenarioSweepHelp(): void {
 function printOnboardingStatusHelp(): void {
   console.log([
     "Usage:",
-    "  loo onboard status [--evidence-dir path] [--strict]",
+    "  loo onboard status [--evidence-dir path] [--root path] [--now iso] [--strict]",
     "",
     "Writes a public-safe first-run readiness report for local package, plugin, and entrypoint state.",
     "",
     "Strict mode:",
     "  --strict exits non-zero when required source files, manifests, or required loo_* tool declarations are missing.",
+    "",
+    "Deterministic evidence:",
+    "  --now pins generatedAt for reproducible release packets.",
+    "  --root overrides the detected package root for fixture or package inspection.",
     "",
     "Safety boundary:",
     "  The command reads local package metadata and manifests only.",
@@ -1154,12 +1161,16 @@ function parseCloseoutDryRunArgs(input: string[]): { threadId?: string; limit?: 
   return parsed;
 }
 
-function parseOnboardingStatusArgs(input: string[]): { evidenceDir?: string; strict: boolean } {
-  const parsed: { evidenceDir?: string; strict: boolean } = { strict: false };
+function parseOnboardingStatusArgs(input: string[]): { evidenceDir?: string; rootDir?: string; now?: string; strict: boolean } {
+  const parsed: { evidenceDir?: string; rootDir?: string; now?: string; strict: boolean } = { strict: false };
   for (let index = 0; index < input.length; index += 1) {
     const arg = input[index]!;
     if (arg === "--evidence-dir") {
       parsed.evidenceDir = requireOptionValue(input[++index], arg);
+    } else if (arg === "--root") {
+      parsed.rootDir = requireOptionValue(input[++index], arg);
+    } else if (arg === "--now") {
+      parsed.now = requireOptionValue(input[++index], arg);
     } else if (arg === "--strict") {
       parsed.strict = true;
     } else {

@@ -144,7 +144,7 @@ export LOO_LCM_DB_PATHS="$HOME/.openclaw/lcm.db"
 ## CLI
 
 ```bash
-loo onboard status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/onboarding --strict
+loo onboard status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/onboarding --now 2026-07-01T00:00:00.000Z --strict
 loo doctor
 loo index codex --max-files 150 ~/.codex/sessions ~/.codex/archived_sessions
 loo search "proposed plan billing bridge"

@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export type OnboardingCheck = {
   id: string;
@@ -65,7 +66,9 @@ export function createOnboardingStatusReport(options: {
   rootDir?: string;
   now?: string;
 } = {}): OnboardingStatusReport {
-  const rootDir = options.rootDir ?? process.cwd();
+  const rootDir = options.rootDir
+    ? resolve(options.rootDir)
+    : findPackageRoot(dirname(fileURLToPath(import.meta.url))) ?? process.cwd();
   const packageJson = readPackageJson(rootDir);
   const manifest = readOpenClawManifest(rootDir);
   const declaredTools = manifest.tools;
@@ -77,6 +80,8 @@ export function createOnboardingStatusReport(options: {
   const blockers = [
     ...requiredFiles.filter((item) => item.required && !item.exists).map((item) => `missing_required_file:${item.id}`),
     ...sourceEntrypoints.filter((item) => item.required && !item.exists).map((item) => `missing_source_entrypoint:${item.id}`),
+    ...packageJsonBlockers(packageJson),
+    ...manifestBlockers(manifest),
     ...missingRequiredTools.map((tool) => `missing_openclaw_tool:${tool}`)
   ];
   const warnings = packageEntrypoints.some((entrypoint) => !entrypoint.exists)
@@ -136,44 +141,117 @@ function checkPath(rootDir: string, id: string, path: string, required: boolean)
   };
 }
 
-function readPackageJson(rootDir: string): { name: string; version: string; bin?: Record<string, string>; openclaw?: { extensions?: string[] } } {
-  const fallback = { name: "unknown", version: "unknown" };
+type PackageJsonRead = {
+  exists: boolean;
+  error: string | null;
+  name: string;
+  version: string;
+  bin?: Record<string, string>;
+  openclaw?: { extensions?: string[] };
+};
+
+function readPackageJson(rootDir: string): PackageJsonRead {
+  const fallback = { exists: false, error: null, name: "unknown", version: "unknown" };
+  const packageJsonPath = join(rootDir, "package.json");
+  if (!existsSync(packageJsonPath)) return fallback;
   try {
-    const parsed = JSON.parse(readFileSync(join(rootDir, "package.json"), "utf8")) as {
+    const parsed = JSON.parse(readFileSync(packageJsonPath, "utf8")) as {
       name?: unknown;
       version?: unknown;
       bin?: unknown;
       openclaw?: unknown;
     };
     return {
+      exists: true,
+      error: null,
       name: typeof parsed.name === "string" ? parsed.name : fallback.name,
       version: typeof parsed.version === "string" ? parsed.version : fallback.version,
       bin: isStringRecord(parsed.bin) ? parsed.bin : undefined,
       openclaw: readOpenClawPackageMetadata(parsed.openclaw)
     };
   } catch {
-    return fallback;
+    return { ...fallback, exists: true, error: "package_json_invalid" };
   }
 }
 
-function readOpenClawManifest(rootDir: string): { exists: boolean; tools: string[] } {
+type OpenClawManifestRead = {
+  exists: boolean;
+  error: string | null;
+  tools: string[];
+  mcpCommand?: string;
+  mcpTransport?: string;
+  toolPrefix?: string;
+};
+
+function readOpenClawManifest(rootDir: string): OpenClawManifestRead {
   const manifestPath = join(rootDir, "openclaw.plugin.json");
-  if (!existsSync(manifestPath)) return { exists: false, tools: [] };
+  if (!existsSync(manifestPath)) return { exists: false, error: null, tools: [] };
   try {
-    const parsed = JSON.parse(readFileSync(manifestPath, "utf8")) as { contracts?: { tools?: unknown } };
+    const parsed = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+      contracts?: { tools?: unknown };
+      mcp?: { command?: unknown; transport?: unknown };
+      tools?: { prefix?: unknown };
+    };
     const tools = Array.isArray(parsed.contracts?.tools)
       ? parsed.contracts.tools.filter((tool): tool is string => typeof tool === "string")
       : [];
-    return { exists: true, tools };
+    return {
+      exists: true,
+      error: null,
+      tools,
+      mcpCommand: typeof parsed.mcp?.command === "string" ? parsed.mcp.command : undefined,
+      mcpTransport: typeof parsed.mcp?.transport === "string" ? parsed.mcp.transport : undefined,
+      toolPrefix: typeof parsed.tools?.prefix === "string" ? parsed.tools.prefix : undefined
+    };
   } catch {
-    return { exists: true, tools: [] };
+    return { exists: true, error: "openclaw_manifest_invalid", tools: [] };
   }
 }
 
 function packageEntrypointsFromPackage(rootDir: string, packageJson: ReturnType<typeof readPackageJson>): OnboardingCheck[] {
-  const binEntries = Object.entries(packageJson.bin ?? {}).map(([id, path]) => checkPath(rootDir, id, path, false));
-  const extensionEntries = (packageJson.openclaw?.extensions ?? []).map((path, index) => checkPath(rootDir, `openclaw_extension_${index + 1}`, path.replace(/^\.\//, ""), false));
+  const binEntries = Object.entries(packageJson.bin ?? {}).map(([id, path]) => checkPath(rootDir, id, normalizePackagePath(path), false));
+  const extensionEntries = (packageJson.openclaw?.extensions ?? []).map((path, index) => checkPath(rootDir, `openclaw_extension_${index + 1}`, normalizePackagePath(path), false));
   return [...binEntries, ...extensionEntries];
+}
+
+function packageJsonBlockers(packageJson: PackageJsonRead): string[] {
+  if (!packageJson.exists) return [];
+  const blockers = packageJson.error ? [packageJson.error] : [];
+  if (!packageJson.error && packageJson.name === "unknown") blockers.push("package_json_name_missing");
+  if (!packageJson.error && packageJson.version === "unknown") blockers.push("package_json_version_missing");
+  return blockers;
+}
+
+function manifestBlockers(manifest: OpenClawManifestRead): string[] {
+  if (!manifest.exists) return [];
+  const blockers = manifest.error ? [manifest.error] : [];
+  if (manifest.error) return blockers;
+  if (manifest.mcpCommand !== "loo-mcp-server") blockers.push("invalid_openclaw_manifest_mcp_command");
+  if (manifest.mcpTransport !== "stdio") blockers.push("invalid_openclaw_manifest_transport");
+  if (manifest.toolPrefix !== "loo_") blockers.push("invalid_openclaw_manifest_tool_prefix");
+  return blockers;
+}
+
+function normalizePackagePath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "");
+}
+
+function findPackageRoot(start: string): string | null {
+  let cursor = start;
+  while (true) {
+    const packageJsonPath = join(cursor, "package.json");
+    if (existsSync(packageJsonPath)) {
+      try {
+        const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { name?: string };
+        if (packageJson.name === "lossless-openclaw-orchestrator") return cursor;
+      } catch {
+        return null;
+      }
+    }
+    const parent = dirname(cursor);
+    if (parent === cursor) return null;
+    cursor = parent;
+  }
 }
 
 function isStringRecord(value: unknown): value is Record<string, string> {
