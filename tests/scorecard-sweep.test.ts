@@ -130,6 +130,37 @@ test("scorecard sweep fails closed when required scorecards are missing", () => 
   assert.match(report.blockers.join("\n"), /scorecard_missing:orchestrator-leverage-prioritization/);
 });
 
+test("scorecard sweep claim scope does not require working-app proof for reduced beta releases", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-scorecard-reduced-scope-"));
+  const scorecardDir = mkdtempSync(join(tmpdir(), "loo-scorecard-reduced-scope-source-"));
+  writeRequiredScorecards(scorecardDir, { includeWorkingAppRuntimeProof: false });
+
+  const report = createScorecardSweep({
+    evidenceDir,
+    scorecardDir,
+    claimScope: "codex-read-search-expand-dry-run"
+  });
+
+  assert.equal(report.sweepReady, true);
+  assert.equal(report.scorecards.some((scorecard) => scorecard.name === "working-app-runtime-proof-review"), false);
+  assert.deepEqual(report.blockers, []);
+});
+
+test("scorecard sweep keeps working-app proof required for working-app claim scope", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-scorecard-working-app-scope-"));
+  const scorecardDir = mkdtempSync(join(tmpdir(), "loo-scorecard-working-app-scope-source-"));
+  writeRequiredScorecards(scorecardDir, { includeWorkingAppRuntimeProof: false });
+
+  const report = createScorecardSweep({
+    evidenceDir,
+    scorecardDir,
+    claimScope: "codex-working-app-proof"
+  });
+
+  assert.equal(report.sweepReady, false);
+  assert.match(report.blockers.join("\n"), /scorecard_missing:working-app-runtime-proof-review/);
+});
+
 test("scorecard sweep writes evidence files for missing directories and invalid JSON", () => {
   const missingEvidenceDir = mkdtempSync(join(tmpdir(), "loo-scorecard-missing-dir-"));
   const missingReport = createScorecardSweep({
@@ -239,8 +270,9 @@ function minimalScorecard(currentScore: string) {
   };
 }
 
-function writeRequiredScorecards(scorecardDir: string): void {
+function writeRequiredScorecards(scorecardDir: string, options?: { includeWorkingAppRuntimeProof?: boolean }): void {
   for (const name of expectedScorecards) {
+    if (name === "working-app-runtime-proof-review" && options?.includeWorkingAppRuntimeProof === false) continue;
     writeFileSync(join(scorecardDir, `${name}.json`), `${JSON.stringify(minimalScoredScorecard(), null, 2)}\n`);
   }
 }
