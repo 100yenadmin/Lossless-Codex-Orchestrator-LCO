@@ -160,6 +160,7 @@ Core eval scenarios:
 - Run release preflight/status commands and verify remaining blockers are explicit.
 - Stage the local Mac search UI contract and scorecard, then verify it still routes through CLI, MCP, and OpenClaw gateway proof instead of raw transcripts.
 - Prove the Milestone 7 working-app runtime path from `evals/scenarios/v1.1`: installed gateway, approved live Codex action, post-action refresh, and safe agent reasoning.
+- Keep Claude Code behind the inventory in [docs/CLAUDE_ADAPTER_BOUNDARY.md](docs/CLAUDE_ADAPTER_BOUNDARY.md): the first adapter proof step is read-only session inventory, not control or parity.
 
 ## Adversarial Milestone Sweeps
 

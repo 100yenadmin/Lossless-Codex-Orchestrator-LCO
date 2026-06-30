@@ -67,11 +67,13 @@ test("public beta package and README do not overclaim Claude or desktop control"
 test("public beta docs include install, MCP/OpenClaw, demo, and approval-boundary proof", () => {
   assert.equal(existsSync("docs/BETA_RELEASE_DEMO.md"), true, "docs/BETA_RELEASE_DEMO.md must exist");
   assert.equal(existsSync("docs/CLAIM_AUDIT.md"), true, "docs/CLAIM_AUDIT.md must exist");
+  assert.equal(existsSync("docs/CLAUDE_ADAPTER_BOUNDARY.md"), true, "docs/CLAUDE_ADAPTER_BOUNDARY.md must exist");
 
   const readme = read("README.md");
   const openclawDocs = read("docs/OPENCLAW_PLUGIN.md");
   const demo = read("docs/BETA_RELEASE_DEMO.md");
   const claimAudit = read("docs/CLAIM_AUDIT.md");
+  const claudeBoundary = read("docs/CLAUDE_ADAPTER_BOUNDARY.md");
 
   assert.match(readme, /docs\/OPENCLAW_PLUGIN\.md/);
   assert.match(readme, /docs\/BETA_RELEASE_DEMO\.md/);
@@ -110,6 +112,9 @@ test("public beta docs include install, MCP/OpenClaw, demo, and approval-boundar
     assert.match(claimAudit, required);
   }
   assert.match(claimAudit, /loo release preflight[^\n]+--strict/i);
+  assert.match(claudeBoundary, /read-only session inventory/i);
+  assert.match(claudeBoundary, /does not prove Claude Code indexing, control, parity, GUI mutation, or cloud sync/i);
+  assert.doesNotMatch(claudeBoundary, /full Claude Code parity|control Claude Code remotely|unattended Claude takeover/i);
 });
 
 test("release status examples include live-control evidence alongside release approvals", () => {
