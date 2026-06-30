@@ -122,6 +122,10 @@ async function main() {
     return;
   }
   if (command === "search") {
+    if (isBareHelpInvocation(args)) {
+      printSearchHelp();
+      return;
+    }
     const db = createDatabase();
     try {
       console.log(JSON.stringify(searchSessions(db, { query: args.join(" "), limit: 10 }), null, 2));
@@ -243,6 +247,10 @@ async function main() {
     return;
   }
   if (command === "openclaw" && args[0] === "dogfood") {
+    if (hasHelpFlag(args.slice(1))) {
+      printOpenClawDogfoodHelp();
+      return;
+    }
     const parsed = parseOpenClawDogfoodArgs(args.slice(1));
     const report = runOpenClawDogfood(parsed);
     console.log(JSON.stringify(report, null, 2));
@@ -429,6 +437,46 @@ await main();
 
 function hasHelpFlag(input: string[]): boolean {
   return input.includes("--help") || input.includes("-h");
+}
+
+function isBareHelpInvocation(input: string[]): boolean {
+  return input.length > 0 && input.every((arg) => arg === "--help" || arg === "-h");
+}
+
+function printSearchHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo search <query>",
+    "",
+    "Search indexed Codex sessions with bounded safe text.",
+    "",
+    "Safety boundary:",
+    "  The help command does not open or query the local orchestrator database.",
+    "  Search results use source-prefixed refs and safe summaries rather than raw transcripts."
+  ].join("\n"));
+}
+
+function printOpenClawDogfoodHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo openclaw dogfood [--openclaw-bin path] [--dev] [--profile name] [--plugin-list-json path] [--install-source path] [--link] [--force-install] [--required-tool name] [--evidence-path path] [--strict]",
+    "",
+    "Checks whether the Lossless OpenClaw Orchestrator plugin is installed, loaded, and exposes required loo_* tools through OpenClaw.",
+    "",
+    "Options:",
+    "  --plugin-list-json path  Read a captured OpenClaw plugin list fixture instead of invoking OpenClaw.",
+    "  --install-source path    Install the plugin from a local package or checkout before checking it.",
+    "  --link                  Install a local plugin source as a link.",
+    "  --force-install         Force reinstall when not using --link.",
+    "  --required-tool name    Replace the default required loo_* tool set with explicit entries; may be repeated.",
+    "  --evidence-path path    Write a public-safe dogfood report.",
+    "  --strict                Exit non-zero when the plugin or required tools are not ready.",
+    "",
+    "Safety boundary:",
+    "  The command writes public-safe plugin/tool readiness evidence.",
+    "  With --install-source, it may run OpenClaw plugin install before writing evidence.",
+    "  It does not read raw Codex transcripts, run live Codex control, mutate a desktop GUI, publish npm, or create a GitHub Release."
+  ].join("\n"));
 }
 
 function printScorecardSweepHelp(): void {
