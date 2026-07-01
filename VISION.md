@@ -228,6 +228,7 @@ For Milestone 7, 1.0, or any expanded-scope release that claims live control, de
 - CUA/Peekaboo readiness is honest and does not imply unsupported generic GUI action.
 - Desktop GUI live/no-focus proof attempts use `loo desktop live-proof-harness` or `loo_desktop_live_proof_harness` first to confirm the proof plan is public-safe and fail-closed before any backend-specific action is attempted.
 - Desktop GUI mutation claims require a backend-specific observation validated by `loo desktop proof-report` or `loo_desktop_proof_report`; the proof-report command itself must not perform the GUI action, release approval `actionHash` must match the exact backend/app/window/action tuple, and the desktop collaboration runtime marker `action_hash` must match that approval hash.
+- When a desktop proof-report observation is valid, the command writes both `desktop-gui-approval.json` and `desktop-collaboration-action-bound-v1-1.runtime-proof.json`; invalid or diagnostic-only observations must not emit the runtime proof marker.
 - Release preflight/status/bundle commands produce public-safe evidence.
 - npm publish and GitHub Release are separately and explicitly approved before execution.
 

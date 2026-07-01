@@ -155,6 +155,7 @@ test("CLI desktop proof-report writes a release-compatible approval fixture for 
       proofReady?: boolean;
       publicSafe?: boolean;
       approvalEvidencePath?: string;
+      runtimeProofEvidencePath?: string;
       blockers?: string[];
       actionHash?: string;
       actionsPerformed?: { desktopGuiActionRun?: boolean };
@@ -167,6 +168,8 @@ test("CLI desktop proof-report writes a release-compatible approval fixture for 
     assert.equal(parsed.actionsPerformed?.desktopGuiActionRun, false);
     assert.equal(existsSync(join(root, "desktop-gui-proof-report.json")), true);
     assert.equal(existsSync(join(root, "desktop-gui-approval.json")), true);
+    assert.equal(parsed.runtimeProofEvidencePath, join(root, "desktop-collaboration-action-bound-v1-1.runtime-proof.json"));
+    assert.equal(existsSync(join(root, "desktop-collaboration-action-bound-v1-1.runtime-proof.json")), true);
 
     const approval = JSON.parse(readFileSync(join(root, "desktop-gui-approval.json"), "utf8")) as {
       kind?: string;
@@ -191,6 +194,41 @@ test("CLI desktop proof-report writes a release-compatible approval fixture for 
     assert.equal(approval.focusProof, "cua_driver_live_no_focus_fixture_v1");
     assert.equal(approval.rawScreenshotIncluded, false);
     assert.equal(approval.rawSecretIncluded, false);
+
+    const runtimeProof = JSON.parse(readFileSync(join(root, "desktop-collaboration-action-bound-v1-1.runtime-proof.json"), "utf8")) as {
+      kind?: string;
+      scenario_id?: string;
+      scenario_version?: string;
+      proof_mode?: string;
+      claim_scope?: string;
+      public_safe?: boolean;
+      proof_markers?: Record<string, boolean>;
+      raw_transcript_read?: boolean;
+      raw_prompt_included?: boolean;
+      raw_secret_included?: boolean;
+      screenshot_included?: boolean;
+      sqlite_included?: boolean;
+      screenshot_count?: number;
+      action_hash?: string;
+    };
+    assert.equal(runtimeProof.kind, "loo_runtime_scenario_proof");
+    assert.equal(runtimeProof.scenario_id, "desktop-collaboration-action-bound-v1-1");
+    assert.equal(runtimeProof.scenario_version, "1.1");
+    assert.equal(runtimeProof.proof_mode, "runtime_required");
+    assert.equal(runtimeProof.claim_scope, "codex-working-app-proof");
+    assert.equal(runtimeProof.public_safe, true);
+    assert.deepEqual(runtimeProof.proof_markers, {
+      action_bound_target: true,
+      backend_specific_observation: true,
+      no_focus_measurement: true
+    });
+    assert.equal(runtimeProof.raw_transcript_read, false);
+    assert.equal(runtimeProof.raw_prompt_included, false);
+    assert.equal(runtimeProof.raw_secret_included, false);
+    assert.equal(runtimeProof.screenshot_included, false);
+    assert.equal(runtimeProof.sqlite_included, false);
+    assert.equal(runtimeProof.screenshot_count, 0);
+    assert.equal(runtimeProof.action_hash, parsed.actionHash);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -222,6 +260,7 @@ test("CLI desktop proof-report reports observation-file path for malformed JSON"
     assert.equal(result.status, 1);
     assert.match(result.stderr, new RegExp(`Failed to read observation file ${observationPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
     assert.doesNotMatch(result.stderr, /ENOENT: no such file or directory/);
+    assert.equal(existsSync(join(root, "desktop-collaboration-action-bound-v1-1.runtime-proof.json")), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
