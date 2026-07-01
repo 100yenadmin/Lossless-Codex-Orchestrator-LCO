@@ -7,7 +7,7 @@ summarizable, product-management objects for OpenClaw.
 Codex-first: Claude Code support is intentionally shipped as an adapter stub
 until its storage and control paths are proven.
 
-[Vision](VISION.md) · [Current Sprint Brief](docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md) · [Agent Skill](skills/lossless-openclaw-orchestrator/SKILL.md) · [Release Checklist](docs/RELEASE_CHECKLIST.md) · [Working App Proof Sprint](docs/WORKING_APP_PROOF_SPRINT.md) · [OpenClaw Plugin](docs/OPENCLAW_PLUGIN.md) · [Claude Adapter Boundary](docs/CLAUDE_ADAPTER_BOUNDARY.md) · [Beta Demo](docs/BETA_RELEASE_DEMO.md) · [Beta Release Runbook](docs/BETA_RELEASE_RUNBOOK.md) · [Claim Audit](docs/CLAIM_AUDIT.md) · [MIT](LICENSE)
+[Vision](VISION.md) · [Current Sprint Brief](docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md) · [Agent Skill](skills/lossless-openclaw-orchestrator/SKILL.md) · [Release Checklist](docs/RELEASE_CHECKLIST.md) · [Working App Proof Sprint](docs/WORKING_APP_PROOF_SPRINT.md) · [OpenClaw Plugin](docs/OPENCLAW_PLUGIN.md) · [Claude Adapter Boundary](docs/CLAUDE_ADAPTER_BOUNDARY.md) · [Beta Demo](docs/BETA_RELEASE_DEMO.md) · [Beta Release Runbook](docs/BETA_RELEASE_RUNBOOK.md) · [Claim Audit](docs/CLAIM_AUDIT.md) · [PolyForm Noncommercial](LICENSE)
 
 ## Why This Exists
 
@@ -345,4 +345,13 @@ See [docs/PRIVACY.md](docs/PRIVACY.md) and [docs/SAFE_SUMMARIES.md](docs/SAFE_SU
 
 ## License
 
-MIT.
+Current source is source-available under the
+[PolyForm Noncommercial License 1.0.0](LICENSE). Noncommercial use is permitted
+under those terms.
+
+Commercial, internal-business, hosted-service, or product use requires a
+separate commercial license from the project owner.
+
+Historical beta releases published under the MIT License remain available under
+the terms that applied to those releases. This license transition applies
+prospectively to the current source and future releases.

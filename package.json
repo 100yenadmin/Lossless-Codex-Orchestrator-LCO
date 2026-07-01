@@ -3,7 +3,7 @@
   "version": "0.1.0-beta.30",
   "description": "Index, search, and control local Codex sessions through OpenClaw with approval-gated safety; Claude Code remains an experimental adapter stub.",
   "type": "module",
-  "license": "MIT",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "private": false,
   "bin": {
     "loo": "dist/packages/cli/src/index.js",
