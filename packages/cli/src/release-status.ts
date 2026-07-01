@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { isAbsolute, join, resolve } from "node:path";
 import { runReleasePreflight, type ReleasePreflightReport } from "./release-preflight.js";
 import {
@@ -232,6 +233,7 @@ function validateReleaseOperationApprovalProof(path: string | undefined, operati
     && stringFieldPresent(proof.targetWindow)
     && stringFieldPresent(proof.action)
     && hashFieldPresent(proof.actionHash)
+    && proof.actionHash === desktopGuiActionHash(proof)
     && stringFieldPresent(proof.approvalNonce)
     && desktopGuiApprovalFresh(proof, nowIso)
     && stringFieldPresent(proof.focusBeforeApplication)
@@ -241,6 +243,15 @@ function validateReleaseOperationApprovalProof(path: string | undefined, operati
     && actionFocusProofFieldPresent(proof.focusProof)
     && proof.rawScreenshotIncluded === false
     && Object.keys(proof).every((key) => desktopAllowedKeys.has(key));
+}
+
+function desktopGuiActionHash(proof: ReleaseOperationApprovalProof): string {
+  return createHash("sha256").update(JSON.stringify({
+    desktopBackend: proof.desktopBackend,
+    targetApp: proof.targetApp,
+    targetWindow: proof.targetWindow,
+    action: proof.action
+  })).digest("hex");
 }
 
 function desktopGuiApprovalFresh(proof: ReleaseOperationApprovalProof, nowIso: string): boolean {

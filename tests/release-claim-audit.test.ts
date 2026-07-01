@@ -17,39 +17,34 @@ function read(path: string): string {
   return readFileSync(path, "utf8");
 }
 
-test("0.1.0-beta.14 release metadata captures onboarding, gateway expand, install diagnostics, and working-app proof without widening claims", () => {
+test("0.1.0-beta.15 release metadata captures desktop action-hash gate hardening without widening claims", () => {
   const packageJson = JSON.parse(read("package.json")) as { version?: string };
   const packageLock = JSON.parse(read("package-lock.json")) as { version?: string; packages?: Record<string, { version?: string }> };
 
-  assert.equal(packageJson.version, "0.1.0-beta.14");
-  assert.equal(packageLock.version, "0.1.0-beta.14");
-  assert.equal(packageLock.packages?.[""]?.version, "0.1.0-beta.14");
-  assert.equal(existsSync("docs/RELEASE_NOTES_0.1.0-beta.14.md"), true, "0.1.0-beta.14 release notes must exist");
+  assert.equal(packageJson.version, "0.1.0-beta.15");
+  assert.equal(packageLock.version, "0.1.0-beta.15");
+  assert.equal(packageLock.packages?.[""]?.version, "0.1.0-beta.15");
+  assert.equal(existsSync("docs/RELEASE_NOTES_0.1.0-beta.15.md"), true, "0.1.0-beta.15 release notes must exist");
 
-  const releaseNotes = read("docs/RELEASE_NOTES_0.1.0-beta.14.md");
-  assert.match(releaseNotes, /Codex-first working-app proof/i);
+  const releaseNotes = read("docs/RELEASE_NOTES_0.1.0-beta.15.md");
+  assert.match(releaseNotes, /Codex-first working-app beta/i);
   assert.match(releaseNotes, /installed OpenClaw gateway/i);
-  assert.match(releaseNotes, /loo onboard status/i);
-  assert.match(releaseNotes, /#188/i);
-  assert.match(releaseNotes, /#192/i);
-  assert.match(releaseNotes, /#194/i);
-  assert.match(releaseNotes, /installOutcome/i);
-  assert.match(releaseNotes, /recognizedMarker/i);
-  assert.match(releaseNotes, /already_installed/i);
-  assert.match(releaseNotes, /#158/i);
-  assert.match(releaseNotes, /#159/i);
-  assert.match(releaseNotes, /#172/i);
+  assert.match(releaseNotes, /#160/i);
+  assert.match(releaseNotes, /desktop collaboration gate/i);
+  assert.match(releaseNotes, /actionHash/i);
+  assert.match(releaseNotes, /desktopBackend/i);
+  assert.match(releaseNotes, /targetApp/i);
+  assert.match(releaseNotes, /targetWindow/i);
+  assert.match(releaseNotes, /JSON\.stringify\(\{ desktopBackend, targetApp, targetWindow, action \}\)/i);
   assert.match(releaseNotes, /--claim-scope codex-working-app-proof/i);
-  assert.match(releaseNotes, /openclaw-gateway-live-codex-v1-1/i);
-  assert.match(releaseNotes, /post-action-refresh-reasoning-v1-1/i);
-  assert.match(releaseNotes, /0\.1\.0-beta\.14/i);
+  assert.match(releaseNotes, /codex-read-search-expand-dry-run/i);
+  assert.match(releaseNotes, /approved_live_control_smoke_missing/i);
+  assert.match(releaseNotes, /0\.1\.0-beta\.15/i);
   assert.match(releaseNotes, /latest.*0\.1\.0-beta\.4/i);
-  assert.match(releaseNotes, /beta.*0\.1\.0-beta\.14/i);
-  assert.match(releaseNotes, /desktop fallback.*claim-conditional/i);
-  assert.match(releaseNotes, /connected local UI.*claim-conditional/i);
-  assert.match(releaseNotes, /Claude Code remains.*read-only/i);
-  assert.match(releaseNotes, /does not perform additional live Codex control/i);
-  assert.match(releaseNotes, /does not perform desktop GUI mutation/i);
+  assert.match(releaseNotes, /beta.*0\.1\.0-beta\.15/i);
+  assert.match(releaseNotes, /Desktop collaboration remains claim-conditional/i);
+  assert.match(releaseNotes, /Claude Code remains.*adapter stub/i);
+  assert.match(releaseNotes, /does not run a\s+new live desktop GUI mutation/i);
   assert.doesNotMatch(releaseNotes, /Full Claude Code parity|cloud sync supported|unattended desktop takeover supported|generic GUI mutation supported|connected local UI is release-ready/i);
 });
 
