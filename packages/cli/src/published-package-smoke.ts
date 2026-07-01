@@ -303,25 +303,25 @@ function setupBlockerRecoveryCatalog(): Array<{
     {
       blocker: "fresh_profile_gateway_credentials_required",
       requiredSetup: "gateway_credentials",
-      command: "OPENCLAW_GATEWAY_TOKEN=<scoped-token> loo openclaw tool-smoke --profile lco-dogfood-published --required-tool loo_doctor --required-tool loo_search_sessions --strict",
+      command: "OPENCLAW_GATEWAY_TOKEN='<scoped-token>' loo openclaw tool-smoke --profile lco-dogfood-published --required-tool loo_doctor --required-tool loo_search_sessions --strict",
       guidance: "Provide a scoped local gateway token or complete profile credential setup, then rerun fresh-profile tool-smoke."
     },
     {
       blocker: "openclaw_device_identity_pairing_required",
       requiredSetup: "device_pairing",
-      command: "openclaw --profile lco-dogfood-published gateway device pairing status",
+      command: "openclaw devices approve --latest",
       guidance: "Complete local OpenClaw device identity pairing before claiming the clean profile is gateway-ready."
     },
     {
       blocker: "openclaw_gateway_scope_approval_required",
       requiredSetup: "gateway_scope_approval",
-      command: "openclaw --profile lco-dogfood-published gateway scope approval status",
+      command: "openclaw devices approve --latest",
       guidance: "Approve only the required read/search/dry-run gateway scopes; this is not broad gateway scope or live-control approval."
     },
     {
       blocker: "openclaw_gateway_token_rotation_required",
       requiredSetup: "gateway_token_rotation",
-      command: "Rotate or reissue the OpenClaw gateway token outside public evidence, then rerun tool-smoke.",
+      command: "openclaw devices rotate --device <deviceId> --role operator",
       guidance: "Rotate or reissue the gateway token outside public evidence; never store the token in the smoke report."
     }
   ];

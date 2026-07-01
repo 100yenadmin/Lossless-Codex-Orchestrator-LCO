@@ -274,25 +274,25 @@ test("published-smoke emits clean-profile setup recovery classifications", () =>
         name: "credentials",
         blockers: ["fresh_profile_gateway_credentials_required"],
         expected: "credential_required",
-        expectedCommand: "OPENCLAW_GATEWAY_TOKEN"
+        expectedCommand: "OPENCLAW_GATEWAY_TOKEN='<scoped-token>'"
       },
       {
         name: "device",
         blockers: ["openclaw_device_identity_pairing_required"],
         expected: "device_pairing_required",
-        expectedCommand: "device pairing"
+        expectedCommand: "openclaw devices approve --latest"
       },
       {
         name: "scope",
         blockers: ["openclaw_gateway_scope_approval_required"],
         expected: "scope_upgrade_required",
-        expectedCommand: "scope approval"
+        expectedCommand: "openclaw devices approve --latest"
       },
       {
         name: "token",
         blockers: ["openclaw_gateway_token_rotation_required"],
         expected: "token_rotation_required",
-        expectedCommand: "token"
+        expectedCommand: "openclaw devices rotate --device <deviceId> --role operator"
       },
       {
         name: "generic-setup",
@@ -366,17 +366,12 @@ test("published-smoke emits clean-profile setup recovery classifications", () =>
     ]);
     assert.ok(
       multiBlockerReport.setupRecovery.nextSafeCommands.some((command) =>
-        command.includes("OPENCLAW_GATEWAY_TOKEN")
+        command.includes("OPENCLAW_GATEWAY_TOKEN='<scoped-token>'")
       )
     );
     assert.ok(
       multiBlockerReport.setupRecovery.nextSafeCommands.some((command) =>
-        command.includes("device pairing")
-      )
-    );
-    assert.ok(
-      multiBlockerReport.setupRecovery.nextSafeCommands.some((command) =>
-        command.includes("scope approval")
+        command.includes("openclaw devices approve --latest")
       )
     );
 
