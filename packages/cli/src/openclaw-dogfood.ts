@@ -93,6 +93,7 @@ const OPENCLAW_INSTALL_OUTPUT_MARKERS: Array<{
   {
     id: "openclaw_link_force_unsupported",
     status: "link_force_unsupported",
+    // Defensive marker for external/manual OpenClaw installs; this CLI does not combine --force with --link.
     observedText: "--force is not supported with --link",
     pattern: /--force is not supported with --link/i,
     guidance: "Remove --force for linked installs; use a clean OpenClaw profile for reproducible linked beta proof."
