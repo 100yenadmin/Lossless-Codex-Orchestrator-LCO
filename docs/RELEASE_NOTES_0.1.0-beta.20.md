@@ -1,0 +1,40 @@
+# Release Notes 0.1.0-beta.20
+
+`0.1.0-beta.20` keeps the same Codex-first working-app beta scope through the installed OpenClaw gateway and packages the release help hardening from #204.
+
+## What Changed
+
+- #204 fixes `loo release bundle --help` so it exits zero instead of failing with an unknown-option error.
+- #204 fixes `loo release demo-status --help` so it exits zero instead of failing with an unknown-option error.
+- The new release bundle help names the public-safe release notes and bundle manifests it writes.
+- The new demo-status help names the public-safe beta demo evidence it checks.
+- Both help surfaces restate that they do not publish npm, create a GitHub Release, run live Codex control, or perform desktop GUI mutation.
+
+## Current Claim Scope
+
+Allowed beta claim:
+
+> Codex-first working-app beta through installed OpenClaw gateway for local Codex sessions: search, describe, expand, dry-run, and previously proven approval-gated live Codex control evidence.
+
+This release keeps the `--claim-scope codex-working-app-proof` gate and still documents the reduced `codex-read-search-expand-dry-run` path where live-control proof is intentionally excluded.
+
+## Release Gate Notes
+
+- `loo release preflight`, `loo release bundle`, `loo release demo-status`, and `loo release status` remain local-only public-safe gates.
+- Working-app status example: `loo release status --claim-scope codex-working-app-proof --approved-live-control-evidence <path> --npm-publish-approval-evidence <path> --github-release-approval-evidence <path> --candidate-sha <sha> --github-ci-evidence <path> --codeql-evidence <path> --evidence-dir <path> --strict`
+- Reduced-scope status example: `loo release status --claim-scope codex-read-search-expand-dry-run --npm-publish-approval-evidence <path> --github-release-approval-evidence <path> --candidate-sha <sha> --github-ci-evidence <path> --codeql-evidence <path> --evidence-dir <path> --strict`
+- Reduced-scope bundle example: `loo release bundle --claim-scope codex-read-search-expand-dry-run --evidence-dir <path> --strict`
+- `approved_live_control_smoke_missing` remains the blocker when a working-app claim is attempted without approved live-control smoke evidence.
+- Desktop collaboration remains excluded unless separately claimed with the desktop GUI proof gate.
+- Claude Code remains an adapter stub, not a parity claim.
+
+## npm Dist-Tag Policy
+
+- `latest` remains pinned to `0.1.0-beta.4`; npm `beta` points at `0.1.0-beta.20`
+- Do not promote `latest` until the stable/1.0 policy is separately proven.
+
+## Explicit Non-Claims
+
+This beta does not publish to npm during bundle/status checks, does not create a GitHub Release during bundle/status checks, does not run a new live Codex control smoke, and does not run a new live desktop GUI mutation.
+
+No cloud sync, no 1.0/stable readiness, no Claude parity, no generic GUI mutation, no Codex GUI mutation, no unattended desktop takeover, no release-grade enterprise security, and no enterprise/customer-ready security are claimed.
