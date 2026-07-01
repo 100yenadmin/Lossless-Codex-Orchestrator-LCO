@@ -122,6 +122,10 @@ if (method === "tools.invoke") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, manualPins: [] } }));
     process.exit(0);
   }
+  if (name === "loo_github_operating_items") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, readOnly: true, items: [{ id: "100yenadmin/Lossless-Codex-Orchestrator-LCO#264", kind: "pr", state: "red", reasonCodes: ["ci_failed"] }], sourceCoverage: { github: "ok" }, actionsPerformed: { githubWriteRun: false, liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false } } }));
+    process.exit(0);
+  }
   if (name === "loo_project_digest" || name === "loo_attention_inbox") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, sourceCoverage: { lco: "ok", github: "not_configured", plan_state: "not_configured" }, cards: [] } }));
     process.exit(0);

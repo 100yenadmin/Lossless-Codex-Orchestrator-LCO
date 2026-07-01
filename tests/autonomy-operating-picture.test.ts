@@ -9,6 +9,7 @@ import {
   createBusinessPulse,
   createDatabase,
   createDefaultSourceAuthorityProfile,
+  createGithubOperatingItemsReport,
   createPlanStatePinsReport,
   createProjectDigest,
   createResumeRequestPacket,
@@ -271,6 +272,74 @@ Random stale prose: customer Alpha is red and should be canonical.
   assert.equal(JSON.stringify(report).includes("customer Alpha is red"), false);
 });
 
+test("GitHub operating item collector maps public-safe PR and issue state for operating picture", () => {
+  const report = createGithubOperatingItemsReport([
+    {
+      repo: "100yenadmin/Lossless-Codex-Orchestrator-LCO",
+      number: 264,
+      type: "pull_request",
+      title: "deterministic GitHub collector /Volumes/LEXAR/private/raw.jsonl",
+      state: "open",
+      updatedAt: relativeIso(5),
+      checks: { status: "completed", conclusion: "failure", failing: 2, total: 5 },
+      reviewDecision: "CHANGES_REQUESTED",
+      body: "authorization: Bearer abcdefghijklmnopqrstuvwxyz"
+    },
+    {
+      id: "100yenadmin/Lossless-Codex-Orchestrator-LCO#255",
+      type: "issue",
+      title: "Eva Operating Picture tracker",
+      state: "open",
+      updatedAt: "2026-06-20T12:00:00.000Z",
+      reviewRequested: true
+    },
+    {
+      id: "100yenadmin/Lossless-Codex-Orchestrator-LCO#200",
+      type: "pull_request",
+      title: "merged green item",
+      state: "closed",
+      merged: true,
+      updatedAt: relativeIso(1),
+      checks: { status: "completed", conclusion: "success", total: 5 }
+    }
+  ], { now: "2026-07-01T12:00:00.000Z" });
+
+  assert.equal(report.schema, "lco.githubOperatingItems.v1");
+  assert.equal(report.publicSafe, true);
+  assert.equal(report.readOnly, true);
+  assert.equal(report.sourceCoverage.github, "ok");
+  assert.equal(report.items.length, 2);
+  assert.equal(report.omitted.count, 1);
+
+  const failedPr = report.items.find((item) => item.id.endsWith("#264"));
+  assert.equal(failedPr?.kind, "pr");
+  assert.equal(failedPr?.state, "red");
+  assert.equal(failedPr?.urgency, "high");
+  assert.equal(failedPr?.reasonCodes?.includes("ci_failed"), true);
+  assert.equal(failedPr?.reasonCodes?.includes("changes_requested"), true);
+  assert.match(failedPr?.nextAction ?? "", /Inspect failing GitHub checks/i);
+
+  const staleIssue = report.items.find((item) => item.id.endsWith("#255"));
+  assert.equal(staleIssue?.kind, "issue");
+  assert.equal(staleIssue?.state, "yellow");
+  assert.equal(staleIssue?.reasonCodes?.includes("stale"), true);
+  assert.equal(staleIssue?.reasonCodes?.includes("review_requested"), true);
+
+  const root = mkdtempSync(join(tmpdir(), "loo-github-operating-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const digest = createProjectDigest(db, { window: "custom", githubItems: report.items, limit: 5 });
+    assert.equal(digest.sourceCoverage.github, "ok");
+    assert.equal(digest.cards.some((card) => card.reasonCodes.includes("ci_failed") && card.state === "red"), true);
+    assert.equal(digest.signals.some((signal) => signal.subject.kind === "pr"), true);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+
+  assertNoUnsafeStrings(report, "/Volumes/LEXAR/private/raw.jsonl", "authorization: Bearer abcdefghijklmnopqrstuvwxyz");
+});
+
 test("operating picture marks missing P1 sources and preserves low-confidence conflicts", () => {
   withIndexedSessions([
     {
@@ -496,6 +565,7 @@ test("new cockpit and operating-picture tools are exposed through MCP with publi
       "loo_watcher_dry_run",
       "loo_resume_request_packet",
       "loo_plan_state_pins",
+      "loo_github_operating_items",
       "loo_project_digest",
       "loo_attention_inbox",
       "loo_business_pulse"
@@ -520,6 +590,22 @@ test("new cockpit and operating-picture tools are exposed through MCP with publi
     writeFileSync(disallowedPlanPath, "<!-- loo:manual-pin -->\n- Project: Unsafe path\n- State: red\n- Summary: Should not be read.\n- Next: Stop.\n<!-- /loo:manual-pin -->\n");
     const disallowedPins = await tools.find((tool) => tool.name === "loo_plan_state_pins")?.execute({ plan_state_path: disallowedPlanPath });
     assert.equal((disallowedPins as { manualPins?: unknown[] }).manualPins?.length, 0);
+
+    const githubItems = await tools.find((tool) => tool.name === "loo_github_operating_items")?.execute({
+      github_records: [{
+        repo: "100yenadmin/Lossless-Codex-Orchestrator-LCO",
+        number: 264,
+        type: "pull_request",
+        title: "deterministic GitHub collector",
+        state: "open",
+        updatedAt: relativeIso(3),
+        checks: { conclusion: "failure", failing: 1 }
+      }],
+      now: "2026-07-01T12:00:00.000Z"
+    });
+    assert.equal((githubItems as { publicSafe?: boolean }).publicSafe, true);
+    assert.equal((githubItems as { items?: Array<{ state?: string; reasonCodes?: string[] }> }).items?.[0]?.state, "red");
+    assert.equal((githubItems as { items?: Array<{ state?: string; reasonCodes?: string[] }> }).items?.[0]?.reasonCodes?.includes("ci_failed"), true);
 
     const projectDigestTool = tools.find((tool) => tool.name === "loo_project_digest");
     assert.ok(projectDigestTool);

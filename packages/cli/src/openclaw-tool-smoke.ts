@@ -23,6 +23,7 @@ export const DEFAULT_REQUIRED_TOOL_CALLS = [
   "loo_codex_app_server_threads",
   "loo_visible_codex_map",
   "loo_plan_state_pins",
+  "loo_github_operating_items",
   "loo_project_digest",
   "loo_attention_inbox",
   "loo_business_pulse"
@@ -513,6 +514,20 @@ function buildToolArgs(params: {
   if (params.toolName === "loo_codex_app_server_status") return {};
   if (params.toolName === "loo_codex_app_server_threads") return { limit: 5 };
   if (params.toolName === "loo_visible_codex_map") return { limit: 5, include_app_server: true, include_visible_snapshot: false };
+  if (params.toolName === "loo_github_operating_items") {
+    return {
+      github_records: [{
+        repo: "100yenadmin/Lossless-Codex-Orchestrator-LCO",
+        number: 264,
+        type: "pull_request",
+        title: "deterministic GitHub operating item collector",
+        state: "open",
+        updatedAt: TOOL_SMOKE_NOW,
+        checks: { conclusion: "failure", failing: 1 }
+      }],
+      now: TOOL_SMOKE_NOW
+    };
+  }
   if (params.toolName === "loo_codex_control_dry_run") {
     return params.threadId ? {
       action: "send",

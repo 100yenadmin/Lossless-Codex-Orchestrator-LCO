@@ -33,7 +33,7 @@ What a local OpenClaw agent can do today:
 - Expand a selected session or query with bounded metadata, brief, or evidence profiles.
 - Retrieve proposed plans, final messages, touched files, and session maps through `loo_*` tools.
 - Dry-run Codex resume/send/steer/interrupt actions and inspect audit ids and hashes before any live action.
-- Use `loo_recent_sessions`, `loo_cockpit_inbox`, `loo_plan_state_pins`, `loo_project_digest`, `loo_attention_inbox`, and `loo_business_pulse` to build a read-only operating picture from structured cards and source coverage.
+- Use `loo_recent_sessions`, `loo_cockpit_inbox`, `loo_plan_state_pins`, `loo_github_operating_items`, `loo_project_digest`, `loo_attention_inbox`, and `loo_business_pulse` to build a read-only operating picture from structured cards and source coverage.
 - Use `loo_watchers_list`, `loo_watcher_status`, `loo_watcher_dry_run`, and `loo_resume_request_packet` to represent read-only watcher attention and approval-bounded resume requests without running live control.
 - Use `loo_codex_app_server_status`, `loo_codex_app_server_threads`, and `loo_visible_codex_map` to inspect read-only Codex app-server readiness and correlate sanitized visible Codex candidates with indexed session cards, including source coverage, confidence, and ambiguity markers.
 - Inspect `authorityCoverage` on operating-picture outputs before trusting GitHub, PLAN_STATE, or future P1 source claims.

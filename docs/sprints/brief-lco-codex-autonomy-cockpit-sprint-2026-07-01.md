@@ -30,6 +30,7 @@ The first implementation slice is P0 and read-only: LCO/Codex state, optional st
 - `loo_cockpit_inbox`: deterministic attention ranking for sessions that need review, approval, resume, or blocker triage.
 - `loo_watchers_list`, `loo_watcher_status`, `loo_watcher_dry_run`, `loo_resume_request_packet`: read-only watcher status and approval-bounded resume-request packets with TTLs, stop conditions, wake reasons, and no live mutation.
 - `loo_plan_state_pins`: explicit marker parser for manual pins, approval boundaries, and exception ledger entries only.
+- `loo_github_operating_items`: deterministic public-safe normalizer for caller-provided GitHub issue, PR, and check records before operating digest summarization.
 - `loo_project_digest`: bounded operating digest from LCO/Codex cards, optional structured GitHub items, and PLAN_STATE pins.
 - `loo_attention_inbox`: action-first operating cards filtered to red/yellow/unknown states.
 - `loo_business_pulse`: read-only "How is the business?" envelope with explicit source coverage gaps.

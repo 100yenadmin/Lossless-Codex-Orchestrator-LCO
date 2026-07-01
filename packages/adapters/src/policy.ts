@@ -111,6 +111,7 @@ export const LOO_COMMAND_POLICY: Record<string, LooCommandSafety> = {
   loo_codex_app_server_threads: { mode: "read_only", source: "codex_direct", requiresApproval: false },
   loo_visible_codex_map: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },
   loo_plan_state_pins: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },
+  loo_github_operating_items: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },
   loo_project_digest: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },
   loo_attention_inbox: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },
   loo_business_pulse: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },

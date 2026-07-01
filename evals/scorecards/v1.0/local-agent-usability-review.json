@@ -23,6 +23,7 @@
     "loo_codex_app_server_threads",
     "loo_visible_codex_map",
     "loo_plan_state_pins",
+    "loo_github_operating_items",
     "loo_project_digest",
     "loo_attention_inbox",
     "loo_business_pulse"
@@ -38,6 +39,7 @@
     "watcher status, watcher_triggered reason codes, resume request packet expiry, mutates=false, and approval boundary",
     "Codex app-server read-only availability, allowed/forbidden method posture, thread source coverage, and no-turns proof",
     "visible Codex map source coverage, confidence, ambiguity markers, and public-safe session card refs",
+    "GitHub operating item normalization for issue, PR, and check records without raw bodies or logs",
     "operating-picture source coverage, source authority coverage, and not_configured P1 source states",
     "dry-run approval_audit_id, params_hash, and message_hash",
     "gateway setupStatus, setupBlockers, and setupGuidance for first-run credential blockers",
@@ -60,6 +62,7 @@
     "Agent can inspect read-only watcher status and generate resume-request packets without live control, GUI mutation, cleanup, or external writes.",
     "Agent can inspect Codex app-server status and thread signals without reading raw turns, enabling remote control, or mutating Codex.",
     "Agent can correlate sanitized visible Codex candidates with indexed session cards while ambiguous title matches stay low confidence.",
+    "Agent can normalize public-safe GitHub issue, PR, and check records into digest-ready github_items before summarization.",
     "Agent can inspect operating-picture cards whose claims cite source refs, confidence, freshness, reason codes, and authority coverage.",
     "Missing P1 source adapters are reported as not_configured instead of summarized.",
     "Unavailable or cache-only authorities degrade to unknown or low confidence instead of being treated as current truth.",
@@ -77,7 +80,7 @@
   "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-234-agent-dogfood-core-workflow/openclaw-tool-smoke-final.json",
   "known_gaps": [
     "Fresh OpenClaw profiles may need scoped gateway credentials or profile/device pairing before tool-smoke can call tools; `setupStatus.classification` must distinguish this from package failure.",
-    "P0 operating-picture tools use LCO/Codex, structured GitHub inputs, explicit PLAN_STATE pins, read-only watcher request packets, and a public source-authority profile only; Notion, support-control, Company Brain, Stripe, dashboard/export, and summarizer adapters remain P1.",
+    "P0 operating-picture tools use LCO/Codex, normalized public-safe GitHub inputs, explicit PLAN_STATE pins, read-only watcher request packets, and a public source-authority profile only; Notion, support-control, Company Brain, Stripe, dashboard/export, and summarizer adapters remain P1.",
     "Visible Codex map joins prove read-only correlation from sanitized title/status metadata only; they do not prove Codex GUI mutation or visible focus/select/continue workflows.",
     "This does not prove live Codex control, generic GUI mutation, Claude Code adapter parity, full business truth, or release-grade customer readiness."
   ],

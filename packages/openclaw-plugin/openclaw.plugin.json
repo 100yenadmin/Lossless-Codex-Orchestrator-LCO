@@ -53,6 +53,7 @@
       "loo_codex_app_server_threads",
       "loo_visible_codex_map",
       "loo_plan_state_pins",
+      "loo_github_operating_items",
       "loo_project_digest",
       "loo_attention_inbox",
       "loo_business_pulse",
@@ -596,6 +597,34 @@
               "type": "string"
             },
             "plan_state_path": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_github_operating_items",
+        "description": "Normalize public-safe GitHub issue, PR, and check records into Eva operating-picture github_items without writing to GitHub.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "github_records": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "include_green": {
+              "type": "boolean"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "now": {
               "type": "string"
             }
           }
