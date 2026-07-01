@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { createAuditStore, createDesktopGuiProofReport, createDesktopLiveProofHarness, createDesktopProofAction, writeDesktopProofAction, desktopSee } from "../packages/adapters/src/index.js";
+import { createAuditStore, createDesktopGuiProofReport, createDesktopLiveProofHarness, createDesktopProofAction, writeDesktopLiveProofHarness, writeDesktopProofAction, desktopSee } from "../packages/adapters/src/index.js";
 import { createDatabase } from "../packages/core/src/index.js";
 import { createLooTools } from "../packages/mcp-server/src/tools.js";
 
@@ -56,6 +56,34 @@ function withDesktopProofScratchRoot<T>(root: string, fn: () => T): T {
       delete process.env.LOO_DESKTOP_PROOF_APPROVAL_SECRET;
     } else {
       process.env.LOO_DESKTOP_PROOF_APPROVAL_SECRET = previousSecret;
+    }
+  }
+}
+
+function withDesktopProofScratchRootAndKeyPath<T>(root: string, keyPath: string, fn: () => T): T {
+  const previousRoot = process.env.LOO_DESKTOP_PROOF_SCRATCH_ROOT;
+  const previousSecret = process.env.LOO_DESKTOP_PROOF_APPROVAL_SECRET;
+  const previousKeyPath = process.env.LOO_DESKTOP_PROOF_APPROVAL_KEY_PATH;
+  process.env.LOO_DESKTOP_PROOF_SCRATCH_ROOT = root;
+  process.env.LOO_DESKTOP_PROOF_APPROVAL_KEY_PATH = keyPath;
+  delete process.env.LOO_DESKTOP_PROOF_APPROVAL_SECRET;
+  try {
+    return fn();
+  } finally {
+    if (previousRoot === undefined) {
+      delete process.env.LOO_DESKTOP_PROOF_SCRATCH_ROOT;
+    } else {
+      process.env.LOO_DESKTOP_PROOF_SCRATCH_ROOT = previousRoot;
+    }
+    if (previousSecret === undefined) {
+      delete process.env.LOO_DESKTOP_PROOF_APPROVAL_SECRET;
+    } else {
+      process.env.LOO_DESKTOP_PROOF_APPROVAL_SECRET = previousSecret;
+    }
+    if (previousKeyPath === undefined) {
+      delete process.env.LOO_DESKTOP_PROOF_APPROVAL_KEY_PATH;
+    } else {
+      process.env.LOO_DESKTOP_PROOF_APPROVAL_KEY_PATH = previousKeyPath;
     }
   }
 }
@@ -691,6 +719,7 @@ test("CUA desktop proof action executes only the approved TextEdit scratch launc
             "call",
             "launch_app",
             JSON.stringify({
+              bundle_id: "com.apple.TextEdit",
               name: "TextEdit",
               urls: [scratchFilePath],
               creates_new_application_instance: true
@@ -920,6 +949,71 @@ test("CUA desktop proof action requires exact approval, bounded scratch path, ex
   }
 });
 
+test("CUA desktop proof action unwraps MCP call-result envelopes for launch and window verification", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-desktop-proof-action-envelope-"));
+  const scratchFilePath = join(root, "lco-desktop-proof.txt");
+  const { action, targetApp, targetWindow, approvalRef, actionHash, approvalArtifact } = signedProofActionFixture(root, scratchFilePath);
+  const commandCalls: string[] = [];
+
+  try {
+    const result = withDesktopProofScratchRoot(root, () => createDesktopProofAction({
+      backend: "cua-driver",
+      targetApp,
+      targetWindow,
+      action,
+      actionHash,
+      approvalRef,
+      approvalArtifact,
+      permissionState: "accessibility=true;screen_recording=true",
+      scratchFilePath,
+      execute: true,
+      probe: {
+        commandStatus: () => ({ available: true, command: "cua-driver", version: "cua-driver 0.6.8" }),
+        activeApplication: () => "Codex",
+        commandOutput: (command: string, args: string[] = []) => {
+          commandCalls.push(args[1] ?? "");
+          if (args[1] === "launch_app") {
+            return {
+              status: 0,
+              command,
+              stdout: JSON.stringify({
+                structuredContent: {
+                  pid: 2468,
+                  bundle_id: "com.apple.TextEdit",
+                  name: "TextEdit",
+                  windows: [],
+                  self_activation_suppressed: true
+                }
+              })
+            };
+          }
+          assert.deepEqual(args, ["call", "list_windows", JSON.stringify({ pid: 2468 })]);
+          return {
+            status: 0,
+            command,
+            stdout: JSON.stringify({
+              content: [{
+                type: "text",
+                text: JSON.stringify({
+                  current_space_id: null,
+                  windows: [{ window_id: 99, pid: 2468, app_name: "TextEdit", title: targetWindow }]
+                })
+              }]
+            })
+          };
+        }
+      }
+    }));
+
+    assert.equal(result.ok, true);
+    assert.equal(result.proofActionReady, true);
+    assert.deepEqual(commandCalls, ["launch_app", "list_windows"]);
+    assert.equal(result.observation?.focusProof, "cua_driver_launch_app_no_focus_v1");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("CUA desktop proof action verifies the scratch window from list_windows when launch output omits windows", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-desktop-proof-action-window-fallback-"));
   const scratchFilePath = join(root, "lco-desktop-proof.txt");
@@ -1110,6 +1204,83 @@ test("desktop live-proof harness fails closed for the proof tuple when it cannot
     assert.equal(missingScratch.proofHarnessReady, false);
     assert.ok(missingScratch.blockers.includes("scratch_file_missing"));
     assert.equal(missingScratch.approvalArtifact, null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("desktop live-proof harness writer removes stale approval artifacts when the latest harness is blocked", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-desktop-proof-harness-stale-approval-"));
+  const { action, targetApp, targetWindow, approvalRef } = proofActionFixture(join(root, "lco-desktop-proof.txt"));
+  const approvalPath = join(root, "desktop-proof-action-approval.json");
+  writeFileSync(approvalPath, `${JSON.stringify({
+    kind: "loo_desktop_proof_action_approval",
+    approved: true
+  })}\n`);
+
+  try {
+    const report = withDesktopProofScratchRoot(root, () => writeDesktopLiveProofHarness({
+      evidenceDir: root,
+      backend: "cua-driver",
+      targetApp,
+      targetWindow,
+      action,
+      approvalRef,
+      probe: {
+        commandStatus: () => ({ available: true, command: "cua-driver", version: "cua-driver 0.6.8" }),
+        activeApplication: () => "Codex"
+      }
+    }));
+    assert.equal(report.proofHarnessReady, false);
+    assert.equal(report.approvalArtifact, null);
+    assert.equal(existsSync(approvalPath), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("desktop live-proof harness create path does not create a persistent approval key implicitly", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-desktop-proof-harness-key-side-effect-"));
+  const scratchFilePath = join(root, "lco-desktop-proof.txt");
+  const keyPath = join(root, "desktop-proof-action.key");
+  const { action, targetApp, targetWindow, approvalRef } = proofActionFixture(scratchFilePath);
+  writeFileSync(scratchFilePath, "LOO desktop proof scratch fixture\n");
+
+  try {
+    const readOnlyReport = withDesktopProofScratchRootAndKeyPath(root, keyPath, () => createDesktopLiveProofHarness({
+      backend: "cua-driver",
+      targetApp,
+      targetWindow,
+      action,
+      approvalRef,
+      scratchFilePath,
+      probe: {
+        commandStatus: () => ({ available: true, command: "cua-driver", version: "cua-driver 0.6.8" }),
+        activeApplication: () => "Codex"
+      }
+    }));
+    assert.equal(readOnlyReport.proofHarnessReady, false);
+    assert.ok(readOnlyReport.blockers.includes("approval_signing_key_missing"));
+    assert.equal(readOnlyReport.approvalArtifact, null);
+    assert.equal(existsSync(keyPath), false);
+
+    const writtenReport = withDesktopProofScratchRootAndKeyPath(root, keyPath, () => writeDesktopLiveProofHarness({
+      evidenceDir: root,
+      backend: "cua-driver",
+      targetApp,
+      targetWindow,
+      action,
+      approvalRef,
+      scratchFilePath,
+      probe: {
+        commandStatus: () => ({ available: true, command: "cua-driver", version: "cua-driver 0.6.8" }),
+        activeApplication: () => "Codex"
+      }
+    }));
+    assert.equal(writtenReport.proofHarnessReady, true);
+    assert.ok(writtenReport.approvalArtifact);
+    assert.equal(existsSync(keyPath), true);
+    assert.equal(existsSync(join(root, "desktop-proof-action-approval.json")), true);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
