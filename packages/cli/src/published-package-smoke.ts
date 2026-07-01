@@ -132,6 +132,7 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
     toolSmokeReady,
     gatewaySetupClassification,
     packageInstallLikelyOk,
+    packagePathOk,
     setupBlockers
   });
   const report: PublishedPackageSmokeReport = {
@@ -200,22 +201,23 @@ function buildSetupRecovery(input: {
   toolSmokeReady: boolean;
   gatewaySetupClassification: PublishedPackageSmokeReport["toolSmoke"]["gatewaySetupClassification"];
   packageInstallLikelyOk: boolean;
+  packagePathOk: boolean;
   setupBlockers: string[];
 }): PublishedPackageSmokeReport["setupRecovery"] {
   const classification = setupRecoveryClassification(input);
   const cleanProfile = "lco-dogfood-published";
   const toolSmokeCommand = `loo openclaw tool-smoke --profile ${cleanProfile} --required-tool loo_doctor --required-tool loo_search_sessions --strict`;
-  const nextSafeCommands = setupRecoveryCommands(classification, toolSmokeCommand);
+  const nextSafeCommands = setupRecoveryCommands(classification, toolSmokeCommand, input.setupBlockers);
   return {
     cleanProfile,
     classification,
     ready: classification === "ready",
-    packageInstallLikelyOk: input.packageInstallLikelyOk,
+    packageInstallLikelyOk: input.packagePathOk && input.packageInstallLikelyOk,
     retryAfterSetup: classification !== "ready" && classification !== "package_failure_or_unknown",
     configuredGatewayProofSeparate: true,
-    requiredSetup: setupRecoveryRequiredSetup(classification),
+    requiredSetup: setupRecoveryRequiredSetup(classification, input.setupBlockers),
     nextSafeCommands,
-    guidance: setupRecoveryGuidance(classification),
+    guidance: setupRecoveryGuidance(classification, input.setupBlockers),
     readinessProof: {
       required: classification !== "ready",
       satisfied: classification === "ready",
@@ -229,8 +231,10 @@ function setupRecoveryClassification(input: {
   toolSmokeReady: boolean;
   gatewaySetupClassification: PublishedPackageSmokeReport["toolSmoke"]["gatewaySetupClassification"];
   packageInstallLikelyOk: boolean;
+  packagePathOk: boolean;
   setupBlockers: string[];
 }): PublishedPackageSmokeReport["setupRecovery"]["classification"] {
+  if (!input.packagePathOk) return "package_failure_or_unknown";
   if (input.toolSmokeReady && input.gatewaySetupClassification === "ready") return "ready";
   if (!input.packageInstallLikelyOk || input.gatewaySetupClassification === "gateway_blocked") return "package_failure_or_unknown";
   if (input.setupBlockers.includes("fresh_profile_gateway_credentials_required")) return "credential_required";
@@ -243,57 +247,88 @@ function setupRecoveryClassification(input: {
 
 function setupRecoveryCommands(
   classification: PublishedPackageSmokeReport["setupRecovery"]["classification"],
-  toolSmokeCommand: string
+  toolSmokeCommand: string,
+  setupBlockers: string[]
 ): string[] {
   if (classification === "ready") return [toolSmokeCommand];
-  if (classification === "credential_required") {
+  if (classification === "package_failure_or_unknown") {
     return [
-      "OPENCLAW_GATEWAY_TOKEN=<scoped-token> loo openclaw tool-smoke --profile lco-dogfood-published --required-tool loo_doctor --required-tool loo_search_sessions --strict",
+      "Inspect package install and OpenClaw plugin load locally without copying raw stdout/stderr into public evidence.",
       toolSmokeCommand
     ];
   }
-  if (classification === "device_pairing_required") {
-    return [
-      "openclaw --profile lco-dogfood-published gateway device pairing status",
-      toolSmokeCommand
-    ];
-  }
-  if (classification === "scope_upgrade_required") {
-    return [
-      "openclaw --profile lco-dogfood-published gateway scope approval status",
-      toolSmokeCommand
-    ];
-  }
-  if (classification === "token_rotation_required") {
-    return [
-      "Rotate or reissue the OpenClaw gateway token outside public evidence, then rerun tool-smoke.",
-      toolSmokeCommand
-    ];
-  }
+  const commands = setupBlockerRecoveryItems(setupBlockers).map((item) => item.command);
+  if (commands.length > 0) return uniqueStrings([...commands, toolSmokeCommand]);
   if (classification === "setup_required") return [toolSmokeCommand];
-  return [
-    "Inspect package install and OpenClaw plugin load locally without copying raw stdout/stderr into public evidence.",
-    toolSmokeCommand
-  ];
+  return [toolSmokeCommand];
 }
 
-function setupRecoveryRequiredSetup(classification: PublishedPackageSmokeReport["setupRecovery"]["classification"]): string[] {
+function setupRecoveryRequiredSetup(
+  classification: PublishedPackageSmokeReport["setupRecovery"]["classification"],
+  setupBlockers: string[]
+): string[] {
   if (classification === "ready" || classification === "package_failure_or_unknown") return [];
-  if (classification === "credential_required") return ["gateway_credentials"];
-  if (classification === "device_pairing_required") return ["device_pairing"];
-  if (classification === "scope_upgrade_required") return ["gateway_scope_approval"];
-  if (classification === "token_rotation_required") return ["gateway_token_rotation"];
+  const requiredSetup = setupBlockerRecoveryItems(setupBlockers).map((item) => item.requiredSetup);
+  if (requiredSetup.length > 0) return uniqueStrings(requiredSetup);
   return ["gateway_setup"];
 }
 
-function setupRecoveryGuidance(classification: PublishedPackageSmokeReport["setupRecovery"]["classification"]): string[] {
+function setupRecoveryGuidance(
+  classification: PublishedPackageSmokeReport["setupRecovery"]["classification"],
+  setupBlockers: string[]
+): string[] {
   if (classification === "ready") return ["Fresh profile gateway tool-smoke is ready; this is the only state that may support a clean-profile gateway-ready claim."];
-  if (classification === "credential_required") return ["Provide a scoped local gateway token or complete profile credential setup, then rerun fresh-profile tool-smoke."];
-  if (classification === "device_pairing_required") return ["Complete local OpenClaw device identity pairing before claiming the clean profile is gateway-ready."];
-  if (classification === "scope_upgrade_required") return ["Approve only the required read/search/dry-run gateway scopes; this is not broad gateway scope or live-control approval."];
-  if (classification === "token_rotation_required") return ["Rotate or reissue the gateway token outside public evidence; never store the token in the smoke report."];
+  const guidance = setupBlockerRecoveryItems(setupBlockers).map((item) => item.guidance);
+  if (guidance.length > 0 && classification !== "package_failure_or_unknown") return uniqueStrings(guidance);
   if (classification === "setup_required") return ["Resolve the named setup blockers and rerun fresh-profile tool-smoke before reporting readiness."];
   return ["Treat this as a possible package or plugin defect until install/load evidence proves otherwise."];
+}
+
+function setupBlockerRecoveryItems(setupBlockers: string[]): Array<{
+  blocker: string;
+  requiredSetup: string;
+  command: string;
+  guidance: string;
+}> {
+  return setupBlockerRecoveryCatalog().filter((item) => setupBlockers.includes(item.blocker));
+}
+
+function setupBlockerRecoveryCatalog(): Array<{
+  blocker: string;
+  requiredSetup: string;
+  command: string;
+  guidance: string;
+}> {
+  return [
+    {
+      blocker: "fresh_profile_gateway_credentials_required",
+      requiredSetup: "gateway_credentials",
+      command: "OPENCLAW_GATEWAY_TOKEN=<scoped-token> loo openclaw tool-smoke --profile lco-dogfood-published --required-tool loo_doctor --required-tool loo_search_sessions --strict",
+      guidance: "Provide a scoped local gateway token or complete profile credential setup, then rerun fresh-profile tool-smoke."
+    },
+    {
+      blocker: "openclaw_device_identity_pairing_required",
+      requiredSetup: "device_pairing",
+      command: "openclaw --profile lco-dogfood-published gateway device pairing status",
+      guidance: "Complete local OpenClaw device identity pairing before claiming the clean profile is gateway-ready."
+    },
+    {
+      blocker: "openclaw_gateway_scope_approval_required",
+      requiredSetup: "gateway_scope_approval",
+      command: "openclaw --profile lco-dogfood-published gateway scope approval status",
+      guidance: "Approve only the required read/search/dry-run gateway scopes; this is not broad gateway scope or live-control approval."
+    },
+    {
+      blocker: "openclaw_gateway_token_rotation_required",
+      requiredSetup: "gateway_token_rotation",
+      command: "Rotate or reissue the OpenClaw gateway token outside public evidence, then rerun tool-smoke.",
+      guidance: "Rotate or reissue the gateway token outside public evidence; never store the token in the smoke report."
+    }
+  ];
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
 }
 
 function readPackageJson(rootDir: string): { name: string; version: string } {

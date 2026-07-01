@@ -335,6 +335,51 @@ test("published-smoke emits clean-profile setup recovery classifications", () =>
       assert.doesNotMatch(JSON.stringify(report.setupRecovery), /raw-openclaw-output|npm_[A-Za-z0-9]{20,}|state_5\.sqlite/i);
     }
 
+    const multiBlockerToolSmokePath = join(dir, "multi-blocker-tool-smoke.json");
+    writeJson(multiBlockerToolSmokePath, {
+      ok: false,
+      toolSmokeReady: false,
+      publicSafe: true,
+      setupBlockers: [
+        "fresh_profile_gateway_credentials_required",
+        "openclaw_gateway_scope_approval_required",
+        "openclaw_device_identity_pairing_required"
+      ],
+      setupStatus: {
+        classification: "gateway_setup_required",
+        packageInstallLikelyOk: true,
+        recoverable: true,
+        retryAfterSetup: true,
+        doesNotIndicatePackageFailure: true
+      }
+    });
+    const multiBlockerReport = createPublishedPackageSmokeReport({
+      rootDir: new URL("..", import.meta.url).pathname,
+      dogfoodReportPath: dogfoodPath,
+      toolSmokeReportPath: multiBlockerToolSmokePath
+    });
+    assert.equal(multiBlockerReport.setupRecovery.classification, "credential_required");
+    assert.deepEqual(multiBlockerReport.setupRecovery.requiredSetup, [
+      "gateway_credentials",
+      "device_pairing",
+      "gateway_scope_approval"
+    ]);
+    assert.ok(
+      multiBlockerReport.setupRecovery.nextSafeCommands.some((command) =>
+        command.includes("OPENCLAW_GATEWAY_TOKEN")
+      )
+    );
+    assert.ok(
+      multiBlockerReport.setupRecovery.nextSafeCommands.some((command) =>
+        command.includes("device pairing")
+      )
+    );
+    assert.ok(
+      multiBlockerReport.setupRecovery.nextSafeCommands.some((command) =>
+        command.includes("scope approval")
+      )
+    );
+
     const readyToolSmokePath = join(dir, "ready-tool-smoke.json");
     writeJson(readyToolSmokePath, {
       ok: true,
@@ -357,6 +402,26 @@ test("published-smoke emits clean-profile setup recovery classifications", () =>
     assert.equal(readyReport.setupRecovery.classification, "ready");
     assert.equal(readyReport.setupRecovery.ready, true);
     assert.deepEqual(readyReport.setupRecovery.requiredSetup, []);
+
+    const failedDogfoodPath = join(dir, "failed-dogfood.json");
+    writeJson(failedDogfoodPath, {
+      ok: false,
+      dogfoodReady: false,
+      publicSafe: true,
+      targetPlugin: { id: "lossless-openclaw-orchestrator", enabled: false, loaded: false, toolCount: 0 },
+      requiredToolsPresent: false,
+      installOutcome: { status: "failed", exitStatus: 1 }
+    });
+    const packagePathFailureWithReadyToolSmokeReport = createPublishedPackageSmokeReport({
+      rootDir: new URL("..", import.meta.url).pathname,
+      dogfoodReportPath: failedDogfoodPath,
+      toolSmokeReportPath: readyToolSmokePath
+    });
+    assert.equal(packagePathFailureWithReadyToolSmokeReport.packagePathOk, false);
+    assert.equal(packagePathFailureWithReadyToolSmokeReport.setupRecovery.classification, "package_failure_or_unknown");
+    assert.equal(packagePathFailureWithReadyToolSmokeReport.setupRecovery.ready, false);
+    assert.equal(packagePathFailureWithReadyToolSmokeReport.setupRecovery.packageInstallLikelyOk, false);
+    assert.deepEqual(packagePathFailureWithReadyToolSmokeReport.setupRecovery.requiredSetup, []);
 
     const packageFailureToolSmokePath = join(dir, "package-failure-tool-smoke.json");
     writeJson(packageFailureToolSmokePath, {
