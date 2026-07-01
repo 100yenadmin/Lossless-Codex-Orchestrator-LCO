@@ -41,6 +41,7 @@ import { runReleasePreflight } from "./release-preflight.js";
 import { createReleaseStatus } from "./release-status.js";
 import { runOpenClawDogfood } from "./openclaw-dogfood.js";
 import { runOpenClawToolSmoke } from "./openclaw-tool-smoke.js";
+import { createPublishedPackageSmokeReport } from "./published-package-smoke.js";
 import { runOpenClawGatewayLiveControlSmoke } from "./openclaw-live-control-smoke.js";
 import { runOpenClawPostActionRefreshSmoke } from "./openclaw-post-action-refresh-smoke.js";
 import { createScorecardSweep } from "./scorecard-sweep.js";
@@ -332,6 +333,17 @@ async function main() {
     if (parsed.strict && !report.toolSmokeReady) process.exitCode = 1;
     return;
   }
+  if (command === "openclaw" && args[0] === "published-smoke") {
+    if (hasHelpFlag(args.slice(1))) {
+      printOpenClawPublishedSmokeHelp();
+      return;
+    }
+    const parsed = parseOpenClawPublishedSmokeArgs(args.slice(1));
+    const report = createPublishedPackageSmokeReport(parsed);
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.ok) process.exitCode = 1;
+    return;
+  }
   if (command === "openclaw" && args[0] === "live-control-smoke") {
     if (hasHelpFlag(args.slice(1))) {
       printOpenClawLiveControlSmokeHelp();
@@ -533,6 +545,7 @@ async function main() {
     "  loo codex live-control-smoke --evidence-dir path [--thread-id id] [--message text] [--cwd path] [--timeout-ms ms] [--audit-path path] [--codex-bin path] [--app-server-args \"app-server --stdio\"]",
     "  loo openclaw dogfood [--dev] [--profile name] [--install-source path] [--link] [--force-install] [--evidence-path path] [--strict]",
     "  loo openclaw tool-smoke [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--thread-id id] [--expand-profile metadata|brief|evidence] [--token-budget n] [--required-tool name] [--evidence-path path] [--strict]",
+    "  loo openclaw published-smoke --evidence-dir path --dogfood-report path --tool-smoke-report path [--registry-beta-version version] [--root path] [--now iso] [--strict]",
     "  loo openclaw live-control-smoke --evidence-dir path --thread-id id [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--message text] [--strict]",
     "  loo openclaw post-action-refresh-smoke --evidence-dir path --thread-id id --live-proof-report path [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--expand-profile metadata|brief|evidence] [--token-budget n] [--strict]",
     "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--strict]",
@@ -867,6 +880,18 @@ function printReleaseStatusHelp(): void {
     "",
     "Safety boundary:",
     "  The command does not publish npm, does not create a GitHub Release, does not run live Codex control, and does not perform desktop GUI mutation."
+  ].join("\n"));
+}
+
+function printOpenClawPublishedSmokeHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo openclaw published-smoke --evidence-dir path --dogfood-report path --tool-smoke-report path [--registry-beta-version version] [--root path] [--now iso] [--strict]",
+    "",
+    "Writes a public-safe summary of the published npm beta install path and gateway setup state.",
+    "",
+    "This command consumes sanitized reports from `loo openclaw dogfood` and `loo openclaw tool-smoke`.",
+    "It does not run npm install, does not call OpenClaw, does not run live Codex control, and does not mutate a desktop GUI."
   ].join("\n"));
 }
 
@@ -1638,6 +1663,57 @@ function parseOpenClawToolSmokeArgs(input: string[]): {
   }
   if (requiredTools.length > 0) parsed.requiredTools = requiredTools;
   return parsed;
+}
+
+function parseOpenClawPublishedSmokeArgs(input: string[]): {
+  evidenceDir?: string;
+  rootDir?: string;
+  now?: string;
+  registryBetaVersion?: string;
+  dogfoodReportPath: string;
+  toolSmokeReportPath: string;
+  strict: boolean;
+} {
+  const parsed: {
+    evidenceDir?: string;
+    rootDir?: string;
+    now?: string;
+    registryBetaVersion?: string;
+    dogfoodReportPath?: string;
+    toolSmokeReportPath?: string;
+    strict: boolean;
+  } = { strict: false };
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--evidence-dir") {
+      parsed.evidenceDir = requireOptionValue(input[++index], arg);
+    } else if (arg === "--root") {
+      parsed.rootDir = requireOptionValue(input[++index], arg);
+    } else if (arg === "--now") {
+      parsed.now = requireOptionValue(input[++index], arg);
+    } else if (arg === "--registry-beta-version") {
+      parsed.registryBetaVersion = requireOptionValue(input[++index], arg);
+    } else if (arg === "--dogfood-report") {
+      parsed.dogfoodReportPath = requireOptionValue(input[++index], arg);
+    } else if (arg === "--tool-smoke-report") {
+      parsed.toolSmokeReportPath = requireOptionValue(input[++index], arg);
+    } else if (arg === "--strict") {
+      parsed.strict = true;
+    } else {
+      throw new Error(`Unknown openclaw published-smoke option: ${arg}`);
+    }
+  }
+  if (!parsed.dogfoodReportPath) throw new Error("openclaw published-smoke requires --dogfood-report");
+  if (!parsed.toolSmokeReportPath) throw new Error("openclaw published-smoke requires --tool-smoke-report");
+  return {
+    evidenceDir: parsed.evidenceDir,
+    rootDir: parsed.rootDir,
+    now: parsed.now,
+    registryBetaVersion: parsed.registryBetaVersion,
+    dogfoodReportPath: parsed.dogfoodReportPath,
+    toolSmokeReportPath: parsed.toolSmokeReportPath,
+    strict: parsed.strict
+  };
 }
 
 function parseOpenClawLiveControlSmokeArgs(input: string[]): {

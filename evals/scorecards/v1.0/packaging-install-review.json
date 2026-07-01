@@ -15,6 +15,7 @@
     "plugin manifest path",
     "published-beta installRecovery commands",
     "published-beta postInstallSelfCheck version match status",
+    "published package smoke report packagePathOk and setupRequired classifications",
     "gateway setup classification from sanitized tool-smoke evidence",
     "clean OpenClaw profile name for published-beta proof",
     "gateway setup guidance for credential/device-pairing blockers",
@@ -41,6 +42,7 @@
     "Plugin manifest declares the loo_ prefix and expected read/control/admin tools.",
     "Onboarding status names the published beta package, clean profile, npm registry check, global install, OpenClaw install, dogfood, and tool-smoke recovery commands.",
     "Onboarding status classifies the local package version against the npm beta dist-tag and records gateway setup status without raw npm or OpenClaw output.",
+    "Published package smoke report combines sanitized npm beta, dogfood, and tool-smoke evidence without storing raw command output.",
     "OpenClaw dogfood distinguishes installed, already_installed, link_force_unsupported, and failed linked-install outcomes without raw local paths.",
     "Known OpenClaw prose markers are reduced to public-safe installOutcome.recognizedMarker ids instead of copying raw command output.",
     "Release preflight/status fail closed on missing approvals without performing publish or release actions."
@@ -50,6 +52,7 @@
     "Tool declarations drift from the MCP registry.",
     "Onboarding status lacks a clean-profile published-beta recovery path or presents setup blockers as product defects.",
     "Post-install self-check accepts raw gateway/npm output, omits version mismatch status, or hides setup-required classification.",
+    "Published package smoke report treats gateway setup-required as a package defect or hides package version mismatch.",
     "Linked install failures are reported as generic failures when the plugin is already loaded, or raw OpenClaw stdout/stderr enters public evidence.",
     "Release commands perform npm publish, GitHub Release creation, live control, or GUI mutation."
   ],
