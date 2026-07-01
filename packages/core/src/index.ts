@@ -237,7 +237,7 @@ export type EvidenceCard = {
   schema: "lco.evidenceCard.v1";
   evidenceId: string;
   claim: string;
-  sourceKind: "github_check_summary" | "safe_event" | "desktop_title" | "watcher_log" | "plan" | "final_message" | "session_metadata" | "plan_state";
+  sourceKind: "github_check_summary" | "safe_event" | "desktop_title" | "watcher_log" | "plan" | "final_message" | "session_metadata" | "github" | "plan_state";
   sourceRef: string;
   observedAt: string | null;
   excerpt: string;
@@ -438,7 +438,6 @@ export type GithubOperatingItem = {
 export type OperatingDigestOptions = {
   window?: OperatingDigest["window"];
   limit?: number;
-  maxTokens?: number;
   planStatePins?: PlanStatePinsReport;
   githubItems?: GithubOperatingItem[];
 };
@@ -1381,14 +1380,14 @@ export function getRecentSessions(db: LooDatabase, options: {
   if (options.hasPlan === true) entries = entries.filter((entry) => entry.metadata.proposedPlanRefs.length > 0);
   if (options.hasFinal === true) entries = entries.filter((entry) => entry.metadata.finalMessageRefs.length > 0);
   if (options.hasBlocker === true) entries = entries.filter((entry) => hasRealBlocker(entry.metadata.blocker));
+  let cards = entries.map((entry) => codexSessionCard(db, entry));
   if (options.touchedPath) {
     const needle = options.touchedPath.toLowerCase();
-    entries = entries.filter((entry) => entry.metadata.touchedFileRefs.some((ref) => ref.toLowerCase().includes(needle)));
+    cards = cards.filter((card) => touchedPathMatches(db, card.threadId, needle));
   }
-
-  let cards = entries.map((entry) => codexSessionCard(db, entry));
   if (options.risk) cards = cards.filter((card) => card.risk.level === options.risk);
   cards.sort(codexSessionCardComparator);
+  const total = cards.length;
   cards = cards.slice(0, limit);
 
   return {
@@ -1398,7 +1397,7 @@ export function getRecentSessions(db: LooDatabase, options: {
     scope,
     generatedAt: new Date().toISOString(),
     summary: {
-      total: entries.length,
+      total,
       returned: cards.length,
       stale: cards.filter((card) => card.freshness.stale).length,
       lowConfidence: cards.filter((card) => card.confidence < 0.7).length
@@ -1463,13 +1462,16 @@ export function createProjectDigest(db: LooDatabase, options: OperatingDigestOpt
   const githubSignals = (options.githubItems ?? []).slice(0, 100).map(signalFromGithubItem);
   const planSignals = (options.planStatePins?.manualPins ?? []).map(signalFromPlanPin);
   const signals = [...codexSignals, ...githubSignals, ...planSignals];
+  const signalById = new Map(signals.map((signal) => [signal.signalId, signal]));
   const cards = signals.map(operatingCardFromSignal).sort(operatingCardComparator);
   const selected = cards.slice(0, limit);
-  const evidence = selected.flatMap((card) => evidenceCardsForOperatingCard(card));
+  const selectedSignalIds = new Set(selected.flatMap((card) => card.signals));
+  const selectedSignals = signals.filter((signal) => selectedSignalIds.has(signal.signalId));
+  const evidence = selected.flatMap((card) => evidenceCardsForOperatingCard(card, signalById.get(card.signals[0] ?? "")));
   const sourceCoverage = {
     lco: codexSignals.length > 0 ? "ok" as const : "partial" as const,
-    github: options.githubItems ? "ok" as const : "not_configured" as const,
-    plan_state: options.planStatePins ? "ok" as const : "not_configured" as const,
+    github: githubSignals.length > 0 ? "ok" as const : "not_configured" as const,
+    plan_state: planSignals.length > 0 ? "ok" as const : "not_configured" as const,
     notion: "not_configured" as const,
     support_control: "not_configured" as const,
     company_brain: "not_configured" as const,
@@ -1483,7 +1485,7 @@ export function createProjectDigest(db: LooDatabase, options: OperatingDigestOpt
     health: operatingHealth(selected),
     topAttention: selected.filter((card) => card.state === "red" || card.state === "yellow" || card.state === "unknown").slice(0, 5).map((card) => card.cardId),
     cards: selected,
-    signals,
+    signals: selectedSignals,
     evidence,
     omitted: {
       count: Math.max(0, cards.length - selected.length),
@@ -1706,6 +1708,11 @@ function evidenceCardsForSessionCard(card: CodexSessionCard): EvidenceCard[] {
   }];
 }
 
+function touchedPathMatches(db: LooDatabase, threadRef: string, needle: string): boolean {
+  const threadId = bareCodexThreadId(threadRef);
+  return getCodexTouchedFiles(db, { threadId }).some((path) => path.toLowerCase().includes(needle));
+}
+
 function extractMarkedBlocks(text: string, marker: string): string[] {
   const pattern = new RegExp(`<!--\\s*loo:${escapeRegExp(marker)}\\s*-->([\\s\\S]*?)<!--\\s*/loo:${escapeRegExp(marker)}\\s*-->`, "gi");
   const blocks: string[] = [];
@@ -1869,13 +1876,13 @@ function operatingCardComparator(left: OperatingCard, right: OperatingCard): num
   return left.cardId.localeCompare(right.cardId);
 }
 
-function evidenceCardsForOperatingCard(card: OperatingCard): EvidenceCard[] {
+function evidenceCardsForOperatingCard(card: OperatingCard, signal: OperatingSignal | undefined): EvidenceCard[] {
   return card.evidenceIds.map((evidenceId) => ({
     schema: "lco.evidenceCard.v1",
     evidenceId,
     claim: publicSafeText(`${card.title} is ${card.state}.`, 180),
-    sourceKind: card.reasonCodes.includes("manual_pin") ? "plan_state" : "session_metadata",
-    sourceRef: card.signals[0] ?? card.cardId,
+    sourceKind: signal?.sourceKind === "github" ? "github" : signal?.sourceKind === "plan_state" ? "plan_state" : "session_metadata",
+    sourceRef: signal?.sourceRef ?? card.cardId,
     observedAt: card.lastMovementAt,
     excerpt: publicSafeText(card.summary, 260),
     redactions: ["paths", "tokens", "raw_transcript"],
@@ -2962,6 +2969,10 @@ function resolveRecallProfile(profile: RecallProfileName = "brief", tokenBudget?
 
 function codexThreadRef(threadId: string): string {
   return `codex_thread:${threadId}`;
+}
+
+function bareCodexThreadId(threadRef: string): string {
+  return threadRef.startsWith("codex_thread:") ? threadRef.slice("codex_thread:".length) : threadRef;
 }
 
 function publicSourcePathRef(sourcePath: string): string {

@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync, realpathSync, statSync } from "node:fs";
+import { basename } from "node:path";
 
 import {
   configuredLcmPeerDbPaths,
@@ -214,15 +215,13 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
     tool("loo_project_digest", "Create a read-only Eva operating digest from LCO/Codex cards, optional structured GitHub items, and PLAN_STATE pins.", {
       window: { type: "string", enum: ["today", "24h", "7d", "custom"] },
       limit: { type: "integer", minimum: 1, maximum: 200 },
-      max_tokens: { type: "integer", minimum: 100, maximum: 8000 },
       plan_state_text: { type: "string" },
       plan_state_path: { type: "string" },
       github_items: { type: "array", items: { type: "object", additionalProperties: true } }
     }, (input) => createProjectDigest(options.db, {
       window: optionalDigestWindow(input.window),
       limit: optionalNumber(input.limit),
-      maxTokens: optionalNumber(input.max_tokens),
-      planStatePins: createPlanStatePinsReport(resolvePlanStateText(input)),
+      planStatePins: optionalPlanStatePins(input),
       githubItems: optionalGithubItems(input.github_items)
     })),
     tool("loo_attention_inbox", "Return only operating-picture cards that need action, review, approval, watch, or blocker triage.", {
@@ -234,7 +233,7 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
     }, (input) => createAttentionInbox(options.db, {
       window: optionalDigestWindow(input.window),
       limit: optionalNumber(input.limit),
-      planStatePins: createPlanStatePinsReport(resolvePlanStateText(input)),
+      planStatePins: optionalPlanStatePins(input),
       githubItems: optionalGithubItems(input.github_items)
     })),
     tool("loo_business_pulse", "Answer 'How is the business?' from bounded cited operating cards with explicit source coverage gaps.", {
@@ -246,7 +245,7 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
     }, (input) => createBusinessPulse(options.db, {
       window: optionalDigestWindow(input.window),
       limit: optionalNumber(input.limit),
-      planStatePins: createPlanStatePinsReport(resolvePlanStateText(input)),
+      planStatePins: optionalPlanStatePins(input),
       githubItems: optionalGithubItems(input.github_items)
     })),
     tool("loo_codex_final_messages", "Read final assistant/status messages extracted from Codex sessions.", {
@@ -570,8 +569,23 @@ function resolvePlanStateText(input: Record<string, unknown>): string {
   const inline = optionalString(input.plan_state_text);
   if (inline !== undefined) return inline;
   const path = optionalString(input.plan_state_path);
-  if (path !== undefined && existsSync(path)) return readFileSync(path, "utf8");
+  if (path !== undefined) {
+    try {
+      const resolved = realpathSync(path);
+      if (!["PLAN_STATE", "PLAN_STATE.md"].includes(basename(resolved))) return "";
+      const stats = statSync(resolved);
+      if (!stats.isFile() || stats.size > 1_000_000) return "";
+      return readFileSync(resolved, "utf8");
+    } catch {
+      return "";
+    }
+  }
   return "";
+}
+
+function optionalPlanStatePins(input: Record<string, unknown>): ReturnType<typeof createPlanStatePinsReport> | undefined {
+  if (input.plan_state_text === undefined && input.plan_state_path === undefined) return undefined;
+  return createPlanStatePinsReport(resolvePlanStateText(input));
 }
 
 function optionalGithubItems(value: unknown): Array<{
@@ -585,15 +599,17 @@ function optionalGithubItems(value: unknown): Array<{
 }> | undefined {
   if (value === undefined) return undefined;
   if (!Array.isArray(value)) throw new Error("github_items must be an array");
-  return value.flatMap((item) => {
-    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+  return value.map((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error(`github_items[${index}] must be an object`);
+    }
     const record = item as Record<string, unknown>;
     const id = optionalString(record.id);
     const title = optionalString(record.title);
-    if (!id || !title) return [];
+    if (!id || !title) throw new Error(`github_items[${index}] requires id and title`);
     const state = optionalOperatingState(record.state);
     const urgency = optionalOperatingUrgency(record.urgency);
-    return [{
+    return {
       id,
       title,
       ...(state ? { state } : {}),
@@ -601,7 +617,7 @@ function optionalGithubItems(value: unknown): Array<{
       reasonCodes: optionalStringArray(record.reasonCodes ?? record.reason_codes),
       updatedAt: optionalString(record.updatedAt ?? record.updated_at) ?? null,
       nextAction: optionalString(record.nextAction ?? record.next_action)
-    }];
+    };
   });
 }
 

@@ -52,7 +52,7 @@ export const CODEX_FORBIDDEN_METHODS = new Set([
 
 export type LooCommandSafety = {
   mode: "read_only" | "approval_gated_control" | "dry_run_only";
-  source: "local_index" | "codex_direct" | "desktop_fallback" | "audit";
+  source: "local_index" | "structured_operating_inputs" | "codex_direct" | "desktop_fallback" | "audit";
   requiresApproval: boolean;
 };
 
@@ -68,10 +68,10 @@ export const LOO_COMMAND_POLICY: Record<string, LooCommandSafety> = {
   loo_codex_session_management_map: { mode: "read_only", source: "local_index", requiresApproval: false },
   loo_recent_sessions: { mode: "read_only", source: "local_index", requiresApproval: false },
   loo_cockpit_inbox: { mode: "read_only", source: "local_index", requiresApproval: false },
-  loo_plan_state_pins: { mode: "read_only", source: "local_index", requiresApproval: false },
-  loo_project_digest: { mode: "read_only", source: "local_index", requiresApproval: false },
-  loo_attention_inbox: { mode: "read_only", source: "local_index", requiresApproval: false },
-  loo_business_pulse: { mode: "read_only", source: "local_index", requiresApproval: false },
+  loo_plan_state_pins: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },
+  loo_project_digest: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },
+  loo_attention_inbox: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },
+  loo_business_pulse: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },
   loo_codex_final_messages: { mode: "read_only", source: "local_index", requiresApproval: false },
   loo_codex_plans: { mode: "read_only", source: "local_index", requiresApproval: false },
   loo_codex_touched_files: { mode: "read_only", source: "local_index", requiresApproval: false },

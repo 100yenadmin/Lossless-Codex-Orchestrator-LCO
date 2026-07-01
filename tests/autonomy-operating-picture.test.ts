@@ -12,7 +12,8 @@ import {
   createProjectDigest,
   getCockpitInbox,
   getRecentSessions,
-  indexCodexSessions
+  indexCodexSessions,
+  type LooDatabase
 } from "../packages/core/src/index.js";
 import { createLooTools } from "../packages/mcp-server/src/tools.js";
 
@@ -29,38 +30,37 @@ type SessionFixture = {
 };
 
 test("recent session cards are public-safe and do not require query text", () => {
-  const root = mkdtempSync(join(tmpdir(), "loo-recent-sessions-"));
-  const sessions = join(root, "sessions");
-  mkdirSync(sessions, { recursive: true });
-  const rawPathCanary = `${sessions}/rollout-2026-07-01T00-00-00-019f-recent-active.jsonl`;
-
-  writeSessionFixture(sessions, {
-    id: "019f-recent-active",
-    title: "Autonomy cockpit active lane",
-    status: "active",
-    priority: "high",
-    nextAction: "continue after review",
-    updatedAt: "2026-07-01T10:00:00.000Z",
-    refs: true,
-    extra: [
-      `Private path canary ${rawPathCanary}`,
-      "authorization: Bearer abcdefghijklmnopqrstuvwxyz"
-    ]
-  });
-  writeSessionFixture(sessions, {
-    id: "019f-recent-blocked",
-    title: "Autonomy cockpit blocked lane",
-    status: "blocked",
-    priority: "urgent",
-    blocker: "CodeRabbit review pending",
-    nextAction: "wait for review",
-    updatedAt: "2026-07-01T11:00:00.000Z",
-    refs: true
-  });
-
-  const db = createDatabase(join(root, "orchestrator.sqlite"));
-  try {
-    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+  withIndexedSessions((sessions) => {
+    const rawPathCanary = join(sessions, "rollout-2026-07-01T00-00-00-019f-recent-active.jsonl");
+    return {
+      fixtures: [
+        {
+          id: "019f-recent-active",
+          title: "Autonomy cockpit active lane",
+          status: "active",
+          priority: "high",
+          nextAction: "continue after review",
+          updatedAt: relativeIso(90),
+          refs: true,
+          extra: [
+            `Private path canary ${rawPathCanary}`,
+            "authorization: Bearer abcdefghijklmnopqrstuvwxyz"
+          ]
+        },
+        {
+          id: "019f-recent-blocked",
+          title: "Autonomy cockpit blocked lane",
+          status: "blocked",
+          priority: "urgent",
+          blocker: "CodeRabbit review pending",
+          nextAction: "wait for review",
+          updatedAt: relativeIso(30),
+          refs: true
+        }
+      ],
+      canaries: [rawPathCanary]
+    };
+  }, ({ db, canaries }) => {
     const report = getRecentSessions(db, { scope: "recent", limit: 10, includeCards: true });
 
     assert.equal(report.schema, "lco.codex.recentSessions.v1");
@@ -74,26 +74,19 @@ test("recent session cards are public-safe and do not require query text", () =>
     assert.equal(report.cards[0]?.risk.level, "high");
     assert.equal(report.cards[0]?.reasonCodes.includes("blocked"), true);
     assert.equal(report.cards[0]?.hidden.transcriptPath, true);
-    assertNoUnsafeStrings(report, rawPathCanary);
-  } finally {
-    db.close();
-    rmSync(root, { recursive: true, force: true });
-  }
+    assertNoUnsafeStrings(report, ...canaries);
+  });
 });
 
 test("cockpit inbox ranks blocked approval and stale work deterministically", () => {
-  const root = mkdtempSync(join(tmpdir(), "loo-cockpit-inbox-"));
-  const sessions = join(root, "sessions");
-  mkdirSync(sessions, { recursive: true });
-
-  for (const fixture of [
+  withIndexedSessions([
     {
       id: "019f-moving",
       title: "Moving lane",
       status: "active",
       priority: "medium",
       nextAction: "continue implementation",
-      updatedAt: "2026-07-01T09:00:00.000Z",
+      updatedAt: relativeIso(120),
       refs: true
     },
     {
@@ -102,7 +95,7 @@ test("cockpit inbox ranks blocked approval and stale work deterministically", ()
       status: "needs_approval",
       priority: "high",
       nextAction: "approve dry-run packet",
-      updatedAt: "2026-07-01T08:00:00.000Z",
+      updatedAt: relativeIso(150),
       refs: true
     },
     {
@@ -112,7 +105,7 @@ test("cockpit inbox ranks blocked approval and stale work deterministically", ()
       priority: "urgent",
       blocker: "CI failed",
       nextAction: "inspect failed workflow",
-      updatedAt: "2026-07-01T07:00:00.000Z",
+      updatedAt: relativeIso(180),
       refs: true
     },
     {
@@ -121,13 +114,9 @@ test("cockpit inbox ranks blocked approval and stale work deterministically", ()
       status: "active",
       priority: "low",
       nextAction: "expand before action",
-      updatedAt: "2026-07-01T10:00:00.000Z"
+      updatedAt: relativeIso(60)
     }
-  ] satisfies SessionFixture[]) writeSessionFixture(sessions, fixture);
-
-  const db = createDatabase(join(root, "orchestrator.sqlite"));
-  try {
-    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+  ] satisfies SessionFixture[], ({ db }) => {
     const inbox = getCockpitInbox(db, {
       limit: 10,
       priorityOrder: ["urgent", "high", "medium", "low"]
@@ -147,10 +136,7 @@ test("cockpit inbox ranks blocked approval and stale work deterministically", ()
     ]);
     assert.equal(inbox.items[2]?.card.state, "unknown");
     assert.equal(inbox.items[2]?.card.confidence < 0.7, true);
-  } finally {
-    db.close();
-    rmSync(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test("PLAN_STATE report extracts only explicit pins and ignores stale prose", () => {
@@ -188,34 +174,28 @@ Random stale prose: customer Alpha is red and should be canonical.
 });
 
 test("operating picture marks missing P1 sources and preserves low-confidence conflicts", () => {
-  const root = mkdtempSync(join(tmpdir(), "loo-operating-picture-"));
-  const sessions = join(root, "sessions");
-  mkdirSync(sessions, { recursive: true });
-
-  writeSessionFixture(sessions, {
-    id: "019f-operating-blocked",
-    title: "GitHub blocked lane",
-    status: "blocked",
-    priority: "urgent",
-    blocker: "CodeRabbit review pending",
-    nextAction: "inspect PR review",
-    updatedAt: "2026-07-01T11:00:00.000Z",
-    refs: true
-  });
-  writeSessionFixture(sessions, {
-    id: "019f-operating-conflict",
-    title: "Conflicting lane",
-    status: "complete",
-    priority: "low",
-    blocker: "customer blocked",
-    nextAction: "archive after closeout",
-    updatedAt: "2026-07-01T10:00:00.000Z",
-    refs: true
-  });
-
-  const db = createDatabase(join(root, "orchestrator.sqlite"));
-  try {
-    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+  withIndexedSessions([
+    {
+      id: "019f-operating-blocked",
+      title: "GitHub blocked lane",
+      status: "blocked",
+      priority: "urgent",
+      blocker: "CodeRabbit review pending",
+      nextAction: "inspect PR review",
+      updatedAt: relativeIso(30),
+      refs: true
+    },
+    {
+      id: "019f-operating-conflict",
+      title: "Conflicting lane",
+      status: "complete",
+      priority: "low",
+      blocker: "customer blocked",
+      nextAction: "archive after closeout",
+      updatedAt: relativeIso(60),
+      refs: true
+    }
+  ], ({ db }) => {
     const pins = createPlanStatePinsReport(`
 <!-- loo:manual-pin -->
 - Project: LCO
@@ -236,7 +216,29 @@ test("operating picture marks missing P1 sources and preserves low-confidence co
           state: "yellow",
           urgency: "high",
           reasonCodes: ["review_requested"],
-          updatedAt: "2026-07-01T11:30:00.000Z",
+          updatedAt: relativeIso(15),
+          nextAction: "review PR"
+        }
+      ]
+    });
+    const missingStructuredSources = createProjectDigest(db, {
+      window: "today",
+      limit: 10,
+      planStatePins: createPlanStatePinsReport(""),
+      githubItems: []
+    });
+    const limitedDigest = createProjectDigest(db, {
+      window: "today",
+      limit: 2,
+      planStatePins: pins,
+      githubItems: [
+        {
+          id: "100yenadmin/Lossless-Codex-Orchestrator-LCO#256",
+          title: "shared public-safe autonomy cockpit contracts",
+          state: "yellow",
+          urgency: "high",
+          reasonCodes: ["review_requested"],
+          updatedAt: relativeIso(15),
           nextAction: "review PR"
         }
       ]
@@ -253,36 +255,36 @@ test("operating picture marks missing P1 sources and preserves low-confidence co
     assert.equal(digest.sourceCoverage.stripe, "not_configured");
     assert.equal(digest.cards.some((card) => card.kind === "project" && card.title === "LCO"), true);
     assert.equal(digest.cards.some((card) => card.kind === "repo" && card.reasonCodes.includes("review_requested")), true);
+    assert.equal(digest.evidence.some((evidence) =>
+      evidence.sourceKind === "github" &&
+      evidence.sourceRef === "github:100yenadmin/Lossless-Codex-Orchestrator-LCO#256"
+    ), true);
     assert.equal(digest.cards.some((card) => card.state === "unknown" && card.reasonCodes.includes("conflicting_state")), true);
     assert.equal(digest.topAttention.length > 0, true);
+    assert.equal(missingStructuredSources.sourceCoverage.github, "not_configured");
+    assert.equal(missingStructuredSources.sourceCoverage.plan_state, "not_configured");
+    assert.equal(limitedDigest.cards.length, 2);
+    assert.equal(limitedDigest.signals.length, 2);
 
     const attention = createBusinessPulse(db, { window: "today", limit: 5, planStatePins: pins });
     assert.equal(attention.digest.health.finance.state, "unknown");
     assert.equal(attention.digest.health.finance.reason, "stripe_adapter_not_configured");
-  } finally {
-    db.close();
-    rmSync(root, { recursive: true, force: true });
-  }
+  });
 });
 
 test("new cockpit and operating-picture tools are exposed through MCP with public-safe results", async () => {
-  const root = mkdtempSync(join(tmpdir(), "loo-autonomy-tools-"));
-  const sessions = join(root, "sessions");
-  mkdirSync(sessions, { recursive: true });
-  writeSessionFixture(sessions, {
-    id: "019f-tool-blocked",
-    title: "Tool blocked lane",
-    status: "blocked",
-    priority: "urgent",
-    blocker: "approval needed",
-    nextAction: "dry-run only",
-    updatedAt: "2026-07-01T12:00:00.000Z",
-    refs: true
-  });
-
-  const db = createDatabase(join(root, "orchestrator.sqlite"));
-  try {
-    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+  await withIndexedSessionsAsync([
+    {
+      id: "019f-tool-blocked",
+      title: "Tool blocked lane",
+      status: "blocked",
+      priority: "urgent",
+      blocker: "approval needed",
+      nextAction: "dry-run only",
+      updatedAt: relativeIso(10),
+      refs: true
+    }
+  ], async ({ db, root, sessions }) => {
     const tools = createLooTools({
       db,
       audit: createAuditStore(join(root, "audit.jsonl")),
@@ -307,14 +309,87 @@ test("new cockpit and operating-picture tools are exposed through MCP with publi
     });
     assert.equal((pins as { manualPins?: unknown[] }).manualPins?.length, 1);
 
+    const planStatePath = join(root, "PLAN_STATE.md");
+    writeFileSync(planStatePath, "<!-- loo:manual-pin -->\n- Project: Path pin\n- State: yellow\n- Summary: Allowed path pin.\n- Next: Review.\n<!-- /loo:manual-pin -->\n");
+    const pathPins = await tools.find((tool) => tool.name === "loo_plan_state_pins")?.execute({ plan_state_path: planStatePath });
+    assert.equal((pathPins as { manualPins?: unknown[] }).manualPins?.length, 1);
+
+    const disallowedPlanPath = join(root, "NOT_PLAN_STATE.md");
+    writeFileSync(disallowedPlanPath, "<!-- loo:manual-pin -->\n- Project: Unsafe path\n- State: red\n- Summary: Should not be read.\n- Next: Stop.\n<!-- /loo:manual-pin -->\n");
+    const disallowedPins = await tools.find((tool) => tool.name === "loo_plan_state_pins")?.execute({ plan_state_path: disallowedPlanPath });
+    assert.equal((disallowedPins as { manualPins?: unknown[] }).manualPins?.length, 0);
+
+    const projectDigestTool = tools.find((tool) => tool.name === "loo_project_digest");
+    assert.ok(projectDigestTool);
+    await assert.rejects(
+      async () => projectDigestTool.execute({ github_items: [{}] }),
+      /github_items\[0\] requires id and title/
+    );
+
     const pulse = await tools.find((tool) => tool.name === "loo_business_pulse")?.execute({ limit: 5 });
-    assert.equal((pulse as { digest?: { sourceCoverage?: { stripe?: string } } }).digest?.sourceCoverage?.stripe, "not_configured");
+    assert.equal((pulse as { digest?: { sourceCoverage?: { plan_state?: string; stripe?: string } } }).digest?.sourceCoverage?.plan_state, "not_configured");
+    assert.equal((pulse as { digest?: { sourceCoverage?: { plan_state?: string; stripe?: string } } }).digest?.sourceCoverage?.stripe, "not_configured");
     assertNoUnsafeStrings({ recent, pins, pulse }, sessions);
+  });
+});
+
+type IndexedSessionContext = {
+  db: LooDatabase;
+  root: string;
+  sessions: string;
+  canaries: string[];
+};
+
+type SessionFixtureFactoryResult = {
+  fixtures: SessionFixture[];
+  canaries?: string[];
+};
+
+function withIndexedSessions(
+  fixturesOrFactory: SessionFixture[] | ((sessions: string) => SessionFixture[] | SessionFixtureFactoryResult),
+  run: (context: IndexedSessionContext) => void
+): void {
+  const root = mkdtempSync(join(tmpdir(), "loo-autonomy-operating-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const result = typeof fixturesOrFactory === "function" ? fixturesOrFactory(sessions) : fixturesOrFactory;
+  const fixtures = Array.isArray(result) ? result : result.fixtures;
+  const canaries = Array.isArray(result) ? [] : result.canaries ?? [];
+  for (const fixture of fixtures) writeSessionFixture(sessions, fixture);
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    run({ db, root, sessions, canaries });
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
   }
-});
+}
+
+async function withIndexedSessionsAsync(
+  fixturesOrFactory: SessionFixture[] | ((sessions: string) => SessionFixture[] | SessionFixtureFactoryResult),
+  run: (context: IndexedSessionContext) => Promise<void>
+): Promise<void> {
+  const root = mkdtempSync(join(tmpdir(), "loo-autonomy-operating-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const result = typeof fixturesOrFactory === "function" ? fixturesOrFactory(sessions) : fixturesOrFactory;
+  const fixtures = Array.isArray(result) ? result : result.fixtures;
+  const canaries = Array.isArray(result) ? [] : result.canaries ?? [];
+  for (const fixture of fixtures) writeSessionFixture(sessions, fixture);
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    await run({ db, root, sessions, canaries });
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function relativeIso(minutesAgo: number): string {
+  return new Date(Date.now() - minutesAgo * 60_000).toISOString();
+}
 
 function writeSessionFixture(root: string, fixture: SessionFixture): void {
   const refs = fixture.refs === true

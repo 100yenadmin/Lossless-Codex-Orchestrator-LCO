@@ -427,11 +427,6 @@
               "minimum": 1,
               "maximum": 200
             },
-            "max_tokens": {
-              "type": "integer",
-              "minimum": 100,
-              "maximum": 8000
-            },
             "plan_state_text": {
               "type": "string"
             },

@@ -24,13 +24,13 @@
     "source coverage report",
     "not_configured P1 source states",
     "manual pins from explicit PLAN_STATE markers only",
+    "unmarked PLAN_STATE stale prose ignored as current truth",
     "low_confidence or unknown state for conflicting inputs",
     "public-safe output scan result"
   ],
   "private_data_exclusions": [
     "raw Codex transcripts",
     "absolute transcript paths",
-    "unmarked PLAN_STATE stale prose as current truth",
     "Stripe customer/payment details",
     "support-control secrets or customer runtime data",
     "Notion private page text",
