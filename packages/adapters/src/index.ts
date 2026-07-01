@@ -995,6 +995,7 @@ export function createDesktopLiveProofHarness(input: {
   action?: string;
   approvalRef?: string;
   scratchFilePath?: string;
+  allowPersistentApprovalKey?: boolean;
   probe?: DesktopProbe;
 } = {}): DesktopLiveProofHarnessReport {
   const desktopBackend = input.backend;
@@ -1034,14 +1035,17 @@ export function createDesktopLiveProofHarness(input: {
     if (!scratchFilePath) blockers.push("scratch_file_missing");
     else if (!scratchFilePathAllowed(scratchFilePath, targetWindow)) blockers.push("scratch_file_path_not_bound");
   }
-  const proofHarnessReady = blockers.length === 0;
-  const approvalArtifact = proofHarnessReady && proofActionTupleRequested && actionHash && approvalRef && scratchFilePath
-    ? createDesktopProofActionApproval({
+  let approvalArtifact: DesktopProofActionApproval | null = null;
+  if (blockers.length === 0 && proofActionTupleRequested && actionHash && approvalRef && scratchFilePath) {
+    approvalArtifact = createDesktopProofActionApproval({
       approvalRef,
       actionHash,
-      scratchFilePath
-    })
-    : null;
+      scratchFilePath,
+      allowPersistentKeyCreate: input.allowPersistentApprovalKey === true
+    });
+    if (!approvalArtifact) blockers.push("approval_signing_key_missing");
+  }
+  const proofHarnessReady = blockers.length === 0;
   const publicBackendStatus = backendStatus
     ? {
       ...backendStatus,
@@ -1099,11 +1103,16 @@ export function writeDesktopLiveProofHarness(input: {
   mkdirSync(evidenceDir, { recursive: true });
   const evidencePath = join(evidenceDir, "desktop-live-proof-harness.json");
   const approvalPath = join(evidenceDir, "desktop-proof-action-approval.json");
-  const report = createDesktopLiveProofHarness(input);
+  const report = createDesktopLiveProofHarness({
+    ...input,
+    allowPersistentApprovalKey: true
+  });
   const withPath = { ...report, evidencePath };
   writeFileSync(evidencePath, `${JSON.stringify(withPath, null, 2)}\n`);
   if (report.approvalArtifact) {
     writeFileSync(approvalPath, `${JSON.stringify(report.approvalArtifact, null, 2)}\n`);
+  } else if (existsSync(approvalPath)) {
+    unlinkSync(approvalPath);
   }
   return withPath;
 }
@@ -1185,6 +1194,7 @@ export function createDesktopProofAction(input: {
       "call",
       "launch_app",
       JSON.stringify({
+        bundle_id: "com.apple.TextEdit",
         name: DESKTOP_PROOF_TARGET_APP,
         urls: [scratchFilePath],
         creates_new_application_instance: true
@@ -1200,7 +1210,7 @@ export function createDesktopProofAction(input: {
   }
 
   const commandAttempted = commandResult !== undefined;
-  const parsedOutput = asRecord(parseJsonObject(commandResult?.stdout || ""));
+  const parsedOutput = parseDesktopCommandOutputObject(commandResult?.stdout);
   const commandSucceeded = commandResult?.status === 0;
   const selfActivationSuppressed = typeof parsedOutput?.self_activation_suppressed === "boolean"
     ? parsedOutput.self_activation_suppressed
@@ -1216,7 +1226,7 @@ export function createDesktopProofAction(input: {
         JSON.stringify({ pid: launchedPid })
       ], 30_000, { env: config.env });
       if (windowListResult.status === 0) {
-        const windowListOutput = asRecord(parseJsonObject(windowListResult.stdout || ""));
+        const windowListOutput = parseDesktopCommandOutputObject(windowListResult.stdout);
         backendOutputMatchesTarget = windowListOutput ? desktopProofBackendOutputMatches(windowListOutput, targetApp, targetWindow, launchedPid) : false;
       }
     }
@@ -1813,6 +1823,21 @@ function parseJsonObject(value: string): unknown {
   }
 }
 
+function parseDesktopCommandOutputObject(value?: string): Record<string, unknown> | null {
+  const output = asRecord(parseJsonObject(value || ""));
+  if (!output) return null;
+  const structuredContent = asRecord(output.structuredContent);
+  if (structuredContent) return structuredContent;
+  const content = Array.isArray(output.content) ? output.content : [];
+  for (const item of content) {
+    const record = asRecord(item);
+    const text = typeof record?.text === "string" ? record.text : typeof item === "string" ? item : undefined;
+    const parsedText = asRecord(parseJsonObject(text || ""));
+    if (parsedText) return parsedText;
+  }
+  return output;
+}
+
 async function codexReadRequest(client: CodexClient, method: string, params: Record<string, unknown>): Promise<{
   ok: boolean;
   result?: unknown;
@@ -1914,7 +1939,8 @@ function createDesktopProofActionApproval(input: {
   approvalRef: string;
   actionHash: string;
   scratchFilePath: string;
-}): DesktopProofActionApproval {
+  allowPersistentKeyCreate?: boolean;
+}): DesktopProofActionApproval | null {
   const issuedAt = new Date().toISOString();
   const expiresAt = new Date(Date.parse(issuedAt) + DESKTOP_GUI_APPROVAL_TTL_MS).toISOString();
   const scratchFilePathHash = desktopScratchFilePathHash(input.scratchFilePath);
@@ -1924,7 +1950,10 @@ function createDesktopProofActionApproval(input: {
     scratchFilePathHash,
     issuedAt,
     expiresAt
+  }, {
+    allowPersistentKeyCreate: input.allowPersistentKeyCreate === true
   });
+  if (!approvalSignature) return null;
   return {
     kind: "loo_desktop_proof_action_approval",
     approved: true,
@@ -1991,8 +2020,11 @@ function validateDesktopProofActionApproval(approvalArtifact: unknown, expected:
       scratchFilePathHash: desktopScratchFilePathHash(expected.scratchFilePath),
       issuedAt: approval.issuedAt,
       expiresAt: approval.expiresAt
+    }, {
+      allowPersistentKeyCreate: false
     });
-    if (approval.approvalSignature.toLowerCase() !== expectedSignature) blockers.push("approval_signature_mismatch");
+    if (!expectedSignature) blockers.push("approval_signature_key_missing");
+    else if (approval.approvalSignature.toLowerCase() !== expectedSignature) blockers.push("approval_signature_mismatch");
   } else {
     blockers.push("approval_signature_mismatch");
   }
@@ -2013,11 +2045,14 @@ function desktopProofApprovalKeyPath(): string {
     || join(process.env.HOME || ".", ".openclaw", "lossless-openclaw-orchestrator", "desktop-proof-action.key");
 }
 
-function desktopProofApprovalSecret(): Buffer {
+function desktopProofApprovalSecret(options: { allowPersistentKeyCreate?: boolean } = {}): Buffer | null {
   const envSecret = process.env.LOO_DESKTOP_PROOF_APPROVAL_SECRET;
   if (envSecret && envSecret.trim()) return Buffer.from(envSecret.trim(), "utf8");
   const keyPath = desktopProofApprovalKeyPath();
-  mkdirSync(dirname(keyPath), { recursive: true });
+  if (!existsSync(keyPath)) {
+    if (options.allowPersistentKeyCreate !== true) return null;
+    mkdirSync(dirname(keyPath), { recursive: true });
+  }
   try {
     writeFileSync(keyPath, `${randomBytes(32).toString("hex")}\n`, { mode: 0o600, flag: "wx" });
   } catch (error) {
@@ -2062,8 +2097,10 @@ function desktopProofApprovalSignature(input: {
   scratchFilePathHash: string;
   issuedAt: string;
   expiresAt: string;
-}): string {
-  return createHmac("sha256", desktopProofApprovalSecret()).update(desktopProofApprovalPayload(input)).digest("hex");
+}, options: { allowPersistentKeyCreate?: boolean } = {}): string | null {
+  const secret = desktopProofApprovalSecret(options);
+  if (!secret) return null;
+  return createHmac("sha256", secret).update(desktopProofApprovalPayload(input)).digest("hex");
 }
 
 function desktopProofBackendOutputMatches(output: Record<string, unknown>, targetApp?: string, targetWindow?: string, targetPid?: number): boolean {
