@@ -13,6 +13,7 @@ import {
   getCodexPlans,
   getCodexThreadMap,
   getCodexTouchedFiles,
+  getRecentSessions,
   indexCodexSessions,
   searchSessions
 } from "../packages/core/src/index.js";
@@ -94,6 +95,7 @@ test("indexes Codex sessions with plans, finals, touched files, and search text"
     assert.equal(getCodexFinalMessages(db, { limit: 10 })[0]?.text.includes("Next action"), true);
     assert.equal(getCodexPlans(db, { limit: 10 })[0]?.text.includes("Billing bridge"), true);
     assert.deepEqual(getCodexTouchedFiles(db, { threadId: "019f-test-thread" }), ["/Volumes/LEXAR/repos/example/src/billing.ts"]);
+    assert.deepEqual(getRecentSessions(db, { touchedPath: "src/billing.ts", includeCards: true }).cards.map((card) => card.threadId), ["codex_thread:019f-test-thread"]);
 
     const expanded = expandSession(db, { threadId: "019f-test-thread", tokenBudget: 80 });
     assert.equal(expanded.threadId, "019f-test-thread");
