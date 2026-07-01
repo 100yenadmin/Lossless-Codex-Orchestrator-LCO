@@ -34,6 +34,7 @@ test("0.1.0-beta.14 release metadata captures onboarding, gateway expand, instal
   assert.match(releaseNotes, /#192/i);
   assert.match(releaseNotes, /#194/i);
   assert.match(releaseNotes, /installOutcome/i);
+  assert.match(releaseNotes, /recognizedMarker/i);
   assert.match(releaseNotes, /already_installed/i);
   assert.match(releaseNotes, /#158/i);
   assert.match(releaseNotes, /#159/i);

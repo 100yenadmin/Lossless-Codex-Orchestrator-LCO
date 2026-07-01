@@ -40,8 +40,11 @@ export type OpenClawDogfoodReport = {
 export type OpenClawInstallOutcome = {
   status: "not_attempted" | "installed" | "already_installed" | "link_force_unsupported" | "failed";
   exitStatus: number | null;
+  recognizedMarker?: OpenClawInstallOutcomeMarker;
   guidance?: string;
 };
+
+export type OpenClawInstallOutcomeMarker = "openclaw_plugin_already_exists" | "openclaw_link_force_unsupported";
 
 export type OpenClawDogfoodInput = {
   pluginListExitStatus: number | null;
@@ -77,6 +80,29 @@ const PRIVATE_DATA_EXCLUSIONS = [
   "credentials",
   "SQLite DB contents",
   "screenshots"
+];
+
+const OPENCLAW_INSTALL_OUTPUT_MARKERS: Array<{
+  id: OpenClawInstallOutcomeMarker;
+  status: OpenClawInstallOutcome["status"];
+  observedText: string;
+  pattern: RegExp;
+  guidance: string;
+}> = [
+  {
+    id: "openclaw_link_force_unsupported",
+    status: "link_force_unsupported",
+    observedText: "--force is not supported with --link",
+    pattern: /--force is not supported with --link/i,
+    guidance: "Remove --force for linked installs; use a clean OpenClaw profile for reproducible linked beta proof."
+  },
+  {
+    id: "openclaw_plugin_already_exists",
+    status: "already_installed",
+    observedText: "plugin already exists",
+    pattern: /plugin already exists/i,
+    guidance: "Use a clean OpenClaw profile for linked beta proof, or update/remove the existing plugin before reinstalling."
+  }
 ];
 
 export function runOpenClawDogfood(options: RunOpenClawDogfoodOptions = {}): OpenClawDogfoodReport {
@@ -191,18 +217,13 @@ function classifyInstallOutcome(input: OpenClawDogfoodInput): OpenClawInstallOut
   if (exitStatus === 0) return { status: "installed", exitStatus };
 
   const combined = `${input.installStdout || ""}\n${input.installStderr || ""}`;
-  if (/--force is not supported with --link/i.test(combined)) {
+  const marker = OPENCLAW_INSTALL_OUTPUT_MARKERS.find((candidate) => candidate.pattern.test(combined));
+  if (marker) {
     return {
-      status: "link_force_unsupported",
+      status: marker.status,
       exitStatus,
-      guidance: "Remove --force for linked installs; use a clean OpenClaw profile for reproducible linked beta proof."
-    };
-  }
-  if (/plugin already exists/i.test(combined)) {
-    return {
-      status: "already_installed",
-      exitStatus,
-      guidance: "Use a clean OpenClaw profile for linked beta proof, or update/remove the existing plugin before reinstalling."
+      recognizedMarker: marker.id,
+      guidance: marker.guidance
     };
   }
   return {

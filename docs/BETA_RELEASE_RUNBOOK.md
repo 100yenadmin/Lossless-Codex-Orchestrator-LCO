@@ -235,11 +235,14 @@ Use an isolated profile such as `lco-dogfood` for linked beta proof. Reusing the
 default OpenClaw profile can legitimately return an install error when the
 plugin is already present, while the plugin is still loaded and ready. In that
 case `loo openclaw dogfood` must record `installOutcome.status:
-"already_installed"` with public-safe `installOutcome.guidance` and the warning
-`openclaw_plugin_already_installed_but_ready`, without storing raw OpenClaw
-stdout/stderr or local profile paths. If OpenClaw reports `--force is not
-supported with --link`, the outcome must be `link_force_unsupported` and the
-operator should rerun from a clean profile or remove `--force`.
+"already_installed"`, `installOutcome.recognizedMarker:
+"openclaw_plugin_already_exists"`, public-safe `installOutcome.guidance`, and
+the warning `openclaw_plugin_already_installed_but_ready`, without storing raw
+OpenClaw stdout/stderr or local profile paths. If OpenClaw reports the observed
+text `--force is not supported with --link`, the outcome must be
+`link_force_unsupported` with `installOutcome.recognizedMarker:
+"openclaw_link_force_unsupported"`, and the operator should rerun from a clean
+profile or remove `--force`.
 
 This command verifies:
 

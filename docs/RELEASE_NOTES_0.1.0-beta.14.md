@@ -13,8 +13,9 @@ reasoning from source refs.
   distinguishing `installed`, `already_installed`, `link_force_unsupported`,
   and `failed` linked-install outcomes. Existing default-profile installs now
   report `openclaw_plugin_already_installed_but_ready` when the plugin is loaded
-  and all required `loo_*` tools are present, without storing raw OpenClaw
-  stdout/stderr or local profile paths.
+  and all required `loo_*` tools are present. Known OpenClaw prose markers are
+  reduced to public-safe `installOutcome.recognizedMarker` ids without storing
+  raw OpenClaw stdout/stderr or local profile paths.
 - #192 fixes `loo openclaw tool-smoke` so `loo_expand_session` receives the
   `thread_id`, `profile`, and `token_budget` discovered from the gateway
   `loo_search_sessions` call instead of invoking the tool with empty args.

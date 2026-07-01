@@ -13,6 +13,47 @@ function writeJson(path: string, value: unknown): void {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
 }
 
+function loadedDogfoodInput(overrides: Partial<Parameters<typeof createOpenClawDogfoodReport>[0]> = {}): Parameters<typeof createOpenClawDogfoodReport>[0] {
+  return {
+    pluginListExitStatus: 0,
+    pluginListStdout: JSON.stringify({
+      plugins: [{
+        id: "lossless-openclaw-orchestrator",
+        enabled: true,
+        status: "loaded",
+        toolNames: []
+      }]
+    }),
+    runtimeInspectExitStatus: 0,
+    runtimeInspectStdout: JSON.stringify({
+      id: "lossless-openclaw-orchestrator",
+      enabled: true,
+      status: "loaded",
+      tools: [
+        { names: ["loo_doctor"] },
+        { names: ["loo_search_sessions"] },
+        { names: ["loo_describe_session"] },
+        { names: ["loo_expand_query"] },
+        { names: ["loo_codex_plans"] },
+        { names: ["loo_codex_final_messages"] },
+        { names: ["loo_codex_thread_map"] },
+        { names: ["loo_codex_control_dry_run"] }
+      ]
+    }),
+    requiredTools: [
+      "loo_doctor",
+      "loo_search_sessions",
+      "loo_describe_session",
+      "loo_expand_query",
+      "loo_codex_plans",
+      "loo_codex_final_messages",
+      "loo_codex_thread_map",
+      "loo_codex_control_dry_run"
+    ],
+    ...overrides
+  };
+}
+
 test("OpenClaw dogfood report fails closed without leaking raw plugin output", () => {
   const report = createOpenClawDogfoodReport({
     pluginListExitStatus: 0,
@@ -97,49 +138,14 @@ test("OpenClaw dogfood report uses runtime inspect tools when plugin list omits 
 });
 
 test("OpenClaw dogfood report treats failed link install as non-blocking when plugin is already loaded", () => {
-  const report = createOpenClawDogfoodReport({
-    pluginListExitStatus: 0,
-    pluginListStdout: JSON.stringify({
-      plugins: [{
-        id: "lossless-openclaw-orchestrator",
-        enabled: true,
-        status: "loaded",
-        toolNames: []
-      }]
-    }),
-    runtimeInspectExitStatus: 0,
-    runtimeInspectStdout: JSON.stringify({
-      id: "lossless-openclaw-orchestrator",
-      enabled: true,
-      status: "loaded",
-      tools: [
-        { names: ["loo_doctor"] },
-        { names: ["loo_search_sessions"] },
-        { names: ["loo_describe_session"] },
-        { names: ["loo_expand_query"] },
-        { names: ["loo_codex_plans"] },
-        { names: ["loo_codex_final_messages"] },
-        { names: ["loo_codex_thread_map"] },
-        { names: ["loo_codex_control_dry_run"] }
-      ]
-    }),
-    requiredTools: [
-      "loo_doctor",
-      "loo_search_sessions",
-      "loo_describe_session",
-      "loo_expand_query",
-      "loo_codex_plans",
-      "loo_codex_final_messages",
-      "loo_codex_thread_map",
-      "loo_codex_control_dry_run"
-    ],
+  const report = createOpenClawDogfoodReport(loadedDogfoodInput({
     installAttempted: true,
     installExitStatus: 1,
     installStdout: [
       "plugin already exists: /Users/lume/.openclaw/extensions/lossless-openclaw-orchestrator",
       "Use `openclaw plugins update <id-or-npm-spec>` to upgrade the tracked plugin, or rerun install with `--force` to replace it."
     ].join("\n")
-  });
+  }));
 
   assert.equal(report.ok, true);
   assert.equal(report.dogfoodReady, true);
@@ -148,11 +154,49 @@ test("OpenClaw dogfood report treats failed link install as non-blocking when pl
   assert.deepEqual(report.installOutcome, {
     status: "already_installed",
     exitStatus: 1,
+    recognizedMarker: "openclaw_plugin_already_exists",
     guidance: "Use a clean OpenClaw profile for linked beta proof, or update/remove the existing plugin before reinstalling."
   });
   assert.equal(report.requiredToolsPresent, true);
   assert.equal(report.targetPlugin?.loaded, true);
   assert.doesNotMatch(JSON.stringify(report), new RegExp("/Users/lume|extensions/lossless-openclaw-orchestrator"));
+});
+
+test("OpenClaw dogfood report classifies linked force incompatibility with a stable marker id", () => {
+  const report = createOpenClawDogfoodReport(loadedDogfoodInput({
+    installAttempted: true,
+    installExitStatus: 1,
+    installStderr: "error: --force is not supported with --link"
+  }));
+
+  assert.equal(report.ok, true);
+  assert.equal(report.dogfoodReady, true);
+  assert.deepEqual(report.blockers, []);
+  assert.deepEqual(report.warnings, ["openclaw_link_force_unsupported_but_ready"]);
+  assert.deepEqual(report.installOutcome, {
+    status: "link_force_unsupported",
+    exitStatus: 1,
+    recognizedMarker: "openclaw_link_force_unsupported",
+    guidance: "Remove --force for linked installs; use a clean OpenClaw profile for reproducible linked beta proof."
+  });
+});
+
+test("OpenClaw dogfood report keeps unknown linked install failures generic while ready", () => {
+  const report = createOpenClawDogfoodReport(loadedDogfoodInput({
+    installAttempted: true,
+    installExitStatus: 1,
+    installStderr: "error: install failed"
+  }));
+
+  assert.equal(report.ok, true);
+  assert.equal(report.dogfoodReady, true);
+  assert.deepEqual(report.blockers, []);
+  assert.deepEqual(report.warnings, ["openclaw_plugin_install_failed_but_plugin_ready"]);
+  assert.deepEqual(report.installOutcome, {
+    status: "failed",
+    exitStatus: 1,
+    guidance: "Inspect the local OpenClaw install command outside public evidence, then rerun dogfood after the plugin is installed or a clean profile is selected."
+  });
 });
 
 test("OpenClaw dogfood report tolerates OpenClaw log preambles before runtime JSON", () => {

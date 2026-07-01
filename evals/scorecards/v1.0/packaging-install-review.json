@@ -15,6 +15,7 @@
     "plugin manifest path",
     "onboarding blocker and warning codes",
     "OpenClaw dogfood installOutcome.status",
+    "OpenClaw dogfood installOutcome.recognizedMarker when a known OpenClaw output marker is detected",
     "OpenClaw dogfood installOutcome.guidance",
     "clean-profile linked install marker or already-installed diagnostic",
     "MCP entrypoint path",
@@ -34,6 +35,7 @@
     "Package includes README.md, VISION.md, docs, evals, plugin manifest, and compiled runtime entries.",
     "Plugin manifest declares the loo_ prefix and expected read/control/admin tools.",
     "OpenClaw dogfood distinguishes installed, already_installed, link_force_unsupported, and failed linked-install outcomes without raw local paths.",
+    "Known OpenClaw prose markers are reduced to public-safe installOutcome.recognizedMarker ids instead of copying raw command output.",
     "Release preflight/status fail closed on missing approvals without performing publish or release actions."
   ],
   "fail_criteria": [
