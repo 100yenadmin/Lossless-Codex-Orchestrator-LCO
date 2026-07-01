@@ -29,7 +29,7 @@
     "copy action target refs",
     "CUA and Peekaboo readiness statuses",
     "desktop live/no-focus proof harness blockers or readiness status",
-    "desktop GUI proof-report blocker or approval-fixture status",
+    "desktop GUI proof-report blocker, approval-fixture status, and runtime marker path when valid",
     "blocker codes for unavailable local DB or plugin tools"
   ],
   "private_data_exclusions": [
@@ -50,7 +50,7 @@
     "The shell must fail closed when local DB access, required plugin tools, or OpenClaw plugin loading is unavailable.",
     "CUA and Peekaboo appear as readiness/status surfaces only unless a future backend-specific approval gate is proven.",
     "Desktop live/no-focus proof harness output prepares an action-bound proof plan without performing GUI mutation.",
-    "Desktop GUI proof-report output validates supplied public-safe observations without itself performing GUI mutation."
+    "Desktop GUI proof-report output validates supplied public-safe observations and emits release-compatible approval/runtime marker artifacts without itself performing GUI mutation."
   ],
   "fail_criteria": [
     "UI renders raw Codex transcripts or raw prompts.",
@@ -69,6 +69,6 @@
     "A CUA Driver scratch-window no-focus proof exists for one approved TextEdit launch_app action; this does not prove generic GUI mutation or Codex GUI mutation.",
     "Claude Code remains a future adapter boundary, not a proved equivalent adapter."
   ],
-  "next_action": "For desktop collaboration claims, keep proof-report approval hashes and runtime marker action_hash values bound to the exact backend/app/window/action tuple before attempting broader UI event-loop or packaged macOS wrapper proof.",
+  "next_action": "For desktop collaboration claims, use proof-report generated approval and runtime marker artifacts bound to the exact backend/app/window/action tuple before attempting broader UI event-loop or packaged macOS wrapper proof.",
   "proof_boundary": "This advisory local public-safe beta scorecard records a Peekaboo scratch-window proof and a CUA Driver scratch-window no-focus proof for one approved TextEdit launch_app action, not generic GUI mutation. It does not prove a signed or release-ready macOS app, one-click install, Claude Code adapter parity, live Codex control, Codex GUI mutation, or safe desktop automation."
 }

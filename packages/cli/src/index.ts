@@ -943,6 +943,7 @@ function printDesktopProofReportHelp(): void {
     "Outputs:",
     "  desktop-gui-proof-report.json",
     "  desktop-gui-approval.json when the observation satisfies the release approval contract",
+    "  desktop-collaboration-action-bound-v1-1.runtime-proof.json when the observation satisfies the runtime proof contract",
     "",
     "Safety boundary:",
     "  This command does not run a desktop GUI action, does not capture screenshots, and does not authorize unattended desktop takeover."

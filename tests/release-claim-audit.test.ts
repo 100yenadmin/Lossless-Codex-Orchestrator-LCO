@@ -17,33 +17,35 @@ function read(path: string): string {
   return readFileSync(path, "utf8");
 }
 
-test("0.1.0-beta.16 release metadata captures desktop runtime action-hash binding without widening claims", () => {
+test("0.1.0-beta.17 release metadata captures desktop proof-report runtime marker emission without widening claims", () => {
   const packageJson = JSON.parse(read("package.json")) as { version?: string };
   const packageLock = JSON.parse(read("package-lock.json")) as { version?: string; packages?: Record<string, { version?: string }> };
 
-  assert.equal(packageJson.version, "0.1.0-beta.16");
-  assert.equal(packageLock.version, "0.1.0-beta.16");
-  assert.equal(packageLock.packages?.[""]?.version, "0.1.0-beta.16");
-  assert.equal(existsSync("docs/RELEASE_NOTES_0.1.0-beta.16.md"), true, "0.1.0-beta.16 release notes must exist");
+  assert.equal(packageJson.version, "0.1.0-beta.17");
+  assert.equal(packageLock.version, "0.1.0-beta.17");
+  assert.equal(packageLock.packages?.[""]?.version, "0.1.0-beta.17");
+  assert.equal(existsSync("docs/RELEASE_NOTES_0.1.0-beta.17.md"), true, "0.1.0-beta.17 release notes must exist");
 
-  const releaseNotes = read("docs/RELEASE_NOTES_0.1.0-beta.16.md");
+  const releaseNotes = read("docs/RELEASE_NOTES_0.1.0-beta.17.md");
   assert.match(releaseNotes, /Codex-first working-app beta/i);
   assert.match(releaseNotes, /installed OpenClaw gateway/i);
   assert.match(releaseNotes, /#160/i);
-  assert.match(releaseNotes, /desktop collaboration gate/i);
+  assert.match(releaseNotes, /desktop collaboration proof-report/i);
   assert.match(releaseNotes, /actionHash/i);
   assert.match(releaseNotes, /action_hash/i);
   assert.match(releaseNotes, /desktopBackend/i);
   assert.match(releaseNotes, /targetApp/i);
   assert.match(releaseNotes, /targetWindow/i);
   assert.match(releaseNotes, /runtime proof marker/i);
+  assert.match(releaseNotes, /desktop-collaboration-action-bound-v1-1\.runtime-proof\.json/i);
+  assert.match(releaseNotes, /Invalid observations do not emit/i);
   assert.match(releaseNotes, /JSON\.stringify\(\{ desktopBackend, targetApp, targetWindow, action \}\)/i);
   assert.match(releaseNotes, /--claim-scope codex-working-app-proof/i);
   assert.match(releaseNotes, /codex-read-search-expand-dry-run/i);
   assert.match(releaseNotes, /approved_live_control_smoke_missing/i);
-  assert.match(releaseNotes, /0\.1\.0-beta\.16/i);
+  assert.match(releaseNotes, /0\.1\.0-beta\.17/i);
   assert.match(releaseNotes, /latest.*0\.1\.0-beta\.4/i);
-  assert.match(releaseNotes, /beta.*0\.1\.0-beta\.16/i);
+  assert.match(releaseNotes, /beta.*0\.1\.0-beta\.17/i);
   assert.match(releaseNotes, /Desktop collaboration remains claim-conditional/i);
   assert.match(releaseNotes, /Claude Code remains.*adapter stub/i);
   assert.match(releaseNotes, /does not run a\s+new live desktop GUI mutation/i);

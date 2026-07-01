@@ -122,6 +122,27 @@ export type DesktopGuiReleaseApprovalProof = {
   rawSecretIncluded: false;
 };
 
+export type DesktopCollaborationRuntimeProof = {
+  kind: "loo_runtime_scenario_proof";
+  scenario_id: "desktop-collaboration-action-bound-v1-1";
+  scenario_version: "1.1";
+  proof_mode: "runtime_required";
+  claim_scope: "codex-working-app-proof";
+  public_safe: true;
+  proof_markers: {
+    action_bound_target: true;
+    backend_specific_observation: true;
+    no_focus_measurement: true;
+  };
+  raw_transcript_read: false;
+  raw_prompt_included: false;
+  raw_secret_included: false;
+  screenshot_included: false;
+  sqlite_included: false;
+  screenshot_count: 0;
+  action_hash: string;
+};
+
 export type DesktopGuiProofReport = {
   ok: boolean;
   proofReady: boolean;
@@ -145,8 +166,10 @@ export type DesktopGuiProofReport = {
   rawSecretIncluded: boolean | null;
   blockers: string[];
   approval: DesktopGuiReleaseApprovalProof | null;
+  runtimeProof: DesktopCollaborationRuntimeProof | null;
   proofReportPath?: string;
   approvalEvidencePath?: string;
+  runtimeProofEvidencePath?: string;
   actionsPerformed: {
     desktopGuiActionRun: false;
   };
@@ -518,6 +541,28 @@ export function createDesktopGuiProofReport(input: unknown): DesktopGuiProofRepo
       rawSecretIncluded: false as const
     }
     : null;
+  const runtimeProof: DesktopCollaborationRuntimeProof | null = approval
+    ? {
+      kind: "loo_runtime_scenario_proof",
+      scenario_id: "desktop-collaboration-action-bound-v1-1",
+      scenario_version: "1.1",
+      proof_mode: "runtime_required",
+      claim_scope: "codex-working-app-proof",
+      public_safe: true,
+      proof_markers: {
+        action_bound_target: true,
+        backend_specific_observation: true,
+        no_focus_measurement: true
+      },
+      raw_transcript_read: false,
+      raw_prompt_included: false,
+      raw_secret_included: false,
+      screenshot_included: false,
+      sqlite_included: false,
+      screenshot_count: 0,
+      action_hash: approval.actionHash
+    }
+    : null;
 
   return {
     ok: proofReady,
@@ -542,6 +587,7 @@ export function createDesktopGuiProofReport(input: unknown): DesktopGuiProofRepo
     rawSecretIncluded,
     blockers,
     approval,
+    runtimeProof,
     actionsPerformed: {
       desktopGuiActionRun: false
     },
@@ -565,15 +611,20 @@ export function writeDesktopGuiProofReport(input: { evidenceDir: string; observa
   mkdirSync(evidenceDir, { recursive: true });
   const reportPath = join(evidenceDir, "desktop-gui-proof-report.json");
   const approvalPath = join(evidenceDir, "desktop-gui-approval.json");
+  const runtimeProofPath = join(evidenceDir, "desktop-collaboration-action-bound-v1-1.runtime-proof.json");
   const report = createDesktopGuiProofReport(input.observation);
   const withPaths = {
     ...report,
     proofReportPath: reportPath,
-    approvalEvidencePath: report.approval ? approvalPath : undefined
+    approvalEvidencePath: report.approval ? approvalPath : undefined,
+    runtimeProofEvidencePath: report.runtimeProof ? runtimeProofPath : undefined
   };
   writeFileSync(reportPath, `${JSON.stringify(withPaths, null, 2)}\n`);
   if (report.approval) {
     writeFileSync(approvalPath, `${JSON.stringify(report.approval, null, 2)}\n`);
+  }
+  if (report.runtimeProof) {
+    writeFileSync(runtimeProofPath, `${JSON.stringify(report.runtimeProof, null, 2)}\n`);
   }
   return withPaths;
 }
