@@ -370,6 +370,12 @@ Only after the approval gates are satisfied:
    that the package is unpublished. Retry the smoke with an explicit future
    `--before=<ISO timestamp>` value, keep both logs in evidence, and do not
    record npm tokens or raw auth config.
+   If the future `--before` retry still fails while
+   `npm view lossless-openclaw-orchestrator@beta dist.tarball` returns the
+   just-published package tarball, classify the blocker as
+   `npm_selector_cutoff_drift` and run the post-publish smoke by installing that
+   registry tarball URL. Keep the exact install, `--before` retry, tarball URL,
+   and tarball install logs in evidence.
 7. Update issue #6 and issue #14 with the tag, package/version, GitHub Release
    URL if created, CI link, evidence path, working/not-working list, proof
    boundary, and next action.

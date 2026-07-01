@@ -231,6 +231,10 @@ For Milestone 7, 1.0, or any expanded-scope release that claims live control, de
 - When a desktop proof-report observation is valid, the command writes both `desktop-gui-approval.json` and `desktop-collaboration-action-bound-v1-1.runtime-proof.json`; invalid or diagnostic-only observations must not emit the runtime proof marker.
 - Release preflight/status/bundle commands produce public-safe evidence.
 - npm publish and GitHub Release are separately and explicitly approved before execution.
+- Published-install proof may use a registry tarball fallback when npm dist-tag
+  metadata exposes the just-published beta but semver install selection remains
+  blocked by npm selector cutoff drift; this is packaging hardening evidence,
+  not a broader product capability claim.
 
 The `codex-working-app-proof` claim scope exists as a fail-closed release gate.
 It is not satisfied by dry-run packets. It requires approved live-control proof
