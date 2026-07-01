@@ -493,8 +493,11 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
 }
 
 function toolPayloadBlockers(toolName: string, payload: unknown): string[] {
-  if (!isRecord(payload) || payload.ok !== false) return [];
-  const code = stringPath(payload, ["error", "code"]);
+  const output = unwrapToolOutput(payload);
+  const details = unwrapToolDetails(output) ?? output;
+  const failedPayload = [payload, output, details].find((candidate) => isRecord(candidate) && candidate.ok === false);
+  if (!isRecord(failedPayload)) return [];
+  const code = stringPath(failedPayload, ["error", "code"]);
   const safeCode = code && /^[a-z0-9_.-]+$/i.test(code) ? `:${code}` : "";
   return [`openclaw_tool_result_not_ok:${toolName}${safeCode}`];
 }
