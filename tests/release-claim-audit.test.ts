@@ -20,10 +20,14 @@ function read(path: string): string {
 test("0.1.0-beta.20 release metadata ships release help hardening without widening claims", () => {
   const packageJson = JSON.parse(read("package.json")) as { version?: string };
   const packageLock = JSON.parse(read("package-lock.json")) as { version?: string; packages?: Record<string, { version?: string }> };
+  const rootPlugin = JSON.parse(read("openclaw.plugin.json")) as { version?: string };
+  const workspacePlugin = JSON.parse(read("packages/openclaw-plugin/openclaw.plugin.json")) as { version?: string };
 
   assert.equal(packageJson.version, "0.1.0-beta.20");
   assert.equal(packageLock.version, "0.1.0-beta.20");
   assert.equal(packageLock.packages?.[""]?.version, "0.1.0-beta.20");
+  assert.equal(rootPlugin.version, "0.1.0-beta.20");
+  assert.equal(workspacePlugin.version, "0.1.0-beta.20");
   assert.equal(existsSync("docs/RELEASE_NOTES_0.1.0-beta.20.md"), true, "0.1.0-beta.20 release notes must exist");
 
   const releaseNotes = read("docs/RELEASE_NOTES_0.1.0-beta.20.md");
