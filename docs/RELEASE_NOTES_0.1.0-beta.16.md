@@ -33,20 +33,15 @@ or enterprise/customer-ready security.
   new live desktop GUI mutation.
 - Claude Code remains a read-only adapter/inventory boundary and adapter stub,
   not parity.
-- No cloud sync, unattended desktop takeover, generic GUI mutation, or
-  release-grade enterprise security is included.
-- No unattended desktop takeover is included.
+- No cloud sync is included.
+- No unattended desktop takeover or generic GUI mutation is included.
 - No release-grade enterprise security is included.
 - `approved_live_control_smoke_missing` remains the fail-closed blocker when a
   claimed live-control release lacks the structured approval smoke marker.
-- Release bundle and status checks do not publish to npm and do not create a
-  GitHub Release; publishing is a separate operation after gates pass.
-- Release bundle and status checks do not publish to npm and must not create a
-  GitHub Release.
-- Release bundle and status checks must not create a GitHub Release.
-- `latest` remains pinned to `0.1.0-beta.4`; `beta` points at
-  `0.1.0-beta.16` if this candidate is published.
-- npm `beta` points at `0.1.0-beta.16` if this candidate is published.
+- Release bundle and status checks do not publish to npm and must not create a GitHub Release;
+  publishing is a separate operation after gates pass.
+- `latest` remains pinned to `0.1.0-beta.4`; npm `beta` points at `0.1.0-beta.16`
+  if this candidate is published.
 
 ## Release Gates
 

@@ -73,8 +73,7 @@ function writeRuntimeScenarioProof(
   path: string,
   scenarioId: "openclaw-gateway-live-codex-v1-1" | "post-action-refresh-reasoning-v1-1" | "desktop-collaboration-action-bound-v1-1",
   proofMarkers: Record<string, true>,
-  counts: Record<string, number> = {},
-  extra: Record<string, string | boolean | number> = {}
+  overrides: Record<string, string | boolean | number> = {}
 ): void {
   writeFileSync(path, `${JSON.stringify({
     kind: "loo_runtime_scenario_proof",
@@ -89,8 +88,7 @@ function writeRuntimeScenarioProof(
     raw_secret_included: false,
     screenshot_included: false,
     sqlite_included: false,
-    ...counts,
-    ...extra
+    ...overrides
   }, null, 2)}\n`);
 }
 
@@ -510,7 +508,7 @@ test("release status --strict requires GUI target details only when GUI mutation
     action_bound_target: true,
     backend_specific_observation: true,
     no_focus_measurement: true
-  }, { screenshot_count: 0 }, { action_hash: visualSmokeActionHash });
+  }, { screenshot_count: 0, action_hash: visualSmokeActionHash });
   writeReleaseOperationApprovalProof(broadDesktopGuiApprovalProof, "desktop_gui_mutation");
   writeReleaseOperationApprovalProof(detailedDesktopGuiApprovalProof, "desktop_gui_mutation", {
     desktopBackend: "cua-driver",
@@ -779,7 +777,7 @@ test("release status --desktop-gui-required requires desktop collaboration runti
     action_bound_target: true,
     backend_specific_observation: true,
     no_focus_measurement: true
-  }, { screenshot_count: 0 }, { action_hash: desktopActionHash(desktopAction) });
+  }, { screenshot_count: 0, action_hash: desktopActionHash(desktopAction) });
 
   const readyResult = spawnSync(process.execPath, [
     "--import",
@@ -850,7 +848,7 @@ test("release status binds desktop GUI approval hash to backend, target, and act
     action_bound_target: true,
     backend_specific_observation: true,
     no_focus_measurement: true
-  }, { screenshot_count: 0 }, { action_hash: desktopActionHash(desktopAction) });
+  }, { screenshot_count: 0, action_hash: desktopActionHash(desktopAction) });
   writeReleaseOperationApprovalProof(desktopGuiApprovalProof, "desktop_gui_mutation", {
     ...desktopAction,
     actionHash: "d".repeat(64),
@@ -998,7 +996,7 @@ test("release status binds desktop collaboration runtime proof to approved deskt
     action_bound_target: true,
     backend_specific_observation: true,
     no_focus_measurement: true
-  }, { screenshot_count: 0 }, { action_hash: "b".repeat(64) });
+  }, { screenshot_count: 0, action_hash: "b".repeat(64) });
 
   const mismatchedHashResult = spawnSync(process.execPath, commonArgs, { encoding: "utf8" });
   assert.equal(mismatchedHashResult.status, 1, mismatchedHashResult.stderr || mismatchedHashResult.stdout);
@@ -1013,7 +1011,7 @@ test("release status binds desktop collaboration runtime proof to approved deskt
     action_bound_target: true,
     backend_specific_observation: true,
     no_focus_measurement: true
-  }, { screenshot_count: 0 }, { action_hash: ` ${approvedActionHash} ` });
+  }, { screenshot_count: 0, action_hash: ` ${approvedActionHash} ` });
 
   const paddedHashResult = spawnSync(process.execPath, commonArgs, { encoding: "utf8" });
   assert.equal(paddedHashResult.status, 1, paddedHashResult.stderr || paddedHashResult.stdout);
@@ -1028,7 +1026,7 @@ test("release status binds desktop collaboration runtime proof to approved deskt
     action_bound_target: true,
     backend_specific_observation: true,
     no_focus_measurement: true
-  }, { screenshot_count: 0 }, { action_hash: approvedActionHash });
+  }, { screenshot_count: 0, action_hash: approvedActionHash });
 
   const matchedHashResult = spawnSync(process.execPath, commonArgs, { encoding: "utf8" });
   assert.equal(matchedHashResult.status, 0, matchedHashResult.stderr || matchedHashResult.stdout);
