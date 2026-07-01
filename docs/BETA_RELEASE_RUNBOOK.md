@@ -320,6 +320,29 @@ A release candidate may be announced internally when all of these are true:
 - no public artifact contains raw Codex JSONL, local SQLite databases, raw
   prompts, screenshots, credentials, tokens, or private transcripts
 
+## 1.0 General Readiness Gate
+
+The beta train can publish scoped prereleases without claiming 1.0. A 1.0
+candidate must also pass the deeper [Release Checklist](RELEASE_CHECKLIST.md)
+with fresh npm and agent dogfood evidence. The user-facing command is
+`loo release general-readiness`; the built-artifact form is:
+
+```bash
+node ./dist/packages/cli/src/index.js release general-readiness \
+  --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/general-release-readiness \
+  --fresh-npm-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/fresh-npm/published-package-smoke.json \
+  --agent-dogfood-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/agent-dogfood/openclaw-tool-smoke.json \
+  --strict
+```
+
+This gate is intentionally stricter than a beta first-run classifier:
+`gateway_setup_required` can be acceptable beta onboarding evidence, but it is
+not enough for 1.0. The stable gate requires a fresh npm install, clean-profile
+OpenClaw load, agent dogfood through gateway tools, and docs truth. If resume,
+steer, or interrupt have not passed live proof on disposable threads, the
+release copy must exclude broad live control and name only the proven live send
+path.
+
 ## Publication Approval Gates
 
 Publishing is separate from proving a release candidate.

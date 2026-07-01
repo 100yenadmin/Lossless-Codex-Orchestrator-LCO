@@ -18,7 +18,7 @@ The M9 target is:
 - Align README, VISION, and release docs with current GitHub truth instead of stale sprint wording.
 - Prove an agent dogfood scenario at [evals/scenarios/v1/m9-agent-dogfood-core-workflow.json](evals/scenarios/v1/m9-agent-dogfood-core-workflow.json) that uses only public `loo_*` tools to search, describe, expand, reason, and dry-run.
 - Prove fresh npm beta install and clean-profile OpenClaw load at [evals/scenarios/v1/m9-fresh-npm-clean-profile.json](evals/scenarios/v1/m9-fresh-npm-clean-profile.json) without relying on a repo link.
-- Define and gate 1.0 release readiness without adding Claude parity or generic GUI mutation to the scope.
+- Define and gate 1.0 release readiness in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) with `loo release general-readiness --strict`, using fresh npm and agent dogfood evidence without adding Claude parity or generic GUI mutation to the scope.
 
 M9 does not turn the project into a broad automation product. It is still Codex-first and local-first. Claude Code parity, remote sync, broad unattended desktop control, permission bypass, and release-grade security stay outside the proof boundary until separate evidence exists.
 
@@ -32,6 +32,7 @@ What a local OpenClaw agent can do today:
 - Dry-run Codex resume/send/steer/interrupt actions and inspect audit ids and hashes before any live action.
 - Classify package and gateway readiness with `loo onboard status`, `loo openclaw dogfood`, `loo openclaw tool-smoke`, and `loo openclaw published-smoke`.
 - Follow the packaged agent skill and M9 dogfood scenario to produce a public-safe recommendation from source refs, bounded expansion, detail lookups, and dry-run audit hashes.
+- Use `loo release general-readiness --strict` to decide whether fresh npm install, clean-profile OpenClaw load, and agent dogfood evidence are enough for a 1.0 claim.
 
 ## Completed Proof: Working App Runtime
 
