@@ -41,7 +41,7 @@ import { runReleasePreflight } from "./release-preflight.js";
 import { createReleaseStatus } from "./release-status.js";
 import { createGeneralReleaseReadiness } from "./general-release-readiness.js";
 import { runOpenClawDogfood } from "./openclaw-dogfood.js";
-import { runOpenClawToolSmoke } from "./openclaw-tool-smoke.js";
+import { DEFAULT_REQUIRED_TOOL_CALLS, runOpenClawToolSmoke } from "./openclaw-tool-smoke.js";
 import { createPublishedPackageSmokeReport } from "./published-package-smoke.js";
 import { runOpenClawGatewayLiveControlSmoke } from "./openclaw-live-control-smoke.js";
 import { runOpenClawPostActionRefreshSmoke } from "./openclaw-post-action-refresh-smoke.js";
@@ -781,7 +781,7 @@ function printOpenClawToolSmokeHelp(): void {
     "Runs a public-safe OpenClaw gateway smoke for selected loo_* tools.",
     "",
     "Default tools:",
-    "  loo_doctor, loo_search_sessions, loo_describe_session, loo_expand_query, loo_codex_plans, loo_codex_final_messages, loo_codex_thread_map, loo_codex_control_dry_run",
+    `  ${DEFAULT_REQUIRED_TOOL_CALLS.join(", ")}`,
     "",
     "Options:",
     "  --required-tool name    Replace the default required loo_* tool set with explicit entries; may be repeated.",

@@ -2,7 +2,8 @@ import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { assertCodexMethodAllowed } from "./policy.js";
+import { codexTransportStatus } from "./codex-jsonrpc.js";
+import { CODEX_CONTROL_METHODS, CODEX_FORBIDDEN_METHODS, CODEX_READ_METHODS, assertCodexMethodAllowed } from "./policy.js";
 import { redactValue } from "./redaction.js";
 
 export * from "./codex-jsonrpc.js";
@@ -11,6 +12,84 @@ export * from "./redaction.js";
 
 export type CodexClient = {
   request(method: string, params: Record<string, unknown>): Promise<unknown>;
+};
+
+export type SourceCoverageState = "ok" | "partial" | "unavailable" | "not_configured";
+
+export type CodexAppServerStatusReport = {
+  schema: "lco.codex.appServerStatus.v1";
+  publicSafe: true;
+  readOnly: true;
+  generatedAt: string;
+  transport: {
+    mode: "stdio";
+    command: string;
+    available: boolean;
+    version: string | null;
+    error: string | null;
+  };
+  methodPolicy: {
+    surface: "read";
+    allowedReadMethods: string[];
+    controlMethods: string[];
+    forbiddenMethods: string[];
+  };
+  remoteControl: {
+    status: "ok" | "unavailable";
+    readiness: "disabled" | "connecting" | "connected" | "errored" | "unknown";
+    environmentRef: string | null;
+    serverName: string | null;
+    error: string | null;
+  };
+  sourceCoverage: {
+    codexAppServer: SourceCoverageState;
+  };
+  errors: string[];
+  actionsPerformed: {
+    liveCodexControlRun: false;
+    desktopGuiActionRun: false;
+    rawTranscriptRead: false;
+  };
+  proofBoundary: string;
+};
+
+export type CodexAppServerThreadSignal = {
+  appServerRef: string;
+  threadId: string;
+  titleSanitized: string | null;
+  titleHash: string | null;
+  status: string | null;
+  loaded: boolean;
+  updatedAt: string | null;
+  sourceRef: string;
+  confidence: number;
+};
+
+export type CodexAppServerThreadsReport = {
+  schema: "lco.codex.appServerThreads.v1";
+  publicSafe: true;
+  generatedAt: string;
+  sourceCoverage: {
+    codexAppServer: SourceCoverageState;
+  };
+  threads: CodexAppServerThreadSignal[];
+  loadedThreadRefs: string[];
+  readProbe?: {
+    threadId: string;
+    appServerRef: string;
+    status: string | null;
+    titleSanitized: string | null;
+    turnsOmitted: true;
+    rawFieldsOmitted: ["preview", "cwd", "path", "turns"];
+    error: string | null;
+  };
+  errors: string[];
+  actionsPerformed: {
+    liveCodexControlRun: false;
+    desktopGuiActionRun: false;
+    rawTranscriptRead: false;
+  };
+  proofBoundary: string;
 };
 
 export type DesktopBackend = "direct" | "cua-driver" | "peekaboo";
@@ -516,6 +595,124 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
         params: { threadId: input.threadId }
       });
     }
+  };
+}
+
+export async function createCodexAppServerStatusReport(options: {
+  client: CodexClient;
+  transport?: ReturnType<typeof codexTransportStatus>;
+  command?: string;
+  now?: string;
+}): Promise<CodexAppServerStatusReport> {
+  const transport = options.transport ?? codexTransportStatus({ command: options.command ?? process.env.LOO_CODEX_BIN ?? "codex" });
+  const remoteControl = await codexReadRequest(options.client, "remoteControl/status/read", {});
+  const remoteRecord = asRecord(remoteControl.result);
+  const statusValue = stringField(remoteRecord?.status);
+  const readiness = statusValue && ["disabled", "connecting", "connected", "errored"].includes(statusValue)
+    ? statusValue as CodexAppServerStatusReport["remoteControl"]["readiness"]
+    : "unknown";
+  const errors = remoteControl.ok ? [] : [remoteControl.error ?? "remoteControl/status/read failed"];
+  return {
+    schema: "lco.codex.appServerStatus.v1",
+    publicSafe: true,
+    readOnly: true,
+    generatedAt: options.now ?? new Date().toISOString(),
+    transport: {
+      mode: "stdio",
+      command: capTextValue(transport.command, 160),
+      available: transport.available,
+      version: transport.version ? capTextValue(transport.version, 160) : null,
+      error: transport.error ? capTextValue(transport.error, 260) : null
+    },
+    methodPolicy: {
+      surface: "read",
+      allowedReadMethods: [...CODEX_READ_METHODS].sort(),
+      controlMethods: [...CODEX_CONTROL_METHODS].sort(),
+      forbiddenMethods: [...CODEX_FORBIDDEN_METHODS].sort()
+    },
+    remoteControl: {
+      status: remoteControl.ok ? "ok" : "unavailable",
+      readiness,
+      environmentRef: stringField(remoteRecord?.environmentId) ? `codex_remote_environment:${shortHash(String(remoteRecord?.environmentId))}` : null,
+      serverName: publicTextField(remoteRecord?.serverName, 120) ?? null,
+      error: remoteControl.ok ? null : capTextValue(remoteControl.error ?? "remoteControl/status/read failed", 260)
+    },
+    sourceCoverage: {
+      codexAppServer: remoteControl.ok ? "ok" : transport.available ? "partial" : "unavailable"
+    },
+    errors: errors.map((error) => capTextValue(error, 260)),
+    actionsPerformed: {
+      liveCodexControlRun: false,
+      desktopGuiActionRun: false,
+      rawTranscriptRead: false
+    },
+    proofBoundary: "This report probes only read-allowlisted Codex app-server status. It does not enable remote control, send turns, resume threads, read raw transcript turns, mutate files, or mutate the desktop GUI."
+  };
+}
+
+export async function createCodexAppServerThreadsReport(options: {
+  client: CodexClient;
+  limit?: number;
+  readThreadId?: string;
+  now?: string;
+}): Promise<CodexAppServerThreadsReport> {
+  const limit = boundedInteger(options.limit, 20, 1, 100);
+  const errors: string[] = [];
+  const list = await codexReadRequest(options.client, "thread/list", { limit, useStateDbOnly: true });
+  if (!list.ok && list.error) errors.push(list.error);
+  const loaded = await codexReadRequest(options.client, "thread/loaded/list", {});
+  if (!loaded.ok && loaded.error) errors.push(loaded.error);
+  const loadedThreadIds = new Set(threadIdsFromLoadedResult(loaded.result));
+  const threads = threadRecordsFromListResult(list.result)
+    .slice(0, limit)
+    .map((thread) => appServerThreadSignal(thread, loadedThreadIds));
+
+  let readProbe: CodexAppServerThreadsReport["readProbe"];
+  if (options.readThreadId) {
+    const threadId = capTextValue(options.readThreadId, 160);
+    const read = await codexReadRequest(options.client, "thread/read", { threadId, includeTurns: false });
+    if (!read.ok) {
+      if (read.error) errors.push(read.error);
+      readProbe = {
+        threadId,
+        appServerRef: codexAppThreadRef(threadId),
+        status: null,
+        titleSanitized: null,
+        turnsOmitted: true,
+        rawFieldsOmitted: ["preview", "cwd", "path", "turns"],
+        error: read.error ? capTextValue(read.error, 260) : "thread/read failed"
+      };
+    } else {
+      const thread = asRecord(asRecord(read.result)?.thread);
+      readProbe = {
+        threadId,
+        appServerRef: codexAppThreadRef(threadId),
+        status: threadStatus(thread?.status),
+        titleSanitized: publicTextField(thread?.name, 160) ?? null,
+        turnsOmitted: true,
+        rawFieldsOmitted: ["preview", "cwd", "path", "turns"],
+        error: null
+      };
+    }
+  }
+
+  return {
+    schema: "lco.codex.appServerThreads.v1",
+    publicSafe: true,
+    generatedAt: options.now ?? new Date().toISOString(),
+    sourceCoverage: {
+      codexAppServer: list.ok && loaded.ok ? "ok" : list.ok || loaded.ok ? "partial" : "unavailable"
+    },
+    threads,
+    loadedThreadRefs: [...loadedThreadIds].sort().map(codexAppThreadRef),
+    readProbe,
+    errors: errors.map((error) => capTextValue(error, 260)),
+    actionsPerformed: {
+      liveCodexControlRun: false,
+      desktopGuiActionRun: false,
+      rawTranscriptRead: false
+    },
+    proofBoundary: "This report uses only thread/list, thread/loaded/list, and optional thread/read with includeTurns:false. It omits preview, cwd, path, and turns, and does not resume, send, steer, interrupt, or mutate Codex."
   };
 }
 
@@ -1576,7 +1773,9 @@ function boundsToRect(bounds: Record<string, unknown> | null): DesktopSnapshotEl
 }
 
 function capTextValue(value: unknown, maxChars: number): string {
-  const redacted = String(redactValue(String(value)));
+  const redacted = String(redactValue(String(value)))
+    .replace(/\/Volumes\/[^\s"'`)]+/g, "<redacted-path>")
+    .replace(/\/(?:private\/)?(?:tmp|var)\/[^\s"'`)]+/g, "<redacted-path>");
   return redacted.length > maxChars ? redacted.slice(0, maxChars) : redacted;
 }
 
@@ -1590,6 +1789,74 @@ function parseJsonObject(value: string): unknown {
   } catch {
     return null;
   }
+}
+
+async function codexReadRequest(client: CodexClient, method: string, params: Record<string, unknown>): Promise<{
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+}> {
+  assertCodexMethodAllowed(method, "read");
+  try {
+    const response = await client.request(method, params);
+    const record = asRecord(response);
+    if (record && typeof record.ok === "boolean") {
+      return record.ok
+        ? { ok: true, result: redactValue(record.result) }
+        : { ok: false, error: capTextValue(record.error ?? `${method} failed`, 260) };
+    }
+    return { ok: true, result: redactValue(response) };
+  } catch (error) {
+    return { ok: false, error: capTextValue(error instanceof Error ? error.message : String(error), 260) };
+  }
+}
+
+function threadRecordsFromListResult(result: unknown): Record<string, unknown>[] {
+  const record = asRecord(result);
+  const data = Array.isArray(record?.data) ? record.data : Array.isArray(record?.threads) ? record.threads : [];
+  return data.map((item) => asRecord(item)).filter((item): item is Record<string, unknown> => Boolean(item));
+}
+
+function threadIdsFromLoadedResult(result: unknown): string[] {
+  const record = asRecord(result);
+  const data = Array.isArray(record?.data) ? record.data : Array.isArray(record?.threads) ? record.threads : [];
+  return data.map((item) => typeof item === "string" ? item : stringField(asRecord(item)?.id)).filter((id): id is string => Boolean(id));
+}
+
+function appServerThreadSignal(thread: Record<string, unknown>, loadedThreadIds: Set<string>): CodexAppServerThreadSignal {
+  const threadId = capTextValue(stringField(thread.id) ?? "unknown", 160);
+  const title = publicTextField(thread.name, 160);
+  return {
+    appServerRef: codexAppThreadRef(threadId),
+    threadId,
+    titleSanitized: title ?? null,
+    titleHash: title ? shortHash(title) : null,
+    status: threadStatus(thread.status),
+    loaded: loadedThreadIds.has(threadId),
+    updatedAt: unixSecondsToIso(thread.updatedAt),
+    sourceRef: `codex_thread:${threadId}`,
+    confidence: title ? 0.9 : 0.62
+  };
+}
+
+function threadStatus(value: unknown): string | null {
+  if (typeof value === "string") return capTextValue(value, 80);
+  const record = asRecord(value);
+  return publicTextField(record?.type, 80) ?? null;
+}
+
+function unixSecondsToIso(value: unknown): string | null {
+  const numeric = typeof value === "number" && Number.isFinite(value) ? value : null;
+  if (numeric === null) return null;
+  return new Date(numeric * 1000).toISOString();
+}
+
+function codexAppThreadRef(threadId: string): string {
+  return `codex_app_thread:${threadId}`;
+}
+
+function stringField(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

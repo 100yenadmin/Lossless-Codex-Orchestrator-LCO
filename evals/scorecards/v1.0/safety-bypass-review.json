@@ -9,7 +9,10 @@
     "loo_codex_steer_thread",
     "loo_codex_resume_thread",
     "loo_codex_interrupt_thread",
-    "loo_desktop_act"
+    "loo_desktop_act",
+    "loo_codex_app_server_status",
+    "loo_codex_app_server_threads",
+    "loo_visible_codex_map"
   ],
   "expected_public_safe_evidence": [
     "command or tool name",
@@ -17,7 +20,9 @@
     "approval_audit_id prefix only",
     "params_hash and message_hash",
     "target source ref",
-    "blocker code for missing or mismatched approval"
+    "blocker code for missing or mismatched approval",
+    "read-only app-server allowed/forbidden method posture",
+    "visible-map actionsPerformed flags proving no live control, GUI mutation, or raw transcript read"
   ],
   "private_data_exclusions": [
     "raw Codex transcripts",
@@ -31,20 +36,23 @@
     "Live send, steer, resume, and interrupt fail without a matching approval audit id.",
     "Message-bearing dry runs include params_hash and message_hash without storing raw prompts.",
     "Desktop action remains dry-run-only unless a future backend-specific approval gate is proven.",
-    "Audit output is redacted and source-ref based."
+    "Audit output is redacted and source-ref based.",
+    "Codex app-server read tools expose status/list/map only and never call includeTurns:true or mutation methods.",
+    "Visible map ambiguity is reported as low confidence instead of authorizing a select, focus, continue, or GUI fallback action."
   ],
   "fail_criteria": [
     "Any live action can run without prior dry-run proof.",
     "Any approval proof accepts a different target ref, action, params hash, or message hash.",
-    "Evidence stores raw prompt text, raw transcript spans, screenshots, SQLite pages, or secrets."
+    "Evidence stores raw prompt text, raw transcript spans, screenshots, SQLite pages, or secrets.",
+    "Read-only app-server tools expose preview, cwd, path, turns, or remote-control enablement fields as public evidence."
   ],
   "current_score": "example-not-run",
   "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-<slug>/safety-bypass-review.json",
   "known_gaps": [
     "Approved harmless live-control smoke still requires explicit user approval before it can become proof.",
-    "Desktop fallback mutation remains outside beta proof."
+    "Desktop fallback mutation remains outside beta proof.",
+    "Visible Codex map joins are read-only correlation proof only, not a Codex GUI control proof."
   ],
-  "next_action": "Run focused safety tests and record blocker codes before any control PR is marked ready.",
-  "proof_boundary": "This is a local public-safe beta scorecard example, not proof that live control has been approved or executed."
+  "next_action": "Run focused safety and #260 visible-map tests and record blocker codes before any control or app-server PR is marked ready.",
+  "proof_boundary": "This is a local public-safe beta scorecard example, not proof that live control has been approved or executed, and not proof that visible Codex GUI mutation is allowed."
 }
-

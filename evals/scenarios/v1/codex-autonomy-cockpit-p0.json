@@ -8,6 +8,9 @@
   "allowed_tools": [
     "loo_recent_sessions",
     "loo_cockpit_inbox",
+    "loo_codex_app_server_status",
+    "loo_codex_app_server_threads",
+    "loo_visible_codex_map",
     "loo_describe_session",
     "loo_expand_session",
     "loo_codex_control_dry_run"
@@ -24,6 +27,8 @@
     "freshness and confidence",
     "reason codes",
     "redacted evidence cards",
+    "read-only app-server status and thread source coverage",
+    "visible-to-indexed map confidence and ambiguity markers",
     "approval_packet for dry-run control only",
     "public-safe output scan result"
   ],
@@ -41,10 +46,12 @@
     "requires_deterministic_inbox_order": true,
     "requires_public_safe_evidence": true,
     "requires_low_confidence_on_conflict": true,
+    "requires_visible_map_source_coverage": true,
+    "requires_app_server_read_only_policy": true,
     "max_raw_transcript_spans": 0,
     "max_live_actions": 0,
     "max_screenshots_in_public_evidence": 0
   },
-  "proof_boundary": "Dry-run P0 scenario contract for Codex autonomy cockpit. It may prove public-safe recent-session cards, cockpit ranking, and dry-run approval context, but does not prove live Codex control, GUI mutation, Claude parity, business-source parity, or 1.0 readiness.",
-  "next_action": "Run the new cockpit tools through the local OpenClaw gateway and record only cards, refs, reason codes, counts, and sanitized proof markers."
+  "proof_boundary": "Dry-run P0 scenario contract for Codex autonomy cockpit. It may prove public-safe recent-session cards, cockpit ranking, read-only app-server status, visible-to-indexed correlation, and dry-run approval context, but does not prove live Codex control, GUI mutation, Claude parity, business-source parity, or 1.0 readiness.",
+  "next_action": "Run the new cockpit and visible-map tools through the local OpenClaw gateway and record only cards, refs, source coverage, confidence, ambiguity markers, counts, and sanitized proof markers."
 }

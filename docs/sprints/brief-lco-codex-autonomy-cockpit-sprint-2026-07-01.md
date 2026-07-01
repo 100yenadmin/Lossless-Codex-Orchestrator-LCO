@@ -16,7 +16,7 @@ The first implementation slice is P0 and read-only: LCO/Codex state, optional st
 - Tracking / source of truth: GitHub issues #254/#255/#256/#258/#259 own implementation truth; `VISION.md` owns product/eval truth; this brief owns sprint handoff; evidence root `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/2026-07-01/codex-autonomy-cockpit-operating-picture/`.
 - Scope / non-goals: P0 is deterministic and read-only. No raw transcripts, raw transcript paths in public-safe outputs, external writes, live Codex control, GUI mutation, screenshots by default, Claude parity, enterprise/customer-ready claim, npm latest promotion, or stable 1.0 claim.
 - Current state: beta.30 has working Codex index/search/describe/expand/dry-run through OpenClaw gateway; M9 handoff is published; #254/#255 are open; VISION/README now point at this sprint.
-- Exact next action: finish #259 watcher/resume-request primitives, then continue visible Codex map joins and P1 adapter splits behind their own proof gates.
+- Exact next action: finish #260 read-only Codex app-server status/thread signals and visible-to-indexed map joins, then continue P1 adapter splits behind their own proof gates.
 - Critical invariants: public-safe defaults; opaque source refs; `PLAN_STATE.md` is not canonical current-state truth; every card carries source refs, confidence, freshness, reason codes, and coverage; missing/conflicting sources degrade to `unknown` or `low_confidence`.
 - Execution lanes: #256 shared contracts/tools; #258 source-authority profile; #254 cockpit P0 follow-ups; #255 operating-picture P0 hardening; OpenClaw dogfood; scorecards/evidence; beta publish only after scoped release gates.
 - Validation / eval gates: focused unit tests, MCP schema tests, OpenClaw manifest tests, scenario/scorecard sweep, `npm run check`, GitHub CI/CodeQL, evidence scan, OpenClaw gateway dogfood when tool surface changes.
@@ -61,7 +61,7 @@ Unmarked prose is bootloader/fallback context and must not become current-state 
 ## Follow-Up Split
 
 - #254 child: watcher/resume-request primitives with TTLs and no mutation (#259).
-- #254 child: visible Codex map join using sanitized app/title metadata only.
+- #254 child: visible Codex map join using sanitized app/title metadata and read-only app-server signals only (#260).
 - #255 child: source-authority bootstrap profile so coverage does not masquerade as current truth ownership.
 - #255 child: richer GitHub deterministic collector instead of optional structured input.
 - #255 child: Notion/support-control/Company Brain/Stripe read-only adapters, each behind `not_configured | unavailable | partial | ok`.

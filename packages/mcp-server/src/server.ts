@@ -13,6 +13,11 @@ const tools = createLooTools({
     command: process.env.LOO_CODEX_BIN || "codex",
     args: (process.env.LOO_CODEX_APP_SERVER_ARGS || "app-server --stdio").split(/\s+/).filter(Boolean),
     surface: "control"
+  }),
+  codexReadClient: createCodexAppServerStdioClient({
+    command: process.env.LOO_CODEX_BIN || "codex",
+    args: (process.env.LOO_CODEX_APP_SERVER_ARGS || "app-server --stdio").split(/\s+/).filter(Boolean),
+    surface: "read"
   })
 });
 

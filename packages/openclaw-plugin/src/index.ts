@@ -39,6 +39,7 @@ type NativeRuntime = {
   db: LooDatabase;
   audit: AuditStore;
   codexClient: CodexClient;
+  codexReadClient: CodexClient;
   tools: LooTool[];
 };
 
@@ -77,11 +78,17 @@ function getNativeRuntime(): NativeRuntime {
     args: (process.env.LOO_CODEX_APP_SERVER_ARGS || "app-server --stdio").split(/\s+/).filter(Boolean),
     surface: "control"
   });
+  const codexReadClient = createCodexAppServerStdioClient({
+    command: process.env.LOO_CODEX_BIN || "codex",
+    args: (process.env.LOO_CODEX_APP_SERVER_ARGS || "app-server --stdio").split(/\s+/).filter(Boolean),
+    surface: "read"
+  });
   nativeRuntime = {
     db,
     audit,
     codexClient,
-    tools: createLooTools({ db, audit, codexClient })
+    codexReadClient,
+    tools: createLooTools({ db, audit, codexClient, codexReadClient })
   };
   return nativeRuntime;
 }
