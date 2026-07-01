@@ -14,6 +14,9 @@
     "package file list",
     "plugin manifest path",
     "onboarding blocker and warning codes",
+    "OpenClaw dogfood installOutcome.status",
+    "OpenClaw dogfood installOutcome.guidance",
+    "clean-profile linked install marker or already-installed diagnostic",
     "MCP entrypoint path",
     "declared tool count",
     "release blocker codes",
@@ -30,11 +33,13 @@
   "pass_criteria": [
     "Package includes README.md, VISION.md, docs, evals, plugin manifest, and compiled runtime entries.",
     "Plugin manifest declares the loo_ prefix and expected read/control/admin tools.",
+    "OpenClaw dogfood distinguishes installed, already_installed, link_force_unsupported, and failed linked-install outcomes without raw local paths.",
     "Release preflight/status fail closed on missing approvals without performing publish or release actions."
   ],
   "fail_criteria": [
     "Package omits VISION.md, scorecards, OpenClaw manifest, or MCP runtime entry.",
     "Tool declarations drift from the MCP registry.",
+    "Linked install failures are reported as generic failures when the plugin is already loaded, or raw OpenClaw stdout/stderr enters public evidence.",
     "Release commands perform npm publish, GitHub Release creation, live control, or GUI mutation."
   ],
   "current_score": "example-not-run",

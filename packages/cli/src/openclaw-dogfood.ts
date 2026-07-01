@@ -32,8 +32,15 @@ export type OpenClawDogfoodReport = {
   warnings: string[];
   installAttempted: boolean;
   installExitStatus: number | null;
+  installOutcome: OpenClawInstallOutcome;
   evidencePath?: string;
   privateDataExclusions: string[];
+};
+
+export type OpenClawInstallOutcome = {
+  status: "not_attempted" | "installed" | "already_installed" | "link_force_unsupported" | "failed";
+  exitStatus: number | null;
+  guidance?: string;
 };
 
 export type OpenClawDogfoodInput = {
@@ -44,6 +51,8 @@ export type OpenClawDogfoodInput = {
   requiredTools?: string[];
   installAttempted?: boolean;
   installExitStatus?: number | null;
+  installStdout?: string;
+  installStderr?: string;
   command?: string;
   evidencePath?: string;
 };
@@ -77,6 +86,8 @@ export function runOpenClawDogfood(options: RunOpenClawDogfoodOptions = {}): Ope
     ...(options.profile ? ["--profile", options.profile] : [])
   ];
   let installExitStatus: number | null = null;
+  let installStdout = "";
+  let installStderr = "";
   if (options.installSource) {
     const installArgs = [
       ...baseArgs,
@@ -86,7 +97,10 @@ export function runOpenClawDogfood(options: RunOpenClawDogfoodOptions = {}): Ope
       ...(options.forceInstall && !options.link ? ["--force"] : []),
       options.installSource
     ];
-    installExitStatus = spawnSync(openclawBin, installArgs, { encoding: "utf8", maxBuffer: 20 * 1024 * 1024 }).status;
+    const install = spawnSync(openclawBin, installArgs, { encoding: "utf8", maxBuffer: 20 * 1024 * 1024 });
+    installExitStatus = install.status;
+    installStdout = install.stdout;
+    installStderr = install.stderr;
   }
 
   const pluginList = options.pluginListJsonPath
@@ -103,6 +117,8 @@ export function runOpenClawDogfood(options: RunOpenClawDogfoodOptions = {}): Ope
     requiredTools: options.requiredTools,
     installAttempted: Boolean(options.installSource),
     installExitStatus,
+    installStdout,
+    installStderr,
     command: `${openclawBin} ${[...baseArgs, "plugins", "list", "--json"].join(" ")}`,
     evidencePath: options.evidencePath
   });
@@ -125,6 +141,7 @@ export function createOpenClawDogfoodReport(input: OpenClawDogfoodInput): OpenCl
   const loaded = target ? pluginLoaded(target) : null;
   const blockers: string[] = [];
   const warnings: string[] = [];
+  const installOutcome = classifyInstallOutcome(input);
 
   if (input.pluginListExitStatus !== 0) blockers.push("openclaw_plugin_list_failed");
   if (!parsed.ok) blockers.push("openclaw_plugin_list_invalid_json");
@@ -137,7 +154,7 @@ export function createOpenClawDogfoodReport(input: OpenClawDogfoodInput): OpenCl
   const requiredToolsPresent = missingRequiredTools.length === 0;
   const readyWithoutInstall = blockers.length === 0 && requiredToolsPresent && Boolean(target);
   if (input.installAttempted && input.installExitStatus !== 0) {
-    if (readyWithoutInstall) warnings.push("openclaw_plugin_install_failed_but_plugin_ready");
+    if (readyWithoutInstall) warnings.push(installWarningForOutcome(installOutcome));
     else blockers.push("openclaw_plugin_install_failed");
   }
   const dogfoodReady = blockers.length === 0 && requiredToolsPresent && Boolean(target);
@@ -162,9 +179,43 @@ export function createOpenClawDogfoodReport(input: OpenClawDogfoodInput): OpenCl
     warnings: [...new Set(warnings)],
     installAttempted: input.installAttempted === true,
     installExitStatus: input.installExitStatus ?? null,
+    installOutcome,
     ...(input.evidencePath ? { evidencePath: input.evidencePath } : {}),
     privateDataExclusions: PRIVATE_DATA_EXCLUSIONS
   };
+}
+
+function classifyInstallOutcome(input: OpenClawDogfoodInput): OpenClawInstallOutcome {
+  const exitStatus = input.installExitStatus ?? null;
+  if (input.installAttempted !== true) return { status: "not_attempted", exitStatus };
+  if (exitStatus === 0) return { status: "installed", exitStatus };
+
+  const combined = `${input.installStdout || ""}\n${input.installStderr || ""}`;
+  if (/--force is not supported with --link/i.test(combined)) {
+    return {
+      status: "link_force_unsupported",
+      exitStatus,
+      guidance: "Remove --force for linked installs; use a clean OpenClaw profile for reproducible linked beta proof."
+    };
+  }
+  if (/plugin already exists/i.test(combined)) {
+    return {
+      status: "already_installed",
+      exitStatus,
+      guidance: "Use a clean OpenClaw profile for linked beta proof, or update/remove the existing plugin before reinstalling."
+    };
+  }
+  return {
+    status: "failed",
+    exitStatus,
+    guidance: "Inspect the local OpenClaw install command outside public evidence, then rerun dogfood after the plugin is installed or a clean profile is selected."
+  };
+}
+
+function installWarningForOutcome(outcome: OpenClawInstallOutcome): string {
+  if (outcome.status === "already_installed") return "openclaw_plugin_already_installed_but_ready";
+  if (outcome.status === "link_force_unsupported") return "openclaw_link_force_unsupported_but_ready";
+  return "openclaw_plugin_install_failed_but_plugin_ready";
 }
 
 function parseRuntimeInspect(stdout: string): PluginListEntry | null {

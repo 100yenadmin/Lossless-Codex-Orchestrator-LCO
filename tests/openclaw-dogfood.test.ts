@@ -134,15 +134,25 @@ test("OpenClaw dogfood report treats failed link install as non-blocking when pl
       "loo_codex_control_dry_run"
     ],
     installAttempted: true,
-    installExitStatus: 1
+    installExitStatus: 1,
+    installStdout: [
+      "plugin already exists: /Users/lume/.openclaw/extensions/lossless-openclaw-orchestrator",
+      "Use `openclaw plugins update <id-or-npm-spec>` to upgrade the tracked plugin, or rerun install with `--force` to replace it."
+    ].join("\n")
   });
 
   assert.equal(report.ok, true);
   assert.equal(report.dogfoodReady, true);
   assert.deepEqual(report.blockers, []);
-  assert.deepEqual(report.warnings, ["openclaw_plugin_install_failed_but_plugin_ready"]);
+  assert.deepEqual(report.warnings, ["openclaw_plugin_already_installed_but_ready"]);
+  assert.deepEqual(report.installOutcome, {
+    status: "already_installed",
+    exitStatus: 1,
+    guidance: "Use a clean OpenClaw profile for linked beta proof, or update/remove the existing plugin before reinstalling."
+  });
   assert.equal(report.requiredToolsPresent, true);
   assert.equal(report.targetPlugin?.loaded, true);
+  assert.doesNotMatch(JSON.stringify(report), new RegExp("/Users/lume|extensions/lossless-openclaw-orchestrator"));
 });
 
 test("OpenClaw dogfood report tolerates OpenClaw log preambles before runtime JSON", () => {

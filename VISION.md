@@ -83,6 +83,8 @@ Expected dogfood checks:
 
 - Load or inspect the OpenClaw plugin manifest and runtime entry.
 - Verify package/plugin first-run readiness with `loo onboard status`, then verify `loo_*` tools are declared and callable through the installed or packaged surface.
+- Prefer an isolated OpenClaw profile, such as `lco-dogfood`, for linked beta proof so an existing default-profile install does not masquerade as a product failure.
+- Record structured `installOutcome.status` and `installOutcome.guidance` for linked installs, including `installed`, `already_installed`, `link_force_unsupported`, or `failed`, without storing raw OpenClaw stdout/stderr or local profile paths.
 - Call read-only tools such as `loo_doctor`, `loo_index_sessions`, `loo_search_sessions`, `loo_describe_session`, `loo_expand_session`, `loo_expand_query`, `loo_codex_plans`, and `loo_codex_final_messages`.
 - Verify dry-run control tools produce audit ids without mutating a real Codex thread.
 - Confirm evidence contains counts, refs, hashes, statuses, and redacted metadata only.
@@ -124,7 +126,7 @@ For implementation issues, copy `evals/scorecards/v1.0/issue-scorecard-update-te
 | Desktop GUI proof contract | Backend-specific live/no-focus observations can be validated without running the action in the reporting command | `loo desktop proof-report` / `loo_desktop_proof_report` evidence |
 | Local Mac search UI | User can search, filter, inspect safe summaries, and copy source refs without raw transcript rendering | `local-mac-search-ui-review.json` score movement |
 | Working app runtime proof | Installed user path proves search/describe/expand, approved live Codex action, post-action refresh, and safe reasoning | `working-app-runtime-proof-review.json` score movement |
-| OpenClaw packageability | Plugin installs/loads with declared `loo_*` contracts | manifest/tool count and package smoke |
+| OpenClaw packageability | Plugin installs/loads with declared `loo_*` contracts and classifies linked-install outcomes honestly | manifest/tool count, `installOutcome.status`, and package smoke |
 | Public claims | README/docs/release notes stay inside allowed beta wording | claim audit result |
 | Privacy | Evidence contains no raw session files, SQLite DBs, screenshots, tokens, or secrets | artifact scan result |
 
