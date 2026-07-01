@@ -810,6 +810,80 @@ test("operating picture balances current GitHub lane above stale low-confidence 
   });
 });
 
+test("codex cockpit cards clean directive fragments and markdown-heavy presentation text", () => {
+  withIndexedSessions((sessions) => {
+    const rawPathCanary = join(sessions, "rollout-2026-07-01T00-00-00-019f-card-directive.jsonl");
+    return {
+      fixtures: [
+        {
+          id: "019f-card-directive",
+          title: "Title: Card cleanup lane Final: duplicated title residue",
+          status: "active",
+          priority: "medium",
+          nextAction: [
+            "::inbox-item{title=\"Card cleanup lane\", summary=\"Final: Clean card summaries. Final: Clean card summaries.\", next=\"Inspect #271 source ref.\"}",
+            "| field | value |",
+            "| --- | --- |",
+            `| path | ${rawPathCanary} |`
+          ].join("\n"),
+          updatedAt: relativeIso(5),
+          refs: true
+        }
+      ],
+      canaries: [rawPathCanary]
+    };
+  }, ({ db, canaries }) => {
+    const report = getRecentSessions(db, { scope: "recent", limit: 5, includeCards: true });
+    const card = report.cards.find((candidate) => candidate.threadId === "codex_thread:019f-card-directive");
+    assert.ok(card);
+    assert.equal(card.title, "Card cleanup lane");
+    assert.equal(card.objective, "Clean card summaries.");
+    assert.equal(card.nextAction.reason, "Inspect #271 source ref.");
+    assert.equal(card.reasonCodes.includes("presentation_cleaned"), true);
+
+    const digest = createProjectDigest(db, { window: "24h", limit: 5 });
+    const digestCard = digest.cards.find((candidate) => candidate.title === "Card cleanup lane");
+    assert.ok(digestCard);
+    assert.equal(digestCard.summary, "Clean card summaries.");
+    assert.equal(digestCard.nextAction, "Inspect #271 source ref.");
+
+    const json = JSON.stringify({ report, digest });
+    for (const forbidden of ["::inbox-item", "Final:", "Title:", "| field |", "duplicated title residue"]) {
+      assert.equal(json.includes(forbidden), false, `presentation residue leaked: ${forbidden}`);
+    }
+    assertNoUnsafeStrings({ report, digest }, ...canaries);
+  });
+});
+
+test("codex cockpit cards fall back to source inspection for unclean summaries", () => {
+  withIndexedSessions([
+    {
+      id: "019f-card-fallback",
+      title: "Fallback cleanup lane",
+      status: "active",
+      priority: "low",
+      nextAction: [
+        "| stale | fragment |",
+        "| --- | --- |",
+        "| ??? | ??? |",
+        "::inbox-item{summary=\"| broken | table |\"}"
+      ].join("\n"),
+      updatedAt: relativeIso(8),
+      refs: true
+    }
+  ], ({ db }) => {
+    const report = getRecentSessions(db, { scope: "recent", limit: 5, includeCards: true });
+    const card = report.cards.find((candidate) => candidate.threadId === "codex_thread:019f-card-fallback");
+    assert.ok(card);
+    assert.equal(card.objective, "Inspect source ref.");
+    assert.equal(card.nextAction.kind, "inspect");
+    assert.equal(card.nextAction.reason, "Inspect source ref.");
+    assert.equal(card.reasonCodes.includes("presentation_low_confidence"), true);
+    assert.equal(card.confidence <= 0.72, true);
+    assertNoUnsafeStrings(report);
+  });
+});
+
 test("operating picture includes source authority and degrades unavailable authorities", () => {
   withIndexedSessions([
     {

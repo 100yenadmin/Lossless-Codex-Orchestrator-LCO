@@ -23,6 +23,7 @@
   ],
   "expected_public_safe_evidence": [
     "compact session cards",
+    "clean card title/objective/nextAction presentation without directive fragments or markdown tables",
     "opaque source refs",
     "freshness and confidence",
     "reason codes",
@@ -45,6 +46,7 @@
     "requires_recent_sessions_without_query": true,
     "requires_deterministic_inbox_order": true,
     "requires_public_safe_evidence": true,
+    "requires_clean_card_presentation": true,
     "requires_low_confidence_on_conflict": true,
     "requires_visible_map_source_coverage": true,
     "requires_app_server_read_only_policy": true,

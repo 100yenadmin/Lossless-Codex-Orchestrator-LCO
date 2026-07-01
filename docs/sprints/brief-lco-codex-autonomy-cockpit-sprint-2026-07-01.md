@@ -13,7 +13,7 @@ The first implementation slice is P0 and read-only: LCO/Codex state, optional st
 
 - Goal: Ship a public-safe, read-only-first autonomy cockpit and Eva operating-picture layer that lets Eva answer which Codex/business/project lanes need attention from cited structured cards without raw transcript reads.
 - Resume identity: repo `https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO`; checkout `/Volumes/LEXAR/repos/lossless-openclaw-orchestrator`; branch `main`; starting SHA `0647bd37381f27c4da947dea72bf13b8a51b1b6c`; trackers #254 and #255; first child #256.
-- Tracking / source of truth: GitHub issues #254/#255/#256/#258/#259 own implementation truth; `VISION.md` owns product/eval truth; this brief owns sprint handoff; evidence root `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/2026-07-01/codex-autonomy-cockpit-operating-picture/`.
+- Tracking / source of truth: GitHub issues #254/#255 and child issues #256/#258/#259/#260/#264/#265/#269/#270/#271/#272 own implementation truth; `VISION.md` owns product/eval truth; this brief owns sprint handoff; evidence root `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/2026-07-01/codex-autonomy-cockpit-operating-picture/`.
 - Scope / non-goals: P0 is deterministic and read-only. No raw transcripts, raw transcript paths in public-safe outputs, external writes, live Codex control, GUI mutation, screenshots by default, Claude parity, enterprise/customer-ready claim, npm latest promotion, or stable 1.0 claim.
 - Current state: beta.30 has working Codex index/search/describe/expand/dry-run through OpenClaw gateway; M9 handoff is published; #254/#255 are open; VISION/README now point at this sprint.
 - Exact next action: finish #260 read-only Codex app-server status/thread signals and visible-to-indexed map joins, then continue P1 adapter splits behind their own proof gates.
@@ -65,5 +65,6 @@ Unmarked prose is bootloader/fallback context and must not become current-state 
 - #254 child: visible Codex map join using sanitized app/title metadata and read-only app-server signals only (#260).
 - #255 child: source-authority bootstrap profile so coverage does not masquerade as current truth ownership.
 - #255 child: richer GitHub deterministic collector instead of optional structured input.
+- #254/#255 child: clean cockpit-card presentation so user-facing card titles, summaries, and next actions do not expose directive fragments, markdown tables, duplicated labels, or transcript-shaped excerpts (#271).
 - #255 child: Notion/support-control/Company Brain/Stripe read-only adapters, each behind `not_configured | unavailable | partial | ok`.
 - #255 child: optional dashboard/Notion export after data contracts are stable.

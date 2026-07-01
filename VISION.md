@@ -34,6 +34,7 @@ What a local OpenClaw agent can do today:
 - Retrieve proposed plans, final messages, touched files, and session maps through `loo_*` tools.
 - Dry-run Codex resume/send/steer/interrupt actions and inspect audit ids and hashes before any live action.
 - Use `loo_recent_sessions`, `loo_cockpit_inbox`, `loo_plan_state_pins`, `loo_github_operating_items`, `loo_project_digest`, `loo_attention_inbox`, and `loo_business_pulse` to build a read-only operating picture from structured cards and source coverage.
+- Read cockpit cards whose user-facing `title`, `objective`, `summary`, and `nextAction` fields are deterministic presentation text, not raw directive fragments, markdown tables, duplicated `Title:`/`Final:` prefixes, or transcript-shaped excerpts.
 - Preserve caller-provided GitHub PR/check fidelity in `loo_github_operating_items`, including pending `statusCheckRollup` entries, failing checks, passed checks that can be omitted as green by default, and open PRs whose check data is genuinely unknown.
 - Rank current-lane GitHub PR/check signals ahead of old low-confidence Codex cards when no customer/runtime/security red card is present, using inspectable reason codes such as `current_lane`, `fresh_signal`, and `low_confidence_downgraded`.
 - Use `loo_watchers_list`, `loo_watcher_status`, `loo_watcher_dry_run`, and `loo_resume_request_packet` to represent read-only watcher attention and approval-bounded resume requests without running live control.
@@ -164,6 +165,7 @@ For implementation issues, copy `evals/scorecards/v1.0/issue-scorecard-update-te
 | Public claims | README/docs/release notes stay inside allowed beta wording | claim audit result |
 | Privacy | Evidence contains no raw session files, SQLite DBs, screenshots, tokens, or secrets | artifact scan result |
 | Source authority | Operating-picture tools distinguish source availability from source ownership | `authorityCoverage`, degraded unavailable-source cards, source-authority profile |
+| Cockpit card presentation | Agent-facing cards separate clean presentation text from source evidence and downgrade unclean extraction | `presentation_cleaned`, `presentation_low_confidence`, public-safe canary tests |
 
 ## Eval Scenarios
 
