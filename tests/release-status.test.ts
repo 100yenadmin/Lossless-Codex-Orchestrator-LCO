@@ -1013,6 +1013,21 @@ test("release status binds desktop collaboration runtime proof to approved deskt
     action_bound_target: true,
     backend_specific_observation: true,
     no_focus_measurement: true
+  }, { screenshot_count: 0 }, { action_hash: ` ${approvedActionHash} ` });
+
+  const paddedHashResult = spawnSync(process.execPath, commonArgs, { encoding: "utf8" });
+  assert.equal(paddedHashResult.status, 1, paddedHashResult.stderr || paddedHashResult.stdout);
+  const paddedHashPayload = JSON.parse(paddedHashResult.stdout) as {
+    blockers?: string[];
+    desktopCollaborationRuntimeProof?: { blockers?: string[] };
+  };
+  assert.ok(paddedHashPayload.blockers?.includes("runtime_proof_invalid:desktop-collaboration-action-bound-v1-1:action_hash"));
+  assert.ok(paddedHashPayload.desktopCollaborationRuntimeProof?.blockers?.includes("runtime_proof_invalid:desktop-collaboration-action-bound-v1-1:action_hash"));
+
+  writeRuntimeScenarioProof(desktopRuntimeProof, "desktop-collaboration-action-bound-v1-1", {
+    action_bound_target: true,
+    backend_specific_observation: true,
+    no_focus_measurement: true
   }, { screenshot_count: 0 }, { action_hash: approvedActionHash });
 
   const matchedHashResult = spawnSync(process.execPath, commonArgs, { encoding: "utf8" });

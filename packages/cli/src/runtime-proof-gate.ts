@@ -185,6 +185,7 @@ function runtimeExactStringFieldBlockers(requirement: RuntimeProofRequirement, p
   return exactFields.flatMap(([field, expectedValue]) => {
     const actualValue = proof[field];
     if (typeof actualValue !== "string" || !actualValue.trim()) return [`runtime_proof_missing:${requirement.id}:${field}`];
+    if (actualValue !== actualValue.trim()) return [`runtime_proof_invalid:${requirement.id}:${field}`];
     return actualValue === expectedValue ? [] : [`runtime_proof_mismatch:${requirement.id}:${field}`];
   });
 }
