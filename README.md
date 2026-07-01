@@ -95,6 +95,9 @@ P0 is read-only and deterministic:
 - #271 cleans cockpit-card presentation so agent-facing titles, summaries, and
   next actions do not expose directive fragments, markdown tables, duplicated
   labels, or transcript-shaped excerpts.
+- #272 adds `eva-operating-picture-dogfood-v1`, an end-to-end public-safe
+  workflow fixture for GitHub check fidelity, recent Codex cards, cockpit
+  ranking, customer/runtime/security priority, source coverage, and P1 gaps.
 - #258 adds a public-safe [source authority profile](docs/SOURCE_AUTHORITY_PROFILE.md)
   so P0 tools distinguish adapter coverage from who owns each truth claim.
 - `PLAN_STATE.md` is demoted to bootloader, manual pins, approval boundaries,

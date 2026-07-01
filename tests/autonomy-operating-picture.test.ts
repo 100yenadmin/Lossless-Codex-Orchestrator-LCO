@@ -810,6 +810,184 @@ test("operating picture balances current GitHub lane above stale low-confidence 
   });
 });
 
+test("Eva cockpit dogfood joins GitHub checks recent sessions and operating digests", () => {
+  withIndexedSessions((sessions) => {
+    const rawPathCanary = join(sessions, "rollout-2026-07-01T00-00-00-019f-dogfood-stale.jsonl");
+    return {
+      fixtures: [
+        {
+          id: "019f-dogfood-stale",
+          title: "Old blocked missing-evidence lane",
+          status: "blocked",
+          priority: "urgent",
+          blocker: "stale local proof",
+          nextAction: `inspect stale proof ${rawPathCanary}`,
+          updatedAt: relativeIso(23 * 60),
+          refs: false
+        },
+        {
+          id: "019f-dogfood-dirty-card",
+          title: "Title: Dirty cockpit card Final: duplicated residue",
+          status: "active",
+          priority: "medium",
+          nextAction: "::inbox-item{title=\"Dirty cockpit card\", summary=\"Final: Clean dogfood summary. Final: Clean dogfood summary.\", next=\"Inspect dogfood source ref.\"}",
+          updatedAt: relativeIso(40),
+          refs: true
+        },
+        {
+          id: "019f-dogfood-customer-runtime",
+          title: "Customer runtime security incident",
+          status: "blocked",
+          priority: "urgent",
+          blocker: "Customer runtime security impact",
+          nextAction: "Inspect customer runtime failure.",
+          updatedAt: relativeIso(15),
+          refs: true
+        }
+      ],
+      canaries: [rawPathCanary]
+    };
+  }, ({ db, canaries }) => {
+    const githubReport = createGithubOperatingItemsReport([
+      {
+        repo: "100yenadmin/Lossless-Codex-Orchestrator-LCO",
+        number: 272,
+        type: "pull_request",
+        title: "Eva cockpit dogfood PR",
+        state: "open",
+        updatedAt: relativeIso(5),
+        statusCheckRollup: [
+          { name: "test", status: "QUEUED" },
+          { name: "CodeQL", status: "IN_PROGRESS" }
+        ]
+      },
+      {
+        repo: "100yenadmin/Lossless-Codex-Orchestrator-LCO",
+        number: 255,
+        type: "issue",
+        title: "Eva Operating Picture tracker",
+        state: "open",
+        updatedAt: relativeIso(30)
+      },
+      {
+        repo: "100yenadmin/Lossless-Codex-Orchestrator-LCO",
+        number: 200,
+        type: "pull_request",
+        title: "green closed issue should be omitted",
+        state: "closed",
+        merged: true,
+        updatedAt: relativeIso(10),
+        statusCheckRollup: [
+          { name: "test", status: "COMPLETED", conclusion: "SUCCESS" }
+        ]
+      }
+    ]);
+    const recent = getRecentSessions(db, { scope: "recent", limit: 10, includeCards: true });
+    const digest = createProjectDigest(db, { window: "24h", limit: 10, githubItems: githubReport.items });
+    const attention = createAttentionInbox(db, { window: "24h", limit: 10, githubItems: githubReport.items });
+    const pulse = createBusinessPulse(db, { window: "24h", limit: 10, githubItems: githubReport.items });
+
+    const currentPr = digest.cards.find((card) => card.title === "Eva cockpit dogfood PR");
+    assert.ok(currentPr);
+    assert.equal(currentPr.reasonCodes.includes("checks_pending"), true);
+    assert.equal(currentPr.reasonCodes.includes("current_lane"), true);
+    assert.equal(githubReport.omitted.count, 1);
+
+    const dirtyCard = recent.cards.find((card) => card.threadId === "codex_thread:019f-dogfood-dirty-card");
+    assert.ok(dirtyCard);
+    assert.equal(dirtyCard.title, "Dirty cockpit card");
+    assert.equal(dirtyCard.objective, "Clean dogfood summary.");
+    assert.equal(dirtyCard.nextAction.reason, "Inspect dogfood source ref.");
+
+    const runtimeCard = attention.cards[0];
+    assert.equal(runtimeCard?.title, "Customer runtime security incident");
+    assert.equal(runtimeCard.reasonCodes.includes("customer_impact"), true);
+    assert.equal(runtimeCard.reasonCodes.includes("runtime_impact"), true);
+    assert.equal(runtimeCard.reasonCodes.includes("security_impact"), true);
+    assert.equal(attention.cards.some((card) => card.reasonCodes.includes("low_confidence_downgraded")), true);
+
+    assert.equal(digest.sourceCoverage.github, "ok");
+    assert.equal(digest.sourceCoverage.notion, "not_configured");
+    assert.equal(pulse.sourceCoverage.stripe, "not_configured");
+    assert.equal(pulse.digest.topAttention[0], runtimeCard?.cardId);
+    assert.equal(JSON.stringify({ recent, digest, attention, pulse }).includes("::inbox-item"), false);
+    assertNoUnsafeStrings({ githubReport, recent, digest, attention, pulse }, ...canaries);
+  });
+});
+
+test("operating picture surfaces active customer impact without treating product-surface wording as impact", () => {
+  withIndexedSessions([
+    {
+      id: "019f-active-customer-impact",
+      title: "Customers cannot log in during runtime incident",
+      status: "active",
+      priority: "medium",
+      nextAction: "inspect external users blocked by runtime incident",
+      updatedAt: relativeIso(8),
+      refs: true
+    },
+    {
+      id: "019f-routine-gateway-token-budget",
+      title: "OpenClaw gateway token budget retrieval tuning",
+      status: "active",
+      priority: "high",
+      nextAction: "continue ordinary gateway tool-smoke token budget work",
+      updatedAt: relativeIso(5),
+      refs: true
+    },
+    {
+      id: "019f-completed-customer-incident",
+      title: "Completed customer security incident closeout",
+      status: "done",
+      priority: "medium",
+      nextAction: "customer security incident resolved and closed",
+      updatedAt: relativeIso(4),
+      refs: true
+    },
+    {
+      id: "019f-no-impact-readiness",
+      title: "No customer impact production readiness auth token refactor",
+      status: "active",
+      priority: "high",
+      nextAction: "document no customer impact and continue production readiness auth token refactor",
+      updatedAt: relativeIso(3),
+      refs: true
+    }
+  ] satisfies SessionFixture[], ({ db }) => {
+    const recent = getRecentSessions(db, { scope: "recent", limit: 10, includeCards: true });
+    const impactedSession = recent.cards.find((card) => card.threadId === "codex_thread:019f-active-customer-impact");
+    const routineSession = recent.cards.find((card) => card.threadId === "codex_thread:019f-routine-gateway-token-budget");
+    const completedSession = recent.cards.find((card) => card.threadId === "codex_thread:019f-completed-customer-incident");
+    const noImpactSession = recent.cards.find((card) => card.threadId === "codex_thread:019f-no-impact-readiness");
+
+    assert.ok(impactedSession);
+    assert.equal(impactedSession.reasonCodes.includes("customer_impact"), true);
+    assert.equal(impactedSession.reasonCodes.includes("runtime_impact"), true);
+    assert.ok(routineSession);
+    assert.equal(routineSession.reasonCodes.includes("runtime_impact"), false);
+    assert.equal(routineSession.reasonCodes.includes("security_impact"), false);
+    assert.ok(completedSession);
+    assert.equal(completedSession.state, "done");
+    assert.equal(completedSession.reasonCodes.includes("customer_impact"), true);
+    assert.ok(noImpactSession);
+    assert.equal(noImpactSession.reasonCodes.includes("customer_impact"), false);
+    assert.equal(noImpactSession.reasonCodes.includes("production_impact"), false);
+    assert.equal(noImpactSession.reasonCodes.includes("security_impact"), false);
+
+    const attention = createAttentionInbox(db, { window: "24h", limit: 10 });
+    assert.equal(attention.cards[0]?.title, "Customers cannot log in during runtime incident");
+    assert.equal(attention.cards[0]?.state, "yellow");
+    assert.equal(attention.cards.some((card) => card.title === "OpenClaw gateway token budget retrieval tuning"), false);
+    assert.equal(attention.cards.some((card) => card.title === "Completed customer security incident closeout"), false);
+    assert.equal(attention.cards.some((card) => card.title === "No customer impact production readiness auth token refactor"), false);
+
+    const cockpit = getCockpitInbox(db, { limit: 10 });
+    assert.equal(cockpit.items[0]?.card.title, "Customers cannot log in during runtime incident");
+    assert.equal(cockpit.items[0]?.reasonCodes.includes("customer_impact"), true);
+    assert.equal(cockpit.items.some((item) => item.card.title === "OpenClaw gateway token budget retrieval tuning"), false);
+  });
+});
+
 test("codex cockpit cards clean directive fragments and markdown-heavy presentation text", () => {
   withIndexedSessions((sessions) => {
     const rawPathCanary = join(sessions, "rollout-2026-07-01T00-00-00-019f-card-directive.jsonl");

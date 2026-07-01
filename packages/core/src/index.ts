@@ -2285,7 +2285,39 @@ function codexSessionReasonCodes(entry: CodexThreadMapEntry, state: CodexSession
   if (counts.evidence < 3) codes.push("missing_evidence");
   if (sessionFreshness(entry.updatedAt).stale) codes.push("active_stale");
   if (normalizedMetadataValue(entry.metadata.nextAction).includes("resume")) codes.push("resume_ready");
-  return unique(codes);
+  return unique([...codes, ...codexSessionImpactReasonCodes(entry)]);
+}
+
+function codexSessionImpactReasonCodes(entry: CodexThreadMapEntry): string[] {
+  const text = normalizedMetadataValue([
+    entry.title,
+    entry.summary,
+    entry.metadata.project,
+    entry.metadata.status,
+    entry.metadata.priority,
+    entry.metadata.blocker,
+    entry.metadata.nextAction
+  ].filter((value): value is string => typeof value === "string" && value.trim().length > 0).join(" "));
+  const codes: string[] = [];
+  const customerPattern = /\b(?:customers?|clients?|external[- ]users?|user-facing|customer-facing)\b.{0,80}\b(?:impact|incident|outage|blocked|down|cannot|can't|unable|affected|failure|risk)\b|\b(?:impact|incident|outage|blocked|failure|affected)\b.{0,80}\b(?:customers?|clients?|external[- ]users?)\b/;
+  const runtimePattern = /\b(?:runtime|control-plane)\b.{0,80}\b(?:incident|outage|failure|down|blocked|unavailable|degraded|impact)\b|\b(?:incident|outage|failure|degraded|unavailable)\b.{0,80}\b(?:runtime|control-plane)\b/;
+  const securityPattern = /\bsecurity\b.{0,80}\b(?:incident|impact|risk|vulnerability|breach|issue|failure|blocked)\b|\b(?:secret|credential|vulnerability)\b.{0,80}\b(?:leak|exposure|exposed|incident|risk|breach|failure)\b/;
+  const productionPattern = /\b(?:production|prod|customer-facing)\s+(?:incident|outage|impact|down|failure|blocked|unavailable|degraded)\b|\b(?:incident|outage|down|failure|blocked|unavailable|degraded)\s+(?:production|prod|customer-facing)\b/;
+  if (customerPattern.test(text) && !impactPhraseNegated(text, "customer")) codes.push("customer_impact");
+  if (runtimePattern.test(text) && !impactPhraseNegated(text, "runtime")) codes.push("runtime_impact");
+  if (securityPattern.test(text) && !impactPhraseNegated(text, "security")) codes.push("security_impact");
+  if (productionPattern.test(text) && !impactPhraseNegated(text, "production")) codes.push("production_impact");
+  return codes;
+}
+
+function impactPhraseNegated(text: string, kind: "customer" | "runtime" | "security" | "production"): boolean {
+  const patterns = {
+    customer: /\b(?:no|not|without)\s+(?:customers?|clients?|external[- ]users?|user-facing|customer-facing)\s+(?:impact|incident|outage|risk|effect)s?\b/,
+    runtime: /\b(?:no|not|without)\s+(?:runtime|control-plane)\s+(?:impact|incident|outage|risk|effect|failure)s?\b/,
+    security: /\b(?:no|not|without)\s+(?:security|secret|credential|vulnerability)\s+(?:impact|incident|risk|effect|leak|exposure|breach)s?\b/,
+    production: /\b(?:not\s+production|no\s+(?:production|prod|customer-facing)\s+(?:impact|incident|outage|risk|effect|failure)s?)\b/
+  } as const;
+  return patterns[kind].test(text);
 }
 
 function codexSessionConfidence(entry: CodexThreadMapEntry, reasonCodes: string[]): number {
@@ -2359,7 +2391,11 @@ function cockpitReasonCodes(card: CodexSessionCard): string[] {
     "active_stale",
     "resume_ready",
     "external_wait",
-    "conflicting_state"
+    "conflicting_state",
+    "customer_impact",
+    "runtime_impact",
+    "security_impact",
+    "production_impact"
   ].includes(code));
   return unique(actionable);
 }
@@ -2376,6 +2412,10 @@ function cockpitUrgencyScore(card: CodexSessionCard, priorityOrder: string[] | u
     active_stale: 35,
     resume_ready: 30,
     external_wait: 25,
+    customer_impact: 45,
+    runtime_impact: 45,
+    security_impact: 45,
+    production_impact: 45,
     missing_evidence: 10
   }[code] ?? 0), 0);
   return codeScore + priorityScore + Math.round(card.confidence * 10);
@@ -2594,7 +2634,13 @@ function planStateListItems(block: string): string[] {
 }
 
 function signalFromSessionCard(card: CodexSessionCard): OperatingSignal {
-  const state: OperatingState = card.state === "blocked" ? "red" : card.state === "unknown" || card.state === "needs_approval" || card.state === "waiting" ? "yellow" : card.state === "done" ? "green" : "green";
+  const impactCodes = new Set(["customer_impact", "runtime_impact", "security_impact", "production_impact"]);
+  const hasImpact = card.state !== "done" && card.reasonCodes.some((code) => impactCodes.has(code));
+  const state: OperatingState = card.state === "blocked"
+    ? "red"
+    : card.state === "unknown" || card.state === "needs_approval" || card.state === "waiting" || hasImpact
+      ? "yellow"
+      : "green";
   const urgency: OperatingUrgency = card.risk.level === "high" ? "high" : card.risk.level === "medium" ? "medium" : "low";
   return {
     schema: "lco.operatingSignal.v1",

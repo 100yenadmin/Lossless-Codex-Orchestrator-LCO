@@ -145,7 +145,7 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
   const requiredTools = [...new Set(options.requiredTools?.length ? options.requiredTools : DEFAULT_REQUIRED_TOOL_CALLS)];
   const openclawBin = options.openclawBin || "openclaw";
   const baseArgs = [
-    ...(options.dev ? ["--dev"] : []),
+    ...(options.dev && !options.profile ? ["--dev"] : []),
     ...(options.profile ? ["--profile", options.profile] : [])
   ];
   const gatewayTimeoutMs = options.gatewayTimeoutMs ?? 60_000;

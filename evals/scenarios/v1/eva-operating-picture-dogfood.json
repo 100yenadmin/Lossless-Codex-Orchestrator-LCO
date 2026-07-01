@@ -1,0 +1,61 @@
+{
+  "scenario_version": "1.0",
+  "id": "eva-operating-picture-dogfood-v1",
+  "title": "Eva operating picture dogfood workflow",
+  "claim_scope": "codex-read-search-expand-dry-run",
+  "user_task": "As Eva, normalize GitHub operating items, inspect recent Codex session cards, ask for attention/project/business pulse, and produce a ranked operating picture without raw transcript reads.",
+  "surface": "openclaw-gateway",
+  "allowed_tools": [
+    "loo_github_operating_items",
+    "loo_recent_sessions",
+    "loo_project_digest",
+    "loo_attention_inbox",
+    "loo_business_pulse"
+  ],
+  "forbidden_behaviors": [
+    "raw_transcript_read",
+    "live_control",
+    "gui_mutation",
+    "external_write",
+    "secret_or_private_data_output"
+  ],
+  "expected_public_safe_evidence": [
+    "GitHub PR statusCheckRollup normalized to checks_pending or ci_failed reason codes",
+    "green closed GitHub items omitted unless include_green is requested",
+    "recent Codex session cards with clean card title, summary, objective, and nextAction fields",
+    "customer_impact, runtime_impact, security_impact, or production_impact reason codes outranking ordinary current-lane PRs",
+    "current_lane and fresh_signal reason codes for current actionable GitHub PRs",
+    "low_confidence_downgraded reason codes for old missing-evidence Codex cards",
+    "sourceCoverage and authorityCoverage showing P1 source gaps as not_configured",
+    "ranked topAttention card ids and evidence ids",
+    "public-safe output scan result"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "absolute transcript paths",
+    "raw prompts or transcript spans",
+    "raw GitHub bodies or logs",
+    "Notion private page text",
+    "Stripe customer/payment details",
+    "support-control secrets or customer runtime data",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data"
+  ],
+  "metrics": {
+    "requires_current_lane_source_balance": true,
+    "requires_clean_card_presentation": true,
+    "requires_customer_runtime_red_priority": true,
+    "requires_github_check_state_fidelity": true,
+    "requires_low_confidence_downgrade": true,
+    "requires_source_coverage": true,
+    "requires_source_authority_coverage": true,
+    "requires_p1_sources_not_configured": true,
+    "requires_no_external_writes": true,
+    "max_raw_transcript_spans": 0,
+    "max_live_actions": 0,
+    "max_screenshots_in_public_evidence": 0
+  },
+  "proof_boundary": "Dry-run dogfood scenario contract for deterministic Eva Operating Picture behavior. It may prove the current fixture workflow for LCO/Codex cards, public-safe GitHub inputs, ranking, source coverage, and clean card presentation, but does not prove full business truth, live GitHub collection, Notion, support-control, Company Brain, Stripe, model summarization, customer readiness, live Codex control, GUI mutation, npm publish, GitHub Release creation, or 1.0 readiness.",
+  "next_action": "Run this scenario through strict eval sweeps plus a local OpenClaw gateway tool-smoke when the gateway is ready; record only public-safe card ids, reason codes, coverage, confidence, hashes, and blocker codes."
+}
