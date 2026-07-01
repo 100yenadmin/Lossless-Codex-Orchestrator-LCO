@@ -4,6 +4,7 @@
   "scenario": "A local OpenClaw gateway user can load the plugin and call loo_* tools to search, describe, expand, dry-run, and reason about sessions from bounded summaries without raw transcript access.",
   "surface": "OpenClaw gateway",
   "command_or_tool": [
+    "skills/lossless-openclaw-orchestrator/SKILL.md",
     "openclaw plugins list --json",
     "loo_doctor",
     "loo_index_sessions",
@@ -14,6 +15,7 @@
     "loo_codex_control_dry_run"
   ],
   "expected_public_safe_evidence": [
+    "packaged agent usage skill path",
     "plugin loaded status",
     "declared loo_* tool names",
     "bounded index counts",
@@ -32,6 +34,7 @@
     "private customer data"
   ],
   "pass_criteria": [
+    "The npm package includes an agent-facing skill/playbook for the canonical staged recall and dry-run workflows.",
     "OpenClaw gateway can discover the plugin or the issue records why the gateway is unavailable.",
     "Agent can search sessions through loo_* read tools and receive source-prefixed refs.",
     "Agent can describe and expand selected refs within a bounded token profile.",
@@ -44,13 +47,14 @@
     "Evidence captures local DBs, transcript files, screenshots, prompt text, or secrets.",
     "Tool output is too vague for the agent to choose a safe next action."
   ],
-  "current_score": "example-not-run",
-  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-<slug>/local-agent-usability-review.json",
+  "current_score": "partial-pass",
+  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-232-agent-usage-skill/local-agent-usability-review.json",
   "known_gaps": [
+    "The first-class agent usage skill is packaged, but the full agent workflow still needs the issue #234 gateway dogfood scenario.",
     "This scorecard requires a local OpenClaw gateway installation or a documented unavailable-gateway blocker.",
     "Fresh OpenClaw profiles may need scoped gateway credentials or profile/device pairing before tool-smoke can call tools; `setupStatus.classification` must distinguish this from package failure.",
     "Full usability proof needs a bounded real-session smoke after indexing is current."
   ],
-  "next_action": "Run a read-only gateway dogfood smoke after package/plugin changes and record only public-safe summaries.",
-  "proof_boundary": "This is a local public-safe beta scorecard example; it does not prove customer readiness until the gateway smoke is actually run."
+  "next_action": "Run the issue #234 read-only gateway dogfood scenario using only loo_* tools and record public-safe summaries.",
+  "proof_boundary": "This issue proves the packaged agent skill/playbook and docs links only; full local-agent usability remains pending until the gateway scenario is run."
 }
