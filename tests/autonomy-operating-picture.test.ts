@@ -340,6 +340,71 @@ test("GitHub operating item collector maps public-safe PR and issue state for op
   assertNoUnsafeStrings(report, "/Volumes/LEXAR/private/raw.jsonl", "authorization: Bearer abcdefghijklmnopqrstuvwxyz");
 });
 
+test("GitHub operating item collector handles common gh and GraphQL PR shapes", () => {
+  const report = createGithubOperatingItemsReport([
+    {
+      id: "PR_kwDOOpaqueNodeId",
+      repo: "100yenadmin/Lossless-Codex-Orchestrator-LCO",
+      number: 265,
+      type: "PullRequest",
+      title: "GraphQL status rollup failure",
+      state: "open",
+      updatedAt: relativeIso(10),
+      statusCheckRollup: [
+        { name: "test", state: "SUCCESS" },
+        { name: "CodeQL", state: "FAILURE" }
+      ]
+    },
+    {
+      repo: "100yenadmin/Lossless-Codex-Orchestrator-LCO",
+      pullRequestNumber: 266,
+      title: "gh JSON requested check state",
+      state: "open",
+      updatedAt: relativeIso(9),
+      checks: [
+        { name: "test", status: "REQUESTED" }
+      ]
+    },
+    {
+      url: "https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/pull/267",
+      title: "URL-only pull request waiting on checks",
+      state: "open",
+      updatedAt: relativeIso(8),
+      statusCheckRollup: [
+        { name: "CodeQL", status: "WAITING" }
+      ]
+    },
+    {
+      html_url: "https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/268",
+      title: "URL-only issue",
+      state: "open",
+      updatedAt: relativeIso(7)
+    }
+  ], { now: "2026-07-01T12:00:00.000Z" });
+
+  const failedPr = report.items.find((item) => item.id.endsWith("#265"));
+  assert.equal(failedPr?.id, "100yenadmin/Lossless-Codex-Orchestrator-LCO#265");
+  assert.equal(failedPr?.kind, "pr");
+  assert.equal(failedPr?.state, "red");
+  assert.equal(failedPr?.reasonCodes.includes("ci_failed"), true);
+
+  const requestedPr = report.items.find((item) => item.id.endsWith("#266"));
+  assert.equal(requestedPr?.kind, "pr");
+  assert.equal(requestedPr?.state, "yellow");
+  assert.equal(requestedPr?.reasonCodes.includes("checks_pending"), true);
+
+  const urlOnlyPr = report.items.find((item) => item.id.endsWith("#267"));
+  assert.equal(urlOnlyPr?.id, "100yenadmin/Lossless-Codex-Orchestrator-LCO#267");
+  assert.equal(urlOnlyPr?.kind, "pr");
+  assert.equal(urlOnlyPr?.reasonCodes.includes("checks_pending"), true);
+
+  const urlOnlyIssue = report.items.find((item) => item.id.endsWith("#268"));
+  assert.equal(urlOnlyIssue?.id, "100yenadmin/Lossless-Codex-Orchestrator-LCO#268");
+  assert.equal(urlOnlyIssue?.kind, "issue");
+
+  assertNoUnsafeStrings(report, "PR_kwDOOpaqueNodeId");
+});
+
 test("operating picture marks missing P1 sources and preserves low-confidence conflicts", () => {
   withIndexedSessions([
     {

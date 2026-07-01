@@ -2545,11 +2545,11 @@ function githubOperatingItemFromRecord(
 }
 
 function githubOperatingId(record: Record<string, unknown>): string | null {
-  const direct = githubString(record.id ?? record.sourceRef ?? record.source_ref);
-  if (direct) return publicSafeText(direct, 180);
   const repo = githubRepoName(record);
-  const number = githubString(record.number ?? record.issueNumber ?? record.issue_number ?? record.pullRequestNumber ?? record.pull_request_number);
+  const number = githubIssueNumber(record);
   if (repo && number && /^[0-9]+$/.test(number)) return `${repo}#${number}`;
+  const direct = githubString(record.id ?? record.sourceRef ?? record.source_ref);
+  if (direct && actionableGithubRef(direct)) return publicSafeText(direct.replace(/^github:/i, ""), 180);
   return null;
 }
 
@@ -2559,6 +2559,89 @@ function githubRepoName(record: Record<string, unknown>): string | null {
   const owner = githubString(record.owner);
   const name = githubString(record.repoName ?? record.repo_name ?? record.repositoryName ?? record.repository_name);
   if (owner && name && /^[A-Za-z0-9_.-]+$/.test(owner) && /^[A-Za-z0-9_.-]+$/.test(name)) return `${owner}/${name}`;
+  return githubRefFromUrl(record)?.repo ?? null;
+}
+
+function githubIssueNumber(record: Record<string, unknown>): string | null {
+  const direct = githubString(record.number ?? record.issueNumber ?? record.issue_number ?? record.pullRequestNumber ?? record.pull_request_number);
+  if (direct && /^[0-9]+$/.test(direct)) return direct;
+  return githubRefFromUrl(record)?.number ?? null;
+}
+
+function githubRefFromUrl(record: Record<string, unknown>): { repo: string; number: string; kind: GithubOperatingItem["kind"] } | null {
+  const rawUrl = githubString(record.url ?? record.html_url ?? record.permalink ?? record.webUrl ?? record.web_url);
+  if (!rawUrl) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  if (!["github.com", "www.github.com"].includes(parsed.hostname.toLowerCase())) return null;
+  const match = parsed.pathname.match(/^\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/(pull|issues)\/([0-9]+)(?:\/|$)/);
+  if (!match) return null;
+  return {
+    repo: `${match[1]}/${match[2]}`,
+    number: match[4],
+    kind: match[3] === "pull" ? "pr" : "issue"
+  };
+}
+
+function actionableGithubRef(value: string): boolean {
+  return /^(?:github:)?[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+#[0-9]+$/i.test(value);
+}
+
+function hasPullRequestNumber(record: Record<string, unknown>): boolean {
+  return githubIssueNumber({ pullRequestNumber: record.pullRequestNumber ?? record.pull_request_number }) !== null;
+}
+
+function githubUrlKind(record: Record<string, unknown>): GithubOperatingItem["kind"] | null {
+  return githubRefFromUrl(record)?.kind ?? null;
+}
+
+function githubCheckRecords(record: Record<string, unknown>): Record<string, unknown>[] {
+  const records: Record<string, unknown>[] = [record];
+  for (const key of ["checks", "statusCheckRollup", "status_check_rollup", "checkRuns", "check_runs"]) {
+    const value = record[key];
+    if (githubRecord(value)) {
+      records.push(value);
+      const nodes = value.nodes;
+      if (Array.isArray(nodes)) records.push(...nodes.filter(githubRecord));
+    } else if (Array.isArray(value)) {
+      records.push(...value.filter(githubRecord));
+    }
+  }
+  return records;
+}
+
+function githubCheckValues(checks: Record<string, unknown>): string[] {
+  return [
+    checks.status,
+    checks.checkStatus,
+    checks.check_status,
+    checks.conclusion,
+    checks.checkConclusion,
+    checks.check_conclusion,
+    checks.state,
+    checks.bucket
+  ]
+    .map((value) => normalizedMetadataValue(githubString(value) ?? ""))
+    .filter(Boolean);
+}
+
+function githubFailedCheckValue(value: string): boolean {
+  return ["failure", "failed", "error", "timed_out", "cancelled", "action_required", "fail", "red"].includes(value);
+}
+
+function githubPendingCheckValue(value: string): boolean {
+  return ["queued", "in_progress", "pending", "neutral_pending", "requested", "waiting"].includes(value);
+}
+
+function githubCheckCount(checks: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = githubNumber(checks[key]);
+    if (value !== null) return value;
+  }
   return null;
 }
 
@@ -2566,6 +2649,9 @@ function githubOperatingKind(record: Record<string, unknown>): GithubOperatingIt
   const raw = normalizedMetadataValue(githubString(record.type ?? record.kind ?? record.__typename) ?? "");
   if (["pull_request", "pullrequest", "pr"].includes(raw)) return "pr";
   if (["issue"].includes(raw)) return "issue";
+  if (hasPullRequestNumber(record)) return "pr";
+  const urlKind = githubUrlKind(record);
+  if (urlKind) return urlKind;
   return githubOperatingId(record)?.includes("#") ? "issue" : "repo";
 }
 
@@ -2603,18 +2689,17 @@ function githubOperatingState(record: Record<string, unknown>, reasonCodes: stri
 }
 
 function githubChecksFailed(record: Record<string, unknown>): boolean {
-  const checks = githubRecord(record.checks) ? record.checks : record;
-  const conclusion = normalizedMetadataValue(githubString(checks.conclusion ?? checks.checkConclusion ?? checks.check_conclusion ?? checks.statusCheckRollup) ?? "");
-  const failing = githubNumber(checks.failing ?? checks.failed ?? checks.failureCount ?? checks.failure_count);
-  return conclusion === "failure" || conclusion === "failed" || conclusion === "timed_out" || conclusion === "cancelled" || conclusion === "action_required" || (failing ?? 0) > 0;
+  return githubCheckRecords(record).some((checks) => {
+    const failing = githubCheckCount(checks, ["failing", "failed", "failureCount", "failure_count"]);
+    return githubCheckValues(checks).some(githubFailedCheckValue) || (failing ?? 0) > 0;
+  });
 }
 
 function githubChecksPending(record: Record<string, unknown>): boolean {
-  const checks = githubRecord(record.checks) ? record.checks : record;
-  const status = normalizedMetadataValue(githubString(checks.status ?? checks.checkStatus ?? checks.check_status) ?? "");
-  const conclusion = normalizedMetadataValue(githubString(checks.conclusion ?? checks.checkConclusion ?? checks.check_conclusion) ?? "");
-  const pending = githubNumber(checks.pending ?? checks.pendingCount ?? checks.pending_count);
-  return status === "queued" || status === "in_progress" || conclusion === "pending" || conclusion === "neutral_pending" || (pending ?? 0) > 0;
+  return githubCheckRecords(record).some((checks) => {
+    const pending = githubCheckCount(checks, ["pending", "pendingCount", "pending_count"]);
+    return githubCheckValues(checks).some(githubPendingCheckValue) || (pending ?? 0) > 0;
+  });
 }
 
 function githubNextAction(id: string, state: OperatingState, reasonCodes: string[]): string {
