@@ -153,6 +153,35 @@ process.exit(7);
   return { bin, callsPath };
 }
 
+function createMixedSetupAndToolFailureFakeOpenClaw(dir: string): { bin: string; callsPath: string } {
+  const callsPath = join(dir, "calls.jsonl");
+  const bin = join(dir, "openclaw-mixed-failure-fake.mjs");
+  writeFileSync(bin, `#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
+const args = process.argv.slice(2);
+const callIndex = args.indexOf("call");
+const method = callIndex >= 0 ? args[callIndex + 1] : "";
+const paramsIndex = args.indexOf("--params");
+const params = paramsIndex >= 0 ? JSON.parse(args[paramsIndex + 1] || "{}") : {};
+appendFileSync(process.env.OPENCLAW_FAKE_CALLS, JSON.stringify({ method, params, args, envTokenPresent: Boolean(process.env.OPENCLAW_GATEWAY_TOKEN) }) + "\\n");
+if (method === "tools.catalog") {
+  console.log(JSON.stringify({ tools: [{ name: "loo_gateway_refused" }, { name: "loo_needs_credentials" }] }));
+  process.exit(0);
+}
+if (method === "tools.invoke" && params.name === "loo_gateway_refused") {
+  console.log(JSON.stringify({ ok: false, toolName: params.name, source: "plugin", error: { code: "forbidden", message: "super-secret-transcript-span" } }));
+  process.exit(0);
+}
+if (method === "tools.invoke" && params.name === "loo_needs_credentials") {
+  console.error("gateway tools.invoke requires credentials before opening a websocket");
+  process.exit(1);
+}
+process.exit(7);
+`);
+  chmodSync(bin, 0o755);
+  return { bin, callsPath };
+}
+
 function createInvalidCatalogFakeOpenClaw(dir: string): { bin: string; callsPath: string } {
   const callsPath = join(dir, "calls.jsonl");
   const bin = join(dir, "openclaw-invalid-catalog-fake.mjs");
@@ -226,6 +255,13 @@ test("OpenClaw tool smoke invokes required loo tools through gateway call and wr
     assert.equal(report.ok, true);
     assert.equal(report.toolSmokeReady, true);
     assert.deepEqual(report.blockers, []);
+    assert.deepEqual(report.setupStatus, {
+      classification: "ready",
+      packageInstallLikelyOk: true,
+      recoverable: false,
+      retryAfterSetup: false,
+      doesNotIndicatePackageFailure: true
+    });
     assert.equal(report.catalog.requiredToolsPresent, true);
     assert.deepEqual(report.invocations.map((call) => call.toolName), [
       "loo_doctor",
@@ -460,6 +496,13 @@ test("OpenClaw tool smoke reports catalog parse failure without synthetic missin
     assert.deepEqual(report.blockers, ["openclaw_catalog_invalid_json"]);
     assert.deepEqual(report.catalog.missingRequiredTools, []);
     assert.equal(report.catalog.requiredToolsPresent, false);
+    assert.deepEqual(report.setupStatus, {
+      classification: "gateway_blocked",
+      packageInstallLikelyOk: false,
+      recoverable: false,
+      retryAfterSetup: false,
+      doesNotIndicatePackageFailure: false
+    });
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;
@@ -549,6 +592,39 @@ test("OpenClaw tool smoke strict mode fails closed when catalog omits required l
     assert.deepEqual(report.blockers, ["openclaw_catalog_missing_required_tools"]);
     assert.equal(report.publicSafe, true);
     assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /super-secret-transcript-span|Harmless beta smoke/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke does not mask mixed setup and tool-defect blockers as setup-only", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-mixed-"));
+  const evidencePath = join(dir, "tool-smoke.json");
+  const { bin, callsPath } = createMixedSetupAndToolFailureFakeOpenClaw(dir);
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      profile: "lco-issue-216",
+      sessionKey: "agent:main:lco-issue-216",
+      evidencePath,
+      requiredTools: ["loo_gateway_refused", "loo_needs_credentials"]
+    });
+
+    assert.equal(report.toolSmokeReady, false);
+    assert.match(report.blockers.join("\n"), /openclaw_tool_result_not_ok:loo_gateway_refused:forbidden/);
+    assert.match(report.blockers.join("\n"), /openclaw_gateway_credentials_required:loo_needs_credentials/);
+    assert.deepEqual(report.setupBlockers, ["fresh_profile_gateway_credentials_required"]);
+    assert.deepEqual(report.setupStatus, {
+      classification: "gateway_blocked",
+      packageInstallLikelyOk: false,
+      recoverable: false,
+      retryAfterSetup: false,
+      doesNotIndicatePackageFailure: false
+    });
+    assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /super-secret-transcript-span|requires credentials before opening a websocket/);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;
@@ -710,6 +786,13 @@ test("OpenClaw tool smoke marks missing gateway credentials as first-run setup b
     assert.equal(report.toolSmokeReady, false);
     assert.deepEqual(report.blockers, ["openclaw_gateway_credentials_required:loo_doctor"]);
     assert.deepEqual(report.setupBlockers, ["fresh_profile_gateway_credentials_required"]);
+    assert.deepEqual(report.setupStatus, {
+      classification: "gateway_setup_required",
+      packageInstallLikelyOk: true,
+      recoverable: true,
+      retryAfterSetup: true,
+      doesNotIndicatePackageFailure: true
+    });
     assert.match(report.nextAction, /profile/i);
     assert.match(report.nextAction, /token/i);
     assert.match(report.setupGuidance?.join("\n") || "", /profile/i);

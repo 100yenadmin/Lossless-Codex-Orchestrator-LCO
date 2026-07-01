@@ -68,6 +68,13 @@ export type OpenClawToolSmokeReport = {
   blockers: string[];
   setupBlockers: string[];
   setupGuidance: string[];
+  setupStatus: {
+    classification: "ready" | "gateway_setup_required" | "gateway_blocked";
+    packageInstallLikelyOk: boolean;
+    recoverable: boolean;
+    retryAfterSetup: boolean;
+    doesNotIndicatePackageFailure: boolean;
+  };
   evidencePath?: string;
   actionsPerformed: {
     liveCodexControlRun: false;
@@ -177,6 +184,7 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
 
   const uniqueBlockers = [...new Set(blockers)];
   const setupBlockers = setupBlockersFor(uniqueBlockers);
+  const setupStatus = setupStatusFor(uniqueBlockers, setupBlockers);
   const report: OpenClawToolSmokeReport = {
     ok: uniqueBlockers.length === 0,
     toolSmokeReady: uniqueBlockers.length === 0,
@@ -195,6 +203,7 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
     blockers: uniqueBlockers,
     setupBlockers,
     setupGuidance: setupGuidanceFor(setupBlockers),
+    setupStatus,
     ...(options.evidencePath ? { evidencePath: sanitizeEvidencePath(options.evidencePath) } : {}),
     actionsPerformed: {
       liveCodexControlRun: false,
@@ -558,6 +567,45 @@ function setupGuidanceFor(setupBlockers: string[]): string[] {
     }
     return "Resolve the OpenClaw gateway setup blocker before claiming first-class agent usability.";
   });
+}
+
+function setupStatusFor(blockers: string[], setupBlockers: string[]): OpenClawToolSmokeReport["setupStatus"] {
+  // Keep both booleans: one guides install/package triage, the other guards release-claim wording.
+  if (blockers.length === 0) {
+    return {
+      classification: "ready",
+      packageInstallLikelyOk: true,
+      recoverable: false,
+      retryAfterSetup: false,
+      doesNotIndicatePackageFailure: true
+    };
+  }
+  if (isSetupOnlyBlockerSet(blockers, setupBlockers)) {
+    return {
+      classification: "gateway_setup_required",
+      packageInstallLikelyOk: true,
+      recoverable: true,
+      retryAfterSetup: true,
+      doesNotIndicatePackageFailure: true
+    };
+  }
+  return {
+    classification: "gateway_blocked",
+    packageInstallLikelyOk: false,
+    recoverable: false,
+    retryAfterSetup: false,
+    doesNotIndicatePackageFailure: false
+  };
+}
+
+function isSetupOnlyBlockerSet(blockers: string[], setupBlockers: string[]): boolean {
+  const setupTriggerPrefixes = [
+    "openclaw_gateway_credentials_required",
+    "openclaw_gateway_device_identity_required",
+    "openclaw_gateway_device_token_mismatch",
+    "openclaw_gateway_scope_upgrade_pending"
+  ];
+  return setupBlockers.length > 0 && blockers.every((blocker) => setupTriggerPrefixes.some((prefix) => hasBlocker([blocker], prefix)));
 }
 
 function hasBlocker(blockers: string[], prefix: string): boolean {

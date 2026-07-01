@@ -287,10 +287,11 @@ credentials.
 Fresh OpenClaw profiles can install and list the plugin before they are paired
 or credentialed for gateway tool calls. In that state `loo openclaw tool-smoke`
 fails closed with `openclaw_gateway_credentials_required` plus the setup blocker
-`fresh_profile_gateway_credentials_required`. Use a provisioned profile, pass a
-scoped `--token` or `OPENCLAW_GATEWAY_TOKEN`, or complete local device/profile
-pairing before treating the smoke as a package defect. Do not paste tokens into
-issue comments or evidence packets.
+`fresh_profile_gateway_credentials_required` and
+`setupStatus.classification: "gateway_setup_required"`. Use a provisioned
+profile, pass a scoped `--token` or `OPENCLAW_GATEWAY_TOKEN`, or complete local
+device/profile pairing before treating the smoke as a package defect. Do not
+paste tokens into issue comments or evidence packets.
 
 Do not use the OpenClaw smoke to run live Codex control, GUI mutation, npm
 publish, or GitHub Release creation.
