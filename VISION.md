@@ -128,7 +128,7 @@ Do not use gateway dogfooding to run live Codex control, GUI mutation, npm publi
 
 Scorecards should be updated in issue comments or evidence summaries when a PR meaningfully changes product behavior.
 
-Versioned examples live under `evals/scorecards/v1.0/`. Use them as the shared scorecard contract before milestone sweeps, release gates, and local-agent dogfood claims:
+Versioned scorecards live under `evals/scorecards/v1.0/`. Use them as the shared scorecard contract before milestone sweeps, release gates, and local-agent dogfood claims:
 
 - `safety-bypass-review.json`
 - `retrieval-quality-review.json`

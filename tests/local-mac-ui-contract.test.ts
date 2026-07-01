@@ -84,7 +84,7 @@ test("local Mac search UI scorecard records acceptance criteria and proof bounda
   );
   assert.match(String(scorecard.proof_boundary), /Peekaboo scratch.*CUA Driver scratch.*not.*generic GUI mutation/i);
   assert.match(String(scorecard.proof_boundary), /one approved TextEdit launch_app action/i);
-  assert.equal(scorecard.current_score, "example-not-run");
+  assert.equal(scorecard.current_score, "pass");
   assert.match(String(scorecard.proof_boundary), /does not prove a signed|release-ready macOS app/i);
 });
 

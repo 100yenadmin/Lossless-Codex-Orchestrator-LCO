@@ -46,13 +46,13 @@
     "Evidence stores raw prompt text, raw transcript spans, screenshots, SQLite pages, or secrets.",
     "Read-only app-server tools expose preview, cwd, path, turns, or remote-control enablement fields as public evidence."
   ],
-  "current_score": "example-not-run",
-  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-<slug>/safety-bypass-review.json",
+  "current_score": "pass",
+  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-278-scorecard-evidence-closeout/safety-bypass-review.json",
   "known_gaps": [
     "Approved harmless live-control smoke still requires explicit user approval before it can become proof.",
     "Desktop fallback mutation remains outside beta proof.",
     "Visible Codex map joins are read-only correlation proof only, not a Codex GUI control proof."
   ],
-  "next_action": "Run focused safety and #260 visible-map tests and record blocker codes before any control or app-server PR is marked ready.",
-  "proof_boundary": "This is a local public-safe beta scorecard example, not proof that live control has been approved or executed, and not proof that visible Codex GUI mutation is allowed."
+  "next_action": "Keep live control and GUI mutation excluded from release claims unless a future issue records explicit approved runtime proof.",
+  "proof_boundary": "Scored as public-safe beta safety evidence for current fail-closed control, read-only app-server, visible-map, and desktop proof-action tests through issue #278. It does not prove live Codex control, GUI mutation, Codex GUI mutation, generic desktop control, or unattended operation."
 }

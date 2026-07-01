@@ -48,13 +48,13 @@
     "Evidence includes raw transcript spans, local DB files, or secret-like strings.",
     "Visible map reports ambiguous title collisions as high-confidence session matches."
   ],
-  "current_score": "example-not-run",
-  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-<slug>/retrieval-quality-review.json",
+  "current_score": "pass",
+  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-278-scorecard-evidence-closeout/retrieval-quality-review.json",
   "known_gaps": [
     "Large private-store retrieval quality must be scored from public-safe summaries only.",
     "Semantic relevance thresholds should be calibrated after more redacted fixtures exist.",
     "Visible-map quality currently uses deterministic title/ref heuristics, not a learned semantic matcher."
   ],
-  "next_action": "Run fixture tests and #260 visible-map tests first, then bounded local smoke with public-safe summary and source-coverage evidence.",
-  "proof_boundary": "This is a local public-safe beta scorecard example; it proves the review shape, not current retrieval or visible-map quality."
+  "next_action": "Keep adding redacted fixture cases before raising semantic relevance or large private-store claims.",
+  "proof_boundary": "Scored as public-safe beta retrieval evidence for current fixture, MCP, scenario, and #260 visible-map coverage through issue #278. It does not prove learned semantic matching, private-store relevance at scale, raw transcript recall, future adapter equivalence, or customer-ready retrieval quality."
 }
