@@ -3,6 +3,8 @@
 ## Shared Owned-Repo Policy
 
 - Use `100yenadmin/codex-operating-kit` for the shared issue/epic/milestone/sprint policy, PR review-thread lifecycle, and release changelog standard.
+- Shared rollout tracker: https://github.com/100yenadmin/codex-operating-kit/issues/5
+- Shared kit merge: `100yenadmin/codex-operating-kit@d1bd004a85da6967041765b46fcb8885a88b802b`
 - For meaningful GitHub work, create or reuse an issue before implementation, link PRs to the issue, and update the issue/tracker before handoff, merge, or pause.
 - Before merge, release, or readiness claims, query current-head review threads and separate resolvable review threads from top-level bot comments and check annotations.
 - P0-P2 current actionable review threads block merge/release unless fixed, proven false-positive, or explicitly escalated. P3/advisory threads still need terminal disposition.
@@ -15,3 +17,7 @@
 - Require `loo release preflight --strict` to report a structured `approved_live_control_smoke` marker before any beta/release claim that includes live-control or working-app proof.
 - Do not treat merged code, local smoke, or docs-only proof as a beta release by itself.
 - Do not rewrite historical release notes or resolve historical PR residue without a separate issue.
+
+Do not widen LCO public claims from this file. Live Codex control, GUI mutation,
+Claude parity, npm publish, GitHub Release creation, and 1.0 readiness require
+their own scoped proof gates.
