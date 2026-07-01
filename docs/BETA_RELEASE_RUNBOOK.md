@@ -362,6 +362,14 @@ Only after the approval gates are satisfied:
 4. Publish npm if the approval covers npm publication.
 5. Create the GitHub Release if the approval covers GitHub Release creation.
 6. Install from the published artifact and rerun the OpenClaw user-path smoke.
+   If `npm view lossless-openclaw-orchestrator@<version>` or
+   `npm view lossless-openclaw-orchestrator@beta version` proves the version is
+   visible, but `npm install` fails with `ENOVERSIONS` or `ETARGET` and stderr
+   says `with a date before ...`, classify the blocker as
+   `npm_before_cutoff_drift`. This is an npm client selection cutoff, not proof
+   that the package is unpublished. Retry the smoke with an explicit future
+   `--before=<ISO timestamp>` value, keep both logs in evidence, and do not
+   record npm tokens or raw auth config.
 7. Update issue #6 and issue #14 with the tag, package/version, GitHub Release
    URL if created, CI link, evidence path, working/not-working list, proof
    boundary, and next action.
