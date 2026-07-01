@@ -103,3 +103,27 @@ test("loo release preflight --help exits zero with claim-scope usage", () => {
   assert.match(result.stdout, /does not run live Codex control/i);
   assert.equal(result.stderr.trim(), "");
 });
+
+test("loo release bundle --help exits zero with publish-boundary usage", () => {
+  const result = runLoo(["release", "bundle", "--help"]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Usage:\n  loo release bundle/);
+  assert.match(result.stdout, /--claim-scope codex-live-control\|codex-read-search-expand-dry-run\|codex-working-app-proof/);
+  assert.match(result.stdout, /release notes/i);
+  assert.match(result.stdout, /does not publish npm/i);
+  assert.match(result.stdout, /does not create a GitHub Release/i);
+  assert.equal(result.stderr.trim(), "");
+});
+
+test("loo release demo-status --help exits zero with demo-boundary usage", () => {
+  const result = runLoo(["release", "demo-status", "--help"]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Usage:\n  loo release demo-status/);
+  assert.match(result.stdout, /--min-sessions n/);
+  assert.match(result.stdout, /demo evidence/i);
+  assert.match(result.stdout, /does not run live Codex control/i);
+  assert.match(result.stdout, /does not perform desktop GUI mutation/i);
+  assert.equal(result.stderr.trim(), "");
+});
