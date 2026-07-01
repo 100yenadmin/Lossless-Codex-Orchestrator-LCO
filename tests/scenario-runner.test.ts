@@ -154,6 +154,40 @@ test("M9 agent dogfood scenario captures the gateway-only handoff workflow", () 
   assert.match(String(scenario.proof_boundary), /does not prove live Codex control/i);
 });
 
+test("M9 fresh npm clean-profile scenario captures external beta install path", () => {
+  const scenario = JSON.parse(readFileSync(join("evals", "scenarios", "v1", "m9-fresh-npm-clean-profile.json"), "utf8")) as {
+    id?: string;
+    surface?: string;
+    user_task?: string;
+    allowed_tools?: string[];
+    expected_public_safe_evidence?: string[];
+    forbidden_behaviors?: string[];
+    metrics?: Record<string, unknown>;
+    proof_boundary?: string;
+  };
+
+  assert.equal(scenario.id, "m9-fresh-npm-clean-profile-v1");
+  assert.equal(scenario.surface, "npm-openclaw-install");
+  assert.match(String(scenario.user_task), /npm.*beta.*clean.*OpenClaw profile/i);
+  assert.deepEqual(scenario.allowed_tools, [
+    "npm view lossless-openclaw-orchestrator@beta version dist-tags --json",
+    "npm install lossless-openclaw-orchestrator@beta --prefix <isolated-prefix>",
+    "loo openclaw dogfood",
+    "loo openclaw tool-smoke",
+    "loo openclaw published-smoke",
+    "loo onboard status"
+  ]);
+  assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /binary paths/i);
+  assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /clean profile/i);
+  assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /setupStatus/i);
+  assert.match(JSON.stringify(scenario.forbidden_behaviors), /raw_transcript_read/);
+  assert.match(JSON.stringify(scenario.forbidden_behaviors), /live_control/);
+  assert.equal(scenario.metrics?.requires_registry_beta_version_match, true);
+  assert.equal(scenario.metrics?.requires_loo_binary, true);
+  assert.equal(scenario.metrics?.max_raw_transcript_spans, 0);
+  assert.match(String(scenario.proof_boundary), /does not prove stable release/i);
+});
+
 test("runtime-required v1.1 scenarios define working-app proof beyond dry-run contracts", () => {
   const scenarioDir = join("evals", "scenarios", "v1.1");
   const files = readdirSync(scenarioDir).filter((file) => file.endsWith(".json")).sort();
