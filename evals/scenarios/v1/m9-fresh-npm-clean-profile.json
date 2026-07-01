@@ -27,7 +27,8 @@
     "OpenClaw install/load status",
     "declared required loo_* tool visibility",
     "tool-smoke setupStatus classification",
-    "published-smoke versionMatchStatus and packagePathOk",
+    "published-smoke versionMatchStatus, packagePathOk, setupRequired, and optional configuredGateway fields",
+    "configured-profile gateway proof kept separate from clean-profile gateway readiness when supplied",
     "onboard status post-install self-check",
     "blocker codes only for any first-run setup requirement"
   ],
@@ -48,6 +49,7 @@
     "requires_clean_profile_name": true,
     "requires_public_safe_evidence": true,
     "requires_setup_status_classification": true,
+    "requires_configured_gateway_separate_from_fresh_profile": true,
     "max_raw_transcript_spans": 0,
     "max_live_actions": 0,
     "max_screenshots_in_public_evidence": 0
