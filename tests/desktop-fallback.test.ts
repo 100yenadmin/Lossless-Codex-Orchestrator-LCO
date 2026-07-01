@@ -373,11 +373,33 @@ test("MCP doctor and desktop tools expose CUA diagnostics while desktop act stay
       live: boolean;
       dryRunOnly: boolean;
       approvalRequired: boolean;
+      blockers?: string[];
+      requiredProof?: string[];
+      nextAction?: string;
     };
     assert.equal(actResult.backend, "cua-driver");
     assert.equal(actResult.live, false);
     assert.equal(actResult.dryRunOnly, true);
     assert.equal(actResult.approvalRequired, true);
+    assert.ok(actResult.blockers?.includes("desktop_live_action_not_enabled"));
+    assert.ok(actResult.blockers?.includes("approval_ref_missing"));
+    assert.ok(actResult.blockers?.includes("action_hash_missing"));
+    assert.ok(actResult.blockers?.includes("permission_state_missing"));
+    assert.ok(actResult.blockers?.includes("focus_before_after_missing"));
+    assert.ok(actResult.blockers?.includes("public_safe_observation_missing"));
+    assert.deepEqual(actResult.requiredProof, [
+      "backend",
+      "target_app",
+      "target_window",
+      "action_hash",
+      "approval_ref",
+      "permission_state",
+      "focus_before_application",
+      "focus_after_application",
+      "public_safe_observation"
+    ]);
+    assert.match(actResult.nextAction ?? "", /loo_desktop_live_proof_harness/i);
+    assert.match(actResult.nextAction ?? "", /loo_desktop_proof_report/i);
 
     const proofReport = tools.find((tool) => tool.name === "loo_desktop_proof_report");
     assert.ok(proofReport);

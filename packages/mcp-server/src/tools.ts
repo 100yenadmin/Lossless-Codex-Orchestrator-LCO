@@ -234,11 +234,27 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
     tool("loo_desktop_act", "Dry-run desktop fallback action placeholder for CUA/Peekaboo.", {
       backend: { type: "string", enum: ["direct", "cua-driver", "peekaboo"] },
       action: { type: "string" },
-      dry_run: { type: "boolean" }
+      dry_run: { type: "boolean" },
+      target_app: { type: "string" },
+      target_window: { type: "string" },
+      action_hash: { type: "string" },
+      approval_ref: { type: "string" },
+      permission_state: { type: "string" },
+      focus_before_application: { type: "string" },
+      focus_after_application: { type: "string" },
+      public_safe_observation: { type: "boolean" }
     }, (input) => desktopActDryRun({
       backend: optionalDesktopBackend(input.backend),
       action: optionalString(input.action),
-      dryRun: input.dry_run !== false
+      dryRun: input.dry_run !== false,
+      targetApp: optionalString(input.target_app),
+      targetWindow: optionalString(input.target_window),
+      actionHash: optionalString(input.action_hash),
+      approvalRef: optionalString(input.approval_ref),
+      permissionState: optionalString(input.permission_state),
+      focusBeforeApplication: optionalString(input.focus_before_application),
+      focusAfterApplication: optionalString(input.focus_after_application),
+      publicSafeObservation: input.public_safe_observation === true
     })),
     tool("loo_desktop_proof_report", "Validate a supplied public-safe desktop GUI action observation and return release-compatible proof when it satisfies no-focus/action-bound gates.", {
       observation: {
