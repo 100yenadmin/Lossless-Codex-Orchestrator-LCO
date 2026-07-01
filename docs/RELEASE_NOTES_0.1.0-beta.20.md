@@ -21,7 +21,7 @@ This release keeps the `--claim-scope codex-working-app-proof` gate and still do
 ## Release Gate Notes
 
 - `loo release preflight`, `loo release bundle`, `loo release demo-status`, and `loo release status` remain local-only public-safe gates.
-- Working-app status example: `loo release status --claim-scope codex-working-app-proof --approved-live-control-evidence <path> --npm-publish-approval-evidence <path> --github-release-approval-evidence <path> --candidate-sha <sha> --github-ci-evidence <path> --codeql-evidence <path> --evidence-dir <path> --strict`
+- Working-app status example: `loo release status --claim-scope codex-working-app-proof --runtime-proof-dir <path> --approved-live-control-evidence <path> --npm-publish-approval-evidence <path> --github-release-approval-evidence <path> --candidate-sha <sha> --github-ci-evidence <path> --codeql-evidence <path> --evidence-dir <path> --strict`
 - Reduced-scope status example: `loo release status --claim-scope codex-read-search-expand-dry-run --npm-publish-approval-evidence <path> --github-release-approval-evidence <path> --candidate-sha <sha> --github-ci-evidence <path> --codeql-evidence <path> --evidence-dir <path> --strict`
 - Reduced-scope bundle example: `loo release bundle --claim-scope codex-read-search-expand-dry-run --evidence-dir <path> --strict`
 - `approved_live_control_smoke_missing` remains the blocker when a working-app claim is attempted without approved live-control smoke evidence.
@@ -30,7 +30,7 @@ This release keeps the `--claim-scope codex-working-app-proof` gate and still do
 
 ## npm Dist-Tag Policy
 
-- `latest` remains pinned to `0.1.0-beta.4`; npm `beta` points at `0.1.0-beta.20`
+- `latest` remains pinned to `0.1.0-beta.4`; if this candidate is published, npm `beta` points at `0.1.0-beta.20`
 - Do not promote `latest` until the stable/1.0 policy is separately proven.
 
 ## Explicit Non-Claims

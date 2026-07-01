@@ -37,11 +37,12 @@ test("0.1.0-beta.20 release metadata ships release help hardening without wideni
   assert.match(releaseNotes, /public-safe release notes and bundle manifests/i);
   assert.match(releaseNotes, /public-safe beta demo evidence/i);
   assert.match(releaseNotes, /--claim-scope codex-working-app-proof/i);
+  assert.match(releaseNotes, /loo release status[^\n]+--claim-scope\s+codex-working-app-proof[^\n]+--runtime-proof-dir\s+<path>/i);
   assert.match(releaseNotes, /codex-read-search-expand-dry-run/i);
   assert.match(releaseNotes, /approved_live_control_smoke_missing/i);
   assert.match(releaseNotes, /0\.1\.0-beta\.20/i);
   assert.match(releaseNotes, /latest.*0\.1\.0-beta\.4/i);
-  assert.match(releaseNotes, /beta.*0\.1\.0-beta\.20/i);
+  assert.match(releaseNotes, /if this candidate is published, npm `beta` points at `0\.1\.0-beta\.20`/i);
   assert.match(releaseNotes, /Desktop collaboration remains excluded unless separately claimed/i);
   assert.match(releaseNotes, /Claude Code remains.*adapter stub/i);
   assert.match(releaseNotes, /does not run a\s+new live Codex control smoke/i);
