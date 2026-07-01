@@ -701,19 +701,26 @@
             "backend": {
               "type": "string",
               "enum": [
-                "direct",
-                "cua-driver",
-                "peekaboo"
+                "cua-driver"
               ]
             },
             "target_app": {
-              "type": "string"
+              "type": "string",
+              "enum": [
+                "TextEdit"
+              ]
             },
             "target_window": {
-              "type": "string"
+              "type": "string",
+              "enum": [
+                "lco-desktop-proof.txt"
+              ]
             },
             "action": {
-              "type": "string"
+              "type": "string",
+              "enum": [
+                "launch_app TextEdit scratch window"
+              ]
             },
             "action_hash": {
               "type": "string"

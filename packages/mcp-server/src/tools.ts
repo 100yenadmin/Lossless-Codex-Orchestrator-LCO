@@ -280,10 +280,10 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       probe: options.desktopProbe
     })),
     tool("loo_desktop_proof_action", "Run the one approved CUA TextEdit scratch launch proof action and return a public-safe observation for proof-report validation.", {
-      backend: { type: "string", enum: ["direct", "cua-driver", "peekaboo"] },
-      target_app: { type: "string" },
-      target_window: { type: "string" },
-      action: { type: "string" },
+      backend: { type: "string", enum: ["cua-driver"] },
+      target_app: { type: "string", enum: ["TextEdit"] },
+      target_window: { type: "string", enum: ["lco-desktop-proof.txt"] },
+      action: { type: "string", enum: ["launch_app TextEdit scratch window"] },
       action_hash: { type: "string" },
       approval_ref: { type: "string" },
       approval_artifact: {

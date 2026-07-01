@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { assertCodexMethodAllowed } from "./policy.js";
 import { redactValue } from "./redaction.js";
 
@@ -16,6 +16,10 @@ export type CodexClient = {
 export type DesktopBackend = "direct" | "cua-driver" | "peekaboo";
 export const DESKTOP_BACKENDS = ["direct", "cua-driver", "peekaboo"] as const satisfies readonly DesktopBackend[];
 export const DESKTOP_GUI_APPROVAL_TTL_MS = 24 * 60 * 60 * 1000;
+const DESKTOP_PROOF_BACKEND = "cua-driver";
+const DESKTOP_PROOF_TARGET_APP = "TextEdit";
+const DESKTOP_PROOF_TARGET_WINDOW = "lco-desktop-proof.txt";
+const DESKTOP_PROOF_ACTION = "launch_app TextEdit scratch window";
 
 export function isDesktopBackend(value: unknown): value is DesktopBackend {
   return typeof value === "string" && (DESKTOP_BACKENDS as readonly string[]).includes(value);
@@ -147,6 +151,7 @@ export type DesktopProofActionApproval = {
   scratchFilePathHash: string;
   issuedAt: string;
   expiresAt: string;
+  approvalSignature: string;
 };
 
 export type DesktopGuiReleaseApprovalProof = {
@@ -797,8 +802,16 @@ export function createDesktopLiveProofHarness(input: {
   const actionHash = desktopBackend && targetApp && targetWindow && action
     ? desktopActionHash(desktopBackend, targetApp, targetWindow, action)
     : undefined;
+  const proofActionTupleRequested = desktopBackend === DESKTOP_PROOF_BACKEND
+    && targetApp === DESKTOP_PROOF_TARGET_APP
+    && targetWindow === DESKTOP_PROOF_TARGET_WINDOW
+    && action === DESKTOP_PROOF_ACTION;
+  if (proofActionTupleRequested) {
+    if (!scratchFilePath) blockers.push("scratch_file_missing");
+    else if (!scratchFilePathAllowed(scratchFilePath, targetWindow)) blockers.push("scratch_file_path_not_bound");
+  }
   const proofHarnessReady = blockers.length === 0;
-  const approvalArtifact = proofHarnessReady && desktopBackend === "cua-driver" && targetApp === "TextEdit" && targetWindow === "lco-desktop-proof.txt" && action === "launch_app TextEdit scratch window" && actionHash && approvalRef && scratchFilePath && scratchFilePathAllowed(scratchFilePath, targetWindow)
+  const approvalArtifact = proofHarnessReady && proofActionTupleRequested && actionHash && approvalRef && scratchFilePath
     ? createDesktopProofActionApproval({
       approvalRef,
       actionHash,
@@ -906,9 +919,9 @@ export function createDesktopProofAction(input: {
   if (!permissionState) blockers.push("permission_state_missing");
   if (!scratchFilePath) blockers.push("scratch_file_missing");
   if (scratchFilePath && targetWindow && !scratchFilePathAllowed(scratchFilePath, targetWindow)) blockers.push("scratch_file_path_not_bound");
-  if (targetApp && targetApp !== "TextEdit") blockers.push("unsupported_desktop_proof_target_app");
-  if (targetWindow && targetWindow !== "lco-desktop-proof.txt") blockers.push("unsupported_desktop_proof_target_window");
-  if (action && action !== "launch_app TextEdit scratch window") blockers.push("unsupported_desktop_proof_action");
+  if (targetApp && targetApp !== DESKTOP_PROOF_TARGET_APP) blockers.push("unsupported_desktop_proof_target_app");
+  if (targetWindow && targetWindow !== DESKTOP_PROOF_TARGET_WINDOW) blockers.push("unsupported_desktop_proof_target_window");
+  if (action && action !== DESKTOP_PROOF_ACTION) blockers.push("unsupported_desktop_proof_action");
   if (permissionState && !desktopPermissionStateReady(permissionState)) blockers.push("permission_state_not_ready");
   if (!suppliedActionHash) {
     blockers.push("action_hash_missing");
@@ -948,7 +961,7 @@ export function createDesktopProofAction(input: {
       "call",
       "launch_app",
       JSON.stringify({
-        name: "TextEdit",
+        name: DESKTOP_PROOF_TARGET_APP,
         urls: [scratchFilePath],
         creates_new_application_instance: true
       })
@@ -968,10 +981,27 @@ export function createDesktopProofAction(input: {
   const selfActivationSuppressed = typeof parsedOutput?.self_activation_suppressed === "boolean"
     ? parsedOutput.self_activation_suppressed
     : undefined;
-  const backendOutputVerified = commandAttempted && commandSucceeded && selfActivationSuppressed === true;
+  let backendOutputMatchesTarget = parsedOutput ? desktopProofBackendOutputMatches(parsedOutput, targetApp, targetWindow) : false;
+  if (commandSucceeded && selfActivationSuppressed === true && !backendOutputMatchesTarget && desktopBackend === "cua-driver" && parsedOutput && probe.commandOutput) {
+    const launchedPid = typeof parsedOutput.pid === "number" && Number.isFinite(parsedOutput.pid) ? Math.trunc(parsedOutput.pid) : undefined;
+    if (launchedPid !== undefined) {
+      const config = desktopBackendConfig("cua-driver");
+      const windowListResult = probe.commandOutput(config.command, [
+        "call",
+        "list_windows",
+        JSON.stringify({ pid: launchedPid })
+      ], 30_000, { env: config.env });
+      if (windowListResult.status === 0) {
+        const windowListOutput = asRecord(parseJsonObject(windowListResult.stdout || ""));
+        backendOutputMatchesTarget = windowListOutput ? desktopProofBackendOutputMatches(windowListOutput, targetApp, targetWindow, launchedPid) : false;
+      }
+    }
+  }
+  const backendOutputVerified = commandAttempted && commandSucceeded && selfActivationSuppressed === true && backendOutputMatchesTarget;
   if (commandAttempted && commandSucceeded && !backendOutputVerified) blockers.push("desktop_backend_output_not_verified");
+  if (commandAttempted && commandSucceeded && selfActivationSuppressed === true && !backendOutputMatchesTarget) blockers.push("desktop_backend_output_target_mismatch");
   const proofActionReady = commandAttempted && commandSucceeded && backendOutputVerified && blockers.length === 0;
-  const observation = commandAttempted && desktopBackend === "cua-driver" && targetApp && targetWindow && action && approvalRef
+  const observation = proofActionReady && desktopBackend === "cua-driver" && targetApp && targetWindow && action && approvalRef
     ? {
       kind: "loo_desktop_gui_action_observation",
       desktopBackend,
@@ -1065,6 +1095,8 @@ export function writeDesktopProofAction(input: {
   writeFileSync(evidencePath, `${JSON.stringify(withPath, null, 2)}\n`);
   if (report.observation) {
     writeFileSync(observationEvidencePath, `${JSON.stringify(report.observation, null, 2)}\n`);
+  } else if (existsSync(observationEvidencePath)) {
+    unlinkSync(observationEvidencePath);
   }
   return withPath;
 }
@@ -1586,23 +1618,41 @@ function createDesktopProofActionApproval(input: {
   scratchFilePath: string;
 }): DesktopProofActionApproval {
   const issuedAt = new Date().toISOString();
+  const expiresAt = new Date(Date.parse(issuedAt) + DESKTOP_GUI_APPROVAL_TTL_MS).toISOString();
+  const scratchFilePathHash = desktopScratchFilePathHash(input.scratchFilePath);
+  const approvalSignature = desktopProofApprovalSignature({
+    approvalRef: input.approvalRef,
+    actionHash: input.actionHash,
+    scratchFilePathHash,
+    issuedAt,
+    expiresAt
+  });
   return {
     kind: "loo_desktop_proof_action_approval",
     approved: true,
     approvalRef: input.approvalRef,
-    desktopBackend: "cua-driver",
-    targetApp: "TextEdit",
-    targetWindow: "lco-desktop-proof.txt",
-    action: "launch_app TextEdit scratch window",
+    desktopBackend: DESKTOP_PROOF_BACKEND,
+    targetApp: DESKTOP_PROOF_TARGET_APP,
+    targetWindow: DESKTOP_PROOF_TARGET_WINDOW,
+    action: DESKTOP_PROOF_ACTION,
     actionHash: input.actionHash,
-    scratchFilePathHash: desktopScratchFilePathHash(input.scratchFilePath),
+    scratchFilePathHash,
     issuedAt,
-    expiresAt: new Date(Date.parse(issuedAt) + DESKTOP_GUI_APPROVAL_TTL_MS).toISOString()
+    expiresAt,
+    approvalSignature
   };
 }
 
 function scratchFilePathAllowed(scratchFilePath: string, targetWindow: string): boolean {
-  return isAbsolute(scratchFilePath) && basename(scratchFilePath) === targetWindow;
+  if (!isAbsolute(scratchFilePath) || basename(scratchFilePath) !== targetWindow) return false;
+  try {
+    if (lstatSync(scratchFilePath).isSymbolicLink()) return false;
+    const root = realpathSync(desktopProofScratchRoot());
+    const file = realpathSync(scratchFilePath);
+    return isPathInside(root, file) && basename(file) === targetWindow;
+  } catch {
+    return false;
+  }
 }
 
 function validateDesktopProofActionApproval(approvalArtifact: unknown, expected: {
@@ -1628,7 +1678,110 @@ function validateDesktopProofActionApproval(approvalArtifact: unknown, expected:
   if (!expected.scratchFilePath || approval.scratchFilePathHash !== desktopScratchFilePathHash(expected.scratchFilePath)) blockers.push("approval_scratch_file_hash_mismatch");
   const expiresAt = typeof approval.expiresAt === "string" ? Date.parse(approval.expiresAt) : NaN;
   if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) blockers.push("approval_artifact_expired");
+  if (!publicHashField(approval.approvalSignature)) {
+    blockers.push("approval_signature_missing");
+  } else if (
+    expected.approvalRef
+    && expected.actionHash
+    && expected.scratchFilePath
+    && typeof approval.issuedAt === "string"
+    && typeof approval.expiresAt === "string"
+  ) {
+    const expectedSignature = desktopProofApprovalSignature({
+      approvalRef: expected.approvalRef,
+      actionHash: expected.actionHash,
+      scratchFilePathHash: desktopScratchFilePathHash(expected.scratchFilePath),
+      issuedAt: approval.issuedAt,
+      expiresAt: approval.expiresAt
+    });
+    if (approval.approvalSignature.toLowerCase() !== expectedSignature) blockers.push("approval_signature_mismatch");
+  } else {
+    blockers.push("approval_signature_mismatch");
+  }
   return blockers;
+}
+
+function desktopProofScratchRoot(): string {
+  return resolve(process.env.LOO_DESKTOP_PROOF_SCRATCH_ROOT || "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator");
+}
+
+function isPathInside(parent: string, child: string): boolean {
+  const pathDelta = relative(parent, child);
+  return pathDelta === "" || (!!pathDelta && !pathDelta.startsWith("..") && !isAbsolute(pathDelta));
+}
+
+function desktopProofApprovalKeyPath(): string {
+  return process.env.LOO_DESKTOP_PROOF_APPROVAL_KEY_PATH
+    || join(process.env.HOME || ".", ".openclaw", "lossless-openclaw-orchestrator", "desktop-proof-action.key");
+}
+
+function desktopProofApprovalSecret(): Buffer {
+  const envSecret = process.env.LOO_DESKTOP_PROOF_APPROVAL_SECRET;
+  if (envSecret && envSecret.trim()) return Buffer.from(envSecret.trim(), "utf8");
+  const keyPath = desktopProofApprovalKeyPath();
+  mkdirSync(dirname(keyPath), { recursive: true });
+  try {
+    writeFileSync(keyPath, `${randomBytes(32).toString("hex")}\n`, { mode: 0o600, flag: "wx" });
+  } catch (error) {
+    if (!isFileExistsError(error)) throw error;
+  }
+  try {
+    chmodSync(keyPath, 0o600);
+  } catch {
+    // Best effort only; writeFileSync(mode) already sets the intended mode on creation.
+  }
+  const encoded = readFileSync(keyPath, "utf8").trim();
+  if (!/^[a-f0-9]{64}$/i.test(encoded)) {
+    throw new Error(`Desktop proof approval key is invalid: ${keyPath}`);
+  }
+  return Buffer.from(encoded, "hex");
+}
+
+function desktopProofApprovalPayload(input: {
+  approvalRef: string;
+  actionHash: string;
+  scratchFilePathHash: string;
+  issuedAt: string;
+  expiresAt: string;
+}): string {
+  return JSON.stringify({
+    kind: "loo_desktop_proof_action_approval",
+    approvalRef: input.approvalRef,
+    desktopBackend: DESKTOP_PROOF_BACKEND,
+    targetApp: DESKTOP_PROOF_TARGET_APP,
+    targetWindow: DESKTOP_PROOF_TARGET_WINDOW,
+    action: DESKTOP_PROOF_ACTION,
+    actionHash: input.actionHash,
+    scratchFilePathHash: input.scratchFilePathHash,
+    issuedAt: input.issuedAt,
+    expiresAt: input.expiresAt
+  });
+}
+
+function desktopProofApprovalSignature(input: {
+  approvalRef: string;
+  actionHash: string;
+  scratchFilePathHash: string;
+  issuedAt: string;
+  expiresAt: string;
+}): string {
+  return createHmac("sha256", desktopProofApprovalSecret()).update(desktopProofApprovalPayload(input)).digest("hex");
+}
+
+function desktopProofBackendOutputMatches(output: Record<string, unknown>, targetApp?: string, targetWindow?: string, targetPid?: number): boolean {
+  if (targetApp !== DESKTOP_PROOF_TARGET_APP || targetWindow !== DESKTOP_PROOF_TARGET_WINDOW) return false;
+  const outputName = typeof output.name === "string" ? output.name : undefined;
+  const bundleId = typeof output.bundle_id === "string" ? output.bundle_id : undefined;
+  const appMatches = outputName === targetApp || bundleId === "com.apple.TextEdit";
+  const windows = Array.isArray(output.windows) ? output.windows : [];
+  const windowMatches = windows.some((item) => {
+    const record = asRecord(item);
+    const windowPid = typeof record?.pid === "number" && Number.isFinite(record.pid) ? Math.trunc(record.pid) : undefined;
+    const windowPidMatches = targetPid === undefined || windowPid === targetPid;
+    const windowAppMatches = record?.app_name === targetApp || record?.owner_name === targetApp;
+    return record?.title === targetWindow && windowPidMatches && (appMatches || windowAppMatches);
+  });
+  return windowMatches;
 }
 
 function desktopPermissionStateReady(value: string): boolean {
