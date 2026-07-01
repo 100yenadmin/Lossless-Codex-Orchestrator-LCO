@@ -154,7 +154,10 @@ Add `--scenario-id desktop-collaboration-action-bound-v1-1` or
 desktop fallback or connected local UI behavior.
 When `--desktop-gui-required` is present, `loo release status --strict` also
 requires `desktop-collaboration-action-bound-v1-1.runtime-proof.json` in
-`--runtime-proof-dir`; desktop GUI approval evidence alone is not enough.
+`--runtime-proof-dir`; desktop GUI approval evidence alone is not enough. The
+runtime marker must include `action_hash` matching the approval `actionHash` so
+the public-safe observation binds to the same backend/app/window/action tuple as
+the approval fixture.
 
 If `--strict` fails because an approval-gated operation is intentionally missing,
 record that as a blocker rather than lowering the gate. The expected blocker
@@ -174,6 +177,9 @@ names include:
   present
 - `desktop_collaboration_proof_missing`, only when `--desktop-gui-required` is
   present without the action-bound runtime proof marker
+- `runtime_proof_missing:desktop-collaboration-action-bound-v1-1:action_hash`
+  or `runtime_proof_mismatch:desktop-collaboration-action-bound-v1-1:action_hash`,
+  when the desktop runtime marker is absent or not bound to the approved action
 
 Repository gate evidence must be tied to the exact release candidate SHA, not
 just the latest branch run. Capture workflow and repository-gate inventory before
@@ -206,7 +212,8 @@ That proof marker must include `operation: "desktop_gui_mutation"`,
 `rawScreenshotIncluded: false`, and `rawSecretIncluded: false`.
 `actionHash` must be the exact SHA-256 hash of
 `JSON.stringify({ desktopBackend, targetApp, targetWindow, action })`, matching
-the value emitted by `loo desktop proof-report`.
+the value emitted by `loo desktop proof-report`. The matching desktop
+collaboration runtime proof marker must include the same value as `action_hash`.
 Diagnostic-only focus proofs such as `status_probe_only_no_action` and
 `not_measured` are not accepted for desktop GUI mutation approval.
 

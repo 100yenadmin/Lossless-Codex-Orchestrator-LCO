@@ -18,12 +18,14 @@ type RuntimeProofJson = {
   raw_prompt_chars?: number;
   raw_transcript_spans?: number;
   screenshot_count?: number;
+  action_hash?: string;
 };
 
 export type RuntimeProofRequirement = {
   id: string;
   requiredMarkers: string[];
   maxCounts: Record<string, number>;
+  exactStringFields?: Record<string, string>;
 };
 
 type RuntimeProofSelectionOptions = {
@@ -73,8 +75,16 @@ export function validateWorkingAppRuntimeProof(runtimeProofDir: string | undefin
   return validateRuntimeProofRequirements(runtimeProofDir, requirements);
 }
 
-export function validateDesktopCollaborationRuntimeProof(runtimeProofDir: string | undefined): WorkingAppRuntimeProofReport {
-  const report = validateRuntimeProofRequirements(runtimeProofDir, [DESKTOP_COLLABORATION_RUNTIME_PROOF_REQUIREMENT]);
+export function validateDesktopCollaborationRuntimeProof(runtimeProofDir: string | undefined, options: { actionHash?: string } = {}): WorkingAppRuntimeProofReport {
+  const requirement = options.actionHash
+    ? {
+      ...DESKTOP_COLLABORATION_RUNTIME_PROOF_REQUIREMENT,
+      exactStringFields: {
+        action_hash: options.actionHash
+      }
+    }
+    : DESKTOP_COLLABORATION_RUNTIME_PROOF_REQUIREMENT;
+  const report = validateRuntimeProofRequirements(runtimeProofDir, [requirement]);
   if (report.ok) return report;
   return {
     ...report,
@@ -152,6 +162,7 @@ function validateRuntimeProofFile(proofDir: string, requirement: RuntimeProofReq
     ...requirement.requiredMarkers
       .filter((marker) => markerRecord[marker] !== true)
       .map((marker) => `runtime_proof_missing:${requirement.id}:${marker}`),
+    ...runtimeExactStringFieldBlockers(requirement, proof),
     ...runtimeCountBlockers(requirement, proof)
   ];
 }
@@ -166,5 +177,13 @@ function runtimeCountBlockers(requirement: RuntimeProofRequirement, proof: Runti
     if (typeof actualValue !== "number") return [`runtime_proof_missing:${requirement.id}:${field}`];
     if (!Number.isInteger(actualValue) || actualValue < 0) return [`runtime_proof_invalid:${requirement.id}:${field}`];
     return actualValue <= maxValue ? [] : [`runtime_proof_limit_exceeded:${requirement.id}:${field}`];
+  });
+}
+
+function runtimeExactStringFieldBlockers(requirement: RuntimeProofRequirement, proof: RuntimeProofJson): string[] {
+  return Object.entries(requirement.exactStringFields ?? {}).flatMap(([field, expectedValue]) => {
+    const actualValue = proof[field as keyof RuntimeProofJson];
+    if (typeof actualValue !== "string" || !actualValue.trim()) return [`runtime_proof_missing:${requirement.id}:${field}`];
+    return actualValue === expectedValue ? [] : [`runtime_proof_mismatch:${requirement.id}:${field}`];
   });
 }
