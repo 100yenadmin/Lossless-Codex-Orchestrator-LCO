@@ -8,20 +8,35 @@ An OpenClaw agent can understand, search, summarize, and safely coordinate a use
 
 The beta should feel like a local orchestration cockpit: OpenClaw can see what Codex sessions exist, what each session is working on, which plans and final messages matter, which files were touched, and which next action would be safe to dry-run or execute only after explicit approval.
 
-## Current Milestone: Working App Proof Sprint
+## Current Milestone: M9 Agent Handoff Beta Sprint
 
-Milestone 7 is the next product/eval target: [Working App Proof Sprint](docs/WORKING_APP_PROOF_SPRINT.md), tracked by [#156](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/156) and GitHub milestone [#8](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/milestone/8).
+M9 Agent Handoff Beta Sprint is the current product/eval target, tracked by [#231](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/231). The core Codex recall engine is no longer the main gap. The current gap is agent handoff and productization: make LCO obvious, safe, and usable by an OpenClaw agent without requiring a maintainer to stitch commands together from memory.
 
-The milestone exists because `0.1.x` has strong reduced-scope beta evidence, but a working app claim needs more than dry-run contracts. The target proof is:
+The M9 target is:
 
-- Installed OpenClaw gateway path, not only internal CLI helpers.
-- Live `loo_*` tool calls through the same surface an OpenClaw agent uses.
-- One harmless approved Codex action through that surface, with dry-run first and a matching approval audit id.
-- Post-action session refresh and safe agent reasoning from source refs and bounded summaries.
-- Action-bound desktop collaboration proof only where direct Codex protocol is insufficient.
-- Connected local search/cockpit proof from live tool calls, not only a static shell.
+- Add a first-class OpenClaw agent usage skill or playbook for the canonical `loo_*` workflows.
+- Align README, VISION, and release docs with current GitHub truth instead of stale sprint wording.
+- Prove an agent dogfood scenario that uses only public `loo_*` tools to search, describe, expand, reason, and dry-run.
+- Prove fresh npm beta install and clean-profile OpenClaw load without relying on a repo link.
+- Define and gate 1.0 release readiness without adding Claude parity or generic GUI mutation to the scope.
 
-Milestone 7 does not turn the project into a broad automation product. It is still Codex-first and local-first. Claude Code parity, remote sync, broad unattended desktop control, permission bypass, and release-grade security stay outside the proof boundary until separate evidence exists.
+M9 does not turn the project into a broad automation product. It is still Codex-first and local-first. Claude Code parity, remote sync, broad unattended desktop control, permission bypass, and release-grade security stay outside the proof boundary until separate evidence exists.
+
+What a local OpenClaw agent can do today:
+
+- Discover the installed LCO plugin and declared `loo_*` tools.
+- Index and search local Codex sessions without reading raw transcripts.
+- Describe a session using metadata, source refs, status fields, plans, finals, touched files, and safe summaries.
+- Expand a selected session or query with bounded metadata, brief, or evidence profiles.
+- Retrieve proposed plans, final messages, touched files, and session maps through `loo_*` tools.
+- Dry-run Codex resume/send/steer/interrupt actions and inspect audit ids and hashes before any live action.
+- Classify package and gateway readiness with `loo onboard status`, `loo openclaw dogfood`, `loo openclaw tool-smoke`, and `loo openclaw published-smoke`.
+
+## Completed Proof: Working App Runtime
+
+Completed proof from the Working App Proof Sprint remains part of the evidence base. Milestone 7 and the [Working App Proof Sprint](docs/WORKING_APP_PROOF_SPRINT.md) moved LCO beyond reduced-scope dry-run claims by proving installed OpenClaw gateway paths, live `loo_*` calls through the same surface an OpenClaw agent uses, approved live Codex action proof where explicitly claimed, post-action refresh reasoning, action-bound desktop collaboration proof gates, connected local search UI contracts, runtime proof gates, and Claude Code adapter inventory boundaries.
+
+Completed proof does not mean 1.0 or broad automation parity. Generic GUI mutation, Codex GUI mutation, Claude Code parity, cloud sync, unattended takeover, and release-grade enterprise security remain excluded until separate issues and evidence prove them.
 
 ## Primary User Stories
 

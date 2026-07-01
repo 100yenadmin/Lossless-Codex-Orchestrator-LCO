@@ -14,7 +14,8 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
 
   for (const heading of [
     "## North Star",
-    "## Current Milestone: Working App Proof Sprint",
+    "## Current Milestone: M9 Agent Handoff Beta Sprint",
+    "## Completed Proof: Working App Runtime",
     "## Primary User Stories",
     "## Orchestrator Product-Management Mode",
     "## Scorecards",
@@ -38,6 +39,11 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
     /fork/i,
     /hybrid search/i,
     /session sanitizer/i,
+    /M9 Agent Handoff Beta Sprint/i,
+    /agent handoff/i,
+    /first-class OpenClaw agent usage skill/i,
+    /What a local OpenClaw agent can do today/i,
+    /Completed proof/i,
     /Milestone 7/i,
     /Working App Proof Sprint/i,
     /evals\/scenarios\/v1\.1/i,
@@ -57,6 +63,11 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
   }
 
   assert.match(readme, /VISION\.md/);
+  assert.match(readme, /## Current Sprint: M9 Agent Handoff Beta Sprint/);
+  assert.match(readme, /What a local OpenClaw agent can do today/i);
+  assert.match(readme, /Completed proof/i);
+  assert.doesNotMatch(readme, /## Current Sprint: Working App Proof/);
+  assert.doesNotMatch(readme, /Working app runtime proof\s*\|\s*Next sprint/i);
   assert.equal(packageJson.files?.includes("VISION.md"), true, "npm package must include VISION.md because README links to it");
 });
 
