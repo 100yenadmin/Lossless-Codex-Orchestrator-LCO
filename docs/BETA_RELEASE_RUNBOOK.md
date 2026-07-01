@@ -204,6 +204,9 @@ That proof marker must include `operation: "desktop_gui_mutation"`,
 `expiresAt`, `focusBeforeApplication`, `focusAfterApplication`,
 `focusChanged: false`, `focusProof`,
 `rawScreenshotIncluded: false`, and `rawSecretIncluded: false`.
+`actionHash` must be the exact SHA-256 hash of
+`JSON.stringify({ desktopBackend, targetApp, targetWindow, action })`, matching
+the value emitted by `loo desktop proof-report`.
 Diagnostic-only focus proofs such as `status_probe_only_no_action` and
 `not_measured` are not accepted for desktop GUI mutation approval.
 

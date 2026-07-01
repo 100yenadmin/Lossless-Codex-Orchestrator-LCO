@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -13,6 +14,15 @@ function read(path: string): string {
 }
 
 const candidateSha = "a".repeat(40);
+
+function desktopActionHash(input: {
+  desktopBackend: string;
+  targetApp: string;
+  targetWindow: string;
+  action: string;
+}): string {
+  return createHash("sha256").update(JSON.stringify(input)).digest("hex");
+}
 
 function writeLiveControlProof(path: string): void {
   writeFileSync(path, `${JSON.stringify({
@@ -545,7 +555,12 @@ test("release status --strict requires GUI target details only when GUI mutation
     targetApp: "Codex",
     targetWindow: "PR release smoke",
     action: "read-only visual smoke",
-    actionHash: "d".repeat(64),
+    actionHash: desktopActionHash({
+      desktopBackend: "cua-driver",
+      targetApp: "Codex",
+      targetWindow: "PR release smoke",
+      action: "read-only visual smoke"
+    }),
     focusBeforeApplication: "Codex",
     focusAfterApplication: "Codex",
     focusChanged: false,
@@ -701,7 +716,12 @@ test("release status --desktop-gui-required requires desktop collaboration runti
     targetApp: "TextEdit",
     targetWindow: "lco-desktop-proof.txt",
     action: "type harmless proof text",
-    actionHash: "d".repeat(64),
+    actionHash: desktopActionHash({
+      desktopBackend: "cua-driver",
+      targetApp: "TextEdit",
+      targetWindow: "lco-desktop-proof.txt",
+      action: "type harmless proof text"
+    }),
     focusBeforeApplication: "Claude",
     focusAfterApplication: "Claude",
     focusChanged: false,
@@ -798,6 +818,93 @@ test("release status --desktop-gui-required requires desktop collaboration runti
     acceptedMarkerCount: 1,
     blockers: []
   });
+});
+
+test("release status binds desktop GUI approval hash to backend, target, and action", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-status-desktop-action-hash-"));
+  const liveControlProof = join(evidenceDir, "approved-live-control-smoke.json");
+  const npmApprovalProof = join(evidenceDir, "npm-publish-approval.json");
+  const githubReleaseApprovalProof = join(evidenceDir, "github-release-approval.json");
+  const githubCiProof = join(evidenceDir, "github-ci.json");
+  const codeqlProof = join(evidenceDir, "codeql.json");
+  const runtimeProofDir = join(evidenceDir, "runtime-proof");
+  const desktopGuiApprovalProof = join(evidenceDir, "desktop-gui-approval.json");
+  const desktopAction = {
+    desktopBackend: "cua-driver",
+    targetApp: "TextEdit",
+    targetWindow: "lco-desktop-proof.txt",
+    action: "type harmless proof text"
+  };
+  writeLiveControlProof(liveControlProof);
+  writeReleaseOperationApprovalProof(npmApprovalProof, "npm_publish");
+  writeReleaseOperationApprovalProof(githubReleaseApprovalProof, "github_release");
+  writeReleaseCheckProof(githubCiProof, "github_ci");
+  writeReleaseCheckProof(codeqlProof, "codeql");
+  mkdirSync(runtimeProofDir);
+  writeRuntimeScenarioProof(join(runtimeProofDir, "desktop-collaboration-action-bound-v1-1.runtime-proof.json"), "desktop-collaboration-action-bound-v1-1", {
+    action_bound_target: true,
+    backend_specific_observation: true,
+    no_focus_measurement: true
+  }, { screenshot_count: 0 });
+  writeReleaseOperationApprovalProof(desktopGuiApprovalProof, "desktop_gui_mutation", {
+    ...desktopAction,
+    actionHash: "d".repeat(64),
+    focusBeforeApplication: "Claude",
+    focusAfterApplication: "Claude",
+    focusChanged: false,
+    focusProof: "before_after_active_application",
+    rawScreenshotIncluded: false
+  });
+
+  const commonArgs = [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "status",
+    "--evidence-dir",
+    evidenceDir,
+    "--approved-live-control-evidence",
+    liveControlProof,
+    "--npm-publish-approval-evidence",
+    npmApprovalProof,
+    "--github-release-approval-evidence",
+    githubReleaseApprovalProof,
+    "--candidate-sha",
+    candidateSha,
+    "--github-ci-evidence",
+    githubCiProof,
+    "--codeql-evidence",
+    codeqlProof,
+    "--runtime-proof-dir",
+    runtimeProofDir,
+    "--desktop-gui-required",
+    "--desktop-gui-approval-evidence",
+    desktopGuiApprovalProof,
+    "--now",
+    "2026-06-30T10:00:00.000Z",
+    "--strict"
+  ];
+
+  const mismatchedResult = spawnSync(process.execPath, commonArgs, { encoding: "utf8" });
+  assert.equal(mismatchedResult.status, 1, mismatchedResult.stderr || mismatchedResult.stdout);
+  const mismatchedPayload = JSON.parse(mismatchedResult.stdout) as { blockers?: string[] };
+  assert.deepEqual(mismatchedPayload.blockers, ["desktop_gui_mutation_not_approved"]);
+
+  writeReleaseOperationApprovalProof(desktopGuiApprovalProof, "desktop_gui_mutation", {
+    ...desktopAction,
+    actionHash: desktopActionHash(desktopAction),
+    focusBeforeApplication: "Claude",
+    focusAfterApplication: "Claude",
+    focusChanged: false,
+    focusProof: "before_after_active_application",
+    rawScreenshotIncluded: false
+  });
+
+  const matchedResult = spawnSync(process.execPath, commonArgs, { encoding: "utf8" });
+  assert.equal(matchedResult.status, 0, matchedResult.stderr || matchedResult.stdout);
+  const matchedPayload = JSON.parse(matchedResult.stdout) as { blockers?: string[] };
+  assert.deepEqual(matchedPayload.blockers, []);
 });
 
 test("release status rejects desktop GUI approval evidence unless GUI mutation is required", () => {
