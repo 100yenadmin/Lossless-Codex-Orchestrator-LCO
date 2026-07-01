@@ -59,46 +59,50 @@ rediscovering state from text every time.
 | Eva operating picture | P0 beta | Business pulse and attention inbox use LCO/Codex, optional structured GitHub items, explicit PLAN_STATE pins, and source-authority coverage; P1 business adapters are not configured yet. |
 | Claude Code adapter | Fixture inventory | Supports redacted metadata-only fixtures with `claude_session:*` refs; no Claude parity, live control, GUI mutation, or cloud sync claim. |
 
-## Current Sprint: Codex Autonomy Cockpit + Eva Operating Picture
+## Current Sprint: 1.0 RC External Tester Readiness
 
 The roadmap is now ranked by one question:
 
 > Does this help an OpenClaw orchestrator manage hundreds of sessions with less
 > context, less rereading, and safer action?
 
-The current sprint is tracked by
+The current release-hardening sprint is tracked by
+[#247](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/247),
+[#182](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/182),
+and
+[#16](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/16).
+The completed Codex Autonomy Cockpit and Eva Operating Picture P0 foundation is
+tracked by
 [#254](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/254),
 [#255](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/255),
-and first child
-[#256](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/256).
-The sprint brief is
+and the historical sprint brief
 [docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md](docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md).
 
-The core Codex recall and M9 handoff paths are working; the current gap is
-operating autonomy. Eva should be able to answer which Codex, project, and
-business lanes need attention from compact cited cards without rereading raw
-transcripts.
+The core Codex recall, M9 handoff paths, and P0 cockpit/Eva operating-picture
+paths are working. The current gap is external tester reliability: install and
+gateway setup clarity, docs truth, release gates, public-safe scorecards, and a
+clean line between completed P0 cards and deferred P1 adapters.
 
-P0 is read-only and deterministic:
+Completed P0 foundation is read-only and deterministic:
 
-- #254 adds `loo_recent_sessions`, `loo_cockpit_inbox`, read-only
+- #254 added `loo_recent_sessions`, `loo_cockpit_inbox`, read-only
   watcher/resume-request primitives, evidence-backed session cards, and
   approval packets for dry-run control context.
-- #260 adds read-only Codex app-server status/thread signals and
+- #260 added read-only Codex app-server status/thread signals and
   `loo_visible_codex_map`, a public-safe join between sanitized visible Codex
   candidates and indexed session cards.
-- #255 adds `loo_plan_state_pins`, `loo_github_operating_items`,
+- #255 added `loo_plan_state_pins`, `loo_github_operating_items`,
   `loo_project_digest`, `loo_attention_inbox`, and `loo_business_pulse`.
-- #264 adds a deterministic read-only GitHub operating-item collector so
+- #264 added a deterministic read-only GitHub operating-item collector so
   issue/PR/check records become public-safe `github_items` before digest tools
   summarize them.
-- #271 cleans cockpit-card presentation so agent-facing titles, summaries, and
+- #271 cleaned cockpit-card presentation so agent-facing titles, summaries, and
   next actions do not expose directive fragments, markdown tables, duplicated
   labels, or transcript-shaped excerpts.
-- #272 adds `eva-operating-picture-dogfood-v1`, an end-to-end public-safe
+- #272 added `eva-operating-picture-dogfood-v1`, an end-to-end public-safe
   workflow fixture for GitHub check fidelity, recent Codex cards, cockpit
   ranking, customer/runtime/security priority, source coverage, and P1 gaps.
-- #258 adds a public-safe [source authority profile](docs/SOURCE_AUTHORITY_PROFILE.md)
+- #258 added a public-safe [source authority profile](docs/SOURCE_AUTHORITY_PROFILE.md)
   so P0 tools distinguish adapter coverage from who owns each truth claim.
 - `PLAN_STATE.md` is demoted to bootloader, manual pins, approval boundaries,
   stop conditions, and exception ledger. Unmarked prose is not current-state
