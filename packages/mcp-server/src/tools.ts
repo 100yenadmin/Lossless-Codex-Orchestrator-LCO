@@ -1,6 +1,11 @@
+import { readFileSync, realpathSync, statSync } from "node:fs";
+import { basename } from "node:path";
+
 import {
   configuredLcmPeerDbPaths,
   createCloseoutEnvelopeReport,
+  createAttentionInbox,
+  createBusinessPulse,
   describeSession,
   describeRecallRef,
   defaultCodexRoots,
@@ -8,12 +13,16 @@ import {
   createIndexedSessionSanitizerRepairPlan,
   expandSession,
   expandQuery,
+  createPlanStatePinsReport,
+  createProjectDigest,
+  getCockpitInbox,
   getCodexFinalMessages,
   getCodexPlans,
   getCodexSessionManagementMap,
   getCodexThreadMap,
   getCodexTouchedFiles,
   getCodexToolCalls,
+  getRecentSessions,
   grepRecall,
   indexCodexSessions,
   probeLcmPeerDbs,
@@ -166,6 +175,78 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       priority: optionalString(input.priority),
       blocker: optionalString(input.blocker),
       priorityOrder: optionalStringArray(input.priority_order)
+    })),
+    tool("loo_recent_sessions", "List recent or active Codex sessions as compact public-safe cards without requiring query text.", {
+      scope: { type: "string", enum: ["active", "recent", "all"] },
+      since: { type: "string" },
+      limit: { type: "integer", minimum: 1, maximum: 500 },
+      repo: { type: "string" },
+      status: { type: "string" },
+      has_plan: { type: "boolean" },
+      has_final: { type: "boolean" },
+      has_blocker: { type: "boolean" },
+      touched_path: { type: "string" },
+      risk: { type: "string", enum: ["low", "medium", "high"] },
+      include_cards: { type: "boolean" }
+    }, (input) => getRecentSessions(options.db, {
+      scope: optionalRecentScope(input.scope),
+      since: optionalString(input.since),
+      limit: optionalNumber(input.limit),
+      repo: optionalString(input.repo),
+      status: optionalString(input.status),
+      hasPlan: optionalBoolean(input.has_plan),
+      hasFinal: optionalBoolean(input.has_final),
+      hasBlocker: optionalBoolean(input.has_blocker),
+      touchedPath: optionalString(input.touched_path),
+      risk: optionalRisk(input.risk),
+      includeCards: input.include_cards !== false
+    })),
+    tool("loo_cockpit_inbox", "Rank Codex sessions that need attention using deterministic public-safe session cards.", {
+      limit: { type: "integer", minimum: 1, maximum: 500 },
+      priority_order: { type: "array", items: { type: "string" } }
+    }, (input) => getCockpitInbox(options.db, {
+      limit: optionalNumber(input.limit),
+      priorityOrder: optionalStringArray(input.priority_order)
+    })),
+    tool("loo_plan_state_pins", "Extract only manual pins, approval boundaries, and exception ledger entries from PLAN_STATE text.", {
+      plan_state_text: { type: "string" },
+      plan_state_path: { type: "string" }
+    }, (input) => createPlanStatePinsReport(resolvePlanStateText(input))),
+    tool("loo_project_digest", "Create a read-only Eva operating digest from LCO/Codex cards, optional structured GitHub items, and PLAN_STATE pins.", {
+      window: { type: "string", enum: ["today", "24h", "7d", "custom"] },
+      limit: { type: "integer", minimum: 1, maximum: 200 },
+      plan_state_text: { type: "string" },
+      plan_state_path: { type: "string" },
+      github_items: { type: "array", items: { type: "object", additionalProperties: true } }
+    }, (input) => createProjectDigest(options.db, {
+      window: optionalDigestWindow(input.window),
+      limit: optionalNumber(input.limit),
+      planStatePins: optionalPlanStatePins(input),
+      githubItems: optionalGithubItems(input.github_items)
+    })),
+    tool("loo_attention_inbox", "Return only operating-picture cards that need action, review, approval, watch, or blocker triage.", {
+      window: { type: "string", enum: ["today", "24h", "7d", "custom"] },
+      limit: { type: "integer", minimum: 1, maximum: 200 },
+      plan_state_text: { type: "string" },
+      plan_state_path: { type: "string" },
+      github_items: { type: "array", items: { type: "object", additionalProperties: true } }
+    }, (input) => createAttentionInbox(options.db, {
+      window: optionalDigestWindow(input.window),
+      limit: optionalNumber(input.limit),
+      planStatePins: optionalPlanStatePins(input),
+      githubItems: optionalGithubItems(input.github_items)
+    })),
+    tool("loo_business_pulse", "Answer 'How is the business?' from bounded cited operating cards with explicit source coverage gaps.", {
+      window: { type: "string", enum: ["today", "24h", "7d", "custom"] },
+      limit: { type: "integer", minimum: 1, maximum: 200 },
+      plan_state_text: { type: "string" },
+      plan_state_path: { type: "string" },
+      github_items: { type: "array", items: { type: "object", additionalProperties: true } }
+    }, (input) => createBusinessPulse(options.db, {
+      window: optionalDigestWindow(input.window),
+      limit: optionalNumber(input.limit),
+      planStatePins: optionalPlanStatePins(input),
+      githubItems: optionalGithubItems(input.github_items)
     })),
     tool("loo_codex_final_messages", "Read final assistant/status messages extracted from Codex sessions.", {
       thread_id: { type: "string" },
@@ -373,11 +454,52 @@ function messageControlInput(input: Record<string, unknown>) {
 
 async function snakeCaseControlResult(value: Promise<any>) {
   const result = await value;
+  const approvalPacket = result.live === false ? approvalPacketFromControlResult(result) : undefined;
   return {
     ...result,
     approval_audit_id: result.approvalAuditId,
     params_hash: result.paramsHash,
-    message_hash: result.messageHash
+    message_hash: result.messageHash,
+    ...(approvalPacket ? { approval_packet: approvalPacket } : {})
+  };
+}
+
+function approvalPacketFromControlResult(result: any): Record<string, unknown> {
+  const action = String(result.action ?? "resume");
+  const packetAction = action === "send"
+    ? "send_message"
+    : action === "steer"
+      ? "steer_thread"
+      : action === "interrupt"
+        ? "interrupt_thread"
+        : "resume_session";
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+  return {
+    schema: "lco.approvalPacket.v1",
+    packetId: `ap_${String(result.approvalAuditId ?? "unknown").replace(/^loo_audit_/, "")}`,
+    action: packetAction,
+    target: {
+      sessionId: `sess_${String(result.threadId ?? "unknown")}`,
+      title: String(result.threadId ?? "unknown")
+    },
+    intent: `${packetAction} dry-run for ${String(result.threadId ?? "unknown")}`,
+    predictedMutation: [String(result.method ?? "codex_control")],
+    preconditions: ["dry_run_record_exists", "matching_params_hash_required", "approval_packet_not_expired"],
+    risk: {
+      level: action === "interrupt" ? "high" : "medium",
+      requiresHuman: true,
+      reasons: ["codex_thread_mutation"]
+    },
+    rollback: {
+      available: false,
+      reason: "Codex thread messages and control actions cannot be undone by LCO."
+    },
+    approvalBoundary: "This packet approves only the described Codex control action for this exact target and hash; no commits, pushes, deploys, GUI actions, external messages, or other thread targets are authorized.",
+    expiresAt,
+    hashes: {
+      paramsHash: String(result.paramsHash ?? ""),
+      ...(result.messageHash ? { messageHash: String(result.messageHash) } : {})
+    }
   };
 }
 
@@ -394,10 +516,32 @@ function optionalNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function optionalBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
 function optionalProfile(value: unknown): "metadata" | "brief" | "evidence" | undefined {
   if (value === undefined) return undefined;
   if (value === "metadata" || value === "brief" || value === "evidence") return value;
   throw new Error("profile must be metadata, brief, or evidence");
+}
+
+function optionalRecentScope(value: unknown): "active" | "recent" | "all" | undefined {
+  if (value === undefined) return undefined;
+  if (value === "active" || value === "recent" || value === "all") return value;
+  throw new Error("scope must be active, recent, or all");
+}
+
+function optionalRisk(value: unknown): "low" | "medium" | "high" | undefined {
+  if (value === undefined) return undefined;
+  if (value === "low" || value === "medium" || value === "high") return value;
+  throw new Error("risk must be low, medium, or high");
+}
+
+function optionalDigestWindow(value: unknown): "today" | "24h" | "7d" | "custom" | undefined {
+  if (value === undefined) return undefined;
+  if (value === "today" || value === "24h" || value === "7d" || value === "custom") return value;
+  throw new Error("window must be today, 24h, 7d, or custom");
 }
 
 function optionalDesktopBackend(value: unknown): DesktopBackend | undefined {
@@ -419,4 +563,72 @@ function optionalStringArray(value: unknown): string[] | undefined {
 function optionalRoots(value: unknown, fallback: string[]): string[] {
   const roots = optionalStringArray(value);
   return roots && roots.length > 0 ? roots : fallback;
+}
+
+function resolvePlanStateText(input: Record<string, unknown>): string {
+  const inline = optionalString(input.plan_state_text);
+  if (inline !== undefined) return inline;
+  const path = optionalString(input.plan_state_path);
+  if (path !== undefined) {
+    try {
+      const resolved = realpathSync(path);
+      if (!["PLAN_STATE", "PLAN_STATE.md"].includes(basename(resolved))) return "";
+      const stats = statSync(resolved);
+      if (!stats.isFile() || stats.size > 1_000_000) return "";
+      return readFileSync(resolved, "utf8");
+    } catch {
+      return "";
+    }
+  }
+  return "";
+}
+
+function optionalPlanStatePins(input: Record<string, unknown>): ReturnType<typeof createPlanStatePinsReport> | undefined {
+  if (input.plan_state_text === undefined && input.plan_state_path === undefined) return undefined;
+  return createPlanStatePinsReport(resolvePlanStateText(input));
+}
+
+function optionalGithubItems(value: unknown): Array<{
+  id: string;
+  title: string;
+  state?: "green" | "yellow" | "red" | "unknown";
+  urgency?: "low" | "medium" | "high" | "critical";
+  reasonCodes?: string[];
+  updatedAt?: string | null;
+  nextAction?: string;
+}> | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw new Error("github_items must be an array");
+  return value.map((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error(`github_items[${index}] must be an object`);
+    }
+    const record = item as Record<string, unknown>;
+    const id = optionalString(record.id);
+    const title = optionalString(record.title);
+    if (!id || !title) throw new Error(`github_items[${index}] requires id and title`);
+    const state = optionalOperatingState(record.state);
+    const urgency = optionalOperatingUrgency(record.urgency);
+    return {
+      id,
+      title,
+      ...(state ? { state } : {}),
+      ...(urgency ? { urgency } : {}),
+      reasonCodes: optionalStringArray(record.reasonCodes ?? record.reason_codes),
+      updatedAt: optionalString(record.updatedAt ?? record.updated_at) ?? null,
+      nextAction: optionalString(record.nextAction ?? record.next_action)
+    };
+  });
+}
+
+function optionalOperatingState(value: unknown): "green" | "yellow" | "red" | "unknown" | undefined {
+  if (value === undefined) return undefined;
+  if (value === "green" || value === "yellow" || value === "red" || value === "unknown") return value;
+  throw new Error("github item state must be green, yellow, red, or unknown");
+}
+
+function optionalOperatingUrgency(value: unknown): "low" | "medium" | "high" | "critical" | undefined {
+  if (value === undefined) return undefined;
+  if (value === "low" || value === "medium" || value === "high" || value === "critical") return value;
+  throw new Error("github item urgency must be low, medium, high, or critical");
 }

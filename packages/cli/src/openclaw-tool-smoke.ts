@@ -12,7 +12,13 @@ export const DEFAULT_REQUIRED_TOOL_CALLS = [
   "loo_codex_plans",
   "loo_codex_final_messages",
   "loo_codex_touched_files",
-  "loo_codex_control_dry_run"
+  "loo_codex_control_dry_run",
+  "loo_recent_sessions",
+  "loo_cockpit_inbox",
+  "loo_plan_state_pins",
+  "loo_project_digest",
+  "loo_attention_inbox",
+  "loo_business_pulse"
 ];
 
 export type OpenClawToolSmokeOptions = {

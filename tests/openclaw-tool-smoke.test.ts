@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { runOpenClawToolSmoke } from "../packages/cli/src/openclaw-tool-smoke.js";
+import { DEFAULT_REQUIRED_TOOL_CALLS, runOpenClawToolSmoke } from "../packages/cli/src/openclaw-tool-smoke.js";
 
 const tsxImport = createRequire(import.meta.url).resolve("tsx");
 type DryRunOutputShape = "plain" | "content" | "details" | "both";
@@ -86,6 +86,26 @@ if (method === "tools.invoke") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { results: [{ sourceRef: "codex_thread:thread-1", threadId: "thread-1", status: "active" }] } }));
     process.exit(0);
   }
+  if (name === "loo_recent_sessions") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, cards: [{ threadId: "codex_thread:thread-1" }] } }));
+    process.exit(0);
+  }
+  if (name === "loo_cockpit_inbox") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, items: [{ card: { threadId: "codex_thread:thread-1" } }] } }));
+    process.exit(0);
+  }
+  if (name === "loo_plan_state_pins") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, manualPins: [] } }));
+    process.exit(0);
+  }
+  if (name === "loo_project_digest" || name === "loo_attention_inbox") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, sourceCoverage: { lco: "ok", github: "not_configured", plan_state: "not_configured" }, cards: [] } }));
+    process.exit(0);
+  }
+  if (name === "loo_business_pulse") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, digest: { sourceCoverage: { lco: "ok", github: "not_configured", plan_state: "not_configured" } } } }));
+    process.exit(0);
+  }
   if (name === "loo_codex_control_dry_run") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: ${dryRunOutputCode} }));
     process.exit(0);
@@ -110,17 +130,7 @@ const paramsIndex = args.indexOf("--params");
 const params = paramsIndex >= 0 ? JSON.parse(args[paramsIndex + 1] || "{}") : {};
 appendFileSync(process.env.OPENCLAW_FAKE_CALLS, JSON.stringify({ method, params, args, envTokenPresent: Boolean(process.env.OPENCLAW_GATEWAY_TOKEN) }) + "\\n");
 if (method === "tools.catalog") {
-  console.log(JSON.stringify({ groups: [{ tools: [
-    { id: "loo_doctor" },
-    { id: "loo_search_sessions" },
-    { id: "loo_describe_session" },
-    { id: "loo_expand_query" },
-    { id: "loo_codex_plans" },
-    { id: "loo_codex_final_messages" },
-    { id: "loo_codex_touched_files" },
-    { id: "loo_codex_thread_map" },
-    { id: "loo_codex_control_dry_run" }
-  ] }] }));
+  console.log(JSON.stringify({ groups: [{ tools: ${JSON.stringify(DEFAULT_REQUIRED_TOOL_CALLS.map((id) => ({ id })))} }] }));
   process.exit(0);
 }
 if (method === "tools.invoke") {
@@ -235,17 +245,7 @@ process.exit(7);
 test("OpenClaw tool smoke invokes required loo tools through gateway call and writes public-safe evidence", () => {
   const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-"));
   const evidencePath = join(dir, "tool-smoke.json");
-  const { bin, callsPath } = createFakeOpenClaw(dir, [
-    "loo_doctor",
-    "loo_search_sessions",
-    "loo_describe_session",
-    "loo_expand_query",
-    "loo_codex_plans",
-    "loo_codex_final_messages",
-    "loo_codex_touched_files",
-    "loo_codex_thread_map",
-    "loo_codex_control_dry_run"
-  ]);
+  const { bin, callsPath } = createFakeOpenClaw(dir, DEFAULT_REQUIRED_TOOL_CALLS);
 
   const previous = process.env.OPENCLAW_FAKE_CALLS;
   process.env.OPENCLAW_FAKE_CALLS = callsPath;
@@ -269,17 +269,7 @@ test("OpenClaw tool smoke invokes required loo tools through gateway call and wr
       doesNotIndicatePackageFailure: true
     });
     assert.equal(report.catalog.requiredToolsPresent, true);
-    assert.deepEqual(report.invocations.map((call) => call.toolName), [
-      "loo_doctor",
-      "loo_search_sessions",
-      "loo_codex_thread_map",
-      "loo_describe_session",
-      "loo_expand_query",
-      "loo_codex_plans",
-      "loo_codex_final_messages",
-      "loo_codex_touched_files",
-      "loo_codex_control_dry_run"
-    ]);
+    assert.deepEqual(report.invocations.map((call) => call.toolName), DEFAULT_REQUIRED_TOOL_CALLS);
     assert.equal(report.invocations.find((call) => call.toolName === "loo_search_sessions")?.summary.sourceRefs?.[0], "codex_thread:thread-1");
     assert.equal(report.invocations.find((call) => call.toolName === "loo_describe_session")?.summary.threadId, "thread-1");
     assert.equal(report.invocations.find((call) => call.toolName === "loo_expand_query")?.summary.profile, "brief");
@@ -360,17 +350,7 @@ test("OpenClaw tool smoke passes discovered thread id to loo_expand_session", ()
 test("OpenClaw tool smoke accepts gateway content/details wrapped dry-run proof", () => {
   const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-wrapped-"));
   const evidencePath = join(dir, "tool-smoke.json");
-  const { bin, callsPath } = createFakeOpenClaw(dir, [
-    "loo_doctor",
-    "loo_search_sessions",
-    "loo_describe_session",
-    "loo_expand_query",
-    "loo_codex_plans",
-    "loo_codex_final_messages",
-    "loo_codex_touched_files",
-    "loo_codex_thread_map",
-    "loo_codex_control_dry_run"
-  ], "flat", { dryRunOutputShape: "both" });
+  const { bin, callsPath } = createFakeOpenClaw(dir, DEFAULT_REQUIRED_TOOL_CALLS, "flat", { dryRunOutputShape: "both" });
 
   const previous = process.env.OPENCLAW_FAKE_CALLS;
   process.env.OPENCLAW_FAKE_CALLS = callsPath;
@@ -402,17 +382,7 @@ test("OpenClaw tool smoke accepts gateway content/details wrapped dry-run proof"
 test("OpenClaw tool smoke accepts gateway content-only dry-run proof", () => {
   const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-content-only-"));
   const evidencePath = join(dir, "tool-smoke.json");
-  const { bin, callsPath } = createFakeOpenClaw(dir, [
-    "loo_doctor",
-    "loo_search_sessions",
-    "loo_describe_session",
-    "loo_expand_query",
-    "loo_codex_plans",
-    "loo_codex_final_messages",
-    "loo_codex_touched_files",
-    "loo_codex_thread_map",
-    "loo_codex_control_dry_run"
-  ], "flat", { dryRunOutputShape: "content" });
+  const { bin, callsPath } = createFakeOpenClaw(dir, DEFAULT_REQUIRED_TOOL_CALLS, "flat", { dryRunOutputShape: "content" });
 
   const previous = process.env.OPENCLAW_FAKE_CALLS;
   process.env.OPENCLAW_FAKE_CALLS = callsPath;
@@ -558,17 +528,7 @@ test("OpenClaw tool smoke times out stalled gateway calls", () => {
 test("OpenClaw tool smoke reads grouped tools.catalog output from the real gateway shape", () => {
   const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-groups-"));
   const evidencePath = join(dir, "tool-smoke.json");
-  const { bin, callsPath } = createFakeOpenClaw(dir, [
-    "loo_doctor",
-    "loo_search_sessions",
-    "loo_describe_session",
-    "loo_expand_query",
-    "loo_codex_plans",
-    "loo_codex_final_messages",
-    "loo_codex_touched_files",
-    "loo_codex_thread_map",
-    "loo_codex_control_dry_run"
-  ], "groups");
+  const { bin, callsPath } = createFakeOpenClaw(dir, DEFAULT_REQUIRED_TOOL_CALLS, "groups");
 
   const previous = process.env.OPENCLAW_FAKE_CALLS;
   process.env.OPENCLAW_FAKE_CALLS = callsPath;
@@ -582,7 +542,7 @@ test("OpenClaw tool smoke reads grouped tools.catalog output from the real gatew
     });
 
     assert.equal(report.toolSmokeReady, true);
-    assert.equal(report.catalog.toolCount, 9);
+    assert.equal(report.catalog.toolCount, DEFAULT_REQUIRED_TOOL_CALLS.length);
     assert.deepEqual(report.catalog.missingRequiredTools, []);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;

@@ -7,7 +7,7 @@ summarizable, product-management objects for OpenClaw.
 Codex-first: Claude Code support is intentionally shipped as an adapter stub
 until its storage and control paths are proven.
 
-[Vision](VISION.md) · [Agent Skill](skills/lossless-openclaw-orchestrator/SKILL.md) · [Release Checklist](docs/RELEASE_CHECKLIST.md) · [Working App Proof Sprint](docs/WORKING_APP_PROOF_SPRINT.md) · [OpenClaw Plugin](docs/OPENCLAW_PLUGIN.md) · [Claude Adapter Boundary](docs/CLAUDE_ADAPTER_BOUNDARY.md) · [Beta Demo](docs/BETA_RELEASE_DEMO.md) · [Beta Release Runbook](docs/BETA_RELEASE_RUNBOOK.md) · [Claim Audit](docs/CLAIM_AUDIT.md) · [PolyForm Noncommercial](LICENSE)
+[Vision](VISION.md) · [Current Sprint Brief](docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md) · [Agent Skill](skills/lossless-openclaw-orchestrator/SKILL.md) · [Release Checklist](docs/RELEASE_CHECKLIST.md) · [Working App Proof Sprint](docs/WORKING_APP_PROOF_SPRINT.md) · [OpenClaw Plugin](docs/OPENCLAW_PLUGIN.md) · [Claude Adapter Boundary](docs/CLAUDE_ADAPTER_BOUNDARY.md) · [Beta Demo](docs/BETA_RELEASE_DEMO.md) · [Beta Release Runbook](docs/BETA_RELEASE_RUNBOOK.md) · [Claim Audit](docs/CLAIM_AUDIT.md) · [PolyForm Noncommercial](LICENSE)
 
 ## Why This Exists
 
@@ -55,52 +55,42 @@ rediscovering state from text every time.
 | Scorecards and release proof | Beta | Public-safe scorecards and release-status commands track what is proven. |
 | QA Lab scenarios | Beta | Dry-run scenario contracts under `evals/scenarios/v1` turn orchestrator workflows into public-safe eval tasks. |
 | Working app runtime proof | Completed proof | M7/#156 proved the named runtime path and proof gates; generic GUI mutation, Claude parity, and 1.0 readiness remain excluded. |
+| Codex autonomy cockpit | P0 beta | Recent session cards, cockpit inbox, approval packets, and operating-picture tools are read-only and public-safe by default. |
+| Eva operating picture | P0 beta | Business pulse and attention inbox use LCO/Codex, optional structured GitHub items, and explicit PLAN_STATE pins; P1 business adapters are not configured yet. |
 | Claude Code adapter | Fixture inventory | Supports redacted metadata-only fixtures with `claude_session:*` refs; no Claude parity, live control, GUI mutation, or cloud sync claim. |
 
-## Current Sprint: M9 Agent Handoff Beta Sprint
+## Current Sprint: Codex Autonomy Cockpit + Eva Operating Picture
 
 The roadmap is now ranked by one question:
 
 > Does this help an OpenClaw orchestrator manage hundreds of sessions with less
 > context, less rereading, and safer action?
 
-M9 Agent Handoff Beta Sprint is tracked by
-[#231](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/231).
-The core Codex recall path is working; the current gap is making that capability
-easy for a local OpenClaw agent to use without maintainer steering.
+The current sprint is tracked by
+[#254](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/254),
+[#255](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/255),
+and first child
+[#256](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/256).
+The sprint brief is
+[docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md](docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md).
 
-1. **First-class agent skill/playbook**
-   Add and maintain the packaged OpenClaw agent usage skill at
-   [skills/lossless-openclaw-orchestrator/SKILL.md](skills/lossless-openclaw-orchestrator/SKILL.md)
-   for the canonical workflows. See
-   [#232](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/232).
+The core Codex recall and M9 handoff paths are working; the current gap is
+operating autonomy. Eva should be able to answer which Codex, project, and
+business lanes need attention from compact cited cards without rereading raw
+transcripts.
 
-2. **README/VISION truth alignment**
-   Keep public docs current with M9 and completed M7 proof. See
-   [#233](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/233).
+P0 is read-only and deterministic:
 
-3. **Agent dogfood scenario**
-   Simulate an OpenClaw agent using only `loo_*` tools to search, describe,
-   expand, recommend, and dry-run without raw transcripts. The scenario contract
-   lives at
-   [evals/scenarios/v1/m9-agent-dogfood-core-workflow.json](evals/scenarios/v1/m9-agent-dogfood-core-workflow.json).
-   See
-   [#234](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/234).
-
-4. **Fresh npm beta install smoke**
-   Prove a clean npm `@beta` install and clean-profile OpenClaw load. The
-   scenario contract lives at
-   [evals/scenarios/v1/m9-fresh-npm-clean-profile.json](evals/scenarios/v1/m9-fresh-npm-clean-profile.json).
-   See
-   [#235](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/235).
-
-5. **1.0 readiness gate**
-   Define stable-release non-negotiables and fail-closed checks without adding
-   Claude parity or generic GUI mutation to 1.0 scope. The gate lives in
-   [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) and is enforced by
-   `loo release general-readiness --strict` using fresh npm and agent dogfood
-   evidence. See
-   [#236](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/236).
+- #254 adds `loo_recent_sessions`, `loo_cockpit_inbox`, evidence-backed session
+  cards, and approval packets for dry-run control context.
+- #255 adds `loo_plan_state_pins`, `loo_project_digest`,
+  `loo_attention_inbox`, and `loo_business_pulse`.
+- `PLAN_STATE.md` is demoted to bootloader, manual pins, approval boundaries,
+  stop conditions, and exception ledger. Unmarked prose is not current-state
+  truth.
+- P1 sources such as Notion, support-control, Company Brain, Stripe,
+  dashboard/export, and model summarization remain `not_configured` until
+  separate read-only adapters prove source-backed collection.
 
 What a local OpenClaw agent can do today:
 
@@ -109,6 +99,9 @@ What a local OpenClaw agent can do today:
 - Expand bounded evidence with `loo_expand_session` or `loo_expand_query`.
 - Retrieve plans, finals, touched files, and session maps with the Codex detail
   tools.
+- List recent sessions and operating-picture attention items with
+  `loo_recent_sessions`, `loo_cockpit_inbox`, `loo_project_digest`,
+  `loo_attention_inbox`, and `loo_business_pulse`.
 - Dry-run Codex control actions and inspect audit ids before any live action.
 - Check package, plugin, gateway, and first-run readiness through `loo_doctor`,
   `loo onboard status`, `loo openclaw dogfood`, `loo openclaw tool-smoke`, and
@@ -118,6 +111,8 @@ Completed proof:
 
 - The [Working App Proof Sprint](docs/WORKING_APP_PROOF_SPRINT.md) and #156
   closed the M7 runtime proof lane for the named Codex-first surfaces.
+- M9 closed the first-class agent skill, docs truth pass, agent dogfood,
+  fresh npm clean-profile smoke, and 1.0 readiness gate.
 - Desktop fallback remains action-bound; generic GUI mutation and Codex GUI
   mutation are not public beta claims.
 - Claude Code remains an adapter stub and fixture inventory, not parity.
@@ -196,6 +191,7 @@ loo eval scenarios --scenario-dir evals/scenarios/v1.1 --runtime-proof-dir /Volu
 loo release preflight --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight
 loo release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --candidate-sha <release-candidate-sha> --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --npm-publish-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/npm-approval.json --github-release-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-release-approval.json --github-ci-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-ci.json --codeql-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/codeql.json
 loo release demo-status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/demo
+loo release general-readiness --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/general-readiness --fresh-npm-evidence published-package-smoke.json --agent-dogfood-evidence openclaw-tool-smoke.json --strict
 ```
 
 QA Lab dry-run scenarios live in `evals/scenarios/v1`. Runtime-required working

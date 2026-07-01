@@ -376,6 +376,8 @@ export type AuditRecord = {
   createdAt: string;
 };
 
+const CODEX_CONTROL_DRY_RUN_TTL_MS = 15 * 60 * 1000;
+
 export function createAuditStore(path: string) {
   mkdirSync(dirname(path), { recursive: true });
   let auditKey: Buffer | undefined;
@@ -461,6 +463,10 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
     }
     if (previous.action !== spec.action || previous.target !== spec.threadId || previous.paramsHash !== paramsHash) {
       throw new Error("approval_audit_id does not match this Codex control action");
+    }
+    const dryRunCreatedAtMs = Date.parse(previous.createdAt);
+    if (!Number.isFinite(dryRunCreatedAtMs) || dryRunCreatedAtMs + CODEX_CONTROL_DRY_RUN_TTL_MS <= Date.now()) {
+      throw new Error("approval_audit_id dry-run record expired");
     }
     const response = await options.client.request(spec.method, spec.params);
     const liveRecord = options.audit.append({ action: spec.action, target: spec.threadId, paramsHash, messageHash, live: true });

@@ -43,6 +43,12 @@
       "loo_expand_query",
       "loo_codex_thread_map",
       "loo_codex_session_management_map",
+      "loo_recent_sessions",
+      "loo_cockpit_inbox",
+      "loo_plan_state_pins",
+      "loo_project_digest",
+      "loo_attention_inbox",
+      "loo_business_pulse",
       "loo_codex_final_messages",
       "loo_codex_plans",
       "loo_codex_touched_files",
@@ -303,6 +309,209 @@
               "type": "array",
               "items": {
                 "type": "string"
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_recent_sessions",
+        "description": "List recent or active Codex sessions as compact public-safe cards without requiring query text.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "scope": {
+              "type": "string",
+              "enum": [
+                "active",
+                "recent",
+                "all"
+              ]
+            },
+            "since": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "repo": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "has_plan": {
+              "type": "boolean"
+            },
+            "has_final": {
+              "type": "boolean"
+            },
+            "has_blocker": {
+              "type": "boolean"
+            },
+            "touched_path": {
+              "type": "string"
+            },
+            "risk": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "include_cards": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_cockpit_inbox",
+        "description": "Rank Codex sessions that need attention using deterministic public-safe session cards.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "priority_order": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_plan_state_pins",
+        "description": "Extract only manual pins, approval boundaries, and exception ledger entries from PLAN_STATE text.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "plan_state_text": {
+              "type": "string"
+            },
+            "plan_state_path": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_project_digest",
+        "description": "Create a read-only Eva operating digest from LCO/Codex cards, optional structured GitHub items, and PLAN_STATE pins.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "window": {
+              "type": "string",
+              "enum": [
+                "today",
+                "24h",
+                "7d",
+                "custom"
+              ]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "plan_state_text": {
+              "type": "string"
+            },
+            "plan_state_path": {
+              "type": "string"
+            },
+            "github_items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_attention_inbox",
+        "description": "Return only operating-picture cards that need action, review, approval, watch, or blocker triage.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "window": {
+              "type": "string",
+              "enum": [
+                "today",
+                "24h",
+                "7d",
+                "custom"
+              ]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "plan_state_text": {
+              "type": "string"
+            },
+            "plan_state_path": {
+              "type": "string"
+            },
+            "github_items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_business_pulse",
+        "description": "Answer 'How is the business?' from bounded cited operating cards with explicit source coverage gaps.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "window": {
+              "type": "string",
+              "enum": [
+                "today",
+                "24h",
+                "7d",
+                "custom"
+              ]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "plan_state_text": {
+              "type": "string"
+            },
+            "plan_state_path": {
+              "type": "string"
+            },
+            "github_items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
               }
             }
           }

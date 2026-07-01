@@ -1,0 +1,468 @@
+import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+
+import { createAuditStore } from "../packages/adapters/src/index.js";
+import {
+  createBusinessPulse,
+  createDatabase,
+  createPlanStatePinsReport,
+  createProjectDigest,
+  getCockpitInbox,
+  getRecentSessions,
+  indexCodexSessions,
+  type LooDatabase
+} from "../packages/core/src/index.js";
+import { createLooTools } from "../packages/mcp-server/src/tools.js";
+
+type SessionFixture = {
+  id: string;
+  title: string;
+  status: string;
+  priority: string;
+  nextAction: string;
+  blocker?: string;
+  updatedAt: string;
+  refs?: boolean;
+  project?: string | null;
+  extra?: string[];
+};
+
+test("recent session cards are public-safe and do not require query text", () => {
+  withIndexedSessions((sessions) => {
+    const rawPathCanary = join(sessions, "rollout-2026-07-01T00-00-00-019f-recent-active.jsonl");
+    const linuxCodexPathCanary = "/home/alice/.codex/sessions/rollout-private.jsonl";
+    return {
+      fixtures: [
+        {
+          id: "019f-recent-active",
+          title: "Autonomy cockpit active lane",
+          status: "active",
+          priority: "high",
+          nextAction: `continue after review from ${linuxCodexPathCanary}`,
+          updatedAt: relativeIso(90),
+          refs: true,
+          project: null,
+          extra: [
+            `Private path canary ${rawPathCanary}`,
+            "authorization: Bearer abcdefghijklmnopqrstuvwxyz"
+          ]
+        },
+        {
+          id: "019f-recent-blocked",
+          title: "Autonomy cockpit blocked lane",
+          status: "blocked",
+          priority: "urgent",
+          blocker: "CodeRabbit review pending",
+          nextAction: "wait for review",
+          updatedAt: relativeIso(30),
+          refs: true
+        }
+      ],
+      canaries: [rawPathCanary, linuxCodexPathCanary]
+    };
+  }, ({ db, canaries }) => {
+    const report = getRecentSessions(db, { scope: "recent", limit: 10, includeCards: true });
+    const activeCard = report.cards.find((card) => card.threadId === "codex_thread:019f-recent-active");
+
+    assert.equal(report.schema, "lco.codex.recentSessions.v1");
+    assert.equal(report.publicSafe, true);
+    assert.equal(report.queryRequired, false);
+    assert.deepEqual(report.cards.map((card) => card.threadId), [
+      "codex_thread:019f-recent-blocked",
+      "codex_thread:019f-recent-active"
+    ]);
+    assert.equal(report.cards[0]?.state, "blocked");
+    assert.equal(report.cards[0]?.risk.level, "high");
+    assert.equal(report.cards[0]?.reasonCodes.includes("blocked"), true);
+    assert.equal(report.cards[0]?.hidden.transcriptPath, true);
+    assert.equal(activeCard?.scope.repo, null);
+    assertNoUnsafeStrings(report, ...canaries);
+  });
+});
+
+test("cockpit inbox ranks blocked approval and stale work deterministically", () => {
+  withIndexedSessions([
+    {
+      id: "019f-moving",
+      title: "Moving lane",
+      status: "active",
+      priority: "medium",
+      nextAction: "continue implementation",
+      updatedAt: relativeIso(120),
+      refs: true
+    },
+    {
+      id: "019f-needs-approval",
+      title: "Approval lane",
+      status: "needs_approval",
+      priority: "high",
+      nextAction: "approve dry-run packet",
+      updatedAt: relativeIso(150),
+      refs: true
+    },
+    {
+      id: "019f-blocked",
+      title: "Blocked lane",
+      status: "blocked",
+      priority: "urgent",
+      blocker: "CI failed",
+      nextAction: "inspect failed workflow",
+      updatedAt: relativeIso(180),
+      refs: true
+    },
+    {
+      id: "019f-low-confidence",
+      title: "Sparse lane",
+      status: "active",
+      priority: "low",
+      nextAction: "expand before action",
+      updatedAt: relativeIso(60)
+    }
+  ] satisfies SessionFixture[], ({ db }) => {
+    const inbox = getCockpitInbox(db, {
+      limit: 10,
+      priorityOrder: ["urgent", "high", "medium", "low"]
+    });
+
+    assert.equal(inbox.schema, "lco.codex.cockpitInbox.v1");
+    assert.equal(inbox.publicSafe, true);
+    assert.deepEqual(inbox.items.map((item) => item.card.threadId), [
+      "codex_thread:019f-blocked",
+      "codex_thread:019f-needs-approval",
+      "codex_thread:019f-low-confidence"
+    ]);
+    assert.deepEqual(inbox.items.map((item) => item.reasonCodes[0]), [
+      "blocked",
+      "approval_needed",
+      "low_confidence"
+    ]);
+    assert.equal(inbox.items[2]?.card.state, "unknown");
+    assert.equal(inbox.items[2]?.card.confidence < 0.7, true);
+
+    const highRisk = getRecentSessions(db, { risk: "high", limit: 10, includeCards: true });
+    assert.equal(highRisk.summary.total, highRisk.cards.length);
+    assert.equal(highRisk.cards.every((card) => card.risk.level === "high"), true);
+  });
+});
+
+test("PLAN_STATE report extracts only explicit pins and ignores stale prose", () => {
+  const report = createPlanStatePinsReport(`
+# PLAN_STATE
+
+Random stale prose: customer Alpha is red and should be canonical.
+
+<!-- loo:manual-pin -->
+- Project: LCO
+- State: yellow
+- Summary: Finish public-safe autonomy cockpit contracts.
+- Next: Open a PR with focused tests.
+- Source: issue#256
+<!-- /loo:manual-pin -->
+
+<!-- loo:approval-boundary -->
+- No live Codex control or GUI mutation during P0.
+<!-- /loo:approval-boundary -->
+
+<!-- loo:exception-ledger -->
+- Stripe source is intentionally not configured in P0.
+<!-- /loo:exception-ledger -->
+`);
+
+  assert.equal(report.schema, "lco.planStatePins.v1");
+  assert.equal(report.publicSafe, true);
+  assert.equal(report.bootloaderOnly, true);
+  assert.equal(report.manualPins.length, 1);
+  assert.equal(report.manualPins[0]?.title, "LCO");
+  assert.equal(report.manualPins[0]?.summary.includes("autonomy cockpit"), true);
+  assert.deepEqual(report.approvalBoundaries, ["No live Codex control or GUI mutation during P0."]);
+  assert.deepEqual(report.exceptionLedger, ["Stripe source is intentionally not configured in P0."]);
+  assert.equal(JSON.stringify(report).includes("customer Alpha is red"), false);
+});
+
+test("operating picture marks missing P1 sources and preserves low-confidence conflicts", () => {
+  withIndexedSessions([
+    {
+      id: "019f-operating-blocked",
+      title: "GitHub blocked lane",
+      status: "blocked",
+      priority: "urgent",
+      blocker: "CodeRabbit review pending",
+      nextAction: "inspect PR review",
+      updatedAt: relativeIso(30),
+      refs: true
+    },
+    {
+      id: "019f-operating-conflict",
+      title: "Conflicting lane",
+      status: "complete",
+      priority: "low",
+      blocker: "customer blocked",
+      nextAction: "archive after closeout",
+      updatedAt: relativeIso(60),
+      refs: true
+    },
+    {
+      id: "019f-operating-old",
+      title: "Old lane",
+      status: "blocked",
+      priority: "urgent",
+      blocker: "stale proof",
+      nextAction: "ignore outside window",
+      updatedAt: relativeIso(8 * 24 * 60),
+      refs: true
+    }
+  ], ({ db }) => {
+    const pins = createPlanStatePinsReport(`
+<!-- loo:manual-pin -->
+- Project: LCO
+- State: yellow
+- Summary: Public-safe redaction contract is the next sprint gate.
+- Next: Run focused autonomy tests.
+- Source: issue#256
+<!-- /loo:manual-pin -->
+`);
+    const digest = createProjectDigest(db, {
+      window: "today",
+      limit: 10,
+      planStatePins: pins,
+      githubItems: [
+        {
+          id: "100yenadmin/Lossless-Codex-Orchestrator-LCO#256",
+          title: "shared public-safe autonomy cockpit contracts",
+          state: "yellow",
+          urgency: "high",
+          reasonCodes: ["review_requested"],
+          updatedAt: relativeIso(15),
+          nextAction: "review PR"
+        }
+      ]
+    });
+    const missingStructuredSources = createProjectDigest(db, {
+      window: "today",
+      limit: 10,
+      planStatePins: createPlanStatePinsReport(""),
+      githubItems: []
+    });
+    const boundaryOnlyDigest = createProjectDigest(db, {
+      window: "today",
+      limit: 10,
+      planStatePins: createPlanStatePinsReport("<!-- loo:approval-boundary -->\n- Stop before live control.\n<!-- /loo:approval-boundary -->")
+    });
+    const limitedDigest = createProjectDigest(db, {
+      window: "today",
+      limit: 2,
+      planStatePins: pins,
+      githubItems: [
+        {
+          id: "100yenadmin/Lossless-Codex-Orchestrator-LCO#256",
+          title: "shared public-safe autonomy cockpit contracts",
+          state: "yellow",
+          urgency: "high",
+          reasonCodes: ["review_requested"],
+          updatedAt: relativeIso(15),
+          nextAction: "review PR"
+        }
+      ]
+    });
+
+    assert.equal(digest.schema, "lco.operatingDigest.v1");
+    assert.equal(digest.publicSafe, true);
+    assert.equal(digest.sourceCoverage.lco, "ok");
+    assert.equal(digest.sourceCoverage.github, "ok");
+    assert.equal(digest.sourceCoverage.plan_state, "ok");
+    assert.equal(digest.sourceCoverage.notion, "not_configured");
+    assert.equal(digest.sourceCoverage.support_control, "not_configured");
+    assert.equal(digest.sourceCoverage.company_brain, "not_configured");
+    assert.equal(digest.sourceCoverage.stripe, "not_configured");
+    assert.equal(digest.cards.some((card) => card.kind === "project" && card.title === "LCO"), true);
+    assert.equal(digest.cards.some((card) => card.kind === "repo" && card.reasonCodes.includes("review_requested")), true);
+    assert.equal(digest.evidence.some((evidence) =>
+      evidence.sourceKind === "github_check_summary" &&
+      evidence.sourceRef === "github:100yenadmin/Lossless-Codex-Orchestrator-LCO#256"
+    ), true);
+    assert.equal(digest.cards.some((card) => card.title === "Old lane"), false);
+    assert.equal(digest.cards.some((card) => card.state === "unknown" && card.reasonCodes.includes("conflicting_state")), true);
+    assert.equal(digest.topAttention.length > 0, true);
+    assert.equal(missingStructuredSources.sourceCoverage.github, "not_configured");
+    assert.equal(missingStructuredSources.sourceCoverage.plan_state, "not_configured");
+    assert.equal(boundaryOnlyDigest.sourceCoverage.plan_state, "ok");
+    assert.equal(limitedDigest.cards.length, 2);
+    assert.equal(limitedDigest.signals.length, 2);
+
+    const attention = createBusinessPulse(db, { window: "today", limit: 5, planStatePins: pins });
+    assert.equal(attention.digest.health.finance.state, "unknown");
+    assert.equal(attention.digest.health.finance.reason, "stripe_adapter_not_configured");
+  });
+});
+
+test("new cockpit and operating-picture tools are exposed through MCP with public-safe results", async () => {
+  await withIndexedSessionsAsync([
+    {
+      id: "019f-tool-blocked",
+      title: "Tool blocked lane",
+      status: "blocked",
+      priority: "urgent",
+      blocker: "approval needed",
+      nextAction: "dry-run only",
+      updatedAt: relativeIso(10),
+      refs: true
+    }
+  ], async ({ db, root, sessions }) => {
+    const tools = createLooTools({
+      db,
+      audit: createAuditStore(join(root, "audit.jsonl")),
+      codexClient: { request: async () => ({ ok: true }) }
+    });
+    for (const name of [
+      "loo_recent_sessions",
+      "loo_cockpit_inbox",
+      "loo_plan_state_pins",
+      "loo_project_digest",
+      "loo_attention_inbox",
+      "loo_business_pulse"
+    ]) {
+      assert.equal(tools.some((tool) => tool.name === name), true, `${name} missing`);
+    }
+
+    const recent = await tools.find((tool) => tool.name === "loo_recent_sessions")?.execute({ limit: 5, include_cards: true });
+    assert.equal((recent as { publicSafe?: boolean }).publicSafe, true);
+
+    const pins = await tools.find((tool) => tool.name === "loo_plan_state_pins")?.execute({
+      plan_state_text: "<!-- loo:manual-pin -->\n- Project: LCO\n- State: yellow\n- Summary: Test pin.\n- Next: Review.\n<!-- /loo:manual-pin -->"
+    });
+    assert.equal((pins as { manualPins?: unknown[] }).manualPins?.length, 1);
+
+    const planStatePath = join(root, "PLAN_STATE.md");
+    writeFileSync(planStatePath, "<!-- loo:manual-pin -->\n- Project: Path pin\n- State: yellow\n- Summary: Allowed path pin.\n- Next: Review.\n<!-- /loo:manual-pin -->\n");
+    const pathPins = await tools.find((tool) => tool.name === "loo_plan_state_pins")?.execute({ plan_state_path: planStatePath });
+    assert.equal((pathPins as { manualPins?: unknown[] }).manualPins?.length, 1);
+
+    const disallowedPlanPath = join(root, "NOT_PLAN_STATE.md");
+    writeFileSync(disallowedPlanPath, "<!-- loo:manual-pin -->\n- Project: Unsafe path\n- State: red\n- Summary: Should not be read.\n- Next: Stop.\n<!-- /loo:manual-pin -->\n");
+    const disallowedPins = await tools.find((tool) => tool.name === "loo_plan_state_pins")?.execute({ plan_state_path: disallowedPlanPath });
+    assert.equal((disallowedPins as { manualPins?: unknown[] }).manualPins?.length, 0);
+
+    const projectDigestTool = tools.find((tool) => tool.name === "loo_project_digest");
+    assert.ok(projectDigestTool);
+    await assert.rejects(
+      async () => projectDigestTool.execute({ github_items: [{}] }),
+      /github_items\[0\] requires id and title/
+    );
+
+    const pulse = await tools.find((tool) => tool.name === "loo_business_pulse")?.execute({ limit: 5 });
+    assert.equal((pulse as { digest?: { sourceCoverage?: { plan_state?: string; stripe?: string } } }).digest?.sourceCoverage?.plan_state, "not_configured");
+    assert.equal((pulse as { digest?: { sourceCoverage?: { plan_state?: string; stripe?: string } } }).digest?.sourceCoverage?.stripe, "not_configured");
+    assertNoUnsafeStrings({ recent, pins, pulse }, sessions);
+  });
+});
+
+type IndexedSessionContext = {
+  db: LooDatabase;
+  root: string;
+  sessions: string;
+  canaries: string[];
+};
+
+type SessionFixtureFactoryResult = {
+  fixtures: SessionFixture[];
+  canaries?: string[];
+};
+
+function withIndexedSessions(
+  fixturesOrFactory: SessionFixture[] | ((sessions: string) => SessionFixture[] | SessionFixtureFactoryResult),
+  run: (context: IndexedSessionContext) => void
+): void {
+  const root = mkdtempSync(join(tmpdir(), "loo-autonomy-operating-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const result = typeof fixturesOrFactory === "function" ? fixturesOrFactory(sessions) : fixturesOrFactory;
+  const fixtures = Array.isArray(result) ? result : result.fixtures;
+  const canaries = Array.isArray(result) ? [] : result.canaries ?? [];
+  for (const fixture of fixtures) writeSessionFixture(sessions, fixture);
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    run({ db, root, sessions, canaries });
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+async function withIndexedSessionsAsync(
+  fixturesOrFactory: SessionFixture[] | ((sessions: string) => SessionFixture[] | SessionFixtureFactoryResult),
+  run: (context: IndexedSessionContext) => Promise<void>
+): Promise<void> {
+  const root = mkdtempSync(join(tmpdir(), "loo-autonomy-operating-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const result = typeof fixturesOrFactory === "function" ? fixturesOrFactory(sessions) : fixturesOrFactory;
+  const fixtures = Array.isArray(result) ? result : result.fixtures;
+  const canaries = Array.isArray(result) ? [] : result.canaries ?? [];
+  for (const fixture of fixtures) writeSessionFixture(sessions, fixture);
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    await run({ db, root, sessions, canaries });
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function relativeIso(minutesAgo: number): string {
+  return new Date(Date.now() - minutesAgo * 60_000).toISOString();
+}
+
+function writeSessionFixture(root: string, fixture: SessionFixture): void {
+  const refs = fixture.refs === true
+    ? [
+        `Proposed plan refs: codex_event:${fixture.id}-plan`,
+        `Final-message refs: codex_event:${fixture.id}-final`,
+        `Touched-file refs: codex_event:${fixture.id}-file`
+      ]
+    : [];
+  const lines = [
+    {
+      timestamp: fixture.updatedAt,
+      session_meta: {
+        payload: {
+          id: fixture.id,
+          cwd: "/Volumes/LEXAR/repos/lossless-openclaw-orchestrator",
+          model: "gpt-5.5",
+          git: { branch: "main", commit_hash: "abc1234" }
+        }
+      }
+    },
+    { timestamp: fixture.updatedAt, event_msg: { type: "thread_name", name: fixture.title } },
+    {
+      timestamp: fixture.updatedAt,
+      event_msg: {
+        type: "agent_message",
+        message: [
+          ...(fixture.project === null ? [] : [`Project: ${fixture.project ?? "lossless-openclaw-orchestrator"}`]),
+          `Status: ${fixture.status}`,
+          `Priority: ${fixture.priority}`,
+          "Owner: codex",
+          `Blocker: ${fixture.blocker ?? "none"}`,
+          `Next action: ${fixture.nextAction}`,
+          "Closeout state: ready",
+          ...refs,
+          `Source refs: codex_thread:${fixture.id}`,
+          ...(fixture.extra ?? [])
+        ].join("\n")
+      }
+    }
+  ];
+  writeFileSync(join(root, `rollout-2026-07-01T00-00-00-${fixture.id}.jsonl`), `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
+}
+
+function assertNoUnsafeStrings(value: unknown, ...canaries: string[]): void {
+  const json = JSON.stringify(value);
+  for (const canary of canaries) assert.equal(json.includes(canary), false, `unsafe canary leaked: ${canary}`);
+  assert.equal(/\/Volumes\/LEXAR\/[^\s"\\]+\.jsonl/.test(json), false, "absolute transcript path leaked");
+  assert.equal(/authorization:\s*Bearer\s+[A-Za-z0-9._-]+/i.test(json), false, "bearer token leaked");
+}
