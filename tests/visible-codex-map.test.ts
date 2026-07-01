@@ -69,15 +69,16 @@ test("Codex read surface blocks current app-server mutation families", () => {
 });
 
 test("app-server status report is read-only and sanitizes unavailable probes", async () => {
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? "/home/lco-test";
   const client = new FakeCodexReadClient({
-    "remoteControl/status/read": new Error(`Cannot connect to ${process.env.HOME}/.codex/socket with Bearer abcdefghijklmnop`)
+    "remoteControl/status/read": new Error(`Cannot connect to ${home}/.codex/socket with Bearer abcdefghijklmnop`)
   });
 
   const report = await createCodexAppServerStatusReport({
     client,
     transport: {
       mode: "stdio",
-      command: `${process.env.HOME}/bin/codex`,
+      command: `${home}/bin/codex`,
       available: true,
       version: "codex 0.0.0-test",
       error: null
@@ -94,7 +95,7 @@ test("app-server status report is read-only and sanitizes unavailable probes", a
   assert.equal(report.actionsPerformed.rawTranscriptRead, false);
   assert.equal(client.requests.length, 1);
   assert.equal(client.requests[0]?.method, "remoteControl/status/read");
-  assert.doesNotMatch(JSON.stringify(report), new RegExp(process.env.HOME!.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.doesNotMatch(JSON.stringify(report), new RegExp(escapeRegExp(home)));
   assert.doesNotMatch(JSON.stringify(report), /Bearer abcdefghijklmnop/);
 });
 
@@ -109,7 +110,7 @@ test("app-server threads report never requests turns and omits raw path cwd prev
           preview: "raw prompt preview must not leak",
           path: "/Users/lume/.codex/sessions/private.jsonl",
           cwd: "/Volumes/LEXAR/repos/private",
-          updatedAt: 1782867600,
+          updatedAt: Number.MAX_VALUE,
           createdAt: 1782860000,
           status: { type: "active", activeFlags: [] },
           turns: [{ items: ["raw turn"] }]
@@ -143,6 +144,7 @@ test("app-server threads report never requests turns and omits raw path cwd prev
 
   assert.equal(report.schema, "lco.codex.appServerThreads.v1");
   assert.equal(report.publicSafe, true);
+  assert.equal(report.readOnly, true);
   assert.equal(report.sourceCoverage.codexAppServer, "ok");
   assert.deepEqual(client.requests.map((request) => request.method), ["thread/list", "thread/read"]);
   assert.deepEqual(client.requests[0]?.params, {
@@ -159,9 +161,33 @@ test("app-server threads report never requests turns and omits raw path cwd prev
   assert.equal(report.loadedSignalSource, "not_claimed_one_shot_client");
   assert.equal(report.loadedThreadRefs, null);
   assert.equal(report.threads[0]?.titleSanitized, "Visible safe title");
+  assert.equal(report.threads[0]?.updatedAt, null);
   assert.equal(report.readProbe?.threadId, "thr_visible");
   assert.equal(report.readProbe?.turnsOmitted, true);
   assert.doesNotMatch(JSON.stringify(report), /raw prompt|raw read|private\.jsonl|read-private|\/Users\/lume|\/Volumes\/LEXAR\/repos\/private/);
+});
+
+test("app-server threads report downgrades coverage when metadata probe fails", async () => {
+  const client = new FakeCodexReadClient({
+    "thread/list": {
+      ok: true,
+      result: { data: [] },
+      notifications: []
+    },
+    "thread/read": new Error("thread/read failed for /Users/lume/.codex/sessions/private.jsonl sk-test_1234567890")
+  });
+
+  const report = await createCodexAppServerThreadsReport({
+    client,
+    readThreadId: "thr_missing"
+  });
+
+  assert.equal(report.publicSafe, true);
+  assert.equal(report.readOnly, true);
+  assert.equal(report.sourceCoverage.codexAppServer, "partial");
+  assert.equal(report.readProbe?.threadId, "thr_missing");
+  assert.equal(report.readProbe?.error !== null, true);
+  assert.doesNotMatch(JSON.stringify(report), /\/Users\/lume|private\.jsonl|sk-test_1234567890/);
 });
 
 test("app-server threads report can claim loaded signals only for an explicit same-connection source", async () => {
@@ -251,6 +277,7 @@ test("visible Codex map joins public-safe visible app-server and indexed session
       appServerThreads: {
         schema: "lco.codex.appServerThreads.v1",
         publicSafe: true,
+        readOnly: true,
         generatedAt: "2026-07-01T10:00:00.000Z",
         sourceCoverage: { codexAppServer: "ok" },
         threads: [{
@@ -276,6 +303,7 @@ test("visible Codex map joins public-safe visible app-server and indexed session
           confidence: 0.9
         }],
         loadedThreadRefs: ["codex_app_thread:thr_visible"],
+        loadedSignalSource: "same_connection",
         errors: [],
         actionsPerformed: {
           liveCodexControlRun: false,
@@ -314,6 +342,95 @@ test("visible Codex map joins public-safe visible app-server and indexed session
   });
 });
 
+test("visible Codex map reports unconsumed duplicate app-server title matches", async () => {
+  withIndexedSessions([
+    {
+      id: "thr_visible",
+      title: "Visible safe title",
+      status: "active",
+      priority: "high",
+      nextAction: "keep visible thread mapped",
+      refs: true
+    }
+  ], ({ db }) => {
+    const map = createVisibleCodexSessionMap(db, {
+      visibleCodex: {
+        threadMap: {
+          threads: [{ visibleId: "visible-1", title: "Visible safe title", confidence: "high" }]
+        }
+      },
+      appServerThreads: {
+        sourceCoverage: { codexAppServer: "ok" },
+        threads: [{
+          appServerRef: "codex_app_thread:thr_app_a",
+          threadId: "thr_app_a",
+          titleSanitized: "Visible safe title",
+          sourceRef: "codex_thread:thr_app_a",
+          confidence: 0.9
+        }, {
+          appServerRef: "codex_app_thread:thr_app_b",
+          threadId: "thr_app_b",
+          titleSanitized: "Visible safe title",
+          sourceRef: "codex_thread:thr_app_b",
+          confidence: 0.9
+        }]
+      }
+    });
+
+    assert.equal(map.items.some((item) => item.appServerRef === "codex_app_thread:thr_app_a"), true);
+    assert.equal(map.items.some((item) => item.appServerRef === "codex_app_thread:thr_app_b"), true);
+    assert.equal(map.items.some((item) => item.ambiguity.includes("indexed_card_already_claimed")), true);
+  });
+});
+
+test("visible Codex map preserves low confidence and unique untitled desktop refs", async () => {
+  withIndexedSessions([
+    {
+      id: "thr_visible",
+      title: "Visible safe title",
+      status: "active",
+      priority: "medium",
+      nextAction: "inspect confidence",
+      refs: true
+    }
+  ], ({ db }) => {
+    const map = createVisibleCodexSessionMap(db, {
+      visibleCodex: {
+        threadMap: {
+          threads: [
+            { title: "Visible safe title", confidence: "low" },
+            { status: "Running", updatedLabel: "1m", confidence: "low" },
+            { status: "Idle", updatedLabel: "2m", confidence: "low" }
+          ]
+        }
+      },
+      appServerThreads: { sourceCoverage: { codexAppServer: "not_configured" }, threads: [] }
+    });
+
+    const lowConfidenceMatch = map.items.find((item) => item.sessionCardRef === "codex_thread:thr_visible");
+    assert.ok(lowConfidenceMatch);
+    assert.equal(lowConfidenceMatch.confidence < 0.5, true);
+    const desktopRefs = map.items.map((item) => item.desktopRef).filter(Boolean);
+    assert.equal(new Set(desktopRefs).size, desktopRefs.length);
+    assert.equal(map.sourceCoverage.visibleCodex, "ok");
+  });
+});
+
+test("visible Codex map treats an explicit empty visible probe as complete", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-visible-map-empty-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const map = createVisibleCodexSessionMap(db, {
+      visibleCodex: { threadMap: { threads: [] } },
+      appServerThreads: { sourceCoverage: { codexAppServer: "not_configured" }, threads: [] }
+    });
+    assert.equal(map.sourceCoverage.visibleCodex, "ok");
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("MCP exposes #260 read-only tools", async () => {
   const root = mkdtempSync(join(tmpdir(), "loo-visible-map-mcp-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
@@ -339,6 +456,12 @@ test("MCP exposes #260 read-only tools", async () => {
     assert.equal((status as { publicSafe?: boolean }).publicSafe, true);
     const threads = await tools.find((tool) => tool.name === "loo_codex_app_server_threads")!.execute({ limit: 5 });
     assert.equal((threads as { publicSafe?: boolean }).publicSafe, true);
+    const map = await tools.find((tool) => tool.name === "loo_visible_codex_map")!.execute({
+      include_app_server: false,
+      visible_codex: { threadMap: { threads: [] } }
+    });
+    assert.equal((map as { publicSafe?: boolean }).publicSafe, true);
+    assert.equal((map as { sourceCoverage?: { visibleCodex?: string } }).sourceCoverage?.visibleCodex, "ok");
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -362,6 +485,10 @@ function withIndexedSessions<T>(
     db.close();
     rmSync(root, { recursive: true, force: true });
   }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function writeSessionFixture(

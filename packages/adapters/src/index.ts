@@ -69,6 +69,7 @@ export type CodexAppServerThreadSignal = {
 export type CodexAppServerThreadsReport = {
   schema: "lco.codex.appServerThreads.v1";
   publicSafe: true;
+  readOnly: true;
   generatedAt: string;
   sourceCoverage: {
     codexAppServer: SourceCoverageState;
@@ -680,9 +681,11 @@ export async function createCodexAppServerThreadsReport(options: {
     .map((thread) => appServerThreadSignal(thread, loadedThreadIds));
 
   let readProbe: CodexAppServerThreadsReport["readProbe"];
+  let readProbeOk: boolean | undefined;
   if (options.readThreadId) {
     const threadId = capTextValue(options.readThreadId, 160);
     const read = await codexReadRequest(options.client, "thread/read", { threadId, includeTurns: false });
+    readProbeOk = read.ok;
     if (!read.ok) {
       if (read.error) errors.push(read.error);
       readProbe = {
@@ -711,9 +714,14 @@ export async function createCodexAppServerThreadsReport(options: {
   return {
     schema: "lco.codex.appServerThreads.v1",
     publicSafe: true,
+    readOnly: true,
     generatedAt: options.now ?? new Date().toISOString(),
     sourceCoverage: {
-      codexAppServer: list.ok && (!loaded || loaded.ok) ? "ok" : list.ok || loaded?.ok ? "partial" : "unavailable"
+      codexAppServer: list.ok && (!loaded || loaded.ok) && readProbeOk !== false
+        ? "ok"
+        : list.ok || loaded?.ok || readProbeOk === true
+          ? "partial"
+          : "unavailable"
     },
     threads,
     loadedThreadRefs: loadedThreadIds ? [...loadedThreadIds].sort().map(codexAppThreadRef) : null,
@@ -1787,6 +1795,7 @@ function boundsToRect(bounds: Record<string, unknown> | null): DesktopSnapshotEl
 
 function capTextValue(value: unknown, maxChars: number): string {
   const redacted = String(redactValue(String(value)))
+    .replace(/~\/\.codex\/(?:sessions|archived_sessions)\/[^\s"'`)]+/g, "<redacted-path>")
     .replace(/\/Volumes\/[^\s"'`)]+/g, "<redacted-path>")
     .replace(/\/(?:private\/)?(?:tmp|var)\/[^\s"'`)]+/g, "<redacted-path>");
   return redacted.length > maxChars ? redacted.slice(0, maxChars) : redacted;
@@ -1863,7 +1872,8 @@ function threadStatus(value: unknown): string | null {
 function unixSecondsToIso(value: unknown): string | null {
   const numeric = typeof value === "number" && Number.isFinite(value) ? value : null;
   if (numeric === null) return null;
-  return new Date(numeric * 1000).toISOString();
+  const date = new Date(numeric * 1000);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
 }
 
 function codexAppThreadRef(threadId: string): string {

@@ -1812,9 +1812,11 @@ export function createVisibleCodexSessionMap(db: LooDatabase, options: {
   const appThreads = (options.appServerThreads?.threads ?? []).map(publicAppServerThreadSignal);
   const appThreadsByThreadId = new Map(appThreads.map((thread) => [thread.threadId, thread]));
   const appThreadsByTitle = groupedByNormalizedTitle(appThreads.map((thread) => ({ title: thread.titleSanitized ?? "", thread })));
-  const visibleThreads = (options.visibleCodex?.threadMap?.threads ?? []).map(publicVisibleThreadCandidate);
+  const visibleThreads = (options.visibleCodex?.threadMap?.threads ?? [])
+    .map((candidate, index) => publicVisibleThreadCandidate(candidate, index));
   const items: VisibleCodexSessionMapItem[] = [];
   const seen = new Set<string>();
+  const usedAppServerRefs = new Set<string>();
 
   for (const visible of visibleThreads) {
     const titleMatches = cardsByTitle.get(normalizedTitle(visible.titleSanitized)) ?? [];
@@ -1841,18 +1843,20 @@ export function createVisibleCodexSessionMap(db: LooDatabase, options: {
     });
     items.push(item);
     seen.add(visibleMapSeenKey(item));
+    if (item.appServerRef) usedAppServerRefs.add(item.appServerRef);
   }
 
   for (const appThread of appThreads) {
+    if (usedAppServerRefs.has(appThread.appServerRef)) continue;
     const card = cardsByThreadId.get(appThread.threadId)
       ?? ((cardsByTitle.get(normalizedTitle(appThread.titleSanitized ?? "")) ?? []).length === 1
         ? (cardsByTitle.get(normalizedTitle(appThread.titleSanitized ?? "")) ?? [])[0]!.card
         : null);
-    const key = card ? `card:${card.threadId}` : `app:${appThread.appServerRef}`;
-    if (seen.has(key)) continue;
+    const claimedCardKey = card ? `card:${card.threadId}` : null;
     const titleMatches = appThread.titleSanitized ? cardsByTitle.get(normalizedTitle(appThread.titleSanitized)) ?? [] : [];
     const ambiguity = [
       ...(titleMatches.length > 1 ? ["multiple_indexed_title_matches"] : []),
+      ...(claimedCardKey && seen.has(claimedCardKey) ? ["indexed_card_already_claimed"] : []),
       ...(!card ? ["no_visible_codex_candidate"] : [])
     ];
     const item = visibleMapItem({
@@ -2177,14 +2181,22 @@ function groupedByNormalizedTitle<T extends { title: string }>(items: T[]): Map<
   return groups;
 }
 
-function publicVisibleThreadCandidate(input: VisibleCodexThreadCandidateInput): {
+function publicVisibleThreadCandidate(input: VisibleCodexThreadCandidateInput, index = 0): {
   visibleId: string;
   titleSanitized: string;
   status: string | null;
   updatedLabel: string | null;
   confidence: number;
 } {
-  const visibleId = publicSafeText(input.visibleId || `visible-${stableId(String(input.title ?? ""))}`, 160);
+  const fallbackIdentity = [
+    index,
+    input.title ?? "",
+    input.rawTitle ?? "",
+    input.status ?? "",
+    input.updatedLabel ?? "",
+    input.source ?? ""
+  ].join("|");
+  const visibleId = publicSafeText(input.visibleId || `visible-${stableId(fallbackIdentity)}`, 160);
   return {
     visibleId,
     titleSanitized: publicSafeText(input.title || input.rawTitle || "Untitled visible Codex thread", 160),
@@ -2236,7 +2248,7 @@ function visibleMapItem(input: {
   );
   const confidence = ambiguity.length > 0
     ? Math.min(0.45, Number((baseConfidence * sourceConfidence).toFixed(2)))
-    : Number(Math.min(0.99, baseConfidence * Math.max(0.82, sourceConfidence)).toFixed(2));
+    : Number(Math.min(0.99, baseConfidence * sourceConfidence).toFixed(2));
   const title = input.card?.title ?? input.appThread?.titleSanitized ?? input.visible?.titleSanitized ?? "Unknown Codex thread";
   const evidenceIds = unique([
     ...(input.card?.evidenceIds ?? []),
@@ -2281,8 +2293,8 @@ function visibleMapItemComparator(left: VisibleCodexSessionMapItem, right: Visib
 
 function visibleCoverage(input: VisibleCodexInput | null | undefined): VisibleCodexCoverageState {
   if (!input) return "not_configured";
-  const count = input.threadMap?.threads?.length ?? 0;
-  return count > 0 ? "ok" : "partial";
+  if (Array.isArray(input.threadMap?.threads)) return "ok";
+  return "partial";
 }
 
 function visibleConfidence(value: VisibleCodexThreadCandidateInput["confidence"]): number {
