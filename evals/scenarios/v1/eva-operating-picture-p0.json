@@ -26,6 +26,9 @@
     "source authority coverage report",
     "deterministically normalized GitHub issue/PR/check records",
     "GitHub statusCheckRollup pending, failed, passed, and unknown check-state reason codes",
+    "current_lane and fresh_signal reason codes for fresh actionable GitHub PR/check items",
+    "low_confidence_downgraded reason codes for old missing-evidence Codex cards",
+    "customer_impact, runtime_impact, security_impact, or production_impact reason codes outranking current-lane PRs when present",
     "not_configured P1 source states",
     "manual pins from explicit PLAN_STATE markers only",
     "unmarked PLAN_STATE stale prose ignored as current truth",
@@ -44,6 +47,9 @@
   "metrics": {
     "requires_source_coverage": true,
     "requires_source_authority_coverage": true,
+    "requires_current_lane_source_balance": true,
+    "requires_low_confidence_downgrade": true,
+    "requires_customer_runtime_red_priority": true,
     "requires_plan_state_bootloader_only": true,
     "requires_p1_sources_not_configured": true,
     "requires_no_external_writes": true,
@@ -52,6 +58,6 @@
     "max_live_actions": 0,
     "max_screenshots_in_public_evidence": 0
   },
-  "proof_boundary": "Dry-run P0 scenario contract for Eva Operating Picture. It may prove read-only structured digest behavior for LCO/Codex, deterministically normalized GitHub issue/PR/check records including caller-provided statusCheckRollup check-state fidelity, and PLAN_STATE pins, but does not prove Notion, support-control, Company Brain, Stripe, customer readiness, full business truth, or 1.0 readiness.",
+  "proof_boundary": "Dry-run P0 scenario contract for Eva Operating Picture. It may prove read-only structured digest behavior for LCO/Codex, current-lane source-balanced ranking, deterministically normalized GitHub issue/PR/check records including caller-provided statusCheckRollup check-state fidelity, and PLAN_STATE pins, but does not prove Notion, support-control, Company Brain, Stripe, customer readiness, full business truth, or 1.0 readiness.",
   "next_action": "Run `loo_github_operating_items` and `loo_business_pulse` through the local OpenClaw gateway with public-safe PLAN_STATE pins and GitHub fixtures."
 }

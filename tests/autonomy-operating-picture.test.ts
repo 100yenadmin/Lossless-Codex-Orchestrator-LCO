@@ -6,6 +6,7 @@ import test from "node:test";
 
 import { createAuditStore } from "../packages/adapters/src/index.js";
 import {
+  createAttentionInbox,
   createBusinessPulse,
   createDatabase,
   createDefaultSourceAuthorityProfile,
@@ -704,6 +705,108 @@ test("operating picture marks missing P1 sources and preserves low-confidence co
     const attention = createBusinessPulse(db, { window: "7d", limit: 5, planStatePins: pins });
     assert.equal(attention.digest.health.finance.state, "unknown");
     assert.equal(attention.digest.health.finance.reason, "stripe_adapter_not_configured");
+  });
+});
+
+test("operating picture balances current GitHub lane above stale low-confidence Codex cards", () => {
+  withIndexedSessions((sessions) => {
+    const rawPathCanary = join(sessions, "rollout-2026-07-01T00-00-00-019f-old-red-a.jsonl");
+    return {
+      fixtures: [
+        {
+          id: "019f-old-red-a",
+          title: "Old missing-evidence blocked lane A",
+          status: "blocked",
+          priority: "urgent",
+          blocker: "stale private proof",
+          nextAction: `inspect stale local proof ${rawPathCanary}`,
+          updatedAt: relativeIso(23 * 60),
+          refs: false
+        },
+        {
+          id: "019f-old-red-b",
+          title: "Old missing-evidence blocked lane B",
+          status: "blocked",
+          priority: "urgent",
+          blocker: "stale review residue",
+          nextAction: "expand before acting",
+          updatedAt: relativeIso(22 * 60),
+          refs: false
+        },
+        {
+          id: "019f-old-red-c",
+          title: "Old missing-evidence blocked lane C",
+          status: "blocked",
+          priority: "urgent",
+          blocker: "old missing evidence",
+          nextAction: "inspect only if current lane clears",
+          updatedAt: relativeIso(21 * 60),
+          refs: false
+        }
+      ],
+      canaries: [rawPathCanary]
+    };
+  }, ({ db, canaries }) => {
+    const currentGithubItem = {
+      id: "100yenadmin/Lossless-Codex-Orchestrator-LCO#269",
+      title: "current-lane source balancing",
+      kind: "pr" as const,
+      state: "yellow" as const,
+      urgency: "medium" as const,
+      reasonCodes: ["checks_pending"],
+      updatedAt: relativeIso(4),
+      nextAction: "Watch GitHub checks for #269.",
+      confidence: 0.88
+    };
+    const customerRuntimeItem = {
+      id: "100yenadmin/Lossless-Codex-Orchestrator-LCO#999",
+      title: "customer runtime incident",
+      kind: "issue" as const,
+      state: "red" as const,
+      urgency: "critical" as const,
+      reasonCodes: ["ci_failed", "customer_impact", "runtime_impact"],
+      updatedAt: relativeIso(10),
+      nextAction: "Inspect customer runtime failure.",
+      confidence: 0.92
+    };
+
+    const digest = createProjectDigest(db, {
+      window: "24h",
+      limit: 6,
+      githubItems: [currentGithubItem]
+    });
+    const attention = createAttentionInbox(db, {
+      window: "24h",
+      limit: 6,
+      githubItems: [currentGithubItem]
+    });
+    const pulse = createBusinessPulse(db, {
+      window: "24h",
+      limit: 6,
+      githubItems: [currentGithubItem]
+    });
+
+    const firstAttentionCard = attention.cards[0];
+    assert.equal(firstAttentionCard?.title, "current-lane source balancing");
+    assert.equal(firstAttentionCard?.reasonCodes.includes("current_lane"), true);
+    assert.equal(firstAttentionCard?.reasonCodes.includes("fresh_signal"), true);
+    assert.equal(firstAttentionCard?.reasonCodes.includes("checks_pending"), true);
+    assert.equal(digest.sourceCoverage.github, "ok");
+    assert.equal(digest.sourceCoverage.notion, "not_configured");
+    assert.equal(digest.cards.some((card) => card.reasonCodes.includes("authority_not_configured")), false);
+    assert.equal(pulse.digest.topAttention[0], firstAttentionCard?.cardId);
+    assert.equal(attention.cards.some((card) => card.reasonCodes.includes("low_confidence_downgraded")), true);
+
+    const customerRuntimeDigest = createProjectDigest(db, {
+      window: "24h",
+      limit: 6,
+      githubItems: [currentGithubItem, customerRuntimeItem]
+    });
+    assert.equal(customerRuntimeDigest.cards[0]?.title, "customer runtime incident");
+    assert.equal(customerRuntimeDigest.cards[0]?.reasonCodes.includes("customer_impact"), true);
+    assert.equal(customerRuntimeDigest.cards[0]?.reasonCodes.includes("runtime_impact"), true);
+
+    assertNoUnsafeStrings({ digest, attention, pulse, customerRuntimeDigest }, ...canaries);
   });
 });
 

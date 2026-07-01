@@ -3042,6 +3042,7 @@ function authorityStatusFor(source: SourceAuthoritySource, coverage: SourceCover
 }
 
 function operatingCardFromSignal(signal: OperatingSignal): OperatingCard {
+  const reasonCodes = operatingCardReasonCodes(signal);
   const kind: OperatingCard["kind"] = signal.subject.kind === "codex_session" || signal.subject.kind === "project"
     ? "project"
     : signal.subject.kind === "issue" || signal.subject.kind === "pr" || signal.subject.kind === "repo"
@@ -3056,30 +3057,73 @@ function operatingCardFromSignal(signal: OperatingSignal): OperatingCard {
     cardId: `card_${stableId(signal.signalId).slice(0, 16)}`,
     kind,
     title: signal.subject.title,
-    state: signal.reasonCodes.includes("conflicting_state") ? "unknown" : signal.state,
+    state: reasonCodes.includes("conflicting_state") ? "unknown" : signal.state,
     lastMovementAt: signal.observedAt,
     summary: publicSafeText(signal.summary, 320),
     nextAction: publicSafeText(signal.nextAction.text, 240),
     owner: "eva",
-    confidence: signal.reasonCodes.includes("conflicting_state") ? Math.min(signal.confidence, 0.45) : signal.confidence,
+    confidence: reasonCodes.includes("conflicting_state") ? Math.min(signal.confidence, 0.45) : signal.confidence,
     signals: [signal.signalId],
     evidenceIds: signal.evidenceIds,
-    reasonCodes: signal.reasonCodes,
+    reasonCodes,
     approvalBoundary: signal.nextAction.requiresApproval
       ? "Approval required before resume, send, steer, interrupt, GUI action, external message, commit, push, deploy, or production/customer mutation."
       : "Read-only inspection only; no mutation is authorized by this card."
   };
 }
 
+function operatingCardReasonCodes(signal: OperatingSignal): string[] {
+  const fresh = signalIsFresh(signal.observedAt);
+  const codes = [
+    ...signal.reasonCodes,
+    signal.sourceKind === "github" && signal.state !== "green" && fresh ? "fresh_signal" : "",
+    signal.sourceKind === "github" && signal.state !== "green" && fresh && ["repo", "pr", "issue"].includes(signal.subject.kind) ? "current_lane" : "",
+    signal.sourceKind === "codex" && signal.reasonCodes.includes("missing_evidence") && signal.confidence <= 0.72 ? "low_confidence_downgraded" : ""
+  ];
+  return unique(codes.filter(Boolean).map((code) => publicSafeText(code, 80)));
+}
+
+function signalIsFresh(observedAt: string | null): boolean {
+  const observedAtMs = timestampMillis(observedAt);
+  if (observedAtMs === null) return false;
+  return Date.now() - observedAtMs <= 24 * 60 * 60 * 1000;
+}
+
 function operatingCardComparator(left: OperatingCard, right: OperatingCard): number {
-  const stateRank = { red: 0, yellow: 1, unknown: 2, green: 3 } as const;
-  const leftRank = stateRank[left.state];
-  const rightRank = stateRank[right.state];
-  if (leftRank !== rightRank) return leftRank - rightRank;
-  if (left.confidence !== right.confidence) return left.confidence - right.confidence;
+  const leftScore = operatingCardPriorityScore(left);
+  const rightScore = operatingCardPriorityScore(right);
+  if (leftScore !== rightScore) return rightScore - leftScore;
   const updatedAtCompare = compareUpdatedAtDesc(left.lastMovementAt, right.lastMovementAt);
   if (updatedAtCompare !== 0) return updatedAtCompare;
+  if (left.confidence !== right.confidence) return right.confidence - left.confidence;
   return left.cardId.localeCompare(right.cardId);
+}
+
+function operatingCardPriorityScore(card: OperatingCard): number {
+  const stateScore = { red: 300, yellow: 220, unknown: 140, green: 20 } as const;
+  const codeScore = card.reasonCodes.reduce((score, code) => score + ({
+    customer_impact: 220,
+    runtime_impact: 220,
+    security_impact: 220,
+    production_impact: 220,
+    current_lane: 160,
+    fresh_signal: 80,
+    ci_failed: 80,
+    changes_requested: 75,
+    approval_needed: 70,
+    checks_pending: 55,
+    review_requested: 45,
+    blocked: 45,
+    manual_pin: 30,
+    checks_unknown: 20,
+    low_confidence_downgraded: -190,
+    missing_evidence: -120,
+    active_stale: -80,
+    authority_not_configured: -40,
+    authority_unavailable: -40,
+    authority_cache_only: -30
+  }[code] ?? 0), 0);
+  return stateScore[card.state] + codeScore + Math.round(card.confidence * 40);
 }
 
 function evidenceCardsForOperatingCard(card: OperatingCard, signal: OperatingSignal | undefined): EvidenceCard[] {
