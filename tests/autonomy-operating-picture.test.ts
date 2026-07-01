@@ -506,6 +506,28 @@ test("GitHub operating item collector preserves statusCheckRollup fidelity", () 
   assert.equal(startupFailurePr?.state, "red");
   assert.equal(startupFailurePr?.reasonCodes.includes("ci_failed"), true);
 
+  const failedConclusionVariants = ["FAILURE", "ERROR", "TIMED_OUT", "ACTION_REQUIRED", "STALE"] as const;
+  const failureVariantReport = createGithubOperatingItemsReport(failedConclusionVariants.map((conclusion, index) => ({
+    repo: "100yenadmin/Lossless-Codex-Orchestrator-LCO",
+    number: 276 + index,
+    type: "pull_request",
+    title: `${conclusion} check run`,
+    state: "open",
+    updatedAt: relativeIso(1),
+    statusCheckRollup: {
+      contexts: {
+        nodes: [
+          { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion }
+        ]
+      }
+    }
+  })), { now: "2026-07-01T12:00:00.000Z" });
+  for (const [index, conclusion] of failedConclusionVariants.entries()) {
+    const failureVariantPr = failureVariantReport.items.find((item) => item.id.endsWith(`#${276 + index}`));
+    assert.equal(failureVariantPr?.state, "red", `${conclusion} should be red`);
+    assert.equal(failureVariantPr?.reasonCodes.includes("ci_failed"), true, `${conclusion} should set ci_failed`);
+  }
+
   const expectedContextReport = createGithubOperatingItemsReport([
     {
       repo: "100yenadmin/Lossless-Codex-Orchestrator-LCO",
@@ -552,6 +574,7 @@ test("GitHub operating item collector preserves statusCheckRollup fidelity", () 
     greenIncludedReport,
     unknownReport,
     startupFailureReport,
+    failureVariantReport,
     expectedContextReport,
     totalCountOnlyReport
   }, rawPathCanary, tokenCanary, opaqueNodeCanary);

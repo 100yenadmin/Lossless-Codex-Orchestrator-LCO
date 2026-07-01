@@ -2694,7 +2694,7 @@ function githubCheckStateLikeValue(value: string): boolean {
 }
 
 function githubFailedCheckValue(value: string): boolean {
-  return ["failure", "failed", "error", "timed_out", "cancelled", "action_required", "startup_failure", "fail", "red"].includes(value);
+  return ["failure", "failed", "error", "timed_out", "cancelled", "action_required", "startup_failure", "stale", "fail", "red"].includes(value);
 }
 
 function githubPendingCheckValue(value: string): boolean {
@@ -2733,10 +2733,11 @@ function githubReasonCodes(
     kind === "pr" ? "pr_open" : kind === "issue" ? "issue_open" : "repo_signal"
   ];
   const state = normalizedMetadataValue(githubString(record.state) ?? "");
-  const hasChecks = githubHasCheckData(record);
-  const checksFailed = githubChecksFailed(record);
-  const checksPending = githubChecksPending(record);
-  const checksPassed = hasChecks && !checksFailed && !checksPending && githubChecksPassed(record);
+  const checkRecords = githubCheckRecords(record);
+  const hasChecks = githubHasCheckData(checkRecords);
+  const checksFailed = githubChecksFailed(checkRecords);
+  const checksPending = githubChecksPending(checkRecords);
+  const checksPassed = hasChecks && !checksFailed && !checksPending && githubChecksPassed(checkRecords);
   if (state === "closed") codes.push("closed");
   if (githubBoolean(record.merged) || state === "merged") codes.push("merged");
   if (checksFailed) codes.push("ci_failed");
@@ -2763,27 +2764,26 @@ function githubOperatingState(record: Record<string, unknown>, reasonCodes: stri
   return "unknown";
 }
 
-function githubHasCheckData(record: Record<string, unknown>): boolean {
-  return githubCheckRecords(record).length > 0;
+function githubHasCheckData(checkRecords: Record<string, unknown>[]): boolean {
+  return checkRecords.length > 0;
 }
 
-function githubChecksFailed(record: Record<string, unknown>): boolean {
-  return githubCheckRecords(record).some((checks) => {
+function githubChecksFailed(checkRecords: Record<string, unknown>[]): boolean {
+  return checkRecords.some((checks) => {
     const failing = githubCheckCount(checks, ["failing", "failed", "failureCount", "failure_count"]);
     return githubCheckValues(checks).some(githubFailedCheckValue) || (failing ?? 0) > 0;
   });
 }
 
-function githubChecksPending(record: Record<string, unknown>): boolean {
-  return githubCheckRecords(record).some((checks) => {
+function githubChecksPending(checkRecords: Record<string, unknown>[]): boolean {
+  return checkRecords.some((checks) => {
     const pending = githubCheckCount(checks, ["pending", "pendingCount", "pending_count"]);
     return githubCheckValues(checks).some(githubPendingCheckValue) || (pending ?? 0) > 0;
   });
 }
 
-function githubChecksPassed(record: Record<string, unknown>): boolean {
-  const checks = githubCheckRecords(record);
-  return checks.length > 0 && checks.every(githubCheckPassed);
+function githubChecksPassed(checkRecords: Record<string, unknown>[]): boolean {
+  return checkRecords.length > 0 && checkRecords.every(githubCheckPassed);
 }
 
 function githubCheckPassed(checks: Record<string, unknown>): boolean {
