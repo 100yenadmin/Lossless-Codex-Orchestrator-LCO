@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { createPublishedPackageSmokeReport } from "../packages/cli/src/published-package-smoke.js";
 
 const tsxImport = createRequire(import.meta.url).resolve("tsx");
 
@@ -249,6 +250,130 @@ test("published-smoke reports configured gateway proof separately from fresh-pro
     assert.deepEqual(report.blockers, []);
     assert.doesNotMatch(result.stdout, /super-secret|\.sqlite\b|\.db\b|Bearer\s+|npm_[A-Za-z0-9]{20,}/i);
     assert.doesNotMatch(readFileSync(join(evidenceDir, "published-package-smoke.json"), "utf8"), /super-secret|\.sqlite\b|\.db\b|Bearer\s+|npm_[A-Za-z0-9]{20,}/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("published-smoke emits clean-profile setup recovery classifications", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-published-smoke-setup-recovery-"));
+  try {
+    const dogfoodPath = join(dir, "dogfood.json");
+    const fakeNpmTokenCanary = `npm_${"a".repeat(24)}`;
+    writeJson(dogfoodPath, {
+      ok: true,
+      dogfoodReady: true,
+      publicSafe: true,
+      targetPlugin: { id: "lossless-openclaw-orchestrator", enabled: true, loaded: true, toolCount: 30 },
+      requiredToolsPresent: true,
+      installOutcome: { status: "installed", exitStatus: 0 }
+    });
+
+    const cases = [
+      {
+        name: "credentials",
+        blockers: ["fresh_profile_gateway_credentials_required"],
+        expected: "credential_required",
+        expectedCommand: "OPENCLAW_GATEWAY_TOKEN"
+      },
+      {
+        name: "device",
+        blockers: ["openclaw_device_identity_pairing_required"],
+        expected: "device_pairing_required",
+        expectedCommand: "device pairing"
+      },
+      {
+        name: "scope",
+        blockers: ["openclaw_gateway_scope_approval_required"],
+        expected: "scope_upgrade_required",
+        expectedCommand: "scope approval"
+      },
+      {
+        name: "token",
+        blockers: ["openclaw_gateway_token_rotation_required"],
+        expected: "token_rotation_required",
+        expectedCommand: "token"
+      }
+    ] as const;
+
+    for (const item of cases) {
+      const toolSmokePath = join(dir, `${item.name}-tool-smoke.json`);
+      writeJson(toolSmokePath, {
+        ok: false,
+        toolSmokeReady: false,
+        publicSafe: true,
+        setupBlockers: item.blockers,
+        setupStatus: {
+          classification: "gateway_setup_required",
+          packageInstallLikelyOk: true,
+          recoverable: true,
+          retryAfterSetup: true,
+          doesNotIndicatePackageFailure: true
+        },
+        private: `raw-openclaw-output ${fakeNpmTokenCanary} state_5.sqlite`
+      });
+
+      const report = createPublishedPackageSmokeReport({
+        rootDir: new URL("..", import.meta.url).pathname,
+        dogfoodReportPath: dogfoodPath,
+        toolSmokeReportPath: toolSmokePath
+      });
+
+      assert.equal(report.ok, true);
+      assert.equal(report.setupRecovery.classification, item.expected);
+      assert.equal(report.setupRecovery.packageInstallLikelyOk, true);
+      assert.equal(report.setupRecovery.ready, false);
+      assert.equal(report.setupRecovery.retryAfterSetup, true);
+      assert.equal(report.setupRecovery.configuredGatewayProofSeparate, true);
+      assert.ok(report.setupRecovery.nextSafeCommands.some((command) => command.includes(item.expectedCommand)));
+      assert.doesNotMatch(JSON.stringify(report.setupRecovery), /raw-openclaw-output|npm_[A-Za-z0-9]{20,}|state_5\.sqlite/i);
+    }
+
+    const readyToolSmokePath = join(dir, "ready-tool-smoke.json");
+    writeJson(readyToolSmokePath, {
+      ok: true,
+      toolSmokeReady: true,
+      publicSafe: true,
+      setupBlockers: [],
+      setupStatus: {
+        classification: "ready",
+        packageInstallLikelyOk: true,
+        recoverable: false,
+        retryAfterSetup: false,
+        doesNotIndicatePackageFailure: true
+      }
+    });
+    const readyReport = createPublishedPackageSmokeReport({
+      rootDir: new URL("..", import.meta.url).pathname,
+      dogfoodReportPath: dogfoodPath,
+      toolSmokeReportPath: readyToolSmokePath
+    });
+    assert.equal(readyReport.setupRecovery.classification, "ready");
+    assert.equal(readyReport.setupRecovery.ready, true);
+    assert.deepEqual(readyReport.setupRecovery.requiredSetup, []);
+
+    const packageFailureToolSmokePath = join(dir, "package-failure-tool-smoke.json");
+    writeJson(packageFailureToolSmokePath, {
+      ok: false,
+      toolSmokeReady: false,
+      publicSafe: true,
+      setupBlockers: [],
+      setupStatus: {
+        classification: "gateway_blocked",
+        packageInstallLikelyOk: false,
+        recoverable: false,
+        retryAfterSetup: false,
+        doesNotIndicatePackageFailure: false
+      }
+    });
+    const packageFailureReport = createPublishedPackageSmokeReport({
+      rootDir: new URL("..", import.meta.url).pathname,
+      dogfoodReportPath: dogfoodPath,
+      toolSmokeReportPath: packageFailureToolSmokePath
+    });
+    assert.equal(packageFailureReport.setupRecovery.classification, "package_failure_or_unknown");
+    assert.equal(packageFailureReport.setupRecovery.packageInstallLikelyOk, false);
+    assert.equal(packageFailureReport.setupRecovery.ready, false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
