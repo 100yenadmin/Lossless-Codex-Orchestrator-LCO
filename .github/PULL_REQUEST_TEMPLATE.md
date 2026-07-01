@@ -4,53 +4,68 @@
 
 Describe what changed and why.
 
-## Linked Issue
+## Linked Issue And Tracker
 
-Closes #
-
-## Tracker / Milestone
-
+- Linked issue:
 - Tracker or milestone:
+- Shared owned-repo rollout tracker, when applicable: 100yenadmin/codex-operating-kit#5
 - Required? yes/no and why:
+
+## Scope
+
+- Summary:
+- Non-goals:
+- Restricted actions not performed:
 
 ## Changes
 
 - <summary>
 
-## Review Thread State
+## Review And Check State
 
+- Terminal review-thread counts:
 - Current-head unresolved review threads:
 - P0-P2 blocker count:
 - P3/advisory count:
+- Top-level bot comments reviewed:
 - Top-level bot comments requiring action:
+- Check annotations reviewed:
 - Check annotations requiring action:
 - Bot rerun status:
+- CI:
+- CodeQL:
+- CodeRabbit:
 
 ## Validation
 
 - [ ] `git diff --cached --check`
+- Focused test/eval/smoke:
+- `npm run check`:
+- OpenClaw gateway dogfood, if relevant:
 
-## Release / LCO Proof Tier
+## Release Proof Tier
 
-- [ ] Not release-affecting
-- [ ] Local or fast smoke only
-- [ ] Staging artifact proof
-- [ ] Beta/release proof
-- [ ] Runtime/customer proof
-- [ ] LCO beta claim tier update required
-
-## Release Notes / Changelog
-
-- Release-note impact:
-- Draft human-readable entry or no-impact rationale:
-- Verification/evidence tail needed? yes/no:
+- Release proof tier: docs-only | read-search-expand-dry-run | working-app-proof | release-candidate | runtime/customer proof
+- LCO beta claim tier update required? yes/no
+- Release-note impact: none | required
+- Release-note impact rationale:
+- Draft human-readable entry, if required:
+- Verification/evidence tail needed? yes/no
+- Public-claim boundary:
 
 ## Safety / Rollback
+
+- Blast radius:
+- Rollback plan:
+- Stop or revert trigger:
 
 ## Evidence
 
 - Evidence path:
 
-## Notes For Next Agent
+## Next-Agent Notes
 
+- Remaining gaps:
+- Next safe lane:
 - Exact next action:
+- Stop conditions:
