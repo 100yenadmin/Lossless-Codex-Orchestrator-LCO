@@ -393,6 +393,28 @@ export type OperatingCard = {
 };
 
 export type SourceCoverageState = "ok" | "partial" | "not_configured" | "unavailable";
+export type OperatingSourceKind = "lco" | "github" | "plan_state" | "notion" | "support_control" | "company_brain" | "stripe";
+export type SourceAuthorityKind = "authoritative" | "cache_only" | "fallback_only";
+export type SourceAuthorityFallbackBehavior = "unknown" | "low_confidence" | "use_cached_with_warning";
+
+export type SourceAuthoritySource = {
+  sourceKind: OperatingSourceKind;
+  setupStatus: SourceCoverageState;
+  status: SourceCoverageState;
+  authority: SourceAuthorityKind;
+  owns: string[];
+  allowedClaims: string[];
+  fallbackBehavior: SourceAuthorityFallbackBehavior;
+  freshnessTtlSeconds: number;
+};
+
+export type SourceAuthorityProfile = {
+  schema: "lco.sourceAuthorityProfile.v1";
+  publicSafe: true;
+  sources: Record<OperatingSourceKind, SourceAuthoritySource>;
+};
+
+export type SourceAuthorityProfileOverrides = Partial<Record<OperatingSourceKind, Partial<Omit<SourceAuthoritySource, "sourceKind" | "status">>>>;
 
 export type OperatingDigest = {
   schema: "lco.operatingDigest.v1";
@@ -423,6 +445,7 @@ export type OperatingDigest = {
     company_brain: SourceCoverageState;
     stripe: SourceCoverageState;
   };
+  authorityCoverage: Record<OperatingSourceKind, SourceAuthoritySource>;
 };
 
 export type GithubOperatingItem = {
@@ -440,6 +463,7 @@ export type OperatingDigestOptions = {
   limit?: number;
   planStatePins?: PlanStatePinsReport;
   githubItems?: GithubOperatingItem[];
+  sourceAuthorityProfile?: SourceAuthorityProfile;
 };
 
 export type BusinessPulseReport = {
@@ -448,8 +472,92 @@ export type BusinessPulseReport = {
   question: "How is the business?";
   digest: OperatingDigest;
   sourceCoverage: OperatingDigest["sourceCoverage"];
+  authorityCoverage: OperatingDigest["authorityCoverage"];
   proofBoundary: string;
 };
+
+const OPERATING_SOURCE_KINDS: OperatingSourceKind[] = [
+  "lco",
+  "github",
+  "plan_state",
+  "notion",
+  "support_control",
+  "company_brain",
+  "stripe"
+];
+
+export function createDefaultSourceAuthorityProfile(overrides: SourceAuthorityProfileOverrides = {}): SourceAuthorityProfile {
+  const base: Record<OperatingSourceKind, SourceAuthoritySource> = {
+    lco: {
+      sourceKind: "lco",
+      setupStatus: "ok",
+      status: "ok",
+      authority: "authoritative",
+      owns: ["codex_session_state", "session_cards", "safe_summaries", "plans", "final_messages", "touched_files"],
+      allowedClaims: ["codex_session", "session_card", "safe_summary", "plan", "final_message", "touched_file"],
+      fallbackBehavior: "unknown",
+      freshnessTtlSeconds: 900
+    },
+    github: {
+      sourceKind: "github",
+      setupStatus: "ok",
+      status: "ok",
+      authority: "authoritative",
+      owns: ["pr_status", "ci_status", "review_state", "issue_state"],
+      allowedClaims: ["repo", "branch", "pr", "issue", "checks", "reviews"],
+      fallbackBehavior: "unknown",
+      freshnessTtlSeconds: 600
+    },
+    plan_state: {
+      sourceKind: "plan_state",
+      setupStatus: "ok",
+      status: "ok",
+      authority: "fallback_only",
+      owns: ["manual_pin", "approval_boundary", "stop_condition", "exception_ledger"],
+      allowedClaims: ["manual_pin", "approval_boundary", "stop_condition", "exception_ledger"],
+      fallbackBehavior: "low_confidence",
+      freshnessTtlSeconds: 86400
+    },
+    notion: p1AuthoritySource("notion"),
+    support_control: p1AuthoritySource("support_control"),
+    company_brain: p1AuthoritySource("company_brain"),
+    stripe: p1AuthoritySource("stripe")
+  };
+  const sources = Object.fromEntries(OPERATING_SOURCE_KINDS.map((sourceKind) => {
+    const override = overrides[sourceKind] ?? {};
+    const merged: SourceAuthoritySource = {
+      ...base[sourceKind],
+      ...override,
+      sourceKind,
+      status: base[sourceKind].status,
+      owns: safeAuthorityList(override.owns ?? base[sourceKind].owns),
+      allowedClaims: safeAuthorityList(override.allowedClaims ?? base[sourceKind].allowedClaims)
+    };
+    return [sourceKind, merged];
+  })) as Record<OperatingSourceKind, SourceAuthoritySource>;
+  return {
+    schema: "lco.sourceAuthorityProfile.v1",
+    publicSafe: true,
+    sources
+  };
+}
+
+function p1AuthoritySource(sourceKind: OperatingSourceKind): SourceAuthoritySource {
+  return {
+    sourceKind,
+    setupStatus: "not_configured",
+    status: "not_configured",
+    authority: "cache_only",
+    owns: [],
+    allowedClaims: [],
+    fallbackBehavior: "unknown",
+    freshnessTtlSeconds: 0
+  };
+}
+
+function safeAuthorityList(values: string[]): string[] {
+  return unique(values.map((value) => publicSafeText(value, 80)).filter(Boolean)).slice(0, 20);
+}
 
 export type ApprovalPacket = {
   schema: "lco.approvalPacket.v1";
@@ -1460,10 +1568,13 @@ export function createProjectDigest(db: LooDatabase, options: OperatingDigestOpt
   const limit = clamp(options.limit ?? 20, 1, 200);
   const window = options.window ?? "today";
   const windowStartMs = operatingWindowStartMs(window);
+  const sourceAuthorityProfile = options.sourceAuthorityProfile ?? createDefaultSourceAuthorityProfile();
   const codexSignals = getRecentSessions(db, { scope: "recent", limit: 200, includeCards: true }).cards.map(signalFromSessionCard);
   const githubSignals = (options.githubItems ?? []).slice(0, 100).map(signalFromGithubItem);
   const planSignals = (options.planStatePins?.manualPins ?? []).map(signalFromPlanPin);
-  const signals = [...codexSignals, ...githubSignals, ...planSignals].filter((signal) => signalWithinOperatingWindow(signal, windowStartMs));
+  const signals = [...codexSignals, ...githubSignals, ...planSignals]
+    .map((signal) => applySourceAuthority(signal, sourceAuthorityProfile))
+    .filter((signal) => signalWithinOperatingWindow(signal, windowStartMs));
   const ranked = signals
     .map((signal) => ({ signal, card: operatingCardFromSignal(signal) }))
     .sort((left, right) => operatingCardComparator(left.card, right.card));
@@ -1485,6 +1596,7 @@ export function createProjectDigest(db: LooDatabase, options: OperatingDigestOpt
     company_brain: "not_configured" as const,
     stripe: "not_configured" as const
   };
+  const authorityCoverage = createAuthorityCoverage(sourceAuthorityProfile, sourceCoverage);
   return {
     schema: "lco.operatingDigest.v1",
     publicSafe: true,
@@ -1499,7 +1611,8 @@ export function createProjectDigest(db: LooDatabase, options: OperatingDigestOpt
       count: Math.max(0, ranked.length - selected.length),
       reason: ranked.length > selected.length ? "limit" : "none"
     },
-    sourceCoverage
+    sourceCoverage,
+    authorityCoverage
   };
 }
 
@@ -1525,6 +1638,7 @@ export function createBusinessPulse(db: LooDatabase, options: OperatingDigestOpt
     question: "How is the business?",
     digest,
     sourceCoverage: digest.sourceCoverage,
+    authorityCoverage: digest.authorityCoverage,
     proofBoundary: "P0 business pulse is read-only and source-covered for LCO/Codex, optional structured GitHub items, and PLAN_STATE pins only. Notion, support-control, Company Brain, and Stripe remain not_configured until separate adapters prove source-backed collection."
   };
 }
@@ -1841,6 +1955,70 @@ function signalFromPlanPin(pin: PlanStateManualPin): OperatingSignal {
     confidence: 0.72,
     evidenceIds: [`ev_${stableId(`${pin.pinId}:plan_state`).slice(0, 16)}`]
   };
+}
+
+function sourceKindForSignal(signal: OperatingSignal): OperatingSourceKind {
+  return signal.sourceKind === "codex" ? "lco" : signal.sourceKind;
+}
+
+function applySourceAuthority(signal: OperatingSignal, profile: SourceAuthorityProfile): OperatingSignal {
+  const sourceKind = sourceKindForSignal(signal);
+  const authority = profile.sources[sourceKind] ?? createDefaultSourceAuthorityProfile().sources[sourceKind];
+  const reasonCodes = [...signal.reasonCodes];
+  let state = signal.state;
+  let confidence = signal.confidence;
+  if (authority.setupStatus === "unavailable") {
+    reasonCodes.push("authority_unavailable");
+    confidence = Math.min(confidence, 0.45);
+    if (authority.fallbackBehavior === "unknown") state = "unknown";
+  } else if (authority.setupStatus === "not_configured") {
+    reasonCodes.push("authority_not_configured");
+    confidence = Math.min(confidence, 0.45);
+    if (authority.fallbackBehavior === "unknown") state = "unknown";
+  } else if (authority.setupStatus === "partial") {
+    reasonCodes.push("authority_partial");
+    confidence = Math.min(confidence, 0.7);
+  }
+  if (authority.authority === "cache_only") {
+    reasonCodes.push("authority_cache_only");
+    confidence = Math.min(confidence, 0.55);
+    if (authority.fallbackBehavior === "unknown") state = "unknown";
+  } else if (authority.authority === "fallback_only") {
+    reasonCodes.push("authority_fallback_only");
+    confidence = Math.min(confidence, 0.72);
+    if (authority.fallbackBehavior === "unknown") state = "unknown";
+  }
+  if (authority.fallbackBehavior === "low_confidence") {
+    confidence = Math.min(confidence, 0.72);
+  }
+  return {
+    ...signal,
+    state,
+    confidence,
+    reasonCodes: unique(reasonCodes)
+  };
+}
+
+function createAuthorityCoverage(
+  profile: SourceAuthorityProfile,
+  sourceCoverage: OperatingDigest["sourceCoverage"]
+): OperatingDigest["authorityCoverage"] {
+  return Object.fromEntries(OPERATING_SOURCE_KINDS.map((sourceKind) => {
+    const source = profile.sources[sourceKind] ?? createDefaultSourceAuthorityProfile().sources[sourceKind];
+    return [sourceKind, {
+      ...source,
+      sourceKind,
+      status: authorityStatusFor(source, sourceCoverage[sourceKind]),
+      owns: safeAuthorityList(source.owns),
+      allowedClaims: safeAuthorityList(source.allowedClaims)
+    }];
+  })) as OperatingDigest["authorityCoverage"];
+}
+
+function authorityStatusFor(source: SourceAuthoritySource, coverage: SourceCoverageState): SourceCoverageState {
+  if (source.setupStatus === "unavailable" || source.setupStatus === "not_configured") return source.setupStatus;
+  if (source.setupStatus === "partial" && coverage === "ok") return "partial";
+  return coverage;
 }
 
 function operatingCardFromSignal(signal: OperatingSignal): OperatingCard {

@@ -8,6 +8,7 @@ import { createAuditStore } from "../packages/adapters/src/index.js";
 import {
   createBusinessPulse,
   createDatabase,
+  createDefaultSourceAuthorityProfile,
   createPlanStatePinsReport,
   createProjectDigest,
   getCockpitInbox,
@@ -298,6 +299,89 @@ test("operating picture marks missing P1 sources and preserves low-confidence co
   });
 });
 
+test("operating picture includes source authority and degrades unavailable authorities", () => {
+  withIndexedSessions([
+    {
+      id: "019f-authority-session",
+      title: "Authority profile session",
+      status: "active",
+      priority: "medium",
+      nextAction: "inspect source authority",
+      updatedAt: relativeIso(12),
+      refs: true
+    }
+  ], ({ db, sessions }) => {
+    const pins = createPlanStatePinsReport(`
+<!-- loo:manual-pin -->
+- Project: LCO
+- State: yellow
+- Summary: PLAN_STATE is a manual pin, not canonical current state.
+- Next: Verify current state at authoritative source.
+- Source: plan_state:manual_pin:authority
+<!-- /loo:manual-pin -->
+`);
+    const profile = createDefaultSourceAuthorityProfile();
+    const digest = createProjectDigest(db, {
+      window: "today",
+      limit: 10,
+      planStatePins: pins,
+      sourceAuthorityProfile: profile,
+      githubItems: [
+        {
+          id: "100yenadmin/Lossless-Codex-Orchestrator-LCO#258",
+          title: "source authority profile",
+          state: "yellow",
+          urgency: "medium",
+          updatedAt: relativeIso(8),
+          reasonCodes: ["issue_open"],
+          nextAction: "implement source authority semantics"
+        }
+      ]
+    });
+
+    assert.equal(profile.schema, "lco.sourceAuthorityProfile.v1");
+    assert.equal(profile.publicSafe, true);
+    assert.equal(digest.authorityCoverage.github.setupStatus, "ok");
+    assert.equal(digest.authorityCoverage.github.authority, "authoritative");
+    assert.equal(digest.authorityCoverage.github.owns.includes("pr_status"), true);
+    assert.equal(digest.authorityCoverage.plan_state.authority, "fallback_only");
+    assert.equal(digest.authorityCoverage.plan_state.allowedClaims.includes("approval_boundary"), true);
+    assert.equal(digest.authorityCoverage.notion.setupStatus, "not_configured");
+    assert.equal(digest.authorityCoverage.stripe.status, "not_configured");
+
+    const degraded = createProjectDigest(db, {
+      window: "today",
+      limit: 10,
+      sourceAuthorityProfile: createDefaultSourceAuthorityProfile({
+        github: {
+          setupStatus: "unavailable",
+          authority: "cache_only",
+          fallbackBehavior: "unknown"
+        }
+      }),
+      githubItems: [
+        {
+          id: "100yenadmin/Lossless-Codex-Orchestrator-LCO#258",
+          title: "source authority profile",
+          state: "red",
+          urgency: "critical",
+          updatedAt: relativeIso(5),
+          reasonCodes: ["ci_failed"],
+          nextAction: "do not trust unavailable GitHub authority"
+        }
+      ]
+    });
+    const githubCard = degraded.cards.find((card) => card.title === "source authority profile");
+    assert.equal(degraded.sourceCoverage.github, "ok");
+    assert.equal(degraded.authorityCoverage.github.setupStatus, "unavailable");
+    assert.equal(degraded.authorityCoverage.github.status, "unavailable");
+    assert.equal(githubCard?.state, "unknown");
+    assert.equal(githubCard?.reasonCodes.includes("authority_unavailable"), true);
+    assert.equal((githubCard?.confidence ?? 1) <= 0.5, true);
+    assertNoUnsafeStrings({ profile, digest, degraded }, sessions);
+  });
+});
+
 test("new cockpit and operating-picture tools are exposed through MCP with public-safe results", async () => {
   await withIndexedSessionsAsync([
     {
@@ -355,6 +439,7 @@ test("new cockpit and operating-picture tools are exposed through MCP with publi
     const pulse = await tools.find((tool) => tool.name === "loo_business_pulse")?.execute({ limit: 5 });
     assert.equal((pulse as { digest?: { sourceCoverage?: { plan_state?: string; stripe?: string } } }).digest?.sourceCoverage?.plan_state, "not_configured");
     assert.equal((pulse as { digest?: { sourceCoverage?: { plan_state?: string; stripe?: string } } }).digest?.sourceCoverage?.stripe, "not_configured");
+    assert.equal((pulse as { authorityCoverage?: { github?: { authority?: string } } }).authorityCoverage?.github?.authority, "authoritative");
     assertNoUnsafeStrings({ recent, pins, pulse }, sessions);
   });
 });
