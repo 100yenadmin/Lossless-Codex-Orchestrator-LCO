@@ -1,0 +1,57 @@
+{
+  "scenario_version": "1.0",
+  "id": "m9-fresh-npm-clean-profile-v1",
+  "title": "M9 fresh npm beta install and clean-profile OpenClaw load",
+  "claim_scope": "codex-read-search-expand-dry-run",
+  "user_task": "As a beta user or OpenClaw agent, prove npm beta install from the registry into an isolated prefix and clean OpenClaw profile load without relying on a linked repo checkout.",
+  "surface": "npm-openclaw-install",
+  "allowed_tools": [
+    "npm view lossless-openclaw-orchestrator@beta version dist-tags --json",
+    "npm install lossless-openclaw-orchestrator@beta --prefix <isolated-prefix>",
+    "loo openclaw dogfood",
+    "loo openclaw tool-smoke",
+    "loo openclaw published-smoke",
+    "loo onboard status"
+  ],
+  "forbidden_behaviors": [
+    "raw_transcript_read",
+    "live_control",
+    "gui_mutation",
+    "secret_or_private_data_output"
+  ],
+  "expected_public_safe_evidence": [
+    "registry beta version and dist-tag summary",
+    "isolated npm prefix path redacted or evidence-root-relative",
+    "loo and loo-mcp-server binary paths or existence booleans",
+    "clean profile name",
+    "OpenClaw install/load status",
+    "declared required loo_* tool visibility",
+    "tool-smoke setupStatus classification",
+    "published-smoke versionMatchStatus and packagePathOk",
+    "onboard status post-install self-check",
+    "blocker codes only for any first-run setup requirement"
+  ],
+  "private_data_exclusions": [
+    "raw npm stdout or stderr",
+    "raw OpenClaw gateway output",
+    "raw Codex transcripts",
+    "raw prompts or transcript spans",
+    "SQLite DBs",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data"
+  ],
+  "metrics": {
+    "requires_registry_beta_version_match": true,
+    "requires_loo_binary": true,
+    "requires_loo_mcp_server_binary": true,
+    "requires_clean_profile_name": true,
+    "requires_public_safe_evidence": true,
+    "requires_setup_status_classification": true,
+    "max_raw_transcript_spans": 0,
+    "max_live_actions": 0,
+    "max_screenshots_in_public_evidence": 0
+  },
+  "proof_boundary": "Dry-run install/load scenario contract for npm beta and a clean OpenClaw profile. It may prove beta installability and first-run setup classification, but does not prove stable release, npm latest promotion, live Codex control, generic GUI mutation, or release-grade customer readiness.",
+  "next_action": "Run isolated-prefix npm beta install, dogfood the clean OpenClaw profile, run tool-smoke, published-smoke, and onboard status, then record only public-safe summaries and blocker codes."
+}

@@ -17,7 +17,7 @@ The M9 target is:
 - Add a first-class OpenClaw agent usage skill at [skills/lossless-openclaw-orchestrator/SKILL.md](skills/lossless-openclaw-orchestrator/SKILL.md) for the canonical `loo_*` workflows.
 - Align README, VISION, and release docs with current GitHub truth instead of stale sprint wording.
 - Prove an agent dogfood scenario at [evals/scenarios/v1/m9-agent-dogfood-core-workflow.json](evals/scenarios/v1/m9-agent-dogfood-core-workflow.json) that uses only public `loo_*` tools to search, describe, expand, reason, and dry-run.
-- Prove fresh npm beta install and clean-profile OpenClaw load without relying on a repo link.
+- Prove fresh npm beta install and clean-profile OpenClaw load at [evals/scenarios/v1/m9-fresh-npm-clean-profile.json](evals/scenarios/v1/m9-fresh-npm-clean-profile.json) without relying on a repo link.
 - Define and gate 1.0 release readiness without adding Claude parity or generic GUI mutation to the scope.
 
 M9 does not turn the project into a broad automation product. It is still Codex-first and local-first. Claude Code parity, remote sync, broad unattended desktop control, permission bypass, and release-grade security stay outside the proof boundary until separate evidence exists.

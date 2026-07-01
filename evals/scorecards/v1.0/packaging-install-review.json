@@ -56,12 +56,13 @@
     "Linked install failures are reported as generic failures when the plugin is already loaded, or raw OpenClaw stdout/stderr enters public evidence.",
     "Release commands perform npm publish, GitHub Release creation, live control, or GUI mutation."
   ],
-  "current_score": "example-not-run",
-  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-<slug>/packaging-install-review.json",
+  "current_score": "pass",
+  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-235-fresh-npm-clean-profile/fresh-install-summary.json",
   "known_gaps": [
-    "Actual npm publish and GitHub Release creation require separate explicit approval.",
-    "Installed OpenClaw gateway smoke may be unavailable on some developer machines."
+    "The first npm install selector attempt can hit npm selector cutoff drift even when registry metadata exposes the beta; the proof uses the registry tarball fallback and records a public-safe diagnostic.",
+    "Fresh OpenClaw profiles may install and list the plugin before gateway credentials are available for tool invocation; this must remain classified as setup-required, not package failure.",
+    "This scorecard proves current npm beta install/load, not unpublished main changes, stable release, or npm latest promotion."
   ],
-  "next_action": "Run package dry-run and release preflight/status from the public CLI surface before beta release claims.",
-  "proof_boundary": "This is a local public-safe beta scorecard example; it does not approve publishing or release creation."
+  "next_action": "Use the fresh npm clean-profile proof as beta tester install evidence, then run #236 1.0 readiness gates before stable/latest promotion.",
+  "proof_boundary": "This proves current npm beta package install through a registry tarball fallback after selector drift, clean-profile OpenClaw package load, published-smoke, and onboard status with public-safe evidence; it does not prove unpublished main changes, stable release, npm latest promotion, live control, GUI mutation, or 1.0 readiness."
 }

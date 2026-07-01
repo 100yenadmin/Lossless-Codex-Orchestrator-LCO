@@ -88,7 +88,10 @@ easy for a local OpenClaw agent to use without maintainer steering.
    [#234](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/234).
 
 4. **Fresh npm beta install smoke**
-   Prove a clean npm `@beta` install and clean-profile OpenClaw load. See
+   Prove a clean npm `@beta` install and clean-profile OpenClaw load. The
+   scenario contract lives at
+   [evals/scenarios/v1/m9-fresh-npm-clean-profile.json](evals/scenarios/v1/m9-fresh-npm-clean-profile.json).
+   See
    [#235](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/235).
 
 5. **1.0 readiness gate**
