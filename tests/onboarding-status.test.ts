@@ -137,6 +137,70 @@ test("loo onboard status resolves the package root outside the caller cwd and ho
   }
 });
 
+test("loo onboard status emits a public-safe post-install self-check from sanitized evidence", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-onboard-postinstall-"));
+  const evidenceDir = join(root, "evidence");
+  const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+  try {
+    const result = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      cliEntry,
+      "onboard",
+      "status",
+      "--evidence-dir",
+      evidenceDir,
+      "--now",
+      "2026-07-01T00:00:00.000Z",
+      "--registry-beta-version",
+      packageJson.version,
+      "--gateway-setup-status",
+      "gateway_setup_required",
+      "--strict"
+    ], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      timeout: 15_000
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const report = JSON.parse(result.stdout) as {
+      postInstallSelfCheck: {
+        packageName: string;
+        localVersion: string;
+        expectedDistTag: string;
+        registryBetaVersion: string | null;
+        versionMatchStatus: string;
+        gatewaySetupClassification: string;
+        registryCheckCommand: string;
+        gatewayToolSmokeCommand: string;
+        evidenceInputs: string[];
+      };
+      nextSafeCommands: string[];
+      proofBoundary: string;
+    };
+
+    assert.deepEqual(report.postInstallSelfCheck, {
+      packageName: "lossless-openclaw-orchestrator",
+      localVersion: packageJson.version,
+      expectedDistTag: "beta",
+      registryBetaVersion: packageJson.version,
+      versionMatchStatus: "matches_registry_beta",
+      gatewaySetupClassification: "gateway_setup_required",
+      registryCheckCommand: "npm view lossless-openclaw-orchestrator@beta version dist-tags --json",
+      gatewayToolSmokeCommand: "loo openclaw tool-smoke --profile lco-dogfood-published --required-tool loo_doctor --required-tool loo_search_sessions --strict",
+      evidenceInputs: ["registry_beta_version", "gateway_setup_status"]
+    });
+    assert.ok(report.nextSafeCommands.includes(report.postInstallSelfCheck.registryCheckCommand));
+    assert.match(report.proofBoundary, /post-install self-check/i);
+    assertNoPrivateEvidence(result.stdout);
+    assertNoPrivateEvidence(readFileSync(join(evidenceDir, "onboarding-status.json"), "utf8"));
+    assert.doesNotMatch(result.stdout, /stdout|stderr|Bearer|sqlite/i);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("onboard status fails closed for malformed package metadata", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-onboard-status-bad-package-"));
   try {

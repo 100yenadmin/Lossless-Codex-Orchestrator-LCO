@@ -70,7 +70,9 @@ async function main() {
     const parsed = parseOnboardingStatusArgs(args.slice(1));
     const report = createOnboardingStatusReport({
       rootDir: parsed.rootDir,
-      now: parsed.now
+      now: parsed.now,
+      registryBetaVersion: parsed.registryBetaVersion,
+      gatewaySetupStatus: parsed.gatewaySetupStatus
     });
     if (parsed.evidenceDir) writeOnboardingStatusReport(report, parsed.evidenceDir);
     console.log(JSON.stringify(report, null, 2));
@@ -509,7 +511,7 @@ async function main() {
   }
   console.error([
     "Usage:",
-    "  loo onboard status [--evidence-dir path] [--root path] [--now iso] [--strict]",
+    "  loo onboard status [--evidence-dir path] [--root path] [--now iso] [--registry-beta-version version] [--gateway-setup-status ready|gateway_setup_required|package_failure_or_unknown] [--strict]",
     "  loo doctor",
     "  loo desktop see [direct|cua-driver|peekaboo] [--snapshot] [--max-nodes n] [--max-chars n]",
     "  loo desktop act [direct|cua-driver|peekaboo] <action>",
@@ -810,7 +812,7 @@ function printScenarioSweepHelp(): void {
 function printOnboardingStatusHelp(): void {
   console.log([
     "Usage:",
-    "  loo onboard status [--evidence-dir path] [--root path] [--now iso] [--strict]",
+    "  loo onboard status [--evidence-dir path] [--root path] [--now iso] [--registry-beta-version version] [--gateway-setup-status ready|gateway_setup_required|package_failure_or_unknown] [--strict]",
     "",
     "Writes a public-safe first-run readiness report for local package, plugin, and entrypoint state.",
     "",
@@ -1311,8 +1313,22 @@ function parseCloseoutDryRunArgs(input: string[]): { threadId?: string; limit?: 
   return parsed;
 }
 
-function parseOnboardingStatusArgs(input: string[]): { evidenceDir?: string; rootDir?: string; now?: string; strict: boolean } {
-  const parsed: { evidenceDir?: string; rootDir?: string; now?: string; strict: boolean } = { strict: false };
+function parseOnboardingStatusArgs(input: string[]): {
+  evidenceDir?: string;
+  rootDir?: string;
+  now?: string;
+  registryBetaVersion?: string;
+  gatewaySetupStatus?: "ready" | "gateway_setup_required" | "package_failure_or_unknown";
+  strict: boolean;
+} {
+  const parsed: {
+    evidenceDir?: string;
+    rootDir?: string;
+    now?: string;
+    registryBetaVersion?: string;
+    gatewaySetupStatus?: "ready" | "gateway_setup_required" | "package_failure_or_unknown";
+    strict: boolean;
+  } = { strict: false };
   for (let index = 0; index < input.length; index += 1) {
     const arg = input[index]!;
     if (arg === "--evidence-dir") {
@@ -1321,6 +1337,10 @@ function parseOnboardingStatusArgs(input: string[]): { evidenceDir?: string; roo
       parsed.rootDir = requireOptionValue(input[++index], arg);
     } else if (arg === "--now") {
       parsed.now = requireOptionValue(input[++index], arg);
+    } else if (arg === "--registry-beta-version") {
+      parsed.registryBetaVersion = requireOptionValue(input[++index], arg);
+    } else if (arg === "--gateway-setup-status") {
+      parsed.gatewaySetupStatus = parseGatewaySetupStatus(requireOptionValue(input[++index], arg));
     } else if (arg === "--strict") {
       parsed.strict = true;
     } else {
@@ -1328,6 +1348,11 @@ function parseOnboardingStatusArgs(input: string[]): { evidenceDir?: string; roo
     }
   }
   return parsed;
+}
+
+function parseGatewaySetupStatus(value: string): "ready" | "gateway_setup_required" | "package_failure_or_unknown" {
+  if (value === "ready" || value === "gateway_setup_required" || value === "package_failure_or_unknown") return value;
+  throw new Error(`Invalid --gateway-setup-status: ${value}`);
 }
 
 function parseSanitizeSessionsArgs(input: string[]): { threadId?: string; limit?: number; evidenceDir?: string; repairPlan: boolean; strict: boolean } {

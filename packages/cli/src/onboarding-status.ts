@@ -39,6 +39,17 @@ export type OnboardingStatusReport = {
     toolSmokeCommand: string;
     setupGuidance: string[];
   };
+  postInstallSelfCheck: {
+    packageName: string;
+    localVersion: string;
+    expectedDistTag: "beta";
+    registryBetaVersion: string | null;
+    versionMatchStatus: "not_run" | "matches_registry_beta" | "registry_beta_mismatch";
+    gatewaySetupClassification: "not_run" | "ready" | "gateway_setup_required" | "package_failure_or_unknown";
+    registryCheckCommand: string;
+    gatewayToolSmokeCommand: string;
+    evidenceInputs: string[];
+  };
   nextSafeCommands: string[];
   forbiddenActions: string[];
   proofBoundary: string;
@@ -75,6 +86,8 @@ const REQUIRED_OPENCLAW_TOOLS = [
 export function createOnboardingStatusReport(options: {
   rootDir?: string;
   now?: string;
+  registryBetaVersion?: string;
+  gatewaySetupStatus?: "ready" | "gateway_setup_required" | "package_failure_or_unknown";
 } = {}): OnboardingStatusReport {
   const rootDir = options.rootDir
     ? resolve(options.rootDir)
@@ -88,6 +101,10 @@ export function createOnboardingStatusReport(options: {
   const sourceEntrypoints = SOURCE_ENTRYPOINTS.map(([id, path]) => checkPath(rootDir, id, path, true));
   const packageEntrypoints = packageEntrypointsFromPackage(rootDir, packageJson);
   const installRecovery = createInstallRecoveryCommands();
+  const postInstallSelfCheck = createPostInstallSelfCheck(packageJson, installRecovery, {
+    registryBetaVersion: options.registryBetaVersion,
+    gatewaySetupStatus: options.gatewaySetupStatus
+  });
   const blockers = [
     ...requiredFiles.filter((item) => item.required && !item.exists).map((item) => `missing_required_file:${item.id}`),
     ...sourceEntrypoints.filter((item) => item.required && !item.exists).map((item) => `missing_source_entrypoint:${item.id}`),
@@ -120,6 +137,7 @@ export function createOnboardingStatusReport(options: {
       missingRequiredTools
     },
     installRecovery,
+    postInstallSelfCheck,
     nextSafeCommands: [
       "loo doctor",
       installRecovery.registryCheckCommand,
@@ -138,7 +156,7 @@ export function createOnboardingStatusReport(options: {
       "desktop GUI mutation",
       "raw transcript upload"
     ],
-    proofBoundary: "This onboarding status report is a public-safe dry run over local package metadata, manifests, and published-beta install recovery commands only; it does not install plugins, read raw transcripts, run live Codex control, mutate a desktop GUI, publish npm packages, or create a GitHub Release."
+    proofBoundary: "This onboarding status report is a public-safe dry run over local package metadata, manifests, published-beta install recovery commands, and optional sanitized post-install self-check evidence only; it does not install plugins, read raw transcripts, store raw npm or gateway output, run live Codex control, mutate a desktop GUI, publish npm packages, or create a GitHub Release."
   };
 }
 
@@ -174,6 +192,36 @@ function createInstallRecoveryCommands(): OnboardingStatusReport["installRecover
       "Use a clean profile for published-beta proof so an existing linked plugin does not mask install behavior.",
       "Keep evidence public-safe: record blocker codes, setupStatus, installOutcome, counts, and hashes only."
     ]
+  };
+}
+
+function createPostInstallSelfCheck(
+  packageJson: PackageJsonRead,
+  installRecovery: OnboardingStatusReport["installRecovery"],
+  options: {
+    registryBetaVersion?: string;
+    gatewaySetupStatus?: "ready" | "gateway_setup_required" | "package_failure_or_unknown";
+  }
+): OnboardingStatusReport["postInstallSelfCheck"] {
+  const evidenceInputs = [
+    options.registryBetaVersion ? "registry_beta_version" : null,
+    options.gatewaySetupStatus ? "gateway_setup_status" : null
+  ].filter((item): item is string => Boolean(item));
+  const versionMatchStatus = options.registryBetaVersion
+    ? options.registryBetaVersion === packageJson.version
+      ? "matches_registry_beta"
+      : "registry_beta_mismatch"
+    : "not_run";
+  return {
+    packageName: packageJson.name,
+    localVersion: packageJson.version,
+    expectedDistTag: "beta",
+    registryBetaVersion: options.registryBetaVersion ?? null,
+    versionMatchStatus,
+    gatewaySetupClassification: options.gatewaySetupStatus ?? "not_run",
+    registryCheckCommand: installRecovery.registryCheckCommand,
+    gatewayToolSmokeCommand: installRecovery.toolSmokeCommand,
+    evidenceInputs
   };
 }
 
