@@ -9,6 +9,7 @@ export type PublishedPackageSmokeOptions = {
   registryBetaVersion?: string;
   dogfoodReportPath: string;
   toolSmokeReportPath: string;
+  configuredToolSmokeReportPath?: string;
 };
 
 export type PublishedPackageSmokeReport = {
@@ -34,6 +35,14 @@ export type PublishedPackageSmokeReport = {
     gatewaySetupClassification: "ready" | "gateway_setup_required" | "gateway_blocked" | "unknown";
     packageInstallLikelyOk: boolean;
   };
+  configuredGateway: {
+    provided: boolean;
+    toolSmokeReady: boolean;
+    gatewaySetupClassification: "ready" | "gateway_setup_required" | "gateway_blocked" | "unknown";
+    packageInstallLikelyOk: boolean;
+    toolCount: number;
+    invokedTools: string[];
+  };
   setupRequired: boolean;
   setupBlockers: string[];
   blockers: string[];
@@ -57,12 +66,28 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
   const packageJson = readPackageJson(rootDir);
   const dogfood = readJsonObject(options.dogfoodReportPath);
   const toolSmoke = readJsonObject(options.toolSmokeReportPath);
+  const configuredToolSmoke = options.configuredToolSmokeReportPath ? readJsonObject(options.configuredToolSmokeReportPath) : null;
   const dogfoodReady = dogfood.ok === true && dogfood.dogfoodReady === true;
   const requiredToolsPresent = dogfood.requiredToolsPresent === true;
   const installOutcomeStatus = readNestedString(dogfood, ["installOutcome", "status"]) || "unknown";
   const toolSmokeReady = toolSmoke.ok === true && toolSmoke.toolSmokeReady === true;
   const gatewaySetupClassification = readGatewaySetupClassification(toolSmoke);
   const packageInstallLikelyOk = readNestedBoolean(toolSmoke, ["setupStatus", "packageInstallLikelyOk"]);
+  const configuredGateway = configuredToolSmoke ? {
+    provided: true,
+    toolSmokeReady: configuredToolSmoke.ok === true && configuredToolSmoke.toolSmokeReady === true,
+    gatewaySetupClassification: readGatewaySetupClassification(configuredToolSmoke),
+    packageInstallLikelyOk: readNestedBoolean(configuredToolSmoke, ["setupStatus", "packageInstallLikelyOk"]),
+    toolCount: readNestedNumber(configuredToolSmoke, ["catalog", "toolCount"]),
+    invokedTools: readInvokedTools(configuredToolSmoke)
+  } : {
+    provided: false,
+    toolSmokeReady: false,
+    gatewaySetupClassification: "unknown" as const,
+    packageInstallLikelyOk: false,
+    toolCount: 0,
+    invokedTools: []
+  };
   const setupBlockers = readStringArray(toolSmoke.setupBlockers);
   const setupRequired = gatewaySetupClassification === "gateway_setup_required";
   const versionMatchStatus = options.registryBetaVersion
@@ -102,6 +127,7 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
       gatewaySetupClassification,
       packageInstallLikelyOk
     },
+    configuredGateway,
     setupRequired,
     setupBlockers,
     blockers,
@@ -109,6 +135,7 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
       "npm view lossless-openclaw-orchestrator@beta version dist-tags --json",
       "loo openclaw dogfood --profile lco-dogfood-published --install-source lossless-openclaw-orchestrator@beta --required-tool loo_doctor --required-tool loo_search_sessions --strict",
       "loo openclaw tool-smoke --profile lco-dogfood-published --required-tool loo_doctor --required-tool loo_search_sessions --strict",
+      "loo openclaw tool-smoke --profile lco-dogfood --required-tool loo_doctor --required-tool loo_search_sessions --strict",
       "loo onboard status --registry-beta-version <version> --gateway-setup-status ready --strict"
     ],
     actionsPerformed: {
@@ -179,8 +206,25 @@ function readNestedBoolean(input: Record<string, unknown>, path: string[]): bool
   return cursor === true;
 }
 
+function readNestedNumber(input: Record<string, unknown>, path: string[]): number {
+  let cursor: unknown = input;
+  for (const key of path) {
+    if (!cursor || typeof cursor !== "object" || Array.isArray(cursor)) return 0;
+    cursor = (cursor as Record<string, unknown>)[key];
+  }
+  return typeof cursor === "number" && Number.isFinite(cursor) && cursor >= 0 ? cursor : 0;
+}
+
 function readStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function readInvokedTools(input: Record<string, unknown>): string[] {
+  if (!Array.isArray(input.invocations)) return [];
+  const tools = input.invocations
+    .map((item) => item && typeof item === "object" && !Array.isArray(item) ? (item as Record<string, unknown>).toolName : null)
+    .filter((tool): tool is string => typeof tool === "string" && /^loo_[a-z0-9_]+$/.test(tool));
+  return [...new Set(tools)].slice(0, 20);
 }
 
 function findPackageRoot(start: string): string | null {

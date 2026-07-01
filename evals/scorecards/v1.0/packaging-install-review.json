@@ -18,6 +18,7 @@
     "published-beta postInstallSelfCheck version match status",
     "published package smoke report packagePathOk and setupRequired classifications",
     "gateway setup classification from sanitized tool-smoke evidence",
+    "optional configured-profile gateway proof kept separate from fresh published profile readiness",
     "clean OpenClaw profile name for published-beta proof",
     "gateway setup guidance for credential/device-pairing blockers",
     "onboarding blocker and warning codes",
@@ -43,7 +44,8 @@
     "Plugin manifest declares the loo_ prefix and expected read/control/admin tools.",
     "Onboarding status names the published beta package, clean profile, npm registry check, tarball lookup, global install, guarded tarball fallback install, OpenClaw install, OpenClaw tarball fallback install, dogfood, dogfood tarball fallback, and tool-smoke recovery commands.",
     "Onboarding status classifies the local package version against the npm beta dist-tag and records gateway setup status without raw npm or OpenClaw output.",
-    "Published package smoke report combines sanitized npm beta, dogfood, and tool-smoke evidence without storing raw command output.",
+    "Published package smoke report combines sanitized npm beta, dogfood, fresh-profile tool-smoke, and optional configured-profile tool-smoke evidence without storing raw command output.",
+    "Configured-profile gateway proof is separately named and does not mark the fresh published profile ready when its own gateway setup is still required.",
     "OpenClaw dogfood distinguishes installed, already_installed, link_force_unsupported, and failed linked-install outcomes without raw local paths.",
     "Known OpenClaw prose markers are reduced to public-safe installOutcome.recognizedMarker ids instead of copying raw command output.",
     "Release preflight/status fail closed on missing approvals without performing publish or release actions."
@@ -53,7 +55,7 @@
     "Tool declarations drift from the MCP registry.",
     "Onboarding status lacks a clean-profile published-beta recovery path, omits guarded npm selector drift tarball fallback commands for global/OpenClaw/dogfood paths, or presents setup blockers as product defects.",
     "Post-install self-check accepts raw gateway/npm output, omits version mismatch status, or hides setup-required classification.",
-    "Published package smoke report treats gateway setup-required as a package defect or hides package version mismatch.",
+    "Published package smoke report treats gateway setup-required as a package defect, hides package version mismatch, or masks fresh-profile setup-required status with configured-profile proof.",
     "Linked install failures are reported as generic failures when the plugin is already loaded, or raw OpenClaw stdout/stderr enters public evidence.",
     "Release commands perform npm publish, GitHub Release creation, live control, or GUI mutation."
   ],
@@ -62,6 +64,7 @@
   "known_gaps": [
     "The first npm install selector attempt can hit npm selector cutoff drift even when registry metadata exposes the beta; onboarding now exposes guarded registry tarball lookup plus fallback install commands for global CLI, OpenClaw plugin install, and dogfood paths.",
     "Fresh OpenClaw profiles may install and list the plugin before gateway credentials are available for tool invocation; this must remain classified as setup-required, not package failure.",
+    "Configured local gateway proof can show the agent workflow works on an already provisioned profile, but it does not prove clean-profile gateway credentials or device pairing.",
     "This scorecard points at issue-248 onboarding evidence for the new recovery-command contract and previous fresh install/load evidence for package behavior; it does not prove unpublished main changes, stable release, or npm latest promotion."
   ],
   "next_action": "Use issue-248 onboarding recovery evidence plus fresh npm clean-profile proof as beta tester install evidence, then run #236 1.0 readiness gates before stable/latest promotion.",
