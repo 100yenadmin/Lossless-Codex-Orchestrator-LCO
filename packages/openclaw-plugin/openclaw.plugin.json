@@ -2,7 +2,7 @@
   "id": "lossless-openclaw-orchestrator",
   "name": "Lossless OpenClaw Orchestrator",
   "description": "Control and collaborate with local Codex sessions through OpenClaw using local indexing, bounded recall, and approval-gated controls.",
-  "version": "0.1.0-beta.21",
+  "version": "0.1.0-beta.22",
   "kind": "tool",
   "tools": {
     "prefix": "loo_"
@@ -597,7 +597,7 @@
       },
       {
         "name": "loo_desktop_act",
-        "description": "Dry-run desktop fallback action placeholder for CUA/Peekaboo.",
+        "description": "Dry-run desktop fallback action for CUA/Peekaboo; live requests return structured missing-proof blockers.",
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -614,6 +614,30 @@
               "type": "string"
             },
             "dry_run": {
+              "type": "boolean"
+            },
+            "target_app": {
+              "type": "string"
+            },
+            "target_window": {
+              "type": "string"
+            },
+            "action_hash": {
+              "type": "string"
+            },
+            "approval_ref": {
+              "type": "string"
+            },
+            "permission_state": {
+              "type": "string"
+            },
+            "focus_before_application": {
+              "type": "string"
+            },
+            "focus_after_application": {
+              "type": "string"
+            },
+            "public_safe_observation": {
               "type": "boolean"
             }
           }

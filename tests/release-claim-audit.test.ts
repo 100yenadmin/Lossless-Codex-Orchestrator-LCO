@@ -17,34 +17,35 @@ function read(path: string): string {
   return readFileSync(path, "utf8");
 }
 
-test("0.1.0-beta.21 release metadata ships npm selector cutoff diagnostics without widening claims", () => {
+test("0.1.0-beta.22 release metadata ships desktop act fail-closed blockers without widening claims", () => {
   const packageJson = JSON.parse(read("package.json")) as { version?: string };
   const packageLock = JSON.parse(read("package-lock.json")) as { version?: string; packages?: Record<string, { version?: string }> };
   const rootPlugin = JSON.parse(read("openclaw.plugin.json")) as { version?: string };
   const workspacePlugin = JSON.parse(read("packages/openclaw-plugin/openclaw.plugin.json")) as { version?: string };
 
-  assert.equal(packageJson.version, "0.1.0-beta.21");
-  assert.equal(packageLock.version, "0.1.0-beta.21");
-  assert.equal(packageLock.packages?.[""]?.version, "0.1.0-beta.21");
-  assert.equal(rootPlugin.version, "0.1.0-beta.21");
-  assert.equal(workspacePlugin.version, "0.1.0-beta.21");
-  assert.equal(existsSync("docs/RELEASE_NOTES_0.1.0-beta.21.md"), true, "0.1.0-beta.21 release notes must exist");
+  assert.equal(packageJson.version, "0.1.0-beta.22");
+  assert.equal(packageLock.version, "0.1.0-beta.22");
+  assert.equal(packageLock.packages?.[""]?.version, "0.1.0-beta.22");
+  assert.equal(rootPlugin.version, "0.1.0-beta.22");
+  assert.equal(workspacePlugin.version, "0.1.0-beta.22");
+  assert.equal(existsSync("docs/RELEASE_NOTES_0.1.0-beta.22.md"), true, "0.1.0-beta.22 release notes must exist");
 
-  const releaseNotes = read("docs/RELEASE_NOTES_0.1.0-beta.21.md");
+  const releaseNotes = read("docs/RELEASE_NOTES_0.1.0-beta.22.md");
   assert.match(releaseNotes, /Codex-first working-app beta/i);
   assert.match(releaseNotes, /installed OpenClaw gateway/i);
-  assert.match(releaseNotes, /#208/i);
-  assert.match(releaseNotes, /npm selector cutoff/i);
-  assert.match(releaseNotes, /npm_selector_cutoff_drift/i);
-  assert.match(releaseNotes, /registry tarball/i);
-  assert.match(releaseNotes, /tarball install/i);
+  assert.match(releaseNotes, /#160/i);
+  assert.match(releaseNotes, /loo_desktop_act/i);
+  assert.match(releaseNotes, /structured blockers/i);
+  assert.match(releaseNotes, /action-bound proof checklist/i);
+  assert.match(releaseNotes, /backend, target app\/window, action text, action hash, approval ref, permission state, focus before\/after, and public-safe observation/i);
+  assert.match(releaseNotes, /dry-run-only/i);
   assert.match(releaseNotes, /--claim-scope codex-working-app-proof/i);
   assert.match(releaseNotes, /loo release status[^\n]+--claim-scope\s+codex-working-app-proof[^\n]+--runtime-proof-dir\s+<path>/i);
   assert.match(releaseNotes, /codex-read-search-expand-dry-run/i);
   assert.match(releaseNotes, /approved_live_control_smoke_missing/i);
-  assert.match(releaseNotes, /0\.1\.0-beta\.21/i);
+  assert.match(releaseNotes, /0\.1\.0-beta\.22/i);
   assert.match(releaseNotes, /latest.*0\.1\.0-beta\.4/i);
-  assert.match(releaseNotes, /if this candidate is published, npm `beta` points at `0\.1\.0-beta\.21`/i);
+  assert.match(releaseNotes, /if this candidate is published, npm `beta` points at `0\.1\.0-beta\.22`/i);
   assert.match(releaseNotes, /Desktop collaboration remains excluded unless separately claimed/i);
   assert.match(releaseNotes, /Claude Code remains.*adapter stub/i);
   assert.match(releaseNotes, /does not run a\s+new live Codex control smoke/i);

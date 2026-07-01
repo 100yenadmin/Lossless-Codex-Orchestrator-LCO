@@ -122,6 +122,7 @@ For implementation issues, copy `evals/scorecards/v1.0/issue-scorecard-update-te
 | Touched-file extraction | Touched files remain visible or accurately omitted in bounded briefs | file count, omitted marker |
 | Control safety | Live actions fail closed without matching dry-run and `approval_audit_id` | control tests and audit evidence |
 | Desktop fallback readiness | CUA/Peekaboo report honest readiness without overclaiming action support | `loo_desktop_see` evidence |
+| Desktop act fail-closed contract | Live desktop act requests return structured missing-proof blockers while staying dry-run-only | `loo_desktop_act` / installed OpenClaw gateway evidence |
 | Desktop live/no-focus harness | GUI fallback proof attempts fail closed until backend, approval ref, target, action, and no-focus status probe are ready | `loo desktop live-proof-harness` / `loo_desktop_live_proof_harness` evidence |
 | Desktop GUI proof contract | Backend-specific live/no-focus observations can be validated without running the action in the reporting command | `loo desktop proof-report` / `loo_desktop_proof_report` evidence |
 | Local Mac search UI | User can search, filter, inspect safe summaries, and copy source refs without raw transcript rendering | `local-mac-search-ui-review.json` score movement |
@@ -226,6 +227,7 @@ For Milestone 7, 1.0, or any expanded-scope release that claims live control, de
 - Installed OpenClaw gateway path proves the approved live Codex action, not only a CLI helper.
 - Post-action refresh proves the target session can be searched/described/expanded after the live action, with safe agent reasoning from source refs.
 - CUA/Peekaboo readiness is honest and does not imply unsupported generic GUI action.
+- `loo_desktop_act` remains dry-run-only, but live-mode requests return named blockers for missing backend, target app/window, action text, action hash, approval ref, permission state, focus before/after, public-safe observation fields, or a mismatched action hash so an OpenClaw agent can route to the harness/report workflow.
 - Desktop GUI live/no-focus proof attempts use `loo desktop live-proof-harness` or `loo_desktop_live_proof_harness` first to confirm the proof plan is public-safe and fail-closed before any backend-specific action is attempted.
 - Desktop GUI mutation claims require a backend-specific observation validated by `loo desktop proof-report` or `loo_desktop_proof_report`; the proof-report command itself must not perform the GUI action, release approval `actionHash` must match the exact backend/app/window/action tuple, and the desktop collaboration runtime marker `action_hash` must match that approval hash.
 - When a desktop proof-report observation is valid, the command writes both `desktop-gui-approval.json` and `desktop-collaboration-action-bound-v1-1.runtime-proof.json`; invalid or diagnostic-only observations must not emit the runtime proof marker.

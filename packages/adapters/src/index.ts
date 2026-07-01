@@ -201,6 +201,24 @@ export type DesktopLiveProofHarnessReport = {
   nextAction: string;
 };
 
+export type DesktopActReport = {
+  backend: DesktopBackend;
+  action: string;
+  live: false;
+  dryRunOnly: true;
+  approvalRequired: true;
+  requestedLive: boolean;
+  blockers: string[];
+  requiredProof: string[];
+  actionsPerformed: {
+    desktopGuiActionRun: false;
+    screenshotCaptured: false;
+  };
+  proofBoundary: string;
+  note: string;
+  nextAction: string;
+};
+
 type DesktopPermissionStatus = {
   status: "unknown" | "not_applicable" | "granted" | "denied";
   note: string;
@@ -461,15 +479,78 @@ export function desktopFallbackDiagnostics(input: { probe?: DesktopProbe } = {})
   };
 }
 
-export function desktopActDryRun(input: { backend?: DesktopBackend; action?: string; dryRun?: boolean } = {}) {
+export function desktopActDryRun(input: {
+  backend?: DesktopBackend;
+  action?: string;
+  dryRun?: boolean;
+  targetApp?: string;
+  targetWindow?: string;
+  actionHash?: string;
+  approvalRef?: string;
+  permissionState?: string;
+  focusBeforeApplication?: string;
+  focusAfterApplication?: string;
+  publicSafeObservation?: boolean;
+} = {}): DesktopActReport {
+  const requestedLive = input.dryRun === false;
+  const requiredProof = [
+    "backend",
+    "target_app",
+    "target_window",
+    "action",
+    "action_hash",
+    "approval_ref",
+    "permission_state",
+    "focus_before_application",
+    "focus_after_application",
+    "public_safe_observation"
+  ];
+  const blockers = requestedLive ? ["desktop_live_action_not_enabled"] : [];
+  if (requestedLive) {
+    const targetApp = publicTextField(input.targetApp, 120);
+    const targetWindow = publicTextField(input.targetWindow, 160);
+    const action = publicTextField(input.action, 160);
+    const suppliedActionHash = publicHashField(input.actionHash) ? input.actionHash : undefined;
+    if (!input.backend) blockers.push("desktop_backend_missing");
+    if (input.backend === "direct") blockers.push("desktop_backend_not_gui_fallback");
+    if (!targetApp) blockers.push("target_app_missing");
+    if (!targetWindow) blockers.push("target_window_missing");
+    if (!action) blockers.push("action_missing");
+    if (!suppliedActionHash) {
+      blockers.push("action_hash_missing");
+    } else if (input.backend && targetApp && targetWindow && action) {
+      const expectedActionHash = desktopActionHash(input.backend, targetApp, targetWindow, action);
+      if (suppliedActionHash.toLowerCase() !== expectedActionHash) blockers.push("action_hash_mismatch");
+    }
+    if (!publicTextField(input.approvalRef, 160)) blockers.push("approval_ref_missing");
+    if (!publicTextField(input.permissionState, 120)) blockers.push("permission_state_missing");
+    const focusBefore = publicTextField(input.focusBeforeApplication, 120);
+    const focusAfter = publicTextField(input.focusAfterApplication, 120);
+    if (!focusBefore || !focusAfter) {
+      blockers.push("focus_before_after_missing");
+    } else if (focusBefore !== focusAfter) {
+      blockers.push("focus_changed");
+    }
+    if (input.publicSafeObservation !== true) blockers.push("public_safe_observation_missing");
+  }
   return {
     backend: input.backend ?? "direct",
     action: input.action ?? "unknown",
     live: false,
     dryRunOnly: true,
     approvalRequired: true,
-    requestedLive: input.dryRun === false,
-    note: "Desktop live action is not enabled in this beta without backend-specific approval and permission proof."
+    requestedLive,
+    blockers,
+    requiredProof,
+    actionsPerformed: {
+      desktopGuiActionRun: false,
+      screenshotCaptured: false
+    },
+    proofBoundary: "This tool does not perform desktop GUI mutation. Live desktop action remains disabled unless a future backend-specific implementation consumes validated action-bound, permission, no-focus, and public-safe proof.",
+    note: "Desktop live action is not enabled in this beta without backend-specific approval and permission proof.",
+    nextAction: requestedLive
+      ? "Run loo_desktop_live_proof_harness to prepare the public-safe action plan, perform any separately scoped backend-specific action outside this dry-run tool, then validate the observation with loo_desktop_proof_report."
+      : "Dry-run only; use loo_desktop_live_proof_harness before any separately scoped backend-specific desktop proof."
   };
 }
 
@@ -514,7 +595,7 @@ export function createDesktopGuiProofReport(input: unknown): DesktopGuiProofRepo
   if (rawSecretIncluded !== false) blockers.push("raw_secret_included");
 
   const actionHash = desktopBackend && targetApp && targetWindow && action
-    ? createHash("sha256").update(JSON.stringify({ desktopBackend, targetApp, targetWindow, action })).digest("hex")
+    ? desktopActionHash(desktopBackend, targetApp, targetWindow, action)
     : undefined;
   const guiBackend = desktopBackend === "cua-driver" || desktopBackend === "peekaboo" ? desktopBackend : undefined;
   const proofReady = blockers.length === 0;
@@ -663,7 +744,7 @@ export function createDesktopLiveProofHarness(input: {
   }
 
   const actionHash = desktopBackend && targetApp && targetWindow && action
-    ? createHash("sha256").update(JSON.stringify({ desktopBackend, targetApp, targetWindow, action })).digest("hex")
+    ? desktopActionHash(desktopBackend, targetApp, targetWindow, action)
     : undefined;
   const proofHarnessReady = blockers.length === 0;
   const publicBackendStatus = backendStatus
@@ -1223,6 +1304,14 @@ function publicTextField(value: unknown, maxChars: number): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return trimmed ? capTextValue(trimmed, maxChars) : undefined;
+}
+
+function publicHashField(value: unknown): value is string {
+  return typeof value === "string" && /^[a-f0-9]{64}$/i.test(value);
+}
+
+function desktopActionHash(desktopBackend: DesktopBackend, targetApp: string, targetWindow: string, action: string): string {
+  return createHash("sha256").update(JSON.stringify({ desktopBackend, targetApp, targetWindow, action })).digest("hex");
 }
 
 function isDiagnosticOnlyFocusProof(value: string): boolean {
