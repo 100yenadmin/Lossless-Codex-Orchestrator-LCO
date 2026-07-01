@@ -342,6 +342,47 @@ test("visible Codex map joins public-safe visible app-server and indexed session
   });
 });
 
+test("visible Codex map marks duplicate indexed titles ambiguous without app-server disambiguation", async () => {
+  withIndexedSessions([
+    {
+      id: "thr_duplicate_a",
+      title: "Duplicate visible title",
+      status: "active",
+      priority: "medium",
+      nextAction: "inspect duplicate a",
+      refs: true
+    },
+    {
+      id: "thr_duplicate_b",
+      title: "Duplicate visible title",
+      status: "active",
+      priority: "medium",
+      nextAction: "inspect duplicate b",
+      refs: true
+    }
+  ], ({ db }) => {
+    const map = createVisibleCodexSessionMap(db, {
+      visibleCodex: {
+        threadMap: {
+          threads: [{
+            visibleId: "visible-ambiguous",
+            title: "Duplicate visible title",
+            confidence: "high"
+          }]
+        }
+      },
+      appServerThreads: { sourceCoverage: { codexAppServer: "not_configured" }, threads: [] }
+    });
+
+    const item = map.items.find((candidate) => candidate.desktopRef === "visible-ambiguous");
+    assert.ok(item);
+    assert.equal(item.sessionCardRef, null);
+    assert.equal(item.ambiguity.includes("multiple_indexed_title_matches"), true);
+    assert.equal(item.reasonCodes.includes("ambiguous_join"), true);
+    assert.equal(item.confidence <= 0.45, true);
+  });
+});
+
 test("visible Codex map reports unconsumed duplicate app-server title matches", async () => {
   withIndexedSessions([
     {
