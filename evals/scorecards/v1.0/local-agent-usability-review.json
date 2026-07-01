@@ -39,7 +39,7 @@
     "watcher status, watcher_triggered reason codes, resume request packet expiry, mutates=false, and approval boundary",
     "Codex app-server read-only availability, allowed/forbidden method posture, thread source coverage, and no-turns proof",
     "visible Codex map source coverage, confidence, ambiguity markers, and public-safe session card refs",
-    "GitHub operating item normalization for issue, PR, and check records without raw bodies or logs",
+    "GitHub operating item normalization for issue, PR, statusCheckRollup, and check records without raw bodies or logs",
     "operating-picture source coverage, source authority coverage, and not_configured P1 source states",
     "dry-run approval_audit_id, params_hash, and message_hash",
     "gateway setupStatus, setupBlockers, and setupGuidance for first-run credential blockers",
@@ -62,7 +62,8 @@
     "Agent can inspect read-only watcher status and generate resume-request packets without live control, GUI mutation, cleanup, or external writes.",
     "Agent can inspect Codex app-server status and thread signals without reading raw turns, enabling remote control, or mutating Codex.",
     "Agent can correlate sanitized visible Codex candidates with indexed session cards while ambiguous title matches stay low confidence.",
-    "Agent can normalize public-safe GitHub issue, PR, and check records into digest-ready github_items before summarization.",
+    "Agent can normalize public-safe GitHub issue, PR, statusCheckRollup, and check records into digest-ready github_items before summarization.",
+    "Agent can distinguish pending, failed, passed, and unknown PR check-state reason codes without reading check logs.",
     "Agent can inspect operating-picture cards whose claims cite source refs, confidence, freshness, reason codes, and authority coverage.",
     "Missing P1 source adapters are reported as not_configured instead of summarized.",
     "Unavailable or cache-only authorities degrade to unknown or low confidence instead of being treated as current truth.",
@@ -84,6 +85,6 @@
     "Visible Codex map joins prove read-only correlation from sanitized title/status metadata only; they do not prove Codex GUI mutation or visible focus/select/continue workflows.",
     "This does not prove live Codex control, generic GUI mutation, Claude Code adapter parity, full business truth, or release-grade customer readiness."
   ],
-  "next_action": "Run #260 app-server/visible-map dogfood through OpenClaw gateway, then continue P0 operating-picture hardening before filing P1 adapter work.",
+  "next_action": "Finish #270 GitHub check-state fidelity, then continue #269 source balancing and #271 cockpit card cleanup before filing P1 adapter work.",
   "proof_boundary": "This proves local OpenClaw gateway agent usability for Codex read/search/describe/expand/detail lookup/recommend/dry-run, read-only watcher request packets, read-only app-server status/thread signals, visible-to-indexed session correlation, and P0 cockpit/operating-picture cards using public-safe evidence only; it does not prove live control, GUI mutation, Claude Code adapter parity, full business truth, or 1.0 readiness."
 }

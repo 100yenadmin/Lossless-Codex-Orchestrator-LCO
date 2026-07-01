@@ -405,6 +405,192 @@ test("GitHub operating item collector handles common gh and GraphQL PR shapes", 
   assertNoUnsafeStrings(report, "PR_kwDOOpaqueNodeId");
 });
 
+test("GitHub operating item collector preserves statusCheckRollup fidelity", () => {
+  const rawPathCanary = "/Volumes/LEXAR/private/status-rollup.jsonl";
+  const tokenCanary = "authorization: Bearer abcdefghijklmnopqrstuvwxyz";
+  const opaqueNodeCanary = "PR_kwDOStatusRollupOpaque";
+  const pendingReport = createGithubOperatingItemsReport([
+    {
+      id: opaqueNodeCanary,
+      repo: "100yenadmin/Lossless-Codex-Orchestrator-LCO",
+      number: 270,
+      kind: "pull_request",
+      title: `Live queued statusCheckRollup ${rawPathCanary}`,
+      state: "open",
+      updatedAt: relativeIso(4),
+      statusCheckRollup: {
+        contexts: {
+          nodes: [
+            { __typename: "CheckRun", name: "test", status: "QUEUED", conclusion: null, details: tokenCanary },
+            { __typename: "CheckRun", name: "CodeQL", status: "IN_PROGRESS", conclusion: null }
+          ]
+        }
+      }
+    }
+  ], { now: "2026-07-01T12:00:00.000Z" });
+
+  const pendingPr = pendingReport.items.find((item) => item.id.endsWith("#270"));
+  assert.equal(pendingPr?.state, "yellow");
+  assert.equal(pendingPr?.reasonCodes.includes("pr_open"), true);
+  assert.equal(pendingPr?.reasonCodes.includes("checks_pending"), true);
+  assert.match(pendingPr?.nextAction ?? "", /Watch GitHub checks/i);
+
+  const greenDefaultReport = createGithubOperatingItemsReport([
+    {
+      repo: "100yenadmin/Lossless-Codex-Orchestrator-LCO",
+      pullRequestNumber: 271,
+      title: "Open PR with successful checks",
+      state: "open",
+      updatedAt: relativeIso(3),
+      statusCheckRollup: [
+        { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
+        { __typename: "StatusContext", context: "CodeQL", state: "SUCCESS" }
+      ]
+    }
+  ], { now: "2026-07-01T12:00:00.000Z" });
+
+  assert.equal(greenDefaultReport.items.length, 0);
+  assert.equal(greenDefaultReport.omitted.count, 1);
+  assert.equal(greenDefaultReport.omitted.reasons.includes("green_default"), true);
+
+  const greenIncludedReport = createGithubOperatingItemsReport([
+    {
+      repo: "100yenadmin/Lossless-Codex-Orchestrator-LCO",
+      pullRequestNumber: 271,
+      title: "Open PR with successful checks",
+      state: "open",
+      updatedAt: relativeIso(3),
+      statusCheckRollup: [
+        { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
+        { __typename: "StatusContext", context: "CodeQL", state: "SUCCESS" }
+      ]
+    }
+  ], { includeGreen: true, now: "2026-07-01T12:00:00.000Z" });
+  assert.equal(greenIncludedReport.items[0]?.state, "green");
+  assert.equal(greenIncludedReport.items[0]?.reasonCodes.includes("checks_passed"), true);
+
+  const unknownReport = createGithubOperatingItemsReport([
+    {
+      repo: "100yenadmin/Lossless-Codex-Orchestrator-LCO",
+      number: 272,
+      type: "pull_request",
+      title: "Open PR with no check data",
+      state: "open",
+      updatedAt: relativeIso(2)
+    }
+  ], { now: "2026-07-01T12:00:00.000Z" });
+
+  const unknownPr = unknownReport.items.find((item) => item.id.endsWith("#272"));
+  assert.equal(unknownPr?.state, "yellow");
+  assert.equal(unknownPr?.reasonCodes.includes("pr_open"), true);
+  assert.equal(unknownPr?.reasonCodes.includes("checks_unknown"), true);
+
+  const startupFailureReport = createGithubOperatingItemsReport([
+    {
+      repo: "100yenadmin/Lossless-Codex-Orchestrator-LCO",
+      number: 273,
+      type: "pull_request",
+      title: "Startup failure check run",
+      state: "open",
+      updatedAt: relativeIso(1),
+      statusCheckRollup: {
+        contexts: {
+          nodes: [
+            { __typename: "CheckRun", name: "test", status: "STARTUP_FAILURE", conclusion: null }
+          ]
+        }
+      }
+    }
+  ], { now: "2026-07-01T12:00:00.000Z" });
+  const startupFailurePr = startupFailureReport.items.find((item) => item.id.endsWith("#273"));
+  assert.equal(startupFailurePr?.state, "red");
+  assert.equal(startupFailurePr?.reasonCodes.includes("ci_failed"), true);
+
+  const failedConclusionVariants = ["FAILURE", "ERROR", "TIMED_OUT", "ACTION_REQUIRED", "STALE"] as const;
+  const failureVariantReport = createGithubOperatingItemsReport(failedConclusionVariants.map((conclusion, index) => ({
+    repo: "100yenadmin/Lossless-Codex-Orchestrator-LCO",
+    number: 276 + index,
+    type: "pull_request",
+    title: `${conclusion} check run`,
+    state: "open",
+    updatedAt: relativeIso(1),
+    statusCheckRollup: {
+      contexts: {
+        nodes: [
+          { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion }
+        ]
+      }
+    }
+  })), { now: "2026-07-01T12:00:00.000Z" });
+  for (const [index, conclusion] of failedConclusionVariants.entries()) {
+    const failureVariantPr = failureVariantReport.items.find((item) => item.id.endsWith(`#${276 + index}`));
+    assert.equal(failureVariantPr?.state, "red", `${conclusion} should be red`);
+    assert.equal(failureVariantPr?.reasonCodes.includes("ci_failed"), true, `${conclusion} should set ci_failed`);
+  }
+
+  const expectedContextReport = createGithubOperatingItemsReport([
+    {
+      repo: "100yenadmin/Lossless-Codex-Orchestrator-LCO",
+      number: 274,
+      type: "pull_request",
+      title: "Expected required status context",
+      state: "open",
+      updatedAt: relativeIso(1),
+      statusCheckRollup: {
+        contexts: {
+          nodes: [
+            { context: "required-check", state: "EXPECTED" }
+          ]
+        }
+      }
+    }
+  ], { now: "2026-07-01T12:00:00.000Z" });
+  const expectedContextPr = expectedContextReport.items.find((item) => item.id.endsWith("#274"));
+  assert.equal(expectedContextPr?.state, "yellow");
+  assert.equal(expectedContextPr?.reasonCodes.includes("checks_pending"), true);
+
+  const totalCountOnlyReport = createGithubOperatingItemsReport([
+    {
+      repo: "100yenadmin/Lossless-Codex-Orchestrator-LCO",
+      number: 275,
+      type: "pull_request",
+      title: "Total count without loaded checks",
+      state: "open",
+      updatedAt: relativeIso(1),
+      statusCheckRollup: {
+        contexts: {
+          totalCount: 3
+        }
+      }
+    }
+  ], { includeGreen: true, now: "2026-07-01T12:00:00.000Z" });
+  const totalCountOnlyPr = totalCountOnlyReport.items.find((item) => item.id.endsWith("#275"));
+  assert.equal(totalCountOnlyPr?.state, "yellow");
+  assert.equal(totalCountOnlyPr?.reasonCodes.includes("checks_unknown"), true);
+  assert.equal(totalCountOnlyPr?.reasonCodes.includes("checks_passed"), false);
+  assertNoUnsafeStrings({
+    pendingReport,
+    greenDefaultReport,
+    greenIncludedReport,
+    unknownReport,
+    startupFailureReport,
+    failureVariantReport,
+    expectedContextReport,
+    totalCountOnlyReport
+  }, rawPathCanary, tokenCanary, opaqueNodeCanary);
+
+  const root = mkdtempSync(join(tmpdir(), "loo-github-check-fidelity-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const digest = createProjectDigest(db, { window: "custom", githubItems: pendingReport.items, limit: 5 });
+    assert.equal(digest.cards.some((card) => card.reasonCodes.includes("checks_pending")), true);
+    assert.equal(digest.signals.some((signal) => signal.nextAction.text.includes("Watch GitHub checks")), true);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("operating picture marks missing P1 sources and preserves low-confidence conflicts", () => {
   withIndexedSessions([
     {
@@ -448,7 +634,7 @@ test("operating picture marks missing P1 sources and preserves low-confidence co
 <!-- /loo:manual-pin -->
 `);
     const digest = createProjectDigest(db, {
-      window: "today",
+      window: "7d",
       limit: 10,
       planStatePins: pins,
       githubItems: [
@@ -464,18 +650,18 @@ test("operating picture marks missing P1 sources and preserves low-confidence co
       ]
     });
     const missingStructuredSources = createProjectDigest(db, {
-      window: "today",
+      window: "7d",
       limit: 10,
       planStatePins: createPlanStatePinsReport(""),
       githubItems: []
     });
     const boundaryOnlyDigest = createProjectDigest(db, {
-      window: "today",
+      window: "7d",
       limit: 10,
       planStatePins: createPlanStatePinsReport("<!-- loo:approval-boundary -->\n- Stop before live control.\n<!-- /loo:approval-boundary -->")
     });
     const limitedDigest = createProjectDigest(db, {
-      window: "today",
+      window: "7d",
       limit: 2,
       planStatePins: pins,
       githubItems: [
@@ -515,7 +701,7 @@ test("operating picture marks missing P1 sources and preserves low-confidence co
     assert.equal(limitedDigest.cards.length, 2);
     assert.equal(limitedDigest.signals.length, 2);
 
-    const attention = createBusinessPulse(db, { window: "today", limit: 5, planStatePins: pins });
+    const attention = createBusinessPulse(db, { window: "7d", limit: 5, planStatePins: pins });
     assert.equal(attention.digest.health.finance.state, "unknown");
     assert.equal(attention.digest.health.finance.reason, "stripe_adapter_not_configured");
   });
@@ -544,7 +730,7 @@ test("operating picture includes source authority and degrades unavailable autho
 `);
     const profile = createDefaultSourceAuthorityProfile();
     const digest = createProjectDigest(db, {
-      window: "today",
+      window: "custom",
       limit: 10,
       planStatePins: pins,
       sourceAuthorityProfile: profile,
@@ -572,7 +758,7 @@ test("operating picture includes source authority and degrades unavailable autho
     assert.equal(digest.authorityCoverage.stripe.status, "not_configured");
 
     const degraded = createProjectDigest(db, {
-      window: "today",
+      window: "custom",
       limit: 10,
       sourceAuthorityProfile: createDefaultSourceAuthorityProfile({
         github: {

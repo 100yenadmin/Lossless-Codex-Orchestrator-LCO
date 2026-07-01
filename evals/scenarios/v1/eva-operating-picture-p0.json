@@ -25,6 +25,7 @@
     "source coverage report",
     "source authority coverage report",
     "deterministically normalized GitHub issue/PR/check records",
+    "GitHub statusCheckRollup pending, failed, passed, and unknown check-state reason codes",
     "not_configured P1 source states",
     "manual pins from explicit PLAN_STATE markers only",
     "unmarked PLAN_STATE stale prose ignored as current truth",
@@ -51,6 +52,6 @@
     "max_live_actions": 0,
     "max_screenshots_in_public_evidence": 0
   },
-  "proof_boundary": "Dry-run P0 scenario contract for Eva Operating Picture. It may prove read-only structured digest behavior for LCO/Codex, deterministically normalized GitHub issue/PR/check records, and PLAN_STATE pins, but does not prove Notion, support-control, Company Brain, Stripe, customer readiness, full business truth, or 1.0 readiness.",
+  "proof_boundary": "Dry-run P0 scenario contract for Eva Operating Picture. It may prove read-only structured digest behavior for LCO/Codex, deterministically normalized GitHub issue/PR/check records including caller-provided statusCheckRollup check-state fidelity, and PLAN_STATE pins, but does not prove Notion, support-control, Company Brain, Stripe, customer readiness, full business truth, or 1.0 readiness.",
   "next_action": "Run `loo_github_operating_items` and `loo_business_pulse` through the local OpenClaw gateway with public-safe PLAN_STATE pins and GitHub fixtures."
 }
