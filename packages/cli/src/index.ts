@@ -439,6 +439,10 @@ async function main() {
     return;
   }
   if (command === "release" && args[0] === "bundle") {
+    if (hasHelpFlag(args.slice(1))) {
+      printReleaseBundleHelp();
+      return;
+    }
     const parsed = parseReleaseBundleArgs(args.slice(1));
     const report = createReleaseBundle({
       evidenceDir: parsed.evidenceDir,
@@ -475,6 +479,10 @@ async function main() {
     return;
   }
   if (command === "release" && args[0] === "demo-status") {
+    if (hasHelpFlag(args.slice(1))) {
+      printReleaseDemoStatusHelp();
+      return;
+    }
     const parsed = parseReleaseDemoStatusArgs(args.slice(1));
     const report = createReleaseDemoStatus({
       evidenceDir: parsed.evidenceDir,
@@ -865,6 +873,44 @@ function printReleasePreflightHelp(): void {
     "",
     "Strict mode:",
     "  --strict exits non-zero while scope-required evidence is missing or unsafe.",
+    "",
+    "Safety boundary:",
+    "  The command does not publish npm, does not create a GitHub Release, does not run live Codex control, and does not perform desktop GUI mutation."
+  ].join("\n"));
+}
+
+function printReleaseBundleHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo release bundle --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--strict]",
+    "",
+    "Writes public-safe release notes and bundle manifests without performing gated release actions.",
+    "",
+    "Claim scopes:",
+    "  codex-read-search-expand-dry-run excludes live-control and working-app runtime proof claims.",
+    "  codex-working-app-proof requires approved live-control proof and public-safe #158/#159 v1.1 runtime proof markers.",
+    "",
+    "Strict mode:",
+    "  --strict exits non-zero while scope-required release evidence is missing or unsafe.",
+    "",
+    "Safety boundary:",
+    "  The command does not publish npm, does not create a GitHub Release, does not run live Codex control, and does not perform desktop GUI mutation."
+  ].join("\n"));
+}
+
+function printReleaseDemoStatusHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo release demo-status --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--min-sessions n] [--strict]",
+    "",
+    "Checks public-safe beta demo evidence without performing gated release actions.",
+    "",
+    "Demo evidence:",
+    "  Requires indexed-session counts, plan/final search evidence, bounded expansion evidence, and control dry-run evidence.",
+    "  codex-working-app-proof also requires approved live-control proof and public-safe #158/#159 v1.1 runtime proof markers.",
+    "",
+    "Strict mode:",
+    "  --strict exits non-zero while required demo evidence is missing, unsafe, or inconsistent.",
     "",
     "Safety boundary:",
     "  The command does not publish npm, does not create a GitHub Release, does not run live Codex control, and does not perform desktop GUI mutation."
