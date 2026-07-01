@@ -20,6 +20,7 @@
     "search refs and score summaries",
     "describe and direct-session/query expand profile names",
     "dry-run approval_audit_id, params_hash, and message_hash",
+    "gateway setupBlockers and setupGuidance for first-run credential blockers",
     "agent reasoning note based only on safe summaries"
   ],
   "private_data_exclusions": [
@@ -47,6 +48,7 @@
   "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-<slug>/local-agent-usability-review.json",
   "known_gaps": [
     "This scorecard requires a local OpenClaw gateway installation or a documented unavailable-gateway blocker.",
+    "Fresh OpenClaw profiles may need scoped gateway credentials or profile/device pairing before tool-smoke can call tools.",
     "Full usability proof needs a bounded real-session smoke after indexing is current."
   ],
   "next_action": "Run a read-only gateway dogfood smoke after package/plugin changes and record only public-safe summaries.",
