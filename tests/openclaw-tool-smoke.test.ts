@@ -685,3 +685,40 @@ test("OpenClaw tool smoke classifies gateway device and credential blockers with
     }
   }
 });
+
+test("OpenClaw tool smoke marks missing gateway credentials as first-run setup blockers", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-fresh-profile-"));
+  const evidencePath = join(dir, "tool-smoke.json");
+  const { bin, callsPath } = createGatewayAuthFailureFakeOpenClaw(
+    dir,
+    "gateway tools.catalog requires credentials before opening a websocket"
+  );
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      profile: "lco-fresh-profile",
+      sessionKey: "agent:main:lco-fresh-profile",
+      evidencePath,
+      requiredTools: ["loo_doctor"]
+    }) as ReturnType<typeof runOpenClawToolSmoke> & {
+      setupBlockers?: string[];
+      setupGuidance?: string[];
+    };
+
+    assert.equal(report.toolSmokeReady, false);
+    assert.deepEqual(report.blockers, ["openclaw_gateway_credentials_required:loo_doctor"]);
+    assert.deepEqual(report.setupBlockers, ["fresh_profile_gateway_credentials_required"]);
+    assert.match(report.nextAction, /profile/i);
+    assert.match(report.nextAction, /token/i);
+    assert.match(report.setupGuidance?.join("\n") || "", /profile/i);
+    assert.equal(report.actionsPerformed.broadGatewayScopeApproval, false);
+    const saved = readFileSync(evidencePath, "utf8");
+    assert.match(saved, /fresh_profile_gateway_credentials_required/);
+    assert.doesNotMatch(saved, /requires credentials before opening a websocket/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});

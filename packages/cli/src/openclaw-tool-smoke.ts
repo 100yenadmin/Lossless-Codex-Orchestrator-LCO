@@ -66,6 +66,8 @@ export type OpenClawToolSmokeReport = {
   };
   invocations: OpenClawToolInvocationSummary[];
   blockers: string[];
+  setupBlockers: string[];
+  setupGuidance: string[];
   evidencePath?: string;
   actionsPerformed: {
     liveCodexControlRun: false;
@@ -174,6 +176,7 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
   }
 
   const uniqueBlockers = [...new Set(blockers)];
+  const setupBlockers = setupBlockersFor(uniqueBlockers);
   const report: OpenClawToolSmokeReport = {
     ok: uniqueBlockers.length === 0,
     toolSmokeReady: uniqueBlockers.length === 0,
@@ -190,6 +193,8 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
     },
     invocations,
     blockers: uniqueBlockers,
+    setupBlockers,
+    setupGuidance: setupGuidanceFor(setupBlockers),
     ...(options.evidencePath ? { evidencePath: sanitizeEvidencePath(options.evidencePath) } : {}),
     actionsPerformed: {
       liveCodexControlRun: false,
@@ -515,9 +520,44 @@ function nextActionForBlockers(blockers: string[]): string {
     return "Rotate or reissue the OpenClaw gateway device token, confirm the caller uses the current token, then rerun the tool-smoke without storing the token in evidence.";
   }
   if (hasBlocker(blockers, "openclaw_gateway_credentials_required")) {
-    return "Provide the required OpenClaw gateway credentials or token, or run an explicit loopback token-auth gateway for local dogfood, then rerun the tool-smoke.";
+    return "Use a profile with OpenClaw gateway credentials, pass a scoped --token or OPENCLAW_GATEWAY_TOKEN, or run an explicit loopback token-auth gateway for local dogfood; then rerun the tool-smoke.";
   }
   return "Fix or document the gateway tool-call blocker before claiming first-class OpenClaw agent usability.";
+}
+
+function setupBlockersFor(blockers: string[]): string[] {
+  const setupBlockers: string[] = [];
+  if (hasBlocker(blockers, "openclaw_gateway_credentials_required")) {
+    setupBlockers.push("fresh_profile_gateway_credentials_required");
+  }
+  if (hasBlocker(blockers, "openclaw_gateway_device_identity_required")) {
+    setupBlockers.push("openclaw_device_identity_pairing_required");
+  }
+  if (hasBlocker(blockers, "openclaw_gateway_device_token_mismatch")) {
+    setupBlockers.push("openclaw_gateway_token_rotation_required");
+  }
+  if (hasBlocker(blockers, "openclaw_gateway_scope_upgrade_pending")) {
+    setupBlockers.push("openclaw_gateway_scope_approval_required");
+  }
+  return [...new Set(setupBlockers)];
+}
+
+function setupGuidanceFor(setupBlockers: string[]): string[] {
+  return setupBlockers.map((blocker) => {
+    if (blocker === "fresh_profile_gateway_credentials_required") {
+      return "Fresh OpenClaw profiles may install and list the plugin before they can call gateway tools. Select a provisioned profile, pass a scoped gateway token, or complete device/profile pairing before treating tool-smoke as product failure.";
+    }
+    if (blocker === "openclaw_device_identity_pairing_required") {
+      return "Pair or approve the local OpenClaw device identity before rerunning gateway tool-smoke.";
+    }
+    if (blocker === "openclaw_gateway_token_rotation_required") {
+      return "Rotate or reissue the gateway token and keep the replacement out of public evidence.";
+    }
+    if (blocker === "openclaw_gateway_scope_approval_required") {
+      return "Approve only the required gateway tool scopes; this is not broad gateway scope or live-control approval.";
+    }
+    return "Resolve the OpenClaw gateway setup blocker before claiming first-class agent usability.";
+  });
 }
 
 function hasBlocker(blockers: string[], prefix: string): boolean {
