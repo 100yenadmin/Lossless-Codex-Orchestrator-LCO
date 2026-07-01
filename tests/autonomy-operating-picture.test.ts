@@ -406,18 +406,22 @@ test("GitHub operating item collector handles common gh and GraphQL PR shapes", 
 });
 
 test("GitHub operating item collector preserves statusCheckRollup fidelity", () => {
+  const rawPathCanary = "/Volumes/LEXAR/private/status-rollup.jsonl";
+  const tokenCanary = "authorization: Bearer abcdefghijklmnopqrstuvwxyz";
+  const opaqueNodeCanary = "PR_kwDOStatusRollupOpaque";
   const pendingReport = createGithubOperatingItemsReport([
     {
+      id: opaqueNodeCanary,
       repo: "100yenadmin/Lossless-Codex-Orchestrator-LCO",
       number: 270,
       kind: "pull_request",
-      title: "Live queued statusCheckRollup",
+      title: `Live queued statusCheckRollup ${rawPathCanary}`,
       state: "open",
       updatedAt: relativeIso(4),
       statusCheckRollup: {
         contexts: {
           nodes: [
-            { __typename: "CheckRun", name: "test", status: "QUEUED", conclusion: null },
+            { __typename: "CheckRun", name: "test", status: "QUEUED", conclusion: null, details: tokenCanary },
             { __typename: "CheckRun", name: "CodeQL", status: "IN_PROGRESS", conclusion: null }
           ]
         }
@@ -542,6 +546,15 @@ test("GitHub operating item collector preserves statusCheckRollup fidelity", () 
   assert.equal(totalCountOnlyPr?.state, "yellow");
   assert.equal(totalCountOnlyPr?.reasonCodes.includes("checks_unknown"), true);
   assert.equal(totalCountOnlyPr?.reasonCodes.includes("checks_passed"), false);
+  assertNoUnsafeStrings({
+    pendingReport,
+    greenDefaultReport,
+    greenIncludedReport,
+    unknownReport,
+    startupFailureReport,
+    expectedContextReport,
+    totalCountOnlyReport
+  }, rawPathCanary, tokenCanary, opaqueNodeCanary);
 
   const root = mkdtempSync(join(tmpdir(), "loo-github-check-fidelity-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
