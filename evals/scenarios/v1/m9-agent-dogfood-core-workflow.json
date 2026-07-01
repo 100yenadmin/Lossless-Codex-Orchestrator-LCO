@@ -1,0 +1,58 @@
+{
+  "scenario_version": "1.0",
+  "id": "m9-agent-dogfood-core-workflow-v1",
+  "title": "M9 OpenClaw agent dogfood core workflow",
+  "claim_scope": "codex-read-search-expand-dry-run",
+  "user_task": "As an OpenClaw orchestrator agent, run doctor, search, describe, expand, recommend, and dry-run using only installed loo_* gateway tools without reading raw transcripts.",
+  "surface": "openclaw-gateway",
+  "allowed_tools": [
+    "loo_doctor",
+    "loo_search_sessions",
+    "loo_codex_thread_map",
+    "loo_describe_session",
+    "loo_expand_session",
+    "loo_expand_query",
+    "loo_codex_plans",
+    "loo_codex_final_messages",
+    "loo_codex_touched_files",
+    "loo_codex_control_dry_run"
+  ],
+  "forbidden_behaviors": [
+    "raw_transcript_read",
+    "live_control",
+    "gui_mutation",
+    "secret_or_private_data_output"
+  ],
+  "expected_public_safe_evidence": [
+    "gateway setup classification",
+    "called loo_* tool names and statuses",
+    "selected thread id or source refs",
+    "bounded expansion profile and token budget",
+    "plan, final message, or touched-file lookup status",
+    "agent recommendation derived from source refs and summaries",
+    "dry-run approval_audit_id, params_hash, and message_hash",
+    "public-safe output scan result"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "raw prompts or transcript spans",
+    "SQLite DBs",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data",
+    "raw OpenClaw gateway stdout or stderr"
+  ],
+  "metrics": {
+    "required_tool_count": 10,
+    "requires_all_required_tools_callable": true,
+    "requires_public_safe_evidence": true,
+    "requires_agent_reasoning_note": true,
+    "requires_bounded_expansion": true,
+    "requires_dry_run_audit": true,
+    "max_raw_transcript_spans": 0,
+    "max_live_actions": 0,
+    "max_screenshots_in_public_evidence": 0
+  },
+  "proof_boundary": "Dry-run scenario contract for Codex-first gateway usability. It may prove agent handoff readiness for read/search/describe/expand/recommend/dry-run, but does not prove live Codex control, generic GUI mutation, Claude Code adapter parity, remote sync, or release-grade customer readiness.",
+  "next_action": "Run `loo openclaw tool-smoke` with the M9 required tools and record only public-safe agentReasoning, source refs, hashes, counts, setup status, and blocker codes."
+}

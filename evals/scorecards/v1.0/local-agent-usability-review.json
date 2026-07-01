@@ -47,14 +47,13 @@
     "Evidence captures local DBs, transcript files, screenshots, prompt text, or secrets.",
     "Tool output is too vague for the agent to choose a safe next action."
   ],
-  "current_score": "partial-pass",
-  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-232-agent-usage-skill/local-agent-usability-review.json",
+  "current_score": "pass",
+  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-234-agent-dogfood-core-workflow/openclaw-tool-smoke-final.json",
   "known_gaps": [
-    "The first-class agent usage skill is packaged, but the full agent workflow still needs the issue #234 gateway dogfood scenario.",
-    "This scorecard requires a local OpenClaw gateway installation or a documented unavailable-gateway blocker.",
     "Fresh OpenClaw profiles may need scoped gateway credentials or profile/device pairing before tool-smoke can call tools; `setupStatus.classification` must distinguish this from package failure.",
-    "Full usability proof needs a bounded real-session smoke after indexing is current."
+    "Fresh npm beta install and clean-profile OpenClaw load remain tracked by #235.",
+    "This does not prove live Codex control, generic GUI mutation, Claude Code adapter parity, or release-grade customer readiness."
   ],
-  "next_action": "Run the issue #234 read-only gateway dogfood scenario using only loo_* tools and record public-safe summaries.",
-  "proof_boundary": "This issue proves the packaged agent skill/playbook and docs links only; full local-agent usability remains pending until the gateway scenario is run."
+  "next_action": "Run the #235 fresh npm beta install and clean-profile OpenClaw load proof before claiming external tester readiness.",
+  "proof_boundary": "This proves local OpenClaw gateway agent usability for Codex read/search/describe/expand/detail lookup/recommend/dry-run using public-safe evidence only; it does not prove fresh-profile install, live control, GUI mutation, Claude Code adapter parity, or 1.0 readiness."
 }

@@ -41,8 +41,8 @@ test("scorecard sweep writes a public-safe fail-closed aggregate packet", () => 
   });
   assert.deepEqual(report.scorecards.map((scorecard) => scorecard.name).sort(), liveControlScorecards);
   const localAgentScorecard = report.scorecards.find((scorecard) => scorecard.name === "local-agent-usability-review");
-  assert.equal(localAgentScorecard?.status, "invalid");
-  assert.match(localAgentScorecard?.blockers.join("\n") ?? "", /scorecard_failed:local-agent-usability-review:partial-pass/);
+  assert.equal(localAgentScorecard?.status, "scored");
+  assert.deepEqual(localAgentScorecard?.blockers, []);
   assert.equal(
     report.scorecards
       .filter((scorecard) => scorecard.name !== "local-agent-usability-review")
@@ -50,7 +50,7 @@ test("scorecard sweep writes a public-safe fail-closed aggregate packet", () => 
     true
   );
   assert.equal(report.scorecards.every((scorecard) => dirname(scorecard.evidencePath) === evidenceDir), true);
-  assert.equal(report.blockers.length, liveControlScorecards.length);
+  assert.equal(report.blockers.length, liveControlScorecards.length - 1);
   assert.match(report.blockers.join("\n"), /scorecard_not_run:safety-bypass-review/);
   assert.equal(existsSync(join(evidenceDir, "scorecard-sweep.json")), true);
 

@@ -16,7 +16,7 @@ The M9 target is:
 
 - Add a first-class OpenClaw agent usage skill at [skills/lossless-openclaw-orchestrator/SKILL.md](skills/lossless-openclaw-orchestrator/SKILL.md) for the canonical `loo_*` workflows.
 - Align README, VISION, and release docs with current GitHub truth instead of stale sprint wording.
-- Prove an agent dogfood scenario that uses only public `loo_*` tools to search, describe, expand, reason, and dry-run.
+- Prove an agent dogfood scenario at [evals/scenarios/v1/m9-agent-dogfood-core-workflow.json](evals/scenarios/v1/m9-agent-dogfood-core-workflow.json) that uses only public `loo_*` tools to search, describe, expand, reason, and dry-run.
 - Prove fresh npm beta install and clean-profile OpenClaw load without relying on a repo link.
 - Define and gate 1.0 release readiness without adding Claude parity or generic GUI mutation to the scope.
 
@@ -31,6 +31,7 @@ What a local OpenClaw agent can do today:
 - Retrieve proposed plans, final messages, touched files, and session maps through `loo_*` tools.
 - Dry-run Codex resume/send/steer/interrupt actions and inspect audit ids and hashes before any live action.
 - Classify package and gateway readiness with `loo onboard status`, `loo openclaw dogfood`, `loo openclaw tool-smoke`, and `loo openclaw published-smoke`.
+- Follow the packaged agent skill and M9 dogfood scenario to produce a public-safe recommendation from source refs, bounded expansion, detail lookups, and dry-run audit hashes.
 
 ## Completed Proof: Working App Runtime
 
