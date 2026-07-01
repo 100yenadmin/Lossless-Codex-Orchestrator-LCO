@@ -87,8 +87,11 @@ P0 is read-only and deterministic:
 - #260 adds read-only Codex app-server status/thread signals and
   `loo_visible_codex_map`, a public-safe join between sanitized visible Codex
   candidates and indexed session cards.
-- #255 adds `loo_plan_state_pins`, `loo_project_digest`,
-  `loo_attention_inbox`, and `loo_business_pulse`.
+- #255 adds `loo_plan_state_pins`, `loo_github_operating_items`,
+  `loo_project_digest`, `loo_attention_inbox`, and `loo_business_pulse`.
+- #264 adds a deterministic read-only GitHub operating-item collector so
+  issue/PR/check records become public-safe `github_items` before digest tools
+  summarize them.
 - #258 adds a public-safe [source authority profile](docs/SOURCE_AUTHORITY_PROFILE.md)
   so P0 tools distinguish adapter coverage from who owns each truth claim.
 - `PLAN_STATE.md` is demoted to bootloader, manual pins, approval boundaries,
@@ -106,8 +109,8 @@ What a local OpenClaw agent can do today:
 - Retrieve plans, finals, touched files, and session maps with the Codex detail
   tools.
 - List recent sessions and operating-picture attention items with
-  `loo_recent_sessions`, `loo_cockpit_inbox`, `loo_project_digest`,
-  `loo_attention_inbox`, and `loo_business_pulse`.
+  `loo_recent_sessions`, `loo_cockpit_inbox`, `loo_github_operating_items`,
+  `loo_project_digest`, `loo_attention_inbox`, and `loo_business_pulse`.
 - Represent watcher-triggered follow-up requests with `loo_watchers_list`,
   `loo_watcher_status`, `loo_watcher_dry_run`, and
   `loo_resume_request_packet`; these tools create request packets only and do

@@ -45,6 +45,7 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
     /loo_recent_sessions/i,
     /loo_cockpit_inbox/i,
     /loo_plan_state_pins/i,
+    /loo_github_operating_items/i,
     /loo_business_pulse/i,
     /P1 source adapters/i,
     /not_configured/i,

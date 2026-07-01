@@ -14,6 +14,7 @@ import {
   expandSession,
   expandQuery,
   createPlanStatePinsReport,
+  createGithubOperatingItemsReport,
   createProjectDigest,
   createResumeRequestPacket,
   createWatcherStatusReport,
@@ -321,6 +322,16 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       plan_state_text: { type: "string" },
       plan_state_path: { type: "string" }
     }, (input) => createPlanStatePinsReport(resolvePlanStateText(input))),
+    tool("loo_github_operating_items", "Normalize public-safe GitHub issue, PR, and check records into Eva operating-picture github_items without writing to GitHub.", {
+      github_records: { type: "array", items: { type: "object", additionalProperties: true } },
+      include_green: { type: "boolean" },
+      limit: { type: "integer", minimum: 1, maximum: 200 },
+      now: { type: "string" }
+    }, (input) => createGithubOperatingItemsReport(optionalGithubRecords(input.github_records), {
+      includeGreen: optionalBoolean(input.include_green),
+      limit: optionalNumber(input.limit),
+      now: optionalString(input.now)
+    })),
     tool("loo_project_digest", "Create a read-only Eva operating digest from LCO/Codex cards, optional structured GitHub items, PLAN_STATE pins, and source authority coverage.", {
       window: { type: "string", enum: ["today", "24h", "7d", "custom"] },
       limit: { type: "integer", minimum: 1, maximum: 200 },
@@ -727,13 +738,30 @@ function optionalGithubItems(value: unknown): Array<{
     return {
       id,
       title,
+      kind: optionalGithubKind(record.kind),
       ...(state ? { state } : {}),
       ...(urgency ? { urgency } : {}),
       reasonCodes: optionalStringArray(record.reasonCodes ?? record.reason_codes),
       updatedAt: optionalString(record.updatedAt ?? record.updated_at) ?? null,
-      nextAction: optionalString(record.nextAction ?? record.next_action)
+      nextAction: optionalString(record.nextAction ?? record.next_action),
+      confidence: optionalNumber(record.confidence)
     };
   });
+}
+
+function optionalGithubRecords(value: unknown): unknown[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error("github_records must be an array");
+  return value;
+}
+
+function optionalGithubKind(value: unknown): "repo" | "issue" | "pr" | undefined {
+  const normalized = optionalString(value)?.toLowerCase().replace(/[^a-z]/g, "");
+  if (!normalized) return undefined;
+  if (normalized === "repo" || normalized === "repository") return "repo";
+  if (normalized === "issue") return "issue";
+  if (normalized === "pr" || normalized === "pullrequest") return "pr";
+  return undefined;
 }
 
 function optionalWatchSpecs(value: unknown): WatchSpec[] | undefined {

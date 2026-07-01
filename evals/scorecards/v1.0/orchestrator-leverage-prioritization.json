@@ -13,6 +13,7 @@
     "loo_codex_thread_map",
     "loo_recent_sessions",
     "loo_cockpit_inbox",
+    "loo_github_operating_items",
     "loo_project_digest",
     "loo_attention_inbox",
     "loo_business_pulse"
@@ -73,7 +74,7 @@
     "closeout or hook agents that tag finished threads and plans with public-safe metadata",
     "session map that lets the orchestrator sort, archive, fork, and resume sessions without raw transcript reads",
     "autonomy cockpit inbox that ranks recent sessions into public-safe attention cards without wildcard transcript queries",
-    "Eva operating picture digest that joins LCO/Codex, structured GitHub items, and explicit PLAN_STATE pins while marking missing P1 sources not_configured",
+    "Eva operating picture digest that joins LCO/Codex, normalized public-safe GitHub items, and explicit PLAN_STATE pins while marking missing P1 sources not_configured",
     "LCM-style grep, describe, and expand-query workflow with citations and bounded evidence bundles",
     "hybrid search using BM25, vector retrieval, query expansion, and reranking when fixture evals prove it improves top-k relevance",
     "session sanitizer addon that scans indexed sessions for secret-like strings and produces redacted dry-run repair tasks",

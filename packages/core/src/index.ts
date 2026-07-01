@@ -623,11 +623,39 @@ export type OperatingDigest = {
 export type GithubOperatingItem = {
   id: string;
   title: string;
+  kind?: "repo" | "issue" | "pr";
   state?: OperatingState;
   urgency?: OperatingUrgency;
   reasonCodes?: string[];
   updatedAt?: string | null;
   nextAction?: string;
+  confidence?: number;
+};
+
+export type GithubOperatingItemsReport = {
+  schema: "lco.githubOperatingItems.v1";
+  publicSafe: true;
+  readOnly: true;
+  generatedAt: string;
+  items: GithubOperatingItem[];
+  rejected: Array<{
+    index: number;
+    reason: "missing_id" | "missing_title" | "invalid_record";
+  }>;
+  omitted: {
+    count: number;
+    reasons: string[];
+  };
+  sourceCoverage: {
+    github: SourceCoverageState;
+  };
+  actionsPerformed: {
+    githubWriteRun: false;
+    liveCodexControlRun: false;
+    desktopGuiActionRun: false;
+    rawTranscriptRead: false;
+  };
+  proofBoundary: string;
 };
 
 export type OperatingDigestOptions = {
@@ -1903,6 +1931,66 @@ export function createPlanStatePinsReport(text: string): PlanStatePinsReport {
   };
 }
 
+export function createGithubOperatingItemsReport(
+  records: unknown[] = [],
+  options: { includeGreen?: boolean; limit?: number; now?: string } = {}
+): GithubOperatingItemsReport {
+  const limit = clamp(options.limit ?? 100, 1, 200);
+  const nowMs = timestampMillis(options.now ?? null) ?? Date.now();
+  const rejected: GithubOperatingItemsReport["rejected"] = [];
+  const normalized: GithubOperatingItem[] = [];
+  let greenOmitted = 0;
+
+  records.forEach((record, index) => {
+    const result = githubOperatingItemFromRecord(record, index, nowMs);
+    if ("rejected" in result) {
+      rejected.push(result.rejected);
+      return;
+    }
+    if (!options.includeGreen && result.item.state === "green") {
+      greenOmitted += 1;
+      return;
+    }
+    normalized.push(result.item);
+  });
+
+  const sorted = normalized.sort(githubOperatingItemComparator);
+  const items = sorted.slice(0, limit);
+  const limitOmitted = Math.max(0, sorted.length - items.length);
+  const omittedReasons = [
+    ...(greenOmitted > 0 ? ["green_default"] : []),
+    ...(limitOmitted > 0 ? ["limit"] : [])
+  ];
+  const coverage: SourceCoverageState = records.length === 0
+    ? "not_configured"
+    : rejected.length > 0
+      ? "partial"
+      : "ok";
+
+  return {
+    schema: "lco.githubOperatingItems.v1",
+    publicSafe: true,
+    readOnly: true,
+    generatedAt: new Date().toISOString(),
+    items,
+    rejected,
+    omitted: {
+      count: greenOmitted + limitOmitted,
+      reasons: omittedReasons.length ? omittedReasons : ["none"]
+    },
+    sourceCoverage: {
+      github: coverage
+    },
+    actionsPerformed: {
+      githubWriteRun: false,
+      liveCodexControlRun: false,
+      desktopGuiActionRun: false,
+      rawTranscriptRead: false
+    },
+    proofBoundary: "This report normalizes caller-provided public-safe GitHub issue/PR/check records into operating-picture items. It does not call GitHub, write comments, labels, reviews, branches, releases, read raw logs or bodies, run live Codex control, or mutate a GUI."
+  };
+}
+
 export function createProjectDigest(db: LooDatabase, options: OperatingDigestOptions = {}): OperatingDigest {
   const limit = clamp(options.limit ?? 20, 1, 200);
   const window = options.window ?? "today";
@@ -2399,6 +2487,7 @@ function signalFromGithubItem(item: GithubOperatingItem): OperatingSignal {
   const state = operatingState(item.state ?? "unknown");
   const urgency = operatingUrgency(item.urgency ?? (state === "red" ? "high" : state === "yellow" ? "medium" : "low"));
   const sourceRef = `github:${publicSafeText(item.id, 180)}`;
+  const subjectKind = item.kind ?? (item.id.includes("#") ? "issue" : "repo");
   return {
     schema: "lco.operatingSignal.v1",
     signalId: `sig_${stableId(sourceRef).slice(0, 16)}`,
@@ -2406,7 +2495,7 @@ function signalFromGithubItem(item: GithubOperatingItem): OperatingSignal {
     sourceRef,
     observedAt: item.updatedAt ?? null,
     subject: {
-      kind: item.id.includes("#") ? "issue" : "repo",
+      kind: subjectKind,
       id: publicSafeText(item.id, 180),
       title: publicSafeText(item.title, 180)
     },
@@ -2419,9 +2508,242 @@ function signalFromGithubItem(item: GithubOperatingItem): OperatingSignal {
       text: publicSafeText(item.nextAction || "Inspect GitHub item.", 220),
       requiresApproval: false
     },
-    confidence: 0.86,
+    confidence: typeof item.confidence === "number" ? Math.max(0.2, Math.min(0.99, item.confidence)) : 0.86,
     evidenceIds: [`ev_${stableId(`${sourceRef}:github`).slice(0, 16)}`]
   };
+}
+
+function githubOperatingItemFromRecord(
+  value: unknown,
+  index: number,
+  nowMs: number
+): { item: GithubOperatingItem } | { rejected: GithubOperatingItemsReport["rejected"][number] } {
+  if (!githubRecord(value)) return { rejected: { index, reason: "invalid_record" } };
+  const id = githubOperatingId(value);
+  if (!id) return { rejected: { index, reason: "missing_id" } };
+  const title = publicSafeText(githubString(value.title) ?? "");
+  if (!title) return { rejected: { index, reason: "missing_title" } };
+  const kind = githubOperatingKind(value);
+  const updatedAt = publicIsoTimestamp(githubString(value.updatedAt ?? value.updated_at ?? value.updatedAtIso ?? value.updated_at_iso) ?? null);
+  const reasonCodes = githubReasonCodes(value, kind, updatedAt, nowMs);
+  const state = githubOperatingState(value, reasonCodes);
+  const urgency = state === "red" ? "high" : state === "yellow" || state === "unknown" ? "medium" : "low";
+  const confidence = reasonCodes.includes("low_confidence") ? 0.48 : reasonCodes.includes("stale") ? 0.74 : 0.88;
+  return {
+    item: {
+      id,
+      title,
+      kind,
+      state,
+      urgency,
+      reasonCodes,
+      updatedAt,
+      nextAction: githubNextAction(id, state, reasonCodes),
+      confidence
+    }
+  };
+}
+
+function githubOperatingId(record: Record<string, unknown>): string | null {
+  const repo = githubRepoName(record);
+  const number = githubIssueNumber(record);
+  if (repo && number && /^[0-9]+$/.test(number)) return `${repo}#${number}`;
+  const direct = githubString(record.id ?? record.sourceRef ?? record.source_ref);
+  if (direct && actionableGithubRef(direct)) return publicSafeText(direct.replace(/^github:/i, ""), 180);
+  return null;
+}
+
+function githubRepoName(record: Record<string, unknown>): string | null {
+  const direct = githubString(record.repo ?? record.repository ?? record.nameWithOwner ?? record.name_with_owner);
+  if (direct && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(direct)) return publicSafeText(direct, 140);
+  const owner = githubString(record.owner);
+  const name = githubString(record.repoName ?? record.repo_name ?? record.repositoryName ?? record.repository_name);
+  if (owner && name && /^[A-Za-z0-9_.-]+$/.test(owner) && /^[A-Za-z0-9_.-]+$/.test(name)) return `${owner}/${name}`;
+  return githubRefFromUrl(record)?.repo ?? null;
+}
+
+function githubIssueNumber(record: Record<string, unknown>): string | null {
+  const direct = githubString(record.number ?? record.issueNumber ?? record.issue_number ?? record.pullRequestNumber ?? record.pull_request_number);
+  if (direct && /^[0-9]+$/.test(direct)) return direct;
+  return githubRefFromUrl(record)?.number ?? null;
+}
+
+function githubRefFromUrl(record: Record<string, unknown>): { repo: string; number: string; kind: GithubOperatingItem["kind"] } | null {
+  const rawUrl = githubString(record.url ?? record.html_url ?? record.permalink ?? record.webUrl ?? record.web_url);
+  if (!rawUrl) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  if (!["github.com", "www.github.com"].includes(parsed.hostname.toLowerCase())) return null;
+  const match = parsed.pathname.match(/^\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/(pull|issues)\/([0-9]+)(?:\/|$)/);
+  if (!match) return null;
+  return {
+    repo: `${match[1]}/${match[2]}`,
+    number: match[4],
+    kind: match[3] === "pull" ? "pr" : "issue"
+  };
+}
+
+function actionableGithubRef(value: string): boolean {
+  return /^(?:github:)?[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+#[0-9]+$/i.test(value);
+}
+
+function hasPullRequestNumber(record: Record<string, unknown>): boolean {
+  return githubIssueNumber({ pullRequestNumber: record.pullRequestNumber ?? record.pull_request_number }) !== null;
+}
+
+function githubUrlKind(record: Record<string, unknown>): GithubOperatingItem["kind"] | null {
+  return githubRefFromUrl(record)?.kind ?? null;
+}
+
+function githubCheckRecords(record: Record<string, unknown>): Record<string, unknown>[] {
+  const records: Record<string, unknown>[] = [record];
+  for (const key of ["checks", "statusCheckRollup", "status_check_rollup", "checkRuns", "check_runs"]) {
+    const value = record[key];
+    if (githubRecord(value)) {
+      records.push(value);
+      const nodes = value.nodes;
+      if (Array.isArray(nodes)) records.push(...nodes.filter(githubRecord));
+    } else if (Array.isArray(value)) {
+      records.push(...value.filter(githubRecord));
+    }
+  }
+  return records;
+}
+
+function githubCheckValues(checks: Record<string, unknown>): string[] {
+  return [
+    checks.status,
+    checks.checkStatus,
+    checks.check_status,
+    checks.conclusion,
+    checks.checkConclusion,
+    checks.check_conclusion,
+    checks.state,
+    checks.bucket
+  ]
+    .map((value) => normalizedMetadataValue(githubString(value) ?? ""))
+    .filter(Boolean);
+}
+
+function githubFailedCheckValue(value: string): boolean {
+  return ["failure", "failed", "error", "timed_out", "cancelled", "action_required", "fail", "red"].includes(value);
+}
+
+function githubPendingCheckValue(value: string): boolean {
+  return ["queued", "in_progress", "pending", "neutral_pending", "requested", "waiting"].includes(value);
+}
+
+function githubCheckCount(checks: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = githubNumber(checks[key]);
+    if (value !== null) return value;
+  }
+  return null;
+}
+
+function githubOperatingKind(record: Record<string, unknown>): GithubOperatingItem["kind"] {
+  const raw = normalizedMetadataValue(githubString(record.type ?? record.kind ?? record.__typename) ?? "");
+  if (["pull_request", "pullrequest", "pr"].includes(raw)) return "pr";
+  if (["issue"].includes(raw)) return "issue";
+  if (hasPullRequestNumber(record)) return "pr";
+  const urlKind = githubUrlKind(record);
+  if (urlKind) return urlKind;
+  return githubOperatingId(record)?.includes("#") ? "issue" : "repo";
+}
+
+function githubReasonCodes(
+  record: Record<string, unknown>,
+  kind: GithubOperatingItem["kind"],
+  updatedAt: string | null,
+  nowMs: number
+): string[] {
+  const codes = [
+    kind === "pr" ? "pr_open" : kind === "issue" ? "issue_open" : "repo_signal"
+  ];
+  const state = normalizedMetadataValue(githubString(record.state) ?? "");
+  if (state === "closed") codes.push("closed");
+  if (githubBoolean(record.merged) || state === "merged") codes.push("merged");
+  if (githubChecksFailed(record)) codes.push("ci_failed");
+  if (githubChecksPending(record)) codes.push("checks_pending");
+  const reviewDecision = normalizedMetadataValue(githubString(record.reviewDecision ?? record.review_decision) ?? "");
+  if (reviewDecision === "changes_requested") codes.push("changes_requested");
+  if (reviewDecision === "review_required" || githubBoolean(record.reviewRequested ?? record.review_requested)) codes.push("review_requested");
+  if (githubBoolean(record.draft)) codes.push("draft");
+  const ageMs = updatedAt ? nowMs - (timestampMillis(updatedAt) ?? nowMs) : 0;
+  if (ageMs >= 7 * 24 * 60 * 60 * 1000 && !codes.includes("merged") && !codes.includes("closed")) codes.push("stale");
+  if (!updatedAt) codes.push("low_confidence");
+  return unique(codes.map((code) => publicSafeText(code, 80)));
+}
+
+function githubOperatingState(record: Record<string, unknown>, reasonCodes: string[]): OperatingState {
+  const rawState = normalizedMetadataValue(githubString(record.state) ?? "");
+  if (reasonCodes.includes("ci_failed") || reasonCodes.includes("changes_requested")) return "red";
+  if (reasonCodes.includes("checks_pending") || reasonCodes.includes("review_requested") || reasonCodes.includes("stale") || reasonCodes.includes("draft")) return "yellow";
+  if (reasonCodes.includes("merged") || rawState === "closed") return "green";
+  if (rawState === "open") return "yellow";
+  return "unknown";
+}
+
+function githubChecksFailed(record: Record<string, unknown>): boolean {
+  return githubCheckRecords(record).some((checks) => {
+    const failing = githubCheckCount(checks, ["failing", "failed", "failureCount", "failure_count"]);
+    return githubCheckValues(checks).some(githubFailedCheckValue) || (failing ?? 0) > 0;
+  });
+}
+
+function githubChecksPending(record: Record<string, unknown>): boolean {
+  return githubCheckRecords(record).some((checks) => {
+    const pending = githubCheckCount(checks, ["pending", "pendingCount", "pending_count"]);
+    return githubCheckValues(checks).some(githubPendingCheckValue) || (pending ?? 0) > 0;
+  });
+}
+
+function githubNextAction(id: string, state: OperatingState, reasonCodes: string[]): string {
+  if (reasonCodes.includes("ci_failed")) return `Inspect failing GitHub checks for ${id}.`;
+  if (reasonCodes.includes("changes_requested")) return `Address requested GitHub review changes for ${id}.`;
+  if (reasonCodes.includes("checks_pending")) return `Watch GitHub checks for ${id}.`;
+  if (reasonCodes.includes("stale")) return `Review stale GitHub item ${id}.`;
+  if (reasonCodes.includes("review_requested")) return `Review GitHub item ${id}.`;
+  if (state === "green") return `No action needed for ${id}.`;
+  return `Inspect GitHub item ${id}.`;
+}
+
+function githubOperatingItemComparator(left: GithubOperatingItem, right: GithubOperatingItem): number {
+  const stateRank = { red: 0, yellow: 1, unknown: 2, green: 3 } as const;
+  const urgencyRank = { critical: 0, high: 1, medium: 2, low: 3 } as const;
+  const leftState = stateRank[operatingState(left.state ?? "unknown")];
+  const rightState = stateRank[operatingState(right.state ?? "unknown")];
+  if (leftState !== rightState) return leftState - rightState;
+  const leftUrgency = urgencyRank[operatingUrgency(left.urgency ?? "medium")];
+  const rightUrgency = urgencyRank[operatingUrgency(right.urgency ?? "medium")];
+  if (leftUrgency !== rightUrgency) return leftUrgency - rightUrgency;
+  const freshness = compareUpdatedAtDesc(left.updatedAt ?? null, right.updatedAt ?? null);
+  if (freshness !== 0) return freshness;
+  return left.id.localeCompare(right.id);
+}
+
+function githubRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function githubString(value: unknown): string | null {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return null;
+}
+
+function githubNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value);
+  return null;
+}
+
+function githubBoolean(value: unknown): boolean {
+  return value === true || (typeof value === "string" && ["true", "yes"].includes(value.trim().toLowerCase()));
 }
 
 function signalFromPlanPin(pin: PlanStateManualPin): OperatingSignal {
