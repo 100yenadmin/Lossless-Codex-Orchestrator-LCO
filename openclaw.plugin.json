@@ -45,6 +45,10 @@
       "loo_codex_session_management_map",
       "loo_recent_sessions",
       "loo_cockpit_inbox",
+      "loo_watchers_list",
+      "loo_watcher_status",
+      "loo_watcher_dry_run",
+      "loo_resume_request_packet",
       "loo_plan_state_pins",
       "loo_project_digest",
       "loo_attention_inbox",
@@ -386,6 +390,120 @@
               "items": {
                 "type": "string"
               }
+            },
+            "watcher_specs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "now": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_watchers_list",
+        "description": "List read-only watcher specs as deterministic public-safe watcher status rows.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "watcher_specs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "now": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_watcher_status",
+        "description": "Describe one read-only watcher status without cleanup or mutation.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "watcher_specs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "watch_id": {
+              "type": "string"
+            },
+            "now": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_watcher_dry_run",
+        "description": "Preview watcher-triggered resume request packets without sending or mutating anything.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "watcher_specs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "now": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_resume_request_packet",
+        "description": "Create one approval-bounded resume request packet from a read-only watcher spec.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "watcher_spec": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "now": {
+              "type": "string"
+            },
+            "ttl_seconds": {
+              "type": "integer",
+              "minimum": 60,
+              "maximum": 86400
+            },
+            "recommended_action": {
+              "type": "string",
+              "enum": [
+                "inspect",
+                "resume",
+                "approve",
+                "ignore"
+              ]
             }
           }
         }

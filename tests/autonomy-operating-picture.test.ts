@@ -11,6 +11,8 @@ import {
   createDefaultSourceAuthorityProfile,
   createPlanStatePinsReport,
   createProjectDigest,
+  createResumeRequestPacket,
+  createWatcherStatusReport,
   getCockpitInbox,
   getRecentSessions,
   indexCodexSessions,
@@ -146,6 +148,92 @@ test("cockpit inbox ranks blocked approval and stale work deterministically", ()
     const highRisk = getRecentSessions(db, { risk: "high", limit: 10, includeCards: true });
     assert.equal(highRisk.summary.total, highRisk.cards.length);
     assert.equal(highRisk.cards.every((card) => card.risk.level === "high"), true);
+  });
+});
+
+test("watcher primitives are read-only, approval-bounded, and feed cockpit inbox", () => {
+  const now = "2026-07-01T12:00:00.000Z";
+  withIndexedSessions([
+    {
+      id: "019f-watch-target",
+      title: "Watcher target lane",
+      status: "active",
+      priority: "high",
+      nextAction: "wait for checks",
+      updatedAt: "2026-07-01T11:55:00.000Z",
+      refs: true
+    }
+  ], ({ db, sessions }) => {
+    const watcherSpecs = [
+      {
+        schema: "lco.watchSpec.v1",
+        watchId: "watch_checks_changed",
+        targetRef: "codex_thread:019f-watch-target",
+        kind: "pr_checks_changed",
+        createdAt: "2026-07-01T11:00:00.000Z",
+        lastObservedAt: "2026-07-01T11:58:00.000Z",
+        ttlSeconds: 7200,
+        stopConditions: ["checks_green", "explicit_cancel"],
+        wakeReason: "pr_checks_changed",
+        evidenceIds: ["ev_checks"],
+        confidence: 0.95,
+        mutates: false
+      },
+      {
+        schema: "lco.watchSpec.v1",
+        watchId: "watch_no_activity",
+        targetRef: "codex_thread:019f-watch-target",
+        kind: "no_activity",
+        createdAt: "2026-07-01T10:00:00.000Z",
+        lastObservedAt: "2026-07-01T10:30:00.000Z",
+        ttlSeconds: 14400,
+        staleAfterSeconds: 3600,
+        stopConditions: ["new_turn_seen", "explicit_cancel"],
+        evidenceIds: ["ev_stale"],
+        confidence: 0.8,
+        mutates: false
+      },
+      {
+        schema: "lco.watchSpec.v1",
+        watchId: "watch_expired",
+        targetRef: "codex_thread:019f-watch-target",
+        kind: "approval_expired",
+        createdAt: "2026-07-01T09:00:00.000Z",
+        lastObservedAt: "2026-07-01T09:30:00.000Z",
+        ttlSeconds: 3600,
+        stopConditions: ["approval_renewed", "explicit_cancel"],
+        evidenceIds: ["ev_expired"],
+        confidence: 0.9,
+        mutates: false
+      }
+    ];
+
+    const status = createWatcherStatusReport(watcherSpecs, { now, limit: 10 });
+    assert.equal(status.schema, "lco.watchers.status.v1");
+    assert.equal(status.publicSafe, true);
+    assert.equal(status.summary.triggered, 1);
+    assert.equal(status.summary.stale, 1);
+    assert.equal(status.summary.expired, 1);
+    assert.equal(status.watchers.every((watcher) => watcher.mutates === false), true);
+
+    const triggered = status.watchers.find((watcher) => watcher.watchId === "watch_checks_changed");
+    assert.equal(triggered?.status, "triggered");
+    assert.equal(triggered?.reasonCodes.includes("watcher_triggered"), true);
+
+    const packet = createResumeRequestPacket(triggered!, { now, ttlSeconds: 900 });
+    assert.equal(packet.schema, "lco.resumeRequestPacket.v1");
+    assert.equal(packet.requiresApproval, true);
+    assert.equal(packet.mutates, false);
+    assert.equal(packet.recommendedAction, "inspect");
+    assert.match(packet.approvalBoundary, /no live control/i);
+    assert.deepEqual(packet.evidenceIds, ["ev_checks"]);
+
+    const inbox = getCockpitInbox(db, { limit: 5, watcherSpecs, now });
+    const watcherItem = inbox.items.find((item) => item.reasonCodes.includes("watcher_triggered"));
+    assert.equal(watcherItem?.card.threadId, "codex_thread:019f-watch-target");
+    assert.equal(watcherItem?.nextAction.requiresApproval, true);
+    assert.equal(watcherItem?.nextAction.kind, "resume");
+    assertNoUnsafeStrings({ status, packet, inbox }, sessions);
   });
 });
 
@@ -403,6 +491,10 @@ test("new cockpit and operating-picture tools are exposed through MCP with publi
     for (const name of [
       "loo_recent_sessions",
       "loo_cockpit_inbox",
+      "loo_watchers_list",
+      "loo_watcher_status",
+      "loo_watcher_dry_run",
+      "loo_resume_request_packet",
       "loo_plan_state_pins",
       "loo_project_digest",
       "loo_attention_inbox",
@@ -440,7 +532,35 @@ test("new cockpit and operating-picture tools are exposed through MCP with publi
     assert.equal((pulse as { digest?: { sourceCoverage?: { plan_state?: string; stripe?: string } } }).digest?.sourceCoverage?.plan_state, "not_configured");
     assert.equal((pulse as { digest?: { sourceCoverage?: { plan_state?: string; stripe?: string } } }).digest?.sourceCoverage?.stripe, "not_configured");
     assert.equal((pulse as { authorityCoverage?: { github?: { authority?: string } } }).authorityCoverage?.github?.authority, "authoritative");
-    assertNoUnsafeStrings({ recent, pins, pulse }, sessions);
+
+    const watcherSpec = {
+      schema: "lco.watchSpec.v1",
+      watchId: "watch_mcp_final",
+      targetRef: "codex_thread:019f-tool-blocked",
+      kind: "final_message_appeared",
+      createdAt: relativeIso(30),
+      lastObservedAt: relativeIso(5),
+      ttlSeconds: 3600,
+      stopConditions: ["final_message_seen", "explicit_cancel"],
+      wakeReason: "final_message_appeared",
+      evidenceIds: ["ev_mcp"],
+      confidence: 0.9,
+      mutates: false
+    };
+    const watcherDryRun = await tools.find((tool) => tool.name === "loo_watcher_dry_run")?.execute({
+      watcher_specs: [watcherSpec],
+      now: "2026-07-01T12:00:00.000Z"
+    });
+    assert.equal((watcherDryRun as { publicSafe?: boolean }).publicSafe, true);
+    assert.equal((watcherDryRun as { resumeRequestPackets?: unknown[] }).resumeRequestPackets?.length, 1);
+
+    const unsafeWatcher = await tools.find((tool) => tool.name === "loo_watchers_list");
+    assert.ok(unsafeWatcher);
+    assert.throws(
+      () => unsafeWatcher.execute({ watcher_specs: [{ ...watcherSpec, mutates: true }] }),
+      /mutates=false/
+    );
+    assertNoUnsafeStrings({ recent, pins, pulse, watcherDryRun }, sessions);
   });
 });
 

@@ -13,10 +13,10 @@ The first implementation slice is P0 and read-only: LCO/Codex state, optional st
 
 - Goal: Ship a public-safe, read-only-first autonomy cockpit and Eva operating-picture layer that lets Eva answer which Codex/business/project lanes need attention from cited structured cards without raw transcript reads.
 - Resume identity: repo `https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO`; checkout `/Volumes/LEXAR/repos/lossless-openclaw-orchestrator`; branch `main`; starting SHA `0647bd37381f27c4da947dea72bf13b8a51b1b6c`; trackers #254 and #255; first child #256.
-- Tracking / source of truth: GitHub issues #254/#255/#256/#258 own implementation truth; `VISION.md` owns product/eval truth; this brief owns sprint handoff; evidence root `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/2026-07-01/codex-autonomy-cockpit-operating-picture/`.
+- Tracking / source of truth: GitHub issues #254/#255/#256/#258/#259 own implementation truth; `VISION.md` owns product/eval truth; this brief owns sprint handoff; evidence root `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/2026-07-01/codex-autonomy-cockpit-operating-picture/`.
 - Scope / non-goals: P0 is deterministic and read-only. No raw transcripts, raw transcript paths in public-safe outputs, external writes, live Codex control, GUI mutation, screenshots by default, Claude parity, enterprise/customer-ready claim, npm latest promotion, or stable 1.0 claim.
 - Current state: beta.30 has working Codex index/search/describe/expand/dry-run through OpenClaw gateway; M9 handoff is published; #254/#255 are open; VISION/README now point at this sprint.
-- Exact next action: finish #256 with shared contracts and P0 tool surface, then split follow-ups for watcher primitives, visible Codex map joins, and P1 adapters.
+- Exact next action: finish #259 watcher/resume-request primitives, then continue visible Codex map joins and P1 adapter splits behind their own proof gates.
 - Critical invariants: public-safe defaults; opaque source refs; `PLAN_STATE.md` is not canonical current-state truth; every card carries source refs, confidence, freshness, reason codes, and coverage; missing/conflicting sources degrade to `unknown` or `low_confidence`.
 - Execution lanes: #256 shared contracts/tools; #258 source-authority profile; #254 cockpit P0 follow-ups; #255 operating-picture P0 hardening; OpenClaw dogfood; scorecards/evidence; beta publish only after scoped release gates.
 - Validation / eval gates: focused unit tests, MCP schema tests, OpenClaw manifest tests, scenario/scorecard sweep, `npm run check`, GitHub CI/CodeQL, evidence scan, OpenClaw gateway dogfood when tool surface changes.
@@ -28,6 +28,7 @@ The first implementation slice is P0 and read-only: LCO/Codex state, optional st
 
 - `loo_recent_sessions`: recent/active/all Codex session cards without `query:"*"`.
 - `loo_cockpit_inbox`: deterministic attention ranking for sessions that need review, approval, resume, or blocker triage.
+- `loo_watchers_list`, `loo_watcher_status`, `loo_watcher_dry_run`, `loo_resume_request_packet`: read-only watcher status and approval-bounded resume-request packets with TTLs, stop conditions, wake reasons, and no live mutation.
 - `loo_plan_state_pins`: explicit marker parser for manual pins, approval boundaries, and exception ledger entries only.
 - `loo_project_digest`: bounded operating digest from LCO/Codex cards, optional structured GitHub items, and PLAN_STATE pins.
 - `loo_attention_inbox`: action-first operating cards filtered to red/yellow/unknown states.
@@ -59,7 +60,7 @@ Unmarked prose is bootloader/fallback context and must not become current-state 
 
 ## Follow-Up Split
 
-- #254 child: watcher/resume-request primitives with TTLs and no mutation.
+- #254 child: watcher/resume-request primitives with TTLs and no mutation (#259).
 - #254 child: visible Codex map join using sanitized app/title metadata only.
 - #255 child: source-authority bootstrap profile so coverage does not masquerade as current truth ownership.
 - #255 child: richer GitHub deterministic collector instead of optional structured input.
