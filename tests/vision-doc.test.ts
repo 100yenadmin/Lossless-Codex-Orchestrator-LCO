@@ -14,7 +14,7 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
 
   for (const heading of [
     "## North Star",
-    "## Current Milestone: Codex Autonomy Cockpit + Eva Operating Picture",
+    "## Current Milestone: 1.0 RC Hardening and External Tester Readiness",
     "## Completed Proof: Working App Runtime",
     "## Primary User Stories",
     "## Orchestrator Product-Management Mode",
@@ -73,7 +73,7 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
   }
 
   assert.match(readme, /VISION\.md/);
-  assert.match(readme, /## Current Sprint: Codex Autonomy Cockpit \+ Eva Operating Picture/);
+  assert.match(readme, /## Current Sprint: 1\.0 RC External Tester Readiness/);
   assert.match(readme, /brief-lco-codex-autonomy-cockpit-sprint-2026-07-01\.md/);
   assert.match(readme, /What a local OpenClaw agent can do today/i);
   assert.match(readme, /PLAN_STATE\.md/i);
@@ -81,6 +81,8 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
   assert.match(readme, /Completed proof/i);
   assert.doesNotMatch(readme, /## Current Sprint: Working App Proof/);
   assert.doesNotMatch(readme, /## Current Sprint: M9 Agent Handoff Beta Sprint/);
+  assert.doesNotMatch(readme, /and first child\s+\[#256\]/i);
+  assert.doesNotMatch(vision, /Active hardening continues with[\s\S]*#271[\s\S]*#272/i);
   assert.doesNotMatch(readme, /Working app runtime proof\s*\|\s*Next sprint/i);
   assert.equal(packageJson.files?.includes("VISION.md"), true, "npm package must include VISION.md because README links to it");
 });
