@@ -135,7 +135,9 @@ What a local OpenClaw agent can do today:
 - Dry-run Codex control actions and inspect audit ids before any live action.
 - Check package, plugin, gateway, and first-run readiness through `loo_doctor`,
   `loo onboard status`, `loo openclaw dogfood`, `loo openclaw tool-smoke`, and
-  `loo openclaw published-smoke`.
+  `loo openclaw published-smoke`. The published-smoke `setupRecovery` block
+  distinguishes clean-profile `ready` proof from credential, device-pairing,
+  scope-approval, token-rotation, generic setup, and package-failure states.
 
 Completed proof:
 
