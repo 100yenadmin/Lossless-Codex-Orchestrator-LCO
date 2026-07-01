@@ -293,6 +293,12 @@ test("published-smoke emits clean-profile setup recovery classifications", () =>
         blockers: ["openclaw_gateway_token_rotation_required"],
         expected: "token_rotation_required",
         expectedCommand: "token"
+      },
+      {
+        name: "generic-setup",
+        blockers: ["openclaw_gateway_unknown_setup_required"],
+        expected: "setup_required",
+        expectedCommand: "loo openclaw tool-smoke"
       }
     ] as const;
 
@@ -374,6 +380,34 @@ test("published-smoke emits clean-profile setup recovery classifications", () =>
     assert.equal(packageFailureReport.setupRecovery.classification, "package_failure_or_unknown");
     assert.equal(packageFailureReport.setupRecovery.packageInstallLikelyOk, false);
     assert.equal(packageFailureReport.setupRecovery.ready, false);
+
+    const packageFailurePrecedenceToolSmokePath = join(dir, "package-failure-precedence-tool-smoke.json");
+    writeJson(packageFailurePrecedenceToolSmokePath, {
+      ok: false,
+      toolSmokeReady: false,
+      publicSafe: true,
+      setupBlockers: ["fresh_profile_gateway_credentials_required"],
+      setupStatus: {
+        classification: "gateway_setup_required",
+        packageInstallLikelyOk: false,
+        recoverable: false,
+        retryAfterSetup: false,
+        doesNotIndicatePackageFailure: false
+      }
+    });
+    const packageFailurePrecedenceReport = createPublishedPackageSmokeReport({
+      rootDir: new URL("..", import.meta.url).pathname,
+      dogfoodReportPath: dogfoodPath,
+      toolSmokeReportPath: packageFailurePrecedenceToolSmokePath
+    });
+    assert.equal(packageFailurePrecedenceReport.setupRecovery.classification, "package_failure_or_unknown");
+    assert.equal(packageFailurePrecedenceReport.setupRecovery.retryAfterSetup, false);
+    assert.deepEqual(packageFailurePrecedenceReport.setupRecovery.requiredSetup, []);
+    assert.ok(
+      packageFailurePrecedenceReport.setupRecovery.nextSafeCommands.some((command) =>
+        command.includes("Inspect package install")
+      )
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
