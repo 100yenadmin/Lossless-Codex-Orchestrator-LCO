@@ -211,6 +211,8 @@ test("Eva operating picture dogfood scenario captures the full cockpit workflow"
     "loo_business_pulse"
   ]);
   assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /checks_pending/i);
+  assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /ci_failed/i);
+  assert.doesNotMatch(JSON.stringify(scenario.expected_public_safe_evidence), /checks_failed/i);
   assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /clean card/i);
   assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /customer_impact/i);
   assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /sourceCoverage/i);

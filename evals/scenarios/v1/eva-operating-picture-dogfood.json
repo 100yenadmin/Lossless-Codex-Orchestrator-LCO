@@ -20,7 +20,7 @@
     "secret_or_private_data_output"
   ],
   "expected_public_safe_evidence": [
-    "GitHub PR statusCheckRollup normalized to checks_pending or checks_failed reason codes",
+    "GitHub PR statusCheckRollup normalized to checks_pending or ci_failed reason codes",
     "green closed GitHub items omitted unless include_green is requested",
     "recent Codex session cards with clean card title, summary, objective, and nextAction fields",
     "customer_impact, runtime_impact, security_impact, or production_impact reason codes outranking ordinary current-lane PRs",

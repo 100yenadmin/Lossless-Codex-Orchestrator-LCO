@@ -915,6 +915,45 @@ test("Eva cockpit dogfood joins GitHub checks recent sessions and operating dige
   });
 });
 
+test("operating picture surfaces active customer impact without treating product-surface wording as impact", () => {
+  withIndexedSessions([
+    {
+      id: "019f-active-customer-impact",
+      title: "Customers cannot log in during runtime incident",
+      status: "active",
+      priority: "medium",
+      nextAction: "inspect external users blocked by runtime incident",
+      updatedAt: relativeIso(8),
+      refs: true
+    },
+    {
+      id: "019f-routine-gateway-token-budget",
+      title: "OpenClaw gateway token budget retrieval tuning",
+      status: "active",
+      priority: "high",
+      nextAction: "continue ordinary gateway tool-smoke token budget work",
+      updatedAt: relativeIso(5),
+      refs: true
+    }
+  ] satisfies SessionFixture[], ({ db }) => {
+    const recent = getRecentSessions(db, { scope: "recent", limit: 10, includeCards: true });
+    const impactedSession = recent.cards.find((card) => card.threadId === "codex_thread:019f-active-customer-impact");
+    const routineSession = recent.cards.find((card) => card.threadId === "codex_thread:019f-routine-gateway-token-budget");
+
+    assert.ok(impactedSession);
+    assert.equal(impactedSession.reasonCodes.includes("customer_impact"), true);
+    assert.equal(impactedSession.reasonCodes.includes("runtime_impact"), true);
+    assert.ok(routineSession);
+    assert.equal(routineSession.reasonCodes.includes("runtime_impact"), false);
+    assert.equal(routineSession.reasonCodes.includes("security_impact"), false);
+
+    const attention = createAttentionInbox(db, { window: "24h", limit: 10 });
+    assert.equal(attention.cards[0]?.title, "Customers cannot log in during runtime incident");
+    assert.equal(attention.cards[0]?.state, "yellow");
+    assert.equal(attention.cards.some((card) => card.title === "OpenClaw gateway token budget retrieval tuning"), false);
+  });
+});
+
 test("codex cockpit cards clean directive fragments and markdown-heavy presentation text", () => {
   withIndexedSessions((sessions) => {
     const rawPathCanary = join(sessions, "rollout-2026-07-01T00-00-00-019f-card-directive.jsonl");

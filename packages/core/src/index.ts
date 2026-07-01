@@ -2299,9 +2299,9 @@ function codexSessionImpactReasonCodes(entry: CodexThreadMapEntry): string[] {
     entry.metadata.nextAction
   ].filter((value): value is string => typeof value === "string" && value.trim().length > 0).join(" "));
   const codes: string[] = [];
-  if (/\b(customer|client|user-facing|external-user)\b/.test(text)) codes.push("customer_impact");
-  if (/\b(runtime|outage|incident|control-plane|gateway)\b/.test(text)) codes.push("runtime_impact");
-  if (/\b(security|vulnerability|secret|token|credential|permission|auth|authentication)\b/.test(text)) codes.push("security_impact");
+  if (/\b(customers?|clients?|user-facing|external[- ]users?)\b/.test(text)) codes.push("customer_impact");
+  if (/\b(runtime|outage|incident|control-plane)\b/.test(text)) codes.push("runtime_impact");
+  if (/\b(security|vulnerability|secret|credential|auth|authentication)\b/.test(text)) codes.push("security_impact");
   if (/\b(production|prod|customer-facing)\b/.test(text)) codes.push("production_impact");
   return codes;
 }
@@ -2612,7 +2612,15 @@ function planStateListItems(block: string): string[] {
 }
 
 function signalFromSessionCard(card: CodexSessionCard): OperatingSignal {
-  const state: OperatingState = card.state === "blocked" ? "red" : card.state === "unknown" || card.state === "needs_approval" || card.state === "waiting" ? "yellow" : card.state === "done" ? "green" : "green";
+  const impactCodes = new Set(["customer_impact", "runtime_impact", "security_impact", "production_impact"]);
+  const hasImpact = card.reasonCodes.some((code) => impactCodes.has(code));
+  const state: OperatingState = card.state === "blocked"
+    ? "red"
+    : card.state === "unknown" || card.state === "needs_approval" || card.state === "waiting" || hasImpact
+      ? "yellow"
+      : card.state === "done"
+        ? "green"
+        : "green";
   const urgency: OperatingUrgency = card.risk.level === "high" ? "high" : card.risk.level === "medium" ? "medium" : "low";
   return {
     schema: "lco.operatingSignal.v1",
