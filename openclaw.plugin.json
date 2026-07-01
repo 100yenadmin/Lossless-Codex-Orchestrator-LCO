@@ -2,7 +2,7 @@
   "id": "lossless-openclaw-orchestrator",
   "name": "Lossless OpenClaw Orchestrator",
   "description": "Control and collaborate with local Codex sessions through OpenClaw using local indexing, bounded recall, and approval-gated controls.",
-  "version": "0.1.0-beta.25",
+  "version": "0.1.0-beta.26",
   "kind": "tool",
   "tools": {
     "prefix": "loo_"
