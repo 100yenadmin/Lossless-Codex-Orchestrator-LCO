@@ -14,7 +14,7 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
 
   for (const heading of [
     "## North Star",
-    "## Current Milestone: M9 Agent Handoff Beta Sprint",
+    "## Current Milestone: Codex Autonomy Cockpit + Eva Operating Picture",
     "## Completed Proof: Working App Runtime",
     "## Primary User Stories",
     "## Orchestrator Product-Management Mode",
@@ -39,7 +39,16 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
     /fork/i,
     /hybrid search/i,
     /session sanitizer/i,
-    /M9 Agent Handoff Beta Sprint/i,
+    /Codex Autonomy Cockpit/i,
+    /Eva Operating Picture/i,
+    /PLAN_STATE\.md/i,
+    /loo_recent_sessions/i,
+    /loo_cockpit_inbox/i,
+    /loo_plan_state_pins/i,
+    /loo_business_pulse/i,
+    /P1 source adapters/i,
+    /not_configured/i,
+    /M9 added/i,
     /agent handoff/i,
     /first-class OpenClaw agent usage skill/i,
     /What a local OpenClaw agent can do today/i,
@@ -63,10 +72,14 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
   }
 
   assert.match(readme, /VISION\.md/);
-  assert.match(readme, /## Current Sprint: M9 Agent Handoff Beta Sprint/);
+  assert.match(readme, /## Current Sprint: Codex Autonomy Cockpit \+ Eva Operating Picture/);
+  assert.match(readme, /brief-lco-codex-autonomy-cockpit-sprint-2026-07-01\.md/);
   assert.match(readme, /What a local OpenClaw agent can do today/i);
+  assert.match(readme, /PLAN_STATE\.md/i);
+  assert.match(readme, /loo_attention_inbox/i);
   assert.match(readme, /Completed proof/i);
   assert.doesNotMatch(readme, /## Current Sprint: Working App Proof/);
+  assert.doesNotMatch(readme, /## Current Sprint: M9 Agent Handoff Beta Sprint/);
   assert.doesNotMatch(readme, /Working app runtime proof\s*\|\s*Next sprint/i);
   assert.equal(packageJson.files?.includes("VISION.md"), true, "npm package must include VISION.md because README links to it");
 });

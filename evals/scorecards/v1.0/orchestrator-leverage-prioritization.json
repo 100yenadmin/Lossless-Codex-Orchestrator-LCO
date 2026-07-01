@@ -10,7 +10,12 @@
     "loo_search_sessions",
     "loo_describe_ref",
     "loo_expand_query",
-    "loo_codex_thread_map"
+    "loo_codex_thread_map",
+    "loo_recent_sessions",
+    "loo_cockpit_inbox",
+    "loo_project_digest",
+    "loo_attention_inbox",
+    "loo_business_pulse"
   ],
   "expected_public_safe_evidence": [
     "feature name",
@@ -34,6 +39,7 @@
     "A feature scores highest when it gives the orchestrator more accurate session understanding with fewer tokens.",
     "The highest-scoring work improves session metadata, project/status/priority routing, closeout quality, archive/fork handling, or bounded retrieval.",
     "Retrieval improvements favor cited, source-prefixed refs and honest omitted markers over larger raw expansions.",
+    "Cockpit and operating-picture features improve deterministic prioritization with source coverage, confidence, freshness, and reason codes.",
     "Automation hooks improve metadata and closeout quality without performing live control or GUI mutation.",
     "Roadmap decisions record why lower-scoring visual, adapter, or desktop features wait behind orchestrator leverage work."
   ],
@@ -48,6 +54,7 @@
   "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-<slug>/orchestrator-leverage-prioritization.json",
   "known_gaps": [
     "Weights are a v1 product rubric and should be recalibrated after local OpenClaw gateway dogfood and retrieval evals produce real score movement.",
+    "P1 operating-picture adapters for Notion, support-control, Company Brain, Stripe, dashboard/export, and model summarization still need child issues after P0 cards prove clean.",
     "Hybrid retrieval, hook agents, archive/fork controls, Mac UI, and sanitizer repair execution still need child issues before implementation."
   ],
   "next_action": "Use this scorecard to rank the post-first-release backlog before filing the next sprint issues.",
@@ -65,6 +72,8 @@
     "thread metadata and closeout schema for project, status, priority, owner, blocker, next action, and source refs",
     "closeout or hook agents that tag finished threads and plans with public-safe metadata",
     "session map that lets the orchestrator sort, archive, fork, and resume sessions without raw transcript reads",
+    "autonomy cockpit inbox that ranks recent sessions into public-safe attention cards without wildcard transcript queries",
+    "Eva operating picture digest that joins LCO/Codex, structured GitHub items, and explicit PLAN_STATE pins while marking missing P1 sources not_configured",
     "LCM-style grep, describe, and expand-query workflow with citations and bounded evidence bundles",
     "hybrid search using BM25, vector retrieval, query expansion, and reranking when fixture evals prove it improves top-k relevance",
     "session sanitizer addon that scans indexed sessions for secret-like strings and produces redacted dry-run repair tasks",

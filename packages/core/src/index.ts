@@ -230,6 +230,256 @@ export type CodexSessionManagementMap = {
   recommendations: SessionManagementRecommendation[];
 };
 
+export type OperatingState = "green" | "yellow" | "red" | "unknown";
+export type OperatingUrgency = "low" | "medium" | "high" | "critical";
+
+export type EvidenceCard = {
+  schema: "lco.evidenceCard.v1";
+  evidenceId: string;
+  claim: string;
+  sourceKind: "github_check_summary" | "safe_event" | "desktop_title" | "watcher_log" | "plan" | "final_message" | "session_metadata" | "plan_state";
+  sourceRef: string;
+  observedAt: string | null;
+  excerpt: string;
+  redactions: string[];
+  confidence: number;
+};
+
+export type CodexSessionCardState = "running" | "waiting" | "needs_approval" | "blocked" | "done" | "unknown";
+
+export type CodexSessionCard = {
+  schema: "lco.codex.sessionCard.v1";
+  sessionId: string;
+  threadId: string;
+  title: string;
+  state: CodexSessionCardState;
+  objective: string;
+  freshness: {
+    lastEventAt: string | null;
+    ageSeconds: number | null;
+    stale: boolean;
+  };
+  scope: {
+    repo: string | null;
+    branch: string | null;
+    gitSha: string | null;
+    refs: string[];
+  };
+  risk: {
+    level: "low" | "medium" | "high";
+    reasons: string[];
+  };
+  nextAction: {
+    kind: "watch" | "resume" | "approve" | "ignore" | "inspect";
+    confidence: number;
+    reason: string;
+  };
+  counts: {
+    plans: number;
+    finalMessages: number;
+    toolCalls: number;
+    touchedFiles: number;
+    evidence: number;
+  };
+  evidenceIds: string[];
+  hidden: {
+    transcriptPath: true;
+    rawTranscript: true;
+    secrets: true;
+  };
+  confidence: number;
+  reasonCodes: string[];
+};
+
+export type RecentSessionsReport = {
+  schema: "lco.codex.recentSessions.v1";
+  publicSafe: true;
+  queryRequired: false;
+  scope: "active" | "recent" | "all";
+  generatedAt: string;
+  summary: {
+    total: number;
+    returned: number;
+    stale: number;
+    lowConfidence: number;
+  };
+  cards: CodexSessionCard[];
+  evidence: EvidenceCard[];
+};
+
+export type CockpitInboxItem = {
+  card: CodexSessionCard;
+  reasonCodes: string[];
+  urgencyScore: number;
+  nextAction: CodexSessionCard["nextAction"];
+};
+
+export type CockpitInboxReport = {
+  schema: "lco.codex.cockpitInbox.v1";
+  publicSafe: true;
+  generatedAt: string;
+  summary: {
+    totalCards: number;
+    returned: number;
+    critical: number;
+    high: number;
+    lowConfidence: number;
+  };
+  items: CockpitInboxItem[];
+  omitted: {
+    count: number;
+    reason: "limit" | "none";
+  };
+};
+
+export type PlanStateManualPin = {
+  pinId: string;
+  title: string;
+  state: OperatingState;
+  summary: string;
+  nextAction: string;
+  sourceRef: string;
+};
+
+export type PlanStatePinsReport = {
+  schema: "lco.planStatePins.v1";
+  publicSafe: true;
+  bootloaderOnly: true;
+  manualPins: PlanStateManualPin[];
+  approvalBoundaries: string[];
+  exceptionLedger: string[];
+  ignoredStaleProse: true;
+};
+
+export type OperatingSignal = {
+  schema: "lco.operatingSignal.v1";
+  signalId: string;
+  sourceKind: "codex" | "github" | "notion" | "support_control" | "company_brain" | "stripe" | "plan_state";
+  sourceRef: string;
+  observedAt: string | null;
+  subject: {
+    kind: "project" | "customer" | "repo" | "pr" | "issue" | "codex_session" | "billing" | "support";
+    id: string;
+    title: string;
+  };
+  state: OperatingState;
+  urgency: OperatingUrgency;
+  reasonCodes: string[];
+  summary: string;
+  nextAction: {
+    kind: "inspect" | "watch" | "resume" | "approve" | "delegate" | "ignore";
+    text: string;
+    requiresApproval: boolean;
+  };
+  confidence: number;
+  evidenceIds: string[];
+};
+
+export type OperatingCard = {
+  schema: "lco.operatingCard.v1";
+  cardId: string;
+  kind: "project" | "customer" | "repo" | "business" | "incident";
+  title: string;
+  state: OperatingState;
+  lastMovementAt: string | null;
+  summary: string;
+  nextAction: string;
+  owner: string;
+  confidence: number;
+  signals: string[];
+  evidenceIds: string[];
+  reasonCodes: string[];
+  approvalBoundary: string;
+};
+
+export type SourceCoverageState = "ok" | "partial" | "not_configured" | "unavailable";
+
+export type OperatingDigest = {
+  schema: "lco.operatingDigest.v1";
+  publicSafe: true;
+  generatedAt: string;
+  window: "today" | "24h" | "7d" | "custom";
+  health: {
+    overall: OperatingState;
+    customers: { red: number; yellow: number; green: number; unknown: number };
+    projects: { blocked: number; moving: number; stale: number };
+    codex: { needsAttention: number; waiting: number; done: number };
+    finance: { state: OperatingState; reason: string };
+  };
+  topAttention: string[];
+  cards: OperatingCard[];
+  signals: OperatingSignal[];
+  evidence: EvidenceCard[];
+  omitted: {
+    count: number;
+    reason: "token_budget" | "limit" | "none";
+  };
+  sourceCoverage: {
+    lco: SourceCoverageState;
+    github: SourceCoverageState;
+    plan_state: SourceCoverageState;
+    notion: SourceCoverageState;
+    support_control: SourceCoverageState;
+    company_brain: SourceCoverageState;
+    stripe: SourceCoverageState;
+  };
+};
+
+export type GithubOperatingItem = {
+  id: string;
+  title: string;
+  state?: OperatingState;
+  urgency?: OperatingUrgency;
+  reasonCodes?: string[];
+  updatedAt?: string | null;
+  nextAction?: string;
+};
+
+export type OperatingDigestOptions = {
+  window?: OperatingDigest["window"];
+  limit?: number;
+  maxTokens?: number;
+  planStatePins?: PlanStatePinsReport;
+  githubItems?: GithubOperatingItem[];
+};
+
+export type BusinessPulseReport = {
+  schema: "lco.businessPulse.v1";
+  publicSafe: true;
+  question: "How is the business?";
+  digest: OperatingDigest;
+  sourceCoverage: OperatingDigest["sourceCoverage"];
+  proofBoundary: string;
+};
+
+export type ApprovalPacket = {
+  schema: "lco.approvalPacket.v1";
+  packetId: string;
+  action: "resume_session" | "send_message" | "steer_thread" | "interrupt_thread";
+  target: {
+    sessionId: string;
+    title: string;
+  };
+  intent: string;
+  predictedMutation: string[];
+  preconditions: string[];
+  risk: {
+    level: "low" | "medium" | "high";
+    requiresHuman: true;
+    reasons: string[];
+  };
+  rollback: {
+    available: false;
+    reason: string;
+  };
+  approvalBoundary: string;
+  expiresAt: string;
+  hashes: {
+    messageHash?: string;
+    paramsHash: string;
+  };
+};
+
 type SessionManagementLane = keyof CodexSessionManagementMap["groups"];
 
 export type SessionDescription = {
@@ -944,7 +1194,7 @@ export function describeSession(db: LooDatabase, threadId: string): SessionDescr
     planCount: Number((db.prepare("SELECT COUNT(*) AS count FROM codex_plans WHERE thread_id = ?").get(threadId) as { count: number }).count),
     touchedFiles: getCodexTouchedFiles(db, { threadId }),
     toolCallCount: Number(row.toolCallCount ?? 0),
-    sourcePath: String(row.sourcePath),
+    sourcePath: publicSourcePathRef(String(row.sourcePath)),
     metadata: getSessionMetadata(db, threadId)
   };
 }
@@ -1056,7 +1306,7 @@ export function getCodexThreadMap(db: LooDatabase, options: CodexThreadMapOption
     title: nullableString(row.title),
     summary: nullableString(row.summary),
     updatedAt: nullableString(row.updatedAt),
-    sourcePath: String(row.sourcePath),
+    sourcePath: publicSourcePathRef(String(row.sourcePath)),
     metadata: sessionMetadataFromRow(row)
   }));
 }
@@ -1103,12 +1353,574 @@ export function getCodexSessionManagementMap(db: LooDatabase, options: CodexThre
   };
 }
 
+export function getRecentSessions(db: LooDatabase, options: {
+  scope?: "active" | "recent" | "all";
+  since?: string;
+  limit?: number;
+  repo?: string;
+  status?: string;
+  hasPlan?: boolean;
+  hasFinal?: boolean;
+  hasBlocker?: boolean;
+  touchedPath?: string;
+  risk?: "low" | "medium" | "high";
+  includeCards?: boolean;
+} = {}): RecentSessionsReport {
+  const scope = options.scope ?? "recent";
+  const limit = clamp(options.limit ?? 20, 1, 500);
+  let entries = getCodexThreadMap(db, {
+    limit: 500,
+    project: options.repo,
+    status: options.status
+  });
+  if (scope === "active") entries = entries.filter((entry) => !["done", "complete", "completed", "closed", "merged"].includes(normalizedMetadataValue(entry.metadata.status)));
+  if (options.since) {
+    const sinceMs = Date.parse(options.since);
+    if (Number.isFinite(sinceMs)) entries = entries.filter((entry) => (timestampMillis(entry.updatedAt) ?? 0) >= sinceMs);
+  }
+  if (options.hasPlan === true) entries = entries.filter((entry) => entry.metadata.proposedPlanRefs.length > 0);
+  if (options.hasFinal === true) entries = entries.filter((entry) => entry.metadata.finalMessageRefs.length > 0);
+  if (options.hasBlocker === true) entries = entries.filter((entry) => hasRealBlocker(entry.metadata.blocker));
+  if (options.touchedPath) {
+    const needle = options.touchedPath.toLowerCase();
+    entries = entries.filter((entry) => entry.metadata.touchedFileRefs.some((ref) => ref.toLowerCase().includes(needle)));
+  }
+
+  let cards = entries.map((entry) => codexSessionCard(db, entry));
+  if (options.risk) cards = cards.filter((card) => card.risk.level === options.risk);
+  cards.sort(codexSessionCardComparator);
+  cards = cards.slice(0, limit);
+
+  return {
+    schema: "lco.codex.recentSessions.v1",
+    publicSafe: true,
+    queryRequired: false,
+    scope,
+    generatedAt: new Date().toISOString(),
+    summary: {
+      total: entries.length,
+      returned: cards.length,
+      stale: cards.filter((card) => card.freshness.stale).length,
+      lowConfidence: cards.filter((card) => card.confidence < 0.7).length
+    },
+    cards: options.includeCards === false ? [] : cards,
+    evidence: cards.flatMap((card) => evidenceCardsForSessionCard(card))
+  };
+}
+
+export function getCockpitInbox(db: LooDatabase, options: { limit?: number; priorityOrder?: string[] } = {}): CockpitInboxReport {
+  const limit = clamp(options.limit ?? 20, 1, 500);
+  const cards = getRecentSessions(db, {
+    scope: "active",
+    limit: 500,
+    includeCards: true
+  }).cards;
+  const items = cards
+    .map((card) => ({
+      card,
+      reasonCodes: cockpitReasonCodes(card),
+      urgencyScore: cockpitUrgencyScore(card, options.priorityOrder),
+      nextAction: card.nextAction
+    }))
+    .filter((item) => item.reasonCodes.length > 0)
+    .sort((left, right) => right.urgencyScore - left.urgencyScore || compareUpdatedAtDesc(left.card.freshness.lastEventAt, right.card.freshness.lastEventAt) || left.card.threadId.localeCompare(right.card.threadId));
+  const selected = items.slice(0, limit);
+  return {
+    schema: "lco.codex.cockpitInbox.v1",
+    publicSafe: true,
+    generatedAt: new Date().toISOString(),
+    summary: {
+      totalCards: cards.length,
+      returned: selected.length,
+      critical: selected.filter((item) => item.urgencyScore >= 90).length,
+      high: selected.filter((item) => item.urgencyScore >= 70).length,
+      lowConfidence: selected.filter((item) => item.card.confidence < 0.7).length
+    },
+    items: selected,
+    omitted: {
+      count: Math.max(0, items.length - selected.length),
+      reason: items.length > selected.length ? "limit" : "none"
+    }
+  };
+}
+
+export function createPlanStatePinsReport(text: string): PlanStatePinsReport {
+  const manualPins = extractMarkedBlocks(text, "manual-pin").map((block, index) => planStateManualPin(block, index));
+  return {
+    schema: "lco.planStatePins.v1",
+    publicSafe: true,
+    bootloaderOnly: true,
+    manualPins,
+    approvalBoundaries: extractMarkedBlocks(text, "approval-boundary").flatMap(planStateListItems).map((item) => publicSafeText(item)).filter(Boolean),
+    exceptionLedger: extractMarkedBlocks(text, "exception-ledger").flatMap(planStateListItems).map((item) => publicSafeText(item)).filter(Boolean),
+    ignoredStaleProse: true
+  };
+}
+
+export function createProjectDigest(db: LooDatabase, options: OperatingDigestOptions = {}): OperatingDigest {
+  const limit = clamp(options.limit ?? 20, 1, 200);
+  const codexSignals = getRecentSessions(db, { scope: "recent", limit: 200, includeCards: true }).cards.map(signalFromSessionCard);
+  const githubSignals = (options.githubItems ?? []).slice(0, 100).map(signalFromGithubItem);
+  const planSignals = (options.planStatePins?.manualPins ?? []).map(signalFromPlanPin);
+  const signals = [...codexSignals, ...githubSignals, ...planSignals];
+  const cards = signals.map(operatingCardFromSignal).sort(operatingCardComparator);
+  const selected = cards.slice(0, limit);
+  const evidence = selected.flatMap((card) => evidenceCardsForOperatingCard(card));
+  const sourceCoverage = {
+    lco: codexSignals.length > 0 ? "ok" as const : "partial" as const,
+    github: options.githubItems ? "ok" as const : "not_configured" as const,
+    plan_state: options.planStatePins ? "ok" as const : "not_configured" as const,
+    notion: "not_configured" as const,
+    support_control: "not_configured" as const,
+    company_brain: "not_configured" as const,
+    stripe: "not_configured" as const
+  };
+  return {
+    schema: "lco.operatingDigest.v1",
+    publicSafe: true,
+    generatedAt: new Date().toISOString(),
+    window: options.window ?? "today",
+    health: operatingHealth(selected),
+    topAttention: selected.filter((card) => card.state === "red" || card.state === "yellow" || card.state === "unknown").slice(0, 5).map((card) => card.cardId),
+    cards: selected,
+    signals,
+    evidence,
+    omitted: {
+      count: Math.max(0, cards.length - selected.length),
+      reason: cards.length > selected.length ? "limit" : "none"
+    },
+    sourceCoverage
+  };
+}
+
+export function createAttentionInbox(db: LooDatabase, options: OperatingDigestOptions = {}): OperatingDigest {
+  const digest = createProjectDigest(db, options);
+  const cards = digest.cards.filter((card) => card.state === "red" || card.state === "yellow" || card.state === "unknown");
+  return {
+    ...digest,
+    cards,
+    topAttention: cards.slice(0, 5).map((card) => card.cardId),
+    omitted: {
+      count: Math.max(0, digest.cards.length - cards.length),
+      reason: digest.cards.length > cards.length ? "limit" : "none"
+    }
+  };
+}
+
+export function createBusinessPulse(db: LooDatabase, options: OperatingDigestOptions = {}): BusinessPulseReport {
+  const digest = createProjectDigest(db, options);
+  return {
+    schema: "lco.businessPulse.v1",
+    publicSafe: true,
+    question: "How is the business?",
+    digest,
+    sourceCoverage: digest.sourceCoverage,
+    proofBoundary: "P0 business pulse is read-only and source-covered for LCO/Codex, optional structured GitHub items, and PLAN_STATE pins only. Notion, support-control, Company Brain, and Stripe remain not_configured until separate adapters prove source-backed collection."
+  };
+}
+
 type CodexThreadMapEntry = {
   threadId: string;
   title: string | null;
+  summary?: string | null;
   updatedAt: string | null;
+  sourcePath?: string;
   metadata: SessionMetadata;
 };
+
+function codexSessionCard(db: LooDatabase, entry: CodexThreadMapEntry): CodexSessionCard {
+  const counts = codexSessionCardCounts(db, entry.threadId, entry.metadata);
+  const state = codexSessionCardState(entry);
+  const reasonCodes = codexSessionReasonCodes(entry, state, counts);
+  const confidence = codexSessionConfidence(entry, reasonCodes);
+  const risk = codexSessionRisk(entry, reasonCodes, confidence);
+  const evidenceIds = [`ev_${stableId(`${entry.threadId}:session_metadata`).slice(0, 16)}`];
+  const objective = publicSafeText(entry.metadata.nextAction || entry.summary || entry.title || "No objective extracted.");
+  return {
+    schema: "lco.codex.sessionCard.v1",
+    sessionId: `sess_${stableId(entry.threadId).slice(0, 16)}`,
+    threadId: codexThreadRef(entry.threadId),
+    title: publicSafeText(entry.title || entry.threadId, 160),
+    state,
+    objective: publicSafeText(objective, 260),
+    freshness: sessionFreshness(entry.updatedAt),
+    scope: {
+      repo: publicSafeText(entry.metadata.project || "lossless-openclaw-orchestrator", 120),
+      branch: null,
+      gitSha: null,
+      refs: unique([...entry.metadata.sourceRefs, codexThreadRef(entry.threadId)]).map((ref) => publicSafeText(ref, 180)).slice(0, 8)
+    },
+    risk,
+    nextAction: codexSessionNextAction(entry, state, confidence),
+    counts,
+    evidenceIds,
+    hidden: {
+      transcriptPath: true,
+      rawTranscript: true,
+      secrets: true
+    },
+    confidence,
+    reasonCodes
+  };
+}
+
+function codexSessionCardCounts(db: LooDatabase, threadId: string, metadata: SessionMetadata): CodexSessionCard["counts"] {
+  const toolCountRow = db.prepare("SELECT tool_call_count AS toolCallCount FROM codex_sessions WHERE thread_id = ?").get(threadId) as { toolCallCount?: number } | undefined;
+  const evidence = Number(metadata.proposedPlanRefs.length > 0) + Number(metadata.finalMessageRefs.length > 0) + Number(metadata.touchedFileRefs.length > 0) + Number(metadata.sourceRefs.length > 0);
+  return {
+    plans: Number((db.prepare("SELECT COUNT(*) AS count FROM codex_plans WHERE thread_id = ?").get(threadId) as { count: number }).count),
+    finalMessages: metadata.finalMessageRefs.length,
+    toolCalls: Number(toolCountRow?.toolCallCount ?? 0),
+    touchedFiles: metadata.touchedFileRefs.length || getCodexTouchedFiles(db, { threadId }).length,
+    evidence
+  };
+}
+
+function codexSessionCardState(entry: CodexThreadMapEntry): CodexSessionCardState {
+  const status = normalizedMetadataValue(entry.metadata.status);
+  const blocker = hasRealBlocker(entry.metadata.blocker);
+  if (blocker && ["complete", "completed", "done", "closed", "merged"].includes(status)) return "unknown";
+  if (blocker || status.includes("blocked")) return "blocked";
+  if (status.includes("approval") || normalizedMetadataValue(entry.metadata.nextAction).includes("approve")) return "needs_approval";
+  if (["complete", "completed", "done", "closed", "merged"].includes(status)) return "done";
+  if (["paused", "waiting", "external-review-wait"].includes(status)) return "waiting";
+  if (["active", "in-progress", "ready", "running"].includes(status)) return hasEvidenceRefs(entry.metadata) ? "running" : "unknown";
+  return "unknown";
+}
+
+function codexSessionReasonCodes(entry: CodexThreadMapEntry, state: CodexSessionCardState, counts: CodexSessionCard["counts"]): string[] {
+  const codes: string[] = [];
+  const status = normalizedMetadataValue(entry.metadata.status);
+  if (state === "blocked") codes.push("blocked");
+  if (state === "needs_approval") codes.push("approval_needed");
+  if (state === "waiting") codes.push("external_wait");
+  if (state === "unknown") codes.push("low_confidence");
+  if (hasRealBlocker(entry.metadata.blocker) && ["complete", "completed", "done", "closed", "merged"].includes(status)) codes.push("conflicting_state");
+  if (counts.evidence < 3) codes.push("missing_evidence");
+  if (sessionFreshness(entry.updatedAt).stale) codes.push("active_stale");
+  if (normalizedMetadataValue(entry.metadata.nextAction).includes("resume")) codes.push("resume_ready");
+  return unique(codes);
+}
+
+function codexSessionConfidence(entry: CodexThreadMapEntry, reasonCodes: string[]): number {
+  let confidence = 0.92;
+  if (!entry.updatedAt) confidence -= 0.1;
+  if (!entry.metadata.status) confidence -= 0.12;
+  if (!entry.metadata.nextAction) confidence -= 0.08;
+  if (!hasEvidenceRefs(entry.metadata)) confidence -= 0.28;
+  if (reasonCodes.includes("conflicting_state")) confidence -= 0.36;
+  if (reasonCodes.includes("active_stale")) confidence -= 0.08;
+  return Math.max(0.2, Math.min(0.99, Number(confidence.toFixed(2))));
+}
+
+function codexSessionRisk(entry: CodexThreadMapEntry, reasonCodes: string[], confidence: number): CodexSessionCard["risk"] {
+  const priority = normalizedMetadataValue(entry.metadata.priority);
+  const reasons = [...reasonCodes];
+  const level = priority === "urgent" || reasonCodes.includes("blocked") || reasonCodes.includes("approval_needed")
+    ? "high"
+    : confidence < 0.7 || priority === "high"
+      ? "medium"
+      : "low";
+  return { level, reasons: unique(reasons) };
+}
+
+function codexSessionNextAction(entry: CodexThreadMapEntry, state: CodexSessionCardState, confidence: number): CodexSessionCard["nextAction"] {
+  const next = normalizedMetadataValue(entry.metadata.nextAction);
+  const kind: CodexSessionCard["nextAction"]["kind"] = state === "needs_approval"
+    ? "approve"
+    : state === "blocked" || state === "unknown"
+      ? "inspect"
+      : next.includes("resume")
+        ? "resume"
+        : state === "done"
+          ? "ignore"
+          : "watch";
+  return {
+    kind,
+    confidence,
+    reason: publicSafeText(entry.metadata.nextAction || entry.metadata.blocker || state, 220)
+  };
+}
+
+function sessionFreshness(updatedAt: string | null): CodexSessionCard["freshness"] {
+  const updatedMs = timestampMillis(updatedAt);
+  const ageSeconds = updatedMs === null ? null : Math.max(0, Math.round((Date.now() - updatedMs) / 1000));
+  return {
+    lastEventAt: updatedAt,
+    ageSeconds,
+    stale: ageSeconds !== null && ageSeconds >= 7 * 24 * 60 * 60
+  };
+}
+
+function codexSessionCardComparator(left: CodexSessionCard, right: CodexSessionCard): number {
+  const riskRank = { high: 0, medium: 1, low: 2 } as const;
+  const leftRank = riskRank[left.risk.level];
+  const rightRank = riskRank[right.risk.level];
+  if (leftRank !== rightRank) return leftRank - rightRank;
+  const updatedAtCompare = compareUpdatedAtDesc(left.freshness.lastEventAt, right.freshness.lastEventAt);
+  if (updatedAtCompare !== 0) return updatedAtCompare;
+  return left.threadId.localeCompare(right.threadId);
+}
+
+function cockpitReasonCodes(card: CodexSessionCard): string[] {
+  const actionable = card.reasonCodes.filter((code) => [
+    "blocked",
+    "approval_needed",
+    "low_confidence",
+    "active_stale",
+    "resume_ready",
+    "external_wait",
+    "conflicting_state"
+  ].includes(code));
+  return unique(actionable);
+}
+
+function cockpitUrgencyScore(card: CodexSessionCard, priorityOrder: string[] | undefined): number {
+  const priorityRank = new Map(unique((priorityOrder ?? []).map(normalizedMetadataValue).filter(Boolean)).map((value, index) => [value, index]));
+  const priority = card.risk.level === "high" ? "urgent" : card.risk.level;
+  const priorityScore = Math.max(0, 20 - (priorityRank.get(priority) ?? priorityRank.size) * 4);
+  const codeScore = card.reasonCodes.reduce((score, code) => score + ({
+    blocked: 60,
+    approval_needed: 55,
+    conflicting_state: 50,
+    low_confidence: 42,
+    active_stale: 35,
+    resume_ready: 30,
+    external_wait: 25,
+    missing_evidence: 10
+  }[code] ?? 0), 0);
+  return codeScore + priorityScore + Math.round(card.confidence * 10);
+}
+
+function evidenceCardsForSessionCard(card: CodexSessionCard): EvidenceCard[] {
+  return [{
+    schema: "lco.evidenceCard.v1",
+    evidenceId: card.evidenceIds[0] ?? `ev_${stableId(card.threadId).slice(0, 16)}`,
+    claim: publicSafeText(`Session ${card.threadId} state is ${card.state}.`, 180),
+    sourceKind: "session_metadata",
+    sourceRef: card.threadId,
+    observedAt: card.freshness.lastEventAt,
+    excerpt: publicSafeText(`${card.title}: ${card.nextAction.reason}`, 260),
+    redactions: ["paths", "tokens", "raw_transcript"],
+    confidence: card.confidence
+  }];
+}
+
+function extractMarkedBlocks(text: string, marker: string): string[] {
+  const pattern = new RegExp(`<!--\\s*loo:${escapeRegExp(marker)}\\s*-->([\\s\\S]*?)<!--\\s*/loo:${escapeRegExp(marker)}\\s*-->`, "gi");
+  const blocks: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text)) !== null) blocks.push(match[1] ?? "");
+  return blocks;
+}
+
+function planStateManualPin(block: string, index: number): PlanStateManualPin {
+  const fields = planStateFields(block);
+  const title = fields.project || fields.title || `manual-pin-${index + 1}`;
+  const state = operatingState(fields.state || fields.status || "unknown");
+  return {
+    pinId: `pin_${stableId(`${title}:${index}:${block}`).slice(0, 16)}`,
+    title: publicSafeText(title, 120),
+    state,
+    summary: publicSafeText(fields.summary || fields.note || "Manual pin has no summary.", 260),
+    nextAction: publicSafeText(fields.next || fields["next action"] || "Inspect manual pin.", 220),
+    sourceRef: publicSafeText(fields.source || `plan_state:manual_pin:${index + 1}`, 160)
+  };
+}
+
+function planStateFields(block: string): Record<string, string> {
+  const fields: Record<string, string> = {};
+  for (const line of block.split(/\r?\n/)) {
+    const match = line.trim().match(/^-?\s*([^:]{1,60}):\s*(.+)$/);
+    if (!match) continue;
+    fields[match[1]!.trim().toLowerCase()] = match[2]!.trim();
+  }
+  return fields;
+}
+
+function planStateListItems(block: string): string[] {
+  return block.split(/\r?\n/)
+    .map((line) => line.trim().replace(/^-\s*/, ""))
+    .filter((line) => line.length > 0);
+}
+
+function signalFromSessionCard(card: CodexSessionCard): OperatingSignal {
+  const state: OperatingState = card.state === "blocked" ? "red" : card.state === "unknown" || card.state === "needs_approval" || card.state === "waiting" ? "yellow" : card.state === "done" ? "green" : "green";
+  const urgency: OperatingUrgency = card.risk.level === "high" ? "high" : card.risk.level === "medium" ? "medium" : "low";
+  return {
+    schema: "lco.operatingSignal.v1",
+    signalId: `sig_${stableId(card.threadId).slice(0, 16)}`,
+    sourceKind: "codex",
+    sourceRef: card.threadId,
+    observedAt: card.freshness.lastEventAt,
+    subject: {
+      kind: "codex_session",
+      id: card.threadId,
+      title: card.title
+    },
+    state,
+    urgency,
+    reasonCodes: card.reasonCodes,
+    summary: publicSafeText(card.objective, 260),
+    nextAction: {
+      kind: card.nextAction.kind === "approve" ? "approve" : card.nextAction.kind === "resume" ? "resume" : card.nextAction.kind === "ignore" ? "ignore" : "inspect",
+      text: publicSafeText(card.nextAction.reason, 220),
+      requiresApproval: card.nextAction.kind === "approve" || card.nextAction.kind === "resume"
+    },
+    confidence: card.confidence,
+    evidenceIds: card.evidenceIds
+  };
+}
+
+function signalFromGithubItem(item: GithubOperatingItem): OperatingSignal {
+  const state = operatingState(item.state ?? "unknown");
+  const urgency = operatingUrgency(item.urgency ?? (state === "red" ? "high" : state === "yellow" ? "medium" : "low"));
+  const sourceRef = `github:${publicSafeText(item.id, 180)}`;
+  return {
+    schema: "lco.operatingSignal.v1",
+    signalId: `sig_${stableId(sourceRef).slice(0, 16)}`,
+    sourceKind: "github",
+    sourceRef,
+    observedAt: item.updatedAt ?? null,
+    subject: {
+      kind: item.id.includes("#") ? "issue" : "repo",
+      id: publicSafeText(item.id, 180),
+      title: publicSafeText(item.title, 180)
+    },
+    state,
+    urgency,
+    reasonCodes: unique((item.reasonCodes ?? ["review_requested"]).map((code) => publicSafeText(code, 80))),
+    summary: publicSafeText(item.title, 260),
+    nextAction: {
+      kind: "inspect",
+      text: publicSafeText(item.nextAction || "Inspect GitHub item.", 220),
+      requiresApproval: false
+    },
+    confidence: 0.86,
+    evidenceIds: [`ev_${stableId(`${sourceRef}:github`).slice(0, 16)}`]
+  };
+}
+
+function signalFromPlanPin(pin: PlanStateManualPin): OperatingSignal {
+  const urgency = pin.state === "red" ? "high" : pin.state === "yellow" || pin.state === "unknown" ? "medium" : "low";
+  return {
+    schema: "lco.operatingSignal.v1",
+    signalId: `sig_${stableId(pin.pinId).slice(0, 16)}`,
+    sourceKind: "plan_state",
+    sourceRef: pin.sourceRef,
+    observedAt: null,
+    subject: {
+      kind: "project",
+      id: pin.pinId,
+      title: pin.title
+    },
+    state: pin.state,
+    urgency,
+    reasonCodes: ["manual_pin"],
+    summary: pin.summary,
+    nextAction: {
+      kind: "inspect",
+      text: pin.nextAction,
+      requiresApproval: false
+    },
+    confidence: 0.72,
+    evidenceIds: [`ev_${stableId(`${pin.pinId}:plan_state`).slice(0, 16)}`]
+  };
+}
+
+function operatingCardFromSignal(signal: OperatingSignal): OperatingCard {
+  const kind: OperatingCard["kind"] = signal.subject.kind === "codex_session" || signal.subject.kind === "project"
+    ? "project"
+    : signal.subject.kind === "issue" || signal.subject.kind === "pr" || signal.subject.kind === "repo"
+      ? "repo"
+      : signal.subject.kind === "customer"
+        ? "customer"
+        : signal.subject.kind === "billing"
+          ? "business"
+          : "incident";
+  return {
+    schema: "lco.operatingCard.v1",
+    cardId: `card_${stableId(signal.signalId).slice(0, 16)}`,
+    kind,
+    title: signal.subject.title,
+    state: signal.reasonCodes.includes("conflicting_state") ? "unknown" : signal.state,
+    lastMovementAt: signal.observedAt,
+    summary: publicSafeText(signal.summary, 320),
+    nextAction: publicSafeText(signal.nextAction.text, 240),
+    owner: "eva",
+    confidence: signal.reasonCodes.includes("conflicting_state") ? Math.min(signal.confidence, 0.45) : signal.confidence,
+    signals: [signal.signalId],
+    evidenceIds: signal.evidenceIds,
+    reasonCodes: signal.reasonCodes,
+    approvalBoundary: signal.nextAction.requiresApproval
+      ? "Approval required before resume, send, steer, interrupt, GUI action, external message, commit, push, deploy, or production/customer mutation."
+      : "Read-only inspection only; no mutation is authorized by this card."
+  };
+}
+
+function operatingCardComparator(left: OperatingCard, right: OperatingCard): number {
+  const stateRank = { red: 0, yellow: 1, unknown: 2, green: 3 } as const;
+  const leftRank = stateRank[left.state];
+  const rightRank = stateRank[right.state];
+  if (leftRank !== rightRank) return leftRank - rightRank;
+  if (left.confidence !== right.confidence) return left.confidence - right.confidence;
+  const updatedAtCompare = compareUpdatedAtDesc(left.lastMovementAt, right.lastMovementAt);
+  if (updatedAtCompare !== 0) return updatedAtCompare;
+  return left.cardId.localeCompare(right.cardId);
+}
+
+function evidenceCardsForOperatingCard(card: OperatingCard): EvidenceCard[] {
+  return card.evidenceIds.map((evidenceId) => ({
+    schema: "lco.evidenceCard.v1",
+    evidenceId,
+    claim: publicSafeText(`${card.title} is ${card.state}.`, 180),
+    sourceKind: card.reasonCodes.includes("manual_pin") ? "plan_state" : "session_metadata",
+    sourceRef: card.signals[0] ?? card.cardId,
+    observedAt: card.lastMovementAt,
+    excerpt: publicSafeText(card.summary, 260),
+    redactions: ["paths", "tokens", "raw_transcript"],
+    confidence: card.confidence
+  }));
+}
+
+function operatingHealth(cards: OperatingCard[]): OperatingDigest["health"] {
+  const red = cards.filter((card) => card.state === "red").length;
+  const yellow = cards.filter((card) => card.state === "yellow").length;
+  const unknown = cards.filter((card) => card.state === "unknown").length;
+  const green = cards.filter((card) => card.state === "green").length;
+  return {
+    overall: red > 0 ? "red" : yellow > 0 || unknown > 0 ? "yellow" : "green",
+    customers: { red: 0, yellow: 0, green: 0, unknown: 0 },
+    projects: {
+      blocked: red,
+      moving: green,
+      stale: cards.filter((card) => card.reasonCodes.includes("active_stale")).length
+    },
+    codex: {
+      needsAttention: red + yellow + unknown,
+      waiting: cards.filter((card) => card.reasonCodes.includes("external_wait")).length,
+      done: green
+    },
+    finance: {
+      state: "unknown",
+      reason: "stripe_adapter_not_configured"
+    }
+  };
+}
+
+function operatingState(value: string): OperatingState {
+  const normalized = normalizedMetadataValue(value);
+  if (["green", "ok", "good", "done", "complete"].includes(normalized)) return "green";
+  if (["yellow", "warn", "warning", "attention"].includes(normalized)) return "yellow";
+  if (["red", "critical", "blocked", "bad"].includes(normalized)) return "red";
+  return "unknown";
+}
+
+function operatingUrgency(value: string): OperatingUrgency {
+  const normalized = normalizedMetadataValue(value);
+  if (["critical", "high", "medium", "low"].includes(normalized)) return normalized as OperatingUrgency;
+  return "medium";
+}
 
 function managementEntry(entry: CodexThreadMapEntry, reason: string): SessionManagementEntry {
   return {
@@ -2150,6 +2962,18 @@ function resolveRecallProfile(profile: RecallProfileName = "brief", tokenBudget?
 
 function codexThreadRef(threadId: string): string {
   return `codex_thread:${threadId}`;
+}
+
+function publicSourcePathRef(sourcePath: string): string {
+  return `codex_source:${stableId(sourcePath).slice(0, 16)}`;
+}
+
+function publicSafeText(value: string, maxChars = 500): string {
+  const redacted = redactSafeString(value)
+    .replace(/\/Volumes\/[^\s"'`)]+/g, "<redacted-path>")
+    .replace(/\/(?:private\/)?(?:tmp|var)\/[^\s"'`)]+/g, "<redacted-path>")
+    .replace(/~\/\.codex\/[^\s"'`)]+/g, "<redacted-path>");
+  return truncate(redacted, maxChars);
 }
 
 function claudeSessionRef(sessionId: string): string {

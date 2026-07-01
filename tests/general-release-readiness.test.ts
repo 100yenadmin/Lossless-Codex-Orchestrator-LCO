@@ -55,7 +55,7 @@ function writePassingAgentDogfood(path: string): void {
     catalog: {
       requiredToolsPresent: true,
       missingRequiredTools: [],
-      toolCount: 30
+      toolCount: 36
     },
     blockers: [],
     setupStatus: {
