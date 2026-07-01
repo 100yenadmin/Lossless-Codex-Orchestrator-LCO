@@ -17,27 +17,29 @@ function read(path: string): string {
   return readFileSync(path, "utf8");
 }
 
-test("0.1.0-beta.23 release metadata ships gateway credential setup blockers without widening claims", () => {
+test("current beta release metadata ships gateway recovery status without widening claims", () => {
   const packageJson = JSON.parse(read("package.json")) as { version?: string };
   const packageLock = JSON.parse(read("package-lock.json")) as { version?: string; packages?: Record<string, { version?: string }> };
   const rootPlugin = JSON.parse(read("openclaw.plugin.json")) as { version?: string };
   const workspacePlugin = JSON.parse(read("packages/openclaw-plugin/openclaw.plugin.json")) as { version?: string };
 
-  assert.equal(packageJson.version, "0.1.0-beta.23");
-  assert.equal(packageLock.version, "0.1.0-beta.23");
-  assert.equal(packageLock.packages?.[""]?.version, "0.1.0-beta.23");
-  assert.equal(rootPlugin.version, "0.1.0-beta.23");
-  assert.equal(workspacePlugin.version, "0.1.0-beta.23");
-  assert.equal(existsSync("docs/RELEASE_NOTES_0.1.0-beta.23.md"), true, "0.1.0-beta.23 release notes must exist");
+  assert.equal(packageJson.version, packageVersion);
+  assert.equal(packageLock.version, packageVersion);
+  assert.equal(packageLock.packages?.[""]?.version, packageVersion);
+  assert.equal(rootPlugin.version, packageVersion);
+  assert.equal(workspacePlugin.version, packageVersion);
+  assert.equal(existsSync(releaseNotesPath), true, `${packageVersion} release notes must exist`);
 
-  const releaseNotes = read("docs/RELEASE_NOTES_0.1.0-beta.23.md");
+  const releaseNotes = read(releaseNotesPath);
   assert.match(releaseNotes, /Codex-first working-app beta/i);
-  assert.match(releaseNotes, /#214/i);
+  assert.match(releaseNotes, /#216/i);
+  assert.match(releaseNotes, /setupStatus/i);
   assert.match(releaseNotes, /setupBlockers/i);
   assert.match(releaseNotes, /setupGuidance/i);
-  assert.match(releaseNotes, /openclaw_gateway_credentials_required:loo_doctor/i);
+  assert.match(releaseNotes, /gateway_setup_required/i);
+  assert.match(releaseNotes, /gateway_blocked/i);
   assert.match(releaseNotes, /fresh profiles.*gateway credentials/i);
-  assert.match(releaseNotes, /does not widen the beta\.22 claim/i);
+  assert.match(releaseNotes, /does not widen the beta\.23 claim/i);
   assert.match(releaseNotes, /No automatic gateway authorization/i);
   assert.match(releaseNotes, /no broad gateway scope approval/i);
   assert.match(releaseNotes, /no new live Codex control smoke/i);
