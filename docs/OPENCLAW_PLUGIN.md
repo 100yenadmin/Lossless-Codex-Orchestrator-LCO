@@ -10,6 +10,12 @@ The installed plugin declares native `loo_*` tool wrappers backed by the same lo
 loo-mcp-server
 ```
 
+Agent-facing usage guidance lives in
+[`skills/lossless-openclaw-orchestrator/SKILL.md`](../skills/lossless-openclaw-orchestrator/SKILL.md).
+Use that playbook when an OpenClaw orchestrator needs the safe staged workflow:
+doctor, search, describe, bounded expand, plan/final/file lookup, recommendation,
+and approval-gated dry-run before live Codex control.
+
 Before beta release, dogfood the local OpenClaw plugin path from an isolated profile:
 
 ```bash

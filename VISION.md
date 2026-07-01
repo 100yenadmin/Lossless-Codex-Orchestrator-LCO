@@ -14,7 +14,7 @@ M9 Agent Handoff Beta Sprint is the current product/eval target, tracked by [#23
 
 The M9 target is:
 
-- Add a first-class OpenClaw agent usage skill or playbook for the canonical `loo_*` workflows.
+- Add a first-class OpenClaw agent usage skill at [skills/lossless-openclaw-orchestrator/SKILL.md](skills/lossless-openclaw-orchestrator/SKILL.md) for the canonical `loo_*` workflows.
 - Align README, VISION, and release docs with current GitHub truth instead of stale sprint wording.
 - Prove an agent dogfood scenario that uses only public `loo_*` tools to search, describe, expand, reason, and dry-run.
 - Prove fresh npm beta install and clean-profile OpenClaw load without relying on a repo link.
@@ -74,6 +74,7 @@ Expected product-management workflows:
 - `packages/mcp-server` exposes the `loo_*` tool surface for OpenClaw and other MCP clients.
 - `packages/cli` is the operator and evidence surface for `onboard status`, `doctor`, `index`, `search`, `grep`, `describe`, `expand`, `desktop`, and release commands.
 - `packages/openclaw-plugin` is the OpenClaw package and manifest layer.
+- `skills/` contains the packaged agent-facing playbook for safe staged recall and approval-gated dry-run workflows.
 - `docs/` explains install, demo workflow, privacy, safe summaries, release proof, the beta release runbook, and claim boundaries.
 
 ## Build Loop

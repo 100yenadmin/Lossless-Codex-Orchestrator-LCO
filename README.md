@@ -7,7 +7,7 @@ summarizable, product-management objects for OpenClaw.
 Codex-first: Claude Code support is intentionally shipped as an adapter stub
 until its storage and control paths are proven.
 
-[Vision](VISION.md) · [Working App Proof Sprint](docs/WORKING_APP_PROOF_SPRINT.md) · [OpenClaw Plugin](docs/OPENCLAW_PLUGIN.md) · [Claude Adapter Boundary](docs/CLAUDE_ADAPTER_BOUNDARY.md) · [Beta Demo](docs/BETA_RELEASE_DEMO.md) · [Beta Release Runbook](docs/BETA_RELEASE_RUNBOOK.md) · [Claim Audit](docs/CLAIM_AUDIT.md) · [MIT](LICENSE)
+[Vision](VISION.md) · [Agent Skill](skills/lossless-openclaw-orchestrator/SKILL.md) · [Working App Proof Sprint](docs/WORKING_APP_PROOF_SPRINT.md) · [OpenClaw Plugin](docs/OPENCLAW_PLUGIN.md) · [Claude Adapter Boundary](docs/CLAUDE_ADAPTER_BOUNDARY.md) · [Beta Demo](docs/BETA_RELEASE_DEMO.md) · [Beta Release Runbook](docs/BETA_RELEASE_RUNBOOK.md) · [Claim Audit](docs/CLAIM_AUDIT.md) · [MIT](LICENSE)
 
 ## Why This Exists
 
@@ -70,7 +70,9 @@ The core Codex recall path is working; the current gap is making that capability
 easy for a local OpenClaw agent to use without maintainer steering.
 
 1. **First-class agent skill/playbook**
-   Add a concise OpenClaw agent usage skill for the canonical workflows. See
+   Add and maintain the packaged OpenClaw agent usage skill at
+   [skills/lossless-openclaw-orchestrator/SKILL.md](skills/lossless-openclaw-orchestrator/SKILL.md)
+   for the canonical workflows. See
    [#232](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/232).
 
 2. **README/VISION truth alignment**
