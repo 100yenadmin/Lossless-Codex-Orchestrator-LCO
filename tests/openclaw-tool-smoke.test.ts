@@ -50,6 +50,10 @@ if (method === "tools.invoke") {
     console.log(JSON.stringify({ ok: false, toolName: name, source: "plugin", error: { code: "forbidden", message: "super-secret-transcript-span" } }));
     process.exit(0);
   }
+  if (name === "loo_plugin_details_refused") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { content: [{ type: "text", text: JSON.stringify({ ok: false, blockers: ["execute_flag_missing"], private: "super-secret-transcript-span" }) }], details: { ok: false, blockers: ["execute_flag_missing"], private: "super-secret-transcript-span" } } }));
+    process.exit(0);
+  }
   if (name === "loo_doctor") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { ok: true, localOnly: true, toolPrefix: "loo_*" } }));
     process.exit(0);
@@ -649,6 +653,30 @@ test("OpenClaw tool smoke fails closed when tools.invoke returns ok false in a s
     assert.equal(report.toolSmokeReady, false);
     assert.deepEqual(report.blockers, ["openclaw_tool_result_not_ok:loo_gateway_refused:forbidden"]);
     assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /super-secret-transcript-span|forbidden message|Harmless beta smoke/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke fails closed when plugin output details return ok false", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-details-ok-false-"));
+  const evidencePath = join(dir, "tool-smoke.json");
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_plugin_details_refused"]);
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      profile: "lco-issue-160",
+      sessionKey: "agent:main:lco-issue-160",
+      evidencePath,
+      requiredTools: ["loo_plugin_details_refused"]
+    });
+
+    assert.equal(report.toolSmokeReady, false);
+    assert.deepEqual(report.blockers, ["openclaw_tool_result_not_ok:loo_plugin_details_refused"]);
+    assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /super-secret-transcript-span|Harmless beta smoke/);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;

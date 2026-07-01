@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { createAuditStore, desktopSee } from "../packages/adapters/src/index.js";
+import { createAuditStore, createDesktopGuiProofReport, createDesktopProofAction, desktopSee } from "../packages/adapters/src/index.js";
 import { createDatabase } from "../packages/core/src/index.js";
 import { createLooTools } from "../packages/mcp-server/src/tools.js";
 
@@ -589,6 +589,248 @@ test("MCP desktop live-proof-harness can produce a ready public-safe proof plan 
     db.close();
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("CUA desktop proof action executes only the approved TextEdit scratch launch and emits a proof-report observation", () => {
+  const action = "launch_app TextEdit scratch window";
+  const targetApp = "TextEdit";
+  const targetWindow = "lco-desktop-proof.txt";
+  const scratchFilePath = "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/2026-07-01/issue-160-desktop-proof-action/lco-desktop-proof.txt";
+  const actionHash = createHash("sha256")
+    .update(JSON.stringify({
+      desktopBackend: "cua-driver",
+      targetApp,
+      targetWindow,
+      action
+    }))
+    .digest("hex");
+  const commandCalls: Array<{ command: string; args: string[] }> = [];
+
+  const result = createDesktopProofAction({
+    backend: "cua-driver",
+    targetApp,
+    targetWindow,
+    action,
+    actionHash,
+    approvalRef: "issue-160-proof-action",
+    permissionState: "accessibility=true;screen_recording=true",
+    execute: true,
+    scratchFilePath,
+    probe: {
+      commandStatus: () => ({ available: true, command: "cua-driver", version: "cua-driver 0.6.8" }),
+      activeApplication: () => "Codex",
+      commandOutput: (command: string, args: string[] = []) => {
+        commandCalls.push({ command, args });
+        assert.equal(command, "cua-driver");
+        assert.deepEqual(args, [
+          "call",
+          "launch_app",
+          JSON.stringify({
+            name: "TextEdit",
+            urls: [scratchFilePath],
+            creates_new_application_instance: true
+          })
+        ]);
+        return {
+          status: 0,
+          command,
+          stdout: JSON.stringify({
+            pid: 1234,
+            bundle_id: "com.apple.TextEdit",
+            name: "TextEdit",
+            windows: [{ title: targetWindow }],
+            self_activation_suppressed: true
+          })
+        };
+      }
+    }
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.proofActionReady, true);
+  assert.equal(result.publicSafe, true);
+  assert.deepEqual(result.blockers, []);
+  assert.equal(result.desktopBackend, "cua-driver");
+  assert.equal(result.actionHash, actionHash);
+  assert.equal(result.backendCommand?.tool, "launch_app");
+  assert.equal(result.backendCommand?.status, 0);
+  assert.equal(result.backendCommand?.rawStdoutIncluded, false);
+  assert.equal(result.backendCommand?.scratchFilePathIncluded, false);
+  assert.equal(result.actionsPerformed.desktopGuiActionRun, true);
+  assert.equal(result.actionsPerformed.screenshotCaptured, false);
+  assert.equal(result.observation?.kind, "loo_desktop_gui_action_observation");
+  assert.equal(result.observation?.desktopBackend, "cua-driver");
+  assert.equal(result.observation?.targetApp, targetApp);
+  assert.equal(result.observation?.targetWindow, targetWindow);
+  assert.equal(result.observation?.action, action);
+  assert.equal(result.observation?.approvalRef, "issue-160-proof-action");
+  assert.equal(result.observation?.approved, true);
+  assert.equal(result.observation?.liveActionObserved, true);
+  assert.equal(result.observation?.focusBeforeApplication, "Codex");
+  assert.equal(result.observation?.focusAfterApplication, "Codex");
+  assert.equal(result.observation?.focusChanged, false);
+  assert.equal(result.observation?.focusProof, "cua_driver_launch_app_no_focus_v1");
+  assert.equal(result.observation?.rawScreenshotIncluded, false);
+  assert.equal(result.observation?.rawSecretIncluded, false);
+  assert.equal(commandCalls.length, 1);
+
+  const proofReport = createDesktopGuiProofReport(result.observation);
+  assert.equal(proofReport.ok, true);
+  assert.equal(proofReport.approval?.actionHash, actionHash);
+  assert.equal(proofReport.runtimeProof?.action_hash, actionHash);
+});
+
+test("CUA desktop proof action fails closed for generic actions, bad hashes, missing execute, and focus changes", () => {
+  const approved = {
+    backend: "cua-driver" as const,
+    targetApp: "TextEdit",
+    targetWindow: "lco-desktop-proof.txt",
+    action: "launch_app TextEdit scratch window",
+    approvalRef: "issue-160-proof-action",
+    permissionState: "accessibility=true;screen_recording=true"
+  };
+  const actionHash = createHash("sha256")
+    .update(JSON.stringify({
+      desktopBackend: approved.backend,
+      targetApp: approved.targetApp,
+      targetWindow: approved.targetWindow,
+      action: approved.action
+    }))
+    .digest("hex");
+  const readyProbe = {
+    commandStatus: () => ({ available: true, command: "cua-driver", version: "cua-driver 0.6.8" }),
+    activeApplication: () => "Codex",
+    commandOutput: () => ({ status: 0, command: "cua-driver", stdout: "{}" })
+  };
+
+  const missingExecute = createDesktopProofAction({
+    ...approved,
+    actionHash,
+    scratchFilePath: "/tmp/lco-desktop-proof.txt",
+    execute: false,
+    probe: readyProbe
+  });
+  assert.equal(missingExecute.ok, false);
+  assert.ok(missingExecute.blockers.includes("execute_flag_missing"));
+  assert.equal(missingExecute.actionsPerformed.desktopGuiActionRun, false);
+  assert.equal(missingExecute.observation, null);
+
+  const genericAction = createDesktopProofAction({
+    ...approved,
+    action: "click primary",
+    actionHash: "0".repeat(64),
+    scratchFilePath: "/tmp/lco-desktop-proof.txt",
+    execute: true,
+    probe: readyProbe
+  });
+  assert.equal(genericAction.ok, false);
+  assert.ok(genericAction.blockers.includes("unsupported_desktop_proof_action"));
+  assert.equal(genericAction.actionsPerformed.desktopGuiActionRun, false);
+
+  const badHash = createDesktopProofAction({
+    ...approved,
+    actionHash: "0".repeat(64),
+    scratchFilePath: "/tmp/lco-desktop-proof.txt",
+    execute: true,
+    probe: readyProbe
+  });
+  assert.equal(badHash.ok, false);
+  assert.ok(badHash.blockers.includes("action_hash_mismatch"));
+  assert.equal(badHash.actionsPerformed.desktopGuiActionRun, false);
+
+  let focusProbeCall = 0;
+  const focusChanged = createDesktopProofAction({
+    ...approved,
+    actionHash,
+    scratchFilePath: "/tmp/lco-desktop-proof.txt",
+    execute: true,
+    probe: {
+      commandStatus: () => ({ available: true, command: "cua-driver", version: "cua-driver 0.6.8" }),
+      activeApplication: () => (focusProbeCall++ === 0 ? "Codex" : "TextEdit"),
+      commandOutput: () => ({ status: 0, command: "cua-driver", stdout: "{}" })
+    }
+  });
+  assert.equal(focusChanged.ok, false);
+  assert.ok(focusChanged.blockers.includes("focus_changed"));
+  assert.equal(focusChanged.actionsPerformed.desktopGuiActionRun, true);
+  assert.equal(focusChanged.observation?.focusChanged, true);
+});
+
+test("MCP desktop proof action exposes the CUA scratch launch proof contract", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-desktop-proof-action-mcp-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const action = "launch_app TextEdit scratch window";
+  const targetApp = "TextEdit";
+  const targetWindow = "lco-desktop-proof.txt";
+  const actionHash = createHash("sha256")
+    .update(JSON.stringify({
+      desktopBackend: "cua-driver",
+      targetApp,
+      targetWindow,
+      action
+    }))
+    .digest("hex");
+  const tools = createLooTools({
+    db,
+    audit,
+    codexClient: { request: async () => ({ ok: true }) },
+    desktopProbe: {
+      commandStatus: () => ({ available: true, command: "cua-driver", version: "cua-driver 0.6.8" }),
+      activeApplication: () => "Codex",
+      commandOutput: () => ({ status: 0, command: "cua-driver", stdout: JSON.stringify({ self_activation_suppressed: true }) })
+    }
+  });
+
+  try {
+    const proofAction = tools.find((tool) => tool.name === "loo_desktop_proof_action");
+    assert.ok(proofAction);
+    const result = await proofAction.execute({
+      backend: "cua-driver",
+      target_app: targetApp,
+      target_window: targetWindow,
+      action,
+      action_hash: actionHash,
+      approval_ref: "issue-160-proof-action",
+      permission_state: "accessibility=true;screen_recording=true",
+      scratch_file_path: join(root, targetWindow),
+      execute: true
+    }) as {
+      ok?: boolean;
+      proofActionReady?: boolean;
+      observation?: { kind?: string; rawScreenshotIncluded?: boolean; rawSecretIncluded?: boolean };
+      backendCommand?: { rawStdoutIncluded?: boolean; scratchFilePathIncluded?: boolean };
+      actionsPerformed?: { desktopGuiActionRun?: boolean; screenshotCaptured?: boolean };
+    };
+
+    assert.equal(result.ok, true);
+    assert.equal(result.proofActionReady, true);
+    assert.equal(result.observation?.kind, "loo_desktop_gui_action_observation");
+    assert.equal(result.observation?.rawScreenshotIncluded, false);
+    assert.equal(result.observation?.rawSecretIncluded, false);
+    assert.equal(result.backendCommand?.rawStdoutIncluded, false);
+    assert.equal(result.backendCommand?.scratchFilePathIncluded, false);
+    assert.deepEqual(result.actionsPerformed, {
+      desktopGuiActionRun: true,
+      screenshotCaptured: false
+    });
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("CLI desktop proof-action help names the scratch-only CUA boundary", () => {
+  const result = spawnSync(process.execPath, ["--import", "tsx", "packages/cli/src/index.ts", "desktop", "proof-action", "--help"], {
+    cwd: process.cwd(),
+    env: process.env,
+    encoding: "utf8"
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /loo desktop proof-action/i);
+  assert.match(result.stdout, /TextEdit scratch/i);
+  assert.match(result.stdout, /does not enable generic GUI mutation/i);
 });
 
 test("Peekaboo diagnostics parse permission status and expose visible Codex macro metadata", async () => {

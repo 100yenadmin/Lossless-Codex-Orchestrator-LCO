@@ -2,7 +2,7 @@
   "id": "lossless-openclaw-orchestrator",
   "name": "Lossless OpenClaw Orchestrator",
   "description": "Control and collaborate with local Codex sessions through OpenClaw using local indexing, bounded recall, and approval-gated controls.",
-  "version": "0.1.0-beta.24",
+  "version": "0.1.0-beta.25",
   "kind": "tool",
   "tools": {
     "prefix": "loo_"
@@ -60,6 +60,7 @@
       "loo_desktop_act",
       "loo_desktop_proof_report",
       "loo_desktop_live_proof_harness",
+      "loo_desktop_proof_action",
       "loo_doctor",
       "loo_permissions",
       "loo_audit_tail"
@@ -683,6 +684,48 @@
             },
             "approval_ref": {
               "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_desktop_proof_action",
+        "description": "Run the one approved CUA TextEdit scratch launch proof action and return a public-safe observation for proof-report validation.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "backend": {
+              "type": "string",
+              "enum": [
+                "direct",
+                "cua-driver",
+                "peekaboo"
+              ]
+            },
+            "target_app": {
+              "type": "string"
+            },
+            "target_window": {
+              "type": "string"
+            },
+            "action": {
+              "type": "string"
+            },
+            "action_hash": {
+              "type": "string"
+            },
+            "approval_ref": {
+              "type": "string"
+            },
+            "permission_state": {
+              "type": "string"
+            },
+            "scratch_file_path": {
+              "type": "string"
+            },
+            "execute": {
+              "type": "boolean"
             }
           }
         }

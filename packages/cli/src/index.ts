@@ -8,6 +8,7 @@ import {
   isDesktopBackend,
   writeDesktopGuiProofReport,
   writeDesktopLiveProofHarness,
+  writeDesktopProofAction,
   type DesktopBackend
 } from "../../adapters/src/index.js";
 import {
@@ -125,6 +126,17 @@ async function main() {
     const report = writeDesktopLiveProofHarness(parsed);
     console.log(JSON.stringify(report, null, 2));
     if (parsed.strict && !report.proofHarnessReady) process.exitCode = 1;
+    return;
+  }
+  if (command === "desktop" && args[0] === "proof-action") {
+    if (hasHelpFlag(args.slice(1))) {
+      printDesktopProofActionHelp();
+      return;
+    }
+    const parsed = parseDesktopProofActionArgs(args.slice(1));
+    const report = writeDesktopProofAction(parsed);
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.proofActionReady) process.exitCode = 1;
     return;
   }
   if (command === "index" && args[0] === "codex") {
@@ -503,6 +515,7 @@ async function main() {
     "  loo desktop act [direct|cua-driver|peekaboo] <action>",
     "  loo desktop proof-report --evidence-dir path --observation-file path [--strict]",
     "  loo desktop live-proof-harness --evidence-dir path [--backend direct|cua-driver|peekaboo] [--target-app app] [--target-window title] [--action text] [--approval-ref ref] [--strict]",
+    "  loo desktop proof-action --evidence-dir path --backend cua-driver --target-app TextEdit --target-window lco-desktop-proof.txt --action \"launch_app TextEdit scratch window\" --action-hash hash --approval-ref ref --permission-state state --scratch-file path --execute [--strict]",
     "  loo index codex [--max-files n] [--max-bytes-per-file n] [--max-events-per-file n] [roots...]",
     "  loo probe codex-sqlite [roots...]",
     "  loo search <query>",
@@ -1014,6 +1027,27 @@ function printDesktopLiveProofHarnessHelp(): void {
   ].join("\n"));
 }
 
+function printDesktopProofActionHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo desktop proof-action --evidence-dir path --backend cua-driver --target-app TextEdit --target-window lco-desktop-proof.txt --action \"launch_app TextEdit scratch window\" --action-hash hash --approval-ref ref --permission-state state --scratch-file path --execute [--strict]",
+    "",
+    "Runs the single supported desktop proof action: CUA Driver launch_app into a TextEdit scratch window.",
+    "",
+    "Outputs:",
+    "  desktop-proof-action.json",
+    "  desktop-gui-observation.json when a backend action was attempted",
+    "",
+    "Strict mode:",
+    "  --strict exits non-zero until the action is proof-ready and public-safe.",
+    "",
+    "Safety boundary:",
+    "  This command requires --execute and an exact action hash before it calls the backend.",
+    "  It does not enable generic GUI mutation, Codex GUI mutation, prompt typing, screenshots, or unattended desktop takeover.",
+    "  It records only public-safe action metadata and a proof-report observation; raw backend stdout/stderr and scratch file paths are excluded from evidence."
+  ].join("\n"));
+}
+
 function printLocalMacSearchUiHelp(): void {
   console.log([
     "Usage:",
@@ -1135,6 +1169,62 @@ function parseDesktopLiveProofHarnessArgs(input: string[]): {
   }
   if (!evidenceDir) throw new Error("desktop live-proof-harness requires --evidence-dir");
   return { evidenceDir, backend, targetApp, targetWindow, action, approvalRef, strict };
+}
+
+function parseDesktopProofActionArgs(input: string[]): {
+  evidenceDir: string;
+  backend?: DesktopBackend;
+  targetApp?: string;
+  targetWindow?: string;
+  action?: string;
+  actionHash?: string;
+  approvalRef?: string;
+  permissionState?: string;
+  scratchFilePath?: string;
+  execute: boolean;
+  strict: boolean;
+} {
+  let evidenceDir = "";
+  let backend: DesktopBackend | undefined;
+  let targetApp: string | undefined;
+  let targetWindow: string | undefined;
+  let action: string | undefined;
+  let actionHash: string | undefined;
+  let approvalRef: string | undefined;
+  let permissionState: string | undefined;
+  let scratchFilePath: string | undefined;
+  let execute = false;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--evidence-dir") {
+      evidenceDir = requireOptionValue(input[++index], arg);
+    } else if (arg === "--backend") {
+      backend = parseDesktopBackend(requireOptionValue(input[++index], arg));
+    } else if (arg === "--target-app") {
+      targetApp = requireOptionValue(input[++index], arg);
+    } else if (arg === "--target-window") {
+      targetWindow = requireOptionValue(input[++index], arg);
+    } else if (arg === "--action") {
+      action = requireOptionValue(input[++index], arg);
+    } else if (arg === "--action-hash") {
+      actionHash = requireOptionValue(input[++index], arg);
+    } else if (arg === "--approval-ref") {
+      approvalRef = requireOptionValue(input[++index], arg);
+    } else if (arg === "--permission-state") {
+      permissionState = requireOptionValue(input[++index], arg);
+    } else if (arg === "--scratch-file") {
+      scratchFilePath = requireOptionValue(input[++index], arg);
+    } else if (arg === "--execute") {
+      execute = true;
+    } else if (arg === "--strict") {
+      strict = true;
+    } else {
+      throw new Error(`Unknown desktop proof-action option: ${arg}`);
+    }
+  }
+  if (!evidenceDir) throw new Error("desktop proof-action requires --evidence-dir");
+  return { evidenceDir, backend, targetApp, targetWindow, action, actionHash, approvalRef, permissionState, scratchFilePath, execute, strict };
 }
 
 function readDesktopProofReportObservation(path: string): unknown {

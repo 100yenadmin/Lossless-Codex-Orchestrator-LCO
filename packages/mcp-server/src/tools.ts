@@ -27,6 +27,7 @@ import {
   createCodexControl,
   createDesktopGuiProofReport,
   createDesktopLiveProofHarness,
+  createDesktopProofAction,
   desktopActDryRun,
   desktopFallbackDiagnostics,
   desktopSee,
@@ -274,6 +275,28 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       targetWindow: optionalString(input.target_window),
       action: optionalString(input.action),
       approvalRef: optionalString(input.approval_ref),
+      probe: options.desktopProbe
+    })),
+    tool("loo_desktop_proof_action", "Run the one approved CUA TextEdit scratch launch proof action and return a public-safe observation for proof-report validation.", {
+      backend: { type: "string", enum: ["direct", "cua-driver", "peekaboo"] },
+      target_app: { type: "string" },
+      target_window: { type: "string" },
+      action: { type: "string" },
+      action_hash: { type: "string" },
+      approval_ref: { type: "string" },
+      permission_state: { type: "string" },
+      scratch_file_path: { type: "string" },
+      execute: { type: "boolean" }
+    }, (input) => createDesktopProofAction({
+      backend: optionalDesktopBackend(input.backend),
+      targetApp: optionalString(input.target_app),
+      targetWindow: optionalString(input.target_window),
+      action: optionalString(input.action),
+      actionHash: optionalString(input.action_hash),
+      approvalRef: optionalString(input.approval_ref),
+      permissionState: optionalString(input.permission_state),
+      scratchFilePath: optionalString(input.scratch_file_path),
+      execute: input.execute === true,
       probe: options.desktopProbe
     })),
     tool("loo_doctor", "Read local orchestrator health.", {}, () => ({

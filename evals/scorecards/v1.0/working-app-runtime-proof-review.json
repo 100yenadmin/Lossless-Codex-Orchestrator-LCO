@@ -13,6 +13,8 @@
     "loo_expand_query",
     "loo desktop live-proof-harness",
     "loo_desktop_act",
+    "loo desktop proof-action",
+    "loo_desktop_proof_action",
     "loo desktop proof-report",
     "loo eval scenarios --scenario-dir evals/scenarios/v1.1 --runtime-proof-dir <proof-dir> --evidence-dir <evidence-dir> --strict"
   ],
@@ -29,6 +31,7 @@
     "desktop proof marker when desktop collaboration is claimed",
     "structured desktop act blockers before any unproven GUI mutation path",
     "desktop approval action hash bound to backend, target app, target window, and action when desktop collaboration is claimed",
+    "desktop proof-action catalog/callable status, fail-closed generic invocation, and observation for the CUA TextEdit scratch launch path only when desktop collaboration is claimed",
     "desktop collaboration runtime marker action_hash matching the approved desktop action hash when desktop collaboration is claimed",
     "proof-report runtime marker path for desktop-collaboration-action-bound-v1-1 when desktop collaboration observation is valid",
     "rawPromptIncluded false",
@@ -60,7 +63,7 @@
   "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-156-working-app-proof/working-app-runtime-proof-review.json",
   "known_gaps": [
     "The runtime proof runner can validate public-safe v1.1 proof markers, but the full installed gateway live-control and post-action refresh loop still needs real runtime evidence.",
-    "Desktop collaboration has backend-specific scratch proofs; release status now requires the action-bound runtime marker, proof-report now emits that marker for valid public-safe observations, verifies desktop approval action hashes against backend, target app, target window, and action, binds the runtime marker action_hash to the approved action when desktop GUI collaboration is claimed, and loo_desktop_act returns structured missing-proof blockers while remaining dry-run-only. This is still not a generic product-level action path.",
+    "Desktop collaboration has backend-specific scratch proofs; release status now requires the action-bound runtime marker, proof-action is limited to the CUA Driver TextEdit scratch launch path, generic gateway invocation without exact proof args fails closed, proof-report emits that marker for valid public-safe observations, verifies desktop approval action hashes against backend, target app, target window, and action, binds the runtime marker action_hash to the approved action when desktop GUI collaboration is claimed, and loo_desktop_act returns structured missing-proof blockers while remaining dry-run-only. This is still not a generic product-level action path.",
     "The local Mac search UI has a connected live CLI proof path, but not packaged/signed macOS product UI readiness.",
     "Claude Code remains an adapter inventory item, not an equivalent working path."
   ],

@@ -87,6 +87,7 @@ Expected dogfood checks:
 - Treat `openclaw_gateway_credentials_required` on a fresh profile as first-run setup, not a package defect: `loo openclaw tool-smoke` must emit `setupStatus.classification: "gateway_setup_required"` plus `setupBlockers`/`setupGuidance`; use a provisioned profile, pass a scoped gateway token, or complete local profile/device pairing before claiming gateway tool-smoke failure.
 - Record structured `installOutcome.status` and `installOutcome.guidance` for linked installs, including `installed`, `already_installed`, `link_force_unsupported`, or `failed`, without storing raw OpenClaw stdout/stderr or local profile paths.
 - Call read-only tools such as `loo_doctor`, `loo_index_sessions`, `loo_search_sessions`, `loo_describe_session`, `loo_expand_session`, `loo_expand_query`, `loo_codex_plans`, and `loo_codex_final_messages`.
+- For approval-gated tools, distinguish catalog exposure from proof-ready invocation. A generic `tools.invoke` call that reaches the tool but returns `ok:false` is fail-closed evidence, not a successful feature proof.
 - Verify dry-run control tools produce audit ids without mutating a real Codex thread.
 - Confirm evidence contains counts, refs, hashes, statuses, and redacted metadata only.
 
@@ -125,6 +126,7 @@ For implementation issues, copy `evals/scorecards/v1.0/issue-scorecard-update-te
 | Desktop fallback readiness | CUA/Peekaboo report honest readiness without overclaiming action support | `loo_desktop_see` evidence |
 | Desktop act fail-closed contract | Live desktop act requests return structured missing-proof blockers while staying dry-run-only | `loo_desktop_act` / installed OpenClaw gateway evidence |
 | Desktop live/no-focus harness | GUI fallback proof attempts fail closed until backend, approval ref, target, action, and no-focus status probe are ready | `loo desktop live-proof-harness` / `loo_desktop_live_proof_harness` evidence |
+| Desktop proof action | One CUA Driver TextEdit scratch `launch_app` action can emit a public-safe observation only after exact hash, approval, permission, and execute gates pass; generic gateway invocation fails closed | `loo desktop proof-action` / `loo_desktop_proof_action` evidence |
 | Desktop GUI proof contract | Backend-specific live/no-focus observations can be validated without running the action in the reporting command | `loo desktop proof-report` / `loo_desktop_proof_report` evidence |
 | Local Mac search UI | User can search, filter, inspect safe summaries, and copy source refs without raw transcript rendering | `local-mac-search-ui-review.json` score movement |
 | Working app runtime proof | Installed user path proves search/describe/expand, approved live Codex action, post-action refresh, and safe reasoning | `working-app-runtime-proof-review.json` score movement |
@@ -230,6 +232,7 @@ For Milestone 7, 1.0, or any expanded-scope release that claims live control, de
 - CUA/Peekaboo readiness is honest and does not imply unsupported generic GUI action.
 - `loo_desktop_act` remains dry-run-only, but live-mode requests return named blockers for missing backend, target app/window, action text, action hash, approval ref, permission state, focus before/after, public-safe observation fields, or a mismatched action hash so an OpenClaw agent can route to the harness/report workflow.
 - Desktop GUI live/no-focus proof attempts use `loo desktop live-proof-harness` or `loo_desktop_live_proof_harness` first to confirm the proof plan is public-safe and fail-closed before any backend-specific action is attempted.
+- The only built-in desktop proof action is the CUA Driver TextEdit scratch `launch_app` path through `loo desktop proof-action` or `loo_desktop_proof_action`; it requires `--execute`, the exact backend/app/window/action hash, approval ref, permission state, and a scratch file path, and it records no raw backend stdout/stderr, screenshots, or scratch file paths in public evidence.
 - Desktop GUI mutation claims require a backend-specific observation validated by `loo desktop proof-report` or `loo_desktop_proof_report`; the proof-report command itself must not perform the GUI action, release approval `actionHash` must match the exact backend/app/window/action tuple, and the desktop collaboration runtime marker `action_hash` must match that approval hash.
 - When a desktop proof-report observation is valid, the command writes both `desktop-gui-approval.json` and `desktop-collaboration-action-bound-v1-1.runtime-proof.json`; invalid or diagnostic-only observations must not emit the runtime proof marker.
 - Release preflight/status/bundle commands produce public-safe evidence.
