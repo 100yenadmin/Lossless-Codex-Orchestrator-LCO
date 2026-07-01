@@ -28,7 +28,7 @@ Closes #
 
 ## Validation
 
-- [ ]
+- [ ] `git diff --cached --check`
 
 ## Release / LCO Proof Tier
 

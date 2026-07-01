@@ -11,6 +11,7 @@
 
 ## LCO Release Gates
 
-- Read `docs/BETA_RELEASE_RUNBOOK.md`, `docs/RELEASE_CHECKLIST.md`, and `docs/SOURCE_AUTHORITY_PROFILE.md` before claiming release or beta readiness.
+- Read `docs/BETA_RELEASE_RUNBOOK.md`, `docs/RELEASE_CHECKLIST.md`, `docs/SOURCE_AUTHORITY_PROFILE.md`, and `docs/CLAIM_AUDIT.md` before claiming release or beta readiness.
+- Require `loo release preflight --strict` to report a structured `approved_live_control_smoke` marker before any beta/release claim that includes live-control or working-app proof.
 - Do not treat merged code, local smoke, or docs-only proof as a beta release by itself.
 - Do not rewrite historical release notes or resolve historical PR residue without a separate issue.
