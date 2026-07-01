@@ -141,6 +141,10 @@ test("cockpit inbox ranks blocked approval and stale work deterministically", ()
     ]);
     assert.equal(inbox.items[2]?.card.state, "unknown");
     assert.equal(inbox.items[2]?.card.confidence < 0.7, true);
+
+    const highRisk = getRecentSessions(db, { risk: "high", limit: 10, includeCards: true });
+    assert.equal(highRisk.summary.total, highRisk.cards.length);
+    assert.equal(highRisk.cards.every((card) => card.risk.level === "high"), true);
   });
 });
 
