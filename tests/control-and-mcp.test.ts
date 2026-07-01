@@ -48,6 +48,25 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
       () => control.sendMessage({ threadId: "thr_1", message: "continue", dryRun: false }),
       /approval_audit_id is required/
     );
+    appendFileSync(audit.path, `${JSON.stringify({
+      id: "loo_audit_expired",
+      action: dryRun.action,
+      target: dryRun.threadId,
+      paramsHash: dryRun.paramsHash,
+      messageHash: dryRun.messageHash,
+      live: false,
+      createdAt: new Date(Date.now() - 16 * 60 * 1000).toISOString()
+    })}\n`);
+    await assert.rejects(
+      () => control.sendMessage({
+        threadId: "thr_1",
+        message: "continue",
+        dryRun: false,
+        approvalAuditId: "loo_audit_expired"
+      }),
+      /dry-run record expired/
+    );
+    assert.equal(calls.length, 0);
 
     const live = await control.sendMessage({
       threadId: "thr_1",

@@ -26,12 +26,14 @@ type SessionFixture = {
   blocker?: string;
   updatedAt: string;
   refs?: boolean;
+  project?: string | null;
   extra?: string[];
 };
 
 test("recent session cards are public-safe and do not require query text", () => {
   withIndexedSessions((sessions) => {
     const rawPathCanary = join(sessions, "rollout-2026-07-01T00-00-00-019f-recent-active.jsonl");
+    const linuxCodexPathCanary = "/home/alice/.codex/sessions/rollout-private.jsonl";
     return {
       fixtures: [
         {
@@ -39,9 +41,10 @@ test("recent session cards are public-safe and do not require query text", () =>
           title: "Autonomy cockpit active lane",
           status: "active",
           priority: "high",
-          nextAction: "continue after review",
+          nextAction: `continue after review from ${linuxCodexPathCanary}`,
           updatedAt: relativeIso(90),
           refs: true,
+          project: null,
           extra: [
             `Private path canary ${rawPathCanary}`,
             "authorization: Bearer abcdefghijklmnopqrstuvwxyz"
@@ -58,10 +61,11 @@ test("recent session cards are public-safe and do not require query text", () =>
           refs: true
         }
       ],
-      canaries: [rawPathCanary]
+      canaries: [rawPathCanary, linuxCodexPathCanary]
     };
   }, ({ db, canaries }) => {
     const report = getRecentSessions(db, { scope: "recent", limit: 10, includeCards: true });
+    const activeCard = report.cards.find((card) => card.threadId === "codex_thread:019f-recent-active");
 
     assert.equal(report.schema, "lco.codex.recentSessions.v1");
     assert.equal(report.publicSafe, true);
@@ -74,6 +78,7 @@ test("recent session cards are public-safe and do not require query text", () =>
     assert.equal(report.cards[0]?.risk.level, "high");
     assert.equal(report.cards[0]?.reasonCodes.includes("blocked"), true);
     assert.equal(report.cards[0]?.hidden.transcriptPath, true);
+    assert.equal(activeCard?.scope.repo, null);
     assertNoUnsafeStrings(report, ...canaries);
   });
 });
@@ -194,6 +199,16 @@ test("operating picture marks missing P1 sources and preserves low-confidence co
       nextAction: "archive after closeout",
       updatedAt: relativeIso(60),
       refs: true
+    },
+    {
+      id: "019f-operating-old",
+      title: "Old lane",
+      status: "blocked",
+      priority: "urgent",
+      blocker: "stale proof",
+      nextAction: "ignore outside window",
+      updatedAt: relativeIso(8 * 24 * 60),
+      refs: true
     }
   ], ({ db }) => {
     const pins = createPlanStatePinsReport(`
@@ -227,6 +242,11 @@ test("operating picture marks missing P1 sources and preserves low-confidence co
       planStatePins: createPlanStatePinsReport(""),
       githubItems: []
     });
+    const boundaryOnlyDigest = createProjectDigest(db, {
+      window: "today",
+      limit: 10,
+      planStatePins: createPlanStatePinsReport("<!-- loo:approval-boundary -->\n- Stop before live control.\n<!-- /loo:approval-boundary -->")
+    });
     const limitedDigest = createProjectDigest(db, {
       window: "today",
       limit: 2,
@@ -256,13 +276,15 @@ test("operating picture marks missing P1 sources and preserves low-confidence co
     assert.equal(digest.cards.some((card) => card.kind === "project" && card.title === "LCO"), true);
     assert.equal(digest.cards.some((card) => card.kind === "repo" && card.reasonCodes.includes("review_requested")), true);
     assert.equal(digest.evidence.some((evidence) =>
-      evidence.sourceKind === "github" &&
+      evidence.sourceKind === "github_check_summary" &&
       evidence.sourceRef === "github:100yenadmin/Lossless-Codex-Orchestrator-LCO#256"
     ), true);
+    assert.equal(digest.cards.some((card) => card.title === "Old lane"), false);
     assert.equal(digest.cards.some((card) => card.state === "unknown" && card.reasonCodes.includes("conflicting_state")), true);
     assert.equal(digest.topAttention.length > 0, true);
     assert.equal(missingStructuredSources.sourceCoverage.github, "not_configured");
     assert.equal(missingStructuredSources.sourceCoverage.plan_state, "not_configured");
+    assert.equal(boundaryOnlyDigest.sourceCoverage.plan_state, "ok");
     assert.equal(limitedDigest.cards.length, 2);
     assert.equal(limitedDigest.signals.length, 2);
 
@@ -417,7 +439,7 @@ function writeSessionFixture(root: string, fixture: SessionFixture): void {
       event_msg: {
         type: "agent_message",
         message: [
-          "Project: lossless-openclaw-orchestrator",
+          ...(fixture.project === null ? [] : [`Project: ${fixture.project ?? "lossless-openclaw-orchestrator"}`]),
           `Status: ${fixture.status}`,
           `Priority: ${fixture.priority}`,
           "Owner: codex",

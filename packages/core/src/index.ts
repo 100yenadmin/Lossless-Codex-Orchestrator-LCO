@@ -237,7 +237,7 @@ export type EvidenceCard = {
   schema: "lco.evidenceCard.v1";
   evidenceId: string;
   claim: string;
-  sourceKind: "github_check_summary" | "safe_event" | "desktop_title" | "watcher_log" | "plan" | "final_message" | "session_metadata" | "github" | "plan_state";
+  sourceKind: "github_check_summary" | "safe_event" | "desktop_title" | "watcher_log" | "plan" | "final_message" | "session_metadata" | "plan_state";
   sourceRef: string;
   observedAt: string | null;
   excerpt: string;
@@ -1458,20 +1458,28 @@ export function createPlanStatePinsReport(text: string): PlanStatePinsReport {
 
 export function createProjectDigest(db: LooDatabase, options: OperatingDigestOptions = {}): OperatingDigest {
   const limit = clamp(options.limit ?? 20, 1, 200);
+  const window = options.window ?? "today";
+  const windowStartMs = operatingWindowStartMs(window);
   const codexSignals = getRecentSessions(db, { scope: "recent", limit: 200, includeCards: true }).cards.map(signalFromSessionCard);
   const githubSignals = (options.githubItems ?? []).slice(0, 100).map(signalFromGithubItem);
   const planSignals = (options.planStatePins?.manualPins ?? []).map(signalFromPlanPin);
-  const signals = [...codexSignals, ...githubSignals, ...planSignals];
-  const signalById = new Map(signals.map((signal) => [signal.signalId, signal]));
-  const cards = signals.map(operatingCardFromSignal).sort(operatingCardComparator);
-  const selected = cards.slice(0, limit);
-  const selectedSignalIds = new Set(selected.flatMap((card) => card.signals));
-  const selectedSignals = signals.filter((signal) => selectedSignalIds.has(signal.signalId));
-  const evidence = selected.flatMap((card) => evidenceCardsForOperatingCard(card, signalById.get(card.signals[0] ?? "")));
+  const signals = [...codexSignals, ...githubSignals, ...planSignals].filter((signal) => signalWithinOperatingWindow(signal, windowStartMs));
+  const ranked = signals
+    .map((signal) => ({ signal, card: operatingCardFromSignal(signal) }))
+    .sort((left, right) => operatingCardComparator(left.card, right.card));
+  const selectedEntries = ranked.slice(0, limit);
+  const selected = selectedEntries.map(({ card }) => card);
+  const selectedSignals = selectedEntries.map(({ signal }) => signal);
+  const evidence = selectedEntries.flatMap(({ card, signal }) => evidenceCardsForOperatingCard(card, signal));
+  const hasPlanStateCoverage = Boolean(
+    (options.planStatePins?.manualPins.length ?? 0) > 0 ||
+    (options.planStatePins?.approvalBoundaries.length ?? 0) > 0 ||
+    (options.planStatePins?.exceptionLedger.length ?? 0) > 0
+  );
   const sourceCoverage = {
     lco: codexSignals.length > 0 ? "ok" as const : "partial" as const,
     github: githubSignals.length > 0 ? "ok" as const : "not_configured" as const,
-    plan_state: planSignals.length > 0 ? "ok" as const : "not_configured" as const,
+    plan_state: hasPlanStateCoverage ? "ok" as const : "not_configured" as const,
     notion: "not_configured" as const,
     support_control: "not_configured" as const,
     company_brain: "not_configured" as const,
@@ -1481,15 +1489,15 @@ export function createProjectDigest(db: LooDatabase, options: OperatingDigestOpt
     schema: "lco.operatingDigest.v1",
     publicSafe: true,
     generatedAt: new Date().toISOString(),
-    window: options.window ?? "today",
+    window,
     health: operatingHealth(selected),
     topAttention: selected.filter((card) => card.state === "red" || card.state === "yellow" || card.state === "unknown").slice(0, 5).map((card) => card.cardId),
     cards: selected,
     signals: selectedSignals,
     evidence,
     omitted: {
-      count: Math.max(0, cards.length - selected.length),
-      reason: cards.length > selected.length ? "limit" : "none"
+      count: Math.max(0, ranked.length - selected.length),
+      reason: ranked.length > selected.length ? "limit" : "none"
     },
     sourceCoverage
   };
@@ -1547,7 +1555,7 @@ function codexSessionCard(db: LooDatabase, entry: CodexThreadMapEntry): CodexSes
     objective: publicSafeText(objective, 260),
     freshness: sessionFreshness(entry.updatedAt),
     scope: {
-      repo: publicSafeText(entry.metadata.project || "lossless-openclaw-orchestrator", 120),
+      repo: entry.metadata.project ? publicSafeText(entry.metadata.project, 120) : null,
       branch: null,
       gitSha: null,
       refs: unique([...entry.metadata.sourceRefs, codexThreadRef(entry.threadId)]).map((ref) => publicSafeText(ref, 180)).slice(0, 8)
@@ -1881,7 +1889,7 @@ function evidenceCardsForOperatingCard(card: OperatingCard, signal: OperatingSig
     schema: "lco.evidenceCard.v1",
     evidenceId,
     claim: publicSafeText(`${card.title} is ${card.state}.`, 180),
-    sourceKind: signal?.sourceKind === "github" ? "github" : signal?.sourceKind === "plan_state" ? "plan_state" : "session_metadata",
+    sourceKind: signal?.sourceKind === "github" ? "github_check_summary" : signal?.sourceKind === "plan_state" ? "plan_state" : "session_metadata",
     sourceRef: signal?.sourceRef ?? card.cardId,
     observedAt: card.lastMovementAt,
     excerpt: publicSafeText(card.summary, 260),
@@ -2982,9 +2990,25 @@ function publicSourcePathRef(sourcePath: string): string {
 function publicSafeText(value: string, maxChars = 500): string {
   const redacted = redactSafeString(value)
     .replace(/\/Volumes\/[^\s"'`)]+/g, "<redacted-path>")
+    .replace(/\/(?:Users|home)\/[^/\s"'`)]+\/\.codex\/[^\s"'`)]+/g, "<redacted-path>")
+    .replace(/\/root\/\.codex\/[^\s"'`)]+/g, "<redacted-path>")
     .replace(/\/(?:private\/)?(?:tmp|var)\/[^\s"'`)]+/g, "<redacted-path>")
     .replace(/~\/\.codex\/[^\s"'`)]+/g, "<redacted-path>");
   return truncate(redacted, maxChars);
+}
+
+function operatingWindowStartMs(window: OperatingDigest["window"]): number | null {
+  const now = new Date();
+  if (window === "24h") return now.getTime() - 24 * 60 * 60 * 1000;
+  if (window === "7d") return now.getTime() - 7 * 24 * 60 * 60 * 1000;
+  if (window === "today") return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  return null;
+}
+
+function signalWithinOperatingWindow(signal: OperatingSignal, windowStartMs: number | null): boolean {
+  if (windowStartMs === null || signal.observedAt === null) return true;
+  const observedAtMs = Date.parse(signal.observedAt);
+  return !Number.isFinite(observedAtMs) || observedAtMs >= windowStartMs;
 }
 
 function claudeSessionRef(sessionId: string): string {
