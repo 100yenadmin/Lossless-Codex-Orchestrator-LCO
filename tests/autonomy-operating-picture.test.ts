@@ -372,7 +372,9 @@ test("operating picture includes source authority and degrades unavailable autho
       ]
     });
     const githubCard = degraded.cards.find((card) => card.title === "source authority profile");
+    assert.equal(degraded.sourceCoverage.github, "ok");
     assert.equal(degraded.authorityCoverage.github.setupStatus, "unavailable");
+    assert.equal(degraded.authorityCoverage.github.status, "unavailable");
     assert.equal(githubCard?.state, "unknown");
     assert.equal(githubCard?.reasonCodes.includes("authority_unavailable"), true);
     assert.equal((githubCard?.confidence ?? 1) <= 0.5, true);

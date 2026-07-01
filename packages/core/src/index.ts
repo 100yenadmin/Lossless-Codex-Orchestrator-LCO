@@ -2008,11 +2008,17 @@ function createAuthorityCoverage(
     return [sourceKind, {
       ...source,
       sourceKind,
-      status: sourceCoverage[sourceKind],
+      status: authorityStatusFor(source, sourceCoverage[sourceKind]),
       owns: safeAuthorityList(source.owns),
       allowedClaims: safeAuthorityList(source.allowedClaims)
     }];
   })) as OperatingDigest["authorityCoverage"];
+}
+
+function authorityStatusFor(source: SourceAuthoritySource, coverage: SourceCoverageState): SourceCoverageState {
+  if (source.setupStatus === "unavailable" || source.setupStatus === "not_configured") return source.setupStatus;
+  if (source.setupStatus === "partial" && coverage === "ok") return "partial";
+  return coverage;
 }
 
 function operatingCardFromSignal(signal: OperatingSignal): OperatingCard {
