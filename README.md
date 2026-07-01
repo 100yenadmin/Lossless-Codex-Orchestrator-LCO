@@ -92,6 +92,9 @@ P0 is read-only and deterministic:
 - #264 adds a deterministic read-only GitHub operating-item collector so
   issue/PR/check records become public-safe `github_items` before digest tools
   summarize them.
+- #271 cleans cockpit-card presentation so agent-facing titles, summaries, and
+  next actions do not expose directive fragments, markdown tables, duplicated
+  labels, or transcript-shaped excerpts.
 - #258 adds a public-safe [source authority profile](docs/SOURCE_AUTHORITY_PROFILE.md)
   so P0 tools distinguish adapter coverage from who owns each truth claim.
 - `PLAN_STATE.md` is demoted to bootloader, manual pins, approval boundaries,

@@ -36,6 +36,7 @@
     "search refs and score summaries",
     "describe and direct-session/query expand profile names",
     "recent session and cockpit inbox card counts",
+    "clean card title/objective/summary/nextAction fields plus presentation_cleaned or presentation_low_confidence reason codes when extraction needed cleanup",
     "watcher status, watcher_triggered reason codes, resume request packet expiry, mutates=false, and approval boundary",
     "Codex app-server read-only availability, allowed/forbidden method posture, thread source coverage, and no-turns proof",
     "visible Codex map source coverage, confidence, ambiguity markers, and public-safe session card refs",
@@ -59,6 +60,7 @@
     "Agent can search sessions through loo_* read tools and receive source-prefixed refs.",
     "Agent can describe and expand selected refs within a bounded token profile.",
     "Agent can list recent session cards and a deterministic cockpit inbox without a wildcard query.",
+    "Agent-facing card summaries and next actions are cleaned deterministic presentation text rather than raw directive fragments, markdown tables, or duplicated Title/Final labels.",
     "Agent can inspect read-only watcher status and generate resume-request packets without live control, GUI mutation, cleanup, or external writes.",
     "Agent can inspect Codex app-server status and thread signals without reading raw turns, enabling remote control, or mutating Codex.",
     "Agent can correlate sanitized visible Codex candidates with indexed session cards while ambiguous title matches stay low confidence.",
@@ -76,16 +78,17 @@
     "Gateway exposes live mutation without dry-run approval proof.",
     "Evidence captures local DBs, transcript files, screenshots, prompt text, or secrets.",
     "Tool output is too vague for the agent to choose a safe next action.",
+    "Card summaries or next actions expose directive syntax, markdown tables, duplicated Title/Final prefixes, or raw transcript-shaped excerpts as user-facing presentation.",
     "Operating-picture output hides missing sources, omits authority coverage, or treats PLAN_STATE prose as current truth."
   ],
   "current_score": "pass",
-  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-234-agent-dogfood-core-workflow/openclaw-tool-smoke-final.json",
+  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-271-cockpit-card-cleanup/",
   "known_gaps": [
     "Fresh OpenClaw profiles may need scoped gateway credentials or profile/device pairing before tool-smoke can call tools; `setupStatus.classification` must distinguish this from package failure.",
     "P0 operating-picture tools use LCO/Codex, normalized public-safe GitHub inputs, explicit PLAN_STATE pins, read-only watcher request packets, and a public source-authority profile only; Notion, support-control, Company Brain, Stripe, dashboard/export, and summarizer adapters remain P1.",
     "Visible Codex map joins prove read-only correlation from sanitized title/status metadata only; they do not prove Codex GUI mutation or visible focus/select/continue workflows.",
     "This does not prove live Codex control, generic GUI mutation, Claude Code adapter parity, full business truth, or release-grade customer readiness."
   ],
-  "next_action": "Continue #271 cockpit card cleanup and #272 end-to-end Eva cockpit dogfood before filing P1 adapter work.",
+  "next_action": "Merge #271 cockpit card cleanup, then continue #272 end-to-end Eva cockpit dogfood before filing P1 adapter work.",
   "proof_boundary": "This proves local OpenClaw gateway agent usability for Codex read/search/describe/expand/detail lookup/recommend/dry-run, read-only watcher request packets, read-only app-server status/thread signals, visible-to-indexed session correlation, and P0 cockpit/operating-picture cards using public-safe evidence only; it does not prove live control, GUI mutation, Claude Code adapter parity, full business truth, or 1.0 readiness."
 }

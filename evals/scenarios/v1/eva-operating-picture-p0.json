@@ -22,6 +22,7 @@
   "expected_public_safe_evidence": [
     "operating signals",
     "operating cards",
+    "clean operating-card summaries and next actions projected from cleaned Codex session cards",
     "source coverage report",
     "source authority coverage report",
     "deterministically normalized GitHub issue/PR/check records",
@@ -47,6 +48,7 @@
   "metrics": {
     "requires_source_coverage": true,
     "requires_source_authority_coverage": true,
+    "requires_clean_card_presentation": true,
     "requires_current_lane_source_balance": true,
     "requires_low_confidence_downgrade": true,
     "requires_customer_runtime_red_priority": true,

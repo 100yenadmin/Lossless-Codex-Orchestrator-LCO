@@ -2082,18 +2082,18 @@ type CodexThreadMapEntry = {
 function codexSessionCard(db: LooDatabase, entry: CodexThreadMapEntry): CodexSessionCard {
   const counts = codexSessionCardCounts(db, entry.threadId, entry.metadata);
   const state = codexSessionCardState(entry);
-  const reasonCodes = codexSessionReasonCodes(entry, state, counts);
+  const presentation = codexSessionPresentation(entry);
+  const reasonCodes = unique([...codexSessionReasonCodes(entry, state, counts), ...presentation.reasonCodes]);
   const confidence = codexSessionConfidence(entry, reasonCodes);
   const risk = codexSessionRisk(entry, reasonCodes, confidence);
   const evidenceIds = [`ev_${stableId(`${entry.threadId}:session_metadata`).slice(0, 16)}`];
-  const objective = publicSafeText(entry.metadata.nextAction || entry.summary || entry.title || "No objective extracted.");
   return {
     schema: "lco.codex.sessionCard.v1",
     sessionId: `sess_${stableId(entry.threadId).slice(0, 16)}`,
     threadId: codexThreadRef(entry.threadId),
-    title: publicSafeText(entry.title || entry.threadId, 160),
+    title: presentation.title,
     state,
-    objective: publicSafeText(objective, 260),
+    objective: presentation.objective,
     freshness: sessionFreshness(entry.updatedAt),
     scope: {
       repo: entry.metadata.project ? publicSafeText(entry.metadata.project, 120) : null,
@@ -2102,7 +2102,7 @@ function codexSessionCard(db: LooDatabase, entry: CodexThreadMapEntry): CodexSes
       refs: unique([...entry.metadata.sourceRefs, codexThreadRef(entry.threadId)]).map((ref) => publicSafeText(ref, 180)).slice(0, 8)
     },
     risk,
-    nextAction: codexSessionNextAction(entry, state, confidence),
+    nextAction: codexSessionNextAction(entry, state, confidence, presentation.nextActionReason, presentation.lowConfidence),
     counts,
     evidenceIds,
     hidden: {
@@ -2139,6 +2139,141 @@ function codexSessionCardState(entry: CodexThreadMapEntry): CodexSessionCardStat
   return "unknown";
 }
 
+type CardPresentationCleanResult = {
+  text: string;
+  cleaned: boolean;
+  lowConfidence: boolean;
+};
+
+type CardPresentation = {
+  title: string;
+  objective: string;
+  nextActionReason: string;
+  lowConfidence: boolean;
+  reasonCodes: string[];
+};
+
+function codexSessionPresentation(entry: CodexThreadMapEntry): CardPresentation {
+  const nextDirective = presentationDirectiveFields(entry.metadata.nextAction);
+  const title = cleanCardPresentationText(nextDirective.title ?? entry.title ?? entry.threadId, {
+    fallback: publicSafeText(entry.threadId, 160),
+    maxChars: 160,
+    role: "title"
+  });
+  const objectiveSource = nextDirective.summary
+    ?? (entry.metadata.nextAction ? entry.metadata.nextAction : entry.summary ?? entry.title ?? null);
+  const objective = cleanCardPresentationText(objectiveSource, {
+    fallback: entry.metadata.nextAction ? "Inspect source ref." : title.text,
+    maxChars: 260,
+    role: "summary"
+  });
+  const nextAction = cleanCardPresentationText(nextDirective.next ?? nextDirective.action ?? entry.metadata.nextAction ?? entry.metadata.blocker ?? null, {
+    fallback: "Inspect source ref.",
+    maxChars: 220,
+    role: "nextAction"
+  });
+  const lowConfidence = objective.lowConfidence || nextAction.lowConfidence;
+  const reasonCodes = [
+    title.cleaned || objective.cleaned || nextAction.cleaned ? "presentation_cleaned" : "",
+    lowConfidence ? "presentation_low_confidence" : ""
+  ].filter(Boolean);
+  return {
+    title: title.text,
+    objective: objective.text,
+    nextActionReason: nextAction.text,
+    lowConfidence,
+    reasonCodes
+  };
+}
+
+function cleanCardPresentationText(value: string | null | undefined, options: { fallback: string; maxChars: number; role: "title" | "summary" | "nextAction" }): CardPresentationCleanResult {
+  const fallback = publicSafeText(options.fallback, options.maxChars);
+  const raw = publicSafeText(value ?? "", Math.max(options.maxChars * 3, 500));
+  const withoutDirectives = raw.replace(/(?:::)?[A-Za-z0-9_-]+\{[\s\S]*?\}/g, " ");
+  const fragments = withoutDirectives
+    .split(/\r?\n/)
+    .map((line) => cleanCardPresentationFragment(line, options.role))
+    .filter((line) => line.length > 0 && !isMarkdownTableLine(line));
+  const candidate = dedupePresentationSentences(fragments[0] ?? "");
+  if (!usableCardPresentationText(candidate)) {
+    return {
+      text: fallback,
+      cleaned: raw.trim() !== fallback,
+      lowConfidence: true
+    };
+  }
+  const text = publicSafeText(candidate, options.maxChars);
+  return {
+    text,
+    cleaned: text !== publicSafeText(value ?? "", options.maxChars),
+    lowConfidence: false
+  };
+}
+
+function presentationDirectiveFields(value: string | null | undefined): Record<string, string> {
+  const fields: Record<string, string> = {};
+  const raw = publicSafeText(value ?? "", 1200);
+  const directivePattern = /(?:::)?[A-Za-z0-9_-]+\{([\s\S]*?)(?:\}|$)/g;
+  let directive: RegExpExecArray | null;
+  while ((directive = directivePattern.exec(raw)) !== null) {
+    const body = directive[1] ?? "";
+    const attrPattern = /([A-Za-z][A-Za-z0-9_-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^,}]+))/g;
+    let attr: RegExpExecArray | null;
+    while ((attr = attrPattern.exec(body)) !== null) {
+      const key = normalizedDirectiveField(attr[1] ?? "");
+      const fieldValue = (attr[2] ?? attr[3] ?? attr[4] ?? "").trim();
+      if (key && fieldValue && !fields[key]) fields[key] = fieldValue;
+    }
+  }
+  return fields;
+}
+
+function normalizedDirectiveField(value: string): string {
+  const normalized = value.toLowerCase().replace(/[-_\s]+/g, "");
+  if (normalized === "nextaction") return "next";
+  if (normalized === "summary" || normalized === "title" || normalized === "next" || normalized === "action") return normalized;
+  return "";
+}
+
+function cleanCardPresentationFragment(value: string, role: "title" | "summary" | "nextAction"): string {
+  let text = value
+    .trim()
+    .replace(/^[-*]\s+/, "")
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .trim();
+  let previous = "";
+  while (text !== previous) {
+    previous = text;
+    text = text.replace(/^(?:title|final|summary|objective|next action|next|action)\s*:\s*/i, "").trim();
+  }
+  const embeddedLabel = text.match(/\s(?:title|final|summary|objective|next action|next|status|priority|owner|blocker|source refs?|proposed plan refs?|final-message refs?|touched-file refs?)\s*:/i);
+  if (embeddedLabel?.index && embeddedLabel.index > 0) text = text.slice(0, embeddedLabel.index).trim();
+  if (role === "title") text = text.replace(/\s+(?:final|summary|next action|next)\s*:.*$/i, "").trim();
+  return text;
+}
+
+function isMarkdownTableLine(value: string): boolean {
+  const text = value.trim();
+  if (!text) return false;
+  if (/^\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?$/.test(text)) return true;
+  return text.startsWith("|") && text.endsWith("|") && (text.match(/\|/g)?.length ?? 0) >= 2;
+}
+
+function dedupePresentationSentences(value: string): string {
+  const sentences = value.match(/[^.!?]+[.!?]+|[^.!?]+$/g)?.map((sentence) => sentence.trim()).filter(Boolean) ?? [];
+  if (sentences.length <= 1) return value.trim();
+  return unique(sentences).join(" ").trim();
+}
+
+function usableCardPresentationText(value: string): boolean {
+  const text = value.trim();
+  if (!text) return false;
+  if (/(?:::)?[A-Za-z0-9_-]+\{/.test(text)) return false;
+  if (isMarkdownTableLine(text)) return false;
+  if ((text.match(/\|/g)?.length ?? 0) >= 2) return false;
+  return /[A-Za-z0-9]{3,}/.test(text);
+}
+
 function codexSessionReasonCodes(entry: CodexThreadMapEntry, state: CodexSessionCardState, counts: CodexSessionCard["counts"]): string[] {
   const codes: string[] = [];
   const status = normalizedMetadataValue(entry.metadata.status);
@@ -2161,6 +2296,7 @@ function codexSessionConfidence(entry: CodexThreadMapEntry, reasonCodes: string[
   if (!hasEvidenceRefs(entry.metadata)) confidence -= 0.28;
   if (reasonCodes.includes("conflicting_state")) confidence -= 0.36;
   if (reasonCodes.includes("active_stale")) confidence -= 0.08;
+  if (reasonCodes.includes("presentation_low_confidence")) confidence -= 0.22;
   return Math.max(0.2, Math.min(0.99, Number(confidence.toFixed(2))));
 }
 
@@ -2175,9 +2311,11 @@ function codexSessionRisk(entry: CodexThreadMapEntry, reasonCodes: string[], con
   return { level, reasons: unique(reasons) };
 }
 
-function codexSessionNextAction(entry: CodexThreadMapEntry, state: CodexSessionCardState, confidence: number): CodexSessionCard["nextAction"] {
-  const next = normalizedMetadataValue(entry.metadata.nextAction);
-  const kind: CodexSessionCard["nextAction"]["kind"] = state === "needs_approval"
+function codexSessionNextAction(entry: CodexThreadMapEntry, state: CodexSessionCardState, confidence: number, reason: string, lowConfidence: boolean): CodexSessionCard["nextAction"] {
+  const next = normalizedMetadataValue(reason);
+  const kind: CodexSessionCard["nextAction"]["kind"] = lowConfidence
+    ? "inspect"
+    : state === "needs_approval"
     ? "approve"
     : state === "blocked" || state === "unknown"
       ? "inspect"
@@ -2189,7 +2327,7 @@ function codexSessionNextAction(entry: CodexThreadMapEntry, state: CodexSessionC
   return {
     kind,
     confidence,
-    reason: publicSafeText(entry.metadata.nextAction || entry.metadata.blocker || state, 220)
+    reason: publicSafeText(reason || entry.metadata.blocker || state, 220)
   };
 }
 
