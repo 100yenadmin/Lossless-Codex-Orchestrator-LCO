@@ -235,7 +235,7 @@ function setupRecoveryClassification(input: {
   setupBlockers: string[];
 }): PublishedPackageSmokeReport["setupRecovery"]["classification"] {
   if (!input.packagePathOk) return "package_failure_or_unknown";
-  if (input.toolSmokeReady && input.gatewaySetupClassification === "ready") return "ready";
+  if (input.toolSmokeReady && input.packageInstallLikelyOk && input.gatewaySetupClassification !== "gateway_blocked") return "ready";
   if (!input.packageInstallLikelyOk || input.gatewaySetupClassification === "gateway_blocked") return "package_failure_or_unknown";
   if (input.setupBlockers.includes("fresh_profile_gateway_credentials_required")) return "credential_required";
   if (input.setupBlockers.includes("openclaw_device_identity_pairing_required")) return "device_pairing_required";

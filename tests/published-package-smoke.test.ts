@@ -332,6 +332,11 @@ test("published-smoke emits clean-profile setup recovery classifications", () =>
       assert.equal(report.setupRecovery.retryAfterSetup, true);
       assert.equal(report.setupRecovery.configuredGatewayProofSeparate, true);
       assert.ok(report.setupRecovery.nextSafeCommands.some((command) => command.includes(item.expectedCommand)));
+      assert.equal(report.setupRecovery.readinessProof.required, true);
+      assert.equal(report.setupRecovery.readinessProof.satisfied, false);
+      assert.match(report.setupRecovery.readinessProof.command, /loo openclaw tool-smoke/);
+      assert.deepEqual(report.setupRecovery.readinessProof.evidence, []);
+      assert.ok(report.setupRecovery.guidance.length > 0);
       assert.doesNotMatch(JSON.stringify(report.setupRecovery), /raw-openclaw-output|npm_[A-Za-z0-9]{20,}|state_5\.sqlite/i);
     }
 
@@ -374,6 +379,7 @@ test("published-smoke emits clean-profile setup recovery classifications", () =>
         command.includes("openclaw devices approve --latest")
       )
     );
+    assert.equal(multiBlockerReport.setupRecovery.guidance.length, 3);
 
     const readyToolSmokePath = join(dir, "ready-tool-smoke.json");
     writeJson(readyToolSmokePath, {
@@ -397,6 +403,33 @@ test("published-smoke emits clean-profile setup recovery classifications", () =>
     assert.equal(readyReport.setupRecovery.classification, "ready");
     assert.equal(readyReport.setupRecovery.ready, true);
     assert.deepEqual(readyReport.setupRecovery.requiredSetup, []);
+    assert.equal(readyReport.setupRecovery.readinessProof.required, false);
+    assert.equal(readyReport.setupRecovery.readinessProof.satisfied, true);
+    assert.match(readyReport.setupRecovery.readinessProof.command, /loo openclaw tool-smoke/);
+    assert.deepEqual(readyReport.setupRecovery.readinessProof.evidence, ["fresh_profile_tool_smoke_ready"]);
+    assert.ok(readyReport.setupRecovery.guidance.some((item) => item.includes("Fresh profile gateway tool-smoke is ready")));
+
+    const readyUnknownToolSmokePath = join(dir, "ready-unknown-tool-smoke.json");
+    writeJson(readyUnknownToolSmokePath, {
+      ok: true,
+      toolSmokeReady: true,
+      publicSafe: true,
+      setupBlockers: [],
+      setupStatus: {
+        packageInstallLikelyOk: true,
+        recoverable: false,
+        retryAfterSetup: false,
+        doesNotIndicatePackageFailure: true
+      }
+    });
+    const readyUnknownReport = createPublishedPackageSmokeReport({
+      rootDir: new URL("..", import.meta.url).pathname,
+      dogfoodReportPath: dogfoodPath,
+      toolSmokeReportPath: readyUnknownToolSmokePath
+    });
+    assert.equal(readyUnknownReport.publishedSmokeReady, true);
+    assert.equal(readyUnknownReport.setupRecovery.classification, "ready");
+    assert.equal(readyUnknownReport.setupRecovery.ready, true);
 
     const failedDogfoodPath = join(dir, "failed-dogfood.json");
     writeJson(failedDogfoodPath, {
@@ -417,6 +450,14 @@ test("published-smoke emits clean-profile setup recovery classifications", () =>
     assert.equal(packagePathFailureWithReadyToolSmokeReport.setupRecovery.ready, false);
     assert.equal(packagePathFailureWithReadyToolSmokeReport.setupRecovery.packageInstallLikelyOk, false);
     assert.deepEqual(packagePathFailureWithReadyToolSmokeReport.setupRecovery.requiredSetup, []);
+    assert.equal(packagePathFailureWithReadyToolSmokeReport.setupRecovery.readinessProof.required, true);
+    assert.equal(packagePathFailureWithReadyToolSmokeReport.setupRecovery.readinessProof.satisfied, false);
+    assert.deepEqual(packagePathFailureWithReadyToolSmokeReport.setupRecovery.readinessProof.evidence, []);
+    assert.ok(
+      packagePathFailureWithReadyToolSmokeReport.setupRecovery.guidance.some((item) =>
+        item.includes("possible package or plugin defect")
+      )
+    );
 
     const packageFailureToolSmokePath = join(dir, "package-failure-tool-smoke.json");
     writeJson(packageFailureToolSmokePath, {
@@ -440,6 +481,8 @@ test("published-smoke emits clean-profile setup recovery classifications", () =>
     assert.equal(packageFailureReport.setupRecovery.classification, "package_failure_or_unknown");
     assert.equal(packageFailureReport.setupRecovery.packageInstallLikelyOk, false);
     assert.equal(packageFailureReport.setupRecovery.ready, false);
+    assert.equal(packageFailureReport.setupRecovery.readinessProof.satisfied, false);
+    assert.ok(packageFailureReport.setupRecovery.guidance.some((item) => item.includes("possible package or plugin defect")));
 
     const packageFailurePrecedenceToolSmokePath = join(dir, "package-failure-precedence-tool-smoke.json");
     writeJson(packageFailurePrecedenceToolSmokePath, {
@@ -463,6 +506,7 @@ test("published-smoke emits clean-profile setup recovery classifications", () =>
     assert.equal(packageFailurePrecedenceReport.setupRecovery.classification, "package_failure_or_unknown");
     assert.equal(packageFailurePrecedenceReport.setupRecovery.retryAfterSetup, false);
     assert.deepEqual(packageFailurePrecedenceReport.setupRecovery.requiredSetup, []);
+    assert.equal(packageFailurePrecedenceReport.setupRecovery.readinessProof.satisfied, false);
     assert.ok(
       packageFailurePrecedenceReport.setupRecovery.nextSafeCommands.some((command) =>
         command.includes("Inspect package install")
