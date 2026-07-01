@@ -42,7 +42,6 @@ Describe what changed and why.
 - Focused test/eval/smoke:
 - `npm run check`:
 - OpenClaw gateway dogfood, if relevant:
-- Evidence path:
 
 ## Release Proof Tier
 
@@ -55,6 +54,10 @@ Describe what changed and why.
 - Public-claim boundary:
 
 ## Safety / Rollback
+
+- Blast radius:
+- Rollback plan:
+- Stop or revert trigger:
 
 ## Evidence
 
