@@ -10,7 +10,7 @@ The beta should feel like a local orchestration cockpit: OpenClaw can see what C
 
 ## Current Milestone: Codex Autonomy Cockpit + Eva Operating Picture
 
-The current product/eval target is the two-tier autonomy cockpit sprint tracked by [#254](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/254), [#255](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/255), completed shared-contract child [#256](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/256), and active source-authority child [#258](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/258). The sprint brief lives at [docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md](docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md).
+The current product/eval target is the two-tier autonomy cockpit sprint tracked by [#254](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/254), [#255](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/255), completed shared-contract child [#256](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/256), completed source-authority child [#258](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/258), and active watcher/resume-request child [#259](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/259). The sprint brief lives at [docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md](docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md).
 
 The core Codex recall and M9 handoff paths are no longer the main gap. The current gap is operating autonomy: make local Codex work visible as compact, ranked, public-safe cards and let Eva answer which business/project/Codex lanes need attention without rereading raw transcripts.
 
@@ -34,6 +34,7 @@ What a local OpenClaw agent can do today:
 - Retrieve proposed plans, final messages, touched files, and session maps through `loo_*` tools.
 - Dry-run Codex resume/send/steer/interrupt actions and inspect audit ids and hashes before any live action.
 - Use `loo_recent_sessions`, `loo_cockpit_inbox`, `loo_plan_state_pins`, `loo_project_digest`, `loo_attention_inbox`, and `loo_business_pulse` to build a read-only operating picture from structured cards and source coverage.
+- Use `loo_watchers_list`, `loo_watcher_status`, `loo_watcher_dry_run`, and `loo_resume_request_packet` to represent read-only watcher attention and approval-bounded resume requests without running live control.
 - Inspect `authorityCoverage` on operating-picture outputs before trusting GitHub, PLAN_STATE, or future P1 source claims.
 - Classify package and gateway readiness with `loo onboard status`, `loo openclaw dogfood`, `loo openclaw tool-smoke`, and `loo openclaw published-smoke`.
 - Follow the packaged agent skill and M9 dogfood scenario to produce a public-safe recommendation from source refs, bounded expansion, detail lookups, and dry-run audit hashes.

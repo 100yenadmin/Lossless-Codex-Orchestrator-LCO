@@ -15,6 +15,8 @@ import {
   expandQuery,
   createPlanStatePinsReport,
   createProjectDigest,
+  createResumeRequestPacket,
+  createWatcherStatusReport,
   getCockpitInbox,
   getCodexFinalMessages,
   getCodexPlans,
@@ -28,6 +30,7 @@ import {
   probeLcmPeerDbs,
   probeCodexSqliteStores,
   type LooDatabase,
+  type WatchSpec,
   searchSessions
 } from "../../core/src/index.js";
 import {
@@ -203,11 +206,66 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
     })),
     tool("loo_cockpit_inbox", "Rank Codex sessions that need attention using deterministic public-safe session cards.", {
       limit: { type: "integer", minimum: 1, maximum: 500 },
-      priority_order: { type: "array", items: { type: "string" } }
+      priority_order: { type: "array", items: { type: "string" } },
+      watcher_specs: { type: "array", items: { type: "object", additionalProperties: true } },
+      now: { type: "string" }
     }, (input) => getCockpitInbox(options.db, {
       limit: optionalNumber(input.limit),
-      priorityOrder: optionalStringArray(input.priority_order)
+      priorityOrder: optionalStringArray(input.priority_order),
+      watcherSpecs: optionalWatchSpecs(input.watcher_specs),
+      now: optionalString(input.now)
     })),
+    tool("loo_watchers_list", "List read-only watcher specs as deterministic public-safe watcher status rows.", {
+      watcher_specs: { type: "array", items: { type: "object", additionalProperties: true } },
+      limit: { type: "integer", minimum: 1, maximum: 1000 },
+      now: { type: "string" }
+    }, (input) => createWatcherStatusReport(optionalWatchSpecs(input.watcher_specs) ?? [], {
+      limit: optionalNumber(input.limit),
+      now: optionalString(input.now)
+    })),
+    tool("loo_watcher_status", "Describe one read-only watcher status without cleanup or mutation.", {
+      watcher_specs: { type: "array", items: { type: "object", additionalProperties: true } },
+      watch_id: { type: "string" },
+      now: { type: "string" }
+    }, (input) => createWatcherStatusReport(optionalWatchSpecs(input.watcher_specs) ?? [], {
+      watchId: optionalString(input.watch_id),
+      now: optionalString(input.now)
+    })),
+    tool("loo_watcher_dry_run", "Preview watcher-triggered resume request packets without sending or mutating anything.", {
+      watcher_specs: { type: "array", items: { type: "object", additionalProperties: true } },
+      limit: { type: "integer", minimum: 1, maximum: 1000 },
+      now: { type: "string" }
+    }, (input) => {
+      const status = createWatcherStatusReport(optionalWatchSpecs(input.watcher_specs) ?? [], {
+        limit: optionalNumber(input.limit),
+        now: optionalString(input.now)
+      });
+      return {
+        schema: "lco.watchers.dryRun.v1",
+        publicSafe: true,
+        status,
+        resumeRequestPackets: status.watchers
+          .filter((watcher) => watcher.status === "triggered")
+          .map((watcher) => createResumeRequestPacket(watcher, { now: optionalString(input.now) })),
+        actionsPerformed: status.actionsPerformed,
+        proofBoundary: "Dry-run watcher packets are requests only; no live Codex control, GUI mutation, external write, cleanup, or notification is performed."
+      };
+    }),
+    tool("loo_resume_request_packet", "Create one approval-bounded resume request packet from a read-only watcher spec.", {
+      watcher_spec: { type: "object", additionalProperties: true },
+      now: { type: "string" },
+      ttl_seconds: { type: "integer", minimum: 60, maximum: 86400 },
+      recommended_action: { type: "string", enum: ["inspect", "resume", "approve", "ignore"] }
+    }, (input) => {
+      const status = createWatcherStatusReport([requiredWatchSpec(input.watcher_spec, "watcher_spec")], { now: optionalString(input.now), limit: 1 });
+      const watcher = status.watchers[0];
+      if (!watcher) throw new Error("watcher_spec did not produce a watcher state");
+      return createResumeRequestPacket(watcher, {
+        now: optionalString(input.now),
+        ttlSeconds: optionalNumber(input.ttl_seconds),
+        recommendedAction: optionalWatcherRecommendedAction(input.recommended_action)
+      });
+    }),
     tool("loo_plan_state_pins", "Extract only manual pins, approval boundaries, and exception ledger entries from PLAN_STATE text.", {
       plan_state_text: { type: "string" },
       plan_state_path: { type: "string" }
@@ -619,6 +677,76 @@ function optionalGithubItems(value: unknown): Array<{
       nextAction: optionalString(record.nextAction ?? record.next_action)
     };
   });
+}
+
+function optionalWatchSpecs(value: unknown): WatchSpec[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw new Error("watcher_specs must be an array");
+  return value.map((item, index) => requiredWatchSpec(item, `watcher_specs[${index}]`));
+}
+
+function requiredWatchSpec(value: unknown, name: string): WatchSpec {
+  const record = plainRecord(value, name);
+  if (record.mutates === true) throw new Error(`${name} must be read-only with mutates=false`);
+  const kind = requiredWatcherKind(record.kind, `${name}.kind`);
+  const ttlSeconds = optionalNumber(record.ttlSeconds ?? record.ttl_seconds);
+  if (ttlSeconds === undefined) throw new Error(`${name}.ttlSeconds is required`);
+  const stopConditions = optionalStringArray(record.stopConditions ?? record.stop_conditions);
+  if (!stopConditions || stopConditions.length === 0) throw new Error(`${name}.stopConditions are required`);
+  const observedRecord = record.observed === undefined ? undefined : plainRecord(record.observed, `${name}.observed`);
+  return {
+    schema: "lco.watchSpec.v1",
+    watchId: requiredString(record.watchId ?? record.watch_id, `${name}.watchId`),
+    targetRef: requiredString(record.targetRef ?? record.target_ref, `${name}.targetRef`),
+    kind,
+    createdAt: requiredString(record.createdAt ?? record.created_at, `${name}.createdAt`),
+    lastObservedAt: optionalString(record.lastObservedAt ?? record.last_observed_at) ?? null,
+    ttlSeconds,
+    ...(optionalNumber(record.staleAfterSeconds ?? record.stale_after_seconds) !== undefined ? { staleAfterSeconds: optionalNumber(record.staleAfterSeconds ?? record.stale_after_seconds) } : {}),
+    stopConditions,
+    wakeReason: optionalWatcherKind(record.wakeReason ?? record.wake_reason, `${name}.wakeReason`),
+    evidenceIds: optionalStringArray(record.evidenceIds ?? record.evidence_ids),
+    confidence: optionalNumber(record.confidence),
+    mutates: false,
+    observed: observedRecord ? {
+      threadStatus: optionalString(observedRecord.threadStatus ?? observedRecord.thread_status),
+      finalMessageCount: optionalNumber(observedRecord.finalMessageCount ?? observedRecord.final_message_count),
+      prChecksChanged: optionalBoolean(observedRecord.prChecksChanged ?? observedRecord.pr_checks_changed),
+      reviewCommentCount: optionalNumber(observedRecord.reviewCommentCount ?? observedRecord.review_comment_count),
+      approvalExpiresAt: optionalString(observedRecord.approvalExpiresAt ?? observedRecord.approval_expires_at) ?? null,
+      noActivitySeconds: optionalNumber(observedRecord.noActivitySeconds ?? observedRecord.no_activity_seconds)
+    } : undefined
+  };
+}
+
+function plainRecord(value: unknown, name: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${name} must be an object`);
+  return value as Record<string, unknown>;
+}
+
+function requiredWatcherKind(value: unknown, name: string): WatchSpec["kind"] {
+  const kind = optionalWatcherKind(value, name);
+  if (!kind) throw new Error(`${name} is required`);
+  return kind;
+}
+
+function optionalWatcherKind(value: unknown, name: string): WatchSpec["kind"] | undefined {
+  if (value === undefined) return undefined;
+  if (
+    value === "thread_finished" ||
+    value === "final_message_appeared" ||
+    value === "pr_checks_changed" ||
+    value === "review_comment_arrived" ||
+    value === "no_activity" ||
+    value === "approval_expired"
+  ) return value;
+  throw new Error(`${name} must be thread_finished, final_message_appeared, pr_checks_changed, review_comment_arrived, no_activity, or approval_expired`);
+}
+
+function optionalWatcherRecommendedAction(value: unknown): "inspect" | "resume" | "approve" | "ignore" | undefined {
+  if (value === undefined) return undefined;
+  if (value === "inspect" || value === "resume" || value === "approve" || value === "ignore") return value;
+  throw new Error("recommended_action must be inspect, resume, approve, or ignore");
 }
 
 function optionalOperatingState(value: unknown): "green" | "yellow" | "red" | "unknown" | undefined {

@@ -273,6 +273,7 @@ export type CodexSessionCard = {
     kind: "watch" | "resume" | "approve" | "ignore" | "inspect";
     confidence: number;
     reason: string;
+    requiresApproval?: boolean;
   };
   counts: {
     plans: number;
@@ -330,6 +331,97 @@ export type CockpitInboxReport = {
     count: number;
     reason: "limit" | "none";
   };
+};
+
+export type WatcherKind = "thread_finished" | "final_message_appeared" | "pr_checks_changed" | "review_comment_arrived" | "no_activity" | "approval_expired";
+export type WatcherStatus = "active" | "triggered" | "stale" | "expired" | "low_confidence";
+export type WatcherRecommendedAction = "inspect" | "resume" | "approve" | "ignore";
+
+export type WatchSpec = {
+  schema: "lco.watchSpec.v1";
+  watchId: string;
+  targetRef: string;
+  kind: WatcherKind;
+  createdAt: string;
+  lastObservedAt: string | null;
+  ttlSeconds: number;
+  staleAfterSeconds?: number;
+  stopConditions: string[];
+  wakeReason?: WatcherKind;
+  evidenceIds?: string[];
+  confidence?: number;
+  mutates?: false;
+  observed?: {
+    threadStatus?: string;
+    finalMessageCount?: number;
+    prChecksChanged?: boolean;
+    reviewCommentCount?: number;
+    approvalExpiresAt?: string | null;
+    noActivitySeconds?: number;
+  };
+};
+
+export type WatcherState = {
+  schema: "lco.watcherState.v1";
+  watchId: string;
+  targetRef: string;
+  kind: WatcherKind;
+  status: WatcherStatus;
+  wakeReason: WatcherKind | null;
+  recommendedAction: WatcherRecommendedAction;
+  requiresApproval: true;
+  mutates: false;
+  stale: boolean;
+  expired: boolean;
+  expiresAt: string | null;
+  lastObservedAt: string | null;
+  stopConditions: string[];
+  reasonCodes: string[];
+  confidence: number;
+  evidenceIds: string[];
+  approvalBoundary: string;
+};
+
+export type WatcherStatusReport = {
+  schema: "lco.watchers.status.v1";
+  publicSafe: true;
+  generatedAt: string;
+  summary: {
+    total: number;
+    returned: number;
+    active: number;
+    triggered: number;
+    stale: number;
+    expired: number;
+    lowConfidence: number;
+  };
+  watchers: WatcherState[];
+  omitted: {
+    count: number;
+    reason: "limit" | "none";
+  };
+  actionsPerformed: {
+    liveCodexControlRun: false;
+    desktopGuiActionRun: false;
+    externalWrite: false;
+    rawTranscriptRead: false;
+  };
+  proofBoundary: string;
+};
+
+export type ResumeRequestPacket = {
+  schema: "lco.resumeRequestPacket.v1";
+  publicSafe: true;
+  packetId: string;
+  targetRef: string;
+  reason: "watcher_triggered" | "manual_request";
+  recommendedAction: WatcherRecommendedAction;
+  requiresApproval: true;
+  mutates: false;
+  approvalBoundary: string;
+  evidenceIds: string[];
+  reasonCodes: string[];
+  expiresAt: string;
 };
 
 export type PlanStateManualPin = {
@@ -1515,20 +1607,96 @@ export function getRecentSessions(db: LooDatabase, options: {
   };
 }
 
-export function getCockpitInbox(db: LooDatabase, options: { limit?: number; priorityOrder?: string[] } = {}): CockpitInboxReport {
+export function createWatcherStatusReport(specs: WatchSpec[], options: { now?: string; limit?: number; watchId?: string } = {}): WatcherStatusReport {
+  const now = timestampMillis(options.now ?? null) ?? Date.now();
+  const limit = clamp(options.limit ?? 100, 1, 1000);
+  const states = specs
+    .filter((spec) => !options.watchId || spec.watchId === options.watchId)
+    .map((spec) => watcherStateFromSpec(spec, now))
+    .sort(watcherStateComparator);
+  const selected = states.slice(0, limit);
+  return {
+    schema: "lco.watchers.status.v1",
+    publicSafe: true,
+    generatedAt: new Date(now).toISOString(),
+    summary: {
+      total: states.length,
+      returned: selected.length,
+      active: selected.filter((watcher) => watcher.status === "active").length,
+      triggered: selected.filter((watcher) => watcher.status === "triggered").length,
+      stale: selected.filter((watcher) => watcher.status === "stale").length,
+      expired: selected.filter((watcher) => watcher.status === "expired").length,
+      lowConfidence: selected.filter((watcher) => watcher.status === "low_confidence").length
+    },
+    watchers: selected,
+    omitted: {
+      count: Math.max(0, states.length - selected.length),
+      reason: states.length > selected.length ? "limit" : "none"
+    },
+    actionsPerformed: {
+      liveCodexControlRun: false,
+      desktopGuiActionRun: false,
+      externalWrite: false,
+      rawTranscriptRead: false
+    },
+    proofBoundary: "Watcher status is a read-only deterministic report over supplied watcher specs. It can request attention or a resume packet, but it does not send, resume, steer, interrupt, click, type, clean up, or mutate external systems."
+  };
+}
+
+export function createResumeRequestPacket(watcher: WatcherState, options: { now?: string; ttlSeconds?: number; recommendedAction?: WatcherRecommendedAction } = {}): ResumeRequestPacket {
+  const now = timestampMillis(options.now ?? null) ?? Date.now();
+  const ttlSeconds = clamp(options.ttlSeconds ?? 900, 60, 86400);
+  const expiresAt = new Date(now + ttlSeconds * 1000).toISOString();
+  return {
+    schema: "lco.resumeRequestPacket.v1",
+    publicSafe: true,
+    packetId: `resume_req_${stableId(`${watcher.watchId}:${watcher.targetRef}:${expiresAt}`).slice(0, 16)}`,
+    targetRef: watcher.targetRef,
+    reason: watcher.status === "triggered" ? "watcher_triggered" : "manual_request",
+    recommendedAction: options.recommendedAction ?? "inspect",
+    requiresApproval: true,
+    mutates: false,
+    approvalBoundary: "Request only; no live control without a separate matching approval packet and Codex approval/sandbox gates.",
+    evidenceIds: watcher.evidenceIds,
+    reasonCodes: unique(["resume_request", ...watcher.reasonCodes]).slice(0, 12),
+    expiresAt
+  };
+}
+
+export function getCockpitInbox(db: LooDatabase, options: { limit?: number; priorityOrder?: string[]; watcherSpecs?: WatchSpec[]; now?: string } = {}): CockpitInboxReport {
   const limit = clamp(options.limit ?? 20, 1, 500);
   const cards = getRecentSessions(db, {
     scope: "active",
     limit: 500,
     includeCards: true
   }).cards;
+  const watcherReport = options.watcherSpecs?.length ? createWatcherStatusReport(options.watcherSpecs, { now: options.now, limit: 1000 }) : null;
+  const watchersByTarget = watcherReport ? triggeredWatchersByTarget(watcherReport.watchers) : new Map<string, WatcherState[]>();
   const items = cards
-    .map((card) => ({
-      card,
-      reasonCodes: cockpitReasonCodes(card),
-      urgencyScore: cockpitUrgencyScore(card, options.priorityOrder),
-      nextAction: card.nextAction
-    }))
+    .map((card) => {
+      const watcherStates = watchersByTarget.get(card.threadId) ?? [];
+      const watcherTriggered = watcherStates.some((watcher) => watcher.status === "triggered");
+      const watcherStale = watcherStates.some((watcher) => watcher.status === "stale");
+      const reasonCodes = unique([
+        ...cockpitReasonCodes(card),
+        ...(watcherTriggered ? ["watcher_triggered"] : []),
+        ...(watcherStale ? ["watcher_stale"] : [])
+      ]);
+      const urgencyScore = cockpitUrgencyScore(card, options.priorityOrder) + (watcherTriggered ? 35 : watcherStale ? 15 : 0);
+      return {
+        card,
+        reasonCodes,
+        urgencyScore,
+        nextAction: watcherTriggered
+          ? {
+              kind: "resume" as const,
+              confidence: Math.min(0.95, Math.max(card.nextAction.confidence, ...watcherStates.map((watcher) => watcher.confidence))),
+              reason: "watcher_triggered",
+              requiresApproval: true
+            }
+          : card.nextAction
+      };
+    })
     .filter((item) => item.reasonCodes.length > 0)
     .sort((left, right) => right.urgencyScore - left.urgencyScore || compareUpdatedAtDesc(left.card.freshness.lastEventAt, right.card.freshness.lastEventAt) || left.card.threadId.localeCompare(right.card.threadId));
   const selected = items.slice(0, limit);
@@ -1997,6 +2165,113 @@ function applySourceAuthority(signal: OperatingSignal, profile: SourceAuthorityP
     confidence,
     reasonCodes: unique(reasonCodes)
   };
+}
+
+function watcherStateFromSpec(spec: WatchSpec, now: number): WatcherState {
+  const targetRef = publicSafeText(spec.targetRef || "unknown", 180);
+  const watchId = publicSafeText(spec.watchId || `watch_${stableId(targetRef).slice(0, 12)}`, 120);
+  const confidence = Math.max(0, Math.min(1, spec.confidence ?? 0.75));
+  const createdAtMs = timestampMillis(spec.createdAt);
+  const lastObservedAtMs = timestampMillis(spec.lastObservedAt ?? null);
+  const ttlSeconds = clamp(Math.trunc(spec.ttlSeconds || 0), 60, 30 * 24 * 60 * 60);
+  const expiresAtMs = createdAtMs === null ? null : createdAtMs + ttlSeconds * 1000;
+  const staleAfterSeconds = Math.trunc(spec.staleAfterSeconds ?? Math.max(60, Math.floor(ttlSeconds / 2)));
+  const stale = lastObservedAtMs !== null && now - lastObservedAtMs >= staleAfterSeconds * 1000;
+  const expired = expiresAtMs !== null && now >= expiresAtMs;
+  const inferredWakeReason = inferWatcherWakeReason(spec, now);
+  const wakeReason = spec.wakeReason ?? inferredWakeReason;
+  const triggered = Boolean(wakeReason);
+  const status: WatcherStatus = expired
+    ? "expired"
+    : confidence < 0.5
+      ? "low_confidence"
+      : triggered
+        ? "triggered"
+        : stale
+          ? "stale"
+          : "active";
+  return {
+    schema: "lco.watcherState.v1",
+    watchId,
+    targetRef,
+    kind: spec.kind,
+    status,
+    wakeReason: status === "triggered" ? wakeReason : null,
+    recommendedAction: watcherRecommendedAction(status, spec.kind),
+    requiresApproval: true,
+    mutates: false,
+    stale,
+    expired,
+    expiresAt: expiresAtMs === null ? null : new Date(expiresAtMs).toISOString(),
+    lastObservedAt: lastObservedAtMs === null ? null : new Date(lastObservedAtMs).toISOString(),
+    stopConditions: (spec.stopConditions ?? []).map((condition) => publicSafeText(String(condition), 120)).filter(Boolean).slice(0, 12),
+    reasonCodes: watcherReasonCodes(spec.kind, status, wakeReason, stale, expired, confidence),
+    confidence,
+    evidenceIds: (spec.evidenceIds ?? []).map((id) => publicSafeText(String(id), 80)).filter(Boolean).slice(0, 20),
+    approvalBoundary: "Read-only watcher; requests attention only. No live Codex control, GUI mutation, external write, or cleanup without a separate matching approval packet."
+  };
+}
+
+function inferWatcherWakeReason(spec: WatchSpec, now: number): WatcherKind | null {
+  const observed = spec.observed;
+  if (!observed) return null;
+  if (spec.kind === "thread_finished" && observed.threadStatus && ["done", "complete", "completed", "closed", "merged"].includes(normalizedMetadataValue(observed.threadStatus))) return "thread_finished";
+  if (spec.kind === "final_message_appeared" && (observed.finalMessageCount ?? 0) > 0) return "final_message_appeared";
+  if (spec.kind === "pr_checks_changed" && observed.prChecksChanged === true) return "pr_checks_changed";
+  if (spec.kind === "review_comment_arrived" && (observed.reviewCommentCount ?? 0) > 0) return "review_comment_arrived";
+  if (spec.kind === "approval_expired") {
+    const approvalExpiresAt = timestampMillis(observed.approvalExpiresAt ?? null);
+    if (approvalExpiresAt !== null && now >= approvalExpiresAt) return "approval_expired";
+  }
+  if (spec.kind === "no_activity" && (observed.noActivitySeconds ?? 0) >= Math.trunc(spec.staleAfterSeconds ?? spec.ttlSeconds)) return "no_activity";
+  return null;
+}
+
+function watcherReasonCodes(kind: WatcherKind, status: WatcherStatus, wakeReason: WatcherKind | null, stale: boolean, expired: boolean, confidence: number): string[] {
+  return unique([
+    "watcher_read_only",
+    `watcher_kind:${kind}`,
+    status === "triggered" ? "watcher_triggered" : "",
+    wakeReason ? `wake_reason:${wakeReason}` : "",
+    stale ? "watcher_stale" : "",
+    expired ? "ttl_expired" : "",
+    status === "low_confidence" || confidence < 0.5 ? "low_confidence" : "",
+    "requires_approval"
+  ].filter(Boolean));
+}
+
+function watcherRecommendedAction(status: WatcherStatus, kind: WatcherKind): WatcherRecommendedAction {
+  if (status === "expired") return "ignore";
+  if (status === "stale") return "inspect";
+  if (status !== "triggered") return "inspect";
+  if (kind === "approval_expired") return "approve";
+  return "resume";
+}
+
+function triggeredWatchersByTarget(watchers: WatcherState[]): Map<string, WatcherState[]> {
+  const map = new Map<string, WatcherState[]>();
+  for (const watcher of watchers) {
+    if (watcher.status !== "triggered" && watcher.status !== "stale") continue;
+    const existing = map.get(watcher.targetRef) ?? [];
+    existing.push(watcher);
+    map.set(watcher.targetRef, existing);
+  }
+  for (const states of map.values()) states.sort(watcherStateComparator);
+  return map;
+}
+
+function watcherStateComparator(left: WatcherState, right: WatcherState): number {
+  const statusDelta = watcherStatusRank(right.status) - watcherStatusRank(left.status);
+  if (statusDelta !== 0) return statusDelta;
+  return left.watchId.localeCompare(right.watchId);
+}
+
+function watcherStatusRank(status: WatcherStatus): number {
+  if (status === "triggered") return 5;
+  if (status === "stale") return 4;
+  if (status === "low_confidence") return 3;
+  if (status === "expired") return 2;
+  return 1;
 }
 
 function createAuthorityCoverage(

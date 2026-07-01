@@ -15,6 +15,10 @@ export const DEFAULT_REQUIRED_TOOL_CALLS = [
   "loo_codex_control_dry_run",
   "loo_recent_sessions",
   "loo_cockpit_inbox",
+  "loo_watchers_list",
+  "loo_watcher_status",
+  "loo_watcher_dry_run",
+  "loo_resume_request_packet",
   "loo_plan_state_pins",
   "loo_project_digest",
   "loo_attention_inbox",
@@ -491,6 +495,18 @@ function buildToolArgs(params: {
     };
   }
   if (params.toolName === "loo_codex_thread_map") return { limit: 20 };
+  if (params.toolName === "loo_cockpit_inbox") {
+    return params.threadId ? { limit: 5, watcher_specs: smokeWatcherSpecs(params.threadId), now: TOOL_SMOKE_NOW } : { limit: 5 };
+  }
+  if (params.toolName === "loo_watchers_list" || params.toolName === "loo_watcher_dry_run") {
+    return { watcher_specs: smokeWatcherSpecs(params.threadId), now: TOOL_SMOKE_NOW };
+  }
+  if (params.toolName === "loo_watcher_status") {
+    return { watcher_specs: smokeWatcherSpecs(params.threadId), watch_id: "watch_tool_smoke_checks", now: TOOL_SMOKE_NOW };
+  }
+  if (params.toolName === "loo_resume_request_packet") {
+    return { watcher_spec: smokeWatcherSpecs(params.threadId)[0], now: TOOL_SMOKE_NOW, ttl_seconds: 900 };
+  }
   if (params.toolName === "loo_codex_control_dry_run") {
     return params.threadId ? {
       action: "send",
@@ -499,6 +515,26 @@ function buildToolArgs(params: {
     } : null;
   }
   return {};
+}
+
+const TOOL_SMOKE_NOW = "2026-07-01T12:00:00.000Z";
+
+function smokeWatcherSpecs(threadId?: string): Record<string, unknown>[] {
+  const targetRef = threadId ? `codex_thread:${threadId}` : "codex_thread:tool-smoke-placeholder";
+  return [{
+    schema: "lco.watchSpec.v1",
+    watchId: "watch_tool_smoke_checks",
+    targetRef,
+    kind: "pr_checks_changed",
+    createdAt: "2026-07-01T11:00:00.000Z",
+    lastObservedAt: "2026-07-01T11:55:00.000Z",
+    ttlSeconds: 7200,
+    stopConditions: ["checks_green", "explicit_cancel"],
+    wakeReason: "pr_checks_changed",
+    evidenceIds: ["ev_tool_smoke_watcher"],
+    confidence: 0.9,
+    mutates: false
+  }];
 }
 
 function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenClawToolInvocationSummary {

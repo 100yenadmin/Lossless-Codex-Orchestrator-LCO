@@ -94,6 +94,18 @@ if (method === "tools.invoke") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, items: [{ card: { threadId: "codex_thread:thread-1" } }] } }));
     process.exit(0);
   }
+  if (name === "loo_watchers_list" || name === "loo_watcher_status") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, watchers: [{ watchId: "watch_tool_smoke_checks", targetRef: "codex_thread:thread-1", status: "triggered", mutates: false, reasonCodes: ["watcher_triggered"] }], summary: { triggered: 1 } } }));
+    process.exit(0);
+  }
+  if (name === "loo_watcher_dry_run") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, resumeRequestPackets: [{ schema: "lco.resumeRequestPacket.v1", targetRef: "codex_thread:thread-1", requiresApproval: true, mutates: false }], actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, externalWrite: false, rawTranscriptRead: false } } }));
+    process.exit(0);
+  }
+  if (name === "loo_resume_request_packet") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, schema: "lco.resumeRequestPacket.v1", targetRef: "codex_thread:thread-1", requiresApproval: true, mutates: false } }));
+    process.exit(0);
+  }
   if (name === "loo_plan_state_pins") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, manualPins: [] } }));
     process.exit(0);

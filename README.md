@@ -55,7 +55,7 @@ rediscovering state from text every time.
 | Scorecards and release proof | Beta | Public-safe scorecards and release-status commands track what is proven. |
 | QA Lab scenarios | Beta | Dry-run scenario contracts under `evals/scenarios/v1` turn orchestrator workflows into public-safe eval tasks. |
 | Working app runtime proof | Completed proof | M7/#156 proved the named runtime path and proof gates; generic GUI mutation, Claude parity, and 1.0 readiness remain excluded. |
-| Codex autonomy cockpit | P0 beta | Recent session cards, cockpit inbox, approval packets, and operating-picture tools are read-only and public-safe by default. |
+| Codex autonomy cockpit | P0 beta | Recent session cards, cockpit inbox, read-only watcher/resume-request packets, approval packets, and operating-picture tools are public-safe by default. |
 | Eva operating picture | P0 beta | Business pulse and attention inbox use LCO/Codex, optional structured GitHub items, explicit PLAN_STATE pins, and source-authority coverage; P1 business adapters are not configured yet. |
 | Claude Code adapter | Fixture inventory | Supports redacted metadata-only fixtures with `claude_session:*` refs; no Claude parity, live control, GUI mutation, or cloud sync claim. |
 
@@ -81,8 +81,9 @@ transcripts.
 
 P0 is read-only and deterministic:
 
-- #254 adds `loo_recent_sessions`, `loo_cockpit_inbox`, evidence-backed session
-  cards, and approval packets for dry-run control context.
+- #254 adds `loo_recent_sessions`, `loo_cockpit_inbox`, read-only
+  watcher/resume-request primitives, evidence-backed session cards, and
+  approval packets for dry-run control context.
 - #255 adds `loo_plan_state_pins`, `loo_project_digest`,
   `loo_attention_inbox`, and `loo_business_pulse`.
 - #258 adds a public-safe [source authority profile](docs/SOURCE_AUTHORITY_PROFILE.md)
@@ -104,6 +105,10 @@ What a local OpenClaw agent can do today:
 - List recent sessions and operating-picture attention items with
   `loo_recent_sessions`, `loo_cockpit_inbox`, `loo_project_digest`,
   `loo_attention_inbox`, and `loo_business_pulse`.
+- Represent watcher-triggered follow-up requests with `loo_watchers_list`,
+  `loo_watcher_status`, `loo_watcher_dry_run`, and
+  `loo_resume_request_packet`; these tools create request packets only and do
+  not run live Codex control.
 - Inspect `authorityCoverage` to see whether LCO, GitHub, or PLAN_STATE is
   authoritative, fallback-only, unavailable, or not configured for a claim.
 - Dry-run Codex control actions and inspect audit ids before any live action.
