@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { assertCodexMethodAllowed } from "./policy.js";
 import { redactValue } from "./redaction.js";
 
@@ -112,6 +112,7 @@ export type DesktopProofActionReport = {
   action?: string;
   actionHash?: string;
   approvalRef?: string;
+  approvalVerified: boolean;
   blockers: string[];
   backendCommand?: {
     command: string;
@@ -132,6 +133,20 @@ export type DesktopProofActionReport = {
   privateDataExclusions: string[];
   proofBoundary: string;
   nextAction: string;
+};
+
+export type DesktopProofActionApproval = {
+  kind: "loo_desktop_proof_action_approval";
+  approved: true;
+  approvalRef: string;
+  desktopBackend: "cua-driver";
+  targetApp: "TextEdit";
+  targetWindow: "lco-desktop-proof.txt";
+  action: "launch_app TextEdit scratch window";
+  actionHash: string;
+  scratchFilePathHash: string;
+  issuedAt: string;
+  expiresAt: string;
 };
 
 export type DesktopGuiReleaseApprovalProof = {
@@ -222,6 +237,7 @@ export type DesktopLiveProofHarnessReport = {
   action?: string;
   actionHash?: string;
   approvalRef?: string;
+  approvalArtifact: DesktopProofActionApproval | null;
   backendStatus?: DesktopStatus;
   blockers: string[];
   evidencePath?: string;
@@ -749,6 +765,7 @@ export function createDesktopLiveProofHarness(input: {
   targetWindow?: string;
   action?: string;
   approvalRef?: string;
+  scratchFilePath?: string;
   probe?: DesktopProbe;
 } = {}): DesktopLiveProofHarnessReport {
   const desktopBackend = input.backend;
@@ -756,6 +773,7 @@ export function createDesktopLiveProofHarness(input: {
   const targetWindow = publicTextField(input.targetWindow, 160);
   const action = publicTextField(input.action, 160);
   const approvalRef = publicTextField(input.approvalRef, 160);
+  const scratchFilePath = typeof input.scratchFilePath === "string" && input.scratchFilePath.trim() ? input.scratchFilePath.trim() : undefined;
   const backendStatus = desktopBackend
     ? desktopBackendStatus(desktopBackend, input.probe ?? systemDesktopProbe())
     : undefined;
@@ -780,6 +798,13 @@ export function createDesktopLiveProofHarness(input: {
     ? desktopActionHash(desktopBackend, targetApp, targetWindow, action)
     : undefined;
   const proofHarnessReady = blockers.length === 0;
+  const approvalArtifact = proofHarnessReady && desktopBackend === "cua-driver" && targetApp === "TextEdit" && targetWindow === "lco-desktop-proof.txt" && action === "launch_app TextEdit scratch window" && actionHash && approvalRef && scratchFilePath && scratchFilePathAllowed(scratchFilePath, targetWindow)
+    ? createDesktopProofActionApproval({
+      approvalRef,
+      actionHash,
+      scratchFilePath
+    })
+    : null;
   const publicBackendStatus = backendStatus
     ? {
       ...backendStatus,
@@ -801,6 +826,7 @@ export function createDesktopLiveProofHarness(input: {
     action,
     actionHash,
     approvalRef,
+    approvalArtifact,
     backendStatus: publicBackendStatus,
     blockers,
     actionsPerformed: {
@@ -829,14 +855,19 @@ export function writeDesktopLiveProofHarness(input: {
   targetWindow?: string;
   action?: string;
   approvalRef?: string;
+  scratchFilePath?: string;
   probe?: DesktopProbe;
 }): DesktopLiveProofHarnessReport {
   const evidenceDir = resolve(input.evidenceDir);
   mkdirSync(evidenceDir, { recursive: true });
   const evidencePath = join(evidenceDir, "desktop-live-proof-harness.json");
+  const approvalPath = join(evidenceDir, "desktop-proof-action-approval.json");
   const report = createDesktopLiveProofHarness(input);
   const withPath = { ...report, evidencePath };
   writeFileSync(evidencePath, `${JSON.stringify(withPath, null, 2)}\n`);
+  if (report.approvalArtifact) {
+    writeFileSync(approvalPath, `${JSON.stringify(report.approvalArtifact, null, 2)}\n`);
+  }
   return withPath;
 }
 
@@ -850,6 +881,7 @@ export function createDesktopProofAction(input: {
   permissionState?: string;
   execute?: boolean;
   scratchFilePath?: string;
+  approvalArtifact?: unknown;
   probe?: DesktopProbe;
 } = {}): DesktopProofActionReport {
   const desktopBackend = input.backend;
@@ -873,6 +905,7 @@ export function createDesktopProofAction(input: {
   if (!approvalRef) blockers.push("approval_ref_missing");
   if (!permissionState) blockers.push("permission_state_missing");
   if (!scratchFilePath) blockers.push("scratch_file_missing");
+  if (scratchFilePath && targetWindow && !scratchFilePathAllowed(scratchFilePath, targetWindow)) blockers.push("scratch_file_path_not_bound");
   if (targetApp && targetApp !== "TextEdit") blockers.push("unsupported_desktop_proof_target_app");
   if (targetWindow && targetWindow !== "lco-desktop-proof.txt") blockers.push("unsupported_desktop_proof_target_window");
   if (action && action !== "launch_app TextEdit scratch window") blockers.push("unsupported_desktop_proof_action");
@@ -883,6 +916,16 @@ export function createDesktopProofAction(input: {
     const expectedActionHash = desktopActionHash(desktopBackend, targetApp, targetWindow, action);
     if (suppliedActionHash !== expectedActionHash) blockers.push("action_hash_mismatch");
   }
+  const approvalBlockers = validateDesktopProofActionApproval(input.approvalArtifact, {
+    desktopBackend,
+    targetApp,
+    targetWindow,
+    action,
+    actionHash: suppliedActionHash,
+    approvalRef,
+    scratchFilePath
+  });
+  blockers.push(...approvalBlockers);
 
   let commandStatus: DesktopCommandStatus | undefined;
   if (desktopBackend === "cua-driver") {
@@ -895,9 +938,12 @@ export function createDesktopProofAction(input: {
   let commandResult: DesktopCommandOutput | undefined;
   let focusBeforeApplication: string | undefined;
   let focusAfterApplication: string | undefined;
+  if (blockers.length === 0) {
+    focusBeforeApplication = publicTextField(probe.activeApplication?.(), 120);
+    if (!focusBeforeApplication) blockers.push("focus_before_application_missing");
+  }
   if (blockers.length === 0 && desktopBackend === "cua-driver" && scratchFilePath && probe.commandOutput) {
     const config = desktopBackendConfig("cua-driver");
-    focusBeforeApplication = publicTextField(probe.activeApplication?.(), 120);
     commandResult = probe.commandOutput(config.command, [
       "call",
       "launch_app",
@@ -919,10 +965,12 @@ export function createDesktopProofAction(input: {
   const commandAttempted = commandResult !== undefined;
   const parsedOutput = asRecord(parseJsonObject(commandResult?.stdout || ""));
   const commandSucceeded = commandResult?.status === 0;
-  const proofActionReady = commandAttempted && commandSucceeded && blockers.length === 0;
   const selfActivationSuppressed = typeof parsedOutput?.self_activation_suppressed === "boolean"
     ? parsedOutput.self_activation_suppressed
     : undefined;
+  const backendOutputVerified = commandAttempted && commandSucceeded && selfActivationSuppressed === true;
+  if (commandAttempted && commandSucceeded && !backendOutputVerified) blockers.push("desktop_backend_output_not_verified");
+  const proofActionReady = commandAttempted && commandSucceeded && backendOutputVerified && blockers.length === 0;
   const observation = commandAttempted && desktopBackend === "cua-driver" && targetApp && targetWindow && action && approvalRef
     ? {
       kind: "loo_desktop_gui_action_observation",
@@ -955,6 +1003,7 @@ export function createDesktopProofAction(input: {
     action,
     actionHash: suppliedActionHash,
     approvalRef,
+    approvalVerified: approvalBlockers.length === 0,
     blockers,
     backendCommand: commandResult
       ? {
@@ -1000,6 +1049,7 @@ export function writeDesktopProofAction(input: {
   permissionState?: string;
   execute?: boolean;
   scratchFilePath?: string;
+  approvalArtifact?: unknown;
   probe?: DesktopProbe;
 }): DesktopProofActionReport {
   const evidenceDir = resolve(input.evidenceDir);
@@ -1526,9 +1576,68 @@ function desktopActionHash(desktopBackend: DesktopBackend, targetApp: string, ta
   return createHash("sha256").update(JSON.stringify({ desktopBackend, targetApp, targetWindow, action })).digest("hex");
 }
 
+function desktopScratchFilePathHash(scratchFilePath: string): string {
+  return createHash("sha256").update(scratchFilePath).digest("hex");
+}
+
+function createDesktopProofActionApproval(input: {
+  approvalRef: string;
+  actionHash: string;
+  scratchFilePath: string;
+}): DesktopProofActionApproval {
+  const issuedAt = new Date().toISOString();
+  return {
+    kind: "loo_desktop_proof_action_approval",
+    approved: true,
+    approvalRef: input.approvalRef,
+    desktopBackend: "cua-driver",
+    targetApp: "TextEdit",
+    targetWindow: "lco-desktop-proof.txt",
+    action: "launch_app TextEdit scratch window",
+    actionHash: input.actionHash,
+    scratchFilePathHash: desktopScratchFilePathHash(input.scratchFilePath),
+    issuedAt,
+    expiresAt: new Date(Date.parse(issuedAt) + DESKTOP_GUI_APPROVAL_TTL_MS).toISOString()
+  };
+}
+
+function scratchFilePathAllowed(scratchFilePath: string, targetWindow: string): boolean {
+  return isAbsolute(scratchFilePath) && basename(scratchFilePath) === targetWindow;
+}
+
+function validateDesktopProofActionApproval(approvalArtifact: unknown, expected: {
+  desktopBackend?: DesktopBackend;
+  targetApp?: string;
+  targetWindow?: string;
+  action?: string;
+  actionHash?: string;
+  approvalRef?: string;
+  scratchFilePath?: string;
+}): string[] {
+  const approval = asRecord(approvalArtifact);
+  const blockers: string[] = [];
+  if (!approval) return ["approval_artifact_missing"];
+  if (approval.kind !== "loo_desktop_proof_action_approval") blockers.push("approval_artifact_kind_invalid");
+  if (approval.approved !== true) blockers.push("approval_artifact_not_approved");
+  if (approval.approvalRef !== expected.approvalRef) blockers.push("approval_ref_mismatch");
+  if (approval.desktopBackend !== expected.desktopBackend) blockers.push("approval_backend_mismatch");
+  if (approval.targetApp !== expected.targetApp) blockers.push("approval_target_app_mismatch");
+  if (approval.targetWindow !== expected.targetWindow) blockers.push("approval_target_window_mismatch");
+  if (approval.action !== expected.action) blockers.push("approval_action_mismatch");
+  if (approval.actionHash !== expected.actionHash) blockers.push("approval_action_hash_mismatch");
+  if (!expected.scratchFilePath || approval.scratchFilePathHash !== desktopScratchFilePathHash(expected.scratchFilePath)) blockers.push("approval_scratch_file_hash_mismatch");
+  const expiresAt = typeof approval.expiresAt === "string" ? Date.parse(approval.expiresAt) : NaN;
+  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) blockers.push("approval_artifact_expired");
+  return blockers;
+}
+
 function desktopPermissionStateReady(value: string): boolean {
-  const normalized = value.toLowerCase().replace(/\s+/g, "");
-  return /accessibility[:=]true/.test(normalized) && /screen[_-]?recording[:=]true/.test(normalized);
+  const entries = new Map<string, string>();
+  for (const token of value.split(/[;,\n]+/)) {
+    const match = token.trim().toLowerCase().match(/^([a-z_-]+)\s*[:=]\s*(true|false)$/);
+    if (match) entries.set(match[1]!, match[2]!);
+  }
+  return entries.get("accessibility") === "true" && (entries.get("screen_recording") === "true" || entries.get("screen-recording") === "true");
 }
 
 function isDiagnosticOnlyFocusProof(value: string): boolean {

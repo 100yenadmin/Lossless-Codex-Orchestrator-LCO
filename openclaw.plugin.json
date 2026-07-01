@@ -684,6 +684,9 @@
             },
             "approval_ref": {
               "type": "string"
+            },
+            "scratch_file_path": {
+              "type": "string"
             }
           }
         }
@@ -717,6 +720,10 @@
             },
             "approval_ref": {
               "type": "string"
+            },
+            "approval_artifact": {
+              "type": "object",
+              "additionalProperties": true
             },
             "permission_state": {
               "type": "string"

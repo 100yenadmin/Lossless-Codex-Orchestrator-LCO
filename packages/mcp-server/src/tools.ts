@@ -268,13 +268,15 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       target_app: { type: "string" },
       target_window: { type: "string" },
       action: { type: "string" },
-      approval_ref: { type: "string" }
+      approval_ref: { type: "string" },
+      scratch_file_path: { type: "string" }
     }, (input) => createDesktopLiveProofHarness({
       backend: optionalDesktopBackend(input.backend),
       targetApp: optionalString(input.target_app),
       targetWindow: optionalString(input.target_window),
       action: optionalString(input.action),
       approvalRef: optionalString(input.approval_ref),
+      scratchFilePath: optionalString(input.scratch_file_path),
       probe: options.desktopProbe
     })),
     tool("loo_desktop_proof_action", "Run the one approved CUA TextEdit scratch launch proof action and return a public-safe observation for proof-report validation.", {
@@ -284,6 +286,10 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       action: { type: "string" },
       action_hash: { type: "string" },
       approval_ref: { type: "string" },
+      approval_artifact: {
+        type: "object",
+        additionalProperties: true
+      },
       permission_state: { type: "string" },
       scratch_file_path: { type: "string" },
       execute: { type: "boolean" }
@@ -294,6 +300,7 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       action: optionalString(input.action),
       actionHash: optionalString(input.action_hash),
       approvalRef: optionalString(input.approval_ref),
+      approvalArtifact: input.approval_artifact,
       permissionState: optionalString(input.permission_state),
       scratchFilePath: optionalString(input.scratch_file_path),
       execute: input.execute === true,
