@@ -69,6 +69,6 @@
     "A CUA Driver scratch-window no-focus proof exists for one approved TextEdit launch_app action; this does not prove generic GUI mutation or Codex GUI mutation.",
     "Claude Code remains a future adapter boundary, not a proved equivalent adapter."
   ],
-  "next_action": "For desktop collaboration claims, keep proof-report approval hashes bound to the exact backend/app/window/action tuple before attempting broader UI event-loop or packaged macOS wrapper proof.",
+  "next_action": "For desktop collaboration claims, keep proof-report approval hashes and runtime marker action_hash values bound to the exact backend/app/window/action tuple before attempting broader UI event-loop or packaged macOS wrapper proof.",
   "proof_boundary": "This advisory local public-safe beta scorecard records a Peekaboo scratch-window proof and a CUA Driver scratch-window no-focus proof for one approved TextEdit launch_app action, not generic GUI mutation. It does not prove a signed or release-ready macOS app, one-click install, Claude Code adapter parity, live Codex control, Codex GUI mutation, or safe desktop automation."
 }

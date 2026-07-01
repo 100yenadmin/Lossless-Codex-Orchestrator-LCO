@@ -78,6 +78,11 @@ type ReleaseCheckValidation = {
   blocker?: string;
 };
 
+type ReleaseOperationApprovalValidation = {
+  satisfied: boolean;
+  actionHash?: string;
+};
+
 export type ReleaseStatusReport = {
   ok: boolean;
   releaseReady: boolean;
@@ -126,11 +131,12 @@ export function createReleaseStatus(options: ReleaseStatusOptions): ReleaseStatu
   const npmPublishSatisfied = validateReleaseOperationApprovalProof(npmPublishApprovalEvidence, "npm_publish", generatedAt);
   const githubReleaseSatisfied = validateReleaseOperationApprovalProof(githubReleaseApprovalEvidence, "github_release", generatedAt);
   const desktopGuiRequired = options.desktopGuiRequired === true;
-  const desktopGuiSatisfied = desktopGuiRequired
-    ? validateReleaseOperationApprovalProof(desktopGuiApprovalEvidence, "desktop_gui_mutation", generatedAt)
-    : false;
+  const desktopGuiValidation = desktopGuiRequired
+    ? validateReleaseOperationApprovalProofDetailed(desktopGuiApprovalEvidence, "desktop_gui_mutation", generatedAt)
+    : { satisfied: false };
+  const desktopGuiSatisfied = desktopGuiValidation.satisfied;
   const desktopCollaborationRuntimeProof = desktopGuiRequired
-    ? validateDesktopCollaborationRuntimeProof(options.runtimeProofDir)
+    ? validateDesktopCollaborationRuntimeProof(options.runtimeProofDir, { actionHash: desktopGuiValidation.actionHash })
     : null;
   const githubCiValidation = validateReleaseCheckProof(githubCiEvidence, "github_ci", candidateSha);
   const codeqlValidation = validateReleaseCheckProof(codeqlEvidence, "codeql", candidateSha);
@@ -194,14 +200,18 @@ function resolveEvidencePath(evidenceDir: string, path: string | undefined): str
 }
 
 function validateReleaseOperationApprovalProof(path: string | undefined, operation: ReleaseOperationApproval, nowIso: string): boolean {
-  if (!path || !existsSync(path)) return false;
+  return validateReleaseOperationApprovalProofDetailed(path, operation, nowIso).satisfied;
+}
+
+function validateReleaseOperationApprovalProofDetailed(path: string | undefined, operation: ReleaseOperationApproval, nowIso: string): ReleaseOperationApprovalValidation {
+  if (!path || !existsSync(path)) return { satisfied: false };
   let proof: ReleaseOperationApprovalProof;
   try {
     proof = JSON.parse(readFileSync(path, "utf8")) as ReleaseOperationApprovalProof;
   } catch {
-    return false;
+    return { satisfied: false };
   }
-  if (!proof || typeof proof !== "object" || Array.isArray(proof)) return false;
+  if (!proof || typeof proof !== "object" || Array.isArray(proof)) return { satisfied: false };
   const allowedKeys = new Set(["kind", "operation", "approved", "approvalRef", "rawSecretIncluded"]);
   const commonApprovalValid = proof.kind === "loo_release_operation_approval"
     && proof.operation === operation
@@ -209,8 +219,8 @@ function validateReleaseOperationApprovalProof(path: string | undefined, operati
     && typeof proof.approvalRef === "string"
     && Boolean(proof.approvalRef.trim())
     && proof.rawSecretIncluded === false;
-  if (!commonApprovalValid) return false;
-  if (operation !== "desktop_gui_mutation") return Object.keys(proof).every((key) => allowedKeys.has(key));
+  if (!commonApprovalValid) return { satisfied: false };
+  if (operation !== "desktop_gui_mutation") return { satisfied: Object.keys(proof).every((key) => allowedKeys.has(key)) };
 
   const desktopAllowedKeys = new Set([
     ...allowedKeys,
@@ -228,7 +238,7 @@ function validateReleaseOperationApprovalProof(path: string | undefined, operati
     "focusProof",
     "rawScreenshotIncluded"
   ]);
-  return stringFieldPresent(proof.desktopBackend)
+  const desktopApprovalValid = stringFieldPresent(proof.desktopBackend)
     && stringFieldPresent(proof.targetApp)
     && stringFieldPresent(proof.targetWindow)
     && stringFieldPresent(proof.action)
@@ -243,6 +253,10 @@ function validateReleaseOperationApprovalProof(path: string | undefined, operati
     && actionFocusProofFieldPresent(proof.focusProof)
     && proof.rawScreenshotIncluded === false
     && Object.keys(proof).every((key) => desktopAllowedKeys.has(key));
+  return {
+    satisfied: desktopApprovalValid,
+    actionHash: hashFieldPresent(proof.actionHash) ? proof.actionHash : undefined
+  };
 }
 
 function desktopGuiActionHash(proof: ReleaseOperationApprovalProof): string {

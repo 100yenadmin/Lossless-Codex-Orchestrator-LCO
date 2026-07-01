@@ -27,6 +27,7 @@
     "agent reasoning note from safe summaries only",
     "desktop proof marker when desktop collaboration is claimed",
     "desktop approval action hash bound to backend, target app, target window, and action when desktop collaboration is claimed",
+    "desktop collaboration runtime marker action_hash matching the approved desktop action hash when desktop collaboration is claimed",
     "rawPromptIncluded false",
     "rawSecretIncluded false"
   ],
@@ -56,7 +57,7 @@
   "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-156-working-app-proof/working-app-runtime-proof-review.json",
   "known_gaps": [
     "The runtime proof runner can validate public-safe v1.1 proof markers, but the full installed gateway live-control and post-action refresh loop still needs real runtime evidence.",
-    "Desktop collaboration has backend-specific scratch proofs; release status now requires the action-bound runtime marker and verifies desktop approval action hashes against backend, target app, target window, and action when desktop GUI collaboration is claimed, but this is still not a generic product-level action path.",
+    "Desktop collaboration has backend-specific scratch proofs; release status now requires the action-bound runtime marker, verifies desktop approval action hashes against backend, target app, target window, and action, and binds the runtime marker action_hash to the approved action when desktop GUI collaboration is claimed, but this is still not a generic product-level action path.",
     "The local Mac search UI has a connected live CLI proof path, but not packaged/signed macOS product UI readiness.",
     "Claude Code remains an adapter inventory item, not an equivalent working path."
   ],
