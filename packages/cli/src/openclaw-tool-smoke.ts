@@ -19,6 +19,9 @@ export const DEFAULT_REQUIRED_TOOL_CALLS = [
   "loo_watcher_status",
   "loo_watcher_dry_run",
   "loo_resume_request_packet",
+  "loo_codex_app_server_status",
+  "loo_codex_app_server_threads",
+  "loo_visible_codex_map",
   "loo_plan_state_pins",
   "loo_project_digest",
   "loo_attention_inbox",
@@ -507,6 +510,9 @@ function buildToolArgs(params: {
   if (params.toolName === "loo_resume_request_packet") {
     return { watcher_spec: smokeWatcherSpecs(params.threadId)[0], now: TOOL_SMOKE_NOW, ttl_seconds: 900 };
   }
+  if (params.toolName === "loo_codex_app_server_status") return {};
+  if (params.toolName === "loo_codex_app_server_threads") return { limit: 5 };
+  if (params.toolName === "loo_visible_codex_map") return { limit: 5, include_app_server: true, include_visible_snapshot: false };
   if (params.toolName === "loo_codex_control_dry_run") {
     return params.threadId ? {
       action: "send",

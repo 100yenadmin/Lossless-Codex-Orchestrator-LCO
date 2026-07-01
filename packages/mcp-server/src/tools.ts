@@ -17,6 +17,7 @@ import {
   createProjectDigest,
   createResumeRequestPacket,
   createWatcherStatusReport,
+  createVisibleCodexSessionMap,
   getCockpitInbox,
   getCodexFinalMessages,
   getCodexPlans,
@@ -30,11 +31,15 @@ import {
   probeLcmPeerDbs,
   probeCodexSqliteStores,
   type LooDatabase,
+  type AppServerThreadsInput,
+  type VisibleCodexInput,
   type WatchSpec,
   searchSessions
 } from "../../core/src/index.js";
 import {
   LOO_COMMAND_POLICY,
+  createCodexAppServerStatusReport,
+  createCodexAppServerThreadsReport,
   codexTransportStatus,
   createCodexControl,
   createDesktopGuiProofReport,
@@ -92,8 +97,9 @@ export function createLooToolDeclarations(): LooToolDeclaration[] {
   }).map(({ name, description, inputSchema }) => ({ name, description, inputSchema }));
 }
 
-export function createLooTools(options: { db: LooDatabase; audit: AuditStore; codexClient: CodexClient; desktopProbe?: DesktopProbe }): LooTool[] {
+export function createLooTools(options: { db: LooDatabase; audit: AuditStore; codexClient: CodexClient; codexReadClient?: CodexClient; desktopProbe?: DesktopProbe }): LooTool[] {
   const control = createCodexControl({ audit: options.audit, client: options.codexClient });
+  const codexReadClient = options.codexReadClient ?? options.codexClient;
   return [
     tool("loo_index_sessions", "Index local Codex session JSONL files into the local orchestrator database.", {
       roots: { type: "array", items: { type: "string" } },
@@ -264,6 +270,51 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
         now: optionalString(input.now),
         ttlSeconds: optionalNumber(input.ttl_seconds),
         recommendedAction: optionalWatcherRecommendedAction(input.recommended_action)
+      });
+    }),
+    tool("loo_codex_app_server_status", "Read Codex app-server status and read-method posture without enabling control.", {}, () => createCodexAppServerStatusReport({
+      client: codexReadClient,
+      command: process.env.LOO_CODEX_BIN || "codex"
+    })),
+    tool("loo_codex_app_server_threads", "Read Codex app-server thread metadata and loaded-signal posture without turns or raw paths.", {
+      limit: { type: "integer", minimum: 1, maximum: 100 },
+      read_thread_id: { type: "string" }
+    }, (input) => createCodexAppServerThreadsReport({
+      client: codexReadClient,
+      limit: optionalNumber(input.limit),
+      readThreadId: optionalString(input.read_thread_id)
+    })),
+    tool("loo_visible_codex_map", "Join indexed session cards with optional visible Codex and read-only app-server signals.", {
+      limit: { type: "integer", minimum: 1, maximum: 500 },
+      include_app_server: { type: "boolean" },
+      include_visible_snapshot: { type: "boolean" },
+      backend: { type: "string", enum: ["direct", "cua-driver", "peekaboo"] },
+      max_nodes: { type: "integer", minimum: 1, maximum: 500 },
+      max_chars: { type: "integer", minimum: 1, maximum: 20000 },
+      visible_codex: { type: "object", additionalProperties: true },
+      app_server_threads: { type: "object", additionalProperties: true }
+    }, async (input) => {
+      const visibleFromInput = optionalRecord(input.visible_codex) as VisibleCodexInput | undefined;
+      const appServerFromInput = optionalRecord(input.app_server_threads) as AppServerThreadsInput | undefined;
+      const visibleCodex = visibleFromInput ?? (input.include_visible_snapshot === true
+        ? (await desktopSee({
+            backend: optionalDesktopBackend(input.backend),
+            includeSnapshot: true,
+            maxNodes: optionalNumber(input.max_nodes),
+            maxChars: optionalNumber(input.max_chars),
+            probe: options.desktopProbe
+          })).visibleCodex
+        : undefined);
+      const appServerThreads = appServerFromInput ?? (input.include_app_server === false
+        ? undefined
+        : await createCodexAppServerThreadsReport({
+            client: codexReadClient,
+            limit: optionalNumber(input.limit)
+          }));
+      return createVisibleCodexSessionMap(options.db, {
+        limit: optionalNumber(input.limit),
+        visibleCodex,
+        appServerThreads
       });
     }),
     tool("loo_plan_state_pins", "Extract only manual pins, approval boundaries, and exception ledger entries from PLAN_STATE text.", {
@@ -576,6 +627,12 @@ function optionalNumber(value: unknown): number | undefined {
 
 function optionalBoolean(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
+}
+
+function optionalRecord(value: unknown): Record<string, unknown> | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("value must be an object");
+  return value as Record<string, unknown>;
 }
 
 function optionalProfile(value: unknown): "metadata" | "brief" | "evidence" | undefined {

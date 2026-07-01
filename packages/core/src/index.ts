@@ -424,6 +424,86 @@ export type ResumeRequestPacket = {
   expiresAt: string;
 };
 
+export type VisibleCodexCoverageState = "ok" | "partial" | "unavailable" | "not_configured";
+
+export type VisibleCodexThreadCandidateInput = {
+  visibleId?: string;
+  title?: string | null;
+  rawTitle?: string | null;
+  status?: string | null;
+  updatedLabel?: string | null;
+  titleHash?: string | null;
+  confidence?: "low" | "medium" | "high" | number | null;
+  source?: string | null;
+};
+
+export type VisibleCodexInput = {
+  threadMap?: {
+    threads?: VisibleCodexThreadCandidateInput[];
+  };
+};
+
+export type AppServerThreadSignalInput = {
+  appServerRef?: string;
+  threadId?: string;
+  titleSanitized?: string | null;
+  titleHash?: string | null;
+  status?: string | null;
+  loaded?: boolean | null;
+  loadedState?: "loaded" | "not_loaded" | "not_claimed";
+  updatedAt?: string | null;
+  sourceRef?: string;
+  confidence?: number | null;
+};
+
+export type AppServerThreadsInput = {
+  schema?: string;
+  publicSafe?: boolean;
+  generatedAt?: string;
+  sourceCoverage?: {
+    codexAppServer?: VisibleCodexCoverageState;
+  };
+  threads?: AppServerThreadSignalInput[];
+  loadedThreadRefs?: string[] | null;
+  errors?: string[];
+};
+
+export type VisibleCodexSessionMapItem = {
+  desktopRef: string | null;
+  appServerRef: string | null;
+  sourceRef: string | null;
+  titleSanitized: string;
+  sessionCardRef: string | null;
+  confidence: number;
+  evidenceIds: string[];
+  ambiguity: string[];
+  freshness: {
+    indexedUpdatedAt: string | null;
+    appServerUpdatedAt: string | null;
+    visibleUpdatedLabel: string | null;
+    freshestSource: "indexed_lco" | "codex_app_server" | "visible_codex" | "unknown";
+  };
+  reasonCodes: string[];
+};
+
+export type VisibleCodexSessionMapReport = {
+  schema: "lco.visibleCodexSessionMap.v1";
+  publicSafe: true;
+  generatedAt: string;
+  items: VisibleCodexSessionMapItem[];
+  sourceCoverage: {
+    indexedLco: VisibleCodexCoverageState;
+    visibleCodex: VisibleCodexCoverageState;
+    codexAppServer: VisibleCodexCoverageState;
+  };
+  actionsPerformed: {
+    liveCodexControlRun: false;
+    desktopGuiActionRun: false;
+    rawTranscriptRead: false;
+  };
+  proofBoundary: string;
+};
+
 export type PlanStateManualPin = {
   pinId: string;
   title: string;
@@ -1719,6 +1799,97 @@ export function getCockpitInbox(db: LooDatabase, options: { limit?: number; prio
   };
 }
 
+export function createVisibleCodexSessionMap(db: LooDatabase, options: {
+  visibleCodex?: VisibleCodexInput | null;
+  appServerThreads?: AppServerThreadsInput | null;
+  limit?: number;
+  now?: string;
+} = {}): VisibleCodexSessionMapReport {
+  const limit = clamp(options.limit ?? 50, 1, 500);
+  const cards = getRecentSessions(db, { scope: "all", limit: 500, includeCards: true }).cards;
+  const cardsByThreadId = new Map(cards.map((card) => [bareCodexThreadId(card.threadId), card]));
+  const cardsByTitle = groupedByNormalizedTitle(cards.map((card) => ({ title: card.title, card })));
+  const appThreads = (options.appServerThreads?.threads ?? []).map(publicAppServerThreadSignal);
+  const appThreadsByThreadId = new Map(appThreads.map((thread) => [thread.threadId, thread]));
+  const appThreadsByTitle = groupedByNormalizedTitle(appThreads.map((thread) => ({ title: thread.titleSanitized ?? "", thread })));
+  const visibleThreads = (options.visibleCodex?.threadMap?.threads ?? [])
+    .map((candidate, index) => publicVisibleThreadCandidate(candidate, index));
+  const items: VisibleCodexSessionMapItem[] = [];
+  const seen = new Set<string>();
+  const usedAppServerRefs = new Set<string>();
+
+  for (const visible of visibleThreads) {
+    const titleMatches = cardsByTitle.get(normalizedTitle(visible.titleSanitized)) ?? [];
+    const appTitleMatches = appThreadsByTitle.get(normalizedTitle(visible.titleSanitized)) ?? [];
+    const appThread = appTitleMatches.length === 1 ? appTitleMatches[0]!.thread : null;
+    const cardFromAppThread = appThread ? cardsByThreadId.get(appThread.threadId) ?? null : null;
+    const card = cardFromAppThread ?? (titleMatches.length === 1 ? titleMatches[0]!.card : null);
+    const ambiguity = [
+      ...(titleMatches.length > 1 && !cardFromAppThread ? ["multiple_indexed_title_matches"] : []),
+      ...(appTitleMatches.length > 1 ? ["multiple_app_server_title_matches"] : []),
+      ...(!card && titleMatches.length === 0 ? ["no_indexed_title_match"] : [])
+    ];
+    const item = visibleMapItem({
+      visible,
+      card,
+      appThread,
+      ambiguity,
+      reasonCodes: [
+        "visible_codex_candidate",
+        ...(appThread ? ["app_server_signal"] : []),
+        ...(card ? ["indexed_session_card"] : []),
+        ...(cardFromAppThread && titleMatches.length > 1 ? ["resolved_duplicate_title_by_app_server_id"] : [])
+      ]
+    });
+    items.push(item);
+    seen.add(visibleMapSeenKey(item));
+    if (item.appServerRef) usedAppServerRefs.add(item.appServerRef);
+  }
+
+  for (const appThread of appThreads) {
+    if (usedAppServerRefs.has(appThread.appServerRef)) continue;
+    const card = cardsByThreadId.get(appThread.threadId)
+      ?? ((cardsByTitle.get(normalizedTitle(appThread.titleSanitized ?? "")) ?? []).length === 1
+        ? (cardsByTitle.get(normalizedTitle(appThread.titleSanitized ?? "")) ?? [])[0]!.card
+        : null);
+    const claimedCardKey = card ? `card:${card.threadId}` : null;
+    const titleMatches = appThread.titleSanitized ? cardsByTitle.get(normalizedTitle(appThread.titleSanitized)) ?? [] : [];
+    const ambiguity = [
+      ...(titleMatches.length > 1 ? ["multiple_indexed_title_matches"] : []),
+      ...(claimedCardKey && seen.has(claimedCardKey) ? ["indexed_card_already_claimed"] : []),
+      ...(!card ? ["no_visible_codex_candidate"] : [])
+    ];
+    const item = visibleMapItem({
+      visible: null,
+      card,
+      appThread,
+      ambiguity,
+      reasonCodes: ["app_server_signal", ...(card ? ["indexed_session_card"] : [])]
+    });
+    items.push(item);
+    seen.add(visibleMapSeenKey(item));
+  }
+
+  items.sort(visibleMapItemComparator);
+  return {
+    schema: "lco.visibleCodexSessionMap.v1",
+    publicSafe: true,
+    generatedAt: options.now ?? new Date().toISOString(),
+    items: items.slice(0, limit),
+    sourceCoverage: {
+      indexedLco: cards.length > 0 ? "ok" : "partial",
+      visibleCodex: visibleCoverage(options.visibleCodex),
+      codexAppServer: options.appServerThreads?.sourceCoverage?.codexAppServer ?? "not_configured"
+    },
+    actionsPerformed: {
+      liveCodexControlRun: false,
+      desktopGuiActionRun: false,
+      rawTranscriptRead: false
+    },
+    proofBoundary: "This map joins public-safe indexed session cards, sanitized visible Codex metadata, and read-only app-server thread signals. It does not read raw transcript turns, run live Codex control, mutate a GUI, enable remote control, or claim unattended operation."
+  };
+}
+
 export function createPlanStatePinsReport(text: string): PlanStatePinsReport {
   const manualPins = extractMarkedBlocks(text, "manual-pin").map((block, index) => planStateManualPin(block, index));
   return {
@@ -1996,6 +2167,161 @@ function evidenceCardsForSessionCard(card: CodexSessionCard): EvidenceCard[] {
     redactions: ["paths", "tokens", "raw_transcript"],
     confidence: card.confidence
   }];
+}
+
+function groupedByNormalizedTitle<T extends { title: string }>(items: T[]): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
+  for (const item of items) {
+    const key = normalizedTitle(item.title);
+    if (!key) continue;
+    const group = groups.get(key) ?? [];
+    group.push(item);
+    groups.set(key, group);
+  }
+  return groups;
+}
+
+function publicVisibleThreadCandidate(input: VisibleCodexThreadCandidateInput, index = 0): {
+  visibleId: string;
+  titleSanitized: string;
+  status: string | null;
+  updatedLabel: string | null;
+  confidence: number;
+} {
+  const fallbackIdentity = [
+    index,
+    input.title ?? "",
+    input.rawTitle ?? "",
+    input.status ?? "",
+    input.updatedLabel ?? "",
+    input.source ?? ""
+  ].join("|");
+  const visibleId = publicSafeText(input.visibleId || `visible-${stableId(fallbackIdentity)}`, 160);
+  return {
+    visibleId,
+    titleSanitized: publicSafeText(input.title || input.rawTitle || "Untitled visible Codex thread", 160),
+    status: input.status ? publicSafeText(input.status, 80) : null,
+    updatedLabel: input.updatedLabel ? publicSafeText(input.updatedLabel, 40) : null,
+    confidence: visibleConfidence(input.confidence)
+  };
+}
+
+function publicAppServerThreadSignal(input: AppServerThreadSignalInput): Required<Pick<AppServerThreadSignalInput, "appServerRef" | "threadId" | "sourceRef">> & AppServerThreadSignalInput {
+  const threadId = publicSafeText(input.threadId || "unknown", 160);
+  return {
+    appServerRef: publicSafeText(input.appServerRef || `codex_app_thread:${threadId}`, 180),
+    threadId,
+    titleSanitized: input.titleSanitized ? publicSafeText(input.titleSanitized, 160) : null,
+    titleHash: input.titleHash ? publicSafeText(input.titleHash, 80) : null,
+    status: input.status ? publicSafeText(input.status, 80) : null,
+    loaded: input.loaded === true ? true : input.loaded === false ? false : null,
+    loadedState: input.loadedState ?? (input.loaded === true ? "loaded" : input.loaded === false ? "not_loaded" : "not_claimed"),
+    updatedAt: publicIsoTimestamp(input.updatedAt),
+    sourceRef: publicSafeText(input.sourceRef || codexThreadRef(threadId), 180),
+    confidence: typeof input.confidence === "number" && Number.isFinite(input.confidence) ? Math.max(0.2, Math.min(0.99, input.confidence)) : 0.72
+  };
+}
+
+function visibleMapItem(input: {
+  visible: ReturnType<typeof publicVisibleThreadCandidate> | null;
+  card: CodexSessionCard | null;
+  appThread: ReturnType<typeof publicAppServerThreadSignal> | null;
+  ambiguity: string[];
+  reasonCodes: string[];
+}): VisibleCodexSessionMapItem {
+  const exactAppServerMatch = Boolean(input.card && input.appThread && bareCodexThreadId(input.card.threadId) === input.appThread.threadId);
+  const titleOnlyMatch = Boolean(input.card && !exactAppServerMatch && input.visible);
+  const ambiguity = unique(input.ambiguity);
+  const baseConfidence = exactAppServerMatch
+    ? 0.86
+    : titleOnlyMatch
+      ? 0.74
+      : input.card && input.appThread
+        ? 0.8
+        : input.card || input.appThread
+          ? 0.58
+          : 0.32;
+  const sourceConfidence = Math.min(
+    input.visible?.confidence ?? 0.72,
+    input.card?.confidence ?? 0.72,
+    input.appThread?.confidence ?? 0.72
+  );
+  const confidence = ambiguity.length > 0
+    ? Math.min(0.45, Number((baseConfidence * sourceConfidence).toFixed(2)))
+    : Number(Math.min(0.99, baseConfidence * sourceConfidence).toFixed(2));
+  const title = input.card?.title ?? input.appThread?.titleSanitized ?? input.visible?.titleSanitized ?? "Unknown Codex thread";
+  const evidenceIds = unique([
+    ...(input.card?.evidenceIds ?? []),
+    ...(input.visible ? [`ev_visible_${stableId(input.visible.visibleId).slice(0, 12)}`] : []),
+    ...(input.appThread ? [`ev_app_server_${stableId(input.appThread.appServerRef).slice(0, 12)}`] : [])
+  ]);
+  return {
+    desktopRef: input.visible?.visibleId ?? null,
+    appServerRef: input.appThread?.appServerRef ?? null,
+    sourceRef: input.card?.threadId ?? input.appThread?.sourceRef ?? null,
+    titleSanitized: publicSafeText(title, 160),
+    sessionCardRef: input.card?.threadId ?? null,
+    confidence,
+    evidenceIds,
+    ambiguity,
+    freshness: {
+      indexedUpdatedAt: input.card?.freshness.lastEventAt ?? null,
+      appServerUpdatedAt: input.appThread?.updatedAt ?? null,
+      visibleUpdatedLabel: input.visible?.updatedLabel ?? null,
+      freshestSource: freshestVisibleMapSource(input.card?.freshness.lastEventAt ?? null, input.appThread?.updatedAt ?? null, input.visible?.updatedLabel ?? null)
+    },
+    reasonCodes: unique([
+      ...input.reasonCodes,
+      ...(ambiguity.length ? ["ambiguous_join"] : []),
+      ...(exactAppServerMatch ? ["exact_thread_id_match"] : titleOnlyMatch ? ["unique_title_match"] : [])
+    ])
+  };
+}
+
+function visibleMapSeenKey(item: VisibleCodexSessionMapItem): string {
+  if (item.sessionCardRef) return `card:${item.sessionCardRef}`;
+  if (item.appServerRef) return `app:${item.appServerRef}`;
+  return `desktop:${item.desktopRef}`;
+}
+
+function visibleMapItemComparator(left: VisibleCodexSessionMapItem, right: VisibleCodexSessionMapItem): number {
+  if (right.confidence !== left.confidence) return right.confidence - left.confidence;
+  const freshness = compareUpdatedAtDesc(left.freshness.indexedUpdatedAt ?? left.freshness.appServerUpdatedAt, right.freshness.indexedUpdatedAt ?? right.freshness.appServerUpdatedAt);
+  if (freshness !== 0) return freshness;
+  return left.titleSanitized.localeCompare(right.titleSanitized) || (left.desktopRef ?? "").localeCompare(right.desktopRef ?? "");
+}
+
+function visibleCoverage(input: VisibleCodexInput | null | undefined): VisibleCodexCoverageState {
+  if (!input) return "not_configured";
+  if (Array.isArray(input.threadMap?.threads)) return "ok";
+  return "partial";
+}
+
+function visibleConfidence(value: VisibleCodexThreadCandidateInput["confidence"]): number {
+  if (typeof value === "number" && Number.isFinite(value)) return Math.max(0.2, Math.min(0.99, value));
+  if (value === "high") return 0.9;
+  if (value === "medium") return 0.72;
+  if (value === "low") return 0.48;
+  return 0.6;
+}
+
+function normalizedTitle(value: string | null | undefined): string {
+  return publicSafeText(value ?? "", 180).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function publicIsoTimestamp(value: string | null | undefined): string | null {
+  const parsed = timestampMillis(typeof value === "string" ? value : null);
+  return parsed === null ? null : new Date(parsed).toISOString();
+}
+
+function freshestVisibleMapSource(indexedUpdatedAt: string | null, appServerUpdatedAt: string | null, visibleUpdatedLabel: string | null): VisibleCodexSessionMapItem["freshness"]["freshestSource"] {
+  const indexed = timestampMillis(indexedUpdatedAt);
+  const appServer = timestampMillis(appServerUpdatedAt);
+  if (indexed !== null || appServer !== null) {
+    if (indexed !== null && (appServer === null || indexed >= appServer)) return "indexed_lco";
+    return "codex_app_server";
+  }
+  return visibleUpdatedLabel ? "visible_codex" : "unknown";
 }
 
 function touchedPathMatches(db: LooDatabase, threadRef: string, needle: string): boolean {

@@ -50,5 +50,7 @@ Recommended OpenClaw configuration should expose the `loo_*` tools and keep live
 - Visible Codex macro metadata is read-only planning guidance; generic prompt typing, send, approve, and click actions remain live-disabled in this beta.
 - `visibleCodex.threadMap` is a bounded, redacted visible-thread candidate inventory derived from the guarded snapshot. Treat it as GUI evidence only, not as a raw transcript join or approval to mutate the Codex UI.
 - `visibleCodex.windows` and `visibleCodex.threadMap` are emitted only when the guarded snapshot identifies Codex as the captured app; safe non-Codex snapshots must not be reinterpreted as Codex UI state.
+- `loo_codex_app_server_status` and `loo_codex_app_server_threads` use the read-only Codex app-server surface. Thread probes must omit preview, cwd, path, and turns, and must never call `includeTurns:true`. Loaded-thread state is reported as `not_claimed_one_shot_client` unless the caller supplies an explicit same-connection source.
+- `loo_visible_codex_map` is the orchestrator-facing correlation surface. It may join indexed session cards, sanitized visible title/status metadata, and read-only app-server thread signals with confidence and ambiguity markers; it must not select, focus, continue, click, type, enable remote control, or mutate Codex Desktop.
 
 Claude Code support is an adapter stub in this beta.

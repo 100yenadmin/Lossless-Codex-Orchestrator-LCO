@@ -12,7 +12,9 @@
     "loo_expand_query",
     "loo_codex_plans",
     "loo_codex_final_messages",
-    "loo_codex_touched_files"
+    "loo_codex_touched_files",
+    "loo_codex_app_server_threads",
+    "loo_visible_codex_map"
   ],
   "expected_public_safe_evidence": [
     "fixture or bounded local session count",
@@ -20,7 +22,9 @@
     "top-k source refs",
     "expansion profile and token budget",
     "plan/final/touched-file presence markers",
-    "omitted count or limit markers"
+    "omitted count or limit markers",
+    "visible-to-indexed map confidence and ambiguity markers",
+    "app-server thread source coverage without raw turns"
   ],
   "private_data_exclusions": [
     "raw Codex transcripts",
@@ -34,20 +38,23 @@
     "Known plan and final-message fixture queries return the expected codex_thread refs.",
     "Describe output identifies status and source refs without raw transcript dumps.",
     "1k and 4k expansion profiles retain metadata, plans, finals, touched files, and safe summaries.",
-    "Skipped, truncated, or omitted data is named explicitly."
+    "Skipped, truncated, or omitted data is named explicitly.",
+    "Visible title matches correlate to indexed session refs only when unique, while duplicate titles remain ambiguous and low confidence.",
+    "App-server thread signals improve freshness/source coverage without exposing preview, cwd, path, or turns."
   ],
   "fail_criteria": [
     "Search returns unrelated source families as successful Codex-thread evidence.",
     "Expansion claims complete recall while limits skipped or omitted data.",
-    "Evidence includes raw transcript spans, local DB files, or secret-like strings."
+    "Evidence includes raw transcript spans, local DB files, or secret-like strings.",
+    "Visible map reports ambiguous title collisions as high-confidence session matches."
   ],
   "current_score": "example-not-run",
   "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-<slug>/retrieval-quality-review.json",
   "known_gaps": [
     "Large private-store retrieval quality must be scored from public-safe summaries only.",
-    "Semantic relevance thresholds should be calibrated after more redacted fixtures exist."
+    "Semantic relevance thresholds should be calibrated after more redacted fixtures exist.",
+    "Visible-map quality currently uses deterministic title/ref heuristics, not a learned semantic matcher."
   ],
-  "next_action": "Run fixture tests first, then bounded local smoke with public-safe summary evidence.",
-  "proof_boundary": "This is a local public-safe beta scorecard example; it proves the review shape, not current retrieval quality."
+  "next_action": "Run fixture tests and #260 visible-map tests first, then bounded local smoke with public-safe summary and source-coverage evidence.",
+  "proof_boundary": "This is a local public-safe beta scorecard example; it proves the review shape, not current retrieval or visible-map quality."
 }
-

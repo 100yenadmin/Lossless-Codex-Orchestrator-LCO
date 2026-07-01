@@ -84,6 +84,9 @@ P0 is read-only and deterministic:
 - #254 adds `loo_recent_sessions`, `loo_cockpit_inbox`, read-only
   watcher/resume-request primitives, evidence-backed session cards, and
   approval packets for dry-run control context.
+- #260 adds read-only Codex app-server status/thread signals and
+  `loo_visible_codex_map`, a public-safe join between sanitized visible Codex
+  candidates and indexed session cards.
 - #255 adds `loo_plan_state_pins`, `loo_project_digest`,
   `loo_attention_inbox`, and `loo_business_pulse`.
 - #258 adds a public-safe [source authority profile](docs/SOURCE_AUTHORITY_PROFILE.md)
@@ -109,6 +112,11 @@ What a local OpenClaw agent can do today:
   `loo_watcher_status`, `loo_watcher_dry_run`, and
   `loo_resume_request_packet`; these tools create request packets only and do
   not run live Codex control.
+- Inspect Codex app-server readiness and visible-to-indexed session correlation
+  with `loo_codex_app_server_status`, `loo_codex_app_server_threads`, and
+  `loo_visible_codex_map`; these tools report source coverage, confidence, and
+  ambiguity without raw turns, screenshots, remote-control enablement, or GUI
+  mutation.
 - Inspect `authorityCoverage` to see whether LCO, GitHub, or PLAN_STATE is
   authoritative, fallback-only, unavailable, or not configured for a claim.
 - Dry-run Codex control actions and inspect audit ids before any live action.
