@@ -391,6 +391,7 @@ test("MCP doctor and desktop tools expose CUA diagnostics while desktop act stay
       "backend",
       "target_app",
       "target_window",
+      "action",
       "action_hash",
       "approval_ref",
       "permission_state",
@@ -400,6 +401,60 @@ test("MCP doctor and desktop tools expose CUA diagnostics while desktop act stay
     ]);
     assert.match(actResult.nextAction ?? "", /loo_desktop_live_proof_harness/i);
     assert.match(actResult.nextAction ?? "", /loo_desktop_proof_report/i);
+
+    const compliantActionHash = createHash("sha256")
+      .update(JSON.stringify({
+        desktopBackend: "cua-driver",
+        targetApp: "Codex",
+        targetWindow: "Lossless OpenClaw Orchestrator",
+        action: "click primary"
+      }))
+      .digest("hex")
+      .toUpperCase();
+    const compliantLiveRequest = await act.execute({
+      backend: "cua-driver",
+      target_app: "Codex",
+      target_window: "Lossless OpenClaw Orchestrator",
+      action: "click primary",
+      action_hash: compliantActionHash,
+      approval_ref: "issue-160-proof-ref",
+      permission_state: "accessibility=true;screen_recording=true",
+      focus_before_application: "Codex",
+      focus_after_application: "Codex",
+      public_safe_observation: true,
+      dry_run: false
+    }) as { blockers?: string[] };
+    assert.deepEqual(compliantLiveRequest.blockers, ["desktop_live_action_not_enabled"]);
+
+    const focusChangedLiveRequest = await act.execute({
+      backend: "cua-driver",
+      target_app: "Codex",
+      target_window: "Lossless OpenClaw Orchestrator",
+      action: "click primary",
+      action_hash: compliantActionHash,
+      approval_ref: "issue-160-proof-ref",
+      permission_state: "accessibility=true;screen_recording=true",
+      focus_before_application: "Codex",
+      focus_after_application: "TextEdit",
+      public_safe_observation: true,
+      dry_run: false
+    }) as { blockers?: string[] };
+    assert.ok(focusChangedLiveRequest.blockers?.includes("focus_changed"));
+
+    const missingActionLiveRequest = await act.execute({
+      backend: "cua-driver",
+      target_app: "Codex",
+      target_window: "Lossless OpenClaw Orchestrator",
+      action_hash: compliantActionHash,
+      approval_ref: "issue-160-proof-ref",
+      permission_state: "accessibility=true;screen_recording=true",
+      focus_before_application: "Codex",
+      focus_after_application: "Codex",
+      public_safe_observation: true,
+      dry_run: false
+    }) as { action?: string; blockers?: string[] };
+    assert.equal(missingActionLiveRequest.action, "unknown");
+    assert.ok(missingActionLiveRequest.blockers?.includes("action_missing"));
 
     const proofReport = tools.find((tool) => tool.name === "loo_desktop_proof_report");
     assert.ok(proofReport);

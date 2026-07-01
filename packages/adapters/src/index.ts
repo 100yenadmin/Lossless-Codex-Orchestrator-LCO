@@ -497,6 +497,7 @@ export function desktopActDryRun(input: {
     "backend",
     "target_app",
     "target_window",
+    "action",
     "action_hash",
     "approval_ref",
     "permission_state",
@@ -510,11 +511,16 @@ export function desktopActDryRun(input: {
     if (input.backend === "direct") blockers.push("desktop_backend_not_gui_fallback");
     if (!publicTextField(input.targetApp, 120)) blockers.push("target_app_missing");
     if (!publicTextField(input.targetWindow, 160)) blockers.push("target_window_missing");
+    if (!publicTextField(input.action, 160)) blockers.push("action_missing");
     if (!publicHashField(input.actionHash)) blockers.push("action_hash_missing");
     if (!publicTextField(input.approvalRef, 160)) blockers.push("approval_ref_missing");
     if (!publicTextField(input.permissionState, 120)) blockers.push("permission_state_missing");
-    if (!publicTextField(input.focusBeforeApplication, 120) || !publicTextField(input.focusAfterApplication, 120)) {
+    const focusBefore = publicTextField(input.focusBeforeApplication, 120);
+    const focusAfter = publicTextField(input.focusAfterApplication, 120);
+    if (!focusBefore || !focusAfter) {
       blockers.push("focus_before_after_missing");
+    } else if (focusBefore !== focusAfter) {
+      blockers.push("focus_changed");
     }
     if (input.publicSafeObservation !== true) blockers.push("public_safe_observation_missing");
   }
@@ -1292,7 +1298,7 @@ function publicTextField(value: unknown, maxChars: number): string | undefined {
 }
 
 function publicHashField(value: unknown): value is string {
-  return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+  return typeof value === "string" && /^[a-f0-9]{64}$/i.test(value);
 }
 
 function isDiagnosticOnlyFocusProof(value: string): boolean {

@@ -37,7 +37,7 @@ test("0.1.0-beta.22 release metadata ships desktop act fail-closed blockers with
   assert.match(releaseNotes, /loo_desktop_act/i);
   assert.match(releaseNotes, /structured blockers/i);
   assert.match(releaseNotes, /action-bound proof checklist/i);
-  assert.match(releaseNotes, /backend, target app\/window, action hash, approval ref, permission state, focus before\/after, and public-safe observation/i);
+  assert.match(releaseNotes, /backend, target app\/window, action text, action hash, approval ref, permission state, focus before\/after, and public-safe observation/i);
   assert.match(releaseNotes, /dry-run-only/i);
   assert.match(releaseNotes, /--claim-scope codex-working-app-proof/i);
   assert.match(releaseNotes, /loo release status[^\n]+--claim-scope\s+codex-working-app-proof[^\n]+--runtime-proof-dir\s+<path>/i);
