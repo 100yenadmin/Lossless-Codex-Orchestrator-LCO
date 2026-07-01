@@ -231,7 +231,7 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       maxChars: optionalNumber(input.max_chars),
       probe: options.desktopProbe
     })),
-    tool("loo_desktop_act", "Dry-run desktop fallback action placeholder for CUA/Peekaboo.", {
+    tool("loo_desktop_act", "Dry-run desktop fallback action for CUA/Peekaboo; live requests return structured missing-proof blockers.", {
       backend: { type: "string", enum: ["direct", "cua-driver", "peekaboo"] },
       action: { type: "string" },
       dry_run: { type: "boolean" },

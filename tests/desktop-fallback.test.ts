@@ -402,6 +402,7 @@ test("MCP doctor and desktop tools expose CUA diagnostics while desktop act stay
     assert.match(actResult.nextAction ?? "", /loo_desktop_live_proof_harness/i);
     assert.match(actResult.nextAction ?? "", /loo_desktop_proof_report/i);
 
+    // The act layer validates public-safe proof shape only; proof-report validates action-hash binding.
     const compliantActionHash = createHash("sha256")
       .update(JSON.stringify({
         desktopBackend: "cua-driver",

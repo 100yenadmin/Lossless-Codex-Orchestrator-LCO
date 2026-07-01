@@ -597,7 +597,7 @@
       },
       {
         "name": "loo_desktop_act",
-        "description": "Dry-run desktop fallback action placeholder for CUA/Peekaboo.",
+        "description": "Dry-run desktop fallback action for CUA/Peekaboo; live requests return structured missing-proof blockers.",
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
