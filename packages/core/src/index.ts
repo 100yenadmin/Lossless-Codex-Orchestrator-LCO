@@ -449,7 +449,8 @@ export type AppServerThreadSignalInput = {
   titleSanitized?: string | null;
   titleHash?: string | null;
   status?: string | null;
-  loaded?: boolean;
+  loaded?: boolean | null;
+  loadedState?: "loaded" | "not_loaded" | "not_claimed";
   updatedAt?: string | null;
   sourceRef?: string;
   confidence?: number | null;
@@ -463,7 +464,7 @@ export type AppServerThreadsInput = {
     codexAppServer?: VisibleCodexCoverageState;
   };
   threads?: AppServerThreadSignalInput[];
-  loadedThreadRefs?: string[];
+  loadedThreadRefs?: string[] | null;
   errors?: string[];
 };
 
@@ -1818,10 +1819,11 @@ export function createVisibleCodexSessionMap(db: LooDatabase, options: {
   for (const visible of visibleThreads) {
     const titleMatches = cardsByTitle.get(normalizedTitle(visible.titleSanitized)) ?? [];
     const appTitleMatches = appThreadsByTitle.get(normalizedTitle(visible.titleSanitized)) ?? [];
-    const card = titleMatches.length === 1 ? titleMatches[0]!.card : null;
-    const appThread = card ? appThreadsByThreadId.get(bareCodexThreadId(card.threadId)) ?? null : appTitleMatches.length === 1 ? appTitleMatches[0]!.thread : null;
+    const appThread = appTitleMatches.length === 1 ? appTitleMatches[0]!.thread : null;
+    const cardFromAppThread = appThread ? cardsByThreadId.get(appThread.threadId) ?? null : null;
+    const card = cardFromAppThread ?? (titleMatches.length === 1 ? titleMatches[0]!.card : null);
     const ambiguity = [
-      ...(titleMatches.length > 1 ? ["multiple_indexed_title_matches"] : []),
+      ...(titleMatches.length > 1 && !cardFromAppThread ? ["multiple_indexed_title_matches"] : []),
       ...(appTitleMatches.length > 1 ? ["multiple_app_server_title_matches"] : []),
       ...(!card && titleMatches.length === 0 ? ["no_indexed_title_match"] : [])
     ];
@@ -1833,7 +1835,8 @@ export function createVisibleCodexSessionMap(db: LooDatabase, options: {
       reasonCodes: [
         "visible_codex_candidate",
         ...(appThread ? ["app_server_signal"] : []),
-        ...(card ? ["indexed_session_card"] : [])
+        ...(card ? ["indexed_session_card"] : []),
+        ...(cardFromAppThread && titleMatches.length > 1 ? ["resolved_duplicate_title_by_app_server_id"] : [])
       ]
     });
     items.push(item);
@@ -2199,8 +2202,9 @@ function publicAppServerThreadSignal(input: AppServerThreadSignalInput): Require
     titleSanitized: input.titleSanitized ? publicSafeText(input.titleSanitized, 160) : null,
     titleHash: input.titleHash ? publicSafeText(input.titleHash, 80) : null,
     status: input.status ? publicSafeText(input.status, 80) : null,
-    loaded: input.loaded === true,
-    updatedAt: input.updatedAt ?? null,
+    loaded: input.loaded === true ? true : input.loaded === false ? false : null,
+    loadedState: input.loadedState ?? (input.loaded === true ? "loaded" : input.loaded === false ? "not_loaded" : "not_claimed"),
+    updatedAt: publicIsoTimestamp(input.updatedAt),
     sourceRef: publicSafeText(input.sourceRef || codexThreadRef(threadId), 180),
     confidence: typeof input.confidence === "number" && Number.isFinite(input.confidence) ? Math.max(0.2, Math.min(0.99, input.confidence)) : 0.72
   };
@@ -2291,6 +2295,11 @@ function visibleConfidence(value: VisibleCodexThreadCandidateInput["confidence"]
 
 function normalizedTitle(value: string | null | undefined): string {
   return publicSafeText(value ?? "", 180).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function publicIsoTimestamp(value: string | null | undefined): string | null {
+  const parsed = timestampMillis(typeof value === "string" ? value : null);
+  return parsed === null ? null : new Date(parsed).toISOString();
 }
 
 function freshestVisibleMapSource(indexedUpdatedAt: string | null, appServerUpdatedAt: string | null, visibleUpdatedLabel: string | null): VisibleCodexSessionMapItem["freshness"]["freshestSource"] {

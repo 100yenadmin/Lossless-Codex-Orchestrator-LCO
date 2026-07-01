@@ -144,14 +144,54 @@ test("app-server threads report never requests turns and omits raw path cwd prev
   assert.equal(report.schema, "lco.codex.appServerThreads.v1");
   assert.equal(report.publicSafe, true);
   assert.equal(report.sourceCoverage.codexAppServer, "ok");
-  assert.deepEqual(client.requests.map((request) => request.method), ["thread/list", "thread/loaded/list", "thread/read"]);
-  assert.deepEqual(client.requests[2]?.params, { threadId: "thr_visible", includeTurns: false });
+  assert.deepEqual(client.requests.map((request) => request.method), ["thread/list", "thread/read"]);
+  assert.deepEqual(client.requests[0]?.params, {
+    limit: 5,
+    useStateDbOnly: true,
+    sortKey: "recency_at",
+    sortDirection: "desc",
+    sourceKinds: ["cli", "vscode", "exec", "appServer", "subAgent", "subAgentReview", "subAgentCompact", "subAgentThreadSpawn", "subAgentOther", "unknown"]
+  });
+  assert.deepEqual(client.requests[1]?.params, { threadId: "thr_visible", includeTurns: false });
   assert.equal(report.threads[0]?.threadId, "thr_visible");
-  assert.equal(report.threads[0]?.loaded, true);
+  assert.equal(report.threads[0]?.loaded, null);
+  assert.equal(report.threads[0]?.loadedState, "not_claimed");
+  assert.equal(report.loadedSignalSource, "not_claimed_one_shot_client");
+  assert.equal(report.loadedThreadRefs, null);
   assert.equal(report.threads[0]?.titleSanitized, "Visible safe title");
   assert.equal(report.readProbe?.threadId, "thr_visible");
   assert.equal(report.readProbe?.turnsOmitted, true);
   assert.doesNotMatch(JSON.stringify(report), /raw prompt|raw read|private\.jsonl|read-private|\/Users\/lume|\/Volumes\/LEXAR\/repos\/private/);
+});
+
+test("app-server threads report can claim loaded signals only for an explicit same-connection source", async () => {
+  const client = new FakeCodexReadClient({
+    "thread/list": {
+      ok: true,
+      result: {
+        data: [{
+          id: "thr_visible",
+          name: "Visible safe title",
+          updatedAt: 1782867600,
+          status: { type: "active", activeFlags: [] }
+        }]
+      },
+      notifications: []
+    },
+    "thread/loaded/list": { ok: true, result: { data: ["thr_visible"] }, notifications: [] }
+  });
+
+  const report = await createCodexAppServerThreadsReport({
+    client,
+    limit: 5,
+    claimLoadedSignals: true
+  });
+
+  assert.deepEqual(client.requests.map((request) => request.method), ["thread/list", "thread/loaded/list"]);
+  assert.equal(report.loadedSignalSource, "same_connection");
+  assert.deepEqual(report.loadedThreadRefs, ["codex_app_thread:thr_visible"]);
+  assert.equal(report.threads[0]?.loaded, true);
+  assert.equal(report.threads[0]?.loadedState, "loaded");
 });
 
 test("visible Codex map joins public-safe visible app-server and indexed session cards", async () => {
@@ -223,6 +263,17 @@ test("visible Codex map joins public-safe visible app-server and indexed session
           updatedAt: "2026-07-01T09:00:00.000Z",
           sourceRef: "codex_thread:thr_visible",
           confidence: 0.9
+        }, {
+          appServerRef: "codex_app_thread:thr_duplicate_b",
+          threadId: "thr_duplicate_b",
+          titleSanitized: "Duplicate visible title",
+          titleHash: "test-duplicate",
+          status: "active",
+          loaded: null,
+          loadedState: "not_claimed",
+          updatedAt: `${rawPathCanary} sk-test_1234567890`,
+          sourceRef: "codex_thread:thr_duplicate_b",
+          confidence: 0.9
         }],
         loadedThreadRefs: ["codex_app_thread:thr_visible"],
         errors: [],
@@ -242,16 +293,20 @@ test("visible Codex map joins public-safe visible app-server and indexed session
       visibleCodex: "ok",
       codexAppServer: "ok"
     });
-    assert.equal(map.items[0]?.desktopRef, "visible-1");
-    assert.equal(map.items[0]?.appServerRef, "codex_app_thread:thr_visible");
-    assert.equal(map.items[0]?.sourceRef, "codex_thread:thr_visible");
-    assert.equal(map.items[0]?.sessionCardRef, "codex_thread:thr_visible");
-    assert.equal(map.items[0]?.confidence >= 0.75, true);
-    assert.deepEqual(map.items[0]?.ambiguity, []);
+    const visible = map.items.find((item) => item.desktopRef === "visible-1");
+    assert.ok(visible);
+    assert.equal(visible.appServerRef, "codex_app_thread:thr_visible");
+    assert.equal(visible.sourceRef, "codex_thread:thr_visible");
+    assert.equal(visible.sessionCardRef, "codex_thread:thr_visible");
+    assert.equal(visible.confidence >= 0.75, true);
+    assert.deepEqual(visible.ambiguity, []);
     const ambiguous = map.items.find((item) => item.desktopRef === "visible-ambiguous");
     assert.ok(ambiguous);
-    assert.equal(ambiguous.confidence < 0.5, true);
-    assert.equal(ambiguous.ambiguity.includes("multiple_indexed_title_matches"), true);
+    assert.equal(ambiguous.sourceRef, "codex_thread:thr_duplicate_b");
+    assert.equal(ambiguous.sessionCardRef, "codex_thread:thr_duplicate_b");
+    assert.equal(ambiguous.ambiguity.includes("multiple_indexed_title_matches"), false);
+    assert.equal(ambiguous.reasonCodes.includes("resolved_duplicate_title_by_app_server_id"), true);
+    assert.equal(ambiguous.freshness.appServerUpdatedAt, null);
     assert.equal(map.actionsPerformed.liveCodexControlRun, false);
     assert.equal(map.actionsPerformed.desktopGuiActionRun, false);
     assert.equal(map.actionsPerformed.rawTranscriptRead, false);

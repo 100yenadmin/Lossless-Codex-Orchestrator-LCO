@@ -59,7 +59,8 @@ export type CodexAppServerThreadSignal = {
   titleSanitized: string | null;
   titleHash: string | null;
   status: string | null;
-  loaded: boolean;
+  loaded: boolean | null;
+  loadedState: "loaded" | "not_loaded" | "not_claimed";
   updatedAt: string | null;
   sourceRef: string;
   confidence: number;
@@ -73,7 +74,8 @@ export type CodexAppServerThreadsReport = {
     codexAppServer: SourceCoverageState;
   };
   threads: CodexAppServerThreadSignal[];
-  loadedThreadRefs: string[];
+  loadedThreadRefs: string[] | null;
+  loadedSignalSource: "same_connection" | "not_claimed_one_shot_client";
   readProbe?: {
     threadId: string;
     appServerRef: string;
@@ -95,6 +97,7 @@ export type CodexAppServerThreadsReport = {
 export type DesktopBackend = "direct" | "cua-driver" | "peekaboo";
 export const DESKTOP_BACKENDS = ["direct", "cua-driver", "peekaboo"] as const satisfies readonly DesktopBackend[];
 export const DESKTOP_GUI_APPROVAL_TTL_MS = 24 * 60 * 60 * 1000;
+const CODEX_THREAD_LIST_SOURCE_KINDS = ["cli", "vscode", "exec", "appServer", "subAgent", "subAgentReview", "subAgentCompact", "subAgentThreadSpawn", "subAgentOther", "unknown"] as const;
 const DESKTOP_PROOF_BACKEND = "cua-driver";
 const DESKTOP_PROOF_TARGET_APP = "TextEdit";
 const DESKTOP_PROOF_TARGET_WINDOW = "lco-desktop-proof.txt";
@@ -654,15 +657,24 @@ export async function createCodexAppServerThreadsReport(options: {
   client: CodexClient;
   limit?: number;
   readThreadId?: string;
+  claimLoadedSignals?: boolean;
   now?: string;
 }): Promise<CodexAppServerThreadsReport> {
   const limit = boundedInteger(options.limit, 20, 1, 100);
   const errors: string[] = [];
-  const list = await codexReadRequest(options.client, "thread/list", { limit, useStateDbOnly: true });
+  const list = await codexReadRequest(options.client, "thread/list", {
+    limit,
+    useStateDbOnly: true,
+    sortKey: "recency_at",
+    sortDirection: "desc",
+    sourceKinds: [...CODEX_THREAD_LIST_SOURCE_KINDS]
+  });
   if (!list.ok && list.error) errors.push(list.error);
-  const loaded = await codexReadRequest(options.client, "thread/loaded/list", {});
-  if (!loaded.ok && loaded.error) errors.push(loaded.error);
-  const loadedThreadIds = new Set(threadIdsFromLoadedResult(loaded.result));
+  const loaded = options.claimLoadedSignals === true
+    ? await codexReadRequest(options.client, "thread/loaded/list", {})
+    : null;
+  if (loaded && !loaded.ok && loaded.error) errors.push(loaded.error);
+  const loadedThreadIds = loaded?.ok ? new Set(threadIdsFromLoadedResult(loaded.result)) : null;
   const threads = threadRecordsFromListResult(list.result)
     .slice(0, limit)
     .map((thread) => appServerThreadSignal(thread, loadedThreadIds));
@@ -701,10 +713,11 @@ export async function createCodexAppServerThreadsReport(options: {
     publicSafe: true,
     generatedAt: options.now ?? new Date().toISOString(),
     sourceCoverage: {
-      codexAppServer: list.ok && loaded.ok ? "ok" : list.ok || loaded.ok ? "partial" : "unavailable"
+      codexAppServer: list.ok && (!loaded || loaded.ok) ? "ok" : list.ok || loaded?.ok ? "partial" : "unavailable"
     },
     threads,
-    loadedThreadRefs: [...loadedThreadIds].sort().map(codexAppThreadRef),
+    loadedThreadRefs: loadedThreadIds ? [...loadedThreadIds].sort().map(codexAppThreadRef) : null,
+    loadedSignalSource: loadedThreadIds ? "same_connection" : "not_claimed_one_shot_client",
     readProbe,
     errors: errors.map((error) => capTextValue(error, 260)),
     actionsPerformed: {
@@ -712,7 +725,7 @@ export async function createCodexAppServerThreadsReport(options: {
       desktopGuiActionRun: false,
       rawTranscriptRead: false
     },
-    proofBoundary: "This report uses only thread/list, thread/loaded/list, and optional thread/read with includeTurns:false. It omits preview, cwd, path, and turns, and does not resume, send, steer, interrupt, or mutate Codex."
+    proofBoundary: "This report uses thread/list with explicit source and recency filters plus optional thread/read with includeTurns:false. Loaded-thread signals are only claimed for an explicit same-connection source; the default one-shot stdio client does not claim loaded state. It omits preview, cwd, path, and turns, and does not resume, send, steer, interrupt, or mutate Codex."
   };
 }
 
@@ -1823,16 +1836,18 @@ function threadIdsFromLoadedResult(result: unknown): string[] {
   return data.map((item) => typeof item === "string" ? item : stringField(asRecord(item)?.id)).filter((id): id is string => Boolean(id));
 }
 
-function appServerThreadSignal(thread: Record<string, unknown>, loadedThreadIds: Set<string>): CodexAppServerThreadSignal {
+function appServerThreadSignal(thread: Record<string, unknown>, loadedThreadIds: Set<string> | null): CodexAppServerThreadSignal {
   const threadId = capTextValue(stringField(thread.id) ?? "unknown", 160);
   const title = publicTextField(thread.name, 160);
+  const loaded = loadedThreadIds ? loadedThreadIds.has(threadId) : null;
   return {
     appServerRef: codexAppThreadRef(threadId),
     threadId,
     titleSanitized: title ?? null,
     titleHash: title ? shortHash(title) : null,
     status: threadStatus(thread.status),
-    loaded: loadedThreadIds.has(threadId),
+    loaded,
+    loadedState: loaded === null ? "not_claimed" : loaded ? "loaded" : "not_loaded",
     updatedAt: unixSecondsToIso(thread.updatedAt),
     sourceRef: `codex_thread:${threadId}`,
     confidence: title ? 0.9 : 0.62

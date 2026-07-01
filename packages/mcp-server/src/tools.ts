@@ -276,7 +276,7 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       client: codexReadClient,
       command: process.env.LOO_CODEX_BIN || "codex"
     })),
-    tool("loo_codex_app_server_threads", "Read Codex app-server thread list and loaded-thread signals without turns or raw paths.", {
+    tool("loo_codex_app_server_threads", "Read Codex app-server thread metadata and loaded-signal posture without turns or raw paths.", {
       limit: { type: "integer", minimum: 1, maximum: 100 },
       read_thread_id: { type: "string" }
     }, (input) => createCodexAppServerThreadsReport({

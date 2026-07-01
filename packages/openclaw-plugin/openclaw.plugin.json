@@ -522,7 +522,7 @@
       },
       {
         "name": "loo_codex_app_server_threads",
-        "description": "Read Codex app-server thread list and loaded-thread signals without turns or raw paths.",
+        "description": "Read Codex app-server thread metadata and loaded-signal posture without turns or raw paths.",
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
