@@ -255,7 +255,7 @@ function validateReleaseOperationApprovalProofDetailed(path: string | undefined,
     && Object.keys(proof).every((key) => desktopAllowedKeys.has(key));
   return {
     satisfied: desktopApprovalValid,
-    actionHash: desktopApprovalValid ? proof.actionHash : undefined
+    actionHash: hashFieldPresent(proof.actionHash) ? proof.actionHash : undefined
   };
 }
 

@@ -25,7 +25,7 @@ export type RuntimeProofRequirement = {
   id: string;
   requiredMarkers: string[];
   maxCounts: Record<string, number>;
-  exactStringFields?: Record<string, string>;
+  exactStringFields?: Partial<Record<keyof RuntimeProofJson, string>>;
 };
 
 type RuntimeProofSelectionOptions = {
@@ -181,8 +181,9 @@ function runtimeCountBlockers(requirement: RuntimeProofRequirement, proof: Runti
 }
 
 function runtimeExactStringFieldBlockers(requirement: RuntimeProofRequirement, proof: RuntimeProofJson): string[] {
-  return Object.entries(requirement.exactStringFields ?? {}).flatMap(([field, expectedValue]) => {
-    const actualValue = proof[field as keyof RuntimeProofJson];
+  const exactFields = Object.entries(requirement.exactStringFields ?? {}) as Array<[keyof RuntimeProofJson, string]>;
+  return exactFields.flatMap(([field, expectedValue]) => {
+    const actualValue = proof[field];
     if (typeof actualValue !== "string" || !actualValue.trim()) return [`runtime_proof_missing:${requirement.id}:${field}`];
     return actualValue === expectedValue ? [] : [`runtime_proof_mismatch:${requirement.id}:${field}`];
   });

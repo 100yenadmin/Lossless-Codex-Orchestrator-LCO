@@ -384,7 +384,6 @@ test("release status --claim-scope codex-working-app-proof requires gateway and 
     "codeql.json",
     "--strict"
   ];
-
   const missingRuntimeProof = spawnSync(process.execPath, commonArgs, { encoding: "utf8" });
 
   assert.equal(missingRuntimeProof.status, 1, missingRuntimeProof.stderr || missingRuntimeProof.stdout);
@@ -598,6 +597,11 @@ test("release status --strict requires GUI target details only when GUI mutation
     "2026-06-30T10:00:00.000Z",
     "--strict"
   ];
+  const invalidApprovalWithRuntimeMismatchBlockers = [
+    "desktop_gui_mutation_not_approved",
+    "desktop_collaboration_proof_missing",
+    "runtime_proof_mismatch:desktop-collaboration-action-bound-v1-1:action_hash"
+  ];
   const broadResult = spawnSync(process.execPath, [
     ...commonArgs,
     "--desktop-gui-approval-evidence",
@@ -643,7 +647,7 @@ test("release status --strict requires GUI target details only when GUI mutation
     blockers?: string[];
     explicitApprovalsRequired?: Array<{ id: string; satisfied: boolean }>;
   };
-  assert.deepEqual(diagnosticFocusPayload.blockers, ["desktop_gui_mutation_not_approved"]);
+  assert.deepEqual(diagnosticFocusPayload.blockers, invalidApprovalWithRuntimeMismatchBlockers);
   assert.deepEqual(diagnosticFocusPayload.explicitApprovalsRequired?.find((approval) => approval.id === "desktop_gui_mutation"), {
     id: "desktop_gui_mutation",
     satisfied: false
@@ -660,7 +664,7 @@ test("release status --strict requires GUI target details only when GUI mutation
     blockers?: string[];
     explicitApprovalsRequired?: Array<{ id: string; satisfied: boolean }>;
   };
-  assert.deepEqual(changedFocusPayload.blockers, ["desktop_gui_mutation_not_approved"]);
+  assert.deepEqual(changedFocusPayload.blockers, invalidApprovalWithRuntimeMismatchBlockers);
   assert.deepEqual(changedFocusPayload.explicitApprovalsRequired?.find((approval) => approval.id === "desktop_gui_mutation"), {
     id: "desktop_gui_mutation",
     satisfied: false
@@ -677,7 +681,7 @@ test("release status --strict requires GUI target details only when GUI mutation
     blockers?: string[];
     explicitApprovalsRequired?: Array<{ id: string; satisfied: boolean }>;
   };
-  assert.deepEqual(expiredPayload.blockers, ["desktop_gui_mutation_not_approved"]);
+  assert.deepEqual(expiredPayload.blockers, invalidApprovalWithRuntimeMismatchBlockers);
   assert.deepEqual(expiredPayload.explicitApprovalsRequired?.find((approval) => approval.id === "desktop_gui_mutation"), {
     id: "desktop_gui_mutation",
     satisfied: false
@@ -890,7 +894,11 @@ test("release status binds desktop GUI approval hash to backend, target, and act
   const mismatchedResult = spawnSync(process.execPath, commonArgs, { encoding: "utf8" });
   assert.equal(mismatchedResult.status, 1, mismatchedResult.stderr || mismatchedResult.stdout);
   const mismatchedPayload = JSON.parse(mismatchedResult.stdout) as { blockers?: string[] };
-  assert.deepEqual(mismatchedPayload.blockers, ["desktop_gui_mutation_not_approved"]);
+  assert.deepEqual(mismatchedPayload.blockers, [
+    "desktop_gui_mutation_not_approved",
+    "desktop_collaboration_proof_missing",
+    "runtime_proof_mismatch:desktop-collaboration-action-bound-v1-1:action_hash"
+  ]);
 
   writeReleaseOperationApprovalProof(desktopGuiApprovalProof, "desktop_gui_mutation", {
     ...desktopAction,
