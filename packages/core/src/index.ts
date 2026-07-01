@@ -2528,7 +2528,13 @@ function githubOperatingItemFromRecord(
   const reasonCodes = githubReasonCodes(value, kind, updatedAt, nowMs);
   const state = githubOperatingState(value, reasonCodes);
   const urgency = state === "red" ? "high" : state === "yellow" || state === "unknown" ? "medium" : "low";
-  const confidence = reasonCodes.includes("low_confidence") ? 0.48 : reasonCodes.includes("stale") ? 0.74 : 0.88;
+  const confidence = reasonCodes.includes("low_confidence")
+    ? 0.48
+    : reasonCodes.includes("checks_unknown")
+      ? 0.64
+      : reasonCodes.includes("stale")
+        ? 0.74
+        : 0.88;
   return {
     item: {
       id,
@@ -2600,18 +2606,75 @@ function githubUrlKind(record: Record<string, unknown>): GithubOperatingItem["ki
 }
 
 function githubCheckRecords(record: Record<string, unknown>): Record<string, unknown>[] {
-  const records: Record<string, unknown>[] = [record];
-  for (const key of ["checks", "statusCheckRollup", "status_check_rollup", "checkRuns", "check_runs"]) {
-    const value = record[key];
-    if (githubRecord(value)) {
-      records.push(value);
-      const nodes = value.nodes;
-      if (Array.isArray(nodes)) records.push(...nodes.filter(githubRecord));
-    } else if (Array.isArray(value)) {
-      records.push(...value.filter(githubRecord));
-    }
-  }
+  const records: Record<string, unknown>[] = [];
+  collectGithubCheckRecords(record, records, new Set(), 0);
   return records;
+}
+
+const GITHUB_CHECK_CONTAINER_KEYS = [
+  "checks",
+  "statusCheckRollup",
+  "status_check_rollup",
+  "checkRuns",
+  "check_runs",
+  "checkSuites",
+  "check_suites",
+  "statusContexts",
+  "status_contexts",
+  "contexts",
+  "nodes",
+  "edges",
+  "node"
+] as const;
+
+function collectGithubCheckRecords(
+  value: unknown,
+  records: Record<string, unknown>[],
+  seen: Set<Record<string, unknown>>,
+  depth: number
+): void {
+  if (depth > 6) return;
+  if (Array.isArray(value)) {
+    value.forEach((entry) => collectGithubCheckRecords(entry, records, seen, depth + 1));
+    return;
+  }
+  if (!githubRecord(value)) return;
+  if (githubDirectCheckRecord(value) && !seen.has(value)) {
+    seen.add(value);
+    records.push(value);
+  }
+  for (const key of GITHUB_CHECK_CONTAINER_KEYS) {
+    const child = value[key];
+    if (child !== undefined) collectGithubCheckRecords(child, records, seen, depth + 1);
+  }
+}
+
+function githubDirectCheckRecord(record: Record<string, unknown>): boolean {
+  const typename = normalizedMetadataValue(githubString(record.__typename) ?? "");
+  if (["checkrun", "statuscontext", "checksuite", "check_run", "status_context", "check_suite"].includes(typename)) return true;
+  if ([
+    "status",
+    "checkStatus",
+    "check_status",
+    "conclusion",
+    "checkConclusion",
+    "check_conclusion",
+    "bucket"
+  ].some((key) => githubString(record[key]) !== null)) return true;
+  const state = normalizedMetadataValue(githubString(record.state) ?? "");
+  if (state && githubCheckStateLikeValue(state)) return true;
+  return [
+    "failing",
+    "failed",
+    "pending",
+    "total",
+    "failureCount",
+    "failure_count",
+    "pendingCount",
+    "pending_count",
+    "totalCount",
+    "total_count"
+  ].some((key) => githubNumber(record[key]) !== null);
 }
 
 function githubCheckValues(checks: Record<string, unknown>): string[] {
@@ -2629,12 +2692,20 @@ function githubCheckValues(checks: Record<string, unknown>): string[] {
     .filter(Boolean);
 }
 
+function githubCheckStateLikeValue(value: string): boolean {
+  return githubFailedCheckValue(value) || githubPendingCheckValue(value) || githubSuccessfulCheckValue(value) || ["completed"].includes(value);
+}
+
 function githubFailedCheckValue(value: string): boolean {
   return ["failure", "failed", "error", "timed_out", "cancelled", "action_required", "fail", "red"].includes(value);
 }
 
 function githubPendingCheckValue(value: string): boolean {
   return ["queued", "in_progress", "pending", "neutral_pending", "requested", "waiting"].includes(value);
+}
+
+function githubSuccessfulCheckValue(value: string): boolean {
+  return ["success", "successful", "passed", "pass", "neutral", "skipped", "green"].includes(value);
 }
 
 function githubCheckCount(checks: Record<string, unknown>, keys: string[]): number | null {
@@ -2665,10 +2736,16 @@ function githubReasonCodes(
     kind === "pr" ? "pr_open" : kind === "issue" ? "issue_open" : "repo_signal"
   ];
   const state = normalizedMetadataValue(githubString(record.state) ?? "");
+  const hasChecks = githubHasCheckData(record);
+  const checksFailed = githubChecksFailed(record);
+  const checksPending = githubChecksPending(record);
+  const checksPassed = hasChecks && !checksFailed && !checksPending && githubChecksPassed(record);
   if (state === "closed") codes.push("closed");
   if (githubBoolean(record.merged) || state === "merged") codes.push("merged");
-  if (githubChecksFailed(record)) codes.push("ci_failed");
-  if (githubChecksPending(record)) codes.push("checks_pending");
+  if (checksFailed) codes.push("ci_failed");
+  if (checksPending) codes.push("checks_pending");
+  if (kind === "pr" && checksPassed) codes.push("checks_passed");
+  if (kind === "pr" && state === "open" && !checksFailed && !checksPending && !checksPassed) codes.push("checks_unknown");
   const reviewDecision = normalizedMetadataValue(githubString(record.reviewDecision ?? record.review_decision) ?? "");
   if (reviewDecision === "changes_requested") codes.push("changes_requested");
   if (reviewDecision === "review_required" || githubBoolean(record.reviewRequested ?? record.review_requested)) codes.push("review_requested");
@@ -2684,8 +2761,13 @@ function githubOperatingState(record: Record<string, unknown>, reasonCodes: stri
   if (reasonCodes.includes("ci_failed") || reasonCodes.includes("changes_requested")) return "red";
   if (reasonCodes.includes("checks_pending") || reasonCodes.includes("review_requested") || reasonCodes.includes("stale") || reasonCodes.includes("draft")) return "yellow";
   if (reasonCodes.includes("merged") || rawState === "closed") return "green";
+  if (reasonCodes.includes("checks_passed")) return "green";
   if (rawState === "open") return "yellow";
   return "unknown";
+}
+
+function githubHasCheckData(record: Record<string, unknown>): boolean {
+  return githubCheckRecords(record).length > 0;
 }
 
 function githubChecksFailed(record: Record<string, unknown>): boolean {
@@ -2702,10 +2784,26 @@ function githubChecksPending(record: Record<string, unknown>): boolean {
   });
 }
 
+function githubChecksPassed(record: Record<string, unknown>): boolean {
+  const checks = githubCheckRecords(record);
+  return checks.length > 0 && checks.every(githubCheckPassed);
+}
+
+function githubCheckPassed(checks: Record<string, unknown>): boolean {
+  const values = githubCheckValues(checks);
+  if (values.some(githubFailedCheckValue) || values.some(githubPendingCheckValue)) return false;
+  if (values.some(githubSuccessfulCheckValue)) return true;
+  const total = githubCheckCount(checks, ["total", "totalCount", "total_count", "checkCount", "check_count"]);
+  const failing = githubCheckCount(checks, ["failing", "failed", "failureCount", "failure_count"]) ?? 0;
+  const pending = githubCheckCount(checks, ["pending", "pendingCount", "pending_count"]) ?? 0;
+  return total !== null && total > 0 && failing === 0 && pending === 0;
+}
+
 function githubNextAction(id: string, state: OperatingState, reasonCodes: string[]): string {
   if (reasonCodes.includes("ci_failed")) return `Inspect failing GitHub checks for ${id}.`;
   if (reasonCodes.includes("changes_requested")) return `Address requested GitHub review changes for ${id}.`;
   if (reasonCodes.includes("checks_pending")) return `Watch GitHub checks for ${id}.`;
+  if (reasonCodes.includes("checks_unknown")) return `Inspect GitHub check state for ${id}.`;
   if (reasonCodes.includes("stale")) return `Review stale GitHub item ${id}.`;
   if (reasonCodes.includes("review_requested")) return `Review GitHub item ${id}.`;
   if (state === "green") return `No action needed for ${id}.`;
