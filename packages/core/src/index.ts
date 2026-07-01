@@ -2667,13 +2667,10 @@ function githubDirectCheckRecord(record: Record<string, unknown>): boolean {
     "failing",
     "failed",
     "pending",
-    "total",
     "failureCount",
     "failure_count",
     "pendingCount",
-    "pending_count",
-    "totalCount",
-    "total_count"
+    "pending_count"
   ].some((key) => githubNumber(record[key]) !== null);
 }
 
@@ -2697,11 +2694,11 @@ function githubCheckStateLikeValue(value: string): boolean {
 }
 
 function githubFailedCheckValue(value: string): boolean {
-  return ["failure", "failed", "error", "timed_out", "cancelled", "action_required", "fail", "red"].includes(value);
+  return ["failure", "failed", "error", "timed_out", "cancelled", "action_required", "startup_failure", "fail", "red"].includes(value);
 }
 
 function githubPendingCheckValue(value: string): boolean {
-  return ["queued", "in_progress", "pending", "neutral_pending", "requested", "waiting"].includes(value);
+  return ["queued", "in_progress", "pending", "neutral_pending", "requested", "waiting", "expected"].includes(value);
 }
 
 function githubSuccessfulCheckValue(value: string): boolean {
@@ -2794,9 +2791,11 @@ function githubCheckPassed(checks: Record<string, unknown>): boolean {
   if (values.some(githubFailedCheckValue) || values.some(githubPendingCheckValue)) return false;
   if (values.some(githubSuccessfulCheckValue)) return true;
   const total = githubCheckCount(checks, ["total", "totalCount", "total_count", "checkCount", "check_count"]);
-  const failing = githubCheckCount(checks, ["failing", "failed", "failureCount", "failure_count"]) ?? 0;
-  const pending = githubCheckCount(checks, ["pending", "pendingCount", "pending_count"]) ?? 0;
-  return total !== null && total > 0 && failing === 0 && pending === 0;
+  const failingRaw = githubCheckCount(checks, ["failing", "failed", "failureCount", "failure_count"]);
+  const pendingRaw = githubCheckCount(checks, ["pending", "pendingCount", "pending_count"]);
+  const failing = failingRaw ?? 0;
+  const pending = pendingRaw ?? 0;
+  return total !== null && total > 0 && failingRaw !== null && pendingRaw !== null && failing === 0 && pending === 0;
 }
 
 function githubNextAction(id: string, state: OperatingState, reasonCodes: string[]): string {

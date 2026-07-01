@@ -481,6 +481,68 @@ test("GitHub operating item collector preserves statusCheckRollup fidelity", () 
   assert.equal(unknownPr?.reasonCodes.includes("pr_open"), true);
   assert.equal(unknownPr?.reasonCodes.includes("checks_unknown"), true);
 
+  const startupFailureReport = createGithubOperatingItemsReport([
+    {
+      repo: "100yenadmin/Lossless-Codex-Orchestrator-LCO",
+      number: 273,
+      type: "pull_request",
+      title: "Startup failure check run",
+      state: "open",
+      updatedAt: relativeIso(1),
+      statusCheckRollup: {
+        contexts: {
+          nodes: [
+            { __typename: "CheckRun", name: "test", status: "STARTUP_FAILURE", conclusion: null }
+          ]
+        }
+      }
+    }
+  ], { now: "2026-07-01T12:00:00.000Z" });
+  const startupFailurePr = startupFailureReport.items.find((item) => item.id.endsWith("#273"));
+  assert.equal(startupFailurePr?.state, "red");
+  assert.equal(startupFailurePr?.reasonCodes.includes("ci_failed"), true);
+
+  const expectedContextReport = createGithubOperatingItemsReport([
+    {
+      repo: "100yenadmin/Lossless-Codex-Orchestrator-LCO",
+      number: 274,
+      type: "pull_request",
+      title: "Expected required status context",
+      state: "open",
+      updatedAt: relativeIso(1),
+      statusCheckRollup: {
+        contexts: {
+          nodes: [
+            { context: "required-check", state: "EXPECTED" }
+          ]
+        }
+      }
+    }
+  ], { now: "2026-07-01T12:00:00.000Z" });
+  const expectedContextPr = expectedContextReport.items.find((item) => item.id.endsWith("#274"));
+  assert.equal(expectedContextPr?.state, "yellow");
+  assert.equal(expectedContextPr?.reasonCodes.includes("checks_pending"), true);
+
+  const totalCountOnlyReport = createGithubOperatingItemsReport([
+    {
+      repo: "100yenadmin/Lossless-Codex-Orchestrator-LCO",
+      number: 275,
+      type: "pull_request",
+      title: "Total count without loaded checks",
+      state: "open",
+      updatedAt: relativeIso(1),
+      statusCheckRollup: {
+        contexts: {
+          totalCount: 3
+        }
+      }
+    }
+  ], { includeGreen: true, now: "2026-07-01T12:00:00.000Z" });
+  const totalCountOnlyPr = totalCountOnlyReport.items.find((item) => item.id.endsWith("#275"));
+  assert.equal(totalCountOnlyPr?.state, "yellow");
+  assert.equal(totalCountOnlyPr?.reasonCodes.includes("checks_unknown"), true);
+  assert.equal(totalCountOnlyPr?.reasonCodes.includes("checks_passed"), false);
+
   const root = mkdtempSync(join(tmpdir(), "loo-github-check-fidelity-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
   try {
@@ -536,7 +598,7 @@ test("operating picture marks missing P1 sources and preserves low-confidence co
 <!-- /loo:manual-pin -->
 `);
     const digest = createProjectDigest(db, {
-      window: "today",
+      window: "7d",
       limit: 10,
       planStatePins: pins,
       githubItems: [
@@ -552,18 +614,18 @@ test("operating picture marks missing P1 sources and preserves low-confidence co
       ]
     });
     const missingStructuredSources = createProjectDigest(db, {
-      window: "today",
+      window: "7d",
       limit: 10,
       planStatePins: createPlanStatePinsReport(""),
       githubItems: []
     });
     const boundaryOnlyDigest = createProjectDigest(db, {
-      window: "today",
+      window: "7d",
       limit: 10,
       planStatePins: createPlanStatePinsReport("<!-- loo:approval-boundary -->\n- Stop before live control.\n<!-- /loo:approval-boundary -->")
     });
     const limitedDigest = createProjectDigest(db, {
-      window: "today",
+      window: "7d",
       limit: 2,
       planStatePins: pins,
       githubItems: [
@@ -603,7 +665,7 @@ test("operating picture marks missing P1 sources and preserves low-confidence co
     assert.equal(limitedDigest.cards.length, 2);
     assert.equal(limitedDigest.signals.length, 2);
 
-    const attention = createBusinessPulse(db, { window: "today", limit: 5, planStatePins: pins });
+    const attention = createBusinessPulse(db, { window: "7d", limit: 5, planStatePins: pins });
     assert.equal(attention.digest.health.finance.state, "unknown");
     assert.equal(attention.digest.health.finance.reason, "stripe_adapter_not_configured");
   });
@@ -632,7 +694,7 @@ test("operating picture includes source authority and degrades unavailable autho
 `);
     const profile = createDefaultSourceAuthorityProfile();
     const digest = createProjectDigest(db, {
-      window: "today",
+      window: "custom",
       limit: 10,
       planStatePins: pins,
       sourceAuthorityProfile: profile,
@@ -660,7 +722,7 @@ test("operating picture includes source authority and degrades unavailable autho
     assert.equal(digest.authorityCoverage.stripe.status, "not_configured");
 
     const degraded = createProjectDigest(db, {
-      window: "today",
+      window: "custom",
       limit: 10,
       sourceAuthorityProfile: createDefaultSourceAuthorityProfile({
         github: {
