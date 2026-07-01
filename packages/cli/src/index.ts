@@ -37,6 +37,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createReleaseBundle } from "./release-bundle.js";
 import { createReleaseDemoStatus } from "./release-demo-status.js";
+import { createReleaseGeneralReadiness } from "./release-general-readiness.js";
 import { runReleasePreflight } from "./release-preflight.js";
 import { createReleaseStatus } from "./release-status.js";
 import { runOpenClawDogfood } from "./openclaw-dogfood.js";
@@ -504,6 +505,27 @@ async function main() {
     if (parsed.strict && !report.releaseReady) process.exitCode = 1;
     return;
   }
+  if (command === "release" && args[0] === "general-readiness") {
+    if (hasHelpFlag(args.slice(1))) {
+      printReleaseGeneralReadinessHelp();
+      return;
+    }
+    const parsed = parseReleaseGeneralReadinessArgs(args.slice(1));
+    const report = createReleaseGeneralReadiness({
+      evidenceDir: parsed.evidenceDir,
+      candidateSha: parsed.candidateSha,
+      agentSkillEvidence: parsed.agentSkillEvidence,
+      agentDogfoodEvidence: parsed.agentDogfoodEvidence,
+      freshNpmEvidence: parsed.freshNpmEvidence,
+      scorecardSweepEvidence: parsed.scorecardSweepEvidence,
+      githubCiEvidence: parsed.githubCiEvidence,
+      codeqlEvidence: parsed.codeqlEvidence,
+      now: parsed.now
+    });
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.generalReady) process.exitCode = 1;
+    return;
+  }
   if (command === "release" && args[0] === "demo-status") {
     if (hasHelpFlag(args.slice(1))) {
       printReleaseDemoStatusHelp();
@@ -555,6 +577,7 @@ async function main() {
     "  loo release preflight [--evidence-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--strict]",
     "  loo release bundle --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--strict]",
     "  loo release status --evidence-dir path --candidate-sha sha [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--github-ci-evidence path] [--codeql-evidence path] [--desktop-gui-required --desktop-gui-approval-evidence path] [--now iso] [--strict]",
+    "  loo release general-readiness --evidence-dir path --candidate-sha sha [--agent-skill-evidence path] [--agent-dogfood-evidence path] [--fresh-npm-evidence path] [--scorecard-sweep-evidence path] [--github-ci-evidence path] [--codeql-evidence path] [--now iso] [--strict]",
     "  loo release demo-status --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--min-sessions n] [--strict]"
   ].join("\n"));
   process.exitCode = 2;
@@ -880,6 +903,28 @@ function printReleaseStatusHelp(): void {
     "",
     "Safety boundary:",
     "  The command does not publish npm, does not create a GitHub Release, does not run live Codex control, and does not perform desktop GUI mutation."
+  ].join("\n"));
+}
+
+function printReleaseGeneralReadinessHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo release general-readiness --evidence-dir path --candidate-sha sha [--agent-skill-evidence path] [--agent-dogfood-evidence path] [--fresh-npm-evidence path] [--scorecard-sweep-evidence path] [--github-ci-evidence path] [--codeql-evidence path] [--now iso] [--strict]",
+    "",
+    "Writes a public-safe 1.0 general-readiness packet without performing gated release actions.",
+    "",
+    "Proof markers:",
+    "  Agent skill evidence proves the packaged OpenClaw usage skill from #232.",
+    "  Agent dogfood evidence proves the gateway-only search, describe, expand, detail, reason, and dry-run workflow from #234.",
+    "  Fresh npm evidence proves the clean-profile beta install/load path from #235.",
+    "  Scorecard sweep evidence must pass the safety, retrieval, packaging, public-claim, and local-agent usability scorecards.",
+    "  CI and CodeQL checks use kind: \"loo_release_check_evidence\" with matching candidate SHA and rawSecretIncluded: false.",
+    "",
+    "Strict mode:",
+    "  --strict exits non-zero until all M9 evidence, scorecards, docs, dist-tag policy, candidate SHA, CI, and CodeQL gates pass.",
+    "",
+    "Safety boundary:",
+    "  The command does not publish npm, create a GitHub Release, promote npm latest, run live Codex control, or perform desktop GUI mutation."
   ].join("\n"));
 }
 
@@ -2073,6 +2118,87 @@ function parseReleaseStatusArgs(input: string[]): {
     githubCiEvidence,
     codeqlEvidence,
     desktopGuiRequired,
+    now,
+    strict
+  };
+}
+
+function parseReleaseGeneralReadinessArgs(input: string[]): {
+  evidenceDir: string;
+  candidateSha?: string;
+  agentSkillEvidence?: string;
+  agentDogfoodEvidence?: string;
+  freshNpmEvidence?: string;
+  scorecardSweepEvidence?: string;
+  githubCiEvidence?: string;
+  codeqlEvidence?: string;
+  now?: string;
+  strict: boolean;
+} {
+  let evidenceDir: string | undefined;
+  let candidateSha: string | undefined;
+  let agentSkillEvidence: string | undefined;
+  let agentDogfoodEvidence: string | undefined;
+  let freshNpmEvidence: string | undefined;
+  let scorecardSweepEvidence: string | undefined;
+  let githubCiEvidence: string | undefined;
+  let codeqlEvidence: string | undefined;
+  let now: string | undefined;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--evidence-dir") {
+      evidenceDir = readReleaseStatusPath(input, ++index, "--evidence-dir");
+      continue;
+    }
+    if (arg === "--candidate-sha") {
+      candidateSha = readReleaseStatusValue(input, ++index, "--candidate-sha");
+      continue;
+    }
+    if (arg === "--agent-skill-evidence") {
+      agentSkillEvidence = readReleaseStatusPath(input, ++index, "--agent-skill-evidence");
+      continue;
+    }
+    if (arg === "--agent-dogfood-evidence") {
+      agentDogfoodEvidence = readReleaseStatusPath(input, ++index, "--agent-dogfood-evidence");
+      continue;
+    }
+    if (arg === "--fresh-npm-evidence") {
+      freshNpmEvidence = readReleaseStatusPath(input, ++index, "--fresh-npm-evidence");
+      continue;
+    }
+    if (arg === "--scorecard-sweep-evidence") {
+      scorecardSweepEvidence = readReleaseStatusPath(input, ++index, "--scorecard-sweep-evidence");
+      continue;
+    }
+    if (arg === "--github-ci-evidence") {
+      githubCiEvidence = readReleaseStatusPath(input, ++index, "--github-ci-evidence");
+      continue;
+    }
+    if (arg === "--codeql-evidence") {
+      codeqlEvidence = readReleaseStatusPath(input, ++index, "--codeql-evidence");
+      continue;
+    }
+    if (arg === "--now") {
+      now = readReleaseStatusValue(input, ++index, "--now");
+      continue;
+    }
+    if (arg === "--strict") {
+      strict = true;
+      continue;
+    }
+    throw new Error(`Unknown release general-readiness option: ${arg}`);
+  }
+  if (!evidenceDir) throw new Error("release general-readiness requires --evidence-dir");
+  return {
+    evidenceDir,
+    candidateSha,
+    agentSkillEvidence,
+    agentDogfoodEvidence,
+    freshNpmEvidence,
+    scorecardSweepEvidence,
+    githubCiEvidence,
+    codeqlEvidence,
     now,
     strict
   };

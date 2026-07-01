@@ -361,6 +361,23 @@ operation explicitly claims and proves that change. At the first stable release,
 move `latest` to the stable version and keep beta and other prereleases on
 prerelease tags. Do not publish a fake stable package just to move a dist-tag.
 
+## 1.0 General Readiness Gate
+
+Before any stable `1.0.0` release candidate or npm `latest` promotion, run the
+M9 handoff gate from the public CLI surface:
+
+```bash
+node ./dist/packages/cli/src/index.js release general-readiness --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/general-readiness --candidate-sha "$release_candidate_sha" --agent-skill-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-232-agent-usage-skill/validation.json --agent-dogfood-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-234-agent-dogfood-core-workflow/openclaw-tool-smoke-final.json --fresh-npm-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-235-fresh-npm-clean-profile/fresh-install-summary.json --scorecard-sweep-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/general-readiness/scorecard-sweep.json --github-ci-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/general-readiness/github-ci.json --codeql-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/general-readiness/codeql.json --strict
+```
+
+`loo release general-readiness` is a gate, not a release operation. It must
+continue to report `npmPublished: false`, `githubReleaseCreated: false`,
+`npmLatestPromoted: false`, `liveCodexControlRun: false`, and
+`desktopGuiActionRun: false`. Passing this gate means the Codex-first local
+orchestration 1.0 checklist has evidence; it does not itself publish 1.0, move
+`latest`, create a GitHub Release, prove Claude parity, prove generic GUI
+mutation, or claim customer/enterprise readiness.
+
 ## Public Release Steps
 
 Only after the approval gates are satisfied:

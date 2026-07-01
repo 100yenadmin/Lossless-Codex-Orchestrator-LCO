@@ -127,3 +127,16 @@ test("loo release demo-status --help exits zero with demo-boundary usage", () =>
   assert.match(result.stdout, /does not perform desktop GUI mutation/i);
   assert.equal(result.stderr.trim(), "");
 });
+
+test("loo release general-readiness --help exits zero with 1.0 gate usage", () => {
+  const result = runLoo(["release", "general-readiness", "--help"]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Usage:\n  loo release general-readiness/);
+  assert.match(result.stdout, /--agent-skill-evidence path/);
+  assert.match(result.stdout, /--fresh-npm-evidence path/);
+  assert.match(result.stdout, /M9 evidence/i);
+  assert.match(result.stdout, /does not publish npm/i);
+  assert.match(result.stdout, /promote npm latest/i);
+  assert.equal(result.stderr.trim(), "");
+});

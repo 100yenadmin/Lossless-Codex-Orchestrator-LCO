@@ -240,6 +240,8 @@ Release candidates should be scoped to the evidence they actually prove. `main` 
 
 For `0.1.x` reduced-scope release candidates, the allowed claim scope is `codex-read-search-expand-dry-run` when the evidence proves Codex indexing, search, describe, bounded expansion, and dry-run control through CLI, MCP, or the OpenClaw gateway. In that scope, live Codex control is an excluded claim, GUI mutation is an excluded claim, and Claude parity is an excluded claim. Those exclusions must remain visible in release status, scorecards, docs, and issue updates instead of becoming hidden blockers.
 
+For a stable `1.0.0` candidate or any npm `latest` promotion, `loo release general-readiness --strict` must pass with public-safe M9 evidence for the packaged agent skill, OpenClaw gateway dogfood workflow, fresh npm beta install and clean-profile load, passing release scorecards, current docs, explicit stable dist-tag policy, candidate SHA, GitHub CI, and CodeQL. This gate is evidence-only: it does not publish npm, create a GitHub Release, promote `latest`, run live Codex control, mutate a desktop GUI, prove Claude parity, or claim customer/enterprise readiness.
+
 For Milestone 7, 1.0, or any expanded-scope release that claims live control, desktop collaboration, or adapter parity, the broader gates below must be proven from the public CLI, MCP, OpenClaw plugin, or approved desktop surface:
 
 - Local Codex indexing works on 100+ sessions with bounded limits.
