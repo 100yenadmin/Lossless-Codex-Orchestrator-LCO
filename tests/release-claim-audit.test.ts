@@ -17,31 +17,36 @@ function read(path: string): string {
   return readFileSync(path, "utf8");
 }
 
-test("0.1.0-beta.19 release metadata ships npm cutoff diagnostics without widening claims", () => {
+test("0.1.0-beta.20 release metadata ships release help hardening without widening claims", () => {
   const packageJson = JSON.parse(read("package.json")) as { version?: string };
   const packageLock = JSON.parse(read("package-lock.json")) as { version?: string; packages?: Record<string, { version?: string }> };
+  const rootPlugin = JSON.parse(read("openclaw.plugin.json")) as { version?: string };
+  const workspacePlugin = JSON.parse(read("packages/openclaw-plugin/openclaw.plugin.json")) as { version?: string };
 
-  assert.equal(packageJson.version, "0.1.0-beta.19");
-  assert.equal(packageLock.version, "0.1.0-beta.19");
-  assert.equal(packageLock.packages?.[""]?.version, "0.1.0-beta.19");
-  assert.equal(existsSync("docs/RELEASE_NOTES_0.1.0-beta.19.md"), true, "0.1.0-beta.19 release notes must exist");
+  assert.equal(packageJson.version, "0.1.0-beta.20");
+  assert.equal(packageLock.version, "0.1.0-beta.20");
+  assert.equal(packageLock.packages?.[""]?.version, "0.1.0-beta.20");
+  assert.equal(rootPlugin.version, "0.1.0-beta.20");
+  assert.equal(workspacePlugin.version, "0.1.0-beta.20");
+  assert.equal(existsSync("docs/RELEASE_NOTES_0.1.0-beta.20.md"), true, "0.1.0-beta.20 release notes must exist");
 
-  const releaseNotes = read("docs/RELEASE_NOTES_0.1.0-beta.19.md");
+  const releaseNotes = read("docs/RELEASE_NOTES_0.1.0-beta.20.md");
   assert.match(releaseNotes, /Codex-first working-app beta/i);
   assert.match(releaseNotes, /installed OpenClaw gateway/i);
-  assert.match(releaseNotes, /#200/i);
-  assert.match(releaseNotes, /npm_before_cutoff_drift/i);
-  assert.match(releaseNotes, /ENOVERSIONS/i);
-  assert.match(releaseNotes, /ETARGET/i);
-  assert.match(releaseNotes, /with a date before/i);
-  assert.match(releaseNotes, /--before=<ISO timestamp>/i);
-  assert.match(releaseNotes, /registry metadata proves the version exists/i);
+  assert.match(releaseNotes, /#204/i);
+  assert.match(releaseNotes, /release help hardening/i);
+  assert.match(releaseNotes, /loo release bundle --help/i);
+  assert.match(releaseNotes, /loo release demo-status --help/i);
+  assert.match(releaseNotes, /unknown-option/i);
+  assert.match(releaseNotes, /public-safe release notes and bundle manifests/i);
+  assert.match(releaseNotes, /public-safe beta demo evidence/i);
   assert.match(releaseNotes, /--claim-scope codex-working-app-proof/i);
+  assert.match(releaseNotes, /loo release status[^\n]+--claim-scope\s+codex-working-app-proof[^\n]+--runtime-proof-dir\s+<path>/i);
   assert.match(releaseNotes, /codex-read-search-expand-dry-run/i);
   assert.match(releaseNotes, /approved_live_control_smoke_missing/i);
-  assert.match(releaseNotes, /0\.1\.0-beta\.19/i);
+  assert.match(releaseNotes, /0\.1\.0-beta\.20/i);
   assert.match(releaseNotes, /latest.*0\.1\.0-beta\.4/i);
-  assert.match(releaseNotes, /beta.*0\.1\.0-beta\.19/i);
+  assert.match(releaseNotes, /if this candidate is published, npm `beta` points at `0\.1\.0-beta\.20`/i);
   assert.match(releaseNotes, /Desktop collaboration remains excluded unless separately claimed/i);
   assert.match(releaseNotes, /Claude Code remains.*adapter stub/i);
   assert.match(releaseNotes, /does not run a\s+new live Codex control smoke/i);
