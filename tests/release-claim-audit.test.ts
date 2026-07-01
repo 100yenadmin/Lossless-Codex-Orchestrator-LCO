@@ -17,43 +17,34 @@ function read(path: string): string {
   return readFileSync(path, "utf8");
 }
 
-test("0.1.0-beta.18 release metadata captures desktop proof-report runtime marker handoff without widening claims", () => {
+test("0.1.0-beta.19 release metadata ships npm cutoff diagnostics without widening claims", () => {
   const packageJson = JSON.parse(read("package.json")) as { version?: string };
   const packageLock = JSON.parse(read("package-lock.json")) as { version?: string; packages?: Record<string, { version?: string }> };
 
-  assert.equal(packageJson.version, "0.1.0-beta.18");
-  assert.equal(packageLock.version, "0.1.0-beta.18");
-  assert.equal(packageLock.packages?.[""]?.version, "0.1.0-beta.18");
-  assert.equal(existsSync("docs/RELEASE_NOTES_0.1.0-beta.18.md"), true, "0.1.0-beta.18 release notes must exist");
+  assert.equal(packageJson.version, "0.1.0-beta.19");
+  assert.equal(packageLock.version, "0.1.0-beta.19");
+  assert.equal(packageLock.packages?.[""]?.version, "0.1.0-beta.19");
+  assert.equal(existsSync("docs/RELEASE_NOTES_0.1.0-beta.19.md"), true, "0.1.0-beta.19 release notes must exist");
 
-  const releaseNotes = read("docs/RELEASE_NOTES_0.1.0-beta.18.md");
+  const releaseNotes = read("docs/RELEASE_NOTES_0.1.0-beta.19.md");
   assert.match(releaseNotes, /Codex-first working-app beta/i);
   assert.match(releaseNotes, /installed OpenClaw gateway/i);
-  assert.match(releaseNotes, /#160/i);
-  assert.match(releaseNotes, /desktop collaboration proof-report/i);
-  assert.match(releaseNotes, /actionHash/i);
-  assert.match(releaseNotes, /action_hash/i);
-  assert.match(releaseNotes, /desktopBackend/i);
-  assert.match(releaseNotes, /targetApp/i);
-  assert.match(releaseNotes, /targetWindow/i);
-  assert.match(releaseNotes, /runtime proof marker/i);
-  assert.match(releaseNotes, /desktop-collaboration-action-bound-v1-1\.runtime-proof\.json/i);
-  assert.match(releaseNotes, /Invalid observations do not emit/i);
-  assert.match(releaseNotes, /shared runtime-proof directory for `--runtime-proof-dir`/i);
-  assert.match(releaseNotes, /copy the generated desktop runtime marker into that shared directory/i);
-  assert.match(releaseNotes, /generated approval file for `--desktop-gui-approval-evidence`/i);
-  assert.match(releaseNotes, /proof-report\/desktop-gui-approval\.json/i);
-  assert.doesNotMatch(releaseNotes, /generated artifact directory as both/i);
-  assert.doesNotMatch(releaseNotes, /generated proof-report directory for `--runtime-proof-dir`/i);
-  assert.match(releaseNotes, /JSON\.stringify\(\{ desktopBackend, targetApp, targetWindow, action \}\)/i);
+  assert.match(releaseNotes, /#200/i);
+  assert.match(releaseNotes, /npm_before_cutoff_drift/i);
+  assert.match(releaseNotes, /ENOVERSIONS/i);
+  assert.match(releaseNotes, /ETARGET/i);
+  assert.match(releaseNotes, /with a date before/i);
+  assert.match(releaseNotes, /--before=<ISO timestamp>/i);
+  assert.match(releaseNotes, /registry metadata proves the version exists/i);
   assert.match(releaseNotes, /--claim-scope codex-working-app-proof/i);
   assert.match(releaseNotes, /codex-read-search-expand-dry-run/i);
   assert.match(releaseNotes, /approved_live_control_smoke_missing/i);
-  assert.match(releaseNotes, /0\.1\.0-beta\.18/i);
+  assert.match(releaseNotes, /0\.1\.0-beta\.19/i);
   assert.match(releaseNotes, /latest.*0\.1\.0-beta\.4/i);
-  assert.match(releaseNotes, /beta.*0\.1\.0-beta\.18/i);
-  assert.match(releaseNotes, /Desktop collaboration remains claim-conditional/i);
+  assert.match(releaseNotes, /beta.*0\.1\.0-beta\.19/i);
+  assert.match(releaseNotes, /Desktop collaboration remains excluded unless separately claimed/i);
   assert.match(releaseNotes, /Claude Code remains.*adapter stub/i);
+  assert.match(releaseNotes, /does not run a\s+new live Codex control smoke/i);
   assert.match(releaseNotes, /does not run a\s+new live desktop GUI mutation/i);
   assert.doesNotMatch(releaseNotes, /Full Claude Code parity|cloud sync supported|unattended desktop takeover supported|generic GUI mutation supported|connected local UI is release-ready/i);
 });
