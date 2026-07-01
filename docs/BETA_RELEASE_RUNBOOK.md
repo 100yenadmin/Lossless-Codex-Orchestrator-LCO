@@ -231,10 +231,26 @@ install/tool-declaration coverage from the candidate checkout:
 node ./dist/packages/cli/src/index.js openclaw dogfood --profile lco-dogfood --install-source . --link --required-tool loo_doctor --required-tool loo_search_sessions --required-tool loo_describe_session --required-tool loo_expand_session --required-tool loo_expand_query --required-tool loo_codex_plans --required-tool loo_codex_final_messages --required-tool loo_codex_thread_map --required-tool loo_codex_control_dry_run --evidence-path /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/openclaw-dogfood/plugin-load.json --strict
 ```
 
+Use an isolated profile such as `lco-dogfood` for linked beta proof. Reusing the
+default OpenClaw profile can legitimately return an install error when the
+plugin is already present, while the plugin is still loaded and ready. In that
+case `loo openclaw dogfood` must record `installOutcome.status:
+"already_installed"`, `installOutcome.recognizedMarker:
+"openclaw_plugin_already_exists"`, public-safe `installOutcome.guidance`, and
+the warning `openclaw_plugin_already_installed_but_ready`, without storing raw
+OpenClaw stdout/stderr or local profile paths. The `already_installed` marker is
+accepted only when the captured install output also names the target plugin id,
+so an unrelated existing plugin does not clear the diagnostic gate. If OpenClaw
+reports the observed text `--force is not supported with --link`, the outcome must be
+`link_force_unsupported` with `installOutcome.recognizedMarker:
+"openclaw_link_force_unsupported"`, and the operator should rerun from a clean
+profile or remove `--force`.
+
 This command verifies:
 
 - plugin install/load status
 - declared `loo_*` tool coverage
+- structured install outcome diagnostics
 - public-safe evidence only
 
 Before the OpenClaw user path is called usable, also capture real OpenClaw
