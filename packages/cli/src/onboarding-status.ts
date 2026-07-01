@@ -33,9 +33,13 @@ export type OnboardingStatusReport = {
     publishedPackage: string;
     cleanProfile: string;
     registryCheckCommand: string;
+    tarballLookupCommand: string;
     globalInstallCommand: string;
+    globalInstallTarballFallbackCommand: string;
     openclawInstallCommand: string;
+    openclawInstallTarballFallbackCommand: string;
     dogfoodCommand: string;
+    dogfoodTarballFallbackCommand: string;
     toolSmokeCommand: string;
     setupGuidance: string[];
   };
@@ -142,9 +146,13 @@ export function createOnboardingStatusReport(options: {
       "loo doctor",
       installRecovery.registryCheckCommand,
       installRecovery.globalInstallCommand,
+      installRecovery.tarballLookupCommand,
+      installRecovery.globalInstallTarballFallbackCommand,
       installRecovery.openclawInstallCommand,
+      installRecovery.openclawInstallTarballFallbackCommand,
       "loo openclaw dogfood --profile lco-dogfood --install-source . --link --strict",
       installRecovery.dogfoodCommand,
+      installRecovery.dogfoodTarballFallbackCommand,
       "loo openclaw tool-smoke --profile lco-dogfood --required-tool loo_doctor --required-tool loo_search_sessions --strict",
       installRecovery.toolSmokeCommand,
       "loo release preflight --claim-scope codex-read-search-expand-dry-run --strict"
@@ -179,17 +187,26 @@ function checkPath(rootDir: string, id: string, path: string, required: boolean)
 function createInstallRecoveryCommands(): OnboardingStatusReport["installRecovery"] {
   const publishedPackage = "lossless-openclaw-orchestrator@beta";
   const cleanProfile = "lco-dogfood-published";
+  const tarballLookup = `npm view ${publishedPackage} dist.tarball`;
+  const guardedTarball = `tarball_url="$(${tarballLookup})" && test -n "$tarball_url"`;
   return {
     publishedPackage,
     cleanProfile,
-    registryCheckCommand: "npm view lossless-openclaw-orchestrator@beta version dist-tags --json",
+    registryCheckCommand: `npm view ${publishedPackage} version dist-tags --json`,
+    tarballLookupCommand: `npm view ${publishedPackage} dist.tarball --json`,
     globalInstallCommand: `npm install -g ${publishedPackage}`,
+    globalInstallTarballFallbackCommand: `${guardedTarball} && npm install -g "$tarball_url"`,
     openclawInstallCommand: `openclaw --profile ${cleanProfile} plugins install ${publishedPackage}`,
+    openclawInstallTarballFallbackCommand: `${guardedTarball} && openclaw --profile ${cleanProfile} plugins install "$tarball_url"`,
     dogfoodCommand: `loo openclaw dogfood --profile ${cleanProfile} --install-source ${publishedPackage} --required-tool loo_doctor --required-tool loo_search_sessions --strict`,
+    dogfoodTarballFallbackCommand: `${guardedTarball} && loo openclaw dogfood --profile ${cleanProfile} --install-source "$tarball_url" --required-tool loo_doctor --required-tool loo_search_sessions --strict`,
     toolSmokeCommand: `loo openclaw tool-smoke --profile ${cleanProfile} --required-tool loo_doctor --required-tool loo_search_sessions --strict`,
     setupGuidance: [
+      "If npm install reports npm_selector_cutoff_drift, use the guarded registry tarball fallback commands instead of treating the beta as unpublished.",
+      "If OpenClaw plugin install or dogfood reports npm selector drift, retry with the OpenClaw tarball fallback command from the same clean profile.",
       "If tool-smoke reports setupStatus.classification=gateway_setup_required, complete local OpenClaw gateway credentials or device pairing before treating it as a package defect.",
       "Use a clean profile for published-beta proof so an existing linked plugin does not mask install behavior.",
+      "Keep tarball fallback evidence public-safe: record the registry tarball URL and install classification, not raw npm command output.",
       "Keep evidence public-safe: record blocker codes, setupStatus, installOutcome, counts, and hashes only."
     ]
   };

@@ -101,7 +101,7 @@ Expected dogfood checks:
 
 - Load or inspect the OpenClaw plugin manifest and runtime entry.
 - Verify package/plugin first-run readiness with `loo onboard status`, then verify `loo_*` tools are declared and callable through the installed or packaged surface.
-- `loo onboard status` must expose a public-safe `installRecovery` block for the published beta package, including the registry check, global npm install command, clean OpenClaw profile name, plugin install command, dogfood command, tool-smoke command, and setup guidance for gateway credential/device-pairing blockers.
+- `loo onboard status` must expose a public-safe `installRecovery` block for the published beta package, including registry check, tarball lookup, global npm install, guarded tarball fallback install, clean OpenClaw profile name, plugin install, dogfood, and tool-smoke commands. The same block must include OpenClaw plugin/dogfood tarball fallback guidance for npm selector drift plus gateway credential/device-pairing blockers.
 - `loo onboard status` must expose a public-safe `postInstallSelfCheck` block when supplied sanitized registry/tool-smoke evidence, including local package version, npm beta dist-tag version, match/mismatch status, and gateway setup classification without storing raw npm or gateway output.
 - `loo openclaw published-smoke` must combine sanitized npm beta, dogfood, tool-smoke, and setup evidence into one public-safe first-run report so users and agents can distinguish a healthy package path from remaining gateway setup without reading raw command output.
 - Prefer an isolated OpenClaw profile, such as `lco-dogfood`, for linked beta proof so an existing default-profile install does not masquerade as a product failure.
@@ -262,6 +262,11 @@ For Milestone 7, 1.0, or any expanded-scope release that claims live control, de
   metadata exposes the just-published beta but semver install selection remains
   blocked by npm selector cutoff drift; this is packaging hardening evidence,
   not a broader product capability claim.
+- The tarball fallback must be visible in onboarding evidence, not hidden in
+  maintainer memory: `installRecovery.tarballLookupCommand` and
+  `installRecovery.globalInstallTarballFallbackCommand` are part of the
+  external-tester first-run recovery contract, alongside OpenClaw plugin and
+  dogfood tarball fallback commands for clean-profile recovery.
 - Published-install recovery commands in onboarding evidence are dry-run guidance
   until a separate dogfood packet proves install/load/tool invocation through
   the named clean profile.
