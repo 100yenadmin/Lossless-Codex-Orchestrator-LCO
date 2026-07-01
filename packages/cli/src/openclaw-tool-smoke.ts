@@ -570,6 +570,7 @@ function setupGuidanceFor(setupBlockers: string[]): string[] {
 }
 
 function setupStatusFor(blockers: string[], setupBlockers: string[]): OpenClawToolSmokeReport["setupStatus"] {
+  // Keep both booleans: one guides install/package triage, the other guards release-claim wording.
   if (blockers.length === 0) {
     return {
       classification: "ready",
@@ -579,7 +580,7 @@ function setupStatusFor(blockers: string[], setupBlockers: string[]): OpenClawTo
       doesNotIndicatePackageFailure: true
     };
   }
-  if (setupBlockers.length > 0) {
+  if (isSetupOnlyBlockerSet(blockers, setupBlockers)) {
     return {
       classification: "gateway_setup_required",
       packageInstallLikelyOk: true,
@@ -595,6 +596,16 @@ function setupStatusFor(blockers: string[], setupBlockers: string[]): OpenClawTo
     retryAfterSetup: false,
     doesNotIndicatePackageFailure: false
   };
+}
+
+function isSetupOnlyBlockerSet(blockers: string[], setupBlockers: string[]): boolean {
+  const setupTriggerPrefixes = [
+    "openclaw_gateway_credentials_required",
+    "openclaw_gateway_device_identity_required",
+    "openclaw_gateway_device_token_mismatch",
+    "openclaw_gateway_scope_upgrade_pending"
+  ];
+  return setupBlockers.length > 0 && blockers.every((blocker) => setupTriggerPrefixes.some((prefix) => hasBlocker([blocker], prefix)));
 }
 
 function hasBlocker(blockers: string[], prefix: string): boolean {
