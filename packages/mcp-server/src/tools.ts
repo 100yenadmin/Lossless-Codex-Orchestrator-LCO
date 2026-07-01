@@ -212,7 +212,7 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       plan_state_text: { type: "string" },
       plan_state_path: { type: "string" }
     }, (input) => createPlanStatePinsReport(resolvePlanStateText(input))),
-    tool("loo_project_digest", "Create a read-only Eva operating digest from LCO/Codex cards, optional structured GitHub items, and PLAN_STATE pins.", {
+    tool("loo_project_digest", "Create a read-only Eva operating digest from LCO/Codex cards, optional structured GitHub items, PLAN_STATE pins, and source authority coverage.", {
       window: { type: "string", enum: ["today", "24h", "7d", "custom"] },
       limit: { type: "integer", minimum: 1, maximum: 200 },
       plan_state_text: { type: "string" },
@@ -236,7 +236,7 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       planStatePins: optionalPlanStatePins(input),
       githubItems: optionalGithubItems(input.github_items)
     })),
-    tool("loo_business_pulse", "Answer 'How is the business?' from bounded cited operating cards with explicit source coverage gaps.", {
+    tool("loo_business_pulse", "Answer 'How is the business?' from bounded cited operating cards with explicit source and authority coverage gaps.", {
       window: { type: "string", enum: ["today", "24h", "7d", "custom"] },
       limit: { type: "integer", minimum: 1, maximum: 200 },
       plan_state_text: { type: "string" },

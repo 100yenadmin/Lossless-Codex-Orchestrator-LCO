@@ -408,7 +408,7 @@
       },
       {
         "name": "loo_project_digest",
-        "description": "Create a read-only Eva operating digest from LCO/Codex cards, optional structured GitHub items, and PLAN_STATE pins.",
+        "description": "Create a read-only Eva operating digest from LCO/Codex cards, optional structured GitHub items, PLAN_STATE pins, and source authority coverage.",
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -482,7 +482,7 @@
       },
       {
         "name": "loo_business_pulse",
-        "description": "Answer 'How is the business?' from bounded cited operating cards with explicit source coverage gaps.",
+        "description": "Answer 'How is the business?' from bounded cited operating cards with explicit source and authority coverage gaps.",
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,

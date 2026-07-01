@@ -22,10 +22,12 @@
     "operating signals",
     "operating cards",
     "source coverage report",
+    "source authority coverage report",
     "not_configured P1 source states",
     "manual pins from explicit PLAN_STATE markers only",
     "unmarked PLAN_STATE stale prose ignored as current truth",
     "low_confidence or unknown state for conflicting inputs",
+    "unknown or low_confidence state for unavailable authority",
     "public-safe output scan result"
   ],
   "private_data_exclusions": [
@@ -38,6 +40,7 @@
   ],
   "metrics": {
     "requires_source_coverage": true,
+    "requires_source_authority_coverage": true,
     "requires_plan_state_bootloader_only": true,
     "requires_p1_sources_not_configured": true,
     "requires_no_external_writes": true,

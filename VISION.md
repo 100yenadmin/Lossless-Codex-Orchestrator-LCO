@@ -10,17 +10,18 @@ The beta should feel like a local orchestration cockpit: OpenClaw can see what C
 
 ## Current Milestone: Codex Autonomy Cockpit + Eva Operating Picture
 
-The current product/eval target is the two-tier autonomy cockpit sprint tracked by [#254](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/254), [#255](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/255), and first child [#256](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/256). The sprint brief lives at [docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md](docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md).
+The current product/eval target is the two-tier autonomy cockpit sprint tracked by [#254](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/254), [#255](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/255), completed shared-contract child [#256](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/256), and active source-authority child [#258](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/258). The sprint brief lives at [docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md](docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md).
 
 The core Codex recall and M9 handoff paths are no longer the main gap. The current gap is operating autonomy: make local Codex work visible as compact, ranked, public-safe cards and let Eva answer which business/project/Codex lanes need attention without rereading raw transcripts.
 
 The current target is:
 
 - Add Codex Autonomy Cockpit primitives from #254: recent sessions, compact session cards, redacted evidence cards, deterministic cockpit inbox, watcher/resume-request primitives, approval packets, and visible Codex map joins.
-- Add Eva Operating Picture primitives from #255: project digest, attention inbox, business pulse, and explicit source coverage.
+- Add Eva Operating Picture primitives from #255/#258: project digest, attention inbox, business pulse, explicit source coverage, and explicit source-authority coverage.
 - Demote `PLAN_STATE.md` to bootloader, manual pins, approval boundaries, stop conditions, and exception ledger. It is not canonical current-state truth.
 - Keep P0 sources to LCO/Codex state, optional structured GitHub items, and explicit PLAN_STATE pins.
 - Keep P1 source adapters, including Notion, support-control, Company Brain, Stripe, dashboard/export, and model summarization, behind separate adapters and proof gates; P0 tools report those sources as `not_configured` instead of fabricating summaries.
+- Use the [source authority profile](docs/SOURCE_AUTHORITY_PROFILE.md) to distinguish "this source returned data" from "this source owns the current truth"; unavailable or cache-only sources must degrade claims to `unknown` or low confidence.
 
 The sprint remains Codex-first, local-first, read-only-first, and public-safe by default. It does not claim full business truth, customer readiness, Claude Code parity, remote sync, generic GUI mutation, unattended desktop control, permission bypass, release-grade security, stable release, or npm `latest` promotion.
 
@@ -33,6 +34,7 @@ What a local OpenClaw agent can do today:
 - Retrieve proposed plans, final messages, touched files, and session maps through `loo_*` tools.
 - Dry-run Codex resume/send/steer/interrupt actions and inspect audit ids and hashes before any live action.
 - Use `loo_recent_sessions`, `loo_cockpit_inbox`, `loo_plan_state_pins`, `loo_project_digest`, `loo_attention_inbox`, and `loo_business_pulse` to build a read-only operating picture from structured cards and source coverage.
+- Inspect `authorityCoverage` on operating-picture outputs before trusting GitHub, PLAN_STATE, or future P1 source claims.
 - Classify package and gateway readiness with `loo onboard status`, `loo openclaw dogfood`, `loo openclaw tool-smoke`, and `loo openclaw published-smoke`.
 - Follow the packaged agent skill and M9 dogfood scenario to produce a public-safe recommendation from source refs, bounded expansion, detail lookups, and dry-run audit hashes.
 - Use `loo release general-readiness --strict` to decide whether fresh npm install, clean-profile OpenClaw load, and agent dogfood evidence are enough for a 1.0 claim.
@@ -157,6 +159,7 @@ For implementation issues, copy `evals/scorecards/v1.0/issue-scorecard-update-te
 | OpenClaw packageability | Plugin installs/loads with declared `loo_*` contracts and classifies linked-install outcomes honestly | manifest/tool count, `installOutcome.status`, and package smoke |
 | Public claims | README/docs/release notes stay inside allowed beta wording | claim audit result |
 | Privacy | Evidence contains no raw session files, SQLite DBs, screenshots, tokens, or secrets | artifact scan result |
+| Source authority | Operating-picture tools distinguish source availability from source ownership | `authorityCoverage`, degraded unavailable-source cards, source-authority profile |
 
 ## Eval Scenarios
 

@@ -28,7 +28,7 @@
     "search refs and score summaries",
     "describe and direct-session/query expand profile names",
     "recent session and cockpit inbox card counts",
-    "operating-picture source coverage and not_configured P1 source states",
+    "operating-picture source coverage, source authority coverage, and not_configured P1 source states",
     "dry-run approval_audit_id, params_hash, and message_hash",
     "gateway setupStatus, setupBlockers, and setupGuidance for first-run credential blockers",
     "agent reasoning note based only on safe summaries"
@@ -47,8 +47,9 @@
     "Agent can search sessions through loo_* read tools and receive source-prefixed refs.",
     "Agent can describe and expand selected refs within a bounded token profile.",
     "Agent can list recent session cards and a deterministic cockpit inbox without a wildcard query.",
-    "Agent can inspect operating-picture cards whose claims cite source refs, confidence, freshness, and reason codes.",
+    "Agent can inspect operating-picture cards whose claims cite source refs, confidence, freshness, reason codes, and authority coverage.",
     "Missing P1 source adapters are reported as not_configured instead of summarized.",
+    "Unavailable or cache-only authorities degrade to unknown or low confidence instead of being treated as current truth.",
     "Agent can dry-run a control action and reason about the audit id without sending a live action.",
     "Evidence contains public-safe summaries, counts, refs, hashes, setupStatus classifications, and blocker codes only."
   ],
@@ -57,15 +58,15 @@
     "Gateway exposes live mutation without dry-run approval proof.",
     "Evidence captures local DBs, transcript files, screenshots, prompt text, or secrets.",
     "Tool output is too vague for the agent to choose a safe next action.",
-    "Operating-picture output hides missing sources or treats PLAN_STATE prose as current truth."
+    "Operating-picture output hides missing sources, omits authority coverage, or treats PLAN_STATE prose as current truth."
   ],
   "current_score": "pass",
   "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-234-agent-dogfood-core-workflow/openclaw-tool-smoke-final.json",
   "known_gaps": [
     "Fresh OpenClaw profiles may need scoped gateway credentials or profile/device pairing before tool-smoke can call tools; `setupStatus.classification` must distinguish this from package failure.",
-    "P0 operating-picture tools use LCO/Codex, structured GitHub inputs, and explicit PLAN_STATE pins only; Notion, support-control, Company Brain, Stripe, dashboard/export, and summarizer adapters remain P1.",
+    "P0 operating-picture tools use LCO/Codex, structured GitHub inputs, explicit PLAN_STATE pins, and a public source-authority profile only; Notion, support-control, Company Brain, Stripe, dashboard/export, and summarizer adapters remain P1.",
     "This does not prove live Codex control, generic GUI mutation, Claude Code adapter parity, full business truth, or release-grade customer readiness."
   ],
-  "next_action": "Run #256 OpenClaw gateway dogfood for the new cockpit and operating-picture tools, then file P1 adapter issues only after P0 evidence is clean.",
+  "next_action": "Run #258 authority-coverage dogfood for the operating-picture tools, then continue P0 cockpit/operating-picture children before filing P1 adapter work.",
   "proof_boundary": "This proves local OpenClaw gateway agent usability for Codex read/search/describe/expand/detail lookup/recommend/dry-run and P0 cockpit/operating-picture cards using public-safe evidence only; it does not prove live control, GUI mutation, Claude Code adapter parity, full business truth, or 1.0 readiness."
 }
