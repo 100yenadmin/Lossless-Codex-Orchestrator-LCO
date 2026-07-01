@@ -81,7 +81,10 @@ easy for a local OpenClaw agent to use without maintainer steering.
 
 3. **Agent dogfood scenario**
    Simulate an OpenClaw agent using only `loo_*` tools to search, describe,
-   expand, recommend, and dry-run without raw transcripts. See
+   expand, recommend, and dry-run without raw transcripts. The scenario contract
+   lives at
+   [evals/scenarios/v1/m9-agent-dogfood-core-workflow.json](evals/scenarios/v1/m9-agent-dogfood-core-workflow.json).
+   See
    [#234](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/234).
 
 4. **Fresh npm beta install smoke**

@@ -78,7 +78,7 @@ if (method === "tools.invoke") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { sourceRef: "codex_thread:" + toolArgs.thread_id, threadId: toolArgs.thread_id, text: "super-secret-transcript-span" } }));
     process.exit(0);
   }
-  if (name === "loo_codex_plans" || name === "loo_codex_final_messages") {
+  if (name === "loo_codex_plans" || name === "loo_codex_final_messages" || name === "loo_codex_touched_files") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: [{ sourceRef: "codex_thread:" + toolArgs.thread_id, threadId: toolArgs.thread_id, count: 1, text: "super-secret-transcript-span" }] }));
     process.exit(0);
   }
@@ -117,6 +117,7 @@ if (method === "tools.catalog") {
     { id: "loo_expand_query" },
     { id: "loo_codex_plans" },
     { id: "loo_codex_final_messages" },
+    { id: "loo_codex_touched_files" },
     { id: "loo_codex_thread_map" },
     { id: "loo_codex_control_dry_run" }
   ] }] }));
@@ -241,6 +242,7 @@ test("OpenClaw tool smoke invokes required loo tools through gateway call and wr
     "loo_expand_query",
     "loo_codex_plans",
     "loo_codex_final_messages",
+    "loo_codex_touched_files",
     "loo_codex_thread_map",
     "loo_codex_control_dry_run"
   ]);
@@ -270,11 +272,12 @@ test("OpenClaw tool smoke invokes required loo tools through gateway call and wr
     assert.deepEqual(report.invocations.map((call) => call.toolName), [
       "loo_doctor",
       "loo_search_sessions",
+      "loo_codex_thread_map",
       "loo_describe_session",
       "loo_expand_query",
       "loo_codex_plans",
       "loo_codex_final_messages",
-      "loo_codex_thread_map",
+      "loo_codex_touched_files",
       "loo_codex_control_dry_run"
     ]);
     assert.equal(report.invocations.find((call) => call.toolName === "loo_search_sessions")?.summary.sourceRefs?.[0], "codex_thread:thread-1");
@@ -282,6 +285,22 @@ test("OpenClaw tool smoke invokes required loo tools through gateway call and wr
     assert.equal(report.invocations.find((call) => call.toolName === "loo_expand_query")?.summary.profile, "brief");
     assert.equal(report.invocations.find((call) => call.toolName === "loo_codex_control_dry_run")?.summary.live, false);
     assert.equal(report.invocations.find((call) => call.toolName === "loo_codex_control_dry_run")?.summary.approvalAuditId, "loo_audit_test");
+    assert.equal(report.agentReasoning?.safeRecommendation, "Review the selected Codex session from source refs, then ask the user before any live Codex control.");
+    assert.equal(report.agentReasoning?.selectedThreadId, "thread-1");
+    assert.deepEqual(report.agentReasoning?.sourceRefs, ["codex_thread:thread-1"]);
+    assert.deepEqual(report.agentReasoning?.workflowEvidence, [
+      "doctor_ready",
+      "search_source_ref",
+      "describe_thread",
+      "bounded_expand",
+      "plan_lookup",
+      "final_message_lookup",
+      "touched_files_lookup",
+      "dry_run_audit"
+    ]);
+    assert.equal(report.agentReasoning?.dryRunApprovalAuditId, "loo_audit_test");
+    assert.equal(report.agentReasoning?.dryRunLive, false);
+    assert.equal(report.agentReasoning?.rawTranscriptRead, false);
     assert.equal(report.actionsPerformed.liveCodexControlRun, false);
     assert.equal(report.actionsPerformed.channelDelivery, false);
     assert.equal(report.command.includes(dir), false);
@@ -348,6 +367,7 @@ test("OpenClaw tool smoke accepts gateway content/details wrapped dry-run proof"
     "loo_expand_query",
     "loo_codex_plans",
     "loo_codex_final_messages",
+    "loo_codex_touched_files",
     "loo_codex_thread_map",
     "loo_codex_control_dry_run"
   ], "flat", { dryRunOutputShape: "both" });
@@ -389,6 +409,7 @@ test("OpenClaw tool smoke accepts gateway content-only dry-run proof", () => {
     "loo_expand_query",
     "loo_codex_plans",
     "loo_codex_final_messages",
+    "loo_codex_touched_files",
     "loo_codex_thread_map",
     "loo_codex_control_dry_run"
   ], "flat", { dryRunOutputShape: "content" });
@@ -544,6 +565,7 @@ test("OpenClaw tool smoke reads grouped tools.catalog output from the real gatew
     "loo_expand_query",
     "loo_codex_plans",
     "loo_codex_final_messages",
+    "loo_codex_touched_files",
     "loo_codex_thread_map",
     "loo_codex_control_dry_run"
   ], "groups");
@@ -560,7 +582,7 @@ test("OpenClaw tool smoke reads grouped tools.catalog output from the real gatew
     });
 
     assert.equal(report.toolSmokeReady, true);
-    assert.equal(report.catalog.toolCount, 8);
+    assert.equal(report.catalog.toolCount, 9);
     assert.deepEqual(report.catalog.missingRequiredTools, []);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;

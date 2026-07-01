@@ -6,11 +6,12 @@ import { basename, dirname, isAbsolute } from "node:path";
 export const DEFAULT_REQUIRED_TOOL_CALLS = [
   "loo_doctor",
   "loo_search_sessions",
+  "loo_codex_thread_map",
   "loo_describe_session",
   "loo_expand_query",
   "loo_codex_plans",
   "loo_codex_final_messages",
-  "loo_codex_thread_map",
+  "loo_codex_touched_files",
   "loo_codex_control_dry_run"
 ];
 
@@ -65,6 +66,19 @@ export type OpenClawToolSmokeReport = {
     toolCount: number;
   };
   invocations: OpenClawToolInvocationSummary[];
+  agentReasoning?: {
+    safeRecommendation: string;
+    selectedThreadId?: string;
+    sourceRefs: string[];
+    workflowEvidence: string[];
+    expansionProfile?: string;
+    expansionTokenBudget?: number;
+    dryRunApprovalAuditId?: string;
+    dryRunParamsHash?: string;
+    dryRunMessageHash?: string;
+    dryRunLive?: boolean;
+    rawTranscriptRead: false;
+  };
   blockers: string[];
   setupBlockers: string[];
   setupGuidance: string[];
@@ -176,7 +190,7 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
       annotateRequestedExpansionProfile(summary, args);
       invocations.push(summary);
       blockers.push(...summary.blockers);
-      if (toolName === "loo_search_sessions" && !selectedThreadId) {
+      if (!selectedThreadId) {
         selectedThreadId = summary.summary.threadId;
       }
     }
@@ -185,6 +199,7 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
   const uniqueBlockers = [...new Set(blockers)];
   const setupBlockers = setupBlockersFor(uniqueBlockers);
   const setupStatus = setupStatusFor(uniqueBlockers, setupBlockers);
+  const agentReasoning = buildAgentReasoning(invocations, uniqueBlockers);
   const report: OpenClawToolSmokeReport = {
     ok: uniqueBlockers.length === 0,
     toolSmokeReady: uniqueBlockers.length === 0,
@@ -200,6 +215,7 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
       toolCount: catalogToolNames.length
     },
     invocations,
+    ...(agentReasoning ? { agentReasoning } : {}),
     blockers: uniqueBlockers,
     setupBlockers,
     setupGuidance: setupGuidanceFor(setupBlockers),
@@ -223,6 +239,46 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
     writeFileSync(options.evidencePath, `${JSON.stringify(report, null, 2)}\n`);
   }
   return report;
+}
+
+function buildAgentReasoning(
+  invocations: OpenClawToolInvocationSummary[],
+  blockers: string[]
+): OpenClawToolSmokeReport["agentReasoning"] | undefined {
+  if (blockers.length > 0) return undefined;
+  const byTool = new Map(invocations.map((invocation) => [invocation.toolName, invocation]));
+  const search = byTool.get("loo_search_sessions");
+  const describe = byTool.get("loo_describe_session");
+  const expand = byTool.get("loo_expand_query") ?? byTool.get("loo_expand_session");
+  const dryRun = byTool.get("loo_codex_control_dry_run");
+  const sourceRefs = [...new Set(invocations.flatMap((invocation) => invocation.summary.sourceRefs ?? []))].slice(0, 5);
+  const selectedThreadId = describe?.summary.threadId || search?.summary.threadId || dryRun?.summary.threadId;
+  const workflowEvidence = [
+    ...(byTool.get("loo_doctor")?.ok ? ["doctor_ready"] : []),
+    ...(sourceRefs.length ? ["search_source_ref"] : []),
+    ...(describe?.summary.threadId ? ["describe_thread"] : []),
+    ...(expand?.summary.profile || expand?.summary.tokenBudget ? ["bounded_expand"] : []),
+    ...(byTool.get("loo_codex_plans")?.ok ? ["plan_lookup"] : []),
+    ...(byTool.get("loo_codex_final_messages")?.ok ? ["final_message_lookup"] : []),
+    ...(byTool.get("loo_codex_touched_files")?.ok ? ["touched_files_lookup"] : []),
+    ...(dryRun?.summary.approvalAuditId && dryRun.summary.live === false ? ["dry_run_audit"] : [])
+  ];
+
+  if (!selectedThreadId || sourceRefs.length === 0 || !workflowEvidence.includes("bounded_expand")) return undefined;
+
+  return {
+    safeRecommendation: "Review the selected Codex session from source refs, then ask the user before any live Codex control.",
+    selectedThreadId,
+    sourceRefs,
+    workflowEvidence,
+    ...(expand?.summary.profile ? { expansionProfile: expand.summary.profile } : {}),
+    ...(expand?.summary.tokenBudget !== undefined ? { expansionTokenBudget: expand.summary.tokenBudget } : {}),
+    ...(dryRun?.summary.approvalAuditId ? { dryRunApprovalAuditId: dryRun.summary.approvalAuditId } : {}),
+    ...(dryRun?.summary.paramsHash ? { dryRunParamsHash: dryRun.summary.paramsHash } : {}),
+    ...(dryRun?.summary.messageHash ? { dryRunMessageHash: dryRun.summary.messageHash } : {}),
+    ...(dryRun?.summary.live !== undefined ? { dryRunLive: dryRun.summary.live } : {}),
+    rawTranscriptRead: false
+  };
 }
 
 function annotateRequestedExpansionProfile(summary: OpenClawToolInvocationSummary, args: Record<string, unknown> | null): void {
@@ -422,7 +478,7 @@ function buildToolArgs(params: {
     return params.threadId ? { thread_id: params.threadId, profile: params.expandProfile, token_budget: params.tokenBudget } : null;
   }
   if (params.toolName === "loo_expand_query") return { query: params.query, profile: params.expandProfile, token_budget: params.tokenBudget };
-  if (params.toolName === "loo_codex_plans" || params.toolName === "loo_codex_final_messages") {
+  if (params.toolName === "loo_codex_plans" || params.toolName === "loo_codex_final_messages" || params.toolName === "loo_codex_touched_files") {
     return {
       ...(params.threadId ? { thread_id: params.threadId } : {}),
       limit: 3
@@ -447,25 +503,27 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
     ...toolPayloadBlockers(toolName, payload)
   ];
   const output = unwrapToolOutput(payload);
-  const sourceRefs = output ? collectSourceRefs(output).slice(0, 5) : [];
-  const threadId = output ? extractThreadId(output, sourceRefs) : undefined;
+  const details = output ? unwrapToolDetails(output) : undefined;
+  const summarySource = details ?? output;
+  const sourceRefs = summarySource ? collectSourceRefs(summarySource).slice(0, 5) : [];
+  const threadId = summarySource ? extractThreadId(summarySource, sourceRefs) : undefined;
   const summary: OpenClawToolInvocationSummary["summary"] = {
     outputKind: outputKind(output),
     ...(sourceRefs.length ? { sourceRefs } : {}),
     ...(threadId ? { threadId } : {})
   };
 
-  const count = outputCount(output);
+  const count = outputCount(summarySource);
   if (count !== undefined) summary.count = count;
   if (toolName === "loo_expand_query" || toolName === "loo_expand_session") {
-    const profile = stringPath(output, ["profile", "name"]) || stringPath(output, ["profile"]);
+    const profile = stringPath(summarySource, ["profile", "name"]) || stringPath(summarySource, ["profile"]);
     if (profile) summary.profile = profile;
-    const tokenBudget = numberPath(output, ["tokenBudget"]) ?? numberPath(output, ["token_budget"]);
+    const tokenBudget = numberPath(summarySource, ["tokenBudget"]) ?? numberPath(summarySource, ["token_budget"]);
     if (tokenBudget !== undefined) summary.tokenBudget = tokenBudget;
   }
   if (toolName === "loo_codex_control_dry_run") {
     const upstreamBlocked = blockers.length > 0;
-    const dryRunOutput = unwrapToolDetails(output) ?? output;
+    const dryRunOutput = details ?? output;
     summary.live = booleanPath(dryRunOutput, ["live"]);
     const approvalAuditId = stringPath(dryRunOutput, ["approval_audit_id"]) || stringPath(dryRunOutput, ["approvalAuditId"]);
     const paramsHash = stringPath(dryRunOutput, ["params_hash"]) || stringPath(dryRunOutput, ["paramsHash"]);

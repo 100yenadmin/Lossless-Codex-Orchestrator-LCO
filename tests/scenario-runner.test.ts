@@ -117,6 +117,43 @@ test("VISION and README document the scenario runner command", () => {
   assert.match(readFileSync("README.md", "utf8"), /evals\/scenarios\/v1/);
 });
 
+test("M9 agent dogfood scenario captures the gateway-only handoff workflow", () => {
+  const scenario = JSON.parse(readFileSync(join("evals", "scenarios", "v1", "m9-agent-dogfood-core-workflow.json"), "utf8")) as {
+    id?: string;
+    surface?: string;
+    user_task?: string;
+    allowed_tools?: string[];
+    expected_public_safe_evidence?: string[];
+    forbidden_behaviors?: string[];
+    metrics?: Record<string, unknown>;
+    proof_boundary?: string;
+  };
+
+  assert.equal(scenario.id, "m9-agent-dogfood-core-workflow-v1");
+  assert.equal(scenario.surface, "openclaw-gateway");
+  assert.match(String(scenario.user_task), /doctor.*search.*describe.*expand.*recommend.*dry-run/i);
+  assert.deepEqual(scenario.allowed_tools, [
+    "loo_doctor",
+    "loo_search_sessions",
+    "loo_codex_thread_map",
+    "loo_describe_session",
+    "loo_expand_session",
+    "loo_expand_query",
+    "loo_codex_plans",
+    "loo_codex_final_messages",
+    "loo_codex_touched_files",
+    "loo_codex_control_dry_run"
+  ]);
+  assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /agent recommendation/i);
+  assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /source refs/i);
+  assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /approval_audit_id/i);
+  assert.match(JSON.stringify(scenario.forbidden_behaviors), /raw_transcript_read/);
+  assert.match(JSON.stringify(scenario.forbidden_behaviors), /live_control/);
+  assert.equal(scenario.metrics?.requires_agent_reasoning_note, true);
+  assert.equal(scenario.metrics?.max_raw_transcript_spans, 0);
+  assert.match(String(scenario.proof_boundary), /does not prove live Codex control/i);
+});
+
 test("runtime-required v1.1 scenarios define working-app proof beyond dry-run contracts", () => {
   const scenarioDir = join("evals", "scenarios", "v1.1");
   const files = readdirSync(scenarioDir).filter((file) => file.endsWith(".json")).sort();
