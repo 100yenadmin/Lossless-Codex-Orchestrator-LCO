@@ -20,7 +20,7 @@
     "search refs and score summaries",
     "describe and direct-session/query expand profile names",
     "dry-run approval_audit_id, params_hash, and message_hash",
-    "gateway setupBlockers and setupGuidance for first-run credential blockers",
+    "gateway setupStatus, setupBlockers, and setupGuidance for first-run credential blockers",
     "agent reasoning note based only on safe summaries"
   ],
   "private_data_exclusions": [
@@ -36,7 +36,7 @@
     "Agent can search sessions through loo_* read tools and receive source-prefixed refs.",
     "Agent can describe and expand selected refs within a bounded token profile.",
     "Agent can dry-run a control action and reason about the audit id without sending a live action.",
-    "Evidence contains public-safe summaries, counts, refs, hashes, and blocker codes only."
+    "Evidence contains public-safe summaries, counts, refs, hashes, setupStatus classifications, and blocker codes only."
   ],
   "fail_criteria": [
     "Agent must read raw transcripts to answer the session-management question.",
@@ -48,7 +48,7 @@
   "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-<slug>/local-agent-usability-review.json",
   "known_gaps": [
     "This scorecard requires a local OpenClaw gateway installation or a documented unavailable-gateway blocker.",
-    "Fresh OpenClaw profiles may need scoped gateway credentials or profile/device pairing before tool-smoke can call tools.",
+    "Fresh OpenClaw profiles may need scoped gateway credentials or profile/device pairing before tool-smoke can call tools; `setupStatus.classification` must distinguish this from package failure.",
     "Full usability proof needs a bounded real-session smoke after indexing is current."
   ],
   "next_action": "Run a read-only gateway dogfood smoke after package/plugin changes and record only public-safe summaries.",

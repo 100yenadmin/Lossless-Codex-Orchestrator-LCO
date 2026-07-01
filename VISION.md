@@ -84,7 +84,7 @@ Expected dogfood checks:
 - Load or inspect the OpenClaw plugin manifest and runtime entry.
 - Verify package/plugin first-run readiness with `loo onboard status`, then verify `loo_*` tools are declared and callable through the installed or packaged surface.
 - Prefer an isolated OpenClaw profile, such as `lco-dogfood`, for linked beta proof so an existing default-profile install does not masquerade as a product failure.
-- Treat `openclaw_gateway_credentials_required` on a fresh profile as first-run setup, not a package defect: use a provisioned profile, pass a scoped gateway token, or complete local profile/device pairing before claiming gateway tool-smoke failure.
+- Treat `openclaw_gateway_credentials_required` on a fresh profile as first-run setup, not a package defect: `loo openclaw tool-smoke` must emit `setupStatus.classification: "gateway_setup_required"` plus `setupBlockers`/`setupGuidance`; use a provisioned profile, pass a scoped gateway token, or complete local profile/device pairing before claiming gateway tool-smoke failure.
 - Record structured `installOutcome.status` and `installOutcome.guidance` for linked installs, including `installed`, `already_installed`, `link_force_unsupported`, or `failed`, without storing raw OpenClaw stdout/stderr or local profile paths.
 - Call read-only tools such as `loo_doctor`, `loo_index_sessions`, `loo_search_sessions`, `loo_describe_session`, `loo_expand_session`, `loo_expand_query`, `loo_codex_plans`, and `loo_codex_final_messages`.
 - Verify dry-run control tools produce audit ids without mutating a real Codex thread.

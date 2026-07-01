@@ -226,6 +226,13 @@ test("OpenClaw tool smoke invokes required loo tools through gateway call and wr
     assert.equal(report.ok, true);
     assert.equal(report.toolSmokeReady, true);
     assert.deepEqual(report.blockers, []);
+    assert.deepEqual(report.setupStatus, {
+      classification: "ready",
+      packageInstallLikelyOk: true,
+      recoverable: false,
+      retryAfterSetup: false,
+      doesNotIndicatePackageFailure: true
+    });
     assert.equal(report.catalog.requiredToolsPresent, true);
     assert.deepEqual(report.invocations.map((call) => call.toolName), [
       "loo_doctor",
@@ -710,6 +717,13 @@ test("OpenClaw tool smoke marks missing gateway credentials as first-run setup b
     assert.equal(report.toolSmokeReady, false);
     assert.deepEqual(report.blockers, ["openclaw_gateway_credentials_required:loo_doctor"]);
     assert.deepEqual(report.setupBlockers, ["fresh_profile_gateway_credentials_required"]);
+    assert.deepEqual(report.setupStatus, {
+      classification: "gateway_setup_required",
+      packageInstallLikelyOk: true,
+      recoverable: true,
+      retryAfterSetup: true,
+      doesNotIndicatePackageFailure: true
+    });
     assert.match(report.nextAction, /profile/i);
     assert.match(report.nextAction, /token/i);
     assert.match(report.setupGuidance?.join("\n") || "", /profile/i);
