@@ -211,6 +211,7 @@ test("published-smoke reports configured gateway proof separately from fresh-pro
       publishedSmokeReady: boolean;
       packagePathOk: boolean;
       setupRequired: boolean;
+      dogfood: { dogfoodReady: boolean; installOutcomeStatus: string; requiredToolsPresent: boolean };
       toolSmoke: { toolSmokeReady: boolean; gatewaySetupClassification: string; packageInstallLikelyOk: boolean };
       configuredGateway: {
         provided: boolean;
@@ -227,6 +228,11 @@ test("published-smoke reports configured gateway proof separately from fresh-pro
     assert.equal(report.packagePathOk, true);
     assert.equal(report.publishedSmokeReady, false);
     assert.equal(report.setupRequired, true);
+    assert.deepEqual(report.dogfood, {
+      dogfoodReady: true,
+      installOutcomeStatus: "already_installed",
+      requiredToolsPresent: true
+    });
     assert.deepEqual(report.toolSmoke, {
       toolSmokeReady: false,
       gatewaySetupClassification: "gateway_setup_required",

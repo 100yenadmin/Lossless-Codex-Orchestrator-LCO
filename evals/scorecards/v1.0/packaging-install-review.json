@@ -45,7 +45,7 @@
     "Onboarding status names the published beta package, clean profile, npm registry check, tarball lookup, global install, guarded tarball fallback install, OpenClaw install, OpenClaw tarball fallback install, dogfood, dogfood tarball fallback, and tool-smoke recovery commands.",
     "Onboarding status classifies the local package version against the npm beta dist-tag and records gateway setup status without raw npm or OpenClaw output.",
     "Published package smoke report combines sanitized npm beta, dogfood, fresh-profile tool-smoke, and optional configured-profile tool-smoke evidence without storing raw command output.",
-    "Configured-profile gateway proof is separately named and does not mark the fresh published profile ready when its own gateway setup is still required.",
+    "Configured-profile gateway proof is separately named and never marks the fresh published profile ready; setupRequired and publishedSmokeReady remain driven only by the fresh-profile toolSmoke block.",
     "OpenClaw dogfood distinguishes installed, already_installed, link_force_unsupported, and failed linked-install outcomes without raw local paths.",
     "Known OpenClaw prose markers are reduced to public-safe installOutcome.recognizedMarker ids instead of copying raw command output.",
     "Release preflight/status fail closed on missing approvals without performing publish or release actions."
