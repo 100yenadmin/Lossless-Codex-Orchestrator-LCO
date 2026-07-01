@@ -164,8 +164,8 @@ loo desktop act cua-driver "click primary" # dry-run only in this beta
 ```
 
 Live desktop act requests are intentionally blocked in this beta. Through MCP or
-OpenClaw, `loo_desktop_act` returns structured blockers for missing action-bound
-proof fields so an agent can continue through `loo_desktop_live_proof_harness`
+OpenClaw, `loo_desktop_act` returns structured blockers for missing or
+mismatched action-bound proof fields so an agent can continue through `loo_desktop_live_proof_harness`
 and `loo_desktop_proof_report` without performing GUI mutation.
 
 Scorecard and release proof commands:

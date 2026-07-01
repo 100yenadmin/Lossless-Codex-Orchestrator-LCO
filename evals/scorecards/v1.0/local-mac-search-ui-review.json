@@ -29,7 +29,7 @@
     "selected bounded expansion profile and token budget",
     "copy action target refs",
     "CUA and Peekaboo readiness statuses",
-    "structured loo_desktop_act blockers for missing live desktop proof fields",
+    "structured loo_desktop_act blockers for missing or mismatched live desktop proof fields",
     "desktop live/no-focus proof harness blockers or readiness status",
     "desktop GUI proof-report blocker, approval-fixture status, and runtime marker path when valid",
     "blocker codes for unavailable local DB or plugin tools"

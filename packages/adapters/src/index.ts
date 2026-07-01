@@ -507,12 +507,21 @@ export function desktopActDryRun(input: {
   ];
   const blockers = requestedLive ? ["desktop_live_action_not_enabled"] : [];
   if (requestedLive) {
+    const targetApp = publicTextField(input.targetApp, 120);
+    const targetWindow = publicTextField(input.targetWindow, 160);
+    const action = publicTextField(input.action, 160);
+    const suppliedActionHash = publicHashField(input.actionHash) ? input.actionHash : undefined;
     if (!input.backend) blockers.push("desktop_backend_missing");
     if (input.backend === "direct") blockers.push("desktop_backend_not_gui_fallback");
-    if (!publicTextField(input.targetApp, 120)) blockers.push("target_app_missing");
-    if (!publicTextField(input.targetWindow, 160)) blockers.push("target_window_missing");
-    if (!publicTextField(input.action, 160)) blockers.push("action_missing");
-    if (!publicHashField(input.actionHash)) blockers.push("action_hash_missing");
+    if (!targetApp) blockers.push("target_app_missing");
+    if (!targetWindow) blockers.push("target_window_missing");
+    if (!action) blockers.push("action_missing");
+    if (!suppliedActionHash) {
+      blockers.push("action_hash_missing");
+    } else if (input.backend && targetApp && targetWindow && action) {
+      const expectedActionHash = desktopActionHash(input.backend, targetApp, targetWindow, action);
+      if (suppliedActionHash.toLowerCase() !== expectedActionHash) blockers.push("action_hash_mismatch");
+    }
     if (!publicTextField(input.approvalRef, 160)) blockers.push("approval_ref_missing");
     if (!publicTextField(input.permissionState, 120)) blockers.push("permission_state_missing");
     const focusBefore = publicTextField(input.focusBeforeApplication, 120);
@@ -586,7 +595,7 @@ export function createDesktopGuiProofReport(input: unknown): DesktopGuiProofRepo
   if (rawSecretIncluded !== false) blockers.push("raw_secret_included");
 
   const actionHash = desktopBackend && targetApp && targetWindow && action
-    ? createHash("sha256").update(JSON.stringify({ desktopBackend, targetApp, targetWindow, action })).digest("hex")
+    ? desktopActionHash(desktopBackend, targetApp, targetWindow, action)
     : undefined;
   const guiBackend = desktopBackend === "cua-driver" || desktopBackend === "peekaboo" ? desktopBackend : undefined;
   const proofReady = blockers.length === 0;
@@ -735,7 +744,7 @@ export function createDesktopLiveProofHarness(input: {
   }
 
   const actionHash = desktopBackend && targetApp && targetWindow && action
-    ? createHash("sha256").update(JSON.stringify({ desktopBackend, targetApp, targetWindow, action })).digest("hex")
+    ? desktopActionHash(desktopBackend, targetApp, targetWindow, action)
     : undefined;
   const proofHarnessReady = blockers.length === 0;
   const publicBackendStatus = backendStatus
@@ -1299,6 +1308,10 @@ function publicTextField(value: unknown, maxChars: number): string | undefined {
 
 function publicHashField(value: unknown): value is string {
   return typeof value === "string" && /^[a-f0-9]{64}$/i.test(value);
+}
+
+function desktopActionHash(desktopBackend: DesktopBackend, targetApp: string, targetWindow: string, action: string): string {
+  return createHash("sha256").update(JSON.stringify({ desktopBackend, targetApp, targetWindow, action })).digest("hex");
 }
 
 function isDiagnosticOnlyFocusProof(value: string): boolean {

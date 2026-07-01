@@ -5,7 +5,7 @@
 ## What Changed
 
 - #160 updates `loo_desktop_act` so live desktop requests return structured blockers instead of only a prose dry-run note.
-- #160 exposes the action-bound proof checklist to OpenClaw callers: backend, target app/window, action text, action hash, approval ref, permission state, focus before/after, and public-safe observation.
+- #160 exposes the action-bound proof checklist to OpenClaw callers: backend, target app/window, action text, action hash, approval ref, permission state, focus before/after, and public-safe observation; mismatched action hashes return a named blocker.
 - #160 keeps `loo_desktop_act` dry-run-only. It does not run GUI mutation, capture screenshots, or authorize unattended desktop takeover.
 - #160 updates the OpenClaw plugin manifest so installed agents see the same optional proof-field schema as the MCP server.
 

@@ -402,7 +402,6 @@ test("MCP doctor and desktop tools expose CUA diagnostics while desktop act stay
     assert.match(actResult.nextAction ?? "", /loo_desktop_live_proof_harness/i);
     assert.match(actResult.nextAction ?? "", /loo_desktop_proof_report/i);
 
-    // The act layer validates public-safe proof shape only; proof-report validates action-hash binding.
     const compliantActionHash = createHash("sha256")
       .update(JSON.stringify({
         desktopBackend: "cua-driver",
@@ -426,6 +425,21 @@ test("MCP doctor and desktop tools expose CUA diagnostics while desktop act stay
       dry_run: false
     }) as { blockers?: string[] };
     assert.deepEqual(compliantLiveRequest.blockers, ["desktop_live_action_not_enabled"]);
+
+    const mismatchedHashLiveRequest = await act.execute({
+      backend: "cua-driver",
+      target_app: "Codex",
+      target_window: "Lossless OpenClaw Orchestrator",
+      action: "click primary",
+      action_hash: "0".repeat(64),
+      approval_ref: "issue-160-proof-ref",
+      permission_state: "accessibility=true;screen_recording=true",
+      focus_before_application: "Codex",
+      focus_after_application: "Codex",
+      public_safe_observation: true,
+      dry_run: false
+    }) as { blockers?: string[] };
+    assert.ok(mismatchedHashLiveRequest.blockers?.includes("action_hash_mismatch"));
 
     const focusChangedLiveRequest = await act.execute({
       backend: "cua-driver",
