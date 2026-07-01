@@ -66,5 +66,6 @@ Unmarked prose is bootloader/fallback context and must not become current-state 
 - #255 child: source-authority bootstrap profile so coverage does not masquerade as current truth ownership.
 - #255 child: richer GitHub deterministic collector instead of optional structured input.
 - #254/#255 child: clean cockpit-card presentation so user-facing card titles, summaries, and next actions do not expose directive fragments, markdown tables, duplicated labels, or transcript-shaped excerpts (#271).
+- #255 child: end-to-end Eva cockpit dogfood scenario proving GitHub check fidelity, recent Codex cards, cleaned presentation, ranking, customer/runtime/security priority, source coverage, and P1 gaps in one public-safe fixture (#272).
 - #255 child: Notion/support-control/Company Brain/Stripe read-only adapters, each behind `not_configured | unavailable | partial | ok`.
 - #255 child: optional dashboard/Notion export after data contracts are stable.

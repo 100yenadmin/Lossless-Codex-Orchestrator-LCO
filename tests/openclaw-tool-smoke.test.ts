@@ -337,6 +337,36 @@ test("OpenClaw tool smoke invokes required loo tools through gateway call and wr
   }
 });
 
+test("OpenClaw tool smoke avoids OpenClaw dev/profile flag conflict", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-dev-profile-"));
+  const evidencePath = join(dir, "tool-smoke.json");
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_doctor"]);
+
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      dev: true,
+      profile: "lco-dogfood",
+      evidencePath,
+      requiredTools: ["loo_doctor"]
+    });
+
+    assert.equal(report.ok, true);
+    assert.doesNotMatch(report.command, /--dev/);
+    assert.match(report.command, /--profile lco-dogfood/);
+
+    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { args: string[] });
+    assert.equal(calls.length > 0, true);
+    assert.equal(calls.every((call) => !call.args.includes("--dev")), true);
+    assert.equal(calls.every((call) => call.args.includes("--profile")), true);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
 test("OpenClaw tool smoke passes discovered thread id to loo_expand_session", () => {
   const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-expand-session-"));
   const evidencePath = join(dir, "tool-smoke.json");

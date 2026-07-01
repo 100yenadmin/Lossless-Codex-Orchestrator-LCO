@@ -2285,7 +2285,25 @@ function codexSessionReasonCodes(entry: CodexThreadMapEntry, state: CodexSession
   if (counts.evidence < 3) codes.push("missing_evidence");
   if (sessionFreshness(entry.updatedAt).stale) codes.push("active_stale");
   if (normalizedMetadataValue(entry.metadata.nextAction).includes("resume")) codes.push("resume_ready");
-  return unique(codes);
+  return unique([...codes, ...codexSessionImpactReasonCodes(entry)]);
+}
+
+function codexSessionImpactReasonCodes(entry: CodexThreadMapEntry): string[] {
+  const text = normalizedMetadataValue([
+    entry.title,
+    entry.summary,
+    entry.metadata.project,
+    entry.metadata.status,
+    entry.metadata.priority,
+    entry.metadata.blocker,
+    entry.metadata.nextAction
+  ].filter((value): value is string => typeof value === "string" && value.trim().length > 0).join(" "));
+  const codes: string[] = [];
+  if (/\b(customer|client|user-facing|external-user)\b/.test(text)) codes.push("customer_impact");
+  if (/\b(runtime|outage|incident|control-plane|gateway)\b/.test(text)) codes.push("runtime_impact");
+  if (/\b(security|vulnerability|secret|token|credential|permission|auth|authentication)\b/.test(text)) codes.push("security_impact");
+  if (/\b(production|prod|customer-facing)\b/.test(text)) codes.push("production_impact");
+  return codes;
 }
 
 function codexSessionConfidence(entry: CodexThreadMapEntry, reasonCodes: string[]): number {

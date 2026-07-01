@@ -188,6 +188,41 @@ test("M9 fresh npm clean-profile scenario captures external beta install path", 
   assert.match(String(scenario.proof_boundary), /does not prove stable release/i);
 });
 
+test("Eva operating picture dogfood scenario captures the full cockpit workflow", () => {
+  const scenario = JSON.parse(readFileSync(join("evals", "scenarios", "v1", "eva-operating-picture-dogfood.json"), "utf8")) as {
+    id?: string;
+    surface?: string;
+    user_task?: string;
+    allowed_tools?: string[];
+    expected_public_safe_evidence?: string[];
+    forbidden_behaviors?: string[];
+    metrics?: Record<string, unknown>;
+    proof_boundary?: string;
+  };
+
+  assert.equal(scenario.id, "eva-operating-picture-dogfood-v1");
+  assert.equal(scenario.surface, "openclaw-gateway");
+  assert.match(String(scenario.user_task), /normalize GitHub.*recent Codex.*attention.*business pulse/i);
+  assert.deepEqual(scenario.allowed_tools, [
+    "loo_github_operating_items",
+    "loo_recent_sessions",
+    "loo_project_digest",
+    "loo_attention_inbox",
+    "loo_business_pulse"
+  ]);
+  assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /checks_pending/i);
+  assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /clean card/i);
+  assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /customer_impact/i);
+  assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /sourceCoverage/i);
+  assert.match(JSON.stringify(scenario.forbidden_behaviors), /raw_transcript_read/);
+  assert.match(JSON.stringify(scenario.forbidden_behaviors), /external_write/);
+  assert.equal(scenario.metrics?.requires_current_lane_source_balance, true);
+  assert.equal(scenario.metrics?.requires_clean_card_presentation, true);
+  assert.equal(scenario.metrics?.requires_customer_runtime_red_priority, true);
+  assert.equal(scenario.metrics?.max_raw_transcript_spans, 0);
+  assert.match(String(scenario.proof_boundary), /does not prove.*full business truth/i);
+});
+
 test("runtime-required v1.1 scenarios define working-app proof beyond dry-run contracts", () => {
   const scenarioDir = join("evals", "scenarios", "v1.1");
   const files = readdirSync(scenarioDir).filter((file) => file.endsWith(".json")).sort();

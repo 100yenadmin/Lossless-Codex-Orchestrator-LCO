@@ -42,6 +42,7 @@
     "visible Codex map source coverage, confidence, ambiguity markers, and public-safe session card refs",
     "GitHub operating item normalization for issue, PR, statusCheckRollup, and check records without raw bodies or logs",
     "operating-picture source coverage, source authority coverage, current_lane/fresh_signal/low_confidence_downgraded ranking reason codes, and not_configured P1 source states",
+    "end-to-end Eva cockpit dogfood evidence tying GitHub check state, recent Codex cards, clean presentation, current-lane ranking, customer/runtime/security priority, source coverage, and P1 not_configured gaps into one public-safe workflow",
     "dry-run approval_audit_id, params_hash, and message_hash",
     "gateway setupStatus, setupBlockers, and setupGuidance for first-run credential blockers",
     "agent reasoning note based only on safe summaries"
@@ -67,6 +68,7 @@
     "Agent can normalize public-safe GitHub issue, PR, statusCheckRollup, and check records into digest-ready github_items before summarization.",
     "Agent can distinguish pending, failed, passed, and unknown PR check-state reason codes without reading check logs.",
     "Agent can see current-lane GitHub PR/check signals rank above old low-confidence Codex cards unless customer/runtime/security impact is present.",
+    "Agent can run or inspect the Eva operating-picture dogfood scenario as one coherent workflow instead of trusting isolated ranking, check-state, and card-cleanup tests.",
     "Agent can inspect operating-picture cards whose claims cite source refs, confidence, freshness, reason codes, and authority coverage.",
     "Missing P1 source adapters are reported as not_configured instead of summarized.",
     "Unavailable or cache-only authorities degrade to unknown or low confidence instead of being treated as current truth.",
@@ -82,13 +84,13 @@
     "Operating-picture output hides missing sources, omits authority coverage, or treats PLAN_STATE prose as current truth."
   ],
   "current_score": "pass",
-  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-271-cockpit-card-cleanup/",
+  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-272-eva-cockpit-dogfood/",
   "known_gaps": [
     "Fresh OpenClaw profiles may need scoped gateway credentials or profile/device pairing before tool-smoke can call tools; `setupStatus.classification` must distinguish this from package failure.",
     "P0 operating-picture tools use LCO/Codex, normalized public-safe GitHub inputs, explicit PLAN_STATE pins, read-only watcher request packets, and a public source-authority profile only; Notion, support-control, Company Brain, Stripe, dashboard/export, and summarizer adapters remain P1.",
     "Visible Codex map joins prove read-only correlation from sanitized title/status metadata only; they do not prove Codex GUI mutation or visible focus/select/continue workflows.",
     "This does not prove live Codex control, generic GUI mutation, Claude Code adapter parity, full business truth, or release-grade customer readiness."
   ],
-  "next_action": "Merge #271 cockpit card cleanup, then continue #272 end-to-end Eva cockpit dogfood before filing P1 adapter work.",
+  "next_action": "Merge #272 end-to-end Eva cockpit dogfood, then continue first-run gateway readiness and remaining GA hardening before filing P1 adapter work.",
   "proof_boundary": "This proves local OpenClaw gateway agent usability for Codex read/search/describe/expand/detail lookup/recommend/dry-run, read-only watcher request packets, read-only app-server status/thread signals, visible-to-indexed session correlation, and P0 cockpit/operating-picture cards using public-safe evidence only; it does not prove live control, GUI mutation, Claude Code adapter parity, full business truth, or 1.0 readiness."
 }
