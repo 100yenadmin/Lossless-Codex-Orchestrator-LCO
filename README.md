@@ -7,7 +7,7 @@ summarizable, product-management objects for OpenClaw.
 Codex-first: Claude Code support is intentionally shipped as an adapter stub
 until its storage and control paths are proven.
 
-[Vision](VISION.md) · [Working App Proof Sprint](docs/WORKING_APP_PROOF_SPRINT.md) · [OpenClaw Plugin](docs/OPENCLAW_PLUGIN.md) · [Beta Demo](docs/BETA_RELEASE_DEMO.md) · [Beta Release Runbook](docs/BETA_RELEASE_RUNBOOK.md) · [Claim Audit](docs/CLAIM_AUDIT.md) · [MIT](LICENSE)
+[Vision](VISION.md) · [Working App Proof Sprint](docs/WORKING_APP_PROOF_SPRINT.md) · [OpenClaw Plugin](docs/OPENCLAW_PLUGIN.md) · [Claude Adapter Boundary](docs/CLAUDE_ADAPTER_BOUNDARY.md) · [Beta Demo](docs/BETA_RELEASE_DEMO.md) · [Beta Release Runbook](docs/BETA_RELEASE_RUNBOOK.md) · [Claim Audit](docs/CLAIM_AUDIT.md) · [MIT](LICENSE)
 
 ## Why This Exists
 
@@ -50,58 +50,66 @@ rediscovering state from text every time.
 | Plans, finals, files, tools | Beta | Extracts proposed plans, final messages, touched files, tool-call metadata, and safe summaries. |
 | MCP / OpenClaw tools | Beta | Exposes `loo_*` tools for OpenClaw and other MCP clients. |
 | OpenClaw LCM peer reads | Experimental | Reads peer summary DBs read-only without merging stores. |
-| Codex direct controls | Beta boundary | Resume/send/steer/interrupt are approval-gated and dry-run first; a CLI live-control smoke exists, while Milestone 7 targets installed OpenClaw gateway live proof. |
+| Codex direct controls | Beta boundary | Resume/send/steer/interrupt are approval-gated and dry-run first; installed OpenClaw gateway live proof exists only inside its explicit proof boundary. |
 | Desktop fallback | Experimental | CUA Driver and Peekaboo have backend-specific scratch no-focus proof; product GUI mutation still needs an action-bound proof gate. |
 | Scorecards and release proof | Beta | Public-safe scorecards and release-status commands track what is proven. |
 | QA Lab scenarios | Beta | Dry-run scenario contracts under `evals/scenarios/v1` turn orchestrator workflows into public-safe eval tasks. |
-| Working app runtime proof | Next sprint | `evals/scenarios/v1.1` and #156 track installed gateway, approved live Codex action, post-action refresh, desktop collaboration, and connected UI proof. |
+| Working app runtime proof | Completed proof | M7/#156 proved the named runtime path and proof gates; generic GUI mutation, Claude parity, and 1.0 readiness remain excluded. |
 | Claude Code adapter | Fixture inventory | Supports redacted metadata-only fixtures with `claude_session:*` refs; no Claude parity, live control, GUI mutation, or cloud sync claim. |
 
-## Current Sprint: Working App Proof
+## Current Sprint: M9 Agent Handoff Beta Sprint
 
 The roadmap is now ranked by one question:
 
 > Does this help an OpenClaw orchestrator manage hundreds of sessions with less
 > context, less rereading, and safer action?
 
-Milestone 7 is the
-[Working App Proof Sprint](docs/WORKING_APP_PROOF_SPRINT.md), tracked by
-[#156](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/156)
-and GitHub milestone
-[#8](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/milestone/8).
+M9 Agent Handoff Beta Sprint is tracked by
+[#231](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/231).
+The core Codex recall path is working; the current gap is making that capability
+easy for a local OpenClaw agent to use without maintainer steering.
 
-The target is an actual Codex-first working app proof, not another dry-run-only
-release iteration:
+1. **First-class agent skill/playbook**
+   Add a concise OpenClaw agent usage skill for the canonical workflows. See
+   [#232](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/232).
 
-1. **Runtime proof runner**
-   Make `evals/scenarios/v1.1` fail closed until real public-safe runtime proof
-   markers exist. See [#157](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/157).
+2. **README/VISION truth alignment**
+   Keep public docs current with M9 and completed M7 proof. See
+   [#233](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/233).
 
-2. **Installed OpenClaw gateway live Codex proof**
-   Dry-run and then execute one harmless approved Codex action through the
-   installed gateway path. See [#158](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/158).
+3. **Agent dogfood scenario**
+   Simulate an OpenClaw agent using only `loo_*` tools to search, describe,
+   expand, recommend, and dry-run without raw transcripts. See
+   [#234](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/234).
 
-3. **Post-action refresh and reasoning**
-   Refresh the target session after the live action and produce safe
-   source-ref-based reasoning without raw transcript reads. See
-   [#159](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/159).
+4. **Fresh npm beta install smoke**
+   Prove a clean npm `@beta` install and clean-profile OpenClaw load. See
+   [#235](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/235).
 
-4. **Action-bound desktop collaboration**
-   Prove one backend-specific desktop fallback action only when direct Codex
-   protocol is insufficient. See [#160](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/160).
+5. **1.0 readiness gate**
+   Define stable-release non-negotiables and fail-closed checks without adding
+   Claude parity or generic GUI mutation to 1.0 scope. See
+   [#236](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/236).
 
-5. **Connected local search UI**
-   Connect the local cockpit/search UI to real `loo_*` calls instead of static
-   shell output. See [#161](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/161).
+What a local OpenClaw agent can do today:
 
-6. **Runtime-proven claim gate**
-   Add release/doc gates for a future working-app claim scope after runtime proof
-   exists. See [#162](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/162).
+- Search and describe local Codex sessions through `loo_search_sessions` and
+  `loo_describe_session`.
+- Expand bounded evidence with `loo_expand_session` or `loo_expand_query`.
+- Retrieve plans, finals, touched files, and session maps with the Codex detail
+  tools.
+- Dry-run Codex control actions and inspect audit ids before any live action.
+- Check package, plugin, gateway, and first-run readiness through `loo_doctor`,
+  `loo onboard status`, `loo openclaw dogfood`, `loo openclaw tool-smoke`, and
+  `loo openclaw published-smoke`.
 
-7. **Claude Code adapter inventory**
-   Keep Claude Code honest by proving storage/control boundaries before any
-   adapter parity work. See [docs/CLAUDE_ADAPTER_BOUNDARY.md](docs/CLAUDE_ADAPTER_BOUNDARY.md)
-   and [#163](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/163).
+Completed proof:
+
+- The [Working App Proof Sprint](docs/WORKING_APP_PROOF_SPRINT.md) and #156
+  closed the M7 runtime proof lane for the named Codex-first surfaces.
+- Desktop fallback remains action-bound; generic GUI mutation and Codex GUI
+  mutation are not public beta claims.
+- Claude Code remains an adapter stub and fixture inventory, not parity.
 
 ## Quick Start
 
