@@ -934,11 +934,31 @@ test("operating picture surfaces active customer impact without treating product
       nextAction: "continue ordinary gateway tool-smoke token budget work",
       updatedAt: relativeIso(5),
       refs: true
+    },
+    {
+      id: "019f-completed-customer-incident",
+      title: "Completed customer security incident closeout",
+      status: "done",
+      priority: "medium",
+      nextAction: "customer security incident resolved and closed",
+      updatedAt: relativeIso(4),
+      refs: true
+    },
+    {
+      id: "019f-no-impact-readiness",
+      title: "No customer impact production readiness auth token refactor",
+      status: "active",
+      priority: "high",
+      nextAction: "document no customer impact and continue production readiness auth token refactor",
+      updatedAt: relativeIso(3),
+      refs: true
     }
   ] satisfies SessionFixture[], ({ db }) => {
     const recent = getRecentSessions(db, { scope: "recent", limit: 10, includeCards: true });
     const impactedSession = recent.cards.find((card) => card.threadId === "codex_thread:019f-active-customer-impact");
     const routineSession = recent.cards.find((card) => card.threadId === "codex_thread:019f-routine-gateway-token-budget");
+    const completedSession = recent.cards.find((card) => card.threadId === "codex_thread:019f-completed-customer-incident");
+    const noImpactSession = recent.cards.find((card) => card.threadId === "codex_thread:019f-no-impact-readiness");
 
     assert.ok(impactedSession);
     assert.equal(impactedSession.reasonCodes.includes("customer_impact"), true);
@@ -946,11 +966,25 @@ test("operating picture surfaces active customer impact without treating product
     assert.ok(routineSession);
     assert.equal(routineSession.reasonCodes.includes("runtime_impact"), false);
     assert.equal(routineSession.reasonCodes.includes("security_impact"), false);
+    assert.ok(completedSession);
+    assert.equal(completedSession.state, "done");
+    assert.equal(completedSession.reasonCodes.includes("customer_impact"), true);
+    assert.ok(noImpactSession);
+    assert.equal(noImpactSession.reasonCodes.includes("customer_impact"), false);
+    assert.equal(noImpactSession.reasonCodes.includes("production_impact"), false);
+    assert.equal(noImpactSession.reasonCodes.includes("security_impact"), false);
 
     const attention = createAttentionInbox(db, { window: "24h", limit: 10 });
     assert.equal(attention.cards[0]?.title, "Customers cannot log in during runtime incident");
     assert.equal(attention.cards[0]?.state, "yellow");
     assert.equal(attention.cards.some((card) => card.title === "OpenClaw gateway token budget retrieval tuning"), false);
+    assert.equal(attention.cards.some((card) => card.title === "Completed customer security incident closeout"), false);
+    assert.equal(attention.cards.some((card) => card.title === "No customer impact production readiness auth token refactor"), false);
+
+    const cockpit = getCockpitInbox(db, { limit: 10 });
+    assert.equal(cockpit.items[0]?.card.title, "Customers cannot log in during runtime incident");
+    assert.equal(cockpit.items[0]?.reasonCodes.includes("customer_impact"), true);
+    assert.equal(cockpit.items.some((item) => item.card.title === "OpenClaw gateway token budget retrieval tuning"), false);
   });
 });
 
