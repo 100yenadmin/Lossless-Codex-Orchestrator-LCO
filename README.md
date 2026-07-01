@@ -7,7 +7,7 @@ summarizable, product-management objects for OpenClaw.
 Codex-first: Claude Code support is intentionally shipped as an adapter stub
 until its storage and control paths are proven.
 
-[Vision](VISION.md) · [Agent Skill](skills/lossless-openclaw-orchestrator/SKILL.md) · [Working App Proof Sprint](docs/WORKING_APP_PROOF_SPRINT.md) · [OpenClaw Plugin](docs/OPENCLAW_PLUGIN.md) · [Claude Adapter Boundary](docs/CLAUDE_ADAPTER_BOUNDARY.md) · [Beta Demo](docs/BETA_RELEASE_DEMO.md) · [Beta Release Runbook](docs/BETA_RELEASE_RUNBOOK.md) · [Claim Audit](docs/CLAIM_AUDIT.md) · [MIT](LICENSE)
+[Vision](VISION.md) · [Agent Skill](skills/lossless-openclaw-orchestrator/SKILL.md) · [Release Checklist](docs/RELEASE_CHECKLIST.md) · [Working App Proof Sprint](docs/WORKING_APP_PROOF_SPRINT.md) · [OpenClaw Plugin](docs/OPENCLAW_PLUGIN.md) · [Claude Adapter Boundary](docs/CLAUDE_ADAPTER_BOUNDARY.md) · [Beta Demo](docs/BETA_RELEASE_DEMO.md) · [Beta Release Runbook](docs/BETA_RELEASE_RUNBOOK.md) · [Claim Audit](docs/CLAIM_AUDIT.md) · [MIT](LICENSE)
 
 ## Why This Exists
 
@@ -96,7 +96,10 @@ easy for a local OpenClaw agent to use without maintainer steering.
 
 5. **1.0 readiness gate**
    Define stable-release non-negotiables and fail-closed checks without adding
-   Claude parity or generic GUI mutation to 1.0 scope. See
+   Claude parity or generic GUI mutation to 1.0 scope. The gate lives in
+   [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) and is enforced by
+   `loo release general-readiness --strict` using fresh npm and agent dogfood
+   evidence. See
    [#236](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/236).
 
 What a local OpenClaw agent can do today:

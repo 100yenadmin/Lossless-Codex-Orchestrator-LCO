@@ -39,6 +39,7 @@ import { createReleaseBundle } from "./release-bundle.js";
 import { createReleaseDemoStatus } from "./release-demo-status.js";
 import { runReleasePreflight } from "./release-preflight.js";
 import { createReleaseStatus } from "./release-status.js";
+import { createGeneralReleaseReadiness } from "./general-release-readiness.js";
 import { runOpenClawDogfood } from "./openclaw-dogfood.js";
 import { runOpenClawToolSmoke } from "./openclaw-tool-smoke.js";
 import { createPublishedPackageSmokeReport } from "./published-package-smoke.js";
@@ -504,6 +505,22 @@ async function main() {
     if (parsed.strict && !report.releaseReady) process.exitCode = 1;
     return;
   }
+  if (command === "release" && args[0] === "general-readiness") {
+    if (hasHelpFlag(args.slice(1))) {
+      printGeneralReleaseReadinessHelp();
+      return;
+    }
+    const parsed = parseGeneralReleaseReadinessArgs(args.slice(1));
+    const report = createGeneralReleaseReadiness({
+      evidenceDir: parsed.evidenceDir,
+      freshNpmEvidence: parsed.freshNpmEvidence,
+      agentDogfoodEvidence: parsed.agentDogfoodEvidence,
+      now: parsed.now
+    });
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.stableReady) process.exitCode = 1;
+    return;
+  }
   if (command === "release" && args[0] === "demo-status") {
     if (hasHelpFlag(args.slice(1))) {
       printReleaseDemoStatusHelp();
@@ -555,6 +572,7 @@ async function main() {
     "  loo release preflight [--evidence-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--strict]",
     "  loo release bundle --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--strict]",
     "  loo release status --evidence-dir path --candidate-sha sha [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--github-ci-evidence path] [--codeql-evidence path] [--desktop-gui-required --desktop-gui-approval-evidence path] [--now iso] [--strict]",
+    "  loo release general-readiness --evidence-dir path [--fresh-npm-evidence path] [--agent-dogfood-evidence path] [--now iso] [--strict]",
     "  loo release demo-status --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--min-sessions n] [--strict]"
   ].join("\n"));
   process.exitCode = 2;
@@ -880,6 +898,25 @@ function printReleaseStatusHelp(): void {
     "",
     "Safety boundary:",
     "  The command does not publish npm, does not create a GitHub Release, does not run live Codex control, and does not perform desktop GUI mutation."
+  ].join("\n"));
+}
+
+function printGeneralReleaseReadinessHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo release general-readiness --evidence-dir path [--fresh-npm-evidence path] [--agent-dogfood-evidence path] [--now iso] [--strict]",
+    "",
+    "Writes a public-safe 1.0 general-release readiness packet without performing release actions.",
+    "",
+    "Required evidence:",
+    "  --fresh-npm-evidence points to a public-safe `loo openclaw published-smoke` report with clean-profile gateway status ready.",
+    "  --agent-dogfood-evidence points to a public-safe `loo openclaw tool-smoke` report with agentReasoning and dry-run evidence.",
+    "",
+    "Strict mode:",
+    "  --strict exits non-zero until docs, skill/playbook, M9 scenarios, fresh npm proof, and agent dogfood proof are complete.",
+    "",
+    "Safety boundary:",
+    "  The command does not publish npm, does not move npm latest, does not create a GitHub Release, does not run live Codex control, and does not perform desktop GUI mutation."
   ].join("\n"));
 }
 
@@ -2076,6 +2113,46 @@ function parseReleaseStatusArgs(input: string[]): {
     now,
     strict
   };
+}
+
+function parseGeneralReleaseReadinessArgs(input: string[]): {
+  evidenceDir: string;
+  freshNpmEvidence?: string;
+  agentDogfoodEvidence?: string;
+  now?: string;
+  strict: boolean;
+} {
+  let evidenceDir: string | undefined;
+  let freshNpmEvidence: string | undefined;
+  let agentDogfoodEvidence: string | undefined;
+  let now: string | undefined;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--evidence-dir") {
+      evidenceDir = readReleaseStatusPath(input, ++index, "--evidence-dir");
+      continue;
+    }
+    if (arg === "--fresh-npm-evidence") {
+      freshNpmEvidence = readReleaseStatusPath(input, ++index, "--fresh-npm-evidence");
+      continue;
+    }
+    if (arg === "--agent-dogfood-evidence") {
+      agentDogfoodEvidence = readReleaseStatusPath(input, ++index, "--agent-dogfood-evidence");
+      continue;
+    }
+    if (arg === "--now") {
+      now = readReleaseStatusValue(input, ++index, "--now");
+      continue;
+    }
+    if (arg === "--strict") {
+      strict = true;
+      continue;
+    }
+    throw new Error(`Unknown release general-readiness option: ${arg}`);
+  }
+  if (!evidenceDir) throw new Error("release general-readiness requires --evidence-dir");
+  return { evidenceDir, freshNpmEvidence, agentDogfoodEvidence, now, strict };
 }
 
 function readReleaseStatusPath(input: string[], index: number, flag: string): string {
