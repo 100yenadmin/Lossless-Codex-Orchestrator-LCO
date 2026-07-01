@@ -29,6 +29,16 @@ export type OnboardingStatusReport = {
     requiredToolsPresent: string[];
     missingRequiredTools: string[];
   };
+  installRecovery: {
+    publishedPackage: string;
+    cleanProfile: string;
+    registryCheckCommand: string;
+    globalInstallCommand: string;
+    openclawInstallCommand: string;
+    dogfoodCommand: string;
+    toolSmokeCommand: string;
+    setupGuidance: string[];
+  };
   nextSafeCommands: string[];
   forbiddenActions: string[];
   proofBoundary: string;
@@ -77,6 +87,7 @@ export function createOnboardingStatusReport(options: {
   const requiredFiles = REQUIRED_FILES.map(([id, path]) => checkPath(rootDir, id, path, true));
   const sourceEntrypoints = SOURCE_ENTRYPOINTS.map(([id, path]) => checkPath(rootDir, id, path, true));
   const packageEntrypoints = packageEntrypointsFromPackage(rootDir, packageJson);
+  const installRecovery = createInstallRecoveryCommands();
   const blockers = [
     ...requiredFiles.filter((item) => item.required && !item.exists).map((item) => `missing_required_file:${item.id}`),
     ...sourceEntrypoints.filter((item) => item.required && !item.exists).map((item) => `missing_source_entrypoint:${item.id}`),
@@ -108,10 +119,16 @@ export function createOnboardingStatusReport(options: {
       requiredToolsPresent,
       missingRequiredTools
     },
+    installRecovery,
     nextSafeCommands: [
       "loo doctor",
+      installRecovery.registryCheckCommand,
+      installRecovery.globalInstallCommand,
+      installRecovery.openclawInstallCommand,
       "loo openclaw dogfood --profile lco-dogfood --install-source . --link --strict",
+      installRecovery.dogfoodCommand,
       "loo openclaw tool-smoke --profile lco-dogfood --required-tool loo_doctor --required-tool loo_search_sessions --strict",
+      installRecovery.toolSmokeCommand,
       "loo release preflight --claim-scope codex-read-search-expand-dry-run --strict"
     ],
     forbiddenActions: [
@@ -121,7 +138,7 @@ export function createOnboardingStatusReport(options: {
       "desktop GUI mutation",
       "raw transcript upload"
     ],
-    proofBoundary: "This onboarding status report is a public-safe dry run over local package metadata and manifests only; it does not install plugins, read raw transcripts, run live Codex control, mutate a desktop GUI, publish npm packages, or create a GitHub Release."
+    proofBoundary: "This onboarding status report is a public-safe dry run over local package metadata, manifests, and published-beta install recovery commands only; it does not install plugins, read raw transcripts, run live Codex control, mutate a desktop GUI, publish npm packages, or create a GitHub Release."
   };
 }
 
@@ -138,6 +155,25 @@ function checkPath(rootDir: string, id: string, path: string, required: boolean)
     path,
     exists: existsSync(join(rootDir, path)),
     required
+  };
+}
+
+function createInstallRecoveryCommands(): OnboardingStatusReport["installRecovery"] {
+  const publishedPackage = "lossless-openclaw-orchestrator@beta";
+  const cleanProfile = "lco-dogfood-published";
+  return {
+    publishedPackage,
+    cleanProfile,
+    registryCheckCommand: "npm view lossless-openclaw-orchestrator@beta version dist-tags --json",
+    globalInstallCommand: `npm install -g ${publishedPackage}`,
+    openclawInstallCommand: `openclaw --profile ${cleanProfile} plugins install ${publishedPackage}`,
+    dogfoodCommand: `loo openclaw dogfood --profile ${cleanProfile} --install-source ${publishedPackage} --required-tool loo_doctor --required-tool loo_search_sessions --strict`,
+    toolSmokeCommand: `loo openclaw tool-smoke --profile ${cleanProfile} --required-tool loo_doctor --required-tool loo_search_sessions --strict`,
+    setupGuidance: [
+      "If tool-smoke reports setupStatus.classification=gateway_setup_required, complete local OpenClaw gateway credentials or device pairing before treating it as a package defect.",
+      "Use a clean profile for published-beta proof so an existing linked plugin does not mask install behavior.",
+      "Keep evidence public-safe: record blocker codes, setupStatus, installOutcome, counts, and hashes only."
+    ]
   };
 }
 

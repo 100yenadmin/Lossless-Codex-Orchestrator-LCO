@@ -83,6 +83,7 @@ Expected dogfood checks:
 
 - Load or inspect the OpenClaw plugin manifest and runtime entry.
 - Verify package/plugin first-run readiness with `loo onboard status`, then verify `loo_*` tools are declared and callable through the installed or packaged surface.
+- `loo onboard status` must expose a public-safe `installRecovery` block for the published beta package, including the registry check, global npm install command, clean OpenClaw profile name, plugin install command, dogfood command, tool-smoke command, and setup guidance for gateway credential/device-pairing blockers.
 - Prefer an isolated OpenClaw profile, such as `lco-dogfood`, for linked beta proof so an existing default-profile install does not masquerade as a product failure.
 - Treat `openclaw_gateway_credentials_required` on a fresh profile as first-run setup, not a package defect: `loo openclaw tool-smoke` must emit `setupStatus.classification: "gateway_setup_required"` plus `setupBlockers`/`setupGuidance`; use a provisioned profile, pass a scoped gateway token, or complete local profile/device pairing before claiming gateway tool-smoke failure.
 - Record structured `installOutcome.status` and `installOutcome.guidance` for linked installs, including `installed`, `already_installed`, `link_force_unsupported`, or `failed`, without storing raw OpenClaw stdout/stderr or local profile paths.
@@ -241,6 +242,9 @@ For Milestone 7, 1.0, or any expanded-scope release that claims live control, de
   metadata exposes the just-published beta but semver install selection remains
   blocked by npm selector cutoff drift; this is packaging hardening evidence,
   not a broader product capability claim.
+- Published-install recovery commands in onboarding evidence are dry-run guidance
+  until a separate dogfood packet proves install/load/tool invocation through
+  the named clean profile.
 
 The `codex-working-app-proof` claim scope exists as a fail-closed release gate.
 It is not satisfied by dry-run packets. It requires approved live-control proof

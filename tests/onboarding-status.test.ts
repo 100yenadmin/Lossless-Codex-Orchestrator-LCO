@@ -49,6 +49,16 @@ test("loo onboard status writes a public-safe first-run readiness artifact", () 
         requiredToolsPresent: string[];
         missingRequiredTools: string[];
       };
+      installRecovery: {
+        publishedPackage: string;
+        cleanProfile: string;
+        registryCheckCommand: string;
+        globalInstallCommand: string;
+        openclawInstallCommand: string;
+        dogfoodCommand: string;
+        toolSmokeCommand: string;
+        setupGuidance: string[];
+      };
       nextSafeCommands: string[];
       forbiddenActions: string[];
       proofBoundary: string;
@@ -72,8 +82,19 @@ test("loo onboard status writes a public-safe first-run readiness artifact", () 
     }
     assert.ok(report.nextSafeCommands.includes("loo doctor"));
     assert.ok(report.nextSafeCommands.some((command) => command.includes("loo openclaw dogfood")));
+    assert.equal(report.installRecovery.publishedPackage, "lossless-openclaw-orchestrator@beta");
+    assert.equal(report.installRecovery.cleanProfile, "lco-dogfood-published");
+    assert.equal(report.installRecovery.registryCheckCommand, "npm view lossless-openclaw-orchestrator@beta version dist-tags --json");
+    assert.equal(report.installRecovery.globalInstallCommand, "npm install -g lossless-openclaw-orchestrator@beta");
+    assert.equal(report.installRecovery.openclawInstallCommand, "openclaw --profile lco-dogfood-published plugins install lossless-openclaw-orchestrator@beta");
+    assert.equal(report.installRecovery.dogfoodCommand, "loo openclaw dogfood --profile lco-dogfood-published --install-source lossless-openclaw-orchestrator@beta --required-tool loo_doctor --required-tool loo_search_sessions --strict");
+    assert.equal(report.installRecovery.toolSmokeCommand, "loo openclaw tool-smoke --profile lco-dogfood-published --required-tool loo_doctor --required-tool loo_search_sessions --strict");
+    assert.ok(report.installRecovery.setupGuidance.some((item) => item.includes("gateway_setup_required")));
+    assert.ok(report.nextSafeCommands.includes(report.installRecovery.registryCheckCommand));
+    assert.ok(report.nextSafeCommands.includes(report.installRecovery.globalInstallCommand));
+    assert.ok(report.nextSafeCommands.includes(report.installRecovery.openclawInstallCommand));
     assert.ok(report.forbiddenActions.includes("npm publish"));
-    assert.match(report.proofBoundary, /does not install plugins/i);
+    assert.match(report.proofBoundary, /published-beta install recovery/i);
 
     const evidencePath = join(evidenceDir, "onboarding-status.json");
     assert.equal(existsSync(evidencePath), true);

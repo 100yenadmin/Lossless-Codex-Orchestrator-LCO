@@ -13,6 +13,9 @@
   "expected_public_safe_evidence": [
     "package file list",
     "plugin manifest path",
+    "published-beta installRecovery commands",
+    "clean OpenClaw profile name for published-beta proof",
+    "gateway setup guidance for credential/device-pairing blockers",
     "onboarding blocker and warning codes",
     "OpenClaw dogfood installOutcome.status",
     "OpenClaw dogfood installOutcome.recognizedMarker when a known OpenClaw output marker is detected",
@@ -34,6 +37,7 @@
   "pass_criteria": [
     "Package includes README.md, VISION.md, docs, evals, plugin manifest, and compiled runtime entries.",
     "Plugin manifest declares the loo_ prefix and expected read/control/admin tools.",
+    "Onboarding status names the published beta package, clean profile, npm registry check, global install, OpenClaw install, dogfood, and tool-smoke recovery commands.",
     "OpenClaw dogfood distinguishes installed, already_installed, link_force_unsupported, and failed linked-install outcomes without raw local paths.",
     "Known OpenClaw prose markers are reduced to public-safe installOutcome.recognizedMarker ids instead of copying raw command output.",
     "Release preflight/status fail closed on missing approvals without performing publish or release actions."
@@ -41,6 +45,7 @@
   "fail_criteria": [
     "Package omits VISION.md, scorecards, OpenClaw manifest, or MCP runtime entry.",
     "Tool declarations drift from the MCP registry.",
+    "Onboarding status lacks a clean-profile published-beta recovery path or presents setup blockers as product defects.",
     "Linked install failures are reported as generic failures when the plugin is already loaded, or raw OpenClaw stdout/stderr enters public evidence.",
     "Release commands perform npm publish, GitHub Release creation, live control, or GUI mutation."
   ],
