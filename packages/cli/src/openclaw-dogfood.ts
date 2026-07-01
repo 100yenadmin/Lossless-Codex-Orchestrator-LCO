@@ -87,6 +87,7 @@ const OPENCLAW_INSTALL_OUTPUT_MARKERS: Array<{
   status: OpenClawInstallOutcome["status"];
   observedText: string;
   pattern: RegExp;
+  requiresTargetPluginId?: boolean;
   guidance: string;
 }> = [
   {
@@ -101,6 +102,7 @@ const OPENCLAW_INSTALL_OUTPUT_MARKERS: Array<{
     status: "already_installed",
     observedText: "plugin already exists",
     pattern: /plugin already exists/i,
+    requiresTargetPluginId: true,
     guidance: "Use a clean OpenClaw profile for linked beta proof, or update/remove the existing plugin before reinstalling."
   }
 ];
@@ -217,7 +219,11 @@ function classifyInstallOutcome(input: OpenClawDogfoodInput): OpenClawInstallOut
   if (exitStatus === 0) return { status: "installed", exitStatus };
 
   const combined = `${input.installStdout || ""}\n${input.installStderr || ""}`;
-  const marker = OPENCLAW_INSTALL_OUTPUT_MARKERS.find((candidate) => candidate.pattern.test(combined));
+  const marker = OPENCLAW_INSTALL_OUTPUT_MARKERS.find((candidate) => {
+    if (!candidate.pattern.test(combined)) return false;
+    if (candidate.requiresTargetPluginId && !combined.toLowerCase().includes(TARGET_PLUGIN_ID)) return false;
+    return true;
+  });
   if (marker) {
     return {
       status: marker.status,

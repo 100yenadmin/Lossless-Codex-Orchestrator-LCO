@@ -15,7 +15,9 @@ reasoning from source refs.
   report `openclaw_plugin_already_installed_but_ready` when the plugin is loaded
   and all required `loo_*` tools are present. Known OpenClaw prose markers are
   reduced to public-safe `installOutcome.recognizedMarker` ids without storing
-  raw OpenClaw stdout/stderr or local profile paths.
+  raw OpenClaw stdout/stderr or local profile paths; the `already_installed`
+  marker must also name the target plugin id to avoid unrelated-plugin
+  false positives.
 - #192 fixes `loo openclaw tool-smoke` so `loo_expand_session` receives the
   `thread_id`, `profile`, and `token_budget` discovered from the gateway
   `loo_search_sessions` call instead of invoking the tool with empty args.

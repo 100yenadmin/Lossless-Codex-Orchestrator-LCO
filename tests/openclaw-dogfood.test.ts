@@ -199,6 +199,23 @@ test("OpenClaw dogfood report keeps unknown linked install failures generic whil
   });
 });
 
+test("OpenClaw dogfood report does not treat unrelated existing plugins as target install success", () => {
+  const report = createOpenClawDogfoodReport(loadedDogfoodInput({
+    installAttempted: true,
+    installExitStatus: 1,
+    installStderr: "plugin already exists: unrelated-openclaw-plugin"
+  }));
+
+  assert.equal(report.ok, true);
+  assert.equal(report.dogfoodReady, true);
+  assert.deepEqual(report.warnings, ["openclaw_plugin_install_failed_but_plugin_ready"]);
+  assert.deepEqual(report.installOutcome, {
+    status: "failed",
+    exitStatus: 1,
+    guidance: "Inspect the local OpenClaw install command outside public evidence, then rerun dogfood after the plugin is installed or a clean profile is selected."
+  });
+});
+
 test("OpenClaw dogfood report tolerates OpenClaw log preambles before runtime JSON", () => {
   const report = createOpenClawDogfoodReport({
     pluginListExitStatus: 0,
