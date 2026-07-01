@@ -179,7 +179,7 @@ test("published-smoke reports configured gateway proof separately from fresh-pro
         retryAfterSetup: false,
         doesNotIndicatePackageFailure: true
       },
-      private: "super-secret-configured-gateway-output"
+      private: "super-secret-configured-gateway-output state_5.sqlite session.db"
     });
 
     const result = spawnSync(process.execPath, [
@@ -241,8 +241,8 @@ test("published-smoke reports configured gateway proof separately from fresh-pro
       invokedTools: ["loo_doctor", "loo_search_sessions"]
     });
     assert.deepEqual(report.blockers, []);
-    assert.doesNotMatch(result.stdout, /super-secret|Bearer\s+|npm_[A-Za-z0-9]{20,}/i);
-    assert.doesNotMatch(readFileSync(join(evidenceDir, "published-package-smoke.json"), "utf8"), /super-secret|Bearer\s+|npm_[A-Za-z0-9]{20,}/i);
+    assert.doesNotMatch(result.stdout, /super-secret|\.sqlite\b|\.db\b|Bearer\s+|npm_[A-Za-z0-9]{20,}/i);
+    assert.doesNotMatch(readFileSync(join(evidenceDir, "published-package-smoke.json"), "utf8"), /super-secret|\.sqlite\b|\.db\b|Bearer\s+|npm_[A-Za-z0-9]{20,}/i);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
