@@ -22,7 +22,7 @@ const expectedScorecards = [
 const liveControlScorecards = expectedScorecards
   .filter((name) => name !== "working-app-runtime-proof-review");
 
-test("scorecard sweep writes a public-safe fail-closed aggregate packet", () => {
+test("scorecard sweep writes a public-safe aggregate packet from bundled scorecards", () => {
   const evidenceDir = mkdtempSync(join(tmpdir(), "loo-scorecard-sweep-"));
   const report = createScorecardSweep({
     evidenceDir,
@@ -31,7 +31,7 @@ test("scorecard sweep writes a public-safe fail-closed aggregate packet", () => 
 
   assert.equal(report.publicSafe, true);
   assert.equal(report.scorecardVersion, "1.0");
-  assert.equal(report.sweepReady, false);
+  assert.equal(report.sweepReady, true);
   assert.equal(report.generatedAt, "2026-06-29T10:05:00.000Z");
   assert.deepEqual(report.actionsPerformed, {
     liveCodexControlRun: false,
@@ -46,15 +46,9 @@ test("scorecard sweep writes a public-safe fail-closed aggregate packet", () => 
   assert.deepEqual(localAgentScorecard?.blockers, []);
   assert.equal(packagingScorecard?.status, "scored");
   assert.deepEqual(packagingScorecard?.blockers, []);
-  assert.equal(
-    report.scorecards
-      .filter((scorecard) => scorecard.name !== "local-agent-usability-review" && scorecard.name !== "packaging-install-review")
-      .every((scorecard) => scorecard.status === "pending_evidence"),
-    true
-  );
+  assert.equal(report.scorecards.every((scorecard) => scorecard.status === "scored"), true);
   assert.equal(report.scorecards.every((scorecard) => dirname(scorecard.evidencePath) === evidenceDir), true);
-  assert.equal(report.blockers.length, liveControlScorecards.length - 2);
-  assert.match(report.blockers.join("\n"), /scorecard_not_run:safety-bypass-review/);
+  assert.deepEqual(report.blockers, []);
   assert.equal(existsSync(join(evidenceDir, "scorecard-sweep.json")), true);
 
   const saved = JSON.parse(readFileSync(join(evidenceDir, "scorecard-sweep.json"), "utf8")) as typeof report;
@@ -65,6 +59,9 @@ test("scorecard sweep writes a public-safe fail-closed aggregate packet", () => 
 
 test("loo scorecards sweep strict mode exits non-zero until scorecards have evidence", () => {
   const evidenceDir = mkdtempSync(join(tmpdir(), "loo-scorecard-sweep-cli-"));
+  const scorecardDir = mkdtempSync(join(tmpdir(), "loo-scorecard-placeholder-source-"));
+  writeRequiredScorecards(scorecardDir, { includeWorkingAppRuntimeProof: false });
+  writeFileSync(join(scorecardDir, "safety-bypass-review.json"), `${JSON.stringify(minimalScorecard("example-not-run"), null, 2)}\n`);
   const result = spawnSync(process.execPath, [
     "--import",
     tsxImport,
@@ -73,6 +70,8 @@ test("loo scorecards sweep strict mode exits non-zero until scorecards have evid
     "sweep",
     "--evidence-dir",
     evidenceDir,
+    "--scorecard-dir",
+    scorecardDir,
     "--strict"
   ], { encoding: "utf8" });
 
@@ -174,6 +173,23 @@ test("scorecard sweep excludes present non-scope working-app scorecard blockers 
   assert.equal(report.sweepReady, true);
   assert.equal(report.scorecards.some((scorecard) => scorecard.name === "working-app-runtime-proof-review"), false);
   assert.doesNotMatch(report.blockers.join("\n"), /working-app-runtime-proof-review/);
+});
+
+test("bundled reduced-scope scorecards are scored for the current Codex beta gate", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-scorecard-bundled-reduced-scope-"));
+
+  const report = createScorecardSweep({
+    evidenceDir,
+    claimScope: "codex-read-search-expand-dry-run"
+  });
+
+  assert.equal(report.publicSafe, true);
+  assert.equal(report.sweepReady, true);
+  assert.deepEqual(
+    report.blockers.filter((blocker) => blocker.startsWith("scorecard_not_run:")),
+    []
+  );
+  assert.equal(report.scorecards.every((scorecard) => scorecard.status === "scored"), true);
 });
 
 test("scorecard sweep keeps working-app proof required for working-app claim scope", () => {

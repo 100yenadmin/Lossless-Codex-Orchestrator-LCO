@@ -51,15 +51,15 @@
     "A feature creates public evidence from raw sessions, DBs, screenshots, prompts, or secrets.",
     "Roadmap scoring cannot explain why one feature outranks another."
   ],
-  "current_score": "example-not-run",
-  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-<slug>/orchestrator-leverage-prioritization.json",
+  "current_score": "pass",
+  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-278-scorecard-evidence-closeout/orchestrator-leverage-prioritization.json",
   "known_gaps": [
     "Weights are a v1 product rubric and should be recalibrated after local OpenClaw gateway dogfood and retrieval evals produce real score movement.",
     "P1 operating-picture adapters for Notion, support-control, Company Brain, Stripe, dashboard/export, and model summarization still need child issues after P0 cards prove clean.",
     "Hybrid retrieval, hook agents, archive/fork controls, Mac UI, and sanitizer repair execution still need child issues before implementation."
   ],
-  "next_action": "Use this scorecard to rank the post-first-release backlog before filing the next sprint issues.",
-  "proof_boundary": "This advisory public-safe prioritization scorecard guides roadmap order only; it does not prove beta readiness, live control safety, adapter parity, or release approval.",
+  "next_action": "Use the weighted examples to rank the next post-#278 child issue before adding P1 business adapters or broader desktop work.",
+  "proof_boundary": "Scored as an advisory public-safe beta roadmap-prioritization review through issue #278. It guides issue order only and does not prove beta readiness, live control safety, adapter parity, P1 business adapters, customer readiness, or release approval.",
   "scoring_weights": {
     "context_compression_signal_per_token": 30,
     "session_management_leverage": 20,

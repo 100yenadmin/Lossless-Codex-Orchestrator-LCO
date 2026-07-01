@@ -65,8 +65,8 @@
     "UI claims one-click install, Claude Code adapter parity, unattended takeover, or release-ready macOS app status.",
     "UI falls back to raw file reads when plugin tools or the local DB are unavailable."
   ],
-  "current_score": "example-not-run",
-  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-55-local-mac-ui/local-mac-search-ui-review.json",
+  "current_score": "pass",
+  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-278-scorecard-evidence-closeout/local-mac-search-ui-review.json",
   "known_gaps": [
     "The repo includes a static prototype shell and live CLI proof mode, but no packaged macOS app shell has been produced.",
     "No signed or notarized app artifact has been produced.",
@@ -75,6 +75,6 @@
     "A CUA Driver scratch-window no-focus proof-action path exists for one approved TextEdit launch_app action; generic OpenClaw gateway invocation without exact proof args fails closed and this does not prove generic GUI mutation, Codex GUI mutation, prompt typing, clicking, or arbitrary app control.",
     "Claude Code remains a future adapter boundary, not a proved equivalent adapter."
   ],
-  "next_action": "For desktop collaboration claims, use loo_desktop_act blockers as the agent-facing checklist, then use loo_desktop_live_proof_harness, the CUA-only loo_desktop_proof_action scratch launch, and proof-report generated approval/runtime marker artifacts bound to the exact backend/app/window/action tuple before attempting broader UI event-loop or packaged macOS wrapper proof.",
-  "proof_boundary": "This advisory local public-safe beta scorecard records a Peekaboo scratch-window proof and a CUA Driver scratch-window no-focus proof-action path for one approved TextEdit launch_app action, not generic GUI mutation. It does not prove a signed or release-ready macOS app, one-click install, Claude Code adapter parity, live Codex control, Codex GUI mutation, prompt typing, clicking, arbitrary app control, or safe desktop automation."
+  "next_action": "Keep desktop collaboration out of release claims unless a future lane provides packaged app or backend-specific runtime proof for the exact claimed action.",
+  "proof_boundary": "Scored as an advisory public-safe beta boundary review for existing local Mac shell, Peekaboo scratch-window proof, CUA Driver scratch-window proof for one approved TextEdit launch_app action, and desktop proof-action evidence through issue #278, not generic GUI mutation. It does not prove a signed or release-ready macOS app, one-click install, Claude Code adapter parity, live Codex control, Codex GUI mutation, prompt typing, clicking, arbitrary app control, or safe desktop automation."
 }

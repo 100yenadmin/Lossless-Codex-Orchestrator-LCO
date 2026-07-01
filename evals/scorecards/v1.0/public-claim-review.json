@@ -34,12 +34,12 @@
     "Issue or release text claims live control proof without explicit approved smoke evidence.",
     "Public evidence includes private local data or secrets."
   ],
-  "current_score": "example-not-run",
-  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-<slug>/public-claim-review.json",
+  "current_score": "pass",
+  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-278-scorecard-evidence-closeout/public-claim-review.json",
   "known_gaps": [
     "Claim audit needs periodic expansion as new docs and adapters are added.",
     "Human release wording review remains required before public beta announcement."
   ],
-  "next_action": "Run claim audit tests and compare README/docs/release notes against VISION.md before release PRs merge.",
-  "proof_boundary": "This is a local public-safe beta scorecard example; it does not certify final public release copy."
+  "next_action": "Re-run claim audit tests and compare README/docs/release notes against VISION.md before public beta publish or release copy changes.",
+  "proof_boundary": "Scored as a public-safe beta claim review for current repo README, VISION, release-gate tests, and issue-update wording through issue #278. It does not certify future release notes, npm latest promotion, 1.0 stability, customer readiness, or human announcement copy."
 }
