@@ -1004,6 +1004,7 @@ export type OperatingDigestOptions = {
   planStatePins?: PlanStatePinsReport;
   githubItems?: GithubOperatingItem[];
   sourceAuthorityProfile?: SourceAuthorityProfile;
+  now?: string;
 };
 
 export type BusinessPulseReport = {
@@ -2012,9 +2013,12 @@ export function getRecentSessions(db: LooDatabase, options: {
   touchedPath?: string;
   risk?: "low" | "medium" | "high";
   includeCards?: boolean;
+  now?: string;
 } = {}): RecentSessionsReport {
   const scope = options.scope ?? "recent";
   const limit = clamp(options.limit ?? 20, 1, 500);
+  const nowMs = timestampMillis(options.now ?? null) ?? Date.now();
+  const generatedAt = new Date(nowMs).toISOString();
   let entries = getCodexThreadMap(db, {
     limit: 500,
     project: options.repo,
@@ -2028,7 +2032,7 @@ export function getRecentSessions(db: LooDatabase, options: {
   if (options.hasPlan === true) entries = entries.filter((entry) => entry.metadata.proposedPlanRefs.length > 0);
   if (options.hasFinal === true) entries = entries.filter((entry) => entry.metadata.finalMessageRefs.length > 0);
   if (options.hasBlocker === true) entries = entries.filter((entry) => hasRealBlocker(entry.metadata.blocker));
-  let cards = entries.map((entry) => codexSessionCard(db, entry));
+  let cards = entries.map((entry) => codexSessionCard(db, entry, nowMs));
   if (options.touchedPath) {
     const needle = options.touchedPath.toLowerCase();
     cards = cards.filter((card) => touchedPathMatches(db, card.threadId, needle));
@@ -2043,7 +2047,7 @@ export function getRecentSessions(db: LooDatabase, options: {
     publicSafe: true,
     queryRequired: false,
     scope,
-    generatedAt: new Date().toISOString(),
+    generatedAt,
     summary: {
       total,
       returned: cards.length,
@@ -2114,12 +2118,15 @@ export function createResumeRequestPacket(watcher: WatcherState, options: { now?
 
 export function getCockpitInbox(db: LooDatabase, options: { limit?: number; priorityOrder?: string[]; watcherSpecs?: WatchSpec[]; now?: string } = {}): CockpitInboxReport {
   const limit = clamp(options.limit ?? 20, 1, 500);
+  const nowMs = timestampMillis(options.now ?? null) ?? Date.now();
+  const generatedAt = new Date(nowMs).toISOString();
   const activeSessionCount = countActiveCodexSessions(db);
   const { cards } = getCollaborationActiveSessionCards(db, {
     activeSessionCount,
-    priorityOrder: options.priorityOrder
+    priorityOrder: options.priorityOrder,
+    nowMs
   });
-  const watcherReport = options.watcherSpecs?.length ? createWatcherStatusReport(options.watcherSpecs, { now: options.now, limit: 1000 }) : null;
+  const watcherReport = options.watcherSpecs?.length ? createWatcherStatusReport(options.watcherSpecs, { now: generatedAt, limit: 1000 }) : null;
   const watchersByTarget = watcherReport ? triggeredWatchersByTarget(watcherReport.watchers) : new Map<string, WatcherState[]>();
   const items = cards
     .map((card) => {
@@ -2152,7 +2159,7 @@ export function getCockpitInbox(db: LooDatabase, options: { limit?: number; prio
   return {
     schema: "lco.codex.cockpitInbox.v1",
     publicSafe: true,
-    generatedAt: new Date().toISOString(),
+    generatedAt,
     summary: {
       totalCards: activeSessionCount,
       returned: selected.length,
@@ -2170,16 +2177,19 @@ export function getCockpitInbox(db: LooDatabase, options: { limit?: number; prio
 
 export function createCodexCollaborationCockpit(db: LooDatabase, options: CodexCollaborationCockpitOptions = {}): CodexCollaborationCockpitReport {
   const limit = clamp(options.limit ?? 20, 1, 500);
+  const generatedAt = publicIsoTimestamp(options.now) ?? new Date().toISOString();
+  const nowMs = timestampMillis(generatedAt) ?? Date.now();
   const activeSessionCount = countActiveCodexSessions(db);
   const recent = getCollaborationActiveSessionCards(db, {
     activeSessionCount,
-    priorityOrder: options.priorityOrder
+    priorityOrder: options.priorityOrder,
+    nowMs
   });
   const inbox = getCockpitInbox(db, {
     limit: 500,
     priorityOrder: options.priorityOrder,
     watcherSpecs: options.watcherSpecs,
-    now: options.now
+    now: generatedAt
   });
   const inboxByThread = new Map(inbox.items.map((item) => [item.card.threadId, item]));
   const coherenceByThread = collaborationReportsByThread(options.desktopCoherenceReports ?? [], "coherence");
@@ -2216,7 +2226,7 @@ export function createCodexCollaborationCockpit(db: LooDatabase, options: CodexC
     schema: "lco.codex.collaborationCockpit.v1",
     publicSafe: true,
     readOnly: true,
-    generatedAt: options.now ?? new Date().toISOString(),
+    generatedAt,
     summary: {
       totalCards: activeSessionCount,
       returned: selected.length,
@@ -2384,7 +2394,7 @@ function countActiveCodexSessions(db: LooDatabase): number {
 
 function getCollaborationActiveSessionCards(
   db: LooDatabase,
-  options: { activeSessionCount: number; priorityOrder?: string[] }
+  options: { activeSessionCount: number; priorityOrder?: string[]; nowMs: number }
 ): { cards: CodexSessionCard[]; capped: boolean } {
   const prefetchLimit = clamp(
     Math.max(500, options.activeSessionCount),
@@ -2428,7 +2438,7 @@ function getCollaborationActiveSessionCards(
     updatedAt: nullableString(row.updatedAt),
     sourcePath: publicSourcePathRef(String(row.sourcePath)),
     metadata: sessionMetadataFromRow(row)
-  }));
+  }, options.nowMs));
   cards.sort(activeCodexSessionCardComparator);
   return {
     cards,
@@ -3355,6 +3365,7 @@ export function createGithubOperatingItemsReport(
 ): GithubOperatingItemsReport {
   const limit = clamp(options.limit ?? 100, 1, 200);
   const nowMs = timestampMillis(options.now ?? null) ?? Date.now();
+  const generatedAt = new Date(nowMs).toISOString();
   const rejected: GithubOperatingItemsReport["rejected"] = [];
   const normalized: GithubOperatingItem[] = [];
   let greenOmitted = 0;
@@ -3389,7 +3400,7 @@ export function createGithubOperatingItemsReport(
     schema: "lco.githubOperatingItems.v1",
     publicSafe: true,
     readOnly: true,
-    generatedAt: new Date().toISOString(),
+    generatedAt,
     items,
     rejected,
     omitted: {
@@ -3412,9 +3423,11 @@ export function createGithubOperatingItemsReport(
 export function createProjectDigest(db: LooDatabase, options: OperatingDigestOptions = {}): OperatingDigest {
   const limit = clamp(options.limit ?? 20, 1, 200);
   const window = options.window ?? "today";
-  const windowStartMs = operatingWindowStartMs(window);
+  const nowMs = timestampMillis(options.now ?? null) ?? Date.now();
+  const generatedAt = new Date(nowMs).toISOString();
+  const windowStartMs = operatingWindowStartMs(window, nowMs);
   const sourceAuthorityProfile = options.sourceAuthorityProfile ?? createDefaultSourceAuthorityProfile();
-  const codexSignals = getRecentSessions(db, { scope: "recent", limit: 200, includeCards: true }).cards.map(signalFromSessionCard);
+  const codexSignals = getRecentSessions(db, { scope: "recent", limit: 200, includeCards: true, now: generatedAt }).cards.map(signalFromSessionCard);
   const githubSignals = (options.githubItems ?? []).slice(0, 100).map(signalFromGithubItem);
   const planSignals = (options.planStatePins?.manualPins ?? []).map(signalFromPlanPin);
   const signals = [...codexSignals, ...githubSignals, ...planSignals]
@@ -3445,7 +3458,7 @@ export function createProjectDigest(db: LooDatabase, options: OperatingDigestOpt
   return {
     schema: "lco.operatingDigest.v1",
     publicSafe: true,
-    generatedAt: new Date().toISOString(),
+    generatedAt,
     window,
     health: operatingHealth(selected),
     topAttention: selected.filter((card) => card.state === "red" || card.state === "yellow" || card.state === "unknown").slice(0, 5).map((card) => card.cardId),
@@ -3497,11 +3510,11 @@ type CodexThreadMapEntry = {
   metadata: SessionMetadata;
 };
 
-function codexSessionCard(db: LooDatabase, entry: CodexThreadMapEntry): CodexSessionCard {
+function codexSessionCard(db: LooDatabase, entry: CodexThreadMapEntry, nowMs: number = Date.now()): CodexSessionCard {
   const counts = codexSessionCardCounts(db, entry.threadId, entry.metadata);
   const state = codexSessionCardState(entry);
   const presentation = codexSessionPresentation(entry);
-  const reasonCodes = unique([...codexSessionReasonCodes(entry, state, counts), ...presentation.reasonCodes]);
+  const reasonCodes = unique([...codexSessionReasonCodes(entry, state, counts, nowMs), ...presentation.reasonCodes]);
   const confidence = codexSessionConfidence(entry, reasonCodes);
   const risk = codexSessionRisk(entry, reasonCodes, confidence);
   const evidenceIds = [`ev_${stableId(`${entry.threadId}:session_metadata`).slice(0, 16)}`];
@@ -3512,7 +3525,7 @@ function codexSessionCard(db: LooDatabase, entry: CodexThreadMapEntry): CodexSes
     title: presentation.title,
     state,
     objective: presentation.objective,
-    freshness: sessionFreshness(entry.updatedAt),
+    freshness: sessionFreshness(entry.updatedAt, nowMs),
     scope: {
       repo: entry.metadata.project ? publicSafeText(entry.metadata.project, 120) : null,
       branch: null,
@@ -3692,7 +3705,7 @@ function usableCardPresentationText(value: string): boolean {
   return /[A-Za-z0-9]{3,}/.test(text);
 }
 
-function codexSessionReasonCodes(entry: CodexThreadMapEntry, state: CodexSessionCardState, counts: CodexSessionCard["counts"]): string[] {
+function codexSessionReasonCodes(entry: CodexThreadMapEntry, state: CodexSessionCardState, counts: CodexSessionCard["counts"], nowMs: number): string[] {
   const codes: string[] = [];
   const status = normalizedMetadataValue(entry.metadata.status);
   if (state === "blocked") codes.push("blocked");
@@ -3702,8 +3715,8 @@ function codexSessionReasonCodes(entry: CodexThreadMapEntry, state: CodexSession
   if (state === "unknown") codes.push("low_confidence");
   if (hasRealBlocker(entry.metadata.blocker) && ["complete", "completed", "done", "closed", "merged"].includes(status)) codes.push("conflicting_state");
   if (counts.evidence < 3) codes.push("missing_evidence");
-  if (state === "blocked" && counts.evidence < 3 && activeScopeResidueIsStale(entry.updatedAt)) codes.push("stale_low_confidence_blocked");
-  if (sessionFreshness(entry.updatedAt).stale) codes.push("active_stale");
+  if (state === "blocked" && counts.evidence < 3 && activeScopeResidueIsStale(entry.updatedAt, nowMs)) codes.push("stale_low_confidence_blocked");
+  if (sessionFreshness(entry.updatedAt, nowMs).stale) codes.push("active_stale");
   if (normalizedMetadataValue(entry.metadata.nextAction).includes("resume")) codes.push("resume_ready");
   return unique([...codes, ...codexSessionImpactReasonCodes(entry)]);
 }
@@ -3784,9 +3797,9 @@ function codexSessionNextAction(entry: CodexThreadMapEntry, state: CodexSessionC
   };
 }
 
-function sessionFreshness(updatedAt: string | null): CodexSessionCard["freshness"] {
+function sessionFreshness(updatedAt: string | null, nowMs: number = Date.now()): CodexSessionCard["freshness"] {
   const updatedMs = timestampMillis(updatedAt);
-  const ageSeconds = updatedMs === null ? null : Math.max(0, Math.round((Date.now() - updatedMs) / 1000));
+  const ageSeconds = updatedMs === null ? null : Math.max(0, Math.round((nowMs - updatedMs) / 1000));
   return {
     lastEventAt: updatedAt,
     ageSeconds,
@@ -3852,10 +3865,10 @@ function activeCodexSessionCardScore(card: CodexSessionCard): number {
   return stateScore[card.state] + freshnessScore + riskScore + codeScore + Math.round(card.confidence * 50);
 }
 
-function activeScopeResidueIsStale(updatedAt: string | null): boolean {
+function activeScopeResidueIsStale(updatedAt: string | null, nowMs: number = Date.now()): boolean {
   const updatedMs = timestampMillis(updatedAt);
   if (updatedMs === null) return true;
-  return Date.now() - updatedMs >= 18 * 60 * 60 * 1000;
+  return nowMs - updatedMs >= 18 * 60 * 60 * 1000;
 }
 
 function cockpitReasonCodes(card: CodexSessionCard): string[] {
@@ -6325,10 +6338,10 @@ function publicSafeText(value: string, maxChars = 500): string {
   return truncate(redacted, maxChars);
 }
 
-function operatingWindowStartMs(window: OperatingDigest["window"]): number | null {
-  const now = new Date();
-  if (window === "24h") return now.getTime() - 24 * 60 * 60 * 1000;
-  if (window === "7d") return now.getTime() - 7 * 24 * 60 * 60 * 1000;
+function operatingWindowStartMs(window: OperatingDigest["window"], nowMs: number = Date.now()): number | null {
+  const now = new Date(nowMs);
+  if (window === "24h") return nowMs - 24 * 60 * 60 * 1000;
+  if (window === "7d") return nowMs - 7 * 24 * 60 * 60 * 1000;
   if (window === "today") return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   return null;
 }

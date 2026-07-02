@@ -218,6 +218,43 @@ test("active session scope demotes stale low-confidence blocked residue below cu
   });
 });
 
+test("active cockpit freshness uses injected clock for deterministic stale state", () => {
+  const fixedUpdatedAt = "2026-07-01T00:00:00.000Z";
+  const earlyNow = "2026-07-02T00:00:00.000Z";
+  const lateNow = "2026-07-10T00:00:00.000Z";
+  withIndexedSessions([
+    {
+      id: "019f-clocked-active",
+      title: "Clocked active lane",
+      status: "running",
+      priority: "high",
+      nextAction: "keep watching deterministic lane",
+      updatedAt: fixedUpdatedAt,
+      refs: true
+    }
+  ], ({ db }) => {
+    const early = getRecentSessions(db, { scope: "active", limit: 5, includeCards: true, now: earlyNow });
+    const late = getRecentSessions(db, { scope: "active", limit: 5, includeCards: true, now: lateNow });
+
+    assert.equal(early.generatedAt, earlyNow);
+    assert.equal(late.generatedAt, lateNow);
+    assert.equal(early.cards[0]?.freshness.ageSeconds, 24 * 60 * 60);
+    assert.equal(early.cards[0]?.freshness.stale, false);
+    assert.equal(early.cards[0]?.reasonCodes.includes("active_stale"), false);
+    assert.equal(late.cards[0]?.freshness.ageSeconds, 9 * 24 * 60 * 60);
+    assert.equal(late.cards[0]?.freshness.stale, true);
+    assert.equal(late.cards[0]?.reasonCodes.includes("active_stale"), true);
+
+    const inbox = getCockpitInbox(db, { limit: 5, now: lateNow });
+    assert.equal(inbox.generatedAt, lateNow);
+    assert.equal(inbox.items[0]?.card.reasonCodes.includes("active_stale"), true);
+
+    const cockpit = createCodexCollaborationCockpit(db, { limit: 5, now: lateNow });
+    assert.equal(cockpit.generatedAt, lateNow);
+    assert.equal(cockpit.lanes[0]?.card.reasonCodes.includes("active_stale"), true);
+  });
+});
+
 test("watcher primitives are read-only, approval-bounded, and feed cockpit inbox", () => {
   const now = "2026-07-01T12:00:00.000Z";
   withIndexedSessions([
