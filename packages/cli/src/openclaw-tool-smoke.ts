@@ -68,6 +68,13 @@ export type OpenClawToolInvocationSummary = {
     action?: string;
     fallbackReason?: string;
     toolBlockers?: string[];
+    nextToolCall?: {
+      tool: "loo_codex_desktop_coherence";
+      args: {
+        thread_id?: string;
+        source_ref?: string;
+      };
+    };
   };
   blockers: string[];
 };
@@ -726,8 +733,10 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
     const toolBlockers = arrayPath(fallbackOutput, ["blockers"])
       .filter((value): value is string => typeof value === "string" && /^[a-z0-9_.:-]+$/i.test(value))
       .slice(0, 8);
+    const nextToolCall = publicSafeFallbackNextToolCall(isRecord(fallbackOutput) ? fallbackOutput.nextToolCall : undefined);
     if (fallbackReason && /^[a-z0-9_.:-]+$/i.test(fallbackReason)) summary.fallbackReason = fallbackReason;
     if (toolBlockers.length) summary.toolBlockers = toolBlockers;
+    if (nextToolCall) summary.nextToolCall = nextToolCall;
   }
 
   return {
@@ -748,6 +757,18 @@ function toolPayloadBlockers(toolName: string, payload: unknown): string[] {
   const code = stringPath(failedPayload, ["error", "code"]);
   const safeCode = code && /^[a-z0-9_.-]+$/i.test(code) ? `:${code}` : "";
   return [`openclaw_tool_result_not_ok:${toolName}${safeCode}`];
+}
+
+function publicSafeFallbackNextToolCall(value: unknown): OpenClawToolInvocationSummary["summary"]["nextToolCall"] | undefined {
+  if (!isRecord(value)) return undefined;
+  if (stringPath(value, ["tool"]) !== "loo_codex_desktop_coherence") return undefined;
+  const args = isRecord(value.args) ? value.args : {};
+  const threadId = stringPath(args, ["thread_id"]) || stringPath(args, ["threadId"]);
+  const sourceRef = stringPath(args, ["source_ref"]) || stringPath(args, ["sourceRef"]);
+  const safeArgs: { thread_id?: string; source_ref?: string } = {};
+  if (threadId && /^[A-Za-z0-9._:-]+$/.test(threadId)) safeArgs.thread_id = threadId;
+  if (sourceRef && /^codex_thread:[A-Za-z0-9._:-]+$/.test(sourceRef)) safeArgs.source_ref = sourceRef;
+  return { tool: "loo_codex_desktop_coherence", args: safeArgs };
 }
 
 function gatewayFailureBlockers(call: GatewayCallResult, fallback: string, toolName?: string): string[] {

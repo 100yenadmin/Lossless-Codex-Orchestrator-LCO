@@ -754,8 +754,18 @@ test("OpenClaw tool smoke can exercise desktop fallback status without a supplie
     assert.equal(invoke?.params.args?.thread_id, "thread-1");
     assert.equal(invoke?.params.args?.source_ref, "codex_thread:thread-1");
     assert.equal("coherence" in (invoke?.params.args ?? {}), false);
+    const fallbackInvocation = report.invocations.find((invocation) => invocation.toolName === "loo_codex_desktop_fallback_status");
+    assert.deepEqual(fallbackInvocation?.summary.nextToolCall, {
+      tool: "loo_codex_desktop_coherence",
+      args: {
+        thread_id: "thread-1",
+        source_ref: "codex_thread:thread-1"
+      }
+    });
     const evidence = readFileSync(evidencePath, "utf8");
     assert.match(evidence, /coherence_input_missing/);
+    assert.match(evidence, /loo_codex_desktop_coherence/);
+    assert.match(evidence, /codex_thread:thread-1/);
     assert.doesNotMatch(evidence, /super-secret-transcript-span/);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
@@ -803,6 +813,25 @@ test("OpenClaw tool smoke exposes omitted desktop fallback coherence through the
   assert.equal(invoke?.params.args?.thread_id, "thread-1");
   assert.equal("coherence" in (invoke?.params.args ?? {}), false);
   assert.match(readFileSync(evidencePath, "utf8"), /coherence_input_missing/);
+});
+
+test("OpenClaw tool smoke rejects omitted desktop fallback coherence when fallback status is not invoked", () => {
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "openclaw",
+    "tool-smoke",
+    "--desktop-fallback-coherence",
+    "omit",
+    "--strict"
+  ], {
+    cwd: process.cwd(),
+    encoding: "utf8"
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /requires --required-tool loo_codex_desktop_fallback_status/);
 });
 
 test("OpenClaw tool smoke accepts gateway content/details wrapped dry-run proof", () => {

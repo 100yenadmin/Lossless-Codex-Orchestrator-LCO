@@ -1712,6 +1712,10 @@ function parseOpenClawToolSmokeArgs(input: string[]): {
     }
   }
   if (requiredTools.length > 0) parsed.requiredTools = requiredTools;
+  const effectiveRequiredTools = requiredTools.length > 0 ? requiredTools : DEFAULT_REQUIRED_TOOL_CALLS;
+  if (parsed.desktopFallbackCoherence === "omit" && !effectiveRequiredTools.includes("loo_codex_desktop_fallback_status")) {
+    throw new Error("--desktop-fallback-coherence omit requires --required-tool loo_codex_desktop_fallback_status");
+  }
   return parsed;
 }
 
