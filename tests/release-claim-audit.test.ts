@@ -192,8 +192,16 @@ test("stable and prerelease package metadata pins the intended npm dist-tag", ()
     publishConfig?: { tag?: string };
   };
   const runbook = read("docs/BETA_RELEASE_RUNBOOK.md");
+  const version = packageJson.version ?? "";
 
-  if (packageJson.version?.includes("-rc.")) {
+  if (version.includes("-beta.")) {
+    assert.equal(packageJson.publishConfig?.tag, "beta");
+    assert.match(runbook, /npm publish --tag beta/i);
+    assert.match(runbook, /public betas publish with `npm publish --tag beta`/i);
+    return;
+  }
+
+  if (version.includes("-rc.")) {
     assert.equal(packageJson.publishConfig?.tag, "next");
     assert.match(runbook, /npm publish --tag next/i);
     assert.match(runbook, /publishConfig\.tag[\s\S]{0,120}`next`/i);

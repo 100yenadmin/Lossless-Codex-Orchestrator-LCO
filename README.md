@@ -153,11 +153,12 @@ Completed proof:
   closed the M7 runtime proof lane for the named Codex-first surfaces.
 - M9 closed the first-class agent skill, docs truth pass, agent dogfood,
   fresh npm clean-profile smoke, and 1.0 readiness gate.
-- #298 proves a clean OpenClaw profile can install the published package
-  and call `loo_doctor` plus `loo_search_sessions` through an isolated loopback
-  token gateway after the protocol-4 backend caller fix. This proof is reused
-  in #302 with the exact stable candidate before npm `latest` promotion or
-  GitHub Release creation.
+- #298 proves a clean OpenClaw profile can install a published package and call
+  `loo_doctor` plus `loo_search_sessions` through an isolated loopback token
+  gateway after the protocol-4 backend caller fix. In #302, pre-promotion gates
+  validate the exact packed stable candidate and merged SHA; fresh npm
+  `@latest` published-smoke and general-readiness run only after publication and
+  must pass before the stable issue closes.
 - Desktop fallback remains action-bound; generic GUI mutation and Codex GUI
   mutation are not public beta claims.
 - Claude Code remains an adapter stub and fixture inventory, not parity.

@@ -323,9 +323,11 @@ A release candidate may be announced internally when all of these are true:
 ## 1.0 General Readiness Gate
 
 The beta train can publish scoped prereleases without claiming 1.0. A 1.0
-candidate must also pass the deeper [Release Checklist](RELEASE_CHECKLIST.md)
-with fresh npm and agent dogfood evidence. The user-facing command is
-`loo release general-readiness`; the built-artifact form is:
+candidate must also pass the deeper [Release Checklist](RELEASE_CHECKLIST.md).
+Run candidate gates before publication, then run fresh npm `@latest` and agent
+dogfood evidence after publication before closing the stable issue. The
+user-facing post-publish command is `loo release general-readiness`; the
+built-artifact form is:
 
 ```bash
 node ./dist/packages/cli/src/index.js release general-readiness \
@@ -335,7 +337,7 @@ node ./dist/packages/cli/src/index.js release general-readiness \
   --strict
 ```
 
-This gate is intentionally stricter than a beta first-run classifier:
+This post-publish gate is intentionally stricter than a beta first-run classifier:
 `gateway_setup_required` can be acceptable beta onboarding evidence, but it is
 not enough for 1.0. The stable gate requires a fresh npm install, clean-profile
 OpenClaw load, agent dogfood through gateway tools, and docs truth. If resume,

@@ -52,10 +52,12 @@ claim.
 - RC issue: #300.
 - RC evidence:
   `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/2026-07-02/issue-1-0-rc-release-gate/merged-main-gates/`.
-- Required stable gates: `npm run check`, `npm pack --dry-run`, strict
-  scenario sweep, strict scorecard sweep, release preflight, release bundle,
-  release demo-status, release status, published-smoke, and strict
-  general-readiness for the stable candidate.
+- Required pre-publish stable gates: `npm run check`, `npm pack --dry-run`,
+  strict scenario sweep, strict scorecard sweep, release preflight, release
+  bundle, release demo-status, and release status for the exact stable
+  candidate SHA.
+- Required post-publish stable gates: fresh npm `@latest` published-smoke and
+  strict general-readiness for the published stable package before #302 closes.
 - Working-app status example:
   `loo release status --claim-scope codex-working-app-proof --runtime-proof-dir <path> --approved-live-control-evidence <path> --npm-publish-approval-evidence <path> --github-release-approval-evidence <path> --candidate-sha <sha> --github-ci-evidence <path> --codeql-evidence <path> --evidence-dir <path> --strict`
 - Reduced-scope status example:
@@ -64,7 +66,9 @@ claim.
   working-app claim is attempted without approved live-control smoke evidence.
 - Bundle/status/readiness checks do not publish to npm and do not create a
   GitHub Release. They do not create a GitHub Release. Publication and GitHub
-  Release creation are separate actions recorded after the stable gate passes.
+  Release creation are separate actions recorded after the pre-publish stable
+  gate passes; post-publish published-smoke and general-readiness must still
+  pass before the stable lane is complete.
 
 ## Explicit Non-Claims
 
