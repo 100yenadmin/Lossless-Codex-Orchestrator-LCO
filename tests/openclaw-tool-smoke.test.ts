@@ -320,6 +320,10 @@ if (method === "tools.invoke") {
   }
   if (name === "loo_codex_active_thread_state") {
     const activeThreadId = toolArgs.app_server_threads?.threads?.[0]?.threadId;
+    if (activeThreadId === "bad-attention-action-args") {
+      console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.codex.activeThreadState.v1", publicSafe: true, readOnly: true, generatedAt: "2026-07-01T12:00:00.000Z", summary: { totalLanes: 1, returned: 1, running: 0, blocked: 0, needsApproval: 0, needsNudge: 1, stale: 0, waiting: 0, idle: 0, unknown: 0, lowConfidence: 0, attentionCovered: 0, attentionPartial: 1, attentionNeedsProbe: 0, attentionUnknown: 0, nextReadOnlyActions: 1 }, sourceCoverage: { indexedSession: "ok", cockpitInbox: "ok", watchers: "ok", codexAppServer: "ok", visibleCodexMap: "not_configured" }, items: [{ threadId: "codex_thread:bad-attention-action-args", title: "Thread 1", state: "needs_nudge", sessionState: "running", attention: { level: "high", urgencyScore: 80 }, freshness: { lastEventAt: "2026-07-01T11:59:00.000Z", ageSeconds: 60, stale: false }, nextAction: { kind: "resume", confidence: 0.9, reason: "resume after watcher trigger" }, confidence: 0.9, reasonCodes: ["active_state:needs_nudge", "watcher_triggered", "app_server_state_overridden_by_watcher"], evidenceIds: ["ev_tool_smoke"], attentionCoverage: { status: "partial", confidence: 0.9, reasonCodes: ["attention_partial", "attention_conflicting_state", "attention_read_only_probe_available"], nextReadOnlyAction: { tool: "loo_codex_active_thread_state", execute: false, args: {}, reason: "Rerun active-thread state after fresh read-only inputs." } }, sourceCoverage: { indexedSession: "ok", cockpitInbox: "ok", watchers: "ok", codexAppServer: "ok", visibleCodexMap: "not_configured" } }], omitted: { count: 0, reason: "none" }, actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false, npmPublished: false, githubReleaseCreated: false } } }));
+      process.exit(0);
+    }
     if (activeThreadId === "empty-active-state") {
       console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.codex.activeThreadState.v1", publicSafe: true, readOnly: true, generatedAt: "2026-07-01T12:00:00.000Z", summary: { totalLanes: 0, returned: 0, running: 0, blocked: 0, needsApproval: 0, needsNudge: 0, stale: 0, waiting: 0, idle: 0, unknown: 0, lowConfidence: 0, attentionCovered: 0, attentionPartial: 0, attentionNeedsProbe: 0, attentionUnknown: 0, nextReadOnlyActions: 0 }, sourceCoverage: { indexedSession: "ok", cockpitInbox: "ok", watchers: "not_configured", codexAppServer: "ok", visibleCodexMap: "not_configured" }, items: [], omitted: { count: 0, reason: "none" }, actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false, npmPublished: false, githubReleaseCreated: false } } }));
       process.exit(0);
@@ -881,6 +885,33 @@ test("OpenClaw tool smoke accepts empty active-thread state reports", () => {
     assert.equal((report.invocations[0]?.summary.activeThreadState as Record<string, number> | undefined)?.unknown, 0);
     assert.equal((report.invocations[0]?.summary.activeThreadAttentionCoverage as Record<string, number> | undefined)?.covered, 0);
     assert.equal(report.invocations[0]?.summary.activeThreadNextReadOnlyActions, 0);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke rejects malformed active-thread read-only action args", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-active-state-bad-action-"));
+  const evidencePath = join(dir, "tool-smoke.json");
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_codex_active_thread_state"]);
+
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      profile: "lco-issue-367-bad-action",
+      sessionKey: "agent:main:lco-issue-367-bad-action",
+      evidencePath,
+      requiredTools: ["loo_codex_active_thread_state"],
+      threadId: "bad-attention-action-args",
+      strict: true
+    });
+
+    assert.equal(report.ok, false, JSON.stringify(report, null, 2));
+    assert.equal(report.toolSmokeReady, false, JSON.stringify(report, null, 2));
+    assert.equal(report.blockers.includes("active_thread_state_invalid_attention_coverage"), true, JSON.stringify(report.blockers));
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;

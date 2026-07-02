@@ -1036,7 +1036,8 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
       const confidence = numberPath(attentionCoverage, ["confidence"]);
       const reasonCodes = arrayPath(attentionCoverage, ["reasonCodes"]);
       const action = isRecord(attentionCoverage.nextReadOnlyAction) ? attentionCoverage.nextReadOnlyAction : null;
-      const tool = action ? stringPath(action, ["tool"]) : null;
+      const tool = action ? stringPath(action, ["tool"]) : undefined;
+      const args = action && isRecord(action.args) ? action.args : null;
       return !["covered", "partial", "needs_probe", "unknown"].includes(status ?? "")
         || confidence === undefined
         || confidence < 0
@@ -1045,7 +1046,8 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
         || (action !== null && (
           action.execute !== false
           || !["loo_codex_app_server_threads", "loo_visible_codex_map", "loo_codex_active_thread_state"].includes(tool ?? "")
-          || !isRecord(action.args)
+          || !args
+          || !hasValidActiveThreadReadOnlyActionArgs(tool, args)
           || !stringPath(action, ["reason"])
         ));
     })) blockers.push("active_thread_state_invalid_attention_coverage");
@@ -1410,6 +1412,26 @@ function booleanPath(value: unknown, path: string[]): boolean | undefined {
 function arrayPath(value: unknown, path: string[]): unknown[] {
   const found = valueAtPath(value, path);
   return Array.isArray(found) ? found : [];
+}
+
+function hasValidActiveThreadReadOnlyActionArgs(tool: string | undefined, args: Record<string, unknown>): boolean {
+  if (tool === "loo_codex_app_server_threads") {
+    return Boolean(stringPath(args, ["read_thread_id"])) && validPositiveLimit(args);
+  }
+  if (tool === "loo_visible_codex_map") {
+    return booleanPath(args, ["include_app_server"]) === true
+      && booleanPath(args, ["include_visible_snapshot"]) === false
+      && validPositiveLimit(args);
+  }
+  if (tool === "loo_codex_active_thread_state") {
+    return validPositiveLimit(args);
+  }
+  return false;
+}
+
+function validPositiveLimit(value: Record<string, unknown>): boolean {
+  const limit = numberPath(value, ["limit"]);
+  return limit !== undefined && Number.isFinite(limit) && limit > 0;
 }
 
 function valueAtPath(value: unknown, path: string[]): unknown {

@@ -3076,8 +3076,9 @@ function activeThreadAttentionCoverage(
     && input.sourceCoverage.watchers === "not_configured"
     && input.sourceCoverage.codexAppServer === "not_configured"
     && input.sourceCoverage.visibleCodexMap === "not_configured";
-  const needsProbe = hardConflict || input.state === "unknown" || input.confidence < 0.5 || coreMissing;
-  const partial = !needsProbe && (softConflict || appServerMissing || input.confidence < 0.7);
+  const confidence = Math.max(0.1, Math.min(1, input.confidence));
+  const needsProbe = hardConflict || input.state === "unknown" || confidence < 0.5 || coreMissing;
+  const partial = !needsProbe && (softConflict || appServerMissing || confidence < 0.7);
   const status: CodexActiveThreadAttentionCoverage["status"] = unconfiguredUnknownState
     ? "unknown"
     : needsProbe
@@ -3100,7 +3101,7 @@ function activeThreadAttentionCoverage(
     appServerMissing ? `attention_app_server_${input.sourceCoverage.codexAppServer}` : "",
     visibleMapMissing ? `attention_visible_map_${input.sourceCoverage.visibleCodexMap}` : "",
     coreMissing ? "attention_core_source_unavailable" : "",
-    input.confidence < 0.7 ? "attention_low_confidence" : "",
+    confidence < 0.7 ? "attention_low_confidence" : "",
     nextReadOnlyAction ? "attention_read_only_probe_available" : ""
   ].filter(Boolean))
     .map(collaborationPublicSafeReasonCode)
@@ -3109,7 +3110,7 @@ function activeThreadAttentionCoverage(
 
   return {
     status,
-    confidence: Math.max(0.1, Math.min(1, input.confidence)),
+    confidence,
     reasonCodes,
     nextReadOnlyAction
   };
