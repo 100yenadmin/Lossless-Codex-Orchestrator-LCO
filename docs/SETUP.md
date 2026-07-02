@@ -1,0 +1,281 @@
+# Setup Guide
+
+This guide takes a new user from package install to a working local Codex recall
+loop, then through MCP/OpenClaw setup.
+
+LCO is local-first. It indexes local Codex session metadata and safe text into a
+local SQLite database so an agent can search, describe, and expand bounded
+evidence without reading raw transcripts by default.
+It does not read raw transcripts by default during normal search/describe
+workflows.
+
+## 1. Requirements
+
+- Node.js 22 or newer
+- npm
+- Codex CLI or Codex Desktop with local session files
+- OpenClaw Desktop/CLI when you want the installed OpenClaw plugin or gateway
+  smoke path
+- macOS permissions only when you intentionally inspect desktop fallback
+  readiness through CUA Driver or Peekaboo
+
+Common local Codex roots:
+
+- `~/.codex/sessions`
+- `~/.codex/archived_sessions`
+
+## 2. Install LCO
+
+Install the stable public package:
+
+```bash
+npm install -g lossless-openclaw-orchestrator@latest
+loo doctor
+```
+
+Install the beta train only when you explicitly want prerelease behavior:
+
+```bash
+npm install -g lossless-openclaw-orchestrator@beta
+```
+
+Update later:
+
+```bash
+npm update -g lossless-openclaw-orchestrator
+```
+
+Uninstall:
+
+```bash
+npm uninstall -g lossless-openclaw-orchestrator
+```
+
+Uninstalling the package does not delete your local LCO database.
+
+## 3. Choose Local Storage
+
+Default database:
+
+```bash
+$HOME/.openclaw/lossless-openclaw-orchestrator/orchestrator.sqlite
+```
+
+Set it explicitly if you want repeatable shell sessions:
+
+```bash
+export LOO_DB_PATH="$HOME/.openclaw/lossless-openclaw-orchestrator/orchestrator.sqlite"
+```
+
+Optional read-only OpenClaw LCM peer database paths:
+
+```bash
+export LOO_LCM_DB_PATHS="$HOME/.openclaw/lcm.db"
+```
+
+LCM peer DBs are opened read-only. LCO does not merge raw Codex transcripts into
+OpenClaw LCM.
+
+## 4. Index Local Codex Sessions
+
+Run a bounded first import:
+
+```bash
+loo index codex --max-files 500 "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
+```
+
+For a smaller smoke:
+
+```bash
+loo index codex --max-files 50 "$HOME/.codex/sessions"
+```
+
+Then check readiness:
+
+```bash
+loo doctor
+```
+
+The index stores metadata, source refs, extraction fields, and safe searchable
+text. Raw transcripts remain in the local Codex store.
+
+## 5. Run The First Recall Loop
+
+Search:
+
+```bash
+loo search "proposed plan billing bridge"
+```
+
+Describe a result:
+
+```bash
+loo describe codex_thread:<thread-id>
+```
+
+Expand a brief:
+
+```bash
+loo expand-ref --profile brief --token-budget 1000 codex_thread:<thread-id>
+```
+
+Expand by query:
+
+```bash
+loo expand-query --profile brief --token-budget 1000 "billing bridge"
+```
+
+Look up detail fields through MCP/OpenClaw tools when available:
+
+- `loo_codex_plans`
+- `loo_codex_final_messages`
+- `loo_codex_touched_files`
+- `loo_codex_tool_calls`
+
+## 6. Connect MCP
+
+Start the MCP server:
+
+```bash
+loo-mcp-server
+```
+
+Equivalent CLI entry:
+
+```bash
+loo serve
+```
+
+MCP client config:
+
+```json
+{
+  "mcpServers": {
+    "lossless-openclaw-orchestrator": {
+      "command": "loo-mcp-server"
+    }
+  }
+}
+```
+
+The MCP server exposes the same `loo_*` surface used by OpenClaw.
+
+## 7. Install In OpenClaw
+
+Install the plugin from npm:
+
+```bash
+openclaw plugins install lossless-openclaw-orchestrator@latest
+openclaw plugins list --json
+```
+
+Run a public-safe plugin readiness check:
+
+```bash
+loo openclaw dogfood --profile lco-dogfood --install-source lossless-openclaw-orchestrator@latest --required-tool loo_doctor --required-tool loo_search_sessions --strict
+```
+
+Run a tool smoke through OpenClaw Gateway:
+
+```bash
+loo openclaw tool-smoke --profile lco-dogfood --required-tool loo_doctor --required-tool loo_search_sessions --strict
+```
+
+If the gateway needs first-run setup, LCO reports classifications such as
+`credential_required`, `device_pairing_required`, `scope_upgrade_required`,
+`token_rotation_required`, or `setup_required`.
+
+Useful recovery commands may include:
+
+```bash
+openclaw doctor --generate-gateway-token --non-interactive --yes
+OPENCLAW_GATEWAY_TOKEN='<scoped-token>' openclaw onboard --non-interactive --accept-risk --gateway-auth token --gateway-token-ref-env OPENCLAW_GATEWAY_TOKEN
+OPENCLAW_GATEWAY_TOKEN='<scoped-token>' openclaw gateway status --json --token '<scoped-token>'
+OPENCLAW_GATEWAY_TOKEN='<scoped-token>' loo openclaw tool-smoke --profile lco-dogfood --required-tool loo_doctor --required-tool loo_search_sessions --strict
+```
+
+Do not paste real tokens into issues, PRs, screenshots, or public evidence.
+
+## 8. Agent Playbook
+
+For an OpenClaw agent, use the packaged skill:
+
+```text
+skills/lossless-openclaw-orchestrator/SKILL.md
+```
+
+The safe loop is:
+
+1. `loo_doctor`
+2. `loo_search_sessions`
+3. `loo_describe_session` or `loo_describe_ref`
+4. `loo_codex_plans`, `loo_codex_final_messages`, and
+   `loo_codex_touched_files`
+5. `loo_expand_session` or `loo_expand_query`
+6. `loo_codex_control_dry_run` only when action is needed
+7. live action only with a matching `approval_audit_id`
+
+## 9. Desktop Fallback Readiness
+
+Desktop fallback is optional and proof-bound.
+
+Read-only checks:
+
+```bash
+loo desktop see cua-driver
+loo desktop see peekaboo --snapshot --max-nodes 50
+```
+
+The desktop fallback surface reports readiness and blockers. It does not grant
+generic GUI mutation, Codex GUI mutation, unattended control, prompt typing, or
+clicking.
+
+## 10. Troubleshooting
+
+`loo: command not found`
+
+- Confirm the global npm bin directory is on `PATH`.
+- Try `npm prefix -g` and inspect its `bin` directory.
+
+`loo doctor` cannot find Codex sessions
+
+- Confirm Codex has local sessions under `~/.codex/sessions`.
+- Pass explicit roots to `loo index codex`.
+
+Search returns no results
+
+- Run `loo index codex --max-files 500 "$HOME/.codex/sessions"`.
+- Confirm `LOO_DB_PATH` points at the same database for index and search.
+
+OpenClaw plugin installs but tools are missing
+
+- Run `openclaw plugins list --json`.
+- Run `loo openclaw dogfood --profile lco-dogfood --install-source lossless-openclaw-orchestrator@latest --required-tool loo_doctor --required-tool loo_search_sessions --strict`.
+- Check [docs/OPENCLAW_PLUGIN.md](OPENCLAW_PLUGIN.md).
+
+OpenClaw gateway tool smoke reports credential or device blockers
+
+- Treat this as first-run gateway setup, not a package failure.
+- Use the recovery commands returned by `loo openclaw published-smoke` or
+  `loo openclaw tool-smoke`.
+
+Live control is blocked
+
+- Run a dry-run first.
+- Inspect the target, `params_hash`, and optional `message_hash`.
+- Use the returned `approval_audit_id` only for the matching live action.
+
+## 11. What Setup Does Not Prove
+
+Setup proves local install, local index, and optional MCP/OpenClaw tool
+exposure. It does not prove:
+
+- full Claude Code parity
+- no cloud sync
+- no unattended desktop takeover
+- no permission bypass
+- no enterprise security readiness
+- generic GUI mutation support
+- Codex GUI mutation is stable public behavior
+
+See [docs/CLAIM_AUDIT.md](CLAIM_AUDIT.md) for public wording boundaries.

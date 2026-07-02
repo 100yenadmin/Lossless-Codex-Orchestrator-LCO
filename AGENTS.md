@@ -21,3 +21,17 @@
 Do not widen LCO public claims from this file. Live Codex control, GUI mutation,
 Claude parity, npm publish, GitHub Release creation, and 1.0 readiness require
 their own scoped proof gates.
+
+## Public Documentation Placement
+
+- Keep `README.md` as the public landing page: product value, install, setup,
+  first workflow, OpenClaw/MCP entrypoints, safety boundaries, and links.
+- Keep detailed first-run instructions in `docs/SETUP.md`.
+- Keep OpenClaw plugin/operator details in `docs/OPENCLAW_PLUGIN.md`.
+- Keep agent-facing workflow instructions in
+  `skills/lossless-openclaw-orchestrator/SKILL.md`.
+- Keep repo-agent operating rules, release discipline, and source-of-truth
+  policy in this `AGENTS.md`.
+- Do not put active sprint ledgers, long issue history, exhaustive release-gate
+  command inventories, or internal agent maintenance loops into the public
+  README. Link `VISION.md`, GitHub trackers, or runbooks instead.
