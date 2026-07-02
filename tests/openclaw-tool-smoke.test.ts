@@ -220,7 +220,7 @@ function createFakeOpenClaw(
   dir: string,
   catalogTools: string[],
   catalogShape: "flat" | "groups" = "flat",
-  options: { dryRunOutputShape?: DryRunOutputShape; wrapDryRunOutput?: boolean } = {}
+  options: { dryRunOutputShape?: DryRunOutputShape; wrapDryRunOutput?: boolean; omitFallbackNextToolCall?: boolean } = {}
 ): { bin: string; callsPath: string } {
   const callsPath = join(dir, "calls.jsonl");
   const bin = join(dir, "openclaw-fake.mjs");
@@ -237,6 +237,9 @@ function createFakeOpenClaw(
       : dryRunOutputShape === "details"
         ? `{ details: ${dryRunDetailsCode} }`
         : dryRunDetailsCode;
+  const fallbackNextToolCallCode = options.omitFallbackNextToolCall
+    ? "null"
+    : `missingCoherence ? { tool: "loo_codex_desktop_coherence", args: { thread_id: toolArgs.thread_id, source_ref: toolArgs.source_ref } } : null`;
   writeFileSync(bin, `#!/usr/bin/env node
 import { appendFileSync } from "node:fs";
 const args = process.argv.slice(2);
@@ -334,7 +337,7 @@ if (method === "tools.invoke") {
   }
   if (name === "loo_codex_desktop_fallback_status") {
     const missingCoherence = !toolArgs.coherence;
-    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, readOnly: true, schema: "lco.codex.desktopFallback.v1", target: { threadId: toolArgs.thread_id, sourceRef: toolArgs.source_ref }, fallback: { required: !missingCoherence, reason: missingCoherence ? "coherence_input_missing" : "desktop_visibility_not_proven" }, blockers: missingCoherence ? ["coherence_input_missing"] : [], nextToolCall: missingCoherence ? { tool: "loo_codex_desktop_coherence", args: { thread_id: toolArgs.thread_id, source_ref: toolArgs.source_ref } } : null, preferredBackend: "cua-driver", backends: [{ backend: "cua-driver", role: "preferred_background", status: "blocked" }, { backend: "peekaboo", role: "secondary_visible_fallback", status: "blocked", takesScreenWarning: true }], actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, screenshotCaptured: false, rawTranscriptRead: false } } }));
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, readOnly: true, schema: "lco.codex.desktopFallback.v1", target: { threadId: toolArgs.thread_id, sourceRef: toolArgs.source_ref }, fallback: { required: !missingCoherence, reason: missingCoherence ? "coherence_input_missing" : "desktop_visibility_not_proven" }, blockers: missingCoherence ? ["coherence_input_missing"] : [], nextToolCall: ${fallbackNextToolCallCode}, preferredBackend: "cua-driver", backends: [{ backend: "cua-driver", role: "preferred_background", status: "blocked" }, { backend: "peekaboo", role: "secondary_visible_fallback", status: "blocked", takesScreenWarning: true }], actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, screenshotCaptured: false, rawTranscriptRead: false } } }));
     process.exit(0);
   }
   if (name === "loo_plan_state_pins") {
@@ -767,6 +770,35 @@ test("OpenClaw tool smoke can exercise desktop fallback status without a supplie
     assert.match(evidence, /loo_codex_desktop_coherence/);
     assert.match(evidence, /codex_thread:thread-1/);
     assert.doesNotMatch(evidence, /super-secret-transcript-span/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke blocks strict fallback status when missing-coherence handoff is absent", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-desktop-fallback-missing-handoff-"));
+  const evidencePath = join(dir, "tool-smoke.json");
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_codex_desktop_fallback_status"], "flat", { omitFallbackNextToolCall: true });
+
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      profile: "lco-issue-315",
+      sessionKey: "agent:main:lco-issue-315",
+      evidencePath,
+      requiredTools: ["loo_codex_desktop_fallback_status"],
+      threadId: "thread-1",
+      desktopFallbackCoherence: "omit",
+      strict: true
+    });
+
+    assert.equal(report.ok, false);
+    assert.ok(report.blockers.includes("desktop_fallback_next_tool_call_missing"));
+    assert.equal(report.invocations.find((invocation) => invocation.toolName === "loo_codex_desktop_fallback_status")?.summary.fallbackReason, "coherence_input_missing");
+    assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /super-secret-transcript-span/);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;

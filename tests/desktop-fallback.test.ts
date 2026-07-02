@@ -1892,6 +1892,21 @@ test("Codex Desktop fallback report requires an explicit coherence input when on
       source_ref: "codex_thread:019f1ed4-4c45-70e2-be84-69d93a1be08b"
     }
   });
+
+  const mismatchedTarget = await createCodexDesktopFallbackReport({
+    threadId: "019f1ed4-4c45-70e2-be84-69d93a1be08b",
+    sourceRef: "codex_thread:019f1ed4-4c45-70e2-be84-69d93a1be08c",
+    probe: {
+      commandStatus: (command) => ({ available: true, command, version: `${command} test` }),
+      activeApplication: () => "Codex"
+    }
+  });
+
+  assert.equal(mismatchedTarget.fallback.reason, "coherence_input_missing");
+  assert.ok(mismatchedTarget.blockers.includes("coherence_input_missing"));
+  assert.ok(mismatchedTarget.blockers.includes("target_mismatch"));
+  assert.equal(mismatchedTarget.nextToolCall, null);
+  assert.match(mismatchedTarget.nextAction, /target mismatch/i);
 });
 
 test("MCP exposes #308 Codex Desktop fallback status without GUI mutation", async () => {

@@ -737,6 +737,12 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
     if (fallbackReason && /^[a-z0-9_.:-]+$/i.test(fallbackReason)) summary.fallbackReason = fallbackReason;
     if (toolBlockers.length) summary.toolBlockers = toolBlockers;
     if (nextToolCall) summary.nextToolCall = nextToolCall;
+    if (
+      fallbackReason === "coherence_input_missing" &&
+      (!nextToolCall || (!nextToolCall.args.thread_id && !nextToolCall.args.source_ref))
+    ) {
+      blockers.push("desktop_fallback_next_tool_call_missing");
+    }
   }
 
   return {

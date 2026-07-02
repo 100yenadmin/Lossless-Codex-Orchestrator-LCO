@@ -2250,19 +2250,30 @@ function collaborationDesktopState(input: {
     if (!preferredBackend) return true;
     return collaborationString(backend.backend, 40) === preferredBackend;
   });
-  const fallbackBlockers = backendRecords.flatMap((backend) => collaborationStringArray(backend.blockers, 120));
+  const fallbackTopLevelBlockers = collaborationStringArray(fallback?.blockers, 120);
+  const fallbackBlockers = [
+    ...fallbackTopLevelBlockers,
+    ...backendRecords.flatMap((backend) => collaborationStringArray(backend.blockers, 120))
+  ];
   const blockers = unique([
     ...collaborationStringArray(coherence?.blockers, 120),
     ...fallbackBlockers
   ].map(collaborationPublicSafeBlocker).filter((blocker): blocker is string => Boolean(blocker)));
+  const fallbackCoherenceInputMissing = fallbackReason === "coherence_input_missing" ||
+    fallbackTopLevelBlockers.includes("coherence_input_missing");
+  const fallbackBlocked = Boolean(
+    fallback && (fallbackCoherenceInputMissing || (fallbackRequired && !readyBackend))
+  );
   const reasonCodes = unique([
     ...collaborationStringArray(coherence?.reasonCodes, 120),
     ...(fallbackReason ? [fallbackReason] : []),
     ...(fallbackRequired ? ["desktop_fallback_required"] : []),
     ...(fallbackRequired && readyBackend ? ["desktop_fallback_ready"] : []),
-    ...(fallbackRequired && fallback && !readyBackend ? ["desktop_fallback_blocked"] : [])
+    ...(fallbackBlocked ? ["desktop_fallback_blocked"] : [])
   ].map(collaborationPublicSafeReasonCode).filter((code): code is string => Boolean(code)));
-  const state: CodexCollaborationDesktopState = fallbackRequired && readyBackend
+  const state: CodexCollaborationDesktopState = fallbackCoherenceInputMissing
+      ? "fallback_blocked"
+      : fallbackRequired && readyBackend
       ? "fallback_ready"
       : fallbackRequired && fallback
         ? "fallback_blocked"

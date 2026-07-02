@@ -831,6 +831,7 @@ export async function createCodexDesktopFallbackReport(input: {
   const visibility = asRecord(coherence?.visibility);
   const desktopVisibility = publicTextField(visibility?.desktop, 80) ?? null;
   const coherenceInputMissing = hasTarget && !codexDesktopFallbackHasUsableCoherence(state, desktopVisibility);
+  const targetMismatch = codexDesktopFallbackTargetMismatch(threadId, sourceRef);
   const fallbackReason = coherenceInputMissing
     ? "coherence_input_missing"
     : state === "desktop_visible" || desktopVisibility === "proven"
@@ -838,7 +839,7 @@ export async function createCodexDesktopFallbackReport(input: {
     : state || desktopVisibility
       ? "desktop_visibility_not_proven"
       : "desktop_visibility_unknown";
-  const nextToolCall = coherenceInputMissing
+  const nextToolCall = coherenceInputMissing && !targetMismatch
     ? {
         tool: "loo_codex_desktop_coherence" as const,
         args: {
@@ -847,6 +848,10 @@ export async function createCodexDesktopFallbackReport(input: {
         }
       }
     : null;
+  const blockers = [
+    ...(coherenceInputMissing ? ["coherence_input_missing"] : []),
+    ...(targetMismatch ? ["target_mismatch"] : [])
+  ];
   const cua = await desktopSee({ backend: "cua-driver", probe });
   const peekaboo = await desktopSee({
     backend: "peekaboo",
@@ -883,7 +888,7 @@ export async function createCodexDesktopFallbackReport(input: {
       coherenceState: state,
       desktopVisibility
     },
-    blockers: coherenceInputMissing ? ["coherence_input_missing"] : [],
+    blockers,
     nextToolCall,
     preferredBackend: "cua-driver",
     backends,
@@ -904,7 +909,9 @@ export async function createCodexDesktopFallbackReport(input: {
       "absolute local transcript paths"
     ],
     proofBoundary: "This report prepares the #308 CUA-first / Peekaboo-secondary Codex Desktop fallback path using public-safe status and optional bounded visible metadata only. It does not run live Codex control, click, type, select, refresh, restart, mutate Codex Desktop, capture screenshots, or prove unattended desktop takeover.",
-    nextAction: fallbackReason === "coherence_input_missing"
+    nextAction: targetMismatch
+      ? "Resolve the target mismatch before running loo_codex_desktop_coherence; pass either a matching thread_id/source_ref pair or a single unambiguous target."
+      : fallbackReason === "coherence_input_missing"
       ? `Run loo_codex_desktop_coherence with ${JSON.stringify(nextToolCall?.args ?? {})}, then pass the returned coherence object to loo_codex_desktop_fallback_status.`
       : fallbackReason === "desktop_visibility_already_proven"
       ? "Keep using direct Codex protocol and visible-map evidence; no desktop fallback action is required for this target."
@@ -914,6 +921,32 @@ export async function createCodexDesktopFallbackReport(input: {
 
 function codexDesktopFallbackHasUsableCoherence(state: string | null, desktopVisibility: string | null): boolean {
   return Boolean(state || desktopVisibility);
+}
+
+function codexDesktopFallbackTargetMismatch(threadId: string | null, sourceRef: string | null): boolean {
+  const normalizedThreadId = codexDesktopFallbackTargetThreadId(threadId);
+  const normalizedSourceThreadId = codexDesktopFallbackSourceThreadId(sourceRef);
+  if (!normalizedThreadId || !normalizedSourceThreadId) return false;
+  return normalizedThreadId !== normalizedSourceThreadId;
+}
+
+function codexDesktopFallbackTargetThreadId(value: string | null): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  const candidate = trimmed.startsWith("codex_thread:")
+    ? trimmed.slice("codex_thread:".length)
+    : trimmed;
+  if (!/^[A-Za-z0-9._:-]+$/.test(candidate)) return null;
+  return candidate.toLowerCase();
+}
+
+function codexDesktopFallbackSourceThreadId(value: string | null): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("codex_thread:")) return null;
+  const candidate = trimmed.slice("codex_thread:".length);
+  if (!/^[A-Za-z0-9._:-]+$/.test(candidate)) return null;
+  return candidate.toLowerCase();
 }
 
 export function desktopActDryRun(input: {
