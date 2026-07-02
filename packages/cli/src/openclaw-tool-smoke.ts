@@ -93,6 +93,7 @@ export type OpenClawToolInvocationSummary = {
     actionHash?: string;
     runtimeVisibilityStatus?: string;
     activeThreadState?: Record<string, number>;
+    activeThreadControlDryRunRecommendations?: number;
   };
   blockers: string[];
 };
@@ -996,6 +997,10 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
       return [key, typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0];
     }));
     summary.activeThreadState = stateCounts;
+    const controlDryRunRecommendations = items
+      .map((item) => isRecord(item.nextControlDryRun) ? item.nextControlDryRun : null)
+      .filter((item): item is Record<string, unknown> => Boolean(item));
+    summary.activeThreadControlDryRunRecommendations = controlDryRunRecommendations.length;
     if (!summaryRecord) blockers.push("active_thread_state_summary_missing");
     if (items.some((item) => {
       const state = stringPath(item, ["state"]);
@@ -1007,6 +1012,22 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
       const coverage = isRecord(item.sourceCoverage) ? item.sourceCoverage : null;
       return confidence === undefined || confidence < 0 || confidence > 1 || reasonCodes.length === 0 || !coverage;
     })) blockers.push("active_thread_state_missing_public_metadata");
+    if (controlDryRunRecommendations.some((recommendation) => {
+      const tool = stringPath(recommendation, ["tool"]);
+      const args = isRecord(recommendation.args) ? recommendation.args : null;
+      const action = stringPath(args, ["action"]);
+      const threadId = stringPath(args, ["thread_id"]);
+      const confidence = numberPath(recommendation, ["confidence"]);
+      return tool !== "loo_codex_control_dry_run"
+        || recommendation.execute !== false
+        || (recommendation.status !== "ready" && recommendation.status !== "blocked")
+        || action !== "resume"
+        || !threadId
+        || recommendation.messageIncluded !== false
+        || confidence === undefined
+        || confidence < 0
+        || confidence > 1;
+    })) blockers.push("active_thread_state_invalid_control_dry_run_packet");
     const actions = isRecord(stateOutput) && isRecord(stateOutput.actionsPerformed) ? stateOutput.actionsPerformed : null;
     if (
       !actions ||
