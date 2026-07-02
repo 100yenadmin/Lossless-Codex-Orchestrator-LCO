@@ -15,6 +15,7 @@
     "loo_codex_control_dry_run",
     "loo_recent_sessions",
     "loo_cockpit_inbox",
+    "loo_codex_collaboration_cockpit",
     "loo_watchers_list",
     "loo_watcher_status",
     "loo_watcher_dry_run",
@@ -38,6 +39,7 @@
     "search refs and score summaries",
     "describe and direct-session/query expand profile names",
     "recent session and cockpit inbox card counts",
+    "collaboration cockpit active-lane counts, attention levels, Desktop state boundary, source coverage, and false action flags",
     "clean card title/objective/summary/nextAction fields plus presentation_cleaned or presentation_low_confidence reason codes when extraction needed cleanup",
     "watcher status, watcher_triggered reason codes, resume request packet expiry, mutates=false, and approval boundary",
     "Codex app-server read-only availability, allowed/forbidden method posture, thread source coverage, and no-turns proof",
@@ -65,6 +67,7 @@
     "Agent can search sessions through loo_* read tools and receive source-prefixed refs.",
     "Agent can describe and expand selected refs within a bounded token profile.",
     "Agent can list recent session cards and a deterministic cockpit inbox without a wildcard query.",
+    "Agent can inspect one read-only collaboration cockpit summary that composes recent cards, inbox urgency, watcher requests, and supplied Desktop coherence/fallback evidence without performing actions.",
     "Agent-facing card summaries and next actions are cleaned deterministic presentation text rather than raw directive fragments, markdown tables, or duplicated Title/Final labels.",
     "Agent can inspect read-only watcher status and generate resume-request packets without live control, GUI mutation, cleanup, or external writes.",
     "Agent can inspect Codex app-server status and thread signals without reading raw turns, enabling remote control, or mutating Codex.",
@@ -95,9 +98,9 @@
     "Fresh OpenClaw profiles need scoped gateway credentials or env-ref onboarding before tool-smoke can call tools; #298 proves that after setup and the protocol-4 backend caller fix, a clean profile can call `loo_doctor` and `loo_search_sessions` through an isolated loopback gateway.",
     "P0 operating-picture tools use LCO/Codex, normalized public-safe GitHub inputs, explicit PLAN_STATE pins, read-only watcher request packets, and a public source-authority profile only; Notion, support-control, Company Brain, Stripe, dashboard/export, and summarizer adapters remain P1.",
     "Visible Codex map joins prove read-only correlation from sanitized title/status metadata only; they do not prove Codex GUI mutation or visible focus/select/continue workflows.",
-    "Codex Desktop coherence classification can prove cli_visible, desktop_visible, desktop_refresh_required, desktop_restart_required, or unknown states from supplied public-safe evidence, and fallback status can report CUA/Peekaboo readiness, but neither performs a live direct-protocol action, Desktop refresh/restart, or GUI mutation.",
+    "Codex Desktop coherence classification can prove cli_visible, desktop_visible, desktop_refresh_required, desktop_restart_required, or unknown states from supplied public-safe evidence, fallback status can report CUA/Peekaboo readiness, and the collaboration cockpit can summarize those states across active lanes; none of these performs a live direct-protocol action, Desktop refresh/restart, or GUI mutation.",
     "This does not prove live Codex control, generic GUI mutation, Claude Code adapter parity, full business truth, stable release, npm latest promotion, or release-grade customer readiness."
   ],
-  "next_action": "Continue #308 only with an exact action-bound CUA/Peekaboo runtime proof if a future claim needs Desktop-visible collaboration beyond fallback readiness.",
-  "proof_boundary": "This proves local OpenClaw gateway agent usability for Codex read/search/describe/expand/detail lookup/recommend/dry-run, read-only watcher request packets, read-only app-server status/thread signals, visible-to-indexed session correlation, Codex Desktop coherence classification, Codex Desktop fallback readiness reporting, P0 cockpit/operating-picture cards, and fresh-profile gateway-ready invocation using public-safe evidence only; it does not prove live control, GUI mutation, Desktop-visible live collaboration, Claude Code adapter parity, full business truth, stable release, npm latest promotion, or enterprise/customer readiness."
+  "next_action": "Continue #313 and #309 with read-only collaboration cockpit hardening before any future action-bound Desktop collaboration claim.",
+  "proof_boundary": "This proves local OpenClaw gateway agent usability for Codex read/search/describe/expand/detail lookup/recommend/dry-run, read-only watcher request packets, read-only app-server status/thread signals, visible-to-indexed session correlation, Codex Desktop coherence classification, Codex Desktop fallback readiness reporting, read-only collaboration cockpit summaries, P0 cockpit/operating-picture cards, and fresh-profile gateway-ready invocation using public-safe evidence only; it does not prove live control, GUI mutation, Desktop-visible live collaboration, Claude Code adapter parity, full business truth, stable release, npm latest promotion, or enterprise/customer readiness."
 }

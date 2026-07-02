@@ -6,6 +6,7 @@ import {
   createCloseoutEnvelopeReport,
   createAttentionInbox,
   createBusinessPulse,
+  createCodexCollaborationCockpit,
   describeSession,
   describeRecallRef,
   defaultCodexRoots,
@@ -223,6 +224,21 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       limit: optionalNumber(input.limit),
       priorityOrder: optionalStringArray(input.priority_order),
       watcherSpecs: optionalWatchSpecs(input.watcher_specs),
+      now: optionalString(input.now)
+    })),
+    tool("loo_codex_collaboration_cockpit", "Summarize Codex collaboration lanes from indexed sessions, inbox urgency, watcher requests, and optional Desktop coherence/fallback evidence without performing actions.", {
+      limit: { type: "integer", minimum: 1, maximum: 500 },
+      priority_order: { type: "array", items: { type: "string" } },
+      watcher_specs: { type: "array", items: { type: "object", additionalProperties: true } },
+      desktop_coherence_reports: { type: "array", items: { type: "object", additionalProperties: true } },
+      desktop_fallback_reports: { type: "array", items: { type: "object", additionalProperties: true } },
+      now: { type: "string" }
+    }, (input) => createCodexCollaborationCockpit(options.db, {
+      limit: optionalNumber(input.limit),
+      priorityOrder: optionalStringArray(input.priority_order),
+      watcherSpecs: optionalWatchSpecs(input.watcher_specs),
+      desktopCoherenceReports: optionalRecordArray(input.desktop_coherence_reports),
+      desktopFallbackReports: optionalRecordArray(input.desktop_fallback_reports),
       now: optionalString(input.now)
     })),
     tool("loo_watchers_list", "List read-only watcher specs as deterministic public-safe watcher status rows.", {
@@ -759,6 +775,15 @@ function optionalRecord(value: unknown): Record<string, unknown> | undefined {
   if (value === undefined) return undefined;
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("value must be an object");
   return value as Record<string, unknown>;
+}
+
+function optionalRecordArray(value: unknown): Record<string, unknown>[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw new Error("value must be an array");
+  return value.map((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error(`value[${index}] must be an object`);
+    return item as Record<string, unknown>;
+  });
 }
 
 function optionalProfile(value: unknown): "metadata" | "brief" | "evidence" | undefined {

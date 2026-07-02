@@ -243,6 +243,8 @@ export type CodexThreadMapOptions = {
   priorityOrder?: string[];
 };
 
+const COLLABORATION_COCKPIT_INTERNAL_CARD_LIMIT = 5000;
+
 export type SessionManagementAction = "expand" | "archive" | "fork" | "resume";
 
 export type SessionManagementEntry = {
@@ -391,6 +393,82 @@ export type CockpitInboxReport = {
     count: number;
     reason: "limit" | "none";
   };
+};
+
+export type CodexCollaborationDesktopState = "desktop_visible" | "fallback_ready" | "fallback_blocked" | "cli_visible" | "unknown" | "not_configured";
+
+export type CodexCollaborationCockpitLane = {
+  threadId: string;
+  title: string;
+  sessionState: CodexSessionCardState;
+  attention: {
+    level: OperatingUrgency;
+    urgencyScore: number;
+  };
+  reasonCodes: string[];
+  nextAction: CodexSessionCard["nextAction"];
+  desktop: {
+    state: CodexCollaborationDesktopState;
+    requiresFallback: boolean;
+    preferredBackend: "cua-driver" | null;
+    confidence: number;
+    sourceCoverage: {
+      desktopCoherence: VisibleCodexCoverageState;
+      desktopFallback: VisibleCodexCoverageState;
+    };
+    evidenceIds: string[];
+    blockers: string[];
+    reasonCodes: string[];
+  };
+  card: CodexSessionCard;
+};
+
+export type CodexCollaborationCockpitReport = {
+  schema: "lco.codex.collaborationCockpit.v1";
+  publicSafe: true;
+  readOnly: true;
+  generatedAt: string;
+  summary: {
+    totalCards: number;
+    returned: number;
+    running: number;
+    waiting: number;
+    needsApproval: number;
+    blocked: number;
+    desktopVisible: number;
+    fallbackRequired: number;
+    highAttention: number;
+    lowConfidence: number;
+  };
+  sourceCoverage: {
+    recentSessions: VisibleCodexCoverageState;
+    cockpitInbox: VisibleCodexCoverageState;
+    desktopCoherence: VisibleCodexCoverageState;
+    desktopFallback: VisibleCodexCoverageState;
+  };
+  lanes: CodexCollaborationCockpitLane[];
+  omitted: {
+    count: number;
+    reason: "limit" | "none";
+  };
+  actionsPerformed: {
+    liveCodexControlRun: false;
+    desktopGuiActionRun: false;
+    rawTranscriptRead: false;
+    screenshotCaptured: false;
+    npmPublished: false;
+    githubReleaseCreated: false;
+  };
+  proofBoundary: string;
+};
+
+export type CodexCollaborationCockpitOptions = {
+  limit?: number;
+  priorityOrder?: string[];
+  watcherSpecs?: WatchSpec[];
+  desktopCoherenceReports?: unknown[];
+  desktopFallbackReports?: unknown[];
+  now?: string;
 };
 
 export type WatcherKind = "thread_finished" | "final_message_appeared" | "pr_checks_changed" | "review_comment_arrived" | "no_activity" | "approval_expired";
@@ -1912,11 +1990,11 @@ export function createResumeRequestPacket(watcher: WatcherState, options: { now?
 
 export function getCockpitInbox(db: LooDatabase, options: { limit?: number; priorityOrder?: string[]; watcherSpecs?: WatchSpec[]; now?: string } = {}): CockpitInboxReport {
   const limit = clamp(options.limit ?? 20, 1, 500);
-  const cards = getRecentSessions(db, {
-    scope: "active",
-    limit: 500,
-    includeCards: true
-  }).cards;
+  const activeSessionCount = countActiveCodexSessions(db);
+  const { cards } = getCollaborationActiveSessionCards(db, {
+    activeSessionCount,
+    priorityOrder: options.priorityOrder
+  });
   const watcherReport = options.watcherSpecs?.length ? createWatcherStatusReport(options.watcherSpecs, { now: options.now, limit: 1000 }) : null;
   const watchersByTarget = watcherReport ? triggeredWatchersByTarget(watcherReport.watchers) : new Map<string, WatcherState[]>();
   const items = cards
@@ -1945,14 +2023,14 @@ export function getCockpitInbox(db: LooDatabase, options: { limit?: number; prio
       };
     })
     .filter((item) => item.reasonCodes.length > 0)
-    .sort((left, right) => right.urgencyScore - left.urgencyScore || compareUpdatedAtDesc(left.card.freshness.lastEventAt, right.card.freshness.lastEventAt) || left.card.threadId.localeCompare(right.card.threadId));
+    .sort((left, right) => compareOperatingUrgency(cockpitInboxItemAttentionLevel(left), cockpitInboxItemAttentionLevel(right)) || right.urgencyScore - left.urgencyScore || compareUpdatedAtDesc(left.card.freshness.lastEventAt, right.card.freshness.lastEventAt) || left.card.threadId.localeCompare(right.card.threadId));
   const selected = items.slice(0, limit);
   return {
     schema: "lco.codex.cockpitInbox.v1",
     publicSafe: true,
     generatedAt: new Date().toISOString(),
     summary: {
-      totalCards: cards.length,
+      totalCards: activeSessionCount,
       returned: selected.length,
       critical: selected.filter((item) => item.urgencyScore >= 90).length,
       high: selected.filter((item) => item.urgencyScore >= 70).length,
@@ -1964,6 +2042,401 @@ export function getCockpitInbox(db: LooDatabase, options: { limit?: number; prio
       reason: items.length > selected.length ? "limit" : "none"
     }
   };
+}
+
+export function createCodexCollaborationCockpit(db: LooDatabase, options: CodexCollaborationCockpitOptions = {}): CodexCollaborationCockpitReport {
+  const limit = clamp(options.limit ?? 20, 1, 500);
+  const activeSessionCount = countActiveCodexSessions(db);
+  const recent = getCollaborationActiveSessionCards(db, {
+    activeSessionCount,
+    priorityOrder: options.priorityOrder
+  });
+  const inbox = getCockpitInbox(db, {
+    limit: 500,
+    priorityOrder: options.priorityOrder,
+    watcherSpecs: options.watcherSpecs,
+    now: options.now
+  });
+  const inboxByThread = new Map(inbox.items.map((item) => [item.card.threadId, item]));
+  const coherenceByThread = collaborationReportsByThread(options.desktopCoherenceReports ?? [], "coherence");
+  const fallbackByThread = collaborationReportsByThread(options.desktopFallbackReports ?? [], "fallback");
+  const laneInputs = recent.cards.map((card) => ({
+    card,
+    inboxItem: inboxByThread.get(card.threadId) ?? null,
+    coherence: coherenceByThread.get(card.threadId) ?? null,
+    fallback: fallbackByThread.get(card.threadId) ?? null
+  }));
+  const sortedLaneInputs = laneInputs
+    .map((input) => ({
+      input,
+      lane: collaborationLane(input.card, {
+        ...input,
+        priorityOrder: options.priorityOrder,
+        desktopCoherenceCoverage: "partial",
+        desktopFallbackCoverage: "partial"
+      })
+    }))
+    .sort((left, right) => collaborationLaneComparator(left.lane, right.lane));
+  const selectedInputs = sortedLaneInputs.slice(0, limit).map(({ input }) => input);
+  const selectedThreadRefs = new Set(selectedInputs.map(({ card }) => card.threadId));
+  const desktopCoherenceCoverage = collaborationCoverage(options.desktopCoherenceReports, collaborationJoinedReportCount(coherenceByThread, selectedThreadRefs), selectedThreadRefs.size);
+  const desktopFallbackCoverage = collaborationCoverage(options.desktopFallbackReports, collaborationJoinedReportCount(fallbackByThread, selectedThreadRefs), selectedThreadRefs.size);
+  const selected = selectedInputs.map((input) => collaborationLane(input.card, {
+    ...input,
+    priorityOrder: options.priorityOrder,
+    desktopCoherenceCoverage,
+    desktopFallbackCoverage
+  }));
+
+  return {
+    schema: "lco.codex.collaborationCockpit.v1",
+    publicSafe: true,
+    readOnly: true,
+    generatedAt: options.now ?? new Date().toISOString(),
+    summary: {
+      totalCards: activeSessionCount,
+      returned: selected.length,
+      running: selected.filter((lane) => lane.sessionState === "running").length,
+      waiting: selected.filter((lane) => lane.sessionState === "waiting").length,
+      needsApproval: selected.filter(collaborationLaneNeedsApproval).length,
+      blocked: selected.filter((lane) => lane.sessionState === "blocked").length,
+      desktopVisible: selected.filter((lane) => lane.desktop.state === "desktop_visible").length,
+      fallbackRequired: selected.filter((lane) => lane.desktop.requiresFallback).length,
+      highAttention: selected.filter((lane) => lane.attention.level === "high" || lane.attention.level === "critical").length,
+      lowConfidence: selected.filter((lane) => lane.card.confidence < 0.7 || collaborationLaneHasLowConfidenceDesktopEvidence(lane)).length
+    },
+    sourceCoverage: {
+      recentSessions: recent.capped ? "partial" : recent.cards.length > 0 ? "ok" : "partial",
+      cockpitInbox: inbox.summary.totalCards > 0 ? "ok" : "partial",
+      desktopCoherence: desktopCoherenceCoverage,
+      desktopFallback: desktopFallbackCoverage
+    },
+    lanes: selected,
+    omitted: {
+      count: Math.max(0, activeSessionCount - selected.length),
+      reason: activeSessionCount > selected.length ? "limit" : "none"
+    },
+    actionsPerformed: {
+      liveCodexControlRun: false,
+      desktopGuiActionRun: false,
+      rawTranscriptRead: false,
+      screenshotCaptured: false,
+      npmPublished: false,
+      githubReleaseCreated: false
+    },
+    proofBoundary: "This read-only collaboration cockpit summarizes indexed Codex session cards, deterministic inbox urgency, watcher requests, and optional public-safe Desktop coherence/fallback reports. It does not run live Codex control, click, type, select, refresh, restart, mutate Codex Desktop, capture screenshots, publish npm, create GitHub releases, or claim unattended Desktop collaboration."
+  };
+}
+
+function countActiveCodexSessions(db: LooDatabase): number {
+  const row = db.prepare(`
+    SELECT COUNT(*) AS total
+    FROM codex_sessions AS s
+    LEFT JOIN codex_session_metadata AS m ON m.thread_id = s.thread_id
+    WHERE lower(trim(coalesce(m.status, ''))) NOT IN ('done', 'complete', 'completed', 'closed', 'merged')
+  `).get() as { total?: number } | undefined;
+  return typeof row?.total === "number" ? row.total : 0;
+}
+
+function getCollaborationActiveSessionCards(
+  db: LooDatabase,
+  options: { activeSessionCount: number; priorityOrder?: string[] }
+): { cards: CodexSessionCard[]; capped: boolean } {
+  const prefetchLimit = clamp(
+    Math.max(500, options.activeSessionCount),
+    1,
+    COLLABORATION_COCKPIT_INTERNAL_CARD_LIMIT
+  );
+  const priorityOrder = unique((options.priorityOrder ?? []).map((value) => value.trim().toLowerCase()).filter(Boolean)).slice(0, 10);
+  const priorityRank = priorityOrder.length > 0
+    ? `CASE LOWER(COALESCE(m.priority, '')) ${priorityOrder.map(() => "WHEN ? THEN ?").join(" ")} ELSE ${priorityOrder.length} END,`
+    : "";
+  const priorityParams: Array<string | number> = priorityOrder.flatMap((value, index) => [value, index]);
+  const rows = db.prepare(`
+    SELECT
+      s.thread_id AS threadId,
+      s.title,
+      s.summary,
+      s.updated_at AS updatedAt,
+      s.source_path AS sourcePath,
+      m.project,
+      m.status,
+      m.priority,
+      m.owner,
+      m.blocker,
+      m.next_action AS nextAction,
+      m.closeout_state AS closeoutState,
+      m.plan_completion_state AS planCompletionState,
+      m.proposed_plan_refs_json AS proposedPlanRefsJson,
+      m.final_message_refs_json AS finalMessageRefsJson,
+      m.touched_file_refs_json AS touchedFileRefsJson,
+      m.source_refs_json AS sourceRefsJson
+    FROM codex_sessions s
+    LEFT JOIN codex_session_metadata m ON m.thread_id = s.thread_id
+    WHERE lower(trim(coalesce(m.status, ''))) NOT IN ('done', 'complete', 'completed', 'closed', 'merged')
+    ORDER BY ${priorityRank} COALESCE(s.updated_at, s.indexed_at) DESC
+    LIMIT ?
+  `).all(...priorityParams, prefetchLimit) as Array<Record<string, unknown>>;
+  const cards = rows.map((row) => codexSessionCard(db, {
+    threadId: String(row.threadId),
+    title: nullableString(row.title),
+    summary: nullableString(row.summary),
+    updatedAt: nullableString(row.updatedAt),
+    sourcePath: publicSourcePathRef(String(row.sourcePath)),
+    metadata: sessionMetadataFromRow(row)
+  }));
+  cards.sort(codexSessionCardComparator);
+  return {
+    cards,
+    capped: options.activeSessionCount > prefetchLimit
+  };
+}
+
+function collaborationLane(
+  card: CodexSessionCard,
+  input: {
+    inboxItem: CockpitInboxItem | null;
+    coherence: Record<string, unknown> | null;
+    fallback: Record<string, unknown> | null;
+    priorityOrder?: string[];
+    desktopCoherenceCoverage: VisibleCodexCoverageState;
+    desktopFallbackCoverage: VisibleCodexCoverageState;
+  }
+): CodexCollaborationCockpitLane {
+  const desktop = collaborationDesktopState(input);
+  const baseUrgencyScore = input.inboxItem?.urgencyScore ?? cockpitUrgencyScore(card, input.priorityOrder);
+  const urgencyScore = collaborationDesktopUrgencyScore(baseUrgencyScore, desktop);
+  const reasonCodes = unique([
+    ...card.reasonCodes,
+    ...(input.inboxItem?.reasonCodes ?? []),
+    ...collaborationDesktopReasonCodes(input.coherence, input.fallback)
+  ].map((code) => publicSafeIdentifier(code) ?? "").filter(Boolean));
+  return {
+    threadId: card.threadId,
+    title: card.title,
+    sessionState: card.state,
+    attention: {
+      level: collaborationAttentionLevel(urgencyScore, reasonCodes),
+      urgencyScore
+    },
+    reasonCodes,
+    nextAction: input.inboxItem?.nextAction ?? card.nextAction,
+    desktop,
+    card
+  };
+}
+
+function collaborationDesktopState(input: {
+  coherence: Record<string, unknown> | null;
+  fallback: Record<string, unknown> | null;
+  desktopCoherenceCoverage: VisibleCodexCoverageState;
+  desktopFallbackCoverage: VisibleCodexCoverageState;
+}): CodexCollaborationCockpitLane["desktop"] {
+  const coherence = input.coherence;
+  const fallback = input.fallback;
+  const fallbackDetails = isObjectRecord(fallback?.fallback) ? fallback.fallback : null;
+  const coherenceState = collaborationString(coherence?.state, 80);
+  const coherenceConfidence = collaborationNumber(coherence?.confidence);
+  const fallbackRequired = typeof fallbackDetails?.required === "boolean"
+    ? fallbackDetails.required
+    : collaborationCoherenceRequiresFallback(Boolean(coherence), coherenceState);
+  const fallbackReason = collaborationString(fallbackDetails?.reason, 120);
+  const preferredBackend = fallback && collaborationString(fallback.preferredBackend, 40) === "cua-driver" ? "cua-driver" : null;
+  const backendRecords = Array.isArray(fallback?.backends)
+    ? fallback.backends.filter(isObjectRecord)
+    : [];
+  const readyBackend = backendRecords.some((backend) => {
+    if (collaborationString(backend.status, 40) !== "ready") return false;
+    if (!preferredBackend) return true;
+    return collaborationString(backend.backend, 40) === preferredBackend;
+  });
+  const fallbackBlockers = backendRecords.flatMap((backend) => collaborationStringArray(backend.blockers, 120));
+  const blockers = unique([
+    ...collaborationStringArray(coherence?.blockers, 120),
+    ...fallbackBlockers
+  ].map(collaborationPublicSafeBlocker).filter((blocker): blocker is string => Boolean(blocker)));
+  const reasonCodes = unique([
+    ...collaborationStringArray(coherence?.reasonCodes, 120),
+    ...(fallbackReason ? [fallbackReason] : []),
+    ...(fallbackRequired ? ["desktop_fallback_required"] : []),
+    ...(fallbackRequired && readyBackend ? ["desktop_fallback_ready"] : []),
+    ...(fallbackRequired && fallback && !readyBackend ? ["desktop_fallback_blocked"] : [])
+  ].map(collaborationPublicSafeReasonCode).filter((code): code is string => Boolean(code)));
+  const state: CodexCollaborationDesktopState = fallbackRequired && readyBackend
+      ? "fallback_ready"
+      : fallbackRequired && fallback
+        ? "fallback_blocked"
+        : coherenceState === "desktop_visible" || fallbackReason === "desktop_visibility_already_proven"
+          ? "desktop_visible"
+          : coherenceState && ["cli_visible", "desktop_refresh_required", "desktop_restart_required"].includes(coherenceState)
+            ? "cli_visible"
+            : !coherence && !fallback
+              ? "not_configured"
+              : "unknown";
+  const confidence = Math.max(0.1, Math.min(1,
+    state === "not_configured" ? 0.4
+      : state === "fallback_ready" ? Math.max(0.72, coherenceConfidence ?? 0.72)
+        : state === "fallback_blocked" ? Math.min(0.7, coherenceConfidence ?? 0.65)
+          : coherenceConfidence ?? (state === "desktop_visible" ? 0.85 : 0.6)
+  ));
+  return {
+    state,
+    requiresFallback: fallbackRequired,
+    preferredBackend,
+    confidence,
+    sourceCoverage: {
+      desktopCoherence: input.desktopCoherenceCoverage,
+      desktopFallback: input.desktopFallbackCoverage
+    },
+    evidenceIds: unique([
+      ...collaborationStringArray(coherence?.evidenceIds, 160),
+      ...collaborationStringArray(fallback?.evidenceIds, 160)
+    ].map((evidenceId) => publicSafeRefLike(evidenceId, "evidence") ?? "").filter(Boolean)),
+    blockers,
+    reasonCodes
+  };
+}
+
+function collaborationReportsByThread(reports: unknown[], kind: "coherence" | "fallback"): Map<string, Record<string, unknown>> {
+  const byThread = new Map<string, Record<string, unknown>>();
+  for (const report of reports) {
+    if (!isObjectRecord(report)) continue;
+    if (!collaborationReportIsUsable(report, kind)) continue;
+    const targetRef = collaborationTargetRef(report);
+    if (!targetRef) continue;
+    byThread.set(targetRef, report);
+  }
+  return byThread;
+}
+
+function collaborationReportIsUsable(report: Record<string, unknown>, kind: "coherence" | "fallback"): boolean {
+  if (kind === "coherence" && report.schema !== "lco.codexDesktopCoherence.v1") return false;
+  if (kind === "fallback" && report.schema !== "lco.codex.desktopFallback.v1") return false;
+  if (report.publicSafe !== true) return false;
+  if (kind === "fallback" && report.readOnly !== true) return false;
+  const actions = isObjectRecord(report.actionsPerformed) ? report.actionsPerformed : null;
+  if (!actions) return false;
+  if (actions.liveCodexControlRun !== false) return false;
+  if (actions.desktopGuiActionRun !== false) return false;
+  if (actions.rawTranscriptRead !== false) return false;
+  if (kind === "fallback" && actions.screenshotCaptured !== false) return false;
+  return true;
+}
+
+function collaborationTargetRef(report: Record<string, unknown>): string | null {
+  const target = isObjectRecord(report.target) ? report.target : {};
+  const sourceRef = collaborationString(target.sourceRef ?? target.source_ref ?? report.sourceRef ?? report.source_ref, 180);
+  const threadId = collaborationString(target.threadId ?? target.thread_id ?? report.threadId ?? report.thread_id, 120);
+  if (codexDesktopCoherenceTargetMismatch(threadId, sourceRef)) return null;
+  return normalizeCodexThreadSourceRef(sourceRef, threadId);
+}
+
+function collaborationCoverage(reports: unknown[] | undefined, matchedCount: number, selectedLaneCount: number): VisibleCodexCoverageState {
+  if (!reports || reports.length === 0) return "not_configured";
+  if (matchedCount === 0) return "partial";
+  return selectedLaneCount > 0 && matchedCount === selectedLaneCount ? "ok" : "partial";
+}
+
+function collaborationJoinedReportCount(reportsByThread: Map<string, Record<string, unknown>>, activeThreadRefs: Set<string>): number {
+  return [...reportsByThread.keys()].filter((threadRef) => activeThreadRefs.has(threadRef)).length;
+}
+
+function collaborationCoherenceRequiresFallback(hasCoherence: boolean, coherenceState: string | null): boolean {
+  if (!hasCoherence) return false;
+  return coherenceState !== "desktop_visible";
+}
+
+function collaborationDesktopUrgencyScore(baseScore: number, desktop: CodexCollaborationCockpitLane["desktop"]): number {
+  if (desktop.state === "fallback_ready") return Math.max(baseScore, 88);
+  if (desktop.state === "fallback_blocked") return Math.max(baseScore, 82);
+  if (desktop.requiresFallback) return Math.max(baseScore, 78);
+  return baseScore;
+}
+
+function collaborationLaneHasLowConfidenceDesktopEvidence(lane: CodexCollaborationCockpitLane): boolean {
+  return lane.desktop.state !== "not_configured" && lane.desktop.confidence < 0.7;
+}
+
+function collaborationAttentionLevel(urgencyScore: number, reasonCodes: string[]): OperatingUrgency {
+  if (reasonCodes.includes("watcher_triggered") || urgencyScore >= 90) return "critical";
+  if (urgencyScore >= 70) return "high";
+  if (urgencyScore >= 35) return "medium";
+  return "low";
+}
+
+function cockpitInboxItemAttentionLevel(item: CockpitInboxItem): OperatingUrgency {
+  return collaborationAttentionLevel(item.urgencyScore, item.reasonCodes);
+}
+
+function compareOperatingUrgency(left: OperatingUrgency, right: OperatingUrgency): number {
+  const rank = { critical: 0, high: 1, medium: 2, low: 3 } as const;
+  return rank[left] - rank[right];
+}
+
+function collaborationLaneNeedsApproval(lane: CodexCollaborationCockpitLane): boolean {
+  return lane.sessionState === "needs_approval"
+    || lane.reasonCodes.includes("approval_needed")
+    || lane.nextAction.requiresApproval
+    || lane.nextAction.kind === "approve"
+    || collaborationReasonRequestsApproval(lane.nextAction.reason);
+}
+
+function collaborationReasonRequestsApproval(reason: string): boolean {
+  const normalized = normalizedMetadataValue(reason);
+  if (!normalized.includes("approval")) return false;
+  if (
+    /\bno approval (?:needed|required|necessary)\b/.test(normalized) ||
+    /\bapproval (?:not needed|not required|is not needed|is not required|isnt needed|isnt required|isn't needed|isn't required)\b/.test(normalized) ||
+    /\bdoes not require approval\b/.test(normalized) ||
+    /\bapproval optional\b/.test(normalized)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function collaborationDesktopReasonCodes(coherence: Record<string, unknown> | null, fallback: Record<string, unknown> | null): string[] {
+  const fallbackDetails = isObjectRecord(fallback?.fallback) ? fallback.fallback : null;
+  return unique([
+    ...collaborationStringArray(coherence?.reasonCodes, 120).map(collaborationPublicSafeReasonCode).filter((code): code is string => Boolean(code)),
+    ...collaborationStringArray(coherence?.blockers, 120).map(collaborationPublicSafeBlocker).filter((blocker): blocker is string => Boolean(blocker)),
+    ...(collaborationString(fallbackDetails?.reason, 120) ? [collaborationPublicSafeReasonCode(collaborationString(fallbackDetails?.reason, 120)!)].filter((code): code is string => Boolean(code)) : []),
+    ...(fallback ? ["desktop_fallback_report_present"] : []),
+    ...(coherence ? ["desktop_coherence_report_present"] : [])
+  ]);
+}
+
+function collaborationLaneComparator(left: CodexCollaborationCockpitLane, right: CodexCollaborationCockpitLane): number {
+  const urgencyCompare = compareOperatingUrgency(left.attention.level, right.attention.level);
+  if (urgencyCompare !== 0) return urgencyCompare;
+  if (left.attention.urgencyScore !== right.attention.urgencyScore) return right.attention.urgencyScore - left.attention.urgencyScore;
+  const updatedAtCompare = compareUpdatedAtDesc(left.card.freshness.lastEventAt, right.card.freshness.lastEventAt);
+  if (updatedAtCompare !== 0) return updatedAtCompare;
+  return left.threadId.localeCompare(right.threadId);
+}
+
+function collaborationString(value: unknown, maxChars: number): string | null {
+  return typeof value === "string" && value.trim() ? publicSafeText(value.trim(), maxChars) : null;
+}
+
+function collaborationStringArray(value: unknown, maxChars: number): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const text = collaborationString(item, maxChars);
+    return text ? [text] : [];
+  });
+}
+
+function collaborationPublicSafeBlocker(value: string): string | null {
+  return publicSafeRefLike(value, "blocker") ?? null;
+}
+
+function collaborationPublicSafeReasonCode(value: string): string | null {
+  return publicSafeRefLike(value, "reason") ?? null;
+}
+
+function collaborationNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : null;
 }
 
 export function createVisibleCodexSessionMap(db: LooDatabase, options: {

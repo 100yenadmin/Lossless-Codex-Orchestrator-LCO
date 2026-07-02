@@ -15,6 +15,7 @@ export const DEFAULT_REQUIRED_TOOL_CALLS = [
   "loo_codex_control_dry_run",
   "loo_recent_sessions",
   "loo_cockpit_inbox",
+  "loo_codex_collaboration_cockpit",
   "loo_watchers_list",
   "loo_watcher_status",
   "loo_watcher_dry_run",
@@ -506,6 +507,15 @@ function buildToolArgs(params: {
   if (params.toolName === "loo_cockpit_inbox") {
     return params.threadId ? { limit: 5, watcher_specs: smokeWatcherSpecs(params.threadId), now: TOOL_SMOKE_NOW } : { limit: 5 };
   }
+  if (params.toolName === "loo_codex_collaboration_cockpit") {
+    return {
+      limit: 5,
+      watcher_specs: smokeWatcherSpecs(params.threadId),
+      desktop_coherence_reports: [smokeDesktopCoherenceReport(params.threadId)],
+      desktop_fallback_reports: [smokeDesktopFallbackReport(params.threadId)],
+      now: TOOL_SMOKE_NOW
+    };
+  }
   if (params.toolName === "loo_watchers_list" || params.toolName === "loo_watcher_dry_run") {
     return { watcher_specs: smokeWatcherSpecs(params.threadId), now: TOOL_SMOKE_NOW };
   }
@@ -578,8 +588,17 @@ function buildToolArgs(params: {
 
 const TOOL_SMOKE_NOW = "2026-07-01T12:00:00.000Z";
 
+function smokeBareThreadId(threadId?: string): string {
+  return (threadId || "tool-smoke-placeholder").replace(/^codex_thread:/, "");
+}
+
+function smokeCodexThreadRef(threadId?: string): string {
+  const bareThreadId = smokeBareThreadId(threadId);
+  return `codex_thread:${bareThreadId}`;
+}
+
 function smokeWatcherSpecs(threadId?: string): Record<string, unknown>[] {
-  const targetRef = threadId ? `codex_thread:${threadId}` : "codex_thread:tool-smoke-placeholder";
+  const targetRef = smokeCodexThreadRef(threadId);
   return [{
     schema: "lco.watchSpec.v1",
     watchId: "watch_tool_smoke_checks",
@@ -594,6 +613,58 @@ function smokeWatcherSpecs(threadId?: string): Record<string, unknown>[] {
     confidence: 0.9,
     mutates: false
   }];
+}
+
+function smokeDesktopCoherenceReport(threadId?: string): Record<string, unknown> {
+  const bareThreadId = smokeBareThreadId(threadId);
+  return {
+    schema: "lco.codexDesktopCoherence.v1",
+    publicSafe: true,
+    target: {
+      threadId: bareThreadId,
+      sourceRef: smokeCodexThreadRef(threadId)
+    },
+    state: "cli_visible",
+    confidence: 0.72,
+    evidenceIds: ["ev_tool_smoke_desktop_coherence"],
+    blockers: ["desktop_visibility_not_proven"],
+    reasonCodes: ["cli_direct_visible_without_desktop_proof"],
+    actionsPerformed: {
+      liveCodexControlRun: false,
+      desktopGuiActionRun: false,
+      rawTranscriptRead: false
+    }
+  };
+}
+
+function smokeDesktopFallbackReport(threadId?: string): Record<string, unknown> {
+  const bareThreadId = smokeBareThreadId(threadId);
+  return {
+    schema: "lco.codex.desktopFallback.v1",
+    publicSafe: true,
+    readOnly: true,
+    target: {
+      threadId: bareThreadId,
+      sourceRef: smokeCodexThreadRef(threadId)
+    },
+    fallback: {
+      required: true,
+      reason: "desktop_visibility_not_proven",
+      coherenceState: "cli_visible",
+      desktopVisibility: "not_proven"
+    },
+    preferredBackend: "cua-driver",
+    backends: [
+      { backend: "cua-driver", role: "preferred_background", status: "ready", blockers: [], warnings: [], takesScreenWarning: false },
+      { backend: "peekaboo", role: "secondary_visible_fallback", status: "blocked", blockers: ["visible_fallback_requires_explicit_user_visible_run"], warnings: [], takesScreenWarning: true }
+    ],
+    actionsPerformed: {
+      liveCodexControlRun: false,
+      desktopGuiActionRun: false,
+      screenshotCaptured: false,
+      rawTranscriptRead: false
+    }
+  };
 }
 
 function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenClawToolInvocationSummary {
@@ -905,6 +976,7 @@ function outputKind(value: unknown): string {
 function outputCount(value: unknown): number | undefined {
   if (Array.isArray(value)) return value.length;
   if (isRecord(value) && Array.isArray(value.results)) return value.results.length;
+  if (isRecord(value) && Array.isArray(value.lanes)) return value.lanes.length;
   return undefined;
 }
 

@@ -10,6 +10,7 @@ import {
   createBusinessPulse,
   createDatabase,
   createDefaultSourceAuthorityProfile,
+  createCodexCollaborationCockpit,
   createGithubOperatingItemsReport,
   createPlanStatePinsReport,
   createProjectDigest,
@@ -1166,6 +1167,7 @@ test("new cockpit and operating-picture tools are exposed through MCP with publi
     for (const name of [
       "loo_recent_sessions",
       "loo_cockpit_inbox",
+      "loo_codex_collaboration_cockpit",
       "loo_watchers_list",
       "loo_watcher_status",
       "loo_watcher_dry_run",
@@ -1181,6 +1183,13 @@ test("new cockpit and operating-picture tools are exposed through MCP with publi
 
     const recent = await tools.find((tool) => tool.name === "loo_recent_sessions")?.execute({ limit: 5, include_cards: true });
     assert.equal((recent as { publicSafe?: boolean }).publicSafe, true);
+
+    const collaborationCockpit = await tools.find((tool) => tool.name === "loo_codex_collaboration_cockpit")?.execute({
+      limit: 5,
+      now: "2026-07-01T12:00:00.000Z"
+    });
+    assert.equal((collaborationCockpit as { publicSafe?: boolean }).publicSafe, true);
+    assert.equal((collaborationCockpit as { actionsPerformed?: { desktopGuiActionRun?: boolean } }).actionsPerformed?.desktopGuiActionRun, false);
 
     const pins = await tools.find((tool) => tool.name === "loo_plan_state_pins")?.execute({
       plan_state_text: "<!-- loo:manual-pin -->\n- Project: LCO\n- State: yellow\n- Summary: Test pin.\n- Next: Review.\n<!-- /loo:manual-pin -->"
@@ -1252,7 +1261,699 @@ test("new cockpit and operating-picture tools are exposed through MCP with publi
       () => unsafeWatcher.execute({ watcher_specs: [{ ...watcherSpec, mutates: true }] }),
       /mutates=false/
     );
-    assertNoUnsafeStrings({ recent, pins, pulse, watcherDryRun }, sessions);
+    assertNoUnsafeStrings({ recent, collaborationCockpit, pins, pulse, watcherDryRun }, sessions);
+  });
+});
+
+test("Codex collaboration cockpit summarizes attention and Desktop fallback readiness without actions", () => {
+  withIndexedSessions((sessions) => {
+    const transcriptPathCanary = join(sessions, "rollout-2026-07-01T00-00-00-019f-collab-cli.jsonl");
+    return {
+      fixtures: [
+        {
+          id: "019f-collab-cli",
+          title: "CLI visible collaboration lane",
+          status: "running",
+          priority: "high",
+          nextAction: `inspect Desktop fallback without raw path ${transcriptPathCanary}`,
+          updatedAt: relativeIso(4),
+          refs: true,
+          extra: ["authorization: Bearer abcdefghijklmnopqrstuvwxyz"]
+        },
+        {
+          id: "019f-collab-approval",
+          title: "Approval waiting collaboration lane",
+          status: "needs_approval",
+          priority: "urgent",
+          blocker: "approval needed",
+          nextAction: "prepare approval packet only",
+          updatedAt: relativeIso(7),
+          refs: true
+        }
+      ],
+      canaries: [transcriptPathCanary]
+    };
+  }, ({ db, canaries }) => {
+    const report = createCodexCollaborationCockpit(db, {
+      limit: 5,
+      now: "2026-07-02T00:00:00.000Z",
+      watcherSpecs: [
+        {
+          schema: "lco.watchSpec.v1",
+          watchId: "watch_collab_cli",
+          targetRef: "codex_thread:019f-collab-cli",
+          kind: "final_message_appeared",
+          createdAt: "2026-07-01T23:40:00.000Z",
+          lastObservedAt: "2026-07-01T23:59:00.000Z",
+          ttlSeconds: 3600,
+          stopConditions: ["final_message_seen", "explicit_cancel"],
+          wakeReason: "final_message_appeared",
+          evidenceIds: ["ev_watch_collab"],
+          confidence: 0.92,
+          mutates: false
+        }
+      ],
+      desktopCoherenceReports: [
+        {
+          schema: "lco.codexDesktopCoherence.v1",
+          publicSafe: true,
+          target: { threadId: "019f-collab-cli", sourceRef: "codex_thread:019f-collab-cli" },
+          state: "cli_visible",
+          confidence: 0.82,
+          evidenceIds: ["ev_coherence_cli"],
+          blockers: ["desktop_visibility_not_proven"],
+          reasonCodes: ["cli_direct_visible_without_desktop_proof"],
+          sourceCoverage: { indexedLco: "ok", visibleCodex: "partial", codexAppServer: "ok" },
+          actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
+        }
+      ],
+      desktopFallbackReports: [
+        {
+          schema: "lco.codex.desktopFallback.v1",
+          publicSafe: true,
+          readOnly: true,
+          target: { threadId: "019f-collab-cli", sourceRef: "codex_thread:019f-collab-cli" },
+          fallback: { required: true, reason: "desktop_visibility_not_proven", coherenceState: "cli_visible", desktopVisibility: "not_proven" },
+          preferredBackend: "cua-driver",
+          backends: [
+            { backend: "cua-driver", role: "preferred_background", status: "ready", blockers: [], warnings: [], takesScreenWarning: false },
+            { backend: "peekaboo", role: "secondary_visible_fallback", status: "blocked", blockers: ["visible_fallback_requires_explicit_user_visible_run"], warnings: [], takesScreenWarning: true }
+          ],
+          actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, screenshotCaptured: false, rawTranscriptRead: false }
+        }
+      ]
+    });
+
+    assert.equal(report.schema, "lco.codex.collaborationCockpit.v1");
+    assert.equal(report.publicSafe, true);
+    assert.equal(report.summary.returned, 2);
+    assert.equal(report.summary.needsApproval, 2);
+    assert.equal(report.summary.fallbackRequired, 1);
+    assert.equal(report.sourceCoverage.desktopCoherence, "partial");
+    assert.equal(report.sourceCoverage.desktopFallback, "partial");
+    assert.deepEqual(report.actionsPerformed, {
+      liveCodexControlRun: false,
+      desktopGuiActionRun: false,
+      rawTranscriptRead: false,
+      screenshotCaptured: false,
+      npmPublished: false,
+      githubReleaseCreated: false
+    });
+
+    const cliLane = report.lanes.find((lane) => lane.threadId === "codex_thread:019f-collab-cli");
+    assert.ok(cliLane);
+    assert.equal(cliLane.attention.level, "critical");
+    assert.equal(cliLane.nextAction.requiresApproval, true);
+    assert.equal(cliLane.desktop.state, "fallback_ready");
+    assert.equal(cliLane.desktop.requiresFallback, true);
+    assert.equal(cliLane.desktop.preferredBackend, "cua-driver");
+    assert.equal(cliLane.reasonCodes.includes("watcher_triggered"), true);
+    assert.equal(cliLane.desktop.reasonCodes.includes("cli_direct_visible_without_desktop_proof"), true);
+    assertNoUnsafeStrings(report, ...canaries);
+  });
+});
+
+test("Codex collaboration cockpit does not count stale Desktop reports as active-lane coverage", () => {
+  withIndexedSessions(() => ({
+    fixtures: [{
+      id: "019f-collab-active-only",
+      title: "Active lane without Desktop evidence",
+      status: "running",
+      priority: "high",
+      nextAction: "inspect active lane",
+      updatedAt: relativeIso(4),
+      refs: true
+    }]
+  }), ({ db }) => {
+    const report = createCodexCollaborationCockpit(db, {
+      limit: 5,
+      now: "2026-07-02T00:00:00.000Z",
+      desktopCoherenceReports: [{
+        schema: "lco.codexDesktopCoherence.v1",
+        publicSafe: true,
+        target: { threadId: "019f-stale-other-thread", sourceRef: "codex_thread:019f-stale-other-thread" },
+        state: "desktop_visible",
+        confidence: 0.9,
+        evidenceIds: ["ev_stale_desktop"],
+        actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
+      }]
+    });
+
+    assert.equal(report.sourceCoverage.desktopCoherence, "partial");
+    const lane = report.lanes.find((item) => item.threadId === "codex_thread:019f-collab-active-only");
+    assert.ok(lane);
+    assert.equal(lane.desktop.sourceCoverage.desktopCoherence, "partial");
+    assert.deepEqual(lane.desktop.evidenceIds, []);
+  });
+});
+
+test("Codex collaboration cockpit treats unknown Desktop proof as fallback-required and ignores negated approval notes", () => {
+  withIndexedSessions(() => ({
+    fixtures: [
+      {
+        id: "019f-collab-unknown-desktop",
+        title: "Unknown Desktop lane",
+        status: "running",
+        priority: "high",
+        nextAction: "inspect Desktop visibility",
+        updatedAt: relativeIso(4),
+        refs: true
+      },
+      {
+        id: "019f-collab-no-approval",
+        title: "No approval needed lane",
+        status: "running",
+        priority: "medium",
+        nextAction: "no approval required; keep watching",
+        updatedAt: relativeIso(8),
+        refs: true
+      },
+      {
+        id: "019f-collab-approval-required",
+        title: "Approval required lane",
+        status: "running",
+        priority: "medium",
+        nextAction: "approval required before resume",
+        updatedAt: relativeIso(9),
+        refs: true
+      }
+    ]
+  }), ({ db }) => {
+    const report = createCodexCollaborationCockpit(db, {
+      limit: 5,
+      now: "2026-07-02T00:00:00.000Z",
+      desktopCoherenceReports: [{
+        schema: "lco.codexDesktopCoherence.v1",
+        publicSafe: true,
+        target: { threadId: "019f-collab-unknown-desktop", sourceRef: "codex_thread:019f-collab-unknown-desktop" },
+        state: "unknown",
+        confidence: 0.45,
+        evidenceIds: ["ev_unknown_desktop"],
+        actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
+      }]
+    });
+
+    assert.equal(report.summary.fallbackRequired, 1);
+    assert.equal(report.summary.needsApproval, 1);
+
+    const unknownLane = report.lanes.find((item) => item.threadId === "codex_thread:019f-collab-unknown-desktop");
+    assert.ok(unknownLane);
+    assert.equal(unknownLane.desktop.state, "unknown");
+    assert.equal(unknownLane.desktop.requiresFallback, true);
+    assert.equal(unknownLane.desktop.reasonCodes.includes("desktop_fallback_required"), true);
+
+    const noApprovalLane = report.lanes.find((item) => item.threadId === "codex_thread:019f-collab-no-approval");
+    assert.ok(noApprovalLane);
+    assert.equal(noApprovalLane.nextAction.reason.includes("approval"), true);
+    assert.equal(noApprovalLane.reasonCodes.includes("approval_needed"), false);
+
+    const approvalRequiredLane = report.lanes.find((item) => item.threadId === "codex_thread:019f-collab-approval-required");
+    assert.ok(approvalRequiredLane);
+    assert.equal(approvalRequiredLane.nextAction.reason.includes("approval required"), true);
+    assert.equal(approvalRequiredLane.reasonCodes.includes("approval_needed"), false);
+  });
+});
+
+test("Codex collaboration cockpit keeps selected-lane Desktop evidence public-safe and approval honest", () => {
+  const tokenCanary = "ghp_abcdefghijklmnopqrstuvwxyz123456";
+  withIndexedSessions(() => ({
+    fixtures: [
+      {
+        id: "019f-collab-limit-visible",
+        title: "Hidden Desktop evidence lane",
+        status: "running",
+        priority: "medium",
+        nextAction: "keep watching lower priority lane",
+        updatedAt: relativeIso(10),
+        refs: true
+      },
+      {
+        id: "019f-collab-limit-selected",
+        title: "Selected lane without Desktop evidence",
+        status: "running",
+        priority: "urgent",
+        blocker: "critical operator attention",
+        nextAction: "inspect selected lane",
+        updatedAt: relativeIso(2),
+        refs: true
+      },
+      {
+        id: "019f-collab-without-approval",
+        title: "Without approval blocked lane",
+        status: "running",
+        priority: "medium",
+        nextAction: "do not resume without approval",
+        updatedAt: relativeIso(6),
+        refs: true
+      },
+      {
+        id: "019f-collab-no-approval-received",
+        title: "Approval not received blocked lane",
+        status: "running",
+        priority: "medium",
+        nextAction: "no approval received yet; do not resume",
+        updatedAt: relativeIso(6),
+        refs: true
+      },
+      {
+        id: "019f-collab-invalid-report",
+        title: "Invalid Desktop report lane",
+        status: "running",
+        priority: "medium",
+        nextAction: "validate Desktop report schema",
+        updatedAt: relativeIso(7),
+        refs: true
+      },
+      {
+        id: "019f-collab-conflict",
+        title: "Conflicting Desktop evidence lane",
+        status: "running",
+        priority: "medium",
+        nextAction: "route fallback conflict",
+        updatedAt: relativeIso(8),
+        refs: true
+      }
+    ],
+    canaries: [tokenCanary]
+  }), ({ db, canaries }) => {
+    const limited = createCodexCollaborationCockpit(db, {
+      limit: 1,
+      now: "2026-07-02T00:00:00.000Z",
+      desktopCoherenceReports: [{
+        schema: "lco.codexDesktopCoherence.v1",
+        publicSafe: true,
+        target: { threadId: "019f-collab-limit-visible", sourceRef: "codex_thread:019f-collab-limit-visible" },
+        state: "desktop_visible",
+        confidence: 0.94,
+        evidenceIds: ["ev_hidden_visible"],
+        actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
+      }]
+    });
+
+    assert.equal(limited.summary.returned, 1);
+    assert.equal(limited.lanes[0]?.threadId, "codex_thread:019f-collab-limit-selected");
+    assert.equal(limited.sourceCoverage.desktopCoherence, "partial");
+    assert.equal(limited.lanes[0]?.desktop.sourceCoverage.desktopCoherence, "partial");
+    assert.deepEqual(limited.lanes[0]?.desktop.evidenceIds, []);
+
+    const visibleBranch = createCodexCollaborationCockpit(db, {
+      limit: 10,
+      now: "2026-07-02T00:00:00.000Z",
+      desktopCoherenceReports: [{
+        schema: "lco.codexDesktopCoherence.v1",
+        publicSafe: true,
+        target: { threadId: "019f-collab-limit-visible", sourceRef: "codex_thread:019f-collab-limit-visible" },
+        state: "desktop_visible",
+        confidence: 0.94,
+        evidenceIds: ["ev_visible_branch"],
+        actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
+      }]
+    });
+    const visibleLane = visibleBranch.lanes.find((lane) => lane.threadId === "codex_thread:019f-collab-limit-visible");
+    assert.ok(visibleLane);
+    assert.equal(visibleLane.desktop.state, "desktop_visible");
+    assert.equal(visibleLane.desktop.confidence, 0.94);
+    assert.equal(visibleBranch.summary.desktopVisible, 1);
+    assert.equal(visibleBranch.sourceCoverage.desktopCoherence, "partial");
+    const visibleBranchWithoutEvidence = visibleBranch.lanes.find((lane) => lane.threadId === "codex_thread:019f-collab-limit-selected");
+    assert.ok(visibleBranchWithoutEvidence);
+    assert.equal(visibleBranchWithoutEvidence.desktop.sourceCoverage.desktopCoherence, "partial");
+
+    const invalidAndSensitive = createCodexCollaborationCockpit(db, {
+      limit: 10,
+      now: "2026-07-02T00:00:00.000Z",
+      desktopCoherenceReports: [
+        {
+          target: { threadId: "019f-collab-invalid-report", sourceRef: "codex_thread:019f-collab-invalid-report" },
+          state: "desktop_visible",
+          confidence: 0.95,
+          evidenceIds: ["ev_invalid_schema"]
+        },
+        {
+          schema: "lco.codexDesktopCoherence.v1",
+          publicSafe: true,
+          target: { threadId: "019f-collab-without-approval", sourceRef: "codex_thread:019f-collab-without-approval" },
+          state: "unknown",
+          confidence: 0.5,
+          blockers: [tokenCanary, "desktop_visibility_not_proven"],
+          reasonCodes: [tokenCanary, "desktop_visibility_not_proven"],
+          evidenceIds: ["ev_sensitive_blocker"],
+          actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
+        },
+        {
+          schema: "lco.codexDesktopCoherence.v1",
+          publicSafe: true,
+          target: { threadId: "019f-collab-conflict", sourceRef: "codex_thread:019f-collab-conflict" },
+          state: "desktop_visible",
+          confidence: 0.9,
+          evidenceIds: ["ev_conflict_visible"],
+          actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
+        }
+      ],
+      desktopFallbackReports: [{
+        schema: "lco.codex.desktopFallback.v1",
+        publicSafe: true,
+        readOnly: true,
+        target: { threadId: "019f-collab-conflict", sourceRef: "codex_thread:019f-collab-conflict" },
+        fallback: { required: true, reason: "desktop_visibility_not_proven", coherenceState: "desktop_visible", desktopVisibility: "not_proven" },
+        preferredBackend: "cua-driver",
+        backends: [
+          { backend: "cua-driver", role: "preferred_background", status: "blocked", blockers: ["permission_missing"], warnings: [], takesScreenWarning: false }
+        ],
+        actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, screenshotCaptured: false, rawTranscriptRead: false }
+      }]
+    });
+
+    assert.equal(invalidAndSensitive.summary.needsApproval, 2);
+    assertNoUnsafeStrings(invalidAndSensitive, ...canaries);
+    // Approval phrase detection is currently a summary-level signal; text-only detection does not add a lane reasonCode.
+    const approvalBlockedLane = invalidAndSensitive.lanes.find((lane) => lane.threadId === "codex_thread:019f-collab-without-approval");
+    assert.ok(approvalBlockedLane);
+    assert.equal(approvalBlockedLane.reasonCodes.includes("approval_needed"), false);
+
+    const withoutApprovalLane = invalidAndSensitive.lanes.find((lane) => lane.threadId === "codex_thread:019f-collab-without-approval");
+    assert.ok(withoutApprovalLane);
+    assert.equal(withoutApprovalLane.desktop.blockers.some((blocker) => blocker.startsWith("blocker_")), true);
+    assert.equal(withoutApprovalLane.desktop.blockers.includes("desktop_visibility_not_proven"), true);
+    assert.equal(withoutApprovalLane.desktop.reasonCodes.some((reason) => reason.startsWith("reason_")), true);
+    assert.equal(withoutApprovalLane.desktop.reasonCodes.includes("desktop_visibility_not_proven"), true);
+
+    const noApprovalReceivedLane = invalidAndSensitive.lanes.find((lane) => lane.threadId === "codex_thread:019f-collab-no-approval-received");
+    assert.ok(noApprovalReceivedLane);
+    assert.equal(noApprovalReceivedLane.nextAction.reason.includes("no approval received"), true);
+    assert.equal(noApprovalReceivedLane.reasonCodes.includes("approval_needed"), false);
+
+    const invalidLane = invalidAndSensitive.lanes.find((lane) => lane.threadId === "codex_thread:019f-collab-invalid-report");
+    assert.ok(invalidLane);
+    assert.equal(invalidLane.desktop.state, "not_configured");
+    assert.deepEqual(invalidLane.desktop.evidenceIds, []);
+
+    const conflictLane = invalidAndSensitive.lanes.find((lane) => lane.threadId === "codex_thread:019f-collab-conflict");
+    assert.ok(conflictLane);
+    assert.equal(conflictLane.desktop.state, "fallback_blocked");
+    assert.equal(conflictLane.desktop.requiresFallback, true);
+    assert.equal(invalidAndSensitive.summary.desktopVisible, 0);
+    assert.equal(invalidAndSensitive.summary.fallbackRequired, 2);
+  });
+});
+
+test("Codex collaboration cockpit applies priority order to lanes without inbox reasons", () => {
+  withIndexedSessions(() => ({
+    fixtures: [
+      {
+        id: "019f-collab-priority-urgent",
+        title: "Urgent ordinary collaboration lane",
+        status: "running",
+        priority: "urgent",
+        nextAction: "keep watching ordinary urgent lane",
+        updatedAt: relativeIso(25),
+        refs: true
+      },
+      {
+        id: "019f-collab-priority-low",
+        title: "Low ordinary collaboration lane",
+        status: "running",
+        priority: "low",
+        nextAction: "keep watching ordinary low lane",
+        updatedAt: relativeIso(2),
+        refs: true
+      }
+    ]
+  }), ({ db }) => {
+    const report = createCodexCollaborationCockpit(db, {
+      limit: 1,
+      now: "2026-07-02T00:00:00.000Z",
+      priorityOrder: ["urgent", "high", "medium", "low"]
+    });
+
+    assert.equal(report.summary.returned, 1);
+    assert.equal(report.lanes[0]?.threadId, "codex_thread:019f-collab-priority-urgent");
+  });
+});
+
+test("Codex collaboration cockpit ranks Desktop fallback gaps before limiting", () => {
+  withIndexedSessions(() => ({
+    fixtures: [
+      {
+        id: "019f-collab-ordinary-urgent",
+        title: "Ordinary urgent collaboration lane",
+        status: "running",
+        priority: "urgent",
+        nextAction: "keep watching ordinary urgent lane",
+        updatedAt: relativeIso(1),
+        refs: true
+      },
+      {
+        id: "019f-collab-desktop-gap",
+        title: "Desktop fallback gap lane",
+        status: "running",
+        priority: "medium",
+        nextAction: "inspect Desktop fallback gap",
+        updatedAt: relativeIso(20),
+        refs: true
+      }
+    ]
+  }), ({ db }) => {
+    const report = createCodexCollaborationCockpit(db, {
+      limit: 1,
+      now: "2026-07-02T00:00:00.000Z",
+      priorityOrder: ["urgent", "high", "medium", "low"],
+      desktopCoherenceReports: [{
+        schema: "lco.codexDesktopCoherence.v1",
+        publicSafe: true,
+        target: { threadId: "019f-collab-desktop-gap", sourceRef: "codex_thread:019f-collab-desktop-gap" },
+        state: "unknown",
+        confidence: 0.46,
+        evidenceIds: ["ev_desktop_gap"],
+        actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
+      }]
+    });
+
+    assert.equal(report.summary.returned, 1);
+    assert.equal(report.lanes[0]?.threadId, "codex_thread:019f-collab-desktop-gap");
+    assert.equal(report.lanes[0]?.desktop.requiresFallback, true);
+  });
+});
+
+test("Codex collaboration cockpit applies attention priority before internal prefetch caps", () => {
+  const fixtures = [
+    ...Array.from({ length: 500 }, (_, index) => ({
+      id: `019f-collab-prefetch-urgent-${String(index).padStart(3, "0")}`,
+      title: `Recent urgent lane ${index}`,
+      status: "running" as const,
+      priority: "urgent" as const,
+      nextAction: "keep watching recent urgent lane",
+      updatedAt: relativeIso(index + 1),
+      refs: true
+    })),
+    {
+      id: "019f-collab-prefetch-desktop-gap",
+      title: "Older urgent Desktop gap lane",
+      status: "running",
+      priority: "urgent",
+      nextAction: "inspect older Desktop gap lane",
+      updatedAt: relativeIso(1000),
+      refs: true
+    }
+  ];
+  withIndexedSessions(fixtures, ({ db }) => {
+    const report = createCodexCollaborationCockpit(db, {
+      limit: 1,
+      now: "2026-07-02T00:00:00.000Z",
+      priorityOrder: ["urgent", "high", "medium", "low"],
+      desktopCoherenceReports: [{
+        schema: "lco.codexDesktopCoherence.v1",
+        publicSafe: true,
+        target: { threadId: "019f-collab-prefetch-desktop-gap", sourceRef: "codex_thread:019f-collab-prefetch-desktop-gap" },
+        state: "unknown",
+        confidence: 0.48,
+        evidenceIds: ["ev_prefetch_desktop_gap"],
+        actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
+      }]
+    });
+
+    assert.equal(report.summary.totalCards, 501);
+    assert.equal(report.summary.returned, 1);
+    assert.equal(report.lanes[0]?.threadId, "codex_thread:019f-collab-prefetch-desktop-gap");
+    assert.equal(report.lanes[0]?.desktop.requiresFallback, true);
+  });
+});
+
+test("Codex collaboration cockpit keeps watcher-critical lanes ahead of merely high lanes", () => {
+  withIndexedSessions([
+    {
+      id: "019f-collab-blocked-high",
+      title: "Blocked high attention lane",
+      status: "blocked",
+      priority: "medium",
+      blocker: "external wait",
+      nextAction: "inspect blocked lane",
+      updatedAt: relativeIso(1),
+      refs: true
+    },
+    {
+      id: "019f-collab-watcher-critical",
+      title: "Watcher critical lane",
+      status: "running",
+      priority: "low",
+      nextAction: "inspect after watcher trigger",
+      updatedAt: relativeIso(12),
+      refs: true
+    }
+  ], ({ db }) => {
+    const report = createCodexCollaborationCockpit(db, {
+      limit: 1,
+      now: "2026-07-02T00:00:00.000Z",
+      watcherSpecs: [{
+        schema: "lco.watchSpec.v1",
+        watchId: "watch_collab_critical_ordering",
+        targetRef: "codex_thread:019f-collab-watcher-critical",
+        kind: "final_message_appeared",
+        createdAt: "2026-07-01T23:40:00.000Z",
+        lastObservedAt: "2026-07-01T23:59:00.000Z",
+        ttlSeconds: 3600,
+        stopConditions: ["final_message_seen", "explicit_cancel"],
+        wakeReason: "final_message_appeared",
+        evidenceIds: ["ev_watch_critical_ordering"],
+        confidence: 0.92,
+        mutates: false
+      }]
+    });
+
+    assert.equal(report.summary.returned, 1);
+    assert.equal(report.lanes[0]?.threadId, "codex_thread:019f-collab-watcher-critical");
+    assert.equal(report.lanes[0]?.attention.level, "critical");
+    assert.equal(report.lanes[0]?.reasonCodes.includes("watcher_triggered"), true);
+  });
+});
+
+test("Codex collaboration cockpit rejects mismatched Desktop targets and requires preferred fallback readiness", () => {
+  withIndexedSessions(() => ({
+    fixtures: [
+      {
+        id: "019f-collab-target-a",
+        title: "Target A lane",
+        status: "running",
+        priority: "medium",
+        nextAction: "validate target A",
+        updatedAt: relativeIso(5),
+        refs: true
+      },
+      {
+        id: "019f-collab-target-b",
+        title: "Target B lane",
+        status: "running",
+        priority: "medium",
+        nextAction: "validate target B",
+        updatedAt: relativeIso(6),
+        refs: true
+      },
+      {
+        id: "019f-collab-preferred-blocked",
+        title: "Preferred fallback blocked lane",
+        status: "running",
+        priority: "high",
+        nextAction: "check preferred fallback readiness",
+        updatedAt: relativeIso(7),
+        refs: true
+      }
+    ]
+  }), ({ db }) => {
+    const report = createCodexCollaborationCockpit(db, {
+      limit: 10,
+      now: "2026-07-02T00:00:00.000Z",
+      desktopCoherenceReports: [
+        {
+          schema: "lco.codexDesktopCoherence.v1",
+          publicSafe: true,
+          target: { threadId: "019f-collab-target-a", sourceRef: "codex_thread:019f-collab-target-b" },
+          state: "desktop_visible",
+          confidence: 0.98,
+          evidenceIds: ["ev_mismatched_target"],
+          actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
+        },
+        {
+          schema: "lco.codexDesktopCoherence.v1",
+          publicSafe: true,
+          target: { threadId: "019f-collab-preferred-blocked", sourceRef: "codex_thread:019f-collab-preferred-blocked" },
+          state: "cli_visible",
+          confidence: 0.72,
+          evidenceIds: ["ev_preferred_blocked_coherence"],
+          actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
+        }
+      ],
+      desktopFallbackReports: [{
+        schema: "lco.codex.desktopFallback.v1",
+        publicSafe: true,
+        readOnly: true,
+        target: { threadId: "019f-collab-preferred-blocked", sourceRef: "codex_thread:019f-collab-preferred-blocked" },
+        fallback: { required: true, reason: "desktop_visibility_not_proven", coherenceState: "cli_visible", desktopVisibility: "not_proven" },
+        preferredBackend: "cua-driver",
+        backends: [
+          { backend: "cua-driver", role: "preferred_background", status: "blocked", blockers: ["permission_missing"], warnings: [], takesScreenWarning: false },
+          { backend: "peekaboo", role: "secondary_visible_fallback", status: "ready", blockers: [], warnings: [], takesScreenWarning: true }
+        ],
+        actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, screenshotCaptured: false, rawTranscriptRead: false }
+      }]
+    });
+
+    const targetALane = report.lanes.find((lane) => lane.threadId === "codex_thread:019f-collab-target-a");
+    const targetBLane = report.lanes.find((lane) => lane.threadId === "codex_thread:019f-collab-target-b");
+    const preferredBlockedLane = report.lanes.find((lane) => lane.threadId === "codex_thread:019f-collab-preferred-blocked");
+
+    assert.ok(targetALane);
+    assert.ok(targetBLane);
+    assert.ok(preferredBlockedLane);
+    assert.equal(targetALane.desktop.state, "not_configured");
+    assert.equal(targetBLane.desktop.state, "not_configured");
+    assert.equal(preferredBlockedLane.desktop.state, "fallback_blocked");
+    assert.equal(preferredBlockedLane.desktop.reasonCodes.includes("desktop_fallback_ready"), false);
+    assert.equal(preferredBlockedLane.desktop.reasonCodes.includes("desktop_fallback_blocked"), true);
+  });
+});
+
+test("Codex collaboration cockpit does not treat missing Desktop evidence as low confidence", () => {
+  withIndexedSessions(() => ({
+    fixtures: [{
+      id: "019f-collab-no-desktop-evidence",
+      title: "No Desktop evidence lane",
+      status: "running",
+      priority: "high",
+      nextAction: "keep watching indexed lane",
+      updatedAt: relativeIso(3),
+      refs: true
+    }]
+  }), ({ db }) => {
+    const report = createCodexCollaborationCockpit(db, {
+      limit: 5,
+      now: "2026-07-02T00:00:00.000Z"
+    });
+
+    assert.equal(report.lanes[0]?.desktop.state, "not_configured");
+    assert.equal(report.summary.lowConfidence, 0);
+  });
+});
+
+test("Codex collaboration cockpit reports omitted totals from the full active-session count", () => {
+  const fixtures = Array.from({ length: 505 }, (_, index) => ({
+    id: `019f-collab-bulk-${String(index).padStart(3, "0")}`,
+    title: `Bulk active lane ${index}`,
+    status: "running" as const,
+    priority: "medium" as const,
+    nextAction: "keep watching bulk lane",
+    updatedAt: relativeIso(index + 1),
+    refs: true
+  }));
+  withIndexedSessions(fixtures, ({ db }) => {
+    const report = createCodexCollaborationCockpit(db, {
+      limit: 500,
+      now: "2026-07-02T00:00:00.000Z"
+    });
+
+    assert.equal(report.summary.totalCards, 505);
+    assert.equal(report.summary.returned, 500);
+    assert.equal(report.omitted.count, 5);
+    assert.equal(report.omitted.reason, "limit");
   });
 });
 
@@ -1281,7 +1982,7 @@ function withIndexedSessions(
   for (const fixture of fixtures) writeSessionFixture(sessions, fixture);
   const db = createDatabase(join(root, "orchestrator.sqlite"));
   try {
-    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    indexCodexSessions(db, { roots: [sessions], maxFiles: Math.max(10, fixtures.length + 1) });
     run({ db, root, sessions, canaries });
   } finally {
     db.close();

@@ -1,0 +1,57 @@
+{
+  "scenario_version": "1.0",
+  "id": "codex-collaboration-cockpit-v1",
+  "title": "Codex collaboration cockpit read-only summary",
+  "claim_scope": "codex-read-search-expand-dry-run",
+  "user_task": "As Eva, summarize active Codex collaboration lanes from indexed cards, inbox urgency, watcher requests, and optional Desktop coherence/fallback evidence without running live Codex control or GUI actions.",
+  "surface": "openclaw-gateway",
+  "allowed_tools": [
+    "loo_recent_sessions",
+    "loo_cockpit_inbox",
+    "loo_codex_collaboration_cockpit",
+    "loo_codex_desktop_coherence",
+    "loo_codex_desktop_fallback_status"
+  ],
+  "forbidden_behaviors": [
+    "raw_transcript_read",
+    "live_control",
+    "gui_mutation",
+    "external_write",
+    "screenshot_or_video_capture",
+    "secret_or_private_data_output",
+    "npm_publish",
+    "github_release_creation"
+  ],
+  "expected_public_safe_evidence": [
+    "lco.codex.collaborationCockpit.v1 schema",
+    "publicSafe=true and readOnly=true",
+    "lane count, attention level, urgencyScore, thread source refs, and safe card state",
+    "Desktop state values limited to desktop_visible, fallback_ready, fallback_blocked, cli_visible, unknown, or not_configured",
+    "sourceCoverage for recentSessions, cockpitInbox, desktopCoherence, and desktopFallback",
+    "actionsPerformed flags showing no live Codex control, no GUI mutation, no raw transcript read, no screenshot capture, no npm publish, and no GitHub Release creation",
+    "public-safe scan with zero raw transcript, token, cookie, screenshot, and path leaks"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "absolute transcript paths",
+    "raw prompts or transcript spans",
+    "SQLite DBs",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data",
+    "raw Desktop accessibility trees"
+  ],
+  "metrics": {
+    "requires_collaboration_cockpit_report": true,
+    "requires_attention_level": true,
+    "requires_desktop_state_boundary": true,
+    "requires_source_coverage": true,
+    "requires_no_gui_action": true,
+    "requires_no_release_action": true,
+    "max_raw_transcript_spans": 0,
+    "max_live_actions": 0,
+    "max_screenshots_in_public_evidence": 0
+  },
+  "proof_boundary": "Dry-run scenario contract for the read-only Codex collaboration cockpit. It may prove public-safe active-lane summarization from structured cards and supplied Desktop evidence, but does not prove live Codex control, Codex GUI mutation, prompt typing, clicking, refresh/restart automation, Claude parity, npm publish, GitHub Release creation, or 1.1 release readiness.",
+  "next_action": "Run the collaboration cockpit through focused tests and OpenClaw gateway tool-smoke, then record only public-safe lane counts, reason codes, source coverage, confidence, and action flags."
+}

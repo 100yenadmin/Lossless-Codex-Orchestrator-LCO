@@ -300,6 +300,10 @@ if (method === "tools.invoke") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, items: [{ card: { threadId: "codex_thread:thread-1" } }] } }));
     process.exit(0);
   }
+  if (name === "loo_codex_collaboration_cockpit") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, readOnly: true, schema: "lco.codex.collaborationCockpit.v1", lanes: [{ threadId: "codex_thread:thread-1", attention: { level: "high", urgencyScore: 80 }, desktop: { state: "fallback_ready", requiresFallback: true, preferredBackend: "cua-driver" } }], sourceCoverage: { recentSessions: "ok", cockpitInbox: "ok", desktopCoherence: "ok", desktopFallback: "ok" }, actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false, npmPublished: false, githubReleaseCreated: false } } }));
+    process.exit(0);
+  }
   if (name === "loo_watchers_list" || name === "loo_watcher_status") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, watchers: [{ watchId: "watch_tool_smoke_checks", targetRef: "codex_thread:thread-1", status: "triggered", mutates: false, reasonCodes: ["watcher_triggered"] }], summary: { triggered: 1 } } }));
     process.exit(0);
@@ -679,6 +683,43 @@ test("OpenClaw tool smoke passes target and coherence fixture to desktop fallbac
       confidence: 0.72
     });
     assert.equal(invoke?.params.args?.include_visible_snapshot, false);
+    assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /super-secret-transcript-span/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke invokes collaboration cockpit through the gateway surface", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-collaboration-cockpit-"));
+  const evidencePath = join(dir, "tool-smoke.json");
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_codex_collaboration_cockpit"]);
+
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      profile: "lco-issue-313",
+      sessionKey: "agent:main:lco-issue-313",
+      evidencePath,
+      requiredTools: ["loo_codex_collaboration_cockpit"],
+      threadId: "thread-1"
+    });
+
+    assert.equal(report.ok, true);
+    assert.deepEqual(report.blockers, []);
+    assert.equal(report.invocations[0]?.toolName, "loo_codex_collaboration_cockpit");
+    assert.equal(report.invocations[0]?.summary.count, 1);
+    assert.equal(report.invocations[0]?.summary.threadId, "codex_thread:thread-1");
+    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { method: string; params: { name?: string; args?: Record<string, unknown> } });
+    const invoke = calls.find((call) => call.method === "tools.invoke" && call.params.name === "loo_codex_collaboration_cockpit");
+    assert.ok(invoke);
+    assert.equal(Array.isArray(invoke.params.args?.watcher_specs), true);
+    assert.equal(Array.isArray(invoke.params.args?.desktop_coherence_reports), true);
+    assert.equal(Array.isArray(invoke.params.args?.desktop_fallback_reports), true);
+    assert.equal((invoke.params.args?.desktop_coherence_reports as Array<{ target?: { threadId?: string } }>)[0]?.target?.threadId, "thread-1");
+    assert.equal((invoke.params.args?.desktop_fallback_reports as Array<{ target?: { threadId?: string } }>)[0]?.target?.threadId, "thread-1");
     assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /super-secret-transcript-span/);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
