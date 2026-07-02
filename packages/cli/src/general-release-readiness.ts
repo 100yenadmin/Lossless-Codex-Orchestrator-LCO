@@ -13,6 +13,17 @@ export type GeneralReleaseReadinessOptions = {
 export type GeneralReleaseReadinessCheck = {
   ok: boolean;
   detail: string;
+  blocker?: string;
+  setupRecovery?: {
+    classification: string;
+    ready: boolean | null;
+    packageInstallLikelyOk: boolean | null;
+    retryAfterSetup: boolean | null;
+    requiredSetup: string[];
+    nextSafeCommands: string[];
+    guidance: string[];
+    readinessProofSatisfied: boolean | null;
+  };
 };
 
 export type GeneralReleaseReadinessReport = {
@@ -70,7 +81,7 @@ export function createGeneralReleaseReadiness(options: GeneralReleaseReadinessOp
   };
   const blockers = Object.entries(checks)
     .filter(([, check]) => !check.ok)
-    .map(([id]) => blockerForCheck(id));
+    .map(([id, check]) => check.blocker ?? blockerForCheck(id));
   const readinessManifestPath = join(evidenceDir, "general-release-readiness.json");
   const report: GeneralReleaseReadinessReport = {
     ok: blockers.length === 0,
@@ -153,9 +164,11 @@ function validateDocsTruth(rootDir: string): GeneralReleaseReadinessCheck {
 }
 
 function validateFreshNpmEvidence(path: string | undefined): GeneralReleaseReadinessCheck {
-  if (!path || !existsSync(path)) return check(false, "fresh npm clean-profile evidence is missing");
+  if (!path || !existsSync(path)) {
+    return check(false, "fresh npm clean-profile evidence is missing", "fresh_npm_clean_profile_evidence_missing");
+  }
   const report = readJson(path);
-  return check(Boolean(
+  const ready = Boolean(
     report.ok === true
     && report.publishedSmokeReady === true
     && report.packagePathOk === true
@@ -169,7 +182,20 @@ function validateFreshNpmEvidence(path: string | undefined): GeneralReleaseReadi
     && readNestedBoolean(report, ["toolSmoke", "packageInstallLikelyOk"])
     && report.setupRequired === false
     && noReleaseActions(report)
-  ), "fresh npm beta install, clean-profile plugin load, and gateway invocation are public-safe and ready");
+  );
+  if (ready) {
+    return check(true, "fresh npm beta install, clean-profile plugin load, and gateway invocation are public-safe and ready");
+  }
+  const setupRecovery = readSetupRecovery(report);
+  if (setupRecovery && setupRecovery.classification !== "ready") {
+    return check(
+      false,
+      `fresh npm evidence is present; clean-profile setup recovery is ${setupRecovery.classification}`,
+      freshNpmSetupRecoveryBlocker(setupRecovery.classification),
+      setupRecovery
+    );
+  }
+  return check(false, "fresh npm evidence is present but clean-profile package/gateway proof is not ready", "fresh_npm_clean_profile_not_ready");
 }
 
 function validateAgentDogfoodEvidence(path: string | undefined): GeneralReleaseReadinessCheck {
@@ -202,8 +228,38 @@ function blockerForCheck(id: string): string {
   return blockers[id] ?? `${id}_failed`;
 }
 
-function check(ok: boolean, detail: string): GeneralReleaseReadinessCheck {
-  return { ok, detail };
+function check(
+  ok: boolean,
+  detail: string,
+  blocker?: string,
+  setupRecovery?: GeneralReleaseReadinessCheck["setupRecovery"]
+): GeneralReleaseReadinessCheck {
+  return {
+    ok,
+    detail,
+    ...(blocker ? { blocker } : {}),
+    ...(setupRecovery ? { setupRecovery } : {})
+  };
+}
+
+function readSetupRecovery(report: JsonObject): GeneralReleaseReadinessCheck["setupRecovery"] | null {
+  const classification = readNestedString(report, ["setupRecovery", "classification"]);
+  if (!classification) return null;
+  return {
+    classification,
+    ready: readNestedBoolean(report, ["setupRecovery", "ready"]),
+    packageInstallLikelyOk: readNestedBoolean(report, ["setupRecovery", "packageInstallLikelyOk"]),
+    retryAfterSetup: readNestedBoolean(report, ["setupRecovery", "retryAfterSetup"]),
+    requiredSetup: readNestedStringArray(report, ["setupRecovery", "requiredSetup"]),
+    nextSafeCommands: readNestedStringArray(report, ["setupRecovery", "nextSafeCommands"]),
+    guidance: readNestedStringArray(report, ["setupRecovery", "guidance"]),
+    readinessProofSatisfied: readNestedBoolean(report, ["setupRecovery", "readinessProof", "satisfied"])
+  };
+}
+
+function freshNpmSetupRecoveryBlocker(classification: string): string {
+  const safe = classification.replace(/[^a-z0-9_]+/gi, "_").toLowerCase();
+  return `fresh_npm_clean_profile_${safe}`;
 }
 
 function resolveEvidencePath(evidenceDir: string, path: string | undefined): string | undefined {
