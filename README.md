@@ -36,7 +36,7 @@ A useful managed session should expose:
 - archive, fork, resume, steer, send, or interrupt recommendations
 - bounded expansion profiles such as metadata-only, brief, and evidence bundle
 
-The current beta already indexes and recalls Codex session evidence. The next
+The current stable path indexes and recalls Codex session evidence. The next
 roadmap push is to make this spine explicit enough that an OpenClaw agent can
 triage, prioritize, and manage many sessions as work objects instead of
 rediscovering state from text every time.
@@ -59,7 +59,7 @@ rediscovering state from text every time.
 | Eva operating picture | P0 beta | Business pulse and attention inbox use LCO/Codex, optional structured GitHub items, explicit PLAN_STATE pins, and source-authority coverage; P1 business adapters are not configured yet. |
 | Claude Code adapter | Fixture inventory | Supports redacted metadata-only fixtures with `claude_session:*` refs; no Claude parity, live control, GUI mutation, or cloud sync claim. |
 
-## Current Sprint: 1.0 RC Stable Decision Gate
+## Current Sprint: 1.0 Stable Release Gate
 
 The roadmap is now ranked by one question:
 
@@ -67,7 +67,7 @@ The roadmap is now ranked by one question:
 > context, less rereading, and safer action?
 
 The current release-hardening sprint is tracked by
-[#300](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/300),
+[#302](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/302),
 [#182](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/182),
 and
 [#16](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/16).
@@ -79,14 +79,14 @@ and the historical sprint brief
 [docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md](docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md).
 
 The core Codex recall, M9 handoff paths, and P0 cockpit/Eva operating-picture
-paths are working. The current release lane is the explicit 1.0 RC/stable
-decision gate: release metadata, docs truth, strict release gates, public-safe
+paths are working. The current release lane is the explicit 1.0 stable
+promotion gate: release metadata, docs truth, strict release gates, public-safe
 scorecards, fresh npm/OpenClaw gateway proof, and a clean line between completed
 P0 cards and deferred P1 adapters. #298 proves the fresh-profile gateway path
 can reach `ready` with scoped token env-ref onboarding and the protocol-4
-backend caller fix; beta.35 published that compatibility fix. #300 is the first
-separate stable-release decision lane and must prove any npm `latest` promotion
-or GitHub Release creation against the exact candidate SHA.
+backend caller fix; beta.35 published that compatibility fix. #302 owns the
+stable-release lane and must prove any npm `latest` promotion or GitHub Release
+creation against the exact stable candidate SHA.
 
 Completed P0 foundation is read-only and deterministic:
 
@@ -153,11 +153,11 @@ Completed proof:
   closed the M7 runtime proof lane for the named Codex-first surfaces.
 - M9 closed the first-class agent skill, docs truth pass, agent dogfood,
   fresh npm clean-profile smoke, and 1.0 readiness gate.
-- #298 proves a clean OpenClaw profile can install the published beta package
+- #298 proves a clean OpenClaw profile can install the published package
   and call `loo_doctor` plus `loo_search_sessions` through an isolated loopback
-  token gateway after the protocol-4 backend caller fix. This is fresh-profile
-  gateway-ready evidence used by #300, not by itself an npm `latest` promotion
-  or GitHub Release.
+  token gateway after the protocol-4 backend caller fix. This proof is reused
+  in #302 with the exact stable candidate before npm `latest` promotion or
+  GitHub Release creation.
 - Desktop fallback remains action-bound; generic GUI mutation and Codex GUI
   mutation are not public beta claims.
 - Claude Code remains an adapter stub and fixture inventory, not parity.
@@ -171,6 +171,12 @@ git clone https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO.git
 cd Lossless-Codex-Orchestrator-LCO
 npm install
 npm run build
+```
+
+Published stable package target:
+
+```bash
+npm install -g lossless-openclaw-orchestrator@latest
 ```
 
 Published beta package target:
@@ -187,13 +193,10 @@ npm install -g lossless-openclaw-orchestrator@next
 
 ### npm dist-tag policy
 
-Until the first stable release exists, install public betas through the `beta`
-dist-tag and release candidates through `next`. The `beta` tag must point at
-the newest public beta. The `latest` tag currently remains `0.1.0-beta.4` and
-must not be promoted until a separate stable-release operation explicitly
-claims and proves that change. At the first stable release, move `latest` to the
-stable version and keep prereleases on prerelease tags such as `beta` or `next`.
-Do not publish a fake stable package just to move a dist-tag.
+Stable users install through `latest`; public betas stay on `beta`; release
+candidates stay on `next`. The first stable release moves `latest` to `1.0.0`
+only after #302 proves the exact candidate through strict release gates. Keep
+prereleases on prerelease tags such as `beta` or `next`. Do not publish a fake stable package just to move a dist-tag.
 
 Default local database:
 

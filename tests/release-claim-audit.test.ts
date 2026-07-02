@@ -178,28 +178,32 @@ test("npm beta dist-tag policy is explicit until the first stable release", () =
     assert.doesNotMatch(content, /latest[\s\S]{0,200}(?:follows|point at|resolves to)[\s\S]{0,120}newest public beta/i, `${surface} must not imply latest follows the newest beta`);
   }
 
+  assert.match(readme, /npm install -g lossless-openclaw-orchestrator@latest/i);
   assert.match(readme, /npm install -g lossless-openclaw-orchestrator@beta/i);
-  assert.match(readme, /latest[\s\S]{0,200}0\.1\.0-beta\.4/i);
-  assert.match(readme, /beta[\s\S]{0,200}newest public beta/i);
+  assert.match(readme, /latest[\s\S]{0,200}1\.0\.0/i);
+  assert.match(readme, /public betas stay on `beta`/i);
   assert.match(runbook, /npm dist-tag ls lossless-openclaw-orchestrator/i);
   assert.match(runbook, /move `latest` to the stable/i);
 });
 
-test("release candidates pin npm publication to the next dist-tag", () => {
+test("stable and prerelease package metadata pins the intended npm dist-tag", () => {
   const packageJson = JSON.parse(read("package.json")) as {
     version?: string;
     publishConfig?: { tag?: string };
   };
   const runbook = read("docs/BETA_RELEASE_RUNBOOK.md");
 
-  if (!packageJson.version?.includes("-rc.")) {
+  if (packageJson.version?.includes("-rc.")) {
+    assert.equal(packageJson.publishConfig?.tag, "next");
+    assert.match(runbook, /npm publish --tag next/i);
+    assert.match(runbook, /publishConfig\.tag[\s\S]{0,120}`next`/i);
+    assert.match(runbook, /Do not run untagged `npm publish` for\s+any prerelease lane/i);
     return;
   }
 
-  assert.equal(packageJson.publishConfig?.tag, "next");
-  assert.match(runbook, /npm publish --tag next/i);
-  assert.match(runbook, /publishConfig\.tag[\s\S]{0,120}`next`/i);
-  assert.match(runbook, /Do not run untagged `npm publish` for\s+any prerelease lane/i);
+  assert.equal(packageJson.publishConfig?.tag, "latest");
+  assert.match(runbook, /npm publish --tag latest/i);
+  assert.match(runbook, /move `latest` to the stable/i);
 });
 
 test("release workflows use non-deprecated action majors", () => {

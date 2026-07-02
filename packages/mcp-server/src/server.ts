@@ -20,6 +20,7 @@ const tools = createLooTools({
     surface: "read"
   })
 });
+const SERVER_VERSION = "1.0.0";
 
 const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
 rl.on("line", async (line) => {
@@ -27,7 +28,7 @@ rl.on("line", async (line) => {
   const message = JSON.parse(line);
   try {
     if (message.method === "initialize") {
-      send({ id: message.id, result: { protocolVersion: "2024-11-05", serverInfo: { name: "lossless-openclaw-orchestrator", version: "0.1.0-beta.1" }, capabilities: { tools: {} } } });
+      send({ id: message.id, result: { protocolVersion: "2024-11-05", serverInfo: { name: "lossless-openclaw-orchestrator", version: SERVER_VERSION }, capabilities: { tools: {} } } });
     } else if (message.method === "tools/list") {
       send({ id: message.id, result: { tools: tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })) } });
     } else if (message.method === "tools/call") {
