@@ -205,6 +205,17 @@ test("loo onboard status --help exits zero with first-run safety guidance", () =
   assert.equal(result.stderr.trim(), "");
 });
 
+test("loo openclaw published-smoke --help exposes selector-drift diagnostic input", () => {
+  const result = runLoo(["openclaw", "published-smoke", "--help"]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Usage:\n  loo openclaw published-smoke/);
+  assert.match(result.stdout, /--npm-install-diagnostic-report path/);
+  assert.match(result.stdout, /npm selector drift/i);
+  assert.match(result.stdout, /without storing raw npm output/i);
+  assert.equal(result.stderr.trim(), "");
+});
+
 test("loo openclaw tool-smoke --help exits zero with proof-boundary usage", () => {
   const result = runLoo(["openclaw", "tool-smoke", "--help"]);
 

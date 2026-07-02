@@ -635,3 +635,134 @@ test("published-smoke emits clean-profile setup recovery classifications", () =>
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("published-smoke records npm selector drift with installable tarball fallback as package-safe evidence", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-published-smoke-selector-drift-"));
+  try {
+    const dogfoodPath = join(dir, "dogfood.json");
+    const toolSmokePath = join(dir, "tool-smoke.json");
+    const npmInstallDiagnosticPath = join(dir, "npm-install-diagnostic.json");
+    const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+    writeJson(dogfoodPath, {
+      ok: true,
+      dogfoodReady: true,
+      publicSafe: true,
+      targetPlugin: { id: "lossless-openclaw-orchestrator", enabled: true, loaded: true, toolCount: 30 },
+      requiredToolsPresent: true,
+      missingRequiredTools: [],
+      blockers: [],
+      installAttempted: true,
+      installOutcome: { status: "installed", exitStatus: 0, guidance: "tarball fallback used after selector drift" },
+      private: "raw npm error code ENOVERSIONS /Users/lume/.npmrc npm_secret_should_not_leak"
+    });
+    writeJson(toolSmokePath, {
+      ok: true,
+      toolSmokeReady: true,
+      publicSafe: true,
+      catalog: { requiredToolsPresent: true, missingRequiredTools: [], toolCount: 30 },
+      setupBlockers: [],
+      setupStatus: {
+        classification: "ready",
+        packageInstallLikelyOk: true,
+        recoverable: false,
+        retryAfterSetup: false,
+        doesNotIndicatePackageFailure: true
+      }
+    });
+    writeJson(npmInstallDiagnosticPath, {
+      code: "npm_selector_cutoff_drift",
+      publicSafe: true,
+      summary: "npm selector failed with ENOVERSIONS while registry metadata exposed the package tarball.",
+      suggestedRetry: `npm install https://registry.npmjs.org/lossless-openclaw-orchestrator/-/lossless-openclaw-orchestrator-${packageJson.version}.tgz`,
+      trueUnpublishedVersion: false,
+      rawSecretIncluded: false,
+      registryTarballVisible: true,
+      tarballFallbackInstallOk: true
+    });
+
+    const report = createPublishedPackageSmokeReport({
+      rootDir: new URL("..", import.meta.url).pathname,
+      dogfoodReportPath: dogfoodPath,
+      toolSmokeReportPath: toolSmokePath,
+      npmInstallDiagnosticReportPath: npmInstallDiagnosticPath
+    });
+
+    assert.equal(report.ok, true);
+    assert.equal(report.packagePathOk, true);
+    assert.equal(report.publishedSmokeReady, true);
+    assert.equal(report.npmInstallDiagnostic.provided, true);
+    assert.equal(report.npmInstallDiagnostic.classification, "npm_selector_drift_with_tarball_fallback");
+    assert.equal(report.npmInstallDiagnostic.packageInstallLikelyOk, true);
+    assert.equal(report.npmInstallDiagnostic.tarballFallbackInstallable, true);
+    assert.equal(report.npmInstallDiagnostic.trueUnpublishedVersion, false);
+    assert.ok(report.npmInstallDiagnostic.guidance.some((item) => item.includes("registry tarball fallback")));
+    assert.ok(report.setupRecovery.guidance.some((item) => item.includes("npm selector drift")));
+    assert.ok(report.setupRecovery.nextSafeCommands.some((command) => command.includes("npm view lossless-openclaw-orchestrator@")));
+    assert.ok(report.nextSafeCommands.some((command) => command.includes("npm install -g \"$tarball_url\"")));
+    assert.doesNotMatch(JSON.stringify(report), /raw npm error|ENOVERSIONS \/Users\/lume|npm_secret_should_not_leak|\.npmrc/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("published-smoke keeps package failure classification when selector drift lacks tarball fallback proof", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-published-smoke-selector-drift-unproved-"));
+  try {
+    const dogfoodPath = join(dir, "dogfood.json");
+    const toolSmokePath = join(dir, "tool-smoke.json");
+    const npmInstallDiagnosticPath = join(dir, "npm-install-diagnostic.json");
+    writeJson(dogfoodPath, {
+      ok: false,
+      dogfoodReady: false,
+      publicSafe: true,
+      targetPlugin: null,
+      requiredToolsPresent: false,
+      missingRequiredTools: ["loo_doctor"],
+      blockers: ["openclaw_plugin_install_failed"],
+      installAttempted: true,
+      installOutcome: { status: "failed", exitStatus: 1 }
+    });
+    writeJson(toolSmokePath, {
+      ok: false,
+      toolSmokeReady: false,
+      publicSafe: true,
+      setupBlockers: [],
+      setupStatus: {
+        classification: "gateway_blocked",
+        packageInstallLikelyOk: false,
+        recoverable: false,
+        retryAfterSetup: false,
+        doesNotIndicatePackageFailure: false
+      }
+    });
+    writeJson(npmInstallDiagnosticPath, {
+      code: "npm_selector_cutoff_drift",
+      publicSafe: true,
+      summary: "npm selector failed, but no public-safe tarball install proof was supplied.",
+      suggestedRetry: "npm view lossless-openclaw-orchestrator@beta dist.tarball --json",
+      trueUnpublishedVersion: false,
+      rawSecretIncluded: false,
+      registryTarballVisible: true,
+      tarballFallbackInstallOk: false
+    });
+
+    const report = createPublishedPackageSmokeReport({
+      rootDir: new URL("..", import.meta.url).pathname,
+      dogfoodReportPath: dogfoodPath,
+      toolSmokeReportPath: toolSmokePath,
+      npmInstallDiagnosticReportPath: npmInstallDiagnosticPath
+    });
+
+    assert.equal(report.ok, false);
+    assert.equal(report.packagePathOk, false);
+    assert.equal(report.publishedSmokeReady, false);
+    assert.equal(report.npmInstallDiagnostic.provided, true);
+    assert.equal(report.npmInstallDiagnostic.classification, "npm_selector_drift_unproved");
+    assert.equal(report.npmInstallDiagnostic.packageInstallLikelyOk, false);
+    assert.equal(report.setupRecovery.classification, "package_failure_or_unknown");
+    assert.equal(report.setupRecovery.packageInstallLikelyOk, false);
+    assert.ok(report.setupRecovery.guidance.some((item) => item.includes("possible package or plugin defect")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
