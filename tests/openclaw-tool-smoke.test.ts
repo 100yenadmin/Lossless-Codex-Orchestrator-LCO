@@ -314,6 +314,10 @@ if (method === "tools.invoke") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: ${collaborationNextStepsOutputCode} }));
     process.exit(0);
   }
+  if (name === "loo_codex_runtime_desktop_visibility_status") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.codex.runtimeDesktopVisibilityStatus.v1", publicSafe: true, readOnly: true, status: "covered", confidence: 0.86, summary: { totalLanes: 1, returned: 1, covered: 1, partial: 0, blocked: 0, nextReadOnlyActions: 1 }, sourceCoverage: { collaborationCockpit: "ok", desktopCoherence: "ok", desktopFallback: "ok", desktopCollaborationProof: "ok" }, lanes: [{ threadId: "codex_thread:thread-1", title: "Thread 1", coverage: "covered", desktopState: "fallback_ready", confidence: 0.86, blockers: [], reasonCodes: ["action_bound_desktop_proof_ready"], evidenceIds: ["ev_tool_smoke"], nextToolCall: { tool: "loo_desktop_live_proof_harness", args: { backend: "cua-driver", target_app: "Codex", target_window: "Lossless OpenClaw Orchestrator", action: "verify_visible_thread_alignment", approval_ref: "tool-smoke-action-bound-proof" }, execute: false } }], actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false, npmPublished: false, githubReleaseCreated: false } } }));
+    process.exit(0);
+  }
   if (name === "loo_codex_desktop_collaboration_proof") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.codexDesktopCollaborationProof.v1", publicSafe: true, readOnly: true, ok: true, status: "ready", target: { targetRef: toolArgs.target_ref, targetThreadId: toolArgs.target_thread_id }, actionHash: toolArgs.action_hash, approvalVerified: true, blockers: [], sourceCoverage: { indexedSession: "ok", desktopCoherence: "ok", desktopFallback: "ok", approvalPacket: "ok" }, requiredNextToolCall: { tool: "loo_desktop_live_proof_harness", args: { backend: toolArgs.backend, target_app: toolArgs.target_app, target_window: toolArgs.target_window, action: toolArgs.action, approval_ref: toolArgs.approval_packet?.approvalRef }, execute: false }, actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false } } }));
     process.exit(0);
@@ -763,6 +767,42 @@ test("OpenClaw tool smoke fails closed for unsafe collaboration next-step output
     assert.equal(report.ok, false);
     assert.ok(report.blockers.includes("collaboration_next_step_ready_missing_tool_call"));
     assert.ok(report.blockers.includes("collaboration_next_steps_restricted_action"));
+    assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /super-secret-transcript-span/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke invokes runtime Desktop visibility status through the gateway surface", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-runtime-visibility-"));
+  const evidencePath = join(dir, "tool-smoke.json");
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_codex_runtime_desktop_visibility_status"]);
+
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      profile: "lco-issue-342",
+      sessionKey: "agent:main:lco-issue-342",
+      evidencePath,
+      requiredTools: ["loo_codex_runtime_desktop_visibility_status"],
+      threadId: "thread-1",
+      strict: true
+    });
+
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.deepEqual(report.blockers, []);
+    assert.equal(report.invocations[0]?.toolName, "loo_codex_runtime_desktop_visibility_status");
+    assert.equal(report.invocations[0]?.summary.runtimeVisibilityStatus, "covered");
+    assert.equal(report.invocations[0]?.summary.nextToolCall?.tool, "loo_desktop_live_proof_harness");
+    assert.equal(report.invocations[0]?.summary.nextToolCall?.execute, false);
+
+    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { method: string; params: { name?: string; args?: Record<string, any> } });
+    const invoke = calls.find((call) => call.method === "tools.invoke" && call.params.name === "loo_codex_runtime_desktop_visibility_status");
+    assert.equal(invoke?.params.args?.desktop_collaboration_proof_reports?.[0]?.schema, "lco.codexDesktopCollaborationProof.v1");
+    assert.equal(invoke?.params.args?.desktop_collaboration_proof_reports?.[0]?.requiredNextToolCall?.execute, false);
     assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /super-secret-transcript-span/);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
