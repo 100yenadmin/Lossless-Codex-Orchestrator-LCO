@@ -1735,6 +1735,98 @@ test("Codex collaboration cockpit ranks Desktop fallback gaps before limiting", 
   });
 });
 
+test("Codex collaboration cockpit applies attention priority before internal prefetch caps", () => {
+  const fixtures = [
+    ...Array.from({ length: 500 }, (_, index) => ({
+      id: `019f-collab-prefetch-urgent-${String(index).padStart(3, "0")}`,
+      title: `Recent urgent lane ${index}`,
+      status: "running" as const,
+      priority: "urgent" as const,
+      nextAction: "keep watching recent urgent lane",
+      updatedAt: relativeIso(index + 1),
+      refs: true
+    })),
+    {
+      id: "019f-collab-prefetch-desktop-gap",
+      title: "Older urgent Desktop gap lane",
+      status: "running",
+      priority: "urgent",
+      nextAction: "inspect older Desktop gap lane",
+      updatedAt: relativeIso(1000),
+      refs: true
+    }
+  ];
+  withIndexedSessions(fixtures, ({ db }) => {
+    const report = createCodexCollaborationCockpit(db, {
+      limit: 1,
+      now: "2026-07-02T00:00:00.000Z",
+      priorityOrder: ["urgent", "high", "medium", "low"],
+      desktopCoherenceReports: [{
+        schema: "lco.codexDesktopCoherence.v1",
+        publicSafe: true,
+        target: { threadId: "019f-collab-prefetch-desktop-gap", sourceRef: "codex_thread:019f-collab-prefetch-desktop-gap" },
+        state: "unknown",
+        confidence: 0.48,
+        evidenceIds: ["ev_prefetch_desktop_gap"],
+        actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
+      }]
+    });
+
+    assert.equal(report.summary.totalCards, 501);
+    assert.equal(report.summary.returned, 1);
+    assert.equal(report.lanes[0]?.threadId, "codex_thread:019f-collab-prefetch-desktop-gap");
+    assert.equal(report.lanes[0]?.desktop.requiresFallback, true);
+  });
+});
+
+test("Codex collaboration cockpit keeps watcher-critical lanes ahead of merely high lanes", () => {
+  withIndexedSessions([
+    {
+      id: "019f-collab-blocked-high",
+      title: "Blocked high attention lane",
+      status: "blocked",
+      priority: "medium",
+      blocker: "external wait",
+      nextAction: "inspect blocked lane",
+      updatedAt: relativeIso(1),
+      refs: true
+    },
+    {
+      id: "019f-collab-watcher-critical",
+      title: "Watcher critical lane",
+      status: "running",
+      priority: "low",
+      nextAction: "inspect after watcher trigger",
+      updatedAt: relativeIso(12),
+      refs: true
+    }
+  ], ({ db }) => {
+    const report = createCodexCollaborationCockpit(db, {
+      limit: 1,
+      now: "2026-07-02T00:00:00.000Z",
+      watcherSpecs: [{
+        schema: "lco.watchSpec.v1",
+        watchId: "watch_collab_critical_ordering",
+        targetRef: "codex_thread:019f-collab-watcher-critical",
+        kind: "final_message_appeared",
+        createdAt: "2026-07-01T23:40:00.000Z",
+        lastObservedAt: "2026-07-01T23:59:00.000Z",
+        ttlSeconds: 3600,
+        stopConditions: ["final_message_seen", "explicit_cancel"],
+        wakeReason: "final_message_appeared",
+        evidenceIds: ["ev_watch_critical_ordering"],
+        confidence: 0.92,
+        mutates: false
+      }]
+    });
+
+    assert.equal(report.summary.returned, 1);
+    assert.equal(report.lanes[0]?.threadId, "codex_thread:019f-collab-watcher-critical");
+    assert.equal(report.lanes[0]?.attention.level, "critical");
+    assert.equal(report.lanes[0]?.reasonCodes.includes("watcher_triggered"), true);
+  });
+});
+
 test("Codex collaboration cockpit rejects mismatched Desktop targets and requires preferred fallback readiness", () => {
   withIndexedSessions(() => ({
     fixtures: [

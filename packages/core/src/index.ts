@@ -243,6 +243,8 @@ export type CodexThreadMapOptions = {
   priorityOrder?: string[];
 };
 
+const COLLABORATION_COCKPIT_INTERNAL_CARD_LIMIT = 5000;
+
 export type SessionManagementAction = "expand" | "archive" | "fork" | "resume";
 
 export type SessionManagementEntry = {
@@ -1988,11 +1990,11 @@ export function createResumeRequestPacket(watcher: WatcherState, options: { now?
 
 export function getCockpitInbox(db: LooDatabase, options: { limit?: number; priorityOrder?: string[]; watcherSpecs?: WatchSpec[]; now?: string } = {}): CockpitInboxReport {
   const limit = clamp(options.limit ?? 20, 1, 500);
-  const cards = getRecentSessions(db, {
-    scope: "active",
-    limit: 500,
-    includeCards: true
-  }).cards;
+  const activeSessionCount = countActiveCodexSessions(db);
+  const { cards } = getCollaborationActiveSessionCards(db, {
+    activeSessionCount,
+    priorityOrder: options.priorityOrder
+  });
   const watcherReport = options.watcherSpecs?.length ? createWatcherStatusReport(options.watcherSpecs, { now: options.now, limit: 1000 }) : null;
   const watchersByTarget = watcherReport ? triggeredWatchersByTarget(watcherReport.watchers) : new Map<string, WatcherState[]>();
   const items = cards
@@ -2021,14 +2023,14 @@ export function getCockpitInbox(db: LooDatabase, options: { limit?: number; prio
       };
     })
     .filter((item) => item.reasonCodes.length > 0)
-    .sort((left, right) => right.urgencyScore - left.urgencyScore || compareUpdatedAtDesc(left.card.freshness.lastEventAt, right.card.freshness.lastEventAt) || left.card.threadId.localeCompare(right.card.threadId));
+    .sort((left, right) => compareOperatingUrgency(cockpitInboxItemAttentionLevel(left), cockpitInboxItemAttentionLevel(right)) || right.urgencyScore - left.urgencyScore || compareUpdatedAtDesc(left.card.freshness.lastEventAt, right.card.freshness.lastEventAt) || left.card.threadId.localeCompare(right.card.threadId));
   const selected = items.slice(0, limit);
   return {
     schema: "lco.codex.cockpitInbox.v1",
     publicSafe: true,
     generatedAt: new Date().toISOString(),
     summary: {
-      totalCards: cards.length,
+      totalCards: activeSessionCount,
       returned: selected.length,
       critical: selected.filter((item) => item.urgencyScore >= 90).length,
       high: selected.filter((item) => item.urgencyScore >= 70).length,
@@ -2044,8 +2046,11 @@ export function getCockpitInbox(db: LooDatabase, options: { limit?: number; prio
 
 export function createCodexCollaborationCockpit(db: LooDatabase, options: CodexCollaborationCockpitOptions = {}): CodexCollaborationCockpitReport {
   const limit = clamp(options.limit ?? 20, 1, 500);
-  const recent = getRecentSessions(db, { scope: "active", limit: 500, includeCards: true });
   const activeSessionCount = countActiveCodexSessions(db);
+  const recent = getCollaborationActiveSessionCards(db, {
+    activeSessionCount,
+    priorityOrder: options.priorityOrder
+  });
   const inbox = getCockpitInbox(db, {
     limit: 500,
     priorityOrder: options.priorityOrder,
@@ -2101,7 +2106,7 @@ export function createCodexCollaborationCockpit(db: LooDatabase, options: CodexC
       lowConfidence: selected.filter((lane) => lane.card.confidence < 0.7 || collaborationLaneHasLowConfidenceDesktopEvidence(lane)).length
     },
     sourceCoverage: {
-      recentSessions: recent.summary.total > 0 ? "ok" : "partial",
+      recentSessions: recent.capped ? "partial" : recent.cards.length > 0 ? "ok" : "partial",
       cockpitInbox: inbox.summary.totalCards > 0 ? "ok" : "partial",
       desktopCoherence: desktopCoherenceCoverage,
       desktopFallback: desktopFallbackCoverage
@@ -2131,6 +2136,60 @@ function countActiveCodexSessions(db: LooDatabase): number {
     WHERE lower(trim(coalesce(m.status, ''))) NOT IN ('done', 'complete', 'completed', 'closed', 'merged')
   `).get() as { total?: number } | undefined;
   return typeof row?.total === "number" ? row.total : 0;
+}
+
+function getCollaborationActiveSessionCards(
+  db: LooDatabase,
+  options: { activeSessionCount: number; priorityOrder?: string[] }
+): { cards: CodexSessionCard[]; capped: boolean } {
+  const prefetchLimit = clamp(
+    Math.max(500, options.activeSessionCount),
+    1,
+    COLLABORATION_COCKPIT_INTERNAL_CARD_LIMIT
+  );
+  const priorityOrder = unique((options.priorityOrder ?? []).map((value) => value.trim().toLowerCase()).filter(Boolean)).slice(0, 10);
+  const priorityRank = priorityOrder.length > 0
+    ? `CASE LOWER(COALESCE(m.priority, '')) ${priorityOrder.map(() => "WHEN ? THEN ?").join(" ")} ELSE ${priorityOrder.length} END,`
+    : "";
+  const priorityParams: Array<string | number> = priorityOrder.flatMap((value, index) => [value, index]);
+  const rows = db.prepare(`
+    SELECT
+      s.thread_id AS threadId,
+      s.title,
+      s.summary,
+      s.updated_at AS updatedAt,
+      s.source_path AS sourcePath,
+      m.project,
+      m.status,
+      m.priority,
+      m.owner,
+      m.blocker,
+      m.next_action AS nextAction,
+      m.closeout_state AS closeoutState,
+      m.plan_completion_state AS planCompletionState,
+      m.proposed_plan_refs_json AS proposedPlanRefsJson,
+      m.final_message_refs_json AS finalMessageRefsJson,
+      m.touched_file_refs_json AS touchedFileRefsJson,
+      m.source_refs_json AS sourceRefsJson
+    FROM codex_sessions s
+    LEFT JOIN codex_session_metadata m ON m.thread_id = s.thread_id
+    WHERE lower(trim(coalesce(m.status, ''))) NOT IN ('done', 'complete', 'completed', 'closed', 'merged')
+    ORDER BY ${priorityRank} COALESCE(s.updated_at, s.indexed_at) DESC
+    LIMIT ?
+  `).all(...priorityParams, prefetchLimit) as Array<Record<string, unknown>>;
+  const cards = rows.map((row) => codexSessionCard(db, {
+    threadId: String(row.threadId),
+    title: nullableString(row.title),
+    summary: nullableString(row.summary),
+    updatedAt: nullableString(row.updatedAt),
+    sourcePath: publicSourcePathRef(String(row.sourcePath)),
+    metadata: sessionMetadataFromRow(row)
+  }));
+  cards.sort(codexSessionCardComparator);
+  return {
+    cards,
+    capped: options.activeSessionCount > prefetchLimit
+  };
 }
 
 function collaborationLane(
@@ -2305,6 +2364,15 @@ function collaborationAttentionLevel(urgencyScore: number, reasonCodes: string[]
   return "low";
 }
 
+function cockpitInboxItemAttentionLevel(item: CockpitInboxItem): OperatingUrgency {
+  return collaborationAttentionLevel(item.urgencyScore, item.reasonCodes);
+}
+
+function compareOperatingUrgency(left: OperatingUrgency, right: OperatingUrgency): number {
+  const rank = { critical: 0, high: 1, medium: 2, low: 3 } as const;
+  return rank[left] - rank[right];
+}
+
 function collaborationLaneNeedsApproval(lane: CodexCollaborationCockpitLane): boolean {
   return lane.sessionState === "needs_approval"
     || lane.reasonCodes.includes("approval_needed")
@@ -2339,6 +2407,8 @@ function collaborationDesktopReasonCodes(coherence: Record<string, unknown> | nu
 }
 
 function collaborationLaneComparator(left: CodexCollaborationCockpitLane, right: CodexCollaborationCockpitLane): number {
+  const urgencyCompare = compareOperatingUrgency(left.attention.level, right.attention.level);
+  if (urgencyCompare !== 0) return urgencyCompare;
   if (left.attention.urgencyScore !== right.attention.urgencyScore) return right.attention.urgencyScore - left.attention.urgencyScore;
   const updatedAtCompare = compareUpdatedAtDesc(left.card.freshness.lastEventAt, right.card.freshness.lastEventAt);
   if (updatedAtCompare !== 0) return updatedAtCompare;
