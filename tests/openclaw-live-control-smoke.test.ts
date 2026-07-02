@@ -14,10 +14,20 @@ const MESSAGE_HASH = "b".repeat(64);
 const DRY_RUN_AUDIT_ID = "loo_audit_abcd1234";
 const LIVE_AUDIT_ID = "loo_audit_def45678";
 
-function createFakeOpenClaw(dir: string, options: { mismatchedLiveMessageHash?: boolean; auditDetailsEnvelope?: boolean } = {}): { bin: string; callsPath: string } {
+function createFakeOpenClaw(dir: string, options: {
+  auditDetailsEnvelope?: boolean;
+  liveResponseOkFalse?: boolean;
+  mismatchedLiveMessageHash?: boolean;
+  missingLiveTurnStatus?: boolean;
+} = {}): { bin: string; callsPath: string } {
   const callsPath = join(dir, "calls.jsonl");
   const bin = join(dir, "openclaw-live-fake.mjs");
   const liveMessageHash = options.mismatchedLiveMessageHash ? "c".repeat(64) : MESSAGE_HASH;
+  const liveResponse = options.liveResponseOkFalse
+    ? `{ ok: false, error: "thread not found: thr_gateway_live" }`
+    : options.missingLiveTurnStatus
+      ? `{ ok: true }`
+      : `{ ok: true, turn: { id: "turn_1", status: "completed" } }`;
   const auditTailPayload = `{
       auditPath: "metadata-only",
       records: [
@@ -78,7 +88,7 @@ if (method === "tools.invoke") {
       approval_audit_id: "${LIVE_AUDIT_ID}",
       params_hash: "${PARAMS_HASH}",
       message_hash: "${liveMessageHash}",
-      response: { turn: { id: "turn_1", status: "completed" } }
+      response: ${liveResponse}
     } }));
     process.exit(0);
   }
@@ -199,6 +209,64 @@ test("OpenClaw live-control smoke fails closed when live output does not match d
 
     assert.equal(report.ok, false);
     assert.match(report.blockers.join("\n"), /openclaw_live_message_hash_mismatch/);
+    const proof = JSON.parse(readFileSync(join(root, "evidence", "openclaw-gateway-live-codex-v1-1.runtime-proof.json"), "utf8")) as {
+      public_safe?: boolean;
+      proof_markers?: Record<string, boolean>;
+    };
+    assert.equal(proof.public_safe, false);
+    assert.equal(proof.proof_markers?.matching_approval_audit_id, false);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw live-control smoke fails closed when live output lacks accepted turn status", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-smoke-no-turn-status-"));
+  const { bin, callsPath } = createFakeOpenClaw(root, { missingLiveTurnStatus: true });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+
+  try {
+    const report = runOpenClawGatewayLiveControlSmoke({
+      openclawBin: bin,
+      evidenceDir: join(root, "evidence"),
+      threadId: "thr_gateway_live"
+    });
+
+    assert.equal(report.ok, false);
+    assert.equal(report.live.turnStatus, null);
+    assert.match(report.blockers.join("\n"), /openclaw_live_send_not_proven/);
+    const proof = JSON.parse(readFileSync(join(root, "evidence", "openclaw-gateway-live-codex-v1-1.runtime-proof.json"), "utf8")) as {
+      public_safe?: boolean;
+      proof_markers?: Record<string, boolean>;
+    };
+    assert.equal(proof.public_safe, false);
+    assert.equal(proof.proof_markers?.matching_approval_audit_id, false);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw live-control smoke fails closed when live response is not ok", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-smoke-response-not-ok-"));
+  const { bin, callsPath } = createFakeOpenClaw(root, { liveResponseOkFalse: true });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+
+  try {
+    const report = runOpenClawGatewayLiveControlSmoke({
+      openclawBin: bin,
+      evidenceDir: join(root, "evidence"),
+      threadId: "thr_gateway_live"
+    });
+
+    assert.equal(report.ok, false);
+    assert.equal(report.live.responseOk, false);
+    assert.match(report.blockers.join("\n"), /openclaw_live_send_not_proven/);
     const proof = JSON.parse(readFileSync(join(root, "evidence", "openclaw-gateway-live-codex-v1-1.runtime-proof.json"), "utf8")) as {
       public_safe?: boolean;
       proof_markers?: Record<string, boolean>;

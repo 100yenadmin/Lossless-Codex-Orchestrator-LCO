@@ -37,6 +37,7 @@ export type OpenClawGatewayLiveControlSmokeReport = {
     live: boolean | null;
     method: string | null;
     turnStatus: string | null;
+    responseOk: boolean | null;
   };
   audit: {
     tailRead: boolean;
@@ -77,6 +78,7 @@ type ControlSummary = {
   live: boolean | null;
   method: string | null;
   turnStatus: string | null;
+  responseOk: boolean | null;
 };
 
 const SCENARIO_ID = "openclaw-gateway-live-codex-v1-1";
@@ -267,7 +269,13 @@ function validLive(summary: ControlSummary): boolean {
   return summary.live === true
     && safeAuditId(summary.approvalAuditId)
     && safeHash(summary.paramsHash)
-    && safeHash(summary.messageHash);
+    && safeHash(summary.messageHash)
+    && summary.responseOk !== false
+    && liveTurnStatusProvesSendAccepted(summary.turnStatus);
+}
+
+function liveTurnStatusProvesSendAccepted(value: string | null): boolean {
+  return typeof value === "string" && /^(completed|in[_-]?progress)$/i.test(value);
 }
 
 function safeAuditId(value: string | null): value is string {
@@ -287,7 +295,8 @@ function summarizeControl(call: GatewayCallResult | null): ControlSummary {
     messageHash: stringPath(details, ["message_hash"]) || stringPath(details, ["messageHash"]),
     live: booleanPath(details, ["live"]),
     method: stringPath(details, ["method"]),
-    turnStatus: stringPath(details, ["response", "turn", "status"]) || stringPath(details, ["response", "status"]) || stringPath(details, ["status"])
+    turnStatus: stringPath(details, ["response", "turn", "status"]) || stringPath(details, ["response", "status"]) || stringPath(details, ["status"]),
+    responseOk: booleanPath(details, ["response", "ok"]) ?? booleanPath(details, ["ok"])
   };
 }
 
