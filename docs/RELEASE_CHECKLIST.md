@@ -57,6 +57,11 @@ For 1.0, the release must additionally prove:
 - fresh npm beta or RC install from the registry, not a linked repo checkout
 - clean OpenClaw profile install/load with expected `loo_*` tools visible
 - gateway invocation is ready, not merely `gateway_setup_required`
+- if fresh-profile gateway credentials are missing, published-smoke evidence
+  must classify the blocker as setup-required and show token generation,
+  env-ref onboarding, gateway status, and fresh-profile tool-smoke commands
+  without storing raw tokens; this remains a 1.0 blocker until tool-smoke is
+  actually ready
 - first-class agent skill/playbook is packaged and current
 - agent dogfood completes the core workflow through gateway tools:
   doctor, search, describe, expand, plan/final/touched-file lookup, recommend,
