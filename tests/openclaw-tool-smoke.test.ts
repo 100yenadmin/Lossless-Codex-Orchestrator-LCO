@@ -615,6 +615,33 @@ test("OpenClaw tool smoke passes discovered thread id to loo_expand_session", ()
   }
 });
 
+test("OpenClaw tool smoke requires target before desktop coherence smoke", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-desktop-coherence-target-"));
+  const evidencePath = join(dir, "tool-smoke.json");
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_codex_desktop_coherence"]);
+
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      profile: "lco-issue-307",
+      sessionKey: "agent:main:lco-issue-307",
+      evidencePath,
+      requiredTools: ["loo_codex_desktop_coherence"]
+    });
+
+    assert.equal(report.ok, false);
+    assert.deepEqual(report.blockers, ["openclaw_tool_smoke_missing_thread_ref"]);
+
+    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { method: string; params: { name?: string } });
+    assert.equal(calls.some((call) => call.method === "tools.invoke" && call.params.name === "loo_codex_desktop_coherence"), false);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
 test("OpenClaw tool smoke accepts gateway content/details wrapped dry-run proof", () => {
   const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-wrapped-"));
   const evidencePath = join(dir, "tool-smoke.json");

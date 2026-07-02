@@ -1998,13 +1998,20 @@ export function createVisibleCodexSessionMap(db: LooDatabase, options: {
 }
 
 export function createCodexDesktopCoherenceReport(options: CodexDesktopCoherenceReportOptions = {}): CodexDesktopCoherenceReport {
-  const sourceRef = normalizeCodexThreadSourceRef(options.sourceRef ?? null, options.threadId ?? null);
+  const targetMismatch = codexDesktopCoherenceTargetMismatch(options.threadId ?? null, options.sourceRef ?? null);
+  const sourceRef = targetMismatch ? null : normalizeCodexThreadSourceRef(options.sourceRef ?? null, options.threadId ?? null);
   const threadId = options.threadId ? safeThreadId(options.threadId) : (sourceRef ? bareCodexThreadId(sourceRef) : null);
   const refreshKind = options.refreshKind ?? "none";
-  const before = options.beforeMap ? codexDesktopCoherenceObservation(options.beforeMap, sourceRef) : null;
-  const currentMap = options.visibleMap ?? (!options.beforeMap && !options.afterMap ? null : undefined);
-  const current = currentMap ? codexDesktopCoherenceObservation(currentMap, sourceRef) : null;
-  const after = options.afterMap ? codexDesktopCoherenceObservation(options.afterMap, sourceRef) : null;
+  const beforeMap = options.beforeMap as unknown;
+  const visibleMap = options.visibleMap as unknown;
+  const afterMap = options.afterMap as unknown;
+  const beforeMapSupplied = beforeMap !== null && beforeMap !== undefined;
+  const visibleMapSupplied = visibleMap !== null && visibleMap !== undefined;
+  const afterMapSupplied = afterMap !== null && afterMap !== undefined;
+  const before = beforeMapSupplied ? codexDesktopCoherenceObservation(beforeMap, sourceRef) : null;
+  const currentMap = visibleMapSupplied ? visibleMap : (!beforeMapSupplied && !afterMapSupplied ? null : undefined);
+  const current = currentMap !== null && currentMap !== undefined ? codexDesktopCoherenceObservation(currentMap, sourceRef) : null;
+  const after = afterMapSupplied ? codexDesktopCoherenceObservation(afterMap, sourceRef) : null;
   const latest = after ?? current ?? before;
   const actionEvidence = publicCodexDesktopActionEvidence(options.actionEvidence);
   const evidenceIds = [...new Set([
@@ -2025,6 +2032,12 @@ export function createCodexDesktopCoherenceReport(options: CodexDesktopCoherence
   );
   const blockers = [
     ...(!sourceRef ? ["missing_thread_target"] : []),
+    ...(targetMismatch ? ["mismatched_thread_target"] : []),
+    ...([
+      beforeMapSupplied && !isVisibleCodexSessionMapReport(beforeMap),
+      visibleMapSupplied && !isVisibleCodexSessionMapReport(visibleMap),
+      afterMapSupplied && !isVisibleCodexSessionMapReport(afterMap)
+    ].some(Boolean) ? ["malformed_visible_map"] : []),
     ...(ambiguous ? ["ambiguous_desktop_join"] : []),
     ...(!latest?.mapPresent ? ["desktop_coherence_map_missing"] : []),
     ...(latest && latest.matchedItemCount === 0 ? ["target_not_found_in_visible_map"] : [])
@@ -2739,9 +2752,10 @@ function visibleCoverage(input: VisibleCodexInput | null | undefined): VisibleCo
 }
 
 function codexDesktopCoherenceObservation(
-  map: VisibleCodexSessionMapReport,
+  map: unknown,
   sourceRef: string | null
 ): CodexDesktopCoherenceObservation {
+  if (!isVisibleCodexSessionMapReport(map)) return missingCodexDesktopCoherenceObservation();
   const matched = sourceRef
     ? map.items.filter((item) => visibleMapItemMatchesTarget(item, sourceRef))
     : [];
@@ -2765,6 +2779,39 @@ function codexDesktopCoherenceObservation(
     ).map(publicSafeIdentifier).filter((reason): reason is string => Boolean(reason)),
     sourceCoverage: map.sourceCoverage
   };
+}
+
+function missingCodexDesktopCoherenceObservation(): CodexDesktopCoherenceObservation {
+  return {
+    mapPresent: false,
+    matchedItemCount: 0,
+    cliVisible: false,
+    desktopVisible: false,
+    ambiguous: false,
+    confidence: 0,
+    evidenceIds: [],
+    sourceRefs: [],
+    appServerRefs: [],
+    desktopRefs: [],
+    reasonCodes: ["visible_map_unavailable"],
+    sourceCoverage: {
+      indexedLco: "partial",
+      visibleCodex: "partial",
+      codexAppServer: "partial"
+    }
+  };
+}
+
+function isVisibleCodexSessionMapReport(value: unknown): value is VisibleCodexSessionMapReport {
+  if (!isObjectRecord(value)) return false;
+  if (value.schema !== "lco.visibleCodexSessionMap.v1" && value.schema !== undefined) return false;
+  if (!Array.isArray(value.items)) return false;
+  if (!isObjectRecord(value.sourceCoverage)) return false;
+  return value.items.every((item) => isObjectRecord(item) && Array.isArray(item.evidenceIds) && Array.isArray(item.ambiguity) && Array.isArray(item.reasonCodes));
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function coherenceItemHasJoinAmbiguity(item: VisibleCodexSessionMapItem): boolean {
@@ -2800,6 +2847,11 @@ function normalizeCodexThreadSourceRef(sourceRef: string | null, threadId: strin
   return null;
 }
 
+function codexDesktopCoherenceTargetMismatch(threadId: string | null, sourceRef: string | null): boolean {
+  if (!threadId || !sourceRef || !/^codex_thread:[A-Za-z0-9._:-]+$/.test(sourceRef)) return false;
+  return safeThreadId(threadId) !== bareCodexThreadId(sourceRef);
+}
+
 function safeThreadId(value: string): string {
   const trimmed = value.startsWith("codex_thread:") ? value.slice("codex_thread:".length) : value;
   const safe = publicSafeText(trimmed, 120).replace(/[^A-Za-z0-9._:-]+/g, "");
@@ -2808,11 +2860,11 @@ function safeThreadId(value: string): string {
 
 function publicCodexDesktopActionEvidence(input: Record<string, unknown> | null | undefined): CodexDesktopCoherenceActionEvidence {
   const actionKind = optionalActionKind(input?.actionKind ?? input?.action_kind);
-  const action = typeof input?.action === "string" ? publicSafeText(input.action, 120) : null;
+  const action = typeof input?.action === "string" ? publicSafeActionText(input.action) : null;
   const evidenceId = typeof input?.evidenceId === "string"
-    ? publicSafeIdentifier(input.evidenceId)
+    ? publicSafeRefLike(input.evidenceId, "evidence")
     : typeof input?.evidence_id === "string"
-      ? publicSafeIdentifier(input.evidence_id)
+      ? publicSafeRefLike(input.evidence_id, "evidence")
       : null;
   const approvalAuditId = typeof input?.approvalAuditId === "string"
     ? input.approvalAuditId
@@ -2835,6 +2887,12 @@ function publicCodexDesktopActionEvidence(input: Record<string, unknown> | null 
     evidenceId,
     observedAt
   };
+}
+
+function publicSafeActionText(value: string): string | null {
+  const redacted = publicSafeText(value, 120).trim();
+  if (!redacted) return null;
+  return looksSensitiveRefLike(value) ? `action_${stableId(redacted).slice(0, 16)}` : redacted;
 }
 
 function optionalActionKind(value: unknown): CodexDesktopCoherenceActionEvidence["actionKind"] {

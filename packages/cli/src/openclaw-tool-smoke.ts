@@ -190,7 +190,7 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
         expandProfile,
         tokenBudget
       });
-      if (toolName === "loo_describe_session" || toolName === "loo_expand_session" || toolName === "loo_codex_control_dry_run") {
+      if (toolName === "loo_describe_session" || toolName === "loo_expand_session" || toolName === "loo_codex_control_dry_run" || toolName === "loo_codex_desktop_coherence") {
         if (!args) {
           blockers.push("openclaw_tool_smoke_missing_thread_ref");
           continue;
@@ -519,8 +519,9 @@ function buildToolArgs(params: {
   if (params.toolName === "loo_codex_app_server_threads") return { limit: 5 };
   if (params.toolName === "loo_visible_codex_map") return { limit: 5, include_app_server: true, include_visible_snapshot: false };
   if (params.toolName === "loo_codex_desktop_coherence") {
+    if (!params.threadId) return null;
     return {
-      ...(params.threadId ? { thread_id: params.threadId } : {}),
+      thread_id: params.threadId,
       limit: 5,
       include_app_server: true,
       include_visible_snapshot: false,

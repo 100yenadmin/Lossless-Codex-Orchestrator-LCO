@@ -589,8 +589,9 @@ async function buildVisibleCodexMapForTool(
         limit: optionalNumber(input.limit),
         readThreadId: targetThreadId
       });
+  const mapLimit = targetThreadId ? 500 : optionalNumber(input.limit);
   return createVisibleCodexSessionMap(options.db, {
-    limit: optionalNumber(input.limit),
+    limit: mapLimit,
     visibleCodex,
     appServerThreads: appServerThreads ? appServerThreadsWithReadProbe(appServerThreads) : undefined
   });

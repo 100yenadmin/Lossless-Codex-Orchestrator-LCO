@@ -132,6 +132,26 @@ test("Codex Desktop coherence report sanitizes supplied map identifiers", () => 
   assert.equal(report.observations.current?.desktopRefs.every((ref) => !ref.includes("/")), true);
 });
 
+test("Codex Desktop coherence report sanitizes supplied action evidence", () => {
+  const report = createCodexDesktopCoherenceReport({
+    threadId: "thr_cli",
+    visibleMap: visibleMapFixture({ desktopRef: null }),
+    actionEvidence: {
+      actionKind: "codex_app_server",
+      action: "thread/read metadata probe with ghp_secretTokenValue123456 and /Users/lume/.codex/sessions/raw.jsonl",
+      dryRun: true,
+      live: false,
+      evidenceId: "github_pat_secretTokenValue1234567890"
+    },
+    now: "2026-07-02T08:00:50.000Z"
+  });
+
+  const serialized = JSON.stringify(report);
+  assert.doesNotMatch(serialized, /ghp_secretTokenValue|github_pat_secretTokenValue|\/Users\/lume|raw\.jsonl/);
+  assert.match(report.actionEvidence.action ?? "", /^action_[A-Za-z0-9]+$/);
+  assert.match(report.actionEvidence.evidenceId ?? "", /^evidence_[A-Za-z0-9]+$/);
+});
+
 test("Codex Desktop coherence report records refresh and restart requirements explicitly", () => {
   const before = visibleMapFixture({ desktopRef: null, evidenceIds: ["ev_before_app_server"] });
   const afterRefresh = visibleMapFixture({
@@ -237,6 +257,39 @@ test("Codex Desktop coherence report treats duplicate exact-target rows as corro
   assert.equal(report.blockers.includes("ambiguous_desktop_join"), false);
 });
 
+test("Codex Desktop coherence report rejects mismatched thread targets", () => {
+  const report = createCodexDesktopCoherenceReport({
+    threadId: "thr_cli_a",
+    sourceRef: "codex_thread:thr_cli_b",
+    visibleMap: visibleMapFixture({
+      desktopRef: "visible-window-thread-b",
+      sourceRef: "codex_thread:thr_cli_b",
+      sessionCardRef: "codex_thread:thr_cli_b",
+      appServerRef: "codex_app_thread:thr_cli_b"
+    }),
+    now: "2026-07-02T08:03:45.000Z"
+  });
+
+  assert.equal(report.state, "unknown");
+  assert.equal(report.target.threadId, "thr_cli_a");
+  assert.equal(report.target.sourceRef, null);
+  assert.ok(report.blockers.includes("mismatched_thread_target"));
+  assert.equal(report.visibility.desktop, "unknown");
+});
+
+test("Codex Desktop coherence report fails closed on malformed supplied maps", () => {
+  const report = createCodexDesktopCoherenceReport({
+    threadId: "thr_cli",
+    visibleMap: { items: {} } as unknown as VisibleCodexSessionMapReport,
+    now: "2026-07-02T08:03:50.000Z"
+  });
+
+  assert.equal(report.state, "unknown");
+  assert.ok(report.blockers.includes("malformed_visible_map"));
+  assert.ok(report.blockers.includes("desktop_coherence_map_missing"));
+  assert.equal(report.observations.current?.mapPresent, false);
+});
+
 test("MCP exposes #307 Codex Desktop coherence tool without performing live actions", async () => {
   const root = mkdtempSync(join(tmpdir(), "loo-desktop-coherence-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
@@ -283,7 +336,17 @@ test("MCP generated coherence maps probe the requested app-server thread", async
       codexReadClient: {
         async request(method, params) {
           requests.push({ method, params });
-          if (method === "thread/list") return { ok: true, result: { data: [] } };
+          if (method === "thread/list") return {
+            ok: true,
+            result: {
+              data: [{
+                id: "thr_recent_other",
+                name: "Recent other session",
+                updatedAt: 1782960000,
+                status: { type: "complete" }
+              }]
+            }
+          };
           if (method === "thread/read") return {
             ok: true,
             result: {
