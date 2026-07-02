@@ -303,6 +303,96 @@ test("watcher primitives are read-only, approval-bounded, and feed cockpit inbox
   });
 });
 
+test("watcher status filtering matches public-safe plain and sensitive watch ids", () => {
+  const now = "2026-07-01T12:00:00.000Z";
+  const sensitiveWatchId = "npm_notarealtokenbutshouldberemoved1234567890";
+  const watcherSpecs = [
+    {
+      schema: "lco.watchSpec.v1" as const,
+      watchId: "watch_plain_filter",
+      targetRef: "codex_thread:019f-watch-plain",
+      kind: "final_message_appeared" as const,
+      createdAt: "2026-07-01T11:50:00.000Z",
+      lastObservedAt: "2026-07-01T11:55:00.000Z",
+      ttlSeconds: 3600,
+      stopConditions: ["final_message_seen"],
+      confidence: 0.9,
+      mutates: false as const,
+      observed: { finalMessageCount: 1 }
+    },
+    {
+      schema: "lco.watchSpec.v1" as const,
+      watchId: sensitiveWatchId,
+      targetRef: "codex_thread:019f-watch-sensitive",
+      kind: "review_comment_arrived" as const,
+      createdAt: "2026-07-01T11:50:00.000Z",
+      lastObservedAt: "2026-07-01T11:55:00.000Z",
+      ttlSeconds: 3600,
+      stopConditions: ["review_handled", sensitiveWatchId],
+      confidence: 0.9,
+      mutates: false as const,
+      observed: { reviewCommentCount: 1 }
+    }
+  ];
+
+  const plain = createWatcherStatusReport(watcherSpecs, { now, watchId: "watch_plain_filter" });
+  assert.equal(plain.summary.returned, 1);
+  assert.equal(plain.watchers[0]?.watchId, "watch_plain_filter");
+
+  const sensitive = createWatcherStatusReport(watcherSpecs, { now, watchId: sensitiveWatchId });
+  assert.equal(sensitive.summary.returned, 1);
+  assert.match(sensitive.watchers[0]?.watchId ?? "", /^watch_[0-9a-f]{16}$/);
+  assert.equal(sensitive.watchers[0]?.targetRef, "codex_thread:019f-watch-sensitive");
+  assertNoUnsafeStrings(sensitive, sensitiveWatchId);
+});
+
+test("watcher status ignores invalid wake reasons but still allows structured inference", () => {
+  const now = "2026-07-01T12:00:00.000Z";
+  const invalidWakeReason = "npm_notarealtokenbutshouldnottrigger1234567890";
+  const watcherSpecs = [
+    {
+      schema: "lco.watchSpec.v1" as const,
+      watchId: "watch_invalid_wake_only",
+      targetRef: "codex_thread:019f-watch-invalid-only",
+      kind: "no_activity" as const,
+      createdAt: "2026-07-01T11:50:00.000Z",
+      lastObservedAt: "2026-07-01T11:55:00.000Z",
+      ttlSeconds: 3600,
+      staleAfterSeconds: 3600,
+      stopConditions: ["explicit_cancel"],
+      wakeReason: invalidWakeReason as any,
+      confidence: 0.9,
+      mutates: false as const
+    },
+    {
+      schema: "lco.watchSpec.v1" as const,
+      watchId: "watch_invalid_wake_inferred",
+      targetRef: "codex_thread:019f-watch-invalid-inferred",
+      kind: "final_message_appeared" as const,
+      createdAt: "2026-07-01T11:50:00.000Z",
+      lastObservedAt: "2026-07-01T11:55:00.000Z",
+      ttlSeconds: 3600,
+      stopConditions: ["final_message_seen"],
+      wakeReason: invalidWakeReason as any,
+      confidence: 0.9,
+      mutates: false as const,
+      observed: { finalMessageCount: 1 }
+    }
+  ];
+
+  const status = createWatcherStatusReport(watcherSpecs, { now, limit: 10 });
+  const invalidOnly = status.watchers.find((watcher) => watcher.watchId === "watch_invalid_wake_only");
+  const inferred = status.watchers.find((watcher) => watcher.watchId === "watch_invalid_wake_inferred");
+
+  assert.equal(invalidOnly?.status, "active");
+  assert.equal(invalidOnly?.wakeReason, null);
+  assert.equal(invalidOnly?.reasonCodes.some((code) => code.includes(invalidWakeReason)), false);
+  assert.equal(inferred?.status, "triggered");
+  assert.equal(inferred?.wakeReason, "final_message_appeared");
+  assert.equal(inferred?.reasonCodes.includes("watcher_triggered"), true);
+  assertNoUnsafeStrings(status, invalidWakeReason);
+});
+
 test("PLAN_STATE report extracts only explicit pins and ignores stale prose", () => {
   const report = createPlanStatePinsReport(`
 # PLAN_STATE
