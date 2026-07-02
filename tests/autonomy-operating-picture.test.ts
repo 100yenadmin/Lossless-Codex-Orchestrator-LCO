@@ -8,6 +8,7 @@ import { createAuditStore } from "../packages/adapters/src/index.js";
 import {
   createAttentionInbox,
   createBusinessPulse,
+  createCodexActiveThreadState,
   createDatabase,
   createDefaultSourceAuthorityProfile,
   createCodexCollaborationNextSteps,
@@ -2763,6 +2764,254 @@ test("Codex runtime Desktop visibility status summarizes coverage without action
     assert.equal(report.actionsPerformed.screenshotCaptured, false);
     assert.notEqual(report.generatedAt, tokenCanary);
     assertNoUnsafeStrings(report, rawPathCanary, tokenCanary);
+  });
+});
+
+test("Codex active-thread state classifies running blocked stale and needs-nudge lanes read-only", () => {
+  const rawPathCanary = "/Volumes/LEXAR/Codex/private/codex/session.jsonl";
+  const tokenCanary = "npm_notarealtokenbutshouldnotleak1234567890";
+  withIndexedSessions([
+    {
+      id: "019f-state-running",
+      title: "Running state lane",
+      status: "running",
+      priority: "medium",
+      nextAction: "continue watching running lane",
+      updatedAt: relativeIso(2),
+      refs: true
+    },
+    {
+      id: "019f-state-blocked",
+      title: "Blocked state lane",
+      status: "blocked",
+      priority: "urgent",
+      blocker: "CI failed",
+      nextAction: "inspect blocked lane",
+      updatedAt: relativeIso(3),
+      refs: true
+    },
+    {
+      id: "019f-state-approval",
+      title: "Approval state lane",
+      status: "needs_approval",
+      priority: "high",
+      nextAction: "approve dry-run packet",
+      updatedAt: relativeIso(4),
+      refs: true
+    },
+    {
+      id: "019f-state-needs-nudge",
+      title: "Needs nudge state lane",
+      status: "running",
+      priority: "high",
+      nextAction: "resume after watcher trigger",
+      updatedAt: relativeIso(120),
+      refs: true
+    },
+    {
+      id: "019f-state-stale",
+      title: "Stale state lane",
+      status: "running",
+      priority: "medium",
+      nextAction: `inspect stale lane ${rawPathCanary}`,
+      updatedAt: "2026-06-20T00:00:00.000Z",
+      refs: true
+    },
+    {
+      id: "019f-state-conflict",
+      title: "Conflict state lane",
+      status: "running",
+      priority: "medium",
+      nextAction: "inspect conflicting app-server state",
+      updatedAt: relativeIso(5),
+      refs: true
+    },
+    {
+      id: "019f-state-loaded-only",
+      title: "Loaded only app-server lane",
+      status: "mysterious",
+      priority: "medium",
+      nextAction: "inspect loaded metadata only",
+      updatedAt: relativeIso(6),
+      refs: true
+    }
+  ], ({ db }) => {
+    const now = "2026-07-02T00:00:00.000Z";
+    const report = createCodexActiveThreadState(db, {
+      limit: 10,
+      now,
+      watcherSpecs: [
+        {
+          schema: "lco.watchSpec.v1",
+          watchId: tokenCanary,
+          targetRef: "codex_thread:019f-state-needs-nudge",
+          kind: "no_activity",
+          createdAt: "2026-07-01T22:00:00.000Z",
+          lastObservedAt: "2026-07-01T22:00:00.000Z",
+          ttlSeconds: 14400,
+          staleAfterSeconds: 1800,
+          stopConditions: ["thread_resumed", tokenCanary],
+          evidenceIds: ["ev_no_activity", tokenCanary],
+          confidence: 0.91,
+          mutates: false,
+          observed: { noActivitySeconds: 3600 }
+        },
+        {
+          schema: "lco.watchSpec.v1",
+          watchId: "watch_state_stale",
+          targetRef: "codex_thread:019f-state-stale",
+          kind: "no_activity",
+          createdAt: "2026-07-01T12:00:00.000Z",
+          lastObservedAt: "2026-07-01T12:00:00.000Z",
+          ttlSeconds: 172800,
+          staleAfterSeconds: 1800,
+          stopConditions: ["thread_resumed"],
+          evidenceIds: ["ev_stale_watch"],
+          confidence: 0.82,
+          mutates: false
+        }
+      ],
+      appServerThreads: {
+        schema: "lco.codex.appServerThreads.v1",
+        publicSafe: true,
+        sourceCoverage: { codexAppServer: "ok" },
+        threads: [
+          {
+            threadId: "019f-state-running",
+            sourceRef: "codex_thread:019f-state-running",
+            status: "running",
+            loaded: true,
+            loadedState: "loaded",
+            confidence: 0.95
+          },
+          {
+            threadId: "019f-state-needs-nudge",
+            sourceRef: "codex_thread:019f-state-needs-nudge",
+            status: "blocked",
+            loaded: true,
+            loadedState: "loaded",
+            confidence: 0.93
+          },
+          {
+            threadId: "019f-state-conflict",
+            sourceRef: "codex_thread:019f-state-conflict",
+            status: "blocked",
+            loaded: true,
+            loadedState: "loaded",
+            confidence: 0
+          },
+          {
+            threadId: "019f-state-loaded-only",
+            sourceRef: "codex_thread:019f-state-loaded-only",
+            loaded: true,
+            loadedState: "loaded",
+            confidence: 0.89
+          }
+        ],
+        loadedThreadRefs: ["codex_thread:019f-state-running", "codex_thread:019f-state-needs-nudge", "codex_thread:019f-state-conflict", "codex_thread:019f-state-loaded-only"]
+      }
+    });
+
+    const tools = createLooTools({
+      db,
+      audit: createAuditStore(join(tmpdir(), "loo-active-state-audit.jsonl")),
+      codexClient: { request: async () => ({ ok: true }) }
+    });
+    const tool = tools.find((candidate) => candidate.name === "loo_codex_active_thread_state");
+    assert.ok(tool, "MCP registry should expose loo_codex_active_thread_state");
+
+    const byThread = new Map(report.items.map((item) => [item.threadId, item]));
+    assert.equal(report.schema, "lco.codex.activeThreadState.v1");
+    assert.equal(report.publicSafe, true);
+    assert.equal(report.readOnly, true);
+    assert.equal(report.generatedAt, now);
+    assert.equal(report.summary.returned, 7);
+    assert.equal(report.summary.running, 1);
+    assert.equal(report.summary.blocked, 1);
+    assert.equal(report.summary.needsApproval, 1);
+    assert.equal(report.summary.needsNudge, 1);
+    assert.equal(report.summary.stale, 1);
+    assert.equal(report.summary.unknown, 2);
+    assert.equal(report.sourceCoverage.watchers, "ok");
+    assert.equal(report.sourceCoverage.codexAppServer, "ok");
+    assert.equal(byThread.get("codex_thread:019f-state-running")?.state, "running");
+    assert.equal(byThread.get("codex_thread:019f-state-running")?.reasonCodes.includes("app_server_running"), true);
+    assert.equal(byThread.get("codex_thread:019f-state-running")?.sourceCoverage.watchers, "partial");
+    assert.equal(byThread.get("codex_thread:019f-state-running")?.sourceCoverage.codexAppServer, "ok");
+    assert.equal(byThread.get("codex_thread:019f-state-blocked")?.state, "blocked");
+    assert.equal(byThread.get("codex_thread:019f-state-blocked")?.sourceCoverage.codexAppServer, "partial");
+    assert.equal(byThread.get("codex_thread:019f-state-approval")?.state, "needs_approval");
+    assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.state, "needs_nudge");
+    assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.reasonCodes.includes("watcher_triggered"), true);
+    assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.reasonCodes.includes("app_server_state_overridden_by_watcher"), true);
+    assert.equal((byThread.get("codex_thread:019f-state-needs-nudge")?.confidence ?? 1) <= 0.74, true);
+    assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.sourceCoverage.watchers, "ok");
+    assert.equal(byThread.get("codex_thread:019f-state-stale")?.state, "stale");
+    assert.equal(byThread.get("codex_thread:019f-state-stale")?.reasonCodes.includes("watcher_stale"), true);
+    assert.equal(byThread.get("codex_thread:019f-state-conflict")?.state, "unknown");
+    assert.equal(byThread.get("codex_thread:019f-state-conflict")?.confidence, 0);
+    assert.equal(byThread.get("codex_thread:019f-state-conflict")?.reasonCodes.includes("conflicting_state"), true);
+    assert.equal(byThread.get("codex_thread:019f-state-loaded-only")?.state, "unknown");
+    assert.equal(byThread.get("codex_thread:019f-state-loaded-only")?.reasonCodes.includes("app_server_loaded"), true);
+    assert.equal(byThread.get("codex_thread:019f-state-loaded-only")?.reasonCodes.includes("app_server_running"), false);
+    assert.equal(report.items[0]?.state, "needs_nudge");
+    assert.equal(report.actionsPerformed.liveCodexControlRun, false);
+    assert.equal(report.actionsPerformed.desktopGuiActionRun, false);
+    assert.equal(report.actionsPerformed.rawTranscriptRead, false);
+    assert.equal(report.actionsPerformed.screenshotCaptured, false);
+    assertNoUnsafeStrings(report, rawPathCanary, tokenCanary);
+  });
+});
+
+test("Codex active-thread state classifies before applying caller limit", () => {
+  const fixtures = [
+    ...Array.from({ length: 25 }, (_, index) => ({
+      id: `019f-active-limit-running-${String(index).padStart(2, "0")}`,
+      title: `Fresh running lane ${index}`,
+      status: "running",
+      priority: "urgent",
+      nextAction: "continue current work",
+      updatedAt: relativeIso(index + 1),
+      refs: true
+    })),
+    {
+      id: "019f-active-limit-nudge",
+      title: "Watcher triggered low priority lane",
+      status: "running",
+      priority: "low",
+      nextAction: "resume watcher-triggered work",
+      updatedAt: relativeIso(120),
+      refs: true
+    }
+  ];
+
+  withIndexedSessions(fixtures, ({ db }) => {
+    const report = createCodexActiveThreadState(db, {
+      limit: 1,
+      now: "2026-07-02T00:00:00.000Z",
+      watcherSpecs: [{
+        schema: "lco.watchSpec.v1",
+        watchId: "watch_active_limit_nudge",
+        targetRef: "codex_thread:019f-active-limit-nudge",
+        kind: "no_activity",
+        createdAt: "2026-07-01T22:00:00.000Z",
+        lastObservedAt: "2026-07-01T22:00:00.000Z",
+        ttlSeconds: 14400,
+        staleAfterSeconds: 1800,
+        stopConditions: ["thread_resumed"],
+        evidenceIds: ["ev_active_limit_nudge"],
+        confidence: 0.93,
+        mutates: false,
+        observed: { noActivitySeconds: 3600 }
+      }]
+    });
+
+    assert.equal(report.summary.totalLanes, 26);
+    assert.equal(report.summary.returned, 1);
+    assert.equal(report.items[0]?.threadId, "codex_thread:019f-active-limit-nudge");
+    assert.equal(report.items[0]?.state, "needs_nudge");
+    assert.equal(report.omitted.count, 25);
+    assert.equal(report.omitted.reason, "limit");
   });
 });
 

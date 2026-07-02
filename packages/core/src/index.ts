@@ -594,6 +594,71 @@ export type CodexRuntimeDesktopVisibilityStatusOptions = CodexCollaborationCockp
   desktopCollaborationProofReports?: unknown[];
 };
 
+export type CodexActiveThreadStateKind = "running" | "blocked" | "needs_nudge" | "stale" | "waiting" | "needs_approval" | "idle" | "unknown";
+
+export type CodexActiveThreadStateItem = {
+  threadId: string;
+  title: string;
+  state: CodexActiveThreadStateKind;
+  sessionState: CodexSessionCardState;
+  attention: CodexCollaborationCockpitLane["attention"];
+  freshness: CodexSessionCard["freshness"];
+  nextAction: CodexSessionCard["nextAction"];
+  confidence: number;
+  reasonCodes: string[];
+  evidenceIds: string[];
+  sourceCoverage: {
+    indexedSession: VisibleCodexCoverageState;
+    cockpitInbox: VisibleCodexCoverageState;
+    watchers: VisibleCodexCoverageState;
+    codexAppServer: VisibleCodexCoverageState;
+    visibleCodexMap: VisibleCodexCoverageState;
+  };
+};
+
+export type CodexActiveThreadStateReport = {
+  schema: "lco.codex.activeThreadState.v1";
+  publicSafe: true;
+  readOnly: true;
+  generatedAt: string;
+  summary: {
+    totalLanes: number;
+    returned: number;
+    running: number;
+    blocked: number;
+    needsApproval: number;
+    needsNudge: number;
+    stale: number;
+    waiting: number;
+    idle: number;
+    unknown: number;
+    lowConfidence: number;
+  };
+  sourceCoverage: {
+    indexedSession: VisibleCodexCoverageState;
+    cockpitInbox: VisibleCodexCoverageState;
+    watchers: VisibleCodexCoverageState;
+    codexAppServer: VisibleCodexCoverageState;
+    visibleCodexMap: VisibleCodexCoverageState;
+  };
+  items: CodexActiveThreadStateItem[];
+  omitted: CodexCollaborationCockpitReport["omitted"];
+  actionsPerformed: {
+    liveCodexControlRun: false;
+    desktopGuiActionRun: false;
+    rawTranscriptRead: false;
+    screenshotCaptured: false;
+    npmPublished: false;
+    githubReleaseCreated: false;
+  };
+  proofBoundary: string;
+};
+
+export type CodexActiveThreadStateOptions = CodexCollaborationCockpitOptions & {
+  appServerThreads?: AppServerThreadsInput | null;
+  visibleMap?: VisibleCodexSessionMapReport | null;
+};
+
 export type WatcherKind = "thread_finished" | "final_message_appeared" | "pr_checks_changed" | "review_comment_arrived" | "no_activity" | "approval_expired";
 export type WatcherStatus = "active" | "triggered" | "stale" | "expired" | "low_confidence";
 export type WatcherRecommendedAction = "inspect" | "resume" | "approve" | "ignore";
@@ -2382,6 +2447,84 @@ export function createCodexRuntimeDesktopVisibilityStatus(
   };
 }
 
+export function createCodexActiveThreadState(
+  db: LooDatabase,
+  options: CodexActiveThreadStateOptions = {}
+): CodexActiveThreadStateReport {
+  const generatedAt = publicIsoTimestamp(options.now) ?? new Date().toISOString();
+  const limit = clamp(options.limit ?? 20, 1, 500);
+  const cockpit = createCodexCollaborationCockpit(db, { ...options, limit: 500, now: generatedAt });
+  const watcherReport = createWatcherStatusReport(options.watcherSpecs ?? [], { now: generatedAt, limit: 1000 });
+  const watchersByTarget = activeStateWatchersByTarget(watcherReport.watchers);
+  const appServerByThread = activeStateAppServerByThread(options.appServerThreads);
+  const appServerCoverage = appServerThreadCoverage(options.appServerThreads);
+  const visibleMapCoverage = isVisibleCodexSessionMapReport(options.visibleMap) ? options.visibleMap.sourceCoverage.visibleCodex : "not_configured";
+  const visibleMapByThread = activeStateVisibleMapByThread(options.visibleMap);
+  const items = cockpit.lanes
+    .map((lane) => {
+      const watchers = watchersByTarget.get(lane.threadId) ?? [];
+      const appServerThread = appServerByThread.get(lane.threadId) ?? null;
+      const visibleMapItem = visibleMapByThread.get(lane.threadId) ?? null;
+      return activeThreadStateItem(lane, {
+        watchers,
+        appServerThread,
+        visibleMapItem,
+        sourceCoverage: activeThreadStateItemSourceCoverage({
+          cockpit,
+          watcherSpecs: options.watcherSpecs,
+          watchers,
+          appServerCoverage,
+          appServerThread,
+          visibleMapCoverage,
+          visibleMapItem
+        })
+      });
+    })
+    .sort(activeThreadStateComparator);
+  const selected = items.slice(0, limit);
+
+  return {
+    schema: "lco.codex.activeThreadState.v1",
+    publicSafe: true,
+    readOnly: true,
+    generatedAt,
+    summary: {
+      totalLanes: cockpit.summary.totalCards,
+      returned: selected.length,
+      running: selected.filter((item) => item.state === "running").length,
+      blocked: selected.filter((item) => item.state === "blocked").length,
+      needsApproval: selected.filter((item) => item.state === "needs_approval").length,
+      needsNudge: selected.filter((item) => item.state === "needs_nudge").length,
+      stale: selected.filter((item) => item.state === "stale").length,
+      waiting: selected.filter((item) => item.state === "waiting").length,
+      idle: selected.filter((item) => item.state === "idle").length,
+      unknown: selected.filter((item) => item.state === "unknown").length,
+      lowConfidence: selected.filter((item) => item.confidence < 0.7).length
+    },
+    sourceCoverage: {
+      indexedSession: cockpit.sourceCoverage.recentSessions,
+      cockpitInbox: cockpit.sourceCoverage.cockpitInbox,
+      watchers: (options.watcherSpecs?.length ?? 0) > 0 ? "ok" : "not_configured",
+      codexAppServer: appServerCoverage,
+      visibleCodexMap: visibleMapCoverage
+    },
+    items: selected,
+    omitted: {
+      count: Math.max(0, cockpit.summary.totalCards - selected.length),
+      reason: cockpit.summary.totalCards > selected.length ? "limit" : "none"
+    },
+    actionsPerformed: {
+      liveCodexControlRun: false,
+      desktopGuiActionRun: false,
+      rawTranscriptRead: false,
+      screenshotCaptured: false,
+      npmPublished: false,
+      githubReleaseCreated: false
+    },
+    proofBoundary: "This read-only active-thread state report fuses indexed Codex cards, deterministic inbox urgency, watcher records, optional app-server status, and optional visible-map coverage. It does not read raw transcripts, run live Codex control, mutate Codex Desktop, capture screenshots, publish npm, create GitHub releases, or claim unattended Desktop collaboration."
+  };
+}
+
 function countActiveCodexSessions(db: LooDatabase): number {
   const row = db.prepare(`
     SELECT COUNT(*) AS total
@@ -2779,6 +2922,199 @@ function runtimeDesktopVisibilityPublicSafeArgs(args: Record<string, unknown>): 
     }
   }
   return Object.fromEntries(entries);
+}
+
+function activeThreadStateItem(
+  lane: CodexCollaborationCockpitLane,
+  input: {
+    watchers: WatcherState[];
+    appServerThread: AppServerThreadSignalInput | null;
+    visibleMapItem: VisibleCodexSessionMapItem | null;
+    sourceCoverage: CodexActiveThreadStateItem["sourceCoverage"];
+  }
+): CodexActiveThreadStateItem {
+  const watcherTriggered = input.watchers.some((watcher) => watcher.status === "triggered");
+  const watcherStale = input.watchers.some((watcher) => watcher.status === "stale");
+  const appServerState = activeStateFromAppServerThread(input.appServerThread);
+  const sessionState = activeStateFromSessionState(lane.sessionState);
+  const appServerDisagrees = appServerState !== null
+    && sessionState !== null
+    && appServerState !== sessionState;
+  const watcherOverridesAppServerConflict = appServerDisagrees && sessionState === "running" && (watcherTriggered || watcherStale);
+  const conflict = appServerDisagrees && !watcherOverridesAppServerConflict;
+  const state = conflict
+    ? "unknown"
+    : lane.sessionState === "needs_approval"
+      ? "needs_approval"
+      : lane.sessionState === "blocked"
+        ? "blocked"
+        : watcherTriggered || (lane.reasonCodes.includes("resume_ready") && lane.sessionState === "running")
+          ? "needs_nudge"
+          : watcherStale || lane.reasonCodes.includes("active_stale")
+            ? "stale"
+            : appServerState ?? sessionState ?? "unknown";
+  const watcherConfidence = input.watchers.length > 0 ? Math.max(...input.watchers.map((watcher) => watcher.confidence)) : 0;
+  const appServerConfidence = typeof input.appServerThread?.confidence === "number" ? Math.max(0, Math.min(1, input.appServerThread.confidence)) : 0;
+  const conflictAppServerConfidence = typeof input.appServerThread?.confidence === "number" ? appServerConfidence : 0.62;
+  const visibleConfidence = typeof input.visibleMapItem?.confidence === "number" ? Math.max(0, Math.min(1, input.visibleMapItem.confidence)) : 0;
+  const confidence = conflict
+    ? Math.min(0.62, lane.card.confidence, conflictAppServerConfidence)
+    : watcherOverridesAppServerConflict
+      ? Math.min(0.74, Math.max(0.1, Math.min(0.99, Math.max(lane.card.confidence, watcherConfidence, appServerConfidence, visibleConfidence))))
+      : Math.max(0.1, Math.min(0.99, Math.max(lane.card.confidence, watcherConfidence, appServerConfidence, visibleConfidence)));
+  const reasonCodes = unique([
+    ...lane.reasonCodes,
+    `active_state:${state}`,
+    ...(watcherTriggered ? ["watcher_triggered"] : []),
+    ...(watcherStale ? ["watcher_stale"] : []),
+    ...input.watchers.flatMap((watcher) => watcher.reasonCodes),
+    ...activeStateAppServerReasonCodes(input.appServerThread, appServerState),
+    ...(input.visibleMapItem ? ["visible_map_joined", ...input.visibleMapItem.reasonCodes] : []),
+    ...(conflict ? ["conflicting_state", "app_server_indexed_state_conflict", "low_confidence"] : []),
+    ...(watcherOverridesAppServerConflict ? ["app_server_state_overridden_by_watcher", "app_server_indexed_state_conflict", "low_confidence"] : [])
+  ]);
+  const evidenceIds = unique([
+    ...lane.card.evidenceIds,
+    ...lane.desktop.evidenceIds,
+    ...input.watchers.flatMap((watcher) => watcher.evidenceIds),
+    ...(input.visibleMapItem?.evidenceIds ?? [])
+  ]);
+  return {
+    threadId: lane.threadId,
+    title: publicSafeText(lane.title, 180),
+    state,
+    sessionState: lane.sessionState,
+    attention: lane.attention,
+    freshness: lane.card.freshness,
+    nextAction: lane.nextAction,
+    confidence: Number(confidence.toFixed(2)),
+    reasonCodes: reasonCodes.map(collaborationPublicSafeReasonCode).filter((code): code is string => Boolean(code)).slice(0, 30),
+    evidenceIds: evidenceIds.map((id) => publicSafeRefLike(id, "evidence") ?? "").filter(Boolean).slice(0, 30),
+    sourceCoverage: input.sourceCoverage
+  };
+}
+
+function activeThreadStateItemSourceCoverage(input: {
+  cockpit: CodexCollaborationCockpitReport;
+  watcherSpecs: WatchSpec[] | undefined;
+  watchers: WatcherState[];
+  appServerCoverage: VisibleCodexCoverageState;
+  appServerThread: AppServerThreadSignalInput | null;
+  visibleMapCoverage: VisibleCodexCoverageState;
+  visibleMapItem: VisibleCodexSessionMapItem | null;
+}): CodexActiveThreadStateItem["sourceCoverage"] {
+  return {
+    indexedSession: input.cockpit.sourceCoverage.recentSessions,
+    cockpitInbox: input.cockpit.sourceCoverage.cockpitInbox,
+    watchers: (input.watcherSpecs?.length ?? 0) === 0
+      ? "not_configured"
+      : input.watchers.length > 0 ? "ok" : "partial",
+    codexAppServer: input.appServerCoverage === "ok"
+      ? input.appServerThread ? "ok" : "partial"
+      : input.appServerCoverage,
+    visibleCodexMap: input.visibleMapCoverage === "ok"
+      ? input.visibleMapItem ? "ok" : "partial"
+      : input.visibleMapCoverage
+  };
+}
+
+function activeStateFromSessionState(state: CodexSessionCardState): CodexActiveThreadStateKind | null {
+  if (state === "running") return "running";
+  if (state === "blocked") return "blocked";
+  if (state === "needs_approval") return "needs_approval";
+  if (state === "waiting") return "waiting";
+  if (state === "done") return "idle";
+  return null;
+}
+
+function activeStateFromAppServerThread(thread: AppServerThreadSignalInput | null): CodexActiveThreadStateKind | null {
+  if (!thread) return null;
+  const status = normalizedMetadataValue(thread.status ?? null);
+  if (status.includes("blocked") || status.includes("failed") || status.includes("error")) return "blocked";
+  if (status.includes("approval") || status.includes("permission")) return "needs_approval";
+  if (["waiting", "queued", "pending", "paused"].some((value) => status.includes(value))) return "waiting";
+  if (["done", "complete", "completed", "closed", "merged"].some((value) => status === value || status.includes(value))) return "idle";
+  if (["running", "active", "in-progress", "in_progress", "ready"].some((value) => status === value || status.includes(value))) return "running";
+  return null;
+}
+
+function activeStateAppServerReasonCodes(thread: AppServerThreadSignalInput | null, state: CodexActiveThreadStateKind | null): string[] {
+  if (!thread) return [];
+  return unique([
+    "app_server_signal",
+    state ? `app_server_${state}` : "",
+    thread.loaded === true || thread.loadedState === "loaded" ? "app_server_loaded" : ""
+  ].filter(Boolean));
+}
+
+function activeStateWatchersByTarget(watchers: WatcherState[]): Map<string, WatcherState[]> {
+  const byTarget = new Map<string, WatcherState[]>();
+  for (const watcher of watchers) {
+    if (watcher.status !== "triggered" && watcher.status !== "stale") continue;
+    const target = publicSafeRefLike(watcher.targetRef, "target") ?? watcher.targetRef;
+    const existing = byTarget.get(target) ?? [];
+    existing.push(watcher);
+    byTarget.set(target, existing);
+  }
+  for (const states of byTarget.values()) states.sort(watcherStateComparator);
+  return byTarget;
+}
+
+function activeStateAppServerByThread(input: AppServerThreadsInput | null | undefined): Map<string, AppServerThreadSignalInput> {
+  const byThread = new Map<string, AppServerThreadSignalInput>();
+  for (const thread of input?.threads ?? []) {
+    const ref = activeStateAppServerThreadRef(thread);
+    if (!ref) continue;
+    byThread.set(ref, thread);
+  }
+  return byThread;
+}
+
+function activeStateAppServerThreadRef(thread: AppServerThreadSignalInput): string | null {
+  const sourceRef = typeof thread.sourceRef === "string" ? normalizeCodexThreadSourceRef(thread.sourceRef, thread.threadId ?? null) : null;
+  if (sourceRef) return sourceRef;
+  if (typeof thread.threadId === "string" && thread.threadId.trim()) return codexThreadRef(safeThreadId(thread.threadId));
+  return null;
+}
+
+function activeStateVisibleMapByThread(input: VisibleCodexSessionMapReport | null | undefined): Map<string, VisibleCodexSessionMapItem> {
+  const byThread = new Map<string, VisibleCodexSessionMapItem>();
+  if (!isVisibleCodexSessionMapReport(input)) return byThread;
+  for (const item of input.items) {
+    const ref = normalizeCodexThreadSourceRef(item.sourceRef ?? item.sessionCardRef ?? null, null);
+    if (!ref || byThread.has(ref)) continue;
+    byThread.set(ref, item);
+  }
+  return byThread;
+}
+
+function appServerThreadCoverage(input: AppServerThreadsInput | null | undefined): VisibleCodexCoverageState {
+  if (!input) return "not_configured";
+  if (input.sourceCoverage?.codexAppServer) return input.sourceCoverage.codexAppServer;
+  if ((input.errors?.length ?? 0) > 0 && (input.threads?.length ?? 0) === 0) return "unavailable";
+  return Array.isArray(input.threads) ? "ok" : "partial";
+}
+
+function activeThreadStateComparator(left: CodexActiveThreadStateItem, right: CodexActiveThreadStateItem): number {
+  const stateRank = {
+    needs_nudge: 8,
+    needs_approval: 7,
+    blocked: 6,
+    stale: 5,
+    running: 4,
+    waiting: 3,
+    unknown: 2,
+    idle: 1
+  } as const satisfies Record<CodexActiveThreadStateKind, number>;
+  const stateDelta = stateRank[right.state] - stateRank[left.state];
+  if (stateDelta !== 0) return stateDelta;
+  const attentionDelta = compareOperatingUrgency(left.attention.level, right.attention.level);
+  if (attentionDelta !== 0) return attentionDelta;
+  if (left.attention.urgencyScore !== right.attention.urgencyScore) return right.attention.urgencyScore - left.attention.urgencyScore;
+  const freshnessDelta = compareUpdatedAtDesc(left.freshness.lastEventAt, right.freshness.lastEventAt);
+  if (freshnessDelta !== 0) return freshnessDelta;
+  if (left.confidence !== right.confidence) return right.confidence - left.confidence;
+  return left.threadId.localeCompare(right.threadId);
 }
 
 function collaborationDesktopProofReportsByThread(reports: unknown[]): Map<string, Record<string, unknown>> {

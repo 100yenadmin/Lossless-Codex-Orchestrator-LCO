@@ -18,6 +18,7 @@ export const DEFAULT_REQUIRED_TOOL_CALLS = [
   "loo_codex_collaboration_cockpit",
   "loo_codex_collaboration_next_steps",
   "loo_codex_runtime_desktop_visibility_status",
+  "loo_codex_active_thread_state",
   "loo_codex_desktop_collaboration_proof",
   "loo_watchers_list",
   "loo_watcher_status",
@@ -88,6 +89,7 @@ export type OpenClawToolInvocationSummary = {
     approvalVerified?: boolean;
     actionHash?: string;
     runtimeVisibilityStatus?: string;
+    activeThreadState?: Record<string, number>;
   };
   blockers: string[];
 };
@@ -541,6 +543,12 @@ function buildToolArgs(params: {
       desktop_collaboration_proof_reports: [smokeCodexDesktopCollaborationProofReport(params.threadId)]
     };
   }
+  if (params.toolName === "loo_codex_active_thread_state") {
+    return {
+      ...smokeCollaborationFixtureArgs(params.threadId),
+      app_server_threads: smokeAppServerThreads(params.threadId)
+    };
+  }
   if (params.toolName === "loo_codex_desktop_collaboration_proof") {
     return smokeCodexDesktopCollaborationProofArgs(params.threadId);
   }
@@ -654,6 +662,24 @@ function smokeCollaborationFixtureArgs(threadId?: string): Record<string, unknow
     desktop_coherence_reports: [smokeDesktopCoherenceReport(threadId)],
     desktop_fallback_reports: [smokeDesktopFallbackReport(threadId)],
     now: TOOL_SMOKE_NOW
+  };
+}
+
+function smokeAppServerThreads(threadId?: string): Record<string, unknown> {
+  const bareThreadId = smokeBareThreadId(threadId);
+  return {
+    schema: "lco.codex.appServerThreads.v1",
+    publicSafe: true,
+    sourceCoverage: { codexAppServer: "ok" },
+    threads: [{
+      threadId: bareThreadId,
+      sourceRef: smokeCodexThreadRef(threadId),
+      status: "running",
+      loaded: true,
+      loadedState: "loaded",
+      confidence: 0.9
+    }],
+    loadedThreadRefs: [smokeCodexThreadRef(threadId)]
   };
 }
 
@@ -956,6 +982,39 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
       actions.githubReleaseCreated !== false
     ) {
       blockers.push("runtime_desktop_visibility_restricted_action");
+    }
+  }
+  if (toolName === "loo_codex_active_thread_state") {
+    const stateOutput = details ?? output;
+    const items = arrayPath(stateOutput, ["items"]).filter(isRecord);
+    const summaryRecord = isRecord(stateOutput) && isRecord(stateOutput.summary) ? stateOutput.summary : null;
+    const stateCounts = Object.fromEntries(["running", "blocked", "needsNudge", "stale", "waiting", "needsApproval", "idle", "unknown"].map((key) => {
+      const value = summaryRecord?.[key];
+      return [key, typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0];
+    }));
+    summary.activeThreadState = stateCounts;
+    if (!summaryRecord) blockers.push("active_thread_state_summary_missing");
+    if (items.some((item) => {
+      const state = stringPath(item, ["state"]);
+      return !["running", "blocked", "needs_nudge", "stale", "waiting", "needs_approval", "idle", "unknown"].includes(state ?? "");
+    })) blockers.push("active_thread_state_invalid_state");
+    if (items.some((item) => {
+      const confidence = numberPath(item, ["confidence"]);
+      const reasonCodes = arrayPath(item, ["reasonCodes"]);
+      const coverage = isRecord(item.sourceCoverage) ? item.sourceCoverage : null;
+      return confidence === undefined || confidence < 0 || confidence > 1 || reasonCodes.length === 0 || !coverage;
+    })) blockers.push("active_thread_state_missing_public_metadata");
+    const actions = isRecord(stateOutput) && isRecord(stateOutput.actionsPerformed) ? stateOutput.actionsPerformed : null;
+    if (
+      !actions ||
+      actions.liveCodexControlRun !== false ||
+      actions.desktopGuiActionRun !== false ||
+      actions.rawTranscriptRead !== false ||
+      actions.screenshotCaptured !== false ||
+      actions.npmPublished !== false ||
+      actions.githubReleaseCreated !== false
+    ) {
+      blockers.push("active_thread_state_restricted_action");
     }
   }
 

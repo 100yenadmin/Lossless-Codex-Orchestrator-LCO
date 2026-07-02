@@ -38,6 +38,10 @@ Codex sessions through the installed `loo_*` tools.
   lane-level answer about which Codex Desktop collaboration lanes are covered,
   partial, or blocked. Treat any returned next tool call as a read-only
   `execute=false` recommendation, not as approval to mutate the Desktop.
+- Use `loo_codex_active_thread_state` when you need one compact read-only answer
+  about which active threads are running, blocked, stale, or need a nudge.
+  Treat low-confidence or conflicting states as inspect-first, never as approval
+  to send or steer.
 
 ## Find Active Codex Sessions
 
@@ -115,6 +119,8 @@ Typical live tools after approval are `loo_codex_resume_thread`,
 8. Call `loo_codex_runtime_desktop_visibility_status` when you need a compact
    covered/partial/blocked status for runtime Desktop visibility across active
    lanes. It reports source coverage and next read-only proof steps only.
+9. Call `loo_codex_active_thread_state` when you need active-thread state counts
+   and reason codes before recommending attention order.
 
 ## Recommended Agent Loop
 
@@ -136,9 +142,11 @@ Typical live tools after approval are `loo_codex_resume_thread`,
    tool packet instead of prose
 10. Run `loo_codex_runtime_desktop_visibility_status` when the user asks what is
    actually covered for Desktop-visible collaboration right now
-11. Recommend a next action with source refs
-12. If action is requested, run `loo_codex_control_dry_run`
-13. Wait for explicit approval before any live control
+11. Run `loo_codex_active_thread_state` when the user asks which active Codex
+    threads are running, blocked, stale, or need a nudge
+12. Recommend a next action with source refs
+13. If action is requested, run `loo_codex_control_dry_run`
+14. Wait for explicit approval before any live control
 
 ## Public-Safe Output Shape
 

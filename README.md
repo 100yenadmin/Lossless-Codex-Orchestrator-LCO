@@ -39,6 +39,8 @@ LCO is a local-first orchestration layer for Codex-heavy work:
 - reports Codex Desktop visibility and fallback readiness without GUI mutation
 - validates exact action-bound Desktop collaboration proof packets without executing them
 - summarizes runtime Desktop visibility coverage and next read-only proof steps
+- classifies active threads as running, blocked, stale, needs-nudge, or unknown
+  from public-safe read-only signals
 
 The result is a staged recall loop:
 
