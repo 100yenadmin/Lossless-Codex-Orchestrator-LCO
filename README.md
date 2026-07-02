@@ -59,7 +59,7 @@ rediscovering state from text every time.
 | Eva operating picture | P0 beta | Business pulse and attention inbox use LCO/Codex, optional structured GitHub items, explicit PLAN_STATE pins, and source-authority coverage; P1 business adapters are not configured yet. |
 | Claude Code adapter | Fixture inventory | Supports redacted metadata-only fixtures with `claude_session:*` refs; no Claude parity, live control, GUI mutation, or cloud sync claim. |
 
-## Current Sprint: 1.0 RC External Tester Readiness
+## Current Sprint: 1.0 RC Stable Decision Gate
 
 The roadmap is now ranked by one question:
 
@@ -67,7 +67,7 @@ The roadmap is now ranked by one question:
 > context, less rereading, and safer action?
 
 The current release-hardening sprint is tracked by
-[#247](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/247),
+[#300](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/300),
 [#182](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/182),
 and
 [#16](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/16).
@@ -79,12 +79,14 @@ and the historical sprint brief
 [docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md](docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md).
 
 The core Codex recall, M9 handoff paths, and P0 cockpit/Eva operating-picture
-paths are working. The current release lane is external tester reliability:
-install and gateway setup clarity, docs truth, release gates, public-safe
-scorecards, and a clean line between completed P0 cards and deferred P1
-adapters. #298 proves the fresh-profile gateway path can reach `ready` with
-scoped token env-ref onboarding and the protocol-4 backend caller fix; beta.35
-publishes that compatibility fix without widening the product claim.
+paths are working. The current release lane is the explicit 1.0 RC/stable
+decision gate: release metadata, docs truth, strict release gates, public-safe
+scorecards, fresh npm/OpenClaw gateway proof, and a clean line between completed
+P0 cards and deferred P1 adapters. #298 proves the fresh-profile gateway path
+can reach `ready` with scoped token env-ref onboarding and the protocol-4
+backend caller fix; beta.35 published that compatibility fix. #300 is the first
+separate stable-release decision lane and must prove any npm `latest` promotion
+or GitHub Release creation against the exact candidate SHA.
 
 Completed P0 foundation is read-only and deterministic:
 
@@ -154,7 +156,8 @@ Completed proof:
 - #298 proves a clean OpenClaw profile can install the published beta package
   and call `loo_doctor` plus `loo_search_sessions` through an isolated loopback
   token gateway after the protocol-4 backend caller fix. This is fresh-profile
-  gateway-ready evidence, not npm `latest` promotion or a stable release.
+  gateway-ready evidence used by #300, not by itself an npm `latest` promotion
+  or GitHub Release.
 - Desktop fallback remains action-bound; generic GUI mutation and Codex GUI
   mutation are not public beta claims.
 - Claude Code remains an adapter stub and fixture inventory, not parity.
@@ -176,14 +179,21 @@ Published beta package target:
 npm install -g lossless-openclaw-orchestrator@beta
 ```
 
+Release-candidate package target, once `1.0.0-rc.1` is published:
+
+```bash
+npm install -g lossless-openclaw-orchestrator@next
+```
+
 ### npm dist-tag policy
 
-Until the first stable release exists, install the public beta through the
-`beta` dist-tag. The `beta` tag must point at the newest public beta. The
-`latest` tag currently remains `0.1.0-beta.4` and must not be promoted during
-`0.1.x` beta releases unless a separate latest-promotion operation explicitly
+Until the first stable release exists, install public betas through the `beta`
+dist-tag and release candidates through `next`. The `beta` tag must point at
+the newest public beta. The `latest` tag currently remains `0.1.0-beta.4` and
+must not be promoted until a separate stable-release operation explicitly
 claims and proves that change. At the first stable release, move `latest` to the
-stable version and keep prereleases on prerelease tags such as `beta`. Do not publish a fake stable package just to move a dist-tag.
+stable version and keep prereleases on prerelease tags such as `beta` or `next`.
+Do not publish a fake stable package just to move a dist-tag.
 
 Default local database:
 

@@ -73,7 +73,9 @@ test("loo onboard status writes a public-safe first-run readiness artifact", () 
     assert.equal(report.dryRun, true);
     assert.equal(report.localOnly, true);
     assert.equal(report.packageName, "lossless-openclaw-orchestrator");
-    assert.match(report.version, /^0\.1\.0-beta\./);
+    const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+    assert.equal(report.version, packageJson.version);
+    assert.match(report.version, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/);
     assert.deepEqual(report.blockers, []);
     assert.equal(report.requiredFiles.every((item) => item.exists), true);
     assert.equal(report.sourceEntrypoints.every((item) => item.exists), true);
