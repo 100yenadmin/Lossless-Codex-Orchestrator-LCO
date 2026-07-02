@@ -2947,6 +2947,14 @@ test("Codex active-thread state classifies running blocked stale and needs-nudge
     assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.reasonCodes.includes("app_server_state_overridden_by_watcher"), true);
     assert.equal((byThread.get("codex_thread:019f-state-needs-nudge")?.confidence ?? 1) <= 0.74, true);
     assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.sourceCoverage.watchers, "ok");
+    assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.nextControlDryRun?.tool, "loo_codex_control_dry_run");
+    assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.nextControlDryRun?.execute, false);
+    assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.nextControlDryRun?.status, "ready");
+    assert.deepEqual(byThread.get("codex_thread:019f-state-needs-nudge")?.nextControlDryRun?.args, {
+      action: "resume",
+      thread_id: "019f-state-needs-nudge"
+    });
+    assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.nextControlDryRun?.approvalBoundary.includes("approval_audit_id"), true);
     assert.equal(byThread.get("codex_thread:019f-state-stale")?.state, "stale");
     assert.equal(byThread.get("codex_thread:019f-state-stale")?.reasonCodes.includes("watcher_stale"), true);
     assert.equal(byThread.get("codex_thread:019f-state-conflict")?.state, "unknown");
@@ -3011,6 +3019,12 @@ test("Codex active-thread state classifies before applying caller limit", () => 
     assert.equal(report.summary.returned, 1);
     assert.equal(report.items[0]?.threadId, "codex_thread:019f-active-limit-nudge");
     assert.equal(report.items[0]?.state, "needs_nudge");
+    assert.equal(report.items[0]?.nextControlDryRun?.tool, "loo_codex_control_dry_run");
+    assert.equal(report.items[0]?.nextControlDryRun?.execute, false);
+    assert.deepEqual(report.items[0]?.nextControlDryRun?.args, {
+      action: "resume",
+      thread_id: "019f-active-limit-nudge"
+    });
     assert.equal(report.omitted.count, 25);
     assert.equal(report.omitted.reason, "limit");
   });

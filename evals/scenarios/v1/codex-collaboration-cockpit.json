@@ -37,7 +37,7 @@
     "lco.codex.collaborationNextSteps.v1 schema with execute=false tool-call packets",
     "next-step packets for watcher resume, Desktop coherence, fallback status, blocked approval, and observe/no-op lanes",
     "lco.codex.activeThreadState.v1 schema with running, blocked, needs_nudge, stale, waiting, needs_approval, idle, and unknown state counts",
-    "active-thread state items include confidence, freshness, reason codes, source coverage, and false action flags; app-server/indexed conflicts degrade to unknown or low confidence"
+    "active-thread state items include confidence, freshness, reason codes, source coverage, optional non-executed control dry-run recommendations, and false action flags; app-server/indexed conflicts degrade to unknown or low confidence"
   ],
   "private_data_exclusions": [
     "raw Codex transcripts",
@@ -63,6 +63,6 @@
     "requires_collaboration_next_steps_report": true,
     "requires_active_thread_state_report": true
   },
-  "proof_boundary": "Dry-run scenario contract for the read-only Codex collaboration cockpit, next-step planner, and active-thread state classifier. It may prove public-safe active-lane summarization, explicit state classification, and exact execute=false next tool packets from structured cards and supplied Desktop/app-server/watcher evidence, but does not prove live Codex control, Codex GUI mutation, prompt typing, clicking, refresh/restart automation, Claude parity, npm publish, GitHub Release creation, or 1.1 release readiness.",
+  "proof_boundary": "Dry-run scenario contract for the read-only Codex collaboration cockpit, next-step planner, and active-thread state classifier. It may prove public-safe active-lane summarization, explicit state classification, non-executed control dry-run recommendation packets, and exact execute=false next tool packets from structured cards and supplied Desktop/app-server/watcher evidence, but does not prove live Codex control, Codex GUI mutation, prompt typing, clicking, refresh/restart automation, Claude parity, npm publish, GitHub Release creation, or 1.1 release readiness.",
   "next_action": "Run the collaboration cockpit, active-thread state classifier, and next-step planner through focused tests and OpenClaw gateway tool-smoke, then record only public-safe lane counts, state counts, reason codes, source coverage, confidence, execute=false packets, and action flags."
 }

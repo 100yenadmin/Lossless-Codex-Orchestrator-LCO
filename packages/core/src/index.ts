@@ -596,6 +596,22 @@ export type CodexRuntimeDesktopVisibilityStatusOptions = CodexCollaborationCockp
 
 export type CodexActiveThreadStateKind = "running" | "blocked" | "needs_nudge" | "stale" | "waiting" | "needs_approval" | "idle" | "unknown";
 
+export type CodexActiveThreadControlDryRunRecommendation = {
+  tool: "loo_codex_control_dry_run";
+  execute: false;
+  status: "ready" | "blocked";
+  args: {
+    action: "resume";
+    thread_id: string;
+  };
+  messageIncluded: false;
+  messageRef: string;
+  approvalBoundary: string;
+  blockers: string[];
+  reasonCodes: string[];
+  confidence: number;
+};
+
 export type CodexActiveThreadStateItem = {
   threadId: string;
   title: string;
@@ -607,6 +623,7 @@ export type CodexActiveThreadStateItem = {
   confidence: number;
   reasonCodes: string[];
   evidenceIds: string[];
+  nextControlDryRun: CodexActiveThreadControlDryRunRecommendation | null;
   sourceCoverage: {
     indexedSession: VisibleCodexCoverageState;
     cockpitInbox: VisibleCodexCoverageState;
@@ -2984,6 +3001,9 @@ function activeThreadStateItem(
     ...input.watchers.flatMap((watcher) => watcher.evidenceIds),
     ...(input.visibleMapItem?.evidenceIds ?? [])
   ]);
+  const safeReasonCodes = reasonCodes.map(collaborationPublicSafeReasonCode).filter((code): code is string => Boolean(code)).slice(0, 30);
+  const safeEvidenceIds = evidenceIds.map((id) => publicSafeRefLike(id, "evidence") ?? "").filter(Boolean).slice(0, 30);
+  const safeConfidence = Number(confidence.toFixed(2));
   return {
     threadId: lane.threadId,
     title: publicSafeText(lane.title, 180),
@@ -2992,10 +3012,43 @@ function activeThreadStateItem(
     attention: lane.attention,
     freshness: lane.card.freshness,
     nextAction: lane.nextAction,
-    confidence: Number(confidence.toFixed(2)),
-    reasonCodes: reasonCodes.map(collaborationPublicSafeReasonCode).filter((code): code is string => Boolean(code)).slice(0, 30),
-    evidenceIds: evidenceIds.map((id) => publicSafeRefLike(id, "evidence") ?? "").filter(Boolean).slice(0, 30),
+    confidence: safeConfidence,
+    reasonCodes: safeReasonCodes,
+    evidenceIds: safeEvidenceIds,
+    nextControlDryRun: activeThreadControlDryRunRecommendation(lane, state, safeConfidence, safeReasonCodes),
     sourceCoverage: input.sourceCoverage
+  };
+}
+
+function activeThreadControlDryRunRecommendation(
+  lane: CodexCollaborationCockpitLane,
+  state: CodexActiveThreadStateKind,
+  confidence: number,
+  reasonCodes: string[]
+): CodexActiveThreadControlDryRunRecommendation | null {
+  if (state !== "needs_nudge" && state !== "needs_approval") return null;
+  const threadId = safeThreadId(lane.threadId);
+  const blocked = state === "needs_approval";
+  const blockers = blocked ? ["approval_required_before_live_control"] : [];
+  return {
+    tool: "loo_codex_control_dry_run",
+    execute: false,
+    status: blocked ? "blocked" : "ready",
+    args: {
+      action: "resume",
+      thread_id: threadId
+    },
+    messageIncluded: false,
+    messageRef: `control_dry_run_message:${stableId(`${lane.threadId}:${state}:${lane.nextAction.kind}:${lane.nextAction.reason}`).slice(0, 16)}`,
+    approvalBoundary: "This is a read-only recommendation for a future dry-run call. It does not mint an audit id, send a message, resume Codex, or authorize live control. Any live resume/send/steer/interrupt still requires the matching dry-run proof, approval_audit_id, and Codex approval/sandbox gates.",
+    blockers,
+    reasonCodes: unique([
+      ...reasonCodes,
+      "control_dry_run_recommended",
+      "approval_audit_id_required_for_live_control",
+      ...(blocked ? ["approval_required_before_live_control"] : ["nudge_resume_dry_run_ready"])
+    ]).slice(0, 30),
+    confidence: Math.max(0.1, Math.min(1, confidence))
   };
 }
 

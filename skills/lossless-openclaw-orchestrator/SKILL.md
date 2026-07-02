@@ -40,8 +40,9 @@ Codex sessions through the installed `loo_*` tools.
   `execute=false` recommendation, not as approval to mutate the Desktop.
 - Use `loo_codex_active_thread_state` when you need one compact read-only answer
   about which active threads are running, blocked, stale, or need a nudge.
-  Treat low-confidence or conflicting states as inspect-first, never as approval
-  to send or steer.
+  Use `nextControlDryRun` only as a non-executed dry-run handoff; treat
+  low-confidence or conflicting states as inspect-first, never as approval to
+  send or steer.
 
 ## Find Active Codex Sessions
 
@@ -120,7 +121,9 @@ Typical live tools after approval are `loo_codex_resume_thread`,
    covered/partial/blocked status for runtime Desktop visibility across active
    lanes. It reports source coverage and next read-only proof steps only.
 9. Call `loo_codex_active_thread_state` when you need active-thread state counts
-   and reason codes before recommending attention order.
+   and reason codes before recommending attention order. If an item includes
+   `nextControlDryRun`, show it as an `execute=false` dry-run recommendation,
+   not as a live-control approval.
 
 ## Recommended Agent Loop
 
