@@ -1547,6 +1547,25 @@ test("Codex collaboration cockpit keeps selected-lane Desktop evidence public-sa
     assert.equal(limited.lanes[0]?.desktop.sourceCoverage.desktopCoherence, "partial");
     assert.deepEqual(limited.lanes[0]?.desktop.evidenceIds, []);
 
+    const visibleBranch = createCodexCollaborationCockpit(db, {
+      limit: 5,
+      now: "2026-07-02T00:00:00.000Z",
+      desktopCoherenceReports: [{
+        schema: "lco.codexDesktopCoherence.v1",
+        publicSafe: true,
+        target: { threadId: "019f-collab-limit-visible", sourceRef: "codex_thread:019f-collab-limit-visible" },
+        state: "desktop_visible",
+        confidence: 0.94,
+        evidenceIds: ["ev_visible_branch"],
+        actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
+      }]
+    });
+    const visibleLane = visibleBranch.lanes.find((lane) => lane.threadId === "codex_thread:019f-collab-limit-visible");
+    assert.ok(visibleLane);
+    assert.equal(visibleLane.desktop.state, "desktop_visible");
+    assert.equal(visibleLane.desktop.confidence, 0.94);
+    assert.equal(visibleBranch.summary.desktopVisible, 1);
+
     const invalidAndSensitive = createCodexCollaborationCockpit(db, {
       limit: 5,
       now: "2026-07-02T00:00:00.000Z",
@@ -1593,6 +1612,10 @@ test("Codex collaboration cockpit keeps selected-lane Desktop evidence public-sa
 
     assert.equal(invalidAndSensitive.summary.needsApproval, 1);
     assertNoUnsafeStrings(invalidAndSensitive, ...canaries);
+    // Approval phrase detection is currently a summary-level signal; text-only detection does not add a lane reasonCode.
+    const approvalBlockedLane = invalidAndSensitive.lanes.find((lane) => lane.threadId === "codex_thread:019f-collab-without-approval");
+    assert.ok(approvalBlockedLane);
+    assert.equal(approvalBlockedLane.reasonCodes.includes("approval_needed"), false);
 
     const withoutApprovalLane = invalidAndSensitive.lanes.find((lane) => lane.threadId === "codex_thread:019f-collab-without-approval");
     assert.ok(withoutApprovalLane);
