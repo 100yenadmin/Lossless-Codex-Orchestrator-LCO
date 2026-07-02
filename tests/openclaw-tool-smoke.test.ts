@@ -339,6 +339,10 @@ if (method === "tools.invoke") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.codex.activeThreadState.v1", publicSafe: true, readOnly: true, generatedAt: "2026-07-01T12:00:00.000Z", summary: { totalLanes: 1, returned: 1, running: 0, blocked: 0, needsApproval: 0, needsNudge: 1, stale: 0, waiting: 0, idle: 0, unknown: 0, lowConfidence: 0, attentionCovered: 0, attentionPartial: 1, attentionNeedsProbe: 0, attentionUnknown: 0, nextReadOnlyActions: 1 }, sourceCoverage: { indexedSession: "ok", cockpitInbox: "ok", watchers: "ok", codexAppServer: "ok", visibleCodexMap: "not_configured" }, items: [{ threadId: "codex_thread:thread-1", title: "Thread 1", state: "needs_nudge", sessionState: "running", attention: { level: "high", urgencyScore: 80 }, freshness: { lastEventAt: "2026-07-01T11:59:00.000Z", ageSeconds: 60, stale: false }, nextAction: { kind: "resume", confidence: 0.9, reason: "resume after watcher trigger" }, confidence: 0.9, reasonCodes: ["active_state:needs_nudge", "watcher_triggered", "app_server_state_overridden_by_watcher"], evidenceIds: ["ev_tool_smoke"], attentionCoverage: { status: "partial", confidence: 0.9, reasonCodes: ["attention_partial", "attention_conflicting_state", "attention_read_only_probe_available"], nextReadOnlyAction: { tool: "loo_codex_app_server_threads", execute: false, args: { read_thread_id: "thread-1", limit: 20 }, reason: "Refresh read-only Codex app-server thread metadata before trusting the active-state lane." } }, nextControlDryRun: { tool: "loo_codex_control_dry_run", execute: false, status: "ready", args: { action: "resume", thread_id: "thread-1" }, messageIncluded: false, messageRef: "control_dry_run_message:toolsmoke", approvalBoundary: "Live control still requires approval_audit_id.", blockers: [], reasonCodes: ["control_dry_run_recommended"], confidence: 0.9 }, sourceCoverage: { indexedSession: "ok", cockpitInbox: "ok", watchers: "ok", codexAppServer: "ok", visibleCodexMap: "not_configured" } }], omitted: { count: 0, reason: "none" }, actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false, npmPublished: false, githubReleaseCreated: false } } }));
     process.exit(0);
   }
+  if (name === "loo_codex_autonomy_tick") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.codex.autonomyTick.v1", publicSafe: true, readOnly: true, generatedAt: "2026-07-01T12:00:00.000Z", summary: { totalLanes: 1, returnedSteps: 2, readOnlyProbes: 1, controlDryRunRecommendations: 1, blockedControlDryRuns: 0 }, sourceCoverage: { indexedSession: "ok", cockpitInbox: "ok", watchers: "ok", codexAppServer: "ok", visibleCodexMap: "not_configured" }, steps: [{ stepId: "autonomy_step_probe", threadId: "codex_thread:thread-1", stepType: "read_only_probe", priority: 1880, tool: "loo_codex_app_server_threads", execute: false, args: { read_thread_id: "thread-1", limit: 20 }, reason: "Refresh read-only Codex app-server thread metadata before trusting the active-state lane.", idempotencyKey: "autonomy_tick:probe-thread-1", stopConditions: ["execute_false_only", "recompute_tick_after_probe", "raw_transcript_not_read"], reasonCodes: ["autonomy_tick_read_only_probe", "autonomy_tool:loo_codex_app_server_threads"], evidenceIds: ["ev_tool_smoke"], confidence: 0.9, sourceCoverage: { indexedSession: "ok", cockpitInbox: "ok", watchers: "ok", codexAppServer: "ok", visibleCodexMap: "not_configured" } }, { stepId: "autonomy_step_dry_run", threadId: "codex_thread:thread-1", stepType: "control_dry_run", priority: 1780, tool: "loo_codex_control_dry_run", execute: false, args: { action: "resume", thread_id: "thread-1" }, reason: "Prepare a dry-run resume packet after read-only attention probes are refreshed.", approvalBoundary: "Live control still requires approval_audit_id.", idempotencyKey: "autonomy_tick:dry-run-thread-1", stopConditions: ["execute_false_only", "live_control_requires_approval_audit_id", "codex_approval_sandbox_gates_preserved"], reasonCodes: ["autonomy_tick_control_dry_run", "autonomy_tool:loo_codex_control_dry_run", "control_dry_run_ready"], evidenceIds: ["ev_tool_smoke"], confidence: 0.9, sourceCoverage: { indexedSession: "ok", cockpitInbox: "ok", watchers: "ok", codexAppServer: "ok", visibleCodexMap: "not_configured" } }], actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false, npmPublished: false, githubReleaseCreated: false } } }));
+    process.exit(0);
+  }
   if (name === "loo_codex_desktop_collaboration_proof") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.codexDesktopCollaborationProof.v1", publicSafe: true, readOnly: true, ok: true, status: "ready", target: { targetRef: toolArgs.target_ref, targetThreadId: toolArgs.target_thread_id }, actionHash: toolArgs.action_hash, approvalVerified: true, blockers: [], sourceCoverage: { indexedSession: "ok", desktopCoherence: "ok", desktopFallback: "ok", approvalPacket: "ok" }, requiredNextToolCall: { tool: "loo_desktop_live_proof_harness", args: { backend: toolArgs.backend, target_app: toolArgs.target_app, target_window: toolArgs.target_window, action: toolArgs.action, approval_ref: toolArgs.approval_packet?.approvalRef }, execute: false }, actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false } } }));
     process.exit(0);
@@ -859,6 +863,44 @@ test("OpenClaw tool smoke invokes active-thread state through the gateway surfac
 
     const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { method: string; params: { name?: string; args?: Record<string, any> } });
     const invoke = calls.find((call) => call.method === "tools.invoke" && call.params.name === "loo_codex_active_thread_state");
+    assert.equal(invoke?.params.args?.app_server_threads?.sourceCoverage?.codexAppServer, "ok");
+    assert.equal(invoke?.params.args?.watcher_specs?.[0]?.mutates, false);
+    assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /super-secret-transcript-span/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke invokes autonomy tick through the gateway surface", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-autonomy-tick-"));
+  const evidencePath = join(dir, "tool-smoke.json");
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_codex_autonomy_tick"]);
+
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      profile: "lco-issue-371",
+      sessionKey: "agent:main:lco-issue-371",
+      evidencePath,
+      requiredTools: ["loo_codex_autonomy_tick"],
+      threadId: "thread-1",
+      strict: true
+    });
+
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.deepEqual(report.blockers, []);
+    assert.equal(report.invocations[0]?.toolName, "loo_codex_autonomy_tick");
+    assert.equal((report.invocations[0]?.summary.autonomyTick as Record<string, number> | undefined)?.returnedSteps, 2);
+    assert.equal((report.invocations[0]?.summary.autonomyTick as Record<string, number> | undefined)?.readOnlyProbes, 1);
+    assert.equal((report.invocations[0]?.summary.autonomyTick as Record<string, number> | undefined)?.controlDryRunRecommendations, 1);
+    assert.equal(report.invocations[0]?.summary.nextToolCall?.tool, "loo_codex_app_server_threads");
+    assert.equal(report.invocations[0]?.summary.nextToolCall?.execute, false);
+
+    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { method: string; params: { name?: string; args?: Record<string, any> } });
+    const invoke = calls.find((call) => call.method === "tools.invoke" && call.params.name === "loo_codex_autonomy_tick");
     assert.equal(invoke?.params.args?.app_server_threads?.sourceCoverage?.codexAppServer, "ok");
     assert.equal(invoke?.params.args?.watcher_specs?.[0]?.mutates, false);
     assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /super-secret-transcript-span/);

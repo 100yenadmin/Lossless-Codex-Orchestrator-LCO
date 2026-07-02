@@ -696,6 +696,61 @@ export type CodexActiveThreadStateOptions = CodexCollaborationCockpitOptions & {
   visibleMap?: VisibleCodexSessionMapReport | null;
 };
 
+export type CodexAutonomyTickStepType = "read_only_probe" | "control_dry_run";
+
+export type CodexAutonomyTickTool =
+  | CodexActiveThreadReadOnlyAction["tool"]
+  | CodexActiveThreadControlDryRunRecommendation["tool"];
+
+export type CodexAutonomyTickStep = {
+  stepId: string;
+  threadId: string;
+  stepType: CodexAutonomyTickStepType;
+  priority: number;
+  tool: CodexAutonomyTickTool;
+  execute: false;
+  args: Record<string, string | number | boolean>;
+  reason: string;
+  approvalBoundary?: string;
+  idempotencyKey: string;
+  stopConditions: string[];
+  reasonCodes: string[];
+  evidenceIds: string[];
+  confidence: number;
+  sourceCoverage: CodexActiveThreadStateItem["sourceCoverage"];
+};
+
+export type CodexAutonomyTickReport = {
+  schema: "lco.codex.autonomyTick.v1";
+  publicSafe: true;
+  readOnly: true;
+  generatedAt: string;
+  summary: {
+    totalLanes: number;
+    returnedSteps: number;
+    readOnlyProbes: number;
+    controlDryRunRecommendations: number;
+    blockedControlDryRuns: number;
+  };
+  sourceCoverage: CodexActiveThreadStateReport["sourceCoverage"];
+  steps: CodexAutonomyTickStep[];
+  omitted: {
+    count: number;
+    reason: "limit" | "none";
+  };
+  actionsPerformed: {
+    liveCodexControlRun: false;
+    desktopGuiActionRun: false;
+    rawTranscriptRead: false;
+    screenshotCaptured: false;
+    npmPublished: false;
+    githubReleaseCreated: false;
+  };
+  proofBoundary: string;
+};
+
+export type CodexAutonomyTickOptions = CodexActiveThreadStateOptions;
+
 export type WatcherKind = "thread_finished" | "final_message_appeared" | "pr_checks_changed" | "review_comment_arrived" | "no_activity" | "approval_expired";
 export type WatcherStatus = "active" | "triggered" | "stale" | "expired" | "low_confidence";
 export type WatcherRecommendedAction = "inspect" | "resume" | "approve" | "ignore";
@@ -2572,6 +2627,51 @@ export function createCodexActiveThreadState(
   };
 }
 
+export function createCodexAutonomyTick(
+  db: LooDatabase,
+  options: CodexAutonomyTickOptions = {}
+): CodexAutonomyTickReport {
+  const generatedAt = publicIsoTimestamp(options.now) ?? new Date().toISOString();
+  const limit = clamp(options.limit ?? 20, 1, 500);
+  const activeState = createCodexActiveThreadState(db, {
+    ...options,
+    limit: 500,
+    now: generatedAt
+  });
+  // priorityOrder is applied while selecting active lanes; final tick ordering stays safety-first.
+  const candidateSteps = activeState.items.flatMap((item) => autonomyTickStepsForItem(item)).sort(autonomyTickStepComparator);
+  const steps = candidateSteps.slice(0, limit);
+
+  return {
+    schema: "lco.codex.autonomyTick.v1",
+    publicSafe: true,
+    readOnly: true,
+    generatedAt,
+    summary: {
+      totalLanes: activeState.summary.totalLanes,
+      returnedSteps: steps.length,
+      readOnlyProbes: steps.filter((step) => step.stepType === "read_only_probe").length,
+      controlDryRunRecommendations: steps.filter((step) => step.stepType === "control_dry_run").length,
+      blockedControlDryRuns: steps.filter((step) => step.stepType === "control_dry_run" && step.reasonCodes.includes("control_dry_run_blocked")).length
+    },
+    sourceCoverage: activeState.sourceCoverage,
+    steps,
+    omitted: {
+      count: Math.max(0, candidateSteps.length - steps.length),
+      reason: candidateSteps.length > steps.length ? "limit" : "none"
+    },
+    actionsPerformed: {
+      liveCodexControlRun: false,
+      desktopGuiActionRun: false,
+      rawTranscriptRead: false,
+      screenshotCaptured: false,
+      npmPublished: false,
+      githubReleaseCreated: false
+    },
+    proofBoundary: "This deterministic autonomy tick plans only public-safe execute-false next tool calls from active-thread state. It does not read raw transcripts, mint approval audit ids, resume/send/steer/interrupt Codex, mutate Desktop UI, capture screenshots, publish npm, create GitHub releases, or claim unattended autonomy."
+  };
+}
+
 function countActiveCodexSessions(db: LooDatabase): number {
   const row = db.prepare(`
     SELECT COUNT(*) AS total
@@ -3206,6 +3306,116 @@ function activeThreadControlDryRunRecommendation(
     ]).slice(0, 30),
     confidence: Math.max(0.1, Math.min(1, confidence))
   };
+}
+
+function autonomyTickStepsForItem(item: CodexActiveThreadStateItem): CodexAutonomyTickStep[] {
+  const steps: CodexAutonomyTickStep[] = [];
+  const readOnlyAction = item.attentionCoverage.nextReadOnlyAction;
+  if (readOnlyAction) {
+    steps.push(autonomyTickReadOnlyStep(item, readOnlyAction));
+  }
+  if (item.nextControlDryRun) {
+    steps.push(autonomyTickControlDryRunStep(item, item.nextControlDryRun));
+  }
+  return steps;
+}
+
+function autonomyTickReadOnlyStep(
+  item: CodexActiveThreadStateItem,
+  action: CodexActiveThreadReadOnlyAction
+): CodexAutonomyTickStep {
+  return autonomyTickStepRecord(item, {
+    stepType: "read_only_probe",
+    tool: action.tool,
+    args: action.args,
+    reason: action.reason,
+    reasonCodes: ["autonomy_tick_read_only_probe", `autonomy_tool:${action.tool}`],
+    stopConditions: ["execute_false_only", "recompute_tick_after_probe", "raw_transcript_not_read"]
+  });
+}
+
+function autonomyTickControlDryRunStep(
+  item: CodexActiveThreadStateItem,
+  recommendation: CodexActiveThreadControlDryRunRecommendation
+): CodexAutonomyTickStep {
+  return autonomyTickStepRecord(item, {
+    stepType: "control_dry_run",
+    tool: recommendation.tool,
+    args: recommendation.args,
+    reason: recommendation.status === "blocked"
+      ? "Record that a future control dry-run is blocked until the approval boundary is resolved."
+      : "Prepare a future dry-run resume packet after read-only attention probes are refreshed.",
+    approvalBoundary: recommendation.approvalBoundary,
+    reasonCodes: [
+      "autonomy_tick_control_dry_run",
+      `autonomy_tool:${recommendation.tool}`,
+      recommendation.status === "blocked" ? "control_dry_run_blocked" : "control_dry_run_ready",
+      ...recommendation.reasonCodes
+    ],
+    stopConditions: ["execute_false_only", "live_control_requires_approval_audit_id", "codex_approval_sandbox_gates_preserved"]
+  });
+}
+
+function autonomyTickStepRecord(
+  item: CodexActiveThreadStateItem,
+  input: {
+    stepType: CodexAutonomyTickStepType;
+    tool: CodexAutonomyTickTool;
+    args: Record<string, string | number | boolean>;
+    reason: string;
+    approvalBoundary?: string;
+    reasonCodes: string[];
+    stopConditions: string[];
+  }
+): CodexAutonomyTickStep {
+  const safeReasonCodes = unique([...item.reasonCodes, ...input.reasonCodes])
+    .map(collaborationPublicSafeReasonCode)
+    .filter((code): code is string => Boolean(code))
+    .slice(0, 30);
+  const argsKey = JSON.stringify(input.args, Object.keys(input.args).sort());
+  const idKey = `${item.threadId}:${input.stepType}:${input.tool}:${argsKey}`;
+  const confidence = Number.isFinite(item.confidence) ? Math.max(0.1, Math.min(1, item.confidence)) : 0.1;
+  return {
+    stepId: `autonomy_step_${stableId(idKey).slice(0, 16)}`,
+    threadId: item.threadId,
+    stepType: input.stepType,
+    priority: autonomyTickStepPriority(item, input.stepType),
+    tool: input.tool,
+    execute: false,
+    args: input.args,
+    reason: publicSafeText(input.reason, 240),
+    ...(input.approvalBoundary ? { approvalBoundary: publicSafeText(input.approvalBoundary, 360) } : {}),
+    idempotencyKey: `autonomy_tick:${stableId(idKey).slice(0, 24)}`,
+    stopConditions: unique(input.stopConditions.map(collaborationPublicSafeReasonCode).filter((code): code is string => Boolean(code))).slice(0, 12),
+    reasonCodes: safeReasonCodes,
+    evidenceIds: unique(item.evidenceIds.map((id) => publicSafeRefLike(id, "evidence") ?? "").filter(Boolean)).slice(0, 20),
+    confidence,
+    sourceCoverage: item.sourceCoverage
+  };
+}
+
+function autonomyTickStepPriority(item: CodexActiveThreadStateItem, stepType: CodexAutonomyTickStepType): number {
+  const stateRank = {
+    needs_nudge: 8,
+    needs_approval: 7,
+    blocked: 6,
+    stale: 5,
+    running: 4,
+    waiting: 3,
+    unknown: 2,
+    idle: 1
+  } as const satisfies Record<CodexActiveThreadStateKind, number>;
+  const urgency = Number.isFinite(item.attention.urgencyScore) ? Math.max(0, Math.trunc(item.attention.urgencyScore)) : 0;
+  const typeRank = stepType === "read_only_probe" ? 1_000 : 900;
+  return typeRank + stateRank[item.state] * 100 + urgency;
+}
+
+function autonomyTickStepComparator(left: CodexAutonomyTickStep, right: CodexAutonomyTickStep): number {
+  if (left.priority !== right.priority) return right.priority - left.priority;
+  const threadDelta = left.threadId.localeCompare(right.threadId);
+  if (threadDelta !== 0) return threadDelta;
+  if (left.stepType !== right.stepType) return left.stepType === "read_only_probe" ? -1 : 1;
+  return left.stepId.localeCompare(right.stepId);
 }
 
 function activeThreadStateItemSourceCoverage(input: {

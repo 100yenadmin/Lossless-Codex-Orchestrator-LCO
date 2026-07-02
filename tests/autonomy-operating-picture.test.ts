@@ -9,6 +9,7 @@ import {
   createAttentionInbox,
   createBusinessPulse,
   createCodexActiveThreadState,
+  createCodexAutonomyTick,
   createDatabase,
   createDefaultSourceAuthorityProfile,
   createCodexCollaborationNextSteps,
@@ -3082,6 +3083,86 @@ test("Codex active-thread attention coverage emits unknown when no attention sou
     assert.equal(report.actionsPerformed.liveCodexControlRun, false);
     assert.equal(report.actionsPerformed.desktopGuiActionRun, false);
     assert.equal(report.actionsPerformed.rawTranscriptRead, false);
+  });
+});
+
+test("Codex autonomy tick orders read-only probes before control dry-run recommendations", () => {
+  withIndexedSessions([
+    {
+      id: "019f-autonomy-nudge",
+      title: "Autonomy nudge lane",
+      status: "running",
+      priority: "urgent",
+      nextAction: "resume watcher-triggered work",
+      updatedAt: relativeIso(60),
+      refs: true
+    }
+  ], ({ db }) => {
+    const report = createCodexAutonomyTick(db, {
+      limit: 10,
+      now: "2026-07-02T00:00:00.000Z",
+      watcherSpecs: [{
+        schema: "lco.watchSpec.v1",
+        watchId: "watch_autonomy_nudge",
+        targetRef: "codex_thread:019f-autonomy-nudge",
+        kind: "no_activity",
+        createdAt: "2026-07-01T22:00:00.000Z",
+        lastObservedAt: "2026-07-01T22:00:00.000Z",
+        ttlSeconds: 14400,
+        staleAfterSeconds: 1800,
+        stopConditions: ["thread_resumed"],
+        evidenceIds: ["ev_autonomy_nudge"],
+        confidence: 0.92,
+        mutates: false,
+        observed: { noActivitySeconds: 3600 }
+      }],
+      appServerThreads: {
+        schema: "lco.codex.appServerThreads.v1",
+        publicSafe: true,
+        sourceCoverage: { codexAppServer: "ok" },
+        threads: [{
+          threadId: "019f-autonomy-nudge",
+          sourceRef: "codex_thread:019f-autonomy-nudge",
+          status: "blocked",
+          loaded: true,
+          loadedState: "loaded",
+          confidence: 0.91
+        }]
+      }
+    });
+
+    const tools = createLooTools({
+      db,
+      audit: createAuditStore(join(tmpdir(), "loo-autonomy-tick-audit.jsonl")),
+      codexClient: { request: async () => ({ ok: true }) }
+    });
+    assert.ok(tools.find((candidate) => candidate.name === "loo_codex_autonomy_tick"));
+
+    assert.equal(report.schema, "lco.codex.autonomyTick.v1");
+    assert.equal(report.publicSafe, true);
+    assert.equal(report.readOnly, true);
+    assert.equal(report.summary.returnedSteps, 2);
+    assert.equal(report.summary.readOnlyProbes, 1);
+    assert.equal(report.summary.controlDryRunRecommendations, 1);
+    assert.equal(report.sourceCoverage.codexAppServer, "ok");
+    assert.equal(report.steps.length, 2);
+    assert.deepEqual(report.steps.map((step) => step.stepType), ["read_only_probe", "control_dry_run"]);
+    assert.equal(report.steps[0]?.threadId, "codex_thread:019f-autonomy-nudge");
+    assert.equal(report.steps[0]?.tool, "loo_codex_app_server_threads");
+    assert.equal(report.steps[0]?.execute, false);
+    assert.deepEqual(report.steps[0]?.args, { read_thread_id: "019f-autonomy-nudge", limit: 20 });
+    assert.equal(report.steps[0]?.idempotencyKey.startsWith("autonomy_tick:"), true);
+    assert.equal(report.steps[0]?.stopConditions.includes("recompute_tick_after_probe"), true);
+    assert.equal(report.steps[1]?.tool, "loo_codex_control_dry_run");
+    assert.equal(report.steps[1]?.execute, false);
+    assert.deepEqual(report.steps[1]?.args, { action: "resume", thread_id: "019f-autonomy-nudge" });
+    assert.equal(report.steps[1]?.approvalBoundary.includes("approval_audit_id"), true);
+    assert.equal(report.steps[1]?.stopConditions.includes("live_control_requires_approval_audit_id"), true);
+    assert.ok((report.steps[0]?.priority ?? 0) > (report.steps[1]?.priority ?? 0));
+    assert.equal(report.actionsPerformed.liveCodexControlRun, false);
+    assert.equal(report.actionsPerformed.desktopGuiActionRun, false);
+    assert.equal(report.actionsPerformed.rawTranscriptRead, false);
+    assert.equal(report.actionsPerformed.screenshotCaptured, false);
   });
 });
 

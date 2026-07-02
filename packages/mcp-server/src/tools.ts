@@ -7,6 +7,7 @@ import {
   createAttentionInbox,
   createBusinessPulse,
   createCodexActiveThreadState,
+  createCodexAutonomyTick,
   createCodexCollaborationNextSteps,
   createCodexCollaborationCockpit,
   createCodexRuntimeDesktopVisibilityStatus,
@@ -289,6 +290,25 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       visible_map: { type: "object", additionalProperties: true },
       now: { type: "string" }
     }, (input) => createCodexActiveThreadState(options.db, {
+      limit: optionalNumber(input.limit),
+      priorityOrder: optionalStringArray(input.priority_order),
+      watcherSpecs: optionalWatchSpecs(input.watcher_specs),
+      desktopCoherenceReports: optionalRecordArray(input.desktop_coherence_reports),
+      desktopFallbackReports: optionalRecordArray(input.desktop_fallback_reports),
+      appServerThreads: optionalRecord(input.app_server_threads) as AppServerThreadsInput | undefined,
+      visibleMap: optionalRecord(input.visible_map) as VisibleCodexSessionMapReport | undefined,
+      now: optionalString(input.now)
+    })),
+    tool("loo_codex_autonomy_tick", "Plan one deterministic read-only Codex autonomy loop tick from active-thread state without executing control, GUI actions, raw transcript reads, publishing, or releases.", {
+      limit: { type: "integer", minimum: 1, maximum: 500 },
+      priority_order: { type: "array", items: { type: "string" } },
+      watcher_specs: { type: "array", items: { type: "object", additionalProperties: true } },
+      desktop_coherence_reports: { type: "array", items: { type: "object", additionalProperties: true } },
+      desktop_fallback_reports: { type: "array", items: { type: "object", additionalProperties: true } },
+      app_server_threads: { type: "object", additionalProperties: true },
+      visible_map: { type: "object", additionalProperties: true },
+      now: { type: "string" }
+    }, (input) => createCodexAutonomyTick(options.db, {
       limit: optionalNumber(input.limit),
       priorityOrder: optionalStringArray(input.priority_order),
       watcherSpecs: optionalWatchSpecs(input.watcher_specs),
