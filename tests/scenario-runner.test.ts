@@ -286,7 +286,7 @@ test("runtime-required v1.1 scenarios define working-app proof beyond dry-run co
     assert.equal(scenario.scenario_version, "1.1", `${file} must use runtime scenario version 1.1`);
     assert.equal(scenario.proof_mode, "runtime_required", `${file} must require runtime proof`);
     assert.equal(scenario.claim_scope, "codex-working-app-proof", `${file} must target the working-app claim scope`);
-    assert.match(String(scenario.issue), /^(#1(5[8-9]|6[0-1])|#30[78])$/);
+    assert.match(String(scenario.issue), /^(#1(5[8-9]|6[0-1])|#30[78]|#333)$/);
     assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /source ref|plugin id|tool surface|desktop backend/i);
     assert.match(JSON.stringify(scenario.forbidden_behaviors), /raw|unauthorized|secret/i);
     assert.match(String(scenario.proof_boundary), /Proves one|Proves only|does not prove/i);
@@ -312,6 +312,7 @@ test("scenario sweep fails closed for v1.1 runtime scenarios until proof markers
   assert.match(report.blockers.join("\n"), /runtime_proof_missing:codex-desktop-coherence-v1-1:desktop_visibility_classification/);
   assert.match(report.blockers.join("\n"), /runtime_proof_missing:codex-desktop-fallback-status-v1-1:codex_desktop_fallback_status_report/);
   assert.match(report.blockers.join("\n"), /runtime_proof_missing:codex-desktop-fallback-status-v1-1:peekaboo_secondary_warning/);
+  assert.match(report.blockers.join("\n"), /runtime_proof_missing:desktop-collaboration-action-bound-v1-1:approval_packet_bound/);
   assert.match(report.blockers.join("\n"), /runtime_proof_missing:openclaw-gateway-live-codex-v1-1:installed_gateway_path/);
   assert.match(report.blockers.join("\n"), /runtime_proof_missing:openclaw-gateway-live-codex-v1-1:matching_approval_audit_id/);
   assert.match(report.blockers.join("\n"), /runtime_proof_missing:post-action-refresh-reasoning-v1-1:post_action_refresh/);
@@ -338,6 +339,7 @@ test("loo eval scenarios accepts v1.1 runtime proof markers through the CLI", ()
   }, { raw_transcript_spans: 0 });
   writeRuntimeProof(runtimeProofDir, "desktop-collaboration-action-bound-v1-1", {
     action_bound_target: true,
+    approval_packet_bound: true,
     backend_specific_observation: true,
     no_focus_measurement: true
   }, { screenshot_count: 0 });

@@ -20,6 +20,7 @@ LCO is a local-first orchestration layer for Codex-heavy work:
 - exposes `loo_*` tools through MCP and the OpenClaw plugin
 - creates dry-run approval packets before Codex resume/send/steer/interrupt
 - reports Codex Desktop visibility and fallback readiness without GUI mutation
+- validates exact action-bound Desktop collaboration proof packets without executing them
 
 The result is a staged recall loop:
 

@@ -47,6 +47,7 @@ import {
   createCodexAppServerThreadsReport,
   codexTransportStatus,
   createCodexControl,
+  createCodexDesktopCollaborationProof,
   createCodexDesktopFallbackReport,
   createDesktopGuiProofReport,
   createDesktopLiveProofHarness,
@@ -255,6 +256,29 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       watcherSpecs: optionalWatchSpecs(input.watcher_specs),
       desktopCoherenceReports: optionalRecordArray(input.desktop_coherence_reports),
       desktopFallbackReports: optionalRecordArray(input.desktop_fallback_reports),
+      now: optionalString(input.now)
+    })),
+    tool("loo_codex_desktop_collaboration_proof", "Validate an exact action-bound Codex Desktop collaboration proof packet without running live control or GUI mutation.", {
+      target_ref: { type: "string" },
+      target_thread_id: { type: "string" },
+      backend: { type: "string", enum: ["direct", "cua-driver", "peekaboo"] },
+      target_app: { type: "string" },
+      target_window: { type: "string" },
+      action: { type: "string" },
+      action_hash: { type: "string" },
+      approval_packet: { type: "object", additionalProperties: true },
+      execute: { type: "boolean" },
+      now: { type: "string" }
+    }, (input) => createCodexDesktopCollaborationProof({
+      targetRef: optionalString(input.target_ref),
+      targetThreadId: optionalString(input.target_thread_id),
+      desktopBackend: optionalDesktopBackend(input.backend),
+      targetApp: optionalString(input.target_app),
+      targetWindow: optionalString(input.target_window),
+      action: optionalString(input.action),
+      actionHash: optionalString(input.action_hash),
+      approvalPacket: input.approval_packet,
+      execute: input.execute === true,
       now: optionalString(input.now)
     })),
     tool("loo_watchers_list", "List read-only watcher specs as deterministic public-safe watcher status rows.", {

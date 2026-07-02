@@ -393,6 +393,88 @@ export type DesktopLiveProofHarnessReport = {
   nextAction: string;
 };
 
+export type CodexDesktopCollaborationProofApprovalPacket = {
+  schema: "lco.codexDesktopCollaborationProofApproval.v1";
+  approvalRef: string;
+  approved: true;
+  targetRef: string;
+  targetThreadId?: string;
+  desktopBackend: DesktopBackend;
+  targetApp: string;
+  targetWindow: string;
+  action: string;
+  actionHash: string;
+  issuedAt: string;
+  expiresAt: string;
+  preconditions?: string[];
+  sourceCoverage?: {
+    indexedSession?: SourceCoverageState;
+    desktopCoherence?: SourceCoverageState;
+    desktopFallback?: SourceCoverageState;
+    approvalPacket?: SourceCoverageState;
+  };
+  focusPolicy?: {
+    screenshotAllowed?: boolean;
+    requireNoFocusSteal?: boolean;
+  };
+};
+
+export type CodexDesktopCollaborationProofReport = {
+  schema: "lco.codexDesktopCollaborationProof.v1";
+  publicSafe: true;
+  readOnly: true;
+  generatedAt: string;
+  ok: boolean;
+  status: "ready" | "blocked";
+  target: {
+    targetRef?: string;
+    targetThreadId?: string;
+  };
+  desktopBackend?: DesktopBackend;
+  targetApp?: string;
+  targetWindow?: string;
+  action?: string;
+  actionHash?: string;
+  expectedActionHash?: string;
+  approvalRef?: string;
+  approvalVerified: boolean;
+  blockers: string[];
+  reasonCodes: string[];
+  sourceCoverage: {
+    indexedSession: SourceCoverageState;
+    desktopCoherence: SourceCoverageState;
+    desktopFallback: SourceCoverageState;
+    approvalPacket: SourceCoverageState;
+  };
+  proofMarkers: {
+    actionBoundTarget: boolean;
+    approvalPacketBound: boolean;
+    publicSafeEvidenceOnly: true;
+    noScreenshotPolicy: boolean;
+    dryRunOnly: true;
+  };
+  requiredNextToolCall: {
+    tool: "loo_desktop_live_proof_harness";
+    args: {
+      backend: DesktopBackend;
+      target_app: string;
+      target_window: string;
+      action: string;
+      approval_ref: string;
+    };
+    execute: false;
+  } | null;
+  actionsPerformed: {
+    liveCodexControlRun: false;
+    desktopGuiActionRun: false;
+    rawTranscriptRead: false;
+    screenshotCaptured: false;
+  };
+  privateDataExclusions: string[];
+  proofBoundary: string;
+  nextAction: string;
+};
+
 export type DesktopActReport = {
   backend: DesktopBackend;
   action: string;
@@ -1278,6 +1360,139 @@ export function createDesktopLiveProofHarness(input: {
     nextAction: proofHarnessReady
       ? "Run the backend-specific live action outside this harness, capture a public-safe no-focus observation, then validate it with loo desktop proof-report."
       : "Resolve the listed blockers before attempting any backend-specific live desktop proof."
+  };
+}
+
+export function createCodexDesktopCollaborationProof(input: {
+  targetRef?: string;
+  targetThreadId?: string;
+  desktopBackend?: DesktopBackend;
+  targetApp?: string;
+  targetWindow?: string;
+  action?: string;
+  actionHash?: string;
+  approvalPacket?: unknown;
+  execute?: boolean;
+  now?: string;
+} = {}): CodexDesktopCollaborationProofReport {
+  const generatedAt = publicIsoTimestamp(input.now) ?? new Date().toISOString();
+  const targetRef = publicCodexThreadRef(input.targetRef);
+  const targetThreadId = publicCodexThreadId(input.targetThreadId) ?? (targetRef ? targetRef.slice("codex_thread:".length) : undefined);
+  const desktopBackend = input.desktopBackend;
+  const targetApp = publicProofTextField(input.targetApp, 120);
+  const targetWindow = publicProofTextField(input.targetWindow, 160);
+  const action = publicProofAction(input.action);
+  const suppliedActionHash = publicHashField(input.actionHash) ? input.actionHash.toLowerCase() : undefined;
+  const approvalPacket = asRecord(input.approvalPacket);
+  const approvalRef = publicProofTextField(approvalPacket?.approvalRef, 160);
+  const approvalSourceCoverage = codexDesktopCollaborationApprovalSourceCoverage(approvalPacket);
+  const expectedActionHash = targetRef && desktopBackend && targetApp && targetWindow && action
+    ? codexDesktopCollaborationActionHash(targetRef, desktopBackend, targetApp, targetWindow, action)
+    : undefined;
+  const blockers: string[] = [];
+
+  if (input.execute === true) blockers.push("execute_not_supported");
+  if (!targetRef) blockers.push("target_ref_missing_or_invalid");
+  if (!targetThreadId) blockers.push("target_thread_id_missing_or_invalid");
+  if (!desktopBackend) blockers.push("desktop_backend_missing");
+  if (desktopBackend === "direct") blockers.push("desktop_backend_not_gui_fallback");
+  if (!targetApp) blockers.push("target_app_missing");
+  if (!targetWindow) blockers.push("target_window_missing");
+  if (!action) blockers.push("action_missing");
+  if (input.action && genericGuiActionRequested(input.action)) blockers.push("generic_gui_action_blocked");
+  if (input.action && liveCodexControlRequested(input.action)) blockers.push("live_codex_control_blocked");
+  if (action && !codexDesktopCollaborationActionAllowed(action)) blockers.push("unsupported_collaboration_action");
+  if (!suppliedActionHash) {
+    blockers.push("action_hash_missing");
+  } else if (expectedActionHash && suppliedActionHash !== expectedActionHash) {
+    blockers.push("action_hash_mismatch");
+  }
+
+  if (!approvalPacket) {
+    blockers.push("approval_packet_missing");
+  } else {
+    blockers.push(...validateCodexDesktopCollaborationApprovalPacket(approvalPacket, {
+      generatedAt,
+      targetRef,
+      targetThreadId,
+      desktopBackend,
+      targetApp,
+      targetWindow,
+      action,
+      actionHash: suppliedActionHash,
+      expectedActionHash
+    }));
+  }
+
+  const uniqueBlockers = uniquePublicBlockers(blockers);
+  const approvalVerified = approvalPacket !== null && uniqueBlockers.every((blocker) => !blocker.startsWith("approval_")) && !uniqueBlockers.includes("action_hash_mismatch");
+  const ready = uniqueBlockers.length === 0
+    && Boolean(targetRef && targetThreadId && desktopBackend && targetApp && targetWindow && action && suppliedActionHash && approvalRef);
+
+  return {
+    schema: "lco.codexDesktopCollaborationProof.v1",
+    publicSafe: true,
+    readOnly: true,
+    generatedAt,
+    ok: ready,
+    status: ready ? "ready" : "blocked",
+    target: {
+      targetRef,
+      targetThreadId
+    },
+    desktopBackend,
+    targetApp,
+    targetWindow,
+    action,
+    actionHash: suppliedActionHash,
+    expectedActionHash,
+    approvalRef,
+    approvalVerified,
+    blockers: uniqueBlockers,
+    reasonCodes: uniquePublicBlockers([
+      ready ? "action_bound_collaboration_proof_ready" : "action_bound_collaboration_proof_blocked",
+      ...uniqueBlockers
+    ]),
+    sourceCoverage: approvalSourceCoverage,
+    proofMarkers: {
+      actionBoundTarget: Boolean(targetRef && targetThreadId && desktopBackend && targetApp && targetWindow && action && suppliedActionHash && expectedActionHash && suppliedActionHash === expectedActionHash),
+      approvalPacketBound: approvalVerified,
+      publicSafeEvidenceOnly: true,
+      noScreenshotPolicy: Boolean(approvalPacket?.focusPolicy && asRecord(approvalPacket.focusPolicy)?.screenshotAllowed === false),
+      dryRunOnly: true
+    },
+    requiredNextToolCall: ready && desktopBackend && targetApp && targetWindow && action && approvalRef
+      ? {
+        tool: "loo_desktop_live_proof_harness",
+        args: {
+          backend: desktopBackend,
+          target_app: targetApp,
+          target_window: targetWindow,
+          action,
+          approval_ref: approvalRef
+        },
+        execute: false
+      }
+      : null,
+    actionsPerformed: {
+      liveCodexControlRun: false,
+      desktopGuiActionRun: false,
+      rawTranscriptRead: false,
+      screenshotCaptured: false
+    },
+    privateDataExclusions: [
+      "raw screenshots or videos",
+      "raw accessibility trees",
+      "raw Codex transcripts",
+      "raw prompts or message text",
+      "tokens, credentials, API keys, cookies",
+      "private customer data",
+      "absolute local transcript paths"
+    ],
+    proofBoundary: "This Codex Desktop collaboration proof validates an exact dry-run, action-bound packet for a visible Codex target. It does not run live Codex control, click, type, select, refresh, restart, mutate Codex Desktop, capture screenshots, or claim unattended Desktop collaboration.",
+    nextAction: ready
+      ? "Use the emitted execute=false loo_desktop_live_proof_harness packet only if a later, separately scoped approval intentionally attempts backend-specific visible Desktop proof."
+      : "Resolve blockers before attempting any Codex Desktop collaboration proof. Generic GUI or live Codex control requests must stay blocked."
   };
 }
 
@@ -2168,6 +2383,125 @@ function publicTextField(value: unknown, maxChars: number): string | undefined {
 
 function publicHashField(value: unknown): value is string {
   return typeof value === "string" && /^[a-f0-9]{64}$/i.test(value);
+}
+
+function publicIsoTimestamp(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return undefined;
+  return new Date(parsed).toISOString();
+}
+
+function publicCodexThreadRef(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return /^codex_thread:[A-Za-z0-9._:-]+$/.test(trimmed) ? trimmed : undefined;
+}
+
+function publicCodexThreadId(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return /^[A-Za-z0-9._:-]+$/.test(trimmed) ? trimmed : undefined;
+}
+
+function publicProofTextField(value: unknown, maxChars: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const redacted = String(redactValue(trimmed))
+    .replace(/\bnpm_[A-Za-z0-9]{20,}\b/g, "<redacted-secret>")
+    .replace(/\b(?:ghp|github_pat|glpat|xox[baprs]|AKIA|ASIA|AIza)[A-Za-z0-9_=-]{10,}\b/g, "<redacted-secret>")
+    .replace(/~\/\.codex\/(?:sessions|archived_sessions)\/[^\s"'`)]+/g, "<redacted-path>")
+    .replace(/\/Volumes\/[^\s"'`)]+/g, "<redacted-path>")
+    .replace(/\/(?:private\/)?(?:tmp|var)\/[^\s"'`)]+/g, "<redacted-path>");
+  const publicOnly = redacted.replace(/[^\w .,:;@+()[\]{}#=/-]/g, " ").replace(/\s+/g, " ").trim();
+  return publicOnly ? capTextValue(publicOnly, maxChars) : undefined;
+}
+
+function publicProofAction(value: unknown): string | undefined {
+  return publicProofTextField(value, 160);
+}
+
+function codexDesktopCollaborationActionHash(
+  targetRef: string,
+  desktopBackend: DesktopBackend,
+  targetApp: string,
+  targetWindow: string,
+  action: string
+): string {
+  return createHash("sha256").update(JSON.stringify({ targetRef, desktopBackend, targetApp, targetWindow, action })).digest("hex");
+}
+
+function codexDesktopCollaborationActionAllowed(action: string): boolean {
+  return action === "verify_visible_thread_alignment";
+}
+
+function genericGuiActionRequested(value: string): boolean {
+  return /\b(click|type|paste|key(?:press)?|drag|drop|select|scroll|tap|press|write|input)\b/i.test(value);
+}
+
+function liveCodexControlRequested(value: string): boolean {
+  return /\b(continue|send|steer|resume|interrupt|approve|start turn|turn\/start|thread\/resume)\b/i.test(value);
+}
+
+function codexDesktopCollaborationApprovalSourceCoverage(approvalPacket: Record<string, unknown> | null): CodexDesktopCollaborationProofReport["sourceCoverage"] {
+  const coverage = asRecord(approvalPacket?.sourceCoverage);
+  return {
+    indexedSession: sourceCoverageState(coverage?.indexedSession),
+    desktopCoherence: sourceCoverageState(coverage?.desktopCoherence),
+    desktopFallback: sourceCoverageState(coverage?.desktopFallback),
+    approvalPacket: approvalPacket ? sourceCoverageState(coverage?.approvalPacket) : "unavailable"
+  };
+}
+
+function sourceCoverageState(value: unknown): SourceCoverageState {
+  return value === "ok" || value === "partial" || value === "unavailable" || value === "not_configured"
+    ? value
+    : "partial";
+}
+
+function validateCodexDesktopCollaborationApprovalPacket(approvalPacket: Record<string, unknown>, expected: {
+  generatedAt: string;
+  targetRef?: string;
+  targetThreadId?: string;
+  desktopBackend?: DesktopBackend;
+  targetApp?: string;
+  targetWindow?: string;
+  action?: string;
+  actionHash?: string;
+  expectedActionHash?: string;
+}): string[] {
+  const blockers: string[] = [];
+  if (approvalPacket.schema !== "lco.codexDesktopCollaborationProofApproval.v1") blockers.push("approval_packet_schema_invalid");
+  if (approvalPacket.approved !== true) blockers.push("approval_packet_not_approved");
+  if (!publicProofTextField(approvalPacket.approvalRef, 160)) blockers.push("approval_ref_missing");
+  if (approvalPacket.targetRef !== expected.targetRef) blockers.push("approval_target_ref_mismatch");
+  if (approvalPacket.targetThreadId !== undefined && approvalPacket.targetThreadId !== expected.targetThreadId) blockers.push("approval_target_thread_id_mismatch");
+  if (approvalPacket.desktopBackend !== expected.desktopBackend) blockers.push("approval_backend_mismatch");
+  if (approvalPacket.targetApp !== expected.targetApp) blockers.push("approval_target_app_mismatch");
+  if (approvalPacket.targetWindow !== expected.targetWindow) blockers.push("approval_target_window_mismatch");
+  if (approvalPacket.action !== expected.action) blockers.push("approval_action_mismatch");
+  if (approvalPacket.actionHash !== expected.actionHash || approvalPacket.actionHash !== expected.expectedActionHash) blockers.push("approval_action_hash_mismatch");
+  const issuedAt = publicIsoTimestamp(approvalPacket.issuedAt);
+  const expiresAt = publicIsoTimestamp(approvalPacket.expiresAt);
+  if (!issuedAt) blockers.push("approval_packet_issued_at_invalid");
+  if (!expiresAt) {
+    blockers.push("approval_packet_expires_at_invalid");
+  } else if (Date.parse(expiresAt) <= Date.parse(expected.generatedAt)) {
+    blockers.push("approval_packet_expired");
+  }
+  const focusPolicy = asRecord(approvalPacket.focusPolicy);
+  if (focusPolicy?.screenshotAllowed !== false) blockers.push("approval_screenshot_policy_missing");
+  if (focusPolicy?.requireNoFocusSteal !== true) blockers.push("approval_no_focus_policy_missing");
+  const coverage = codexDesktopCollaborationApprovalSourceCoverage(approvalPacket);
+  if (coverage.indexedSession !== "ok" || coverage.desktopCoherence !== "ok" || coverage.desktopFallback !== "ok" || coverage.approvalPacket !== "ok") {
+    blockers.push("source_coverage_incomplete");
+  }
+  return blockers;
+}
+
+function uniquePublicBlockers(values: string[]): string[] {
+  return [...new Set(values.map((value) => publicProofTextField(value, 100)).filter((value): value is string => Boolean(value)))].slice(0, 30);
 }
 
 function desktopActionHash(desktopBackend: DesktopBackend, targetApp: string, targetWindow: string, action: string): string {
