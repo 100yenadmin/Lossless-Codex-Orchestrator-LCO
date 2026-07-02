@@ -383,6 +383,10 @@ promoted during `0.1.x` beta releases unless a separate latest-promotion
 operation explicitly claims and proves that change. At the first stable release,
 move `latest` to the stable version and keep beta and other prereleases on
 prerelease tags. Do not publish a fake stable package just to move a dist-tag.
+Release candidates must publish with `npm publish --tag next`; RC branches also
+carry `package.json` `publishConfig.tag` set to `next` as a fail-closed guard
+against accidental untagged publication. Do not run untagged `npm publish` for
+any prerelease lane.
 
 ## Public Release Steps
 
@@ -391,7 +395,11 @@ Only after the approval gates are satisfied:
 1. Confirm the release candidate commit and tag name.
 2. Run the final release status command with approved evidence paths.
 3. Create the Git tag.
-4. Publish npm if the approval covers npm publication.
+4. Publish npm only if the approval covers npm publication. Use
+   `npm publish --tag beta` for beta releases, `npm publish --tag next` for
+   release candidates, and move `latest` only in the stable release lane. For
+   release candidates, verify `package.json` `publishConfig.tag` is `next`
+   before publishing.
 5. Create the GitHub Release if the approval covers GitHub Release creation.
 6. Install from the published artifact and rerun the OpenClaw user-path smoke.
    If `npm view lossless-openclaw-orchestrator@<version>` or

@@ -5,6 +5,9 @@
   "type": "module",
   "license": "PolyForm-Noncommercial-1.0.0",
   "private": false,
+  "publishConfig": {
+    "tag": "next"
+  },
   "bin": {
     "loo": "dist/packages/cli/src/index.js",
     "loo-mcp-server": "dist/packages/mcp-server/src/server.js"

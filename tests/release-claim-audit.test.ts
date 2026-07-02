@@ -185,6 +185,23 @@ test("npm beta dist-tag policy is explicit until the first stable release", () =
   assert.match(runbook, /move `latest` to the stable/i);
 });
 
+test("release candidates pin npm publication to the next dist-tag", () => {
+  const packageJson = JSON.parse(read("package.json")) as {
+    version?: string;
+    publishConfig?: { tag?: string };
+  };
+  const runbook = read("docs/BETA_RELEASE_RUNBOOK.md");
+
+  if (!packageJson.version?.includes("-rc.")) {
+    return;
+  }
+
+  assert.equal(packageJson.publishConfig?.tag, "next");
+  assert.match(runbook, /npm publish --tag next/i);
+  assert.match(runbook, /publishConfig\.tag[\s\S]{0,120}`next`/i);
+  assert.match(runbook, /Do not run untagged `npm publish` for\s+any prerelease lane/i);
+});
+
 test("release workflows use non-deprecated action majors", () => {
   const ciWorkflow = read(".github/workflows/ci.yml");
   const codeqlWorkflow = read(".github/workflows/codeql.yml");
