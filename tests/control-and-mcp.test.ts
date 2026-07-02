@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -236,6 +237,71 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.equal(JSON.stringify(auditTail).includes("continue"), false);
   } finally {
     db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("MCP stdio server returns JSON-RPC errors for malformed input frames", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-mcp-stdio-"));
+  const server = spawn(process.execPath, [
+    "--import",
+    "tsx",
+    join(process.cwd(), "packages/mcp-server/src/server.ts")
+  ], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      HOME: root,
+      LOO_DB_PATH: join(root, "orchestrator.sqlite"),
+      LOO_AUDIT_PATH: join(root, "audit.jsonl"),
+      LOO_CODEX_BIN: "loo-codex-not-needed-for-parse-error"
+    },
+    stdio: ["pipe", "pipe", "pipe"]
+  });
+
+  let stdout = "";
+  let stderr = "";
+  server.stdout.setEncoding("utf8");
+  server.stderr.setEncoding("utf8");
+  server.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+
+  try {
+    const outputLine = await new Promise<string>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error(`Timed out waiting for MCP parse error response. stderr=${stderr}`));
+      }, 5_000);
+      const cleanup = () => {
+        clearTimeout(timeout);
+        server.stdout.off("data", onStdout);
+        server.off("exit", onExit);
+      };
+      const onStdout = (chunk: string) => {
+        stdout += chunk;
+        const line = stdout.split("\n").find((candidate) => candidate.trim());
+        if (line) {
+          cleanup();
+          resolve(line);
+        }
+      };
+      const onExit = (code: number | null) => {
+        cleanup();
+        reject(new Error(`MCP server exited before parse error response. code=${code} stderr=${stderr}`));
+      };
+      server.stdout.on("data", onStdout);
+      server.once("exit", onExit);
+      server.stdin.write("{\n");
+    });
+
+    const response = JSON.parse(outputLine) as { jsonrpc?: string; id?: unknown; error?: { code?: number; message?: string } };
+    assert.equal(response.jsonrpc, "2.0");
+    assert.equal(response.id, null);
+    assert.equal(response.error?.code, -32000);
+    assert.match(response.error?.message ?? "", /JSON|Expected|Unexpected/i);
+    assert.doesNotMatch(stderr, /Unhandled|uncaught|ERR_UNHANDLED/i);
+  } finally {
+    server.kill();
     rmSync(root, { recursive: true, force: true });
   }
 });

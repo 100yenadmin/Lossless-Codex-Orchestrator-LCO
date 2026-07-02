@@ -54,7 +54,8 @@ Every beta, RC, and stable release must have public-safe evidence for:
 
 For 1.0, the release must additionally prove:
 
-- fresh npm beta or RC install from the registry, not a linked repo checkout
+- fresh npm stable install from the registry, not a linked repo checkout or a
+  beta/RC substitute
 - clean OpenClaw profile install/load with expected `loo_*` tools visible
 - gateway invocation is ready, not merely `gateway_setup_required`
 - if fresh-profile gateway credentials are missing, published-smoke evidence
@@ -77,15 +78,24 @@ path is available.
 
 ## npm Dist-Tag Boundary
 
-Do not move `latest` during the `0.1.x` beta train. Install beta releases with:
+Do not move `latest` during prerelease or pre-stable lanes. Install stable releases
+with:
+
+```bash
+npm install -g lossless-openclaw-orchestrator@latest
+```
+
+Install beta releases with:
 
 ```bash
 npm install -g lossless-openclaw-orchestrator@beta
 ```
 
-Move `latest` only as part of a separate stable-release issue after
-`loo release general-readiness --strict` passes and the release-status approval
-markers explicitly cover npm publication and GitHub Release creation.
+Move `latest` only as part of a separate stable-release issue after the
+pre-publish candidate gates pass and the release-status approval markers
+explicitly cover npm publication and GitHub Release creation. After publication,
+run fresh npm `@latest` published-smoke and `loo release general-readiness
+--strict`; the stable issue is not complete until those post-publish gates pass.
 
 ## Blocking Signals
 

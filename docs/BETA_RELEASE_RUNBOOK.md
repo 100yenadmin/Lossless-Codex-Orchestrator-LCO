@@ -323,9 +323,11 @@ A release candidate may be announced internally when all of these are true:
 ## 1.0 General Readiness Gate
 
 The beta train can publish scoped prereleases without claiming 1.0. A 1.0
-candidate must also pass the deeper [Release Checklist](RELEASE_CHECKLIST.md)
-with fresh npm and agent dogfood evidence. The user-facing command is
-`loo release general-readiness`; the built-artifact form is:
+candidate must also pass the deeper [Release Checklist](RELEASE_CHECKLIST.md).
+Run candidate gates before publication, then run fresh npm `@latest` and agent
+dogfood evidence after publication before closing the stable issue. The
+user-facing post-publish command is `loo release general-readiness`; the
+built-artifact form is:
 
 ```bash
 node ./dist/packages/cli/src/index.js release general-readiness \
@@ -335,7 +337,7 @@ node ./dist/packages/cli/src/index.js release general-readiness \
   --strict
 ```
 
-This gate is intentionally stricter than a beta first-run classifier:
+This post-publish gate is intentionally stricter than a beta first-run classifier:
 `gateway_setup_required` can be acceptable beta onboarding evidence, but it is
 not enough for 1.0. The stable gate requires a fresh npm install, clean-profile
 OpenClaw load, agent dogfood through gateway tools, and docs truth. If resume,
@@ -376,17 +378,14 @@ separate operations are actually approved and executed.
 ## npm dist-tag policy
 
 Record `npm dist-tag ls lossless-openclaw-orchestrator` in the release evidence
-after every npm publication. Until the first stable release exists, install the
-public beta through the `beta` dist-tag. The `beta` tag must point at the newest
-public beta. The `latest` tag currently remains `0.1.0-beta.4` and must not be
-promoted during `0.1.x` beta releases unless a separate latest-promotion
-operation explicitly claims and proves that change. At the first stable release,
-move `latest` to the stable version and keep beta and other prereleases on
-prerelease tags. Do not publish a fake stable package just to move a dist-tag.
-Release candidates must publish with `npm publish --tag next`; RC branches also
-carry `package.json` `publishConfig.tag` set to `next` as a fail-closed guard
-against accidental untagged publication. Do not run untagged `npm publish` for
-any prerelease lane.
+after every npm publication. Stable releases publish with
+`npm publish --tag latest`; public betas publish with `npm publish --tag beta`;
+release candidates publish with `npm publish --tag next`. The first stable release must move `latest` to the stable version and keep beta and other
+prereleases on prerelease tags. Do not publish a fake stable package just to move a dist-tag. Release candidates must publish with `npm publish --tag next`;
+RC branches also carry `package.json` `publishConfig.tag` set to `next` as a
+fail-closed guard against accidental untagged publication. Stable branches carry
+`package.json` `publishConfig.tag` set to `latest`. Do not run untagged
+`npm publish` for any prerelease lane.
 
 ## Public Release Steps
 
@@ -397,9 +396,10 @@ Only after the approval gates are satisfied:
 3. Create the Git tag.
 4. Publish npm only if the approval covers npm publication. Use
    `npm publish --tag beta` for beta releases, `npm publish --tag next` for
-   release candidates, and move `latest` only in the stable release lane. For
+   release candidates, and `npm publish --tag latest` for stable releases. For
    release candidates, verify `package.json` `publishConfig.tag` is `next`
-   before publishing.
+   before publishing. For stable releases, verify `package.json`
+   `publishConfig.tag` is `latest` before publishing.
 5. Create the GitHub Release if the approval covers GitHub Release creation.
 6. Install from the published artifact and rerun the OpenClaw user-path smoke.
    If `npm view lossless-openclaw-orchestrator@<version>` or

@@ -1,25 +1,25 @@
 # Lossless OpenClaw Orchestrator Vision
 
-This document is the product and eval contract for the public beta. GitHub issues remain the implementation source of truth. This file defines what the product is trying to become, how agents should evaluate progress, and which claims remain outside the proof boundary.
+This document is the product and eval contract for the public release path. GitHub issues remain the implementation source of truth. This file defines what the product is trying to become, how agents should evaluate progress, and which claims remain outside the proof boundary.
 
 ## North Star
 
 An OpenClaw agent can understand, search, summarize, and safely coordinate a user's local Codex sessions without reading huge raw transcripts or bypassing Codex permissions.
 
-The beta should feel like a local orchestration cockpit: OpenClaw can see what Codex sessions exist, what each session is working on, which plans and final messages matter, which files were touched, and which next action would be safe to dry-run or execute only after explicit approval.
+The stable product should feel like a local orchestration cockpit: OpenClaw can see what Codex sessions exist, what each session is working on, which plans and final messages matter, which files were touched, and which next action would be safe to dry-run or execute only after explicit approval.
 
-## Current Milestone: 1.0 RC Stable Decision Gate
+## Current Milestone: 1.0 Stable Promotion Gate
 
-The current product/eval target is Milestone 8 / #300: decide and prove the first 1.0 release-candidate lane without widening the claim beyond proven Codex-first local orchestration. The active trackers are the 1.0 RC/stable decision gate [#300](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/300), 1.0 RC hardening [#182](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/182), and the operating loop [#16](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/16).
+The current product/eval target is Milestone 8 / #302: decide and prove the first 1.0 stable package without widening the claim beyond proven Codex-first local orchestration. The active trackers are the stable promotion gate [#302](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/302), 1.0 RC hardening [#182](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/182), and the operating loop [#16](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/16).
 
 The Codex Autonomy Cockpit [#254](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/254) and Eva Operating Picture [#255](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/255) P0 lanes are completed beta foundation, not the current active child-work list. Completed P0 children include shared contracts [#256](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/256), source authority [#258](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/258), watcher/resume requests [#259](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/259), visible Codex map joins [#260](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/260), deterministic GitHub operating inputs [#264](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/264)/[#265](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/265), current-lane source balancing [#269](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/269), GitHub check-state fidelity [#270](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/270), cockpit card cleanup [#271](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/271), and end-to-end Eva cockpit dogfood [#272](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/272). The sprint brief remains the historical handoff for that P0 work: [docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md](docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md).
 
-The core Codex recall, M9 handoff paths, Codex Autonomy Cockpit, and Eva Operating Picture P0 paths are no longer the main gap. The current release lane is #300: release metadata, fresh npm install, package/gateway setup proof, docs truth, release gates, public-safe scorecards, and a clean line between completed P0 cards and deferred P1 source adapters. Issue #298 proves the fresh-profile gateway path reaches `ready` after scoped token env-ref onboarding when the backend caller uses OpenClaw protocol 4; beta.35 published that compatibility fix, and #300 is the separate stable-release decision lane before any npm `latest` promotion or GitHub Release creation.
+The core Codex recall, M9 handoff paths, Codex Autonomy Cockpit, and Eva Operating Picture P0 paths are no longer the main gap. The current release lane is #302: release metadata, package/gateway setup proof, docs truth, release gates, public-safe scorecards, post-publish fresh npm `@latest` install proof, and a clean line between completed P0 cards and deferred P1 source adapters. Issue #298 proves the fresh-profile gateway path reaches `ready` after scoped token env-ref onboarding when the backend caller uses OpenClaw protocol 4; beta.35 published that compatibility fix, #300 published the `1.0.0-rc.1` candidate on `next`, and #302 owns the stable `1.0.0` promotion before npm `latest` or GitHub Release creation.
 
 The current target is:
 
-- Prepare `1.0.0-rc.1` on a release branch and publish it only if the exact candidate passes release gates.
-- Keep the published npm `beta` package aligned with merged `main` for beta trains and use `next` for release candidates.
+- Prepare `1.0.0` on a release branch and publish it only if the exact stable candidate passes release gates.
+- Keep the published npm `latest` package aligned with the stable release, keep `beta` aligned with beta trains, and use `next` for release candidates.
 - Keep README, VISION, release notes, and scorecards current so closed child issues are recorded as completed proof, not active work.
 - Use the Codex Autonomy Cockpit and Eva Operating Picture P0 tools as the foundation for tester workflows: recent sessions, compact session cards, deterministic cockpit inbox, watcher/resume-request packets, app-server status, visible Codex map joins, project digest, attention inbox, business pulse, explicit source coverage, and explicit source-authority coverage.
 - Keep `PLAN_STATE.md` demoted to bootloader, manual pins, approval boundaries, stop conditions, and exception ledger. It is not canonical current-state truth.
@@ -27,7 +27,7 @@ The current target is:
 - Keep P1 source adapters, including Notion, support-control, Company Brain, Stripe, dashboard/export, and model summarization, behind separate adapters and proof gates; P0 tools report those sources as `not_configured` instead of fabricating summaries.
 - Use the [source authority profile](docs/SOURCE_AUTHORITY_PROFILE.md) to distinguish "this source returned data" from "this source owns the current truth"; unavailable or cache-only sources must degrade claims to `unknown` or low confidence.
 
-The sprint remains Codex-first, local-first, read-only-first, and public-safe by default. It does not claim full business truth, customer readiness, Claude Code parity, remote sync, generic GUI mutation, unattended desktop control, permission bypass, release-grade security, npm `latest` promotion, or stable release until #300 proves and intentionally scopes those actions.
+The sprint remains Codex-first, local-first, read-only-first, and public-safe by default. It does not claim full business truth, customer readiness, Claude Code parity, remote sync, generic GUI mutation, unattended desktop control, permission bypass, or enterprise/customer-ready security. npm `latest` promotion and GitHub Release creation remain bound to #302's final stable-release evidence.
 
 What a local OpenClaw agent can do today:
 

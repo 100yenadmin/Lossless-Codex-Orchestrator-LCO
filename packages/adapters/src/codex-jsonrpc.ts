@@ -43,7 +43,7 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const CLIENT_INFO = {
   name: "lossless-openclaw-orchestrator",
   title: "Lossless OpenClaw Orchestrator",
-  version: "0.1.0-beta.1"
+  version: "1.0.0"
 };
 
 export class CodexJsonRpcClient {

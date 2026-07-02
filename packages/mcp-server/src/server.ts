@@ -20,14 +20,17 @@ const tools = createLooTools({
     surface: "read"
   })
 });
+const SERVER_VERSION = "1.0.0";
 
 const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
 rl.on("line", async (line) => {
   if (!line.trim()) return;
-  const message = JSON.parse(line);
+  let messageId: unknown = null;
   try {
+    const message = JSON.parse(line);
+    messageId = message.id ?? null;
     if (message.method === "initialize") {
-      send({ id: message.id, result: { protocolVersion: "2024-11-05", serverInfo: { name: "lossless-openclaw-orchestrator", version: "0.1.0-beta.1" }, capabilities: { tools: {} } } });
+      send({ id: message.id, result: { protocolVersion: "2024-11-05", serverInfo: { name: "lossless-openclaw-orchestrator", version: SERVER_VERSION }, capabilities: { tools: {} } } });
     } else if (message.method === "tools/list") {
       send({ id: message.id, result: { tools: tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })) } });
     } else if (message.method === "tools/call") {
@@ -39,7 +42,7 @@ rl.on("line", async (line) => {
       send({ id: message.id, error: { code: -32601, message: `Unsupported method: ${message.method}` } });
     }
   } catch (error) {
-    send({ id: message.id, error: { code: -32000, message: error instanceof Error ? error.message : String(error) } });
+    send({ id: messageId, error: { code: -32000, message: error instanceof Error ? error.message : String(error) } });
   }
 });
 

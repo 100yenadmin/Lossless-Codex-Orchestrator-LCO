@@ -2,7 +2,9 @@
 
 ## Supported Versions
 
-The public beta supports the latest published `0.1.x` beta.
+The supported public package is the latest published stable release on the npm
+`latest` dist-tag. Maintained prerelease lines on `beta` or `next` are supported
+only until a newer prerelease or stable package supersedes them.
 
 ## Reporting A Vulnerability
 
