@@ -5,10 +5,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { DEFAULT_REQUIRED_TOOL_CALLS, runOpenClawToolSmoke } from "../packages/cli/src/openclaw-tool-smoke.js";
+import {
+  DEFAULT_REQUIRED_TOOL_CALLS,
+  OPENCLAW_GATEWAY_BACKEND_CLIENT_ID,
+  OPENCLAW_GATEWAY_BACKEND_PROTOCOL,
+  runOpenClawToolSmoke
+} from "../packages/cli/src/openclaw-tool-smoke.js";
 
 const tsxImport = createRequire(import.meta.url).resolve("tsx");
 type DryRunOutputShape = "plain" | "content" | "details" | "both";
+
+test("OpenClaw tool smoke backend gateway connect payload follows current OpenClaw protocol", () => {
+  assert.equal(OPENCLAW_GATEWAY_BACKEND_CLIENT_ID, "gateway-client");
+  assert.deepEqual(OPENCLAW_GATEWAY_BACKEND_PROTOCOL, { minProtocol: 4, maxProtocol: 4 });
+});
 
 function createFakeOpenClaw(
   dir: string,

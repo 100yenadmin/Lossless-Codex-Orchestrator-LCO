@@ -64,14 +64,14 @@
     "Release commands perform npm publish, GitHub Release creation, live control, or GUI mutation."
   ],
   "current_score": "pass",
-  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/m10-external-tester-first-run/issue-248-npm-beta-selector-recovery/onboarding/onboarding-status.json",
+  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-fresh-profile-gateway-ready-proof/",
   "known_gaps": [
     "The first npm install selector attempt can hit npm selector cutoff drift even when registry metadata exposes the beta; onboarding now exposes guarded registry tarball lookup plus fallback install commands for global CLI, OpenClaw plugin install, and dogfood paths.",
-    "Fresh OpenClaw profiles may install and list the plugin before gateway credentials are available for tool invocation; this must remain classified as setup-required, not package failure.",
-    "Fresh OpenClaw gateway setup recovery is now classified in `published-smoke` as public-safe setupRecovery states with deterministic credential setup commands; ready is claimable only when fresh-profile tool-smoke is ready.",
-    "Configured local gateway proof can show the agent workflow works on an already provisioned profile, but it does not prove clean-profile gateway credentials or device pairing.",
-    "This scorecard points at issue-248 onboarding evidence for the new recovery-command contract and previous fresh install/load evidence for package behavior; it does not prove unpublished main changes, stable release, or npm latest promotion."
+    "Fresh OpenClaw profiles still need scoped gateway credentials or env-ref onboarding before tool invocation; #298 proves that setup path can reach ready, and missing setup must remain classified as setup-required rather than package failure.",
+    "Fresh OpenClaw gateway setup recovery is classified in `published-smoke` as public-safe setupRecovery states with deterministic credential setup commands; ready is claimable only when fresh-profile tool-smoke is ready.",
+    "Configured local gateway proof can show the agent workflow works on an already provisioned profile, but clean-profile readiness must still be driven by fresh-profile tool-smoke evidence.",
+    "This scorecard points at #298 fresh-profile gateway-ready evidence for the protocol-4 backend caller fix; it does not prove stable release, npm latest promotion, live control, GUI mutation, or enterprise/customer readiness."
   ],
-  "next_action": "Use issue-248 onboarding recovery evidence plus fresh npm clean-profile proof as beta tester install evidence, then run #236 1.0 readiness gates before stable/latest promotion.",
-  "proof_boundary": "This proves current npm beta package install/load evidence plus public-safe onboarding recovery commands for registry tarball fallback after selector drift; it does not prove unpublished main changes, stable release, npm latest promotion, live control, GUI mutation, or 1.0 readiness."
+  "next_action": "Publish beta.35 after PR/CI/review gates so the public CLI contains the protocol-4 backend caller fix, then use the #298 packet as one input to a separate stable/latest release decision.",
+  "proof_boundary": "This proves current beta install/load evidence plus public-safe fresh-profile gateway-ready proof for the protocol-4 backend caller path; it does not prove stable release, npm latest promotion, live control, GUI mutation, or enterprise/customer readiness."
 }
