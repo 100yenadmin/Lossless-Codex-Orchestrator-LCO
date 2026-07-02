@@ -84,13 +84,13 @@
     "Operating-picture output hides missing sources, omits authority coverage, or treats PLAN_STATE prose as current truth."
   ],
   "current_score": "pass",
-  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-272-eva-cockpit-dogfood/",
+  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-fresh-profile-gateway-ready-proof/",
   "known_gaps": [
-    "Fresh OpenClaw profiles may need scoped gateway credentials or profile/device pairing before tool-smoke can call tools; `setupStatus.classification` must distinguish this from package failure.",
+    "Fresh OpenClaw profiles need scoped gateway credentials or env-ref onboarding before tool-smoke can call tools; #298 proves that after setup and the protocol-4 backend caller fix, a clean profile can call `loo_doctor` and `loo_search_sessions` through an isolated loopback gateway.",
     "P0 operating-picture tools use LCO/Codex, normalized public-safe GitHub inputs, explicit PLAN_STATE pins, read-only watcher request packets, and a public source-authority profile only; Notion, support-control, Company Brain, Stripe, dashboard/export, and summarizer adapters remain P1.",
     "Visible Codex map joins prove read-only correlation from sanitized title/status metadata only; they do not prove Codex GUI mutation or visible focus/select/continue workflows.",
-    "This does not prove live Codex control, generic GUI mutation, Claude Code adapter parity, full business truth, or release-grade customer readiness."
+    "This does not prove live Codex control, generic GUI mutation, Claude Code adapter parity, full business truth, stable release, npm latest promotion, or release-grade customer readiness."
   ],
-  "next_action": "Merge #272 end-to-end Eva cockpit dogfood, then continue first-run gateway readiness and remaining GA hardening before filing P1 adapter work.",
-  "proof_boundary": "This proves local OpenClaw gateway agent usability for Codex read/search/describe/expand/detail lookup/recommend/dry-run, read-only watcher request packets, read-only app-server status/thread signals, visible-to-indexed session correlation, and P0 cockpit/operating-picture cards using public-safe evidence only; it does not prove live control, GUI mutation, Claude Code adapter parity, full business truth, or 1.0 readiness."
+  "next_action": "Publish beta.35 after PR/CI/review gates so external testers get the protocol-4 backend caller fix, then run a separate stable/latest release issue before any 1.0 claim.",
+  "proof_boundary": "This proves local OpenClaw gateway agent usability for Codex read/search/describe/expand/detail lookup/recommend/dry-run, read-only watcher request packets, read-only app-server status/thread signals, visible-to-indexed session correlation, P0 cockpit/operating-picture cards, and fresh-profile gateway-ready invocation using public-safe evidence only; it does not prove live control, GUI mutation, Claude Code adapter parity, full business truth, stable release, npm latest promotion, or enterprise/customer readiness."
 }

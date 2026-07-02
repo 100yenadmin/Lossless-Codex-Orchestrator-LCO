@@ -140,6 +140,8 @@ const PRIVATE_DATA_EXCLUSIONS = [
 ];
 
 const CONTROL_DRY_RUN_MESSAGE = "Harmless beta smoke: dry-run only; do not send.";
+export const OPENCLAW_GATEWAY_BACKEND_CLIENT_ID = "gateway-client";
+export const OPENCLAW_GATEWAY_BACKEND_PROTOCOL = { minProtocol: 4, maxProtocol: 4 } as const;
 
 export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): OpenClawToolSmokeReport {
   const requiredTools = [...new Set(options.requiredTools?.length ? options.requiredTools : DEFAULT_REQUIRED_TOOL_CALLS)];
@@ -403,10 +405,11 @@ function sendConnect() {
     id: "connect-1",
     method: "connect",
     params: {
-      minProtocol: 3,
-      maxProtocol: 4,
+      minProtocol: ${OPENCLAW_GATEWAY_BACKEND_PROTOCOL.minProtocol},
+      maxProtocol: ${OPENCLAW_GATEWAY_BACKEND_PROTOCOL.maxProtocol},
       client: {
-        id: "gateway-client",
+        id: ${JSON.stringify(OPENCLAW_GATEWAY_BACKEND_CLIENT_ID)},
+        displayName: "loo-openclaw-tool-smoke",
         version: "loo",
         platform: process.platform,
         mode: "backend"

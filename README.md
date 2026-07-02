@@ -79,9 +79,12 @@ and the historical sprint brief
 [docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md](docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md).
 
 The core Codex recall, M9 handoff paths, and P0 cockpit/Eva operating-picture
-paths are working. The current gap is external tester reliability: install and
-gateway setup clarity, docs truth, release gates, public-safe scorecards, and a
-clean line between completed P0 cards and deferred P1 adapters.
+paths are working. The current release lane is external tester reliability:
+install and gateway setup clarity, docs truth, release gates, public-safe
+scorecards, and a clean line between completed P0 cards and deferred P1
+adapters. #298 proves the fresh-profile gateway path can reach `ready` with
+scoped token env-ref onboarding and the protocol-4 backend caller fix; beta.35
+publishes that compatibility fix without widening the product claim.
 
 Completed P0 foundation is read-only and deterministic:
 
@@ -148,6 +151,10 @@ Completed proof:
   closed the M7 runtime proof lane for the named Codex-first surfaces.
 - M9 closed the first-class agent skill, docs truth pass, agent dogfood,
   fresh npm clean-profile smoke, and 1.0 readiness gate.
+- #298 proves a clean OpenClaw profile can install the published beta package
+  and call `loo_doctor` plus `loo_search_sessions` through an isolated loopback
+  token gateway after the protocol-4 backend caller fix. This is fresh-profile
+  gateway-ready evidence, not npm `latest` promotion or a stable release.
 - Desktop fallback remains action-bound; generic GUI mutation and Codex GUI
   mutation are not public beta claims.
 - Claude Code remains an adapter stub and fixture inventory, not parity.
