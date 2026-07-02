@@ -168,6 +168,12 @@ function validateFreshNpmEvidence(path: string | undefined): GeneralReleaseReadi
     return check(false, "fresh npm clean-profile evidence is missing", "fresh_npm_clean_profile_evidence_missing");
   }
   const report = readJson(path);
+  if (report.publicSafe !== true) {
+    return check(false, "fresh npm evidence is present but is not marked public-safe", "fresh_npm_clean_profile_not_public_safe");
+  }
+  if (!noReleaseActions(report)) {
+    return check(false, "fresh npm evidence is present but performed restricted release/runtime actions", "fresh_npm_clean_profile_restricted_actions_performed");
+  }
   const ready = Boolean(
     report.ok === true
     && report.publishedSmokeReady === true
