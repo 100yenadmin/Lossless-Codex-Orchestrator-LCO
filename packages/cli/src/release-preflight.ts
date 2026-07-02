@@ -66,8 +66,25 @@ const forbiddenClaims = [
   "Full Claude Code parity",
   "cloud sync",
   "unattended desktop takeover",
-  "bypasses Codex permissions",
+  "permission bypass",
   "release-grade enterprise security"
+];
+
+const readmePublicDocsRequiredPatterns = [
+  /docs\/SETUP\.md/i,
+  /npm install -g lossless-openclaw-orchestrator@latest/i,
+  /loo index codex/i,
+  /loo-mcp-server/i,
+  /docs\/OPENCLAW_PLUGIN\.md/i,
+  /docs\/PRIVACY\.md/i,
+  /docs\/CLAIM_AUDIT\.md/i,
+  /## Safety Boundaries/i,
+  /full Claude Code parity/i,
+  /cloud sync/i,
+  /unattended desktop takeover/i,
+  /permission bypass/i,
+  /enterprise/i,
+  /generic GUI mutation/i
 ];
 
 export function runReleasePreflight(options: ReleasePreflightOptions = {}): ReleasePreflightReport {
@@ -90,7 +107,6 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
     };
   } | null;
   const readme = readText(packageRoot, "README.md");
-  const normalizedReadme = readme?.toLowerCase() ?? "";
   const claimAudit = readText(packageRoot, "docs/CLAIM_AUDIT.md");
   const betaDemo = readText(packageRoot, "docs/BETA_RELEASE_DEMO.md");
   const openclawManifestRead = readJson(packageRoot, "openclaw.plugin.json");
@@ -124,7 +140,7 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
   const rawSessionArtifacts = scanRawSessionArtifacts(options.evidenceDir);
   const checks: Record<string, ReleasePreflightCheck> = {
     packageJson: check(Boolean(!packageJsonRead.error && packageJson?.name && packageJson.version && packageJson.description?.match(/local Codex sessions/i)), packageJsonRead.error ?? "package metadata keeps Codex-first beta positioning"),
-    readme: check(Boolean(readme?.match(/Allowed public beta claim/i) && readme.match(/loo release preflight/i) && forbiddenClaims.every((claim) => normalizedReadme.includes(claim.toLowerCase()))), "README includes beta claim boundary, forbidden claims, and release preflight command"),
+    readme: check(Boolean(readme && readmePublicDocsRequiredPatterns.every((pattern) => pattern.test(readme))), "README includes public setup path, OpenClaw/MCP entrypoints, safety boundaries, and forbidden claims"),
     openclawManifest: check(Boolean(!openclawManifestRead.error && openclawPackageMetadataOk && openclawManifest?.id === "lossless-openclaw-orchestrator" && openclawManifest.mcp?.command === "loo-mcp-server" && openclawManifest.mcp.transport === "stdio" && openclawManifest.tools?.prefix === "loo_" && openclawManifest.safety?.localOnlyByDefault === true), openclawManifestRead.error ?? "root OpenClaw manifest and package runtime entry are packageable and local-only by default"),
     claimAudit: check(Boolean(claimAudit?.match(/Forbidden Beta Claims/i) && claimAudit.match(/approved_live_control_smoke_missing/i)), "claim audit records forbidden claims and the live-control blocker code"),
     betaDemo: check(Boolean(betaDemo?.match(/100\+ local Codex sessions/i) && betaDemo.match(/does not run live control/i)), "demo workflow covers 100+ Codex sessions and dry-run-only control boundary"),

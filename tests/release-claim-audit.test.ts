@@ -56,7 +56,7 @@ test("public beta package and README do not overclaim Claude or desktop control"
   const packageJson = JSON.parse(read("package.json")) as { description?: string };
   const readme = read("README.md");
   const plugin = read("packages/openclaw-plugin/src/index.ts");
-  const readmePitch = readme.split("Forbidden beta claims:")[0] ?? readme;
+  const readmePitch = readme.split("## Safety Boundaries")[0] ?? readme;
   const pluginDescription = plugin.match(/description:\s*"([^"]+)"/)?.[1] ?? plugin;
 
   for (const [surface, content] of [
@@ -70,26 +70,29 @@ test("public beta package and README do not overclaim Claude or desktop control"
 
   assert.match(packageJson.description ?? "", /local Codex sessions/i);
   assert.match(packageJson.description ?? "", /approval-gated/i);
-  assert.match(readme, /Claude Code support is intentionally shipped as an adapter stub/i);
+  assert.match(readme, /Claude Code support is an adapter stub/i);
   assert.match(plugin, /approval-gated controls/i);
 });
 
-test("public beta docs include install, MCP/OpenClaw, demo, and approval-boundary proof", () => {
+test("public docs include setup, MCP/OpenClaw, demo, and approval-boundary proof", () => {
+  assert.equal(existsSync("docs/SETUP.md"), true, "docs/SETUP.md must exist");
   assert.equal(existsSync("docs/BETA_RELEASE_DEMO.md"), true, "docs/BETA_RELEASE_DEMO.md must exist");
   assert.equal(existsSync("docs/CLAIM_AUDIT.md"), true, "docs/CLAIM_AUDIT.md must exist");
   assert.equal(existsSync("docs/CLAUDE_ADAPTER_BOUNDARY.md"), true, "docs/CLAUDE_ADAPTER_BOUNDARY.md must exist");
 
   const readme = read("README.md");
+  const setup = read("docs/SETUP.md");
   const openclawDocs = read("docs/OPENCLAW_PLUGIN.md");
   const demo = read("docs/BETA_RELEASE_DEMO.md");
   const claimAudit = read("docs/CLAIM_AUDIT.md");
   const claudeBoundary = read("docs/CLAUDE_ADAPTER_BOUNDARY.md");
 
   assert.match(readme, /docs\/OPENCLAW_PLUGIN\.md/);
-  assert.match(readme, /docs\/BETA_RELEASE_DEMO\.md/);
-  assert.match(readme, /loo release preflight/);
-  assert.match(readme, /loo release demo-status/);
+  assert.match(readme, /docs\/SETUP\.md/);
   assert.match(readme, /loo index codex --max-files \d+/);
+  assert.match(setup, /loo-mcp-server/);
+  assert.match(setup, /loo openclaw dogfood/);
+  assert.match(setup, /loo openclaw tool-smoke/);
   assert.match(openclawDocs, /loo-mcp-server/);
   assert.match(openclawDocs, /dry_run=true/);
   assert.match(openclawDocs, /approval_audit_id/);
@@ -128,22 +131,21 @@ test("public beta docs include install, MCP/OpenClaw, demo, and approval-boundar
 });
 
 test("release status examples include live-control evidence alongside release approvals", () => {
-  const readme = read("README.md");
+  const runbook = read("docs/BETA_RELEASE_RUNBOOK.md");
   const releaseNotes = read(releaseNotesPath);
 
   for (const [surface, content] of [
-    ["README", readme],
+    ["release runbook", runbook],
     ["release notes", releaseNotes]
   ] as const) {
-    assert.match(content, /loo release status[^\n]+--approved-live-control-evidence[^\n]+--npm-publish-approval-evidence[^\n]+--github-release-approval-evidence/i, surface);
-    assert.match(content, /loo release status[^\n]+--candidate-sha[^\n]+--github-ci-evidence[^\n]+--codeql-evidence/i, surface);
-    assert.doesNotMatch(content, /loo release status[^\n]+--desktop-gui-approval-evidence/i, `${surface} must not pass GUI approval evidence in a non-GUI release example`);
+    assert.match(content, /release status[^\n]+--approved-live-control-evidence[^\n]+--npm-publish-approval-evidence[^\n]+--github-release-approval-evidence/i, surface);
+    assert.match(content, /release status[^\n]+--candidate-sha[^\n]+--github-ci-evidence[^\n]+--codeql-evidence/i, surface);
+    assert.doesNotMatch(content, /release status[^\n]+--desktop-gui-approval-evidence/i, `${surface} must not pass GUI approval evidence in a non-GUI release example`);
   }
 });
 
 test("read-search-expand-dry-run release examples name the explicit claim scope before omitting live-control proof", () => {
   const surfaces = [
-    ["README", read("README.md")],
     ["claim audit", read("docs/CLAIM_AUDIT.md")],
     ["release runbook", read("docs/BETA_RELEASE_RUNBOOK.md")],
     ["release notes", read(releaseNotesPath)]
@@ -153,7 +155,6 @@ test("read-search-expand-dry-run release examples name the explicit claim scope 
     assert.match(content, /codex-read-search-expand-dry-run/i, `${surface} must name the read/search/expand/dry-run claim scope`);
     assert.match(content, /--claim-scope\s+codex-read-search-expand-dry-run/i, `${surface} must show the explicit claim-scope flag`);
   }
-  assert.match(read("README.md"), /loo release bundle[^\n]+--claim-scope\s+codex-read-search-expand-dry-run/i);
 
   const claimAudit = read("docs/CLAIM_AUDIT.md");
   assert.match(claimAudit, /excludedClaims/i);
@@ -162,11 +163,11 @@ test("read-search-expand-dry-run release examples name the explicit claim scope 
 
 test("npm beta dist-tag policy is explicit until the first stable release", () => {
   const readme = read("README.md");
+  const setup = read("docs/SETUP.md");
   const claimAudit = read("docs/CLAIM_AUDIT.md");
   const runbook = read("docs/BETA_RELEASE_RUNBOOK.md");
 
   for (const [surface, content] of [
-    ["README", readme],
     ["claim audit", claimAudit],
     ["release runbook", runbook]
   ] as const) {
@@ -180,8 +181,9 @@ test("npm beta dist-tag policy is explicit until the first stable release", () =
 
   assert.match(readme, /npm install -g lossless-openclaw-orchestrator@latest/i);
   assert.match(readme, /npm install -g lossless-openclaw-orchestrator@beta/i);
-  assert.match(readme, /latest[\s\S]{0,200}1\.0\.0/i);
-  assert.match(readme, /public betas stay on `beta`/i);
+  assert.match(readme, /`latest` is the stable public channel/i);
+  assert.match(readme, /`beta` is the active prerelease train/i);
+  assert.match(setup, /npm install -g lossless-openclaw-orchestrator@latest/i);
   assert.match(runbook, /npm dist-tag ls lossless-openclaw-orchestrator/i);
   assert.match(runbook, /move `latest` to the stable/i);
 });
@@ -449,7 +451,7 @@ test("release preflight writes a public-safe artifact manifest without hiding li
     "Full Claude Code parity",
     "cloud sync",
     "unattended desktop takeover",
-    "bypasses Codex permissions",
+    "permission bypass",
     "release-grade enterprise security"
   ]);
 });
@@ -693,7 +695,7 @@ test("release preflight README gate enforces the full forbidden-claims boundary"
   const payload = runReleasePreflight({ rootDir });
 
   assert.equal(payload.checks.readme?.ok, false);
-  assert.match(payload.checks.readme?.detail ?? "", /forbidden claims/i);
+  assert.match(payload.checks.readme?.detail ?? "", /safety boundaries/i);
   assert.deepEqual(payload.blockers, ["readme_failed", "approved_live_control_smoke_missing"]);
 });
 
@@ -790,12 +792,19 @@ function writeProjectSkeleton(rootDir: string, overrides: { readme?: string; run
   }));
   writeFileSync(join(rootDir, "README.md"), overrides.readme ?? [
     "# Lossless OpenClaw Orchestrator",
-    "Allowed public beta claim:",
-    "loo release preflight",
+    "docs/SETUP.md",
+    "npm install -g lossless-openclaw-orchestrator@latest",
+    "loo index codex",
+    "loo-mcp-server",
+    "docs/OPENCLAW_PLUGIN.md",
+    "docs/PRIVACY.md",
+    "docs/CLAIM_AUDIT.md",
+    "## Safety Boundaries",
     "Full Claude Code parity",
     "cloud sync",
     "unattended desktop takeover",
-    "bypasses Codex permissions",
+    "permission bypass",
+    "generic GUI mutation",
     "release-grade enterprise security"
   ].join("\n"));
   writeFileSync(join(rootDir, "docs/CLAIM_AUDIT.md"), [

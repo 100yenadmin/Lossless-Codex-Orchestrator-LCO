@@ -2,6 +2,10 @@
 
 The OpenClaw plugin source entry lives in `packages/openclaw-plugin`.
 
+First-run user setup lives in [`docs/SETUP.md`](SETUP.md). This page is the
+operator reference for how the packaged OpenClaw plugin is shaped and how to
+verify it.
+
 The root npm package is the OpenClaw install source. Its packageable plugin manifest is `openclaw.plugin.json`, and `package.json` points OpenClaw at the TypeScript source plus the compiled runtime entry `dist/packages/openclaw-plugin/src/index.js` for package installs.
 
 The installed plugin declares native `loo_*` tool wrappers backed by the same local registry used by the MCP server. The package also ships the MCP server for clients that connect over stdio:
@@ -15,6 +19,13 @@ Agent-facing usage guidance lives in
 Use that playbook when an OpenClaw orchestrator needs the safe staged workflow:
 doctor, search, describe, bounded expand, plan/final/file lookup, recommendation,
 and approval-gated dry-run before live Codex control.
+
+Public install path:
+
+```bash
+npm install -g lossless-openclaw-orchestrator@latest
+openclaw plugins install lossless-openclaw-orchestrator@latest
+```
 
 Before beta release, dogfood the local OpenClaw plugin path from an isolated profile:
 

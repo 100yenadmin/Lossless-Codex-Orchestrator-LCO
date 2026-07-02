@@ -31,7 +31,8 @@ test("Claude adapter boundary inventory exists without claiming parity", () => {
   assert.doesNotMatch(boundary, /full Claude Code parity|control Claude Code remotely|unattended Claude takeover/i);
 
   assert.match(readme, /docs\/CLAUDE_ADAPTER_BOUNDARY\.md/);
-  assert.match(readme, /Claude Code adapter \| Fixture inventory/i);
+  assert.match(readme, /Claude Code support is an adapter stub and redacted fixture inventory/i);
+  assert.match(readme, /full Claude Code parity/i);
   assert.match(vision, /CLAUDE_ADAPTER_BOUNDARY\.md/);
   assert.match(vision, /Claude metadata fixture inventory/i);
 });

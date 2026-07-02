@@ -78,19 +78,20 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
   }
 
   assert.match(readme, /VISION\.md/);
-  assert.match(readme, /## Current Sprint: 1\.1 Desktop Collaboration Cockpit/);
-  assert.match(readme, /#307/);
-  assert.match(readme, /#308/);
-  assert.match(readme, /#309/);
-  assert.match(readme, /#306/);
-  assert.match(readme, /loo_codex_desktop_coherence/);
-  assert.match(readme, /Desktop-visible classification and fallback readiness/i);
-  assert.match(readme, /actual Codex GUI mutation remains excluded/i);
-  assert.match(readme, /brief-lco-codex-autonomy-cockpit-sprint-2026-07-01\.md/);
-  assert.match(readme, /What a local OpenClaw agent can do today/i);
-  assert.match(readme, /PLAN_STATE\.md/i);
-  assert.match(readme, /loo_attention_inbox/i);
-  assert.match(readme, /Completed proof/i);
+  assert.match(readme, /docs\/SETUP\.md/);
+  assert.match(readme, /## What It Does/);
+  assert.match(readme, /## Install/);
+  assert.match(readme, /## Set Up/);
+  assert.match(readme, /## First Workflow/);
+  assert.match(readme, /## OpenClaw And MCP/);
+  assert.match(readme, /## Safety Boundaries/);
+  assert.match(readme, /skills\/lossless-openclaw-orchestrator\/SKILL\.md/);
+  assert.match(readme, /docs\/OPENCLAW_PLUGIN\.md/);
+  assert.match(readme, /generic GUI mutation is not supported/i);
+  assert.match(readme, /Codex GUI mutation is not a stable public claim/i);
+  assert.match(readme, /Roadmap And Proof Status/i);
+  assert.doesNotMatch(readme, /## Current Sprint:/);
+  assert.doesNotMatch(readme, /What a local OpenClaw agent can do today[\s\S]{1000,}/i);
   assert.doesNotMatch(readme, /## Current Sprint: Working App Proof/);
   assert.doesNotMatch(readme, /## Current Sprint: M9 Agent Handoff Beta Sprint/);
   assert.doesNotMatch(readme, /## Current Sprint: 1\.0 Stable Release Gate/);
