@@ -48,6 +48,7 @@
       "loo_codex_collaboration_cockpit",
       "loo_codex_collaboration_next_steps",
       "loo_codex_runtime_desktop_visibility_status",
+      "loo_codex_active_thread_state",
       "loo_codex_desktop_collaboration_proof",
       "loo_watchers_list",
       "loo_watcher_status",
@@ -552,6 +553,59 @@
                 "type": "object",
                 "additionalProperties": true
               }
+            },
+            "now": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_active_thread_state",
+        "description": "Classify active Codex threads as running, blocked, stale, needs-nudge, or unknown using public-safe read-only cockpit signals.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "priority_order": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "watcher_specs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_coherence_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_fallback_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "app_server_threads": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "visible_map": {
+              "type": "object",
+              "additionalProperties": true
             },
             "now": {
               "type": "string"

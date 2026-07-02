@@ -318,6 +318,10 @@ if (method === "tools.invoke") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.codex.runtimeDesktopVisibilityStatus.v1", publicSafe: true, readOnly: true, status: "covered", confidence: 0.86, summary: { totalLanes: 1, returned: 1, covered: 1, partial: 0, blocked: 0, nextReadOnlyActions: 1 }, sourceCoverage: { collaborationCockpit: "ok", desktopCoherence: "ok", desktopFallback: "ok", desktopCollaborationProof: "ok" }, lanes: [{ threadId: "codex_thread:thread-1", title: "Thread 1", coverage: "covered", desktopState: "fallback_ready", confidence: 0.86, blockers: [], reasonCodes: ["action_bound_desktop_proof_ready"], evidenceIds: ["ev_tool_smoke"], nextToolCall: { tool: "loo_desktop_live_proof_harness", args: { backend: "cua-driver", target_app: "Codex", target_window: "Lossless OpenClaw Orchestrator", action: "verify_visible_thread_alignment", approval_ref: "tool-smoke-action-bound-proof" }, execute: false } }], actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false, npmPublished: false, githubReleaseCreated: false } } }));
     process.exit(0);
   }
+  if (name === "loo_codex_active_thread_state") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.codex.activeThreadState.v1", publicSafe: true, readOnly: true, generatedAt: "2026-07-01T12:00:00.000Z", summary: { totalLanes: 1, returned: 1, running: 1, blocked: 0, needsApproval: 0, needsNudge: 0, stale: 0, waiting: 0, idle: 0, unknown: 0, lowConfidence: 0 }, sourceCoverage: { indexedSession: "ok", cockpitInbox: "ok", watchers: "ok", codexAppServer: "ok", visibleCodexMap: "not_configured" }, items: [{ threadId: "codex_thread:thread-1", title: "Thread 1", state: "running", sessionState: "running", attention: { level: "high", urgencyScore: 80 }, freshness: { lastEventAt: "2026-07-01T11:59:00.000Z", ageSeconds: 60, stale: false }, nextAction: { kind: "watch", confidence: 0.9, reason: "continue watching" }, confidence: 0.9, reasonCodes: ["active_state:running", "app_server_running"], evidenceIds: ["ev_tool_smoke"], sourceCoverage: { indexedSession: "ok", cockpitInbox: "ok", watchers: "ok", codexAppServer: "ok", visibleCodexMap: "not_configured" } }], omitted: { count: 0, reason: "none" }, actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false, npmPublished: false, githubReleaseCreated: false } } }));
+    process.exit(0);
+  }
   if (name === "loo_codex_desktop_collaboration_proof") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.codexDesktopCollaborationProof.v1", publicSafe: true, readOnly: true, ok: true, status: "ready", target: { targetRef: toolArgs.target_ref, targetThreadId: toolArgs.target_thread_id }, actionHash: toolArgs.action_hash, approvalVerified: true, blockers: [], sourceCoverage: { indexedSession: "ok", desktopCoherence: "ok", desktopFallback: "ok", approvalPacket: "ok" }, requiredNextToolCall: { tool: "loo_desktop_live_proof_harness", args: { backend: toolArgs.backend, target_app: toolArgs.target_app, target_window: toolArgs.target_window, action: toolArgs.action, approval_ref: toolArgs.approval_packet?.approvalRef }, execute: false }, actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false } } }));
     process.exit(0);
@@ -803,6 +807,40 @@ test("OpenClaw tool smoke invokes runtime Desktop visibility status through the 
     const invoke = calls.find((call) => call.method === "tools.invoke" && call.params.name === "loo_codex_runtime_desktop_visibility_status");
     assert.equal(invoke?.params.args?.desktop_collaboration_proof_reports?.[0]?.schema, "lco.codexDesktopCollaborationProof.v1");
     assert.equal(invoke?.params.args?.desktop_collaboration_proof_reports?.[0]?.requiredNextToolCall?.execute, false);
+    assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /super-secret-transcript-span/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke invokes active-thread state through the gateway surface", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-active-state-"));
+  const evidencePath = join(dir, "tool-smoke.json");
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_codex_active_thread_state"]);
+
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      profile: "lco-issue-351",
+      sessionKey: "agent:main:lco-issue-351",
+      evidencePath,
+      requiredTools: ["loo_codex_active_thread_state"],
+      threadId: "thread-1",
+      strict: true
+    });
+
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.deepEqual(report.blockers, []);
+    assert.equal(report.invocations[0]?.toolName, "loo_codex_active_thread_state");
+    assert.equal((report.invocations[0]?.summary.activeThreadState as Record<string, number> | undefined)?.running, 1);
+
+    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { method: string; params: { name?: string; args?: Record<string, any> } });
+    const invoke = calls.find((call) => call.method === "tools.invoke" && call.params.name === "loo_codex_active_thread_state");
+    assert.equal(invoke?.params.args?.app_server_threads?.sourceCoverage?.codexAppServer, "ok");
+    assert.equal(invoke?.params.args?.watcher_specs?.[0]?.mutates, false);
     assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /super-secret-transcript-span/);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
