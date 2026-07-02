@@ -1035,7 +1035,8 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
       const status = stringPath(attentionCoverage, ["status"]);
       const confidence = numberPath(attentionCoverage, ["confidence"]);
       const reasonCodes = arrayPath(attentionCoverage, ["reasonCodes"]);
-      const action = isRecord(attentionCoverage.nextReadOnlyAction) ? attentionCoverage.nextReadOnlyAction : null;
+      const rawAction = attentionCoverage.nextReadOnlyAction;
+      const action = isRecord(rawAction) ? rawAction : null;
       const tool = action ? stringPath(action, ["tool"]) : undefined;
       const args = action && isRecord(action.args) ? action.args : null;
       return !["covered", "partial", "needs_probe", "unknown"].includes(status ?? "")
@@ -1043,6 +1044,8 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
         || confidence < 0
         || confidence > 1
         || reasonCodes.length === 0
+        || (status !== "covered" && action === null)
+        || (status === "covered" && rawAction !== null)
         || (action !== null && (
           action.execute !== false
           || !["loo_codex_app_server_threads", "loo_visible_codex_map"].includes(tool ?? "")
