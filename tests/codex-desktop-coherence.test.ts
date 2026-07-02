@@ -113,6 +113,25 @@ test("Codex Desktop coherence report treats app-server-only matches as CLI visib
   assert.ok(report.reasonCodes.includes("cli_direct_visible_without_desktop_proof"));
 });
 
+test("Codex Desktop coherence report sanitizes supplied map identifiers", () => {
+  const report = createCodexDesktopCoherenceReport({
+    threadId: "thr_cli",
+    visibleMap: visibleMapFixture({
+      desktopRef: "/Users/lume/.codex/sessions/raw-window-title",
+      evidenceIds: ["npm_secretTokenValue", "/Volumes/LEXAR/private/evidence.json"],
+      sourceRef: "codex_thread:thr_cli",
+      appServerRef: "codex_app_thread:thr_cli"
+    }),
+    now: "2026-07-02T08:00:40.000Z"
+  });
+
+  const serialized = JSON.stringify(report);
+  assert.equal(report.state, "desktop_visible");
+  assert.doesNotMatch(serialized, /\/Users\/lume|\/Volumes\/LEXAR|npm_secretTokenValue/);
+  assert.equal(report.evidenceIds.every((id) => /^evidence_[A-Za-z0-9]+$/.test(id) || /^[A-Za-z0-9._:-]+$/.test(id)), true);
+  assert.equal(report.observations.current?.desktopRefs.every((ref) => !ref.includes("/")), true);
+});
+
 test("Codex Desktop coherence report records refresh and restart requirements explicitly", () => {
   const before = visibleMapFixture({ desktopRef: null, evidenceIds: ["ev_before_app_server"] });
   const afterRefresh = visibleMapFixture({
@@ -151,6 +170,16 @@ test("Codex Desktop coherence report records refresh and restart requirements ex
 
   assert.equal(restartReport.state, "desktop_restart_required");
   assert.equal(restartReport.visibility.desktop, "restart_required");
+
+  const afterOnlyReport = createCodexDesktopCoherenceReport({
+    threadId: "thr_cli",
+    afterMap: afterRefresh,
+    refreshKind: "desktop_refresh",
+    now: "2026-07-02T08:03:00.000Z"
+  });
+
+  assert.equal(afterOnlyReport.state, "desktop_visible");
+  assert.equal(afterOnlyReport.visibility.desktop, "proven");
 });
 
 test("Codex Desktop coherence report degrades ambiguous or missing joins to unknown", () => {
@@ -173,6 +202,39 @@ test("Codex Desktop coherence report degrades ambiguous or missing joins to unkn
   assert.ok(report.reasonCodes.includes("ambiguous_join"));
   assert.equal(report.confidence < 0.5, true);
   assert.doesNotMatch(JSON.stringify(report), /\/Users\/lume|\/Volumes\/LEXAR|sk-test_1234567890/);
+});
+
+test("Codex Desktop coherence report treats duplicate exact-target rows as corroborating evidence", () => {
+  const map = visibleMapFixture({
+    desktopRef: "visible-window-thread-1",
+    evidenceIds: ["ev_desktop"],
+    reasonCodes: ["visible_codex_candidate"],
+    sourceRef: "codex_thread:thr_cli",
+    appServerRef: null,
+    sessionCardRef: null,
+    confidence: 0.82
+  });
+  map.items.push({
+    ...map.items[0]!,
+    desktopRef: null,
+    appServerRef: "codex_app_thread:thr_cli",
+    evidenceIds: ["ev_app_server"],
+    reasonCodes: ["app_server_signal"],
+    confidence: 0.72
+  });
+
+  const report = createCodexDesktopCoherenceReport({
+    threadId: "thr_cli",
+    visibleMap: map,
+    now: "2026-07-02T08:03:30.000Z"
+  });
+
+  assert.equal(report.state, "desktop_visible");
+  assert.equal(report.visibility.cli, "proven");
+  assert.equal(report.visibility.desktop, "proven");
+  assert.equal(report.observations.current?.matchedItemCount, 2);
+  assert.equal(report.observations.current?.ambiguous, false);
+  assert.equal(report.blockers.includes("ambiguous_desktop_join"), false);
 });
 
 test("MCP exposes #307 Codex Desktop coherence tool without performing live actions", async () => {
@@ -202,6 +264,54 @@ test("MCP exposes #307 Codex Desktop coherence tool without performing live acti
     assert.equal((report as { publicSafe?: boolean }).publicSafe, true);
     assert.equal((report as { state?: string }).state, "cli_visible");
     assert.equal((report as { actionsPerformed?: { liveCodexControlRun?: boolean } }).actionsPerformed?.liveCodexControlRun, false);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("MCP generated coherence maps probe the requested app-server thread", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-desktop-coherence-probe-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
+  try {
+    const tools = createLooTools({
+      db,
+      audit,
+      codexClient: { request: async () => ({ ok: true }) },
+      codexReadClient: {
+        async request(method, params) {
+          requests.push({ method, params });
+          if (method === "thread/list") return { ok: true, result: { data: [] } };
+          if (method === "thread/read") return {
+            ok: true,
+            result: {
+              thread: {
+                id: "thr_outside_recent_list",
+                name: "Outside recent list",
+                status: { type: "running" }
+              }
+            }
+          };
+          return { ok: true, result: {} };
+        }
+      }
+    });
+    const tool = tools.find((candidate) => candidate.name === "loo_codex_desktop_coherence");
+    assert.ok(tool, "loo_codex_desktop_coherence should be registered");
+
+    const report = await tool.execute({
+      thread_id: "thr_outside_recent_list",
+      include_app_server: true,
+      include_visible_snapshot: false,
+      limit: 1
+    });
+
+    assert.deepEqual(requests.map((request) => request.method), ["thread/list", "thread/read"]);
+    assert.equal(requests[1]?.params.threadId, "thr_outside_recent_list");
+    assert.equal(requests[1]?.params.includeTurns, false);
+    assert.equal((report as { state?: string }).state, "cli_visible");
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });

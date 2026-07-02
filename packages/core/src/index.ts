@@ -2019,6 +2019,10 @@ export function createCodexDesktopCoherenceReport(options: CodexDesktopCoherence
   const desktopVisibleCurrent = current?.desktopVisible === true;
   const desktopVisibleAfter = after?.desktopVisible === true;
   const desktopVisible = desktopVisibleBefore || desktopVisibleCurrent || desktopVisibleAfter;
+  const priorDesktopMiss = Boolean(
+    (before && before.matchedItemCount > 0 && !before.ambiguous && !before.desktopVisible)
+    || (current && current.matchedItemCount > 0 && !current.ambiguous && !current.desktopVisible)
+  );
   const blockers = [
     ...(!sourceRef ? ["missing_thread_target"] : []),
     ...(ambiguous ? ["ambiguous_desktop_join"] : []),
@@ -2031,6 +2035,7 @@ export function createCodexDesktopCoherenceReport(options: CodexDesktopCoherence
     desktopVisibleBefore,
     desktopVisibleCurrent,
     desktopVisibleAfter,
+    priorDesktopMiss,
     refreshKind
   });
   const visibility = codexDesktopVisibility({
@@ -2740,7 +2745,7 @@ function codexDesktopCoherenceObservation(
   const matched = sourceRef
     ? map.items.filter((item) => visibleMapItemMatchesTarget(item, sourceRef))
     : [];
-  const ambiguous = matched.length > 1 || matched.some((item) => coherenceItemHasJoinAmbiguity(item));
+  const ambiguous = matched.some((item) => coherenceItemHasJoinAmbiguity(item));
   const confidence = matched.length === 0 ? 0 : Math.max(...matched.map((item) => item.confidence));
   const desktopVisible = matched.some((item) => Boolean(item.desktopRef) && item.confidence >= 0.5) && !ambiguous;
   const cliVisible = matched.some((item) => Boolean(item.sourceRef || item.appServerRef || item.sessionCardRef)) && !ambiguous;
@@ -2751,10 +2756,10 @@ function codexDesktopCoherenceObservation(
     desktopVisible,
     ambiguous,
     confidence: Number(confidence.toFixed(2)),
-    evidenceIds: unique(matched.flatMap((item) => item.evidenceIds)).slice(0, 20),
-    sourceRefs: unique(matched.flatMap((item) => [item.sourceRef, item.sessionCardRef].filter((value): value is string => typeof value === "string"))).slice(0, 20),
-    appServerRefs: unique(matched.map((item) => item.appServerRef).filter((value): value is string => typeof value === "string")).slice(0, 20),
-    desktopRefs: unique(matched.map((item) => item.desktopRef).filter((value): value is string => typeof value === "string")).slice(0, 20),
+    evidenceIds: unique(matched.flatMap((item) => item.evidenceIds)).map((value) => publicSafeRefLike(value, "evidence")).filter((value): value is string => Boolean(value)).slice(0, 20),
+    sourceRefs: unique(matched.flatMap((item) => [item.sourceRef, item.sessionCardRef].filter((value): value is string => typeof value === "string"))).map((value) => publicSafeRefLike(value, "source")).filter((value): value is string => Boolean(value)).slice(0, 20),
+    appServerRefs: unique(matched.map((item) => item.appServerRef).filter((value): value is string => typeof value === "string")).map((value) => publicSafeRefLike(value, "app")).filter((value): value is string => Boolean(value)).slice(0, 20),
+    desktopRefs: unique(matched.map((item) => item.desktopRef).filter((value): value is string => typeof value === "string")).map((value) => publicSafeRefLike(value, "desktop")).filter((value): value is string => Boolean(value)).slice(0, 20),
     reasonCodes: unique(matched.flatMap((item) => item.reasonCodes)).filter((reason) =>
       reason !== "ambiguous_join" || matched.some((item) => coherenceItemHasJoinAmbiguity(item))
     ).map(publicSafeIdentifier).filter((reason): reason is string => Boolean(reason)),
@@ -2767,6 +2772,19 @@ function coherenceItemHasJoinAmbiguity(item: VisibleCodexSessionMapItem): boolea
     reason.startsWith("multiple_")
     || reason === "indexed_card_already_claimed"
   );
+}
+
+function publicSafeRefLike(value: string, prefix: string): string | null {
+  const identifier = looksSensitiveRefLike(value) ? null : publicSafeIdentifier(value);
+  if (identifier) return identifier;
+  const redacted = publicSafeText(value, 160).trim();
+  return redacted ? `${prefix}_${stableId(redacted).slice(0, 16)}` : null;
+}
+
+function looksSensitiveRefLike(value: string): boolean {
+  return /(?:^|[^A-Za-z0-9])(npm_[A-Za-z0-9]{10,}|sk-[A-Za-z0-9_-]{10,}|ghp_[A-Za-z0-9]{10,}|github_pat_[A-Za-z0-9_]{10,}|xox[baprs]-[A-Za-z0-9-]{10,})/.test(value)
+    || value.includes("/")
+    || value.includes("\\");
 }
 
 function visibleMapItemMatchesTarget(item: VisibleCodexSessionMapItem, sourceRef: string): boolean {
@@ -2835,12 +2853,13 @@ function codexDesktopCoherenceState(input: {
   desktopVisibleBefore: boolean;
   desktopVisibleCurrent: boolean;
   desktopVisibleAfter: boolean;
+  priorDesktopMiss: boolean;
   refreshKind: CodexDesktopCoherenceReport["refreshKind"];
 }): CodexDesktopCoherenceState {
   if (input.ambiguous) return "unknown";
   if (input.desktopVisibleBefore || input.desktopVisibleCurrent) return "desktop_visible";
-  if (input.desktopVisibleAfter && input.refreshKind === "desktop_refresh") return "desktop_refresh_required";
-  if (input.desktopVisibleAfter && input.refreshKind === "desktop_restart") return "desktop_restart_required";
+  if (input.desktopVisibleAfter && input.refreshKind === "desktop_refresh" && input.priorDesktopMiss) return "desktop_refresh_required";
+  if (input.desktopVisibleAfter && input.refreshKind === "desktop_restart" && input.priorDesktopMiss) return "desktop_restart_required";
   if (input.desktopVisibleAfter) return "desktop_visible";
   if (input.cliVisible) return "cli_visible";
   return "unknown";

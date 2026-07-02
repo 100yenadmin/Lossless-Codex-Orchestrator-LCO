@@ -572,6 +572,7 @@ async function buildVisibleCodexMapForTool(
   input: Record<string, unknown>,
   options: { db: LooDatabase; codexClient: CodexClient; codexReadClient?: CodexClient; desktopProbe?: DesktopProbe }
 ): Promise<VisibleCodexSessionMapReport> {
+  const targetThreadId = targetThreadIdFromCoherenceInput(input);
   const visibleCodex = input.include_visible_snapshot === true
     ? (await desktopSee({
         backend: optionalDesktopBackend(input.backend),
@@ -585,13 +586,46 @@ async function buildVisibleCodexMapForTool(
     ? undefined
     : await createCodexAppServerThreadsReport({
         client: options.codexReadClient ?? options.codexClient,
-        limit: optionalNumber(input.limit)
+        limit: optionalNumber(input.limit),
+        readThreadId: targetThreadId
       });
   return createVisibleCodexSessionMap(options.db, {
     limit: optionalNumber(input.limit),
     visibleCodex,
-    appServerThreads
+    appServerThreads: appServerThreads ? appServerThreadsWithReadProbe(appServerThreads) : undefined
   });
+}
+
+function appServerThreadsWithReadProbe(report: Awaited<ReturnType<typeof createCodexAppServerThreadsReport>>): AppServerThreadsInput {
+  const readProbe = report.readProbe;
+  if (!readProbe || readProbe.error) return report;
+  const hasThread = report.threads.some((thread) => thread.threadId === readProbe.threadId);
+  if (hasThread) return report;
+  return {
+    ...report,
+    threads: [
+      ...report.threads,
+      {
+        appServerRef: readProbe.appServerRef,
+        threadId: readProbe.threadId,
+        titleSanitized: readProbe.titleSanitized,
+        titleHash: null,
+        status: readProbe.status,
+        loaded: null,
+        loadedState: "not_claimed",
+        updatedAt: null,
+        sourceRef: `codex_thread:${readProbe.threadId}`,
+        confidence: readProbe.titleSanitized ? 0.82 : 0.62
+      }
+    ]
+  };
+}
+
+function targetThreadIdFromCoherenceInput(input: Record<string, unknown>): string | undefined {
+  const threadId = optionalString(input.thread_id);
+  if (threadId) return threadId.startsWith("codex_thread:") ? threadId.slice("codex_thread:".length) : threadId;
+  const sourceRef = optionalString(input.source_ref);
+  return sourceRef?.startsWith("codex_thread:") ? sourceRef.slice("codex_thread:".length) : undefined;
 }
 
 function dispatchControl(control: ReturnType<typeof createCodexControl>, input: Record<string, unknown>, dryRun: boolean) {
