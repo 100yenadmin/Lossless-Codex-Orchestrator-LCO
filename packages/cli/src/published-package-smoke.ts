@@ -257,7 +257,7 @@ function setupRecoveryCommands(
       toolSmokeCommand
     ];
   }
-  const commands = setupBlockerRecoveryItems(setupBlockers).map((item) => item.command);
+  const commands = setupBlockerRecoveryItems(setupBlockers).flatMap((item) => item.commands);
   if (commands.length > 0) return uniqueStrings([...commands, toolSmokeCommand]);
   if (classification === "setup_required") return [toolSmokeCommand];
   return [toolSmokeCommand];
@@ -287,7 +287,7 @@ function setupRecoveryGuidance(
 function setupBlockerRecoveryItems(setupBlockers: string[]): Array<{
   blocker: string;
   requiredSetup: string;
-  command: string;
+  commands: string[];
   guidance: string;
 }> {
   return setupBlockerRecoveryCatalog().filter((item) => setupBlockers.includes(item.blocker));
@@ -296,32 +296,37 @@ function setupBlockerRecoveryItems(setupBlockers: string[]): Array<{
 function setupBlockerRecoveryCatalog(): Array<{
   blocker: string;
   requiredSetup: string;
-  command: string;
+  commands: string[];
   guidance: string;
 }> {
   return [
     {
       blocker: "fresh_profile_gateway_credentials_required",
       requiredSetup: "gateway_credentials",
-      command: "OPENCLAW_GATEWAY_TOKEN='<scoped-token>' loo openclaw tool-smoke --profile lco-dogfood-published --required-tool loo_doctor --required-tool loo_search_sessions --strict",
-      guidance: "Provide a scoped local gateway token or complete profile credential setup, then rerun fresh-profile tool-smoke."
+      commands: [
+        "openclaw doctor --generate-gateway-token --non-interactive --yes",
+        "OPENCLAW_GATEWAY_TOKEN='<scoped-token>' openclaw onboard --non-interactive --accept-risk --gateway-auth token --gateway-token-ref-env OPENCLAW_GATEWAY_TOKEN",
+        "OPENCLAW_GATEWAY_TOKEN='<scoped-token>' openclaw gateway status --json --token '<scoped-token>'",
+        "OPENCLAW_GATEWAY_TOKEN='<scoped-token>' loo openclaw tool-smoke --profile lco-dogfood-published --required-tool loo_doctor --required-tool loo_search_sessions --strict"
+      ],
+      guidance: "Provide a scoped local gateway token through a SecretRef/env-var path or complete profile credential setup, then rerun fresh-profile tool-smoke. Do not store the token in public evidence."
     },
     {
       blocker: "openclaw_device_identity_pairing_required",
       requiredSetup: "device_pairing",
-      command: "openclaw devices approve --latest",
+      commands: ["openclaw devices approve --latest"],
       guidance: "Complete local OpenClaw device identity pairing before claiming the clean profile is gateway-ready."
     },
     {
       blocker: "openclaw_gateway_scope_approval_required",
       requiredSetup: "gateway_scope_approval",
-      command: "openclaw devices approve --latest",
+      commands: ["openclaw devices approve --latest"],
       guidance: "Approve only the required read/search/dry-run gateway scopes; this is not broad gateway scope or live-control approval."
     },
     {
       blocker: "openclaw_gateway_token_rotation_required",
       requiredSetup: "gateway_token_rotation",
-      command: "openclaw devices rotate --device <deviceId> --role operator",
+      commands: ["openclaw devices rotate --device <deviceId> --role operator"],
       guidance: "Rotate or reissue the gateway token outside public evidence; never store the token in the smoke report."
     }
   ];

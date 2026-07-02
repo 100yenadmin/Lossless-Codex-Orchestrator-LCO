@@ -137,7 +137,10 @@ What a local OpenClaw agent can do today:
   `loo onboard status`, `loo openclaw dogfood`, `loo openclaw tool-smoke`, and
   `loo openclaw published-smoke`. The published-smoke `setupRecovery` block
   distinguishes clean-profile `ready` proof from credential, device-pairing,
-  scope-approval, token-rotation, generic setup, and package-failure states.
+  scope-approval, token-rotation, generic setup, and package-failure states. A
+  clean-profile credential blocker is first-run setup, not a package failure:
+  the report points to token generation, env-ref onboarding, gateway status, and
+  fresh-profile tool-smoke commands with token placeholders only.
 
 Completed proof:
 

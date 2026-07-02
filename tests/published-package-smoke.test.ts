@@ -274,7 +274,7 @@ test("published-smoke emits clean-profile setup recovery classifications", () =>
         name: "credentials",
         blockers: ["fresh_profile_gateway_credentials_required"],
         expected: "credential_required",
-        expectedCommand: "OPENCLAW_GATEWAY_TOKEN='<scoped-token>'"
+        expectedCommand: "openclaw doctor --generate-gateway-token --non-interactive --yes"
       },
       {
         name: "device",
@@ -332,6 +332,21 @@ test("published-smoke emits clean-profile setup recovery classifications", () =>
       assert.equal(report.setupRecovery.retryAfterSetup, true);
       assert.equal(report.setupRecovery.configuredGatewayProofSeparate, true);
       assert.ok(report.setupRecovery.nextSafeCommands.some((command) => command.includes(item.expectedCommand)));
+      if (item.expected === "credential_required") {
+        assert.ok(
+          report.setupRecovery.nextSafeCommands.some((command) =>
+            command.includes("openclaw onboard --non-interactive --accept-risk --gateway-auth token --gateway-token-ref-env OPENCLAW_GATEWAY_TOKEN")
+          )
+        );
+        assert.ok(
+          report.setupRecovery.nextSafeCommands.some((command) =>
+            command.includes("openclaw gateway status --json --token '<scoped-token>'")
+          )
+        );
+        assert.ok(
+          report.setupRecovery.guidance.some((guidance) => guidance.includes("SecretRef/env-var"))
+        );
+      }
       assert.equal(report.setupRecovery.readinessProof.required, true);
       assert.equal(report.setupRecovery.readinessProof.satisfied, false);
       assert.match(report.setupRecovery.readinessProof.command, /loo openclaw tool-smoke/);
