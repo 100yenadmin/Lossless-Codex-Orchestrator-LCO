@@ -3237,6 +3237,8 @@ test("Codex autonomy tick reports blocked dry-runs and omitted limited steps", (
     assert.equal(limited.summary.returnedSteps, 1);
     assert.equal(limited.omitted.reason, "limit");
     assert.equal(limited.omitted.count >= 1, true);
+    assert.equal(limited.steps[0]?.threadId, "codex_thread:019f-autonomy-limit-nudge");
+    assert.equal(limited.steps[0]?.stepType, "read_only_probe");
 
     const full = createCodexAutonomyTick(db, {
       limit: 10,
@@ -3245,7 +3247,10 @@ test("Codex autonomy tick reports blocked dry-runs and omitted limited steps", (
       appServerThreads
     });
     const blocked = full.steps.find((step) => step.threadId === "codex_thread:019f-autonomy-approval" && step.stepType === "control_dry_run");
+    const urgentProbe = full.steps.find((step) => step.threadId === "codex_thread:019f-autonomy-limit-nudge" && step.stepType === "read_only_probe");
     assert.ok(blocked);
+    assert.ok(urgentProbe);
+    assert.ok(urgentProbe.priority > blocked.priority);
     assert.equal(full.summary.blockedControlDryRuns, 1);
     assert.equal(blocked.tool, "loo_codex_control_dry_run");
     assert.equal(blocked.execute, false);
