@@ -17,6 +17,7 @@ export const DEFAULT_REQUIRED_TOOL_CALLS = [
   "loo_cockpit_inbox",
   "loo_codex_collaboration_cockpit",
   "loo_codex_collaboration_next_steps",
+  "loo_codex_runtime_desktop_visibility_status",
   "loo_codex_desktop_collaboration_proof",
   "loo_watchers_list",
   "loo_watcher_status",
@@ -86,6 +87,7 @@ export type OpenClawToolInvocationSummary = {
     proofStatus?: string;
     approvalVerified?: boolean;
     actionHash?: string;
+    runtimeVisibilityStatus?: string;
   };
   blockers: string[];
 };
@@ -533,6 +535,12 @@ function buildToolArgs(params: {
   if (params.toolName === "loo_codex_collaboration_cockpit" || params.toolName === "loo_codex_collaboration_next_steps") {
     return smokeCollaborationFixtureArgs(params.threadId);
   }
+  if (params.toolName === "loo_codex_runtime_desktop_visibility_status") {
+    return {
+      ...smokeCollaborationFixtureArgs(params.threadId),
+      desktop_collaboration_proof_reports: [smokeCodexDesktopCollaborationProofReport(params.threadId)]
+    };
+  }
   if (params.toolName === "loo_codex_desktop_collaboration_proof") {
     return smokeCodexDesktopCollaborationProofArgs(params.threadId);
   }
@@ -753,6 +761,54 @@ function smokeCodexDesktopCollaborationProofArgs(threadId?: string): Record<stri
   };
 }
 
+function smokeCodexDesktopCollaborationProofReport(threadId?: string): Record<string, unknown> {
+  const args = smokeCodexDesktopCollaborationProofArgs(threadId);
+  return {
+    schema: "lco.codexDesktopCollaborationProof.v1",
+    publicSafe: true,
+    readOnly: true,
+    ok: true,
+    status: "ready",
+    target: {
+      targetRef: args.target_ref,
+      targetThreadId: args.target_thread_id
+    },
+    actionHash: args.action_hash,
+    approvalVerified: true,
+    blockers: [],
+    sourceCoverage: {
+      indexedSession: "ok",
+      desktopCoherence: "ok",
+      desktopFallback: "ok",
+      approvalPacket: "ok"
+    },
+    proofMarkers: {
+      actionBoundTarget: true,
+      approvalPacketBound: true,
+      publicSafeEvidenceOnly: true,
+      noScreenshotPolicy: true,
+      dryRunOnly: true
+    },
+    requiredNextToolCall: {
+      tool: "loo_desktop_live_proof_harness",
+      args: {
+        backend: args.backend,
+        target_app: args.target_app,
+        target_window: args.target_window,
+        action: args.action,
+        approval_ref: "tool-smoke-action-bound-proof"
+      },
+      execute: false
+    },
+    actionsPerformed: {
+      liveCodexControlRun: false,
+      desktopGuiActionRun: false,
+      rawTranscriptRead: false,
+      screenshotCaptured: false
+    }
+  };
+}
+
 function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenClawToolInvocationSummary {
   const payload = call.parsed ? unwrapGatewayPayload(call.parsed) : undefined;
   const blockers = [
@@ -871,6 +927,37 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
       blockers.push("desktop_collaboration_proof_restricted_action");
     }
   }
+  if (toolName === "loo_codex_runtime_desktop_visibility_status") {
+    const runtimeOutput = details ?? output;
+    const status = stringPath(runtimeOutput, ["status"]);
+    const lanes = arrayPath(runtimeOutput, ["lanes"]).filter(isRecord);
+    const nextToolCall = lanes
+      .map((lane) => isRecord(lane.nextToolCall) ? lane.nextToolCall : null)
+      .find((candidate): candidate is Record<string, unknown> => Boolean(candidate));
+    if (status) summary.runtimeVisibilityStatus = status;
+    if (nextToolCall) summary.nextToolCall = publicSafeRuntimeVisibilityNextToolCall(nextToolCall);
+    if (status !== "covered" && status !== "partial" && status !== "blocked") blockers.push("runtime_desktop_visibility_invalid_status");
+    if (lanes.some((lane) => {
+      const coverage = stringPath(lane, ["coverage"]);
+      return coverage !== "covered" && coverage !== "partial" && coverage !== "blocked";
+    })) blockers.push("runtime_desktop_visibility_invalid_lane_coverage");
+    if (lanes.some((lane) => {
+      const toolCall = isRecord(lane.nextToolCall) ? lane.nextToolCall : null;
+      return toolCall && toolCall.execute !== false;
+    })) blockers.push("runtime_desktop_visibility_next_tool_execute_not_false");
+    const actions = isRecord(runtimeOutput) && isRecord(runtimeOutput.actionsPerformed) ? runtimeOutput.actionsPerformed : null;
+    if (
+      !actions ||
+      actions.liveCodexControlRun !== false ||
+      actions.desktopGuiActionRun !== false ||
+      actions.rawTranscriptRead !== false ||
+      actions.screenshotCaptured !== false ||
+      actions.npmPublished !== false ||
+      actions.githubReleaseCreated !== false
+    ) {
+      blockers.push("runtime_desktop_visibility_restricted_action");
+    }
+  }
 
   return {
     toolName,
@@ -926,6 +1013,14 @@ function publicSafeCollaborationProofNextToolCall(value: unknown): OpenClawToolI
     },
     execute: value.execute === false ? false : undefined
   };
+}
+
+function publicSafeRuntimeVisibilityNextToolCall(value: unknown): OpenClawToolInvocationSummary["summary"]["nextToolCall"] | undefined {
+  if (!isRecord(value)) return undefined;
+  const tool = stringPath(value, ["tool"]);
+  if (tool === "loo_desktop_live_proof_harness") return publicSafeCollaborationProofNextToolCall(value);
+  if (tool === "loo_codex_desktop_coherence") return publicSafeFallbackNextToolCall(value);
+  return undefined;
 }
 
 function gatewayFailureBlockers(call: GatewayCallResult, fallback: string, toolName?: string): string[] {

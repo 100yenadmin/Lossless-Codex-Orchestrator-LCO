@@ -47,6 +47,7 @@
       "loo_cockpit_inbox",
       "loo_codex_collaboration_cockpit",
       "loo_codex_collaboration_next_steps",
+      "loo_codex_runtime_desktop_visibility_status",
       "loo_codex_desktop_collaboration_proof",
       "loo_watchers_list",
       "loo_watcher_status",
@@ -491,6 +492,58 @@
               }
             },
             "desktop_fallback_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "now": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_runtime_desktop_visibility_status",
+        "description": "Summarize whether collaboration cockpit lanes have public-safe runtime Desktop visibility proof or exact read-only next proof steps.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "priority_order": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "watcher_specs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_coherence_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_fallback_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_collaboration_proof_reports": {
               "type": "array",
               "items": {
                 "type": "object",

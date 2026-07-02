@@ -34,6 +34,10 @@ Codex sessions through the installed `loo_*` tools.
   exact next bounded tool call. Its packets are read-only suggestions with
   `execute=false`; do not treat them as approval to run live control or GUI
   actions.
+- Use `loo_codex_runtime_desktop_visibility_status` when you need one compact
+  lane-level answer about which Codex Desktop collaboration lanes are covered,
+  partial, or blocked. Treat any returned next tool call as a read-only
+  `execute=false` recommendation, not as approval to mutate the Desktop.
 
 ## Find Active Codex Sessions
 
@@ -108,6 +112,9 @@ Typical live tools after approval are `loo_codex_resume_thread`,
    packets for watcher resume requests, Desktop coherence, or fallback-status
    checks. Execute nothing from the planner unless a later tool has its own
    approval gate.
+8. Call `loo_codex_runtime_desktop_visibility_status` when you need a compact
+   covered/partial/blocked status for runtime Desktop visibility across active
+   lanes. It reports source coverage and next read-only proof steps only.
 
 ## Recommended Agent Loop
 
@@ -127,9 +134,11 @@ Typical live tools after approval are `loo_codex_resume_thread`,
    cockpit summary
 9. Run `loo_codex_collaboration_next_steps` when the next action needs an exact
    tool packet instead of prose
-10. Recommend a next action with source refs
-11. If action is requested, run `loo_codex_control_dry_run`
-12. Wait for explicit approval before any live control
+10. Run `loo_codex_runtime_desktop_visibility_status` when the user asks what is
+   actually covered for Desktop-visible collaboration right now
+11. Recommend a next action with source refs
+12. If action is requested, run `loo_codex_control_dry_run`
+13. Wait for explicit approval before any live control
 
 ## Public-Safe Output Shape
 

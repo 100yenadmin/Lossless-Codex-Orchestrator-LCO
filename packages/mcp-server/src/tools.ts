@@ -8,6 +8,7 @@ import {
   createBusinessPulse,
   createCodexCollaborationNextSteps,
   createCodexCollaborationCockpit,
+  createCodexRuntimeDesktopVisibilityStatus,
   describeSession,
   describeRecallRef,
   defaultCodexRoots,
@@ -256,6 +257,23 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       watcherSpecs: optionalWatchSpecs(input.watcher_specs),
       desktopCoherenceReports: optionalRecordArray(input.desktop_coherence_reports),
       desktopFallbackReports: optionalRecordArray(input.desktop_fallback_reports),
+      now: optionalString(input.now)
+    })),
+    tool("loo_codex_runtime_desktop_visibility_status", "Summarize whether collaboration cockpit lanes have public-safe runtime Desktop visibility proof or exact read-only next proof steps.", {
+      limit: { type: "integer", minimum: 1, maximum: 500 },
+      priority_order: { type: "array", items: { type: "string" } },
+      watcher_specs: { type: "array", items: { type: "object", additionalProperties: true } },
+      desktop_coherence_reports: { type: "array", items: { type: "object", additionalProperties: true } },
+      desktop_fallback_reports: { type: "array", items: { type: "object", additionalProperties: true } },
+      desktop_collaboration_proof_reports: { type: "array", items: { type: "object", additionalProperties: true } },
+      now: { type: "string" }
+    }, (input) => createCodexRuntimeDesktopVisibilityStatus(options.db, {
+      limit: optionalNumber(input.limit),
+      priorityOrder: optionalStringArray(input.priority_order),
+      watcherSpecs: optionalWatchSpecs(input.watcher_specs),
+      desktopCoherenceReports: optionalRecordArray(input.desktop_coherence_reports),
+      desktopFallbackReports: optionalRecordArray(input.desktop_fallback_reports),
+      desktopCollaborationProofReports: optionalRecordArray(input.desktop_collaboration_proof_reports),
       now: optionalString(input.now)
     })),
     tool("loo_codex_desktop_collaboration_proof", "Validate an exact action-bound Codex Desktop collaboration proof packet without running live control or GUI mutation.", {

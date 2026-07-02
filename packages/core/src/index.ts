@@ -532,6 +532,68 @@ export type CodexCollaborationNextStepsReport = {
 
 export type CodexCollaborationNextStepsOptions = CodexCollaborationCockpitOptions;
 
+export type CodexRuntimeDesktopVisibilityCoverage = "covered" | "partial" | "blocked";
+
+export type CodexRuntimeDesktopVisibilityToolCall = {
+  tool:
+    | "loo_codex_desktop_coherence"
+    | "loo_codex_desktop_fallback_status"
+    | "loo_codex_desktop_collaboration_proof"
+    | "loo_desktop_live_proof_harness";
+  args: Record<string, unknown>;
+  execute: false;
+};
+
+export type CodexRuntimeDesktopVisibilityLane = {
+  threadId: string;
+  title: string;
+  coverage: CodexRuntimeDesktopVisibilityCoverage;
+  desktopState: CodexCollaborationDesktopState;
+  confidence: number;
+  blockers: string[];
+  reasonCodes: string[];
+  evidenceIds: string[];
+  nextToolCall: CodexRuntimeDesktopVisibilityToolCall | null;
+};
+
+export type CodexRuntimeDesktopVisibilityStatusReport = {
+  schema: "lco.codex.runtimeDesktopVisibilityStatus.v1";
+  publicSafe: true;
+  readOnly: true;
+  generatedAt: string;
+  status: CodexRuntimeDesktopVisibilityCoverage;
+  confidence: number;
+  summary: {
+    totalLanes: number;
+    returned: number;
+    covered: number;
+    partial: number;
+    blocked: number;
+    nextReadOnlyActions: number;
+  };
+  sourceCoverage: {
+    collaborationCockpit: VisibleCodexCoverageState;
+    desktopCoherence: VisibleCodexCoverageState;
+    desktopFallback: VisibleCodexCoverageState;
+    desktopCollaborationProof: VisibleCodexCoverageState;
+  };
+  lanes: CodexRuntimeDesktopVisibilityLane[];
+  omitted: CodexCollaborationCockpitReport["omitted"];
+  actionsPerformed: {
+    liveCodexControlRun: false;
+    desktopGuiActionRun: false;
+    rawTranscriptRead: false;
+    screenshotCaptured: false;
+    npmPublished: false;
+    githubReleaseCreated: false;
+  };
+  proofBoundary: string;
+};
+
+export type CodexRuntimeDesktopVisibilityStatusOptions = CodexCollaborationCockpitOptions & {
+  desktopCollaborationProofReports?: unknown[];
+};
+
 export type WatcherKind = "thread_finished" | "final_message_appeared" | "pr_checks_changed" | "review_comment_arrived" | "no_activity" | "approval_expired";
 export type WatcherStatus = "active" | "triggered" | "stale" | "expired" | "low_confidence";
 export type WatcherRecommendedAction = "inspect" | "resume" | "approve" | "ignore";
@@ -2246,6 +2308,70 @@ export function createCodexCollaborationNextSteps(db: LooDatabase, options: Code
   };
 }
 
+export function createCodexRuntimeDesktopVisibilityStatus(
+  db: LooDatabase,
+  options: CodexRuntimeDesktopVisibilityStatusOptions = {}
+): CodexRuntimeDesktopVisibilityStatusReport {
+  const generatedAt = publicIsoTimestamp(options.now) ?? new Date().toISOString();
+  const cockpit = createCodexCollaborationCockpit(db, options);
+  const nextSteps = createCodexCollaborationNextSteps(db, { ...options, now: generatedAt });
+  const nextStepByThread = new Map(nextSteps.steps.map((step) => [step.threadId, step]));
+  const proofByThread = collaborationDesktopProofReportsByThread(options.desktopCollaborationProofReports ?? []);
+  const lanes = cockpit.lanes.map((lane) => runtimeDesktopVisibilityLane(lane, {
+    proof: proofByThread.get(lane.threadId) ?? null,
+    nextStep: nextStepByThread.get(lane.threadId) ?? null
+  }));
+  const covered = lanes.filter((lane) => lane.coverage === "covered").length;
+  const partial = lanes.filter((lane) => lane.coverage === "partial").length;
+  const blocked = lanes.filter((lane) => lane.coverage === "blocked").length;
+  const status: CodexRuntimeDesktopVisibilityCoverage = blocked > 0
+    ? covered > 0 || partial > 0 ? "partial" : "blocked"
+    : partial > 0 ? "partial" : "covered";
+  const confidence = lanes.length === 0
+    ? 0.4
+    : Math.max(0.1, Math.min(1, lanes.reduce((sum, lane) => sum + lane.confidence, 0) / lanes.length));
+  const selectedThreadRefs = new Set(cockpit.lanes.map((lane) => lane.threadId));
+  const proofCoverage = collaborationCoverage(
+    options.desktopCollaborationProofReports,
+    collaborationJoinedReportCount(proofByThread, selectedThreadRefs),
+    selectedThreadRefs.size
+  );
+
+  return {
+    schema: "lco.codex.runtimeDesktopVisibilityStatus.v1",
+    publicSafe: true,
+    readOnly: true,
+    generatedAt,
+    status,
+    confidence,
+    summary: {
+      totalLanes: cockpit.summary.totalCards,
+      returned: lanes.length,
+      covered,
+      partial,
+      blocked,
+      nextReadOnlyActions: lanes.filter((lane) => lane.nextToolCall !== null).length
+    },
+    sourceCoverage: {
+      collaborationCockpit: cockpit.sourceCoverage.recentSessions === "ok" || cockpit.sourceCoverage.cockpitInbox === "ok" ? "ok" : "partial",
+      desktopCoherence: cockpit.sourceCoverage.desktopCoherence,
+      desktopFallback: cockpit.sourceCoverage.desktopFallback,
+      desktopCollaborationProof: proofCoverage
+    },
+    lanes,
+    omitted: cockpit.omitted,
+    actionsPerformed: {
+      liveCodexControlRun: false,
+      desktopGuiActionRun: false,
+      rawTranscriptRead: false,
+      screenshotCaptured: false,
+      npmPublished: false,
+      githubReleaseCreated: false
+    },
+    proofBoundary: "This read-only runtime Desktop visibility status summarizes public-safe collaboration cockpit, coherence, fallback, and action-bound proof records. It does not run live Codex control, click, type, select, refresh, restart, mutate Codex Desktop, capture screenshots, publish npm, create GitHub releases, or claim unattended Desktop collaboration."
+  };
+}
+
 function countActiveCodexSessions(db: LooDatabase): number {
   const row = db.prepare(`
     SELECT COUNT(*) AS total
@@ -2513,6 +2639,181 @@ function collaborationToolCall(
     args: sanitizedArgs,
     execute: false
   };
+}
+
+function runtimeDesktopVisibilityLane(
+  lane: CodexCollaborationCockpitLane,
+  input: {
+    proof: Record<string, unknown> | null;
+    nextStep: CodexCollaborationNextStep | null;
+  }
+): CodexRuntimeDesktopVisibilityLane {
+  const proofToolCall = input.proof ? runtimeDesktopVisibilityProofToolCall(input.proof) : null;
+  if (lane.desktop.state === "desktop_visible") {
+    return runtimeDesktopVisibilityLaneRecord(lane, {
+      coverage: "covered",
+      confidence: Math.max(lane.desktop.confidence, 0.85),
+      blockers: [],
+      reasonCodes: unique([...lane.reasonCodes, "desktop_visible_runtime_covered"]),
+      evidenceIds: lane.desktop.evidenceIds,
+      nextToolCall: null
+    });
+  }
+  if (input.proof) {
+    return runtimeDesktopVisibilityLaneRecord(lane, {
+      coverage: "covered",
+      confidence: Math.max(lane.desktop.confidence, 0.82),
+      blockers: [],
+      reasonCodes: unique([...lane.reasonCodes, "action_bound_desktop_proof_ready"]),
+      evidenceIds: unique([...lane.desktop.evidenceIds, ...collaborationStringArray(input.proof.evidenceIds, 160)]),
+      nextToolCall: proofToolCall
+    });
+  }
+  if (lane.desktop.state === "fallback_ready") {
+    return runtimeDesktopVisibilityLaneRecord(lane, {
+      coverage: "partial",
+      confidence: Math.min(0.78, Math.max(lane.desktop.confidence, 0.62)),
+      blockers: ["action_bound_desktop_proof_missing"],
+      reasonCodes: unique([...lane.reasonCodes, "desktop_fallback_ready", "action_bound_desktop_proof_missing"]),
+      evidenceIds: lane.desktop.evidenceIds,
+      nextToolCall: null
+    });
+  }
+  const nextToolCall = runtimeDesktopVisibilityNextToolCall(input.nextStep);
+  const blockers = unique([
+    ...(lane.desktop.blockers.length > 0 ? lane.desktop.blockers : ["desktop_visibility_runtime_proof_missing"]),
+    ...(nextToolCall ? [] : ["desktop_visibility_runtime_proof_missing"])
+  ]);
+  return runtimeDesktopVisibilityLaneRecord(lane, {
+    coverage: "blocked",
+    confidence: Math.min(0.7, lane.desktop.confidence),
+    blockers,
+    reasonCodes: unique([...lane.reasonCodes, "desktop_visibility_runtime_proof_missing"]),
+    evidenceIds: lane.desktop.evidenceIds,
+    nextToolCall
+  });
+}
+
+function runtimeDesktopVisibilityLaneRecord(
+  lane: CodexCollaborationCockpitLane,
+  input: {
+    coverage: CodexRuntimeDesktopVisibilityCoverage;
+    confidence: number;
+    blockers: string[];
+    reasonCodes: string[];
+    evidenceIds: string[];
+    nextToolCall: CodexRuntimeDesktopVisibilityToolCall | null;
+  }
+): CodexRuntimeDesktopVisibilityLane {
+  return {
+    threadId: lane.threadId,
+    title: publicSafeText(lane.title, 180),
+    coverage: input.coverage,
+    desktopState: lane.desktop.state,
+    confidence: Math.max(0.1, Math.min(1, input.confidence)),
+    blockers: unique(input.blockers.map(collaborationPublicSafeBlocker).filter((blocker): blocker is string => Boolean(blocker))).slice(0, 20),
+    reasonCodes: unique(input.reasonCodes.map(collaborationPublicSafeReasonCode).filter((code): code is string => Boolean(code))).slice(0, 20),
+    evidenceIds: unique(input.evidenceIds.map((id) => publicSafeRefLike(id, "evidence") ?? "").filter(Boolean)).slice(0, 20),
+    nextToolCall: input.nextToolCall
+  };
+}
+
+function runtimeDesktopVisibilityNextToolCall(step: CodexCollaborationNextStep | null): CodexRuntimeDesktopVisibilityToolCall | null {
+  if (!step?.toolCall) return null;
+  const tool = step.toolCall.tool;
+  if (tool !== "loo_codex_desktop_coherence" && tool !== "loo_codex_desktop_fallback_status") return null;
+  return {
+    tool,
+    args: runtimeDesktopVisibilityPublicSafeArgs(step.toolCall.args),
+    execute: false
+  };
+}
+
+function runtimeDesktopVisibilityProofToolCall(proof: Record<string, unknown>): CodexRuntimeDesktopVisibilityToolCall | null {
+  const candidate = isObjectRecord(proof.requiredNextToolCall) ? proof.requiredNextToolCall : null;
+  if (!candidate) return null;
+  const tool = collaborationString(candidate.tool, 120);
+  if (tool !== "loo_desktop_live_proof_harness") return null;
+  if (candidate.execute !== false) return null;
+  return {
+    tool,
+    args: runtimeDesktopVisibilityPublicSafeArgs(isObjectRecord(candidate.args) ? candidate.args : {}),
+    execute: false
+  };
+}
+
+function runtimeDesktopVisibilityPublicSafeArgs(args: Record<string, unknown>): Record<string, unknown> {
+  const entries: Array<[string, unknown]> = [];
+  for (const [key, value] of Object.entries(args)) {
+    const safeKey = publicSafeIdentifier(key);
+    if (!safeKey) continue;
+    if (typeof value === "boolean") {
+      entries.push([safeKey, value]);
+      continue;
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      entries.push([safeKey, Math.trunc(value)]);
+      continue;
+    }
+    if (typeof value === "string") {
+      const safeValue = publicSafeText(value, 240);
+      if (safeValue) entries.push([safeKey, safeValue]);
+      continue;
+    }
+    if (isObjectRecord(value)) {
+      entries.push([safeKey, runtimeDesktopVisibilityPublicSafeArgs(value)]);
+      continue;
+    }
+    if (Array.isArray(value)) {
+      entries.push([safeKey, value.map((item) => typeof item === "string" ? publicSafeText(item, 160) : null).filter(Boolean).slice(0, 20)]);
+    }
+  }
+  return Object.fromEntries(entries);
+}
+
+function collaborationDesktopProofReportsByThread(reports: unknown[]): Map<string, Record<string, unknown>> {
+  const byThread = new Map<string, Record<string, unknown>>();
+  for (const report of reports) {
+    if (!isObjectRecord(report)) continue;
+    if (!collaborationDesktopProofReportIsUsable(report)) continue;
+    const targetRef = collaborationDesktopProofTargetRef(report);
+    if (!targetRef) continue;
+    byThread.set(targetRef, report);
+  }
+  return byThread;
+}
+
+function collaborationDesktopProofReportIsUsable(report: Record<string, unknown>): boolean {
+  if (report.schema !== "lco.codexDesktopCollaborationProof.v1") return false;
+  if (report.publicSafe !== true || report.readOnly !== true) return false;
+  if (report.ok !== true || report.status !== "ready" || report.approvalVerified !== true) return false;
+  const actions = isObjectRecord(report.actionsPerformed) ? report.actionsPerformed : null;
+  if (!actions) return false;
+  if (actions.liveCodexControlRun !== false) return false;
+  if (actions.desktopGuiActionRun !== false) return false;
+  if (actions.rawTranscriptRead !== false) return false;
+  if (actions.screenshotCaptured !== false) return false;
+  const proofMarkers = isObjectRecord(report.proofMarkers) ? report.proofMarkers : null;
+  if (!proofMarkers) return false;
+  if (proofMarkers.actionBoundTarget !== true) return false;
+  if (proofMarkers.approvalPacketBound !== true) return false;
+  if (proofMarkers.publicSafeEvidenceOnly !== true) return false;
+  if (proofMarkers.noScreenshotPolicy !== true) return false;
+  if (proofMarkers.dryRunOnly !== true) return false;
+  const sourceCoverage = isObjectRecord(report.sourceCoverage) ? report.sourceCoverage : null;
+  return Boolean(sourceCoverage
+    && sourceCoverage.indexedSession === "ok"
+    && sourceCoverage.desktopCoherence === "ok"
+    && sourceCoverage.desktopFallback === "ok"
+    && sourceCoverage.approvalPacket === "ok");
+}
+
+function collaborationDesktopProofTargetRef(report: Record<string, unknown>): string | null {
+  const target = isObjectRecord(report.target) ? report.target : {};
+  const sourceRef = collaborationString(target.targetRef ?? target.sourceRef ?? report.targetRef ?? report.sourceRef, 180);
+  const threadId = collaborationString(target.targetThreadId ?? target.threadId ?? report.targetThreadId ?? report.threadId, 120);
+  if (codexDesktopCoherenceTargetMismatch(threadId, sourceRef)) return null;
+  return normalizeCodexThreadSourceRef(sourceRef, threadId);
 }
 
 function collaborationDesktopCoherenceArgsFromFallback(

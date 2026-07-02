@@ -43,5 +43,7 @@ Required proof properties:
 - dry-run first, approved live action second when live Codex control is claimed
 - post-action refresh and safe-summary reasoning
 - action-bound desktop proof only when desktop collaboration is claimed
+- runtime Desktop visibility status only when a claim needs lane-level covered,
+  partial, and blocked proof coverage
 - zero raw transcript, prompt, screenshot, SQLite, token, cookie, credential, or
   private customer data in public evidence

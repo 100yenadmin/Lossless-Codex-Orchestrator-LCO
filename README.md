@@ -38,6 +38,7 @@ LCO is a local-first orchestration layer for Codex-heavy work:
 - creates dry-run approval packets before Codex resume/send/steer/interrupt
 - reports Codex Desktop visibility and fallback readiness without GUI mutation
 - validates exact action-bound Desktop collaboration proof packets without executing them
+- summarizes runtime Desktop visibility coverage and next read-only proof steps
 
 The result is a staged recall loop:
 

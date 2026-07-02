@@ -12,6 +12,7 @@ import {
   createDefaultSourceAuthorityProfile,
   createCodexCollaborationNextSteps,
   createCodexCollaborationCockpit,
+  createCodexRuntimeDesktopVisibilityStatus,
   createGithubOperatingItemsReport,
   createPlanStatePinsReport,
   createProjectDigest,
@@ -1321,6 +1322,7 @@ test("new cockpit and operating-picture tools are exposed through MCP with publi
       "loo_recent_sessions",
       "loo_cockpit_inbox",
       "loo_codex_collaboration_cockpit",
+      "loo_codex_runtime_desktop_visibility_status",
       "loo_watchers_list",
       "loo_watcher_status",
       "loo_watcher_dry_run",
@@ -1343,6 +1345,13 @@ test("new cockpit and operating-picture tools are exposed through MCP with publi
     });
     assert.equal((collaborationCockpit as { publicSafe?: boolean }).publicSafe, true);
     assert.equal((collaborationCockpit as { actionsPerformed?: { desktopGuiActionRun?: boolean } }).actionsPerformed?.desktopGuiActionRun, false);
+
+    const runtimeVisibility = await tools.find((tool) => tool.name === "loo_codex_runtime_desktop_visibility_status")?.execute({
+      limit: 5,
+      now: "2026-07-01T12:00:00.000Z"
+    });
+    assert.equal((runtimeVisibility as { publicSafe?: boolean }).publicSafe, true);
+    assert.equal((runtimeVisibility as { actionsPerformed?: { desktopGuiActionRun?: boolean } }).actionsPerformed?.desktopGuiActionRun, false);
 
     const pins = await tools.find((tool) => tool.name === "loo_plan_state_pins")?.execute({
       plan_state_text: "<!-- loo:manual-pin -->\n- Project: LCO\n- State: yellow\n- Summary: Test pin.\n- Next: Review.\n<!-- /loo:manual-pin -->"
@@ -1414,7 +1423,7 @@ test("new cockpit and operating-picture tools are exposed through MCP with publi
       () => unsafeWatcher.execute({ watcher_specs: [{ ...watcherSpec, mutates: true }] }),
       /mutates=false/
     );
-    assertNoUnsafeStrings({ recent, collaborationCockpit, pins, pulse, watcherDryRun }, sessions);
+    assertNoUnsafeStrings({ recent, collaborationCockpit, runtimeVisibility, pins, pulse, watcherDryRun }, sessions);
   });
 });
 
@@ -2534,6 +2543,172 @@ test("Codex collaboration next-step planner sanitizes caller-controlled now and 
     assert.equal(coherenceArg?.state, "unknown");
     assert.notEqual(report.generatedAt, tokenCanary);
     assertNoUnsafeStrings(report, tokenCanary);
+  });
+});
+
+test("Codex runtime Desktop visibility status summarizes coverage without actions", () => {
+  const rawPathCanary = "/Volumes/LEXAR/Codex/private/codex/session.jsonl";
+  const tokenCanary = "npm_notarealtokenbutshouldnotleak1234567890";
+  withIndexedSessions([
+    {
+      id: "019f-runtime-visible",
+      title: "Runtime visible lane",
+      status: "running",
+      priority: "high",
+      nextAction: "observe visible state",
+      updatedAt: relativeIso(2),
+      refs: true
+    },
+    {
+      id: "019f-runtime-missing",
+      title: "Runtime missing lane",
+      status: "running",
+      priority: "high",
+      nextAction: `prove Desktop visibility ${rawPathCanary}`,
+      updatedAt: relativeIso(3),
+      refs: true
+    },
+    {
+      id: "019f-runtime-proof-ready",
+      title: "Runtime proof ready lane",
+      status: "running",
+      priority: "medium",
+      nextAction: "validate action-bound proof",
+      updatedAt: relativeIso(4),
+      refs: true
+    }
+  ], ({ db }) => {
+    const report = createCodexRuntimeDesktopVisibilityStatus(db, {
+      limit: 5,
+      now: tokenCanary,
+      desktopCoherenceReports: [
+        {
+          schema: "lco.codexDesktopCoherence.v1",
+          publicSafe: true,
+          target: { threadId: "019f-runtime-visible", sourceRef: "codex_thread:019f-runtime-visible" },
+          state: "desktop_visible",
+          confidence: 0.93,
+          evidenceIds: ["ev_runtime_visible"],
+          reasonCodes: ["desktop_visible_candidate"],
+          actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
+        },
+        {
+          schema: "lco.codexDesktopCoherence.v1",
+          publicSafe: true,
+          target: { threadId: "019f-runtime-proof-ready", sourceRef: "codex_thread:019f-runtime-proof-ready" },
+          state: "cli_visible",
+          confidence: 0.78,
+          evidenceIds: ["ev_runtime_cli"],
+          reasonCodes: ["cli_direct_visible_without_desktop_proof"],
+          actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
+        }
+      ],
+      desktopCollaborationProofReports: [
+        {
+          schema: "lco.codexDesktopCollaborationProof.v1",
+          publicSafe: true,
+          readOnly: true,
+          ok: true,
+          status: "ready",
+          target: {
+            targetRef: "codex_thread:019f-runtime-proof-ready",
+            targetThreadId: "019f-runtime-proof-ready"
+          },
+          actionHash: "a".repeat(64),
+          approvalVerified: true,
+          blockers: [],
+          sourceCoverage: {
+            indexedSession: "ok",
+            desktopCoherence: "ok",
+            desktopFallback: "ok",
+            approvalPacket: "ok"
+          },
+          proofMarkers: {
+            actionBoundTarget: true,
+            approvalPacketBound: true,
+            publicSafeEvidenceOnly: true,
+            noScreenshotPolicy: true,
+            dryRunOnly: true
+          },
+          requiredNextToolCall: {
+            tool: "loo_desktop_live_proof_harness",
+            args: { backend: "cua-driver", approval_ref: "issue-342" },
+            execute: false
+          },
+          actionsPerformed: {
+            liveCodexControlRun: false,
+            desktopGuiActionRun: false,
+            rawTranscriptRead: false,
+            screenshotCaptured: false
+          }
+        },
+        {
+          schema: "lco.codexDesktopCollaborationProof.v1",
+          publicSafe: true,
+          readOnly: true,
+          ok: true,
+          status: "ready",
+          target: {
+            targetRef: `codex_thread:019f-runtime-missing${rawPathCanary}`,
+            targetThreadId: "019f-runtime-missing"
+          },
+          actionHash: "b".repeat(64),
+          approvalVerified: true,
+          blockers: [tokenCanary],
+          sourceCoverage: {
+            indexedSession: "ok",
+            desktopCoherence: "partial",
+            desktopFallback: "ok",
+            approvalPacket: "ok"
+          },
+          proofMarkers: {
+            actionBoundTarget: true,
+            approvalPacketBound: true,
+            publicSafeEvidenceOnly: false,
+            noScreenshotPolicy: true,
+            dryRunOnly: true
+          },
+          actionsPerformed: {
+            liveCodexControlRun: false,
+            desktopGuiActionRun: false,
+            rawTranscriptRead: false,
+            screenshotCaptured: false
+          }
+        }
+      ]
+    });
+
+    const byThread = new Map(report.lanes.map((lane) => [lane.threadId, lane]));
+    const visible = byThread.get("codex_thread:019f-runtime-visible");
+    const missing = byThread.get("codex_thread:019f-runtime-missing");
+    const proofReady = byThread.get("codex_thread:019f-runtime-proof-ready");
+
+    assert.equal(report.schema, "lco.codex.runtimeDesktopVisibilityStatus.v1");
+    assert.equal(report.publicSafe, true);
+    assert.equal(report.readOnly, true);
+    assert.equal(report.status, "partial");
+    assert.equal(report.summary.covered, 2);
+    assert.equal(report.summary.blocked, 1);
+    assert.equal(report.sourceCoverage.desktopCollaborationProof, "partial");
+    assert.equal(visible?.coverage, "covered");
+    assert.equal(visible?.nextToolCall, null);
+    assert.equal(proofReady?.coverage, "covered");
+    assert.equal(proofReady?.reasonCodes.includes("action_bound_desktop_proof_ready"), true);
+    assert.equal(proofReady?.nextToolCall?.execute, false);
+    assert.equal(proofReady?.nextToolCall?.tool, "loo_desktop_live_proof_harness");
+    assert.equal(missing?.coverage, "blocked");
+    assert.equal(missing?.blockers.includes("desktop_visibility_runtime_proof_missing"), true);
+    assert.equal(missing?.nextToolCall?.tool, "loo_codex_desktop_coherence");
+    assert.equal(missing?.nextToolCall?.execute, false);
+    assert.deepEqual(missing?.nextToolCall?.args, {
+      thread_id: "019f-runtime-missing",
+      source_ref: "codex_thread:019f-runtime-missing"
+    });
+    assert.equal(report.actionsPerformed.liveCodexControlRun, false);
+    assert.equal(report.actionsPerformed.desktopGuiActionRun, false);
+    assert.equal(report.actionsPerformed.screenshotCaptured, false);
+    assert.notEqual(report.generatedAt, tokenCanary);
+    assertNoUnsafeStrings(report, rawPathCanary, tokenCanary);
   });
 });
 
