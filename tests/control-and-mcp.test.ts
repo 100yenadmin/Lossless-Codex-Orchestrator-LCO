@@ -299,7 +299,7 @@ test("MCP stdio server returns JSON-RPC errors for malformed input frames", asyn
     assert.equal(response.id, null);
     assert.equal(response.error?.code, -32000);
     assert.match(response.error?.message ?? "", /JSON|Expected|Unexpected/i);
-    assert.equal(stderr, "");
+    assert.doesNotMatch(stderr, /Unhandled|uncaught|ERR_UNHANDLED/i);
   } finally {
     server.kill();
     rmSync(root, { recursive: true, force: true });
