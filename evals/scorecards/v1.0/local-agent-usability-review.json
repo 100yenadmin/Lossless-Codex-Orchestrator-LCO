@@ -16,6 +16,7 @@
     "loo_recent_sessions",
     "loo_cockpit_inbox",
     "loo_codex_collaboration_cockpit",
+    "loo_codex_collaboration_next_steps",
     "loo_watchers_list",
     "loo_watcher_status",
     "loo_watcher_dry_run",
@@ -52,7 +53,9 @@
     "end-to-end Eva cockpit dogfood evidence tying GitHub check state, recent Codex cards, clean presentation, current-lane ranking, customer/runtime/security priority, source coverage, and P1 not_configured gaps into one public-safe workflow",
     "dry-run approval_audit_id, params_hash, and message_hash",
     "gateway setupStatus, setupBlockers, and setupGuidance for first-run credential blockers",
-    "agent reasoning note based only on safe summaries"
+    "agent reasoning note based only on safe summaries",
+    "collaboration next-step planner schema, status counts, execute=false tool packets, blockers, reason codes, and false action flags",
+    "exact read-only next tool calls for watcher resume packets, Desktop coherence, and fallback status without executing them"
   ],
   "private_data_exclusions": [
     "raw Codex transcripts",
@@ -84,7 +87,9 @@
     "Missing P1 source adapters are reported as not_configured instead of summarized.",
     "Unavailable or cache-only authorities degrade to unknown or low confidence instead of being treated as current truth.",
     "Agent can dry-run a control action and reason about the audit id without sending a live action.",
-    "Evidence contains public-safe summaries, counts, refs, hashes, setupStatus classifications, and blocker codes only."
+    "Evidence contains public-safe summaries, counts, refs, hashes, setupStatus classifications, and blocker codes only.",
+    "Agent can ask `loo_codex_collaboration_next_steps` for exact execute=false next tool packets after reading the cockpit, instead of inferring tool order from prose.",
+    "Planner output blocks fallback/action lanes that need approval or missing proof instead of claiming live Desktop collaboration."
   ],
   "fail_criteria": [
     "Agent must read raw transcripts to answer the session-management question.",
@@ -100,9 +105,9 @@
     "Fresh OpenClaw profiles need scoped gateway credentials or env-ref onboarding before tool-smoke can call tools; #298 proves that after setup and the protocol-4 backend caller fix, a clean profile can call `loo_doctor` and `loo_search_sessions` through an isolated loopback gateway.",
     "P0 operating-picture tools use LCO/Codex, normalized public-safe GitHub inputs, explicit PLAN_STATE pins, read-only watcher request packets, and a public source-authority profile only; Notion, support-control, Company Brain, Stripe, dashboard/export, and summarizer adapters remain P1.",
     "Visible Codex map joins prove read-only correlation from sanitized title/status metadata only; they do not prove Codex GUI mutation or visible focus/select/continue workflows.",
-    "Codex Desktop coherence classification can prove cli_visible, desktop_visible, desktop_refresh_required, desktop_restart_required, or unknown states from supplied public-safe evidence. Fallback status can report CUA/Peekaboo readiness, and when called with only a target it returns coherence_input_missing plus the exact coherence tool args instead of inventing hidden state. The collaboration cockpit can summarize those states across active lanes. None of these performs a live direct-protocol action, Desktop refresh/restart, or GUI mutation.",
+    "Codex Desktop coherence classification can prove cli_visible, desktop_visible, desktop_refresh_required, desktop_restart_required, or unknown states from supplied public-safe evidence. Fallback status can report CUA/Peekaboo readiness, and when called with only a target it returns coherence_input_missing plus the exact coherence tool args instead of inventing hidden state. The collaboration cockpit can summarize those states across active lanes, and the next-step planner can emit execute=false packets for the next safe proof step. None of these performs a live direct-protocol action, Desktop refresh/restart, or GUI mutation.",
     "This does not prove live Codex control, generic GUI mutation, Claude Code adapter parity, full business truth, stable release, npm latest promotion, or release-grade customer readiness."
   ],
-  "next_action": "Continue #314 and #309 with active-thread cockpit ranking/running-state primitives before any future action-bound Desktop collaboration claim.",
-  "proof_boundary": "This proves local OpenClaw gateway agent usability for Codex read/search/describe/expand/detail lookup/recommend/dry-run, read-only watcher request packets, read-only app-server status/thread signals, visible-to-indexed session correlation, Codex Desktop coherence classification, Codex Desktop fallback readiness reporting, read-only collaboration cockpit summaries, P0 cockpit/operating-picture cards, and fresh-profile gateway-ready invocation using public-safe evidence only; it does not prove live control, GUI mutation, Desktop-visible live collaboration, Claude Code adapter parity, full business truth, stable release, npm latest promotion, or enterprise/customer readiness."
+  "next_action": "Continue #326 and #309 with read-only collaboration next-step packets before any future action-bound Desktop collaboration claim.",
+  "proof_boundary": "This proves local OpenClaw gateway agent usability for Codex read/search/describe/expand/detail lookup/recommend/dry-run, read-only watcher request packets, read-only app-server status/thread signals, visible-to-indexed session correlation, Codex Desktop coherence classification, Codex Desktop fallback readiness reporting, read-only collaboration cockpit summaries, read-only execute=false collaboration next-step packets, P0 cockpit/operating-picture cards, and fresh-profile gateway-ready invocation using public-safe evidence only; it does not prove live control, GUI mutation, Desktop-visible live collaboration, Claude Code adapter parity, full business truth, stable release, npm latest promotion, or enterprise/customer readiness."
 }

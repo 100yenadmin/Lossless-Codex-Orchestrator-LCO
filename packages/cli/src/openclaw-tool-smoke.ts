@@ -16,6 +16,7 @@ export const DEFAULT_REQUIRED_TOOL_CALLS = [
   "loo_recent_sessions",
   "loo_cockpit_inbox",
   "loo_codex_collaboration_cockpit",
+  "loo_codex_collaboration_next_steps",
   "loo_watchers_list",
   "loo_watcher_status",
   "loo_watcher_dry_run",
@@ -528,6 +529,15 @@ function buildToolArgs(params: {
       now: TOOL_SMOKE_NOW
     };
   }
+  if (params.toolName === "loo_codex_collaboration_next_steps") {
+    return {
+      limit: 5,
+      watcher_specs: smokeWatcherSpecs(params.threadId),
+      desktop_coherence_reports: [smokeDesktopCoherenceReport(params.threadId)],
+      desktop_fallback_reports: [smokeDesktopFallbackReport(params.threadId)],
+      now: TOOL_SMOKE_NOW
+    };
+  }
   if (params.toolName === "loo_watchers_list" || params.toolName === "loo_watcher_dry_run") {
     return { watcher_specs: smokeWatcherSpecs(params.threadId), now: TOOL_SMOKE_NOW };
   }
@@ -743,6 +753,14 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
     ) {
       blockers.push("desktop_fallback_next_tool_call_missing");
     }
+  }
+  if (toolName === "loo_codex_collaboration_next_steps") {
+    const steps = arrayPath(summarySource, ["steps"]).filter(isRecord);
+    const unsafeExecutable = steps.some((step) => {
+      const toolCall = isRecord(step.toolCall) ? step.toolCall : null;
+      return toolCall && toolCall.execute !== false;
+    });
+    if (unsafeExecutable) blockers.push("collaboration_next_step_execute_not_false");
   }
 
   return {
@@ -1022,6 +1040,7 @@ function outputCount(value: unknown): number | undefined {
   if (Array.isArray(value)) return value.length;
   if (isRecord(value) && Array.isArray(value.results)) return value.results.length;
   if (isRecord(value) && Array.isArray(value.lanes)) return value.lanes.length;
+  if (isRecord(value) && Array.isArray(value.steps)) return value.steps.length;
   return undefined;
 }
 

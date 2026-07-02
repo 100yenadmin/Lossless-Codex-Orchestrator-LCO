@@ -9,6 +9,7 @@
     "loo_recent_sessions",
     "loo_cockpit_inbox",
     "loo_codex_collaboration_cockpit",
+    "loo_codex_collaboration_next_steps",
     "loo_codex_desktop_coherence",
     "loo_codex_desktop_fallback_status"
   ],
@@ -31,7 +32,9 @@
     "Desktop state values limited to desktop_visible, fallback_ready, fallback_blocked, cli_visible, unknown, or not_configured",
     "sourceCoverage for recentSessions, cockpitInbox, desktopCoherence, and desktopFallback",
     "actionsPerformed flags showing no live Codex control, no GUI mutation, no raw transcript read, no screenshot capture, no npm publish, and no GitHub Release creation",
-    "public-safe scan with zero raw transcript, token, cookie, screenshot, and path leaks"
+    "public-safe scan with zero raw transcript, token, cookie, screenshot, and path leaks",
+    "lco.codex.collaborationNextSteps.v1 schema with execute=false tool-call packets",
+    "next-step packets for watcher resume, Desktop coherence, fallback status, blocked approval, and observe/no-op lanes"
   ],
   "private_data_exclusions": [
     "raw Codex transcripts",
@@ -53,8 +56,9 @@
     "requires_no_release_action": true,
     "max_raw_transcript_spans": 0,
     "max_live_actions": 0,
-    "max_screenshots_in_public_evidence": 0
+    "max_screenshots_in_public_evidence": 0,
+    "requires_collaboration_next_steps_report": true
   },
-  "proof_boundary": "Dry-run scenario contract for the read-only Codex collaboration cockpit. It may prove public-safe active-lane summarization from structured cards and supplied Desktop evidence, but does not prove live Codex control, Codex GUI mutation, prompt typing, clicking, refresh/restart automation, Claude parity, npm publish, GitHub Release creation, or 1.1 release readiness.",
-  "next_action": "Run the collaboration cockpit through focused tests and OpenClaw gateway tool-smoke, then record only public-safe lane counts, reason codes, source coverage, confidence, and action flags."
+  "proof_boundary": "Dry-run scenario contract for the read-only Codex collaboration cockpit and next-step planner. It may prove public-safe active-lane summarization plus exact execute=false next tool packets from structured cards and supplied Desktop evidence, but does not prove live Codex control, Codex GUI mutation, prompt typing, clicking, refresh/restart automation, Claude parity, npm publish, GitHub Release creation, or 1.1 release readiness.",
+  "next_action": "Run the collaboration cockpit and next-step planner through focused tests and OpenClaw gateway tool-smoke, then record only public-safe lane counts, reason codes, source coverage, confidence, execute=false packets, and action flags."
 }

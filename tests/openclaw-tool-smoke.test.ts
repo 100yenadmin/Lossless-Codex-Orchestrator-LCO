@@ -307,6 +307,10 @@ if (method === "tools.invoke") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, readOnly: true, schema: "lco.codex.collaborationCockpit.v1", lanes: [{ threadId: "codex_thread:thread-1", attention: { level: "high", urgencyScore: 80 }, desktop: { state: "fallback_ready", requiresFallback: true, preferredBackend: "cua-driver" } }], sourceCoverage: { recentSessions: "ok", cockpitInbox: "ok", desktopCoherence: "ok", desktopFallback: "ok" }, actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false, npmPublished: false, githubReleaseCreated: false } } }));
     process.exit(0);
   }
+  if (name === "loo_codex_collaboration_next_steps") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, readOnly: true, schema: "lco.codex.collaborationNextSteps.v1", steps: [{ threadId: "codex_thread:thread-1", category: "desktop_coherence", status: "ready", toolCall: { tool: "loo_codex_desktop_coherence", args: { thread_id: "thread-1", source_ref: "codex_thread:thread-1" }, execute: false } }], actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false, npmPublished: false, githubReleaseCreated: false } } }));
+    process.exit(0);
+  }
   if (name === "loo_watchers_list" || name === "loo_watcher_status") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, watchers: [{ watchId: "watch_tool_smoke_checks", targetRef: "codex_thread:thread-1", status: "triggered", mutates: false, reasonCodes: ["watcher_triggered"] }], summary: { triggered: 1 } } }));
     process.exit(0);

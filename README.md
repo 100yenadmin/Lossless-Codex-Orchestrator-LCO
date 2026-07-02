@@ -57,7 +57,7 @@ rediscovering state from text every time.
 | Working app runtime proof | Completed proof | M7/#156 proved the named runtime path and proof gates; generic GUI mutation, Claude parity, and enterprise/customer-ready claims remain excluded. |
 | Codex autonomy cockpit | P0 beta | Recent session cards, cockpit inbox, read-only watcher/resume-request packets, approval packets, and operating-picture tools are public-safe by default. |
 | Eva operating picture | P0 beta | Business pulse and attention inbox use LCO/Codex, optional structured GitHub items, explicit PLAN_STATE pins, and source-authority coverage; P1 business adapters are not configured yet. |
-| Codex collaboration cockpit | 1.1 beta slice | `loo_codex_collaboration_cockpit` summarizes active lanes from recent cards, inbox urgency, watcher requests, and optional Desktop coherence/fallback evidence without live control or GUI action. |
+| Codex collaboration cockpit | 1.1 beta slice | `loo_codex_collaboration_cockpit` summarizes active lanes from recent cards, inbox urgency, watcher requests, and optional Desktop coherence/fallback evidence; `loo_codex_collaboration_next_steps` emits execute=false next-step packets without live control or GUI action. |
 | Codex Desktop coherence | Completed proof | `loo_codex_desktop_coherence` classifies CLI/direct/app-server evidence as `cli_visible`, `desktop_visible`, `desktop_refresh_required`, `desktop_restart_required`, or `unknown`; `loo_codex_desktop_fallback_status` routes missing visibility to CUA/Peekaboo readiness without GUI action. |
 | Claude Code adapter | Fixture inventory | Supports redacted metadata-only fixtures with `claude_session:*` refs; no Claude parity, live control, GUI mutation, or cloud sync claim. |
 
@@ -86,11 +86,12 @@ tracked by
 [#255](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/255),
 and the historical sprint brief
 [docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md](docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md).
-The current active-thread ranking child is
-[#314](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/314):
-`loo_recent_sessions(scope=active)` should surface current approval, running, and
-waiting lanes ahead of stale low-confidence blocked residue while keeping
-PLAN_STATE as explicit pins/empty coverage, not canonical current-state truth.
+The current next-step planning child is
+[#326](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/326):
+`loo_codex_collaboration_next_steps` should turn active-lane cockpit state into
+exact execute=false tool-call packets for watcher resume requests, Desktop
+coherence, and fallback status while blocking approval/action lanes instead of
+claiming live collaboration.
 
 The core Codex recall, M9 handoff paths, P0 cockpit/Eva operating-picture paths,
 stable release gates, and npm `latest` publication are working. The remaining
@@ -164,6 +165,10 @@ What a local OpenClaw agent can do today:
   reads to give an orchestrator one active-lane summary with attention level,
   Desktop state boundary, source coverage, and action flags still pinned to
   false.
+- Use `loo_codex_collaboration_next_steps` after the cockpit when the agent
+  needs the exact next bounded tool call. Planner output uses `execute=false`
+  packets or explicit blockers; it does not perform live Codex control, Desktop
+  refresh/restart, GUI mutation, or screenshot capture.
 - Inspect `authorityCoverage` to see whether LCO, GitHub, or PLAN_STATE is
   authoritative, fallback-only, unavailable, or not configured for a claim.
 - Dry-run Codex control actions and inspect audit ids before any live action.

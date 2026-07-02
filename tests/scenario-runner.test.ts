@@ -244,15 +244,18 @@ test("Codex collaboration cockpit scenario captures read-only Desktop evidence c
     "loo_recent_sessions",
     "loo_cockpit_inbox",
     "loo_codex_collaboration_cockpit",
+    "loo_codex_collaboration_next_steps",
     "loo_codex_desktop_coherence",
     "loo_codex_desktop_fallback_status"
   ]);
   assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /lco\.codex\.collaborationCockpit\.v1/);
+  assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /lco\.codex\.collaborationNextSteps\.v1/);
   assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /actionsPerformed/);
   assert.match(JSON.stringify(scenario.forbidden_behaviors), /raw_transcript_read/);
   assert.match(JSON.stringify(scenario.forbidden_behaviors), /gui_mutation/);
   assert.match(JSON.stringify(scenario.forbidden_behaviors), /npm_publish/);
   assert.equal(scenario.metrics?.requires_collaboration_cockpit_report, true);
+  assert.equal(scenario.metrics?.requires_collaboration_next_steps_report, true);
   assert.equal(scenario.metrics?.requires_desktop_state_boundary, true);
   assert.equal(scenario.metrics?.max_live_actions, 0);
   assert.match(String(scenario.proof_boundary), /does not prove live Codex control/i);

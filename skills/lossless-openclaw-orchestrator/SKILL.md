@@ -30,6 +30,10 @@ Codex sessions through the installed `loo_*` tools.
 - Use `loo_codex_collaboration_cockpit` when the user wants one read-only
   active-lane summary across recent cards, inbox urgency, watcher requests, and
   supplied Desktop coherence/fallback evidence.
+- Use `loo_codex_collaboration_next_steps` after the cockpit when you need the
+  exact next bounded tool call. Its packets are read-only suggestions with
+  `execute=false`; do not treat them as approval to run live control or GUI
+  actions.
 
 ## Find Active Codex Sessions
 
@@ -100,6 +104,10 @@ Typical live tools after approval are `loo_codex_resume_thread`,
 6. Call `loo_codex_collaboration_cockpit` when the next response should combine
    recent cards, inbox urgency, watcher requests, and supplied Desktop evidence
    into one public-safe attention summary.
+7. Call `loo_codex_collaboration_next_steps` when you need exact next tool
+   packets for watcher resume requests, Desktop coherence, or fallback-status
+   checks. Execute nothing from the planner unless a later tool has its own
+   approval gate.
 
 ## Recommended Agent Loop
 
@@ -117,9 +125,11 @@ Typical live tools after approval are `loo_codex_resume_thread`,
    first
 8. Run `loo_codex_collaboration_cockpit` when the user wants one active-lane
    cockpit summary
-9. Recommend a next action with source refs
-10. If action is requested, run `loo_codex_control_dry_run`
-11. Wait for explicit approval before any live control
+9. Run `loo_codex_collaboration_next_steps` when the next action needs an exact
+   tool packet instead of prose
+10. Recommend a next action with source refs
+11. If action is requested, run `loo_codex_control_dry_run`
+12. Wait for explicit approval before any live control
 
 ## Public-Safe Output Shape
 
