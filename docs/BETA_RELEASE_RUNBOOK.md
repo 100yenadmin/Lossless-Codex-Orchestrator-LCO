@@ -383,6 +383,10 @@ promoted during `0.1.x` beta releases unless a separate latest-promotion
 operation explicitly claims and proves that change. At the first stable release,
 move `latest` to the stable version and keep beta and other prereleases on
 prerelease tags. Do not publish a fake stable package just to move a dist-tag.
+Release candidates must publish with `npm publish --tag next`; RC branches also
+carry `package.json` `publishConfig.tag` set to `next` as a fail-closed guard
+against accidental untagged publication. Do not run untagged `npm publish` for
+any prerelease lane.
 
 ## Public Release Steps
 
@@ -391,20 +395,26 @@ Only after the approval gates are satisfied:
 1. Confirm the release candidate commit and tag name.
 2. Run the final release status command with approved evidence paths.
 3. Create the Git tag.
-4. Publish npm if the approval covers npm publication.
+4. Publish npm only if the approval covers npm publication. Use
+   `npm publish --tag beta` for beta releases, `npm publish --tag next` for
+   release candidates, and move `latest` only in the stable release lane. For
+   release candidates, verify `package.json` `publishConfig.tag` is `next`
+   before publishing.
 5. Create the GitHub Release if the approval covers GitHub Release creation.
 6. Install from the published artifact and rerun the OpenClaw user-path smoke.
    If `npm view lossless-openclaw-orchestrator@<version>` or
-   `npm view lossless-openclaw-orchestrator@beta version` proves the version is
-   visible, but `npm install` fails with `ENOVERSIONS` or `ETARGET` and stderr
-   says `with a date before ...`, classify the blocker as
+   `npm view lossless-openclaw-orchestrator@<expected-dist-tag> version` proves
+   the version is visible, but `npm install` fails with `ENOVERSIONS` or
+   `ETARGET` and stderr says `with a date before ...`, classify the blocker as
    `npm_before_cutoff_drift`. This is an npm client selection cutoff, not proof
-   that the package is unpublished. Retry the smoke with an explicit future
-   `--before=<ISO timestamp>` value, keep both logs in evidence, and do not
-   record npm tokens or raw auth config.
+   that the package is unpublished. Use `beta` as the expected dist-tag for
+   beta releases, `next` for release candidates, and `latest` only after the
+   stable release lane intentionally promotes it. Retry the smoke with an
+   explicit future `--before=<ISO timestamp>` value, keep both logs in
+   evidence, and do not record npm tokens or raw auth config.
    If the future `--before` retry still fails while
-   `npm view lossless-openclaw-orchestrator@beta dist.tarball` returns the
-   just-published package tarball, classify the blocker as
+   `npm view lossless-openclaw-orchestrator@<expected-dist-tag> dist.tarball`
+   returns the just-published package tarball, classify the blocker as
    `npm_selector_cutoff_drift` and run the post-publish smoke by installing that
    registry tarball URL. Keep the exact install, `--before` retry, tarball URL,
    and tarball install logs in evidence.

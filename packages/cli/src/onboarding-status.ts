@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { type DistTag, type RegistryVersionMatchStatus, distTagForVersion, matchingRegistryStatus, mismatchedRegistryStatus } from "./dist-tag.js";
 
 export type OnboardingCheck = {
   id: string;
@@ -31,6 +32,7 @@ export type OnboardingStatusReport = {
   };
   installRecovery: {
     publishedPackage: string;
+    expectedDistTag: DistTag;
     cleanProfile: string;
     registryCheckCommand: string;
     tarballLookupCommand: string;
@@ -46,9 +48,10 @@ export type OnboardingStatusReport = {
   postInstallSelfCheck: {
     packageName: string;
     localVersion: string;
-    expectedDistTag: "beta";
+    expectedDistTag: DistTag;
+    registryVersion: string | null;
     registryBetaVersion: string | null;
-    versionMatchStatus: "not_run" | "matches_registry_beta" | "registry_beta_mismatch";
+    versionMatchStatus: RegistryVersionMatchStatus;
     gatewaySetupClassification: "not_run" | "ready" | "gateway_setup_required" | "package_failure_or_unknown";
     registryCheckCommand: string;
     gatewayToolSmokeCommand: string;
@@ -90,6 +93,7 @@ const REQUIRED_OPENCLAW_TOOLS = [
 export function createOnboardingStatusReport(options: {
   rootDir?: string;
   now?: string;
+  registryVersion?: string;
   registryBetaVersion?: string;
   gatewaySetupStatus?: "ready" | "gateway_setup_required" | "package_failure_or_unknown";
 } = {}): OnboardingStatusReport {
@@ -104,8 +108,9 @@ export function createOnboardingStatusReport(options: {
   const requiredFiles = REQUIRED_FILES.map(([id, path]) => checkPath(rootDir, id, path, true));
   const sourceEntrypoints = SOURCE_ENTRYPOINTS.map(([id, path]) => checkPath(rootDir, id, path, true));
   const packageEntrypoints = packageEntrypointsFromPackage(rootDir, packageJson);
-  const installRecovery = createInstallRecoveryCommands();
+  const installRecovery = createInstallRecoveryCommands(packageJson.version);
   const postInstallSelfCheck = createPostInstallSelfCheck(packageJson, installRecovery, {
+    registryVersion: options.registryVersion,
     registryBetaVersion: options.registryBetaVersion,
     gatewaySetupStatus: options.gatewaySetupStatus
   });
@@ -164,7 +169,7 @@ export function createOnboardingStatusReport(options: {
       "desktop GUI mutation",
       "raw transcript upload"
     ],
-    proofBoundary: "This onboarding status report is a public-safe dry run over local package metadata, manifests, published-beta install recovery commands, and optional sanitized post-install self-check evidence only; it does not install plugins, read raw transcripts, store raw npm or gateway output, run live Codex control, mutate a desktop GUI, publish npm packages, or create a GitHub Release."
+    proofBoundary: `This onboarding status report is a public-safe dry run over local package metadata, manifests, published-${installRecovery.expectedDistTag} install recovery commands, and optional sanitized post-install self-check evidence only; it does not install plugins, read raw transcripts, store raw npm or gateway output, run live Codex control, mutate a desktop GUI, publish npm packages, or create a GitHub Release.`
   };
 }
 
@@ -184,13 +189,15 @@ function checkPath(rootDir: string, id: string, path: string, required: boolean)
   };
 }
 
-function createInstallRecoveryCommands(): OnboardingStatusReport["installRecovery"] {
-  const publishedPackage = "lossless-openclaw-orchestrator@beta";
+function createInstallRecoveryCommands(packageVersion: string): OnboardingStatusReport["installRecovery"] {
+  const expectedDistTag = distTagForVersion(packageVersion);
+  const publishedPackage = `lossless-openclaw-orchestrator@${expectedDistTag}`;
   const cleanProfile = "lco-dogfood-published";
   const tarballLookup = `npm view ${publishedPackage} dist.tarball`;
   const guardedTarball = `tarball_url="$(${tarballLookup})" && test -n "$tarball_url"`;
   return {
     publishedPackage,
+    expectedDistTag,
     cleanProfile,
     registryCheckCommand: `npm view ${publishedPackage} version dist-tags --json`,
     tarballLookupCommand: `npm view ${publishedPackage} dist.tarball --json`,
@@ -205,7 +212,7 @@ function createInstallRecoveryCommands(): OnboardingStatusReport["installRecover
       "If npm install reports npm_selector_cutoff_drift, use the guarded registry tarball fallback commands instead of treating the beta as unpublished.",
       "If OpenClaw plugin install or dogfood reports npm selector drift, retry with the OpenClaw tarball fallback command from the same clean profile.",
       "If tool-smoke reports setupStatus.classification=gateway_setup_required, complete local OpenClaw gateway credentials or device pairing before treating it as a package defect.",
-      "Use a clean profile for published-beta proof so an existing linked plugin does not mask install behavior.",
+      `Use a clean profile for published-${expectedDistTag} proof so an existing linked plugin does not mask install behavior.`,
       "Keep tarball fallback evidence public-safe: record the registry tarball URL and install classification, not raw npm command output.",
       "Keep evidence public-safe: record blocker codes, setupStatus, installOutcome, counts, and hashes only."
     ]
@@ -216,23 +223,32 @@ function createPostInstallSelfCheck(
   packageJson: PackageJsonRead,
   installRecovery: OnboardingStatusReport["installRecovery"],
   options: {
+    registryVersion?: string;
     registryBetaVersion?: string;
     gatewaySetupStatus?: "ready" | "gateway_setup_required" | "package_failure_or_unknown";
   }
 ): OnboardingStatusReport["postInstallSelfCheck"] {
   const evidenceInputs = [
+    options.registryVersion ? "registry_version" : null,
     options.registryBetaVersion ? "registry_beta_version" : null,
     options.gatewaySetupStatus ? "gateway_setup_status" : null
   ].filter((item): item is string => Boolean(item));
-  const versionMatchStatus = options.registryBetaVersion
-    ? options.registryBetaVersion === packageJson.version
-      ? "matches_registry_beta"
-      : "registry_beta_mismatch"
+  const registryVersion = options.registryVersion ?? options.registryBetaVersion;
+  const registryEvidenceDistTag = options.registryVersion
+    ? installRecovery.expectedDistTag
+    : options.registryBetaVersion
+      ? "beta"
+      : null;
+  const versionMatchStatus = registryVersion
+    ? registryVersion === packageJson.version && registryEvidenceDistTag === installRecovery.expectedDistTag
+      ? matchingRegistryStatus(installRecovery.expectedDistTag)
+      : mismatchedRegistryStatus(installRecovery.expectedDistTag)
     : "not_run";
   return {
     packageName: packageJson.name,
     localVersion: packageJson.version,
-    expectedDistTag: "beta",
+    expectedDistTag: installRecovery.expectedDistTag,
+    registryVersion: registryVersion ?? null,
     registryBetaVersion: options.registryBetaVersion ?? null,
     versionMatchStatus,
     gatewaySetupClassification: options.gatewaySetupStatus ?? "not_run",

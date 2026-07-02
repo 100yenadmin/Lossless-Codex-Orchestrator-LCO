@@ -1,11 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { PACKAGE_NAME, type DistTag, type RegistryVersionMatchStatus, distTagForVersion, matchingRegistryStatus, mismatchedRegistryStatus } from "./dist-tag.js";
 
 export type PublishedPackageSmokeOptions = {
   evidenceDir?: string;
   rootDir?: string;
   now?: string;
+  registryVersion?: string;
   registryBetaVersion?: string;
   dogfoodReportPath: string;
   toolSmokeReportPath: string;
@@ -22,9 +24,11 @@ export type PublishedPackageSmokeReport = {
   generatedAt: string;
   packageName: string;
   localVersion: string;
-  expectedPackage: "lossless-openclaw-orchestrator@beta";
+  expectedDistTag: DistTag;
+  expectedPackage: string;
+  registryVersion: string | null;
   registryBetaVersion: string | null;
-  versionMatchStatus: "not_run" | "matches_registry_beta" | "registry_beta_mismatch";
+  versionMatchStatus: RegistryVersionMatchStatus;
   dogfood: {
     dogfoodReady: boolean;
     installOutcomeStatus: string;
@@ -81,13 +85,13 @@ export type PublishedPackageSmokeReport = {
   proofBoundary: string;
 };
 
-const PACKAGE_NAME = "lossless-openclaw-orchestrator";
-
 export function createPublishedPackageSmokeReport(options: PublishedPackageSmokeOptions): PublishedPackageSmokeReport {
   const rootDir = options.rootDir
     ? resolve(options.rootDir)
     : findPackageRoot(dirname(fileURLToPath(import.meta.url))) ?? process.cwd();
   const packageJson = readPackageJson(rootDir);
+  const expectedDistTag = distTagForVersion(packageJson.version);
+  const expectedPackage = `${PACKAGE_NAME}@${expectedDistTag}`;
   const dogfood = readJsonObject(options.dogfoodReportPath);
   const toolSmoke = readJsonObject(options.toolSmokeReportPath);
   const configuredToolSmoke = options.configuredToolSmokeReportPath ? readJsonObject(options.configuredToolSmokeReportPath) : null;
@@ -114,14 +118,20 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
   };
   const setupBlockers = readStringArray(toolSmoke.setupBlockers);
   const setupRequired = gatewaySetupClassification === "gateway_setup_required";
-  const versionMatchStatus = options.registryBetaVersion
-    ? options.registryBetaVersion === packageJson.version
-      ? "matches_registry_beta"
-      : "registry_beta_mismatch"
+  const registryVersion = options.registryVersion ?? options.registryBetaVersion;
+  const registryEvidenceDistTag = options.registryVersion
+    ? expectedDistTag
+    : options.registryBetaVersion
+      ? "beta"
+      : null;
+  const versionMatchStatus = registryVersion
+    ? registryVersion === packageJson.version && registryEvidenceDistTag === expectedDistTag
+      ? matchingRegistryStatus(expectedDistTag)
+      : mismatchedRegistryStatus(expectedDistTag)
     : "not_run";
   const blockers = [
     ...(packageJson.name === PACKAGE_NAME ? [] : ["package_name_mismatch"]),
-    ...(versionMatchStatus === "registry_beta_mismatch" ? ["registry_beta_version_mismatch"] : []),
+    ...(versionMatchStatus.endsWith("_mismatch") ? [`registry_${expectedDistTag}_version_mismatch`] : []),
     ...(dogfoodReady ? [] : ["openclaw_dogfood_not_ready"]),
     ...(requiredToolsPresent ? [] : ["openclaw_required_tools_missing"]),
     ...(!toolSmokeReady && !setupRequired ? ["openclaw_tool_smoke_not_ready"] : []),
@@ -145,7 +155,9 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
     generatedAt: options.now ?? new Date().toISOString(),
     packageName: packageJson.name,
     localVersion: packageJson.version,
-    expectedPackage: "lossless-openclaw-orchestrator@beta",
+    expectedDistTag,
+    expectedPackage,
+    registryVersion: registryVersion ?? null,
     registryBetaVersion: options.registryBetaVersion ?? null,
     versionMatchStatus,
     dogfood: {
@@ -164,11 +176,11 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
     setupRecovery,
     blockers,
     nextSafeCommands: [
-      "npm view lossless-openclaw-orchestrator@beta version dist-tags --json",
-      "loo openclaw dogfood --profile lco-dogfood-published --install-source lossless-openclaw-orchestrator@beta --required-tool loo_doctor --required-tool loo_search_sessions --strict",
+      `npm view ${expectedPackage} version dist-tags --json`,
+      `loo openclaw dogfood --profile lco-dogfood-published --install-source ${expectedPackage} --required-tool loo_doctor --required-tool loo_search_sessions --strict`,
       "loo openclaw tool-smoke --profile lco-dogfood-published --required-tool loo_doctor --required-tool loo_search_sessions --strict",
       "loo openclaw tool-smoke --profile lco-dogfood --required-tool loo_doctor --required-tool loo_search_sessions --strict",
-      "loo onboard status --registry-beta-version <version> --gateway-setup-status ready --strict"
+      `loo onboard status --registry-version <version> --gateway-setup-status ready --strict`
     ],
     actionsPerformed: {
       npmPublished: false,
@@ -184,7 +196,7 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
       "tokens, credentials, API keys, cookies",
       "private customer data"
     ],
-    proofBoundary: "This published package smoke report summarizes public-safe beta install and gateway setup evidence only; it does not run live Codex control, mutate a desktop GUI, publish npm, create a GitHub Release, store raw npm output, or store raw OpenClaw gateway output."
+    proofBoundary: `This published package smoke report summarizes public-safe ${expectedDistTag} install and gateway setup evidence only; it does not run live Codex control, mutate a desktop GUI, publish npm, create a GitHub Release, store raw npm output, or store raw OpenClaw gateway output.`
   };
   if (options.evidenceDir) writePublishedPackageSmokeReport(report, options.evidenceDir);
   return report;

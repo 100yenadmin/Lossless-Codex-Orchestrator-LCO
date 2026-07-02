@@ -17,7 +17,7 @@ function read(path: string): string {
   return readFileSync(path, "utf8");
 }
 
-test("current beta release metadata ships desktop proof-action without widening claims", () => {
+test("current release metadata ships desktop proof-action without widening claims", () => {
   const packageJson = JSON.parse(read("package.json")) as { version?: string };
   const packageLock = JSON.parse(read("package-lock.json")) as { version?: string; packages?: Record<string, { version?: string }> };
   const rootPlugin = JSON.parse(read("openclaw.plugin.json")) as { version?: string };
@@ -31,7 +31,7 @@ test("current beta release metadata ships desktop proof-action without widening 
   assert.equal(existsSync(releaseNotesPath), true, `${packageVersion} release notes must exist`);
 
   const releaseNotes = read(releaseNotesPath);
-  assert.match(releaseNotes, /Codex-first working-app beta/i);
+  assert.match(releaseNotes, /Codex-first local orchestration/i);
   assert.match(releaseNotes, /#160/i);
   assert.match(releaseNotes, /loo_desktop_proof_action/i);
   assert.match(releaseNotes, /loo desktop proof-action/i);
@@ -40,7 +40,7 @@ test("current beta release metadata ships desktop proof-action without widening 
   assert.match(releaseNotes, /generic gateway invocation without exact proof args fails closed/i);
   assert.match(releaseNotes, /openclaw_tool_result_not_ok:<tool>/i);
   assert.match(releaseNotes, /output\.details\.ok: false/i);
-  assert.match(releaseNotes, /does not widen the beta\.24 claim/i);
+  assert.match(releaseNotes, /same proof boundary as beta\.35/i);
   assert.match(releaseNotes, /No automatic gateway authorization/i);
   assert.match(releaseNotes, /no broad gateway scope approval/i);
   assert.match(releaseNotes, /no prompt typing/i);
@@ -183,6 +183,23 @@ test("npm beta dist-tag policy is explicit until the first stable release", () =
   assert.match(readme, /beta[\s\S]{0,200}newest public beta/i);
   assert.match(runbook, /npm dist-tag ls lossless-openclaw-orchestrator/i);
   assert.match(runbook, /move `latest` to the stable/i);
+});
+
+test("release candidates pin npm publication to the next dist-tag", () => {
+  const packageJson = JSON.parse(read("package.json")) as {
+    version?: string;
+    publishConfig?: { tag?: string };
+  };
+  const runbook = read("docs/BETA_RELEASE_RUNBOOK.md");
+
+  if (!packageJson.version?.includes("-rc.")) {
+    return;
+  }
+
+  assert.equal(packageJson.publishConfig?.tag, "next");
+  assert.match(runbook, /npm publish --tag next/i);
+  assert.match(runbook, /publishConfig\.tag[\s\S]{0,120}`next`/i);
+  assert.match(runbook, /Do not run untagged `npm publish` for\s+any prerelease lane/i);
 });
 
 test("release workflows use non-deprecated action majors", () => {

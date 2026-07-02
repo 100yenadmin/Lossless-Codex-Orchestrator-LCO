@@ -14,7 +14,7 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
 
   for (const heading of [
     "## North Star",
-    "## Current Milestone: 1.0 RC Hardening and External Tester Readiness",
+    "## Current Milestone: 1.0 RC Stable Decision Gate",
     "## Completed Proof: Working App Runtime",
     "## Primary User Stories",
     "## Orchestrator Product-Management Mode",
@@ -73,7 +73,7 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
   }
 
   assert.match(readme, /VISION\.md/);
-  assert.match(readme, /## Current Sprint: 1\.0 RC External Tester Readiness/);
+  assert.match(readme, /## Current Sprint: 1\.0 RC Stable Decision Gate/);
   assert.match(readme, /brief-lco-codex-autonomy-cockpit-sprint-2026-07-01\.md/);
   assert.match(readme, /What a local OpenClaw agent can do today/i);
   assert.match(readme, /PLAN_STATE\.md/i);

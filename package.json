@@ -1,10 +1,13 @@
 {
   "name": "lossless-openclaw-orchestrator",
-  "version": "0.1.0-beta.35",
+  "version": "1.0.0-rc.1",
   "description": "Index, search, and control local Codex sessions through OpenClaw with approval-gated safety; Claude Code remains an experimental adapter stub.",
   "type": "module",
   "license": "PolyForm-Noncommercial-1.0.0",
   "private": false,
+  "publishConfig": {
+    "tag": "next"
+  },
   "bin": {
     "loo": "dist/packages/cli/src/index.js",
     "loo-mcp-server": "dist/packages/mcp-server/src/server.js"

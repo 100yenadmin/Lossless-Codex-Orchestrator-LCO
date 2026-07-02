@@ -16,6 +16,15 @@ function writeJson(path: string, value: unknown): void {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
 }
 
+const packageJson = JSON.parse(read("package.json")) as { name: string; version: string };
+const expectedDistTag = packageJson.version.includes("-rc.") ? "next" : packageJson.version.includes("-beta.") ? "beta" : "latest";
+const expectedPackage = `${packageJson.name}@${expectedDistTag}`;
+const expectedVersionMatchStatus = expectedDistTag === "beta"
+  ? "matches_registry_beta"
+  : expectedDistTag === "next"
+    ? "matches_registry_next"
+    : "matches_registry_latest";
+
 function writePassingPublishedSmoke(path: string): void {
   writeJson(path, {
     ok: true,
@@ -24,8 +33,9 @@ function writePassingPublishedSmoke(path: string): void {
     publicSafe: true,
     localOnly: true,
     dryRun: true,
-    expectedPackage: "lossless-openclaw-orchestrator@beta",
-    versionMatchStatus: "matches_registry_beta",
+    expectedDistTag,
+    expectedPackage,
+    versionMatchStatus: expectedVersionMatchStatus,
     dogfood: {
       dogfoodReady: true,
       installOutcomeStatus: "installed",
@@ -55,8 +65,9 @@ function writeCredentialRequiredPublishedSmoke(path: string): void {
     publicSafe: true,
     localOnly: true,
     dryRun: true,
-    expectedPackage: "lossless-openclaw-orchestrator@beta",
-    versionMatchStatus: "matches_registry_beta",
+    expectedDistTag,
+    expectedPackage,
+    versionMatchStatus: expectedVersionMatchStatus,
     dogfood: {
       dogfoodReady: true,
       installOutcomeStatus: "installed",
@@ -173,6 +184,130 @@ test("general release readiness fails closed with exact blockers before M9 evide
     desktopGuiActionRun: false
   });
   assert.equal(existsSync(join(evidenceDir, "general-release-readiness.json")), true);
+});
+
+test("general release readiness rejects beta evidence for an RC candidate", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-general-release-wrong-dist-tag-"));
+  writeJson(join(evidenceDir, "published-package-smoke.json"), {
+    ok: true,
+    publishedSmokeReady: true,
+    packagePathOk: true,
+    publicSafe: true,
+    localOnly: true,
+    dryRun: true,
+    expectedDistTag: "beta",
+    expectedPackage: "lossless-openclaw-orchestrator@beta",
+    versionMatchStatus: "matches_registry_beta",
+    dogfood: {
+      dogfoodReady: true,
+      installOutcomeStatus: "installed",
+      requiredToolsPresent: true
+    },
+    toolSmoke: {
+      toolSmokeReady: true,
+      gatewaySetupClassification: "ready",
+      packageInstallLikelyOk: true
+    },
+    setupRequired: false,
+    blockers: [],
+    actionsPerformed: {
+      npmPublished: false,
+      githubReleaseCreated: false,
+      liveCodexControlRun: false,
+      desktopGuiActionRun: false
+    }
+  });
+  writePassingAgentDogfood(join(evidenceDir, "openclaw-tool-smoke.json"));
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "general-readiness",
+    "--evidence-dir",
+    evidenceDir,
+    "--fresh-npm-evidence",
+    "published-package-smoke.json",
+    "--agent-dogfood-evidence",
+    "openclaw-tool-smoke.json",
+    "--strict"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as {
+    blockers?: string[];
+    checks?: Record<string, { ok: boolean; detail: string }>;
+  };
+
+  assert.deepEqual(payload.blockers, ["fresh_npm_clean_profile_wrong_dist_tag"]);
+  assert.equal(payload.checks?.freshNpmCleanProfile?.ok, false);
+  assert.match(payload.checks?.freshNpmCleanProfile?.detail ?? "", new RegExp(`requires ${expectedPackage.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+});
+
+test("general release readiness rejects legacy beta-sourced evidence even when status is mislabeled", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-general-release-legacy-beta-"));
+  writeJson(join(evidenceDir, "published-package-smoke.json"), {
+    ok: true,
+    publishedSmokeReady: true,
+    packagePathOk: true,
+    publicSafe: true,
+    localOnly: true,
+    dryRun: true,
+    expectedDistTag,
+    expectedPackage,
+    registryVersion: packageJson.version,
+    registryBetaVersion: packageJson.version,
+    versionMatchStatus: expectedVersionMatchStatus,
+    dogfood: {
+      dogfoodReady: true,
+      installOutcomeStatus: "installed",
+      requiredToolsPresent: true
+    },
+    toolSmoke: {
+      toolSmokeReady: true,
+      gatewaySetupClassification: "ready",
+      packageInstallLikelyOk: true
+    },
+    setupRequired: false,
+    blockers: [],
+    actionsPerformed: {
+      npmPublished: false,
+      githubReleaseCreated: false,
+      liveCodexControlRun: false,
+      desktopGuiActionRun: false
+    }
+  });
+  writePassingAgentDogfood(join(evidenceDir, "openclaw-tool-smoke.json"));
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "general-readiness",
+    "--evidence-dir",
+    evidenceDir,
+    "--fresh-npm-evidence",
+    "published-package-smoke.json",
+    "--agent-dogfood-evidence",
+    "openclaw-tool-smoke.json",
+    "--strict"
+  ], { encoding: "utf8" });
+
+  if (expectedDistTag === "beta") {
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    return;
+  }
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as {
+    blockers?: string[];
+    checks?: Record<string, { ok: boolean; detail: string }>;
+  };
+
+  assert.deepEqual(payload.blockers, ["fresh_npm_clean_profile_wrong_dist_tag"]);
+  assert.equal(payload.checks?.freshNpmCleanProfile?.ok, false);
+  assert.match(payload.checks?.freshNpmCleanProfile?.detail ?? "", /legacy beta registry evidence/i);
 });
 
 test("general release readiness reports present fresh npm setup recovery instead of missing evidence", () => {

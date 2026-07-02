@@ -11,6 +11,26 @@ import { createOnboardingStatusReport } from "../packages/cli/src/onboarding-sta
 const tsxImport = createRequire(import.meta.url).resolve("tsx");
 const cliEntry = fileURLToPath(new URL("../packages/cli/src/index.ts", import.meta.url));
 
+function expectedDistTag(version: string): "beta" | "next" | "latest" {
+  if (version.includes("-rc.")) return "next";
+  if (version.includes("-beta.")) return "beta";
+  return "latest";
+}
+
+function expectedVersionMatchStatus(version: string): string {
+  const distTag = expectedDistTag(version);
+  if (distTag === "beta") return "matches_registry_beta";
+  if (distTag === "next") return "matches_registry_next";
+  return "matches_registry_latest";
+}
+
+function expectedMismatchStatus(version: string): string {
+  const distTag = expectedDistTag(version);
+  if (distTag === "beta") return "registry_beta_mismatch";
+  if (distTag === "next") return "registry_next_mismatch";
+  return "registry_latest_mismatch";
+}
+
 test("loo onboard status writes a public-safe first-run readiness artifact", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-onboard-status-"));
   const evidenceDir = join(root, "evidence");
@@ -51,6 +71,7 @@ test("loo onboard status writes a public-safe first-run readiness artifact", () 
       };
       installRecovery: {
         publishedPackage: string;
+        expectedDistTag: string;
         cleanProfile: string;
         registryCheckCommand: string;
         tarballLookupCommand: string;
@@ -73,7 +94,10 @@ test("loo onboard status writes a public-safe first-run readiness artifact", () 
     assert.equal(report.dryRun, true);
     assert.equal(report.localOnly, true);
     assert.equal(report.packageName, "lossless-openclaw-orchestrator");
-    assert.match(report.version, /^0\.1\.0-beta\./);
+    const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+    const publishedPackage = `lossless-openclaw-orchestrator@${expectedDistTag(packageJson.version)}`;
+    assert.equal(report.version, packageJson.version);
+    assert.match(report.version, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/);
     assert.deepEqual(report.blockers, []);
     assert.equal(report.requiredFiles.every((item) => item.exists), true);
     assert.equal(report.sourceEntrypoints.every((item) => item.exists), true);
@@ -86,16 +110,17 @@ test("loo onboard status writes a public-safe first-run readiness artifact", () 
     }
     assert.ok(report.nextSafeCommands.includes("loo doctor"));
     assert.ok(report.nextSafeCommands.some((command) => command.includes("loo openclaw dogfood")));
-    assert.equal(report.installRecovery.publishedPackage, "lossless-openclaw-orchestrator@beta");
+    assert.equal(report.installRecovery.publishedPackage, publishedPackage);
+    assert.equal(report.installRecovery.expectedDistTag, expectedDistTag(packageJson.version));
     assert.equal(report.installRecovery.cleanProfile, "lco-dogfood-published");
-    assert.equal(report.installRecovery.registryCheckCommand, "npm view lossless-openclaw-orchestrator@beta version dist-tags --json");
-    assert.equal(report.installRecovery.tarballLookupCommand, "npm view lossless-openclaw-orchestrator@beta dist.tarball --json");
-    assert.equal(report.installRecovery.globalInstallCommand, "npm install -g lossless-openclaw-orchestrator@beta");
-    assert.equal(report.installRecovery.globalInstallTarballFallbackCommand, "tarball_url=\"$(npm view lossless-openclaw-orchestrator@beta dist.tarball)\" && test -n \"$tarball_url\" && npm install -g \"$tarball_url\"");
-    assert.equal(report.installRecovery.openclawInstallCommand, "openclaw --profile lco-dogfood-published plugins install lossless-openclaw-orchestrator@beta");
-    assert.equal(report.installRecovery.openclawInstallTarballFallbackCommand, "tarball_url=\"$(npm view lossless-openclaw-orchestrator@beta dist.tarball)\" && test -n \"$tarball_url\" && openclaw --profile lco-dogfood-published plugins install \"$tarball_url\"");
-    assert.equal(report.installRecovery.dogfoodCommand, "loo openclaw dogfood --profile lco-dogfood-published --install-source lossless-openclaw-orchestrator@beta --required-tool loo_doctor --required-tool loo_search_sessions --strict");
-    assert.equal(report.installRecovery.dogfoodTarballFallbackCommand, "tarball_url=\"$(npm view lossless-openclaw-orchestrator@beta dist.tarball)\" && test -n \"$tarball_url\" && loo openclaw dogfood --profile lco-dogfood-published --install-source \"$tarball_url\" --required-tool loo_doctor --required-tool loo_search_sessions --strict");
+    assert.equal(report.installRecovery.registryCheckCommand, `npm view ${publishedPackage} version dist-tags --json`);
+    assert.equal(report.installRecovery.tarballLookupCommand, `npm view ${publishedPackage} dist.tarball --json`);
+    assert.equal(report.installRecovery.globalInstallCommand, `npm install -g ${publishedPackage}`);
+    assert.equal(report.installRecovery.globalInstallTarballFallbackCommand, `tarball_url=\"$(npm view ${publishedPackage} dist.tarball)\" && test -n \"$tarball_url\" && npm install -g \"$tarball_url\"`);
+    assert.equal(report.installRecovery.openclawInstallCommand, `openclaw --profile lco-dogfood-published plugins install ${publishedPackage}`);
+    assert.equal(report.installRecovery.openclawInstallTarballFallbackCommand, `tarball_url=\"$(npm view ${publishedPackage} dist.tarball)\" && test -n \"$tarball_url\" && openclaw --profile lco-dogfood-published plugins install \"$tarball_url\"`);
+    assert.equal(report.installRecovery.dogfoodCommand, `loo openclaw dogfood --profile lco-dogfood-published --install-source ${publishedPackage} --required-tool loo_doctor --required-tool loo_search_sessions --strict`);
+    assert.equal(report.installRecovery.dogfoodTarballFallbackCommand, `tarball_url=\"$(npm view ${publishedPackage} dist.tarball)\" && test -n \"$tarball_url\" && loo openclaw dogfood --profile lco-dogfood-published --install-source \"$tarball_url\" --required-tool loo_doctor --required-tool loo_search_sessions --strict`);
     assert.equal(report.installRecovery.toolSmokeCommand, "loo openclaw tool-smoke --profile lco-dogfood-published --required-tool loo_doctor --required-tool loo_search_sessions --strict");
     assert.ok(report.installRecovery.setupGuidance.some((item) => item.includes("npm_selector_cutoff_drift")));
     assert.ok(report.installRecovery.setupGuidance.some((item) => item.includes("OpenClaw tarball fallback")));
@@ -109,13 +134,57 @@ test("loo onboard status writes a public-safe first-run readiness artifact", () 
     assert.ok(report.nextSafeCommands.includes(report.installRecovery.openclawInstallTarballFallbackCommand));
     assert.ok(report.nextSafeCommands.includes(report.installRecovery.dogfoodTarballFallbackCommand));
     assert.ok(report.forbiddenActions.includes("npm publish"));
-    assert.match(report.proofBoundary, /published-beta install recovery/i);
+    assert.match(report.proofBoundary, new RegExp(`published-${expectedDistTag(packageJson.version)} install recovery`, "i"));
 
     const evidencePath = join(evidenceDir, "onboarding-status.json");
     assert.equal(existsSync(evidencePath), true);
     assert.deepEqual(JSON.parse(readFileSync(evidencePath, "utf8")), report);
     assertNoPrivateEvidence(result.stdout);
     assertNoPrivateEvidence(readFileSync(evidencePath, "utf8"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("loo onboard status does not relabel legacy beta registry evidence as non-beta proof", { skip: expectedDistTag(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version) === "beta" ? "legacy beta evidence is valid on beta candidates" : false }, () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-onboard-legacy-beta-"));
+  const evidenceDir = join(root, "evidence");
+  const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+  try {
+    const result = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      cliEntry,
+      "onboard",
+      "status",
+      "--evidence-dir",
+      evidenceDir,
+      "--registry-beta-version",
+      packageJson.version,
+      "--gateway-setup-status",
+      "ready",
+      "--strict"
+    ], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      timeout: 15_000
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const report = JSON.parse(result.stdout) as {
+      postInstallSelfCheck: {
+        expectedDistTag: string;
+        registryVersion: string | null;
+        registryBetaVersion: string | null;
+        versionMatchStatus: string;
+        evidenceInputs: string[];
+      };
+    };
+    assert.notEqual(report.postInstallSelfCheck.expectedDistTag, "beta");
+    assert.equal(report.postInstallSelfCheck.registryVersion, packageJson.version);
+    assert.equal(report.postInstallSelfCheck.registryBetaVersion, packageJson.version);
+    assert.equal(report.postInstallSelfCheck.versionMatchStatus, expectedMismatchStatus(packageJson.version));
+    assert.deepEqual(report.postInstallSelfCheck.evidenceInputs, ["registry_beta_version", "gateway_setup_status"]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -167,7 +236,7 @@ test("loo onboard status emits a public-safe post-install self-check from saniti
       evidenceDir,
       "--now",
       "2026-07-01T00:00:00.000Z",
-      "--registry-beta-version",
+      "--registry-version",
       packageJson.version,
       "--gateway-setup-status",
       "gateway_setup_required",
@@ -184,6 +253,7 @@ test("loo onboard status emits a public-safe post-install self-check from saniti
         packageName: string;
         localVersion: string;
         expectedDistTag: string;
+        registryVersion: string | null;
         registryBetaVersion: string | null;
         versionMatchStatus: string;
         gatewaySetupClassification: string;
@@ -198,13 +268,14 @@ test("loo onboard status emits a public-safe post-install self-check from saniti
     assert.deepEqual(report.postInstallSelfCheck, {
       packageName: "lossless-openclaw-orchestrator",
       localVersion: packageJson.version,
-      expectedDistTag: "beta",
-      registryBetaVersion: packageJson.version,
-      versionMatchStatus: "matches_registry_beta",
+      expectedDistTag: expectedDistTag(packageJson.version),
+      registryVersion: packageJson.version,
+      registryBetaVersion: null,
+      versionMatchStatus: expectedVersionMatchStatus(packageJson.version),
       gatewaySetupClassification: "gateway_setup_required",
-      registryCheckCommand: "npm view lossless-openclaw-orchestrator@beta version dist-tags --json",
+      registryCheckCommand: `npm view lossless-openclaw-orchestrator@${expectedDistTag(packageJson.version)} version dist-tags --json`,
       gatewayToolSmokeCommand: "loo openclaw tool-smoke --profile lco-dogfood-published --required-tool loo_doctor --required-tool loo_search_sessions --strict",
-      evidenceInputs: ["registry_beta_version", "gateway_setup_status"]
+      evidenceInputs: ["registry_version", "gateway_setup_status"]
     });
     assert.ok(report.nextSafeCommands.includes(report.postInstallSelfCheck.registryCheckCommand));
     assert.match(report.proofBoundary, /post-install self-check/i);
