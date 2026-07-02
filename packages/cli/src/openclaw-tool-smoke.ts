@@ -756,6 +756,32 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
       return toolCall && toolCall.execute !== false;
     });
     if (unsafeExecutable) blockers.push("collaboration_next_step_execute_not_false");
+    const invalidStatus = steps.some((step) => {
+      const status = stringPath(step, ["status"]);
+      return status !== "ready" && status !== "blocked" && status !== "noop";
+    });
+    if (invalidStatus) blockers.push("collaboration_next_step_invalid_status");
+    const readyMissingToolCall = steps.some((step) => stringPath(step, ["status"]) === "ready" && !isRecord(step.toolCall));
+    if (readyMissingToolCall) blockers.push("collaboration_next_step_ready_missing_tool_call");
+    const blockedMissingBoundary = steps.some((step) => {
+      if (stringPath(step, ["status"]) !== "blocked") return false;
+      const toolCall = isRecord(step.toolCall) ? step.toolCall : null;
+      const stepBlockers = arrayPath(step, ["blockers"]).filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+      return Boolean(toolCall) || stepBlockers.length === 0;
+    });
+    if (blockedMissingBoundary) blockers.push("collaboration_next_step_blocked_boundary_missing");
+    const actions = isRecord(summarySource) && isRecord(summarySource.actionsPerformed) ? summarySource.actionsPerformed : null;
+    if (
+      !actions ||
+      actions.liveCodexControlRun !== false ||
+      actions.desktopGuiActionRun !== false ||
+      actions.rawTranscriptRead !== false ||
+      actions.screenshotCaptured !== false ||
+      actions.npmPublished !== false ||
+      actions.githubReleaseCreated !== false
+    ) {
+      blockers.push("collaboration_next_steps_restricted_action");
+    }
   }
 
   return {

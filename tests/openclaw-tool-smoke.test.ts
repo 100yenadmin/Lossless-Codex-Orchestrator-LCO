@@ -220,7 +220,7 @@ function createFakeOpenClaw(
   dir: string,
   catalogTools: string[],
   catalogShape: "flat" | "groups" = "flat",
-  options: { dryRunOutputShape?: DryRunOutputShape; wrapDryRunOutput?: boolean; omitFallbackNextToolCall?: boolean } = {}
+  options: { dryRunOutputShape?: DryRunOutputShape; wrapDryRunOutput?: boolean; omitFallbackNextToolCall?: boolean; unsafeCollaborationNextSteps?: boolean } = {}
 ): { bin: string; callsPath: string } {
   const callsPath = join(dir, "calls.jsonl");
   const bin = join(dir, "openclaw-fake.mjs");
@@ -240,6 +240,9 @@ function createFakeOpenClaw(
   const fallbackNextToolCallCode = options.omitFallbackNextToolCall
     ? "null"
     : `missingCoherence ? { tool: "loo_codex_desktop_coherence", args: { thread_id: toolArgs.thread_id, source_ref: toolArgs.source_ref } } : null`;
+  const collaborationNextStepsOutputCode = options.unsafeCollaborationNextSteps
+    ? `{ publicSafe: true, readOnly: true, schema: "lco.codex.collaborationNextSteps.v1", steps: [{ threadId: "codex_thread:thread-1", category: "desktop_coherence", status: "ready", toolCall: null }], actionsPerformed: { liveCodexControlRun: true, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false, npmPublished: false, githubReleaseCreated: false } }`
+    : `{ publicSafe: true, readOnly: true, schema: "lco.codex.collaborationNextSteps.v1", steps: [{ threadId: "codex_thread:thread-1", category: "desktop_coherence", status: "ready", toolCall: { tool: "loo_codex_desktop_coherence", args: { thread_id: "thread-1", source_ref: "codex_thread:thread-1" }, execute: false } }], actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false, npmPublished: false, githubReleaseCreated: false } }`;
   writeFileSync(bin, `#!/usr/bin/env node
 import { appendFileSync } from "node:fs";
 const args = process.argv.slice(2);
@@ -308,7 +311,7 @@ if (method === "tools.invoke") {
     process.exit(0);
   }
   if (name === "loo_codex_collaboration_next_steps") {
-    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, readOnly: true, schema: "lco.codex.collaborationNextSteps.v1", steps: [{ threadId: "codex_thread:thread-1", category: "desktop_coherence", status: "ready", toolCall: { tool: "loo_codex_desktop_coherence", args: { thread_id: "thread-1", source_ref: "codex_thread:thread-1" }, execute: false } }], actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false, npmPublished: false, githubReleaseCreated: false } } }));
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: ${collaborationNextStepsOutputCode} }));
     process.exit(0);
   }
   if (name === "loo_watchers_list" || name === "loo_watcher_status") {
@@ -728,6 +731,34 @@ test("OpenClaw tool smoke invokes collaboration cockpit through the gateway surf
     assert.equal(Array.isArray(invoke.params.args?.desktop_fallback_reports), true);
     assert.equal((invoke.params.args?.desktop_coherence_reports as Array<{ target?: { threadId?: string } }>)[0]?.target?.threadId, "thread-1");
     assert.equal((invoke.params.args?.desktop_fallback_reports as Array<{ target?: { threadId?: string } }>)[0]?.target?.threadId, "thread-1");
+    assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /super-secret-transcript-span/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke fails closed for unsafe collaboration next-step output", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-collaboration-next-steps-unsafe-"));
+  const evidencePath = join(dir, "tool-smoke.json");
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_codex_collaboration_next_steps"], "flat", { unsafeCollaborationNextSteps: true });
+
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      profile: "lco-issue-326",
+      sessionKey: "agent:main:lco-issue-326",
+      evidencePath,
+      requiredTools: ["loo_codex_collaboration_next_steps"],
+      threadId: "thread-1",
+      strict: true
+    });
+
+    assert.equal(report.ok, false);
+    assert.ok(report.blockers.includes("collaboration_next_step_ready_missing_tool_call"));
+    assert.ok(report.blockers.includes("collaboration_next_steps_restricted_action"));
     assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /super-secret-transcript-span/);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;

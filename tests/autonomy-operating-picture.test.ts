@@ -2285,6 +2285,7 @@ test("Codex collaboration next-step planner emits read-only exact tool packets",
     assert.equal(report.readOnly, true);
     assert.equal(report.summary.returned, 9);
     assert.equal(report.summary.blocked, 3);
+    assert.equal(report.summary.ready + report.summary.blocked + report.summary.noop, report.summary.returned);
     assert.equal(report.actionsPerformed.liveCodexControlRun, false);
     assert.equal(report.actionsPerformed.desktopGuiActionRun, false);
     assert.equal(report.actionsPerformed.screenshotCaptured, false);
