@@ -668,6 +668,7 @@ export type CodexActiveThreadStateReport = {
     attentionCovered: number;
     attentionPartial: number;
     attentionNeedsProbe: number;
+    attentionUnknown: number;
     nextReadOnlyActions: number;
   };
   sourceCoverage: {
@@ -2544,6 +2545,7 @@ export function createCodexActiveThreadState(
       attentionCovered: selected.filter((item) => item.attentionCoverage.status === "covered").length,
       attentionPartial: selected.filter((item) => item.attentionCoverage.status === "partial").length,
       attentionNeedsProbe: selected.filter((item) => item.attentionCoverage.status === "needs_probe").length,
+      attentionUnknown: selected.filter((item) => item.attentionCoverage.status === "unknown").length,
       nextReadOnlyActions: selected.filter((item) => item.attentionCoverage.nextReadOnlyAction !== null).length
     },
     sourceCoverage: {
@@ -3070,9 +3072,15 @@ function activeThreadAttentionCoverage(
     || input.sourceCoverage.visibleCodexMap === "not_configured";
   const coreMissing = input.sourceCoverage.indexedSession === "unavailable"
     || input.sourceCoverage.cockpitInbox === "unavailable";
+  const unconfiguredUnknownState = input.state === "unknown"
+    && input.sourceCoverage.watchers === "not_configured"
+    && input.sourceCoverage.codexAppServer === "not_configured"
+    && input.sourceCoverage.visibleCodexMap === "not_configured";
   const needsProbe = hardConflict || input.state === "unknown" || input.confidence < 0.5 || coreMissing;
   const partial = !needsProbe && (softConflict || appServerMissing || input.confidence < 0.7);
-  const status: CodexActiveThreadAttentionCoverage["status"] = needsProbe
+  const status: CodexActiveThreadAttentionCoverage["status"] = unconfiguredUnknownState
+    ? "unknown"
+    : needsProbe
     ? "needs_probe"
     : partial ? "partial" : "covered";
   const nextReadOnlyAction = status === "covered"
@@ -3087,6 +3095,7 @@ function activeThreadAttentionCoverage(
       });
   const reasonCodes = unique([
     `attention_${status}`,
+    unconfiguredUnknownState ? "attention_sources_not_configured" : "",
     hardConflict || softConflict ? "attention_conflicting_state" : "",
     appServerMissing ? `attention_app_server_${input.sourceCoverage.codexAppServer}` : "",
     visibleMapMissing ? `attention_visible_map_${input.sourceCoverage.visibleCodexMap}` : "",

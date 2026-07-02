@@ -1006,7 +1006,7 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
           ? summaryRecord?.attentionPartial
           : key === "needs_probe"
             ? summaryRecord?.attentionNeedsProbe
-            : undefined;
+            : summaryRecord?.attentionUnknown;
       return [key, typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0];
     }));
     summary.activeThreadAttentionCoverage = attentionCoverageCounts;
