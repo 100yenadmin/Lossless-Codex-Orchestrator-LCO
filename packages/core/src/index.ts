@@ -3128,7 +3128,7 @@ function activeThreadNextReadOnlyAction(
   }
 ): CodexActiveThreadReadOnlyAction {
   const threadId = safeThreadId(lane.threadId);
-  if (input.hardConflict || input.appServerMissing || input.coreMissing) {
+  if (input.hardConflict || input.softConflict || input.appServerMissing || input.coreMissing) {
     return {
       tool: "loo_codex_app_server_threads",
       execute: false,

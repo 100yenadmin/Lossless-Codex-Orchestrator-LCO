@@ -2954,8 +2954,12 @@ test("Codex active-thread state classifies running blocked stale and needs-nudge
     assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.sourceCoverage.watchers, "ok");
     assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.attentionCoverage.status, "partial");
     assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.attentionCoverage.reasonCodes.includes("attention_conflicting_state"), true);
-    assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.attentionCoverage.nextReadOnlyAction?.tool, "loo_codex_active_thread_state");
+    assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.attentionCoverage.nextReadOnlyAction?.tool, "loo_codex_app_server_threads");
     assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.attentionCoverage.nextReadOnlyAction?.execute, false);
+    assert.deepEqual(byThread.get("codex_thread:019f-state-needs-nudge")?.attentionCoverage.nextReadOnlyAction?.args, {
+      read_thread_id: "019f-state-needs-nudge",
+      limit: 20
+    });
     assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.nextControlDryRun?.tool, "loo_codex_control_dry_run");
     assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.nextControlDryRun?.execute, false);
     assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.nextControlDryRun?.status, "ready");
