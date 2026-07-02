@@ -39,6 +39,7 @@
     "search refs and score summaries",
     "describe and direct-session/query expand profile names",
     "recent session and cockpit inbox card counts",
+    "active-scope recent session ordering that demotes stale low-confidence blocked residue below current approval, running, and waiting lanes",
     "collaboration cockpit active-lane counts, attention levels, Desktop state boundary, source coverage, and false action flags",
     "clean card title/objective/summary/nextAction fields plus presentation_cleaned or presentation_low_confidence reason codes when extraction needed cleanup",
     "watcher status, watcher_triggered reason codes, resume request packet expiry, mutates=false, and approval boundary",
@@ -67,6 +68,7 @@
     "Agent can search sessions through loo_* read tools and receive source-prefixed refs.",
     "Agent can describe and expand selected refs within a bounded token profile.",
     "Agent can list recent session cards and a deterministic cockpit inbox without a wildcard query.",
+    "Agent can call active-scope recent sessions and see stale low-confidence blocked residue explicitly marked and ranked below current approval, running, and waiting work.",
     "Agent can inspect one read-only collaboration cockpit summary that composes recent cards, inbox urgency, watcher requests, and supplied Desktop coherence/fallback evidence without performing actions.",
     "Agent-facing card summaries and next actions are cleaned deterministic presentation text rather than raw directive fragments, markdown tables, or duplicated Title/Final labels.",
     "Agent can inspect read-only watcher status and generate resume-request packets without live control, GUI mutation, cleanup, or external writes.",
@@ -90,7 +92,7 @@
     "Evidence captures local DBs, transcript files, screenshots, prompt text, or secrets.",
     "Tool output is too vague for the agent to choose a safe next action.",
     "Card summaries or next actions expose directive syntax, markdown tables, duplicated Title/Final prefixes, or raw transcript-shaped excerpts as user-facing presentation.",
-    "Operating-picture output hides missing sources, omits authority coverage, or treats PLAN_STATE prose as current truth."
+    "Operating-picture output hides missing sources, omits authority coverage, treats readable empty PLAN_STATE input as not configured, or treats PLAN_STATE prose as current truth."
   ],
   "current_score": "pass",
   "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-fresh-profile-gateway-ready-proof/",
@@ -101,6 +103,6 @@
     "Codex Desktop coherence classification can prove cli_visible, desktop_visible, desktop_refresh_required, desktop_restart_required, or unknown states from supplied public-safe evidence. Fallback status can report CUA/Peekaboo readiness, and when called with only a target it returns coherence_input_missing plus the exact coherence tool args instead of inventing hidden state. The collaboration cockpit can summarize those states across active lanes. None of these performs a live direct-protocol action, Desktop refresh/restart, or GUI mutation.",
     "This does not prove live Codex control, generic GUI mutation, Claude Code adapter parity, full business truth, stable release, npm latest promotion, or release-grade customer readiness."
   ],
-  "next_action": "Continue #313 and #309 with read-only collaboration cockpit hardening before any future action-bound Desktop collaboration claim.",
+  "next_action": "Continue #314 and #309 with active-thread cockpit ranking/running-state primitives before any future action-bound Desktop collaboration claim.",
   "proof_boundary": "This proves local OpenClaw gateway agent usability for Codex read/search/describe/expand/detail lookup/recommend/dry-run, read-only watcher request packets, read-only app-server status/thread signals, visible-to-indexed session correlation, Codex Desktop coherence classification, Codex Desktop fallback readiness reporting, read-only collaboration cockpit summaries, P0 cockpit/operating-picture cards, and fresh-profile gateway-ready invocation using public-safe evidence only; it does not prove live control, GUI mutation, Desktop-visible live collaboration, Claude Code adapter parity, full business truth, stable release, npm latest promotion, or enterprise/customer readiness."
 }

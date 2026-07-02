@@ -26,6 +26,8 @@
     "lco.codex.collaborationCockpit.v1 schema",
     "publicSafe=true and readOnly=true",
     "lane count, attention level, urgencyScore, thread source refs, and safe card state",
+    "active-scope recent session cards rank fresh approval/running/waiting lanes ahead of stale low-confidence blocked residue",
+    "stale low-confidence blocked residue exposes stale_low_confidence_blocked reason codes instead of silently outranking current work",
     "Desktop state values limited to desktop_visible, fallback_ready, fallback_blocked, cli_visible, unknown, or not_configured",
     "sourceCoverage for recentSessions, cockpitInbox, desktopCoherence, and desktopFallback",
     "actionsPerformed flags showing no live Codex control, no GUI mutation, no raw transcript read, no screenshot capture, no npm publish, and no GitHub Release creation",
@@ -44,6 +46,7 @@
   "metrics": {
     "requires_collaboration_cockpit_report": true,
     "requires_attention_level": true,
+    "requires_active_scope_stale_residue_demoted": true,
     "requires_desktop_state_boundary": true,
     "requires_source_coverage": true,
     "requires_no_gui_action": true,
