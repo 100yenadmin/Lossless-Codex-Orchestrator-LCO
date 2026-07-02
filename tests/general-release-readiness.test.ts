@@ -186,8 +186,15 @@ test("general release readiness fails closed with exact blockers before M9 evide
   assert.equal(existsSync(join(evidenceDir, "general-release-readiness.json")), true);
 });
 
-test("general release readiness rejects beta evidence for an RC candidate", () => {
+test("general release readiness rejects wrong dist-tag evidence for the candidate", () => {
   const evidenceDir = mkdtempSync(join(tmpdir(), "loo-general-release-wrong-dist-tag-"));
+  const wrongDistTag = expectedDistTag === "beta" ? "next" : "beta";
+  const wrongPackage = `${packageJson.name}@${wrongDistTag}`;
+  const wrongVersionMatchStatus = wrongDistTag === "beta"
+    ? "matches_registry_beta"
+    : wrongDistTag === "next"
+      ? "matches_registry_next"
+      : "matches_registry_latest";
   writeJson(join(evidenceDir, "published-package-smoke.json"), {
     ok: true,
     publishedSmokeReady: true,
@@ -195,9 +202,9 @@ test("general release readiness rejects beta evidence for an RC candidate", () =
     publicSafe: true,
     localOnly: true,
     dryRun: true,
-    expectedDistTag: "beta",
-    expectedPackage: "lossless-openclaw-orchestrator@beta",
-    versionMatchStatus: "matches_registry_beta",
+    expectedDistTag: wrongDistTag,
+    expectedPackage: wrongPackage,
+    versionMatchStatus: wrongVersionMatchStatus,
     dogfood: {
       dogfoodReady: true,
       installOutcomeStatus: "installed",
