@@ -690,7 +690,7 @@ test("release preflight README gate enforces the full forbidden-claims boundary"
       "Full Claude Code parity",
       "cloud sync",
       "unattended desktop takeover",
-      "bypasses Codex permissions"
+      "permission bypass"
     ].join("\n")
   });
 
