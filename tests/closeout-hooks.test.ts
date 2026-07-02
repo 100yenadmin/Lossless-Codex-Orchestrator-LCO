@@ -8,6 +8,7 @@ import test from "node:test";
 import {
   createCloseoutEnvelopeReport,
   createDatabase,
+  createPublicCommentHygieneReport,
   describeSession,
   indexCodexSessions
 } from "../packages/core/src/index.js";
@@ -55,6 +56,53 @@ function writeFunctionCallSession(root: string, threadId: string, title: string,
   ];
   writeFileSync(threadPath, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
 }
+
+test("public comment hygiene blocks repeated local-path fragments without echoing the path", () => {
+  const rawPath = "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/2026-07-02/issue-306-ga-validation/";
+  const malformedBody = [
+    "Closeout: release validation finished for #306.",
+    `${rawPath}${rawPath}${rawPath}`,
+    rawPath,
+    rawPath,
+    "Next action: use the concise evidence summary instead."
+  ].join("\n");
+
+  const report = createPublicCommentHygieneReport(malformedBody, {
+    requireIssueOrPrRef: true
+  });
+  const serialized = JSON.stringify(report);
+
+  assert.equal(report.publicSafe, true);
+  assert.equal(report.ok, false);
+  assert.equal(report.status, "blocked");
+  assert.equal(report.blockers.includes("absolute_path_prefix_repeated"), true);
+  assert.equal(report.blockers.includes("path_fragment_repeated"), true);
+  assert.equal(report.actionsPerformed.githubWrite, false);
+  assert.equal(serialized.includes(rawPath), false);
+  assert.equal(serialized.includes("/Volumes/LEXAR"), false);
+  assert.match(report.redactedPreview, /<redacted-path>/);
+});
+
+test("public comment hygiene redacts user and temp path previews before reporting", () => {
+  const userPath = "/Users/lume/private/release-notes.md";
+  const tmpPath = "/tmp/lco-public-comment/comment.txt";
+  const report = createPublicCommentHygieneReport([
+    "Closeout: #316 should block private path previews before public issue comments.",
+    userPath,
+    userPath,
+    tmpPath,
+    tmpPath
+  ].join("\n"));
+  const serialized = JSON.stringify(report);
+
+  assert.equal(report.status, "blocked");
+  assert.equal(report.blockers.includes("absolute_path_prefix_repeated"), true);
+  assert.equal(serialized.includes(userPath), false);
+  assert.equal(serialized.includes(tmpPath), false);
+  assert.equal(serialized.includes("~/private"), false);
+  assert.equal(serialized.includes("/tmp/lco-public-comment"), false);
+  assert.match(report.redactedPreview, /<redacted-path>/);
+});
 
 test("closeout dry-run report distinguishes ready, partial, duplicate, and malformed envelopes without mutating Codex", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-closeout-hooks-"));
@@ -189,6 +237,52 @@ test("closeout dry-run report distinguishes ready, partial, duplicate, and malfo
       assert.equal(cliReport.summary.total, 1);
       assert.equal(cliReport.candidates[0]?.threadId, "019f-closeout-ready");
       assert.equal(cliReport.candidates[0]?.wouldAttach, true);
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("closeout dry-run blocks otherwise ready public comments with repeated local-path spam", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-closeout-hygiene-"));
+  const rawPath = "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/2026-07-02/issue-306-ga-validation/";
+  try {
+    writeSession(root, "019f-closeout-path-spam", "Path-spam closeout envelope", [
+      [
+        "<loo_closeout>",
+        "Project: lossless-openclaw-orchestrator",
+        "Status: complete",
+        "Next action: close issue #306 after concise evidence comment",
+        "Closeout state: complete",
+        "Proposed plan completion: complete",
+        "Final-message refs: codex_event:final-path-spam",
+        "Source refs: codex_thread:019f-closeout-path-spam",
+        `Evidence: ${rawPath}${rawPath}${rawPath}`,
+        rawPath,
+        "</loo_closeout>"
+      ].join("\n")
+    ]);
+
+    const db = createDatabase(join(root, "orchestrator.sqlite"));
+    try {
+      const indexed = indexCodexSessions(db, { roots: [join(root, "sessions")], maxFiles: 10 });
+      assert.equal(indexed.errors.length, 0);
+
+      const report = createCloseoutEnvelopeReport(db, { threadId: "019f-closeout-path-spam" });
+      const candidate = report.candidates[0];
+      const serialized = JSON.stringify(report);
+
+      assert.equal(report.summary.ready, 0);
+      assert.equal(report.summary.partial, 1);
+      assert.equal(candidate?.state, "partial");
+      assert.equal(candidate?.wouldAttach, false);
+      assert.equal(candidate?.warnings.includes("public_comment_hygiene_blocked"), true);
+      assert.equal(candidate?.publicCommentHygiene?.ok, false);
+      assert.equal(candidate?.publicCommentHygiene?.blockers.includes("absolute_path_prefix_repeated"), true);
+      assert.equal(serialized.includes(rawPath), false);
+      assert.equal(serialized.includes("/Volumes/LEXAR"), false);
     } finally {
       db.close();
     }
