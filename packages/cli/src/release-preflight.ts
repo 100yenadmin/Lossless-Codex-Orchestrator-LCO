@@ -79,6 +79,7 @@ const readmePublicDocsRequiredPatterns = [
   /docs\/PRIVACY\.md/i,
   /docs\/CLAIM_AUDIT\.md/i,
   /## Safety Boundaries/i,
+  /Core proof commands/i,
   /full Claude Code parity/i,
   /cloud sync/i,
   /unattended desktop takeover/i,

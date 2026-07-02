@@ -800,6 +800,7 @@ function writeProjectSkeleton(rootDir: string, overrides: { readme?: string; run
     "docs/PRIVACY.md",
     "docs/CLAIM_AUDIT.md",
     "## Safety Boundaries",
+    "Core proof commands",
     "Full Claude Code parity",
     "cloud sync",
     "unattended desktop takeover",
