@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { type DistTag, distTagForVersion, registryStatusMatchesDistTag } from "./dist-tag.js";
 
 export type GeneralReleaseReadinessOptions = {
   evidenceDir: string;
@@ -169,7 +170,7 @@ function validateDocsTruth(rootDir: string): GeneralReleaseReadinessCheck {
 
 function validateFreshNpmEvidence(
   path: string | undefined,
-  expected: { expectedPackage: string | null; expectedDistTag: "beta" | "next" | "latest" }
+  expected: { expectedPackage: string | null; expectedDistTag: DistTag }
 ): GeneralReleaseReadinessCheck {
   if (!path || !existsSync(path)) {
     return check(false, "fresh npm clean-profile evidence is missing", "fresh_npm_clean_profile_evidence_missing");
@@ -231,18 +232,6 @@ function validateFreshNpmEvidence(
     );
   }
   return check(false, "fresh npm evidence is present but clean-profile package/gateway proof is not ready", "fresh_npm_clean_profile_not_ready");
-}
-
-function distTagForVersion(version: string): "beta" | "next" | "latest" {
-  if (/-rc(?:\.|-|$)/i.test(version)) return "next";
-  if (/-beta(?:\.|-|$)/i.test(version)) return "beta";
-  return "latest";
-}
-
-function registryStatusMatchesDistTag(value: unknown, distTag: "beta" | "next" | "latest"): boolean {
-  if (distTag === "beta") return value === "matches_registry_beta";
-  if (distTag === "next") return value === "matches_registry_next";
-  return value === "matches_registry_latest";
 }
 
 function validateAgentDogfoodEvidence(path: string | undefined): GeneralReleaseReadinessCheck {

@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { type DistTag, type RegistryVersionMatchStatus, distTagForVersion, matchingRegistryStatus, mismatchedRegistryStatus } from "./dist-tag.js";
 
 export type OnboardingCheck = {
   id: string;
@@ -31,7 +32,7 @@ export type OnboardingStatusReport = {
   };
   installRecovery: {
     publishedPackage: string;
-    expectedDistTag: "beta" | "next" | "latest";
+    expectedDistTag: DistTag;
     cleanProfile: string;
     registryCheckCommand: string;
     tarballLookupCommand: string;
@@ -47,10 +48,10 @@ export type OnboardingStatusReport = {
   postInstallSelfCheck: {
     packageName: string;
     localVersion: string;
-    expectedDistTag: "beta" | "next" | "latest";
+    expectedDistTag: DistTag;
     registryVersion: string | null;
     registryBetaVersion: string | null;
-    versionMatchStatus: "not_run" | "matches_registry_beta" | "registry_beta_mismatch" | "matches_registry_next" | "registry_next_mismatch" | "matches_registry_latest" | "registry_latest_mismatch";
+    versionMatchStatus: RegistryVersionMatchStatus;
     gatewaySetupClassification: "not_run" | "ready" | "gateway_setup_required" | "package_failure_or_unknown";
     registryCheckCommand: string;
     gatewayToolSmokeCommand: string;
@@ -255,24 +256,6 @@ function createPostInstallSelfCheck(
     gatewayToolSmokeCommand: installRecovery.toolSmokeCommand,
     evidenceInputs
   };
-}
-
-function distTagForVersion(version: string): "beta" | "next" | "latest" {
-  if (/-rc(?:\.|-|$)/i.test(version)) return "next";
-  if (/-beta(?:\.|-|$)/i.test(version)) return "beta";
-  return "latest";
-}
-
-function matchingRegistryStatus(distTag: "beta" | "next" | "latest"): OnboardingStatusReport["postInstallSelfCheck"]["versionMatchStatus"] {
-  if (distTag === "beta") return "matches_registry_beta";
-  if (distTag === "next") return "matches_registry_next";
-  return "matches_registry_latest";
-}
-
-function mismatchedRegistryStatus(distTag: "beta" | "next" | "latest"): OnboardingStatusReport["postInstallSelfCheck"]["versionMatchStatus"] {
-  if (distTag === "beta") return "registry_beta_mismatch";
-  if (distTag === "next") return "registry_next_mismatch";
-  return "registry_latest_mismatch";
 }
 
 type PackageJsonRead = {

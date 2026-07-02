@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { PACKAGE_NAME, type DistTag, type RegistryVersionMatchStatus, distTagForVersion, matchingRegistryStatus, mismatchedRegistryStatus } from "./dist-tag.js";
 
 export type PublishedPackageSmokeOptions = {
   evidenceDir?: string;
@@ -23,11 +24,11 @@ export type PublishedPackageSmokeReport = {
   generatedAt: string;
   packageName: string;
   localVersion: string;
-  expectedDistTag: "beta" | "next" | "latest";
+  expectedDistTag: DistTag;
   expectedPackage: string;
   registryVersion: string | null;
   registryBetaVersion: string | null;
-  versionMatchStatus: "not_run" | "matches_registry_beta" | "registry_beta_mismatch" | "matches_registry_next" | "registry_next_mismatch" | "matches_registry_latest" | "registry_latest_mismatch";
+  versionMatchStatus: RegistryVersionMatchStatus;
   dogfood: {
     dogfoodReady: boolean;
     installOutcomeStatus: string;
@@ -83,8 +84,6 @@ export type PublishedPackageSmokeReport = {
   privateDataExclusions: string[];
   proofBoundary: string;
 };
-
-const PACKAGE_NAME = "lossless-openclaw-orchestrator";
 
 export function createPublishedPackageSmokeReport(options: PublishedPackageSmokeOptions): PublishedPackageSmokeReport {
   const rootDir = options.rootDir
@@ -201,24 +200,6 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
   };
   if (options.evidenceDir) writePublishedPackageSmokeReport(report, options.evidenceDir);
   return report;
-}
-
-function distTagForVersion(version: string): "beta" | "next" | "latest" {
-  if (/-rc(?:\.|-|$)/i.test(version)) return "next";
-  if (/-beta(?:\.|-|$)/i.test(version)) return "beta";
-  return "latest";
-}
-
-function matchingRegistryStatus(distTag: "beta" | "next" | "latest"): PublishedPackageSmokeReport["versionMatchStatus"] {
-  if (distTag === "beta") return "matches_registry_beta";
-  if (distTag === "next") return "matches_registry_next";
-  return "matches_registry_latest";
-}
-
-function mismatchedRegistryStatus(distTag: "beta" | "next" | "latest"): PublishedPackageSmokeReport["versionMatchStatus"] {
-  if (distTag === "beta") return "registry_beta_mismatch";
-  if (distTag === "next") return "registry_next_mismatch";
-  return "registry_latest_mismatch";
 }
 
 export function writePublishedPackageSmokeReport(report: PublishedPackageSmokeReport, evidenceDir: string): string {
