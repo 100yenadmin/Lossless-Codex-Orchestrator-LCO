@@ -24,6 +24,13 @@ function expectedVersionMatchStatus(version: string): string {
   return "matches_registry_latest";
 }
 
+function expectedMismatchStatus(version: string): string {
+  const distTag = expectedDistTag(version);
+  if (distTag === "beta") return "registry_beta_mismatch";
+  if (distTag === "next") return "registry_next_mismatch";
+  return "registry_latest_mismatch";
+}
+
 test("loo onboard status writes a public-safe first-run readiness artifact", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-onboard-status-"));
   const evidenceDir = join(root, "evidence");
@@ -134,6 +141,50 @@ test("loo onboard status writes a public-safe first-run readiness artifact", () 
     assert.deepEqual(JSON.parse(readFileSync(evidencePath, "utf8")), report);
     assertNoPrivateEvidence(result.stdout);
     assertNoPrivateEvidence(readFileSync(evidencePath, "utf8"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("loo onboard status does not relabel legacy beta registry evidence as non-beta proof", { skip: expectedDistTag(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version) === "beta" ? "legacy beta evidence is valid on beta candidates" : false }, () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-onboard-legacy-beta-"));
+  const evidenceDir = join(root, "evidence");
+  const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+  try {
+    const result = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      cliEntry,
+      "onboard",
+      "status",
+      "--evidence-dir",
+      evidenceDir,
+      "--registry-beta-version",
+      packageJson.version,
+      "--gateway-setup-status",
+      "ready",
+      "--strict"
+    ], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      timeout: 15_000
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const report = JSON.parse(result.stdout) as {
+      postInstallSelfCheck: {
+        expectedDistTag: string;
+        registryVersion: string | null;
+        registryBetaVersion: string | null;
+        versionMatchStatus: string;
+        evidenceInputs: string[];
+      };
+    };
+    assert.notEqual(report.postInstallSelfCheck.expectedDistTag, "beta");
+    assert.equal(report.postInstallSelfCheck.registryVersion, packageJson.version);
+    assert.equal(report.postInstallSelfCheck.registryBetaVersion, packageJson.version);
+    assert.equal(report.postInstallSelfCheck.versionMatchStatus, expectedMismatchStatus(packageJson.version));
+    assert.deepEqual(report.postInstallSelfCheck.evidenceInputs, ["registry_beta_version", "gateway_setup_status"]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

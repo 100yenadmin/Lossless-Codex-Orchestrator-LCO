@@ -181,6 +181,13 @@ function validateFreshNpmEvidence(
   if (!noReleaseActions(report)) {
     return check(false, "fresh npm evidence is present but performed restricted release/runtime actions", "fresh_npm_clean_profile_restricted_actions_performed");
   }
+  if (expected.expectedDistTag !== "beta" && readString(report, "registryBetaVersion")) {
+    return check(
+      false,
+      `fresh npm evidence uses legacy beta registry evidence, but this candidate requires ${expected.expectedPackage}`,
+      "fresh_npm_clean_profile_wrong_dist_tag"
+    );
+  }
   const ready = Boolean(
     report.ok === true
     && report.publishedSmokeReady === true

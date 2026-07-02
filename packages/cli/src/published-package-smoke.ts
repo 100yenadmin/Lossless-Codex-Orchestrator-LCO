@@ -120,8 +120,13 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
   const setupBlockers = readStringArray(toolSmoke.setupBlockers);
   const setupRequired = gatewaySetupClassification === "gateway_setup_required";
   const registryVersion = options.registryVersion ?? options.registryBetaVersion;
+  const registryEvidenceDistTag = options.registryVersion
+    ? expectedDistTag
+    : options.registryBetaVersion
+      ? "beta"
+      : null;
   const versionMatchStatus = registryVersion
-    ? registryVersion === packageJson.version
+    ? registryVersion === packageJson.version && registryEvidenceDistTag === expectedDistTag
       ? matchingRegistryStatus(expectedDistTag)
       : mismatchedRegistryStatus(expectedDistTag)
     : "not_run";

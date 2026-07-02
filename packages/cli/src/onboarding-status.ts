@@ -109,7 +109,7 @@ export function createOnboardingStatusReport(options: {
   const packageEntrypoints = packageEntrypointsFromPackage(rootDir, packageJson);
   const installRecovery = createInstallRecoveryCommands(packageJson.version);
   const postInstallSelfCheck = createPostInstallSelfCheck(packageJson, installRecovery, {
-    registryVersion: options.registryVersion ?? options.registryBetaVersion,
+    registryVersion: options.registryVersion,
     registryBetaVersion: options.registryBetaVersion,
     gatewaySetupStatus: options.gatewaySetupStatus
   });
@@ -233,8 +233,13 @@ function createPostInstallSelfCheck(
     options.gatewaySetupStatus ? "gateway_setup_status" : null
   ].filter((item): item is string => Boolean(item));
   const registryVersion = options.registryVersion ?? options.registryBetaVersion;
+  const registryEvidenceDistTag = options.registryVersion
+    ? installRecovery.expectedDistTag
+    : options.registryBetaVersion
+      ? "beta"
+      : null;
   const versionMatchStatus = registryVersion
-    ? registryVersion === packageJson.version
+    ? registryVersion === packageJson.version && registryEvidenceDistTag === installRecovery.expectedDistTag
       ? matchingRegistryStatus(installRecovery.expectedDistTag)
       : mismatchedRegistryStatus(installRecovery.expectedDistTag)
     : "not_run";

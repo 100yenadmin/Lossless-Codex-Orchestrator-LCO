@@ -245,6 +245,71 @@ test("general release readiness rejects beta evidence for an RC candidate", () =
   assert.match(payload.checks?.freshNpmCleanProfile?.detail ?? "", new RegExp(`requires ${expectedPackage.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
 });
 
+test("general release readiness rejects legacy beta-sourced evidence even when status is mislabeled", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-general-release-legacy-beta-"));
+  writeJson(join(evidenceDir, "published-package-smoke.json"), {
+    ok: true,
+    publishedSmokeReady: true,
+    packagePathOk: true,
+    publicSafe: true,
+    localOnly: true,
+    dryRun: true,
+    expectedDistTag,
+    expectedPackage,
+    registryVersion: packageJson.version,
+    registryBetaVersion: packageJson.version,
+    versionMatchStatus: expectedVersionMatchStatus,
+    dogfood: {
+      dogfoodReady: true,
+      installOutcomeStatus: "installed",
+      requiredToolsPresent: true
+    },
+    toolSmoke: {
+      toolSmokeReady: true,
+      gatewaySetupClassification: "ready",
+      packageInstallLikelyOk: true
+    },
+    setupRequired: false,
+    blockers: [],
+    actionsPerformed: {
+      npmPublished: false,
+      githubReleaseCreated: false,
+      liveCodexControlRun: false,
+      desktopGuiActionRun: false
+    }
+  });
+  writePassingAgentDogfood(join(evidenceDir, "openclaw-tool-smoke.json"));
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "general-readiness",
+    "--evidence-dir",
+    evidenceDir,
+    "--fresh-npm-evidence",
+    "published-package-smoke.json",
+    "--agent-dogfood-evidence",
+    "openclaw-tool-smoke.json",
+    "--strict"
+  ], { encoding: "utf8" });
+
+  if (expectedDistTag === "beta") {
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    return;
+  }
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as {
+    blockers?: string[];
+    checks?: Record<string, { ok: boolean; detail: string }>;
+  };
+
+  assert.deepEqual(payload.blockers, ["fresh_npm_clean_profile_wrong_dist_tag"]);
+  assert.equal(payload.checks?.freshNpmCleanProfile?.ok, false);
+  assert.match(payload.checks?.freshNpmCleanProfile?.detail ?? "", /legacy beta registry evidence/i);
+});
+
 test("general release readiness reports present fresh npm setup recovery instead of missing evidence", () => {
   const evidenceDir = mkdtempSync(join(tmpdir(), "loo-general-release-setup-required-"));
   writeCredentialRequiredPublishedSmoke(join(evidenceDir, "published-package-smoke.json"));
