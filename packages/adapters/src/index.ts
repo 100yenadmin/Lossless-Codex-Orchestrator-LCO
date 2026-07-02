@@ -171,6 +171,53 @@ export type DesktopStatus = {
   error?: string;
 };
 
+export type CodexDesktopFallbackBackendStatus = {
+  backend: "cua-driver" | "peekaboo";
+  role: "preferred_background" | "secondary_visible_fallback";
+  status: "ready" | "blocked" | "unavailable";
+  available: boolean;
+  permissionState: "ready" | "unknown" | "denied";
+  focus: DesktopStatus["focus"];
+  backgroundSafeClaim: DesktopStatus["backgroundSafeClaim"];
+  visibleCodex: {
+    windows: number | null;
+    threadCandidates: number | null;
+    snapshotRequested: boolean;
+    snapshotBlocked: boolean | null;
+  };
+  blockers: string[];
+  warnings: string[];
+  takesScreenWarning: boolean;
+};
+
+export type CodexDesktopFallbackReport = {
+  schema: "lco.codex.desktopFallback.v1";
+  publicSafe: true;
+  readOnly: true;
+  generatedAt: string;
+  target: {
+    threadId: string | null;
+    sourceRef: string | null;
+  };
+  fallback: {
+    required: boolean;
+    reason: "desktop_visibility_not_proven" | "desktop_visibility_already_proven" | "desktop_visibility_unknown";
+    coherenceState: string | null;
+    desktopVisibility: string | null;
+  };
+  preferredBackend: "cua-driver";
+  backends: CodexDesktopFallbackBackendStatus[];
+  actionsPerformed: {
+    liveCodexControlRun: false;
+    desktopGuiActionRun: false;
+    screenshotCaptured: false;
+    rawTranscriptRead: false;
+  };
+  privateDataExclusions: string[];
+  proofBoundary: string;
+  nextAction: string;
+};
+
 export type DesktopGuiActionObservation = {
   kind?: string;
   desktopBackend?: DesktopBackend;
@@ -754,6 +801,87 @@ export function desktopFallbackDiagnostics(input: { probe?: DesktopProbe } = {})
       desktopBackendStatus("peekaboo", probe),
       desktopBackendStatus("direct", probe)
     ]
+  };
+}
+
+export async function createCodexDesktopFallbackReport(input: {
+  threadId?: string | null;
+  sourceRef?: string | null;
+  coherence?: unknown;
+  includePeekabooSnapshot?: boolean;
+  maxChars?: number;
+  maxNodes?: number;
+  now?: string;
+  probe?: DesktopProbe;
+} = {}): Promise<CodexDesktopFallbackReport> {
+  const probe = input.probe ?? systemDesktopProbe();
+  const coherence = asRecord(input.coherence);
+  const state = publicTextField(coherence?.state, 80) ?? null;
+  const visibility = asRecord(coherence?.visibility);
+  const desktopVisibility = publicTextField(visibility?.desktop, 80) ?? null;
+  const fallbackReason = state === "desktop_visible" || desktopVisibility === "proven"
+    ? "desktop_visibility_already_proven"
+    : state || desktopVisibility
+      ? "desktop_visibility_not_proven"
+      : "desktop_visibility_unknown";
+  const cua = await desktopSee({ backend: "cua-driver", probe });
+  const peekaboo = await desktopSee({
+    backend: "peekaboo",
+    includeSnapshot: input.includePeekabooSnapshot === true,
+    maxChars: input.maxChars,
+    maxNodes: input.maxNodes,
+    probe
+  });
+  const backends = [
+    codexDesktopFallbackBackendStatus(cua, {
+      role: "preferred_background",
+      fallbackReason,
+      takesScreenWarning: false
+    }),
+    codexDesktopFallbackBackendStatus(peekaboo, {
+      role: "secondary_visible_fallback",
+      fallbackReason,
+      takesScreenWarning: true
+    })
+  ];
+
+  return {
+    schema: "lco.codex.desktopFallback.v1",
+    publicSafe: true,
+    readOnly: true,
+    generatedAt: input.now ?? new Date().toISOString(),
+    target: {
+      threadId: publicTextField(input.threadId, 120) ?? null,
+      sourceRef: publicTextField(input.sourceRef, 180) ?? null
+    },
+    fallback: {
+      required: fallbackReason !== "desktop_visibility_already_proven",
+      reason: fallbackReason,
+      coherenceState: state,
+      desktopVisibility
+    },
+    preferredBackend: "cua-driver",
+    backends,
+    actionsPerformed: {
+      liveCodexControlRun: false,
+      desktopGuiActionRun: false,
+      screenshotCaptured: false,
+      rawTranscriptRead: false
+    },
+    privateDataExclusions: [
+      "raw screenshots or videos",
+      "raw accessibility trees",
+      "raw backend stdout or stderr",
+      "raw Codex transcripts",
+      "raw prompts or message text",
+      "tokens, credentials, API keys, cookies",
+      "private customer data",
+      "absolute local transcript paths"
+    ],
+    proofBoundary: "This report prepares the #308 CUA-first / Peekaboo-secondary Codex Desktop fallback path using public-safe status and optional bounded visible metadata only. It does not run live Codex control, click, type, select, refresh, restart, mutate Codex Desktop, capture screenshots, or prove unattended desktop takeover.",
+    nextAction: fallbackReason === "desktop_visibility_already_proven"
+      ? "Keep using direct Codex protocol and visible-map evidence; no desktop fallback action is required for this target."
+      : "Continue #308 with an action-bound CUA no-focus Codex Desktop proof or a documented Peekaboo visible fallback blocker before claiming Desktop-visible collaboration."
   };
 }
 
@@ -1396,6 +1524,57 @@ function desktopBackendStatus(
     version: commandStatus.version,
     error: commandStatus.error
   };
+}
+
+function codexDesktopFallbackBackendStatus(
+  status: DesktopStatus,
+  input: {
+    role: CodexDesktopFallbackBackendStatus["role"];
+    fallbackReason: CodexDesktopFallbackReport["fallback"]["reason"];
+    takesScreenWarning: boolean;
+  }
+): CodexDesktopFallbackBackendStatus {
+  const permissionState = desktopStatusPermissionState(status.permissions);
+  const blockers = [
+    ...(!status.available ? ["desktop_backend_unavailable"] : []),
+    ...(permissionState === "unknown" ? ["permission_state_unknown"] : []),
+    ...(permissionState === "denied" ? ["permission_state_denied"] : []),
+    ...(status.focus.changed === true ? ["focus_changed_during_status_probe"] : []),
+    ...(status.backend === "cua-driver" && input.fallbackReason !== "desktop_visibility_already_proven" ? ["no_focus_codex_visibility_not_proven"] : []),
+    ...(status.backend === "peekaboo" && input.takesScreenWarning ? ["visible_fallback_requires_explicit_user_visible_run"] : [])
+  ];
+  const snapshotRequested = status.snapshot?.requested === true;
+  const warnings = [
+    ...status.limitations.map((limitation) => capTextValue(limitation, 220)),
+    ...(status.snapshot?.warnings ?? []).map((warning) => capTextValue(warning, 220)),
+    ...(input.takesScreenWarning ? ["Peekaboo may use visible macOS accessibility flows and can disturb the user's visible screen; use only as a secondary explicit fallback."] : [])
+  ];
+  const availableAndUnblocked = status.available && blockers.length === 0;
+  return {
+    backend: status.backend === "peekaboo" ? "peekaboo" : "cua-driver",
+    role: input.role,
+    status: !status.available ? "unavailable" : availableAndUnblocked ? "ready" : "blocked",
+    available: status.available,
+    permissionState,
+    focus: status.focus,
+    backgroundSafeClaim: status.backgroundSafeClaim,
+    visibleCodex: {
+      windows: status.visibleCodex?.windows?.count ?? null,
+      threadCandidates: status.visibleCodex?.threadMap?.count ?? null,
+      snapshotRequested,
+      snapshotBlocked: snapshotRequested ? status.snapshot?.blocked === true : null
+    },
+    blockers: [...new Set(blockers)],
+    warnings: [...new Set(warnings)],
+    takesScreenWarning: input.takesScreenWarning
+  };
+}
+
+function desktopStatusPermissionState(permissions: DesktopStatus["permissions"]): "ready" | "unknown" | "denied" {
+  const statuses = [permissions.accessibility.status, permissions.screenRecording.status];
+  if (statuses.includes("denied")) return "denied";
+  if (statuses.includes("unknown")) return "unknown";
+  return "ready";
 }
 
 function desktopBackendConfig(backend: DesktopBackend) {

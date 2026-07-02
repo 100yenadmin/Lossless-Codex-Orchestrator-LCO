@@ -51,13 +51,13 @@ rediscovering state from text every time.
 | MCP / OpenClaw tools | Beta | Exposes `loo_*` tools for OpenClaw and other MCP clients. |
 | OpenClaw LCM peer reads | Experimental | Reads peer summary DBs read-only without merging stores. |
 | Codex direct controls | Beta boundary | Resume/send/steer/interrupt are approval-gated and dry-run first; installed OpenClaw gateway live proof exists only inside its explicit proof boundary. |
-| Desktop fallback | Experimental | CUA Driver and Peekaboo have backend-specific scratch no-focus proof; product GUI mutation still needs an action-bound proof gate. |
+| Desktop fallback | Experimental | `loo_codex_desktop_fallback_status` reports CUA-first and Peekaboo-secondary readiness/blockers for Codex Desktop visibility gaps; product GUI mutation still needs an action-bound proof gate. |
 | Scorecards and release proof | Beta | Public-safe scorecards and release-status commands track what is proven. |
 | QA Lab scenarios | Beta | Dry-run scenario contracts under `evals/scenarios/v1` turn orchestrator workflows into public-safe eval tasks. |
 | Working app runtime proof | Completed proof | M7/#156 proved the named runtime path and proof gates; generic GUI mutation, Claude parity, and 1.0 readiness remain excluded. |
 | Codex autonomy cockpit | P0 beta | Recent session cards, cockpit inbox, read-only watcher/resume-request packets, approval packets, and operating-picture tools are public-safe by default. |
 | Eva operating picture | P0 beta | Business pulse and attention inbox use LCO/Codex, optional structured GitHub items, explicit PLAN_STATE pins, and source-authority coverage; P1 business adapters are not configured yet. |
-| Codex Desktop coherence | Proof-gated | `loo_codex_desktop_coherence` classifies CLI/direct/app-server evidence as `cli_visible`, `desktop_visible`, `desktop_refresh_required`, `desktop_restart_required`, or `unknown`; it does not perform GUI action or prove Desktop-visible collaboration without runtime evidence. |
+| Codex Desktop coherence | Proof-gated | `loo_codex_desktop_coherence` classifies CLI/direct/app-server evidence as `cli_visible`, `desktop_visible`, `desktop_refresh_required`, `desktop_restart_required`, or `unknown`; `loo_codex_desktop_fallback_status` routes missing visibility to CUA/Peekaboo readiness without GUI action. |
 | Claude Code adapter | Fixture inventory | Supports redacted metadata-only fixtures with `claude_session:*` refs; no Claude parity, live control, GUI mutation, or cloud sync claim. |
 
 ## Current Sprint: Post-GA Desktop Visibility Proof
@@ -85,8 +85,8 @@ stable release gates, and npm `latest` publication are working. The remaining
 product gap is not another deep recall engine feature; it is Desktop-visible
 collaboration truth. #307 separates "Codex is visible to CLI/direct
 protocol/app-server" from "the same work is visibly reflected in Codex Desktop"
-and #308 owns the CUA/Peekaboo fallback path if Desktop live refresh is missing
-or partial.
+and #308 owns the CUA/Peekaboo fallback readiness path when Desktop live refresh
+is missing, partial, refresh-required, restart-required, or unknown.
 
 Completed P0 foundation is read-only and deterministic:
 
@@ -138,6 +138,9 @@ What a local OpenClaw agent can do today:
 - Classify Desktop coherence with `loo_codex_desktop_coherence`; `cli_visible`
   is not treated as `desktop_visible`, and refresh/restart requirements remain
   explicit proof states.
+- Inspect fallback readiness with `loo_codex_desktop_fallback_status`; it
+  reports CUA-first and Peekaboo-secondary blockers, focus status, and
+  screen-takeover warnings without running a GUI action.
 - Inspect `authorityCoverage` to see whether LCO, GitHub, or PLAN_STATE is
   authoritative, fallback-only, unavailable, or not configured for a claim.
 - Dry-run Codex control actions and inspect audit ids before any live action.
@@ -224,7 +227,7 @@ loo grep --lcm-db ~/.openclaw/lcm.db "billing bridge"
 loo describe codex_thread:019f-example
 loo expand-query --profile brief "billing bridge"
 loo sanitize sessions --thread-id 019f-example --repair-plan --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-sanitizer
-loo serve # then call loo_codex_desktop_coherence through MCP/OpenClaw with public-safe map evidence
+loo serve # then call loo_codex_desktop_coherence and loo_codex_desktop_fallback_status through MCP/OpenClaw with public-safe evidence
 ```
 
 Desktop readiness checks:
@@ -346,6 +349,7 @@ Approval-gated controls:
 
 Desktop fallback:
 
+- `loo_codex_desktop_fallback_status`
 - `loo_desktop_see`
 - `loo_desktop_act`
 

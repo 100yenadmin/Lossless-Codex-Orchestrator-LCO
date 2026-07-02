@@ -230,6 +230,7 @@ test("runtime-required v1.1 scenarios define working-app proof beyond dry-run co
   const files = readdirSync(scenarioDir).filter((file) => file.endsWith(".json")).sort();
   assert.deepEqual(files, [
     "codex-desktop-coherence.json",
+    "codex-desktop-fallback-status.json",
     "connected-local-ui-proof.json",
     "desktop-collaboration-action-bound.json",
     "openclaw-gateway-live-codex.json",
@@ -249,7 +250,7 @@ test("runtime-required v1.1 scenarios define working-app proof beyond dry-run co
     assert.equal(scenario.scenario_version, "1.1", `${file} must use runtime scenario version 1.1`);
     assert.equal(scenario.proof_mode, "runtime_required", `${file} must require runtime proof`);
     assert.equal(scenario.claim_scope, "codex-working-app-proof", `${file} must target the working-app claim scope`);
-    assert.match(String(scenario.issue), /^(#1(5[8-9]|6[0-1])|#307)$/);
+    assert.match(String(scenario.issue), /^(#1(5[8-9]|6[0-1])|#30[78])$/);
     assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /source ref|plugin id|tool surface|desktop backend/i);
     assert.match(JSON.stringify(scenario.forbidden_behaviors), /raw|unauthorized|secret/i);
     assert.match(String(scenario.proof_boundary), /Proves one|Proves only|does not prove/i);
@@ -269,10 +270,12 @@ test("scenario sweep fails closed for v1.1 runtime scenarios until proof markers
   assert.equal(report.scenarioReady, false);
   assert.equal(report.publicSafe, true);
   assert.equal(report.scenarioVersion, "1.1");
-  assert.equal(report.scenarios.length, 5);
+  assert.equal(report.scenarios.length, 6);
   assert.equal(report.scenarios.every((scenario) => scenario.status === "runtime_proof_required"), true);
   assert.match(report.blockers.join("\n"), /runtime_proof_missing:codex-desktop-coherence-v1-1:codex_desktop_coherence_report/);
   assert.match(report.blockers.join("\n"), /runtime_proof_missing:codex-desktop-coherence-v1-1:desktop_visibility_classification/);
+  assert.match(report.blockers.join("\n"), /runtime_proof_missing:codex-desktop-fallback-status-v1-1:codex_desktop_fallback_status_report/);
+  assert.match(report.blockers.join("\n"), /runtime_proof_missing:codex-desktop-fallback-status-v1-1:peekaboo_secondary_warning/);
   assert.match(report.blockers.join("\n"), /runtime_proof_missing:openclaw-gateway-live-codex-v1-1:installed_gateway_path/);
   assert.match(report.blockers.join("\n"), /runtime_proof_missing:openclaw-gateway-live-codex-v1-1:matching_approval_audit_id/);
   assert.match(report.blockers.join("\n"), /runtime_proof_missing:post-action-refresh-reasoning-v1-1:post_action_refresh/);
@@ -312,6 +315,18 @@ test("loo eval scenarios accepts v1.1 runtime proof markers through the CLI", ()
     cli_visible_signal: true,
     codex_desktop_coherence_report: true,
     desktop_visibility_classification: true,
+    public_safe_scan: true
+  }, {
+    live_action_count: 0,
+    raw_prompt_chars: 0,
+    raw_transcript_spans: 0,
+    screenshot_count: 0
+  });
+  writeRuntimeProof(runtimeProofDir, "codex-desktop-fallback-status-v1-1", {
+    codex_desktop_fallback_status_report: true,
+    cua_first_backend: true,
+    no_gui_action: true,
+    peekaboo_secondary_warning: true,
     public_safe_scan: true
   }, {
     live_action_count: 0,
