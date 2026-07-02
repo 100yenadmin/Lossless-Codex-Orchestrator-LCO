@@ -1347,7 +1347,7 @@ test("Codex collaboration cockpit summarizes attention and Desktop fallback read
     assert.equal(report.schema, "lco.codex.collaborationCockpit.v1");
     assert.equal(report.publicSafe, true);
     assert.equal(report.summary.returned, 2);
-    assert.equal(report.summary.needsApproval, 1);
+    assert.equal(report.summary.needsApproval, 2);
     assert.equal(report.summary.fallbackRequired, 1);
     assert.equal(report.sourceCoverage.desktopCoherence, "ok");
     assert.equal(report.sourceCoverage.desktopFallback, "ok");
@@ -1363,6 +1363,7 @@ test("Codex collaboration cockpit summarizes attention and Desktop fallback read
     const cliLane = report.lanes.find((lane) => lane.threadId === "codex_thread:019f-collab-cli");
     assert.ok(cliLane);
     assert.equal(cliLane.attention.level, "critical");
+    assert.equal(cliLane.nextAction.requiresApproval, true);
     assert.equal(cliLane.desktop.state, "fallback_ready");
     assert.equal(cliLane.desktop.requiresFallback, true);
     assert.equal(cliLane.desktop.preferredBackend, "cua-driver");
@@ -1426,6 +1427,15 @@ test("Codex collaboration cockpit treats unknown Desktop proof as fallback-requi
         nextAction: "no approval required; keep watching",
         updatedAt: relativeIso(8),
         refs: true
+      },
+      {
+        id: "019f-collab-approval-required",
+        title: "Approval required lane",
+        status: "running",
+        priority: "medium",
+        nextAction: "approval required before resume",
+        updatedAt: relativeIso(9),
+        refs: true
       }
     ]
   }), ({ db }) => {
@@ -1444,7 +1454,7 @@ test("Codex collaboration cockpit treats unknown Desktop proof as fallback-requi
     });
 
     assert.equal(report.summary.fallbackRequired, 1);
-    assert.equal(report.summary.needsApproval, 0);
+    assert.equal(report.summary.needsApproval, 1);
 
     const unknownLane = report.lanes.find((item) => item.threadId === "codex_thread:019f-collab-unknown-desktop");
     assert.ok(unknownLane);
@@ -1456,6 +1466,11 @@ test("Codex collaboration cockpit treats unknown Desktop proof as fallback-requi
     assert.ok(noApprovalLane);
     assert.equal(noApprovalLane.nextAction.reason.includes("approval"), true);
     assert.equal(noApprovalLane.reasonCodes.includes("approval_needed"), false);
+
+    const approvalRequiredLane = report.lanes.find((item) => item.threadId === "codex_thread:019f-collab-approval-required");
+    assert.ok(approvalRequiredLane);
+    assert.equal(approvalRequiredLane.nextAction.reason.includes("approval required"), true);
+    assert.equal(approvalRequiredLane.reasonCodes.includes("approval_needed"), false);
   });
 });
 

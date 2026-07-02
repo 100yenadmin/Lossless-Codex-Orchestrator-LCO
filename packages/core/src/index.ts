@@ -2250,6 +2250,7 @@ function collaborationAttentionLevel(urgencyScore: number, reasonCodes: string[]
 function collaborationLaneNeedsApproval(lane: CodexCollaborationCockpitLane): boolean {
   return lane.sessionState === "needs_approval"
     || lane.reasonCodes.includes("approval_needed")
+    || lane.nextAction.requiresApproval
     || lane.nextAction.kind === "approve"
     || collaborationReasonRequestsApproval(lane.nextAction.reason);
 }
@@ -2259,7 +2260,7 @@ function collaborationReasonRequestsApproval(reason: string): boolean {
   if (!normalized.includes("approval")) return false;
   if (
     /\bno approval\b/.test(normalized) ||
-    /\bapproval (?:not |is not |isnt )?(?:needed|required)\b/.test(normalized) ||
+    /\bapproval (?:not needed|not required|is not needed|is not required|isnt needed|isnt required|isn't needed|isn't required)\b/.test(normalized) ||
     /\bdoes not require approval\b/.test(normalized) ||
     /\bwithout approval\b/.test(normalized) ||
     /\bapproval optional\b/.test(normalized)
