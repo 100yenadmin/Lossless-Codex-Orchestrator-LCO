@@ -50,6 +50,7 @@ export type OpenClawToolSmokeOptions = {
   requiredTools?: string[];
   gatewayTimeoutMs?: number;
   desktopFallbackCoherence?: "fixture" | "omit";
+  strict?: boolean;
 };
 
 export type OpenClawToolInvocationSummary = {

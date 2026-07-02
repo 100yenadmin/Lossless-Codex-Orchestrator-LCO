@@ -18,6 +18,7 @@ test("classifies npm before cutoff drift without treating it as an unpublished p
   assert.equal(diagnostic.publicSafe, true);
   assert.equal(diagnostic.trueUnpublishedVersion, false);
   assert.match(diagnostic.summary, /npm client/i);
+  assert.ok(diagnostic.suggestedRetry);
   assert.match(diagnostic.suggestedRetry, /--before=2026-07-02T00:00:00.000Z/);
   assert.equal(diagnostic.rawSecretIncluded, false);
 });
@@ -59,6 +60,7 @@ test("recommends registry tarball fallback when npm selector cutoff persists aft
   assert.equal(diagnostic.publicSafe, true);
   assert.equal(diagnostic.trueUnpublishedVersion, false);
   assert.match(diagnostic.summary, /tarball/i);
+  assert.ok(diagnostic.suggestedRetry);
   assert.match(diagnostic.suggestedRetry, new RegExp("^npm install https://registry\\.npmjs\\.org/lossless-openclaw-orchestrator/"));
   assert.equal(diagnostic.rawSecretIncluded, false);
 });
