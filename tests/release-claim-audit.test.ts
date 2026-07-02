@@ -699,6 +699,22 @@ test("release preflight README gate enforces the full forbidden-claims boundary"
   assert.deepEqual(payload.blockers, ["readme_failed", "approved_live_control_smoke_missing"]);
 });
 
+test("release preflight README gate preserves maintainer proof commands", () => {
+  const rootDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-readme-commands-root-"));
+  writeProjectSkeleton(rootDir);
+  const readmeWithoutProofCommands = readFileSync(join(rootDir, "README.md"), "utf8")
+    .replace(/^loo release preflight$/m, "")
+    .replace(/^loo release demo-status$/m, "")
+    .replace(/^loo release status$/m, "");
+  writeFileSync(join(rootDir, "README.md"), readmeWithoutProofCommands);
+
+  const payload = runReleasePreflight({ rootDir });
+
+  assert.equal(payload.checks.readme?.ok, false);
+  assert.match(payload.checks.readme?.detail ?? "", /public setup path/i);
+  assert.deepEqual(payload.blockers, ["readme_failed", "approved_live_control_smoke_missing"]);
+});
+
 test("release preflight --strict exits non-zero when blockers remain", () => {
   const result = spawnSync(process.execPath, [
     "--import",
@@ -801,6 +817,9 @@ function writeProjectSkeleton(rootDir: string, overrides: { readme?: string; run
     "docs/CLAIM_AUDIT.md",
     "## Safety Boundaries",
     "Core proof commands",
+    "loo release preflight",
+    "loo release demo-status",
+    "loo release status",
     "Full Claude Code parity",
     "cloud sync",
     "unattended desktop takeover",
