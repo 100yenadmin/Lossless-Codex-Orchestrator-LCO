@@ -474,7 +474,7 @@ test("release status rejects unknown claim scopes", () => {
     "--strict"
   ], { encoding: "utf8" });
 
-  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.equal(result.status, 2, result.stderr || result.stdout);
   assert.match(result.stderr, /Unknown release claim scope: codex-everything-everywhere/);
 });
 
@@ -1058,7 +1058,7 @@ test("release status rejects desktop GUI approval evidence unless GUI mutation i
     "--strict"
   ], { encoding: "utf8" });
 
-  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.equal(result.status, 2, result.stderr || result.stdout);
   assert.match(result.stderr, /--desktop-gui-approval-evidence requires --desktop-gui-required/);
   assert.equal(result.stdout, "");
 });
@@ -1113,7 +1113,7 @@ test("release status rejects approval evidence options when the next token is an
     "--strict"
   ], { encoding: "utf8" });
 
-  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.equal(result.status, 2, result.stderr || result.stdout);
   assert.match(result.stderr, /--github-release-approval-evidence requires a path/);
   assert.equal(result.stdout, "");
 });
@@ -1156,7 +1156,7 @@ test("release status unknown options still fail closed after help support", () =
     "--definitely-not-real"
   ], { encoding: "utf8" });
 
-  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.equal(result.status, 2, result.stderr || result.stdout);
   assert.match(result.stderr, /Unknown release status option: --definitely-not-real/);
   assert.equal(result.stdout, "");
 });

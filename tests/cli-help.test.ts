@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,6 +20,59 @@ function runLoo(args: string[], env: NodeJS.ProcessEnv = process.env) {
     env
   });
 }
+
+test("loo --help exits zero with top-level usage", () => {
+  const result = runLoo(["--help"]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Usage:\n  loo --help/);
+  assert.match(result.stdout, /loo --version/);
+  assert.match(result.stdout, /loo doctor/);
+  assert.equal(result.stderr.trim(), "");
+});
+
+test("loo --version exits zero with package version", () => {
+  const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as { version: string };
+  const result = runLoo(["--version"]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.stdout.trim(), packageJson.version);
+  assert.equal(result.stderr.trim(), "");
+});
+
+test("loo parser errors are one-line public-safe messages without stack traces", () => {
+  const result = runLoo(["scorecards", "sweep", "--bad-option"]);
+
+  assert.equal(result.status, 2, result.stderr || result.stdout);
+  assert.equal(result.stdout.trim(), "");
+  assert.match(result.stderr, /^Error: Unknown scorecards sweep option: --bad-option\n$/);
+  assert.doesNotMatch(result.stderr, /\bat\s+/);
+  assert.doesNotMatch(result.stderr, /file:\/\//);
+  assert.doesNotMatch(result.stderr, /\/Users\//);
+  assert.doesNotMatch(result.stderr, /\/Volumes\//);
+  assert.doesNotMatch(result.stderr, /packages\/cli\/src\/index/);
+});
+
+test("loo doctor omits local database paths from public-safe output", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-doctor-"));
+  try {
+    const dbPath = join(root, "orchestrator.sqlite");
+    const result = runLoo(["doctor"], {
+      ...process.env,
+      LOO_DB_PATH: dbPath
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const report = JSON.parse(result.stdout) as { dbPath?: unknown; database?: { configured?: unknown; location?: unknown } };
+    assert.equal(Object.hasOwn(report, "dbPath"), false);
+    assert.deepEqual(report.database, { configured: true, location: "local" });
+    assert.doesNotMatch(result.stdout, new RegExp(dbPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.doesNotMatch(result.stdout, /orchestrator\.sqlite/);
+    assert.equal(result.stderr.trim(), "");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("loo search --help exits zero without querying the local index", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-search-help-"));

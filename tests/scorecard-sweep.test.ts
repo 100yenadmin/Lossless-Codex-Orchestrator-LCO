@@ -117,7 +117,7 @@ test("loo scorecards sweep unknown options still fail closed after help support"
     "--not-a-real-option"
   ], { encoding: "utf8" });
 
-  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.equal(result.status, 2, result.stderr || result.stdout);
   assert.match(result.stderr, /Unknown scorecards sweep option: --not-a-real-option/);
   assert.equal(result.stdout, "");
 });
