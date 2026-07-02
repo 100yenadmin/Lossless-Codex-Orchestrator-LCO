@@ -2191,13 +2191,14 @@ export function createCodexCollaborationCockpit(db: LooDatabase, options: CodexC
 }
 
 export function createCodexCollaborationNextSteps(db: LooDatabase, options: CodexCollaborationNextStepsOptions = {}): CodexCollaborationNextStepsReport {
+  const generatedAt = publicIsoTimestamp(options.now) ?? new Date().toISOString();
   const cockpit = createCodexCollaborationCockpit(db, options);
   const watcherReport = createWatcherStatusReport(options.watcherSpecs ?? [], {
     now: options.now,
     limit: 1000
   });
   const watcherSpecsById = new Map((options.watcherSpecs ?? []).map((spec) => [
-    publicSafeWatcherIdentifier(spec.watchId, "watch"),
+    watcherSpecLookupKey(publicSafeWatcherIdentifier(spec.watchId, "watch"), publicSafeWatcherTargetRef(spec.targetRef || "unknown")),
     spec
   ]));
   const triggeredWatchers = new Map<string, WatcherState>();
@@ -2211,18 +2212,18 @@ export function createCodexCollaborationNextSteps(db: LooDatabase, options: Code
     watcher: triggeredWatchers.get(lane.threadId) ?? null,
     watcherSpec: (() => {
       const watcher = triggeredWatchers.get(lane.threadId);
-      return watcher ? watcherSpecsById.get(watcher.watchId) ?? null : null;
+      return watcher ? watcherSpecsById.get(watcherSpecLookupKey(watcher.watchId, watcher.targetRef)) ?? null : null;
     })(),
     coherence: coherenceByThread.get(lane.threadId) ?? null,
     fallback: fallbackByThread.get(lane.threadId) ?? null,
-    now: options.now
+    now: generatedAt
   }));
 
   return {
     schema: "lco.codex.collaborationNextSteps.v1",
     publicSafe: true,
     readOnly: true,
-    generatedAt: options.now ?? new Date().toISOString(),
+    generatedAt,
     summary: {
       totalLanes: cockpit.summary.totalCards,
       returned: steps.length,
@@ -2551,7 +2552,7 @@ function collaborationPublicSafeCoherenceArg(
       threadId: codexDesktopCoherenceTargetMismatch(targetThreadId, normalized) ? threadId : safeThreadId(targetThreadId ?? threadId),
       sourceRef: codexDesktopCoherenceTargetMismatch(targetThreadId, normalized) ? sourceRef : normalized
     },
-    state: collaborationString(report.state, 80) ?? "unknown",
+    state: publicSafeCoherenceState(report.state),
     confidence: collaborationNumber(report.confidence) ?? 0.6,
     evidenceIds: collaborationStringArray(report.evidenceIds, 160).map((id) => publicSafeRefLike(id, "evidence") ?? "").filter(Boolean).slice(0, 20),
     reasonCodes: collaborationStringArray(report.reasonCodes, 120).map(collaborationPublicSafeReasonCode).filter(Boolean).slice(0, 20),
@@ -2761,9 +2762,12 @@ function collaborationLaneNeedsApproval(lane: CodexCollaborationCockpitLane): bo
 }
 
 function collaborationLaneHasSessionApprovalBoundary(lane: CodexCollaborationCockpitLane): boolean {
+  if (lane.desktop.state === "fallback_ready" || lane.desktop.state === "fallback_blocked") return false;
   return lane.sessionState === "needs_approval"
     || lane.card.reasonCodes.includes("approval_needed")
-    || lane.card.nextAction.kind === "approve";
+    || lane.card.nextAction.kind === "approve"
+    || lane.card.nextAction.requiresApproval === true
+    || collaborationReasonRequestsApproval(lane.card.nextAction.reason);
 }
 
 function collaborationReasonRequestsApproval(reason: string): boolean {
@@ -3813,6 +3817,14 @@ function publicSafeWatcherIdentifier(value: string, prefix: string): string {
   return `${prefix}_${stableId(redacted).slice(0, 16)}`;
 }
 
+function publicSafeWatcherTargetRef(value: string): string {
+  return publicSafeRefLike(value || "unknown", "target") ?? `target_${stableId(value || "unknown").slice(0, 16)}`;
+}
+
+function watcherSpecLookupKey(watchId: string, targetRef: string): string {
+  return `${watchId}\u0000${targetRef}`;
+}
+
 function publicSafeWatcherTimestamp(value: string, prefix: string): string {
   const raw = String(value ?? "");
   const iso = looksSensitiveRefLike(raw) ? null : publicIsoTimestamp(raw);
@@ -3824,6 +3836,16 @@ function publicSafeWatcherText(value: string, maxChars: number, prefix: string):
   const raw = String(value ?? "");
   if (looksSensitiveRefLike(raw)) return publicSafeWatcherIdentifier(raw, prefix);
   return publicSafeText(raw, maxChars);
+}
+
+function publicSafeCoherenceState(value: unknown): CodexDesktopCoherenceState {
+  return value === "cli_visible"
+    || value === "desktop_visible"
+    || value === "desktop_refresh_required"
+    || value === "desktop_restart_required"
+    || value === "unknown"
+    ? value
+    : "unknown";
 }
 
 function looksSensitiveRefLike(value: string): boolean {
@@ -4525,7 +4547,7 @@ function applySourceAuthority(signal: OperatingSignal, profile: SourceAuthorityP
 }
 
 function watcherStateFromSpec(spec: WatchSpec, now: number): WatcherState {
-  const targetRef = publicSafeRefLike(spec.targetRef || "unknown", "target") ?? `target_${stableId(spec.targetRef || "unknown").slice(0, 16)}`;
+  const targetRef = publicSafeWatcherTargetRef(spec.targetRef || "unknown");
   const watchId = publicSafeWatcherIdentifier(spec.watchId || `watch_${stableId(targetRef).slice(0, 12)}`, "watch");
   const confidence = Math.max(0, Math.min(1, spec.confidence ?? 0.75));
   const createdAtMs = timestampMillis(spec.createdAt);

@@ -2175,6 +2175,15 @@ test("Codex collaboration next-step planner emits read-only exact tool packets",
           refs: true
         },
         {
+          id: "019f-plan-watch-other",
+          title: "Second watcher same id planner lane",
+          status: "running",
+          priority: "urgent",
+          nextAction: "inspect second watcher update",
+          updatedAt: relativeIso(2),
+          refs: true
+        },
+        {
           id: "019f-plan-missing",
           title: "Missing Desktop evidence lane",
           status: "running",
@@ -2270,11 +2279,16 @@ test("Codex collaboration next-step planner emits read-only exact tool packets",
         approvalExpiresAt: tokenCanary
       }
     };
+    const duplicateWatcherSpec = {
+      ...watcherSpec,
+      targetRef: "codex_thread:019f-plan-watch-other",
+      evidenceIds: ["ev_watch_planner_other", tokenCanary]
+    };
     const report = createCodexCollaborationNextSteps(db, {
-      limit: 10,
+      limit: 11,
       now,
       priorityOrder: ["urgent", "high", "medium", "low"],
-      watcherSpecs: [watcherSpec],
+      watcherSpecs: [watcherSpec, duplicateWatcherSpec],
       desktopCoherenceReports: [
         {
           schema: "lco.codexDesktopCoherence.v1",
@@ -2361,6 +2375,7 @@ test("Codex collaboration next-step planner emits read-only exact tool packets",
 
     const byThread = new Map(report.steps.map((step) => [step.threadId, step]));
     const watcherStep = byThread.get("codex_thread:019f-plan-watch");
+    const watcherOtherStep = byThread.get("codex_thread:019f-plan-watch-other");
     const missingStep = byThread.get("codex_thread:019f-plan-missing");
     const approvalNeededStep = byThread.get("codex_thread:019f-plan-approval-needed");
     const cliStep = byThread.get("codex_thread:019f-plan-cli-visible");
@@ -2373,7 +2388,7 @@ test("Codex collaboration next-step planner emits read-only exact tool packets",
     assert.equal(report.schema, "lco.codex.collaborationNextSteps.v1");
     assert.equal(report.publicSafe, true);
     assert.equal(report.readOnly, true);
-    assert.equal(report.summary.returned, 9);
+    assert.equal(report.summary.returned, 10);
     assert.equal(report.summary.blocked, 3);
     assert.equal(report.summary.ready + report.summary.blocked + report.summary.noop, report.summary.returned);
     assert.equal(report.actionsPerformed.liveCodexControlRun, false);
@@ -2385,6 +2400,8 @@ test("Codex collaboration next-step planner emits read-only exact tool packets",
     assert.equal(watcherStep?.toolCall?.tool, "loo_resume_request_packet");
     assert.equal(watcherStep?.toolCall?.execute, false);
     assert.equal(watcherStep?.toolCall?.args.recommended_action, "resume");
+    assert.equal((watcherStep?.toolCall?.args.watcher_spec as Record<string, unknown> | undefined)?.target_ref, "codex_thread:019f-plan-watch");
+    assert.equal((watcherOtherStep?.toolCall?.args.watcher_spec as Record<string, unknown> | undefined)?.target_ref, "codex_thread:019f-plan-watch-other");
 
     assert.equal(missingStep?.category, "desktop_coherence");
     assert.equal(missingStep?.toolCall?.tool, "loo_codex_desktop_coherence");
@@ -2436,6 +2453,59 @@ test("Codex collaboration next-step planner emits read-only exact tool packets",
     assert.equal(fallbackBlockedStep?.blockers.includes("permission_missing"), true);
 
     assertNoUnsafeStrings(report, ...canaries);
+  });
+});
+
+test("Codex collaboration next-step planner sanitizes caller-controlled now and coherence state", () => {
+  const tokenCanary = "ghp_notarealtokenbutshouldnotleak1234567890";
+  withIndexedSessions([
+    {
+      id: "019f-plan-approval-text",
+      title: "Approval text planner lane",
+      status: "running",
+      priority: "high",
+      nextAction: "approval required before Desktop probe",
+      updatedAt: relativeIso(2),
+      refs: true
+    },
+    {
+      id: "019f-plan-state-clamp",
+      title: "Coherence state clamp planner lane",
+      status: "running",
+      priority: "medium",
+      nextAction: "check fallback readiness",
+      updatedAt: relativeIso(3),
+      refs: true
+    }
+  ], ({ db }) => {
+    const report = createCodexCollaborationNextSteps(db, {
+      limit: 5,
+      now: tokenCanary,
+      desktopCoherenceReports: [
+        {
+          schema: "lco.codexDesktopCoherence.v1",
+          publicSafe: true,
+          target: { threadId: "019f-plan-state-clamp", sourceRef: "codex_thread:019f-plan-state-clamp" },
+          state: tokenCanary,
+          confidence: 0.78,
+          evidenceIds: ["ev_state_clamp"],
+          actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
+        }
+      ]
+    });
+
+    const byThread = new Map(report.steps.map((step) => [step.threadId, step]));
+    const approvalTextStep = byThread.get("codex_thread:019f-plan-approval-text");
+    const stateClampStep = byThread.get("codex_thread:019f-plan-state-clamp");
+    const coherenceArg = stateClampStep?.toolCall?.args.coherence as Record<string, unknown> | undefined;
+
+    assert.equal(approvalTextStep?.category, "approval_boundary");
+    assert.equal(approvalTextStep?.status, "blocked");
+    assert.equal(approvalTextStep?.toolCall, null);
+    assert.equal(stateClampStep?.toolCall?.tool, "loo_codex_desktop_fallback_status");
+    assert.equal(coherenceArg?.state, "unknown");
+    assert.notEqual(report.generatedAt, tokenCanary);
+    assertNoUnsafeStrings(report, tokenCanary);
   });
 });
 
