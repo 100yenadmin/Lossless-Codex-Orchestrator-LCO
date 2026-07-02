@@ -57,6 +57,7 @@ rediscovering state from text every time.
 | Working app runtime proof | Completed proof | M7/#156 proved the named runtime path and proof gates; generic GUI mutation, Claude parity, and enterprise/customer-ready claims remain excluded. |
 | Codex autonomy cockpit | P0 beta | Recent session cards, cockpit inbox, read-only watcher/resume-request packets, approval packets, and operating-picture tools are public-safe by default. |
 | Eva operating picture | P0 beta | Business pulse and attention inbox use LCO/Codex, optional structured GitHub items, explicit PLAN_STATE pins, and source-authority coverage; P1 business adapters are not configured yet. |
+| Codex collaboration cockpit | 1.1 beta slice | `loo_codex_collaboration_cockpit` summarizes active lanes from recent cards, inbox urgency, watcher requests, and optional Desktop coherence/fallback evidence without live control or GUI action. |
 | Codex Desktop coherence | Completed proof | `loo_codex_desktop_coherence` classifies CLI/direct/app-server evidence as `cli_visible`, `desktop_visible`, `desktop_refresh_required`, `desktop_restart_required`, or `unknown`; `loo_codex_desktop_fallback_status` routes missing visibility to CUA/Peekaboo readiness without GUI action. |
 | Claude Code adapter | Fixture inventory | Supports redacted metadata-only fixtures with `claude_session:*` refs; no Claude parity, live control, GUI mutation, or cloud sync claim. |
 
@@ -134,7 +135,8 @@ What a local OpenClaw agent can do today:
 - Retrieve plans, finals, touched files, and session maps with the Codex detail
   tools.
 - List recent sessions and operating-picture attention items with
-  `loo_recent_sessions`, `loo_cockpit_inbox`, `loo_github_operating_items`,
+  `loo_recent_sessions`, `loo_cockpit_inbox`,
+  `loo_codex_collaboration_cockpit`, `loo_github_operating_items`,
   `loo_project_digest`, `loo_attention_inbox`, and `loo_business_pulse`.
 - Represent watcher-triggered follow-up requests with `loo_watchers_list`,
   `loo_watcher_status`, `loo_watcher_dry_run`, and
@@ -151,6 +153,10 @@ What a local OpenClaw agent can do today:
 - Inspect fallback readiness with `loo_codex_desktop_fallback_status`; it
   reports CUA-first and Peekaboo-secondary blockers, focus status, and
   screen-takeover warnings without running a GUI action.
+- Use `loo_codex_collaboration_cockpit` after recent/inbox/coherence/fallback
+  reads to give an orchestrator one active-lane summary with attention level,
+  Desktop state boundary, source coverage, and action flags still pinned to
+  false.
 - Inspect `authorityCoverage` to see whether LCO, GitHub, or PLAN_STATE is
   authoritative, fallback-only, unavailable, or not configured for a claim.
 - Dry-run Codex control actions and inspect audit ids before any live action.

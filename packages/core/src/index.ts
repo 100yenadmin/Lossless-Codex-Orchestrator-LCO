@@ -333,6 +333,82 @@ export type CockpitInboxReport = {
   };
 };
 
+export type CodexCollaborationDesktopState = "desktop_visible" | "fallback_ready" | "fallback_blocked" | "cli_visible" | "unknown" | "not_configured";
+
+export type CodexCollaborationCockpitLane = {
+  threadId: string;
+  title: string;
+  sessionState: CodexSessionCardState;
+  attention: {
+    level: OperatingUrgency;
+    urgencyScore: number;
+  };
+  reasonCodes: string[];
+  nextAction: CodexSessionCard["nextAction"];
+  desktop: {
+    state: CodexCollaborationDesktopState;
+    requiresFallback: boolean;
+    preferredBackend: "cua-driver" | null;
+    confidence: number;
+    sourceCoverage: {
+      desktopCoherence: VisibleCodexCoverageState;
+      desktopFallback: VisibleCodexCoverageState;
+    };
+    evidenceIds: string[];
+    blockers: string[];
+    reasonCodes: string[];
+  };
+  card: CodexSessionCard;
+};
+
+export type CodexCollaborationCockpitReport = {
+  schema: "lco.codex.collaborationCockpit.v1";
+  publicSafe: true;
+  readOnly: true;
+  generatedAt: string;
+  summary: {
+    totalCards: number;
+    returned: number;
+    running: number;
+    waiting: number;
+    needsApproval: number;
+    blocked: number;
+    desktopVisible: number;
+    fallbackRequired: number;
+    highAttention: number;
+    lowConfidence: number;
+  };
+  sourceCoverage: {
+    recentSessions: VisibleCodexCoverageState;
+    cockpitInbox: VisibleCodexCoverageState;
+    desktopCoherence: VisibleCodexCoverageState;
+    desktopFallback: VisibleCodexCoverageState;
+  };
+  lanes: CodexCollaborationCockpitLane[];
+  omitted: {
+    count: number;
+    reason: "limit" | "none";
+  };
+  actionsPerformed: {
+    liveCodexControlRun: false;
+    desktopGuiActionRun: false;
+    rawTranscriptRead: false;
+    screenshotCaptured: false;
+    npmPublished: false;
+    githubReleaseCreated: false;
+  };
+  proofBoundary: string;
+};
+
+export type CodexCollaborationCockpitOptions = {
+  limit?: number;
+  priorityOrder?: string[];
+  watcherSpecs?: WatchSpec[];
+  desktopCoherenceReports?: unknown[];
+  desktopFallbackReports?: unknown[];
+  now?: string;
+};
+
 export type WatcherKind = "thread_finished" | "final_message_appeared" | "pr_checks_changed" | "review_comment_arrived" | "no_activity" | "approval_expired";
 export type WatcherStatus = "active" | "triggered" | "stale" | "expired" | "low_confidence";
 export type WatcherRecommendedAction = "inspect" | "resume" | "approve" | "ignore";
@@ -1904,6 +1980,240 @@ export function getCockpitInbox(db: LooDatabase, options: { limit?: number; prio
       reason: items.length > selected.length ? "limit" : "none"
     }
   };
+}
+
+export function createCodexCollaborationCockpit(db: LooDatabase, options: CodexCollaborationCockpitOptions = {}): CodexCollaborationCockpitReport {
+  const limit = clamp(options.limit ?? 20, 1, 500);
+  const recent = getRecentSessions(db, { scope: "active", limit: 500, includeCards: true });
+  const inbox = getCockpitInbox(db, {
+    limit: 500,
+    priorityOrder: options.priorityOrder,
+    watcherSpecs: options.watcherSpecs,
+    now: options.now
+  });
+  const inboxByThread = new Map(inbox.items.map((item) => [item.card.threadId, item]));
+  const coherenceByThread = collaborationReportsByThread(options.desktopCoherenceReports ?? []);
+  const fallbackByThread = collaborationReportsByThread(options.desktopFallbackReports ?? []);
+  const lanes = recent.cards
+    .map((card) => collaborationLane(card, {
+      inboxItem: inboxByThread.get(card.threadId) ?? null,
+      coherence: coherenceByThread.get(card.threadId) ?? null,
+      fallback: fallbackByThread.get(card.threadId) ?? null,
+      desktopCoherenceCoverage: collaborationCoverage(options.desktopCoherenceReports, coherenceByThread.size),
+      desktopFallbackCoverage: collaborationCoverage(options.desktopFallbackReports, fallbackByThread.size)
+    }))
+    .sort(collaborationLaneComparator);
+  const selected = lanes.slice(0, limit);
+
+  return {
+    schema: "lco.codex.collaborationCockpit.v1",
+    publicSafe: true,
+    readOnly: true,
+    generatedAt: options.now ?? new Date().toISOString(),
+    summary: {
+      totalCards: lanes.length,
+      returned: selected.length,
+      running: selected.filter((lane) => lane.sessionState === "running").length,
+      waiting: selected.filter((lane) => lane.sessionState === "waiting").length,
+      needsApproval: selected.filter(collaborationLaneNeedsApproval).length,
+      blocked: selected.filter((lane) => lane.sessionState === "blocked").length,
+      desktopVisible: selected.filter((lane) => lane.desktop.state === "desktop_visible").length,
+      fallbackRequired: selected.filter((lane) => lane.desktop.requiresFallback).length,
+      highAttention: selected.filter((lane) => lane.attention.level === "high" || lane.attention.level === "critical").length,
+      lowConfidence: selected.filter((lane) => lane.card.confidence < 0.7 || lane.desktop.confidence < 0.7).length
+    },
+    sourceCoverage: {
+      recentSessions: recent.summary.total > 0 ? "ok" : "partial",
+      cockpitInbox: inbox.summary.totalCards > 0 ? "ok" : "partial",
+      desktopCoherence: collaborationCoverage(options.desktopCoherenceReports, coherenceByThread.size),
+      desktopFallback: collaborationCoverage(options.desktopFallbackReports, fallbackByThread.size)
+    },
+    lanes: selected,
+    omitted: {
+      count: Math.max(0, lanes.length - selected.length),
+      reason: lanes.length > selected.length ? "limit" : "none"
+    },
+    actionsPerformed: {
+      liveCodexControlRun: false,
+      desktopGuiActionRun: false,
+      rawTranscriptRead: false,
+      screenshotCaptured: false,
+      npmPublished: false,
+      githubReleaseCreated: false
+    },
+    proofBoundary: "This read-only collaboration cockpit summarizes indexed Codex session cards, deterministic inbox urgency, watcher requests, and optional public-safe Desktop coherence/fallback reports. It does not run live Codex control, click, type, select, refresh, restart, mutate Codex Desktop, capture screenshots, publish npm, create GitHub releases, or claim unattended Desktop collaboration."
+  };
+}
+
+function collaborationLane(
+  card: CodexSessionCard,
+  input: {
+    inboxItem: CockpitInboxItem | null;
+    coherence: Record<string, unknown> | null;
+    fallback: Record<string, unknown> | null;
+    desktopCoherenceCoverage: VisibleCodexCoverageState;
+    desktopFallbackCoverage: VisibleCodexCoverageState;
+  }
+): CodexCollaborationCockpitLane {
+  const urgencyScore = input.inboxItem?.urgencyScore ?? cockpitUrgencyScore(card, undefined);
+  const reasonCodes = unique([
+    ...card.reasonCodes,
+    ...(input.inboxItem?.reasonCodes ?? []),
+    ...collaborationDesktopReasonCodes(input.coherence, input.fallback)
+  ].map((code) => publicSafeIdentifier(code) ?? "").filter(Boolean));
+  const desktop = collaborationDesktopState(input);
+  return {
+    threadId: card.threadId,
+    title: card.title,
+    sessionState: card.state,
+    attention: {
+      level: collaborationAttentionLevel(urgencyScore, reasonCodes),
+      urgencyScore
+    },
+    reasonCodes,
+    nextAction: input.inboxItem?.nextAction ?? card.nextAction,
+    desktop,
+    card
+  };
+}
+
+function collaborationDesktopState(input: {
+  coherence: Record<string, unknown> | null;
+  fallback: Record<string, unknown> | null;
+  desktopCoherenceCoverage: VisibleCodexCoverageState;
+  desktopFallbackCoverage: VisibleCodexCoverageState;
+}): CodexCollaborationCockpitLane["desktop"] {
+  const coherence = input.coherence;
+  const fallback = input.fallback;
+  const fallbackDetails = isObjectRecord(fallback?.fallback) ? fallback.fallback : null;
+  const coherenceState = collaborationString(coherence?.state, 80);
+  const coherenceConfidence = collaborationNumber(coherence?.confidence);
+  const fallbackRequired = typeof fallbackDetails?.required === "boolean"
+    ? fallbackDetails.required
+    : ["cli_visible", "desktop_refresh_required", "desktop_restart_required"].includes(coherenceState ?? "");
+  const fallbackReason = collaborationString(fallbackDetails?.reason, 120);
+  const preferredBackend = fallback && collaborationString(fallback.preferredBackend, 40) === "cua-driver" ? "cua-driver" : null;
+  const backendRecords = Array.isArray(fallback?.backends)
+    ? fallback.backends.filter(isObjectRecord)
+    : [];
+  const readyBackend = backendRecords.some((backend) => collaborationString(backend.status, 40) === "ready");
+  const fallbackBlockers = backendRecords.flatMap((backend) => collaborationStringArray(backend.blockers, 120));
+  const blockers = unique([
+    ...collaborationStringArray(coherence?.blockers, 120),
+    ...fallbackBlockers
+  ].map((blocker) => publicSafeIdentifier(blocker) ?? publicSafeText(blocker, 120)).filter(Boolean));
+  const reasonCodes = unique([
+    ...collaborationStringArray(coherence?.reasonCodes, 120),
+    ...(fallbackReason ? [fallbackReason] : []),
+    ...(fallbackRequired ? ["desktop_fallback_required"] : []),
+    ...(fallbackRequired && readyBackend ? ["desktop_fallback_ready"] : []),
+    ...(fallbackRequired && fallback && !readyBackend ? ["desktop_fallback_blocked"] : [])
+  ].map((code) => publicSafeIdentifier(code) ?? "").filter(Boolean));
+  const state: CodexCollaborationDesktopState = coherenceState === "desktop_visible" || fallbackReason === "desktop_visibility_already_proven"
+    ? "desktop_visible"
+    : fallbackRequired && readyBackend
+      ? "fallback_ready"
+      : fallbackRequired && fallback
+        ? "fallback_blocked"
+        : coherenceState && ["cli_visible", "desktop_refresh_required", "desktop_restart_required"].includes(coherenceState)
+          ? "cli_visible"
+          : !coherence && !fallback
+            ? "not_configured"
+            : "unknown";
+  const confidence = Math.max(0.1, Math.min(1,
+    state === "not_configured" ? 0.4
+      : state === "fallback_ready" ? Math.max(0.72, coherenceConfidence ?? 0.72)
+        : state === "fallback_blocked" ? Math.min(0.7, coherenceConfidence ?? 0.65)
+          : coherenceConfidence ?? (state === "desktop_visible" ? 0.85 : 0.6)
+  ));
+  return {
+    state,
+    requiresFallback: fallbackRequired,
+    preferredBackend,
+    confidence,
+    sourceCoverage: {
+      desktopCoherence: input.desktopCoherenceCoverage,
+      desktopFallback: input.desktopFallbackCoverage
+    },
+    evidenceIds: unique([
+      ...collaborationStringArray(coherence?.evidenceIds, 160),
+      ...collaborationStringArray(fallback?.evidenceIds, 160)
+    ].map((evidenceId) => publicSafeRefLike(evidenceId, "evidence") ?? "").filter(Boolean)),
+    blockers,
+    reasonCodes
+  };
+}
+
+function collaborationReportsByThread(reports: unknown[]): Map<string, Record<string, unknown>> {
+  const byThread = new Map<string, Record<string, unknown>>();
+  for (const report of reports) {
+    if (!isObjectRecord(report)) continue;
+    const targetRef = collaborationTargetRef(report);
+    if (!targetRef) continue;
+    byThread.set(targetRef, report);
+  }
+  return byThread;
+}
+
+function collaborationTargetRef(report: Record<string, unknown>): string | null {
+  const target = isObjectRecord(report.target) ? report.target : {};
+  const sourceRef = collaborationString(target.sourceRef ?? target.source_ref ?? report.sourceRef ?? report.source_ref, 180);
+  const threadId = collaborationString(target.threadId ?? target.thread_id ?? report.threadId ?? report.thread_id, 120);
+  return normalizeCodexThreadSourceRef(sourceRef, threadId);
+}
+
+function collaborationCoverage(reports: unknown[] | undefined, matchedCount: number): VisibleCodexCoverageState {
+  if (!reports || reports.length === 0) return "not_configured";
+  if (matchedCount === 0) return "partial";
+  return matchedCount === reports.length ? "ok" : "partial";
+}
+
+function collaborationAttentionLevel(urgencyScore: number, reasonCodes: string[]): OperatingUrgency {
+  if (reasonCodes.includes("watcher_triggered") || urgencyScore >= 90) return "critical";
+  if (urgencyScore >= 70) return "high";
+  if (urgencyScore >= 35) return "medium";
+  return "low";
+}
+
+function collaborationLaneNeedsApproval(lane: CodexCollaborationCockpitLane): boolean {
+  return lane.sessionState === "needs_approval"
+    || lane.reasonCodes.includes("approval_needed")
+    || lane.nextAction.kind === "approve"
+    || normalizedMetadataValue(lane.nextAction.reason).includes("approval");
+}
+
+function collaborationDesktopReasonCodes(coherence: Record<string, unknown> | null, fallback: Record<string, unknown> | null): string[] {
+  const fallbackDetails = isObjectRecord(fallback?.fallback) ? fallback.fallback : null;
+  return unique([
+    ...collaborationStringArray(coherence?.reasonCodes, 120),
+    ...collaborationStringArray(coherence?.blockers, 120),
+    ...(collaborationString(fallbackDetails?.reason, 120) ? [collaborationString(fallbackDetails?.reason, 120)!] : []),
+    ...(fallback ? ["desktop_fallback_report_present"] : []),
+    ...(coherence ? ["desktop_coherence_report_present"] : [])
+  ]);
+}
+
+function collaborationLaneComparator(left: CodexCollaborationCockpitLane, right: CodexCollaborationCockpitLane): number {
+  if (left.attention.urgencyScore !== right.attention.urgencyScore) return right.attention.urgencyScore - left.attention.urgencyScore;
+  const updatedAtCompare = compareUpdatedAtDesc(left.card.freshness.lastEventAt, right.card.freshness.lastEventAt);
+  if (updatedAtCompare !== 0) return updatedAtCompare;
+  return left.threadId.localeCompare(right.threadId);
+}
+
+function collaborationString(value: unknown, maxChars: number): string | null {
+  return typeof value === "string" && value.trim() ? publicSafeText(value.trim(), maxChars) : null;
+}
+
+function collaborationStringArray(value: unknown, maxChars: number): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const text = collaborationString(item, maxChars);
+    return text ? [text] : [];
+  });
+}
+
+function collaborationNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : null;
 }
 
 export function createVisibleCodexSessionMap(db: LooDatabase, options: {

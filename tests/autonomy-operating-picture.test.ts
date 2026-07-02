@@ -10,6 +10,7 @@ import {
   createBusinessPulse,
   createDatabase,
   createDefaultSourceAuthorityProfile,
+  createCodexCollaborationCockpit,
   createGithubOperatingItemsReport,
   createPlanStatePinsReport,
   createProjectDigest,
@@ -1166,6 +1167,7 @@ test("new cockpit and operating-picture tools are exposed through MCP with publi
     for (const name of [
       "loo_recent_sessions",
       "loo_cockpit_inbox",
+      "loo_codex_collaboration_cockpit",
       "loo_watchers_list",
       "loo_watcher_status",
       "loo_watcher_dry_run",
@@ -1181,6 +1183,13 @@ test("new cockpit and operating-picture tools are exposed through MCP with publi
 
     const recent = await tools.find((tool) => tool.name === "loo_recent_sessions")?.execute({ limit: 5, include_cards: true });
     assert.equal((recent as { publicSafe?: boolean }).publicSafe, true);
+
+    const collaborationCockpit = await tools.find((tool) => tool.name === "loo_codex_collaboration_cockpit")?.execute({
+      limit: 5,
+      now: "2026-07-01T12:00:00.000Z"
+    });
+    assert.equal((collaborationCockpit as { publicSafe?: boolean }).publicSafe, true);
+    assert.equal((collaborationCockpit as { actionsPerformed?: { desktopGuiActionRun?: boolean } }).actionsPerformed?.desktopGuiActionRun, false);
 
     const pins = await tools.find((tool) => tool.name === "loo_plan_state_pins")?.execute({
       plan_state_text: "<!-- loo:manual-pin -->\n- Project: LCO\n- State: yellow\n- Summary: Test pin.\n- Next: Review.\n<!-- /loo:manual-pin -->"
@@ -1252,7 +1261,114 @@ test("new cockpit and operating-picture tools are exposed through MCP with publi
       () => unsafeWatcher.execute({ watcher_specs: [{ ...watcherSpec, mutates: true }] }),
       /mutates=false/
     );
-    assertNoUnsafeStrings({ recent, pins, pulse, watcherDryRun }, sessions);
+    assertNoUnsafeStrings({ recent, collaborationCockpit, pins, pulse, watcherDryRun }, sessions);
+  });
+});
+
+test("Codex collaboration cockpit summarizes attention and Desktop fallback readiness without actions", () => {
+  withIndexedSessions((sessions) => {
+    const transcriptPathCanary = join(sessions, "rollout-2026-07-01T00-00-00-019f-collab-cli.jsonl");
+    return {
+      fixtures: [
+        {
+          id: "019f-collab-cli",
+          title: "CLI visible collaboration lane",
+          status: "running",
+          priority: "high",
+          nextAction: `inspect Desktop fallback without raw path ${transcriptPathCanary}`,
+          updatedAt: relativeIso(4),
+          refs: true,
+          extra: ["authorization: Bearer abcdefghijklmnopqrstuvwxyz"]
+        },
+        {
+          id: "019f-collab-approval",
+          title: "Approval waiting collaboration lane",
+          status: "needs_approval",
+          priority: "urgent",
+          blocker: "approval needed",
+          nextAction: "prepare approval packet only",
+          updatedAt: relativeIso(7),
+          refs: true
+        }
+      ],
+      canaries: [transcriptPathCanary]
+    };
+  }, ({ db, canaries }) => {
+    const report = createCodexCollaborationCockpit(db, {
+      limit: 5,
+      now: "2026-07-02T00:00:00.000Z",
+      watcherSpecs: [
+        {
+          schema: "lco.watchSpec.v1",
+          watchId: "watch_collab_cli",
+          targetRef: "codex_thread:019f-collab-cli",
+          kind: "final_message_appeared",
+          createdAt: "2026-07-01T23:40:00.000Z",
+          lastObservedAt: "2026-07-01T23:59:00.000Z",
+          ttlSeconds: 3600,
+          stopConditions: ["final_message_seen", "explicit_cancel"],
+          wakeReason: "final_message_appeared",
+          evidenceIds: ["ev_watch_collab"],
+          confidence: 0.92,
+          mutates: false
+        }
+      ],
+      desktopCoherenceReports: [
+        {
+          schema: "lco.codexDesktopCoherence.v1",
+          publicSafe: true,
+          target: { threadId: "019f-collab-cli", sourceRef: "codex_thread:019f-collab-cli" },
+          state: "cli_visible",
+          confidence: 0.82,
+          evidenceIds: ["ev_coherence_cli"],
+          blockers: ["desktop_visibility_not_proven"],
+          reasonCodes: ["cli_direct_visible_without_desktop_proof"],
+          sourceCoverage: { indexedLco: "ok", visibleCodex: "partial", codexAppServer: "ok" },
+          actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
+        }
+      ],
+      desktopFallbackReports: [
+        {
+          schema: "lco.codex.desktopFallback.v1",
+          publicSafe: true,
+          readOnly: true,
+          target: { threadId: "019f-collab-cli", sourceRef: "codex_thread:019f-collab-cli" },
+          fallback: { required: true, reason: "desktop_visibility_not_proven", coherenceState: "cli_visible", desktopVisibility: "not_proven" },
+          preferredBackend: "cua-driver",
+          backends: [
+            { backend: "cua-driver", role: "preferred_background", status: "ready", blockers: [], warnings: [], takesScreenWarning: false },
+            { backend: "peekaboo", role: "secondary_visible_fallback", status: "blocked", blockers: ["visible_fallback_requires_explicit_user_visible_run"], warnings: [], takesScreenWarning: true }
+          ],
+          actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, screenshotCaptured: false, rawTranscriptRead: false }
+        }
+      ]
+    });
+
+    assert.equal(report.schema, "lco.codex.collaborationCockpit.v1");
+    assert.equal(report.publicSafe, true);
+    assert.equal(report.summary.returned, 2);
+    assert.equal(report.summary.needsApproval, 1);
+    assert.equal(report.summary.fallbackRequired, 1);
+    assert.equal(report.sourceCoverage.desktopCoherence, "ok");
+    assert.equal(report.sourceCoverage.desktopFallback, "ok");
+    assert.deepEqual(report.actionsPerformed, {
+      liveCodexControlRun: false,
+      desktopGuiActionRun: false,
+      rawTranscriptRead: false,
+      screenshotCaptured: false,
+      npmPublished: false,
+      githubReleaseCreated: false
+    });
+
+    const cliLane = report.lanes.find((lane) => lane.threadId === "codex_thread:019f-collab-cli");
+    assert.ok(cliLane);
+    assert.equal(cliLane.attention.level, "critical");
+    assert.equal(cliLane.desktop.state, "fallback_ready");
+    assert.equal(cliLane.desktop.requiresFallback, true);
+    assert.equal(cliLane.desktop.preferredBackend, "cua-driver");
+    assert.equal(cliLane.reasonCodes.includes("watcher_triggered"), true);
+    assert.equal(cliLane.desktop.reasonCodes.includes("cli_direct_visible_without_desktop_proof"), true);
+    assertNoUnsafeStrings(report, ...canaries);
   });
 });
 

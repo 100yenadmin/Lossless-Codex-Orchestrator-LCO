@@ -225,6 +225,39 @@ test("Eva operating picture dogfood scenario captures the full cockpit workflow"
   assert.match(String(scenario.proof_boundary), /does not prove.*full business truth/i);
 });
 
+test("Codex collaboration cockpit scenario captures read-only Desktop evidence composition", () => {
+  const scenario = JSON.parse(readFileSync(join("evals", "scenarios", "v1", "codex-collaboration-cockpit.json"), "utf8")) as {
+    id?: string;
+    surface?: string;
+    user_task?: string;
+    allowed_tools?: string[];
+    expected_public_safe_evidence?: string[];
+    forbidden_behaviors?: string[];
+    metrics?: Record<string, unknown>;
+    proof_boundary?: string;
+  };
+
+  assert.equal(scenario.id, "codex-collaboration-cockpit-v1");
+  assert.equal(scenario.surface, "openclaw-gateway");
+  assert.match(String(scenario.user_task), /active Codex collaboration lanes.*Desktop coherence\/fallback/i);
+  assert.deepEqual(scenario.allowed_tools, [
+    "loo_recent_sessions",
+    "loo_cockpit_inbox",
+    "loo_codex_collaboration_cockpit",
+    "loo_codex_desktop_coherence",
+    "loo_codex_desktop_fallback_status"
+  ]);
+  assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /lco\.codex\.collaborationCockpit\.v1/);
+  assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /actionsPerformed/);
+  assert.match(JSON.stringify(scenario.forbidden_behaviors), /raw_transcript_read/);
+  assert.match(JSON.stringify(scenario.forbidden_behaviors), /gui_mutation/);
+  assert.match(JSON.stringify(scenario.forbidden_behaviors), /npm_publish/);
+  assert.equal(scenario.metrics?.requires_collaboration_cockpit_report, true);
+  assert.equal(scenario.metrics?.requires_desktop_state_boundary, true);
+  assert.equal(scenario.metrics?.max_live_actions, 0);
+  assert.match(String(scenario.proof_boundary), /does not prove live Codex control/i);
+});
+
 test("runtime-required v1.1 scenarios define working-app proof beyond dry-run contracts", () => {
   const scenarioDir = join("evals", "scenarios", "v1.1");
   const files = readdirSync(scenarioDir).filter((file) => file.endsWith(".json")).sort();

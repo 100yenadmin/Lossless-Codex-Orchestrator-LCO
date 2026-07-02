@@ -27,6 +27,9 @@ Codex sessions through the installed `loo_*` tools.
 - When Desktop visibility is not proven, use
   `loo_codex_desktop_fallback_status` to inspect CUA-first and
   Peekaboo-secondary readiness before suggesting any visible fallback path.
+- Use `loo_codex_collaboration_cockpit` when the user wants one read-only
+  active-lane summary across recent cards, inbox urgency, watcher requests, and
+  supplied Desktop coherence/fallback evidence.
 
 ## Find Active Codex Sessions
 
@@ -92,6 +95,9 @@ Typical live tools after approval are `loo_codex_resume_thread`,
 5. If visibility is not proven, call `loo_codex_desktop_fallback_status` and
    route blockers to the desktop fallback lane rather than claiming same-session
    Desktop collaboration.
+6. Call `loo_codex_collaboration_cockpit` when the next response should combine
+   recent cards, inbox urgency, watcher requests, and supplied Desktop evidence
+   into one public-safe attention summary.
 
 ## Recommended Agent Loop
 
@@ -105,9 +111,11 @@ Typical live tools after approval are `loo_codex_resume_thread`,
    same work is visible in Codex Desktop
 7. If Desktop visibility is not proven, run
    `loo_codex_desktop_fallback_status` before recommending CUA/Peekaboo work
-8. Recommend a next action with source refs
-9. If action is requested, run `loo_codex_control_dry_run`
-10. Wait for explicit approval before any live control
+8. Run `loo_codex_collaboration_cockpit` when the user wants one active-lane
+   cockpit summary
+9. Recommend a next action with source refs
+10. If action is requested, run `loo_codex_control_dry_run`
+11. Wait for explicit approval before any live control
 
 ## Public-Safe Output Shape
 

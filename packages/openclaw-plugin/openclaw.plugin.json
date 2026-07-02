@@ -45,6 +45,7 @@
       "loo_codex_session_management_map",
       "loo_recent_sessions",
       "loo_cockpit_inbox",
+      "loo_codex_collaboration_cockpit",
       "loo_watchers_list",
       "loo_watcher_status",
       "loo_watcher_dry_run",
@@ -398,6 +399,51 @@
               }
             },
             "watcher_specs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "now": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_collaboration_cockpit",
+        "description": "Summarize Codex collaboration lanes from indexed sessions, inbox urgency, watcher requests, and optional Desktop coherence/fallback evidence without performing actions.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "priority_order": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "watcher_specs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_coherence_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_fallback_reports": {
               "type": "array",
               "items": {
                 "type": "object",

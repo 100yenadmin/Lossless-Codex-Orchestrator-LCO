@@ -15,6 +15,7 @@ export const DEFAULT_REQUIRED_TOOL_CALLS = [
   "loo_codex_control_dry_run",
   "loo_recent_sessions",
   "loo_cockpit_inbox",
+  "loo_codex_collaboration_cockpit",
   "loo_watchers_list",
   "loo_watcher_status",
   "loo_watcher_dry_run",
@@ -905,6 +906,7 @@ function outputKind(value: unknown): string {
 function outputCount(value: unknown): number | undefined {
   if (Array.isArray(value)) return value.length;
   if (isRecord(value) && Array.isArray(value.results)) return value.results.length;
+  if (isRecord(value) && Array.isArray(value.lanes)) return value.lanes.length;
   return undefined;
 }
 
