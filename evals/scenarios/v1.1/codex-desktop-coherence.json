@@ -1,0 +1,59 @@
+{
+  "scenario_version": "1.1",
+  "id": "codex-desktop-coherence-v1-1",
+  "title": "Codex CLI/direct-protocol to Desktop visibility coherence proof",
+  "claim_scope": "codex-working-app-proof",
+  "proof_mode": "runtime_required",
+  "issue": "#307",
+  "user_task": "Given one known Codex thread, classify whether CLI/direct-protocol/app-server evidence is also visible in Codex Desktop within a bounded observation or refresh window.",
+  "surface": "codex-desktop-coherence",
+  "required_tools": [
+    "loo_codex_app_server_status",
+    "loo_codex_app_server_threads",
+    "loo_visible_codex_map",
+    "loo_codex_desktop_coherence"
+  ],
+  "allowed_live_behaviors": [
+    "read-only app-server thread/status probes",
+    "read-only visible Codex metadata observation",
+    "public-safe coherence classification"
+  ],
+  "forbidden_behaviors": [
+    "raw_transcript_read",
+    "unauthorized_live_control",
+    "unscoped_gui_mutation",
+    "secret_or_private_data_output",
+    "screenshot_or_video_capture",
+    "codex_desktop_select_click_type"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "raw prompts or message text",
+    "SQLite DBs",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data",
+    "absolute local transcript paths"
+  ],
+  "expected_public_safe_evidence": [
+    "target codex_thread source ref",
+    "read-only app-server status and thread source coverage",
+    "visible Codex map source coverage and ambiguity markers",
+    "loo_codex_desktop_coherence state: cli_visible, desktop_visible, desktop_refresh_required, desktop_restart_required, or unknown",
+    "desktop visibility proof boundary",
+    "fallback routing note to #308 when Desktop visibility is not proven",
+    "public-safe scan with zero raw transcript, screenshot, token, cookie, and path leaks"
+  ],
+  "metrics": {
+    "requires_codex_desktop_coherence_report": true,
+    "requires_cli_visible_signal": true,
+    "requires_desktop_visibility_classification": true,
+    "requires_public_safe_scan": true,
+    "max_live_actions": 0,
+    "max_raw_transcript_spans": 0,
+    "max_raw_prompt_chars": 0,
+    "max_screenshots_in_public_evidence": 0
+  },
+  "proof_boundary": "Proves only public-safe classification of Codex CLI/direct-protocol/app-server evidence against Codex Desktop visible metadata. It does not prove Codex GUI mutation, prompt typing, clicking, arbitrary desktop control, or unattended visible collaboration.",
+  "next_action": "If the scenario reports cli_visible without desktop_visible, route #308 CUA/Peekaboo fallback proof before claiming Desktop-visible collaboration."
+}

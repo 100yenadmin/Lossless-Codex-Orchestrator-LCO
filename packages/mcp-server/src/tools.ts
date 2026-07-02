@@ -18,6 +18,7 @@ import {
   createProjectDigest,
   createResumeRequestPacket,
   createWatcherStatusReport,
+  createCodexDesktopCoherenceReport,
   createVisibleCodexSessionMap,
   getCockpitInbox,
   getCodexFinalMessages,
@@ -34,6 +35,7 @@ import {
   type LooDatabase,
   type AppServerThreadsInput,
   type VisibleCodexInput,
+  type VisibleCodexSessionMapReport,
   type WatchSpec,
   searchSessions
 } from "../../core/src/index.js";
@@ -294,28 +296,36 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       max_chars: { type: "integer", minimum: 1, maximum: 20000 },
       visible_codex: { type: "object", additionalProperties: true },
       app_server_threads: { type: "object", additionalProperties: true }
+    }, (input) => buildVisibleCodexMapFromToolInput(input, options)),
+    tool("loo_codex_desktop_coherence", "Classify whether CLI/direct/app-server Codex thread evidence is also visible in Codex Desktop without performing control or GUI actions.", {
+      thread_id: { type: "string" },
+      source_ref: { type: "string" },
+      refresh_kind: { type: "string", enum: ["none", "desktop_refresh", "desktop_restart"] },
+      visible_map: { type: "object", additionalProperties: true },
+      before_visible_map: { type: "object", additionalProperties: true },
+      after_visible_map: { type: "object", additionalProperties: true },
+      action_evidence: { type: "object", additionalProperties: true },
+      include_app_server: { type: "boolean" },
+      include_visible_snapshot: { type: "boolean" },
+      backend: { type: "string", enum: ["direct", "cua-driver", "peekaboo"] },
+      max_nodes: { type: "integer", minimum: 1, maximum: 500 },
+      max_chars: { type: "integer", minimum: 1, maximum: 20000 },
+      limit: { type: "integer", minimum: 1, maximum: 500 },
+      now: { type: "string" }
     }, async (input) => {
-      const visibleFromInput = optionalRecord(input.visible_codex) as VisibleCodexInput | undefined;
-      const appServerFromInput = optionalRecord(input.app_server_threads) as AppServerThreadsInput | undefined;
-      const visibleCodex = visibleFromInput ?? (input.include_visible_snapshot === true
-        ? (await desktopSee({
-            backend: optionalDesktopBackend(input.backend),
-            includeSnapshot: true,
-            maxNodes: optionalNumber(input.max_nodes),
-            maxChars: optionalNumber(input.max_chars),
-            probe: options.desktopProbe
-          })).visibleCodex
-        : undefined);
-      const appServerThreads = appServerFromInput ?? (input.include_app_server === false
-        ? undefined
-        : await createCodexAppServerThreadsReport({
-            client: codexReadClient,
-            limit: optionalNumber(input.limit)
-          }));
-      return createVisibleCodexSessionMap(options.db, {
-        limit: optionalNumber(input.limit),
-        visibleCodex,
-        appServerThreads
+      const visibleMap = optionalRecord(input.visible_map) as VisibleCodexSessionMapReport | undefined;
+      const beforeMap = optionalRecord(input.before_visible_map) as VisibleCodexSessionMapReport | undefined;
+      const afterMap = optionalRecord(input.after_visible_map) as VisibleCodexSessionMapReport | undefined;
+      const generatedMap = (visibleMap || beforeMap || afterMap) ? undefined : await buildVisibleCodexMapForTool(input, options);
+      return createCodexDesktopCoherenceReport({
+        threadId: optionalString(input.thread_id),
+        sourceRef: optionalString(input.source_ref),
+        visibleMap: visibleMap ?? generatedMap,
+        beforeMap,
+        afterMap,
+        refreshKind: optionalRefreshKind(input.refresh_kind),
+        actionEvidence: optionalRecord(input.action_evidence),
+        now: optionalString(input.now)
       });
     }),
     tool("loo_plan_state_pins", "Extract only manual pins, approval boundaries, and exception ledger entries from PLAN_STATE text.", {
@@ -535,6 +545,92 @@ function tool(name: string, description: string, properties: Record<string, unkn
   };
 }
 
+async function buildVisibleCodexMapForTool(
+  input: Record<string, unknown>,
+  options: { db: LooDatabase; codexClient: CodexClient; codexReadClient?: CodexClient; desktopProbe?: DesktopProbe }
+): Promise<VisibleCodexSessionMapReport> {
+  const targetThreadId = targetThreadIdFromCoherenceInput(input);
+  return buildVisibleCodexMapFromToolInput(input, options, {
+    readThreadId: targetThreadId,
+    appendReadProbe: true,
+    preserveTargetThroughLimit: Boolean(targetThreadId)
+  });
+}
+
+async function buildVisibleCodexMapFromToolInput(
+  input: Record<string, unknown>,
+  options: { db: LooDatabase; codexClient: CodexClient; codexReadClient?: CodexClient; desktopProbe?: DesktopProbe },
+  behavior: { readThreadId?: string; appendReadProbe?: boolean; preserveTargetThroughLimit?: boolean } = {}
+): Promise<VisibleCodexSessionMapReport> {
+  const visibleFromInput = optionalRecord(input.visible_codex) as VisibleCodexInput | undefined;
+  const appServerFromInput = optionalRecord(input.app_server_threads) as AppServerThreadsInput | undefined;
+  const visibleCodex = visibleFromInput ?? (input.include_visible_snapshot === true
+    ? (await desktopSee({
+        backend: optionalDesktopBackend(input.backend),
+        includeSnapshot: true,
+        maxNodes: optionalNumber(input.max_nodes),
+        maxChars: optionalNumber(input.max_chars),
+        probe: options.desktopProbe
+      })).visibleCodex
+    : undefined);
+  const appServerThreads = appServerFromInput ?? (input.include_app_server === false
+    ? undefined
+    : await createCodexAppServerThreadsReport({
+        client: options.codexReadClient ?? options.codexClient,
+        limit: optionalNumber(input.limit),
+        readThreadId: behavior.readThreadId
+      }));
+  const mapLimit = behavior.preserveTargetThroughLimit ? 500 : optionalNumber(input.limit);
+  return createVisibleCodexSessionMap(options.db, {
+    limit: mapLimit,
+    visibleCodex,
+    appServerThreads: behavior.appendReadProbe && appServerThreads ? appServerThreadsWithReadProbe(appServerThreads) : appServerThreads
+  });
+}
+
+type AppServerThreadsWithOptionalReadProbe = AppServerThreadsInput & {
+  readProbe?: {
+    appServerRef: string;
+    threadId: string;
+    titleSanitized: string | null;
+    status: string | null;
+    error: string | null;
+  };
+};
+
+function appServerThreadsWithReadProbe(report: AppServerThreadsWithOptionalReadProbe): AppServerThreadsInput {
+  const readProbe = report.readProbe;
+  if (!readProbe || readProbe.error) return report;
+  const threads = report.threads ?? [];
+  const hasThread = threads.some((thread) => thread.threadId === readProbe.threadId);
+  if (hasThread) return report;
+  return {
+    ...report,
+    threads: [
+      ...threads,
+      {
+        appServerRef: readProbe.appServerRef,
+        threadId: readProbe.threadId,
+        titleSanitized: readProbe.titleSanitized,
+        titleHash: null,
+        status: readProbe.status,
+        loaded: null,
+        loadedState: "not_claimed",
+        updatedAt: null,
+        sourceRef: `codex_thread:${readProbe.threadId}`,
+        confidence: readProbe.titleSanitized ? 0.82 : 0.62
+      }
+    ]
+  };
+}
+
+function targetThreadIdFromCoherenceInput(input: Record<string, unknown>): string | undefined {
+  const threadId = optionalString(input.thread_id);
+  if (threadId) return threadId.startsWith("codex_thread:") ? threadId.slice("codex_thread:".length) : threadId;
+  const sourceRef = optionalString(input.source_ref);
+  return sourceRef?.startsWith("codex_thread:") ? sourceRef.slice("codex_thread:".length) : undefined;
+}
+
 function dispatchControl(control: ReturnType<typeof createCodexControl>, input: Record<string, unknown>, dryRun: boolean) {
   const action = requiredString(input.action, "action");
   const common = { threadId: requiredString(input.thread_id, "thread_id"), message: optionalString(input.message) ?? "continue", dryRun };
@@ -674,6 +770,12 @@ function optionalDesktopBackend(value: unknown): DesktopBackend | undefined {
   if (value === undefined) return undefined;
   if (isDesktopBackend(value)) return value;
   throw new Error("desktop backend must be direct, cua-driver, or peekaboo");
+}
+
+function optionalRefreshKind(value: unknown): "none" | "desktop_refresh" | "desktop_restart" | undefined {
+  if (value === undefined) return undefined;
+  if (value === "none" || value === "desktop_refresh" || value === "desktop_restart") return value;
+  throw new Error("refresh_kind must be none, desktop_refresh, or desktop_restart");
 }
 
 function stringArray(value: unknown): string[] {

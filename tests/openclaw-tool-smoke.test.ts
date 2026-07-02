@@ -324,6 +324,10 @@ if (method === "tools.invoke") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, schema: "lco.visibleCodexSessionMap.v1", sourceCoverage: { indexedLco: "ok", visibleCodex: "not_configured", codexAppServer: "ok" }, items: [{ appServerRef: "codex_app_thread:thread-1", sourceRef: "codex_thread:thread-1", sessionCardRef: "codex_thread:thread-1", confidence: 0.86 }], actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false } } }));
     process.exit(0);
   }
+  if (name === "loo_codex_desktop_coherence") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, readOnly: true, schema: "lco.codexDesktopCoherence.v1", state: "cli_visible", visibility: { cli: "proven", desktop: "not_seen" }, target: { threadId: "thread-1", sourceRef: "codex_thread:thread-1" }, actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false } } }));
+    process.exit(0);
+  }
   if (name === "loo_plan_state_pins") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, manualPins: [] } }));
     process.exit(0);
@@ -605,6 +609,33 @@ test("OpenClaw tool smoke passes discovered thread id to loo_expand_session", ()
     assert.equal(calls.find((call) => call.params.name === "loo_expand_session")?.params.args?.thread_id, "thread-1");
     assert.equal(calls.find((call) => call.params.name === "loo_expand_session")?.params.args?.profile, "brief");
     assert.equal(calls.find((call) => call.params.name === "loo_expand_session")?.params.args?.token_budget, 1000);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke requires target before desktop coherence smoke", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-desktop-coherence-target-"));
+  const evidencePath = join(dir, "tool-smoke.json");
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_codex_desktop_coherence"]);
+
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      profile: "lco-issue-307",
+      sessionKey: "agent:main:lco-issue-307",
+      evidencePath,
+      requiredTools: ["loo_codex_desktop_coherence"]
+    });
+
+    assert.equal(report.ok, false);
+    assert.deepEqual(report.blockers, ["openclaw_tool_smoke_missing_thread_ref"]);
+
+    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { method: string; params: { name?: string } });
+    assert.equal(calls.some((call) => call.method === "tools.invoke" && call.params.name === "loo_codex_desktop_coherence"), false);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;

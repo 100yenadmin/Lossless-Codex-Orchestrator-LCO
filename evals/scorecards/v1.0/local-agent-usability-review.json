@@ -22,6 +22,7 @@
     "loo_codex_app_server_status",
     "loo_codex_app_server_threads",
     "loo_visible_codex_map",
+    "loo_codex_desktop_coherence",
     "loo_plan_state_pins",
     "loo_github_operating_items",
     "loo_project_digest",
@@ -40,6 +41,7 @@
     "watcher status, watcher_triggered reason codes, resume request packet expiry, mutates=false, and approval boundary",
     "Codex app-server read-only availability, allowed/forbidden method posture, thread source coverage, and no-turns proof",
     "visible Codex map source coverage, confidence, ambiguity markers, and public-safe session card refs",
+    "Codex Desktop coherence state distinguishing cli_visible from desktop_visible, desktop_refresh_required, desktop_restart_required, and unknown proof states",
     "GitHub operating item normalization for issue, PR, statusCheckRollup, and check records without raw bodies or logs",
     "operating-picture source coverage, source authority coverage, current_lane/fresh_signal/low_confidence_downgraded ranking reason codes, and not_configured P1 source states",
     "end-to-end Eva cockpit dogfood evidence tying GitHub check state, recent Codex cards, clean presentation, current-lane ranking, customer/runtime/security priority, source coverage, and P1 not_configured gaps into one public-safe workflow",
@@ -65,6 +67,7 @@
     "Agent can inspect read-only watcher status and generate resume-request packets without live control, GUI mutation, cleanup, or external writes.",
     "Agent can inspect Codex app-server status and thread signals without reading raw turns, enabling remote control, or mutating Codex.",
     "Agent can correlate sanitized visible Codex candidates with indexed session cards while ambiguous title matches stay low confidence.",
+    "Agent can classify Codex Desktop coherence without treating CLI/direct/app-server visibility as Desktop-visible collaboration proof.",
     "Agent can normalize public-safe GitHub issue, PR, statusCheckRollup, and check records into digest-ready github_items before summarization.",
     "Agent can distinguish pending, failed, passed, and unknown PR check-state reason codes without reading check logs.",
     "Agent can see current-lane GitHub PR/check signals rank above old low-confidence Codex cards unless customer/runtime/security impact is present.",
@@ -89,8 +92,9 @@
     "Fresh OpenClaw profiles need scoped gateway credentials or env-ref onboarding before tool-smoke can call tools; #298 proves that after setup and the protocol-4 backend caller fix, a clean profile can call `loo_doctor` and `loo_search_sessions` through an isolated loopback gateway.",
     "P0 operating-picture tools use LCO/Codex, normalized public-safe GitHub inputs, explicit PLAN_STATE pins, read-only watcher request packets, and a public source-authority profile only; Notion, support-control, Company Brain, Stripe, dashboard/export, and summarizer adapters remain P1.",
     "Visible Codex map joins prove read-only correlation from sanitized title/status metadata only; they do not prove Codex GUI mutation or visible focus/select/continue workflows.",
+    "Codex Desktop coherence classification can prove cli_visible, desktop_visible, desktop_refresh_required, desktop_restart_required, or unknown states from supplied public-safe evidence, but it does not itself perform a live direct-protocol action or a Desktop refresh/restart.",
     "This does not prove live Codex control, generic GUI mutation, Claude Code adapter parity, full business truth, stable release, npm latest promotion, or release-grade customer readiness."
   ],
-  "next_action": "Publish beta.35 after PR/CI/review gates so external testers get the protocol-4 backend caller fix, then run a separate stable/latest release issue before any 1.0 claim.",
-  "proof_boundary": "This proves local OpenClaw gateway agent usability for Codex read/search/describe/expand/detail lookup/recommend/dry-run, read-only watcher request packets, read-only app-server status/thread signals, visible-to-indexed session correlation, P0 cockpit/operating-picture cards, and fresh-profile gateway-ready invocation using public-safe evidence only; it does not prove live control, GUI mutation, Claude Code adapter parity, full business truth, stable release, npm latest promotion, or enterprise/customer readiness."
+  "next_action": "Finish #307/#308 Desktop visibility proof work so agents can distinguish CLI-visible, Desktop-visible, refresh-required, restart-required, and unknown collaboration states without widening live-control or GUI-mutation claims.",
+  "proof_boundary": "This proves local OpenClaw gateway agent usability for Codex read/search/describe/expand/detail lookup/recommend/dry-run, read-only watcher request packets, read-only app-server status/thread signals, visible-to-indexed session correlation, Codex Desktop coherence classification, P0 cockpit/operating-picture cards, and fresh-profile gateway-ready invocation using public-safe evidence only; it does not prove live control, GUI mutation, Desktop-visible live collaboration, Claude Code adapter parity, full business truth, stable release, npm latest promotion, or enterprise/customer readiness."
 }

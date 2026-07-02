@@ -57,19 +57,21 @@ rediscovering state from text every time.
 | Working app runtime proof | Completed proof | M7/#156 proved the named runtime path and proof gates; generic GUI mutation, Claude parity, and 1.0 readiness remain excluded. |
 | Codex autonomy cockpit | P0 beta | Recent session cards, cockpit inbox, read-only watcher/resume-request packets, approval packets, and operating-picture tools are public-safe by default. |
 | Eva operating picture | P0 beta | Business pulse and attention inbox use LCO/Codex, optional structured GitHub items, explicit PLAN_STATE pins, and source-authority coverage; P1 business adapters are not configured yet. |
+| Codex Desktop coherence | Proof-gated | `loo_codex_desktop_coherence` classifies CLI/direct/app-server evidence as `cli_visible`, `desktop_visible`, `desktop_refresh_required`, `desktop_restart_required`, or `unknown`; it does not perform GUI action or prove Desktop-visible collaboration without runtime evidence. |
 | Claude Code adapter | Fixture inventory | Supports redacted metadata-only fixtures with `claude_session:*` refs; no Claude parity, live control, GUI mutation, or cloud sync claim. |
 
-## Current Sprint: 1.0 Stable Release Gate
+## Current Sprint: Post-GA Desktop Visibility Proof
 
 The roadmap is now ranked by one question:
 
 > Does this help an OpenClaw orchestrator manage hundreds of sessions with less
 > context, less rereading, and safer action?
 
-The current release-hardening sprint is tracked by
-[#302](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/302),
-[#182](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/182),
-and
+The stable 1.0.0 package is published on npm `latest` and the GitHub Release is
+published. The current post-GA proof sprint is tracked by
+[#307](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/307),
+[#308](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/308),
+and the operating loop
 [#16](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/16).
 The completed Codex Autonomy Cockpit and Eva Operating Picture P0 foundation is
 tracked by
@@ -78,15 +80,13 @@ tracked by
 and the historical sprint brief
 [docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md](docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md).
 
-The core Codex recall, M9 handoff paths, and P0 cockpit/Eva operating-picture
-paths are working. The current release lane is the explicit 1.0 stable
-promotion gate: release metadata, docs truth, strict release gates, public-safe
-scorecards, fresh npm/OpenClaw gateway proof, and a clean line between completed
-P0 cards and deferred P1 adapters. #298 proves the fresh-profile gateway path
-can reach `ready` with scoped token env-ref onboarding and the protocol-4
-backend caller fix; beta.35 published that compatibility fix. #302 owns the
-stable-release lane and must prove any npm `latest` promotion or GitHub Release
-creation against the exact stable candidate SHA.
+The core Codex recall, M9 handoff paths, P0 cockpit/Eva operating-picture paths,
+stable release gates, and npm `latest` publication are working. The remaining
+product gap is not another deep recall engine feature; it is Desktop-visible
+collaboration truth. #307 separates "Codex is visible to CLI/direct
+protocol/app-server" from "the same work is visibly reflected in Codex Desktop"
+and #308 owns the CUA/Peekaboo fallback path if Desktop live refresh is missing
+or partial.
 
 Completed P0 foundation is read-only and deterministic:
 
@@ -135,6 +135,9 @@ What a local OpenClaw agent can do today:
   `loo_visible_codex_map`; these tools report source coverage, confidence, and
   ambiguity without raw turns, screenshots, remote-control enablement, or GUI
   mutation.
+- Classify Desktop coherence with `loo_codex_desktop_coherence`; `cli_visible`
+  is not treated as `desktop_visible`, and refresh/restart requirements remain
+  explicit proof states.
 - Inspect `authorityCoverage` to see whether LCO, GitHub, or PLAN_STATE is
   authoritative, fallback-only, unavailable, or not configured for a claim.
 - Dry-run Codex control actions and inspect audit ids before any live action.
@@ -155,12 +158,11 @@ Completed proof:
   fresh npm clean-profile smoke, and 1.0 readiness gate.
 - #298 proves a clean OpenClaw profile can install a published package and call
   `loo_doctor` plus `loo_search_sessions` through an isolated loopback token
-  gateway after the protocol-4 backend caller fix. In #302, pre-promotion gates
-  validate the exact packed stable candidate and merged SHA; fresh npm
-  `@latest` published-smoke and general-readiness run only after publication and
-  must pass before the stable issue closes.
-- Desktop fallback remains action-bound; generic GUI mutation and Codex GUI
-  mutation are not public beta claims.
+  gateway after the protocol-4 backend caller fix. #302/#304/#305/#306 closed
+  the stable release, post-publish `@latest` smoke, and general-readiness gates.
+- Desktop fallback remains action-bound; generic GUI mutation, Codex GUI
+  mutation, and Desktop-visible live collaboration are not stable 1.0 claims
+  until #307/#308 provide matching evidence.
 - Claude Code remains an adapter stub and fixture inventory, not parity.
 
 ## Quick Start
@@ -222,7 +224,7 @@ loo grep --lcm-db ~/.openclaw/lcm.db "billing bridge"
 loo describe codex_thread:019f-example
 loo expand-query --profile brief "billing bridge"
 loo sanitize sessions --thread-id 019f-example --repair-plan --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-sanitizer
-loo serve
+loo serve # then call loo_codex_desktop_coherence through MCP/OpenClaw with public-safe map evidence
 ```
 
 Desktop readiness checks:
