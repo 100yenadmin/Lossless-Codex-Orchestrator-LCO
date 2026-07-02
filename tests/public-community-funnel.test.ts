@@ -87,15 +87,17 @@ test("community health files and templates exist for public GitHub readiness", (
   }
 
   const bug = read(".github/ISSUE_TEMPLATE/bug_report.yml");
+  const adapter = read(".github/ISSUE_TEMPLATE/adapter_request.yml");
   const feature = read(".github/ISSUE_TEMPLATE/feature_request.yml");
   const unsafe = read(".github/ISSUE_TEMPLATE/unsafe_control_report.yml");
   const pr = read(".github/PULL_REQUEST_TEMPLATE.md");
 
-  for (const form of [bug, feature, unsafe]) {
+  for (const form of [bug, adapter, feature, unsafe]) {
     assert.match(form, /body:/);
     assert.match(form, /validations:\n\s+required: true/);
     assert.match(form, /Redaction|public-safe|tokens|credentials/i);
   }
+  assert.match(adapter, /Evidence available/);
 
   for (const required of [
     /What Problem This Solves/i,

@@ -9,12 +9,14 @@ If you are a coding agent working in this repository:
    expectations.
 3. Read docs/SETUP.md before changing install, OpenClaw, MCP, or first-run
    behavior.
-4. Create or reuse a GitHub issue before meaningful implementation work.
-5. Write or update a failing test, smoke, or eval scenario before the minimal
+4. Read SECURITY.md before touching vulnerability reporting, secrets, auth,
+   control, or private-data handling.
+5. Create or reuse a GitHub issue before meaningful implementation work.
+6. Write or update a failing test, smoke, or eval scenario before the minimal
    implementation.
-6. Do not commit raw transcripts, private SQLite DBs, screenshots with private
+7. Do not commit raw transcripts, private SQLite DBs, screenshots with private
    data, tokens, cookies, connector URLs, or credentials.
-7. Update the issue before handoff, merge, pause, or external-review wait.
+8. Update the issue before handoff, merge, pause, or external-review wait.
 
 ## Shared Owned-Repo Policy
 

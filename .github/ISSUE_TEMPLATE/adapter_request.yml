@@ -39,6 +39,13 @@ body:
       description: Approval boundaries, privacy risks, expected public-safe evidence, and stop conditions.
     validations:
       required: true
+  - type: textarea
+    id: evidence_available
+    attributes:
+      label: Evidence available
+      description: Public-safe fixtures, docs, commands, logs, screenshots, or runtime proof that can be used to evaluate this adapter. Redact private paths and secrets.
+    validations:
+      required: true
   - type: checkboxes
     id: public_safe
     attributes:

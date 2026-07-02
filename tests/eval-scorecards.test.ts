@@ -77,7 +77,12 @@ test("scorecard v1 examples exist, are versioned, and preserve the beta evidence
     }
 
     assert.equal(scorecard.scorecard_version, "1.0", `${file} must use scorecard version 1.0`);
-    assert.match(String(scorecard.evidence_path), /^\/Volumes\/LEXAR\/Codex\/lossless-openclaw-orchestrator\/YYYY-MM-DD\//);
+    const evidencePath = String(scorecard.evidence_path);
+    if (file === "public-community-readiness-review.json") {
+      assert.match(evidencePath, /^evidence\/YYYY-MM-DD\//);
+    } else {
+      assert.match(evidencePath, /^\/Volumes\/LEXAR\/Codex\/lossless-openclaw-orchestrator\/YYYY-MM-DD\//);
+    }
     assert.match(String(scorecard.proof_boundary), /local|public-safe|beta|not proven/i);
 
     const exclusions = assertStringArray(scorecard.private_data_exclusions, "private_data_exclusions", file).join("\n");

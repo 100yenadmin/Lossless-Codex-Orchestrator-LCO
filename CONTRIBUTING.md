@@ -78,7 +78,8 @@ Every meaningful PR should name the proof it ran:
 - focused validation command
 - `npm run check`, or why CI is the right place for heavier validation
 - OpenClaw gateway dogfood when the change affects installed `loo_*` tools
-- evidence path under `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/`
+- evidence path such as `evidence/YYYY-MM-DD/issue-<number>/`, or the
+  maintainer-provided external evidence path linked from the issue
 
 Evidence should contain public-safe summaries, counts, refs, hashes, setup
 status, blocker codes, and command names. It must not contain raw Codex
