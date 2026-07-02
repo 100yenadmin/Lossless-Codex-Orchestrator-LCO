@@ -1842,6 +1842,73 @@ test("Codex Desktop fallback report routes cli-visible threads to CUA first and 
   assert.equal(report.nextAction.includes("#308"), true);
 });
 
+test("Codex Desktop fallback report requires an explicit coherence input when only target refs are supplied", async () => {
+  const report = await createCodexDesktopFallbackReport({
+    threadId: "019f1ed4-4c45-70e2-be84-69d93a1be08b",
+    sourceRef: "codex_thread:019f1ed4-4c45-70e2-be84-69d93a1be08b",
+    probe: {
+      commandStatus: (command) => ({ available: true, command, version: `${command} test` }),
+      activeApplication: () => "Codex"
+    }
+  });
+
+  assert.equal(report.schema, "lco.codex.desktopFallback.v1");
+  assert.equal(report.publicSafe, true);
+  assert.equal(report.readOnly, true);
+  assert.equal(report.fallback.required, false);
+  assert.equal(report.fallback.reason, "coherence_input_missing");
+  assert.equal(report.fallback.coherenceState, null);
+  assert.equal(report.fallback.desktopVisibility, null);
+  assert.ok(report.blockers.includes("coherence_input_missing"));
+  assert.deepEqual(report.nextToolCall, {
+    tool: "loo_codex_desktop_coherence",
+    args: {
+      thread_id: "019f1ed4-4c45-70e2-be84-69d93a1be08b",
+      source_ref: "codex_thread:019f1ed4-4c45-70e2-be84-69d93a1be08b"
+    }
+  });
+  assert.match(report.nextAction, /loo_codex_desktop_coherence/);
+  assert.equal(report.actionsPerformed.desktopGuiActionRun, false);
+  assert.equal(report.actionsPerformed.screenshotCaptured, false);
+  assert.equal(report.actionsPerformed.liveCodexControlRun, false);
+
+  const emptyCoherence = await createCodexDesktopFallbackReport({
+    threadId: "019f1ed4-4c45-70e2-be84-69d93a1be08b",
+    sourceRef: "codex_thread:019f1ed4-4c45-70e2-be84-69d93a1be08b",
+    coherence: {},
+    probe: {
+      commandStatus: (command) => ({ available: true, command, version: `${command} test` }),
+      activeApplication: () => "Codex"
+    }
+  });
+
+  assert.equal(emptyCoherence.fallback.required, false);
+  assert.equal(emptyCoherence.fallback.reason, "coherence_input_missing");
+  assert.ok(emptyCoherence.blockers.includes("coherence_input_missing"));
+  assert.deepEqual(emptyCoherence.nextToolCall, {
+    tool: "loo_codex_desktop_coherence",
+    args: {
+      thread_id: "019f1ed4-4c45-70e2-be84-69d93a1be08b",
+      source_ref: "codex_thread:019f1ed4-4c45-70e2-be84-69d93a1be08b"
+    }
+  });
+
+  const mismatchedTarget = await createCodexDesktopFallbackReport({
+    threadId: "019f1ed4-4c45-70e2-be84-69d93a1be08b",
+    sourceRef: "codex_thread:019f1ed4-4c45-70e2-be84-69d93a1be08c",
+    probe: {
+      commandStatus: (command) => ({ available: true, command, version: `${command} test` }),
+      activeApplication: () => "Codex"
+    }
+  });
+
+  assert.equal(mismatchedTarget.fallback.reason, "coherence_input_missing");
+  assert.ok(mismatchedTarget.blockers.includes("coherence_input_missing"));
+  assert.ok(mismatchedTarget.blockers.includes("target_mismatch"));
+  assert.equal(mismatchedTarget.nextToolCall, null);
+  assert.match(mismatchedTarget.nextAction, /target mismatch/i);
+});
+
 test("MCP exposes #308 Codex Desktop fallback status without GUI mutation", async () => {
   const root = mkdtempSync(join(tmpdir(), "loo-desktop-fallback-status-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));

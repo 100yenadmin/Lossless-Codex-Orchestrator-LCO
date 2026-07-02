@@ -152,7 +152,9 @@ What a local OpenClaw agent can do today:
   explicit proof states.
 - Inspect fallback readiness with `loo_codex_desktop_fallback_status`; it
   reports CUA-first and Peekaboo-secondary blockers, focus status, and
-  screen-takeover warnings without running a GUI action.
+  screen-takeover warnings without running a GUI action. If called with a
+  target but no coherence report, it returns `coherence_input_missing` plus the
+  exact `loo_codex_desktop_coherence` args to run first.
 - Use `loo_codex_collaboration_cockpit` after recent/inbox/coherence/fallback
   reads to give an orchestrator one active-lane summary with attention level,
   Desktop state boundary, source coverage, and action flags still pinned to

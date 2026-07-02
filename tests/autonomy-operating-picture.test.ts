@@ -1912,6 +1912,55 @@ test("Codex collaboration cockpit rejects mismatched Desktop targets and require
   });
 });
 
+test("Codex collaboration cockpit preserves top-level fallback coherence handoff blockers", () => {
+  withIndexedSessions(() => ({
+    fixtures: [
+      {
+        id: "019f-collab-coherence-missing",
+        title: "Coherence missing fallback lane",
+        status: "running",
+        priority: "high",
+        nextAction: "run coherence before fallback status",
+        updatedAt: relativeIso(5),
+        refs: true
+      }
+    ]
+  }), ({ db }) => {
+    const report = createCodexCollaborationCockpit(db, {
+      limit: 5,
+      now: "2026-07-02T00:00:00.000Z",
+      desktopFallbackReports: [{
+        schema: "lco.codex.desktopFallback.v1",
+        publicSafe: true,
+        readOnly: true,
+        target: { threadId: "019f-collab-coherence-missing", sourceRef: "codex_thread:019f-collab-coherence-missing" },
+        fallback: { required: false, reason: "coherence_input_missing", coherenceState: null, desktopVisibility: null },
+        blockers: ["coherence_input_missing"],
+        nextToolCall: {
+          tool: "loo_codex_desktop_coherence",
+          args: {
+            thread_id: "019f-collab-coherence-missing",
+            source_ref: "codex_thread:019f-collab-coherence-missing"
+          }
+        },
+        preferredBackend: "cua-driver",
+        backends: [
+          { backend: "cua-driver", role: "preferred_background", status: "blocked", blockers: [], warnings: [], takesScreenWarning: false },
+          { backend: "peekaboo", role: "secondary_visible_fallback", status: "blocked", blockers: [], warnings: [], takesScreenWarning: true }
+        ],
+        actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, screenshotCaptured: false, rawTranscriptRead: false }
+      }]
+    });
+
+    const lane = report.lanes.find((candidate) => candidate.threadId === "codex_thread:019f-collab-coherence-missing");
+    assert.ok(lane);
+    assert.equal(lane.desktop.state, "fallback_blocked");
+    assert.equal(lane.desktop.requiresFallback, false);
+    assert.equal(lane.desktop.blockers.includes("coherence_input_missing"), true);
+    assert.equal(lane.desktop.reasonCodes.includes("coherence_input_missing"), true);
+  });
+});
+
 test("Codex collaboration cockpit does not treat missing Desktop evidence as low confidence", () => {
   withIndexedSessions(() => ({
     fixtures: [{

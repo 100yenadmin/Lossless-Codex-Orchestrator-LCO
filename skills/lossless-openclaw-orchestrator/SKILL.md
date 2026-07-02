@@ -94,7 +94,9 @@ Typical live tools after approval are `loo_codex_resume_thread`,
    `desktop_restart_required`, and `unknown` as gap states.
 5. If visibility is not proven, call `loo_codex_desktop_fallback_status` and
    route blockers to the desktop fallback lane rather than claiming same-session
-   Desktop collaboration.
+   Desktop collaboration. If fallback status returns `coherence_input_missing`,
+   run the exact `loo_codex_desktop_coherence` `nextToolCall` before retrying
+   fallback readiness.
 6. Call `loo_codex_collaboration_cockpit` when the next response should combine
    recent cards, inbox urgency, watcher requests, and supplied Desktop evidence
    into one public-safe attention summary.
@@ -110,7 +112,9 @@ Typical live tools after approval are `loo_codex_resume_thread`,
 6. Optionally run `loo_codex_desktop_coherence` when the user asks whether the
    same work is visible in Codex Desktop
 7. If Desktop visibility is not proven, run
-   `loo_codex_desktop_fallback_status` before recommending CUA/Peekaboo work
+   `loo_codex_desktop_fallback_status` before recommending CUA/Peekaboo work;
+   if it returns `coherence_input_missing`, run the returned coherence call
+   first
 8. Run `loo_codex_collaboration_cockpit` when the user wants one active-lane
    cockpit summary
 9. Recommend a next action with source refs

@@ -201,10 +201,18 @@ export type CodexDesktopFallbackReport = {
   };
   fallback: {
     required: boolean;
-    reason: "desktop_visibility_not_proven" | "desktop_visibility_already_proven" | "desktop_visibility_unknown";
+    reason: "desktop_visibility_not_proven" | "desktop_visibility_already_proven" | "desktop_visibility_unknown" | "coherence_input_missing";
     coherenceState: string | null;
     desktopVisibility: string | null;
   };
+  blockers: string[];
+  nextToolCall: {
+    tool: "loo_codex_desktop_coherence";
+    args: {
+      thread_id?: string;
+      source_ref?: string;
+    };
+  } | null;
   preferredBackend: "cua-driver";
   backends: CodexDesktopFallbackBackendStatus[];
   actionsPerformed: {
@@ -816,14 +824,34 @@ export async function createCodexDesktopFallbackReport(input: {
 } = {}): Promise<CodexDesktopFallbackReport> {
   const probe = input.probe ?? systemDesktopProbe();
   const coherence = asRecord(input.coherence);
+  const threadId = publicTextField(input.threadId, 120) ?? null;
+  const sourceRef = publicTextField(input.sourceRef, 180) ?? null;
+  const hasTarget = Boolean(threadId || sourceRef);
   const state = publicTextField(coherence?.state, 80) ?? null;
   const visibility = asRecord(coherence?.visibility);
   const desktopVisibility = publicTextField(visibility?.desktop, 80) ?? null;
-  const fallbackReason = state === "desktop_visible" || desktopVisibility === "proven"
+  const coherenceInputMissing = hasTarget && !codexDesktopFallbackHasUsableCoherence(state, desktopVisibility);
+  const targetMismatch = codexDesktopFallbackTargetMismatch(threadId, sourceRef);
+  const fallbackReason = coherenceInputMissing
+    ? "coherence_input_missing"
+    : state === "desktop_visible" || desktopVisibility === "proven"
     ? "desktop_visibility_already_proven"
     : state || desktopVisibility
       ? "desktop_visibility_not_proven"
       : "desktop_visibility_unknown";
+  const nextToolCall = coherenceInputMissing && !targetMismatch
+    ? {
+        tool: "loo_codex_desktop_coherence" as const,
+        args: {
+          ...(threadId ? { thread_id: threadId } : {}),
+          ...(sourceRef ? { source_ref: sourceRef } : {})
+        }
+      }
+    : null;
+  const blockers = [
+    ...(coherenceInputMissing ? ["coherence_input_missing"] : []),
+    ...(targetMismatch ? ["target_mismatch"] : [])
+  ];
   const cua = await desktopSee({ backend: "cua-driver", probe });
   const peekaboo = await desktopSee({
     backend: "peekaboo",
@@ -851,15 +879,17 @@ export async function createCodexDesktopFallbackReport(input: {
     readOnly: true,
     generatedAt: input.now ?? new Date().toISOString(),
     target: {
-      threadId: publicTextField(input.threadId, 120) ?? null,
-      sourceRef: publicTextField(input.sourceRef, 180) ?? null
+      threadId,
+      sourceRef
     },
     fallback: {
-      required: fallbackReason !== "desktop_visibility_already_proven",
+      required: fallbackReason === "desktop_visibility_not_proven",
       reason: fallbackReason,
       coherenceState: state,
       desktopVisibility
     },
+    blockers,
+    nextToolCall,
     preferredBackend: "cua-driver",
     backends,
     actionsPerformed: {
@@ -879,10 +909,44 @@ export async function createCodexDesktopFallbackReport(input: {
       "absolute local transcript paths"
     ],
     proofBoundary: "This report prepares the #308 CUA-first / Peekaboo-secondary Codex Desktop fallback path using public-safe status and optional bounded visible metadata only. It does not run live Codex control, click, type, select, refresh, restart, mutate Codex Desktop, capture screenshots, or prove unattended desktop takeover.",
-    nextAction: fallbackReason === "desktop_visibility_already_proven"
+    nextAction: targetMismatch
+      ? "Resolve the target mismatch before running loo_codex_desktop_coherence; pass either a matching thread_id/source_ref pair or a single unambiguous target."
+      : fallbackReason === "coherence_input_missing"
+      ? `Run loo_codex_desktop_coherence with ${JSON.stringify(nextToolCall?.args ?? {})}, then pass the returned coherence object to loo_codex_desktop_fallback_status.`
+      : fallbackReason === "desktop_visibility_already_proven"
       ? "Keep using direct Codex protocol and visible-map evidence; no desktop fallback action is required for this target."
       : "Continue #308 with an action-bound CUA no-focus Codex Desktop proof or a documented Peekaboo visible fallback blocker before claiming Desktop-visible collaboration."
   };
+}
+
+function codexDesktopFallbackHasUsableCoherence(state: string | null, desktopVisibility: string | null): boolean {
+  return Boolean(state || desktopVisibility);
+}
+
+function codexDesktopFallbackTargetMismatch(threadId: string | null, sourceRef: string | null): boolean {
+  const normalizedThreadId = codexDesktopFallbackTargetThreadId(threadId);
+  const normalizedSourceThreadId = codexDesktopFallbackSourceThreadId(sourceRef);
+  if (!normalizedThreadId || !normalizedSourceThreadId) return false;
+  return normalizedThreadId !== normalizedSourceThreadId;
+}
+
+function codexDesktopFallbackTargetThreadId(value: string | null): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  const candidate = trimmed.startsWith("codex_thread:")
+    ? trimmed.slice("codex_thread:".length)
+    : trimmed;
+  if (!/^[A-Za-z0-9._:-]+$/.test(candidate)) return null;
+  return candidate.toLowerCase();
+}
+
+function codexDesktopFallbackSourceThreadId(value: string | null): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("codex_thread:")) return null;
+  const candidate = trimmed.slice("codex_thread:".length);
+  if (!/^[A-Za-z0-9._:-]+$/.test(candidate)) return null;
+  return candidate.toLowerCase();
 }
 
 export function desktopActDryRun(input: {

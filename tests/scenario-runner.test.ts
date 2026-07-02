@@ -358,6 +358,7 @@ test("loo eval scenarios accepts v1.1 runtime proof markers through the CLI", ()
   writeRuntimeProof(runtimeProofDir, "codex-desktop-fallback-status-v1-1", {
     codex_desktop_fallback_status_report: true,
     cua_first_backend: true,
+    missing_coherence_guidance: true,
     no_gui_action: true,
     peekaboo_secondary_warning: true,
     public_safe_scan: true
