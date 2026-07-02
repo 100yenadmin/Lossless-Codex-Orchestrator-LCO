@@ -47,6 +47,57 @@ function writePassingPublishedSmoke(path: string): void {
   });
 }
 
+function writeCredentialRequiredPublishedSmoke(path: string): void {
+  writeJson(path, {
+    ok: true,
+    publishedSmokeReady: false,
+    packagePathOk: true,
+    publicSafe: true,
+    localOnly: true,
+    dryRun: true,
+    expectedPackage: "lossless-openclaw-orchestrator@beta",
+    versionMatchStatus: "matches_registry_beta",
+    dogfood: {
+      dogfoodReady: true,
+      installOutcomeStatus: "installed",
+      requiredToolsPresent: true
+    },
+    toolSmoke: {
+      toolSmokeReady: false,
+      gatewaySetupClassification: "gateway_setup_required",
+      packageInstallLikelyOk: true
+    },
+    setupRequired: true,
+    setupBlockers: ["fresh_profile_gateway_credentials_required"],
+    setupRecovery: {
+      classification: "credential_required",
+      ready: false,
+      packageInstallLikelyOk: true,
+      retryAfterSetup: true,
+      requiredSetup: ["gateway_credentials"],
+      nextSafeCommands: [
+        "OPENCLAW_GATEWAY_TOKEN='<scoped-token>' loo openclaw tool-smoke --profile lco-dogfood-published --required-tool loo_doctor --required-tool loo_search_sessions --strict"
+      ],
+      guidance: [
+        "Provide a scoped local gateway token or complete profile credential setup, then rerun fresh-profile tool-smoke."
+      ],
+      readinessProof: {
+        required: true,
+        satisfied: false,
+        command: "loo openclaw tool-smoke --profile lco-dogfood-published --required-tool loo_doctor --required-tool loo_search_sessions --strict",
+        evidence: []
+      }
+    },
+    blockers: [],
+    actionsPerformed: {
+      npmPublished: false,
+      githubReleaseCreated: false,
+      liveCodexControlRun: false,
+      desktopGuiActionRun: false
+    }
+  });
+}
+
 function writePassingAgentDogfood(path: string): void {
   writeJson(path, {
     ok: true,
@@ -122,6 +173,157 @@ test("general release readiness fails closed with exact blockers before M9 evide
     desktopGuiActionRun: false
   });
   assert.equal(existsSync(join(evidenceDir, "general-release-readiness.json")), true);
+});
+
+test("general release readiness reports present fresh npm setup recovery instead of missing evidence", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-general-release-setup-required-"));
+  writeCredentialRequiredPublishedSmoke(join(evidenceDir, "published-package-smoke.json"));
+  writePassingAgentDogfood(join(evidenceDir, "openclaw-tool-smoke.json"));
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "general-readiness",
+    "--evidence-dir",
+    evidenceDir,
+    "--fresh-npm-evidence",
+    "published-package-smoke.json",
+    "--agent-dogfood-evidence",
+    "openclaw-tool-smoke.json",
+    "--strict"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as {
+    stableReady?: boolean;
+    blockers?: string[];
+    checks?: Record<string, { ok: boolean; detail: string; setupRecovery?: { classification?: string; requiredSetup?: string[] } }>;
+  };
+
+  assert.equal(payload.stableReady, false);
+  assert.deepEqual(payload.blockers, [
+    "fresh_npm_clean_profile_credential_required"
+  ]);
+  assert.equal(payload.checks?.freshNpmCleanProfile?.ok, false);
+  assert.match(payload.checks?.freshNpmCleanProfile?.detail ?? "", /credential_required/);
+  assert.equal(payload.checks?.freshNpmCleanProfile?.setupRecovery?.classification, "credential_required");
+  assert.deepEqual(payload.checks?.freshNpmCleanProfile?.setupRecovery?.requiredSetup, ["gateway_credentials"]);
+  assert.equal(payload.checks?.agentDogfood?.ok, true);
+  assert.doesNotMatch(result.stdout, /fresh_npm_clean_profile_evidence_missing/);
+  assert.doesNotMatch(result.stdout, /npm_[A-Za-z0-9]{20,}|Bearer\s+|state_\\d+\\.sqlite|raw transcript/i);
+});
+
+test("general release readiness does not echo setup recovery from unsafe fresh npm evidence", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-general-release-unsafe-"));
+  const unsafeToken = `npm_${"a".repeat(24)}`;
+  writeJson(join(evidenceDir, "published-package-smoke.json"), {
+    ok: true,
+    publishedSmokeReady: false,
+    packagePathOk: true,
+    publicSafe: false,
+    expectedPackage: "lossless-openclaw-orchestrator@beta",
+    versionMatchStatus: "matches_registry_beta",
+    dogfood: {
+      dogfoodReady: true,
+      requiredToolsPresent: true
+    },
+    toolSmoke: {
+      toolSmokeReady: false,
+      gatewaySetupClassification: "gateway_setup_required",
+      packageInstallLikelyOk: true
+    },
+    setupRecovery: {
+      classification: "credential_required",
+      ready: false,
+      packageInstallLikelyOk: true,
+      retryAfterSetup: true,
+      requiredSetup: ["gateway_credentials"],
+      nextSafeCommands: [`OPENCLAW_GATEWAY_TOKEN=${unsafeToken} loo openclaw tool-smoke --strict`],
+      guidance: [`raw gateway token ${unsafeToken}`],
+      readinessProof: {
+        required: true,
+        satisfied: false
+      }
+    },
+    actionsPerformed: {
+      npmPublished: false,
+      githubReleaseCreated: false,
+      liveCodexControlRun: false,
+      desktopGuiActionRun: false
+    }
+  });
+  writePassingAgentDogfood(join(evidenceDir, "openclaw-tool-smoke.json"));
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "general-readiness",
+    "--evidence-dir",
+    evidenceDir,
+    "--fresh-npm-evidence",
+    "published-package-smoke.json",
+    "--agent-dogfood-evidence",
+    "openclaw-tool-smoke.json",
+    "--strict"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as {
+    blockers?: string[];
+    checks?: Record<string, { ok: boolean; detail: string; setupRecovery?: unknown }>;
+  };
+
+  assert.deepEqual(payload.blockers, [
+    "fresh_npm_clean_profile_not_public_safe"
+  ]);
+  assert.equal(payload.checks?.freshNpmCleanProfile?.ok, false);
+  assert.equal(payload.checks?.freshNpmCleanProfile?.setupRecovery, undefined);
+  assert.doesNotMatch(result.stdout, new RegExp(unsafeToken));
+  assert.doesNotMatch(readFileSync(join(evidenceDir, "general-release-readiness.json"), "utf8"), new RegExp(unsafeToken));
+});
+
+test("general release readiness does not echo setup recovery when restricted actions were performed", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-general-release-action-unsafe-"));
+  writeCredentialRequiredPublishedSmoke(join(evidenceDir, "published-package-smoke.json"));
+  const report = JSON.parse(readFileSync(join(evidenceDir, "published-package-smoke.json"), "utf8")) as Record<string, unknown>;
+  report.actionsPerformed = {
+    npmPublished: true,
+    githubReleaseCreated: false,
+    liveCodexControlRun: false,
+    desktopGuiActionRun: false
+  };
+  writeJson(join(evidenceDir, "published-package-smoke.json"), report);
+  writePassingAgentDogfood(join(evidenceDir, "openclaw-tool-smoke.json"));
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "general-readiness",
+    "--evidence-dir",
+    evidenceDir,
+    "--fresh-npm-evidence",
+    "published-package-smoke.json",
+    "--agent-dogfood-evidence",
+    "openclaw-tool-smoke.json",
+    "--strict"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as {
+    blockers?: string[];
+    checks?: Record<string, { ok: boolean; setupRecovery?: unknown }>;
+  };
+
+  assert.deepEqual(payload.blockers, [
+    "fresh_npm_clean_profile_restricted_actions_performed"
+  ]);
+  assert.equal(payload.checks?.freshNpmCleanProfile?.setupRecovery, undefined);
 });
 
 test("general release readiness passes with public-safe fresh npm and agent dogfood proof", () => {

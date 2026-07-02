@@ -87,6 +87,10 @@ markers explicitly cover npm publication and GitHub Release creation.
 Treat these as hard blockers:
 
 - `fresh_npm_clean_profile_evidence_missing`
+- `fresh_npm_clean_profile_<setup_recovery_classification>`, for example
+  `fresh_npm_clean_profile_credential_required`
+- `fresh_npm_clean_profile_not_public_safe`
+- `fresh_npm_clean_profile_restricted_actions_performed`
 - `agent_dogfood_evidence_missing`
 - `release_checklist_missing_or_incomplete`
 - `agent_skill_missing_or_incomplete`
