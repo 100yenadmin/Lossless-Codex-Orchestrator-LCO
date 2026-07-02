@@ -24,6 +24,9 @@ Codex sessions through the installed `loo_*` tools.
 - `cli_visible` or app-server-visible is not the same as Codex
   Desktop-visible collaboration. Use `loo_codex_desktop_coherence` before
   making any Desktop visibility claim.
+- When Desktop visibility is not proven, use
+  `loo_codex_desktop_fallback_status` to inspect CUA-first and
+  Peekaboo-secondary readiness before suggesting any visible fallback path.
 
 ## Find Active Codex Sessions
 
@@ -86,8 +89,9 @@ Typical live tools after approval are `loo_codex_resume_thread`,
 4. Treat `desktop_visible` as a proven visibility state only for the supplied
    evidence. Treat `cli_visible`, `desktop_refresh_required`,
    `desktop_restart_required`, and `unknown` as gap states.
-5. If visibility is not proven, route to the desktop fallback lane rather than
-   claiming same-session Desktop collaboration.
+5. If visibility is not proven, call `loo_codex_desktop_fallback_status` and
+   route blockers to the desktop fallback lane rather than claiming same-session
+   Desktop collaboration.
 
 ## Recommended Agent Loop
 
@@ -99,9 +103,11 @@ Typical live tools after approval are `loo_codex_resume_thread`,
 5. `loo_expand_session` or `loo_expand_query` with a 1k budget
 6. Optionally run `loo_codex_desktop_coherence` when the user asks whether the
    same work is visible in Codex Desktop
-7. Recommend a next action with source refs
-8. If action is requested, run `loo_codex_control_dry_run`
-9. Wait for explicit approval before any live control
+7. If Desktop visibility is not proven, run
+   `loo_codex_desktop_fallback_status` before recommending CUA/Peekaboo work
+8. Recommend a next action with source refs
+9. If action is requested, run `loo_codex_control_dry_run`
+10. Wait for explicit approval before any live control
 
 ## Public-Safe Output Shape
 

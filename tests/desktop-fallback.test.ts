@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { createAuditStore, createDesktopGuiProofReport, createDesktopLiveProofHarness, createDesktopProofAction, writeDesktopLiveProofHarness, writeDesktopProofAction, desktopSee } from "../packages/adapters/src/index.js";
+import { createAuditStore, createCodexDesktopFallbackReport, createDesktopGuiProofReport, createDesktopLiveProofHarness, createDesktopProofAction, writeDesktopLiveProofHarness, writeDesktopProofAction, desktopSee } from "../packages/adapters/src/index.js";
 import { createDatabase } from "../packages/core/src/index.js";
 import { createLooTools } from "../packages/mcp-server/src/tools.js";
 
@@ -1768,4 +1768,113 @@ test("CLI desktop see rejects snapshot bounds outside the MCP schema limits", ()
   assert.match(maxNodes.stderr, /--max-nodes requires an integer between 1 and 500/);
   assert.notEqual(maxChars.status, 0);
   assert.match(maxChars.stderr, /--max-chars requires an integer between 1 and 20000/);
+});
+
+test("Codex Desktop fallback report routes cli-visible threads to CUA first and Peekaboo second without acting", async () => {
+  const report = await createCodexDesktopFallbackReport({
+    threadId: "019f1ed4-4c45-70e2-be84-69d93a1be08b",
+    coherence: {
+      schema: "lco.codex.desktopCoherence.v1",
+      publicSafe: true,
+      readOnly: true,
+      generatedAt: "2026-07-02T00:00:00.000Z",
+      threadId: "019f1ed4-4c45-70e2-be84-69d93a1be08b",
+      sourceRef: "codex_thread:019f1ed4-4c45-70e2-be84-69d93a1be08b",
+      state: "cli_visible",
+      visibility: { cli: "proven", desktop: "not_seen" },
+      confidence: "medium",
+      reasonCodes: ["app_server_match", "desktop_not_seen"],
+      evidence: [],
+      blockers: [],
+      actionsPerformed: {
+        liveCodexControlRun: false,
+        desktopGuiActionRun: false,
+        rawTranscriptRead: false,
+        screenshotCaptured: false
+      },
+      proofBoundary: "fixture",
+      nextAction: "route #308 fallback proof"
+    },
+    probe: {
+      commandStatus: (command) => command === "cua-driver"
+        ? { available: true, command, version: "cua-driver 0.6.8" }
+        : { available: true, command, version: "Peekaboo 3.2.2" },
+      activeApplication: () => "Claude",
+      commandOutput: (command, args = []) => {
+        if (command === "peekaboo" && args[0] === "permissions") {
+          return {
+            status: 0,
+            command,
+            stdout: JSON.stringify({
+              success: true,
+              data: {
+                permissions: [
+                  { name: "Accessibility", isGranted: true },
+                  { name: "Screen Recording", isGranted: false }
+                ]
+              }
+            })
+          };
+        }
+        return { status: 1, command, stderr: "not used" };
+      }
+    }
+  });
+
+  assert.equal(report.schema, "lco.codex.desktopFallback.v1");
+  assert.equal(report.publicSafe, true);
+  assert.equal(report.readOnly, true);
+  assert.equal(report.target.threadId, "019f1ed4-4c45-70e2-be84-69d93a1be08b");
+  assert.equal(report.fallback.required, true);
+  assert.equal(report.fallback.reason, "desktop_visibility_not_proven");
+  assert.equal(report.backends[0]?.backend, "cua-driver");
+  assert.equal(report.backends[0]?.role, "preferred_background");
+  assert.equal(report.backends[0]?.status, "blocked");
+  assert.ok(report.backends[0]?.blockers.includes("permission_state_unknown"));
+  assert.ok(report.backends[0]?.blockers.includes("no_focus_codex_visibility_not_proven"));
+  assert.equal(report.backends[1]?.backend, "peekaboo");
+  assert.equal(report.backends[1]?.role, "secondary_visible_fallback");
+  assert.equal(report.backends[1]?.takesScreenWarning, true);
+  assert.ok(report.backends[1]?.warnings.some((warning) => warning.includes("may use visible macOS accessibility flows")));
+  assert.equal(report.actionsPerformed.desktopGuiActionRun, false);
+  assert.equal(report.actionsPerformed.screenshotCaptured, false);
+  assert.equal(report.actionsPerformed.liveCodexControlRun, false);
+  assert.equal(report.nextAction.includes("#308"), true);
+});
+
+test("MCP exposes #308 Codex Desktop fallback status without GUI mutation", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-desktop-fallback-status-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const tools = createLooTools({
+    db,
+    audit,
+    codexClient: { request: async () => ({ ok: true }) },
+    desktopProbe: {
+      commandStatus: (command) => command === "cua-driver"
+        ? { available: true, command, version: "cua-driver 0.6.8" }
+        : { available: false, command, error: "not installed" },
+      activeApplication: () => "Codex"
+    }
+  });
+
+  try {
+    const tool = tools.find((candidate) => candidate.name === "loo_codex_desktop_fallback_status");
+    assert.ok(tool);
+    const result = await tool.execute({
+      thread_id: "019f1ed4-4c45-70e2-be84-69d93a1be08b",
+      coherence: {
+        state: "unknown",
+        visibility: { cli: "unknown", desktop: "not_seen" },
+        confidence: "low"
+      }
+    }) as { schema: string; actionsPerformed: { desktopGuiActionRun: boolean; screenshotCaptured: boolean }; backends: Array<{ backend: string }> };
+    assert.equal(result.schema, "lco.codex.desktopFallback.v1");
+    assert.equal(result.actionsPerformed.desktopGuiActionRun, false);
+    assert.equal(result.actionsPerformed.screenshotCaptured, false);
+    assert.deepEqual(result.backends.map((backend) => backend.backend), ["cua-driver", "peekaboo"]);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
 });

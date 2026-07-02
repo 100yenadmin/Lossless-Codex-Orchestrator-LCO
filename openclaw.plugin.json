@@ -53,6 +53,7 @@
       "loo_codex_app_server_threads",
       "loo_visible_codex_map",
       "loo_codex_desktop_coherence",
+      "loo_codex_desktop_fallback_status",
       "loo_plan_state_pins",
       "loo_github_operating_items",
       "loo_project_digest",
@@ -652,6 +653,42 @@
               "type": "integer",
               "minimum": 1,
               "maximum": 500
+            },
+            "now": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_desktop_fallback_status",
+        "description": "Report CUA-first and Peekaboo-secondary Codex Desktop fallback readiness for a target thread without performing GUI actions.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "thread_id": {
+              "type": "string"
+            },
+            "source_ref": {
+              "type": "string"
+            },
+            "coherence": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "include_visible_snapshot": {
+              "type": "boolean"
+            },
+            "max_nodes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "max_chars": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20000
             },
             "now": {
               "type": "string"

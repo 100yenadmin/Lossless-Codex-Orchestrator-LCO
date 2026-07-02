@@ -17,7 +17,8 @@
     "loo_desktop_live_proof_harness",
     "loo_desktop_proof_action",
     "loo_desktop_proof_report",
-    "loo_codex_desktop_coherence"
+    "loo_codex_desktop_coherence",
+    "loo_codex_desktop_fallback_status"
   ],
   "expected_public_safe_evidence": [
     "query string with no private transcript text",
@@ -36,6 +37,7 @@
     "desktop proof-action catalog/callable status, fail-closed blocker for generic invocation, or public-safe TextEdit scratch launch observation with exact approved args",
     "desktop GUI proof-report blocker, approval-fixture status, and runtime marker path when valid",
     "Codex Desktop coherence state showing whether a target thread is cli_visible, desktop_visible, desktop_refresh_required, desktop_restart_required, or unknown",
+    "Codex Desktop fallback readiness showing CUA-first and Peekaboo-secondary blockers, focus status, and screen-takeover warning without GUI action",
     "blocker codes for unavailable local DB or plugin tools"
   ],
   "private_data_exclusions": [
@@ -59,7 +61,8 @@
     "Desktop live/no-focus proof harness output prepares an action-bound proof plan without performing GUI mutation.",
     "Desktop proof-action output is limited to the CUA Driver TextEdit scratch launch path, fails closed when generic gateway invocation lacks exact proof args, and excludes raw stdout, screenshots, and scratch file paths from public evidence.",
     "Desktop GUI proof-report output validates supplied public-safe observations and emits release-compatible approval/runtime marker artifacts without itself performing GUI mutation.",
-    "Codex Desktop coherence classification does not perform a Desktop action and must not claim Desktop-visible collaboration when the state is cli_visible, desktop_refresh_required, desktop_restart_required, or unknown."
+    "Codex Desktop coherence classification does not perform a Desktop action and must not claim Desktop-visible collaboration when the state is cli_visible, desktop_refresh_required, desktop_restart_required, or unknown.",
+    "Codex Desktop fallback status reports CUA/Peekaboo readiness and blockers without performing live Codex control, GUI mutation, refresh, restart, screenshot capture, click, select, or type."
   ],
   "fail_criteria": [
     "UI renders raw Codex transcripts or raw prompts.",
@@ -76,9 +79,9 @@
     "No live OpenClaw gateway UI event-loop smoke has been run.",
     "A Peekaboo scratch-window no-focus proof exists for one approved TextEdit window move; this does not prove generic GUI mutation or Codex GUI mutation.",
     "A CUA Driver scratch-window no-focus proof-action path exists for one approved TextEdit launch_app action; generic OpenClaw gateway invocation without exact proof args fails closed and this does not prove generic GUI mutation, Codex GUI mutation, prompt typing, clicking, or arbitrary app control.",
-    "Codex Desktop coherence now has an explicit classifier, but runtime evidence still needs to prove whether direct-protocol activity appears in Codex Desktop without refresh/restart.",
+    "Codex Desktop coherence now has an explicit classifier and fallback status can report CUA/Peekaboo blockers, but runtime evidence still needs to prove whether direct-protocol activity appears in Codex Desktop without refresh/restart or an exact action-bound fallback.",
     "Claude Code remains a future adapter boundary, not a proved equivalent adapter."
   ],
   "next_action": "Keep desktop collaboration out of release claims unless a future lane provides packaged app or backend-specific runtime proof for the exact claimed action.",
-  "proof_boundary": "Scored as an advisory public-safe beta boundary review for existing local Mac shell, Peekaboo scratch-window proof, CUA Driver scratch-window proof for one approved TextEdit launch_app action, desktop proof-action evidence through issue #278, and Codex Desktop coherence classification through issue #307, not generic GUI mutation. It does not prove a signed or release-ready macOS app, one-click install, Claude Code adapter parity, live Codex control, Codex GUI mutation, Desktop-visible live collaboration, prompt typing, clicking, arbitrary app control, or safe desktop automation."
+  "proof_boundary": "Scored as an advisory public-safe beta boundary review for existing local Mac shell, Peekaboo scratch-window proof, CUA Driver scratch-window proof for one approved TextEdit launch_app action, desktop proof-action evidence through issue #278, Codex Desktop coherence classification through issue #307, and #308 fallback readiness reporting, not generic GUI mutation. It does not prove a signed or release-ready macOS app, one-click install, Claude Code adapter parity, live Codex control, Codex GUI mutation, Desktop-visible live collaboration, prompt typing, clicking, arbitrary app control, or safe desktop automation."
 }

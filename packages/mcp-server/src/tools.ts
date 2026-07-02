@@ -45,6 +45,7 @@ import {
   createCodexAppServerThreadsReport,
   codexTransportStatus,
   createCodexControl,
+  createCodexDesktopFallbackReport,
   createDesktopGuiProofReport,
   createDesktopLiveProofHarness,
   createDesktopProofAction,
@@ -328,6 +329,24 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
         now: optionalString(input.now)
       });
     }),
+    tool("loo_codex_desktop_fallback_status", "Report CUA-first and Peekaboo-secondary Codex Desktop fallback readiness for a target thread without performing GUI actions.", {
+      thread_id: { type: "string" },
+      source_ref: { type: "string" },
+      coherence: { type: "object", additionalProperties: true },
+      include_visible_snapshot: { type: "boolean" },
+      max_nodes: { type: "integer", minimum: 1, maximum: 500 },
+      max_chars: { type: "integer", minimum: 1, maximum: 20000 },
+      now: { type: "string" }
+    }, (input) => createCodexDesktopFallbackReport({
+      threadId: optionalString(input.thread_id),
+      sourceRef: optionalString(input.source_ref),
+      coherence: optionalRecord(input.coherence),
+      includePeekabooSnapshot: input.include_visible_snapshot === true,
+      maxNodes: optionalNumber(input.max_nodes),
+      maxChars: optionalNumber(input.max_chars),
+      now: optionalString(input.now),
+      probe: options.desktopProbe
+    })),
     tool("loo_plan_state_pins", "Extract only manual pins, approval boundaries, and exception ledger entries from PLAN_STATE text.", {
       plan_state_text: { type: "string" },
       plan_state_path: { type: "string" }
