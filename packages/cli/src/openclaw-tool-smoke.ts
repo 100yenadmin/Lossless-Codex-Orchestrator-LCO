@@ -987,13 +987,13 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
   if (toolName === "loo_codex_active_thread_state") {
     const stateOutput = details ?? output;
     const items = arrayPath(stateOutput, ["items"]).filter(isRecord);
-    const summaryRecord = isRecord(stateOutput) && isRecord(stateOutput.summary) ? stateOutput.summary : {};
+    const summaryRecord = isRecord(stateOutput) && isRecord(stateOutput.summary) ? stateOutput.summary : null;
     const stateCounts = Object.fromEntries(["running", "blocked", "needsNudge", "stale", "waiting", "needsApproval", "idle", "unknown"].map((key) => {
-      const value = summaryRecord[key];
+      const value = summaryRecord?.[key];
       return [key, typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0];
     }));
     summary.activeThreadState = stateCounts;
-    if (items.length === 0) blockers.push("active_thread_state_items_missing");
+    if (!summaryRecord) blockers.push("active_thread_state_summary_missing");
     if (items.some((item) => {
       const state = stringPath(item, ["state"]);
       return !["running", "blocked", "needs_nudge", "stale", "waiting", "needs_approval", "idle", "unknown"].includes(state ?? "");

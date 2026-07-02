@@ -2452,27 +2452,36 @@ export function createCodexActiveThreadState(
   options: CodexActiveThreadStateOptions = {}
 ): CodexActiveThreadStateReport {
   const generatedAt = publicIsoTimestamp(options.now) ?? new Date().toISOString();
-  const cockpit = createCodexCollaborationCockpit(db, { ...options, now: generatedAt });
+  const limit = clamp(options.limit ?? 20, 1, 500);
+  const cockpit = createCodexCollaborationCockpit(db, { ...options, limit: 500, now: generatedAt });
   const watcherReport = createWatcherStatusReport(options.watcherSpecs ?? [], { now: generatedAt, limit: 1000 });
   const watchersByTarget = activeStateWatchersByTarget(watcherReport.watchers);
   const appServerByThread = activeStateAppServerByThread(options.appServerThreads);
+  const appServerCoverage = appServerThreadCoverage(options.appServerThreads);
   const visibleMapCoverage = isVisibleCodexSessionMapReport(options.visibleMap) ? options.visibleMap.sourceCoverage.visibleCodex : "not_configured";
   const visibleMapByThread = activeStateVisibleMapByThread(options.visibleMap);
   const items = cockpit.lanes
-    .map((lane) => activeThreadStateItem(lane, {
-      watchers: watchersByTarget.get(lane.threadId) ?? [],
-      appServerThread: appServerByThread.get(lane.threadId) ?? null,
-      visibleMapItem: visibleMapByThread.get(lane.threadId) ?? null,
-      sourceCoverage: {
-        indexedSession: cockpit.sourceCoverage.recentSessions,
-        cockpitInbox: cockpit.sourceCoverage.cockpitInbox,
-        watchers: (options.watcherSpecs?.length ?? 0) > 0 ? "ok" : "not_configured",
-        codexAppServer: appServerThreadCoverage(options.appServerThreads),
-        visibleCodexMap: visibleMapCoverage
-      }
-    }))
+    .map((lane) => {
+      const watchers = watchersByTarget.get(lane.threadId) ?? [];
+      const appServerThread = appServerByThread.get(lane.threadId) ?? null;
+      const visibleMapItem = visibleMapByThread.get(lane.threadId) ?? null;
+      return activeThreadStateItem(lane, {
+        watchers,
+        appServerThread,
+        visibleMapItem,
+        sourceCoverage: activeThreadStateItemSourceCoverage({
+          cockpit,
+          watcherSpecs: options.watcherSpecs,
+          watchers,
+          appServerCoverage,
+          appServerThread,
+          visibleMapCoverage,
+          visibleMapItem
+        })
+      });
+    })
     .sort(activeThreadStateComparator);
-  const selected = items.slice(0, clamp(options.limit ?? 20, 1, 500));
+  const selected = items.slice(0, limit);
 
   return {
     schema: "lco.codex.activeThreadState.v1",
@@ -2496,13 +2505,13 @@ export function createCodexActiveThreadState(
       indexedSession: cockpit.sourceCoverage.recentSessions,
       cockpitInbox: cockpit.sourceCoverage.cockpitInbox,
       watchers: (options.watcherSpecs?.length ?? 0) > 0 ? "ok" : "not_configured",
-      codexAppServer: appServerThreadCoverage(options.appServerThreads),
+      codexAppServer: appServerCoverage,
       visibleCodexMap: visibleMapCoverage
     },
     items: selected,
     omitted: {
-      count: Math.max(0, items.length - selected.length),
-      reason: items.length > selected.length ? "limit" : "none"
+      count: Math.max(0, cockpit.summary.totalCards - selected.length),
+      reason: cockpit.summary.totalCards > selected.length ? "limit" : "none"
     },
     actionsPerformed: {
       liveCodexControlRun: false,
@@ -2980,6 +2989,30 @@ function activeThreadStateItem(
   };
 }
 
+function activeThreadStateItemSourceCoverage(input: {
+  cockpit: CodexCollaborationCockpitReport;
+  watcherSpecs: WatchSpec[] | undefined;
+  watchers: WatcherState[];
+  appServerCoverage: VisibleCodexCoverageState;
+  appServerThread: AppServerThreadSignalInput | null;
+  visibleMapCoverage: VisibleCodexCoverageState;
+  visibleMapItem: VisibleCodexSessionMapItem | null;
+}): CodexActiveThreadStateItem["sourceCoverage"] {
+  return {
+    indexedSession: input.cockpit.sourceCoverage.recentSessions,
+    cockpitInbox: input.cockpit.sourceCoverage.cockpitInbox,
+    watchers: (input.watcherSpecs?.length ?? 0) === 0
+      ? "not_configured"
+      : input.watchers.length > 0 ? "ok" : "partial",
+    codexAppServer: input.appServerCoverage === "ok"
+      ? input.appServerThread ? "ok" : "partial"
+      : input.appServerCoverage,
+    visibleCodexMap: input.visibleMapCoverage === "ok"
+      ? input.visibleMapItem ? "ok" : "partial"
+      : input.visibleMapCoverage
+  };
+}
+
 function activeStateFromSessionState(state: CodexSessionCardState): CodexActiveThreadStateKind | null {
   if (state === "running") return "running";
   if (state === "blocked") return "blocked";
@@ -2997,7 +3030,6 @@ function activeStateFromAppServerThread(thread: AppServerThreadSignalInput | nul
   if (["waiting", "queued", "pending", "paused"].some((value) => status.includes(value))) return "waiting";
   if (["done", "complete", "completed", "closed", "merged"].some((value) => status === value || status.includes(value))) return "idle";
   if (["running", "active", "in-progress", "in_progress", "ready"].some((value) => status === value || status.includes(value))) return "running";
-  if (thread.loaded === true || thread.loadedState === "loaded") return "running";
   return null;
 }
 

@@ -2825,6 +2825,15 @@ test("Codex active-thread state classifies running blocked stale and needs-nudge
       nextAction: "inspect conflicting app-server state",
       updatedAt: relativeIso(5),
       refs: true
+    },
+    {
+      id: "019f-state-loaded-only",
+      title: "Loaded only app-server lane",
+      status: "mysterious",
+      priority: "medium",
+      nextAction: "inspect loaded metadata only",
+      updatedAt: relativeIso(6),
+      refs: true
     }
   ], ({ db }) => {
     const now = "2026-07-02T00:00:00.000Z";
@@ -2882,9 +2891,16 @@ test("Codex active-thread state classifies running blocked stale and needs-nudge
             loaded: true,
             loadedState: "loaded",
             confidence: 0.94
+          },
+          {
+            threadId: "019f-state-loaded-only",
+            sourceRef: "codex_thread:019f-state-loaded-only",
+            loaded: true,
+            loadedState: "loaded",
+            confidence: 0.89
           }
         ],
-        loadedThreadRefs: ["codex_thread:019f-state-running", "codex_thread:019f-state-conflict"]
+        loadedThreadRefs: ["codex_thread:019f-state-running", "codex_thread:019f-state-conflict", "codex_thread:019f-state-loaded-only"]
       }
     });
 
@@ -2901,32 +2917,91 @@ test("Codex active-thread state classifies running blocked stale and needs-nudge
     assert.equal(report.publicSafe, true);
     assert.equal(report.readOnly, true);
     assert.equal(report.generatedAt, now);
-    assert.equal(report.summary.returned, 6);
+    assert.equal(report.summary.returned, 7);
     assert.equal(report.summary.running, 1);
     assert.equal(report.summary.blocked, 1);
     assert.equal(report.summary.needsApproval, 1);
     assert.equal(report.summary.needsNudge, 1);
     assert.equal(report.summary.stale, 1);
-    assert.equal(report.summary.unknown, 1);
+    assert.equal(report.summary.unknown, 2);
     assert.equal(report.sourceCoverage.watchers, "ok");
     assert.equal(report.sourceCoverage.codexAppServer, "ok");
     assert.equal(byThread.get("codex_thread:019f-state-running")?.state, "running");
     assert.equal(byThread.get("codex_thread:019f-state-running")?.reasonCodes.includes("app_server_running"), true);
+    assert.equal(byThread.get("codex_thread:019f-state-running")?.sourceCoverage.watchers, "partial");
+    assert.equal(byThread.get("codex_thread:019f-state-running")?.sourceCoverage.codexAppServer, "ok");
     assert.equal(byThread.get("codex_thread:019f-state-blocked")?.state, "blocked");
+    assert.equal(byThread.get("codex_thread:019f-state-blocked")?.sourceCoverage.codexAppServer, "partial");
     assert.equal(byThread.get("codex_thread:019f-state-approval")?.state, "needs_approval");
     assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.state, "needs_nudge");
     assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.reasonCodes.includes("watcher_triggered"), true);
+    assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.sourceCoverage.watchers, "ok");
     assert.equal(byThread.get("codex_thread:019f-state-stale")?.state, "stale");
     assert.equal(byThread.get("codex_thread:019f-state-stale")?.reasonCodes.includes("watcher_stale"), true);
     assert.equal(byThread.get("codex_thread:019f-state-conflict")?.state, "unknown");
-    assert.equal(byThread.get("codex_thread:019f-state-conflict")?.confidence < 0.7, true);
+    assert.equal((byThread.get("codex_thread:019f-state-conflict")?.confidence ?? 1) < 0.7, true);
     assert.equal(byThread.get("codex_thread:019f-state-conflict")?.reasonCodes.includes("conflicting_state"), true);
+    assert.equal(byThread.get("codex_thread:019f-state-loaded-only")?.state, "unknown");
+    assert.equal(byThread.get("codex_thread:019f-state-loaded-only")?.reasonCodes.includes("app_server_loaded"), true);
+    assert.equal(byThread.get("codex_thread:019f-state-loaded-only")?.reasonCodes.includes("app_server_running"), false);
     assert.equal(report.items[0]?.state, "needs_nudge");
     assert.equal(report.actionsPerformed.liveCodexControlRun, false);
     assert.equal(report.actionsPerformed.desktopGuiActionRun, false);
     assert.equal(report.actionsPerformed.rawTranscriptRead, false);
     assert.equal(report.actionsPerformed.screenshotCaptured, false);
     assertNoUnsafeStrings(report, rawPathCanary, tokenCanary);
+  });
+});
+
+test("Codex active-thread state classifies before applying caller limit", () => {
+  const fixtures = [
+    ...Array.from({ length: 25 }, (_, index) => ({
+      id: `019f-active-limit-running-${String(index).padStart(2, "0")}`,
+      title: `Fresh running lane ${index}`,
+      status: "running",
+      priority: "urgent",
+      nextAction: "continue current work",
+      updatedAt: relativeIso(index + 1),
+      refs: true
+    })),
+    {
+      id: "019f-active-limit-nudge",
+      title: "Watcher triggered low priority lane",
+      status: "running",
+      priority: "low",
+      nextAction: "resume watcher-triggered work",
+      updatedAt: relativeIso(120),
+      refs: true
+    }
+  ];
+
+  withIndexedSessions(fixtures, ({ db }) => {
+    const report = createCodexActiveThreadState(db, {
+      limit: 1,
+      now: "2026-07-02T00:00:00.000Z",
+      watcherSpecs: [{
+        schema: "lco.watchSpec.v1",
+        watchId: "watch_active_limit_nudge",
+        targetRef: "codex_thread:019f-active-limit-nudge",
+        kind: "no_activity",
+        createdAt: "2026-07-01T22:00:00.000Z",
+        lastObservedAt: "2026-07-01T22:00:00.000Z",
+        ttlSeconds: 14400,
+        staleAfterSeconds: 1800,
+        stopConditions: ["thread_resumed"],
+        evidenceIds: ["ev_active_limit_nudge"],
+        confidence: 0.93,
+        mutates: false,
+        observed: { noActivitySeconds: 3600 }
+      }]
+    });
+
+    assert.equal(report.summary.totalLanes, 26);
+    assert.equal(report.summary.returned, 1);
+    assert.equal(report.items[0]?.threadId, "codex_thread:019f-active-limit-nudge");
+    assert.equal(report.items[0]?.state, "needs_nudge");
+    assert.equal(report.omitted.count, 25);
+    assert.equal(report.omitted.reason, "limit");
   });
 });
 
