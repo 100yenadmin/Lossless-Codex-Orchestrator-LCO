@@ -259,6 +259,15 @@ OpenClaw gateway tool smoke reports credential or device blockers
 - Use the recovery commands returned by `loo openclaw published-smoke` or
   `loo openclaw tool-smoke`.
 
+npm install reports `ENOVERSIONS` for a visible beta
+
+- First verify the package with `npm view lossless-openclaw-orchestrator@beta version dist.tarball --json`.
+- If the registry tarball is visible, use the guarded tarball fallback command
+  from `loo onboard status` or pass a public-safe npm install diagnostic to
+  `loo openclaw published-smoke --npm-install-diagnostic-report <path>`.
+- Record blocker codes and fallback status only; do not paste raw npm stderr,
+  auth config, or tokens into public evidence.
+
 Live control is blocked
 
 - Run a dry-run first.

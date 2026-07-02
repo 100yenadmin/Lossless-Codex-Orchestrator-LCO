@@ -58,7 +58,7 @@
     "Tool declarations drift from the MCP registry.",
     "Onboarding status lacks a clean-profile published-beta recovery path, omits guarded npm selector drift tarball fallback commands for global/OpenClaw/dogfood paths, or presents setup blockers as product defects.",
     "Post-install self-check accepts raw gateway/npm output, omits version mismatch status, or hides setup-required classification.",
-    "Published package smoke report treats gateway setup-required as a package defect, hides package version mismatch, or masks fresh-profile setup-required status with configured-profile proof.",
+    "Published package smoke report treats gateway setup-required as a package defect, hides package version mismatch, masks fresh-profile setup-required status with configured-profile proof, or treats npm selector drift with proven tarball fallback as a true package failure.",
     "Published package smoke report lacks setupRecovery, omits next safe commands for credential/device/scope/token blockers, omits deterministic credential setup commands, stores raw tokens, or reports readiness without fresh-profile tool-smoke proof.",
     "Linked install failures are reported as generic failures when the plugin is already loaded, or raw OpenClaw stdout/stderr enters public evidence.",
     "Release commands perform npm publish, GitHub Release creation, live control, or GUI mutation."
@@ -66,7 +66,7 @@
   "current_score": "pass",
   "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-fresh-profile-gateway-ready-proof/",
   "known_gaps": [
-    "The first npm install selector attempt can hit npm selector cutoff drift even when registry metadata exposes the beta; onboarding now exposes guarded registry tarball lookup plus fallback install commands for global CLI, OpenClaw plugin install, and dogfood paths.",
+    "The first npm install selector attempt can hit npm selector cutoff drift even when registry metadata exposes the beta; onboarding now exposes guarded registry tarball lookup plus fallback install commands for global CLI, OpenClaw plugin install, and dogfood paths. Published-smoke can also consume a public-safe npm install diagnostic and classify proven tarball fallback as `npm_selector_drift_with_tarball_fallback` instead of a package failure.",
     "Fresh OpenClaw profiles still need scoped gateway credentials or env-ref onboarding before tool invocation; #298 proves that setup path can reach ready, and missing setup must remain classified as setup-required rather than package failure.",
     "Fresh OpenClaw gateway setup recovery is classified in `published-smoke` as public-safe setupRecovery states with deterministic credential setup commands; ready is claimable only when fresh-profile tool-smoke is ready.",
     "Configured local gateway proof can show the agent workflow works on an already provisioned profile, but clean-profile readiness must still be driven by fresh-profile tool-smoke evidence.",

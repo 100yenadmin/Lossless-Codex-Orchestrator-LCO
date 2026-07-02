@@ -12,6 +12,7 @@ export type PublishedPackageSmokeOptions = {
   dogfoodReportPath: string;
   toolSmokeReportPath: string;
   configuredToolSmokeReportPath?: string;
+  npmInstallDiagnosticReportPath?: string;
 };
 
 export type PublishedPackageSmokeReport = {
@@ -72,6 +73,24 @@ export type PublishedPackageSmokeReport = {
       command: string;
       evidence: string[];
     };
+  };
+  npmInstallDiagnostic: {
+    provided: boolean;
+    classification:
+      | "not_provided"
+      | "invalid"
+      | "npm_selector_drift_with_tarball_fallback"
+      | "npm_selector_drift_unproved"
+      | "npm_before_cutoff_drift"
+      | "npm_version_unavailable"
+      | "npm_install_failed";
+    packageInstallLikelyOk: boolean;
+    registryTarballVisible: boolean;
+    tarballFallbackInstallable: boolean;
+    trueUnpublishedVersion: boolean;
+    suggestedRetry: string | null;
+    evidenceInputs: string[];
+    guidance: string[];
   };
   blockers: string[];
   nextSafeCommands: string[];
@@ -138,12 +157,15 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
     ...(setupRequired && !packageInstallLikelyOk ? ["openclaw_gateway_setup_not_package_safe"] : [])
   ];
   const packagePathOk = blockers.length === 0;
+  const npmInstallDiagnostic = readNpmInstallDiagnostic(options.npmInstallDiagnosticReportPath);
   const setupRecovery = buildSetupRecovery({
+    expectedPackage,
     toolSmokeReady,
     gatewaySetupClassification,
     packageInstallLikelyOk,
     packagePathOk,
-    setupBlockers
+    setupBlockers,
+    npmInstallDiagnostic
   });
   const report: PublishedPackageSmokeReport = {
     ok: packagePathOk,
@@ -174,14 +196,16 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
     setupRequired,
     setupBlockers,
     setupRecovery,
+    npmInstallDiagnostic,
     blockers,
-    nextSafeCommands: [
+    nextSafeCommands: uniqueStrings([
+      ...npmInstallDiagnosticCommands(expectedPackage, npmInstallDiagnostic),
       `npm view ${expectedPackage} version dist-tags --json`,
       `loo openclaw dogfood --profile lco-dogfood-published --install-source ${expectedPackage} --required-tool loo_doctor --required-tool loo_search_sessions --strict`,
       "loo openclaw tool-smoke --profile lco-dogfood-published --required-tool loo_doctor --required-tool loo_search_sessions --strict",
       "loo openclaw tool-smoke --profile lco-dogfood --required-tool loo_doctor --required-tool loo_search_sessions --strict",
       `loo onboard status --registry-version <version> --gateway-setup-status ready --strict`
-    ],
+    ]),
     actionsPerformed: {
       npmPublished: false,
       githubReleaseCreated: false,
@@ -210,16 +234,21 @@ export function writePublishedPackageSmokeReport(report: PublishedPackageSmokeRe
 }
 
 function buildSetupRecovery(input: {
+  expectedPackage: string;
   toolSmokeReady: boolean;
   gatewaySetupClassification: PublishedPackageSmokeReport["toolSmoke"]["gatewaySetupClassification"];
   packageInstallLikelyOk: boolean;
   packagePathOk: boolean;
   setupBlockers: string[];
+  npmInstallDiagnostic: PublishedPackageSmokeReport["npmInstallDiagnostic"];
 }): PublishedPackageSmokeReport["setupRecovery"] {
   const classification = setupRecoveryClassification(input);
   const cleanProfile = "lco-dogfood-published";
   const toolSmokeCommand = `loo openclaw tool-smoke --profile ${cleanProfile} --required-tool loo_doctor --required-tool loo_search_sessions --strict`;
-  const nextSafeCommands = setupRecoveryCommands(classification, toolSmokeCommand, input.setupBlockers);
+  const nextSafeCommands = uniqueStrings([
+    ...npmInstallDiagnosticCommands(input.expectedPackage, input.npmInstallDiagnostic),
+    ...setupRecoveryCommands(classification, toolSmokeCommand, input.setupBlockers)
+  ]);
   return {
     cleanProfile,
     classification,
@@ -229,7 +258,7 @@ function buildSetupRecovery(input: {
     configuredGatewayProofSeparate: true,
     requiredSetup: setupRecoveryRequiredSetup(classification, input.setupBlockers),
     nextSafeCommands,
-    guidance: setupRecoveryGuidance(classification, input.setupBlockers),
+    guidance: setupRecoveryGuidance(classification, input.setupBlockers, input.npmInstallDiagnostic),
     readinessProof: {
       required: classification !== "ready",
       satisfied: classification === "ready",
@@ -287,13 +316,157 @@ function setupRecoveryRequiredSetup(
 
 function setupRecoveryGuidance(
   classification: PublishedPackageSmokeReport["setupRecovery"]["classification"],
-  setupBlockers: string[]
+  setupBlockers: string[],
+  npmInstallDiagnostic: PublishedPackageSmokeReport["npmInstallDiagnostic"]
 ): string[] {
-  if (classification === "ready") return ["Fresh profile gateway tool-smoke is ready; this is the only state that may support a clean-profile gateway-ready claim."];
+  const npmGuidance = npmInstallDiagnostic.guidance;
+  if (classification === "ready") {
+    return uniqueStrings([
+      ...npmGuidance,
+      "Fresh profile gateway tool-smoke is ready; this is the only state that may support a clean-profile gateway-ready claim."
+    ]);
+  }
   const guidance = setupBlockerRecoveryItems(setupBlockers).map((item) => item.guidance);
-  if (guidance.length > 0 && classification !== "package_failure_or_unknown") return uniqueStrings(guidance);
-  if (classification === "setup_required") return ["Resolve the named setup blockers and rerun fresh-profile tool-smoke before reporting readiness."];
-  return ["Treat this as a possible package or plugin defect until install/load evidence proves otherwise."];
+  if (guidance.length > 0 && classification !== "package_failure_or_unknown") return uniqueStrings([...npmGuidance, ...guidance]);
+  if (classification === "setup_required") return uniqueStrings([...npmGuidance, "Resolve the named setup blockers and rerun fresh-profile tool-smoke before reporting readiness."]);
+  return uniqueStrings([...npmGuidance, "Treat this as a possible package or plugin defect until install/load evidence proves otherwise."]);
+}
+
+function npmInstallDiagnosticCommands(
+  expectedPackage: string,
+  diagnostic: PublishedPackageSmokeReport["npmInstallDiagnostic"]
+): string[] {
+  if (diagnostic.classification !== "npm_selector_drift_with_tarball_fallback") return [];
+  const tarballLookup = `npm view ${expectedPackage} dist.tarball`;
+  return [
+    `${tarballLookup} --json`,
+    `tarball_url="$(${tarballLookup})" && test -n "$tarball_url" && npm install -g "$tarball_url"`
+  ];
+}
+
+function readNpmInstallDiagnostic(path: string | undefined): PublishedPackageSmokeReport["npmInstallDiagnostic"] {
+  if (!path) {
+    return {
+      provided: false,
+      classification: "not_provided",
+      packageInstallLikelyOk: false,
+      registryTarballVisible: false,
+      tarballFallbackInstallable: false,
+      trueUnpublishedVersion: false,
+      suggestedRetry: null,
+      evidenceInputs: [],
+      guidance: []
+    };
+  }
+  const payload = readJsonObject(path);
+  const code = readNestedString(payload, ["code"]);
+  const publicSafe = payload.publicSafe === true && payload.rawSecretIncluded === false;
+  if (!publicSafe) return invalidNpmInstallDiagnostic(["invalid_or_non_public_safe_diagnostic"]);
+  const suggestedRetry = publicSafeSuggestedRetry(readNestedString(payload, ["suggestedRetry"]));
+  const registryTarballVisible = readNestedBoolean(payload, ["registryTarballVisible"])
+    || Boolean(suggestedRetry?.startsWith(`npm install https://registry.npmjs.org/${PACKAGE_NAME}/-/`));
+  const tarballFallbackInstallable = readNestedBoolean(payload, ["tarballFallbackInstallOk"])
+    || readNestedBoolean(payload, ["tarballInstallOk"]);
+  const trueUnpublishedVersion = readNestedBoolean(payload, ["trueUnpublishedVersion"]);
+  const evidenceInputs = [
+    "npm_install_diagnostic",
+    registryTarballVisible ? "registry_tarball_visible" : null,
+    tarballFallbackInstallable ? "tarball_fallback_install_ok" : null
+  ].filter((item): item is string => Boolean(item));
+
+  if (code === "npm_selector_cutoff_drift") {
+    if (!trueUnpublishedVersion && registryTarballVisible && tarballFallbackInstallable) {
+      return {
+        provided: true,
+        classification: "npm_selector_drift_with_tarball_fallback",
+        packageInstallLikelyOk: true,
+        registryTarballVisible,
+        tarballFallbackInstallable,
+        trueUnpublishedVersion,
+        suggestedRetry,
+        evidenceInputs,
+        guidance: [
+          "npm selector drift was observed, but registry tarball fallback proof is installable; treat this as selector drift, not a true unpublished package.",
+          "Use the guarded registry tarball fallback command for first-run recovery and keep raw npm stderr out of public evidence."
+        ]
+      };
+    }
+    return {
+      provided: true,
+      classification: "npm_selector_drift_unproved",
+      packageInstallLikelyOk: false,
+      registryTarballVisible,
+      tarballFallbackInstallable,
+      trueUnpublishedVersion,
+      suggestedRetry,
+      evidenceInputs,
+      guidance: [
+        "npm selector drift was observed, but tarball fallback install proof is missing; keep package readiness fail-closed until fallback dogfood/tool-smoke evidence is supplied."
+      ]
+    };
+  }
+
+  if (code === "npm_before_cutoff_drift") {
+    return npmInstallDiagnostic("npm_before_cutoff_drift", false, registryTarballVisible, tarballFallbackInstallable, trueUnpublishedVersion, suggestedRetry, evidenceInputs, [
+      "npm before-cutoff drift was observed; retry with a future --before value before treating the package as unpublished."
+    ]);
+  }
+  if (code === "npm_version_unavailable") {
+    return npmInstallDiagnostic("npm_version_unavailable", false, registryTarballVisible, tarballFallbackInstallable, trueUnpublishedVersion, suggestedRetry, evidenceInputs, [
+      "npm registry metadata did not prove the requested version; keep package readiness fail-closed."
+    ]);
+  }
+  if (code === "npm_install_failed") {
+    return npmInstallDiagnostic("npm_install_failed", false, registryTarballVisible, tarballFallbackInstallable, trueUnpublishedVersion, suggestedRetry, evidenceInputs, [
+      "npm install failed without a selector-drift proof; inspect sanitized local evidence before claiming package readiness."
+    ]);
+  }
+  return invalidNpmInstallDiagnostic(["unknown_diagnostic_code"]);
+}
+
+function npmInstallDiagnostic(
+  classification: PublishedPackageSmokeReport["npmInstallDiagnostic"]["classification"],
+  packageInstallLikelyOk: boolean,
+  registryTarballVisible: boolean,
+  tarballFallbackInstallable: boolean,
+  trueUnpublishedVersion: boolean,
+  suggestedRetry: string | null,
+  evidenceInputs: string[],
+  guidance: string[]
+): PublishedPackageSmokeReport["npmInstallDiagnostic"] {
+  return {
+    provided: true,
+    classification,
+    packageInstallLikelyOk,
+    registryTarballVisible,
+    tarballFallbackInstallable,
+    trueUnpublishedVersion,
+    suggestedRetry,
+    evidenceInputs,
+    guidance
+  };
+}
+
+function invalidNpmInstallDiagnostic(evidenceInputs: string[]): PublishedPackageSmokeReport["npmInstallDiagnostic"] {
+  return {
+    provided: true,
+    classification: "invalid",
+    packageInstallLikelyOk: false,
+    registryTarballVisible: false,
+    tarballFallbackInstallable: false,
+    trueUnpublishedVersion: false,
+    suggestedRetry: null,
+    evidenceInputs,
+    guidance: ["The npm install diagnostic report was absent, malformed, or not public-safe; keep package readiness fail-closed."]
+  };
+}
+
+function publicSafeSuggestedRetry(value: string | null): string | null {
+  if (!value) return null;
+  if (/\/Users\/|\.npmrc|Bearer\s+|npm_[A-Za-z0-9]{20,}|token|password|secret/i.test(value)) return null;
+  if (value.startsWith(`npm install https://registry.npmjs.org/${PACKAGE_NAME}/-/`)) return value;
+  if (value.startsWith(`npm view ${PACKAGE_NAME}@`) && value.includes(" dist.tarball")) return value;
+  return null;
 }
 
 function setupBlockerRecoveryItems(setupBlockers: string[]): Array<{
