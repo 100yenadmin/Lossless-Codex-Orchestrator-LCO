@@ -21,6 +21,8 @@ type Scorecard = {
 };
 
 const scorecardDir = join("evals", "scorecards", "v1.0");
+const packageVersion = JSON.parse(read("package.json")) as { version?: string };
+const currentBetaNumber = typeof packageVersion.version === "string" ? packageVersion.version.match(/-beta\.(\d+)$/)?.[1] : undefined;
 const requiredFields: Array<keyof Scorecard> = [
   "scorecard_version",
   "claim_class",
@@ -76,6 +78,7 @@ test("scorecard v1 examples exist, are versioned, and preserve the beta evidence
       assert.equal(Object.hasOwn(scorecard, field), true, `${file} must include ${field}`);
     }
 
+    const serializedScorecard = JSON.stringify(scorecard);
     assert.equal(scorecard.scorecard_version, "1.0", `${file} must use scorecard version 1.0`);
     const evidencePath = String(scorecard.evidence_path);
     if (file === "public-community-readiness-review.json") {
@@ -89,7 +92,11 @@ test("scorecard v1 examples exist, are versioned, and preserve the beta evidence
     assert.match(exclusions, /raw Codex transcripts/i);
     assert.match(exclusions, /tokens|credentials|API keys/i);
     assert.match(exclusions, /SQLite DBs/i);
-    assert.doesNotMatch(JSON.stringify(scorecard), /unattended desktop takeover|cloud sync|Claude parity/i);
+    assert.doesNotMatch(serializedScorecard, /unattended desktop takeover|cloud sync|Claude parity/i);
+    // Forward-looking guard: beta candidates must not leave stale publish instructions in scorecards.
+    for (const match of serializedScorecard.matchAll(/\bPublish beta\.(\d+)\b/gi)) {
+      assert.equal(match[1], currentBetaNumber, `${file} must not mention stale ${match[0]} when package version is ${packageVersion.version ?? "unknown"}`);
+    }
   }
 });
 

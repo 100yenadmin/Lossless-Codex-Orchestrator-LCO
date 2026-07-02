@@ -334,7 +334,7 @@ test("CLI desktop proof-report writes a release-compatible approval fixture for 
   }
 });
 
-test("CLI desktop proof-report reports observation-file path for malformed JSON", () => {
+test("CLI desktop proof-report redacts observation-file path for malformed JSON", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-desktop-proof-malformed-"));
   const observationPath = join(root, "desktop-gui-observation.json");
   writeFileSync(observationPath, "{not-json\n");
@@ -358,7 +358,8 @@ test("CLI desktop proof-report reports observation-file path for malformed JSON"
     });
 
     assert.equal(result.status, 1);
-    assert.match(result.stderr, new RegExp(`Failed to read observation file ${observationPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+    assert.match(result.stderr, /Failed to read observation file <redacted-local-path>/);
+    assert.doesNotMatch(result.stderr, new RegExp(observationPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     assert.doesNotMatch(result.stderr, /ENOENT: no such file or directory/);
     assert.equal(existsSync(join(root, "desktop-collaboration-action-bound-v1-1.runtime-proof.json")), false);
   } finally {

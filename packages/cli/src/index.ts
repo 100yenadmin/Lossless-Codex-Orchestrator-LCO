@@ -60,10 +60,25 @@ import {
   type LocalMacSearchUiShellReport
 } from "../../local-mac-ui/src/shell.js";
 import { createHash } from "node:crypto";
+import { fileURLToPath } from "node:url";
 
 const [, , command, ...args] = process.argv;
+const cliFilePath = fileURLToPath(import.meta.url);
 
 async function main() {
+  if (!command) {
+    printMainUsage("error");
+    process.exitCode = 2;
+    return;
+  }
+  if (command === "--help" || command === "-h") {
+    printMainUsage("log");
+    return;
+  }
+  if (command === "--version" || command === "-v") {
+    console.log(readCliPackageVersion());
+    return;
+  }
   if (command === "onboard" && args[0] === "status") {
     if (hasHelpFlag(args.slice(1))) {
       printOnboardingStatusHelp();
@@ -85,7 +100,11 @@ async function main() {
   if (command === "doctor") {
     console.log(JSON.stringify({
       ok: true,
-      dbPath: defaultDatabasePath(),
+      database: {
+        configured: Boolean(process.env.LOO_DB_PATH),
+        activePresent: existsSync(defaultDatabasePath()),
+        location: "local"
+      },
       localOnly: true,
       codex: codexTransportStatus({ command: process.env.LOO_CODEX_BIN || "codex" }),
       lcmPeers: probeLcmPeerDbs(configuredLcmPeerDbPaths()),
@@ -539,47 +558,18 @@ async function main() {
     if (parsed.strict && !report.demoReady) process.exitCode = 1;
     return;
   }
-  console.error([
-    "Usage:",
-    "  loo onboard status [--evidence-dir path] [--root path] [--now iso] [--registry-version version] [--registry-beta-version version] [--gateway-setup-status ready|gateway_setup_required|package_failure_or_unknown] [--strict]",
-    "  loo doctor",
-    "  loo desktop see [direct|cua-driver|peekaboo] [--snapshot] [--max-nodes n] [--max-chars n]",
-    "  loo desktop act [direct|cua-driver|peekaboo] <action>",
-    "  loo desktop proof-report --evidence-dir path --observation-file path [--strict]",
-    "  loo desktop live-proof-harness --evidence-dir path [--backend direct|cua-driver|peekaboo] [--target-app app] [--target-window title] [--action text] [--approval-ref ref] [--scratch-file path] [--strict]",
-    "  loo desktop proof-action --evidence-dir path --backend cua-driver --target-app TextEdit --target-window lco-desktop-proof.txt --action \"launch_app TextEdit scratch window\" --action-hash hash --approval-ref ref --approval-file path --permission-state state --scratch-file path --execute [--strict]",
-    "  loo index codex [--max-files n] [--max-bytes-per-file n] [--max-events-per-file n] [roots...]",
-    "  loo probe codex-sqlite [roots...]",
-    "  loo search <query>",
-    "  loo session-map [--project name] [--status value] [--priority value] [--blocker value] [--priority-order urgent,high,medium,low] [--limit n]",
-    "  loo grep [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <query>",
-    "  loo describe [--lcm-db path] <source-ref>",
-    "  loo expand-query [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <query>",
-    "  loo expand-ref [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <source-ref>",
-    "  loo closeout dry-run [--thread-id id] [--limit n] [--include-unavailable]",
-    "  loo sanitize sessions [--thread-id id] [--limit n] [--evidence-dir path] [--strict]",
-    "  loo serve",
-    "  loo audit-path",
-    "  loo codex live-control-smoke --evidence-dir path [--thread-id id] [--message text] [--cwd path] [--timeout-ms ms] [--audit-path path] [--codex-bin path] [--app-server-args \"app-server --stdio\"]",
-    "  loo openclaw dogfood [--dev] [--profile name] [--install-source path] [--link] [--force-install] [--evidence-path path] [--strict]",
-    "  loo openclaw tool-smoke [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--thread-id id] [--expand-profile metadata|brief|evidence] [--token-budget n] [--required-tool name] [--evidence-path path] [--strict]",
-    "  loo openclaw published-smoke --evidence-dir path --dogfood-report path --tool-smoke-report path [--configured-tool-smoke-report path] [--registry-version version] [--registry-beta-version version] [--root path] [--now iso] [--strict]",
-    "  loo openclaw live-control-smoke --evidence-dir path --thread-id id [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--message text] [--strict]",
-    "  loo openclaw post-action-refresh-smoke --evidence-dir path --thread-id id --live-proof-report path [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--expand-profile metadata|brief|evidence] [--token-budget n] [--strict]",
-    "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--strict]",
-    "  loo ui local-mac-search --evidence-dir path [--sample] [--strict]",
-    "  loo eval retrieval --scenario-file path [--evidence-path path] [--strict]",
-    "  loo eval scenarios --evidence-dir path [--scenario-dir path] [--runtime-proof-dir path] [--strict]",
-    "  loo release preflight [--evidence-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--strict]",
-    "  loo release bundle --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--strict]",
-    "  loo release status --evidence-dir path --candidate-sha sha [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--github-ci-evidence path] [--codeql-evidence path] [--desktop-gui-required --desktop-gui-approval-evidence path] [--now iso] [--strict]",
-    "  loo release general-readiness --evidence-dir path [--fresh-npm-evidence path] [--agent-dogfood-evidence path] [--now iso] [--strict]",
-    "  loo release demo-status --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--min-sessions n] [--strict]"
-  ].join("\n"));
+  printMainUsage("error");
   process.exitCode = 2;
 }
 
-await main();
+try {
+  await main();
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  const usageError = isCliUsageErrorMessage(message);
+  console.error(`Error: ${sanitizeCliErrorMessage(message)}`);
+  process.exitCode = usageError ? 2 : 1;
+}
 
 type ParsedLocalMacSearchUiArgs = {
   evidenceDir: string;
@@ -736,6 +726,96 @@ function hasHelpFlag(input: string[]): boolean {
 
 function isBareHelpInvocation(input: string[]): boolean {
   return input.length > 0 && input.every((arg) => arg === "--help" || arg === "-h");
+}
+
+function printMainUsage(stream: "log" | "error"): void {
+  console[stream](mainUsageText());
+}
+
+function mainUsageText(): string {
+  return [
+    "Usage:",
+    "  loo --help",
+    "  loo --version",
+    "  loo onboard status [--evidence-dir path] [--root path] [--now iso] [--registry-version version] [--registry-beta-version version] [--gateway-setup-status ready|gateway_setup_required|package_failure_or_unknown] [--strict]",
+    "  loo doctor",
+    "  loo desktop see [direct|cua-driver|peekaboo] [--snapshot] [--max-nodes n] [--max-chars n]",
+    "  loo desktop act [direct|cua-driver|peekaboo] <action>",
+    "  loo desktop proof-report --evidence-dir path --observation-file path [--strict]",
+    "  loo desktop live-proof-harness --evidence-dir path [--backend direct|cua-driver|peekaboo] [--target-app app] [--target-window title] [--action text] [--approval-ref ref] [--scratch-file path] [--strict]",
+    "  loo desktop proof-action --evidence-dir path --backend cua-driver --target-app TextEdit --target-window lco-desktop-proof.txt --action \"launch_app TextEdit scratch window\" --action-hash hash --approval-ref ref --approval-file path --permission-state state --scratch-file path --execute [--strict]",
+    "  loo index codex [--max-files n] [--max-bytes-per-file n] [--max-events-per-file n] [roots...]",
+    "  loo probe codex-sqlite [roots...]",
+    "  loo search <query>",
+    "  loo session-map [--project name] [--status value] [--priority value] [--blocker value] [--priority-order urgent,high,medium,low] [--limit n]",
+    "  loo grep [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <query>",
+    "  loo describe [--lcm-db path] <source-ref>",
+    "  loo expand-query [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <query>",
+    "  loo expand-ref [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <source-ref>",
+    "  loo closeout dry-run [--thread-id id] [--limit n] [--include-unavailable]",
+    "  loo sanitize sessions [--thread-id id] [--limit n] [--evidence-dir path] [--strict]",
+    "  loo serve",
+    "  loo audit-path",
+    "  loo codex live-control-smoke --evidence-dir path [--thread-id id] [--message text] [--cwd path] [--timeout-ms ms] [--audit-path path] [--codex-bin path] [--app-server-args \"app-server --stdio\"]",
+    "  loo openclaw dogfood [--dev] [--profile name] [--install-source path] [--link] [--force-install] [--evidence-path path] [--strict]",
+    "  loo openclaw tool-smoke [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--thread-id id] [--expand-profile metadata|brief|evidence] [--token-budget n] [--required-tool name] [--evidence-path path] [--strict]",
+    "  loo openclaw published-smoke --evidence-dir path --dogfood-report path --tool-smoke-report path [--configured-tool-smoke-report path] [--registry-version version] [--registry-beta-version version] [--root path] [--now iso] [--strict]",
+    "  loo openclaw live-control-smoke --evidence-dir path --thread-id id [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--message text] [--strict]",
+    "  loo openclaw post-action-refresh-smoke --evidence-dir path --thread-id id --live-proof-report path [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--expand-profile metadata|brief|evidence] [--token-budget n] [--strict]",
+    "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--strict]",
+    "  loo ui local-mac-search --evidence-dir path [--sample] [--strict]",
+    "  loo eval retrieval --scenario-file path [--evidence-path path] [--strict]",
+    "  loo eval scenarios --evidence-dir path [--scenario-dir path] [--runtime-proof-dir path] [--strict]",
+    "  loo release preflight [--evidence-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--strict]",
+    "  loo release bundle --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--strict]",
+    "  loo release status --evidence-dir path --candidate-sha sha [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--github-ci-evidence path] [--codeql-evidence path] [--desktop-gui-required --desktop-gui-approval-evidence path] [--now iso] [--strict]",
+    "  loo release general-readiness --evidence-dir path [--fresh-npm-evidence path] [--agent-dogfood-evidence path] [--now iso] [--strict]",
+    "  loo release demo-status --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--min-sessions n] [--strict]"
+  ].join("\n");
+}
+
+function readCliPackageVersion(): string {
+  const packageRoot = findCliPackageRoot(dirname(cliFilePath)) ?? findCliPackageRoot(process.cwd());
+  if (!packageRoot) return "unknown";
+  try {
+    const parsed = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as { version?: unknown };
+    return typeof parsed.version === "string" ? parsed.version : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+function findCliPackageRoot(start: string): string | null {
+  let cursor = start;
+  while (true) {
+    const packageJsonPath = join(cursor, "package.json");
+    if (existsSync(packageJsonPath)) {
+      try {
+        const parsed = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { name?: unknown };
+        if (parsed.name === "lossless-openclaw-orchestrator") return cursor;
+      } catch {
+        // Keep walking: a malformed ancestor package.json should not hide the real CLI package root.
+      }
+    }
+    const parent = dirname(cursor);
+    if (parent === cursor) return null;
+    cursor = parent;
+  }
+}
+
+function sanitizeCliErrorMessage(message: string): string {
+  return message
+    .replace(/file:\/\/[^\r\n)]*?(?=:\s|\)|$)/g, "<redacted-local-path>")
+    .replace(/(?:\/Users|\/Volumes|\/private\/var|\/var\/folders|\/home|\/root|\/tmp|\/workspace|\/workspaces)\/[^\r\n)]*?(?=:\s|\)|$)/g, "<redacted-local-path>")
+    .replace(/(?:[A-Za-z]:)?\\(?:Users|home|tmp|workspace|workspaces)\\[^\r\n)]*?(?=:\s|\)|$)/g, "<redacted-local-path>");
+}
+
+function isCliUsageErrorMessage(message: string): boolean {
+  return /^Unknown .+ option: /.test(message)
+    || /^Unknown release claim scope: /.test(message)
+    || /^Invalid --[\w-]+: /.test(message)
+    || / requires (?:a value|a path|a number|a positive integer|an integer|--[\w-]+)/.test(message)
+    || /^--[\w-]+ must be /.test(message);
 }
 
 function printSearchHelp(): void {

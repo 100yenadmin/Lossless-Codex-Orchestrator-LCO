@@ -250,7 +250,8 @@ test("MCP declarations expose the action-bound Codex Desktop collaboration proof
     }).find((tool) => tool.name === "loo_codex_desktop_collaboration_proof");
 
     assert.ok(tool);
-    assert.equal(tool.inputSchema.properties.execute.type, "boolean");
+    const inputProperties = tool.inputSchema.properties as Record<string, { type?: string }>;
+    assert.equal(inputProperties.execute?.type, "boolean");
 
     const approvalPacket = validApprovalPacket();
     const output = await tool.execute({

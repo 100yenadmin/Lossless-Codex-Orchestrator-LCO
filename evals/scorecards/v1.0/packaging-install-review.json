@@ -70,8 +70,8 @@
     "Fresh OpenClaw profiles still need scoped gateway credentials or env-ref onboarding before tool invocation; #298 proves that setup path can reach ready, and missing setup must remain classified as setup-required rather than package failure.",
     "Fresh OpenClaw gateway setup recovery is classified in `published-smoke` as public-safe setupRecovery states with deterministic credential setup commands; ready is claimable only when fresh-profile tool-smoke is ready.",
     "Configured local gateway proof can show the agent workflow works on an already provisioned profile, but clean-profile readiness must still be driven by fresh-profile tool-smoke evidence.",
-    "This scorecard points at #298 fresh-profile gateway-ready evidence for the protocol-4 backend caller fix; it does not prove stable release, npm latest promotion, live control, GUI mutation, or enterprise/customer readiness."
+    "This scorecard defines the packaging/install evidence shape for the beta train; each release must still supply run-specific scorecard copies, candidate SHA checks, release-status evidence, and post-publish smoke evidence before publish completion is claimed."
   ],
-  "next_action": "Publish beta.35 after PR/CI/review gates so the public CLI contains the protocol-4 backend caller fix, then use the #298 packet as one input to a separate stable/latest release decision.",
-  "proof_boundary": "This proves current beta install/load evidence plus public-safe fresh-profile gateway-ready proof for the protocol-4 backend caller path; it does not prove stable release, npm latest promotion, live control, GUI mutation, or enterprise/customer readiness."
+  "next_action": "Publish the next beta candidate only after PR/CI/review gates, run-specific release-status evidence, scorecard freshness, package dry-run evidence, and post-publish smoke criteria are satisfied for the exact candidate SHA.",
+  "proof_boundary": "This proves the beta packaging/install evidence contract and public-safe fresh-profile gateway-ready proof shape; it does not prove stable release, npm latest promotion, live control, GUI mutation, or enterprise/customer readiness."
 }
