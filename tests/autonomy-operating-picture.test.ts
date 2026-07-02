@@ -2211,6 +2211,15 @@ test("Codex collaboration next-step planner emits read-only exact tool packets",
           refs: true
         },
         {
+          id: "019f-plan-cli-visible-proven",
+          title: "CLI visible but coherence proven planner lane",
+          status: "running",
+          priority: "medium",
+          nextAction: "observe proven Desktop visibility",
+          updatedAt: relativeIso(4),
+          refs: true
+        },
+        {
           id: "019f-plan-coherence-missing",
           title: "Fallback coherence handoff lane",
           status: "running",
@@ -2251,7 +2260,7 @@ test("Codex collaboration next-step planner emits read-only exact tool packets",
           title: "Fallback blocked planner lane",
           status: "running",
           priority: "low",
-          nextAction: "surface blocker",
+          nextAction: "approval required before blocked fallback",
           updatedAt: relativeIso(9),
           refs: true
         }
@@ -2285,7 +2294,7 @@ test("Codex collaboration next-step planner emits read-only exact tool packets",
       evidenceIds: ["ev_watch_planner_other", tokenCanary]
     };
     const report = createCodexCollaborationNextSteps(db, {
-      limit: 11,
+      limit: 12,
       now,
       priorityOrder: ["urgent", "high", "medium", "low"],
       watcherSpecs: [watcherSpec, duplicateWatcherSpec],
@@ -2298,6 +2307,16 @@ test("Codex collaboration next-step planner emits read-only exact tool packets",
           confidence: 0.78,
           evidenceIds: ["ev_cli_visible"],
           reasonCodes: ["desktop_visibility_not_proven"],
+          actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
+        },
+        {
+          schema: "lco.codexDesktopCoherence.v1",
+          publicSafe: true,
+          target: { threadId: "019f-plan-cli-visible-proven", sourceRef: "codex_thread:019f-plan-cli-visible-proven" },
+          state: "desktop_visible",
+          confidence: 0.88,
+          evidenceIds: ["ev_cli_visible_proven"],
+          reasonCodes: ["desktop_visible_without_refresh"],
           actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
         },
         {
@@ -2379,6 +2398,7 @@ test("Codex collaboration next-step planner emits read-only exact tool packets",
     const missingStep = byThread.get("codex_thread:019f-plan-missing");
     const approvalNeededStep = byThread.get("codex_thread:019f-plan-approval-needed");
     const cliStep = byThread.get("codex_thread:019f-plan-cli-visible");
+    const cliVisibleProvenStep = byThread.get("codex_thread:019f-plan-cli-visible-proven");
     const coherenceHandoffStep = byThread.get("codex_thread:019f-plan-coherence-missing");
     const visibleStep = byThread.get("codex_thread:019f-plan-desktop-visible");
     const unknownNoCoherenceStep = byThread.get("codex_thread:019f-plan-unknown-no-coherence");
@@ -2388,7 +2408,7 @@ test("Codex collaboration next-step planner emits read-only exact tool packets",
     assert.equal(report.schema, "lco.codex.collaborationNextSteps.v1");
     assert.equal(report.publicSafe, true);
     assert.equal(report.readOnly, true);
-    assert.equal(report.summary.returned, 10);
+    assert.equal(report.summary.returned, 11);
     assert.equal(report.summary.blocked, 3);
     assert.equal(report.summary.ready + report.summary.blocked + report.summary.noop, report.summary.returned);
     assert.equal(report.actionsPerformed.liveCodexControlRun, false);
@@ -2420,6 +2440,11 @@ test("Codex collaboration next-step planner emits read-only exact tool packets",
     assert.equal(cliStep?.toolCall?.execute, false);
     assert.equal((cliStep?.toolCall?.args.coherence as Record<string, unknown> | undefined)?.state, "cli_visible");
 
+    assert.equal(cliVisibleProvenStep?.category, "observe");
+    assert.equal(cliVisibleProvenStep?.status, "noop");
+    assert.equal(cliVisibleProvenStep?.toolCall, null);
+    assert.equal(cliVisibleProvenStep?.reasonCodes.includes("desktop_fallback_status_required"), false);
+
     assert.equal(coherenceHandoffStep?.category, "desktop_coherence");
     assert.equal(coherenceHandoffStep?.reasonCodes.includes("coherence_input_missing"), true);
     assert.equal(coherenceHandoffStep?.toolCall?.tool, "loo_codex_desktop_coherence");
@@ -2445,12 +2470,15 @@ test("Codex collaboration next-step planner emits read-only exact tool packets",
     assert.equal(fallbackReadyStep?.category, "desktop_action_approval");
     assert.equal(fallbackReadyStep?.status, "blocked");
     assert.equal(fallbackReadyStep?.toolCall, null);
-    assert.deepEqual(fallbackReadyStep?.blockers, ["desktop_action_approval_required"]);
+    assert.equal(fallbackReadyStep?.reasonCodes.includes("approval_required"), true);
+    assert.deepEqual(fallbackReadyStep?.blockers, ["desktop_action_approval_required", "approval_required"]);
 
     assert.equal(fallbackBlockedStep?.category, "desktop_action_approval");
     assert.equal(fallbackBlockedStep?.status, "blocked");
     assert.equal(fallbackBlockedStep?.toolCall, null);
+    assert.equal(fallbackBlockedStep?.reasonCodes.includes("approval_required"), true);
     assert.equal(fallbackBlockedStep?.blockers.includes("permission_missing"), true);
+    assert.equal(fallbackBlockedStep?.blockers.includes("approval_required"), true);
 
     assertNoUnsafeStrings(report, ...canaries);
   });

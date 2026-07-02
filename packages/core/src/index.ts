@@ -2438,7 +2438,8 @@ function collaborationNextStepForLane(
     });
   }
 
-  if ((lane.desktop.state === "cli_visible" || lane.desktop.state === "unknown") && input.coherence) {
+  const coherenceState = input.coherence ? publicSafeCoherenceState(input.coherence.state) : null;
+  if ((lane.desktop.state === "cli_visible" || lane.desktop.state === "unknown") && input.coherence && coherenceState !== "desktop_visible") {
     return collaborationNextStep({
       ...base,
       category: "desktop_fallback_status",
@@ -2455,24 +2456,26 @@ function collaborationNextStepForLane(
   }
 
   if (lane.desktop.state === "fallback_ready") {
+    const approvalReasons = collaborationDesktopActionApprovalReasons(lane);
     return collaborationNextStep({
       ...base,
       category: "desktop_action_approval",
       status: "blocked",
-      reasonCodes: unique([...lane.reasonCodes, "desktop_action_approval_required"]),
-      blockers: ["desktop_action_approval_required"],
+      reasonCodes: unique([...lane.reasonCodes, "desktop_action_approval_required", ...approvalReasons]),
+      blockers: unique(["desktop_action_approval_required", ...approvalReasons]),
       confidence: lane.desktop.confidence,
       toolCall: null
     });
   }
 
   if (lane.desktop.state === "fallback_blocked") {
+    const approvalReasons = collaborationDesktopActionApprovalReasons(lane);
     return collaborationNextStep({
       ...base,
       category: "desktop_action_approval",
       status: "blocked",
-      reasonCodes: unique([...lane.reasonCodes, "desktop_fallback_blocked"]),
-      blockers: lane.desktop.blockers.length > 0 ? lane.desktop.blockers : ["desktop_fallback_blocked"],
+      reasonCodes: unique([...lane.reasonCodes, "desktop_fallback_blocked", ...approvalReasons]),
+      blockers: unique([...(lane.desktop.blockers.length > 0 ? lane.desktop.blockers : ["desktop_fallback_blocked"]), ...approvalReasons]),
       confidence: lane.desktop.confidence,
       toolCall: null
     });
@@ -2768,6 +2771,10 @@ function collaborationLaneHasSessionApprovalBoundary(lane: CodexCollaborationCoc
     || lane.card.nextAction.kind === "approve"
     || lane.card.nextAction.requiresApproval === true
     || collaborationReasonRequestsApproval(lane.card.nextAction.reason);
+}
+
+function collaborationDesktopActionApprovalReasons(lane: CodexCollaborationCockpitLane): string[] {
+  return collaborationLaneNeedsApproval(lane) ? ["approval_required"] : [];
 }
 
 function collaborationReasonRequestsApproval(reason: string): boolean {
