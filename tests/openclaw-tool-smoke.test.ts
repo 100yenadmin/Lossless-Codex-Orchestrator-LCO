@@ -324,6 +324,10 @@ if (method === "tools.invoke") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, schema: "lco.visibleCodexSessionMap.v1", sourceCoverage: { indexedLco: "ok", visibleCodex: "not_configured", codexAppServer: "ok" }, items: [{ appServerRef: "codex_app_thread:thread-1", sourceRef: "codex_thread:thread-1", sessionCardRef: "codex_thread:thread-1", confidence: 0.86 }], actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false } } }));
     process.exit(0);
   }
+  if (name === "loo_codex_desktop_coherence") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, readOnly: true, schema: "lco.codexDesktopCoherence.v1", state: "cli_visible", visibility: { cli: "proven", desktop: "not_seen" }, target: { threadId: "thread-1", sourceRef: "codex_thread:thread-1" }, actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false } } }));
+    process.exit(0);
+  }
   if (name === "loo_plan_state_pins") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, manualPins: [] } }));
     process.exit(0);

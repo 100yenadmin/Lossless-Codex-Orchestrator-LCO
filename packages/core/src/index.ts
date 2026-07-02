@@ -504,6 +504,85 @@ export type VisibleCodexSessionMapReport = {
   proofBoundary: string;
 };
 
+export type CodexDesktopCoherenceState = "cli_visible" | "desktop_visible" | "desktop_refresh_required" | "desktop_restart_required" | "unknown";
+
+export type CodexDesktopCoherenceVisibility = "proven" | "not_seen" | "refresh_required" | "restart_required" | "ambiguous" | "unknown";
+
+export type CodexDesktopCoherenceActionEvidence = {
+  actionKind: "none" | "cli" | "direct_protocol" | "codex_app_server" | "lco_control" | "unknown";
+  action: string | null;
+  dryRun: boolean | null;
+  live: boolean | null;
+  approvalAuditIdPresent: boolean;
+  evidenceId: string | null;
+  observedAt: string | null;
+};
+
+export type CodexDesktopCoherenceObservation = {
+  mapPresent: boolean;
+  matchedItemCount: number;
+  cliVisible: boolean;
+  desktopVisible: boolean;
+  ambiguous: boolean;
+  confidence: number;
+  evidenceIds: string[];
+  sourceRefs: string[];
+  appServerRefs: string[];
+  desktopRefs: string[];
+  reasonCodes: string[];
+  sourceCoverage: VisibleCodexSessionMapReport["sourceCoverage"];
+};
+
+export type CodexDesktopCoherenceReport = {
+  schema: "lco.codexDesktopCoherence.v1";
+  publicSafe: true;
+  readOnly: true;
+  generatedAt: string;
+  target: {
+    threadId: string | null;
+    sourceRef: string | null;
+  };
+  state: CodexDesktopCoherenceState;
+  visibility: {
+    cli: CodexDesktopCoherenceVisibility;
+    desktop: CodexDesktopCoherenceVisibility;
+  };
+  confidence: number;
+  observations: {
+    before: CodexDesktopCoherenceObservation | null;
+    current: CodexDesktopCoherenceObservation | null;
+    after: CodexDesktopCoherenceObservation | null;
+  };
+  refreshKind: "none" | "desktop_refresh" | "desktop_restart";
+  actionEvidence: CodexDesktopCoherenceActionEvidence;
+  evidenceIds: string[];
+  blockers: string[];
+  reasonCodes: string[];
+  sourceCoverage: {
+    indexedLco: VisibleCodexCoverageState;
+    visibleCodex: VisibleCodexCoverageState;
+    codexAppServer: VisibleCodexCoverageState;
+  };
+  actionsPerformed: {
+    liveCodexControlRun: false;
+    desktopGuiActionRun: false;
+    rawTranscriptRead: false;
+  };
+  proofBoundary: string;
+  nextAction: string;
+};
+
+export type CodexDesktopCoherenceReportOptions = {
+  threadId?: string | null;
+  sourceRef?: string | null;
+  visibleMap?: VisibleCodexSessionMapReport | null;
+  beforeMap?: VisibleCodexSessionMapReport | null;
+  afterMap?: VisibleCodexSessionMapReport | null;
+  refreshKind?: "none" | "desktop_refresh" | "desktop_restart";
+  actionEvidence?: Record<string, unknown> | null;
+  now?: string;
+};
+
 export type PlanStateManualPin = {
   pinId: string;
   title: string;
@@ -1918,6 +1997,97 @@ export function createVisibleCodexSessionMap(db: LooDatabase, options: {
   };
 }
 
+export function createCodexDesktopCoherenceReport(options: CodexDesktopCoherenceReportOptions = {}): CodexDesktopCoherenceReport {
+  const sourceRef = normalizeCodexThreadSourceRef(options.sourceRef ?? null, options.threadId ?? null);
+  const threadId = options.threadId ? safeThreadId(options.threadId) : (sourceRef ? bareCodexThreadId(sourceRef) : null);
+  const refreshKind = options.refreshKind ?? "none";
+  const before = options.beforeMap ? codexDesktopCoherenceObservation(options.beforeMap, sourceRef) : null;
+  const currentMap = options.visibleMap ?? (!options.beforeMap && !options.afterMap ? null : undefined);
+  const current = currentMap ? codexDesktopCoherenceObservation(currentMap, sourceRef) : null;
+  const after = options.afterMap ? codexDesktopCoherenceObservation(options.afterMap, sourceRef) : null;
+  const latest = after ?? current ?? before;
+  const actionEvidence = publicCodexDesktopActionEvidence(options.actionEvidence);
+  const evidenceIds = [...new Set([
+    ...(before?.evidenceIds ?? []),
+    ...(current?.evidenceIds ?? []),
+    ...(after?.evidenceIds ?? []),
+    ...(actionEvidence.evidenceId ? [actionEvidence.evidenceId] : [])
+  ])];
+  const ambiguous = Boolean(before?.ambiguous || current?.ambiguous || after?.ambiguous);
+  const cliVisible = Boolean(before?.cliVisible || current?.cliVisible || after?.cliVisible);
+  const desktopVisibleBefore = before?.desktopVisible === true;
+  const desktopVisibleCurrent = current?.desktopVisible === true;
+  const desktopVisibleAfter = after?.desktopVisible === true;
+  const desktopVisible = desktopVisibleBefore || desktopVisibleCurrent || desktopVisibleAfter;
+  const blockers = [
+    ...(!sourceRef ? ["missing_thread_target"] : []),
+    ...(ambiguous ? ["ambiguous_desktop_join"] : []),
+    ...(!latest?.mapPresent ? ["desktop_coherence_map_missing"] : []),
+    ...(latest && latest.matchedItemCount === 0 ? ["target_not_found_in_visible_map"] : [])
+  ];
+  const state = codexDesktopCoherenceState({
+    ambiguous,
+    cliVisible,
+    desktopVisibleBefore,
+    desktopVisibleCurrent,
+    desktopVisibleAfter,
+    refreshKind
+  });
+  const visibility = codexDesktopVisibility({
+    state,
+    ambiguous,
+    cliVisible,
+    desktopVisible,
+    refreshKind
+  });
+  const confidence = codexDesktopCoherenceConfidence({
+    state,
+    ambiguous,
+    observations: [before, current, after].filter((item): item is CodexDesktopCoherenceObservation => item !== null)
+  });
+  const reasonCodes = [...new Set([
+    ...codexDesktopCoherenceReasonCodes(state),
+    ...(before?.reasonCodes ?? []),
+    ...(current?.reasonCodes ?? []),
+    ...(after?.reasonCodes ?? []),
+    ...(ambiguous ? ["ambiguous_join"] : []),
+    ...(cliVisible && !desktopVisible ? ["cli_direct_visible_without_desktop_proof"] : []),
+    ...(desktopVisible ? ["desktop_visible_candidate"] : [])
+  ])].map((reason) => publicSafeIdentifier(reason)).filter((reason): reason is string => Boolean(reason));
+
+  return {
+    schema: "lco.codexDesktopCoherence.v1",
+    publicSafe: true,
+    readOnly: true,
+    generatedAt: options.now ?? new Date().toISOString(),
+    target: {
+      threadId,
+      sourceRef
+    },
+    state,
+    visibility,
+    confidence,
+    observations: {
+      before,
+      current,
+      after
+    },
+    refreshKind,
+    actionEvidence,
+    evidenceIds,
+    blockers,
+    reasonCodes,
+    sourceCoverage: mergeCoherenceSourceCoverage(before, current, after),
+    actionsPerformed: {
+      liveCodexControlRun: false,
+      desktopGuiActionRun: false,
+      rawTranscriptRead: false
+    },
+    proofBoundary: "This report classifies public-safe evidence about whether a Codex CLI/direct-protocol/app-server thread is also visible in Codex Desktop. It does not read raw transcript turns, send or steer a Codex thread, refresh/restart/select/click/type in Codex Desktop, mutate a GUI, or prove Desktop-visible collaboration unless supplied evidence proves it.",
+    nextAction: codexDesktopCoherenceNextAction(state)
+  };
+}
+
 export function createPlanStatePinsReport(text: string): PlanStatePinsReport {
   const manualPins = extractMarkedBlocks(text, "manual-pin").map((block, index) => planStateManualPin(block, index));
   return {
@@ -2561,6 +2731,189 @@ function visibleCoverage(input: VisibleCodexInput | null | undefined): VisibleCo
   if (!input) return "not_configured";
   if (Array.isArray(input.threadMap?.threads)) return "ok";
   return "partial";
+}
+
+function codexDesktopCoherenceObservation(
+  map: VisibleCodexSessionMapReport,
+  sourceRef: string | null
+): CodexDesktopCoherenceObservation {
+  const matched = sourceRef
+    ? map.items.filter((item) => visibleMapItemMatchesTarget(item, sourceRef))
+    : [];
+  const ambiguous = matched.length > 1 || matched.some((item) => coherenceItemHasJoinAmbiguity(item));
+  const confidence = matched.length === 0 ? 0 : Math.max(...matched.map((item) => item.confidence));
+  const desktopVisible = matched.some((item) => Boolean(item.desktopRef) && item.confidence >= 0.5) && !ambiguous;
+  const cliVisible = matched.some((item) => Boolean(item.sourceRef || item.appServerRef || item.sessionCardRef)) && !ambiguous;
+  return {
+    mapPresent: true,
+    matchedItemCount: matched.length,
+    cliVisible,
+    desktopVisible,
+    ambiguous,
+    confidence: Number(confidence.toFixed(2)),
+    evidenceIds: unique(matched.flatMap((item) => item.evidenceIds)).slice(0, 20),
+    sourceRefs: unique(matched.flatMap((item) => [item.sourceRef, item.sessionCardRef].filter((value): value is string => typeof value === "string"))).slice(0, 20),
+    appServerRefs: unique(matched.map((item) => item.appServerRef).filter((value): value is string => typeof value === "string")).slice(0, 20),
+    desktopRefs: unique(matched.map((item) => item.desktopRef).filter((value): value is string => typeof value === "string")).slice(0, 20),
+    reasonCodes: unique(matched.flatMap((item) => item.reasonCodes)).filter((reason) =>
+      reason !== "ambiguous_join" || matched.some((item) => coherenceItemHasJoinAmbiguity(item))
+    ).map(publicSafeIdentifier).filter((reason): reason is string => Boolean(reason)),
+    sourceCoverage: map.sourceCoverage
+  };
+}
+
+function coherenceItemHasJoinAmbiguity(item: VisibleCodexSessionMapItem): boolean {
+  return item.ambiguity.some((reason) =>
+    reason.startsWith("multiple_")
+    || reason === "indexed_card_already_claimed"
+  );
+}
+
+function visibleMapItemMatchesTarget(item: VisibleCodexSessionMapItem, sourceRef: string): boolean {
+  const threadId = bareCodexThreadId(sourceRef);
+  return item.sourceRef === sourceRef
+    || item.sessionCardRef === sourceRef
+    || item.appServerRef === `codex_app_thread:${threadId}`;
+}
+
+function normalizeCodexThreadSourceRef(sourceRef: string | null, threadId: string | null): string | null {
+  if (sourceRef && /^codex_thread:[A-Za-z0-9._:-]+$/.test(sourceRef)) return sourceRef;
+  if (threadId) return codexThreadRef(safeThreadId(threadId));
+  return null;
+}
+
+function safeThreadId(value: string): string {
+  const trimmed = value.startsWith("codex_thread:") ? value.slice("codex_thread:".length) : value;
+  const safe = publicSafeText(trimmed, 120).replace(/[^A-Za-z0-9._:-]+/g, "");
+  return safe || `thread_${stableId(trimmed).slice(0, 16)}`;
+}
+
+function publicCodexDesktopActionEvidence(input: Record<string, unknown> | null | undefined): CodexDesktopCoherenceActionEvidence {
+  const actionKind = optionalActionKind(input?.actionKind ?? input?.action_kind);
+  const action = typeof input?.action === "string" ? publicSafeText(input.action, 120) : null;
+  const evidenceId = typeof input?.evidenceId === "string"
+    ? publicSafeIdentifier(input.evidenceId)
+    : typeof input?.evidence_id === "string"
+      ? publicSafeIdentifier(input.evidence_id)
+      : null;
+  const approvalAuditId = typeof input?.approvalAuditId === "string"
+    ? input.approvalAuditId
+    : typeof input?.approval_audit_id === "string"
+      ? input.approval_audit_id
+      : null;
+  const observedAt = publicIsoTimestamp(
+    typeof input?.observedAt === "string"
+      ? input.observedAt
+      : typeof input?.observed_at === "string"
+        ? input.observed_at
+        : null
+  );
+  return {
+    actionKind,
+    action,
+    dryRun: typeof input?.dryRun === "boolean" ? input.dryRun : typeof input?.dry_run === "boolean" ? input.dry_run : null,
+    live: typeof input?.live === "boolean" ? input.live : null,
+    approvalAuditIdPresent: Boolean(approvalAuditId),
+    evidenceId,
+    observedAt
+  };
+}
+
+function optionalActionKind(value: unknown): CodexDesktopCoherenceActionEvidence["actionKind"] {
+  return value === "cli"
+    || value === "direct_protocol"
+    || value === "codex_app_server"
+    || value === "lco_control"
+    || value === "none"
+    ? value
+    : "unknown";
+}
+
+function codexDesktopCoherenceState(input: {
+  ambiguous: boolean;
+  cliVisible: boolean;
+  desktopVisibleBefore: boolean;
+  desktopVisibleCurrent: boolean;
+  desktopVisibleAfter: boolean;
+  refreshKind: CodexDesktopCoherenceReport["refreshKind"];
+}): CodexDesktopCoherenceState {
+  if (input.ambiguous) return "unknown";
+  if (input.desktopVisibleBefore || input.desktopVisibleCurrent) return "desktop_visible";
+  if (input.desktopVisibleAfter && input.refreshKind === "desktop_refresh") return "desktop_refresh_required";
+  if (input.desktopVisibleAfter && input.refreshKind === "desktop_restart") return "desktop_restart_required";
+  if (input.desktopVisibleAfter) return "desktop_visible";
+  if (input.cliVisible) return "cli_visible";
+  return "unknown";
+}
+
+function codexDesktopVisibility(input: {
+  state: CodexDesktopCoherenceState;
+  ambiguous: boolean;
+  cliVisible: boolean;
+  desktopVisible: boolean;
+  refreshKind: CodexDesktopCoherenceReport["refreshKind"];
+}): CodexDesktopCoherenceReport["visibility"] {
+  if (input.ambiguous) return { cli: "ambiguous", desktop: "ambiguous" };
+  const cli = input.cliVisible ? "proven" : "unknown";
+  if (input.state === "desktop_refresh_required") return { cli, desktop: "refresh_required" };
+  if (input.state === "desktop_restart_required") return { cli, desktop: "restart_required" };
+  if (input.desktopVisible) return { cli, desktop: "proven" };
+  if (input.state === "cli_visible") return { cli, desktop: "not_seen" };
+  return { cli, desktop: "unknown" };
+}
+
+function codexDesktopCoherenceConfidence(input: {
+  state: CodexDesktopCoherenceState;
+  ambiguous: boolean;
+  observations: CodexDesktopCoherenceObservation[];
+}): number {
+  if (input.ambiguous) return 0.3;
+  const max = input.observations.length ? Math.max(...input.observations.map((item) => item.confidence)) : 0;
+  if (input.state === "desktop_visible") return Number(Math.max(0.75, max).toFixed(2));
+  if (input.state === "desktop_refresh_required" || input.state === "desktop_restart_required") return Number(Math.max(0.68, max).toFixed(2));
+  if (input.state === "cli_visible") return Number(Math.max(0.62, max).toFixed(2));
+  return Number(Math.min(0.4, max || 0.2).toFixed(2));
+}
+
+function codexDesktopCoherenceReasonCodes(state: CodexDesktopCoherenceState): string[] {
+  if (state === "desktop_visible") return ["desktop_visible_without_refresh"];
+  if (state === "desktop_refresh_required") return ["desktop_visible_after_refresh_only"];
+  if (state === "desktop_restart_required") return ["desktop_visible_after_restart_only"];
+  if (state === "cli_visible") return ["cli_or_direct_protocol_visible"];
+  return ["desktop_coherence_unknown"];
+}
+
+function mergeCoherenceSourceCoverage(
+  before: CodexDesktopCoherenceObservation | null,
+  current: CodexDesktopCoherenceObservation | null,
+  after: CodexDesktopCoherenceObservation | null
+): CodexDesktopCoherenceReport["sourceCoverage"] {
+  const observations = [before, current, after].filter((item): item is CodexDesktopCoherenceObservation => item !== null);
+  return {
+    indexedLco: strongestCoverage(observations.map((item) => item.sourceCoverage.indexedLco)),
+    visibleCodex: strongestCoverage(observations.map((item) => item.sourceCoverage.visibleCodex)),
+    codexAppServer: strongestCoverage(observations.map((item) => item.sourceCoverage.codexAppServer))
+  };
+}
+
+function strongestCoverage(values: VisibleCodexCoverageState[]): VisibleCodexCoverageState {
+  if (values.includes("ok")) return "ok";
+  if (values.includes("partial")) return "partial";
+  if (values.includes("unavailable")) return "unavailable";
+  return "not_configured";
+}
+
+function codexDesktopCoherenceNextAction(state: CodexDesktopCoherenceState): string {
+  if (state === "desktop_visible") return "Desktop visibility is proven by supplied public-safe map evidence; do not treat this as GUI mutation approval.";
+  if (state === "desktop_refresh_required") return "Record the safe Desktop refresh flow before claiming live visible collaboration.";
+  if (state === "desktop_restart_required") return "Route the live-refresh gap to the desktop fallback lane before claiming same-session Desktop collaboration.";
+  if (state === "cli_visible") return "CLI/direct/app-server visibility is proven, but Desktop visibility is not; gather visible Codex evidence or route #308 fallback proof.";
+  return "Gather a public-safe visible Codex map and app-server signal for the target thread before making a Desktop-visible collaboration claim.";
+}
+
+function publicSafeIdentifier(value: string): string | null {
+  const redacted = publicSafeText(value, 160).trim();
+  return /^[A-Za-z0-9._:-]{1,160}$/.test(redacted) ? redacted : null;
 }
 
 function visibleConfidence(value: VisibleCodexThreadCandidateInput["confidence"]): number {

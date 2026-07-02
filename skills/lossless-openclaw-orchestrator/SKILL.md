@@ -21,6 +21,9 @@ Codex sessions through the installed `loo_*` tools.
   `approval_audit_id`.
 - Claude Code is adapter-stub only in this beta; use Codex-first claims.
 - Desktop fallback proof is action-bound; do not claim generic GUI mutation.
+- `cli_visible` or app-server-visible is not the same as Codex
+  Desktop-visible collaboration. Use `loo_codex_desktop_coherence` before
+  making any Desktop visibility claim.
 
 ## Find Active Codex Sessions
 
@@ -72,6 +75,20 @@ Typical live tools after approval are `loo_codex_resume_thread`,
 `loo_codex_send_message`, `loo_codex_steer_thread`, and
 `loo_codex_interrupt_thread`.
 
+## Check Desktop Coherence
+
+1. Use `loo_codex_app_server_status` and `loo_codex_app_server_threads` for
+   read-only direct/app-server signals.
+2. Use `loo_visible_codex_map` only with public-safe visible metadata; do not
+   select, click, type, refresh, restart, or capture screenshots by default.
+3. Call `loo_codex_desktop_coherence` with the target `thread_id` or
+   `source_ref` and the public-safe map evidence.
+4. Treat `desktop_visible` as a proven visibility state only for the supplied
+   evidence. Treat `cli_visible`, `desktop_refresh_required`,
+   `desktop_restart_required`, and `unknown` as gap states.
+5. If visibility is not proven, route to the desktop fallback lane rather than
+   claiming same-session Desktop collaboration.
+
 ## Recommended Agent Loop
 
 1. `loo_doctor`
@@ -80,9 +97,11 @@ Typical live tools after approval are `loo_codex_resume_thread`,
 4. `loo_codex_plans`, `loo_codex_final_messages`, and
    `loo_codex_touched_files`
 5. `loo_expand_session` or `loo_expand_query` with a 1k budget
-6. Recommend a next action with source refs
-7. If action is requested, run `loo_codex_control_dry_run`
-8. Wait for explicit approval before any live control
+6. Optionally run `loo_codex_desktop_coherence` when the user asks whether the
+   same work is visible in Codex Desktop
+7. Recommend a next action with source refs
+8. If action is requested, run `loo_codex_control_dry_run`
+9. Wait for explicit approval before any live control
 
 ## Public-Safe Output Shape
 

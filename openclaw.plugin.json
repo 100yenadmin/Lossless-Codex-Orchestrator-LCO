@@ -52,6 +52,7 @@
       "loo_codex_app_server_status",
       "loo_codex_app_server_threads",
       "loo_visible_codex_map",
+      "loo_codex_desktop_coherence",
       "loo_plan_state_pins",
       "loo_github_operating_items",
       "loo_project_digest",
@@ -582,6 +583,78 @@
             "app_server_threads": {
               "type": "object",
               "additionalProperties": true
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_desktop_coherence",
+        "description": "Classify whether CLI/direct/app-server Codex thread evidence is also visible in Codex Desktop without performing control or GUI actions.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "thread_id": {
+              "type": "string"
+            },
+            "source_ref": {
+              "type": "string"
+            },
+            "refresh_kind": {
+              "type": "string",
+              "enum": [
+                "none",
+                "desktop_refresh",
+                "desktop_restart"
+              ]
+            },
+            "visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "before_visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "after_visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "action_evidence": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "include_app_server": {
+              "type": "boolean"
+            },
+            "include_visible_snapshot": {
+              "type": "boolean"
+            },
+            "backend": {
+              "type": "string",
+              "enum": [
+                "direct",
+                "cua-driver",
+                "peekaboo"
+              ]
+            },
+            "max_nodes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "max_chars": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20000
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "now": {
+              "type": "string"
             }
           }
         }

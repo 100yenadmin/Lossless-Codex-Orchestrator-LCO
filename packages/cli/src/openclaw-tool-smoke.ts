@@ -22,6 +22,7 @@ export const DEFAULT_REQUIRED_TOOL_CALLS = [
   "loo_codex_app_server_status",
   "loo_codex_app_server_threads",
   "loo_visible_codex_map",
+  "loo_codex_desktop_coherence",
   "loo_plan_state_pins",
   "loo_github_operating_items",
   "loo_project_digest",
@@ -517,6 +518,22 @@ function buildToolArgs(params: {
   if (params.toolName === "loo_codex_app_server_status") return {};
   if (params.toolName === "loo_codex_app_server_threads") return { limit: 5 };
   if (params.toolName === "loo_visible_codex_map") return { limit: 5, include_app_server: true, include_visible_snapshot: false };
+  if (params.toolName === "loo_codex_desktop_coherence") {
+    return {
+      ...(params.threadId ? { thread_id: params.threadId } : {}),
+      limit: 5,
+      include_app_server: true,
+      include_visible_snapshot: false,
+      action_evidence: {
+        action_kind: "codex_app_server",
+        action: "read-only gateway tool smoke",
+        dry_run: true,
+        live: false,
+        evidence_id: "ev_tool_smoke_desktop_coherence"
+      },
+      now: TOOL_SMOKE_NOW
+    };
+  }
   if (params.toolName === "loo_github_operating_items") {
     return {
       github_records: [{

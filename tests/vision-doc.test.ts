@@ -14,7 +14,7 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
 
   for (const heading of [
     "## North Star",
-    "## Current Milestone: 1.0 Stable Promotion Gate",
+    "## Current Milestone: Post-GA Desktop Visibility Proof",
     "## Completed Proof: Working App Runtime",
     "## Primary User Stories",
     "## Orchestrator Product-Management Mode",
@@ -47,6 +47,11 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
     /loo_plan_state_pins/i,
     /loo_github_operating_items/i,
     /loo_business_pulse/i,
+    /loo_codex_desktop_coherence/i,
+    /cli_visible/i,
+    /desktop_visible/i,
+    /desktop_refresh_required/i,
+    /desktop_restart_required/i,
     /P1 source adapters/i,
     /not_configured/i,
     /M9 added/i,
@@ -73,7 +78,10 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
   }
 
   assert.match(readme, /VISION\.md/);
-  assert.match(readme, /## Current Sprint: 1\.0 Stable Release Gate/);
+  assert.match(readme, /## Current Sprint: Post-GA Desktop Visibility Proof/);
+  assert.match(readme, /#307/);
+  assert.match(readme, /#308/);
+  assert.match(readme, /loo_codex_desktop_coherence/);
   assert.match(readme, /brief-lco-codex-autonomy-cockpit-sprint-2026-07-01\.md/);
   assert.match(readme, /What a local OpenClaw agent can do today/i);
   assert.match(readme, /PLAN_STATE\.md/i);
@@ -81,6 +89,7 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
   assert.match(readme, /Completed proof/i);
   assert.doesNotMatch(readme, /## Current Sprint: Working App Proof/);
   assert.doesNotMatch(readme, /## Current Sprint: M9 Agent Handoff Beta Sprint/);
+  assert.doesNotMatch(readme, /## Current Sprint: 1\.0 Stable Release Gate/);
   assert.doesNotMatch(readme, /and first child\s+\[#256\]/i);
   assert.doesNotMatch(vision, /Active hardening continues with[\s\S]*#271[\s\S]*#272/i);
   assert.doesNotMatch(readme, /Working app runtime proof\s*\|\s*Next sprint/i);
