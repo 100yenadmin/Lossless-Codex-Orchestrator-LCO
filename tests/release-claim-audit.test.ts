@@ -55,6 +55,7 @@ test("current release metadata ships desktop proof-action without widening claim
 test("public beta package and README do not overclaim Claude or desktop control", () => {
   const packageJson = JSON.parse(read("package.json")) as { description?: string };
   const readme = read("README.md");
+  const openclawDocs = read("docs/OPENCLAW_PLUGIN.md");
   const plugin = read("packages/openclaw-plugin/src/index.ts");
   const readmePitch = readme.split("## Safety Boundaries")[0] ?? readme;
   const pluginDescription = plugin.match(/description:\s*"([^"]+)"/)?.[1] ?? plugin;
@@ -71,7 +72,8 @@ test("public beta package and README do not overclaim Claude or desktop control"
   assert.match(packageJson.description ?? "", /local Codex sessions/i);
   assert.match(packageJson.description ?? "", /approval-gated/i);
   assert.match(readme, /Claude Code support is an adapter stub/i);
-  assert.match(plugin, /approval-gated controls/i);
+  assert.match(openclawDocs, /approval-gated dry-run/i);
+  assert.match(openclawDocs, /live controls approval-gated/i);
 });
 
 test("public docs include setup, MCP/OpenClaw, demo, and approval-boundary proof", () => {
@@ -812,9 +814,12 @@ function writeProjectSkeleton(rootDir: string, overrides: { readme?: string; run
     "npm install -g lossless-openclaw-orchestrator@latest",
     "loo index codex",
     "loo-mcp-server",
+    "VISION.md",
     "docs/OPENCLAW_PLUGIN.md",
     "docs/PRIVACY.md",
     "docs/CLAIM_AUDIT.md",
+    "docs/RELEASE_NOTES_1.0.0.md",
+    "License",
     "## Safety Boundaries",
     "Core proof commands",
     "loo release preflight",
