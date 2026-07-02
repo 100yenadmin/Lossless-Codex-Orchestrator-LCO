@@ -4,14 +4,22 @@
   "title": "Action-bound desktop collaboration proof",
   "claim_scope": "codex-working-app-proof",
   "proof_mode": "runtime_required",
-  "issue": "#160",
-  "user_task": "Prove one backend-specific desktop collaboration action with approval, no-focus observation, and public-safe proof.",
+  "issue": "#333",
+  "related_issues": [
+    "#160",
+    "#278",
+    "#307",
+    "#308"
+  ],
+  "user_task": "Validate one action-bound Codex Desktop collaboration proof packet before any backend-specific desktop collaboration action is attempted.",
   "surface": "cua-driver-or-peekaboo",
   "required_tools": [
+    "loo_codex_desktop_collaboration_proof",
     "loo_desktop_live_proof_harness",
     "loo_desktop_proof_report"
   ],
   "allowed_tools": [
+    "loo_codex_desktop_collaboration_proof",
     "loo_desktop_live_proof_harness",
     "loo_desktop_proof_report"
   ],
@@ -37,9 +45,12 @@
   ],
   "expected_public_safe_evidence": [
     "desktop backend",
+    "target Codex thread/source ref",
     "target app and window label",
     "action class and action hash",
     "approval ref",
+    "approval packet freshness and source coverage",
+    "execute=false proof harness packet",
     "focus before and after application labels",
     "focusChanged false when no-focus is claimed",
     "rawScreenshotIncluded false",
@@ -47,10 +58,11 @@
   ],
   "metrics": {
     "requires_action_bound_target": true,
+    "requires_approval_packet_bound": true,
     "requires_backend_specific_observation": true,
     "requires_no_focus_measurement": true,
     "max_screenshots_in_public_evidence": 0
   },
-  "proof_boundary": "Proves one named backend/action/target desktop collaboration path only.",
-  "next_action": "When desktop GUI collaboration is claimed, provide this runtime proof marker alongside the desktop GUI approval fixture; otherwise release status must fail closed with desktop_collaboration_proof_missing."
+  "proof_boundary": "Proves one action-bound dry-run contract first, then one named backend/action/target desktop collaboration path only when runtime proof exists.",
+  "next_action": "Run loo_codex_desktop_collaboration_proof before any Desktop collaboration claim. When desktop GUI collaboration is claimed, provide this runtime proof marker alongside the desktop GUI approval fixture; otherwise release status must fail closed with desktop_collaboration_proof_missing."
 }

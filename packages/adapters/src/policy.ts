@@ -105,6 +105,7 @@ export const LOO_COMMAND_POLICY: Record<string, LooCommandSafety> = {
   loo_cockpit_inbox: { mode: "read_only", source: "local_index", requiresApproval: false },
   loo_codex_collaboration_cockpit: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },
   loo_codex_collaboration_next_steps: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },
+  loo_codex_desktop_collaboration_proof: { mode: "read_only", source: "desktop_fallback", requiresApproval: false },
   loo_watchers_list: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },
   loo_watcher_status: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },
   loo_watcher_dry_run: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },

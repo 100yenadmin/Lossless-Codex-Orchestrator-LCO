@@ -314,6 +314,10 @@ if (method === "tools.invoke") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: ${collaborationNextStepsOutputCode} }));
     process.exit(0);
   }
+  if (name === "loo_codex_desktop_collaboration_proof") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.codexDesktopCollaborationProof.v1", publicSafe: true, readOnly: true, ok: true, status: "ready", target: { targetRef: toolArgs.target_ref, targetThreadId: toolArgs.target_thread_id }, actionHash: toolArgs.action_hash, approvalVerified: true, blockers: [], sourceCoverage: { indexedSession: "ok", desktopCoherence: "ok", desktopFallback: "ok", approvalPacket: "ok" }, requiredNextToolCall: { tool: "loo_desktop_live_proof_harness", args: { backend: toolArgs.backend, target_app: toolArgs.target_app, target_window: toolArgs.target_window, action: toolArgs.action, approval_ref: toolArgs.approval_packet?.approvalRef }, execute: false }, actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false } } }));
+    process.exit(0);
+  }
   if (name === "loo_watchers_list" || name === "loo_watcher_status") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, watchers: [{ watchId: "watch_tool_smoke_checks", targetRef: "codex_thread:thread-1", status: "triggered", mutates: false, reasonCodes: ["watcher_triggered"] }], summary: { triggered: 1 } } }));
     process.exit(0);
@@ -759,6 +763,48 @@ test("OpenClaw tool smoke fails closed for unsafe collaboration next-step output
     assert.equal(report.ok, false);
     assert.ok(report.blockers.includes("collaboration_next_step_ready_missing_tool_call"));
     assert.ok(report.blockers.includes("collaboration_next_steps_restricted_action"));
+    assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /super-secret-transcript-span/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke invokes action-bound Codex Desktop collaboration proof through the gateway surface", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-codex-desktop-proof-"));
+  const evidencePath = join(dir, "tool-smoke.json");
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_codex_desktop_collaboration_proof"]);
+
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      profile: "lco-issue-333",
+      sessionKey: "agent:main:lco-issue-333",
+      evidencePath,
+      requiredTools: ["loo_codex_desktop_collaboration_proof"],
+      threadId: "thread-1",
+      strict: true
+    });
+
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.deepEqual(report.blockers, []);
+    assert.equal(report.invocations[0]?.toolName, "loo_codex_desktop_collaboration_proof");
+    assert.equal(report.invocations[0]?.summary.proofStatus, "ready");
+    assert.equal(report.invocations[0]?.summary.approvalVerified, true);
+    assert.match(report.invocations[0]?.summary.actionHash ?? "", /^[a-f0-9]{64}$/);
+    assert.equal(report.invocations[0]?.summary.nextToolCall?.tool, "loo_desktop_live_proof_harness");
+    assert.equal(report.invocations[0]?.summary.nextToolCall?.execute, false);
+
+    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { method: string; params: { name?: string; args?: Record<string, any> } });
+    const invoke = calls.find((call) => call.method === "tools.invoke" && call.params.name === "loo_codex_desktop_collaboration_proof");
+    assert.equal(invoke?.params.args?.target_ref, "codex_thread:thread-1");
+    assert.equal(invoke?.params.args?.target_thread_id, "thread-1");
+    assert.equal(invoke?.params.args?.backend, "cua-driver");
+    assert.equal(invoke?.params.args?.target_app, "Codex");
+    assert.equal(invoke?.params.args?.action, "verify_visible_thread_alignment");
+    assert.equal(invoke?.params.args?.approval_packet?.focusPolicy?.screenshotAllowed, false);
     assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /super-secret-transcript-span/);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;

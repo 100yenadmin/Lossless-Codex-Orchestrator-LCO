@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute } from "node:path";
 
@@ -17,6 +17,7 @@ export const DEFAULT_REQUIRED_TOOL_CALLS = [
   "loo_cockpit_inbox",
   "loo_codex_collaboration_cockpit",
   "loo_codex_collaboration_next_steps",
+  "loo_codex_desktop_collaboration_proof",
   "loo_watchers_list",
   "loo_watcher_status",
   "loo_watcher_dry_run",
@@ -70,12 +71,21 @@ export type OpenClawToolInvocationSummary = {
     fallbackReason?: string;
     toolBlockers?: string[];
     nextToolCall?: {
-      tool: "loo_codex_desktop_coherence";
+      tool: "loo_codex_desktop_coherence" | "loo_desktop_live_proof_harness";
       args: {
         thread_id?: string;
         source_ref?: string;
+        backend?: string;
+        target_app?: string;
+        target_window?: string;
+        action?: string;
+        approval_ref?: string;
       };
+      execute?: false;
     };
+    proofStatus?: string;
+    approvalVerified?: boolean;
+    actionHash?: string;
   };
   blockers: string[];
 };
@@ -523,6 +533,9 @@ function buildToolArgs(params: {
   if (params.toolName === "loo_codex_collaboration_cockpit" || params.toolName === "loo_codex_collaboration_next_steps") {
     return smokeCollaborationFixtureArgs(params.threadId);
   }
+  if (params.toolName === "loo_codex_desktop_collaboration_proof") {
+    return smokeCodexDesktopCollaborationProofArgs(params.threadId);
+  }
   if (params.toolName === "loo_watchers_list" || params.toolName === "loo_watcher_dry_run") {
     return { watcher_specs: smokeWatcherSpecs(params.threadId), now: TOOL_SMOKE_NOW };
   }
@@ -688,6 +701,58 @@ function smokeDesktopFallbackReport(threadId?: string): Record<string, unknown> 
   };
 }
 
+function smokeCodexDesktopCollaborationProofArgs(threadId?: string): Record<string, unknown> {
+  const targetRef = smokeCodexThreadRef(threadId);
+  const targetThreadId = smokeBareThreadId(threadId);
+  const backend = "cua-driver";
+  const targetApp = "Codex";
+  const targetWindow = "Lossless OpenClaw Orchestrator";
+  const action = "verify_visible_thread_alignment";
+  const actionHash = createHash("sha256").update(JSON.stringify({
+    targetRef,
+    desktopBackend: backend,
+    targetApp,
+    targetWindow,
+    action
+  })).digest("hex");
+  return {
+    target_ref: targetRef,
+    target_thread_id: targetThreadId,
+    backend,
+    target_app: targetApp,
+    target_window: targetWindow,
+    action,
+    action_hash: actionHash,
+    approval_packet: {
+      schema: "lco.codexDesktopCollaborationProofApproval.v1",
+      approvalRef: "tool-smoke-action-bound-proof",
+      approved: true,
+      targetRef,
+      targetThreadId,
+      desktopBackend: backend,
+      targetApp,
+      targetWindow,
+      action,
+      actionHash,
+      issuedAt: "2026-07-01T11:55:00.000Z",
+      expiresAt: "2999-01-01T00:00:00.000Z",
+      preconditions: ["desktop_coherence_desktop_visible", "fallback_backend_ready", "no_screenshot_policy"],
+      sourceCoverage: {
+        indexedSession: "ok",
+        desktopCoherence: "ok",
+        desktopFallback: "ok",
+        approvalPacket: "ok"
+      },
+      focusPolicy: {
+        screenshotAllowed: false,
+        requireNoFocusSteal: true
+      }
+    },
+    execute: false,
+    now: TOOL_SMOKE_NOW
+  };
+}
+
 function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenClawToolInvocationSummary {
   const payload = call.parsed ? unwrapGatewayPayload(call.parsed) : undefined;
   const blockers = [
@@ -783,6 +848,29 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
       blockers.push("collaboration_next_steps_restricted_action");
     }
   }
+  if (toolName === "loo_codex_desktop_collaboration_proof") {
+    const proofOutput = details ?? output;
+    const status = stringPath(proofOutput, ["status"]);
+    const actionHash = stringPath(proofOutput, ["actionHash"]) || stringPath(proofOutput, ["action_hash"]);
+    const nextToolCall = publicSafeCollaborationProofNextToolCall(isRecord(proofOutput) ? proofOutput.requiredNextToolCall : undefined);
+    summary.proofStatus = status;
+    summary.approvalVerified = booleanPath(proofOutput, ["approvalVerified"]);
+    if (actionHash && /^[a-f0-9]{64}$/i.test(actionHash)) summary.actionHash = actionHash;
+    if (nextToolCall) summary.nextToolCall = nextToolCall;
+    if (status !== "ready" && status !== "blocked") blockers.push("desktop_collaboration_proof_invalid_status");
+    if (status === "ready" && !nextToolCall) blockers.push("desktop_collaboration_proof_next_tool_missing");
+    if (status === "ready" && nextToolCall?.execute !== false) blockers.push("desktop_collaboration_proof_next_tool_execute_not_false");
+    const actions = isRecord(proofOutput) && isRecord(proofOutput.actionsPerformed) ? proofOutput.actionsPerformed : null;
+    if (
+      !actions ||
+      actions.liveCodexControlRun !== false ||
+      actions.desktopGuiActionRun !== false ||
+      actions.rawTranscriptRead !== false ||
+      actions.screenshotCaptured !== false
+    ) {
+      blockers.push("desktop_collaboration_proof_restricted_action");
+    }
+  }
 
   return {
     toolName,
@@ -814,6 +902,30 @@ function publicSafeFallbackNextToolCall(value: unknown): OpenClawToolInvocationS
   if (threadId && /^[A-Za-z0-9._:-]+$/.test(threadId)) safeArgs.thread_id = threadId;
   if (sourceRef && /^codex_thread:[A-Za-z0-9._:-]+$/.test(sourceRef)) safeArgs.source_ref = sourceRef;
   return { tool: "loo_codex_desktop_coherence", args: safeArgs };
+}
+
+function publicSafeCollaborationProofNextToolCall(value: unknown): OpenClawToolInvocationSummary["summary"]["nextToolCall"] | undefined {
+  if (!isRecord(value)) return undefined;
+  if (stringPath(value, ["tool"]) !== "loo_desktop_live_proof_harness") return undefined;
+  const args = isRecord(value.args) ? value.args : {};
+  const backend = stringPath(args, ["backend"]);
+  const targetApp = stringPath(args, ["target_app"]);
+  const targetWindow = stringPath(args, ["target_window"]);
+  const action = stringPath(args, ["action"]);
+  const approvalRef = stringPath(args, ["approval_ref"]);
+  if (!backend || !/^(cua-driver|peekaboo)$/.test(backend)) return undefined;
+  if (!targetApp || !targetWindow || !action || !approvalRef) return undefined;
+  return {
+    tool: "loo_desktop_live_proof_harness",
+    args: {
+      backend,
+      target_app: targetApp.slice(0, 120),
+      target_window: targetWindow.slice(0, 160),
+      action: action.slice(0, 160),
+      approval_ref: approvalRef.slice(0, 160)
+    },
+    execute: value.execute === false ? false : undefined
+  };
 }
 
 function gatewayFailureBlockers(call: GatewayCallResult, fallback: string, toolName?: string): string[] {

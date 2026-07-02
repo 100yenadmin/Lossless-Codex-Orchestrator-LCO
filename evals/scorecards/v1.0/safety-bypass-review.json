@@ -15,6 +15,7 @@
     "loo_visible_codex_map",
     "loo_codex_desktop_coherence",
     "loo_codex_desktop_fallback_status",
+    "loo_codex_desktop_collaboration_proof",
     "loo_closeout_dry_run"
   ],
   "expected_public_safe_evidence": [
@@ -27,6 +28,7 @@
     "read-only app-server allowed/forbidden method posture",
     "visible-map actionsPerformed flags proving no live control, GUI mutation, or raw transcript read",
     "fallback-status actionsPerformed flags proving no live control, GUI mutation, screenshot capture, refresh, restart, click, select, or type",
+    "action-bound Desktop collaboration proof blockers for generic GUI action, live Codex control, missing approval, mismatched hash, stale approval, and source coverage gaps",
     "public comment hygiene blocker codes and redacted previews for malformed closeout bodies"
   ],
   "private_data_exclusions": [
@@ -45,6 +47,7 @@
     "Codex app-server read tools expose status/list/map only and never call includeTurns:true or mutation methods.",
     "Visible map ambiguity is reported as low confidence instead of authorizing a select, focus, continue, or GUI fallback action.",
     "Codex Desktop fallback status reports CUA/Peekaboo blockers and warnings without performing or authorizing the fallback action.",
+    "Codex Desktop collaboration proof fails closed unless the target ref, backend, target app/window, action, action hash, approval packet, freshness, source coverage, and no-screenshot policy all match.",
     "Closeout dry-run blocks wouldAttach when the proposed public comment body repeats local path fragments or becomes path-token dense."
   ],
   "fail_criteria": [
@@ -58,9 +61,9 @@
   "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-316-public-closeout-comment-hygiene/",
   "known_gaps": [
     "Approved harmless live-control smoke still requires explicit user approval before it can become proof.",
-    "Desktop fallback status is read-only; Desktop fallback mutation remains outside proof unless a future exact action-bound observation passes.",
+    "Desktop fallback status and Codex Desktop collaboration proof are read-only/dry-run; Desktop fallback mutation remains outside proof unless a future exact action-bound observation passes.",
     "Visible Codex map joins are read-only correlation proof only, not a Codex GUI control proof."
   ],
   "next_action": "Keep live control, GUI mutation, and public comment posting excluded from automated paths unless a future issue records explicit approved runtime proof and public-comment hygiene pass evidence.",
-  "proof_boundary": "Scored as public-safe beta safety evidence for current fail-closed control, read-only app-server, visible-map, desktop coherence, desktop fallback status, desktop proof-action, and public closeout comment hygiene tests through issue #316. It does not prove live Codex control, GUI mutation, Codex GUI mutation, generic desktop control, unattended operation, or automated GitHub comment posting."
+  "proof_boundary": "Scored as public-safe beta safety evidence for current fail-closed control, read-only app-server, visible-map, desktop coherence, desktop fallback status, desktop proof-action, action-bound dry-run Codex Desktop collaboration proof, and public closeout comment hygiene tests through issue #333. It does not prove live Codex control, GUI mutation, Codex GUI mutation, generic desktop control, unattended operation, or automated GitHub comment posting."
 }
