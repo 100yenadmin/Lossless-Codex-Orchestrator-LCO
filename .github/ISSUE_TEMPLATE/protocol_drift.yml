@@ -1,0 +1,55 @@
+name: Protocol drift
+description: Report Codex, Claude Code, CUA, Peekaboo, or OpenClaw API drift.
+title: "[Protocol]: "
+labels:
+  - protocol-drift
+body:
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - Codex app-server/MCP
+        - Codex session storage
+        - OpenClaw plugin/gateway
+        - CUA Driver
+        - Peekaboo
+        - Claude adapter stub
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: Codex commit, app version, package version, or CLI version
+    validations:
+      required: true
+  - type: textarea
+    id: drift
+    attributes:
+      label: Drift observed
+      description: What changed? Include sanitized method names, fields, status codes, or schema changes.
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: What LCO workflow or proof gate is affected?
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility_gate
+    attributes:
+      label: Suggested compatibility gate
+      description: Test, smoke, fixture, or doctor check that would catch this drift next time.
+    validations:
+      required: true
+  - type: checkboxes
+    id: redaction
+    attributes:
+      label: Redaction check
+      options:
+        - label: This report is public-safe and contains no secrets, raw transcripts, private DBs, or customer data.
+          required: true

@@ -82,6 +82,7 @@ const REQUIRED_SCORECARD_NAMES = [
   "local-mac-search-ui-review",
   "orchestrator-leverage-prioritization",
   "packaging-install-review",
+  "public-community-readiness-review",
   "public-claim-review",
   "retrieval-quality-review",
   "safety-bypass-review",

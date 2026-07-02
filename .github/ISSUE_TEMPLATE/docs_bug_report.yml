@@ -1,0 +1,49 @@
+name: Docs bug report
+description: Report missing, stale, incorrect, or contradictory documentation.
+title: "[Docs]: "
+labels:
+  - bug
+  - documentation
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One sentence describing the docs problem.
+    validations:
+      required: true
+  - type: input
+    id: path
+    attributes:
+      label: Affected docs path or URL
+      placeholder: docs/SETUP.md
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: Current docs behavior
+      description: What does the current doc say or fail to say?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected docs behavior
+      description: What should the doc say instead?
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: User or agent impact
+      description: Explain how this blocks setup, contribution, safe operation, or proof.
+    validations:
+      required: true
+  - type: checkboxes
+    id: public_safe
+    attributes:
+      label: Public-safe check
+      options:
+        - label: This report contains no secrets, private transcripts, private DBs, or customer data.
+          required: true

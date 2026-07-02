@@ -15,6 +15,7 @@ const expectedScorecards = [
   "orchestrator-leverage-prioritization",
   "packaging-install-review",
   "public-claim-review",
+  "public-community-readiness-review",
   "retrieval-quality-review",
   "safety-bypass-review",
   "working-app-runtime-proof-review"
