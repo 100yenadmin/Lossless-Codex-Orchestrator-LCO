@@ -1372,6 +1372,93 @@ test("Codex collaboration cockpit summarizes attention and Desktop fallback read
   });
 });
 
+test("Codex collaboration cockpit does not count stale Desktop reports as active-lane coverage", () => {
+  withIndexedSessions(() => ({
+    fixtures: [{
+      id: "019f-collab-active-only",
+      title: "Active lane without Desktop evidence",
+      status: "running",
+      priority: "high",
+      nextAction: "inspect active lane",
+      updatedAt: relativeIso(4),
+      refs: true
+    }]
+  }), ({ db }) => {
+    const report = createCodexCollaborationCockpit(db, {
+      limit: 5,
+      now: "2026-07-02T00:00:00.000Z",
+      desktopCoherenceReports: [{
+        schema: "lco.codexDesktopCoherence.v1",
+        publicSafe: true,
+        target: { threadId: "019f-stale-other-thread", sourceRef: "codex_thread:019f-stale-other-thread" },
+        state: "desktop_visible",
+        confidence: 0.9,
+        evidenceIds: ["ev_stale_desktop"],
+        actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
+      }]
+    });
+
+    assert.equal(report.sourceCoverage.desktopCoherence, "partial");
+    const lane = report.lanes.find((item) => item.threadId === "codex_thread:019f-collab-active-only");
+    assert.ok(lane);
+    assert.equal(lane.desktop.sourceCoverage.desktopCoherence, "partial");
+    assert.deepEqual(lane.desktop.evidenceIds, []);
+  });
+});
+
+test("Codex collaboration cockpit treats unknown Desktop proof as fallback-required and ignores negated approval notes", () => {
+  withIndexedSessions(() => ({
+    fixtures: [
+      {
+        id: "019f-collab-unknown-desktop",
+        title: "Unknown Desktop lane",
+        status: "running",
+        priority: "high",
+        nextAction: "inspect Desktop visibility",
+        updatedAt: relativeIso(4),
+        refs: true
+      },
+      {
+        id: "019f-collab-no-approval",
+        title: "No approval needed lane",
+        status: "running",
+        priority: "medium",
+        nextAction: "no approval required; keep watching",
+        updatedAt: relativeIso(8),
+        refs: true
+      }
+    ]
+  }), ({ db }) => {
+    const report = createCodexCollaborationCockpit(db, {
+      limit: 5,
+      now: "2026-07-02T00:00:00.000Z",
+      desktopCoherenceReports: [{
+        schema: "lco.codexDesktopCoherence.v1",
+        publicSafe: true,
+        target: { threadId: "019f-collab-unknown-desktop", sourceRef: "codex_thread:019f-collab-unknown-desktop" },
+        state: "unknown",
+        confidence: 0.45,
+        evidenceIds: ["ev_unknown_desktop"],
+        actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
+      }]
+    });
+
+    assert.equal(report.summary.fallbackRequired, 1);
+    assert.equal(report.summary.needsApproval, 0);
+
+    const unknownLane = report.lanes.find((item) => item.threadId === "codex_thread:019f-collab-unknown-desktop");
+    assert.ok(unknownLane);
+    assert.equal(unknownLane.desktop.state, "unknown");
+    assert.equal(unknownLane.desktop.requiresFallback, true);
+    assert.equal(unknownLane.desktop.reasonCodes.includes("desktop_fallback_required"), true);
+
+    const noApprovalLane = report.lanes.find((item) => item.threadId === "codex_thread:019f-collab-no-approval");
+    assert.ok(noApprovalLane);
+    assert.equal(noApprovalLane.nextAction.reason.includes("approval"), true);
+    assert.equal(noApprovalLane.reasonCodes.includes("approval_needed"), false);
+  });
+});
+
 type IndexedSessionContext = {
   db: LooDatabase;
   root: string;

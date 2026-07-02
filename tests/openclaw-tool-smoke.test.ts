@@ -712,6 +712,14 @@ test("OpenClaw tool smoke invokes collaboration cockpit through the gateway surf
     assert.equal(report.invocations[0]?.toolName, "loo_codex_collaboration_cockpit");
     assert.equal(report.invocations[0]?.summary.count, 1);
     assert.equal(report.invocations[0]?.summary.threadId, "codex_thread:thread-1");
+    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { method: string; params: { name?: string; args?: Record<string, unknown> } });
+    const invoke = calls.find((call) => call.method === "tools.invoke" && call.params.name === "loo_codex_collaboration_cockpit");
+    assert.ok(invoke);
+    assert.equal(Array.isArray(invoke.params.args?.watcher_specs), true);
+    assert.equal(Array.isArray(invoke.params.args?.desktop_coherence_reports), true);
+    assert.equal(Array.isArray(invoke.params.args?.desktop_fallback_reports), true);
+    assert.equal((invoke.params.args?.desktop_coherence_reports as Array<{ target?: { threadId?: string } }>)[0]?.target?.threadId, "thread-1");
+    assert.equal((invoke.params.args?.desktop_fallback_reports as Array<{ target?: { threadId?: string } }>)[0]?.target?.threadId, "thread-1");
     assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /super-secret-transcript-span/);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;

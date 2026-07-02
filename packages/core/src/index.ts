@@ -2054,13 +2054,16 @@ export function createCodexCollaborationCockpit(db: LooDatabase, options: CodexC
   const inboxByThread = new Map(inbox.items.map((item) => [item.card.threadId, item]));
   const coherenceByThread = collaborationReportsByThread(options.desktopCoherenceReports ?? []);
   const fallbackByThread = collaborationReportsByThread(options.desktopFallbackReports ?? []);
+  const activeThreadRefs = new Set(recent.cards.map((card) => card.threadId));
+  const desktopCoherenceCoverage = collaborationCoverage(options.desktopCoherenceReports, collaborationJoinedReportCount(coherenceByThread, activeThreadRefs));
+  const desktopFallbackCoverage = collaborationCoverage(options.desktopFallbackReports, collaborationJoinedReportCount(fallbackByThread, activeThreadRefs));
   const lanes = recent.cards
     .map((card) => collaborationLane(card, {
       inboxItem: inboxByThread.get(card.threadId) ?? null,
       coherence: coherenceByThread.get(card.threadId) ?? null,
       fallback: fallbackByThread.get(card.threadId) ?? null,
-      desktopCoherenceCoverage: collaborationCoverage(options.desktopCoherenceReports, coherenceByThread.size),
-      desktopFallbackCoverage: collaborationCoverage(options.desktopFallbackReports, fallbackByThread.size)
+      desktopCoherenceCoverage,
+      desktopFallbackCoverage
     }))
     .sort(collaborationLaneComparator);
   const selected = lanes.slice(0, limit);
@@ -2085,8 +2088,8 @@ export function createCodexCollaborationCockpit(db: LooDatabase, options: CodexC
     sourceCoverage: {
       recentSessions: recent.summary.total > 0 ? "ok" : "partial",
       cockpitInbox: inbox.summary.totalCards > 0 ? "ok" : "partial",
-      desktopCoherence: collaborationCoverage(options.desktopCoherenceReports, coherenceByThread.size),
-      desktopFallback: collaborationCoverage(options.desktopFallbackReports, fallbackByThread.size)
+      desktopCoherence: desktopCoherenceCoverage,
+      desktopFallback: desktopFallbackCoverage
     },
     lanes: selected,
     omitted: {
@@ -2150,7 +2153,7 @@ function collaborationDesktopState(input: {
   const coherenceConfidence = collaborationNumber(coherence?.confidence);
   const fallbackRequired = typeof fallbackDetails?.required === "boolean"
     ? fallbackDetails.required
-    : ["cli_visible", "desktop_refresh_required", "desktop_restart_required"].includes(coherenceState ?? "");
+    : collaborationCoherenceRequiresFallback(Boolean(coherence), coherenceState);
   const fallbackReason = collaborationString(fallbackDetails?.reason, 120);
   const preferredBackend = fallback && collaborationString(fallback.preferredBackend, 40) === "cua-driver" ? "cua-driver" : null;
   const backendRecords = Array.isArray(fallback?.backends)
@@ -2228,6 +2231,15 @@ function collaborationCoverage(reports: unknown[] | undefined, matchedCount: num
   return matchedCount === reports.length ? "ok" : "partial";
 }
 
+function collaborationJoinedReportCount(reportsByThread: Map<string, Record<string, unknown>>, activeThreadRefs: Set<string>): number {
+  return [...reportsByThread.keys()].filter((threadRef) => activeThreadRefs.has(threadRef)).length;
+}
+
+function collaborationCoherenceRequiresFallback(hasCoherence: boolean, coherenceState: string | null): boolean {
+  if (!hasCoherence) return false;
+  return coherenceState !== "desktop_visible";
+}
+
 function collaborationAttentionLevel(urgencyScore: number, reasonCodes: string[]): OperatingUrgency {
   if (reasonCodes.includes("watcher_triggered") || urgencyScore >= 90) return "critical";
   if (urgencyScore >= 70) return "high";
@@ -2239,7 +2251,22 @@ function collaborationLaneNeedsApproval(lane: CodexCollaborationCockpitLane): bo
   return lane.sessionState === "needs_approval"
     || lane.reasonCodes.includes("approval_needed")
     || lane.nextAction.kind === "approve"
-    || normalizedMetadataValue(lane.nextAction.reason).includes("approval");
+    || collaborationReasonRequestsApproval(lane.nextAction.reason);
+}
+
+function collaborationReasonRequestsApproval(reason: string): boolean {
+  const normalized = normalizedMetadataValue(reason);
+  if (!normalized.includes("approval")) return false;
+  if (
+    /\bno approval\b/.test(normalized) ||
+    /\bapproval (?:not |is not |isnt )?(?:needed|required)\b/.test(normalized) ||
+    /\bdoes not require approval\b/.test(normalized) ||
+    /\bwithout approval\b/.test(normalized) ||
+    /\bapproval optional\b/.test(normalized)
+  ) {
+    return false;
+  }
+  return true;
 }
 
 function collaborationDesktopReasonCodes(coherence: Record<string, unknown> | null, fallback: Record<string, unknown> | null): string[] {
