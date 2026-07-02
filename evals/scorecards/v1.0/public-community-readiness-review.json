@@ -1,0 +1,58 @@
+{
+  "scorecard_version": "1.0",
+  "claim_class": "release_ready",
+  "scenario": "A new GitHub visitor, contributor, or coding agent can understand the product, install it, find the right contribution path, file useful public-safe issues, and open reviewable PRs without reading private sprint history.",
+  "surface": "public GitHub repository",
+  "command_or_tool": [
+    "README.md",
+    "CONTRIBUTING.md",
+    "AGENTS.md",
+    "CODE_OF_CONDUCT.md",
+    "SECURITY.md",
+    ".github/ISSUE_TEMPLATE/*.yml",
+    ".github/PULL_REQUEST_TEMPLATE.md",
+    "tests/public-community-funnel.test.ts"
+  ],
+  "expected_public_safe_evidence": [
+    "README links setup, contributing, agent instructions, security, code of conduct, privacy, and claim audit",
+    "CONTRIBUTING explains issue routing, local setup, validation, evidence, agent-authored PRs, review threads, and safety boundaries",
+    "AGENTS includes a repository-agent first-read checklist",
+    "structured issue forms require repro, impact, safety, and redaction fields",
+    "PR template asks for problem, user impact, validation, safety boundary, evidence, and agent-authored disclosure",
+    "package files include public contributor and agent docs",
+    "scorecard and tests fail if the community funnel regresses"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "raw prompts or message text",
+    "SQLite DBs",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data"
+  ],
+  "pass_criteria": [
+    "README gives a first-screen product promise, setup link, contribution link, agent link, and safety boundary without fake popularity claims.",
+    "CONTRIBUTING gives humans and agents a clear path for setup, issue routing, PR validation, evidence, review-thread handling, and safe contribution scope.",
+    "AGENTS gives coding agents a concise first-read checklist before implementation.",
+    "GitHub issue templates are structured forms for bug, docs bug, feature, adapter, protocol drift, and unsafe-control reports.",
+    "Issue and PR templates require public-safe evidence and redaction checks.",
+    "CODE_OF_CONDUCT and SECURITY exist and route conduct versus vulnerability reports separately.",
+    "The package includes README, CONTRIBUTING, AGENTS, CODE_OF_CONDUCT, SECURITY, LICENSE, docs, skills, and evals.",
+    "The public community funnel does not overclaim unsupported adapter parity, hosted synchronization, unattended control, permission bypass, generic GUI mutation, enterprise/customer readiness, or fake stars."
+  ],
+  "fail_criteria": [
+    "README buries setup or contribution paths behind internal sprint history.",
+    "Contributors cannot tell which issue form to use.",
+    "Agent-authored PRs lack instructions for issue linkage, validation, evidence, or review-thread cleanup.",
+    "Public issue templates invite raw transcripts, tokens, credentials, private DBs, screenshots with private data, or customer data.",
+    "Repo docs claim star growth, trending status, unsupported adapter parity, hosted synchronization, unattended control, generic GUI mutation, or enterprise/customer readiness without proof."
+  ],
+  "current_score": "pass",
+  "evidence_path": "evidence/YYYY-MM-DD/issue-<number>-public-community-funnel/",
+  "known_gaps": [
+    "This scorecard proves repository-readiness surfaces only; it does not prove actual star growth, GitHub Trending placement, social distribution, support capacity, stable 1.0 readiness, npm latest promotion, or customer readiness.",
+    "Repository metadata such as GitHub description and topics still require owner/admin update outside the file diff when wording changes."
+  ],
+  "next_action": "Run the public-community-funnel test and scorecard sweep before claiming GA docs or contributor readiness.",
+  "proof_boundary": "This proves public-safe GitHub community-funnel readiness for docs, issue forms, PR templates, and agent contribution routing only; it does not prove star growth, GitHub Trending placement, social reach, stable release, npm publish, live Codex control, GUI mutation, adapter parity, or customer readiness."
+}

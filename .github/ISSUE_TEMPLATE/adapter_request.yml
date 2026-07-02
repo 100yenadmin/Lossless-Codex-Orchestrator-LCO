@@ -1,0 +1,55 @@
+name: Adapter request
+description: Request or scope a new app/session adapter.
+title: "[Adapter]: "
+labels:
+  - adapter
+body:
+  - type: input
+    id: target
+    attributes:
+      label: Target app or runtime
+      placeholder: Claude Code Desktop, another Codex store, etc.
+    validations:
+      required: true
+  - type: textarea
+    id: read_path
+    attributes:
+      label: Read/index capability needed
+      description: What session metadata should LCO read, and from where?
+    validations:
+      required: true
+  - type: textarea
+    id: control_path
+    attributes:
+      label: Control capability requested
+      description: Describe the desired control behavior and why dry-run/approval is enough or not enough.
+    validations:
+      required: true
+  - type: textarea
+    id: protocol
+    attributes:
+      label: Known local storage or protocol
+      description: File paths, APIs, protocol docs, or local app-server behavior. Redact private paths and secrets.
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Safety notes
+      description: Approval boundaries, privacy risks, expected public-safe evidence, and stop conditions.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence_available
+    attributes:
+      label: Evidence available
+      description: Public-safe fixtures, docs, commands, logs, screenshots, or runtime proof that can be used to evaluate this adapter. Redact private paths and secrets.
+    validations:
+      required: true
+  - type: checkboxes
+    id: public_safe
+    attributes:
+      label: Public-safe check
+      options:
+        - label: I did not include raw transcripts, tokens, credentials, cookies, connector URLs, or customer data.
+          required: true

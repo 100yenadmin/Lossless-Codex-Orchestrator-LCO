@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/security/advisories/new
+    about: Report vulnerabilities privately. Do not post secrets or exploit details publicly.
+  - name: Setup guide
+    url: https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/blob/main/docs/SETUP.md
+    about: Check install, OpenClaw, MCP, and troubleshooting instructions before filing setup issues.

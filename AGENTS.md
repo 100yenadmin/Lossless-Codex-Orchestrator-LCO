@@ -1,5 +1,23 @@
 # LCO Agent Instructions
 
+## Repository Agent Quick Start
+
+If you are a coding agent working in this repository:
+
+1. Read README.md for the public product promise and proof boundary.
+2. Read CONTRIBUTING.md for issue routing, validation, evidence, and PR
+   expectations.
+3. Read docs/SETUP.md before changing install, OpenClaw, MCP, or first-run
+   behavior.
+4. Read SECURITY.md before touching vulnerability reporting, secrets, auth,
+   control, or private-data handling.
+5. Create or reuse a GitHub issue before meaningful implementation work.
+6. Write or update a failing test, smoke, or eval scenario before the minimal
+   implementation.
+7. Do not commit raw transcripts, private SQLite DBs, screenshots with private
+   data, tokens, cookies, connector URLs, or credentials.
+8. Update the issue before handoff, merge, pause, or external-review wait.
+
 ## Shared Owned-Repo Policy
 
 - Use `100yenadmin/codex-operating-kit` for the shared issue/epic/milestone/sprint policy, PR review-thread lifecycle, and release changelog standard.

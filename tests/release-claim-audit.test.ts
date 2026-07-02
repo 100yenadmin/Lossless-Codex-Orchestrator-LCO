@@ -408,7 +408,7 @@ test("OpenClaw plugin manifest is packageable and matches the beta safety bounda
     "Full Claude Code parity",
     "cloud sync",
     "unattended desktop takeover",
-    "bypasses Codex permissions"
+    "permission bypass"
   ]);
 });
 
@@ -690,7 +690,7 @@ test("release preflight README gate enforces the full forbidden-claims boundary"
       "Full Claude Code parity",
       "cloud sync",
       "unattended desktop takeover",
-      "bypasses Codex permissions"
+      "permission bypass"
     ].join("\n")
   });
 
@@ -814,6 +814,10 @@ function writeProjectSkeleton(rootDir: string, overrides: { readme?: string; run
     "npm install -g lossless-openclaw-orchestrator@latest",
     "loo index codex",
     "loo-mcp-server",
+    "CONTRIBUTING.md",
+    "AGENTS.md",
+    "CODE_OF_CONDUCT.md",
+    "SECURITY.md",
     "VISION.md",
     "docs/OPENCLAW_PLUGIN.md",
     "docs/PRIVACY.md",
@@ -856,7 +860,7 @@ function writeProjectSkeleton(rootDir: string, overrides: { readme?: string; run
         "Full Claude Code parity",
         "cloud sync",
         "unattended desktop takeover",
-        "bypasses Codex permissions"
+        "permission bypass"
       ]
     }
   });
