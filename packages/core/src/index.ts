@@ -138,6 +138,65 @@ export type ClaudeSessionInventoryDescription = {
   sourceRefs: string[];
 };
 
+export type PublicCommentHygieneStatus = "pass" | "warning" | "blocked";
+
+export type PublicCommentHygieneCode =
+  | "absolute_path_prefix_repeated"
+  | "path_fragment_repeated"
+  | "path_token_density_high"
+  | "public_reference_missing"
+  | "human_summary_too_short";
+
+export type PublicCommentHygieneFinding = {
+  code: PublicCommentHygieneCode;
+  severity: "blocker" | "warning";
+  count: number;
+  threshold: number;
+  detail: string;
+  sample: string | null;
+  publicSafe: true;
+};
+
+export type PublicCommentHygieneReport = {
+  schema: "lco.publicCommentHygiene.v1";
+  ok: boolean;
+  status: PublicCommentHygieneStatus;
+  publicSafe: true;
+  generatedAt: string;
+  bodyHash: string;
+  summary: string;
+  blockers: PublicCommentHygieneCode[];
+  warnings: PublicCommentHygieneCode[];
+  findings: PublicCommentHygieneFinding[];
+  redactedPreview: string;
+  metrics: {
+    characters: number;
+    words: number;
+    absolutePathPrefixCount: number;
+    pathTokenCount: number;
+    pathTokenDensity: number;
+  };
+  actionsPerformed: {
+    githubWrite: false;
+    liveControl: false;
+    guiMutation: false;
+    rawTranscriptRead: false;
+    npmPublish: false;
+    githubRelease: false;
+  };
+  proofBoundary: string;
+};
+
+export type PublicCommentHygieneOptions = {
+  now?: string;
+  maxAbsolutePathPrefixRepeats?: number;
+  maxRepeatedPathFragmentCount?: number;
+  maxPathTokenDensity?: number;
+  minHumanReadableWords?: number;
+  requireIssueOrPrRef?: boolean;
+  maxPreviewChars?: number;
+};
+
 export type CloseoutEnvelopeState = "ready" | "partial" | "unavailable";
 
 export type CloseoutEnvelopeCandidate = {
@@ -151,6 +210,7 @@ export type CloseoutEnvelopeCandidate = {
   missingFields: string[];
   warnings: string[];
   closeoutEnvelopeCount: number;
+  publicCommentHygiene: PublicCommentHygieneReport | null;
   publicSafe: true;
 };
 
@@ -4362,6 +4422,132 @@ export function createIndexedSessionSanitizerRepairPlan(report: IndexedSessionSa
   };
 }
 
+const PUBLIC_COMMENT_PATH_PREFIX_PATTERN = /\/Volumes\/|\/Users\/|\/home\/|\/root\/|\/tmp\/|\/private\/tmp\/|\/var\/folders\/|~\/\.codex\//g;
+const PUBLIC_COMMENT_PATH_TOKEN_PATTERN = /(?:\/Volumes|\/Users|\/home|\/root|\/tmp|\/private\/tmp|\/var\/folders|~\/\.codex)\/(?:(?!(?:\/Volumes|\/Users|\/home|\/root|\/tmp|\/private\/tmp|\/var\/folders|~\/\.codex)\/)[^\s"'`<>\])}])+/g;
+const PUBLIC_COMMENT_REFERENCE_PATTERN = /(?:#\d+|https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/(?:issues|pull)\/\d+|\b(?:PR|issue)\s*#?\d+)/i;
+
+export function createPublicCommentHygieneReport(body: string, options: PublicCommentHygieneOptions = {}): PublicCommentHygieneReport {
+  const text = String(body ?? "");
+  const maxAbsolutePathPrefixRepeats = clamp(options.maxAbsolutePathPrefixRepeats ?? 2, 0, 1000);
+  const maxRepeatedPathFragmentCount = clamp(options.maxRepeatedPathFragmentCount ?? 1, 0, 1000);
+  const maxPathTokenDensity = options.maxPathTokenDensity ?? 0.2;
+  const minHumanReadableWords = clamp(options.minHumanReadableWords ?? 8, 0, 1000);
+  const pathPrefixCount = [...text.matchAll(PUBLIC_COMMENT_PATH_PREFIX_PATTERN)].length;
+  const pathTokens = [...text.matchAll(PUBLIC_COMMENT_PATH_TOKEN_PATTERN)]
+    .map((match) => normalizePublicCommentPathToken(match[0]))
+    .filter(Boolean);
+  const pathTokenCounts = new Map<string, number>();
+  for (const token of pathTokens) {
+    pathTokenCounts.set(token, (pathTokenCounts.get(token) ?? 0) + 1);
+  }
+  const repeatedPathTokenCount = Math.max(0, ...[...pathTokenCounts.values()]);
+  const pathFreeText = text.replace(PUBLIC_COMMENT_PATH_TOKEN_PATTERN, " ");
+  const words = pathFreeText.trim() ? pathFreeText.trim().split(/\s+/).length : 0;
+  const denominatorWords = Math.max(1, words + pathTokens.length);
+  const pathTokenDensity = pathTokens.length / denominatorWords;
+  const findings: PublicCommentHygieneFinding[] = [];
+
+  if (pathPrefixCount > maxAbsolutePathPrefixRepeats) {
+    findings.push(publicCommentHygieneFinding({
+      code: "absolute_path_prefix_repeated",
+      severity: "blocker",
+      count: pathPrefixCount,
+      threshold: maxAbsolutePathPrefixRepeats,
+      detail: "Comment body repeats absolute local path prefixes above the public-safe threshold.",
+      sample: "<redacted-path>"
+    }));
+  }
+  if (repeatedPathTokenCount > maxRepeatedPathFragmentCount) {
+    findings.push(publicCommentHygieneFinding({
+      code: "path_fragment_repeated",
+      severity: "blocker",
+      count: repeatedPathTokenCount,
+      threshold: maxRepeatedPathFragmentCount,
+      detail: "Comment body repeats the same local path fragment.",
+      sample: "path-fragment:" + stableId([...pathTokenCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "").slice(0, 12)
+    }));
+  }
+  if (pathTokens.length >= 3 && pathTokenDensity > maxPathTokenDensity) {
+    findings.push(publicCommentHygieneFinding({
+      code: "path_token_density_high",
+      severity: "blocker",
+      count: Math.round(pathTokenDensity * 100),
+      threshold: Math.round(maxPathTokenDensity * 100),
+      detail: "Comment body is dominated by local path-like tokens instead of a human-readable status summary.",
+      sample: "<redacted-path-density>"
+    }));
+  }
+  if (options.requireIssueOrPrRef === true && !PUBLIC_COMMENT_REFERENCE_PATTERN.test(text)) {
+    findings.push(publicCommentHygieneFinding({
+      code: "public_reference_missing",
+      severity: "warning",
+      count: 0,
+      threshold: 1,
+      detail: "Comment body should include at least one public issue or PR reference.",
+      sample: null
+    }));
+  }
+  if (words < minHumanReadableWords) {
+    findings.push(publicCommentHygieneFinding({
+      code: "human_summary_too_short",
+      severity: "warning",
+      count: words,
+      threshold: minHumanReadableWords,
+      detail: "Comment body has too little non-path prose to work as a public closeout.",
+      sample: null
+    }));
+  }
+
+  const blockers = unique(findings.filter((finding) => finding.severity === "blocker").map((finding) => finding.code)) as PublicCommentHygieneCode[];
+  const warnings = unique(findings.filter((finding) => finding.severity === "warning").map((finding) => finding.code)) as PublicCommentHygieneCode[];
+  const status: PublicCommentHygieneStatus = blockers.length > 0 ? "blocked" : warnings.length > 0 ? "warning" : "pass";
+  return {
+    schema: "lco.publicCommentHygiene.v1",
+    ok: blockers.length === 0,
+    status,
+    publicSafe: true,
+    generatedAt: options.now ?? new Date().toISOString(),
+    bodyHash: `sha256:${stableId(text)}`,
+    summary: status === "blocked"
+      ? "Public comment hygiene blocked malformed or path-heavy output before any GitHub write."
+      : status === "warning"
+        ? "Public comment hygiene passed with warnings; review concise public references before posting."
+        : "Public comment hygiene passed.",
+    blockers,
+    warnings,
+    findings,
+    redactedPreview: publicCommentSafePreview(text, clamp(options.maxPreviewChars ?? 800, 80, 5000)),
+    metrics: {
+      characters: text.length,
+      words,
+      absolutePathPrefixCount: pathPrefixCount,
+      pathTokenCount: pathTokens.length,
+      pathTokenDensity: Number(pathTokenDensity.toFixed(3))
+    },
+    actionsPerformed: {
+      githubWrite: false,
+      liveControl: false,
+      guiMutation: false,
+      rawTranscriptRead: false,
+      npmPublish: false,
+      githubRelease: false
+    },
+    proofBoundary: "This report validates a proposed public comment body only; it does not post to GitHub, read raw transcripts, run live Codex control, mutate a GUI, publish npm, or create a GitHub Release."
+  };
+}
+
+function publicCommentHygieneFinding(input: Omit<PublicCommentHygieneFinding, "publicSafe">): PublicCommentHygieneFinding {
+  return { ...input, publicSafe: true };
+}
+
+function normalizePublicCommentPathToken(token: string): string {
+  return token.trim().replace(/[.,;:!?]+$/g, "");
+}
+
+function publicCommentSafePreview(text: string, maxChars: number): string {
+  return publicSafeText(text.replace(PUBLIC_COMMENT_PATH_TOKEN_PATTERN, "<redacted-path>"), maxChars);
+}
+
 export function createCloseoutEnvelopeReport(db: LooDatabase, options: CloseoutEnvelopeReportOptions = {}): CloseoutEnvelopeReport {
   const limit = clamp(options.limit ?? 50, 1, 500);
   const rows = options.threadId
@@ -4486,18 +4672,24 @@ function closeoutEnvelopeCandidateFromRow(row: Record<string, unknown>): Closeou
   };
   const envelopeText = nullableString(row.closeoutEnvelopeText);
   const metadata = envelopeText === null ? emptySessionMetadata() : extractCloseoutEnvelopeMetadata(envelopeText);
+  const publicCommentHygiene = envelopeText === null
+    ? null
+    : createPublicCommentHygieneReport(envelopeText, { requireIssueOrPrRef: true });
   const missingFields = closeoutEnvelopeMissingFields(metadata);
   const warnings: string[] = [];
   if (envelopeStats.openCount === 0 && sessionMetadataHasAnyValue(sessionMetadata)) warnings.push("closeout_envelope_missing");
   if (envelopeStats.openCount > 1) warnings.push("duplicate_closeout_envelopes");
   if (envelopeStats.openCount !== envelopeStats.closeCount) warnings.push("malformed_closeout_envelope");
+  if (publicCommentHygiene?.status === "blocked") warnings.push("public_comment_hygiene_blocked");
+  if (publicCommentHygiene?.status === "warning") warnings.push("public_comment_hygiene_warning");
   if (metadata.finalMessageRefs.length === 0) warnings.push("final_message_ref_missing");
   if (metadata.sourceRefs.length === 0) warnings.push("source_ref_missing");
 
   const hasCloseoutSignal = sessionMetadataHasAnyValue(sessionMetadata) || envelopeStats.openCount > 0 || envelopeStats.closeCount > 0;
   const malformed = warnings.includes("malformed_closeout_envelope");
   const duplicate = warnings.includes("duplicate_closeout_envelopes");
-  const state: CloseoutEnvelopeState = envelopeText !== null && missingFields.length === 0 && !malformed && !duplicate
+  const publicCommentBlocked = warnings.includes("public_comment_hygiene_blocked");
+  const state: CloseoutEnvelopeState = envelopeText !== null && missingFields.length === 0 && !malformed && !duplicate && !publicCommentBlocked
     ? "ready"
     : hasCloseoutSignal
       ? "partial"
@@ -4514,6 +4706,7 @@ function closeoutEnvelopeCandidateFromRow(row: Record<string, unknown>): Closeou
     missingFields,
     warnings,
     closeoutEnvelopeCount: envelopeStats.openCount,
+    publicCommentHygiene,
     publicSafe: true
   };
 }
