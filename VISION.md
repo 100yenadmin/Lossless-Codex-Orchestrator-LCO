@@ -168,7 +168,7 @@ For implementation issues, copy `evals/scorecards/v1.0/issue-scorecard-update-te
 | Touched-file extraction | Touched files remain visible or accurately omitted in bounded briefs | file count, omitted marker |
 | Control safety | Live actions fail closed without matching dry-run and `approval_audit_id` | control tests and audit evidence |
 | Desktop fallback readiness | CUA/Peekaboo report honest readiness without overclaiming action support; missing coherence returns an actionable `coherence_input_missing` handoff | `loo_codex_desktop_fallback_status` / `loo_desktop_see` evidence |
-| Collaboration next-step packets | Agent can turn cockpit/coherence/fallback/watcher state into exact execute=false next tool calls without performing them | `loo_codex_collaboration_next_steps` evidence |
+| Collaboration next-step packets | Agent can turn cockpit/coherence/fallback/watcher state into exact execute=false next tool calls, blockers, confidence, and approval boundary without performing them | `loo_codex_collaboration_next_steps` evidence |
 | Desktop act fail-closed contract | Live desktop act requests return structured missing-proof blockers while staying dry-run-only | `loo_desktop_act` / installed OpenClaw gateway evidence |
 | Desktop live/no-focus harness | GUI fallback proof attempts fail closed until backend, approval ref, target, action, and no-focus status probe are ready | `loo desktop live-proof-harness` / `loo_desktop_live_proof_harness` evidence |
 | Desktop proof action | One CUA Driver TextEdit scratch `launch_app` action can emit a public-safe observation only after exact hash, approval, permission, and execute gates pass; generic gateway invocation fails closed | `loo desktop proof-action` / `loo_desktop_proof_action` evidence |

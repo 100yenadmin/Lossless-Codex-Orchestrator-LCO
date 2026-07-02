@@ -166,7 +166,7 @@ What a local OpenClaw agent can do today:
   Desktop state boundary, source coverage, and action flags still pinned to
   false.
 - Use `loo_codex_collaboration_next_steps` after the cockpit when the agent
-  needs the exact next bounded tool call. Planner output uses `execute=false`
+  needs the exact next bounded tool-call packets. Planner output uses `execute=false`
   packets or explicit blockers; it does not perform live Codex control, Desktop
   refresh/restart, GUI mutation, or screenshot capture.
 - Inspect `authorityCoverage` to see whether LCO, GitHub, or PLAN_STATE is

@@ -520,23 +520,8 @@ function buildToolArgs(params: {
   if (params.toolName === "loo_cockpit_inbox") {
     return params.threadId ? { limit: 5, watcher_specs: smokeWatcherSpecs(params.threadId), now: TOOL_SMOKE_NOW } : { limit: 5 };
   }
-  if (params.toolName === "loo_codex_collaboration_cockpit") {
-    return {
-      limit: 5,
-      watcher_specs: smokeWatcherSpecs(params.threadId),
-      desktop_coherence_reports: [smokeDesktopCoherenceReport(params.threadId)],
-      desktop_fallback_reports: [smokeDesktopFallbackReport(params.threadId)],
-      now: TOOL_SMOKE_NOW
-    };
-  }
-  if (params.toolName === "loo_codex_collaboration_next_steps") {
-    return {
-      limit: 5,
-      watcher_specs: smokeWatcherSpecs(params.threadId),
-      desktop_coherence_reports: [smokeDesktopCoherenceReport(params.threadId)],
-      desktop_fallback_reports: [smokeDesktopFallbackReport(params.threadId)],
-      now: TOOL_SMOKE_NOW
-    };
+  if (params.toolName === "loo_codex_collaboration_cockpit" || params.toolName === "loo_codex_collaboration_next_steps") {
+    return smokeCollaborationFixtureArgs(params.threadId);
   }
   if (params.toolName === "loo_watchers_list" || params.toolName === "loo_watcher_dry_run") {
     return { watcher_specs: smokeWatcherSpecs(params.threadId), now: TOOL_SMOKE_NOW };
@@ -639,6 +624,16 @@ function smokeWatcherSpecs(threadId?: string): Record<string, unknown>[] {
     confidence: 0.9,
     mutates: false
   }];
+}
+
+function smokeCollaborationFixtureArgs(threadId?: string): Record<string, unknown> {
+  return {
+    limit: 5,
+    watcher_specs: smokeWatcherSpecs(threadId),
+    desktop_coherence_reports: [smokeDesktopCoherenceReport(threadId)],
+    desktop_fallback_reports: [smokeDesktopFallbackReport(threadId)],
+    now: TOOL_SMOKE_NOW
+  };
 }
 
 function smokeDesktopCoherenceReport(threadId?: string): Record<string, unknown> {

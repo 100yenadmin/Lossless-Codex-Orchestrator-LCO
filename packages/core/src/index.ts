@@ -2556,7 +2556,7 @@ function collaborationPublicSafeWatchSpecArg(spec: WatchSpec): Record<string, un
     ttl_seconds: clamp(Math.trunc(spec.ttlSeconds), 60, 30 * 24 * 60 * 60),
     ...(spec.staleAfterSeconds !== undefined ? { stale_after_seconds: clamp(Math.trunc(spec.staleAfterSeconds), 60, 30 * 24 * 60 * 60) } : {}),
     stop_conditions: spec.stopConditions.map((condition) => publicSafeIdentifier(condition) ?? `condition_${stableId(condition).slice(0, 16)}`).slice(0, 12),
-    ...(spec.wakeReason ? { wake_reason: spec.wakeReason } : {}),
+    ...(spec.wakeReason ? { wake_reason: publicSafeIdentifier(spec.wakeReason) ?? `wake_${stableId(spec.wakeReason).slice(0, 16)}` } : {}),
     evidence_ids: (spec.evidenceIds ?? []).map((id) => publicSafeRefLike(id, "evidence") ?? "").filter(Boolean).slice(0, 20),
     ...(spec.confidence !== undefined ? { confidence: Math.max(0, Math.min(1, spec.confidence)) } : {}),
     mutates: false,
