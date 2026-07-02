@@ -31,7 +31,7 @@ export type LocalMacSearchUiStatus = {
   platform?: string;
   localDbAvailable: boolean;
   openclawPluginLoaded: boolean;
-  availableTools: string[];
+  availableTools: readonly string[];
   cuaStatus?: string;
   peekabooStatus?: string;
 };

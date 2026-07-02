@@ -22,7 +22,8 @@ import {
   getCockpitInbox,
   getRecentSessions,
   indexCodexSessions,
-  type LooDatabase
+  type LooDatabase,
+  type WatchSpec
 } from "../packages/core/src/index.js";
 import { createLooTools } from "../packages/mcp-server/src/tools.js";
 
@@ -269,7 +270,7 @@ test("watcher primitives are read-only, approval-bounded, and feed cockpit inbox
       refs: true
     }
   ], ({ db, sessions }) => {
-    const watcherSpecs = [
+    const watcherSpecs: WatchSpec[] = [
       {
         schema: "lco.watchSpec.v1",
         watchId: "watch_checks_changed",
@@ -580,17 +581,17 @@ test("GitHub operating item collector handles common gh and GraphQL PR shapes", 
   assert.equal(failedPr?.id, "100yenadmin/Lossless-Codex-Orchestrator-LCO#265");
   assert.equal(failedPr?.kind, "pr");
   assert.equal(failedPr?.state, "red");
-  assert.equal(failedPr?.reasonCodes.includes("ci_failed"), true);
+  assert.equal(failedPr?.reasonCodes?.includes("ci_failed"), true);
 
   const requestedPr = report.items.find((item) => item.id.endsWith("#266"));
   assert.equal(requestedPr?.kind, "pr");
   assert.equal(requestedPr?.state, "yellow");
-  assert.equal(requestedPr?.reasonCodes.includes("checks_pending"), true);
+  assert.equal(requestedPr?.reasonCodes?.includes("checks_pending"), true);
 
   const urlOnlyPr = report.items.find((item) => item.id.endsWith("#267"));
   assert.equal(urlOnlyPr?.id, "100yenadmin/Lossless-Codex-Orchestrator-LCO#267");
   assert.equal(urlOnlyPr?.kind, "pr");
-  assert.equal(urlOnlyPr?.reasonCodes.includes("checks_pending"), true);
+  assert.equal(urlOnlyPr?.reasonCodes?.includes("checks_pending"), true);
 
   const urlOnlyIssue = report.items.find((item) => item.id.endsWith("#268"));
   assert.equal(urlOnlyIssue?.id, "100yenadmin/Lossless-Codex-Orchestrator-LCO#268");
@@ -625,8 +626,8 @@ test("GitHub operating item collector preserves statusCheckRollup fidelity", () 
 
   const pendingPr = pendingReport.items.find((item) => item.id.endsWith("#270"));
   assert.equal(pendingPr?.state, "yellow");
-  assert.equal(pendingPr?.reasonCodes.includes("pr_open"), true);
-  assert.equal(pendingPr?.reasonCodes.includes("checks_pending"), true);
+  assert.equal(pendingPr?.reasonCodes?.includes("pr_open"), true);
+  assert.equal(pendingPr?.reasonCodes?.includes("checks_pending"), true);
   assert.match(pendingPr?.nextAction ?? "", /Watch GitHub checks/i);
 
   const greenDefaultReport = createGithubOperatingItemsReport([
@@ -661,7 +662,7 @@ test("GitHub operating item collector preserves statusCheckRollup fidelity", () 
     }
   ], { includeGreen: true, now: "2026-07-01T12:00:00.000Z" });
   assert.equal(greenIncludedReport.items[0]?.state, "green");
-  assert.equal(greenIncludedReport.items[0]?.reasonCodes.includes("checks_passed"), true);
+  assert.equal(greenIncludedReport.items[0]?.reasonCodes?.includes("checks_passed"), true);
 
   const unknownReport = createGithubOperatingItemsReport([
     {
@@ -676,8 +677,8 @@ test("GitHub operating item collector preserves statusCheckRollup fidelity", () 
 
   const unknownPr = unknownReport.items.find((item) => item.id.endsWith("#272"));
   assert.equal(unknownPr?.state, "yellow");
-  assert.equal(unknownPr?.reasonCodes.includes("pr_open"), true);
-  assert.equal(unknownPr?.reasonCodes.includes("checks_unknown"), true);
+  assert.equal(unknownPr?.reasonCodes?.includes("pr_open"), true);
+  assert.equal(unknownPr?.reasonCodes?.includes("checks_unknown"), true);
 
   const startupFailureReport = createGithubOperatingItemsReport([
     {
@@ -698,7 +699,7 @@ test("GitHub operating item collector preserves statusCheckRollup fidelity", () 
   ], { now: "2026-07-01T12:00:00.000Z" });
   const startupFailurePr = startupFailureReport.items.find((item) => item.id.endsWith("#273"));
   assert.equal(startupFailurePr?.state, "red");
-  assert.equal(startupFailurePr?.reasonCodes.includes("ci_failed"), true);
+  assert.equal(startupFailurePr?.reasonCodes?.includes("ci_failed"), true);
 
   const failedConclusionVariants = ["FAILURE", "ERROR", "TIMED_OUT", "ACTION_REQUIRED", "STALE"] as const;
   const failureVariantReport = createGithubOperatingItemsReport(failedConclusionVariants.map((conclusion, index) => ({
@@ -719,7 +720,7 @@ test("GitHub operating item collector preserves statusCheckRollup fidelity", () 
   for (const [index, conclusion] of failedConclusionVariants.entries()) {
     const failureVariantPr = failureVariantReport.items.find((item) => item.id.endsWith(`#${276 + index}`));
     assert.equal(failureVariantPr?.state, "red", `${conclusion} should be red`);
-    assert.equal(failureVariantPr?.reasonCodes.includes("ci_failed"), true, `${conclusion} should set ci_failed`);
+    assert.equal(failureVariantPr?.reasonCodes?.includes("ci_failed"), true, `${conclusion} should set ci_failed`);
   }
 
   const expectedContextReport = createGithubOperatingItemsReport([
@@ -741,7 +742,7 @@ test("GitHub operating item collector preserves statusCheckRollup fidelity", () 
   ], { now: "2026-07-01T12:00:00.000Z" });
   const expectedContextPr = expectedContextReport.items.find((item) => item.id.endsWith("#274"));
   assert.equal(expectedContextPr?.state, "yellow");
-  assert.equal(expectedContextPr?.reasonCodes.includes("checks_pending"), true);
+  assert.equal(expectedContextPr?.reasonCodes?.includes("checks_pending"), true);
 
   const totalCountOnlyReport = createGithubOperatingItemsReport([
     {
@@ -760,8 +761,8 @@ test("GitHub operating item collector preserves statusCheckRollup fidelity", () 
   ], { includeGreen: true, now: "2026-07-01T12:00:00.000Z" });
   const totalCountOnlyPr = totalCountOnlyReport.items.find((item) => item.id.endsWith("#275"));
   assert.equal(totalCountOnlyPr?.state, "yellow");
-  assert.equal(totalCountOnlyPr?.reasonCodes.includes("checks_unknown"), true);
-  assert.equal(totalCountOnlyPr?.reasonCodes.includes("checks_passed"), false);
+  assert.equal(totalCountOnlyPr?.reasonCodes?.includes("checks_unknown"), true);
+  assert.equal(totalCountOnlyPr?.reasonCodes?.includes("checks_passed"), false);
   assertNoUnsafeStrings({
     pendingReport,
     greenDefaultReport,
@@ -2919,7 +2920,7 @@ test("Codex active-thread state classifies running blocked stale and needs-nudge
     assert.equal(byThread.get("codex_thread:019f-state-stale")?.state, "stale");
     assert.equal(byThread.get("codex_thread:019f-state-stale")?.reasonCodes.includes("watcher_stale"), true);
     assert.equal(byThread.get("codex_thread:019f-state-conflict")?.state, "unknown");
-    assert.equal(byThread.get("codex_thread:019f-state-conflict")?.confidence < 0.7, true);
+    assert.equal((byThread.get("codex_thread:019f-state-conflict")?.confidence ?? 1) < 0.7, true);
     assert.equal(byThread.get("codex_thread:019f-state-conflict")?.reasonCodes.includes("conflicting_state"), true);
     assert.equal(report.items[0]?.state, "needs_nudge");
     assert.equal(report.actionsPerformed.liveCodexControlRun, false);

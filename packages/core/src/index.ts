@@ -785,13 +785,17 @@ export type AppServerThreadSignalInput = {
 export type AppServerThreadsInput = {
   schema?: string;
   publicSafe?: boolean;
+  readOnly?: boolean;
   generatedAt?: string;
   sourceCoverage?: {
     codexAppServer?: VisibleCodexCoverageState;
   };
   threads?: AppServerThreadSignalInput[];
   loadedThreadRefs?: string[] | null;
+  loadedSignalSource?: "same_connection" | "not_claimed_one_shot_client" | string;
   errors?: string[];
+  actionsPerformed?: Record<string, unknown>;
+  proofBoundary?: string;
 };
 
 export type VisibleCodexSessionMapItem = {
