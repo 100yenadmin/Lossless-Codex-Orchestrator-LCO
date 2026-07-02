@@ -1349,8 +1349,8 @@ test("Codex collaboration cockpit summarizes attention and Desktop fallback read
     assert.equal(report.summary.returned, 2);
     assert.equal(report.summary.needsApproval, 2);
     assert.equal(report.summary.fallbackRequired, 1);
-    assert.equal(report.sourceCoverage.desktopCoherence, "ok");
-    assert.equal(report.sourceCoverage.desktopFallback, "ok");
+    assert.equal(report.sourceCoverage.desktopCoherence, "partial");
+    assert.equal(report.sourceCoverage.desktopFallback, "partial");
     assert.deepEqual(report.actionsPerformed, {
       liveCodexControlRun: false,
       desktopGuiActionRun: false,
@@ -1507,6 +1507,15 @@ test("Codex collaboration cockpit keeps selected-lane Desktop evidence public-sa
         refs: true
       },
       {
+        id: "019f-collab-no-approval-received",
+        title: "Approval not received blocked lane",
+        status: "running",
+        priority: "medium",
+        nextAction: "no approval received yet; do not resume",
+        updatedAt: relativeIso(6),
+        refs: true
+      },
+      {
         id: "019f-collab-invalid-report",
         title: "Invalid Desktop report lane",
         status: "running",
@@ -1548,7 +1557,7 @@ test("Codex collaboration cockpit keeps selected-lane Desktop evidence public-sa
     assert.deepEqual(limited.lanes[0]?.desktop.evidenceIds, []);
 
     const visibleBranch = createCodexCollaborationCockpit(db, {
-      limit: 5,
+      limit: 10,
       now: "2026-07-02T00:00:00.000Z",
       desktopCoherenceReports: [{
         schema: "lco.codexDesktopCoherence.v1",
@@ -1565,9 +1574,13 @@ test("Codex collaboration cockpit keeps selected-lane Desktop evidence public-sa
     assert.equal(visibleLane.desktop.state, "desktop_visible");
     assert.equal(visibleLane.desktop.confidence, 0.94);
     assert.equal(visibleBranch.summary.desktopVisible, 1);
+    assert.equal(visibleBranch.sourceCoverage.desktopCoherence, "partial");
+    const visibleBranchWithoutEvidence = visibleBranch.lanes.find((lane) => lane.threadId === "codex_thread:019f-collab-limit-selected");
+    assert.ok(visibleBranchWithoutEvidence);
+    assert.equal(visibleBranchWithoutEvidence.desktop.sourceCoverage.desktopCoherence, "partial");
 
     const invalidAndSensitive = createCodexCollaborationCockpit(db, {
-      limit: 5,
+      limit: 10,
       now: "2026-07-02T00:00:00.000Z",
       desktopCoherenceReports: [
         {
@@ -1583,6 +1596,7 @@ test("Codex collaboration cockpit keeps selected-lane Desktop evidence public-sa
           state: "unknown",
           confidence: 0.5,
           blockers: [tokenCanary, "desktop_visibility_not_proven"],
+          reasonCodes: [tokenCanary, "desktop_visibility_not_proven"],
           evidenceIds: ["ev_sensitive_blocker"],
           actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
         },
@@ -1610,7 +1624,7 @@ test("Codex collaboration cockpit keeps selected-lane Desktop evidence public-sa
       }]
     });
 
-    assert.equal(invalidAndSensitive.summary.needsApproval, 1);
+    assert.equal(invalidAndSensitive.summary.needsApproval, 2);
     assertNoUnsafeStrings(invalidAndSensitive, ...canaries);
     // Approval phrase detection is currently a summary-level signal; text-only detection does not add a lane reasonCode.
     const approvalBlockedLane = invalidAndSensitive.lanes.find((lane) => lane.threadId === "codex_thread:019f-collab-without-approval");
@@ -1621,6 +1635,13 @@ test("Codex collaboration cockpit keeps selected-lane Desktop evidence public-sa
     assert.ok(withoutApprovalLane);
     assert.equal(withoutApprovalLane.desktop.blockers.some((blocker) => blocker.startsWith("blocker_")), true);
     assert.equal(withoutApprovalLane.desktop.blockers.includes("desktop_visibility_not_proven"), true);
+    assert.equal(withoutApprovalLane.desktop.reasonCodes.some((reason) => reason.startsWith("reason_")), true);
+    assert.equal(withoutApprovalLane.desktop.reasonCodes.includes("desktop_visibility_not_proven"), true);
+
+    const noApprovalReceivedLane = invalidAndSensitive.lanes.find((lane) => lane.threadId === "codex_thread:019f-collab-no-approval-received");
+    assert.ok(noApprovalReceivedLane);
+    assert.equal(noApprovalReceivedLane.nextAction.reason.includes("no approval received"), true);
+    assert.equal(noApprovalReceivedLane.reasonCodes.includes("approval_needed"), false);
 
     const invalidLane = invalidAndSensitive.lanes.find((lane) => lane.threadId === "codex_thread:019f-collab-invalid-report");
     assert.ok(invalidLane);
@@ -1633,6 +1654,40 @@ test("Codex collaboration cockpit keeps selected-lane Desktop evidence public-sa
     assert.equal(conflictLane.desktop.requiresFallback, true);
     assert.equal(invalidAndSensitive.summary.desktopVisible, 0);
     assert.equal(invalidAndSensitive.summary.fallbackRequired, 2);
+  });
+});
+
+test("Codex collaboration cockpit applies priority order to lanes without inbox reasons", () => {
+  withIndexedSessions(() => ({
+    fixtures: [
+      {
+        id: "019f-collab-priority-urgent",
+        title: "Urgent ordinary collaboration lane",
+        status: "running",
+        priority: "urgent",
+        nextAction: "keep watching ordinary urgent lane",
+        updatedAt: relativeIso(25),
+        refs: true
+      },
+      {
+        id: "019f-collab-priority-low",
+        title: "Low ordinary collaboration lane",
+        status: "running",
+        priority: "low",
+        nextAction: "keep watching ordinary low lane",
+        updatedAt: relativeIso(2),
+        refs: true
+      }
+    ]
+  }), ({ db }) => {
+    const report = createCodexCollaborationCockpit(db, {
+      limit: 1,
+      now: "2026-07-02T00:00:00.000Z",
+      priorityOrder: ["urgent", "high", "medium", "low"]
+    });
+
+    assert.equal(report.summary.returned, 1);
+    assert.equal(report.lanes[0]?.threadId, "codex_thread:019f-collab-priority-urgent");
   });
 });
 
