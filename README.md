@@ -54,13 +54,13 @@ rediscovering state from text every time.
 | Desktop fallback | Experimental | `loo_codex_desktop_fallback_status` reports CUA-first and Peekaboo-secondary readiness/blockers for Codex Desktop visibility gaps; product GUI mutation still needs an action-bound proof gate. |
 | Scorecards and release proof | Beta | Public-safe scorecards and release-status commands track what is proven. |
 | QA Lab scenarios | Beta | Dry-run scenario contracts under `evals/scenarios/v1` turn orchestrator workflows into public-safe eval tasks. |
-| Working app runtime proof | Completed proof | M7/#156 proved the named runtime path and proof gates; generic GUI mutation, Claude parity, and 1.0 readiness remain excluded. |
+| Working app runtime proof | Completed proof | M7/#156 proved the named runtime path and proof gates; generic GUI mutation, Claude parity, and enterprise/customer-ready claims remain excluded. |
 | Codex autonomy cockpit | P0 beta | Recent session cards, cockpit inbox, read-only watcher/resume-request packets, approval packets, and operating-picture tools are public-safe by default. |
 | Eva operating picture | P0 beta | Business pulse and attention inbox use LCO/Codex, optional structured GitHub items, explicit PLAN_STATE pins, and source-authority coverage; P1 business adapters are not configured yet. |
-| Codex Desktop coherence | Proof-gated | `loo_codex_desktop_coherence` classifies CLI/direct/app-server evidence as `cli_visible`, `desktop_visible`, `desktop_refresh_required`, `desktop_restart_required`, or `unknown`; `loo_codex_desktop_fallback_status` routes missing visibility to CUA/Peekaboo readiness without GUI action. |
+| Codex Desktop coherence | Completed proof | `loo_codex_desktop_coherence` classifies CLI/direct/app-server evidence as `cli_visible`, `desktop_visible`, `desktop_refresh_required`, `desktop_restart_required`, or `unknown`; `loo_codex_desktop_fallback_status` routes missing visibility to CUA/Peekaboo readiness without GUI action. |
 | Claude Code adapter | Fixture inventory | Supports redacted metadata-only fixtures with `claude_session:*` refs; no Claude parity, live control, GUI mutation, or cloud sync claim. |
 
-## Current Sprint: Post-GA Desktop Visibility Proof
+## Current Sprint: 1.1 Desktop Collaboration Cockpit
 
 The roadmap is now ranked by one question:
 
@@ -68,7 +68,13 @@ The roadmap is now ranked by one question:
 > context, less rereading, and safer action?
 
 The stable 1.0.0 package is published on npm `latest` and the GitHub Release is
-published. The current post-GA proof sprint is tracked by
+published. The post-GA Desktop claim-validation lane is tracked by
+[#306](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/306)
+and closes after the #307/#308 evidence is recorded against the stable claim.
+The current product lane is
+[#309](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/309):
+a 1.1 Codex Desktop collaboration cockpit and autonomous thread-management
+path. The completed Desktop proof dependencies are
 [#307](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/307),
 [#308](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/308),
 and the operating loop
@@ -82,11 +88,15 @@ and the historical sprint brief
 
 The core Codex recall, M9 handoff paths, P0 cockpit/Eva operating-picture paths,
 stable release gates, and npm `latest` publication are working. The remaining
-product gap is not another deep recall engine feature; it is Desktop-visible
-collaboration truth. #307 separates "Codex is visible to CLI/direct
-protocol/app-server" from "the same work is visibly reflected in Codex Desktop"
-and #308 owns the CUA/Peekaboo fallback readiness path when Desktop live refresh
-is missing, partial, refresh-required, restart-required, or unknown.
+product gap is not another deep recall engine feature; it is agent-facing
+Desktop collaboration polish. Desktop-visible classification and fallback
+readiness are now completed proof: #307 separates "Codex is visible to
+CLI/direct protocol/app-server" from "the same work is visibly reflected in
+Codex Desktop", and #308 reports the CUA/Peekaboo fallback readiness path when
+Desktop live refresh is missing, partial, refresh-required, restart-required,
+or unknown. Actual Codex GUI mutation remains excluded unless a future
+action-bound proof gate records the exact backend, target, action hash,
+approval, and observation.
 
 Completed P0 foundation is read-only and deterministic:
 
@@ -163,9 +173,10 @@ Completed proof:
   `loo_doctor` plus `loo_search_sessions` through an isolated loopback token
   gateway after the protocol-4 backend caller fix. #302/#304/#305/#306 closed
   the stable release, post-publish `@latest` smoke, and general-readiness gates.
-- Desktop fallback remains action-bound; generic GUI mutation, Codex GUI
-  mutation, and Desktop-visible live collaboration are not stable 1.0 claims
-  until #307/#308 provide matching evidence.
+- Desktop-visible classification and fallback readiness/status are validated by
+  #307/#308 for the stable 1.0 truth pass. Generic GUI mutation, Codex GUI
+  mutation, prompt typing, clicking, refresh/restart automation, and unattended
+  visible collaboration remain excluded stable claims.
 - Claude Code remains an adapter stub and fixture inventory, not parity.
 
 ## Quick Start

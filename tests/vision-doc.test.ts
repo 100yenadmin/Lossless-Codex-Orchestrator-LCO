@@ -14,7 +14,7 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
 
   for (const heading of [
     "## North Star",
-    "## Current Milestone: Post-GA Desktop Visibility Proof",
+    "## Current Milestone: 1.1 Desktop Collaboration Cockpit",
     "## Completed Proof: Working App Runtime",
     "## Primary User Stories",
     "## Orchestrator Product-Management Mode",
@@ -78,10 +78,14 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
   }
 
   assert.match(readme, /VISION\.md/);
-  assert.match(readme, /## Current Sprint: Post-GA Desktop Visibility Proof/);
+  assert.match(readme, /## Current Sprint: 1\.1 Desktop Collaboration Cockpit/);
   assert.match(readme, /#307/);
   assert.match(readme, /#308/);
+  assert.match(readme, /#309/);
+  assert.match(readme, /#306/);
   assert.match(readme, /loo_codex_desktop_coherence/);
+  assert.match(readme, /Desktop-visible classification and fallback readiness/i);
+  assert.match(readme, /actual Codex GUI mutation remains excluded/i);
   assert.match(readme, /brief-lco-codex-autonomy-cockpit-sprint-2026-07-01\.md/);
   assert.match(readme, /What a local OpenClaw agent can do today/i);
   assert.match(readme, /PLAN_STATE\.md/i);
@@ -90,8 +94,13 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
   assert.doesNotMatch(readme, /## Current Sprint: Working App Proof/);
   assert.doesNotMatch(readme, /## Current Sprint: M9 Agent Handoff Beta Sprint/);
   assert.doesNotMatch(readme, /## Current Sprint: 1\.0 Stable Release Gate/);
+  assert.doesNotMatch(readme, /## Current Sprint: Post-GA Desktop Visibility Proof/);
   assert.doesNotMatch(readme, /and first child\s+\[#256\]/i);
+  assert.doesNotMatch(readme, /#307 separates[\s\S]+#308 owns/i);
+  assert.doesNotMatch(readme, /Codex Desktop coherence\s*\|\s*Proof-gated/i);
   assert.doesNotMatch(vision, /Active hardening continues with[\s\S]*#271[\s\S]*#272/i);
+  assert.doesNotMatch(vision, /Desktop-visible collaboration remains proof-gated behind #307\/#308/i);
+  assert.doesNotMatch(vision, /active tracker is desktop fallback/i);
   assert.doesNotMatch(readme, /Working app runtime proof\s*\|\s*Next sprint/i);
   assert.equal(packageJson.files?.includes("VISION.md"), true, "npm package must include VISION.md because README links to it");
 });
