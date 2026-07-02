@@ -204,7 +204,8 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       has_blocker: { type: "boolean" },
       touched_path: { type: "string" },
       risk: { type: "string", enum: ["low", "medium", "high"] },
-      include_cards: { type: "boolean" }
+      include_cards: { type: "boolean" },
+      now: { type: "string" }
     }, (input) => getRecentSessions(options.db, {
       scope: optionalRecentScope(input.scope),
       since: optionalString(input.since),
@@ -216,7 +217,8 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       hasBlocker: optionalBoolean(input.has_blocker),
       touchedPath: optionalString(input.touched_path),
       risk: optionalRisk(input.risk),
-      includeCards: input.include_cards !== false
+      includeCards: input.include_cards !== false,
+      now: optionalString(input.now)
     })),
     tool("loo_cockpit_inbox", "Rank Codex sessions that need attention using deterministic public-safe session cards.", {
       limit: { type: "integer", minimum: 1, maximum: 500 },
@@ -440,36 +442,42 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       limit: { type: "integer", minimum: 1, maximum: 200 },
       plan_state_text: { type: "string" },
       plan_state_path: { type: "string" },
-      github_items: { type: "array", items: { type: "object", additionalProperties: true } }
+      github_items: { type: "array", items: { type: "object", additionalProperties: true } },
+      now: { type: "string" }
     }, (input) => createProjectDigest(options.db, {
       window: optionalDigestWindow(input.window),
       limit: optionalNumber(input.limit),
       planStatePins: optionalPlanStatePins(input),
-      githubItems: optionalGithubItems(input.github_items)
+      githubItems: optionalGithubItems(input.github_items),
+      now: optionalString(input.now)
     })),
     tool("loo_attention_inbox", "Return only operating-picture cards that need action, review, approval, watch, or blocker triage.", {
       window: { type: "string", enum: ["today", "24h", "7d", "custom"] },
       limit: { type: "integer", minimum: 1, maximum: 200 },
       plan_state_text: { type: "string" },
       plan_state_path: { type: "string" },
-      github_items: { type: "array", items: { type: "object", additionalProperties: true } }
+      github_items: { type: "array", items: { type: "object", additionalProperties: true } },
+      now: { type: "string" }
     }, (input) => createAttentionInbox(options.db, {
       window: optionalDigestWindow(input.window),
       limit: optionalNumber(input.limit),
       planStatePins: optionalPlanStatePins(input),
-      githubItems: optionalGithubItems(input.github_items)
+      githubItems: optionalGithubItems(input.github_items),
+      now: optionalString(input.now)
     })),
     tool("loo_business_pulse", "Answer 'How is the business?' from bounded cited operating cards with explicit source and authority coverage gaps.", {
       window: { type: "string", enum: ["today", "24h", "7d", "custom"] },
       limit: { type: "integer", minimum: 1, maximum: 200 },
       plan_state_text: { type: "string" },
       plan_state_path: { type: "string" },
-      github_items: { type: "array", items: { type: "object", additionalProperties: true } }
+      github_items: { type: "array", items: { type: "object", additionalProperties: true } },
+      now: { type: "string" }
     }, (input) => createBusinessPulse(options.db, {
       window: optionalDigestWindow(input.window),
       limit: optionalNumber(input.limit),
       planStatePins: optionalPlanStatePins(input),
-      githubItems: optionalGithubItems(input.github_items)
+      githubItems: optionalGithubItems(input.github_items),
+      now: optionalString(input.now)
     })),
     tool("loo_codex_final_messages", "Read final assistant/status messages extracted from Codex sessions.", {
       thread_id: { type: "string" },

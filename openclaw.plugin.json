@@ -379,6 +379,9 @@
             },
             "include_cards": {
               "type": "boolean"
+            },
+            "now": {
+              "type": "string"
             }
           }
         }
@@ -965,6 +968,9 @@
                 "type": "object",
                 "additionalProperties": true
               }
+            },
+            "now": {
+              "type": "string"
             }
           }
         }
@@ -1002,6 +1008,9 @@
                 "type": "object",
                 "additionalProperties": true
               }
+            },
+            "now": {
+              "type": "string"
             }
           }
         }
@@ -1039,6 +1048,9 @@
                 "type": "object",
                 "additionalProperties": true
               }
+            },
+            "now": {
+              "type": "string"
             }
           }
         }

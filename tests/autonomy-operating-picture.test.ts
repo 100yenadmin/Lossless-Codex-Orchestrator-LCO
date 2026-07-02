@@ -1373,8 +1373,12 @@ test("new cockpit and operating-picture tools are exposed through MCP with publi
       assert.equal(tools.some((tool) => tool.name === name), true, `${name} missing`);
     }
 
-    const recent = await tools.find((tool) => tool.name === "loo_recent_sessions")?.execute({ limit: 5, include_cards: true });
+    const recentTool = tools.find((tool) => tool.name === "loo_recent_sessions");
+    assert.ok(recentTool);
+    assert.deepEqual((recentTool.inputSchema.properties as Record<string, unknown>).now, { type: "string" });
+    const recent = await recentTool.execute({ limit: 5, include_cards: true, now: "2026-07-01T12:00:00.000Z" });
     assert.equal((recent as { publicSafe?: boolean }).publicSafe, true);
+    assert.equal((recent as { generatedAt?: string }).generatedAt, "2026-07-01T12:00:00.000Z");
 
     const collaborationCockpit = await tools.find((tool) => tool.name === "loo_codex_collaboration_cockpit")?.execute({
       limit: 5,
@@ -1423,14 +1427,27 @@ test("new cockpit and operating-picture tools are exposed through MCP with publi
 
     const projectDigestTool = tools.find((tool) => tool.name === "loo_project_digest");
     assert.ok(projectDigestTool);
+    assert.deepEqual((projectDigestTool.inputSchema.properties as Record<string, unknown>).now, { type: "string" });
     await assert.rejects(
       async () => projectDigestTool.execute({ github_items: [{}] }),
       /github_items\[0\] requires id and title/
     );
+    const projectDigest = await projectDigestTool.execute({ limit: 5, now: "2026-07-01T12:00:00.000Z" });
+    assert.equal((projectDigest as { generatedAt?: string }).generatedAt, "2026-07-01T12:00:00.000Z");
 
-    const pulse = await tools.find((tool) => tool.name === "loo_business_pulse")?.execute({ limit: 5 });
+    const attentionTool = tools.find((tool) => tool.name === "loo_attention_inbox");
+    assert.ok(attentionTool);
+    assert.deepEqual((attentionTool.inputSchema.properties as Record<string, unknown>).now, { type: "string" });
+    const attentionFromTool = await attentionTool.execute({ limit: 5, now: "2026-07-01T12:00:00.000Z" });
+    assert.equal((attentionFromTool as { generatedAt?: string }).generatedAt, "2026-07-01T12:00:00.000Z");
+
+    const pulseTool = tools.find((tool) => tool.name === "loo_business_pulse");
+    assert.ok(pulseTool);
+    assert.deepEqual((pulseTool.inputSchema.properties as Record<string, unknown>).now, { type: "string" });
+    const pulse = await pulseTool.execute({ limit: 5, now: "2026-07-01T12:00:00.000Z" });
     assert.equal((pulse as { digest?: { sourceCoverage?: { plan_state?: string; stripe?: string } } }).digest?.sourceCoverage?.plan_state, "not_configured");
     assert.equal((pulse as { digest?: { sourceCoverage?: { plan_state?: string; stripe?: string } } }).digest?.sourceCoverage?.stripe, "not_configured");
+    assert.equal((pulse as { digest?: { generatedAt?: string } }).digest?.generatedAt, "2026-07-01T12:00:00.000Z");
     assert.equal((pulse as { authorityCoverage?: { github?: { authority?: string } } }).authorityCoverage?.github?.authority, "authoritative");
 
     const watcherSpec = {

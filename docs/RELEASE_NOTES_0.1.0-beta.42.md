@@ -6,12 +6,14 @@ publishes the #347 / PR #348 deterministic cockpit freshness fix.
 ## What Changed
 
 - `loo_recent_sessions` can now use an injected `now` timestamp through the core
-  path, making generated timestamps, freshness ages, stale flags, `active_stale`
-  reason codes, and active-lane ordering replayable in evidence packets.
+  and public MCP/OpenClaw tool paths, making generated timestamps, freshness
+  ages, stale flags, `active_stale` reason codes, and active-lane ordering
+  replayable in evidence packets.
 - `loo_cockpit_inbox` and `loo_codex_collaboration_cockpit` now thread the same
   resolved timestamp through active session cards and watcher evaluation.
-- Eva operating-picture digest paths now use injected time for generated-at,
-  operating window, and Codex-card freshness behavior.
+- Eva operating-picture digest paths now expose injected time through public
+  MCP/OpenClaw tools for generated-at, operating window, and Codex-card
+  freshness behavior.
 - Added a regression test proving the same indexed session is non-stale at an
   early timestamp and stale at a later timestamp across recent sessions, cockpit
   inbox, and collaboration cockpit reports.
@@ -58,6 +60,7 @@ status behavior.
   `loo release status --claim-scope codex-working-app-proof --runtime-proof-dir <path> --approved-live-control-evidence <path> --npm-publish-approval-evidence <path> --github-release-approval-evidence <path> --candidate-sha <sha> --github-ci-evidence <path> --codeql-evidence <path> --evidence-dir <path> --strict`
 - Reduced-scope status example:
   `loo release status --claim-scope codex-read-search-expand-dry-run --npm-publish-approval-evidence <path> --github-release-approval-evidence <path> --candidate-sha <sha> --github-ci-evidence <path> --codeql-evidence <path> --evidence-dir <path> --strict`
+- Both status examples include the required `--evidence-dir <path>` flag.
 - If this candidate is published, npm `beta` points at `0.1.0-beta.42`.
   `latest` is not promoted.
 - `approved_live_control_smoke_missing` remains the blocker when a working-app
