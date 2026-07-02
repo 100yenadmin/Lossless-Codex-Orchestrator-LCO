@@ -1,0 +1,56 @@
+name: Unsafe control report
+description: Report a control action that violated the safety model.
+title: "[Safety]: "
+labels:
+  - safety
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If this exposes an active vulnerability, stop and use a private GitHub Security Advisory instead. Keep this public-safe.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened
+      description: Describe the unsafe behavior and user-visible impact.
+    validations:
+      required: true
+  - type: input
+    id: tool_command
+    attributes:
+      label: Tool or command
+      placeholder: loo_codex_send_message, loo desktop proof-action, etc.
+    validations:
+      required: true
+  - type: dropdown
+    id: prior_dry_run
+    attributes:
+      label: Was there a prior dry-run?
+      options:
+        - "Yes"
+        - "No"
+        - "Unknown"
+    validations:
+      required: true
+  - type: textarea
+    id: approval
+    attributes:
+      label: approval_audit_id behavior
+      description: Was a matching approval_audit_id required, missing, ignored, stale, or mismatched?
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Public-safe evidence
+      description: Include redacted audit ids, hashes, blocker codes, or command output. Do not include prompts or private transcripts.
+      render: shell
+    validations:
+      required: true
+  - type: checkboxes
+    id: redaction
+    attributes:
+      label: Redaction check
+      options:
+        - label: I did not include raw transcripts, prompt text, tokens, cookies, connector URLs, credentials, screenshots with private data, or customer data.
+          required: true
