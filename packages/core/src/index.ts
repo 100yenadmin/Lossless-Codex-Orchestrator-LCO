@@ -781,7 +781,7 @@ export type OperatingCard = {
   approvalBoundary: string;
 };
 
-export type SourceCoverageState = "ok" | "partial" | "not_configured" | "unavailable";
+export type SourceCoverageState = "ok" | "partial" | "empty" | "not_configured" | "unavailable";
 export type OperatingSourceKind = "lco" | "github" | "plan_state" | "notion" | "support_control" | "company_brain" | "stripe";
 export type SourceAuthorityKind = "authoritative" | "cache_only" | "fallback_only";
 export type SourceAuthorityFallbackBehavior = "unknown" | "low_confidence" | "use_cached_with_warning";
@@ -1911,7 +1911,7 @@ export function getRecentSessions(db: LooDatabase, options: {
     cards = cards.filter((card) => touchedPathMatches(db, card.threadId, needle));
   }
   if (options.risk) cards = cards.filter((card) => card.risk.level === options.risk);
-  cards.sort(codexSessionCardComparator);
+  cards.sort(scope === "active" ? activeCodexSessionCardComparator : codexSessionCardComparator);
   const total = cards.length;
   cards = cards.slice(0, limit);
 
@@ -2185,7 +2185,7 @@ function getCollaborationActiveSessionCards(
     sourcePath: publicSourcePathRef(String(row.sourcePath)),
     metadata: sessionMetadataFromRow(row)
   }));
-  cards.sort(codexSessionCardComparator);
+  cards.sort(activeCodexSessionCardComparator);
   return {
     cards,
     capped: options.activeSessionCount > prefetchLimit
@@ -2749,7 +2749,7 @@ export function createProjectDigest(db: LooDatabase, options: OperatingDigestOpt
   const sourceCoverage = {
     lco: codexSignals.length > 0 ? "ok" as const : "partial" as const,
     github: githubSignals.length > 0 ? "ok" as const : "not_configured" as const,
-    plan_state: hasPlanStateCoverage ? "ok" as const : "not_configured" as const,
+    plan_state: hasPlanStateCoverage ? "ok" as const : options.planStatePins ? "empty" as const : "not_configured" as const,
     notion: "not_configured" as const,
     support_control: "not_configured" as const,
     company_brain: "not_configured" as const,
@@ -3012,9 +3012,11 @@ function codexSessionReasonCodes(entry: CodexThreadMapEntry, state: CodexSession
   if (state === "blocked") codes.push("blocked");
   if (state === "needs_approval") codes.push("approval_needed");
   if (state === "waiting") codes.push("external_wait");
+  if (state === "running") codes.push("running_state_signal");
   if (state === "unknown") codes.push("low_confidence");
   if (hasRealBlocker(entry.metadata.blocker) && ["complete", "completed", "done", "closed", "merged"].includes(status)) codes.push("conflicting_state");
   if (counts.evidence < 3) codes.push("missing_evidence");
+  if (state === "blocked" && counts.evidence < 3 && activeScopeResidueIsStale(entry.updatedAt)) codes.push("stale_low_confidence_blocked");
   if (sessionFreshness(entry.updatedAt).stale) codes.push("active_stale");
   if (normalizedMetadataValue(entry.metadata.nextAction).includes("resume")) codes.push("resume_ready");
   return unique([...codes, ...codexSessionImpactReasonCodes(entry)]);
@@ -3059,6 +3061,7 @@ function codexSessionConfidence(entry: CodexThreadMapEntry, reasonCodes: string[
   if (!entry.metadata.nextAction) confidence -= 0.08;
   if (!hasEvidenceRefs(entry.metadata)) confidence -= 0.28;
   if (reasonCodes.includes("conflicting_state")) confidence -= 0.36;
+  if (reasonCodes.includes("stale_low_confidence_blocked")) confidence -= 0.14;
   if (reasonCodes.includes("active_stale")) confidence -= 0.08;
   if (reasonCodes.includes("presentation_low_confidence")) confidence -= 0.22;
   return Math.max(0.2, Math.min(0.99, Number(confidence.toFixed(2))));
@@ -3115,6 +3118,60 @@ function codexSessionCardComparator(left: CodexSessionCard, right: CodexSessionC
   return left.threadId.localeCompare(right.threadId);
 }
 
+function activeCodexSessionCardComparator(left: CodexSessionCard, right: CodexSessionCard): number {
+  const scoreDelta = activeCodexSessionCardScore(right) - activeCodexSessionCardScore(left);
+  if (scoreDelta !== 0) return scoreDelta;
+  const updatedAtCompare = compareUpdatedAtDesc(left.freshness.lastEventAt, right.freshness.lastEventAt);
+  if (updatedAtCompare !== 0) return updatedAtCompare;
+  if (left.confidence !== right.confidence) return right.confidence - left.confidence;
+  return left.threadId.localeCompare(right.threadId);
+}
+
+function activeCodexSessionCardScore(card: CodexSessionCard): number {
+  const stateScore = {
+    needs_approval: 320,
+    running: 280,
+    waiting: 235,
+    blocked: 160,
+    unknown: 80,
+    done: 0
+  } as const;
+  const ageSeconds = card.freshness.ageSeconds;
+  const freshnessScore = ageSeconds === null
+    ? 0
+    : ageSeconds <= 60 * 60
+      ? 80
+      : ageSeconds <= 24 * 60 * 60
+        ? 40
+        : ageSeconds <= 48 * 60 * 60
+          ? 10
+          : -30;
+  const riskScore = card.risk.level === "high" ? 30 : card.risk.level === "medium" ? 15 : 0;
+  const codeScore = card.reasonCodes.reduce((score, code) => score + ({
+    approval_needed: 90,
+    running_state_signal: 65,
+    external_wait: 55,
+    resume_ready: 50,
+    customer_impact: 80,
+    runtime_impact: 80,
+    security_impact: 80,
+    production_impact: 80,
+    blocked: 30,
+    low_confidence: -70,
+    missing_evidence: -90,
+    active_stale: -90,
+    stale_low_confidence_blocked: -260,
+    conflicting_state: -120
+  }[code] ?? 0), 0);
+  return stateScore[card.state] + freshnessScore + riskScore + codeScore + Math.round(card.confidence * 50);
+}
+
+function activeScopeResidueIsStale(updatedAt: string | null): boolean {
+  const updatedMs = timestampMillis(updatedAt);
+  if (updatedMs === null) return true;
+  return Date.now() - updatedMs >= 18 * 60 * 60 * 1000;
+}
+
 function cockpitReasonCodes(card: CodexSessionCard): string[] {
   const actionable = card.reasonCodes.filter((code) => [
     "blocked",
@@ -3142,13 +3199,15 @@ function cockpitUrgencyScore(card: CodexSessionCard, priorityOrder: string[] | u
     conflicting_state: 50,
     low_confidence: 42,
     active_stale: 35,
+    running_state_signal: 18,
     resume_ready: 30,
     external_wait: 25,
     customer_impact: 45,
     runtime_impact: 45,
     security_impact: 45,
     production_impact: 45,
-    missing_evidence: 10
+    missing_evidence: 10,
+    stale_low_confidence_blocked: -140
   }[code] ?? 0), 0);
   return codeScore + priorityScore + Math.round(card.confidence * 10);
 }

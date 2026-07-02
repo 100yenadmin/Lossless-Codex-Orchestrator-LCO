@@ -23,6 +23,7 @@ The current target is:
 - Treat #307/#308 as completed proof for Desktop-visible classification and fallback readiness/status, not as proof of Codex GUI mutation, prompt typing, clicking, refresh/restart automation, or unattended visible collaboration.
 - Use #309 to design the next collaboration cockpit layer from structured public-safe cards, explicit action-bound proof gates, and clear excluded-claim wording.
 - Use #313 as the first read-only collaboration cockpit primitive: it may summarize attention, Desktop state boundaries, fallback readiness, source coverage, and false action flags, but it must not select, click, type, refresh, restart, or mutate Codex Desktop.
+- Use #314 to make active-thread ranking honest for Eva: fresh approval, running, and waiting lanes should outrank stale low-confidence blocked residue, and readable empty PLAN_STATE input should be reported as `empty` rather than hidden as `not_configured`.
 - Use the Codex Autonomy Cockpit and Eva Operating Picture P0 tools as the foundation for tester workflows: recent sessions, compact session cards, deterministic cockpit inbox, watcher/resume-request packets, app-server status, visible Codex map joins, project digest, attention inbox, business pulse, explicit source coverage, and explicit source-authority coverage.
 - Keep `PLAN_STATE.md` demoted to bootloader, manual pins, approval boundaries, stop conditions, and exception ledger. It is not canonical current-state truth.
 - Keep P0 sources to LCO/Codex state, optional structured GitHub items, and explicit PLAN_STATE pins.

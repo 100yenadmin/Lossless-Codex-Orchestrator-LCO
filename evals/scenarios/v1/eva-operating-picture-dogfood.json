@@ -26,7 +26,7 @@
     "customer_impact, runtime_impact, security_impact, or production_impact reason codes outranking ordinary current-lane PRs",
     "current_lane and fresh_signal reason codes for current actionable GitHub PRs",
     "low_confidence_downgraded reason codes for old missing-evidence Codex cards",
-    "sourceCoverage and authorityCoverage showing P1 source gaps as not_configured",
+    "sourceCoverage and authorityCoverage showing P1 source gaps as not_configured and readable empty PLAN_STATE input as empty",
     "ranked topAttention card ids and evidence ids",
     "public-safe output scan result"
   ],
@@ -50,6 +50,7 @@
     "requires_low_confidence_downgrade": true,
     "requires_source_coverage": true,
     "requires_source_authority_coverage": true,
+    "requires_empty_plan_state_coverage": true,
     "requires_p1_sources_not_configured": true,
     "requires_no_external_writes": true,
     "max_raw_transcript_spans": 0,

@@ -154,6 +154,68 @@ test("cockpit inbox ranks blocked approval and stale work deterministically", ()
   });
 });
 
+test("active session scope demotes stale low-confidence blocked residue below current work", () => {
+  withIndexedSessions((sessions) => {
+    const rawPathCanary = join(sessions, "rollout-2026-07-01T00-00-00-019f-stale-blocked-residue.jsonl");
+    return {
+      fixtures: [
+        {
+          id: "019f-stale-blocked-residue",
+          title: "Old blocked residue",
+          status: "blocked",
+          priority: "urgent",
+          blocker: "stale private review residue",
+          nextAction: `inspect stale local proof ${rawPathCanary}`,
+          updatedAt: relativeIso(36 * 60),
+          refs: false
+        },
+        {
+          id: "019f-current-running",
+          title: "Current running lane",
+          status: "running",
+          priority: "medium",
+          nextAction: "continue current implementation",
+          updatedAt: relativeIso(6),
+          refs: true
+        },
+        {
+          id: "019f-human-approval",
+          title: "Human approval lane",
+          status: "needs_approval",
+          priority: "high",
+          nextAction: "approve dry-run packet",
+          updatedAt: relativeIso(8),
+          refs: true
+        },
+        {
+          id: "019f-waiting-review",
+          title: "Waiting review lane",
+          status: "waiting",
+          priority: "high",
+          nextAction: "wait for terminal review status",
+          updatedAt: relativeIso(10),
+          refs: true
+        }
+      ],
+      canaries: [rawPathCanary]
+    };
+  }, ({ db, canaries }) => {
+    const active = getRecentSessions(db, { scope: "active", limit: 4, includeCards: true });
+
+    assert.deepEqual(active.cards.map((card) => card.threadId), [
+      "codex_thread:019f-human-approval",
+      "codex_thread:019f-current-running",
+      "codex_thread:019f-waiting-review",
+      "codex_thread:019f-stale-blocked-residue"
+    ]);
+    const staleResidue = active.cards.find((card) => card.threadId === "codex_thread:019f-stale-blocked-residue");
+    const running = active.cards.find((card) => card.threadId === "codex_thread:019f-current-running");
+    assert.equal(staleResidue?.reasonCodes.includes("stale_low_confidence_blocked"), true);
+    assert.equal(running?.reasonCodes.includes("running_state_signal"), true);
+    assertNoUnsafeStrings(active, ...canaries);
+  });
+});
+
 test("watcher primitives are read-only, approval-bounded, and feed cockpit inbox", () => {
   const now = "2026-07-01T12:00:00.000Z";
   withIndexedSessions([
@@ -698,7 +760,7 @@ test("operating picture marks missing P1 sources and preserves low-confidence co
     assert.equal(digest.cards.some((card) => card.state === "unknown" && card.reasonCodes.includes("conflicting_state")), true);
     assert.equal(digest.topAttention.length > 0, true);
     assert.equal(missingStructuredSources.sourceCoverage.github, "not_configured");
-    assert.equal(missingStructuredSources.sourceCoverage.plan_state, "not_configured");
+    assert.equal(missingStructuredSources.sourceCoverage.plan_state, "empty");
     assert.equal(boundaryOnlyDigest.sourceCoverage.plan_state, "ok");
     assert.equal(limitedDigest.cards.length, 2);
     assert.equal(limitedDigest.signals.length, 2);

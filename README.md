@@ -86,6 +86,11 @@ tracked by
 [#255](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/255),
 and the historical sprint brief
 [docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md](docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md).
+The current active-thread ranking child is
+[#314](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/314):
+`loo_recent_sessions(scope=active)` should surface current approval, running, and
+waiting lanes ahead of stale low-confidence blocked residue while keeping
+PLAN_STATE as explicit pins/empty coverage, not canonical current-state truth.
 
 The core Codex recall, M9 handoff paths, P0 cockpit/Eva operating-picture paths,
 stable release gates, and npm `latest` publication are working. The remaining
