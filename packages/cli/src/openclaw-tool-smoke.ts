@@ -1045,7 +1045,7 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
         || reasonCodes.length === 0
         || (action !== null && (
           action.execute !== false
-          || !["loo_codex_app_server_threads", "loo_visible_codex_map", "loo_codex_active_thread_state"].includes(tool ?? "")
+          || !["loo_codex_app_server_threads", "loo_visible_codex_map"].includes(tool ?? "")
           || !args
           || !hasValidActiveThreadReadOnlyActionArgs(tool, args)
           || !stringPath(action, ["reason"])
@@ -1422,9 +1422,6 @@ function hasValidActiveThreadReadOnlyActionArgs(tool: string | undefined, args: 
     return booleanPath(args, ["include_app_server"]) === true
       && booleanPath(args, ["include_visible_snapshot"]) === false
       && validPositiveLimit(args);
-  }
-  if (tool === "loo_codex_active_thread_state") {
-    return validPositiveLimit(args);
   }
   return false;
 }

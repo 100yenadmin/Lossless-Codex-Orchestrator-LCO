@@ -613,7 +613,7 @@ export type CodexActiveThreadControlDryRunRecommendation = {
 };
 
 export type CodexActiveThreadReadOnlyAction = {
-  tool: "loo_codex_app_server_threads" | "loo_visible_codex_map" | "loo_codex_active_thread_state";
+  tool: "loo_codex_app_server_threads" | "loo_visible_codex_map";
   execute: false;
   args: Record<string, string | number | boolean>;
   reason: string;
@@ -3142,14 +3142,6 @@ function activeThreadNextReadOnlyAction(
       execute: false,
       args: { include_app_server: true, include_visible_snapshot: false, limit: 20 },
       reason: "Join indexed and app-server signals through the public-safe visible Codex map before claiming Desktop-visible state."
-    };
-  }
-  if (input.softConflict) {
-    return {
-      tool: "loo_codex_active_thread_state",
-      execute: false,
-      args: { limit: 20 },
-      reason: "Rerun active-thread state after fresh read-only app-server or watcher inputs to verify the soft conflict."
     };
   }
   return {
