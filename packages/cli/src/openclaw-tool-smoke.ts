@@ -1048,7 +1048,7 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
         || (status === "covered" && rawAction !== null)
         || (action !== null && (
           action.execute !== false
-          || !["loo_codex_app_server_threads", "loo_visible_codex_map"].includes(tool ?? "")
+          || !["loo_recent_sessions", "loo_cockpit_inbox", "loo_codex_app_server_threads", "loo_visible_codex_map"].includes(tool ?? "")
           || !args
           || !hasValidActiveThreadReadOnlyActionArgs(tool, args)
           || !stringPath(action, ["reason"])
@@ -1418,6 +1418,14 @@ function arrayPath(value: unknown, path: string[]): unknown[] {
 }
 
 function hasValidActiveThreadReadOnlyActionArgs(tool: string | undefined, args: Record<string, unknown>): boolean {
+  if (tool === "loo_recent_sessions") {
+    return stringPath(args, ["scope"]) === "active"
+      && booleanPath(args, ["include_cards"]) === true
+      && validPositiveLimit(args);
+  }
+  if (tool === "loo_cockpit_inbox") {
+    return validPositiveLimit(args);
+  }
   if (tool === "loo_codex_app_server_threads") {
     return Boolean(stringPath(args, ["read_thread_id"])) && validPositiveLimit(args);
   }

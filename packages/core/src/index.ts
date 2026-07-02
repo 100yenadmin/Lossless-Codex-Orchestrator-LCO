@@ -613,7 +613,7 @@ export type CodexActiveThreadControlDryRunRecommendation = {
 };
 
 export type CodexActiveThreadReadOnlyAction = {
-  tool: "loo_codex_app_server_threads" | "loo_visible_codex_map";
+  tool: "loo_recent_sessions" | "loo_cockpit_inbox" | "loo_codex_app_server_threads" | "loo_visible_codex_map";
   execute: false;
   args: Record<string, string | number | boolean>;
   reason: string;
@@ -3070,8 +3070,9 @@ function activeThreadAttentionCoverage(
   const visibleMapMissing = input.sourceCoverage.visibleCodexMap === "partial"
     || input.sourceCoverage.visibleCodexMap === "unavailable"
     || input.sourceCoverage.visibleCodexMap === "not_configured";
-  const coreMissing = input.sourceCoverage.indexedSession === "unavailable"
-    || input.sourceCoverage.cockpitInbox === "unavailable";
+  const indexedSessionMissing = input.sourceCoverage.indexedSession === "unavailable";
+  const cockpitInboxMissing = input.sourceCoverage.cockpitInbox === "unavailable";
+  const coreMissing = indexedSessionMissing || cockpitInboxMissing;
   const unconfiguredUnknownState = input.state === "unknown"
     && input.sourceCoverage.watchers === "not_configured"
     && input.sourceCoverage.codexAppServer === "not_configured"
@@ -3093,7 +3094,9 @@ function activeThreadAttentionCoverage(
         softConflict,
         appServerMissing,
         visibleMapMissing,
-        coreMissing
+        coreMissing,
+        indexedSessionMissing,
+        cockpitInboxMissing
       });
   const reasonCodes = unique([
     `attention_${status}`,
@@ -3101,7 +3104,8 @@ function activeThreadAttentionCoverage(
     hardConflict || softConflict ? "attention_conflicting_state" : "",
     appServerMissing ? `attention_app_server_${input.sourceCoverage.codexAppServer}` : "",
     visibleMapMissing ? `attention_visible_map_${input.sourceCoverage.visibleCodexMap}` : "",
-    coreMissing ? "attention_core_source_unavailable" : "",
+    indexedSessionMissing ? "attention_indexed_session_unavailable" : "",
+    cockpitInboxMissing ? "attention_cockpit_inbox_unavailable" : "",
     confidenceFloorApplied ? "attention_confidence_floor_applied" : "",
     confidence < 0.7 ? "attention_low_confidence" : "",
     nextReadOnlyAction ? "attention_read_only_probe_available" : ""
@@ -3127,10 +3131,28 @@ function activeThreadNextReadOnlyAction(
     appServerMissing: boolean;
     visibleMapMissing: boolean;
     coreMissing: boolean;
+    indexedSessionMissing: boolean;
+    cockpitInboxMissing: boolean;
   }
 ): CodexActiveThreadReadOnlyAction {
   const threadId = safeThreadId(lane.threadId);
-  if (input.hardConflict || input.softConflict || input.appServerMissing || input.coreMissing) {
+  if (input.indexedSessionMissing) {
+    return {
+      tool: "loo_recent_sessions",
+      execute: false,
+      args: { scope: "active", include_cards: true, limit: 20 },
+      reason: "Refresh public-safe indexed active session cards before trusting the active-state lane."
+    };
+  }
+  if (input.cockpitInboxMissing) {
+    return {
+      tool: "loo_cockpit_inbox",
+      execute: false,
+      args: { limit: 20 },
+      reason: "Refresh the deterministic cockpit inbox before trusting the active-state lane."
+    };
+  }
+  if (input.hardConflict || input.softConflict || input.appServerMissing) {
     return {
       tool: "loo_codex_app_server_threads",
       execute: false,
