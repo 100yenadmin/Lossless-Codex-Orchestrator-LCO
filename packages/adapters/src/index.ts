@@ -201,10 +201,18 @@ export type CodexDesktopFallbackReport = {
   };
   fallback: {
     required: boolean;
-    reason: "desktop_visibility_not_proven" | "desktop_visibility_already_proven" | "desktop_visibility_unknown";
+    reason: "desktop_visibility_not_proven" | "desktop_visibility_already_proven" | "desktop_visibility_unknown" | "coherence_input_missing";
     coherenceState: string | null;
     desktopVisibility: string | null;
   };
+  blockers: string[];
+  nextToolCall: {
+    tool: "loo_codex_desktop_coherence";
+    args: {
+      thread_id?: string;
+      source_ref?: string;
+    };
+  } | null;
   preferredBackend: "cua-driver";
   backends: CodexDesktopFallbackBackendStatus[];
   actionsPerformed: {
@@ -816,14 +824,29 @@ export async function createCodexDesktopFallbackReport(input: {
 } = {}): Promise<CodexDesktopFallbackReport> {
   const probe = input.probe ?? systemDesktopProbe();
   const coherence = asRecord(input.coherence);
+  const threadId = publicTextField(input.threadId, 120) ?? null;
+  const sourceRef = publicTextField(input.sourceRef, 180) ?? null;
+  const hasTarget = Boolean(threadId || sourceRef);
+  const coherenceInputMissing = !coherence && hasTarget;
   const state = publicTextField(coherence?.state, 80) ?? null;
   const visibility = asRecord(coherence?.visibility);
   const desktopVisibility = publicTextField(visibility?.desktop, 80) ?? null;
-  const fallbackReason = state === "desktop_visible" || desktopVisibility === "proven"
+  const fallbackReason = coherenceInputMissing
+    ? "coherence_input_missing"
+    : state === "desktop_visible" || desktopVisibility === "proven"
     ? "desktop_visibility_already_proven"
     : state || desktopVisibility
       ? "desktop_visibility_not_proven"
       : "desktop_visibility_unknown";
+  const nextToolCall = coherenceInputMissing
+    ? {
+        tool: "loo_codex_desktop_coherence" as const,
+        args: {
+          ...(threadId ? { thread_id: threadId } : {}),
+          ...(sourceRef ? { source_ref: sourceRef } : {})
+        }
+      }
+    : null;
   const cua = await desktopSee({ backend: "cua-driver", probe });
   const peekaboo = await desktopSee({
     backend: "peekaboo",
@@ -851,8 +874,8 @@ export async function createCodexDesktopFallbackReport(input: {
     readOnly: true,
     generatedAt: input.now ?? new Date().toISOString(),
     target: {
-      threadId: publicTextField(input.threadId, 120) ?? null,
-      sourceRef: publicTextField(input.sourceRef, 180) ?? null
+      threadId,
+      sourceRef
     },
     fallback: {
       required: fallbackReason !== "desktop_visibility_already_proven",
@@ -860,6 +883,8 @@ export async function createCodexDesktopFallbackReport(input: {
       coherenceState: state,
       desktopVisibility
     },
+    blockers: coherenceInputMissing ? ["coherence_input_missing"] : [],
+    nextToolCall,
     preferredBackend: "cua-driver",
     backends,
     actionsPerformed: {
@@ -879,7 +904,9 @@ export async function createCodexDesktopFallbackReport(input: {
       "absolute local transcript paths"
     ],
     proofBoundary: "This report prepares the #308 CUA-first / Peekaboo-secondary Codex Desktop fallback path using public-safe status and optional bounded visible metadata only. It does not run live Codex control, click, type, select, refresh, restart, mutate Codex Desktop, capture screenshots, or prove unattended desktop takeover.",
-    nextAction: fallbackReason === "desktop_visibility_already_proven"
+    nextAction: fallbackReason === "coherence_input_missing"
+      ? `Run loo_codex_desktop_coherence with ${JSON.stringify(nextToolCall?.args ?? {})}, then pass the returned coherence object to loo_codex_desktop_fallback_status.`
+      : fallbackReason === "desktop_visibility_already_proven"
       ? "Keep using direct Codex protocol and visible-map evidence; no desktop fallback action is required for this target."
       : "Continue #308 with an action-bound CUA no-focus Codex Desktop proof or a documented Peekaboo visible fallback blocker before claiming Desktop-visible collaboration."
   };

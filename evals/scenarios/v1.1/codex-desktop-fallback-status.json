@@ -5,7 +5,7 @@
   "claim_scope": "codex-working-app-proof",
   "proof_mode": "runtime_required",
   "issue": "#308",
-  "user_task": "Given a target Codex thread whose Desktop visibility is not proven, report CUA-first and Peekaboo-secondary fallback readiness, blockers, focus state, and visible-screen warning without performing any GUI action.",
+  "user_task": "Given a target Codex thread whose Desktop visibility is not proven, report CUA-first and Peekaboo-secondary fallback readiness, blockers, focus state, and visible-screen warning without performing any GUI action; if coherence evidence is omitted, return an explicit coherence_input_missing blocker with the exact loo_codex_desktop_coherence call to run first.",
   "surface": "codex-desktop-fallback-status",
   "required_tools": [
     "loo_codex_desktop_coherence",
@@ -42,6 +42,7 @@
   "expected_public_safe_evidence": [
     "target codex_thread source ref",
     "coherence state that does not claim Desktop visibility when only cli_visible or unknown",
+    "coherence_input_missing blocker and nextToolCall with loo_codex_desktop_coherence args when fallback status is invoked without supplied coherence for a target",
     "loo_codex_desktop_fallback_status fallback.required and reason",
     "CUA Driver preferred backend readiness, blockers, permission state, and focus probe result",
     "Peekaboo secondary fallback readiness, blockers, and visible-screen warning",
@@ -50,6 +51,7 @@
   ],
   "metrics": {
     "requires_codex_desktop_fallback_status_report": true,
+    "requires_missing_coherence_guidance": true,
     "requires_cua_first_backend": true,
     "requires_peekaboo_secondary_warning": true,
     "requires_no_gui_action": true,

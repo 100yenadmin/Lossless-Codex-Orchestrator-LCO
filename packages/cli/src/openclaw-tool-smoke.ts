@@ -45,6 +45,7 @@ export type OpenClawToolSmokeOptions = {
   evidencePath?: string;
   requiredTools?: string[];
   gatewayTimeoutMs?: number;
+  desktopFallbackCoherence?: "fixture" | "omit";
 };
 
 export type OpenClawToolInvocationSummary = {
@@ -65,6 +66,8 @@ export type OpenClawToolInvocationSummary = {
     messageHash?: string;
     method?: string;
     action?: string;
+    fallbackReason?: string;
+    toolBlockers?: string[];
   };
   blockers: string[];
 };
@@ -189,7 +192,8 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
         query,
         threadId: selectedThreadId,
         expandProfile,
-        tokenBudget
+        tokenBudget,
+        desktopFallbackCoherence: options.desktopFallbackCoherence
       });
       if (toolName === "loo_describe_session" || toolName === "loo_expand_session" || toolName === "loo_codex_control_dry_run" || toolName === "loo_codex_desktop_coherence" || toolName === "loo_codex_desktop_fallback_status") {
         if (!args) {
@@ -490,6 +494,7 @@ function buildToolArgs(params: {
   threadId?: string;
   expandProfile: "metadata" | "brief" | "evidence";
   tokenBudget: number;
+  desktopFallbackCoherence?: "fixture" | "omit";
 }): Record<string, unknown> | null {
   if (params.toolName === "loo_search_sessions") return { query: params.query, limit: 3 };
   if (params.toolName === "loo_describe_session") return params.threadId ? { thread_id: params.threadId } : null;
@@ -547,9 +552,15 @@ function buildToolArgs(params: {
   }
   if (params.toolName === "loo_codex_desktop_fallback_status") {
     if (!params.threadId) return null;
-    return {
+    const base = {
       thread_id: params.threadId,
       source_ref: `codex_thread:${params.threadId}`,
+      include_visible_snapshot: false,
+      now: TOOL_SMOKE_NOW
+    };
+    if (params.desktopFallbackCoherence === "omit") return base;
+    return {
+      ...base,
       coherence: {
         state: "cli_visible",
         visibility: {
@@ -557,9 +568,7 @@ function buildToolArgs(params: {
           desktop: "not_seen"
         },
         confidence: 0.72
-      },
-      include_visible_snapshot: false,
-      now: TOOL_SMOKE_NOW
+      }
     };
   }
   if (params.toolName === "loo_github_operating_items") {
@@ -710,6 +719,15 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
     if (!upstreamBlocked && (summary.live !== false || !approvalAuditId || !paramsHash || !messageHash)) {
       blockers.push("openclaw_control_dry_run_not_proven");
     }
+  }
+  if (toolName === "loo_codex_desktop_fallback_status") {
+    const fallbackOutput = details ?? output;
+    const fallbackReason = stringPath(fallbackOutput, ["fallback", "reason"]);
+    const toolBlockers = arrayPath(fallbackOutput, ["blockers"])
+      .filter((value): value is string => typeof value === "string" && /^[a-z0-9_.:-]+$/i.test(value))
+      .slice(0, 8);
+    if (fallbackReason && /^[a-z0-9_.:-]+$/i.test(fallbackReason)) summary.fallbackReason = fallbackReason;
+    if (toolBlockers.length) summary.toolBlockers = toolBlockers;
   }
 
   return {
@@ -993,6 +1011,11 @@ function numberPath(value: unknown, path: string[]): number | undefined {
 function booleanPath(value: unknown, path: string[]): boolean | undefined {
   const found = valueAtPath(value, path);
   return typeof found === "boolean" ? found : undefined;
+}
+
+function arrayPath(value: unknown, path: string[]): unknown[] {
+  const found = valueAtPath(value, path);
+  return Array.isArray(found) ? found : [];
 }
 
 function valueAtPath(value: unknown, path: string[]): unknown {

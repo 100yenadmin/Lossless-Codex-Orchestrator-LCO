@@ -46,7 +46,7 @@ What a local OpenClaw agent can do today:
 - Use `loo_watchers_list`, `loo_watcher_status`, `loo_watcher_dry_run`, and `loo_resume_request_packet` to represent read-only watcher attention and approval-bounded resume requests without running live control.
 - Use `loo_codex_app_server_status`, `loo_codex_app_server_threads`, and `loo_visible_codex_map` to inspect read-only Codex app-server readiness and correlate sanitized visible Codex candidates with indexed session cards, including source coverage, confidence, and ambiguity markers.
 - Use `loo_codex_desktop_coherence` to classify whether a target Codex thread is only CLI/direct/app-server visible or also Desktop visible. `cli_visible` is a useful proof state but not a Desktop-visible collaboration claim; `desktop_refresh_required` and `desktop_restart_required` are explicit gap states.
-- Use `loo_codex_desktop_fallback_status` to inspect CUA-first and Peekaboo-secondary readiness, blocker codes, focus status, and screen-takeover warnings before suggesting a visible Codex Desktop fallback.
+- Use `loo_codex_desktop_fallback_status` to inspect CUA-first and Peekaboo-secondary readiness, blocker codes, focus status, and screen-takeover warnings before suggesting a visible Codex Desktop fallback. If called with a target but no coherence report, it returns `coherence_input_missing` plus the exact `loo_codex_desktop_coherence` args to run first.
 - Use `loo_codex_collaboration_cockpit` to hand an orchestrator one public-safe lane summary with attention levels, fallback state, source coverage, and action flags still false.
 - Inspect `authorityCoverage` on operating-picture outputs before trusting GitHub, PLAN_STATE, or future P1 source claims.
 - Classify package and gateway readiness with `loo onboard status`, `loo openclaw dogfood`, `loo openclaw tool-smoke`, and `loo openclaw published-smoke`.
@@ -164,7 +164,7 @@ For implementation issues, copy `evals/scorecards/v1.0/issue-scorecard-update-te
 | Proposed-plan extraction | Proposed plans are extracted without leaking unrelated raw transcript spans | `loo_codex_plans` evidence |
 | Touched-file extraction | Touched files remain visible or accurately omitted in bounded briefs | file count, omitted marker |
 | Control safety | Live actions fail closed without matching dry-run and `approval_audit_id` | control tests and audit evidence |
-| Desktop fallback readiness | CUA/Peekaboo report honest readiness without overclaiming action support | `loo_codex_desktop_fallback_status` / `loo_desktop_see` evidence |
+| Desktop fallback readiness | CUA/Peekaboo report honest readiness without overclaiming action support; missing coherence returns an actionable `coherence_input_missing` handoff | `loo_codex_desktop_fallback_status` / `loo_desktop_see` evidence |
 | Desktop act fail-closed contract | Live desktop act requests return structured missing-proof blockers while staying dry-run-only | `loo_desktop_act` / installed OpenClaw gateway evidence |
 | Desktop live/no-focus harness | GUI fallback proof attempts fail closed until backend, approval ref, target, action, and no-focus status probe are ready | `loo desktop live-proof-harness` / `loo_desktop_live_proof_harness` evidence |
 | Desktop proof action | One CUA Driver TextEdit scratch `launch_app` action can emit a public-safe observation only after exact hash, approval, permission, and execute gates pass; generic gateway invocation fails closed | `loo desktop proof-action` / `loo_desktop_proof_action` evidence |
