@@ -1425,7 +1425,7 @@ export function createCodexDesktopCollaborationProof(input: {
   }
 
   const uniqueBlockers = uniquePublicBlockers(blockers);
-  const approvalVerified = approvalPacket !== null && uniqueBlockers.every((blocker) => !blocker.startsWith("approval_")) && !uniqueBlockers.includes("action_hash_mismatch");
+  const approvalVerified = approvalPacket !== null && uniqueBlockers.length === 0;
   const ready = uniqueBlockers.length === 0
     && Boolean(targetRef && targetThreadId && desktopBackend && targetApp && targetWindow && action && suppliedActionHash && approvalRef);
 
@@ -2414,7 +2414,7 @@ function publicProofTextField(value: unknown, maxChars: number): string | undefi
     .replace(/~\/\.codex\/(?:sessions|archived_sessions)\/[^\s"'`)]+/g, "<redacted-path>")
     .replace(/\/Volumes\/[^\s"'`)]+/g, "<redacted-path>")
     .replace(/\/(?:private\/)?(?:tmp|var)\/[^\s"'`)]+/g, "<redacted-path>");
-  const publicOnly = redacted.replace(/[^\w .,:;@+()[\]{}#=/-]/g, " ").replace(/\s+/g, " ").trim();
+  const publicOnly = redacted.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
   return publicOnly ? capTextValue(publicOnly, maxChars) : undefined;
 }
 
@@ -2484,7 +2484,11 @@ function validateCodexDesktopCollaborationApprovalPacket(approvalPacket: Record<
   if (approvalPacket.actionHash !== expected.actionHash || approvalPacket.actionHash !== expected.expectedActionHash) blockers.push("approval_action_hash_mismatch");
   const issuedAt = publicIsoTimestamp(approvalPacket.issuedAt);
   const expiresAt = publicIsoTimestamp(approvalPacket.expiresAt);
-  if (!issuedAt) blockers.push("approval_packet_issued_at_invalid");
+  if (!issuedAt) {
+    blockers.push("approval_packet_issued_at_invalid");
+  } else if (Date.parse(issuedAt) > Date.parse(expected.generatedAt)) {
+    blockers.push("approval_packet_issued_at_in_future");
+  }
   if (!expiresAt) {
     blockers.push("approval_packet_expires_at_invalid");
   } else if (Date.parse(expiresAt) <= Date.parse(expected.generatedAt)) {

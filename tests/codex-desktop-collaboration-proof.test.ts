@@ -89,6 +89,8 @@ test("Codex Desktop collaboration proof rejects generic GUI and live-control req
   assert.equal(report.actionsPerformed.liveCodexControlRun, false);
   assert.equal(report.actionsPerformed.desktopGuiActionRun, false);
   assert.equal(report.actionsPerformed.screenshotCaptured, false);
+  assert.equal(report.approvalVerified, false);
+  assert.equal(report.proofMarkers.approvalPacketBound, false);
   assert.equal(report.blockers.includes("execute_not_supported"), true);
   assert.equal(report.blockers.includes("generic_gui_action_blocked"), true);
   assert.equal(report.blockers.includes("live_codex_control_blocked"), true);
@@ -161,6 +163,72 @@ test("Codex Desktop collaboration proof fails closed on hash, target, freshness,
   assert.equal(report.requiredNextToolCall, null);
 });
 
+test("Codex Desktop collaboration proof accepts public punctuation when caller hashes the same public fields", () => {
+  const punctuatedWindow = "Codex user's lane & review!";
+  const punctuatedAction = "verify_visible_thread_alignment";
+  const punctuatedHash = actionHashFor({
+    targetRef,
+    desktopBackend,
+    targetApp,
+    targetWindow: punctuatedWindow,
+    action: punctuatedAction
+  });
+  const report = createCodexDesktopCollaborationProof({
+    targetRef,
+    targetThreadId,
+    desktopBackend,
+    targetApp,
+    targetWindow: punctuatedWindow,
+    action: punctuatedAction,
+    actionHash: punctuatedHash,
+    approvalPacket: validApprovalPacket({
+      targetWindow: punctuatedWindow,
+      action: punctuatedAction,
+      actionHash: punctuatedHash
+    }),
+    execute: false,
+    now: "2026-07-02T15:05:00.000Z"
+  });
+
+  assert.equal(report.ok, true);
+  assert.equal(report.targetWindow, punctuatedWindow);
+  assert.equal(report.actionHash, punctuatedHash);
+  assert.deepEqual(report.blockers, []);
+});
+
+test("Codex Desktop collaboration proof blocks direct backend and future-issued approval packets", () => {
+  const directHash = actionHashFor({
+    targetRef,
+    desktopBackend: "direct",
+    targetApp,
+    targetWindow,
+    action
+  });
+  const report = createCodexDesktopCollaborationProof({
+    targetRef,
+    targetThreadId,
+    desktopBackend: "direct",
+    targetApp,
+    targetWindow,
+    action,
+    actionHash: directHash,
+    approvalPacket: validApprovalPacket({
+      desktopBackend: "direct",
+      actionHash: directHash,
+      issuedAt: "2026-07-02T16:00:00.000Z",
+      expiresAt: "2999-01-01T00:00:00.000Z"
+    }),
+    execute: false,
+    now: "2026-07-02T15:05:00.000Z"
+  });
+
+  assert.equal(report.ok, false);
+  assert.equal(report.status, "blocked");
+  assert.equal(report.blockers.includes("desktop_backend_not_gui_fallback"), true);
+  assert.equal(report.blockers.includes("approval_packet_issued_at_in_future"), true);
+  assert.equal(report.requiredNextToolCall, null);
+});
+
 test("MCP declarations expose the action-bound Codex Desktop collaboration proof tool", async () => {
   const db = createDatabase(":memory:");
   try {
@@ -193,7 +261,8 @@ test("MCP declarations expose the action-bound Codex Desktop collaboration proof
       target_window: targetWindow,
       action,
       action_hash: approvalPacket.actionHash,
-      approval_packet: approvalPacket
+      approval_packet: approvalPacket,
+      now: "2026-07-02T15:05:00.000Z"
     }) as { ok?: boolean; status?: string; actionsPerformed?: { desktopGuiActionRun?: boolean } };
 
     assert.equal(output.ok, true);
