@@ -473,6 +473,7 @@ export type CodexCollaborationCockpitOptions = {
 
 export type CodexCollaborationNextStepCategory =
   | "watcher_resume_packet"
+  | "approval_boundary"
   | "desktop_coherence"
   | "desktop_fallback_status"
   | "desktop_action_approval"
@@ -1995,8 +1996,9 @@ export function getRecentSessions(db: LooDatabase, options: {
 export function createWatcherStatusReport(specs: WatchSpec[], options: { now?: string; limit?: number; watchId?: string } = {}): WatcherStatusReport {
   const now = timestampMillis(options.now ?? null) ?? Date.now();
   const limit = clamp(options.limit ?? 100, 1, 1000);
+  const requestedWatchId = options.watchId ? publicSafeWatcherIdentifier(options.watchId, "watch") : null;
   const states = specs
-    .filter((spec) => !options.watchId || spec.watchId === options.watchId)
+    .filter((spec) => !requestedWatchId || publicSafeWatcherIdentifier(spec.watchId, "watch") === requestedWatchId)
     .map((spec) => watcherStateFromSpec(spec, now))
     .sort(watcherStateComparator);
   const selected = states.slice(0, limit);
@@ -2195,7 +2197,7 @@ export function createCodexCollaborationNextSteps(db: LooDatabase, options: Code
     limit: 1000
   });
   const watcherSpecsById = new Map((options.watcherSpecs ?? []).map((spec) => [
-    publicSafeText(spec.watchId, 120),
+    publicSafeWatcherIdentifier(spec.watchId, "watch"),
     spec
   ]));
   const triggeredWatchers = new Map<string, WatcherState>();
@@ -2363,6 +2365,18 @@ function collaborationNextStepForLane(
   const sourceRef = lane.threadId;
   const threadId = bareCodexThreadId(sourceRef);
 
+  if (collaborationLaneHasSessionApprovalBoundary(lane)) {
+    return collaborationNextStep({
+      ...base,
+      category: "approval_boundary",
+      status: "blocked",
+      reasonCodes: unique([...lane.reasonCodes, "approval_required"]),
+      blockers: ["approval_required"],
+      confidence: Math.max(0.55, lane.card.confidence),
+      toolCall: null
+    });
+  }
+
   if (input.watcher && input.watcherSpec) {
     return collaborationNextStep({
       ...base,
@@ -2507,7 +2521,12 @@ function collaborationDesktopCoherenceArgsFromFallback(
   const argThreadId = collaborationString(args.thread_id ?? args.threadId, 120);
   const argSourceRef = collaborationString(args.source_ref ?? args.sourceRef, 180);
   const normalized = normalizeCodexThreadSourceRef(argSourceRef, argThreadId) ?? sourceRef;
-  if (codexDesktopCoherenceTargetMismatch(argThreadId, normalized)) {
+  const candidateThreadId = argThreadId ? safeThreadId(argThreadId) : bareCodexThreadId(normalized);
+  if (
+    codexDesktopCoherenceTargetMismatch(argThreadId, normalized)
+    || candidateThreadId !== threadId
+    || normalized !== sourceRef
+  ) {
     return { thread_id: threadId, source_ref: sourceRef };
   }
   return {
@@ -2548,15 +2567,15 @@ function collaborationPublicSafeCoherenceArg(
 function collaborationPublicSafeWatchSpecArg(spec: WatchSpec): Record<string, unknown> {
   return {
     schema: "lco.watchSpec.v1",
-    watch_id: publicSafeIdentifier(spec.watchId) ?? `watch_${stableId(spec.watchId).slice(0, 16)}`,
+    watch_id: publicSafeWatcherIdentifier(spec.watchId, "watch"),
     target_ref: publicSafeRefLike(spec.targetRef, "target") ?? `target_${stableId(spec.targetRef).slice(0, 16)}`,
     kind: spec.kind,
-    created_at: publicSafeText(spec.createdAt, 80),
-    last_observed_at: spec.lastObservedAt ? publicSafeText(spec.lastObservedAt, 80) : null,
+    created_at: publicSafeWatcherTimestamp(spec.createdAt, "created_at"),
+    last_observed_at: spec.lastObservedAt ? publicSafeWatcherTimestamp(spec.lastObservedAt, "last_observed_at") : null,
     ttl_seconds: clamp(Math.trunc(spec.ttlSeconds), 60, 30 * 24 * 60 * 60),
     ...(spec.staleAfterSeconds !== undefined ? { stale_after_seconds: clamp(Math.trunc(spec.staleAfterSeconds), 60, 30 * 24 * 60 * 60) } : {}),
-    stop_conditions: spec.stopConditions.map((condition) => publicSafeIdentifier(condition) ?? `condition_${stableId(condition).slice(0, 16)}`).slice(0, 12),
-    ...(spec.wakeReason ? { wake_reason: publicSafeIdentifier(spec.wakeReason) ?? `wake_${stableId(spec.wakeReason).slice(0, 16)}` } : {}),
+    stop_conditions: spec.stopConditions.map((condition) => publicSafeWatcherIdentifier(condition, "condition")).slice(0, 12),
+    ...(spec.wakeReason ? { wake_reason: publicSafeWatcherIdentifier(spec.wakeReason, "wake") } : {}),
     evidence_ids: (spec.evidenceIds ?? []).map((id) => publicSafeRefLike(id, "evidence") ?? "").filter(Boolean).slice(0, 20),
     ...(spec.confidence !== undefined ? { confidence: Math.max(0, Math.min(1, spec.confidence)) } : {}),
     mutates: false,
@@ -2566,11 +2585,11 @@ function collaborationPublicSafeWatchSpecArg(spec: WatchSpec): Record<string, un
 
 function collaborationPublicSafeWatcherObservedArg(observed: NonNullable<WatchSpec["observed"]>): Record<string, unknown> {
   return {
-    ...(observed.threadStatus ? { thread_status: publicSafeText(observed.threadStatus, 80) } : {}),
+    ...(observed.threadStatus ? { thread_status: publicSafeWatcherText(observed.threadStatus, 80, "thread_status") } : {}),
     ...(observed.finalMessageCount !== undefined ? { final_message_count: Math.max(0, Math.trunc(observed.finalMessageCount)) } : {}),
     ...(observed.prChecksChanged !== undefined ? { pr_checks_changed: observed.prChecksChanged === true } : {}),
     ...(observed.reviewCommentCount !== undefined ? { review_comment_count: Math.max(0, Math.trunc(observed.reviewCommentCount)) } : {}),
-    ...(observed.approvalExpiresAt !== undefined ? { approval_expires_at: observed.approvalExpiresAt ? publicSafeText(observed.approvalExpiresAt, 80) : null } : {}),
+    ...(observed.approvalExpiresAt !== undefined ? { approval_expires_at: observed.approvalExpiresAt ? publicSafeWatcherTimestamp(observed.approvalExpiresAt, "approval_expires_at") : null } : {}),
     ...(observed.noActivitySeconds !== undefined ? { no_activity_seconds: Math.max(0, Math.trunc(observed.noActivitySeconds)) } : {})
   };
 }
@@ -2739,6 +2758,12 @@ function collaborationLaneNeedsApproval(lane: CodexCollaborationCockpitLane): bo
     || lane.nextAction.requiresApproval
     || lane.nextAction.kind === "approve"
     || collaborationReasonRequestsApproval(lane.nextAction.reason);
+}
+
+function collaborationLaneHasSessionApprovalBoundary(lane: CodexCollaborationCockpitLane): boolean {
+  return lane.sessionState === "needs_approval"
+    || lane.card.reasonCodes.includes("approval_needed")
+    || lane.card.nextAction.kind === "approve";
 }
 
 function collaborationReasonRequestsApproval(reason: string): boolean {
@@ -3780,6 +3805,27 @@ function publicSafeRefLike(value: string, prefix: string): string | null {
   return redacted ? `${prefix}_${stableId(redacted).slice(0, 16)}` : null;
 }
 
+function publicSafeWatcherIdentifier(value: string, prefix: string): string {
+  const raw = String(value ?? "");
+  const identifier = looksSensitiveRefLike(raw) ? null : publicSafeIdentifier(raw);
+  if (identifier) return identifier;
+  const redacted = publicSafeText(raw, 160).trim() || raw.trim() || prefix;
+  return `${prefix}_${stableId(redacted).slice(0, 16)}`;
+}
+
+function publicSafeWatcherTimestamp(value: string, prefix: string): string {
+  const raw = String(value ?? "");
+  const iso = looksSensitiveRefLike(raw) ? null : publicIsoTimestamp(raw);
+  if (iso) return iso;
+  return publicSafeWatcherIdentifier(raw, prefix);
+}
+
+function publicSafeWatcherText(value: string, maxChars: number, prefix: string): string {
+  const raw = String(value ?? "");
+  if (looksSensitiveRefLike(raw)) return publicSafeWatcherIdentifier(raw, prefix);
+  return publicSafeText(raw, maxChars);
+}
+
 function looksSensitiveRefLike(value: string): boolean {
   return /(?:^|[^A-Za-z0-9])(npm_[A-Za-z0-9]{10,}|sk-[A-Za-z0-9_-]{10,}|ghp_[A-Za-z0-9]{10,}|github_pat_[A-Za-z0-9_]{10,}|xox[baprs]-[A-Za-z0-9-]{10,})/.test(value)
     || value.includes("/")
@@ -4479,8 +4525,8 @@ function applySourceAuthority(signal: OperatingSignal, profile: SourceAuthorityP
 }
 
 function watcherStateFromSpec(spec: WatchSpec, now: number): WatcherState {
-  const targetRef = publicSafeText(spec.targetRef || "unknown", 180);
-  const watchId = publicSafeText(spec.watchId || `watch_${stableId(targetRef).slice(0, 12)}`, 120);
+  const targetRef = publicSafeRefLike(spec.targetRef || "unknown", "target") ?? `target_${stableId(spec.targetRef || "unknown").slice(0, 16)}`;
+  const watchId = publicSafeWatcherIdentifier(spec.watchId || `watch_${stableId(targetRef).slice(0, 12)}`, "watch");
   const confidence = Math.max(0, Math.min(1, spec.confidence ?? 0.75));
   const createdAtMs = timestampMillis(spec.createdAt);
   const lastObservedAtMs = timestampMillis(spec.lastObservedAt ?? null);
@@ -4490,7 +4536,7 @@ function watcherStateFromSpec(spec: WatchSpec, now: number): WatcherState {
   const stale = lastObservedAtMs !== null && now - lastObservedAtMs >= staleAfterSeconds * 1000;
   const expired = expiresAtMs !== null && now >= expiresAtMs;
   const inferredWakeReason = inferWatcherWakeReason(spec, now);
-  const wakeReason = spec.wakeReason ?? inferredWakeReason;
+  const wakeReason = knownWatcherKind(spec.wakeReason) ?? inferredWakeReason;
   const triggered = Boolean(wakeReason);
   const status: WatcherStatus = expired
     ? "expired"
@@ -4515,12 +4561,23 @@ function watcherStateFromSpec(spec: WatchSpec, now: number): WatcherState {
     expired,
     expiresAt: expiresAtMs === null ? null : new Date(expiresAtMs).toISOString(),
     lastObservedAt: lastObservedAtMs === null ? null : new Date(lastObservedAtMs).toISOString(),
-    stopConditions: (spec.stopConditions ?? []).map((condition) => publicSafeText(String(condition), 120)).filter(Boolean).slice(0, 12),
+    stopConditions: (spec.stopConditions ?? []).map((condition) => publicSafeWatcherIdentifier(String(condition), "condition")).slice(0, 12),
     reasonCodes: watcherReasonCodes(spec.kind, status, wakeReason, stale, expired, confidence),
     confidence,
-    evidenceIds: (spec.evidenceIds ?? []).map((id) => publicSafeText(String(id), 80)).filter(Boolean).slice(0, 20),
+    evidenceIds: (spec.evidenceIds ?? []).map((id) => publicSafeRefLike(String(id), "evidence") ?? "").filter(Boolean).slice(0, 20),
     approvalBoundary: "Read-only watcher; requests attention only. No live Codex control, GUI mutation, external write, or cleanup without a separate matching approval packet."
   };
+}
+
+function knownWatcherKind(value: unknown): WatcherKind | null {
+  return value === "thread_finished"
+    || value === "final_message_appeared"
+    || value === "pr_checks_changed"
+    || value === "review_comment_arrived"
+    || value === "no_activity"
+    || value === "approval_expired"
+    ? value
+    : null;
 }
 
 function inferWatcherWakeReason(spec: WatchSpec, now: number): WatcherKind | null {
