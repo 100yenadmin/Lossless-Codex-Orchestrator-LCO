@@ -334,7 +334,7 @@ if (method === "tools.invoke") {
   }
   if (name === "loo_codex_desktop_fallback_status") {
     const missingCoherence = !toolArgs.coherence;
-    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, readOnly: true, schema: "lco.codex.desktopFallback.v1", target: { threadId: toolArgs.thread_id, sourceRef: toolArgs.source_ref }, fallback: { required: true, reason: missingCoherence ? "coherence_input_missing" : "desktop_visibility_not_proven" }, blockers: missingCoherence ? ["coherence_input_missing"] : [], nextToolCall: missingCoherence ? { tool: "loo_codex_desktop_coherence", args: { thread_id: toolArgs.thread_id, source_ref: toolArgs.source_ref } } : null, preferredBackend: "cua-driver", backends: [{ backend: "cua-driver", role: "preferred_background", status: "blocked" }, { backend: "peekaboo", role: "secondary_visible_fallback", status: "blocked", takesScreenWarning: true }], actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, screenshotCaptured: false, rawTranscriptRead: false } } }));
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, readOnly: true, schema: "lco.codex.desktopFallback.v1", target: { threadId: toolArgs.thread_id, sourceRef: toolArgs.source_ref }, fallback: { required: !missingCoherence, reason: missingCoherence ? "coherence_input_missing" : "desktop_visibility_not_proven" }, blockers: missingCoherence ? ["coherence_input_missing"] : [], nextToolCall: missingCoherence ? { tool: "loo_codex_desktop_coherence", args: { thread_id: toolArgs.thread_id, source_ref: toolArgs.source_ref } } : null, preferredBackend: "cua-driver", backends: [{ backend: "cua-driver", role: "preferred_background", status: "blocked" }, { backend: "peekaboo", role: "secondary_visible_fallback", status: "blocked", takesScreenWarning: true }], actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, screenshotCaptured: false, rawTranscriptRead: false } } }));
     process.exit(0);
   }
   if (name === "loo_plan_state_pins") {
@@ -761,6 +761,48 @@ test("OpenClaw tool smoke can exercise desktop fallback status without a supplie
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;
   }
+});
+
+test("OpenClaw tool smoke exposes omitted desktop fallback coherence through the CLI", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-cli-desktop-fallback-no-coherence-"));
+  const evidencePath = join(dir, "tool-smoke.json");
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_codex_desktop_fallback_status"]);
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "openclaw",
+    "tool-smoke",
+    "--openclaw-bin",
+    bin,
+    "--profile",
+    "lco-issue-315-cli",
+    "--session-key",
+    "agent:main:lco-issue-315-cli",
+    "--evidence-path",
+    evidencePath,
+    "--required-tool",
+    "loo_codex_desktop_fallback_status",
+    "--thread-id",
+    "thread-1",
+    "--desktop-fallback-coherence",
+    "omit",
+    "--strict"
+  ], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      OPENCLAW_FAKE_CALLS: callsPath
+    }
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { method: string; params: { name?: string; args?: Record<string, unknown> } });
+  const invoke = calls.find((call) => call.method === "tools.invoke" && call.params.name === "loo_codex_desktop_fallback_status");
+  assert.equal(invoke?.params.args?.thread_id, "thread-1");
+  assert.equal("coherence" in (invoke?.params.args ?? {}), false);
+  assert.match(readFileSync(evidencePath, "utf8"), /coherence_input_missing/);
 });
 
 test("OpenClaw tool smoke accepts gateway content/details wrapped dry-run proof", () => {

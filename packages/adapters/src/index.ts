@@ -827,10 +827,10 @@ export async function createCodexDesktopFallbackReport(input: {
   const threadId = publicTextField(input.threadId, 120) ?? null;
   const sourceRef = publicTextField(input.sourceRef, 180) ?? null;
   const hasTarget = Boolean(threadId || sourceRef);
-  const coherenceInputMissing = !coherence && hasTarget;
   const state = publicTextField(coherence?.state, 80) ?? null;
   const visibility = asRecord(coherence?.visibility);
   const desktopVisibility = publicTextField(visibility?.desktop, 80) ?? null;
+  const coherenceInputMissing = hasTarget && !codexDesktopFallbackHasUsableCoherence(state, desktopVisibility);
   const fallbackReason = coherenceInputMissing
     ? "coherence_input_missing"
     : state === "desktop_visible" || desktopVisibility === "proven"
@@ -878,7 +878,7 @@ export async function createCodexDesktopFallbackReport(input: {
       sourceRef
     },
     fallback: {
-      required: fallbackReason !== "desktop_visibility_already_proven",
+      required: fallbackReason === "desktop_visibility_not_proven",
       reason: fallbackReason,
       coherenceState: state,
       desktopVisibility
@@ -910,6 +910,10 @@ export async function createCodexDesktopFallbackReport(input: {
       ? "Keep using direct Codex protocol and visible-map evidence; no desktop fallback action is required for this target."
       : "Continue #308 with an action-bound CUA no-focus Codex Desktop proof or a documented Peekaboo visible fallback blocker before claiming Desktop-visible collaboration."
   };
+}
+
+function codexDesktopFallbackHasUsableCoherence(state: string | null, desktopVisibility: string | null): boolean {
+  return Boolean(state || desktopVisibility);
 }
 
 export function desktopActDryRun(input: {

@@ -86,6 +86,7 @@ test("loo openclaw tool-smoke --help exits zero with proof-boundary usage", () =
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /Usage:\n  loo openclaw tool-smoke/);
   assert.match(result.stdout, /--required-tool name/);
+  assert.match(result.stdout, /--desktop-fallback-coherence fixture\|omit/);
   assert.match(result.stdout, /loo_codex_control_dry_run/);
   assert.match(result.stdout, /does not run live Codex control/i);
   assert.match(result.stdout, /does not publish npm/i);

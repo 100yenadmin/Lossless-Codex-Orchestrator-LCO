@@ -777,7 +777,7 @@ function printOpenClawDogfoodHelp(): void {
 function printOpenClawToolSmokeHelp(): void {
   console.log([
     "Usage:",
-    "  loo openclaw tool-smoke [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--thread-id id] [--expand-profile metadata|brief|evidence] [--token-budget n] [--required-tool name] [--evidence-path path] [--strict]",
+    "  loo openclaw tool-smoke [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--thread-id id] [--expand-profile metadata|brief|evidence] [--token-budget n] [--desktop-fallback-coherence fixture|omit] [--required-tool name] [--evidence-path path] [--strict]",
     "",
     "Runs a public-safe OpenClaw gateway smoke for selected loo_* tools.",
     "",
@@ -786,6 +786,8 @@ function printOpenClawToolSmokeHelp(): void {
     "",
     "Options:",
     "  --required-tool name    Replace the default required loo_* tool set with explicit entries; may be repeated.",
+    "  --desktop-fallback-coherence fixture|omit",
+    "                          For loo_codex_desktop_fallback_status, send the default public-safe coherence fixture or omit coherence to prove the coherence_input_missing handoff.",
     "  --evidence-path path    Write a public-safe tool-smoke report.",
     "  --strict                Exit non-zero when the catalog or required tool calls are not ready.",
     "",
@@ -1664,6 +1666,7 @@ function parseOpenClawToolSmokeArgs(input: string[]): {
   evidencePath?: string;
   requiredTools?: string[];
   gatewayTimeoutMs?: number;
+  desktopFallbackCoherence?: "fixture" | "omit";
   strict?: boolean;
 } {
   const parsed: ReturnType<typeof parseOpenClawToolSmokeArgs> = {};
@@ -1696,6 +1699,10 @@ function parseOpenClawToolSmokeArgs(input: string[]): {
       parsed.tokenBudget = parsePositiveInteger(input[++index], arg, 8000);
     } else if (arg === "--required-tool") {
       requiredTools.push(requireOptionValue(input[++index], arg));
+    } else if (arg === "--desktop-fallback-coherence") {
+      const value = requireOptionValue(input[++index], arg);
+      if (value !== "fixture" && value !== "omit") throw new Error("--desktop-fallback-coherence must be fixture or omit");
+      parsed.desktopFallbackCoherence = value;
     } else if (arg === "--evidence-path") {
       parsed.evidencePath = requireOptionValue(input[++index], arg);
     } else if (arg === "--strict") {
