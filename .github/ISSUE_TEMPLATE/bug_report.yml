@@ -1,0 +1,89 @@
+name: Bug report
+description: Report a reproducible LCO bug, regression, crash, or wrong output.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve LCO. Keep this public-safe: do not paste raw Codex transcripts, private SQLite DBs, tokens, cookies, connector URLs, credentials, or customer data.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One sentence describing what is broken.
+      placeholder: "`loo search` returns no results after indexing a fixture tree that previously worked."
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - CLI
+        - MCP server
+        - OpenClaw plugin
+        - Codex importer/indexer
+        - Search/describe/expand
+        - Dry-run/control safety
+        - Desktop fallback readiness
+        - Docs/setup
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include OS, Node, npm package version, install source, Codex/OpenClaw versions when relevant.
+      placeholder: |
+        OS:
+        Node:
+        LCO:
+        Install source:
+        Codex:
+        OpenClaw:
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Provide the shortest deterministic repro path.
+      placeholder: |
+        1. Run `loo doctor`.
+        2. Run `loo index codex --max-files 10 <redacted-fixture-path>`.
+        3. Run `loo search "<public-safe query>"`.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead? Include redacted logs only.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Public-safe evidence
+      description: Paste redacted command output, counts, refs, hashes, setup status, or blocker codes.
+      render: shell
+    validations:
+      required: true
+  - type: checkboxes
+    id: redaction
+    attributes:
+      label: Redaction check
+      description: Confirm this report is safe to publish.
+      options:
+        - label: I did not include raw transcripts, tokens, cookies, connector URLs, credentials, private DBs, screenshots with private data, or customer data.
+          required: true

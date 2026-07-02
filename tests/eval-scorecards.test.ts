@@ -61,6 +61,7 @@ test("scorecard v1 examples exist, are versioned, and preserve the beta evidence
     "orchestrator-leverage-prioritization.json",
     "packaging-install-review.json",
     "public-claim-review.json",
+    "public-community-readiness-review.json",
     "local-agent-usability-review.json",
     "local-mac-search-ui-review.json",
     "working-app-runtime-proof-review.json"

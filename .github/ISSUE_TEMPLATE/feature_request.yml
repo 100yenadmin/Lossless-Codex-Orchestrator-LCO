@@ -1,0 +1,53 @@
+name: Feature request
+description: Propose a new LCO capability or product improvement.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One-line statement of the requested capability.
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What user, operator, or agent pain does this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposed
+    attributes:
+      label: Proposed solution
+      description: Desired behavior, API, CLI, tool, or docs outcome.
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Safety boundary
+      description: Explain whether this touches raw transcripts, live control, GUI mutation, external systems, or adapters.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches and tradeoffs.
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Public-safe evidence or prior art
+      description: Links, redacted examples, scorecards, or comparable behavior.
+    validations:
+      required: true
+  - type: checkboxes
+    id: redaction
+    attributes:
+      label: Redaction check
+      options:
+        - label: I did not include tokens, credentials, private transcripts, raw DBs, connector URLs, or customer data.
+          required: true

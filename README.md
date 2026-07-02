@@ -7,7 +7,24 @@ Use it when an agent or user needs to answer: what sessions are active, what did
 they plan, what did they finish, what files did they touch, and what is the next
 safe action without rereading raw transcripts.
 
-[Setup](docs/SETUP.md) · [Agent Skill](skills/lossless-openclaw-orchestrator/SKILL.md) · [OpenClaw Plugin](docs/OPENCLAW_PLUGIN.md) · [Vision](VISION.md) · [Privacy](docs/PRIVACY.md) · [Claim Audit](docs/CLAIM_AUDIT.md) · [Claude Boundary](docs/CLAUDE_ADAPTER_BOUNDARY.md) · [Release Notes](docs/RELEASE_NOTES_1.0.0.md) · [Release Runbook](docs/BETA_RELEASE_RUNBOOK.md) · [License](LICENSE)
+[![npm beta](https://img.shields.io/npm/v/lossless-openclaw-orchestrator/beta?label=npm%20beta)](https://www.npmjs.com/package/lossless-openclaw-orchestrator)
+[![CI](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/actions/workflows/ci.yml/badge.svg)](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/actions/workflows/codeql.yml/badge.svg)](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/actions/workflows/codeql.yml)
+[![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)](LICENSE)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](CONTRIBUTING.md)
+
+[Setup](docs/SETUP.md) · [Contributing](CONTRIBUTING.md) · [Agent Instructions](AGENTS.md) · [Agent Skill](skills/lossless-openclaw-orchestrator/SKILL.md) · [OpenClaw Plugin](docs/OPENCLAW_PLUGIN.md) · [Security](SECURITY.md) · [Code of Conduct](CODE_OF_CONDUCT.md) · [Vision](VISION.md) · [Privacy](docs/PRIVACY.md) · [Claude Boundary](docs/CLAUDE_ADAPTER_BOUNDARY.md) · [Claim Audit](docs/CLAIM_AUDIT.md) · [Release Notes](docs/RELEASE_NOTES_1.0.0.md) · [License](LICENSE)
+
+## Why It Matters
+
+Codex is powerful, but long-running local work can become hard to supervise
+once you have dozens or hundreds of threads. LCO gives your orchestrator agent a
+safe operating picture: search first, inspect compact session cards, expand only
+bounded evidence, and dry-run the next action before anything live happens.
+
+If you are here to contribute, start with [CONTRIBUTING.md](CONTRIBUTING.md).
+If you are an agent working in this repository, read [AGENTS.md](AGENTS.md)
+before editing files.
 
 ## What It Does
 
@@ -198,9 +215,34 @@ storage and control paths are proven. Desktop fallback surfaces report
 readiness, blockers, and proof states; they do not authorize prompt typing,
 clicking, refresh/restart automation, or arbitrary app control.
 
-Public claim details live in [docs/CLAIM_AUDIT.md](docs/CLAIM_AUDIT.md).
+Claude adapter proof boundaries live in
+[docs/CLAUDE_ADAPTER_BOUNDARY.md](docs/CLAUDE_ADAPTER_BOUNDARY.md). Public
+claim details live in [docs/CLAIM_AUDIT.md](docs/CLAIM_AUDIT.md).
 Privacy details live in [docs/PRIVACY.md](docs/PRIVACY.md) and
 [docs/SAFE_SUMMARIES.md](docs/SAFE_SUMMARIES.md).
+
+## Community And Contributing
+
+LCO is meant to be easy to try and safe to improve. The public contribution
+path is:
+
+1. Read [CONTRIBUTING.md](CONTRIBUTING.md) for issue routing, validation,
+   evidence, and agent-authored PR expectations.
+2. Follow [docs/SETUP.md](docs/SETUP.md) for local install and first-run setup.
+3. Use [AGENTS.md](AGENTS.md) when a coding agent is making or reviewing the
+   change.
+4. File a bug, docs bug, feature request, adapter request, protocol drift
+   report, or unsafe-control report through the GitHub issue forms.
+
+Good first issue candidates are docs gaps, redacted fixture coverage, setup
+diagnostics, issue-template improvements, and narrow CLI help fixes. Use the
+adapter request form to request an adapter; describe the target app/runtime,
+read/index path, control boundary, and redacted proof available to test it.
+
+Never paste raw Codex transcripts, private SQLite databases, tokens, cookies,
+connector URLs, or customer data into public issues or PRs. Use
+[SECURITY.md](SECURITY.md) for private vulnerability reports and
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for community expectations.
 
 ## Architecture
 
@@ -270,6 +312,8 @@ npm run check
 The test suite uses redacted fixtures and Node's built-in test runner. Heavy
 validation is expected to run in CI; local development should use focused tests
 first.
+
+For contributor workflow details, use [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
