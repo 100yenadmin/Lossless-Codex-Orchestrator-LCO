@@ -2937,10 +2937,11 @@ function activeThreadStateItem(
   const watcherStale = input.watchers.some((watcher) => watcher.status === "stale");
   const appServerState = activeStateFromAppServerThread(input.appServerThread);
   const sessionState = activeStateFromSessionState(lane.sessionState);
-  const conflict = appServerState !== null
+  const appServerDisagrees = appServerState !== null
     && sessionState !== null
-    && appServerState !== sessionState
-    && !(sessionState === "running" && (watcherTriggered || watcherStale));
+    && appServerState !== sessionState;
+  const watcherOverridesAppServerConflict = appServerDisagrees && sessionState === "running" && (watcherTriggered || watcherStale);
+  const conflict = appServerDisagrees && !watcherOverridesAppServerConflict;
   const state = conflict
     ? "unknown"
     : lane.sessionState === "needs_approval"
@@ -2954,10 +2955,13 @@ function activeThreadStateItem(
             : appServerState ?? sessionState ?? "unknown";
   const watcherConfidence = input.watchers.length > 0 ? Math.max(...input.watchers.map((watcher) => watcher.confidence)) : 0;
   const appServerConfidence = typeof input.appServerThread?.confidence === "number" ? Math.max(0, Math.min(1, input.appServerThread.confidence)) : 0;
+  const conflictAppServerConfidence = typeof input.appServerThread?.confidence === "number" ? appServerConfidence : 0.62;
   const visibleConfidence = typeof input.visibleMapItem?.confidence === "number" ? Math.max(0, Math.min(1, input.visibleMapItem.confidence)) : 0;
   const confidence = conflict
-    ? Math.min(0.62, lane.card.confidence, appServerConfidence || 0.62)
-    : Math.max(0.1, Math.min(0.99, Math.max(lane.card.confidence, watcherConfidence, appServerConfidence, visibleConfidence)));
+    ? Math.min(0.62, lane.card.confidence, conflictAppServerConfidence)
+    : watcherOverridesAppServerConflict
+      ? Math.min(0.74, Math.max(0.1, Math.min(0.99, Math.max(lane.card.confidence, watcherConfidence, appServerConfidence, visibleConfidence))))
+      : Math.max(0.1, Math.min(0.99, Math.max(lane.card.confidence, watcherConfidence, appServerConfidence, visibleConfidence)));
   const reasonCodes = unique([
     ...lane.reasonCodes,
     `active_state:${state}`,
@@ -2966,7 +2970,8 @@ function activeThreadStateItem(
     ...input.watchers.flatMap((watcher) => watcher.reasonCodes),
     ...activeStateAppServerReasonCodes(input.appServerThread, appServerState),
     ...(input.visibleMapItem ? ["visible_map_joined", ...input.visibleMapItem.reasonCodes] : []),
-    ...(conflict ? ["conflicting_state", "app_server_indexed_state_conflict", "low_confidence"] : [])
+    ...(conflict ? ["conflicting_state", "app_server_indexed_state_conflict", "low_confidence"] : []),
+    ...(watcherOverridesAppServerConflict ? ["app_server_state_overridden_by_watcher", "app_server_indexed_state_conflict", "low_confidence"] : [])
   ]);
   const evidenceIds = unique([
     ...lane.card.evidenceIds,

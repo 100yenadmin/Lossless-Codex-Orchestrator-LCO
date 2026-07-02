@@ -2885,12 +2885,20 @@ test("Codex active-thread state classifies running blocked stale and needs-nudge
             confidence: 0.95
           },
           {
+            threadId: "019f-state-needs-nudge",
+            sourceRef: "codex_thread:019f-state-needs-nudge",
+            status: "blocked",
+            loaded: true,
+            loadedState: "loaded",
+            confidence: 0.93
+          },
+          {
             threadId: "019f-state-conflict",
             sourceRef: "codex_thread:019f-state-conflict",
             status: "blocked",
             loaded: true,
             loadedState: "loaded",
-            confidence: 0.94
+            confidence: 0
           },
           {
             threadId: "019f-state-loaded-only",
@@ -2900,7 +2908,7 @@ test("Codex active-thread state classifies running blocked stale and needs-nudge
             confidence: 0.89
           }
         ],
-        loadedThreadRefs: ["codex_thread:019f-state-running", "codex_thread:019f-state-conflict", "codex_thread:019f-state-loaded-only"]
+        loadedThreadRefs: ["codex_thread:019f-state-running", "codex_thread:019f-state-needs-nudge", "codex_thread:019f-state-conflict", "codex_thread:019f-state-loaded-only"]
       }
     });
 
@@ -2935,11 +2943,13 @@ test("Codex active-thread state classifies running blocked stale and needs-nudge
     assert.equal(byThread.get("codex_thread:019f-state-approval")?.state, "needs_approval");
     assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.state, "needs_nudge");
     assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.reasonCodes.includes("watcher_triggered"), true);
+    assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.reasonCodes.includes("app_server_state_overridden_by_watcher"), true);
+    assert.equal((byThread.get("codex_thread:019f-state-needs-nudge")?.confidence ?? 1) <= 0.74, true);
     assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.sourceCoverage.watchers, "ok");
     assert.equal(byThread.get("codex_thread:019f-state-stale")?.state, "stale");
     assert.equal(byThread.get("codex_thread:019f-state-stale")?.reasonCodes.includes("watcher_stale"), true);
     assert.equal(byThread.get("codex_thread:019f-state-conflict")?.state, "unknown");
-    assert.equal((byThread.get("codex_thread:019f-state-conflict")?.confidence ?? 1) < 0.7, true);
+    assert.equal(byThread.get("codex_thread:019f-state-conflict")?.confidence, 0);
     assert.equal(byThread.get("codex_thread:019f-state-conflict")?.reasonCodes.includes("conflicting_state"), true);
     assert.equal(byThread.get("codex_thread:019f-state-loaded-only")?.state, "unknown");
     assert.equal(byThread.get("codex_thread:019f-state-loaded-only")?.reasonCodes.includes("app_server_loaded"), true);
