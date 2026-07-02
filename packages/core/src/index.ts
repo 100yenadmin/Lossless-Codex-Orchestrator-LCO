@@ -2045,6 +2045,7 @@ export function getCockpitInbox(db: LooDatabase, options: { limit?: number; prio
 export function createCodexCollaborationCockpit(db: LooDatabase, options: CodexCollaborationCockpitOptions = {}): CodexCollaborationCockpitReport {
   const limit = clamp(options.limit ?? 20, 1, 500);
   const recent = getRecentSessions(db, { scope: "active", limit: 500, includeCards: true });
+  const activeSessionCount = countActiveCodexSessions(db);
   const inbox = getCockpitInbox(db, {
     limit: 500,
     priorityOrder: options.priorityOrder,
@@ -2088,7 +2089,7 @@ export function createCodexCollaborationCockpit(db: LooDatabase, options: CodexC
     readOnly: true,
     generatedAt: options.now ?? new Date().toISOString(),
     summary: {
-      totalCards: sortedLaneInputs.length,
+      totalCards: activeSessionCount,
       returned: selected.length,
       running: selected.filter((lane) => lane.sessionState === "running").length,
       waiting: selected.filter((lane) => lane.sessionState === "waiting").length,
@@ -2097,7 +2098,7 @@ export function createCodexCollaborationCockpit(db: LooDatabase, options: CodexC
       desktopVisible: selected.filter((lane) => lane.desktop.state === "desktop_visible").length,
       fallbackRequired: selected.filter((lane) => lane.desktop.requiresFallback).length,
       highAttention: selected.filter((lane) => lane.attention.level === "high" || lane.attention.level === "critical").length,
-      lowConfidence: selected.filter((lane) => lane.card.confidence < 0.7 || lane.desktop.confidence < 0.7).length
+      lowConfidence: selected.filter((lane) => lane.card.confidence < 0.7 || collaborationLaneHasLowConfidenceDesktopEvidence(lane)).length
     },
     sourceCoverage: {
       recentSessions: recent.summary.total > 0 ? "ok" : "partial",
@@ -2107,8 +2108,8 @@ export function createCodexCollaborationCockpit(db: LooDatabase, options: CodexC
     },
     lanes: selected,
     omitted: {
-      count: Math.max(0, sortedLaneInputs.length - selected.length),
-      reason: sortedLaneInputs.length > selected.length ? "limit" : "none"
+      count: Math.max(0, activeSessionCount - selected.length),
+      reason: activeSessionCount > selected.length ? "limit" : "none"
     },
     actionsPerformed: {
       liveCodexControlRun: false,
@@ -2122,6 +2123,16 @@ export function createCodexCollaborationCockpit(db: LooDatabase, options: CodexC
   };
 }
 
+function countActiveCodexSessions(db: LooDatabase): number {
+  const row = db.prepare(`
+    SELECT COUNT(*) AS total
+    FROM codex_sessions AS s
+    LEFT JOIN codex_session_metadata AS m ON m.thread_id = s.thread_id
+    WHERE lower(trim(coalesce(m.status, ''))) NOT IN ('done', 'complete', 'completed', 'closed', 'merged')
+  `).get() as { total?: number } | undefined;
+  return typeof row?.total === "number" ? row.total : 0;
+}
+
 function collaborationLane(
   card: CodexSessionCard,
   input: {
@@ -2133,13 +2144,14 @@ function collaborationLane(
     desktopFallbackCoverage: VisibleCodexCoverageState;
   }
 ): CodexCollaborationCockpitLane {
-  const urgencyScore = input.inboxItem?.urgencyScore ?? cockpitUrgencyScore(card, input.priorityOrder);
+  const desktop = collaborationDesktopState(input);
+  const baseUrgencyScore = input.inboxItem?.urgencyScore ?? cockpitUrgencyScore(card, input.priorityOrder);
+  const urgencyScore = collaborationDesktopUrgencyScore(baseUrgencyScore, desktop);
   const reasonCodes = unique([
     ...card.reasonCodes,
     ...(input.inboxItem?.reasonCodes ?? []),
     ...collaborationDesktopReasonCodes(input.coherence, input.fallback)
   ].map((code) => publicSafeIdentifier(code) ?? "").filter(Boolean));
-  const desktop = collaborationDesktopState(input);
   return {
     threadId: card.threadId,
     title: card.title,
@@ -2174,7 +2186,11 @@ function collaborationDesktopState(input: {
   const backendRecords = Array.isArray(fallback?.backends)
     ? fallback.backends.filter(isObjectRecord)
     : [];
-  const readyBackend = backendRecords.some((backend) => collaborationString(backend.status, 40) === "ready");
+  const readyBackend = backendRecords.some((backend) => {
+    if (collaborationString(backend.status, 40) !== "ready") return false;
+    if (!preferredBackend) return true;
+    return collaborationString(backend.backend, 40) === preferredBackend;
+  });
   const fallbackBlockers = backendRecords.flatMap((backend) => collaborationStringArray(backend.blockers, 120));
   const blockers = unique([
     ...collaborationStringArray(coherence?.blockers, 120),
@@ -2252,6 +2268,7 @@ function collaborationTargetRef(report: Record<string, unknown>): string | null 
   const target = isObjectRecord(report.target) ? report.target : {};
   const sourceRef = collaborationString(target.sourceRef ?? target.source_ref ?? report.sourceRef ?? report.source_ref, 180);
   const threadId = collaborationString(target.threadId ?? target.thread_id ?? report.threadId ?? report.thread_id, 120);
+  if (codexDesktopCoherenceTargetMismatch(threadId, sourceRef)) return null;
   return normalizeCodexThreadSourceRef(sourceRef, threadId);
 }
 
@@ -2268,6 +2285,17 @@ function collaborationJoinedReportCount(reportsByThread: Map<string, Record<stri
 function collaborationCoherenceRequiresFallback(hasCoherence: boolean, coherenceState: string | null): boolean {
   if (!hasCoherence) return false;
   return coherenceState !== "desktop_visible";
+}
+
+function collaborationDesktopUrgencyScore(baseScore: number, desktop: CodexCollaborationCockpitLane["desktop"]): number {
+  if (desktop.state === "fallback_ready") return Math.max(baseScore, 88);
+  if (desktop.state === "fallback_blocked") return Math.max(baseScore, 82);
+  if (desktop.requiresFallback) return Math.max(baseScore, 78);
+  return baseScore;
+}
+
+function collaborationLaneHasLowConfidenceDesktopEvidence(lane: CodexCollaborationCockpitLane): boolean {
+  return lane.desktop.state !== "not_configured" && lane.desktop.confidence < 0.7;
 }
 
 function collaborationAttentionLevel(urgencyScore: number, reasonCodes: string[]): OperatingUrgency {
