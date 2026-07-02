@@ -59,7 +59,7 @@
     "Desktop live/no-focus proof harness output prepares an action-bound proof plan without performing GUI mutation.",
     "Desktop proof-action output is limited to the CUA Driver TextEdit scratch launch path, fails closed when generic gateway invocation lacks exact proof args, and excludes raw stdout, screenshots, and scratch file paths from public evidence.",
     "Desktop GUI proof-report output validates supplied public-safe observations and emits release-compatible approval/runtime marker artifacts without itself performing GUI mutation.",
-    "Codex Desktop coherence classification does not perform a Desktop action and must not claim Desktop-visible collaboration when the state is cli_visible or unknown."
+    "Codex Desktop coherence classification does not perform a Desktop action and must not claim Desktop-visible collaboration when the state is cli_visible, desktop_refresh_required, desktop_restart_required, or unknown."
   ],
   "fail_criteria": [
     "UI renders raw Codex transcripts or raw prompts.",

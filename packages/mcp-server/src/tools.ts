@@ -296,30 +296,7 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       max_chars: { type: "integer", minimum: 1, maximum: 20000 },
       visible_codex: { type: "object", additionalProperties: true },
       app_server_threads: { type: "object", additionalProperties: true }
-    }, async (input) => {
-      const visibleFromInput = optionalRecord(input.visible_codex) as VisibleCodexInput | undefined;
-      const appServerFromInput = optionalRecord(input.app_server_threads) as AppServerThreadsInput | undefined;
-      const visibleCodex = visibleFromInput ?? (input.include_visible_snapshot === true
-        ? (await desktopSee({
-            backend: optionalDesktopBackend(input.backend),
-            includeSnapshot: true,
-            maxNodes: optionalNumber(input.max_nodes),
-            maxChars: optionalNumber(input.max_chars),
-            probe: options.desktopProbe
-          })).visibleCodex
-        : undefined);
-      const appServerThreads = appServerFromInput ?? (input.include_app_server === false
-        ? undefined
-        : await createCodexAppServerThreadsReport({
-            client: codexReadClient,
-            limit: optionalNumber(input.limit)
-          }));
-      return createVisibleCodexSessionMap(options.db, {
-        limit: optionalNumber(input.limit),
-        visibleCodex,
-        appServerThreads
-      });
-    }),
+    }, (input) => buildVisibleCodexMapFromToolInput(input, options)),
     tool("loo_codex_desktop_coherence", "Classify whether CLI/direct/app-server Codex thread evidence is also visible in Codex Desktop without performing control or GUI actions.", {
       thread_id: { type: "string" },
       source_ref: { type: "string" },
@@ -573,7 +550,21 @@ async function buildVisibleCodexMapForTool(
   options: { db: LooDatabase; codexClient: CodexClient; codexReadClient?: CodexClient; desktopProbe?: DesktopProbe }
 ): Promise<VisibleCodexSessionMapReport> {
   const targetThreadId = targetThreadIdFromCoherenceInput(input);
-  const visibleCodex = input.include_visible_snapshot === true
+  return buildVisibleCodexMapFromToolInput(input, options, {
+    readThreadId: targetThreadId,
+    appendReadProbe: true,
+    preserveTargetThroughLimit: Boolean(targetThreadId)
+  });
+}
+
+async function buildVisibleCodexMapFromToolInput(
+  input: Record<string, unknown>,
+  options: { db: LooDatabase; codexClient: CodexClient; codexReadClient?: CodexClient; desktopProbe?: DesktopProbe },
+  behavior: { readThreadId?: string; appendReadProbe?: boolean; preserveTargetThroughLimit?: boolean } = {}
+): Promise<VisibleCodexSessionMapReport> {
+  const visibleFromInput = optionalRecord(input.visible_codex) as VisibleCodexInput | undefined;
+  const appServerFromInput = optionalRecord(input.app_server_threads) as AppServerThreadsInput | undefined;
+  const visibleCodex = visibleFromInput ?? (input.include_visible_snapshot === true
     ? (await desktopSee({
         backend: optionalDesktopBackend(input.backend),
         includeSnapshot: true,
@@ -581,31 +572,42 @@ async function buildVisibleCodexMapForTool(
         maxChars: optionalNumber(input.max_chars),
         probe: options.desktopProbe
       })).visibleCodex
-    : undefined;
-  const appServerThreads = input.include_app_server === false
+    : undefined);
+  const appServerThreads = appServerFromInput ?? (input.include_app_server === false
     ? undefined
     : await createCodexAppServerThreadsReport({
         client: options.codexReadClient ?? options.codexClient,
         limit: optionalNumber(input.limit),
-        readThreadId: targetThreadId
-      });
-  const mapLimit = targetThreadId ? 500 : optionalNumber(input.limit);
+        readThreadId: behavior.readThreadId
+      }));
+  const mapLimit = behavior.preserveTargetThroughLimit ? 500 : optionalNumber(input.limit);
   return createVisibleCodexSessionMap(options.db, {
     limit: mapLimit,
     visibleCodex,
-    appServerThreads: appServerThreads ? appServerThreadsWithReadProbe(appServerThreads) : undefined
+    appServerThreads: behavior.appendReadProbe && appServerThreads ? appServerThreadsWithReadProbe(appServerThreads) : appServerThreads
   });
 }
 
-function appServerThreadsWithReadProbe(report: Awaited<ReturnType<typeof createCodexAppServerThreadsReport>>): AppServerThreadsInput {
+type AppServerThreadsWithOptionalReadProbe = AppServerThreadsInput & {
+  readProbe?: {
+    appServerRef: string;
+    threadId: string;
+    titleSanitized: string | null;
+    status: string | null;
+    error: string | null;
+  };
+};
+
+function appServerThreadsWithReadProbe(report: AppServerThreadsWithOptionalReadProbe): AppServerThreadsInput {
   const readProbe = report.readProbe;
   if (!readProbe || readProbe.error) return report;
-  const hasThread = report.threads.some((thread) => thread.threadId === readProbe.threadId);
+  const threads = report.threads ?? [];
+  const hasThread = threads.some((thread) => thread.threadId === readProbe.threadId);
   if (hasThread) return report;
   return {
     ...report,
     threads: [
-      ...report.threads,
+      ...threads,
       {
         appServerRef: readProbe.appServerRef,
         threadId: readProbe.threadId,
