@@ -2939,14 +2939,27 @@ test("Codex active-thread state classifies running blocked stale and needs-nudge
     assert.equal(byThread.get("codex_thread:019f-state-running")?.reasonCodes.includes("app_server_running"), true);
     assert.equal(byThread.get("codex_thread:019f-state-running")?.sourceCoverage.watchers, "partial");
     assert.equal(byThread.get("codex_thread:019f-state-running")?.sourceCoverage.codexAppServer, "ok");
+    assert.equal(byThread.get("codex_thread:019f-state-running")?.attentionCoverage.status, "covered");
+    assert.equal(byThread.get("codex_thread:019f-state-running")?.attentionCoverage.nextReadOnlyAction, null);
     assert.equal(byThread.get("codex_thread:019f-state-blocked")?.state, "blocked");
     assert.equal(byThread.get("codex_thread:019f-state-blocked")?.sourceCoverage.codexAppServer, "partial");
+    assert.equal(byThread.get("codex_thread:019f-state-blocked")?.attentionCoverage.status, "partial");
+    assert.equal(byThread.get("codex_thread:019f-state-blocked")?.attentionCoverage.nextReadOnlyAction?.tool, "loo_codex_app_server_threads");
+    assert.equal(byThread.get("codex_thread:019f-state-blocked")?.attentionCoverage.nextReadOnlyAction?.execute, false);
     assert.equal(byThread.get("codex_thread:019f-state-approval")?.state, "needs_approval");
     assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.state, "needs_nudge");
     assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.reasonCodes.includes("watcher_triggered"), true);
     assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.reasonCodes.includes("app_server_state_overridden_by_watcher"), true);
     assert.equal((byThread.get("codex_thread:019f-state-needs-nudge")?.confidence ?? 1) <= 0.74, true);
     assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.sourceCoverage.watchers, "ok");
+    assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.attentionCoverage.status, "partial");
+    assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.attentionCoverage.reasonCodes.includes("attention_conflicting_state"), true);
+    assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.attentionCoverage.nextReadOnlyAction?.tool, "loo_codex_app_server_threads");
+    assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.attentionCoverage.nextReadOnlyAction?.execute, false);
+    assert.deepEqual(byThread.get("codex_thread:019f-state-needs-nudge")?.attentionCoverage.nextReadOnlyAction?.args, {
+      read_thread_id: "019f-state-needs-nudge",
+      limit: 20
+    });
     assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.nextControlDryRun?.tool, "loo_codex_control_dry_run");
     assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.nextControlDryRun?.execute, false);
     assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.nextControlDryRun?.status, "ready");
@@ -2960,9 +2973,19 @@ test("Codex active-thread state classifies running blocked stale and needs-nudge
     assert.equal(byThread.get("codex_thread:019f-state-conflict")?.state, "unknown");
     assert.equal(byThread.get("codex_thread:019f-state-conflict")?.confidence, 0);
     assert.equal(byThread.get("codex_thread:019f-state-conflict")?.reasonCodes.includes("conflicting_state"), true);
+    assert.equal(byThread.get("codex_thread:019f-state-conflict")?.attentionCoverage.status, "needs_probe");
+    assert.equal(byThread.get("codex_thread:019f-state-conflict")?.attentionCoverage.confidence, 0.1);
+    assert.equal(byThread.get("codex_thread:019f-state-conflict")?.attentionCoverage.reasonCodes.includes("attention_conflicting_state"), true);
+    assert.equal(byThread.get("codex_thread:019f-state-conflict")?.attentionCoverage.reasonCodes.includes("attention_confidence_floor_applied"), true);
+    assert.equal(byThread.get("codex_thread:019f-state-conflict")?.attentionCoverage.reasonCodes.includes("attention_low_confidence"), true);
+    assert.equal(byThread.get("codex_thread:019f-state-conflict")?.attentionCoverage.nextReadOnlyAction?.tool, "loo_codex_app_server_threads");
+    assert.equal(byThread.get("codex_thread:019f-state-conflict")?.attentionCoverage.nextReadOnlyAction?.execute, false);
     assert.equal(byThread.get("codex_thread:019f-state-loaded-only")?.state, "unknown");
     assert.equal(byThread.get("codex_thread:019f-state-loaded-only")?.reasonCodes.includes("app_server_loaded"), true);
     assert.equal(byThread.get("codex_thread:019f-state-loaded-only")?.reasonCodes.includes("app_server_running"), false);
+    assert.equal(byThread.get("codex_thread:019f-state-loaded-only")?.attentionCoverage.status, "needs_probe");
+    assert.equal(byThread.get("codex_thread:019f-state-loaded-only")?.attentionCoverage.nextReadOnlyAction?.tool, "loo_visible_codex_map");
+    assert.equal(byThread.get("codex_thread:019f-state-loaded-only")?.attentionCoverage.nextReadOnlyAction?.execute, false);
     assert.equal(report.items[0]?.state, "needs_nudge");
     assert.equal(report.actionsPerformed.liveCodexControlRun, false);
     assert.equal(report.actionsPerformed.desktopGuiActionRun, false);
@@ -3027,6 +3050,38 @@ test("Codex active-thread state classifies before applying caller limit", () => 
     });
     assert.equal(report.omitted.count, 25);
     assert.equal(report.omitted.reason, "limit");
+  });
+});
+
+test("Codex active-thread attention coverage emits unknown when no attention sources are configured", () => {
+  withIndexedSessions([
+    {
+      id: "019f-active-unknown-sources",
+      title: "Unknown active lane",
+      status: "mysterious",
+      priority: "medium",
+      nextAction: "inspect unknown source coverage",
+      updatedAt: relativeIso(10),
+      refs: true
+    }
+  ], ({ db }) => {
+    const report = createCodexActiveThreadState(db, {
+      limit: 5,
+      now: "2026-07-02T00:00:00.000Z"
+    });
+
+    assert.equal(report.summary.returned, 1);
+    assert.equal(report.summary.unknown, 1);
+    assert.equal(report.summary.attentionUnknown, 1);
+    assert.equal(report.summary.nextReadOnlyActions, 1);
+    assert.equal(report.items[0]?.state, "unknown");
+    assert.equal(report.items[0]?.attentionCoverage.status, "unknown");
+    assert.equal(report.items[0]?.attentionCoverage.reasonCodes.includes("attention_sources_not_configured"), true);
+    assert.equal(report.items[0]?.attentionCoverage.nextReadOnlyAction?.tool, "loo_codex_app_server_threads");
+    assert.equal(report.items[0]?.attentionCoverage.nextReadOnlyAction?.execute, false);
+    assert.equal(report.actionsPerformed.liveCodexControlRun, false);
+    assert.equal(report.actionsPerformed.desktopGuiActionRun, false);
+    assert.equal(report.actionsPerformed.rawTranscriptRead, false);
   });
 });
 

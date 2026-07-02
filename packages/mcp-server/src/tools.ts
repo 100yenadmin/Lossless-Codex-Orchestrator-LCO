@@ -279,7 +279,7 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       desktopCollaborationProofReports: optionalRecordArray(input.desktop_collaboration_proof_reports),
       now: optionalString(input.now)
     })),
-    tool("loo_codex_active_thread_state", "Classify active Codex threads as running, blocked, stale, needs-nudge, or unknown using public-safe read-only cockpit signals, with non-executed control dry-run recommendations where safe.", {
+    tool("loo_codex_active_thread_state", "Classify active Codex threads using public-safe cockpit signals, attention coverage, execute-false read-only probes, and non-executed control dry-run recommendations where safe.", {
       limit: { type: "integer", minimum: 1, maximum: 500 },
       priority_order: { type: "array", items: { type: "string" } },
       watcher_specs: { type: "array", items: { type: "object", additionalProperties: true } },

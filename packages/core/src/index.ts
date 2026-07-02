@@ -612,6 +612,20 @@ export type CodexActiveThreadControlDryRunRecommendation = {
   confidence: number;
 };
 
+export type CodexActiveThreadReadOnlyAction = {
+  tool: "loo_recent_sessions" | "loo_cockpit_inbox" | "loo_codex_app_server_threads" | "loo_visible_codex_map";
+  execute: false;
+  args: Record<string, string | number | boolean>;
+  reason: string;
+};
+
+export type CodexActiveThreadAttentionCoverage = {
+  status: "covered" | "partial" | "needs_probe" | "unknown";
+  confidence: number;
+  reasonCodes: string[];
+  nextReadOnlyAction: CodexActiveThreadReadOnlyAction | null;
+};
+
 export type CodexActiveThreadStateItem = {
   threadId: string;
   title: string;
@@ -623,6 +637,7 @@ export type CodexActiveThreadStateItem = {
   confidence: number;
   reasonCodes: string[];
   evidenceIds: string[];
+  attentionCoverage: CodexActiveThreadAttentionCoverage;
   nextControlDryRun: CodexActiveThreadControlDryRunRecommendation | null;
   sourceCoverage: {
     indexedSession: VisibleCodexCoverageState;
@@ -650,6 +665,11 @@ export type CodexActiveThreadStateReport = {
     idle: number;
     unknown: number;
     lowConfidence: number;
+    attentionCovered: number;
+    attentionPartial: number;
+    attentionNeedsProbe: number;
+    attentionUnknown: number;
+    nextReadOnlyActions: number;
   };
   sourceCoverage: {
     indexedSession: VisibleCodexCoverageState;
@@ -2521,7 +2541,12 @@ export function createCodexActiveThreadState(
       waiting: selected.filter((item) => item.state === "waiting").length,
       idle: selected.filter((item) => item.state === "idle").length,
       unknown: selected.filter((item) => item.state === "unknown").length,
-      lowConfidence: selected.filter((item) => item.confidence < 0.7).length
+      lowConfidence: selected.filter((item) => item.confidence < 0.7).length,
+      attentionCovered: selected.filter((item) => item.attentionCoverage.status === "covered").length,
+      attentionPartial: selected.filter((item) => item.attentionCoverage.status === "partial").length,
+      attentionNeedsProbe: selected.filter((item) => item.attentionCoverage.status === "needs_probe").length,
+      attentionUnknown: selected.filter((item) => item.attentionCoverage.status === "unknown").length,
+      nextReadOnlyActions: selected.filter((item) => item.attentionCoverage.nextReadOnlyAction !== null).length
     },
     sourceCoverage: {
       indexedSession: cockpit.sourceCoverage.recentSessions,
@@ -2543,7 +2568,7 @@ export function createCodexActiveThreadState(
       npmPublished: false,
       githubReleaseCreated: false
     },
-    proofBoundary: "This read-only active-thread state report fuses indexed Codex cards, deterministic inbox urgency, watcher records, optional app-server status, and optional visible-map coverage. It does not read raw transcripts, run live Codex control, mutate Codex Desktop, capture screenshots, publish npm, create GitHub releases, or claim unattended Desktop collaboration."
+    proofBoundary: "This read-only active-thread state report fuses indexed Codex cards, deterministic inbox urgency, watcher records, optional app-server status, and optional visible-map coverage into attention coverage cards and non-executed next-read recommendations. It does not read raw transcripts, run live Codex control, mutate Codex Desktop, capture screenshots, publish npm, create GitHub releases, or claim unattended Desktop collaboration."
   };
 }
 
@@ -3004,6 +3029,12 @@ function activeThreadStateItem(
   const safeReasonCodes = reasonCodes.map(collaborationPublicSafeReasonCode).filter((code): code is string => Boolean(code)).slice(0, 30);
   const safeEvidenceIds = evidenceIds.map((id) => publicSafeRefLike(id, "evidence") ?? "").filter(Boolean).slice(0, 30);
   const safeConfidence = Number(confidence.toFixed(2));
+  const attentionCoverage = activeThreadAttentionCoverage(lane, {
+    state,
+    confidence: safeConfidence,
+    reasonCodes: safeReasonCodes,
+    sourceCoverage: input.sourceCoverage
+  });
   return {
     threadId: lane.threadId,
     title: publicSafeText(lane.title, 180),
@@ -3015,8 +3046,133 @@ function activeThreadStateItem(
     confidence: safeConfidence,
     reasonCodes: safeReasonCodes,
     evidenceIds: safeEvidenceIds,
+    attentionCoverage,
     nextControlDryRun: activeThreadControlDryRunRecommendation(lane, state, safeConfidence, safeReasonCodes),
     sourceCoverage: input.sourceCoverage
+  };
+}
+
+function activeThreadAttentionCoverage(
+  lane: CodexCollaborationCockpitLane,
+  input: {
+    state: CodexActiveThreadStateKind;
+    confidence: number;
+    reasonCodes: string[];
+    sourceCoverage: CodexActiveThreadStateItem["sourceCoverage"];
+  }
+): CodexActiveThreadAttentionCoverage {
+  const hardConflict = input.reasonCodes.includes("conflicting_state");
+  const softConflict = input.reasonCodes.includes("app_server_state_overridden_by_watcher")
+    || (input.reasonCodes.includes("app_server_indexed_state_conflict") && input.state !== "unknown");
+  const appServerMissing = input.sourceCoverage.codexAppServer === "partial"
+    || input.sourceCoverage.codexAppServer === "unavailable"
+    || input.sourceCoverage.codexAppServer === "not_configured";
+  const visibleMapMissing = input.sourceCoverage.visibleCodexMap === "partial"
+    || input.sourceCoverage.visibleCodexMap === "unavailable"
+    || input.sourceCoverage.visibleCodexMap === "not_configured";
+  const indexedSessionMissing = input.sourceCoverage.indexedSession === "unavailable";
+  const cockpitInboxMissing = input.sourceCoverage.cockpitInbox === "unavailable";
+  const coreMissing = indexedSessionMissing || cockpitInboxMissing;
+  const unconfiguredUnknownState = input.state === "unknown"
+    && input.sourceCoverage.watchers === "not_configured"
+    && input.sourceCoverage.codexAppServer === "not_configured"
+    && input.sourceCoverage.visibleCodexMap === "not_configured";
+  const confidence = Math.max(0.1, Math.min(1, input.confidence));
+  const confidenceFloorApplied = input.confidence < 0.1;
+  const needsProbe = hardConflict || input.state === "unknown" || confidence < 0.5 || coreMissing;
+  const partial = !needsProbe && (softConflict || appServerMissing || confidence < 0.7);
+  const status: CodexActiveThreadAttentionCoverage["status"] = unconfiguredUnknownState
+    ? "unknown"
+    : needsProbe
+    ? "needs_probe"
+    : partial ? "partial" : "covered";
+  const nextReadOnlyAction = status === "covered"
+    ? null
+    : activeThreadNextReadOnlyAction(lane, {
+        state: input.state,
+        hardConflict,
+        softConflict,
+        appServerMissing,
+        visibleMapMissing,
+        coreMissing,
+        indexedSessionMissing,
+        cockpitInboxMissing
+      });
+  const reasonCodes = unique([
+    `attention_${status}`,
+    unconfiguredUnknownState ? "attention_sources_not_configured" : "",
+    hardConflict || softConflict ? "attention_conflicting_state" : "",
+    appServerMissing ? `attention_app_server_${input.sourceCoverage.codexAppServer}` : "",
+    visibleMapMissing ? `attention_visible_map_${input.sourceCoverage.visibleCodexMap}` : "",
+    indexedSessionMissing ? "attention_indexed_session_unavailable" : "",
+    cockpitInboxMissing ? "attention_cockpit_inbox_unavailable" : "",
+    confidenceFloorApplied ? "attention_confidence_floor_applied" : "",
+    confidence < 0.7 ? "attention_low_confidence" : "",
+    nextReadOnlyAction ? "attention_read_only_probe_available" : ""
+  ].filter(Boolean))
+    .map(collaborationPublicSafeReasonCode)
+    .filter((code): code is string => Boolean(code))
+    .slice(0, 16);
+
+  return {
+    status,
+    confidence,
+    reasonCodes,
+    nextReadOnlyAction
+  };
+}
+
+function activeThreadNextReadOnlyAction(
+  lane: CodexCollaborationCockpitLane,
+  input: {
+    state: CodexActiveThreadStateKind;
+    hardConflict: boolean;
+    softConflict: boolean;
+    appServerMissing: boolean;
+    visibleMapMissing: boolean;
+    coreMissing: boolean;
+    indexedSessionMissing: boolean;
+    cockpitInboxMissing: boolean;
+  }
+): CodexActiveThreadReadOnlyAction {
+  const threadId = safeThreadId(lane.threadId);
+  if (input.indexedSessionMissing) {
+    return {
+      tool: "loo_recent_sessions",
+      execute: false,
+      args: { scope: "active", include_cards: true, limit: 20 },
+      reason: "Refresh public-safe indexed active session cards before trusting the active-state lane."
+    };
+  }
+  if (input.cockpitInboxMissing) {
+    return {
+      tool: "loo_cockpit_inbox",
+      execute: false,
+      args: { limit: 20 },
+      reason: "Refresh the deterministic cockpit inbox before trusting the active-state lane."
+    };
+  }
+  if (input.hardConflict || input.softConflict || input.appServerMissing) {
+    return {
+      tool: "loo_codex_app_server_threads",
+      execute: false,
+      args: { read_thread_id: threadId, limit: 20 },
+      reason: "Refresh read-only Codex app-server thread metadata before trusting the active-state lane."
+    };
+  }
+  if (input.state === "unknown" && input.visibleMapMissing) {
+    return {
+      tool: "loo_visible_codex_map",
+      execute: false,
+      args: { include_app_server: true, include_visible_snapshot: false, limit: 20 },
+      reason: "Join indexed and app-server signals through the public-safe visible Codex map before claiming Desktop-visible state."
+    };
+  }
+  return {
+    tool: "loo_codex_app_server_threads",
+    execute: false,
+    args: { read_thread_id: threadId, limit: 20 },
+    reason: "Collect one more read-only Codex app-server metadata pass before escalating the attention card."
   };
 }
 
