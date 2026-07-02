@@ -93,6 +93,7 @@ test("scorecard v1 examples exist, are versioned, and preserve the beta evidence
     assert.match(exclusions, /tokens|credentials|API keys/i);
     assert.match(exclusions, /SQLite DBs/i);
     assert.doesNotMatch(serializedScorecard, /unattended desktop takeover|cloud sync|Claude parity/i);
+    // Forward-looking guard: beta candidates must not leave stale publish instructions in scorecards.
     for (const match of serializedScorecard.matchAll(/\bPublish beta\.(\d+)\b/gi)) {
       assert.equal(match[1], currentBetaNumber, `${file} must not mention stale ${match[0]} when package version is ${packageVersion.version ?? "unknown"}`);
     }

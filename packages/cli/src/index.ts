@@ -805,8 +805,9 @@ function findCliPackageRoot(start: string): string | null {
 
 function sanitizeCliErrorMessage(message: string): string {
   return message
-    .replace(/file:\/\/[^\s)]+/g, "<redacted-local-path>")
-    .replace(/(?:\/Users|\/Volumes|\/private\/var|\/var\/folders|\/home|\/root|\/tmp)\/[^\s)]+/g, "<redacted-local-path>");
+    .replace(/file:\/\/[^\r\n)]*?(?=:\s|\)|$)/g, "<redacted-local-path>")
+    .replace(/(?:\/Users|\/Volumes|\/private\/var|\/var\/folders|\/home|\/root|\/tmp|\/workspace|\/workspaces)\/[^\r\n)]*?(?=:\s|\)|$)/g, "<redacted-local-path>")
+    .replace(/(?:[A-Za-z]:)?\\(?:Users|home|tmp|workspace|workspaces)\\[^\r\n)]*?(?=:\s|\)|$)/g, "<redacted-local-path>");
 }
 
 function isCliUsageErrorMessage(message: string): boolean {

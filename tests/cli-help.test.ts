@@ -74,6 +74,34 @@ test("loo runtime errors redact Linux local paths before printing", () => {
   assert.doesNotMatch(result.stderr, /\/home\/alice/);
 });
 
+test("loo runtime errors redact spaced macOS local paths before printing", () => {
+  const result = runLoo(["eval", "retrieval", "--scenario-file", "/Users/john/My Drive/scenario.json"]);
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.equal(result.stdout.trim(), "");
+  assert.match(result.stderr, /^Error: Scenario file does not exist: <redacted-local-path>\n$/);
+  assert.doesNotMatch(result.stderr, /\/Users\/john/);
+  assert.doesNotMatch(result.stderr, /My Drive/);
+});
+
+test("loo runtime errors redact workspace local paths before printing", () => {
+  const result = runLoo(["eval", "retrieval", "--scenario-file", "/workspace/private/scenario.json"]);
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.equal(result.stdout.trim(), "");
+  assert.match(result.stderr, /^Error: Scenario file does not exist: <redacted-local-path>\n$/);
+  assert.doesNotMatch(result.stderr, /\/workspace\/private/);
+});
+
+test("loo runtime errors redact Windows local paths before printing", () => {
+  const result = runLoo(["eval", "retrieval", "--scenario-file", "C:\\Users\\alice\\private\\scenario.json"]);
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.equal(result.stdout.trim(), "");
+  assert.match(result.stderr, /^Error: Scenario file does not exist: <redacted-local-path>\n$/);
+  assert.doesNotMatch(result.stderr, /C:\\Users\\alice/);
+});
+
 test("loo runtime errors redact temp local paths before printing", () => {
   const result = runLoo(["eval", "retrieval", "--scenario-file", "/tmp/loo-private/scenario.json"]);
 

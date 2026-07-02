@@ -50,6 +50,8 @@ export type OpenClawToolSmokeOptions = {
   requiredTools?: string[];
   gatewayTimeoutMs?: number;
   desktopFallbackCoherence?: "fixture" | "omit";
+  // Parsed by the CLI and consumed by the caller after report generation; this
+  // function always returns blockers instead of exiting.
   strict?: boolean;
 };
 
