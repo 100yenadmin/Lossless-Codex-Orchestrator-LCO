@@ -2970,7 +2970,9 @@ test("Codex active-thread state classifies running blocked stale and needs-nudge
     assert.equal(byThread.get("codex_thread:019f-state-conflict")?.confidence, 0);
     assert.equal(byThread.get("codex_thread:019f-state-conflict")?.reasonCodes.includes("conflicting_state"), true);
     assert.equal(byThread.get("codex_thread:019f-state-conflict")?.attentionCoverage.status, "needs_probe");
+    assert.equal(byThread.get("codex_thread:019f-state-conflict")?.attentionCoverage.confidence, 0.1);
     assert.equal(byThread.get("codex_thread:019f-state-conflict")?.attentionCoverage.reasonCodes.includes("attention_conflicting_state"), true);
+    assert.equal(byThread.get("codex_thread:019f-state-conflict")?.attentionCoverage.reasonCodes.includes("attention_low_confidence"), true);
     assert.equal(byThread.get("codex_thread:019f-state-conflict")?.attentionCoverage.nextReadOnlyAction?.tool, "loo_codex_app_server_threads");
     assert.equal(byThread.get("codex_thread:019f-state-conflict")?.attentionCoverage.nextReadOnlyAction?.execute, false);
     assert.equal(byThread.get("codex_thread:019f-state-loaded-only")?.state, "unknown");
