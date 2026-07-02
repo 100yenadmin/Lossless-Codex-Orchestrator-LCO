@@ -3152,17 +3152,105 @@ test("Codex autonomy tick orders read-only probes before control dry-run recomme
     assert.equal(report.steps[0]?.execute, false);
     assert.deepEqual(report.steps[0]?.args, { read_thread_id: "019f-autonomy-nudge", limit: 20 });
     assert.equal(report.steps[0]?.idempotencyKey.startsWith("autonomy_tick:"), true);
+    assert.equal(report.steps[0]?.reasonCodes.includes("autonomy_tick_read_only_probe"), true);
     assert.equal(report.steps[0]?.stopConditions.includes("recompute_tick_after_probe"), true);
     assert.equal(report.steps[1]?.tool, "loo_codex_control_dry_run");
     assert.equal(report.steps[1]?.execute, false);
     assert.deepEqual(report.steps[1]?.args, { action: "resume", thread_id: "019f-autonomy-nudge" });
-    assert.equal(report.steps[1]?.approvalBoundary.includes("approval_audit_id"), true);
+    assert.equal(report.steps[1]?.approvalBoundary?.includes("approval_audit_id"), true);
+    assert.equal(report.steps[1]?.reasonCodes.includes("control_dry_run_ready"), true);
     assert.equal(report.steps[1]?.stopConditions.includes("live_control_requires_approval_audit_id"), true);
     assert.ok((report.steps[0]?.priority ?? 0) > (report.steps[1]?.priority ?? 0));
     assert.equal(report.actionsPerformed.liveCodexControlRun, false);
     assert.equal(report.actionsPerformed.desktopGuiActionRun, false);
     assert.equal(report.actionsPerformed.rawTranscriptRead, false);
     assert.equal(report.actionsPerformed.screenshotCaptured, false);
+  });
+});
+
+test("Codex autonomy tick reports blocked dry-runs and omitted limited steps", () => {
+  const watcherSpecs: WatchSpec[] = [{
+    schema: "lco.watchSpec.v1",
+    watchId: "watch_autonomy_limit",
+    targetRef: "codex_thread:019f-autonomy-limit-nudge",
+    kind: "no_activity",
+    createdAt: "2026-07-01T22:00:00.000Z",
+    lastObservedAt: "2026-07-01T22:00:00.000Z",
+    ttlSeconds: 14400,
+    staleAfterSeconds: 1800,
+    stopConditions: ["thread_resumed"],
+    evidenceIds: ["ev_autonomy_limit"],
+    confidence: 0.92,
+    mutates: false,
+    observed: { noActivitySeconds: 3600 }
+  }];
+  const appServerThreads = {
+    schema: "lco.codex.appServerThreads.v1",
+    publicSafe: true,
+    sourceCoverage: { codexAppServer: "ok" as const },
+    threads: [
+      {
+        threadId: "019f-autonomy-limit-nudge",
+        sourceRef: "codex_thread:019f-autonomy-limit-nudge",
+        status: "blocked",
+        loaded: true,
+        loadedState: "loaded" as const,
+        confidence: 0.91
+      },
+      {
+        threadId: "019f-autonomy-approval",
+        sourceRef: "codex_thread:019f-autonomy-approval",
+        status: "needs approval",
+        loaded: true,
+        loadedState: "loaded" as const,
+        confidence: 0.93
+      }
+    ]
+  };
+
+  withIndexedSessions([
+    {
+      id: "019f-autonomy-limit-nudge",
+      title: "Autonomy limit nudge lane",
+      status: "running",
+      priority: "urgent",
+      nextAction: "resume watcher-triggered work",
+      updatedAt: relativeIso(60),
+      refs: true
+    },
+    {
+      id: "019f-autonomy-approval",
+      title: "Autonomy approval lane",
+      status: "needs_approval",
+      priority: "high",
+      nextAction: "wait for approval boundary",
+      updatedAt: relativeIso(30),
+      refs: true
+    }
+  ], ({ db }) => {
+    const limited = createCodexAutonomyTick(db, {
+      limit: 1,
+      now: "2026-07-02T00:00:00.000Z",
+      watcherSpecs,
+      appServerThreads
+    });
+    assert.equal(limited.summary.returnedSteps, 1);
+    assert.equal(limited.omitted.reason, "limit");
+    assert.equal(limited.omitted.count >= 1, true);
+
+    const full = createCodexAutonomyTick(db, {
+      limit: 10,
+      now: "2026-07-02T00:00:00.000Z",
+      watcherSpecs,
+      appServerThreads
+    });
+    const blocked = full.steps.find((step) => step.threadId === "codex_thread:019f-autonomy-approval" && step.stepType === "control_dry_run");
+    assert.ok(blocked);
+    assert.equal(full.summary.blockedControlDryRuns, 1);
+    assert.equal(blocked.tool, "loo_codex_control_dry_run");
+    assert.equal(blocked.execute, false);
+    assert.equal(blocked.reasonCodes.includes("control_dry_run_blocked"), true);
+    assert.equal(blocked.stopConditions.includes("live_control_requires_approval_audit_id"), true);
   });
 });
 

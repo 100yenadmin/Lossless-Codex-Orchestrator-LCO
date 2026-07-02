@@ -1544,7 +1544,7 @@ function publicSafeAutonomyTickArgs(tool: string | undefined, args: Record<strin
   }
   if (tool === "loo_codex_app_server_threads") {
     const threadId = stringPath(args, ["read_thread_id"]);
-    if (!threadId) return null;
+    if (!isSafeAutonomyThreadId(threadId)) return null;
     return {
       read_thread_id: threadId,
       limit: numberPath(args, ["limit"]) ?? 20
@@ -1559,13 +1559,17 @@ function publicSafeAutonomyTickArgs(tool: string | undefined, args: Record<strin
   }
   if (tool === "loo_codex_control_dry_run") {
     const threadId = stringPath(args, ["thread_id"]);
-    if (!threadId) return null;
+    if (!isSafeAutonomyThreadId(threadId)) return null;
     return {
       action: "resume",
       thread_id: threadId
     };
   }
   return null;
+}
+
+function isSafeAutonomyThreadId(value: string | undefined): value is string {
+  return Boolean(value && /^[A-Za-z0-9._:-]+$/.test(value));
 }
 
 function validPositiveLimit(value: Record<string, unknown>): boolean {

@@ -2641,6 +2641,7 @@ export function createCodexAutonomyTick(
   // priorityOrder is applied while selecting active lanes; final tick ordering stays safety-first.
   const candidateSteps = activeState.items.flatMap((item) => autonomyTickStepsForItem(item)).sort(autonomyTickStepComparator);
   const steps = candidateSteps.slice(0, limit);
+  const omittedCount = Math.max(0, candidateSteps.length - steps.length) + Math.max(0, activeState.omitted.count);
 
   return {
     schema: "lco.codex.autonomyTick.v1",
@@ -2657,8 +2658,8 @@ export function createCodexAutonomyTick(
     sourceCoverage: activeState.sourceCoverage,
     steps,
     omitted: {
-      count: Math.max(0, candidateSteps.length - steps.length),
-      reason: candidateSteps.length > steps.length ? "limit" : "none"
+      count: omittedCount,
+      reason: omittedCount > 0 ? "limit" : "none"
     },
     actionsPerformed: {
       liveCodexControlRun: false,
@@ -3368,7 +3369,7 @@ function autonomyTickStepRecord(
     stopConditions: string[];
   }
 ): CodexAutonomyTickStep {
-  const safeReasonCodes = unique([...item.reasonCodes, ...input.reasonCodes])
+  const safeReasonCodes = unique([...input.reasonCodes, ...item.reasonCodes])
     .map(collaborationPublicSafeReasonCode)
     .filter((code): code is string => Boolean(code))
     .slice(0, 30);
