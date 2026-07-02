@@ -23,17 +23,11 @@ against the exact merged candidate SHA.
 - Uses the strict 1.0 general-readiness gate as release input:
   `loo release general-readiness --strict` must report `stableReady=true` with
   public-safe fresh npm and agent dogfood evidence before any stable promotion.
+  For this RC, that marker is a required input to the next stable decision lane,
+  not proof that npm `latest` or a GitHub Release has already been approved.
 - Carries forward #160 desktop proof-action boundaries:
   `loo_desktop_proof_action` / `loo desktop proof-action` remains limited to
-  one CUA Driver TextEdit scratch path, requires exact backend, target app,
-  target window, action hash, approval ref, permission state, scratch file path,
-  and `execute: true`, and generic gateway invocation without exact proof args
-  fails closed.
-  The proof action still requires exact backend, target app, target window,
-  action hash, approval ref, permission state, scratch file path, and
-  `execute: true`.
-  Exact marker: exact backend, target app, target window, action hash, approval ref, permission state, scratch file path, and `execute: true`.
-  Exact marker: generic gateway invocation without exact proof args fails closed.
+  one CUA Driver TextEdit scratch path. It requires exact backend, target app, target window, action hash, approval ref, permission state, scratch file path, and `execute: true`; generic gateway invocation without exact proof args fails closed.
 - Keeps the `loo openclaw tool-smoke` hardening where a successful gateway
   envelope with plugin `output.details.ok: false` is reported as
   `openclaw_tool_result_not_ok:<tool>` rather than a passing tool call.
@@ -86,7 +80,4 @@ No cloud sync.
 No unattended desktop takeover.
 No release-grade enterprise security.
 No enterprise/customer-ready security is claimed.
-Bundle/status/readiness checks do not publish to npm and do not create a GitHub
-Release. No npm `latest` promotion or GitHub Release creation is performed by
-bundle, status, or readiness checks.
-Bundle/status/readiness checks do not publish to npm and do not create a GitHub Release.
+Bundle/status/readiness checks do not publish to npm and do not create a GitHub Release. No npm `latest` promotion or GitHub Release creation is performed by bundle, status, or readiness checks.
