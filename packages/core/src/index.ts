@@ -471,6 +471,67 @@ export type CodexCollaborationCockpitOptions = {
   now?: string;
 };
 
+export type CodexCollaborationNextStepCategory =
+  | "watcher_resume_packet"
+  | "approval_boundary"
+  | "desktop_coherence"
+  | "desktop_fallback_status"
+  | "desktop_action_approval"
+  | "observe";
+
+export type CodexCollaborationNextStepStatus = "ready" | "blocked" | "noop";
+
+export type CodexCollaborationNextStepToolCall = {
+  tool: "loo_resume_request_packet" | "loo_codex_desktop_coherence" | "loo_codex_desktop_fallback_status";
+  args: Record<string, unknown>;
+  execute: false;
+};
+
+export type CodexCollaborationNextStep = {
+  stepId: string;
+  threadId: string;
+  title: string;
+  category: CodexCollaborationNextStepCategory;
+  status: CodexCollaborationNextStepStatus;
+  attention: CodexCollaborationCockpitLane["attention"];
+  sessionState: CodexSessionCardState;
+  desktopState: CodexCollaborationDesktopState;
+  reasonCodes: string[];
+  blockers: string[];
+  evidenceIds: string[];
+  confidence: number;
+  toolCall: CodexCollaborationNextStepToolCall | null;
+  approvalBoundary: string;
+};
+
+export type CodexCollaborationNextStepsReport = {
+  schema: "lco.codex.collaborationNextSteps.v1";
+  publicSafe: true;
+  readOnly: true;
+  generatedAt: string;
+  summary: {
+    totalLanes: number;
+    returned: number;
+    ready: number;
+    blocked: number;
+    noop: number;
+  };
+  sourceCoverage: CodexCollaborationCockpitReport["sourceCoverage"];
+  steps: CodexCollaborationNextStep[];
+  omitted: CodexCollaborationCockpitReport["omitted"];
+  actionsPerformed: {
+    liveCodexControlRun: false;
+    desktopGuiActionRun: false;
+    rawTranscriptRead: false;
+    screenshotCaptured: false;
+    npmPublished: false;
+    githubReleaseCreated: false;
+  };
+  proofBoundary: string;
+};
+
+export type CodexCollaborationNextStepsOptions = CodexCollaborationCockpitOptions;
+
 export type WatcherKind = "thread_finished" | "final_message_appeared" | "pr_checks_changed" | "review_comment_arrived" | "no_activity" | "approval_expired";
 export type WatcherStatus = "active" | "triggered" | "stale" | "expired" | "low_confidence";
 export type WatcherRecommendedAction = "inspect" | "resume" | "approve" | "ignore";
@@ -1935,8 +1996,9 @@ export function getRecentSessions(db: LooDatabase, options: {
 export function createWatcherStatusReport(specs: WatchSpec[], options: { now?: string; limit?: number; watchId?: string } = {}): WatcherStatusReport {
   const now = timestampMillis(options.now ?? null) ?? Date.now();
   const limit = clamp(options.limit ?? 100, 1, 1000);
+  const requestedWatchId = options.watchId ? publicSafeWatcherIdentifier(options.watchId, "watch") : null;
   const states = specs
-    .filter((spec) => !options.watchId || spec.watchId === options.watchId)
+    .filter((spec) => !requestedWatchId || publicSafeWatcherIdentifier(spec.watchId, "watch") === requestedWatchId)
     .map((spec) => watcherStateFromSpec(spec, now))
     .sort(watcherStateComparator);
   const selected = states.slice(0, limit);
@@ -2128,6 +2190,62 @@ export function createCodexCollaborationCockpit(db: LooDatabase, options: CodexC
   };
 }
 
+export function createCodexCollaborationNextSteps(db: LooDatabase, options: CodexCollaborationNextStepsOptions = {}): CodexCollaborationNextStepsReport {
+  const generatedAt = publicIsoTimestamp(options.now) ?? new Date().toISOString();
+  const cockpit = createCodexCollaborationCockpit(db, options);
+  const watcherReport = createWatcherStatusReport(options.watcherSpecs ?? [], {
+    now: options.now,
+    limit: 1000
+  });
+  const watcherSpecsById = new Map((options.watcherSpecs ?? []).map((spec) => [
+    watcherSpecLookupKey(publicSafeWatcherIdentifier(spec.watchId, "watch"), publicSafeWatcherTargetRef(spec.targetRef || "unknown")),
+    spec
+  ]));
+  const triggeredWatchers = new Map<string, WatcherState>();
+  for (const watcher of watcherReport.watchers) {
+    if (watcher.status !== "triggered") continue;
+    if (!triggeredWatchers.has(watcher.targetRef)) triggeredWatchers.set(watcher.targetRef, watcher);
+  }
+  const coherenceByThread = collaborationReportsByThread(options.desktopCoherenceReports ?? [], "coherence");
+  const fallbackByThread = collaborationReportsByThread(options.desktopFallbackReports ?? [], "fallback");
+  const steps = cockpit.lanes.map((lane) => collaborationNextStepForLane(lane, {
+    watcher: triggeredWatchers.get(lane.threadId) ?? null,
+    watcherSpec: (() => {
+      const watcher = triggeredWatchers.get(lane.threadId);
+      return watcher ? watcherSpecsById.get(watcherSpecLookupKey(watcher.watchId, watcher.targetRef)) ?? null : null;
+    })(),
+    coherence: coherenceByThread.get(lane.threadId) ?? null,
+    fallback: fallbackByThread.get(lane.threadId) ?? null,
+    now: generatedAt
+  }));
+
+  return {
+    schema: "lco.codex.collaborationNextSteps.v1",
+    publicSafe: true,
+    readOnly: true,
+    generatedAt,
+    summary: {
+      totalLanes: cockpit.summary.totalCards,
+      returned: steps.length,
+      ready: steps.filter((step) => step.status === "ready").length,
+      blocked: steps.filter((step) => step.status === "blocked").length,
+      noop: steps.filter((step) => step.status === "noop").length
+    },
+    sourceCoverage: cockpit.sourceCoverage,
+    steps,
+    omitted: cockpit.omitted,
+    actionsPerformed: {
+      liveCodexControlRun: false,
+      desktopGuiActionRun: false,
+      rawTranscriptRead: false,
+      screenshotCaptured: false,
+      npmPublished: false,
+      githubReleaseCreated: false
+    },
+    proofBoundary: "This read-only collaboration next-step planner emits exact public-safe tool-call packets with execute=false or explicit blockers. It does not run live Codex control, click, type, select, refresh, restart, mutate Codex Desktop, capture screenshots, publish npm, create GitHub releases, or claim unattended Desktop collaboration."
+  };
+}
+
 function countActiveCodexSessions(db: LooDatabase): number {
   const row = db.prepare(`
     SELECT COUNT(*) AS total
@@ -2223,6 +2341,260 @@ function collaborationLane(
     nextAction: input.inboxItem?.nextAction ?? card.nextAction,
     desktop,
     card
+  };
+}
+
+function collaborationNextStepForLane(
+  lane: CodexCollaborationCockpitLane,
+  input: {
+    watcher: WatcherState | null;
+    watcherSpec: WatchSpec | null;
+    coherence: Record<string, unknown> | null;
+    fallback: Record<string, unknown> | null;
+    now?: string;
+  }
+): CodexCollaborationNextStep {
+  const base = {
+    threadId: lane.threadId,
+    title: lane.title,
+    attention: lane.attention,
+    sessionState: lane.sessionState,
+    desktopState: lane.desktop.state,
+    evidenceIds: lane.desktop.evidenceIds,
+    approvalBoundary: "Planner packets are read-only suggestions. Execute no live Codex control, Desktop refresh/restart, GUI action, or external write without a separate matching approval gate."
+  };
+  const sourceRef = lane.threadId;
+  const threadId = bareCodexThreadId(sourceRef);
+
+  if (collaborationLaneHasSessionApprovalBoundary(lane)) {
+    return collaborationNextStep({
+      ...base,
+      category: "approval_boundary",
+      status: "blocked",
+      reasonCodes: unique([...lane.reasonCodes, "approval_required"]),
+      blockers: ["approval_required"],
+      confidence: Math.max(0.55, lane.card.confidence),
+      toolCall: null
+    });
+  }
+
+  if (input.watcher && input.watcherSpec) {
+    return collaborationNextStep({
+      ...base,
+      category: "watcher_resume_packet",
+      status: "ready",
+      reasonCodes: unique([...lane.reasonCodes, "watcher_triggered", "resume_request_packet"]),
+      blockers: [],
+      confidence: Math.min(0.98, Math.max(lane.card.confidence, input.watcher.confidence)),
+      toolCall: collaborationToolCall("loo_resume_request_packet", {
+        watcher_spec: collaborationPublicSafeWatchSpecArg(input.watcherSpec),
+        now: input.now,
+        recommended_action: input.watcher.recommendedAction
+      })
+    });
+  }
+
+  const fallbackReason = collaborationString((isObjectRecord(input.fallback?.fallback) ? input.fallback.fallback : null)?.reason, 120);
+  const fallbackBlockers = collaborationStringArray(input.fallback?.blockers, 120);
+  if (fallbackReason === "coherence_input_missing" || fallbackBlockers.includes("coherence_input_missing")) {
+    return collaborationNextStep({
+      ...base,
+      category: "desktop_coherence",
+      status: "ready",
+      reasonCodes: unique([...lane.reasonCodes, "coherence_input_missing", "desktop_coherence_required"]),
+      blockers: [],
+      confidence: Math.max(0.55, lane.desktop.confidence),
+      toolCall: collaborationToolCall("loo_codex_desktop_coherence", collaborationDesktopCoherenceArgsFromFallback(input.fallback, threadId, sourceRef))
+    });
+  }
+
+  if (lane.desktop.state === "not_configured") {
+    return collaborationNextStep({
+      ...base,
+      category: "desktop_coherence",
+      status: "ready",
+      reasonCodes: unique([...lane.reasonCodes, "desktop_coherence_missing", "desktop_coherence_required"]),
+      blockers: [],
+      confidence: Math.max(0.6, lane.desktop.confidence),
+      toolCall: collaborationToolCall("loo_codex_desktop_coherence", {
+        thread_id: threadId,
+        source_ref: sourceRef
+      })
+    });
+  }
+
+  if ((lane.desktop.state === "cli_visible" || lane.desktop.state === "unknown") && !input.coherence) {
+    return collaborationNextStep({
+      ...base,
+      category: "desktop_coherence",
+      status: "ready",
+      reasonCodes: unique([...lane.reasonCodes, "desktop_coherence_missing", "desktop_coherence_required"]),
+      blockers: [],
+      confidence: Math.max(0.55, lane.desktop.confidence),
+      toolCall: collaborationToolCall("loo_codex_desktop_coherence", {
+        thread_id: threadId,
+        source_ref: sourceRef
+      })
+    });
+  }
+
+  const coherenceState = input.coherence ? publicSafeCoherenceState(input.coherence.state) : null;
+  if ((lane.desktop.state === "cli_visible" || lane.desktop.state === "unknown") && input.coherence && coherenceState !== "desktop_visible") {
+    return collaborationNextStep({
+      ...base,
+      category: "desktop_fallback_status",
+      status: "ready",
+      reasonCodes: unique([...lane.reasonCodes, "desktop_fallback_status_required"]),
+      blockers: [],
+      confidence: Math.max(0.55, lane.desktop.confidence),
+      toolCall: collaborationToolCall("loo_codex_desktop_fallback_status", {
+        thread_id: threadId,
+        source_ref: sourceRef,
+        coherence: collaborationPublicSafeCoherenceArg(input.coherence, threadId, sourceRef)
+      })
+    });
+  }
+
+  if (lane.desktop.state === "fallback_ready") {
+    const approvalReasons = collaborationDesktopActionApprovalReasons(lane);
+    return collaborationNextStep({
+      ...base,
+      category: "desktop_action_approval",
+      status: "blocked",
+      reasonCodes: unique([...lane.reasonCodes, "desktop_action_approval_required", ...approvalReasons]),
+      blockers: unique(["desktop_action_approval_required", ...approvalReasons]),
+      confidence: lane.desktop.confidence,
+      toolCall: null
+    });
+  }
+
+  if (lane.desktop.state === "fallback_blocked") {
+    const approvalReasons = collaborationDesktopActionApprovalReasons(lane);
+    return collaborationNextStep({
+      ...base,
+      category: "desktop_action_approval",
+      status: "blocked",
+      reasonCodes: unique([...lane.reasonCodes, "desktop_fallback_blocked", ...approvalReasons]),
+      blockers: unique([...(lane.desktop.blockers.length > 0 ? lane.desktop.blockers : ["desktop_fallback_blocked"]), ...approvalReasons]),
+      confidence: lane.desktop.confidence,
+      toolCall: null
+    });
+  }
+
+  return collaborationNextStep({
+    ...base,
+    category: "observe",
+    status: "noop",
+    reasonCodes: unique([...lane.reasonCodes, lane.desktop.state === "desktop_visible" ? "desktop_visible_no_action" : "observe_only"]),
+    blockers: [],
+    confidence: lane.desktop.confidence,
+    toolCall: null
+  });
+}
+
+function collaborationNextStep(input: Omit<CodexCollaborationNextStep, "stepId">): CodexCollaborationNextStep {
+  return {
+    ...input,
+    stepId: `collab_step_${stableId(`${input.threadId}:${input.category}:${input.status}:${input.toolCall?.tool ?? "none"}`).slice(0, 16)}`,
+    reasonCodes: unique(input.reasonCodes.map((code) => publicSafeIdentifier(code) ?? "").filter(Boolean)).slice(0, 20),
+    blockers: unique(input.blockers.map(collaborationPublicSafeBlocker).filter((blocker): blocker is string => Boolean(blocker))).slice(0, 20),
+    evidenceIds: unique(input.evidenceIds.map((id) => publicSafeRefLike(id, "evidence") ?? "").filter(Boolean)).slice(0, 20),
+    confidence: Math.max(0.1, Math.min(1, input.confidence))
+  };
+}
+
+function collaborationToolCall(
+  tool: CodexCollaborationNextStepToolCall["tool"],
+  args: Record<string, unknown>
+): CodexCollaborationNextStepToolCall {
+  const sanitizedArgs = Object.fromEntries(Object.entries(args).filter(([, value]) => value !== undefined));
+  return {
+    tool,
+    args: sanitizedArgs,
+    execute: false
+  };
+}
+
+function collaborationDesktopCoherenceArgsFromFallback(
+  fallback: Record<string, unknown> | null,
+  threadId: string,
+  sourceRef: string
+): Record<string, unknown> {
+  const nextToolCall = isObjectRecord(fallback?.nextToolCall) ? fallback.nextToolCall : null;
+  const args = isObjectRecord(nextToolCall?.args) ? nextToolCall.args : {};
+  const argThreadId = collaborationString(args.thread_id ?? args.threadId, 120);
+  const argSourceRef = collaborationString(args.source_ref ?? args.sourceRef, 180);
+  const normalized = normalizeCodexThreadSourceRef(argSourceRef, argThreadId) ?? sourceRef;
+  const candidateThreadId = argThreadId ? safeThreadId(argThreadId) : bareCodexThreadId(normalized);
+  if (
+    codexDesktopCoherenceTargetMismatch(argThreadId, normalized)
+    || candidateThreadId !== threadId
+    || normalized !== sourceRef
+  ) {
+    return { thread_id: threadId, source_ref: sourceRef };
+  }
+  return {
+    thread_id: argThreadId ? safeThreadId(argThreadId) : threadId,
+    source_ref: normalized
+  };
+}
+
+function collaborationPublicSafeCoherenceArg(
+  report: Record<string, unknown>,
+  threadId: string,
+  sourceRef: string
+): Record<string, unknown> {
+  const target = isObjectRecord(report.target) ? report.target : {};
+  const targetThreadId = collaborationString(target.threadId ?? target.thread_id, 120);
+  const targetSourceRef = collaborationString(target.sourceRef ?? target.source_ref, 180);
+  const normalized = normalizeCodexThreadSourceRef(targetSourceRef, targetThreadId) ?? sourceRef;
+  return {
+    schema: "lco.codexDesktopCoherence.v1",
+    publicSafe: true,
+    target: {
+      threadId: codexDesktopCoherenceTargetMismatch(targetThreadId, normalized) ? threadId : safeThreadId(targetThreadId ?? threadId),
+      sourceRef: codexDesktopCoherenceTargetMismatch(targetThreadId, normalized) ? sourceRef : normalized
+    },
+    state: publicSafeCoherenceState(report.state),
+    confidence: collaborationNumber(report.confidence) ?? 0.6,
+    evidenceIds: collaborationStringArray(report.evidenceIds, 160).map((id) => publicSafeRefLike(id, "evidence") ?? "").filter(Boolean).slice(0, 20),
+    reasonCodes: collaborationStringArray(report.reasonCodes, 120).map(collaborationPublicSafeReasonCode).filter(Boolean).slice(0, 20),
+    blockers: collaborationStringArray(report.blockers, 120).map(collaborationPublicSafeBlocker).filter(Boolean).slice(0, 20),
+    actionsPerformed: {
+      liveCodexControlRun: false,
+      desktopGuiActionRun: false,
+      rawTranscriptRead: false
+    }
+  };
+}
+
+function collaborationPublicSafeWatchSpecArg(spec: WatchSpec): Record<string, unknown> {
+  return {
+    schema: "lco.watchSpec.v1",
+    watch_id: publicSafeWatcherIdentifier(spec.watchId, "watch"),
+    target_ref: publicSafeRefLike(spec.targetRef, "target") ?? `target_${stableId(spec.targetRef).slice(0, 16)}`,
+    kind: spec.kind,
+    created_at: publicSafeWatcherTimestamp(spec.createdAt, "created_at"),
+    last_observed_at: spec.lastObservedAt ? publicSafeWatcherTimestamp(spec.lastObservedAt, "last_observed_at") : null,
+    ttl_seconds: clamp(Math.trunc(spec.ttlSeconds), 60, 30 * 24 * 60 * 60),
+    ...(spec.staleAfterSeconds !== undefined ? { stale_after_seconds: clamp(Math.trunc(spec.staleAfterSeconds), 60, 30 * 24 * 60 * 60) } : {}),
+    stop_conditions: spec.stopConditions.map((condition) => publicSafeWatcherIdentifier(condition, "condition")).slice(0, 12),
+    ...(spec.wakeReason ? { wake_reason: publicSafeWatcherIdentifier(spec.wakeReason, "wake") } : {}),
+    evidence_ids: (spec.evidenceIds ?? []).map((id) => publicSafeRefLike(id, "evidence") ?? "").filter(Boolean).slice(0, 20),
+    ...(spec.confidence !== undefined ? { confidence: Math.max(0, Math.min(1, spec.confidence)) } : {}),
+    mutates: false,
+    ...(spec.observed ? { observed: collaborationPublicSafeWatcherObservedArg(spec.observed) } : {})
+  };
+}
+
+function collaborationPublicSafeWatcherObservedArg(observed: NonNullable<WatchSpec["observed"]>): Record<string, unknown> {
+  return {
+    ...(observed.threadStatus ? { thread_status: publicSafeWatcherText(observed.threadStatus, 80, "thread_status") } : {}),
+    ...(observed.finalMessageCount !== undefined ? { final_message_count: Math.max(0, Math.trunc(observed.finalMessageCount)) } : {}),
+    ...(observed.prChecksChanged !== undefined ? { pr_checks_changed: observed.prChecksChanged === true } : {}),
+    ...(observed.reviewCommentCount !== undefined ? { review_comment_count: Math.max(0, Math.trunc(observed.reviewCommentCount)) } : {}),
+    ...(observed.approvalExpiresAt !== undefined ? { approval_expires_at: observed.approvalExpiresAt ? publicSafeWatcherTimestamp(observed.approvalExpiresAt, "approval_expires_at") : null } : {}),
+    ...(observed.noActivitySeconds !== undefined ? { no_activity_seconds: Math.max(0, Math.trunc(observed.noActivitySeconds)) } : {})
   };
 }
 
@@ -2390,6 +2762,19 @@ function collaborationLaneNeedsApproval(lane: CodexCollaborationCockpitLane): bo
     || lane.nextAction.requiresApproval
     || lane.nextAction.kind === "approve"
     || collaborationReasonRequestsApproval(lane.nextAction.reason);
+}
+
+function collaborationLaneHasSessionApprovalBoundary(lane: CodexCollaborationCockpitLane): boolean {
+  if (lane.desktop.state === "fallback_ready" || lane.desktop.state === "fallback_blocked") return false;
+  return lane.sessionState === "needs_approval"
+    || lane.card.reasonCodes.includes("approval_needed")
+    || lane.card.nextAction.kind === "approve"
+    || lane.card.nextAction.requiresApproval === true
+    || collaborationReasonRequestsApproval(lane.card.nextAction.reason);
+}
+
+function collaborationDesktopActionApprovalReasons(lane: CodexCollaborationCockpitLane): string[] {
+  return collaborationLaneNeedsApproval(lane) ? ["approval_required"] : [];
 }
 
 function collaborationReasonRequestsApproval(reason: string): boolean {
@@ -3431,6 +3816,45 @@ function publicSafeRefLike(value: string, prefix: string): string | null {
   return redacted ? `${prefix}_${stableId(redacted).slice(0, 16)}` : null;
 }
 
+function publicSafeWatcherIdentifier(value: string, prefix: string): string {
+  const raw = String(value ?? "");
+  const identifier = looksSensitiveRefLike(raw) ? null : publicSafeIdentifier(raw);
+  if (identifier) return identifier;
+  const redacted = publicSafeText(raw, 160).trim() || raw.trim() || prefix;
+  return `${prefix}_${stableId(redacted).slice(0, 16)}`;
+}
+
+function publicSafeWatcherTargetRef(value: string): string {
+  return publicSafeRefLike(value || "unknown", "target") ?? `target_${stableId(value || "unknown").slice(0, 16)}`;
+}
+
+function watcherSpecLookupKey(watchId: string, targetRef: string): string {
+  return `${watchId}\u0000${targetRef}`;
+}
+
+function publicSafeWatcherTimestamp(value: string, prefix: string): string {
+  const raw = String(value ?? "");
+  const iso = looksSensitiveRefLike(raw) ? null : publicIsoTimestamp(raw);
+  if (iso) return iso;
+  return publicSafeWatcherIdentifier(raw, prefix);
+}
+
+function publicSafeWatcherText(value: string, maxChars: number, prefix: string): string {
+  const raw = String(value ?? "");
+  if (looksSensitiveRefLike(raw)) return publicSafeWatcherIdentifier(raw, prefix);
+  return publicSafeText(raw, maxChars);
+}
+
+function publicSafeCoherenceState(value: unknown): CodexDesktopCoherenceState {
+  return value === "cli_visible"
+    || value === "desktop_visible"
+    || value === "desktop_refresh_required"
+    || value === "desktop_restart_required"
+    || value === "unknown"
+    ? value
+    : "unknown";
+}
+
 function looksSensitiveRefLike(value: string): boolean {
   return /(?:^|[^A-Za-z0-9])(npm_[A-Za-z0-9]{10,}|sk-[A-Za-z0-9_-]{10,}|ghp_[A-Za-z0-9]{10,}|github_pat_[A-Za-z0-9_]{10,}|xox[baprs]-[A-Za-z0-9-]{10,})/.test(value)
     || value.includes("/")
@@ -4130,8 +4554,8 @@ function applySourceAuthority(signal: OperatingSignal, profile: SourceAuthorityP
 }
 
 function watcherStateFromSpec(spec: WatchSpec, now: number): WatcherState {
-  const targetRef = publicSafeText(spec.targetRef || "unknown", 180);
-  const watchId = publicSafeText(spec.watchId || `watch_${stableId(targetRef).slice(0, 12)}`, 120);
+  const targetRef = publicSafeWatcherTargetRef(spec.targetRef || "unknown");
+  const watchId = publicSafeWatcherIdentifier(spec.watchId || `watch_${stableId(targetRef).slice(0, 12)}`, "watch");
   const confidence = Math.max(0, Math.min(1, spec.confidence ?? 0.75));
   const createdAtMs = timestampMillis(spec.createdAt);
   const lastObservedAtMs = timestampMillis(spec.lastObservedAt ?? null);
@@ -4141,7 +4565,7 @@ function watcherStateFromSpec(spec: WatchSpec, now: number): WatcherState {
   const stale = lastObservedAtMs !== null && now - lastObservedAtMs >= staleAfterSeconds * 1000;
   const expired = expiresAtMs !== null && now >= expiresAtMs;
   const inferredWakeReason = inferWatcherWakeReason(spec, now);
-  const wakeReason = spec.wakeReason ?? inferredWakeReason;
+  const wakeReason = knownWatcherKind(spec.wakeReason) ?? inferredWakeReason;
   const triggered = Boolean(wakeReason);
   const status: WatcherStatus = expired
     ? "expired"
@@ -4166,12 +4590,23 @@ function watcherStateFromSpec(spec: WatchSpec, now: number): WatcherState {
     expired,
     expiresAt: expiresAtMs === null ? null : new Date(expiresAtMs).toISOString(),
     lastObservedAt: lastObservedAtMs === null ? null : new Date(lastObservedAtMs).toISOString(),
-    stopConditions: (spec.stopConditions ?? []).map((condition) => publicSafeText(String(condition), 120)).filter(Boolean).slice(0, 12),
+    stopConditions: (spec.stopConditions ?? []).map((condition) => publicSafeWatcherIdentifier(String(condition), "condition")).slice(0, 12),
     reasonCodes: watcherReasonCodes(spec.kind, status, wakeReason, stale, expired, confidence),
     confidence,
-    evidenceIds: (spec.evidenceIds ?? []).map((id) => publicSafeText(String(id), 80)).filter(Boolean).slice(0, 20),
+    evidenceIds: (spec.evidenceIds ?? []).map((id) => publicSafeRefLike(String(id), "evidence") ?? "").filter(Boolean).slice(0, 20),
     approvalBoundary: "Read-only watcher; requests attention only. No live Codex control, GUI mutation, external write, or cleanup without a separate matching approval packet."
   };
+}
+
+function knownWatcherKind(value: unknown): WatcherKind | null {
+  return value === "thread_finished"
+    || value === "final_message_appeared"
+    || value === "pr_checks_changed"
+    || value === "review_comment_arrived"
+    || value === "no_activity"
+    || value === "approval_expired"
+    ? value
+    : null;
 }
 
 function inferWatcherWakeReason(spec: WatchSpec, now: number): WatcherKind | null {

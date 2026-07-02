@@ -10,6 +10,7 @@ import {
   createBusinessPulse,
   createDatabase,
   createDefaultSourceAuthorityProfile,
+  createCodexCollaborationNextSteps,
   createCodexCollaborationCockpit,
   createGithubOperatingItemsReport,
   createPlanStatePinsReport,
@@ -300,6 +301,96 @@ test("watcher primitives are read-only, approval-bounded, and feed cockpit inbox
     assert.equal(watcherItem?.nextAction.kind, "resume");
     assertNoUnsafeStrings({ status, packet, inbox }, sessions);
   });
+});
+
+test("watcher status filtering matches public-safe plain and sensitive watch ids", () => {
+  const now = "2026-07-01T12:00:00.000Z";
+  const sensitiveWatchId = "npm_notarealtokenbutshouldberemoved1234567890";
+  const watcherSpecs = [
+    {
+      schema: "lco.watchSpec.v1" as const,
+      watchId: "watch_plain_filter",
+      targetRef: "codex_thread:019f-watch-plain",
+      kind: "final_message_appeared" as const,
+      createdAt: "2026-07-01T11:50:00.000Z",
+      lastObservedAt: "2026-07-01T11:55:00.000Z",
+      ttlSeconds: 3600,
+      stopConditions: ["final_message_seen"],
+      confidence: 0.9,
+      mutates: false as const,
+      observed: { finalMessageCount: 1 }
+    },
+    {
+      schema: "lco.watchSpec.v1" as const,
+      watchId: sensitiveWatchId,
+      targetRef: "codex_thread:019f-watch-sensitive",
+      kind: "review_comment_arrived" as const,
+      createdAt: "2026-07-01T11:50:00.000Z",
+      lastObservedAt: "2026-07-01T11:55:00.000Z",
+      ttlSeconds: 3600,
+      stopConditions: ["review_handled", sensitiveWatchId],
+      confidence: 0.9,
+      mutates: false as const,
+      observed: { reviewCommentCount: 1 }
+    }
+  ];
+
+  const plain = createWatcherStatusReport(watcherSpecs, { now, watchId: "watch_plain_filter" });
+  assert.equal(plain.summary.returned, 1);
+  assert.equal(plain.watchers[0]?.watchId, "watch_plain_filter");
+
+  const sensitive = createWatcherStatusReport(watcherSpecs, { now, watchId: sensitiveWatchId });
+  assert.equal(sensitive.summary.returned, 1);
+  assert.match(sensitive.watchers[0]?.watchId ?? "", /^watch_[0-9a-f]{16}$/);
+  assert.equal(sensitive.watchers[0]?.targetRef, "codex_thread:019f-watch-sensitive");
+  assertNoUnsafeStrings(sensitive, sensitiveWatchId);
+});
+
+test("watcher status ignores invalid wake reasons but still allows structured inference", () => {
+  const now = "2026-07-01T12:00:00.000Z";
+  const invalidWakeReason = "npm_notarealtokenbutshouldnottrigger1234567890";
+  const watcherSpecs = [
+    {
+      schema: "lco.watchSpec.v1" as const,
+      watchId: "watch_invalid_wake_only",
+      targetRef: "codex_thread:019f-watch-invalid-only",
+      kind: "no_activity" as const,
+      createdAt: "2026-07-01T11:50:00.000Z",
+      lastObservedAt: "2026-07-01T11:55:00.000Z",
+      ttlSeconds: 3600,
+      staleAfterSeconds: 3600,
+      stopConditions: ["explicit_cancel"],
+      wakeReason: invalidWakeReason as any,
+      confidence: 0.9,
+      mutates: false as const
+    },
+    {
+      schema: "lco.watchSpec.v1" as const,
+      watchId: "watch_invalid_wake_inferred",
+      targetRef: "codex_thread:019f-watch-invalid-inferred",
+      kind: "final_message_appeared" as const,
+      createdAt: "2026-07-01T11:50:00.000Z",
+      lastObservedAt: "2026-07-01T11:55:00.000Z",
+      ttlSeconds: 3600,
+      stopConditions: ["final_message_seen"],
+      wakeReason: invalidWakeReason as any,
+      confidence: 0.9,
+      mutates: false as const,
+      observed: { finalMessageCount: 1 }
+    }
+  ];
+
+  const status = createWatcherStatusReport(watcherSpecs, { now, limit: 10 });
+  const invalidOnly = status.watchers.find((watcher) => watcher.watchId === "watch_invalid_wake_only");
+  const inferred = status.watchers.find((watcher) => watcher.watchId === "watch_invalid_wake_inferred");
+
+  assert.equal(invalidOnly?.status, "active");
+  assert.equal(invalidOnly?.wakeReason, null);
+  assert.equal(invalidOnly?.reasonCodes.some((code) => code.includes(invalidWakeReason)), false);
+  assert.equal(inferred?.status, "triggered");
+  assert.equal(inferred?.wakeReason, "final_message_appeared");
+  assert.equal(inferred?.reasonCodes.includes("watcher_triggered"), true);
+  assertNoUnsafeStrings(status, invalidWakeReason);
 });
 
 test("PLAN_STATE report extracts only explicit pins and ignores stale prose", () => {
@@ -2065,6 +2156,384 @@ test("Codex collaboration cockpit reports omitted totals from the full active-se
     assert.equal(report.summary.returned, 500);
     assert.equal(report.omitted.count, 5);
     assert.equal(report.omitted.reason, "limit");
+  });
+});
+
+test("Codex collaboration next-step planner emits read-only exact tool packets", () => {
+  const tokenCanary = "npm_notarealtokenbutshouldberemoved1234567890";
+  withIndexedSessions((sessions) => {
+    const rawPathCanary = join(sessions, "rollout-2026-07-02T00-00-00-019f-plan-missing.jsonl");
+    return {
+      fixtures: [
+        {
+          id: "019f-plan-watch",
+          title: "Watcher triggered planner lane",
+          status: "running",
+          priority: "urgent",
+          nextAction: "inspect watcher update",
+          updatedAt: relativeIso(2),
+          refs: true
+        },
+        {
+          id: "019f-plan-watch-other",
+          title: "Second watcher same id planner lane",
+          status: "running",
+          priority: "urgent",
+          nextAction: "inspect second watcher update",
+          updatedAt: relativeIso(2),
+          refs: true
+        },
+        {
+          id: "019f-plan-missing",
+          title: "Missing Desktop evidence lane",
+          status: "running",
+          priority: "high",
+          nextAction: `gather Desktop evidence from ${rawPathCanary}`,
+          updatedAt: relativeIso(3),
+          refs: true
+        },
+        {
+          id: "019f-plan-approval-needed",
+          title: "Approval needed planner lane",
+          status: "needs_approval",
+          priority: "high",
+          nextAction: "approve dry-run packet before any probe",
+          updatedAt: relativeIso(3),
+          refs: true
+        },
+        {
+          id: "019f-plan-cli-visible",
+          title: "CLI visible planner lane",
+          status: "running",
+          priority: "medium",
+          nextAction: "check fallback readiness",
+          updatedAt: relativeIso(4),
+          refs: true
+        },
+        {
+          id: "019f-plan-cli-visible-proven",
+          title: "CLI visible but coherence proven planner lane",
+          status: "running",
+          priority: "medium",
+          nextAction: "observe proven Desktop visibility",
+          updatedAt: relativeIso(4),
+          refs: true
+        },
+        {
+          id: "019f-plan-coherence-missing",
+          title: "Fallback coherence handoff lane",
+          status: "running",
+          priority: "medium",
+          nextAction: "run coherence handoff",
+          updatedAt: relativeIso(5),
+          refs: true
+        },
+        {
+          id: "019f-plan-desktop-visible",
+          title: "Desktop visible planner lane",
+          status: "running",
+          priority: "low",
+          nextAction: "observe only",
+          updatedAt: relativeIso(6),
+          refs: true
+        },
+        {
+          id: "019f-plan-unknown-no-coherence",
+          title: "Unknown missing coherence planner lane",
+          status: "running",
+          priority: "low",
+          nextAction: "gather coherence first",
+          updatedAt: relativeIso(7),
+          refs: true
+        },
+        {
+          id: "019f-plan-fallback-ready",
+          title: "Fallback ready approval lane",
+          status: "running",
+          priority: "low",
+          nextAction: "wait for approval",
+          updatedAt: relativeIso(8),
+          refs: true
+        },
+        {
+          id: "019f-plan-fallback-blocked",
+          title: "Fallback blocked planner lane",
+          status: "running",
+          priority: "low",
+          nextAction: "approval required before blocked fallback",
+          updatedAt: relativeIso(9),
+          refs: true
+        }
+      ],
+      canaries: [rawPathCanary, tokenCanary]
+    };
+  }, ({ db, canaries }) => {
+    const now = "2026-07-02T00:00:00.000Z";
+    const watcherSpec = {
+      schema: "lco.watchSpec.v1" as const,
+      watchId: tokenCanary,
+      targetRef: "codex_thread:019f-plan-watch",
+      kind: "final_message_appeared" as const,
+      createdAt: tokenCanary,
+      lastObservedAt: tokenCanary,
+      ttlSeconds: 3600,
+      stopConditions: ["final_message_seen", tokenCanary],
+      wakeReason: tokenCanary as any,
+      evidenceIds: ["ev_watch_planner", tokenCanary],
+      confidence: 0.94,
+      mutates: false as const,
+      observed: {
+        finalMessageCount: 1,
+        threadStatus: tokenCanary,
+        approvalExpiresAt: tokenCanary
+      }
+    };
+    const duplicateWatcherSpec = {
+      ...watcherSpec,
+      targetRef: "codex_thread:019f-plan-watch-other",
+      evidenceIds: ["ev_watch_planner_other", tokenCanary]
+    };
+    const report = createCodexCollaborationNextSteps(db, {
+      limit: 12,
+      now,
+      priorityOrder: ["urgent", "high", "medium", "low"],
+      watcherSpecs: [watcherSpec, duplicateWatcherSpec],
+      desktopCoherenceReports: [
+        {
+          schema: "lco.codexDesktopCoherence.v1",
+          publicSafe: true,
+          target: { threadId: "019f-plan-cli-visible", sourceRef: "codex_thread:019f-plan-cli-visible" },
+          state: "cli_visible",
+          confidence: 0.78,
+          evidenceIds: ["ev_cli_visible"],
+          reasonCodes: ["desktop_visibility_not_proven"],
+          actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
+        },
+        {
+          schema: "lco.codexDesktopCoherence.v1",
+          publicSafe: true,
+          target: { threadId: "019f-plan-cli-visible-proven", sourceRef: "codex_thread:019f-plan-cli-visible-proven" },
+          state: "desktop_visible",
+          confidence: 0.88,
+          evidenceIds: ["ev_cli_visible_proven"],
+          reasonCodes: ["desktop_visible_without_refresh"],
+          actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
+        },
+        {
+          schema: "lco.codexDesktopCoherence.v1",
+          publicSafe: true,
+          target: { threadId: "019f-plan-desktop-visible", sourceRef: "codex_thread:019f-plan-desktop-visible" },
+          state: "desktop_visible",
+          confidence: 0.9,
+          evidenceIds: ["ev_desktop_visible"],
+          actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
+        }
+      ],
+      desktopFallbackReports: [
+        {
+          schema: "lco.codex.desktopFallback.v1",
+          publicSafe: true,
+          readOnly: true,
+          target: { threadId: "019f-plan-coherence-missing", sourceRef: "codex_thread:019f-plan-coherence-missing" },
+          fallback: { required: false, reason: "coherence_input_missing", coherenceState: null, desktopVisibility: null },
+          blockers: ["coherence_input_missing", tokenCanary],
+          nextToolCall: {
+            tool: "loo_codex_desktop_coherence",
+            args: {
+              thread_id: "019f-plan-stale-other",
+              source_ref: "codex_thread:019f-plan-stale-other"
+            }
+          },
+          preferredBackend: "cua-driver",
+          backends: [
+            { backend: "cua-driver", role: "preferred_background", status: "blocked", blockers: [], warnings: [], takesScreenWarning: false }
+          ],
+          actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, screenshotCaptured: false, rawTranscriptRead: false }
+        },
+        {
+          schema: "lco.codex.desktopFallback.v1",
+          publicSafe: true,
+          readOnly: true,
+          target: { threadId: "019f-plan-unknown-no-coherence", sourceRef: "codex_thread:019f-plan-unknown-no-coherence" },
+          fallback: { required: false, reason: "desktop_visibility_unknown", coherenceState: null, desktopVisibility: null },
+          blockers: [],
+          preferredBackend: "cua-driver",
+          backends: [
+            { backend: "cua-driver", role: "preferred_background", status: "blocked", blockers: [], warnings: [], takesScreenWarning: false }
+          ],
+          actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, screenshotCaptured: false, rawTranscriptRead: false }
+        },
+        {
+          schema: "lco.codex.desktopFallback.v1",
+          publicSafe: true,
+          readOnly: true,
+          target: { threadId: "019f-plan-fallback-ready", sourceRef: "codex_thread:019f-plan-fallback-ready" },
+          fallback: { required: true, reason: "desktop_fallback_required", coherenceState: "cli_visible", desktopVisibility: null },
+          blockers: [],
+          preferredBackend: "cua-driver",
+          backends: [
+            { backend: "cua-driver", role: "preferred_background", status: "ready", blockers: [], warnings: [], takesScreenWarning: false }
+          ],
+          actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, screenshotCaptured: false, rawTranscriptRead: false }
+        },
+        {
+          schema: "lco.codex.desktopFallback.v1",
+          publicSafe: true,
+          readOnly: true,
+          target: { threadId: "019f-plan-fallback-blocked", sourceRef: "codex_thread:019f-plan-fallback-blocked" },
+          fallback: { required: true, reason: "desktop_fallback_required", coherenceState: "cli_visible", desktopVisibility: null },
+          blockers: ["permission_missing", tokenCanary],
+          preferredBackend: "cua-driver",
+          backends: [
+            { backend: "cua-driver", role: "preferred_background", status: "blocked", blockers: ["permission_missing"], warnings: [], takesScreenWarning: false }
+          ],
+          actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, screenshotCaptured: false, rawTranscriptRead: false }
+        }
+      ]
+    });
+
+    const byThread = new Map(report.steps.map((step) => [step.threadId, step]));
+    const watcherStep = byThread.get("codex_thread:019f-plan-watch");
+    const watcherOtherStep = byThread.get("codex_thread:019f-plan-watch-other");
+    const missingStep = byThread.get("codex_thread:019f-plan-missing");
+    const approvalNeededStep = byThread.get("codex_thread:019f-plan-approval-needed");
+    const cliStep = byThread.get("codex_thread:019f-plan-cli-visible");
+    const cliVisibleProvenStep = byThread.get("codex_thread:019f-plan-cli-visible-proven");
+    const coherenceHandoffStep = byThread.get("codex_thread:019f-plan-coherence-missing");
+    const visibleStep = byThread.get("codex_thread:019f-plan-desktop-visible");
+    const unknownNoCoherenceStep = byThread.get("codex_thread:019f-plan-unknown-no-coherence");
+    const fallbackReadyStep = byThread.get("codex_thread:019f-plan-fallback-ready");
+    const fallbackBlockedStep = byThread.get("codex_thread:019f-plan-fallback-blocked");
+
+    assert.equal(report.schema, "lco.codex.collaborationNextSteps.v1");
+    assert.equal(report.publicSafe, true);
+    assert.equal(report.readOnly, true);
+    assert.equal(report.summary.returned, 11);
+    assert.equal(report.summary.blocked, 3);
+    assert.equal(report.summary.ready + report.summary.blocked + report.summary.noop, report.summary.returned);
+    assert.equal(report.actionsPerformed.liveCodexControlRun, false);
+    assert.equal(report.actionsPerformed.desktopGuiActionRun, false);
+    assert.equal(report.actionsPerformed.screenshotCaptured, false);
+
+    assert.equal(watcherStep?.category, "watcher_resume_packet");
+    assert.equal(watcherStep?.status, "ready");
+    assert.equal(watcherStep?.toolCall?.tool, "loo_resume_request_packet");
+    assert.equal(watcherStep?.toolCall?.execute, false);
+    assert.equal(watcherStep?.toolCall?.args.recommended_action, "resume");
+    assert.equal((watcherStep?.toolCall?.args.watcher_spec as Record<string, unknown> | undefined)?.target_ref, "codex_thread:019f-plan-watch");
+    assert.equal((watcherOtherStep?.toolCall?.args.watcher_spec as Record<string, unknown> | undefined)?.target_ref, "codex_thread:019f-plan-watch-other");
+
+    assert.equal(missingStep?.category, "desktop_coherence");
+    assert.equal(missingStep?.toolCall?.tool, "loo_codex_desktop_coherence");
+    assert.deepEqual(missingStep?.toolCall?.args, {
+      thread_id: "019f-plan-missing",
+      source_ref: "codex_thread:019f-plan-missing"
+    });
+
+    assert.equal(approvalNeededStep?.category, "approval_boundary");
+    assert.equal(approvalNeededStep?.status, "blocked");
+    assert.equal(approvalNeededStep?.toolCall, null);
+    assert.equal(approvalNeededStep?.blockers.includes("approval_required"), true);
+
+    assert.equal(cliStep?.category, "desktop_fallback_status");
+    assert.equal(cliStep?.toolCall?.tool, "loo_codex_desktop_fallback_status");
+    assert.equal(cliStep?.toolCall?.execute, false);
+    assert.equal((cliStep?.toolCall?.args.coherence as Record<string, unknown> | undefined)?.state, "cli_visible");
+
+    assert.equal(cliVisibleProvenStep?.category, "observe");
+    assert.equal(cliVisibleProvenStep?.status, "noop");
+    assert.equal(cliVisibleProvenStep?.toolCall, null);
+    assert.equal(cliVisibleProvenStep?.reasonCodes.includes("desktop_fallback_status_required"), false);
+
+    assert.equal(coherenceHandoffStep?.category, "desktop_coherence");
+    assert.equal(coherenceHandoffStep?.reasonCodes.includes("coherence_input_missing"), true);
+    assert.equal(coherenceHandoffStep?.toolCall?.tool, "loo_codex_desktop_coherence");
+    assert.equal(coherenceHandoffStep?.toolCall?.execute, false);
+    assert.deepEqual(coherenceHandoffStep?.toolCall?.args, {
+      thread_id: "019f-plan-coherence-missing",
+      source_ref: "codex_thread:019f-plan-coherence-missing"
+    });
+
+    assert.equal(visibleStep?.category, "observe");
+    assert.equal(visibleStep?.status, "noop");
+    assert.equal(visibleStep?.toolCall, null);
+    assert.equal(visibleStep?.reasonCodes.includes("desktop_visible_no_action"), true);
+
+    assert.equal(unknownNoCoherenceStep?.category, "desktop_coherence");
+    assert.equal(unknownNoCoherenceStep?.toolCall?.tool, "loo_codex_desktop_coherence");
+    assert.equal(unknownNoCoherenceStep?.toolCall?.execute, false);
+    assert.deepEqual(unknownNoCoherenceStep?.toolCall?.args, {
+      thread_id: "019f-plan-unknown-no-coherence",
+      source_ref: "codex_thread:019f-plan-unknown-no-coherence"
+    });
+
+    assert.equal(fallbackReadyStep?.category, "desktop_action_approval");
+    assert.equal(fallbackReadyStep?.status, "blocked");
+    assert.equal(fallbackReadyStep?.toolCall, null);
+    assert.equal(fallbackReadyStep?.reasonCodes.includes("approval_required"), true);
+    assert.deepEqual(fallbackReadyStep?.blockers, ["desktop_action_approval_required", "approval_required"]);
+
+    assert.equal(fallbackBlockedStep?.category, "desktop_action_approval");
+    assert.equal(fallbackBlockedStep?.status, "blocked");
+    assert.equal(fallbackBlockedStep?.toolCall, null);
+    assert.equal(fallbackBlockedStep?.reasonCodes.includes("approval_required"), true);
+    assert.equal(fallbackBlockedStep?.blockers.includes("permission_missing"), true);
+    assert.equal(fallbackBlockedStep?.blockers.includes("approval_required"), true);
+
+    assertNoUnsafeStrings(report, ...canaries);
+  });
+});
+
+test("Codex collaboration next-step planner sanitizes caller-controlled now and coherence state", () => {
+  const tokenCanary = "ghp_notarealtokenbutshouldnotleak1234567890";
+  withIndexedSessions([
+    {
+      id: "019f-plan-approval-text",
+      title: "Approval text planner lane",
+      status: "running",
+      priority: "high",
+      nextAction: "approval required before Desktop probe",
+      updatedAt: relativeIso(2),
+      refs: true
+    },
+    {
+      id: "019f-plan-state-clamp",
+      title: "Coherence state clamp planner lane",
+      status: "running",
+      priority: "medium",
+      nextAction: "check fallback readiness",
+      updatedAt: relativeIso(3),
+      refs: true
+    }
+  ], ({ db }) => {
+    const report = createCodexCollaborationNextSteps(db, {
+      limit: 5,
+      now: tokenCanary,
+      desktopCoherenceReports: [
+        {
+          schema: "lco.codexDesktopCoherence.v1",
+          publicSafe: true,
+          target: { threadId: "019f-plan-state-clamp", sourceRef: "codex_thread:019f-plan-state-clamp" },
+          state: tokenCanary,
+          confidence: 0.78,
+          evidenceIds: ["ev_state_clamp"],
+          actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
+        }
+      ]
+    });
+
+    const byThread = new Map(report.steps.map((step) => [step.threadId, step]));
+    const approvalTextStep = byThread.get("codex_thread:019f-plan-approval-text");
+    const stateClampStep = byThread.get("codex_thread:019f-plan-state-clamp");
+    const coherenceArg = stateClampStep?.toolCall?.args.coherence as Record<string, unknown> | undefined;
+
+    assert.equal(approvalTextStep?.category, "approval_boundary");
+    assert.equal(approvalTextStep?.status, "blocked");
+    assert.equal(approvalTextStep?.toolCall, null);
+    assert.equal(stateClampStep?.toolCall?.tool, "loo_codex_desktop_fallback_status");
+    assert.equal(coherenceArg?.state, "unknown");
+    assert.notEqual(report.generatedAt, tokenCanary);
+    assertNoUnsafeStrings(report, tokenCanary);
   });
 });
 
