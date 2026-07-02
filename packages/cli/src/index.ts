@@ -73,6 +73,7 @@ async function main() {
     const report = createOnboardingStatusReport({
       rootDir: parsed.rootDir,
       now: parsed.now,
+      registryVersion: parsed.registryVersion,
       registryBetaVersion: parsed.registryBetaVersion,
       gatewaySetupStatus: parsed.gatewaySetupStatus
     });
@@ -540,7 +541,7 @@ async function main() {
   }
   console.error([
     "Usage:",
-    "  loo onboard status [--evidence-dir path] [--root path] [--now iso] [--registry-beta-version version] [--gateway-setup-status ready|gateway_setup_required|package_failure_or_unknown] [--strict]",
+    "  loo onboard status [--evidence-dir path] [--root path] [--now iso] [--registry-version version] [--registry-beta-version version] [--gateway-setup-status ready|gateway_setup_required|package_failure_or_unknown] [--strict]",
     "  loo doctor",
     "  loo desktop see [direct|cua-driver|peekaboo] [--snapshot] [--max-nodes n] [--max-chars n]",
     "  loo desktop act [direct|cua-driver|peekaboo] <action>",
@@ -562,7 +563,7 @@ async function main() {
     "  loo codex live-control-smoke --evidence-dir path [--thread-id id] [--message text] [--cwd path] [--timeout-ms ms] [--audit-path path] [--codex-bin path] [--app-server-args \"app-server --stdio\"]",
     "  loo openclaw dogfood [--dev] [--profile name] [--install-source path] [--link] [--force-install] [--evidence-path path] [--strict]",
     "  loo openclaw tool-smoke [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--thread-id id] [--expand-profile metadata|brief|evidence] [--token-budget n] [--required-tool name] [--evidence-path path] [--strict]",
-    "  loo openclaw published-smoke --evidence-dir path --dogfood-report path --tool-smoke-report path [--configured-tool-smoke-report path] [--registry-beta-version version] [--root path] [--now iso] [--strict]",
+    "  loo openclaw published-smoke --evidence-dir path --dogfood-report path --tool-smoke-report path [--configured-tool-smoke-report path] [--registry-version version] [--registry-beta-version version] [--root path] [--now iso] [--strict]",
     "  loo openclaw live-control-smoke --evidence-dir path --thread-id id [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--message text] [--strict]",
     "  loo openclaw post-action-refresh-smoke --evidence-dir path --thread-id id --live-proof-report path [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--expand-profile metadata|brief|evidence] [--token-budget n] [--strict]",
     "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--strict]",
@@ -843,7 +844,7 @@ function printScenarioSweepHelp(): void {
 function printOnboardingStatusHelp(): void {
   console.log([
     "Usage:",
-    "  loo onboard status [--evidence-dir path] [--root path] [--now iso] [--registry-beta-version version] [--gateway-setup-status ready|gateway_setup_required|package_failure_or_unknown] [--strict]",
+    "  loo onboard status [--evidence-dir path] [--root path] [--now iso] [--registry-version version] [--registry-beta-version version] [--gateway-setup-status ready|gateway_setup_required|package_failure_or_unknown] [--strict]",
     "",
     "Writes a public-safe first-run readiness report for local package, plugin, and entrypoint state.",
     "",
@@ -923,7 +924,7 @@ function printGeneralReleaseReadinessHelp(): void {
 function printOpenClawPublishedSmokeHelp(): void {
   console.log([
     "Usage:",
-    "  loo openclaw published-smoke --evidence-dir path --dogfood-report path --tool-smoke-report path [--configured-tool-smoke-report path] [--registry-beta-version version] [--root path] [--now iso] [--strict]",
+    "  loo openclaw published-smoke --evidence-dir path --dogfood-report path --tool-smoke-report path [--configured-tool-smoke-report path] [--registry-version version] [--registry-beta-version version] [--root path] [--now iso] [--strict]",
     "",
     "Writes a public-safe summary of the published npm beta install path and gateway setup state.",
     "",
@@ -1380,6 +1381,7 @@ function parseOnboardingStatusArgs(input: string[]): {
   evidenceDir?: string;
   rootDir?: string;
   now?: string;
+  registryVersion?: string;
   registryBetaVersion?: string;
   gatewaySetupStatus?: "ready" | "gateway_setup_required" | "package_failure_or_unknown";
   strict: boolean;
@@ -1388,6 +1390,7 @@ function parseOnboardingStatusArgs(input: string[]): {
     evidenceDir?: string;
     rootDir?: string;
     now?: string;
+    registryVersion?: string;
     registryBetaVersion?: string;
     gatewaySetupStatus?: "ready" | "gateway_setup_required" | "package_failure_or_unknown";
     strict: boolean;
@@ -1400,6 +1403,8 @@ function parseOnboardingStatusArgs(input: string[]): {
       parsed.rootDir = requireOptionValue(input[++index], arg);
     } else if (arg === "--now") {
       parsed.now = requireOptionValue(input[++index], arg);
+    } else if (arg === "--registry-version") {
+      parsed.registryVersion = requireOptionValue(input[++index], arg);
     } else if (arg === "--registry-beta-version") {
       parsed.registryBetaVersion = requireOptionValue(input[++index], arg);
     } else if (arg === "--gateway-setup-status") {
@@ -1707,6 +1712,7 @@ function parseOpenClawPublishedSmokeArgs(input: string[]): {
   evidenceDir?: string;
   rootDir?: string;
   now?: string;
+  registryVersion?: string;
   registryBetaVersion?: string;
   dogfoodReportPath: string;
   toolSmokeReportPath: string;
@@ -1717,6 +1723,7 @@ function parseOpenClawPublishedSmokeArgs(input: string[]): {
     evidenceDir?: string;
     rootDir?: string;
     now?: string;
+    registryVersion?: string;
     registryBetaVersion?: string;
     dogfoodReportPath?: string;
     toolSmokeReportPath?: string;
@@ -1731,6 +1738,8 @@ function parseOpenClawPublishedSmokeArgs(input: string[]): {
       parsed.rootDir = requireOptionValue(input[++index], arg);
     } else if (arg === "--now") {
       parsed.now = requireOptionValue(input[++index], arg);
+    } else if (arg === "--registry-version") {
+      parsed.registryVersion = requireOptionValue(input[++index], arg);
     } else if (arg === "--registry-beta-version") {
       parsed.registryBetaVersion = requireOptionValue(input[++index], arg);
     } else if (arg === "--dogfood-report") {
@@ -1751,6 +1760,7 @@ function parseOpenClawPublishedSmokeArgs(input: string[]): {
     evidenceDir: parsed.evidenceDir,
     rootDir: parsed.rootDir,
     now: parsed.now,
+    registryVersion: parsed.registryVersion,
     registryBetaVersion: parsed.registryBetaVersion,
     dogfoodReportPath: parsed.dogfoodReportPath,
     toolSmokeReportPath: parsed.toolSmokeReportPath,

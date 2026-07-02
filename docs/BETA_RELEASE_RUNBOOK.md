@@ -395,16 +395,18 @@ Only after the approval gates are satisfied:
 5. Create the GitHub Release if the approval covers GitHub Release creation.
 6. Install from the published artifact and rerun the OpenClaw user-path smoke.
    If `npm view lossless-openclaw-orchestrator@<version>` or
-   `npm view lossless-openclaw-orchestrator@beta version` proves the version is
-   visible, but `npm install` fails with `ENOVERSIONS` or `ETARGET` and stderr
-   says `with a date before ...`, classify the blocker as
+   `npm view lossless-openclaw-orchestrator@<expected-dist-tag> version` proves
+   the version is visible, but `npm install` fails with `ENOVERSIONS` or
+   `ETARGET` and stderr says `with a date before ...`, classify the blocker as
    `npm_before_cutoff_drift`. This is an npm client selection cutoff, not proof
-   that the package is unpublished. Retry the smoke with an explicit future
-   `--before=<ISO timestamp>` value, keep both logs in evidence, and do not
-   record npm tokens or raw auth config.
+   that the package is unpublished. Use `beta` as the expected dist-tag for
+   beta releases, `next` for release candidates, and `latest` only after the
+   stable release lane intentionally promotes it. Retry the smoke with an
+   explicit future `--before=<ISO timestamp>` value, keep both logs in
+   evidence, and do not record npm tokens or raw auth config.
    If the future `--before` retry still fails while
-   `npm view lossless-openclaw-orchestrator@beta dist.tarball` returns the
-   just-published package tarball, classify the blocker as
+   `npm view lossless-openclaw-orchestrator@<expected-dist-tag> dist.tarball`
+   returns the just-published package tarball, classify the blocker as
    `npm_selector_cutoff_drift` and run the post-publish smoke by installing that
    registry tarball URL. Keep the exact install, `--before` retry, tarball URL,
    and tarball install logs in evidence.

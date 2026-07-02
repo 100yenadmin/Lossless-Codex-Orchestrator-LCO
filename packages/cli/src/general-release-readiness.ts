@@ -69,6 +69,10 @@ export function createGeneralReleaseReadiness(options: GeneralReleaseReadinessOp
     ? resolve(options.rootDir)
     : findPackageRoot(dirname(fileURLToPath(import.meta.url))) ?? process.cwd();
   const packageJson = readJson(join(rootDir, "package.json"));
+  const packageName = readString(packageJson, "name");
+  const packageVersion = readString(packageJson, "version");
+  const expectedDistTag = distTagForVersion(packageVersion ?? "");
+  const expectedPackage = packageName ? `${packageName}@${expectedDistTag}` : null;
   const freshNpmEvidence = resolveEvidencePath(evidenceDir, options.freshNpmEvidence);
   const agentDogfoodEvidence = resolveEvidencePath(evidenceDir, options.agentDogfoodEvidence);
   const checks: Record<string, GeneralReleaseReadinessCheck> = {
@@ -76,7 +80,7 @@ export function createGeneralReleaseReadiness(options: GeneralReleaseReadinessOp
     agentSkill: validateAgentSkill(rootDir),
     m9Scenarios: validateM9Scenarios(rootDir),
     docsTruth: validateDocsTruth(rootDir),
-    freshNpmCleanProfile: validateFreshNpmEvidence(freshNpmEvidence),
+    freshNpmCleanProfile: validateFreshNpmEvidence(freshNpmEvidence, { expectedPackage, expectedDistTag }),
     agentDogfood: validateAgentDogfoodEvidence(agentDogfoodEvidence)
   };
   const blockers = Object.entries(checks)
@@ -87,8 +91,8 @@ export function createGeneralReleaseReadiness(options: GeneralReleaseReadinessOp
     ok: blockers.length === 0,
     stableReady: blockers.length === 0,
     generatedAt: options.now ?? new Date().toISOString(),
-    packageName: readString(packageJson, "name"),
-    packageVersion: readString(packageJson, "version"),
+    packageName,
+    packageVersion,
     readinessManifestPath,
     checks,
     blockers,
@@ -163,7 +167,10 @@ function validateDocsTruth(rootDir: string): GeneralReleaseReadinessCheck {
   ), "README, VISION, and release runbook point to the 1.0 general-readiness gate");
 }
 
-function validateFreshNpmEvidence(path: string | undefined): GeneralReleaseReadinessCheck {
+function validateFreshNpmEvidence(
+  path: string | undefined,
+  expected: { expectedPackage: string | null; expectedDistTag: "beta" | "next" | "latest" }
+): GeneralReleaseReadinessCheck {
   if (!path || !existsSync(path)) {
     return check(false, "fresh npm clean-profile evidence is missing", "fresh_npm_clean_profile_evidence_missing");
   }
@@ -179,8 +186,9 @@ function validateFreshNpmEvidence(path: string | undefined): GeneralReleaseReadi
     && report.publishedSmokeReady === true
     && report.packagePathOk === true
     && report.publicSafe === true
-    && report.expectedPackage === "lossless-openclaw-orchestrator@beta"
-    && report.versionMatchStatus === "matches_registry_beta"
+    && report.expectedPackage === expected.expectedPackage
+    && report.expectedDistTag === expected.expectedDistTag
+    && registryStatusMatchesDistTag(report.versionMatchStatus, expected.expectedDistTag)
     && readNestedBoolean(report, ["dogfood", "dogfoodReady"])
     && readNestedBoolean(report, ["dogfood", "requiredToolsPresent"])
     && readNestedBoolean(report, ["toolSmoke", "toolSmokeReady"])
@@ -190,7 +198,21 @@ function validateFreshNpmEvidence(path: string | undefined): GeneralReleaseReadi
     && noReleaseActions(report)
   );
   if (ready) {
-    return check(true, "fresh npm beta install, clean-profile plugin load, and gateway invocation are public-safe and ready");
+    return check(true, `fresh npm ${expected.expectedDistTag} install, clean-profile plugin load, and gateway invocation are public-safe and ready`);
+  }
+  if (report.expectedPackage && expected.expectedPackage && report.expectedPackage !== expected.expectedPackage) {
+    return check(
+      false,
+      `fresh npm evidence is for ${report.expectedPackage}, but this candidate requires ${expected.expectedPackage}`,
+      "fresh_npm_clean_profile_wrong_dist_tag"
+    );
+  }
+  if (typeof report.versionMatchStatus === "string" && !registryStatusMatchesDistTag(report.versionMatchStatus, expected.expectedDistTag)) {
+    return check(
+      false,
+      `fresh npm evidence registry match status ${report.versionMatchStatus} does not match expected ${expected.expectedDistTag} dist-tag`,
+      "fresh_npm_clean_profile_registry_version_mismatch"
+    );
   }
   const setupRecovery = readSetupRecovery(report);
   if (setupRecovery && setupRecovery.classification !== "ready") {
@@ -202,6 +224,18 @@ function validateFreshNpmEvidence(path: string | undefined): GeneralReleaseReadi
     );
   }
   return check(false, "fresh npm evidence is present but clean-profile package/gateway proof is not ready", "fresh_npm_clean_profile_not_ready");
+}
+
+function distTagForVersion(version: string): "beta" | "next" | "latest" {
+  if (/-rc(?:\.|-|$)/i.test(version)) return "next";
+  if (/-beta(?:\.|-|$)/i.test(version)) return "beta";
+  return "latest";
+}
+
+function registryStatusMatchesDistTag(value: unknown, distTag: "beta" | "next" | "latest"): boolean {
+  if (distTag === "beta") return value === "matches_registry_beta";
+  if (distTag === "next") return value === "matches_registry_next";
+  return value === "matches_registry_latest";
 }
 
 function validateAgentDogfoodEvidence(path: string | undefined): GeneralReleaseReadinessCheck {

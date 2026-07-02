@@ -6,6 +6,7 @@ export type PublishedPackageSmokeOptions = {
   evidenceDir?: string;
   rootDir?: string;
   now?: string;
+  registryVersion?: string;
   registryBetaVersion?: string;
   dogfoodReportPath: string;
   toolSmokeReportPath: string;
@@ -22,9 +23,11 @@ export type PublishedPackageSmokeReport = {
   generatedAt: string;
   packageName: string;
   localVersion: string;
-  expectedPackage: "lossless-openclaw-orchestrator@beta";
+  expectedDistTag: "beta" | "next" | "latest";
+  expectedPackage: string;
+  registryVersion: string | null;
   registryBetaVersion: string | null;
-  versionMatchStatus: "not_run" | "matches_registry_beta" | "registry_beta_mismatch";
+  versionMatchStatus: "not_run" | "matches_registry_beta" | "registry_beta_mismatch" | "matches_registry_next" | "registry_next_mismatch" | "matches_registry_latest" | "registry_latest_mismatch";
   dogfood: {
     dogfoodReady: boolean;
     installOutcomeStatus: string;
@@ -88,6 +91,8 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
     ? resolve(options.rootDir)
     : findPackageRoot(dirname(fileURLToPath(import.meta.url))) ?? process.cwd();
   const packageJson = readPackageJson(rootDir);
+  const expectedDistTag = distTagForVersion(packageJson.version);
+  const expectedPackage = `${PACKAGE_NAME}@${expectedDistTag}`;
   const dogfood = readJsonObject(options.dogfoodReportPath);
   const toolSmoke = readJsonObject(options.toolSmokeReportPath);
   const configuredToolSmoke = options.configuredToolSmokeReportPath ? readJsonObject(options.configuredToolSmokeReportPath) : null;
@@ -114,14 +119,15 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
   };
   const setupBlockers = readStringArray(toolSmoke.setupBlockers);
   const setupRequired = gatewaySetupClassification === "gateway_setup_required";
-  const versionMatchStatus = options.registryBetaVersion
-    ? options.registryBetaVersion === packageJson.version
-      ? "matches_registry_beta"
-      : "registry_beta_mismatch"
+  const registryVersion = options.registryVersion ?? options.registryBetaVersion;
+  const versionMatchStatus = registryVersion
+    ? registryVersion === packageJson.version
+      ? matchingRegistryStatus(expectedDistTag)
+      : mismatchedRegistryStatus(expectedDistTag)
     : "not_run";
   const blockers = [
     ...(packageJson.name === PACKAGE_NAME ? [] : ["package_name_mismatch"]),
-    ...(versionMatchStatus === "registry_beta_mismatch" ? ["registry_beta_version_mismatch"] : []),
+    ...(versionMatchStatus.endsWith("_mismatch") ? [`registry_${expectedDistTag}_version_mismatch`] : []),
     ...(dogfoodReady ? [] : ["openclaw_dogfood_not_ready"]),
     ...(requiredToolsPresent ? [] : ["openclaw_required_tools_missing"]),
     ...(!toolSmokeReady && !setupRequired ? ["openclaw_tool_smoke_not_ready"] : []),
@@ -145,7 +151,9 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
     generatedAt: options.now ?? new Date().toISOString(),
     packageName: packageJson.name,
     localVersion: packageJson.version,
-    expectedPackage: "lossless-openclaw-orchestrator@beta",
+    expectedDistTag,
+    expectedPackage,
+    registryVersion: registryVersion ?? null,
     registryBetaVersion: options.registryBetaVersion ?? null,
     versionMatchStatus,
     dogfood: {
@@ -164,11 +172,11 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
     setupRecovery,
     blockers,
     nextSafeCommands: [
-      "npm view lossless-openclaw-orchestrator@beta version dist-tags --json",
-      "loo openclaw dogfood --profile lco-dogfood-published --install-source lossless-openclaw-orchestrator@beta --required-tool loo_doctor --required-tool loo_search_sessions --strict",
+      `npm view ${expectedPackage} version dist-tags --json`,
+      `loo openclaw dogfood --profile lco-dogfood-published --install-source ${expectedPackage} --required-tool loo_doctor --required-tool loo_search_sessions --strict`,
       "loo openclaw tool-smoke --profile lco-dogfood-published --required-tool loo_doctor --required-tool loo_search_sessions --strict",
       "loo openclaw tool-smoke --profile lco-dogfood --required-tool loo_doctor --required-tool loo_search_sessions --strict",
-      "loo onboard status --registry-beta-version <version> --gateway-setup-status ready --strict"
+      `loo onboard status --registry-version <version> --gateway-setup-status ready --strict`
     ],
     actionsPerformed: {
       npmPublished: false,
@@ -184,10 +192,28 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
       "tokens, credentials, API keys, cookies",
       "private customer data"
     ],
-    proofBoundary: "This published package smoke report summarizes public-safe beta install and gateway setup evidence only; it does not run live Codex control, mutate a desktop GUI, publish npm, create a GitHub Release, store raw npm output, or store raw OpenClaw gateway output."
+    proofBoundary: `This published package smoke report summarizes public-safe ${expectedDistTag} install and gateway setup evidence only; it does not run live Codex control, mutate a desktop GUI, publish npm, create a GitHub Release, store raw npm output, or store raw OpenClaw gateway output.`
   };
   if (options.evidenceDir) writePublishedPackageSmokeReport(report, options.evidenceDir);
   return report;
+}
+
+function distTagForVersion(version: string): "beta" | "next" | "latest" {
+  if (/-rc(?:\.|-|$)/i.test(version)) return "next";
+  if (/-beta(?:\.|-|$)/i.test(version)) return "beta";
+  return "latest";
+}
+
+function matchingRegistryStatus(distTag: "beta" | "next" | "latest"): PublishedPackageSmokeReport["versionMatchStatus"] {
+  if (distTag === "beta") return "matches_registry_beta";
+  if (distTag === "next") return "matches_registry_next";
+  return "matches_registry_latest";
+}
+
+function mismatchedRegistryStatus(distTag: "beta" | "next" | "latest"): PublishedPackageSmokeReport["versionMatchStatus"] {
+  if (distTag === "beta") return "registry_beta_mismatch";
+  if (distTag === "next") return "registry_next_mismatch";
+  return "registry_latest_mismatch";
 }
 
 export function writePublishedPackageSmokeReport(report: PublishedPackageSmokeReport, evidenceDir: string): string {

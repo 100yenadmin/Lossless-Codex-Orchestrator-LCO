@@ -22,9 +22,12 @@ against the exact merged candidate SHA.
   authority coverage.
 - Uses the strict 1.0 general-readiness gate as release input:
   `loo release general-readiness --strict` must report `stableReady=true` with
-  public-safe fresh npm and agent dogfood evidence before any stable promotion.
-  For this RC, that marker is a required input to the next stable decision lane,
-  not proof that npm `latest` or a GitHub Release has already been approved.
+  public-safe fresh npm evidence for the release candidate's expected npm
+  dist-tag plus agent dogfood evidence before any stable promotion. For this
+  RC, that means `lossless-openclaw-orchestrator@next`, not the carried-forward
+  `@beta` baseline. This marker is a required input to the next stable decision
+  lane, not proof that npm `latest` or a GitHub Release has already been
+  approved.
 - Carries forward #160 desktop proof-action boundaries:
   `loo_desktop_proof_action` / `loo desktop proof-action` remains limited to
   one CUA Driver TextEdit scratch path. It requires exact backend, target app, target window, action hash, approval ref, permission state, scratch file path, and `execute: true`; generic gateway invocation without exact proof args fails closed.
@@ -49,14 +52,20 @@ packet for the exact candidate SHA proves and records a broader claim.
 - Candidate issue: #300.
 - Baseline evidence:
   `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/2026-07-02/tracker-truth-pass-p0-closeout/`.
-- Fresh npm evidence:
+- Baseline beta fresh npm evidence:
   `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/2026-07-02/issue-fresh-profile-gateway-ready-proof/published-smoke-ready-protocol4/published-package-smoke.json`.
+- RC `@next` fresh npm evidence:
+  pending after `1.0.0-rc.1` is published to the npm `next` dist-tag; beta
+  evidence must not satisfy the RC fresh-package readiness gate.
 - Agent dogfood evidence:
   `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/2026-07-02/release-0.1.0-beta.34/merged-main/openclaw-tool-smoke-configured-full-beta34.json`.
 - Required gates for the PR and merged candidate: `npm run check`,
   `npm pack --dry-run`, strict scenario sweep, strict scorecard sweep, release
   preflight, release bundle, release demo-status, release status, and strict
-  general-readiness.
+  general-readiness. Before the RC is published to `@next`, strict
+  general-readiness should fail closed if only `@beta` fresh npm evidence is
+  supplied; after publish, rerun it against `@next` evidence before any
+  `latest` promotion or GitHub Release.
 - Working-app status example:
   `loo release status --claim-scope codex-working-app-proof --runtime-proof-dir <path> --approved-live-control-evidence <path> --npm-publish-approval-evidence <path> --github-release-approval-evidence <path> --candidate-sha <sha> --github-ci-evidence <path> --codeql-evidence <path> --evidence-dir <path> --strict`
 - Reduced-scope status example:

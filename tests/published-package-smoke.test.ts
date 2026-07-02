@@ -13,6 +13,19 @@ function writeJson(path: string, value: unknown): void {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
 }
 
+function expectedDistTag(version: string): "beta" | "next" | "latest" {
+  if (version.includes("-rc.")) return "next";
+  if (version.includes("-beta.")) return "beta";
+  return "latest";
+}
+
+function expectedVersionMatchStatus(version: string): string {
+  const distTag = expectedDistTag(version);
+  if (distTag === "beta") return "matches_registry_beta";
+  if (distTag === "next") return "matches_registry_next";
+  return "matches_registry_latest";
+}
+
 test("loo openclaw published-smoke summarizes install and gateway setup without raw output", () => {
   const dir = mkdtempSync(join(tmpdir(), "loo-published-smoke-"));
   try {
@@ -62,7 +75,7 @@ test("loo openclaw published-smoke summarizes install and gateway setup without 
       "published-smoke",
       "--evidence-dir",
       evidenceDir,
-      "--registry-beta-version",
+      "--registry-version",
       packageJson.version,
       "--dogfood-report",
       dogfoodPath,
@@ -83,6 +96,9 @@ test("loo openclaw published-smoke summarizes install and gateway setup without 
       publicSafe: boolean;
       packageName: string;
       localVersion: string;
+      expectedDistTag: string;
+      expectedPackage: string;
+      registryVersion: string | null;
       registryBetaVersion: string | null;
       versionMatchStatus: string;
       dogfood: { dogfoodReady: boolean; installOutcomeStatus: string; requiredToolsPresent: boolean };
@@ -100,8 +116,11 @@ test("loo openclaw published-smoke summarizes install and gateway setup without 
     assert.equal(report.publicSafe, true);
     assert.equal(report.packageName, "lossless-openclaw-orchestrator");
     assert.equal(report.localVersion, packageJson.version);
-    assert.equal(report.registryBetaVersion, packageJson.version);
-    assert.equal(report.versionMatchStatus, "matches_registry_beta");
+    assert.equal(report.expectedDistTag, expectedDistTag(packageJson.version));
+    assert.equal(report.expectedPackage, `lossless-openclaw-orchestrator@${expectedDistTag(packageJson.version)}`);
+    assert.equal(report.registryVersion, packageJson.version);
+    assert.equal(report.registryBetaVersion, null);
+    assert.equal(report.versionMatchStatus, expectedVersionMatchStatus(packageJson.version));
     assert.deepEqual(report.dogfood, {
       dogfoodReady: true,
       installOutcomeStatus: "installed",
@@ -191,7 +210,7 @@ test("published-smoke reports configured gateway proof separately from fresh-pro
       "published-smoke",
       "--evidence-dir",
       evidenceDir,
-      "--registry-beta-version",
+      "--registry-version",
       packageJson.version,
       "--dogfood-report",
       dogfoodPath,
