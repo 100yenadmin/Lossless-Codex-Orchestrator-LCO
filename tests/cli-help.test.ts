@@ -74,6 +74,15 @@ test("loo runtime errors redact Linux local paths before printing", () => {
   assert.doesNotMatch(result.stderr, /\/home\/alice/);
 });
 
+test("loo runtime errors redact temp local paths before printing", () => {
+  const result = runLoo(["eval", "retrieval", "--scenario-file", "/tmp/loo-private/scenario.json"]);
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.equal(result.stdout.trim(), "");
+  assert.match(result.stderr, /^Error: Scenario file does not exist: <redacted-local-path>\n$/);
+  assert.doesNotMatch(result.stderr, /\/tmp\/loo-private/);
+});
+
 test("loo parser validation errors consistently exit as usage errors", () => {
   const tokenBudgetResult = runLoo(["grep", "--token-budget", "nope", "query"]);
   const profileResult = runLoo(["ui", "local-mac-search", "--evidence-dir", "evidence", "--expansion-profile", "raw"]);
