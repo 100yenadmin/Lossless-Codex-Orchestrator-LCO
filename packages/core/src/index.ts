@@ -2052,21 +2052,33 @@ export function createCodexCollaborationCockpit(db: LooDatabase, options: CodexC
     now: options.now
   });
   const inboxByThread = new Map(inbox.items.map((item) => [item.card.threadId, item]));
-  const coherenceByThread = collaborationReportsByThread(options.desktopCoherenceReports ?? []);
-  const fallbackByThread = collaborationReportsByThread(options.desktopFallbackReports ?? []);
-  const activeThreadRefs = new Set(recent.cards.map((card) => card.threadId));
-  const desktopCoherenceCoverage = collaborationCoverage(options.desktopCoherenceReports, collaborationJoinedReportCount(coherenceByThread, activeThreadRefs));
-  const desktopFallbackCoverage = collaborationCoverage(options.desktopFallbackReports, collaborationJoinedReportCount(fallbackByThread, activeThreadRefs));
-  const lanes = recent.cards
-    .map((card) => collaborationLane(card, {
-      inboxItem: inboxByThread.get(card.threadId) ?? null,
-      coherence: coherenceByThread.get(card.threadId) ?? null,
-      fallback: fallbackByThread.get(card.threadId) ?? null,
-      desktopCoherenceCoverage,
-      desktopFallbackCoverage
+  const coherenceByThread = collaborationReportsByThread(options.desktopCoherenceReports ?? [], "coherence");
+  const fallbackByThread = collaborationReportsByThread(options.desktopFallbackReports ?? [], "fallback");
+  const laneInputs = recent.cards.map((card) => ({
+    card,
+    inboxItem: inboxByThread.get(card.threadId) ?? null,
+    coherence: coherenceByThread.get(card.threadId) ?? null,
+    fallback: fallbackByThread.get(card.threadId) ?? null
+  }));
+  const sortedLaneInputs = laneInputs
+    .map((input) => ({
+      input,
+      lane: collaborationLane(input.card, {
+        ...input,
+        desktopCoherenceCoverage: "partial",
+        desktopFallbackCoverage: "partial"
+      })
     }))
-    .sort(collaborationLaneComparator);
-  const selected = lanes.slice(0, limit);
+    .sort((left, right) => collaborationLaneComparator(left.lane, right.lane));
+  const selectedInputs = sortedLaneInputs.slice(0, limit).map(({ input }) => input);
+  const selectedThreadRefs = new Set(selectedInputs.map(({ card }) => card.threadId));
+  const desktopCoherenceCoverage = collaborationCoverage(options.desktopCoherenceReports, collaborationJoinedReportCount(coherenceByThread, selectedThreadRefs));
+  const desktopFallbackCoverage = collaborationCoverage(options.desktopFallbackReports, collaborationJoinedReportCount(fallbackByThread, selectedThreadRefs));
+  const selected = selectedInputs.map((input) => collaborationLane(input.card, {
+    ...input,
+    desktopCoherenceCoverage,
+    desktopFallbackCoverage
+  }));
 
   return {
     schema: "lco.codex.collaborationCockpit.v1",
@@ -2074,7 +2086,7 @@ export function createCodexCollaborationCockpit(db: LooDatabase, options: CodexC
     readOnly: true,
     generatedAt: options.now ?? new Date().toISOString(),
     summary: {
-      totalCards: lanes.length,
+      totalCards: sortedLaneInputs.length,
       returned: selected.length,
       running: selected.filter((lane) => lane.sessionState === "running").length,
       waiting: selected.filter((lane) => lane.sessionState === "waiting").length,
@@ -2093,8 +2105,8 @@ export function createCodexCollaborationCockpit(db: LooDatabase, options: CodexC
     },
     lanes: selected,
     omitted: {
-      count: Math.max(0, lanes.length - selected.length),
-      reason: lanes.length > selected.length ? "limit" : "none"
+      count: Math.max(0, sortedLaneInputs.length - selected.length),
+      reason: sortedLaneInputs.length > selected.length ? "limit" : "none"
     },
     actionsPerformed: {
       liveCodexControlRun: false,
@@ -2164,7 +2176,7 @@ function collaborationDesktopState(input: {
   const blockers = unique([
     ...collaborationStringArray(coherence?.blockers, 120),
     ...fallbackBlockers
-  ].map((blocker) => publicSafeIdentifier(blocker) ?? publicSafeText(blocker, 120)).filter(Boolean));
+  ].map(collaborationPublicSafeBlocker).filter((blocker): blocker is string => Boolean(blocker)));
   const reasonCodes = unique([
     ...collaborationStringArray(coherence?.reasonCodes, 120),
     ...(fallbackReason ? [fallbackReason] : []),
@@ -2172,17 +2184,17 @@ function collaborationDesktopState(input: {
     ...(fallbackRequired && readyBackend ? ["desktop_fallback_ready"] : []),
     ...(fallbackRequired && fallback && !readyBackend ? ["desktop_fallback_blocked"] : [])
   ].map((code) => publicSafeIdentifier(code) ?? "").filter(Boolean));
-  const state: CodexCollaborationDesktopState = coherenceState === "desktop_visible" || fallbackReason === "desktop_visibility_already_proven"
-    ? "desktop_visible"
-    : fallbackRequired && readyBackend
+  const state: CodexCollaborationDesktopState = fallbackRequired && readyBackend
       ? "fallback_ready"
       : fallbackRequired && fallback
         ? "fallback_blocked"
-        : coherenceState && ["cli_visible", "desktop_refresh_required", "desktop_restart_required"].includes(coherenceState)
-          ? "cli_visible"
-          : !coherence && !fallback
-            ? "not_configured"
-            : "unknown";
+        : coherenceState === "desktop_visible" || fallbackReason === "desktop_visibility_already_proven"
+          ? "desktop_visible"
+          : coherenceState && ["cli_visible", "desktop_refresh_required", "desktop_restart_required"].includes(coherenceState)
+            ? "cli_visible"
+            : !coherence && !fallback
+              ? "not_configured"
+              : "unknown";
   const confidence = Math.max(0.1, Math.min(1,
     state === "not_configured" ? 0.4
       : state === "fallback_ready" ? Math.max(0.72, coherenceConfidence ?? 0.72)
@@ -2207,15 +2219,30 @@ function collaborationDesktopState(input: {
   };
 }
 
-function collaborationReportsByThread(reports: unknown[]): Map<string, Record<string, unknown>> {
+function collaborationReportsByThread(reports: unknown[], kind: "coherence" | "fallback"): Map<string, Record<string, unknown>> {
   const byThread = new Map<string, Record<string, unknown>>();
   for (const report of reports) {
     if (!isObjectRecord(report)) continue;
+    if (!collaborationReportIsUsable(report, kind)) continue;
     const targetRef = collaborationTargetRef(report);
     if (!targetRef) continue;
     byThread.set(targetRef, report);
   }
   return byThread;
+}
+
+function collaborationReportIsUsable(report: Record<string, unknown>, kind: "coherence" | "fallback"): boolean {
+  if (kind === "coherence" && report.schema !== "lco.codexDesktopCoherence.v1") return false;
+  if (kind === "fallback" && report.schema !== "lco.codex.desktopFallback.v1") return false;
+  if (report.publicSafe !== true) return false;
+  if (kind === "fallback" && report.readOnly !== true) return false;
+  const actions = isObjectRecord(report.actionsPerformed) ? report.actionsPerformed : null;
+  if (!actions) return false;
+  if (actions.liveCodexControlRun !== false) return false;
+  if (actions.desktopGuiActionRun !== false) return false;
+  if (actions.rawTranscriptRead !== false) return false;
+  if (kind === "fallback" && actions.screenshotCaptured !== false) return false;
+  return true;
 }
 
 function collaborationTargetRef(report: Record<string, unknown>): string | null {
@@ -2262,7 +2289,6 @@ function collaborationReasonRequestsApproval(reason: string): boolean {
     /\bno approval\b/.test(normalized) ||
     /\bapproval (?:not needed|not required|is not needed|is not required|isnt needed|isnt required|isn't needed|isn't required)\b/.test(normalized) ||
     /\bdoes not require approval\b/.test(normalized) ||
-    /\bwithout approval\b/.test(normalized) ||
     /\bapproval optional\b/.test(normalized)
   ) {
     return false;
@@ -2274,7 +2300,7 @@ function collaborationDesktopReasonCodes(coherence: Record<string, unknown> | nu
   const fallbackDetails = isObjectRecord(fallback?.fallback) ? fallback.fallback : null;
   return unique([
     ...collaborationStringArray(coherence?.reasonCodes, 120),
-    ...collaborationStringArray(coherence?.blockers, 120),
+    ...collaborationStringArray(coherence?.blockers, 120).map(collaborationPublicSafeBlocker).filter((blocker): blocker is string => Boolean(blocker)),
     ...(collaborationString(fallbackDetails?.reason, 120) ? [collaborationString(fallbackDetails?.reason, 120)!] : []),
     ...(fallback ? ["desktop_fallback_report_present"] : []),
     ...(coherence ? ["desktop_coherence_report_present"] : [])
@@ -2298,6 +2324,10 @@ function collaborationStringArray(value: unknown, maxChars: number): string[] {
     const text = collaborationString(item, maxChars);
     return text ? [text] : [];
   });
+}
+
+function collaborationPublicSafeBlocker(value: string): string | null {
+  return publicSafeRefLike(value, "blocker") ?? null;
 }
 
 function collaborationNumber(value: unknown): number | null {

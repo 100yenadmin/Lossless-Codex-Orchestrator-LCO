@@ -1474,6 +1474,145 @@ test("Codex collaboration cockpit treats unknown Desktop proof as fallback-requi
   });
 });
 
+test("Codex collaboration cockpit keeps selected-lane Desktop evidence public-safe and approval honest", () => {
+  const tokenCanary = "ghp_abcdefghijklmnopqrstuvwxyz123456";
+  withIndexedSessions(() => ({
+    fixtures: [
+      {
+        id: "019f-collab-limit-visible",
+        title: "Hidden Desktop evidence lane",
+        status: "running",
+        priority: "medium",
+        nextAction: "keep watching lower priority lane",
+        updatedAt: relativeIso(10),
+        refs: true
+      },
+      {
+        id: "019f-collab-limit-selected",
+        title: "Selected lane without Desktop evidence",
+        status: "running",
+        priority: "urgent",
+        blocker: "critical operator attention",
+        nextAction: "inspect selected lane",
+        updatedAt: relativeIso(2),
+        refs: true
+      },
+      {
+        id: "019f-collab-without-approval",
+        title: "Without approval blocked lane",
+        status: "running",
+        priority: "medium",
+        nextAction: "do not resume without approval",
+        updatedAt: relativeIso(6),
+        refs: true
+      },
+      {
+        id: "019f-collab-invalid-report",
+        title: "Invalid Desktop report lane",
+        status: "running",
+        priority: "medium",
+        nextAction: "validate Desktop report schema",
+        updatedAt: relativeIso(7),
+        refs: true
+      },
+      {
+        id: "019f-collab-conflict",
+        title: "Conflicting Desktop evidence lane",
+        status: "running",
+        priority: "medium",
+        nextAction: "route fallback conflict",
+        updatedAt: relativeIso(8),
+        refs: true
+      }
+    ],
+    canaries: [tokenCanary]
+  }), ({ db, canaries }) => {
+    const limited = createCodexCollaborationCockpit(db, {
+      limit: 1,
+      now: "2026-07-02T00:00:00.000Z",
+      desktopCoherenceReports: [{
+        schema: "lco.codexDesktopCoherence.v1",
+        publicSafe: true,
+        target: { threadId: "019f-collab-limit-visible", sourceRef: "codex_thread:019f-collab-limit-visible" },
+        state: "desktop_visible",
+        confidence: 0.94,
+        evidenceIds: ["ev_hidden_visible"],
+        actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
+      }]
+    });
+
+    assert.equal(limited.summary.returned, 1);
+    assert.equal(limited.lanes[0]?.threadId, "codex_thread:019f-collab-limit-selected");
+    assert.equal(limited.sourceCoverage.desktopCoherence, "partial");
+    assert.equal(limited.lanes[0]?.desktop.sourceCoverage.desktopCoherence, "partial");
+    assert.deepEqual(limited.lanes[0]?.desktop.evidenceIds, []);
+
+    const invalidAndSensitive = createCodexCollaborationCockpit(db, {
+      limit: 5,
+      now: "2026-07-02T00:00:00.000Z",
+      desktopCoherenceReports: [
+        {
+          target: { threadId: "019f-collab-invalid-report", sourceRef: "codex_thread:019f-collab-invalid-report" },
+          state: "desktop_visible",
+          confidence: 0.95,
+          evidenceIds: ["ev_invalid_schema"]
+        },
+        {
+          schema: "lco.codexDesktopCoherence.v1",
+          publicSafe: true,
+          target: { threadId: "019f-collab-without-approval", sourceRef: "codex_thread:019f-collab-without-approval" },
+          state: "unknown",
+          confidence: 0.5,
+          blockers: [tokenCanary, "desktop_visibility_not_proven"],
+          evidenceIds: ["ev_sensitive_blocker"],
+          actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
+        },
+        {
+          schema: "lco.codexDesktopCoherence.v1",
+          publicSafe: true,
+          target: { threadId: "019f-collab-conflict", sourceRef: "codex_thread:019f-collab-conflict" },
+          state: "desktop_visible",
+          confidence: 0.9,
+          evidenceIds: ["ev_conflict_visible"],
+          actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
+        }
+      ],
+      desktopFallbackReports: [{
+        schema: "lco.codex.desktopFallback.v1",
+        publicSafe: true,
+        readOnly: true,
+        target: { threadId: "019f-collab-conflict", sourceRef: "codex_thread:019f-collab-conflict" },
+        fallback: { required: true, reason: "desktop_visibility_not_proven", coherenceState: "desktop_visible", desktopVisibility: "not_proven" },
+        preferredBackend: "cua-driver",
+        backends: [
+          { backend: "cua-driver", role: "preferred_background", status: "blocked", blockers: ["permission_missing"], warnings: [], takesScreenWarning: false }
+        ],
+        actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, screenshotCaptured: false, rawTranscriptRead: false }
+      }]
+    });
+
+    assert.equal(invalidAndSensitive.summary.needsApproval, 1);
+    assertNoUnsafeStrings(invalidAndSensitive, ...canaries);
+
+    const withoutApprovalLane = invalidAndSensitive.lanes.find((lane) => lane.threadId === "codex_thread:019f-collab-without-approval");
+    assert.ok(withoutApprovalLane);
+    assert.equal(withoutApprovalLane.desktop.blockers.some((blocker) => blocker.startsWith("blocker_")), true);
+    assert.equal(withoutApprovalLane.desktop.blockers.includes("desktop_visibility_not_proven"), true);
+
+    const invalidLane = invalidAndSensitive.lanes.find((lane) => lane.threadId === "codex_thread:019f-collab-invalid-report");
+    assert.ok(invalidLane);
+    assert.equal(invalidLane.desktop.state, "not_configured");
+    assert.deepEqual(invalidLane.desktop.evidenceIds, []);
+
+    const conflictLane = invalidAndSensitive.lanes.find((lane) => lane.threadId === "codex_thread:019f-collab-conflict");
+    assert.ok(conflictLane);
+    assert.equal(conflictLane.desktop.state, "fallback_blocked");
+    assert.equal(conflictLane.desktop.requiresFallback, true);
+    assert.equal(invalidAndSensitive.summary.desktopVisible, 0);
+    assert.equal(invalidAndSensitive.summary.fallbackRequired, 2);
+  });
+});
+
 type IndexedSessionContext = {
   db: LooDatabase;
   root: string;
