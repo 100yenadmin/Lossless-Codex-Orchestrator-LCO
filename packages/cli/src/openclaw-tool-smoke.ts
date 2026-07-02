@@ -93,7 +93,9 @@ export type OpenClawToolInvocationSummary = {
     actionHash?: string;
     runtimeVisibilityStatus?: string;
     activeThreadState?: Record<string, number>;
+    activeThreadAttentionCoverage?: Record<string, number>;
     activeThreadControlDryRunRecommendations?: number;
+    activeThreadNextReadOnlyActions?: number;
   };
   blockers: string[];
 };
@@ -997,10 +999,25 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
       return [key, typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0];
     }));
     summary.activeThreadState = stateCounts;
+    const attentionCoverageCounts = Object.fromEntries(["covered", "partial", "needs_probe", "unknown"].map((key) => {
+      const value = key === "covered"
+        ? summaryRecord?.attentionCovered
+        : key === "partial"
+          ? summaryRecord?.attentionPartial
+          : key === "needs_probe"
+            ? summaryRecord?.attentionNeedsProbe
+            : undefined;
+      return [key, typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0];
+    }));
+    summary.activeThreadAttentionCoverage = attentionCoverageCounts;
     const controlDryRunRecommendations = items
       .map((item) => isRecord(item.nextControlDryRun) ? item.nextControlDryRun : null)
       .filter((item): item is Record<string, unknown> => Boolean(item));
     summary.activeThreadControlDryRunRecommendations = controlDryRunRecommendations.length;
+    const nextReadOnlyActions = items
+      .map((item) => isRecord(item.attentionCoverage) && isRecord(item.attentionCoverage.nextReadOnlyAction) ? item.attentionCoverage.nextReadOnlyAction : null)
+      .filter((item): item is Record<string, unknown> => Boolean(item));
+    summary.activeThreadNextReadOnlyActions = nextReadOnlyActions.length;
     if (!summaryRecord) blockers.push("active_thread_state_summary_missing");
     if (items.some((item) => {
       const state = stringPath(item, ["state"]);
@@ -1012,6 +1029,26 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
       const coverage = isRecord(item.sourceCoverage) ? item.sourceCoverage : null;
       return confidence === undefined || confidence < 0 || confidence > 1 || reasonCodes.length === 0 || !coverage;
     })) blockers.push("active_thread_state_missing_public_metadata");
+    if (items.some((item) => {
+      const attentionCoverage = isRecord(item.attentionCoverage) ? item.attentionCoverage : null;
+      if (!attentionCoverage) return true;
+      const status = stringPath(attentionCoverage, ["status"]);
+      const confidence = numberPath(attentionCoverage, ["confidence"]);
+      const reasonCodes = arrayPath(attentionCoverage, ["reasonCodes"]);
+      const action = isRecord(attentionCoverage.nextReadOnlyAction) ? attentionCoverage.nextReadOnlyAction : null;
+      const tool = action ? stringPath(action, ["tool"]) : null;
+      return !["covered", "partial", "needs_probe", "unknown"].includes(status ?? "")
+        || confidence === undefined
+        || confidence < 0
+        || confidence > 1
+        || reasonCodes.length === 0
+        || (action !== null && (
+          action.execute !== false
+          || !["loo_codex_app_server_threads", "loo_visible_codex_map", "loo_codex_active_thread_state"].includes(tool ?? "")
+          || !isRecord(action.args)
+          || !stringPath(action, ["reason"])
+        ));
+    })) blockers.push("active_thread_state_invalid_attention_coverage");
     if (controlDryRunRecommendations.some((recommendation) => {
       const tool = stringPath(recommendation, ["tool"]);
       const args = isRecord(recommendation.args) ? recommendation.args : null;
