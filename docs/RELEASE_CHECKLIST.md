@@ -78,7 +78,7 @@ path is available.
 
 ## npm Dist-Tag Boundary
 
-Do not move `latest` during the `0.1.x` beta train. Install stable releases
+Do not move `latest` during prerelease or pre-stable lanes. Install stable releases
 with:
 
 ```bash

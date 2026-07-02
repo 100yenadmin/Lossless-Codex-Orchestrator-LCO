@@ -50,8 +50,9 @@ claim.
 
 - Stable issue: #302.
 - RC issue: #300.
-- RC evidence:
-  `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/2026-07-02/issue-1-0-rc-release-gate/merged-main-gates/`.
+- RC evidence: see #300 merged-main gate comments and public-safe release
+  artifacts. Machine-local evidence paths are intentionally omitted from these
+  release notes.
 - Required pre-publish stable gates: `npm run check`, `npm pack --dry-run`,
   strict scenario sweep, strict scorecard sweep, release preflight, release
   bundle, release demo-status, and release status for the exact stable
