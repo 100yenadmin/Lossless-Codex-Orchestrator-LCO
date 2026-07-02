@@ -53,6 +53,41 @@ test("loo parser errors are one-line public-safe messages without stack traces",
   assert.doesNotMatch(result.stderr, /packages\/cli\/src\/index/);
 });
 
+test("loo runtime errors redact local paths before printing", () => {
+  const result = runLoo(["eval", "retrieval", "--scenario-file", "/Users/lume/private/scenario.json"]);
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.equal(result.stdout.trim(), "");
+  assert.match(result.stderr, /^Error: Scenario file does not exist: <redacted-local-path>\n$/);
+  assert.doesNotMatch(result.stderr, /\bat\s+/);
+  assert.doesNotMatch(result.stderr, /file:\/\//);
+  assert.doesNotMatch(result.stderr, /\/Users\//);
+  assert.doesNotMatch(result.stderr, /\/Volumes\//);
+});
+
+test("loo runtime errors redact Linux local paths before printing", () => {
+  const result = runLoo(["eval", "retrieval", "--scenario-file", "/home/alice/private/scenario.json"]);
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.equal(result.stdout.trim(), "");
+  assert.match(result.stderr, /^Error: Scenario file does not exist: <redacted-local-path>\n$/);
+  assert.doesNotMatch(result.stderr, /\/home\/alice/);
+});
+
+test("loo parser validation errors consistently exit as usage errors", () => {
+  const tokenBudgetResult = runLoo(["grep", "--token-budget", "nope", "query"]);
+  const profileResult = runLoo(["ui", "local-mac-search", "--evidence-dir", "evidence", "--expansion-profile", "raw"]);
+  const enumResult = runLoo(["onboard", "status", "--gateway-setup-status", "/home/alice/private-db.sqlite"]);
+
+  assert.equal(tokenBudgetResult.status, 2, tokenBudgetResult.stderr || tokenBudgetResult.stdout);
+  assert.match(tokenBudgetResult.stderr, /^Error: --token-budget requires a number\n$/);
+  assert.equal(profileResult.status, 2, profileResult.stderr || profileResult.stdout);
+  assert.match(profileResult.stderr, /^Error: --expansion-profile must be metadata, brief, or evidence\n$/);
+  assert.equal(enumResult.status, 2, enumResult.stderr || enumResult.stdout);
+  assert.match(enumResult.stderr, /^Error: Invalid --gateway-setup-status: <redacted-local-path>\n$/);
+  assert.doesNotMatch(enumResult.stderr, /\/home\/alice/);
+});
+
 test("loo doctor omits local database paths from public-safe output", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-doctor-"));
   try {
@@ -63,9 +98,9 @@ test("loo doctor omits local database paths from public-safe output", () => {
     });
 
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    const report = JSON.parse(result.stdout) as { dbPath?: unknown; database?: { configured?: unknown; location?: unknown } };
+    const report = JSON.parse(result.stdout) as { dbPath?: unknown; database?: { configured?: unknown; activePresent?: unknown; location?: unknown } };
     assert.equal(Object.hasOwn(report, "dbPath"), false);
-    assert.deepEqual(report.database, { configured: true, location: "local" });
+    assert.deepEqual(report.database, { configured: true, activePresent: false, location: "local" });
     assert.doesNotMatch(result.stdout, new RegExp(dbPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     assert.doesNotMatch(result.stdout, /orchestrator\.sqlite/);
     assert.equal(result.stderr.trim(), "");

@@ -102,6 +102,7 @@ async function main() {
       ok: true,
       database: {
         configured: Boolean(process.env.LOO_DB_PATH),
+        activePresent: existsSync(defaultDatabasePath()),
         location: "local"
       },
       localOnly: true,
@@ -566,7 +567,7 @@ try {
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
   const usageError = isCliUsageErrorMessage(message);
-  console.error(`Error: ${usageError ? sanitizeCliErrorMessage(message) : message}`);
+  console.error(`Error: ${sanitizeCliErrorMessage(message)}`);
   process.exitCode = usageError ? 2 : 1;
 }
 
@@ -793,7 +794,7 @@ function findCliPackageRoot(start: string): string | null {
         const parsed = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { name?: unknown };
         if (parsed.name === "lossless-openclaw-orchestrator") return cursor;
       } catch {
-        return null;
+        // Keep walking: a malformed ancestor package.json should not hide the real CLI package root.
       }
     }
     const parent = dirname(cursor);
@@ -805,13 +806,15 @@ function findCliPackageRoot(start: string): string | null {
 function sanitizeCliErrorMessage(message: string): string {
   return message
     .replace(/file:\/\/[^\s)]+/g, "<redacted-local-path>")
-    .replace(/(?:\/Users|\/Volumes|\/private\/var|\/var\/folders)\/[^\s)]+/g, "<redacted-local-path>");
+    .replace(/(?:\/Users|\/Volumes|\/private\/var|\/var\/folders|\/home|\/root)\/[^\s)]+/g, "<redacted-local-path>");
 }
 
 function isCliUsageErrorMessage(message: string): boolean {
   return /^Unknown .+ option: /.test(message)
     || /^Unknown release claim scope: /.test(message)
-    || / requires (?:a value|a path|--[\w-]+)/.test(message);
+    || /^Invalid --[\w-]+: /.test(message)
+    || / requires (?:a value|a path|a number|a positive integer|an integer|--[\w-]+)/.test(message)
+    || /^--[\w-]+ must be /.test(message);
 }
 
 function printSearchHelp(): void {
