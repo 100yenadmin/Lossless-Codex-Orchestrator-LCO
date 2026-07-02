@@ -860,7 +860,7 @@ function writeProjectSkeleton(rootDir: string, overrides: { readme?: string; run
         "Full Claude Code parity",
         "cloud sync",
         "unattended desktop takeover",
-        "bypasses Codex permissions"
+        "permission bypass"
       ]
     }
   });

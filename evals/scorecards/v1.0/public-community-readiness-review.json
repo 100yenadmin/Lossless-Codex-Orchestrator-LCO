@@ -48,7 +48,7 @@
     "Repo docs claim star growth, trending status, unsupported adapter parity, hosted synchronization, unattended control, generic GUI mutation, or enterprise/customer readiness without proof."
   ],
   "current_score": "pass",
-  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-<number>-public-community-funnel/",
+  "evidence_path": "evidence/YYYY-MM-DD/issue-<number>-public-community-funnel/",
   "known_gaps": [
     "This scorecard proves repository-readiness surfaces only; it does not prove actual star growth, GitHub Trending placement, social distribution, support capacity, stable 1.0 readiness, npm latest promotion, or customer readiness.",
     "Repository metadata such as GitHub description and topics still require owner/admin update outside the file diff when wording changes."
