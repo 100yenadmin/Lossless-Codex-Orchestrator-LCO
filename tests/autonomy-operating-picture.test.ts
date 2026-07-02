@@ -2119,6 +2119,33 @@ test("Codex collaboration next-step planner emits read-only exact tool packets",
           nextAction: "observe only",
           updatedAt: relativeIso(6),
           refs: true
+        },
+        {
+          id: "019f-plan-unknown-no-coherence",
+          title: "Unknown missing coherence planner lane",
+          status: "running",
+          priority: "low",
+          nextAction: "gather coherence first",
+          updatedAt: relativeIso(7),
+          refs: true
+        },
+        {
+          id: "019f-plan-fallback-ready",
+          title: "Fallback ready approval lane",
+          status: "running",
+          priority: "low",
+          nextAction: "wait for approval",
+          updatedAt: relativeIso(8),
+          refs: true
+        },
+        {
+          id: "019f-plan-fallback-blocked",
+          title: "Fallback blocked planner lane",
+          status: "running",
+          priority: "low",
+          nextAction: "surface blocker",
+          updatedAt: relativeIso(9),
+          refs: true
         }
       ],
       canaries: [rawPathCanary, tokenCanary]
@@ -2165,26 +2192,67 @@ test("Codex collaboration next-step planner emits read-only exact tool packets",
           actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
         }
       ],
-      desktopFallbackReports: [{
-        schema: "lco.codex.desktopFallback.v1",
-        publicSafe: true,
-        readOnly: true,
-        target: { threadId: "019f-plan-coherence-missing", sourceRef: "codex_thread:019f-plan-coherence-missing" },
-        fallback: { required: false, reason: "coherence_input_missing", coherenceState: null, desktopVisibility: null },
-        blockers: ["coherence_input_missing", tokenCanary],
-        nextToolCall: {
-          tool: "loo_codex_desktop_coherence",
-          args: {
-            thread_id: "019f-plan-coherence-missing",
-            source_ref: "codex_thread:019f-plan-coherence-missing"
-          }
+      desktopFallbackReports: [
+        {
+          schema: "lco.codex.desktopFallback.v1",
+          publicSafe: true,
+          readOnly: true,
+          target: { threadId: "019f-plan-coherence-missing", sourceRef: "codex_thread:019f-plan-coherence-missing" },
+          fallback: { required: false, reason: "coherence_input_missing", coherenceState: null, desktopVisibility: null },
+          blockers: ["coherence_input_missing", tokenCanary],
+          nextToolCall: {
+            tool: "loo_codex_desktop_coherence",
+            args: {
+              thread_id: "019f-plan-coherence-missing",
+              source_ref: "codex_thread:019f-plan-coherence-missing"
+            }
+          },
+          preferredBackend: "cua-driver",
+          backends: [
+            { backend: "cua-driver", role: "preferred_background", status: "blocked", blockers: [], warnings: [], takesScreenWarning: false }
+          ],
+          actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, screenshotCaptured: false, rawTranscriptRead: false }
         },
-        preferredBackend: "cua-driver",
-        backends: [
-          { backend: "cua-driver", role: "preferred_background", status: "blocked", blockers: [], warnings: [], takesScreenWarning: false }
-        ],
-        actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, screenshotCaptured: false, rawTranscriptRead: false }
-      }]
+        {
+          schema: "lco.codex.desktopFallback.v1",
+          publicSafe: true,
+          readOnly: true,
+          target: { threadId: "019f-plan-unknown-no-coherence", sourceRef: "codex_thread:019f-plan-unknown-no-coherence" },
+          fallback: { required: false, reason: "desktop_visibility_unknown", coherenceState: null, desktopVisibility: null },
+          blockers: [],
+          preferredBackend: "cua-driver",
+          backends: [
+            { backend: "cua-driver", role: "preferred_background", status: "blocked", blockers: [], warnings: [], takesScreenWarning: false }
+          ],
+          actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, screenshotCaptured: false, rawTranscriptRead: false }
+        },
+        {
+          schema: "lco.codex.desktopFallback.v1",
+          publicSafe: true,
+          readOnly: true,
+          target: { threadId: "019f-plan-fallback-ready", sourceRef: "codex_thread:019f-plan-fallback-ready" },
+          fallback: { required: true, reason: "desktop_fallback_required", coherenceState: "cli_visible", desktopVisibility: null },
+          blockers: [],
+          preferredBackend: "cua-driver",
+          backends: [
+            { backend: "cua-driver", role: "preferred_background", status: "ready", blockers: [], warnings: [], takesScreenWarning: false }
+          ],
+          actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, screenshotCaptured: false, rawTranscriptRead: false }
+        },
+        {
+          schema: "lco.codex.desktopFallback.v1",
+          publicSafe: true,
+          readOnly: true,
+          target: { threadId: "019f-plan-fallback-blocked", sourceRef: "codex_thread:019f-plan-fallback-blocked" },
+          fallback: { required: true, reason: "desktop_fallback_required", coherenceState: "cli_visible", desktopVisibility: null },
+          blockers: ["permission_missing", tokenCanary],
+          preferredBackend: "cua-driver",
+          backends: [
+            { backend: "cua-driver", role: "preferred_background", status: "blocked", blockers: ["permission_missing"], warnings: [], takesScreenWarning: false }
+          ],
+          actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, screenshotCaptured: false, rawTranscriptRead: false }
+        }
+      ]
     });
 
     const byThread = new Map(report.steps.map((step) => [step.threadId, step]));
@@ -2193,11 +2261,15 @@ test("Codex collaboration next-step planner emits read-only exact tool packets",
     const cliStep = byThread.get("codex_thread:019f-plan-cli-visible");
     const coherenceHandoffStep = byThread.get("codex_thread:019f-plan-coherence-missing");
     const visibleStep = byThread.get("codex_thread:019f-plan-desktop-visible");
+    const unknownNoCoherenceStep = byThread.get("codex_thread:019f-plan-unknown-no-coherence");
+    const fallbackReadyStep = byThread.get("codex_thread:019f-plan-fallback-ready");
+    const fallbackBlockedStep = byThread.get("codex_thread:019f-plan-fallback-blocked");
 
     assert.equal(report.schema, "lco.codex.collaborationNextSteps.v1");
     assert.equal(report.publicSafe, true);
     assert.equal(report.readOnly, true);
-    assert.equal(report.summary.returned, 5);
+    assert.equal(report.summary.returned, 8);
+    assert.equal(report.summary.blocked, 2);
     assert.equal(report.actionsPerformed.liveCodexControlRun, false);
     assert.equal(report.actionsPerformed.desktopGuiActionRun, false);
     assert.equal(report.actionsPerformed.screenshotCaptured, false);
@@ -2229,6 +2301,24 @@ test("Codex collaboration next-step planner emits read-only exact tool packets",
     assert.equal(visibleStep?.status, "noop");
     assert.equal(visibleStep?.toolCall, null);
     assert.equal(visibleStep?.reasonCodes.includes("desktop_visible_no_action"), true);
+
+    assert.equal(unknownNoCoherenceStep?.category, "desktop_coherence");
+    assert.equal(unknownNoCoherenceStep?.toolCall?.tool, "loo_codex_desktop_coherence");
+    assert.equal(unknownNoCoherenceStep?.toolCall?.execute, false);
+    assert.deepEqual(unknownNoCoherenceStep?.toolCall?.args, {
+      thread_id: "019f-plan-unknown-no-coherence",
+      source_ref: "codex_thread:019f-plan-unknown-no-coherence"
+    });
+
+    assert.equal(fallbackReadyStep?.category, "desktop_action_approval");
+    assert.equal(fallbackReadyStep?.status, "blocked");
+    assert.equal(fallbackReadyStep?.toolCall, null);
+    assert.deepEqual(fallbackReadyStep?.blockers, ["desktop_action_approval_required"]);
+
+    assert.equal(fallbackBlockedStep?.category, "desktop_action_approval");
+    assert.equal(fallbackBlockedStep?.status, "blocked");
+    assert.equal(fallbackBlockedStep?.toolCall, null);
+    assert.equal(fallbackBlockedStep?.blockers.includes("permission_missing"), true);
 
     assertNoUnsafeStrings(report, ...canaries);
   });

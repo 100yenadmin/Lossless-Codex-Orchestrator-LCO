@@ -2408,6 +2408,21 @@ function collaborationNextStepForLane(
     });
   }
 
+  if ((lane.desktop.state === "cli_visible" || lane.desktop.state === "unknown") && !input.coherence) {
+    return collaborationNextStep({
+      ...base,
+      category: "desktop_coherence",
+      status: "ready",
+      reasonCodes: unique([...lane.reasonCodes, "desktop_coherence_missing", "desktop_coherence_required"]),
+      blockers: [],
+      confidence: Math.max(0.55, lane.desktop.confidence),
+      toolCall: collaborationToolCall("loo_codex_desktop_coherence", {
+        thread_id: threadId,
+        source_ref: sourceRef
+      })
+    });
+  }
+
   if ((lane.desktop.state === "cli_visible" || lane.desktop.state === "unknown") && input.coherence) {
     return collaborationNextStep({
       ...base,
