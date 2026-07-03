@@ -101,8 +101,10 @@ test("loo scorecards sweep --help exits zero with strict-mode and evidence guida
   assert.doesNotMatch(result.stderr, /Unknown scorecards sweep option|Error:/);
   assert.match(result.stdout, /loo scorecards sweep --evidence-dir path/);
   assert.match(result.stdout, /--evidence-dir is required/);
+  assert.match(result.stdout, /--runtime-proof-dir/);
   assert.match(result.stdout, /--strict exits non-zero/i);
   assert.match(result.stdout, /scorecard_not_run/);
+  assert.match(result.stdout, /runtime_proof_missing/);
   assert.match(result.stdout, /does not run live Codex control/i);
   assert.match(result.stdout, /does not publish npm/i);
 });
@@ -206,6 +208,81 @@ test("scorecard sweep keeps working-app proof required for working-app claim sco
 
   assert.equal(report.sweepReady, false);
   assert.match(report.blockers.join("\n"), /scorecard_missing:working-app-runtime-proof-review/);
+});
+
+test("scorecard sweep separates passing working-app declarations from missing runtime proof", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-scorecard-working-app-runtime-missing-"));
+  const scorecardDir = mkdtempSync(join(tmpdir(), "loo-scorecard-working-app-runtime-missing-source-"));
+  writeRequiredScorecards(scorecardDir);
+
+  const report = createScorecardSweep({
+    evidenceDir,
+    scorecardDir,
+    claimScope: "codex-working-app-proof"
+  }) as ReturnType<typeof createScorecardSweep> & {
+    scorecardDeclarationReady?: boolean;
+    runtimeEvidenceValidation?: {
+      required: boolean;
+      ok: boolean;
+      blockers: string[];
+    };
+  };
+
+  const workingAppScorecard = report.scorecards.find((scorecard) => scorecard.name === "working-app-runtime-proof-review");
+  assert.equal(report.scorecardDeclarationReady, true);
+  assert.equal(workingAppScorecard?.status, "scored");
+  assert.deepEqual(workingAppScorecard?.blockers, []);
+  assert.equal(report.runtimeEvidenceValidation?.required, true);
+  assert.equal(report.runtimeEvidenceValidation?.ok, false);
+  assert.match(report.runtimeEvidenceValidation?.blockers.join("\n") ?? "", /runtime_proof_dir_missing/);
+  assert.match(report.blockers.join("\n"), /runtime_proof_missing:openclaw-gateway-live-codex-v1-1:installed_gateway_path/);
+  assert.equal(report.sweepReady, false);
+
+  const saved = JSON.parse(readFileSync(join(evidenceDir, "scorecard-sweep.json"), "utf8")) as typeof report;
+  assert.equal(saved.scorecardDeclarationReady, true);
+  assert.equal(saved.runtimeEvidenceValidation?.ok, false);
+  assert.equal(saved.scorecards.find((scorecard) => scorecard.name === "working-app-runtime-proof-review")?.status, "scored");
+});
+
+test("loo scorecards sweep strict mode blocks working-app scorecards without runtime proof markers", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-scorecard-working-app-runtime-cli-"));
+  const scorecardDir = mkdtempSync(join(tmpdir(), "loo-scorecard-working-app-runtime-cli-source-"));
+  writeRequiredScorecards(scorecardDir);
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "scorecards",
+    "sweep",
+    "--evidence-dir",
+    evidenceDir,
+    "--scorecard-dir",
+    scorecardDir,
+    "--claim-scope",
+    "codex-working-app-proof",
+    "--strict"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout) as {
+    scorecardDeclarationReady?: boolean;
+    sweepReady?: boolean;
+    runtimeEvidenceValidation?: {
+      required?: boolean;
+      ok?: boolean;
+      blockers?: string[];
+    };
+    blockers?: string[];
+    scorecards?: Array<{ name?: string; status?: string; blockers?: string[] }>;
+  };
+  assert.equal(report.scorecardDeclarationReady, true);
+  assert.equal(report.runtimeEvidenceValidation?.required, true);
+  assert.equal(report.runtimeEvidenceValidation?.ok, false);
+  assert.match(report.runtimeEvidenceValidation?.blockers?.join("\n") ?? "", /runtime_proof_dir_missing/);
+  assert.match(report.blockers?.join("\n") ?? "", /runtime_proof_missing:post-action-refresh-reasoning-v1-1:source_refs/);
+  assert.equal(report.scorecards?.find((scorecard) => scorecard.name === "working-app-runtime-proof-review")?.status, "scored");
+  assert.equal(report.sweepReady, false);
 });
 
 test("scorecard sweep writes evidence files for missing directories and invalid JSON", () => {

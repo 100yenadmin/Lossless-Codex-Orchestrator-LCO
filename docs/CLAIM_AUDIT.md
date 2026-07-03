@@ -56,8 +56,8 @@ It requires `--runtime-proof-dir` with public-safe v1.1 proof markers named
 `openclaw-gateway-live-codex-v1-1.runtime-proof.json` and
 `post-action-refresh-reasoning-v1-1.runtime-proof.json`, plus the approved
 live-control proof marker. Without those markers, release preflight/status,
-bundle, and demo-status must report `runtime_proof_missing:*` blockers instead
-of allowing a working-app claim.
+bundle, demo-status, and scorecard sweep must report `runtime_proof_missing:*`
+blockers instead of allowing a working-app claim.
 
 ## npm dist-tag policy
 
@@ -88,9 +88,11 @@ proves the exact candidate. Keep beta and other prereleases on prerelease tags. 
   local-agent usability review across README.md, `VISION.md`, release notes,
   claim audit, GitHub workflows, CLI release gates, docs, workflows, skills, and
   runbooks
-- Working-app claims only: runtime proof scenario packet and
-  `working-app-runtime-proof-review.json` must pass with installed gateway,
-  approved live Codex action, post-action refresh, and safe reasoning evidence
+- Working-app claims only: runtime proof scenario packet,
+  `working-app-runtime-proof-review.json`, and scorecard sweep with
+  `--claim-scope codex-working-app-proof --runtime-proof-dir <proof-dir>` must
+  pass with installed gateway, approved live Codex action, post-action refresh,
+  and safe reasoning evidence
 - No raw session transcripts, credentials, screenshots with secrets, or private SQLite DBs in public artifacts
 
 `loo release preflight` writes a public-safe `release-preflight.json` artifact manifest. It must report `approved_live_control_smoke_missing` until an explicit approved live-control smoke evidence path points to a structured `loo_approved_live_control_smoke` JSON proof marker with only audit ids, refs, hashes, approval-semantics confirmation, and `rawPromptIncluded: false`. Release automation should use `--strict` so this blocker cannot be silently ignored.
