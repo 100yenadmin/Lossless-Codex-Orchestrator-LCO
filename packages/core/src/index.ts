@@ -625,6 +625,13 @@ export type SessionSearchResult = {
   updatedAt: string | null;
   score: number;
   snippet: string;
+  matchKind: "thread_id" | "full_text" | "safe_text" | "app_server_alias";
+  freshness: {
+    lastEventAt: string | null;
+    ageSeconds: number | null;
+    stale: boolean;
+  };
+  reasonCodes: string[];
 };
 
 export type SessionMetadata = {
@@ -1514,6 +1521,7 @@ export type AppServerThreadSignalInput = {
   appServerRef?: string;
   threadId?: string;
   titleSanitized?: string | null;
+  titleAliases?: string[];
   titleHash?: string | null;
   status?: string | null;
   loaded?: boolean | null;
@@ -1964,6 +1972,7 @@ export type CodexToolCall = {
   callId: string;
   toolName: string;
   argumentsText: string;
+  reasonCode: "missing_tool_name_source" | "unsupported_legacy_shape" | null;
 };
 
 export type IndexedSessionSanitizerOptions = {
@@ -2149,7 +2158,7 @@ type ImportedSession = {
   finalMessage: string | null;
   plans: string[];
   touchedFiles: string[];
-  toolCalls: Array<{ callId: string; toolName: string; argumentsText: string }>;
+  toolCalls: CodexToolCallDraft[];
   metadata: SessionMetadata;
   closeoutEnvelopeText: string | null;
   closeoutEnvelopeOpenCount: number;
@@ -2164,6 +2173,10 @@ type JsonlLineRecord = {
   text: string;
   byteStart: number;
   byteEnd: number;
+};
+
+type CodexToolCallDraft = Omit<CodexToolCall, "threadId"> & {
+  rawArgumentsText: string;
 };
 
 type PreparedSourceEventDraft = {
@@ -2274,7 +2287,8 @@ export function migrate(db: LooDatabase): void {
       call_id TEXT PRIMARY KEY,
       thread_id TEXT NOT NULL REFERENCES codex_sessions(thread_id) ON DELETE CASCADE,
       tool_name TEXT NOT NULL,
-      arguments_text TEXT NOT NULL
+      arguments_text TEXT NOT NULL,
+      reason_code TEXT
     );
 
     CREATE TABLE IF NOT EXISTS codex_session_metadata (
@@ -2572,6 +2586,7 @@ export function migrate(db: LooDatabase): void {
   ensureColumn(db, "codex_session_metadata", "closeout_envelope_open_count", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "codex_session_metadata", "closeout_envelope_close_count", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "prepared_cards", "source_range_refs_omitted", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "codex_tool_calls", "reason_code", "TEXT");
 }
 
 function ensureColumn(db: LooDatabase, table: string, column: string, definition: string): void {
@@ -5563,10 +5578,24 @@ export function probeCodexSqliteStores(roots: string[], maxFiles = 100): { store
   return { stores: paths.map((path) => probeCodexSqliteStore(path)) };
 }
 
-export function searchSessions(db: LooDatabase, options: { query: string; limit?: number }): SessionSearchResult[] {
+export function searchSessions(db: LooDatabase, options: {
+  query: string;
+  limit?: number;
+  appServerThreads?: AppServerThreadsInput | null;
+  now?: string;
+}): SessionSearchResult[] {
   const query = options.query.trim();
   if (!query) return [];
   const limit = clamp(options.limit ?? 10, 1, 100);
+  const nowMs = timestampMillis(options.now ?? null) ?? Date.now();
+  const exactThreadId = searchThreadIdCandidate(query);
+  if (exactThreadId) {
+    const exactRow = codexSearchRowByThreadId(db, exactThreadId);
+    if (exactRow) {
+      return [sessionSearchResultFromRow(exactRow, 1, `Thread id: ${codexThreadRef(String(exactRow.threadId))}`, "thread_id", ["exact_thread_id"], nowMs)];
+    }
+  }
+
   const rows = safeFtsTerms(query).length > 0
     ? db.prepare(`
         SELECT s.thread_id AS threadId, s.title, s.summary, s.updated_at AS updatedAt, snippet(codex_safe_text_fts, 1, '[', ']', '...', 18) AS snippet, rank AS rank
@@ -5578,36 +5607,118 @@ export function searchSessions(db: LooDatabase, options: { query: string; limit?
       `).all(safeFtsTerms(query).join(" "), limit) as Array<Record<string, unknown>>
     : [];
 
-  if (rows.length > 0) {
-    return rows.map((row, index) => ({
-      sourceKind: "codex_thread",
-      sourceRef: codexThreadRef(String(row.threadId)),
-      threadId: String(row.threadId),
-      title: nullableString(row.title),
-      summary: nullableString(row.summary),
-      updatedAt: nullableString(row.updatedAt),
-      score: index + 1,
-      snippet: String(row.snippet ?? "")
-    }));
+  const results = rows.map((row, index) => sessionSearchResultFromRow(row, index + 1, String(row.snippet ?? ""), "full_text", ["fts_match"], nowMs));
+
+  if (results.length === 0) {
+    const like = `%${escapeLike(query)}%`;
+    results.push(...(db.prepare(`
+      SELECT thread_id AS threadId, title, summary, updated_at AS updatedAt, safe_text AS safeText
+      FROM codex_sessions
+      WHERE title LIKE ? ESCAPE '\\' OR summary LIKE ? ESCAPE '\\' OR safe_text LIKE ? ESCAPE '\\'
+      ORDER BY COALESCE(updated_at, indexed_at) DESC
+      LIMIT ?
+    `).all(like, like, like, limit) as Array<Record<string, unknown>>)
+      .map((row, index) => sessionSearchResultFromRow(row, index + 1, createSnippet(String(row.safeText ?? ""), query), "safe_text", ["safe_text_match"], nowMs)));
   }
 
-  const like = `%${escapeLike(query)}%`;
-  return (db.prepare(`
+  const seenRefs = new Set(results.map((result) => result.sourceRef));
+  for (const aliasResult of appServerAliasSearchResults(db, options.appServerThreads ?? null, query, nowMs)) {
+    if (seenRefs.has(aliasResult.sourceRef)) continue;
+    seenRefs.add(aliasResult.sourceRef);
+    results.push(aliasResult);
+    if (results.length >= limit) break;
+  }
+  return results.slice(0, limit).map((result, index) => ({ ...result, score: index + 1 }));
+}
+
+function codexSearchRowByThreadId(db: LooDatabase, threadId: string): Record<string, unknown> | null {
+  const row = db.prepare(`
     SELECT thread_id AS threadId, title, summary, updated_at AS updatedAt, safe_text AS safeText
     FROM codex_sessions
-    WHERE title LIKE ? ESCAPE '\\' OR summary LIKE ? ESCAPE '\\' OR safe_text LIKE ? ESCAPE '\\'
-    ORDER BY COALESCE(updated_at, indexed_at) DESC
-    LIMIT ?
-  `).all(like, like, like, limit) as Array<Record<string, unknown>>).map((row, index) => ({
+    WHERE thread_id = ?
+  `).get(threadId) as Record<string, unknown> | undefined;
+  return row ?? null;
+}
+
+function searchThreadIdCandidate(query: string): string | null {
+  const bare = bareCodexThreadId(query.trim());
+  if (!bare || /\s/.test(bare)) return null;
+  if (!/^[A-Za-z0-9._:-]{4,200}$/.test(bare)) return null;
+  return bare;
+}
+
+function sessionSearchResultFromRow(
+  row: Record<string, unknown>,
+  score: number,
+  snippet: string,
+  matchKind: SessionSearchResult["matchKind"],
+  reasonCodes: string[],
+  nowMs: number
+): SessionSearchResult {
+  const threadId = String(row.threadId);
+  const updatedAt = nullableString(row.updatedAt);
+  return {
     sourceKind: "codex_thread",
-    sourceRef: codexThreadRef(String(row.threadId)),
-    threadId: String(row.threadId),
-    title: nullableString(row.title),
-    summary: nullableString(row.summary),
-    updatedAt: nullableString(row.updatedAt),
-    score: index + 1,
-    snippet: createSnippet(String(row.safeText ?? ""), query)
-  }));
+    sourceRef: codexThreadRef(threadId),
+    threadId,
+    title: nullablePublicSafeSearchString(row.title, 160),
+    summary: nullablePublicSafeSearchString(row.summary, 900),
+    updatedAt,
+    score,
+    snippet: publicSafeSearchText(snippet, 260),
+    matchKind,
+    freshness: sessionFreshness(updatedAt, nowMs),
+    reasonCodes: unique(reasonCodes.map((code) => publicSafeText(code, 80)))
+  };
+}
+
+function appServerAliasSearchResults(
+  db: LooDatabase,
+  appServerThreads: AppServerThreadsInput | null,
+  query: string,
+  nowMs: number
+): SessionSearchResult[] {
+  const queryKey = normalizedTitle(query);
+  if (!appServerThreads || !queryKey) return [];
+  const results: SessionSearchResult[] = [];
+  for (const thread of appServerThreads.threads ?? []) {
+    const publicThread = publicAppServerThreadSignal(thread);
+    const aliases = appServerSearchAliases(publicThread);
+    const matchedAlias = aliases.find((alias) => aliasMatchesSearch(alias, queryKey));
+    if (!matchedAlias) continue;
+    const row = codexSearchRowByThreadId(db, publicThread.threadId);
+    if (row) {
+      results.push(sessionSearchResultFromRow(row, results.length + 1, `App-server alias: ${matchedAlias}`, "app_server_alias", ["app_server_alias", "read_only_app_server_signal"], nowMs));
+    } else {
+      const updatedAt = publicThread.updatedAt ?? null;
+      results.push({
+        sourceKind: "codex_thread",
+        sourceRef: codexThreadRef(publicThread.threadId),
+        threadId: publicThread.threadId,
+        title: publicThread.titleSanitized ?? null,
+        summary: null,
+        updatedAt,
+        score: results.length + 1,
+        snippet: publicSafeText(`App-server alias: ${matchedAlias}`, 260),
+        matchKind: "app_server_alias",
+        freshness: sessionFreshness(updatedAt, nowMs),
+        reasonCodes: ["app_server_alias", "read_only_app_server_signal", "app_server_unindexed", "index_refresh_recommended"]
+      });
+    }
+  }
+  return results;
+}
+
+function appServerSearchAliases(thread: ReturnType<typeof publicAppServerThreadSignal>): string[] {
+  return unique([
+    thread.titleSanitized ?? "",
+    ...(thread.titleAliases ?? [])
+  ].map((value) => publicSafeText(value, 160).trim()).filter(Boolean)).slice(0, 12);
+}
+
+function aliasMatchesSearch(alias: string, queryKey: string): boolean {
+  const aliasKey = normalizedTitle(alias);
+  return aliasKey.length > 0 && (aliasKey === queryKey || aliasKey.includes(queryKey) || queryKey.includes(aliasKey));
 }
 
 function searchClaudeSessions(db: LooDatabase, options: { query: string; limit?: number }): RecallSearchResult[] {
@@ -8696,6 +8807,7 @@ function publicAppServerThreadSignal(input: AppServerThreadSignalInput): Require
     appServerRef: publicSafeText(input.appServerRef || `codex_app_thread:${threadId}`, 180),
     threadId,
     titleSanitized: input.titleSanitized ? publicSafeText(input.titleSanitized, 160) : null,
+    titleAliases: unique((input.titleAliases ?? []).map((alias) => publicSafeText(alias, 160).trim()).filter(Boolean)).slice(0, 12),
     titleHash: input.titleHash ? publicSafeText(input.titleHash, 80) : null,
     status: input.status ? publicSafeText(input.status, 80) : null,
     loaded: input.loaded === true ? true : input.loaded === false ? false : null,
@@ -10056,14 +10168,14 @@ export function getCodexToolCalls(db: LooDatabase, options: { limit?: number; th
   const limit = clamp(options.limit ?? 100, 1, 1000);
   const rows = options.threadId
     ? db.prepare(`
-        SELECT thread_id AS threadId, call_id AS callId, tool_name AS toolName, arguments_text AS argumentsText
+        SELECT thread_id AS threadId, call_id AS callId, tool_name AS toolName, arguments_text AS argumentsText, reason_code AS reasonCode
         FROM codex_tool_calls
         WHERE thread_id = ?
         ORDER BY rowid DESC
         LIMIT ?
       `).all(options.threadId, limit)
     : db.prepare(`
-        SELECT thread_id AS threadId, call_id AS callId, tool_name AS toolName, arguments_text AS argumentsText
+        SELECT thread_id AS threadId, call_id AS callId, tool_name AS toolName, arguments_text AS argumentsText, reason_code AS reasonCode
         FROM codex_tool_calls
         ORDER BY rowid DESC
         LIMIT ?
@@ -10072,7 +10184,8 @@ export function getCodexToolCalls(db: LooDatabase, options: { limit?: number; th
     threadId: String(row.threadId),
     callId: String(row.callId),
     toolName: String(row.toolName),
-    argumentsText: String(row.argumentsText ?? "")
+    argumentsText: String(row.argumentsText ?? ""),
+    reasonCode: toolCallReasonCode(row.reasonCode)
   }));
 }
 
@@ -11068,6 +11181,14 @@ function publicSafeText(value: string, maxChars = 500): string {
   return truncate(redacted, maxChars);
 }
 
+function publicSafeSearchText(value: string, maxChars = 500): string {
+  return publicSafeText(value, maxChars);
+}
+
+function publicSafeToolArguments(value: string, maxChars = 2000): string {
+  return publicSafeText(value, maxChars);
+}
+
 function operatingWindowStartMs(window: OperatingDigest["window"], nowMs: number = Date.now()): number | null {
   const now = new Date(nowMs);
   if (window === "24h") return nowMs - 24 * 60 * 60 * 1000;
@@ -11282,14 +11403,11 @@ function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: num
       for (const file of extractTouchedFiles(clean)) touched.add(file);
     }
 
-    const responseItem = item.response_item ?? item.item ?? item.payload;
-    if (responseItem?.type === "function_call" || responseItem?.call_id || responseItem?.name?.includes?.(".")) {
-      const callId = String(responseItem.call_id ?? responseItem.id ?? stableId(`${sourcePath}:${i}`));
-      const toolName = String(responseItem.name ?? responseItem.tool_name ?? "unknown");
-      const args = redactSafeString(stringifyMaybe(responseItem.arguments ?? responseItem.input ?? ""));
-      session.toolCalls.push({ callId, toolName, argumentsText: args });
-      for (const file of extractTouchedFiles(args)) touched.add(file);
-      safeParts.push(`${toolName} ${args}`);
+    const toolCalls = extractCodexToolCalls(item, sourcePath, i);
+    for (const call of toolCalls) {
+      session.toolCalls.push(call);
+      for (const file of extractTouchedFiles(redactSafeString(call.rawArgumentsText))) touched.add(file);
+      safeParts.push(`${call.toolName} ${call.argumentsText}`);
       rangeKinds.add("tool_call_metadata");
     }
     if (rangeKinds.size === 0) rangeKinds.add("event_metadata");
@@ -11312,6 +11430,87 @@ function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: num
   session.updatedAt ??= new Date().toISOString();
   session.createdAt ??= session.updatedAt;
   return session;
+}
+
+function extractCodexToolCalls(item: any, sourcePath: string, ordinal: number): CodexToolCallDraft[] {
+  const candidates: unknown[] = [];
+  const responseItem = item.response_item ?? item.item ?? item.payload ?? null;
+  for (const container of [item, responseItem]) {
+    if (!container) continue;
+    const record = isObjectRecord(container) ? container : null;
+    if (!record) continue;
+    if (isDirectCodexToolCall(record)) candidates.push(record);
+    candidates.push(...toolCallArray(record.tool_calls));
+    candidates.push(...toolCallArray(record.toolCalls));
+    candidates.push(...toolCallArray(record.calls));
+  }
+  return candidates.map((candidate, index) => codexToolCallFromCandidate(candidate, sourcePath, ordinal, index));
+}
+
+function toolCallArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function isDirectCodexToolCall(record: Record<string, unknown>): boolean {
+  const type = stringOrNull(record.type)?.toLowerCase() ?? "";
+  return type === "function_call"
+    || type === "tool_call"
+    || type === "tool_use"
+    || typeof record.call_id === "string"
+    || typeof record.tool_name === "string"
+    || typeof record.toolName === "string"
+    || typeof record.name === "string" && (record.arguments !== undefined || record.input !== undefined || record.args !== undefined);
+}
+
+function codexToolCallFromCandidate(candidate: unknown, sourcePath: string, ordinal: number, index: number): CodexToolCallDraft {
+  const record = isObjectRecord(candidate) ? candidate : {};
+  const functionRecord = isObjectRecord(record.function) ? record.function : {};
+  const toolRecord = isObjectRecord(record.tool) ? record.tool : {};
+  const rawName = stringOrNull(record.name)
+    ?? stringOrNull(record.tool_name)
+    ?? stringOrNull(record.toolName)
+    ?? stringOrNull(record.recipient_name)
+    ?? stringOrNull(functionRecord.name)
+    ?? stringOrNull(toolRecord.name);
+  const toolName = rawName ? publicSafeToolName(rawName) : "unknown";
+  const rawArgumentsValue = firstDefined(
+    functionRecord.arguments,
+    functionRecord.input,
+    record.arguments,
+    record.input,
+    record.args,
+    record.params,
+    toolRecord.arguments,
+    toolRecord.input
+  );
+  const rawArgumentsText = rawArgumentsValue === undefined ? "" : stringifyMaybe(rawArgumentsValue);
+  const reasonCode = rawName
+    ? null
+    : rawArgumentsText
+      ? "missing_tool_name_source"
+      : "unsupported_legacy_shape";
+  const rawCallId = stringOrNull(record.call_id)
+    ?? stringOrNull(record.callId)
+    ?? stringOrNull(record.id)
+    ?? stringOrNull(functionRecord.id);
+  const callId = publicSafeIdentifier(rawCallId ?? "") ?? stableId(`${sourcePath}:${ordinal}:${index}:${toolName}:${rawArgumentsText}`);
+  return {
+    callId,
+    toolName,
+    argumentsText: publicSafeToolArguments(rawArgumentsText, 2000),
+    rawArgumentsText,
+    reasonCode
+  };
+}
+
+function firstDefined(...values: unknown[]): unknown {
+  return values.find((value) => value !== undefined);
+}
+
+function publicSafeToolName(value: string): string {
+  const identifier = publicSafeIdentifier(value);
+  if (identifier) return identifier;
+  return publicSafeText(value.replace(/[^A-Za-z0-9._:-]+/g, "_"), 120) || "unknown";
 }
 
 function jsonlLineRecords(text: string): JsonlLineRecord[] {
@@ -11540,7 +11739,7 @@ function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, ses
       db.prepare("INSERT OR IGNORE INTO codex_touched_files (touched_file_id, thread_id, path, source_kind) VALUES (?, ?, ?, ?)").run(stableId(`${session.threadId}:file:${file}`), session.threadId, file, "codex_text");
     });
     session.toolCalls.forEach((call) => {
-      db.prepare("INSERT OR REPLACE INTO codex_tool_calls (call_id, thread_id, tool_name, arguments_text) VALUES (?, ?, ?, ?)").run(call.callId, session.threadId, call.toolName, call.argumentsText);
+      db.prepare("INSERT OR REPLACE INTO codex_tool_calls (call_id, thread_id, tool_name, arguments_text, reason_code) VALUES (?, ?, ?, ?, ?)").run(call.callId, session.threadId, call.toolName, call.argumentsText, call.reasonCode);
     });
     const insertPreparedEvent = db.prepare(`
       INSERT INTO prepared_source_events (
@@ -12000,6 +12199,18 @@ function average(values: number[]): number {
 
 function nullableString(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function nullablePublicSafeString(value: unknown, maxChars: number): string | null {
+  return typeof value === "string" && value.length > 0 ? publicSafeText(value, maxChars) : null;
+}
+
+function nullablePublicSafeSearchString(value: unknown, maxChars: number): string | null {
+  return typeof value === "string" && value.length > 0 ? publicSafeSearchText(value, maxChars) : null;
+}
+
+function toolCallReasonCode(value: unknown): CodexToolCall["reasonCode"] {
+  return value === "missing_tool_name_source" || value === "unsupported_legacy_shape" ? value : null;
 }
 
 function safeNullableFixtureString(value: unknown): string | null {

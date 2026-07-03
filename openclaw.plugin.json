@@ -154,6 +154,16 @@
               "type": "integer",
               "minimum": 1,
               "maximum": 100
+            },
+            "include_app_server": {
+              "type": "boolean"
+            },
+            "app_server_threads": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "now": {
+              "type": "string"
             }
           }
         }
