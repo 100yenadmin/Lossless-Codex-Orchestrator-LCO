@@ -4216,9 +4216,13 @@ function publicSafePersistedWatchSpec(spec: WatchSpec, watcher: WatcherState): R
 function watcherSourceRefs(watcher: WatcherState): string[] {
   return unique([
     watcher.targetRef,
-    `watcher:${watcher.watchId}`,
+    watcherSourceRefForWatchId(watcher.watchId),
     ...watcher.evidenceIds
   ].map((ref) => publicSafeRefLike(ref, "source") ?? "").filter(Boolean)).slice(0, 30);
+}
+
+function watcherSourceRefForWatchId(watchId: string): string {
+  return `watcher:${watchId}`;
 }
 
 function watcherAttentionQueueDraft(
@@ -4414,20 +4418,48 @@ function watcherSpecCoverageCount(db: LooDatabase, watchId: string | null, targe
 }
 
 function watcherObservationCoverage(db: LooDatabase): PreparedStateCoverage {
-  const raw = Number((db.prepare("SELECT COUNT(*) AS count FROM watcher_observations").get() as { count: number }).count);
-  const safe = Number((db.prepare("SELECT COUNT(*) AS count FROM watcher_observations WHERE privacy_class = 'public_safe_metadata'").get() as { count: number }).count);
-  return coverageFromCounts(raw, safe);
+  const rows = db.prepare(`
+    SELECT
+      observation_id AS observationId,
+      watch_id AS watchId,
+      target_ref AS targetRef,
+      observation_json AS observationJson,
+      evidence_refs_json AS evidenceRefsJson,
+      privacy_class AS privacyClass,
+      confidence,
+      observed_at AS observedAt
+    FROM watcher_observations
+  `).all() as WatcherObservationRow[];
+  return coverageFromPublicRows(rows.length, rows.filter((row) => publicWatcherObservationFromRow(row)).length);
 }
 
 function watcherObservationCoverageForTarget(db: LooDatabase, targetRef: string): PreparedStateCoverage {
-  const raw = Number((db.prepare("SELECT COUNT(*) AS count FROM watcher_observations WHERE target_ref = ?").get(targetRef) as { count: number }).count);
-  const safe = Number((db.prepare("SELECT COUNT(*) AS count FROM watcher_observations WHERE target_ref = ? AND privacy_class = 'public_safe_metadata'").get(targetRef) as { count: number }).count);
-  return coverageFromCounts(raw, safe);
+  const rows = db.prepare(`
+    SELECT
+      observation_id AS observationId,
+      watch_id AS watchId,
+      target_ref AS targetRef,
+      observation_json AS observationJson,
+      evidence_refs_json AS evidenceRefsJson,
+      privacy_class AS privacyClass,
+      confidence,
+      observed_at AS observedAt
+    FROM watcher_observations
+    WHERE target_ref = ?
+  `).all(targetRef) as WatcherObservationRow[];
+  return coverageFromPublicRows(rows.length, rows.filter((row) => publicWatcherObservationFromRow(row)).length);
 }
 
 function coverageFromCounts(raw: number, safe: number): PreparedStateCoverage {
   if (raw <= 0) return "not_configured";
   if (safe <= 0 || safe < raw) return "partial";
+  return "ok";
+}
+
+function coverageFromPublicRows(raw: number, safe: number): PreparedStateCoverage {
+  if (raw <= 0) return "not_configured";
+  if (safe <= 0) return "unknown";
+  if (safe < raw) return "partial";
   return "ok";
 }
 
@@ -5394,12 +5426,17 @@ export function persistWatcherObservations(
         observedAt,
         generatedAt
       );
-      db.prepare(`
-        DELETE FROM attention_queue
+      const watcherSourceRef = watcherSourceRefForWatchId(watcher.watchId);
+      const queueRowsForTarget = db.prepare(`
+        SELECT queue_id AS queueId, source_refs_json AS sourceRefsJson
+        FROM attention_queue
         WHERE target_ref = ?
           AND item_kind IN ('watcher_resume_request', 'watcher_inspection')
-          AND source_refs_json LIKE ?
-      `).run(watcher.targetRef, `%${watcher.watchId}%`);
+      `).all(watcher.targetRef) as Array<{ queueId: string; sourceRefsJson: string }>;
+      const deleteQueueById = db.prepare("DELETE FROM attention_queue WHERE queue_id = ?");
+      for (const row of queueRowsForTarget) {
+        if (parseSourceRefsJson(row.sourceRefsJson).includes(watcherSourceRef)) deleteQueueById.run(row.queueId);
+      }
       const queue = watcherAttentionQueueDraft(watcher, safeSpec);
       if (queue) {
         db.prepare(`
@@ -5492,7 +5529,7 @@ export function getWatcherEvents(db: LooDatabase, options: WatcherEventsOptions 
   }
   observations.sort((left, right) => watcherStateComparator(left.watcher, right.watcher) || right.observedAt.localeCompare(left.observedAt) || left.observationRef.localeCompare(right.observationRef));
   const selectedObservations = observations.slice(0, limit);
-  const queueRows = db.prepare(`
+  const queueRowsRaw = db.prepare(`
     SELECT
       queue_id AS queueId,
       target_ref AS targetRef,
@@ -5508,12 +5545,14 @@ export function getWatcherEvents(db: LooDatabase, options: WatcherEventsOptions 
     WHERE execute_false = 1
       AND item_kind IN ('watcher_resume_request', 'watcher_inspection')
       ${requestedTargetRef ? "AND target_ref = ?" : ""}
-      ${requestedWatchId ? "AND source_refs_json LIKE ?" : ""}
     ORDER BY confidence DESC, updated_at DESC, queue_id ASC
   `).all(...[
-    ...(requestedTargetRef ? [requestedTargetRef] : []),
-    ...(requestedWatchId ? [`%${requestedWatchId}%`] : [])
+    ...(requestedTargetRef ? [requestedTargetRef] : [])
   ]) as WatcherAttentionQueueRow[];
+  const requestedWatcherSourceRef = requestedWatchId ? watcherSourceRefForWatchId(requestedWatchId) : null;
+  const queueRows = requestedWatcherSourceRef
+    ? queueRowsRaw.filter((row) => parseSourceRefsJson(row.sourceRefsJson).includes(requestedWatcherSourceRef))
+    : queueRowsRaw;
   const queue = queueRows.map(publicWatcherAttentionQueueItemFromRow).filter((item): item is WatcherAttentionQueueItem => Boolean(item)).slice(0, limit);
   const limitCount = Math.max(0, observations.length - selectedObservations.length);
   const omittedReasons = [
@@ -5528,8 +5567,8 @@ export function getWatcherEvents(db: LooDatabase, options: WatcherEventsOptions 
     generatedAt,
     sourceCoverage: {
       watcherSpecs: coverageFromCounts(watcherSpecCount, watcherSpecCount),
-      watcherObservations: coverageFromCounts(observationRows.length, observations.length),
-      attentionQueue: coverageFromCounts(queueRows.length, queue.length)
+      watcherObservations: coverageFromPublicRows(observationRows.length, observations.length),
+      attentionQueue: coverageFromPublicRows(queueRows.length, queue.length)
     },
     summary: {
       total: observations.length,

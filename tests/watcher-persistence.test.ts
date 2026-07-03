@@ -116,6 +116,62 @@ test("watcher persistence sanitizes raw paths tokens and transcript canaries bef
   });
 });
 
+test("watcher persistence keeps underscore-like watch ids from deleting or over-reading neighbors", () => {
+  withWatcherDb((db) => {
+    const now = "2026-07-03T20:05:00.000Z";
+    const targetRef = "codex_thread:019f-watcher-shared";
+    const first = finalMessageWatchSpec({
+      watchId: "watch_final_message",
+      targetRef,
+      evidenceIds: ["ev_first"]
+    });
+    const second = finalMessageWatchSpec({
+      watchId: "watchXfinal_message",
+      targetRef,
+      evidenceIds: ["ev_second"]
+    });
+
+    persistWatcherObservations(db, [first, second], { now });
+    assert.equal(getWatcherEvents(db, { now, targetRef, limit: 10 }).summary.queueItems, 2);
+
+    persistWatcherObservations(db, [first], { now });
+    const allEvents = getWatcherEvents(db, { now, targetRef, limit: 10 });
+    assert.equal(allEvents.summary.queueItems, 2);
+
+    const firstEvents = getWatcherEvents(db, { now, targetRef, watchId: first.watchId, limit: 10 });
+    assert.equal(firstEvents.summary.queueItems, 1);
+    assert.equal(firstEvents.queue[0]?.sourceRefs.includes(`watcher:${first.watchId}`), true);
+    assert.equal(firstEvents.queue[0]?.sourceRefs.includes(`watcher:${second.watchId}`), false);
+  });
+});
+
+test("watcher event coverage reports unknown when every observation row is filtered unsafe", () => {
+  withWatcherDb((db) => {
+    db.prepare(`
+      INSERT INTO watcher_observations (
+        observation_id, watch_id, target_ref, observation_json, evidence_refs_json,
+        input_hash, privacy_class, confidence, observed_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "unsafe_observation",
+      "watch_final_message",
+      "codex_thread:019f-watcher-final",
+      JSON.stringify({ schema: "lco.watcherState.v1", kind: "not_a_real_kind", status: "triggered" }),
+      JSON.stringify(["ev_unsafe"]),
+      "hash_unsafe",
+      "public_safe_metadata",
+      0.9,
+      "2026-07-03T20:05:00.000Z",
+      "2026-07-03T20:05:00.000Z"
+    );
+
+    const events = getWatcherEvents(db, { now: "2026-07-03T20:05:00.000Z", limit: 10 });
+    assert.equal(events.summary.total, 0);
+    assert.equal(events.summary.filteredUnsafeRows, 1);
+    assert.equal(events.sourceCoverage.watcherObservations, "unknown");
+  });
+});
+
 test("watcher persistence fails closed when a watcher attempts mutation", () => {
   withWatcherDb((db) => {
     assert.throws(
