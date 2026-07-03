@@ -439,6 +439,38 @@ test("prepared-card all-thread refresh deletes cards whose leaves disappeared", 
   }
 });
 
+test("prepared-card all-thread refresh rolls back earlier thread writes when a later thread fails", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-card-atomic-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const okThreadId = "019f-prepared-a-atomic";
+    const failThreadId = "019f-prepared-z-atomic";
+    insertSummaryLeafRow(db, {
+      id: "81000000000000000000000000000008",
+      threadId: okThreadId
+    });
+    insertSummaryLeafRow(db, {
+      id: "82000000000000000000000000000008",
+      threadId: failThreadId
+    });
+    db.exec(`
+      CREATE TRIGGER fail_prepared_card_insert
+      BEFORE INSERT ON prepared_cards
+      WHEN NEW.target_ref = 'codex_thread:${failThreadId}'
+      BEGIN
+        SELECT RAISE(ABORT, 'forced prepared card failure');
+      END;
+    `);
+
+    assert.throws(() => materializePreparedCards(db), /forced prepared card failure/);
+    assert.equal(getPreparedCards(db, { threadId: okThreadId }).summary.total, 0);
+    assert.equal(getPreparedInbox(db, { threadId: okThreadId }).summary.total, 0);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("prepared inbox ordering is deterministic and attention-first", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-prepared-inbox-order-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));

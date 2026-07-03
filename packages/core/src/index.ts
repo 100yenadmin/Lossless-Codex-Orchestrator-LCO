@@ -2078,11 +2078,6 @@ export function migrate(db: LooDatabase): void {
         'Additive prepared-state card and inbox tables'
       ),
       (
-        '2026-07-04-prepared-card-source-range-omissions',
-        datetime('now'),
-        'Persist prepared-card source range omission counts'
-      ),
-      (
         '2026-07-03-watcher-observations',
         datetime('now'),
         'Additive prepared-state watcher spec, observation, and attention queue tables'
@@ -2096,6 +2091,11 @@ export function migrate(db: LooDatabase): void {
         '2026-07-03-state-prep-jobs',
         datetime('now'),
         'Additive prepared-state prep job table'
+      ),
+      (
+        '2026-07-04-prepared-card-source-range-omissions',
+        datetime('now'),
+        'Persist prepared-card source range omission counts'
       );
 
     CREATE TABLE IF NOT EXISTS prepared_source_events (
@@ -3242,64 +3242,10 @@ export function expandSummaryLeaves(db: LooDatabase, options: SummaryExpansionOp
 export function materializePreparedCards(db: LooDatabase, options: { threadId?: string } = {}): PreparedCardMaterializationReport {
   if (!options.threadId) return materializePreparedCardsForAllThreads(db);
   const generatedAt = new Date().toISOString();
-  const targetRef = codexThreadRef(options.threadId);
-  const leavesReport = getSummaryLeaves(db, { threadId: options.threadId, limit: 1000 });
-  const card = leavesReport.leaves.length > 0
-    ? buildPreparedCardDraft(db, options.threadId, leavesReport.leaves, leavesReport.omitted.filteredUnsafeRows)
-    : null;
+  let summary: PreparedCardMaterializationReport["summary"];
   db.exec("BEGIN");
   try {
-    deletePreparedCardsForTargetRefs(db, [targetRef]);
-    if (card) {
-      db.prepare(`
-        INSERT INTO prepared_cards (
-          card_id, card_ref, target_ref, card_kind, title, summary_text, next_action,
-          source_refs_json, source_range_refs_json, source_range_refs_omitted, authority_coverage_json,
-          input_hash, extractor_version, privacy_class, confidence, freshness_at,
-          stale, state, reason_codes_json, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        card.cardId,
-        card.cardRef,
-        card.targetRef,
-        card.cardKind,
-        card.title,
-        card.summaryText,
-        card.nextAction,
-        JSON.stringify(card.sourceRefs),
-        JSON.stringify(card.sourceRangeRefs),
-        card.sourceRangeRefsOmitted,
-        JSON.stringify(card.authorityCoverage),
-        card.inputHash,
-        PREPARED_CARD_EXTRACTOR_VERSION,
-        "public_safe_metadata",
-        card.confidence,
-        card.freshnessAt,
-        card.stale ? 1 : 0,
-        card.state,
-        JSON.stringify(card.reasonCodes),
-        generatedAt,
-        generatedAt
-      );
-      const inbox = preparedInboxItemFromCard(card);
-      db.prepare(`
-        INSERT INTO prepared_inbox_items (
-          item_id, card_ref, target_ref, urgency_score, state, reason_codes_json,
-          source_refs_json, execute_false, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        inbox.itemRef,
-        inbox.cardRef,
-        inbox.targetRef,
-        inbox.urgencyScore,
-        inbox.state,
-        JSON.stringify(inbox.reasonCodes),
-        JSON.stringify(inbox.sourceRefs),
-        1,
-        generatedAt,
-        generatedAt
-      );
-    }
+    summary = materializePreparedCardsForThread(db, options.threadId, generatedAt);
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
@@ -3314,12 +3260,7 @@ export function materializePreparedCards(db: LooDatabase, options: { threadId?: 
     target: {
       threadId: options.threadId
     },
-    summary: {
-      summaryLeaves: leavesReport.summary.total,
-      cards: card ? 1 : 0,
-      inboxItems: card ? 1 : 0,
-      skippedUnsafeRows: leavesReport.omitted.filteredUnsafeRows
-    },
+    summary,
     actionsPerformed: preparedCardWriteActions(),
     proofBoundary: "Prepared cards are deterministic advisory cache rows over public-safe summary leaves and session metadata. They write only LCO-owned derived cache and do not read raw transcripts, run model compaction, mutate source stores, perform live control, or perform GUI actions."
   };
@@ -3353,12 +3294,19 @@ function materializePreparedCardsForAllThreads(db: LooDatabase): PreparedCardMat
     skippedUnsafeRows: 0
   };
   const threadIds = unique(rows.map((row) => String(row.threadId ?? "")).filter(isPublicSummaryThreadId));
-  for (const threadId of threadIds) {
-    const report = materializePreparedCards(db, { threadId });
-    summary.summaryLeaves += report.summary.summaryLeaves;
-    summary.cards += report.summary.cards;
-    summary.inboxItems += report.summary.inboxItems;
-    summary.skippedUnsafeRows += report.summary.skippedUnsafeRows;
+  db.exec("BEGIN");
+  try {
+    for (const threadId of threadIds) {
+      const threadSummary = materializePreparedCardsForThread(db, threadId, generatedAt);
+      summary.summaryLeaves += threadSummary.summaryLeaves;
+      summary.cards += threadSummary.cards;
+      summary.inboxItems += threadSummary.inboxItems;
+      summary.skippedUnsafeRows += threadSummary.skippedUnsafeRows;
+    }
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
   }
   return {
     schema: "lco.preparedCards.materialization.v1",
@@ -3371,7 +3319,76 @@ function materializePreparedCardsForAllThreads(db: LooDatabase): PreparedCardMat
     },
     summary,
     actionsPerformed: preparedCardWriteActions(),
-    proofBoundary: "Prepared cards are deterministic advisory cache rows over public-safe summary leaves and session metadata. A no-thread materialization refreshes each thread independently and writes only LCO-owned derived cache; it does not read raw transcripts, run model compaction, mutate source stores, perform live control, or perform GUI actions."
+    proofBoundary: "Prepared cards are deterministic advisory cache rows over public-safe summary leaves and session metadata. A no-thread materialization refreshes selected threads in one derived-cache transaction and writes only LCO-owned derived cache; it does not read raw transcripts, run model compaction, mutate source stores, perform live control, or perform GUI actions."
+  };
+}
+
+function materializePreparedCardsForThread(
+  db: LooDatabase,
+  threadId: string,
+  generatedAt: string
+): PreparedCardMaterializationReport["summary"] {
+  const targetRef = codexThreadRef(threadId);
+  const leavesReport = getSummaryLeaves(db, { threadId, limit: 1000 });
+  const card = leavesReport.leaves.length > 0
+    ? buildPreparedCardDraft(db, threadId, leavesReport.leaves, leavesReport.omitted.filteredUnsafeRows)
+    : null;
+  deletePreparedCardsForTargetRefs(db, [targetRef]);
+  if (card) {
+    db.prepare(`
+      INSERT INTO prepared_cards (
+        card_id, card_ref, target_ref, card_kind, title, summary_text, next_action,
+        source_refs_json, source_range_refs_json, source_range_refs_omitted, authority_coverage_json,
+        input_hash, extractor_version, privacy_class, confidence, freshness_at,
+        stale, state, reason_codes_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      card.cardId,
+      card.cardRef,
+      card.targetRef,
+      card.cardKind,
+      card.title,
+      card.summaryText,
+      card.nextAction,
+      JSON.stringify(card.sourceRefs),
+      JSON.stringify(card.sourceRangeRefs),
+      card.sourceRangeRefsOmitted,
+      JSON.stringify(card.authorityCoverage),
+      card.inputHash,
+      PREPARED_CARD_EXTRACTOR_VERSION,
+      "public_safe_metadata",
+      card.confidence,
+      card.freshnessAt,
+      card.stale ? 1 : 0,
+      card.state,
+      JSON.stringify(card.reasonCodes),
+      generatedAt,
+      generatedAt
+    );
+    const inbox = preparedInboxItemFromCard(card);
+    db.prepare(`
+      INSERT INTO prepared_inbox_items (
+        item_id, card_ref, target_ref, urgency_score, state, reason_codes_json,
+        source_refs_json, execute_false, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      inbox.itemRef,
+      inbox.cardRef,
+      inbox.targetRef,
+      inbox.urgencyScore,
+      inbox.state,
+      JSON.stringify(inbox.reasonCodes),
+      JSON.stringify(inbox.sourceRefs),
+      1,
+      generatedAt,
+      generatedAt
+    );
+  }
+  return {
+    summaryLeaves: leavesReport.summary.total,
+    cards: card ? 1 : 0,
+    inboxItems: card ? 1 : 0,
+    skippedUnsafeRows: leavesReport.omitted.filteredUnsafeRows
   };
 }
 

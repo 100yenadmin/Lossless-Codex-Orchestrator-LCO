@@ -93,17 +93,21 @@ test("prepared-state migration adds additive shadow tables to an existing 1.1-st
     ]) {
       assert.equal(tables.has(table), true, `${table} exists`);
     }
-    const migrationIds = new Set((db.prepare("SELECT migration_id AS migrationId FROM loo_schema_migrations").all() as Array<{ migrationId: string }>).map((row) => row.migrationId));
-    for (const migrationId of [
+    const expectedMigrationOrder = [
       "2026-07-03-prepared-source-ranges",
       "2026-07-03-summary-leaves",
       "2026-07-03-prepared-cards",
       "2026-07-03-watcher-observations",
       "2026-07-03-hook-capture-packets",
-      "2026-07-03-state-prep-jobs"
-    ]) {
+      "2026-07-03-state-prep-jobs",
+      "2026-07-04-prepared-card-source-range-omissions"
+    ];
+    const migrationIds = new Set((db.prepare("SELECT migration_id AS migrationId FROM loo_schema_migrations").all() as Array<{ migrationId: string }>).map((row) => row.migrationId));
+    for (const migrationId of expectedMigrationOrder) {
       assert.equal(migrationIds.has(migrationId), true, `${migrationId} migration is logged`);
     }
+    const migrationRowsByApplyOrder = db.prepare("SELECT migration_id AS migrationId FROM loo_schema_migrations ORDER BY rowid").all() as Array<{ migrationId: string }>;
+    assert.deepEqual(migrationRowsByApplyOrder.map((row) => row.migrationId), expectedMigrationOrder);
     assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
     db.close();
     db = null;
