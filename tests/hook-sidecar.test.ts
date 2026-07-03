@@ -226,6 +226,34 @@ test("hook redaction covers common Linux and sensitive transcript path roots", (
   }
 });
 
+test("closeout transcript path fields are redacted without false strict blockers", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-hook-transcript-field-"));
+  try {
+    const db = createDatabase(join(root, "orchestrator.sqlite"));
+    try {
+      const report = captureCloseoutHookPacket(db, {
+        threadId: "019f-hook-transcript-field",
+        lastAssistantMessage: [
+          "<loo_closeout>",
+          "Status: complete",
+          "Transcript path: /data/lco/transcript/raw.jsonl",
+          "Next action: continue with public-safe hook packet",
+          "</loo_closeout>"
+        ].join("\n")
+      });
+      const serialized = JSON.stringify(report);
+
+      assert.equal(report.blockers.length, 0);
+      assert.equal(report.packet.payload.closeout?.fields.transcript_path, "<redacted-local-path>");
+      assert.doesNotMatch(serialized, /\/data\/lco|raw\.jsonl|raw_transcript_path_key/);
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("state-prep hook writes a bounded job from prepared state only", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-hook-state-prep-"));
   try {
@@ -334,6 +362,8 @@ test("CLI hook commands write sanitized evidence for closeout state prep and com
       "compaction-capture",
       "--payload-file",
       compactionPayloadPath,
+      "--summary",
+      `Do not capture this CLI summary-shaped payload ${rawToken}.`,
       "--evidence-path",
       compactionEvidencePath,
       "--strict"
@@ -363,8 +393,9 @@ test("CLI hook commands write sanitized evidence for closeout state prep and com
     assert.equal(statePrepReport.job.targetRef, "codex_thread:019f-hook-sidecar-cli");
     assert.equal(statePrepReport.packet.targetRef, "codex_thread:019f-hook-sidecar-cli");
     assert.equal(compactionReport.packet.payload.summaryCaptured, false);
+    assert.match(compactionReport.packet.payload.omissions.join(","), /summary_payload_not_captured_marker_mode/);
     for (const output of [closeoutResult.stdout, statePrepResult.stdout, compactionResult.stdout, closeoutEvidence, statePrepEvidence, compactionEvidence]) {
-      assert.doesNotMatch(output, /\/Users\/lume|raw-thread\.jsonl|npm_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456|summary-shaped payload/);
+      assert.doesNotMatch(output, /\/Users\/lume|raw-thread\.jsonl|npm_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456|summary-shaped payload|CLI summary-shaped/);
     }
   } finally {
     rmSync(root, { recursive: true, force: true });

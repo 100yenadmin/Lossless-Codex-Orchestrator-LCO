@@ -855,7 +855,7 @@ function mainUsageText(): string {
     "  loo closeout dry-run [--thread-id id] [--limit n] [--include-unavailable]",
     "  loo hook closeout-capture --payload-file path|--payload-json json [--evidence-path path] [--strict]",
     "  loo hook state-prep [--thread-id id] [--target-ref ref] [--limit n] [--payload-file path|--payload-json json] [--evidence-path path] [--strict]",
-    "  loo hook compaction-capture --mode marker --lifecycle pre_compact|post_compact [--payload-file path|--payload-json json] [--thread-id id] [--target-ref ref] [--evidence-path path] [--strict]",
+    "  loo hook compaction-capture --mode marker --lifecycle pre_compact|post_compact [--payload-file path|--payload-json json] [--thread-id id] [--target-ref ref] [--summary text] [--evidence-path path] [--strict]",
     "  loo sanitize sessions [--thread-id id] [--limit n] [--evidence-dir path] [--strict]",
     "  loo serve",
     "  loo audit-path",
@@ -1144,11 +1144,12 @@ function printHookStatePrepHelp(): void {
 function printHookCompactionCaptureHelp(): void {
   console.log([
     "Usage:",
-    "  loo hook compaction-capture --mode marker --lifecycle pre_compact|post_compact [--payload-file path|--payload-json json] [--thread-id id] [--target-ref ref] [--evidence-path path] [--strict]",
+    "  loo hook compaction-capture --mode marker --lifecycle pre_compact|post_compact [--payload-file path|--payload-json json] [--thread-id id] [--target-ref ref] [--summary text] [--evidence-path path] [--strict]",
     "",
     "Records PreCompact/PostCompact lifecycle markers as marker-only hook packets.",
     "",
     "Safety boundary:",
+    "  Marker notes are bounded/redacted; --summary and summary-shaped payload text are hash-only and never stored.",
     "  Marker mode never claims true compaction-summary capture and ignores summary-shaped payload text except for a local hash.",
     "  True compaction-summary capture requires Codex-native sanitized event support or a separately proven adapter.",
     "  The command writes only LCO-owned derived cache and does not mutate Codex source stores, run live control, mutate a GUI, run model compaction, publish npm, or create a GitHub Release."
@@ -1791,6 +1792,8 @@ function parseHookCompactionCaptureArgs(input: string[]): { payload: CompactionM
       payload.lifecycle = requireOptionValue(input[++index], arg) as CompactionMarkerHookInput["lifecycle"];
     } else if (arg === "--marker-note") {
       payload.markerNote = requireOptionValue(input[++index], arg);
+    } else if (arg === "--summary") {
+      payload.summary = requireOptionValue(input[++index], arg);
     } else if (arg === "--evidence-path") {
       evidencePath = requireOptionValue(input[++index], arg);
     } else if (arg === "--strict") {

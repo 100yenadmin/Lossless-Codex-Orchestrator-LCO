@@ -4614,7 +4614,8 @@ function extractHookCloseout(message: string | null): NonNullable<HookCapturePac
   if (!message) return { present: false, text: null, textHash: null, textRedacted: false, fields: {}, truncated: false, omissions: [] };
   const rawText = latestBalancedCloseoutEnvelopeText(message);
   if (rawText === null) return { present: false, text: null, textHash: null, textRedacted: false, fields: {}, truncated: false, omissions: [] };
-  const truncated = rawText.length > 1800;
+  const redactedText = redactHookStringUnbounded(rawText);
+  const truncated = rawText.length > 1800 || redactedText.length > 1800;
   return {
     present: true,
     text: null,
@@ -4657,16 +4658,16 @@ function hookSourceRefs(targetRef: string, text: string): string[] {
 }
 
 const HOOK_POSIX_LOCAL_PATH_PATTERN = /(?:file:\/\/)?(?:\/Users|\/Volumes|\/private\/var|\/private\/tmp|\/var\/folders|\/home|\/root|\/tmp|\/workspace|\/workspaces|\/mnt|\/data|\/opt|\/srv|\/etc)\/[^\s"'`)]+/g;
-const HOOK_SENSITIVE_SEGMENT_PATH_PATTERN = /(?:file:\/\/)?\/(?:[^\s"'`)]+\/)*(?:\.codex|sessions|transcripts?|transcript)(?:\/[^\s"'`)]+|[^\s"'`)]*)?/gi;
 const HOOK_WINDOWS_LOCAL_PATH_PATTERN = /(?:[A-Za-z]:)?\\(?:Users|home|tmp|workspace|workspaces|mnt|data|opt|srv|etc)\\[^\s"'`)]+/g;
-const HOOK_WINDOWS_SENSITIVE_SEGMENT_PATH_PATTERN = /(?:[A-Za-z]:)?\\(?:[^\s"'`)]+\\)*(?:\.codex|sessions|transcripts?|transcript)(?:\\[^\s"'`)]+|[^\s"'`)]*)?/gi;
 
 function redactHookString(value: string, maxChars: number): string {
-  const redacted = value
+  return truncate(redactHookStringUnbounded(value), maxChars);
+}
+
+function redactHookStringUnbounded(value: string): string {
+  return redactSensitiveHookPathTokens(value
     .replace(HOOK_POSIX_LOCAL_PATH_PATTERN, "<redacted-local-path>")
-    .replace(HOOK_SENSITIVE_SEGMENT_PATH_PATTERN, "<redacted-local-path>")
     .replace(HOOK_WINDOWS_LOCAL_PATH_PATTERN, "<redacted-local-path>")
-    .replace(HOOK_WINDOWS_SENSITIVE_SEGMENT_PATH_PATTERN, "<redacted-local-path>")
     .replace(/~\/\.codex\/[^\s"'`)]+/g, "<redacted-local-path>")
     .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "<redacted-secret>")
     .replace(/\bnpm_[A-Za-z0-9]{20,}\b/g, "<redacted-secret>")
@@ -4677,8 +4678,32 @@ function redactHookString(value: string, maxChars: number): string {
     .replace(/(Bearer\s+)[A-Za-z0-9._-]{10,}/gi, "$1<redacted-secret>")
     .replace(/(Basic\s+)[A-Za-z0-9._~+/-]+=*/gi, "$1<redacted-secret>")
     .replace(/(\bauthorization\s*:\s*)[^\r\n"'`)]+/gi, "$1<redacted-secret>")
-    .replace(/(\bcookie\s*:\s*)[^\r\n"'`)]+/gi, "$1<redacted-secret>");
-  return truncate(redacted, maxChars);
+    .replace(/(\bcookie\s*:\s*)[^\r\n"'`)]+/gi, "$1<redacted-secret>"));
+}
+
+function redactSensitiveHookPathTokens(value: string): string {
+  return value.replace(/[^\s"'`)]+/g, (token) => isSensitiveHookPathToken(token) ? "<redacted-local-path>" : token);
+}
+
+function isSensitiveHookPathToken(token: string): boolean {
+  const normalizedToken = token
+    .replace(/^file:\/\//i, "")
+    .replace(/\\/g, "/");
+  const drivePathMatch = normalizedToken.match(/[A-Za-z]:\//);
+  const slashPathIndex = normalizedToken.indexOf("/");
+  const pathStart = drivePathMatch?.index ?? slashPathIndex;
+  if (pathStart < 0) return false;
+  const normalized = normalizedToken.slice(pathStart);
+  if (!normalized.startsWith("/") && !/^[A-Za-z]:\//.test(normalized)) return false;
+  const pathPart = normalized.split(/[?#]/, 1)[0] ?? normalized;
+  const segments = pathPart.split("/").filter(Boolean).map((segment) => segment.toLowerCase());
+  return segments.some((segment) => (
+    segment === ".codex"
+    || segment === "sessions"
+    || segment === "transcripts"
+    || segment === "transcript"
+    || segment.startsWith("transcript.")
+  ));
 }
 
 function hookPublicSafetyBlockers(value: unknown): string[] {
@@ -4686,14 +4711,19 @@ function hookPublicSafetyBlockers(value: unknown): string[] {
   const blockers: string[] = [];
   if (
     hookRegexTest(HOOK_POSIX_LOCAL_PATH_PATTERN, serialized)
-    || hookRegexTest(HOOK_SENSITIVE_SEGMENT_PATH_PATTERN, serialized)
     || hookRegexTest(HOOK_WINDOWS_LOCAL_PATH_PATTERN, serialized)
-    || hookRegexTest(HOOK_WINDOWS_SENSITIVE_SEGMENT_PATH_PATTERN, serialized)
+    || containsSensitiveHookPathToken(serialized)
     || /~\/\.codex\//.test(serialized)
   ) blockers.push("raw_local_path_leak");
   if (/(?:npm_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{10,}|PRIVATE_CANARY[A-Za-z0-9_:-]*|BEGIN [A-Z ]*PRIVATE KEY)/.test(serialized)) blockers.push("raw_secret_like_value");
-  if (/"transcript_path"\s*:/.test(serialized)) blockers.push("raw_transcript_path_key");
   return blockers;
+}
+
+function containsSensitiveHookPathToken(value: string): boolean {
+  for (const token of value.match(/[^\s"'`)]+/g) ?? []) {
+    if (isSensitiveHookPathToken(token)) return true;
+  }
+  return false;
 }
 
 function hookRegexTest(pattern: RegExp, value: string): boolean {
