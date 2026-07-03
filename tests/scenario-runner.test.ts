@@ -188,6 +188,35 @@ test("M9 fresh npm clean-profile scenario captures external beta install path", 
   assert.match(String(scenario.proof_boundary), /does not prove stable release/i);
 });
 
+test("failed runtime proof issue-packet scenario captures public-safe handoff requirements", () => {
+  const scenario = JSON.parse(readFileSync(join("evals", "scenarios", "v1", "failed-runtime-proof-issue-packet.json"), "utf8")) as {
+    scenario_version?: unknown;
+    id?: unknown;
+    surface?: unknown;
+    user_task?: unknown;
+    allowed_tools?: unknown;
+    forbidden_behaviors?: unknown;
+    expected_public_safe_evidence?: unknown;
+    metrics?: Record<string, unknown>;
+    proof_boundary?: unknown;
+  };
+
+  assert.equal(scenario.scenario_version, "1.0");
+  assert.equal(scenario.id, "failed-runtime-proof-issue-packet-v1");
+  assert.equal(scenario.surface, "cli");
+  assert.match(String(scenario.user_task), /failed runtime proof.*issue-ready/i);
+  assert.deepEqual(scenario.allowed_tools, ["loo runtime issue-packet"]);
+  assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /duplicate-check query/i);
+  assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /redaction scan/i);
+  assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /acceptance criteria/i);
+  assert.match(JSON.stringify(scenario.forbidden_behaviors), /external_write/);
+  assert.match(JSON.stringify(scenario.forbidden_behaviors), /raw_transcript_read/);
+  assert.equal(scenario.metrics?.requires_issue_packet_shape, true);
+  assert.equal(scenario.metrics?.requires_no_external_write, true);
+  assert.equal(scenario.metrics?.max_raw_transcript_spans, 0);
+  assert.match(String(scenario.proof_boundary), /does not create GitHub issues/i);
+});
+
 test("Eva operating picture dogfood scenario captures the full cockpit workflow", () => {
   const scenario = JSON.parse(readFileSync(join("evals", "scenarios", "v1", "eva-operating-picture-dogfood.json"), "utf8")) as {
     id?: string;

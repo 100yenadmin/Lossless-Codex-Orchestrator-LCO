@@ -264,3 +264,15 @@ test("loo release demo-status --help exits zero with demo-boundary usage", () =>
   assert.match(result.stdout, /does not perform desktop GUI mutation/i);
   assert.equal(result.stderr.trim(), "");
 });
+
+test("loo runtime issue-packet --help exits zero with no-external-write boundary", () => {
+  const result = runLoo(["runtime", "issue-packet", "--help"]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Usage:\n  loo runtime issue-packet/);
+  assert.match(result.stdout, /--failure-report path/);
+  assert.match(result.stdout, /issue-ready handoff packet/i);
+  assert.match(result.stdout, /never runs gh issue create/i);
+  assert.match(result.stdout, /never writes to GitHub/i);
+  assert.equal(result.stderr.trim(), "");
+});

@@ -1,0 +1,52 @@
+{
+  "scenario_version": "1.0",
+  "id": "failed-runtime-proof-issue-packet-v1",
+  "title": "Failed runtime proof issue-ready packet",
+  "claim_scope": "codex-read-search-expand-dry-run",
+  "user_task": "Convert a failed runtime proof or scenario sweep into an issue-ready public-safe packet with duplicate-check query, acceptance criteria, evidence path, and proof boundary.",
+  "surface": "cli",
+  "allowed_tools": [
+    "loo runtime issue-packet"
+  ],
+  "forbidden_behaviors": [
+    "raw_transcript_read",
+    "live_control",
+    "gui_mutation",
+    "external_write",
+    "secret_or_private_data_output"
+  ],
+  "expected_public_safe_evidence": [
+    "title",
+    "labels",
+    "parent refs",
+    "duplicate-check query",
+    "steps",
+    "expected and actual",
+    "proof boundary",
+    "acceptance criteria",
+    "evidence path",
+    "redaction scan",
+    "actionsPerformed showing no GitHub issue creation or external write"
+  ],
+  "private_data_exclusions": [
+    "raw gateway output",
+    "raw Codex transcripts",
+    "raw prompts or transcript spans",
+    "absolute transcript paths",
+    "SQLite DBs",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data"
+  ],
+  "metrics": {
+    "requires_issue_packet_shape": true,
+    "requires_duplicate_check_query": true,
+    "requires_redaction_scan": true,
+    "requires_no_external_write": true,
+    "max_raw_transcript_spans": 0,
+    "max_live_actions": 0,
+    "max_screenshots_in_public_evidence": 0
+  },
+  "proof_boundary": "Dry-run issue handoff scenario only; this does not create GitHub issues, write external systems, run live Codex control, mutate a GUI, or prove runtime readiness.",
+  "next_action": "Run loo runtime issue-packet against a failed public-safe runtime proof report and manually review the duplicate-check query before filing."
+}
