@@ -37,6 +37,7 @@ export type OpenClawGatewayLiveControlSmokeReport = {
     live: boolean | null;
     method: string | null;
     turnStatus: string | null;
+    responseOk: boolean | null;
   };
   audit: {
     tailRead: boolean;
@@ -77,9 +78,11 @@ type ControlSummary = {
   live: boolean | null;
   method: string | null;
   turnStatus: string | null;
+  responseOk: boolean | null;
 };
 
 const SCENARIO_ID = "openclaw-gateway-live-codex-v1-1";
+const ACCEPTED_LIVE_TURN_STATUSES = new Set(["accepted", "completed", "in_progress", "pending", "queued", "running"]);
 const DEFAULT_MESSAGE = "LCO OpenClaw gateway live-control smoke. Reply with exactly: LCO gateway live smoke acknowledged. Do not run commands, edit files, or use tools.";
 const REQUIRED_TOOLS = ["loo_codex_control_dry_run", "loo_codex_send_message", "loo_audit_tail"];
 const PRIVATE_DATA_EXCLUSIONS = [
@@ -267,7 +270,15 @@ function validLive(summary: ControlSummary): boolean {
   return summary.live === true
     && safeAuditId(summary.approvalAuditId)
     && safeHash(summary.paramsHash)
-    && safeHash(summary.messageHash);
+    && safeHash(summary.messageHash)
+    && summary.responseOk === true
+    && liveTurnStatusProvesSendAccepted(summary.turnStatus);
+}
+
+function liveTurnStatusProvesSendAccepted(value: string | null): boolean {
+  if (typeof value !== "string") return false;
+  const normalized = value.trim().toLowerCase().replace(/[-\s]+/g, "_");
+  return ACCEPTED_LIVE_TURN_STATUSES.has(normalized);
 }
 
 function safeAuditId(value: string | null): value is string {
@@ -287,7 +298,8 @@ function summarizeControl(call: GatewayCallResult | null): ControlSummary {
     messageHash: stringPath(details, ["message_hash"]) || stringPath(details, ["messageHash"]),
     live: booleanPath(details, ["live"]),
     method: stringPath(details, ["method"]),
-    turnStatus: stringPath(details, ["response", "turn", "status"]) || stringPath(details, ["response", "status"]) || stringPath(details, ["status"])
+    turnStatus: stringPath(details, ["response", "turn", "status"]) || stringPath(details, ["response", "status"]) || stringPath(details, ["status"]),
+    responseOk: booleanPath(details, ["response", "ok"]) ?? booleanPath(details, ["ok"])
   };
 }
 

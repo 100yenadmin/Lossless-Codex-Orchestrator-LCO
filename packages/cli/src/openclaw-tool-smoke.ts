@@ -19,6 +19,7 @@ export const DEFAULT_REQUIRED_TOOL_CALLS = [
   "loo_codex_collaboration_next_steps",
   "loo_codex_runtime_desktop_visibility_status",
   "loo_codex_active_thread_state",
+  "loo_codex_autonomy_tick",
   "loo_codex_desktop_collaboration_proof",
   "loo_watchers_list",
   "loo_watcher_status",
@@ -34,6 +35,14 @@ export const DEFAULT_REQUIRED_TOOL_CALLS = [
   "loo_attention_inbox",
   "loo_business_pulse"
 ];
+
+const AUTONOMY_TICK_SUMMARY_KEYS = [
+  "totalLanes",
+  "returnedSteps",
+  "readOnlyProbes",
+  "controlDryRunRecommendations",
+  "blockedControlDryRuns"
+] as const;
 
 export type OpenClawToolSmokeOptions = {
   openclawBin?: string;
@@ -76,16 +85,8 @@ export type OpenClawToolInvocationSummary = {
     fallbackReason?: string;
     toolBlockers?: string[];
     nextToolCall?: {
-      tool: "loo_codex_desktop_coherence" | "loo_desktop_live_proof_harness";
-      args: {
-        thread_id?: string;
-        source_ref?: string;
-        backend?: string;
-        target_app?: string;
-        target_window?: string;
-        action?: string;
-        approval_ref?: string;
-      };
+      tool: string;
+      args: Record<string, unknown>;
       execute?: false;
     };
     proofStatus?: string;
@@ -96,6 +97,7 @@ export type OpenClawToolInvocationSummary = {
     activeThreadAttentionCoverage?: Record<string, number>;
     activeThreadControlDryRunRecommendations?: number;
     activeThreadNextReadOnlyActions?: number;
+    autonomyTick?: Record<string, number>;
   };
   blockers: string[];
 };
@@ -550,6 +552,12 @@ function buildToolArgs(params: {
     };
   }
   if (params.toolName === "loo_codex_active_thread_state") {
+    return {
+      ...smokeCollaborationFixtureArgs(params.threadId),
+      app_server_threads: smokeAppServerThreads(params.threadId)
+    };
+  }
+  if (params.toolName === "loo_codex_autonomy_tick") {
     return {
       ...smokeCollaborationFixtureArgs(params.threadId),
       app_server_threads: smokeAppServerThreads(params.threadId)
@@ -1083,6 +1091,41 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
       blockers.push("active_thread_state_restricted_action");
     }
   }
+  if (toolName === "loo_codex_autonomy_tick") {
+    const tickOutput = details ?? output;
+    const rawSteps = arrayPath(tickOutput, ["steps"]);
+    const steps = rawSteps.filter(isRecord);
+    const summaryRecord = isRecord(tickOutput) && isRecord(tickOutput.summary) ? tickOutput.summary : null;
+    const autonomyTickCounts = Object.fromEntries(AUTONOMY_TICK_SUMMARY_KEYS.map((key) => {
+      const value = summaryRecord?.[key];
+      return [key, isNonNegativeInteger(value) ? value : 0];
+    }));
+    summary.autonomyTick = autonomyTickCounts;
+    const nextToolCall = steps.map(publicSafeAutonomyTickNextToolCall).find((candidate) => Boolean(candidate));
+    if (!summaryRecord) blockers.push("autonomy_tick_summary_missing");
+    if (stringPath(tickOutput, ["schema"]) !== "lco.codex.autonomyTick.v1") blockers.push("autonomy_tick_schema_invalid");
+    if (booleanPath(tickOutput, ["publicSafe"]) !== true || booleanPath(tickOutput, ["readOnly"]) !== true) {
+      blockers.push("autonomy_tick_public_safe_read_only_missing");
+    }
+    if (summaryRecord) {
+      const summaryBlocker = autonomyTickSummaryBlocker(summaryRecord, rawSteps.length, steps);
+      if (summaryBlocker) blockers.push(summaryBlocker);
+    }
+    if (steps.some((step) => !hasValidAutonomyTickStep(step))) blockers.push("autonomy_tick_invalid_step");
+    const actions = isRecord(tickOutput) && isRecord(tickOutput.actionsPerformed) ? tickOutput.actionsPerformed : null;
+    if (
+      !actions ||
+      actions.liveCodexControlRun !== false ||
+      actions.desktopGuiActionRun !== false ||
+      actions.rawTranscriptRead !== false ||
+      actions.screenshotCaptured !== false ||
+      actions.npmPublished !== false ||
+      actions.githubReleaseCreated !== false
+    ) {
+      blockers.push("autonomy_tick_restricted_action");
+    }
+    if (blockers.length === 0 && nextToolCall) summary.nextToolCall = nextToolCall;
+  }
 
   return {
     toolName,
@@ -1435,6 +1478,153 @@ function hasValidActiveThreadReadOnlyActionArgs(tool: string | undefined, args: 
       && validPositiveLimit(args);
   }
   return false;
+}
+
+function autonomyTickSummaryMatchesSteps(
+  summary: Record<string, number>,
+  steps: Record<string, unknown>[]
+): boolean {
+  return summary.returnedSteps === steps.length
+    && summary.readOnlyProbes === steps.filter((step) => stringPath(step, ["stepType"]) === "read_only_probe").length
+    && summary.controlDryRunRecommendations === steps.filter((step) => stringPath(step, ["stepType"]) === "control_dry_run").length
+    && summary.blockedControlDryRuns === steps.filter((step) => {
+      const reasonCodes = arrayPath(step, ["reasonCodes"]);
+      return stringPath(step, ["stepType"]) === "control_dry_run"
+        && (stringPath(step, ["status"]) === "blocked" || reasonCodes.includes("control_dry_run_blocked"));
+    }).length;
+}
+
+function autonomyTickSummaryBlocker(
+  summary: Record<string, unknown>,
+  rawStepCount: number,
+  steps: Record<string, unknown>[]
+): string | null {
+  if (AUTONOMY_TICK_SUMMARY_KEYS.some((key) => !isNonNegativeInteger(summary[key]))) {
+    return "autonomy_tick_summary_count_invalid";
+  }
+  const counts = Object.fromEntries(AUTONOMY_TICK_SUMMARY_KEYS.map((key) => [key, summary[key] as number]));
+  if (rawStepCount !== steps.length || !autonomyTickSummaryMatchesSteps(counts, steps)) {
+    return "autonomy_tick_step_count_mismatch";
+  }
+  const uniqueStepLanes = new Set(steps.map((step) => stringPath(step, ["threadId"])).filter(Boolean)).size;
+  if (counts.totalLanes < uniqueStepLanes) return "autonomy_tick_total_lanes_mismatch";
+  return null;
+}
+
+function hasValidAutonomyTickStep(step: Record<string, unknown>): boolean {
+  const stepType = stringPath(step, ["stepType"]);
+  const tool = stringPath(step, ["tool"]);
+  const args = isRecord(step.args) ? step.args : null;
+  const status = stringPath(step, ["status"]);
+  const priority = numberPath(step, ["priority"]);
+  const threadId = stringPath(step, ["threadId"]);
+  const idempotencyKey = stringPath(step, ["idempotencyKey"]);
+  const reason = stringPath(step, ["reason"]);
+  const reasonCodes = arrayPath(step, ["reasonCodes"]).filter((value): value is string => typeof value === "string" && value.length > 0);
+  const evidenceIds = arrayPath(step, ["evidenceIds"]).filter((value): value is string => typeof value === "string" && value.length > 0);
+  const stepBlockers = arrayPath(step, ["blockers"]).filter((value): value is string => typeof value === "string" && value.length > 0);
+  const stopConditions = arrayPath(step, ["stopConditions"]).filter((value): value is string => typeof value === "string" && value.length > 0);
+  const sourceCoverage = isRecord(step.sourceCoverage) ? step.sourceCoverage : null;
+  const confidence = numberPath(step, ["confidence"]);
+  if (
+    step.execute !== false ||
+    !threadId ||
+    !/^codex_thread:[A-Za-z0-9._:-]+$/.test(threadId) ||
+    !idempotencyKey ||
+    !idempotencyKey.startsWith("autonomy_tick:") ||
+    !reason ||
+    !sourceCoverage ||
+    priority === undefined ||
+    !Number.isFinite(priority) ||
+    confidence === undefined ||
+    !Number.isFinite(confidence) ||
+    confidence < 0 ||
+    confidence > 1 ||
+    reasonCodes.length === 0 ||
+    evidenceIds.length === 0 ||
+    stopConditions.length === 0 ||
+    !args
+  ) {
+    return false;
+  }
+  if (stepType === "read_only_probe") {
+    return ["loo_recent_sessions", "loo_cockpit_inbox", "loo_codex_app_server_threads", "loo_visible_codex_map"].includes(tool ?? "")
+      && reasonCodes.includes("autonomy_tick_read_only_probe")
+      && stopConditions.includes("recompute_tick_after_probe")
+      && stopConditions.includes("raw_transcript_not_read")
+      && hasValidActiveThreadReadOnlyActionArgs(tool, args);
+  }
+  if (stepType === "control_dry_run") {
+    const blocked = status === "blocked" || reasonCodes.includes("control_dry_run_blocked");
+    return tool === "loo_codex_control_dry_run"
+      && (status === "ready" || status === "blocked")
+      && stringPath(args, ["action"]) === "resume"
+      && Boolean(stringPath(args, ["thread_id"]))
+      && Boolean(stringPath(step, ["approvalBoundary"]))
+      && (reasonCodes.includes("control_dry_run_ready") || reasonCodes.includes("control_dry_run_blocked"))
+      && (!blocked || stepBlockers.length > 0)
+      && stopConditions.includes("live_control_requires_approval_audit_id");
+  }
+  return false;
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && Number.isInteger(value) && value >= 0;
+}
+
+function publicSafeAutonomyTickNextToolCall(value: unknown): OpenClawToolInvocationSummary["summary"]["nextToolCall"] | undefined {
+  if (!isRecord(value) || !hasValidAutonomyTickStep(value)) return undefined;
+  if (stringPath(value, ["stepType"]) === "control_dry_run" && stringPath(value, ["status"]) === "blocked") return undefined;
+  const tool = stringPath(value, ["tool"]);
+  const args = isRecord(value.args) ? value.args : {};
+  const safeArgs = publicSafeAutonomyTickArgs(tool, args);
+  if (!tool || !safeArgs) return undefined;
+  return {
+    tool,
+    args: safeArgs,
+    execute: false
+  };
+}
+
+function publicSafeAutonomyTickArgs(tool: string | undefined, args: Record<string, unknown>): Record<string, unknown> | null {
+  if (tool === "loo_recent_sessions") {
+    return {
+      scope: "active",
+      include_cards: true,
+      limit: numberPath(args, ["limit"]) ?? 20
+    };
+  }
+  if (tool === "loo_cockpit_inbox") {
+    return { limit: numberPath(args, ["limit"]) ?? 20 };
+  }
+  if (tool === "loo_codex_app_server_threads") {
+    const threadId = stringPath(args, ["read_thread_id"]);
+    if (!isSafeAutonomyThreadId(threadId)) return null;
+    return {
+      read_thread_id: threadId,
+      limit: numberPath(args, ["limit"]) ?? 20
+    };
+  }
+  if (tool === "loo_visible_codex_map") {
+    return {
+      include_app_server: true,
+      include_visible_snapshot: false,
+      limit: numberPath(args, ["limit"]) ?? 20
+    };
+  }
+  if (tool === "loo_codex_control_dry_run") {
+    const threadId = stringPath(args, ["thread_id"]);
+    if (!isSafeAutonomyThreadId(threadId)) return null;
+    return {
+      action: "resume",
+      thread_id: threadId
+    };
+  }
+  return null;
+}
+
+function isSafeAutonomyThreadId(value: string | undefined): value is string {
+  return Boolean(value && /^[A-Za-z0-9._:-]+$/.test(value));
 }
 
 function validPositiveLimit(value: Record<string, unknown>): boolean {

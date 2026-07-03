@@ -43,6 +43,8 @@ LCO is a local-first orchestration layer for Codex-heavy work:
   approval-needed, idle, or unknown from public-safe read-only signals,
   including attention coverage, non-executed read-only probe recommendations,
   and non-executed control dry-run recommendations for safe nudge handoff
+- plans one deterministic read-only autonomy loop tick with `execute:false`
+  tool calls so an agent can probe before dry-run handoff without mutation
 
 The result is a staged recall loop:
 

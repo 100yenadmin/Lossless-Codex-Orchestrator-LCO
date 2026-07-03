@@ -49,6 +49,7 @@
       "loo_codex_collaboration_next_steps",
       "loo_codex_runtime_desktop_visibility_status",
       "loo_codex_active_thread_state",
+      "loo_codex_autonomy_tick",
       "loo_codex_desktop_collaboration_proof",
       "loo_watchers_list",
       "loo_watcher_status",
@@ -563,6 +564,59 @@
       {
         "name": "loo_codex_active_thread_state",
         "description": "Classify active Codex threads using public-safe cockpit signals, attention coverage, execute-false read-only probes, and non-executed control dry-run recommendations where safe.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "priority_order": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "watcher_specs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_coherence_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_fallback_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "app_server_threads": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "now": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_autonomy_tick",
+        "description": "Plan one deterministic read-only Codex autonomy loop tick from active-thread state without executing control, GUI actions, raw transcript reads, publishing, or releases.",
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
