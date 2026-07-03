@@ -178,6 +178,44 @@ test("live control smoke stops same-connection sequences after a failed step", a
     );
     assert.deepEqual(client.requests.map((request) => request.method), ["thread/start", "thread/resume"]);
     assert.equal(audit.tail().some((record) => record.live), false);
+    const failureReport = JSON.parse(readFileSync(join(root, "live-control-smoke-failure-report.json"), "utf8")) as {
+      ok?: boolean;
+      proofReady?: boolean;
+      blocker?: string;
+      command?: { action?: string; actionClass?: string };
+      target?: { refClass?: string; source?: string };
+      dryRun?: { attempted?: boolean; live?: boolean; approvalAuditId?: string; paramsHash?: string; messageHash?: string };
+      live?: { accepted?: boolean; method?: string | null };
+      postActionRefresh?: { ran?: boolean };
+      nextDiagnosticStep?: string;
+      rawPromptIncluded?: boolean;
+      rawTranscriptIncluded?: boolean;
+      rawSecretIncluded?: boolean;
+      screenshotIncluded?: boolean;
+      sqliteIncluded?: boolean;
+    };
+    assert.equal(failureReport.ok, false);
+    assert.equal(failureReport.proofReady, false);
+    assert.equal(failureReport.blocker, "same_connection_resume_load_diagnostics_required");
+    assert.equal(failureReport.command?.action, "send");
+    assert.equal(failureReport.command?.actionClass, "codex_live_control_send");
+    assert.equal(failureReport.target?.refClass, "codex_thread");
+    assert.equal(failureReport.target?.source, "ephemeral_thread_start");
+    assert.equal(failureReport.dryRun?.attempted, true);
+    assert.equal(failureReport.dryRun?.live, false);
+    assert.match(failureReport.dryRun?.approvalAuditId ?? "", /^loo_audit_/);
+    assert.match(failureReport.dryRun?.paramsHash ?? "", /^[a-f0-9]{64}$/);
+    assert.match(failureReport.dryRun?.messageHash ?? "", /^[a-f0-9]{64}$/);
+    assert.equal(failureReport.live?.accepted, false);
+    assert.equal(failureReport.live?.method, null);
+    assert.equal(failureReport.postActionRefresh?.ran, false);
+    assert.match(failureReport.nextDiagnosticStep ?? "", /same-connection resume\/load/i);
+    assert.equal(failureReport.rawPromptIncluded, false);
+    assert.equal(failureReport.rawTranscriptIncluded, false);
+    assert.equal(failureReport.rawSecretIncluded, false);
+    assert.equal(failureReport.screenshotIncluded, false);
+    assert.equal(failureReport.sqliteIncluded, false);
+    assert.equal(JSON.stringify(failureReport).includes("Harmless smoke prompt"), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
