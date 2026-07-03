@@ -10,11 +10,14 @@ export type OpenClawGatewayLiveControlSmokeOptions = {
   token?: string;
   sessionKey?: string;
   threadId: string;
+  action?: OpenClawGatewayLiveControlAction;
   message?: string;
   evidenceDir: string;
   gatewayTimeoutMs?: number;
   now?: string;
 };
+
+export type OpenClawGatewayLiveControlAction = "send" | "resume";
 
 export type OpenClawGatewayLiveControlSmokeReport = {
   ok: boolean;
@@ -22,6 +25,7 @@ export type OpenClawGatewayLiveControlSmokeReport = {
   publicSafe: boolean;
   generatedAt: string;
   command: string;
+  action: OpenClawGatewayLiveControlAction;
   requiredTools: string[];
   targetRef: string;
   dryRun: {
@@ -84,7 +88,6 @@ type ControlSummary = {
 const SCENARIO_ID = "openclaw-gateway-live-codex-v1-1";
 const ACCEPTED_LIVE_TURN_STATUSES = new Set(["accepted", "completed", "in_progress", "pending", "queued", "running"]);
 const DEFAULT_MESSAGE = "LCO OpenClaw gateway live-control smoke. Reply with exactly: LCO gateway live smoke acknowledged. Do not run commands, edit files, or use tools.";
-const REQUIRED_TOOLS = ["loo_codex_control_dry_run", "loo_codex_send_message", "loo_audit_tail"];
 const PRIVATE_DATA_EXCLUSIONS = [
   "raw OpenClaw gateway stdout/stderr",
   "raw tool output",
@@ -113,6 +116,9 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
   ];
   const callOptions = { timeoutMs: gatewayTimeoutMs, env: options.token ? { OPENCLAW_GATEWAY_TOKEN: options.token } : undefined };
   const sessionKey = options.sessionKey || "agent:main:lco-live-control-smoke";
+  const action = normalizeAction(options.action);
+  const liveToolName = liveToolForAction(action);
+  const requiredTools = ["loo_codex_control_dry_run", liveToolName, "loo_audit_tail"];
   const message = options.message ?? DEFAULT_MESSAGE;
   const targetRef = `codex_thread:${options.threadId}`;
   const blockers: string[] = [];
@@ -120,42 +126,33 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
   const catalog = callGatewayJson(openclawBin, baseArgs, gatewayOptions, "tools.catalog", {}, callOptions);
   const catalogTools = catalog.status === 0 && catalog.parsed !== undefined ? extractCatalogToolNames(unwrapGatewayPayload(catalog.parsed)) : [];
   blockers.push(...gatewayCallBlockers(catalog, "openclaw_live_catalog_failed"));
-  blockers.push(...REQUIRED_TOOLS.filter((tool) => !catalogTools.includes(tool)).map((tool) => `openclaw_live_catalog_missing_tool:${tool}`));
+  blockers.push(...requiredTools.filter((tool) => !catalogTools.includes(tool)).map((tool) => `openclaw_live_catalog_missing_tool:${tool}`));
 
   const dryRun = blockers.length === 0
     ? callGatewayJson(openclawBin, baseArgs, gatewayOptions, "tools.invoke", {
       name: "loo_codex_control_dry_run",
-      args: {
-        action: "send",
-        thread_id: options.threadId,
-        message
-      },
+      args: liveDryRunArgs(action, options.threadId, message),
       sessionKey,
       confirm: false,
-      idempotencyKey: `loo-live-smoke-dry-run-${options.threadId}`
+      idempotencyKey: `loo-live-smoke-dry-run-${action}-${options.threadId}`
     }, callOptions)
     : null;
   blockers.push(...(dryRun ? gatewayCallBlockers(dryRun, "openclaw_live_dry_run_failed") : []));
   const dryRunSummary = summarizeControl(dryRun);
-  if (dryRun && !validDryRun(dryRunSummary)) blockers.push("openclaw_live_dry_run_not_proven");
+  if (dryRun && !validDryRun(action, dryRunSummary)) blockers.push("openclaw_live_dry_run_not_proven");
 
   const live = blockers.length === 0
     ? callGatewayJson(openclawBin, baseArgs, gatewayOptions, "tools.invoke", {
-      name: "loo_codex_send_message",
-      args: {
-        thread_id: options.threadId,
-        message,
-        dry_run: false,
-        approval_audit_id: dryRunSummary.approvalAuditId
-      },
+      name: liveToolName,
+      args: liveArgs(action, options.threadId, message, dryRunSummary.approvalAuditId),
       sessionKey,
       confirm: false,
-      idempotencyKey: `loo-live-smoke-send-${options.threadId}-${dryRunSummary.approvalAuditId}`
+      idempotencyKey: `loo-live-smoke-${action}-${options.threadId}-${dryRunSummary.approvalAuditId}`
     }, callOptions)
     : null;
-  blockers.push(...(live ? gatewayCallBlockers(live, "openclaw_live_send_failed") : []));
+  blockers.push(...(live ? gatewayCallBlockers(live, "openclaw_live_control_failed") : []));
   const liveSummary = summarizeControl(live);
-  if (live && !validLive(liveSummary)) blockers.push("openclaw_live_send_not_proven");
+  if (live && !validLive(action, liveSummary)) blockers.push(action === "resume" ? "openclaw_live_resume_not_proven" : "openclaw_live_send_not_proven");
   if (live && dryRunSummary.paramsHash && liveSummary.paramsHash && liveSummary.paramsHash !== dryRunSummary.paramsHash) blockers.push("openclaw_live_params_hash_mismatch");
   if (live && dryRunSummary.messageHash && liveSummary.messageHash && liveSummary.messageHash !== dryRunSummary.messageHash) blockers.push("openclaw_live_message_hash_mismatch");
   const approvalAuditIdUsed = live ? dryRunSummary.approvalAuditId : null;
@@ -172,7 +169,7 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
       args: { limit: 20 },
       sessionKey,
       confirm: false,
-      idempotencyKey: `loo-live-smoke-audit-tail-${options.threadId}`
+      idempotencyKey: `loo-live-smoke-audit-tail-${action}-${options.threadId}`
     }, callOptions)
     : null;
   blockers.push(...(auditTail ? gatewayCallBlockers(auditTail, "openclaw_live_audit_tail_failed") : []));
@@ -196,7 +193,8 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
     publicSafe: true,
     generatedAt: options.now ?? new Date().toISOString(),
     command: `${sanitizeCommandBinary(openclawBin)} ${[...baseArgs, "gateway", "call", "tools.invoke", "--json", "--params", "<redacted>"].join(" ")}`,
-    requiredTools: REQUIRED_TOOLS,
+    action,
+    requiredTools,
     targetRef,
     dryRun: {
       approvalAuditId: dryRunSummary.approvalAuditId,
@@ -225,7 +223,7 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
       rawTranscriptRead: false
     },
     privateDataExclusions: PRIVATE_DATA_EXCLUSIONS,
-    proofBoundary: "This proves one approved harmless live Codex send through the installed OpenClaw gateway path only; it does not prove unattended live control, broad gateway scope approval, GUI mutation, Claude parity, or bypassed Codex approvals.",
+    proofBoundary: "This proves one approved harmless live Codex send/resume through the installed OpenClaw gateway path only; it does not prove unattended live control, broad gateway scope approval, GUI mutation, Claude parity, or bypassed Codex approvals.",
     nextAction: uniqueBlockers.length === 0
       ? "Run the v1.1 runtime scenario sweep against this runtime-proof directory, then continue #159 post-action refresh proof."
       : "Resolve the listed gateway live-control blockers before claiming #158 runtime proof."
@@ -259,20 +257,55 @@ function runtimeProofForReport(report: OpenClawGatewayLiveControlSmokeReport): R
   };
 }
 
-function validDryRun(summary: ControlSummary): boolean {
+function liveDryRunArgs(action: OpenClawGatewayLiveControlAction, threadId: string, message: string): Record<string, unknown> {
+  return action === "send"
+    ? {
+        action,
+        thread_id: threadId,
+        message
+      }
+    : {
+        action,
+        thread_id: threadId
+      };
+}
+
+function liveArgs(action: OpenClawGatewayLiveControlAction, threadId: string, message: string, approvalAuditId: string | null): Record<string, unknown> {
+  const common = {
+    thread_id: threadId,
+    dry_run: false,
+    approval_audit_id: approvalAuditId
+  };
+  return action === "send" ? { ...common, message } : common;
+}
+
+function liveToolForAction(action: OpenClawGatewayLiveControlAction): string {
+  return action === "send" ? "loo_codex_send_message" : "loo_codex_resume_thread";
+}
+
+function normalizeAction(action: unknown): OpenClawGatewayLiveControlAction {
+  if (action === undefined || action === "send") return "send";
+  if (action === "resume") return "resume";
+  throw new Error("action must be send or resume");
+}
+
+function validDryRun(action: OpenClawGatewayLiveControlAction, summary: ControlSummary): boolean {
   return summary.live === false
     && safeAuditId(summary.approvalAuditId)
     && safeHash(summary.paramsHash)
-    && safeHash(summary.messageHash);
+    && (action !== "send" || safeHash(summary.messageHash));
 }
 
-function validLive(summary: ControlSummary): boolean {
+function validLive(action: OpenClawGatewayLiveControlAction, summary: ControlSummary): boolean {
+  const actionAccepted = action === "resume"
+    ? summary.method === "thread/resume"
+    : liveTurnStatusProvesSendAccepted(summary.turnStatus);
   return summary.live === true
     && safeAuditId(summary.approvalAuditId)
     && safeHash(summary.paramsHash)
-    && safeHash(summary.messageHash)
+    && (action !== "send" || safeHash(summary.messageHash))
     && summary.responseOk === true
-    && liveTurnStatusProvesSendAccepted(summary.turnStatus);
+    && actionAccepted;
 }
 
 function liveTurnStatusProvesSendAccepted(value: string | null): boolean {

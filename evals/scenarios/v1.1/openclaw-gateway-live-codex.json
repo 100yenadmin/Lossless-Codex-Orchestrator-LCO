@@ -9,16 +9,16 @@
   "surface": "installed-openclaw-gateway",
   "required_tools": [
     "loo_codex_control_dry_run",
-    "loo_codex_send_message",
     "loo_audit_tail"
   ],
   "allowed_tools": [
     "loo_codex_control_dry_run",
     "loo_codex_send_message",
+    "loo_codex_resume_thread",
     "loo_audit_tail"
   ],
   "allowed_live_behaviors": [
-    "one approved harmless Codex turn on a selected or disposable target thread"
+    "one approved harmless Codex send or resume on a selected or disposable target thread"
   ],
   "forbidden_behaviors": [
     "unauthorized_live_control",
@@ -40,9 +40,9 @@
     "action type",
     "approval audit id prefix",
     "params hash",
-    "message hash",
-    "Codex notification count and types",
-    "completion status",
+    "message hash when the live action sends a message",
+    "Codex notification count and types when available",
+    "completion status or response ok marker",
     "rawPromptIncluded false"
   ],
   "metrics": {
