@@ -841,6 +841,9 @@ function approvalPacketFromControlResult(result: any): Record<string, unknown> {
         ? "interrupt_thread"
         : "resume_session";
   const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+  const predictedMutation = Array.isArray(result.methodSequence) && result.methodSequence.length
+    ? result.methodSequence.map((method: unknown) => String(method))
+    : [String(result.method ?? "codex_control")];
   return {
     schema: "lco.approvalPacket.v1",
     packetId: `ap_${String(result.approvalAuditId ?? "unknown").replace(/^loo_audit_/, "")}`,
@@ -850,7 +853,7 @@ function approvalPacketFromControlResult(result: any): Record<string, unknown> {
       title: String(result.threadId ?? "unknown")
     },
     intent: `${packetAction} dry-run for ${String(result.threadId ?? "unknown")}`,
-    predictedMutation: [String(result.method ?? "codex_control")],
+    predictedMutation,
     ...(Array.isArray(result.methodSequence) ? { methodSequence: result.methodSequence } : {}),
     preconditions: ["dry_run_record_exists", "matching_params_hash_required", "approval_packet_not_expired"],
     risk: {

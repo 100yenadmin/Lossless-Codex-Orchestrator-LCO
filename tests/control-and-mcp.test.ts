@@ -248,6 +248,7 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
       approval_packet: {
         action: string;
         methodSequence: string[];
+        predictedMutation: string[];
       };
     };
     assert.equal(dryRun.live, false);
@@ -258,6 +259,7 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.notEqual(dryRun.message_hash, sha256("continue"));
     assert.equal(dryRun.approval_packet.action, "send_message");
     assert.deepEqual(dryRun.approval_packet.methodSequence, ["thread/resume", "turn/start"]);
+    assert.deepEqual(dryRun.approval_packet.predictedMutation, ["thread/resume", "turn/start"]);
 
     const dryRunTool = tools.find((tool) => tool.name === "loo_codex_control_dry_run");
     assert.ok(dryRunTool);

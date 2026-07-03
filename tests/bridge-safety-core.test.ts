@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { homedir } from "node:os";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
 
@@ -10,6 +12,7 @@ import {
   assertCodexMethodAllowed,
   buildLoopbackWebSocketConfig,
   codexTransportStatus,
+  createCodexMcpStdioClient,
   createCodexControl,
   redactValue
 } from "../packages/adapters/src/index.js";
@@ -208,6 +211,92 @@ test("JSON-RPC policy blocks forbidden methods before sending transport requests
     },
     { method: "initialized" }
   ]);
+});
+
+test("Codex stdio sequence prevalidates every method before sending control steps", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-test-sequence-"));
+  const marker = join(root, "sent-marker");
+  const script = `
+const fs = require("node:fs");
+const readline = require("node:readline");
+const marker = process.argv[1];
+const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+rl.on("line", (line) => {
+  const payload = JSON.parse(line);
+  if (payload.method === "initialize") {
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: payload.id, result: {} }) + "\\n");
+    return;
+  }
+  if (payload.method === "thread/resume") {
+    fs.writeFileSync(marker, "sent");
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: payload.id, result: { ok: true } }) + "\\n");
+  }
+});
+`;
+  const client = createCodexMcpStdioClient({
+    command: process.execPath,
+    args: ["-e", script, marker],
+    timeoutMs: 250,
+    surface: "control"
+  });
+
+  try {
+    await assert.rejects(
+      () => client.requestSequence?.([
+        { method: "thread/resume", params: { threadId: "thr_1", excludeTurns: true } },
+        { method: "config/value/write", params: { key: "danger", value: true } }
+      ]),
+      /forbidden/
+    );
+    assert.equal(existsSync(marker), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Codex stdio sequence aborts after the first failed control step", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-test-sequence-"));
+  const marker = join(root, "turn-start-marker");
+  const script = `
+const fs = require("node:fs");
+const readline = require("node:readline");
+const marker = process.argv[1];
+const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+rl.on("line", (line) => {
+  const payload = JSON.parse(line);
+  if (payload.method === "initialize") {
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: payload.id, result: {} }) + "\\n");
+    return;
+  }
+  if (payload.method === "thread/resume") {
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: payload.id, error: { message: "resume failed" } }) + "\\n");
+    return;
+  }
+  if (payload.method === "turn/start") {
+    fs.writeFileSync(marker, "sent");
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: payload.id, result: { turn: { id: "turn_1" } } }) + "\\n");
+  }
+});
+`;
+  const client = createCodexMcpStdioClient({
+    command: process.execPath,
+    args: ["-e", script, marker],
+    timeoutMs: 250,
+    surface: "control"
+  });
+
+  try {
+    const responses = await client.requestSequence?.([
+      { method: "thread/resume", params: { threadId: "thr_1", excludeTurns: true } },
+      { method: "turn/start", params: { threadId: "thr_1", input: [{ type: "text", text: "continue" }] } }
+    ]);
+    assert.equal(responses?.length, 1);
+    assert.equal((responses?.[0] as { ok?: boolean } | undefined)?.ok, false);
+    assert.match(String((responses?.[0] as { error?: string } | undefined)?.error ?? ""), /resume failed/);
+    assert.equal(existsSync(marker), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("Codex control checks method policy before live transport calls", async () => {
