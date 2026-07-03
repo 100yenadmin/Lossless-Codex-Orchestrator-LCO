@@ -228,6 +228,7 @@ export type SummaryLeafMaterializationReport = {
     created: number;
     edges: number;
     skippedUnsafeRanges: number;
+    omittedRanges: number;
   };
   actionsPerformed: {
     derivedCacheWrite: true;
@@ -2008,6 +2009,8 @@ export function migrate(db: LooDatabase): void {
       UNIQUE(parent_leaf_ref, child_leaf_ref, edge_kind)
     );
 
+    CREATE INDEX IF NOT EXISTS summary_leaves_thread_extractor_idx ON summary_leaves(thread_id, extractor_version, privacy_class, omission_status);
+
     CREATE TABLE IF NOT EXISTS prepared_cards (
       card_id TEXT PRIMARY KEY,
       card_ref TEXT NOT NULL UNIQUE,
@@ -2159,6 +2162,7 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
     errors: []
   };
   const seenThreads = new Set<string>();
+  const summaryThreadsToMaterialize = new Set<string>();
 
   for (const path of files) {
     try {
@@ -2191,9 +2195,16 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
       result.indexedFiles += 1;
       result.indexedEvents += session.eventCount;
       seenThreads.add(session.threadId);
-      materializeSummaryLeaves(db, { threadId: session.threadId });
+      summaryThreadsToMaterialize.add(session.threadId);
     } catch (error) {
       result.errors.push({ path, message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  for (const threadId of summaryThreadsToMaterialize) {
+    try {
+      materializeSummaryLeaves(db, { threadId });
+    } catch (error) {
+      result.errors.push({ path: codexThreadRef(threadId), message: error instanceof Error ? error.message : String(error) });
     }
   }
 
@@ -2595,7 +2606,7 @@ function isPublicPreparedSourceRangeRow(row: {
 function getPreparedSourceRangesForSummaryMaterialization(
   db: LooDatabase,
   options: { threadId?: string; limit?: number } = {}
-): { ranges: PreparedSourceRange[]; filteredUnsafeRows: number } {
+): { ranges: PreparedSourceRange[]; filteredUnsafeRows: number; omittedRanges: number } {
   const clauses: string[] = [
     "privacy_class = ?",
     "omission_status = ?",
@@ -2683,7 +2694,8 @@ function getPreparedSourceRangesForSummaryMaterialization(
   }
   return {
     ranges,
-    filteredUnsafeRows: Math.max(0, total - publicSafeTotal) + strictFilteredUnsafeRows
+    filteredUnsafeRows: Math.max(0, total - publicSafeTotal) + strictFilteredUnsafeRows,
+    omittedRanges: Math.max(0, publicSafeTotal - maxRows)
   };
 }
 
@@ -2694,15 +2706,9 @@ export function materializeSummaryLeaves(db: LooDatabase, options: SummaryLeafMa
   const leafDrafts = buildSummaryLeafDrafts(rangesReport.ranges);
   db.exec("BEGIN");
   try {
-    const oldLeafRefs = options.threadId
-      ? db.prepare("SELECT leaf_ref AS leafRef FROM summary_leaves WHERE thread_id = ?").all(options.threadId) as Array<{ leafRef: string }>
-      : db.prepare("SELECT leaf_ref AS leafRef FROM summary_leaves").all() as Array<{ leafRef: string }>;
+    const oldLeafRefs = db.prepare("SELECT leaf_ref AS leafRef FROM summary_leaves WHERE thread_id = ?").all(options.threadId) as Array<{ leafRef: string }>;
     deleteSummaryLeafEdges(db, oldLeafRefs.map((row) => row.leafRef));
-    if (options.threadId) {
-      db.prepare("DELETE FROM summary_leaves WHERE thread_id = ?").run(options.threadId);
-    } else {
-      db.prepare("DELETE FROM summary_leaves").run();
-    }
+    db.prepare("DELETE FROM summary_leaves WHERE thread_id = ?").run(options.threadId);
     for (const leaf of leafDrafts) {
       db.prepare(`
         INSERT INTO summary_leaves (
@@ -2746,7 +2752,8 @@ export function materializeSummaryLeaves(db: LooDatabase, options: SummaryLeafMa
         scannedRanges: rangesReport.ranges.length,
         created: leafDrafts.length,
         edges: edgeCount,
-        skippedUnsafeRanges: rangesReport.filteredUnsafeRows
+        skippedUnsafeRanges: rangesReport.filteredUnsafeRows,
+        omittedRanges: rangesReport.omittedRanges
       },
       actionsPerformed: {
         derivedCacheWrite: true,
@@ -2778,7 +2785,8 @@ function materializeSummaryLeavesForAllThreads(db: LooDatabase, options: Summary
     scannedRanges: 0,
     created: 0,
     edges: 0,
-    skippedUnsafeRanges: 0
+    skippedUnsafeRanges: 0,
+    omittedRanges: 0
   };
   for (const row of rows) {
     const report = materializeSummaryLeaves(db, { threadId: String(row.threadId), limit: options.limit });
@@ -2786,6 +2794,7 @@ function materializeSummaryLeavesForAllThreads(db: LooDatabase, options: Summary
     summary.created += report.summary.created;
     summary.edges += report.summary.edges;
     summary.skippedUnsafeRanges += report.summary.skippedUnsafeRanges;
+    summary.omittedRanges += report.summary.omittedRanges;
   }
   return {
     schema: "lco.summary.materialization.v1",

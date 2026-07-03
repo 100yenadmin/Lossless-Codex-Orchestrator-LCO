@@ -142,6 +142,7 @@ test("summary leaves materialize deterministic public-safe routing cards from so
       assert.equal(leaf.omissionStatus, "metadata_only");
       assert.equal(leaf.sourceRefs.includes(`codex_thread:${threadId}`), true);
       assert.equal(leaf.sourceRangeRefs.length > 0, true);
+      assert.equal(leaf.sourceRangeRefs.every((ref) => /^codex_range:[0-9a-f]{32}$/.test(ref)), true);
       assert.equal(leaf.confidence >= 0 && leaf.confidence <= 1, true);
     }
   } finally {
@@ -251,6 +252,7 @@ test("summary materialization without a thread target refreshes per thread witho
     assert.equal(refreshed.target.threadId, null);
     assert.equal(refreshed.summary.scannedRanges, 2);
     assert.equal(refreshed.summary.created, 2);
+    assert.equal(refreshed.summary.omittedRanges > 0, true);
     assert.equal(getSummaryLeaves(db, { threadId: firstThreadId, limit: 50 }).summary.total > 0, true);
     assert.equal(getSummaryLeaves(db, { threadId: secondThreadId, limit: 50 }).summary.total > 0, true);
   } finally {
