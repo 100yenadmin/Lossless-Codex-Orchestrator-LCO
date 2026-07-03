@@ -1,6 +1,6 @@
 {
   "name": "lossless-openclaw-orchestrator",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Index, search, and control local Codex sessions through OpenClaw with approval-gated safety; Claude Code remains an experimental adapter stub.",
   "type": "module",
   "license": "PolyForm-Noncommercial-1.0.0",
