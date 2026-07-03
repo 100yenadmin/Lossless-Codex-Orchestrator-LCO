@@ -418,7 +418,28 @@ Only after the approval gates are satisfied:
    `npm_selector_cutoff_drift` and run the post-publish smoke by installing that
    registry tarball URL. Keep the exact install, `--before` retry, tarball URL,
    and tarball install logs in evidence.
-7. Update issue #6 and issue #14 with the tag, package/version, GitHub Release
+7. Write public-safe finalization evidence for the npm registry result, pushed
+   git tag, and GitHub Release, then run the post-publish finalization gate:
+
+   ```bash
+   node ./dist/packages/cli/src/index.js release finalization-status \
+     --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-finalization \
+     --candidate-sha "$release_candidate_sha" \
+     --npm-publish-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-finalization/npm-publish.json \
+     --git-tag-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-finalization/git-tag.json \
+     --github-release-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-finalization/github-release.json \
+     --expected-dist-tag beta \
+     --expected-github-prerelease true \
+     --strict
+   ```
+
+   The release is not complete until `release-finalization-status.json` reports
+   `finalized: true`. This gate verifies that npm, the git tag, and the GitHub
+   Release all point at the same package/version/candidate SHA without storing
+   tokens or raw registry/API output. Use `--expected-dist-tag next` for RCs and
+   `--expected-dist-tag latest --expected-github-prerelease false` only for an
+   intentional stable lane.
+8. Update issue #6 and issue #14 with the tag, package/version, GitHub Release
    URL if created, CI link, evidence path, working/not-working list, proof
    boundary, and next action.
 

@@ -37,6 +37,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createReleaseBundle } from "./release-bundle.js";
 import { createReleaseDemoStatus } from "./release-demo-status.js";
+import { createReleaseFinalizationStatus } from "./release-finalization-status.js";
 import { runReleasePreflight } from "./release-preflight.js";
 import { createReleaseStatus } from "./release-status.js";
 import { createGeneralReleaseReadiness } from "./general-release-readiness.js";
@@ -525,6 +526,17 @@ async function main() {
     if (parsed.strict && !report.releaseReady) process.exitCode = 1;
     return;
   }
+  if (command === "release" && args[0] === "finalization-status") {
+    if (hasHelpFlag(args.slice(1))) {
+      printReleaseFinalizationStatusHelp();
+      return;
+    }
+    const parsed = parseReleaseFinalizationStatusArgs(args.slice(1));
+    const report = createReleaseFinalizationStatus(parsed);
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.finalized) process.exitCode = 1;
+    return;
+  }
   if (command === "release" && args[0] === "general-readiness") {
     if (hasHelpFlag(args.slice(1))) {
       printGeneralReleaseReadinessHelp();
@@ -769,6 +781,7 @@ function mainUsageText(): string {
     "  loo release preflight [--evidence-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--strict]",
     "  loo release bundle --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--strict]",
     "  loo release status --evidence-dir path --candidate-sha sha [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--github-ci-evidence path] [--codeql-evidence path] [--desktop-gui-required --desktop-gui-approval-evidence path] [--now iso] [--strict]",
+    "  loo release finalization-status --evidence-dir path --candidate-sha sha --npm-publish-evidence path --git-tag-evidence path --github-release-evidence path [--package-name name] [--package-version version] [--expected-dist-tag beta|next|latest] [--expected-github-prerelease true|false] [--now iso] [--strict]",
     "  loo release general-readiness --evidence-dir path [--fresh-npm-evidence path] [--agent-dogfood-evidence path] [--now iso] [--strict]",
     "  loo release demo-status --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--min-sessions n] [--strict]"
   ].join("\n");
@@ -981,6 +994,27 @@ function printReleaseStatusHelp(): void {
     "",
     "Safety boundary:",
     "  The command does not publish npm, does not create a GitHub Release, does not run live Codex control, and does not perform desktop GUI mutation."
+  ].join("\n"));
+}
+
+function printReleaseFinalizationStatusHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo release finalization-status --evidence-dir path --candidate-sha sha --npm-publish-evidence path --git-tag-evidence path --github-release-evidence path [--package-name name] [--package-version version] [--expected-dist-tag beta|next|latest] [--expected-github-prerelease true|false] [--now iso] [--strict]",
+    "",
+    "Writes a public-safe post-publish release finalization packet.",
+    "",
+    "Proof markers:",
+    "  npm evidence uses kind: \"loo_release_npm_publish_evidence\" with packageName, packageVersion, distTag, distTagVersion, latestVersion, published: true, and rawSecretIncluded: false.",
+    "  git tag evidence uses kind: \"loo_release_git_tag_evidence\" with tagName, tagCommitSha, and rawSecretIncluded: false.",
+    "  GitHub Release evidence uses kind: \"loo_release_github_release_evidence\" with tagName, releaseUrl, isPrerelease, optional targetCommitSha, and rawSecretIncluded: false.",
+    "",
+    "Strict mode:",
+    "  --strict exits non-zero until npm package/dist-tag, git tag SHA, and GitHub Release/prerelease evidence all match the candidate.",
+    "",
+    "Safety boundary:",
+    "  The command consumes sanitized evidence only.",
+    "  It does not publish npm, create tags, create GitHub Releases, promote npm latest, run live Codex control, or mutate a GUI."
   ].join("\n"));
 }
 
@@ -2228,6 +2262,95 @@ function parseReleaseStatusArgs(input: string[]): {
   };
 }
 
+function parseReleaseFinalizationStatusArgs(input: string[]): {
+  evidenceDir: string;
+  candidateSha: string;
+  packageName?: string;
+  packageVersion?: string;
+  expectedDistTag?: string;
+  expectedGithubPrerelease?: boolean;
+  npmPublishEvidence?: string;
+  gitTagEvidence?: string;
+  githubReleaseEvidence?: string;
+  now?: string;
+  strict: boolean;
+} {
+  let evidenceDir: string | undefined;
+  let candidateSha: string | undefined;
+  let packageName: string | undefined;
+  let packageVersion: string | undefined;
+  let expectedDistTag: string | undefined;
+  let expectedGithubPrerelease: boolean | undefined;
+  let npmPublishEvidence: string | undefined;
+  let gitTagEvidence: string | undefined;
+  let githubReleaseEvidence: string | undefined;
+  let now: string | undefined;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--evidence-dir") {
+      evidenceDir = readReleaseStatusPath(input, ++index, "--evidence-dir");
+      continue;
+    }
+    if (arg === "--candidate-sha") {
+      candidateSha = readReleaseStatusValue(input, ++index, "--candidate-sha");
+      continue;
+    }
+    if (arg === "--package-name") {
+      packageName = readReleaseStatusValue(input, ++index, "--package-name");
+      continue;
+    }
+    if (arg === "--package-version") {
+      packageVersion = readReleaseStatusValue(input, ++index, "--package-version");
+      continue;
+    }
+    if (arg === "--expected-dist-tag") {
+      expectedDistTag = readReleaseStatusValue(input, ++index, "--expected-dist-tag");
+      continue;
+    }
+    if (arg === "--expected-github-prerelease") {
+      expectedGithubPrerelease = parseBooleanFlagValue(readReleaseStatusValue(input, ++index, "--expected-github-prerelease"), "--expected-github-prerelease");
+      continue;
+    }
+    if (arg === "--npm-publish-evidence") {
+      npmPublishEvidence = readReleaseStatusPath(input, ++index, "--npm-publish-evidence");
+      continue;
+    }
+    if (arg === "--git-tag-evidence") {
+      gitTagEvidence = readReleaseStatusPath(input, ++index, "--git-tag-evidence");
+      continue;
+    }
+    if (arg === "--github-release-evidence") {
+      githubReleaseEvidence = readReleaseStatusPath(input, ++index, "--github-release-evidence");
+      continue;
+    }
+    if (arg === "--now") {
+      now = readReleaseStatusValue(input, ++index, "--now");
+      continue;
+    }
+    if (arg === "--strict") {
+      strict = true;
+      continue;
+    }
+    throw new Error(`Unknown release finalization-status option: ${arg}`);
+  }
+  if (!evidenceDir) throw new Error("release finalization-status requires --evidence-dir");
+  if (!candidateSha) throw new Error("release finalization-status requires --candidate-sha");
+  return {
+    evidenceDir,
+    candidateSha,
+    packageName,
+    packageVersion,
+    expectedDistTag,
+    expectedGithubPrerelease,
+    npmPublishEvidence,
+    gitTagEvidence,
+    githubReleaseEvidence,
+    now,
+    strict
+  };
+}
+
 function parseGeneralReleaseReadinessArgs(input: string[]): {
   evidenceDir: string;
   freshNpmEvidence?: string;
@@ -2278,6 +2401,12 @@ function readReleaseStatusValue(input: string[], index: number, flag: string): s
   const value = input[index];
   if (!value || value.startsWith("--")) throw new Error(`${flag} requires a value`);
   return value;
+}
+
+function parseBooleanFlagValue(value: string, flag: string): boolean {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  throw new Error(`${flag} requires true or false`);
 }
 
 function parseReleaseDemoStatusArgs(input: string[]): { evidenceDir: string; approvedLiveControlEvidence?: string; claimScope?: ReleaseClaimScope; runtimeProofDir?: string; minSessions?: number; strict: boolean } {
