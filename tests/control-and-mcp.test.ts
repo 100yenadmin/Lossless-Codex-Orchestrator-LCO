@@ -279,9 +279,26 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     const dryRunToolSchema = dryRunTool.inputSchema.properties as Record<string, unknown>;
     assert.ok(dryRunToolSchema.expected_turn_id);
     assert.throws(
+      () => dryRunTool.execute({ action: "send", thread_id: "thr_1" }),
+      /message is required/
+    );
+    assert.throws(
+      () => dryRunTool.execute({ action: "steer", thread_id: "thr_1", expected_turn_id: "turn_1" }),
+      /message is required/
+    );
+    assert.throws(
       () => steerTool.execute({ thread_id: "thr_1", message: "focus", dry_run: true }),
       /expected_turn_id is required/
     );
+    const genericSteerDryRun = await dryRunTool.execute({
+      action: "steer",
+      thread_id: "thr_1",
+      message: "focus",
+      expected_turn_id: "turn_1"
+    }) as { method: string; action: string; approval_packet: { action: string } };
+    assert.equal(genericSteerDryRun.method, "turn/steer");
+    assert.equal(genericSteerDryRun.action, "codex_steer_thread");
+    assert.equal(genericSteerDryRun.approval_packet.action, "steer_thread");
 
     appendFileSync(audit.path, "{malformed audit jsonl\n");
 

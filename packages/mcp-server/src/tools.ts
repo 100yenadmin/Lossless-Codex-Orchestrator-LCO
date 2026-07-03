@@ -777,7 +777,9 @@ function dispatchControl(control: ReturnType<typeof createCodexControl>, input: 
   const action = requiredString(input.action, "action");
   const common = {
     threadId: requiredString(input.thread_id, "thread_id"),
-    message: optionalString(input.message) ?? "continue",
+    message: action === "send" || action === "steer"
+      ? requiredString(input.message, "message")
+      : optionalString(input.message) ?? "continue",
     expectedTurnId: optionalString(input.expected_turn_id),
     dryRun
   };
