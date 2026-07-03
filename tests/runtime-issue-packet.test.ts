@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -248,4 +248,56 @@ test("runtime proof issue packet writes a minimal stub when final redaction scan
   assert.doesNotMatch(JSON.stringify(report), /npm_G/);
   assert.doesNotMatch(persisted, /npm_G/);
   assert.equal(JSON.parse(persisted).issueBody, "");
+});
+
+test("runtime proof issue packet redacts fine-grained GitHub tokens and raw artifact blockers", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-runtime-issue-packet-artifact-redaction-"));
+  const evidenceDir = join(root, "evidence");
+  const failureReport = join(root, "failed-runtime-proof.json");
+  writeJson(failureReport, {
+    ok: false,
+    blockers: [
+      `github_pat_${"A".repeat(82)}`,
+      "private-thread.jsonl",
+      "orchestrator.db-journal",
+      "capture.heic",
+      "screen.webm"
+    ]
+  });
+
+  const report = createRuntimeProofIssuePacket({ evidenceDir, failureReport });
+  const serialized = JSON.stringify(report);
+
+  assert.equal(report.ok, true);
+  assert.equal(report.redactionScan.publicSafe, true);
+  assert.doesNotMatch(serialized, /github_pat_/);
+  assert.doesNotMatch(serialized, /private-thread\.jsonl/);
+  assert.doesNotMatch(serialized, /orchestrator\.db-journal/);
+  assert.doesNotMatch(serialized, /capture\.heic/);
+  assert.doesNotMatch(serialized, /screen\.webm/);
+  assert.match(serialized, /redacted_secret_like_value/);
+  assert.match(serialized, /redacted_raw_transcript_path/);
+  assert.match(serialized, /redacted_sqlite_artifact/);
+  assert.match(serialized, /redacted_media_artifact/);
+});
+
+test("runtime proof issue packet rejects symlinked transcript failure reports before reading content", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-runtime-issue-packet-symlink-"));
+  const codexSessionsDir = join(root, ".codex", "sessions", "2026", "07", "03");
+  mkdirSync(codexSessionsDir, { recursive: true });
+  const evidenceDir = join(root, "evidence");
+  const transcriptTarget = join(codexSessionsDir, "private-thread.jsonl");
+  const failureReport = join(root, "looks-public.json");
+  writeFileSync(transcriptTarget, `{"token":"github_pat_${"B".repeat(82)}","blockers":["symlink_leak_if_read"]}\n`);
+  symlinkSync(transcriptTarget, failureReport);
+
+  const report = createRuntimeProofIssuePacket({ evidenceDir, failureReport });
+  const serialized = JSON.stringify(report);
+
+  assert.equal(report.ok, false);
+  assert.equal(report.issuePacketReady, false);
+  assert.equal(report.blockers.includes("failure_report_transcript_path_rejected"), true);
+  assert.deepEqual(report.source.inputFindings, []);
+  assert.doesNotMatch(serialized, /github_pat_/);
+  assert.doesNotMatch(serialized, /symlink_leak_if_read/);
 });

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 
 export type RuntimeProofIssuePacketOptions = {
@@ -64,10 +64,10 @@ type JsonObject = Record<string, unknown>;
 
 const DEFAULT_LABELS = ["enhancement", "safety", "orchestrator", "eval"];
 const DEFAULT_PARENT_REFS = ["#309", "#16"];
-const SECRET_LIKE_PATTERN = /(npm_[A-Za-z0-9]{20,}|Bearer\s+[A-Za-z0-9._-]{20,}|sk-[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/g;
-const RAW_TRANSCRIPT_PATH_PATTERN = /(?:~|\/[^\s"'`]*)\/\.codex\/(?:sessions|archived_sessions)\/[^\s"'`]+|rollout-[0-9T:-]+-[0-9a-f-]+\.jsonl(?:\.gz)?|session\.jsonl(?:\.gz)?/g;
-const SQLITE_ARTIFACT_PATTERN = /\b[\w.-]+\.sqlite\b/g;
-const SCREENSHOT_PATTERN = /\b[\w.-]+\.(?:png|jpg|jpeg|webp|mov|mp4)\b/gi;
+const SECRET_LIKE_PATTERN = /(npm_[A-Za-z0-9]{20,}|Bearer\s+[A-Za-z0-9._-]{20,}|sk-[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/g;
+const RAW_TRANSCRIPT_PATH_PATTERN = /(?:~|\/[^\s"'`]*)\/\.codex\/(?:sessions|archived_sessions)\/[^\s"'`]+|\b[\w.-]+\.jsonl(?:\.gz)?\b/g;
+const SQLITE_ARTIFACT_PATTERN = /\b[\w.-]+\.(?:sqlite|sqlite-wal|sqlite-shm|db|db-journal|db-wal|db-shm)\b/g;
+const SCREENSHOT_PATTERN = /\b[\w.-]+\.(?:png|jpg|jpeg|webp|heic|gif|tiff|mov|mp4|m4v|webm)\b/gi;
 
 export function createRuntimeProofIssuePacket(options: RuntimeProofIssuePacketOptions): RuntimeProofIssuePacketReport {
   const evidenceDir = resolve(options.evidenceDir);
@@ -83,8 +83,12 @@ export function createRuntimeProofIssuePacket(options: RuntimeProofIssuePacketOp
   const parentRefs = uniqueStrings(explicitParentRefs.length > 0 ? explicitParentRefs : DEFAULT_PARENT_REFS);
 
   const sourceMissing = !existsSync(failureReportPath);
-  const transcriptPathRejected = !sourceMissing && hasPrivateFinding(failureReportPath, "raw_transcript_path");
-  const sourceText = !sourceMissing && !transcriptPathRejected ? readFileSync(failureReportPath, "utf8") : "";
+  const resolvedFailureReportPath = sourceMissing ? failureReportPath : safeRealpath(failureReportPath);
+  const transcriptPathRejected = !sourceMissing && (
+    hasPrivateFinding(failureReportPath, "raw_transcript_path") ||
+    hasPrivateFinding(resolvedFailureReportPath, "raw_transcript_path")
+  );
+  const sourceText = !sourceMissing && !transcriptPathRejected ? readFileSync(resolvedFailureReportPath, "utf8") : "";
   const inputFindings = scanTextForPrivateFindings(sourceText);
   const parsed = readJsonObject(sourceText);
   const invalidJson = !sourceMissing && !transcriptPathRejected && !parsed;
@@ -246,6 +250,14 @@ function normalizeGeneratedAt(value: string | undefined): { value: string; inval
 
 function publicEvidencePath(evidenceDir: string): string {
   return `local-evidence-dir:${safeCode(basename(evidenceDir) || "evidence")}`;
+}
+
+function safeRealpath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
 }
 
 function createRedactionFailureStub(
