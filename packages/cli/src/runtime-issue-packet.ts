@@ -65,7 +65,7 @@ type JsonObject = Record<string, unknown>;
 const DEFAULT_LABELS = ["enhancement", "safety", "orchestrator", "eval"];
 const DEFAULT_PARENT_REFS = ["#309", "#16"];
 const SECRET_LIKE_PATTERN = /(npm_[A-Za-z0-9]{20,}|Bearer\s+[A-Za-z0-9._-]{20,}|sk-[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/g;
-const RAW_TRANSCRIPT_PATH_PATTERN = /(\/Users\/[^\s"'`]+\/\.codex\/(?:sessions|archived_sessions)\/[^\s"'`]+|\/Volumes\/[^\s"'`]+\/\.codex\/(?:sessions|archived_sessions)\/[^\s"'`]+|rollout-[0-9T:-]+-[0-9a-f-]+\.jsonl(?:\.gz)?|session\.jsonl(?:\.gz)?)/g;
+const RAW_TRANSCRIPT_PATH_PATTERN = /(?:~|\/[^\s"'`]*)\/\.codex\/(?:sessions|archived_sessions)\/[^\s"'`]+|rollout-[0-9T:-]+-[0-9a-f-]+\.jsonl(?:\.gz)?|session\.jsonl(?:\.gz)?/g;
 const SQLITE_ARTIFACT_PATTERN = /\b[\w.-]+\.sqlite\b/g;
 const SCREENSHOT_PATTERN = /\b[\w.-]+\.(?:png|jpg|jpeg|webp|mov|mp4)\b/gi;
 
@@ -81,14 +81,17 @@ export function createRuntimeProofIssuePacket(options: RuntimeProofIssuePacketOp
     ...DEFAULT_PARENT_REFS
   ].filter(Boolean) as string[]);
 
-  const sourceText = existsSync(failureReportPath) ? readFileSync(failureReportPath, "utf8") : "";
+  const sourceMissing = !existsSync(failureReportPath);
+  const transcriptPathRejected = !sourceMissing && hasPrivateFinding(failureReportPath, "raw_transcript_path");
+  const sourceText = !sourceMissing && !transcriptPathRejected ? readFileSync(failureReportPath, "utf8") : "";
   const inputFindings = scanTextForPrivateFindings(sourceText);
   const parsed = readJsonObject(sourceText);
-  const sourceMissing = !existsSync(failureReportPath);
-  const invalidJson = Boolean(sourceText && !parsed);
+  const invalidJson = !sourceMissing && !transcriptPathRejected && !parsed;
   const blockerCodes = sourceMissing
     ? ["failure_report_missing"]
-    : parsed
+    : transcriptPathRejected
+      ? ["failure_report_transcript_path_rejected"]
+      : parsed
       ? extractBlockerCodes(parsed)
       : ["failure_report_invalid_json"];
   const scenarioIds = parsed ? extractScenarioIds(parsed) : [];
@@ -110,6 +113,8 @@ export function createRuntimeProofIssuePacket(options: RuntimeProofIssuePacketOp
   const expected = "Runtime proof markers satisfy the claimed scenario, or the failure is converted into a public-safe issue handoff with exact blocker codes and acceptance criteria.";
   const actual = sourceMissing
     ? "No failure report was available for packet generation."
+    : transcriptPathRejected
+      ? "The failure report path looked like a raw Codex transcript path and was rejected before reading."
     : invalidJson
       ? "The failure report was not valid JSON; only sanitized category-level findings were retained."
       : `Runtime proof failed with blocker codes: ${blockerCodes.join(", ") || "none reported"}.`;
@@ -152,7 +157,7 @@ export function createRuntimeProofIssuePacket(options: RuntimeProofIssuePacketOp
     evidencePath,
     issueBody,
     source: {
-      failureReportPath,
+      failureReportPath: redactPrivateSpans(failureReportPath),
       claimScope,
       scenarioIds,
       blockerCodes,
@@ -185,8 +190,9 @@ export function createRuntimeProofIssuePacket(options: RuntimeProofIssuePacketOp
     ],
     blockers: [
       ...(sourceMissing ? ["failure_report_missing"] : []),
+      ...(transcriptPathRejected ? ["failure_report_transcript_path_rejected"] : []),
       ...(invalidJson ? ["failure_report_invalid_json"] : []),
-      ...(!sourceMissing && !invalidJson && blockerCodes.length === 0 ? ["failure_report_blockers_missing"] : [])
+      ...(!sourceMissing && !transcriptPathRejected && !invalidJson && blockerCodes.length === 0 ? ["failure_report_blockers_missing"] : [])
     ],
     nextAction: ""
   };
@@ -235,6 +241,10 @@ function scanTextForPrivateFindings(text: string): RuntimeProofIssuePacketFindin
   ].filter((finding): finding is RuntimeProofIssuePacketFinding => Boolean(finding));
 }
 
+function hasPrivateFinding(text: string, reason: RuntimeProofIssuePacketFinding["reason"]): boolean {
+  return scanTextForPrivateFindings(text).some((finding) => finding.reason === reason);
+}
+
 function countFinding(reason: RuntimeProofIssuePacketFinding["reason"], count: number): RuntimeProofIssuePacketFinding | null {
   return count > 0 ? { reason, count } : null;
 }
@@ -246,7 +256,7 @@ function extractBlockerCodes(report: JsonObject): string[] {
     ...stringArrayField(report, "rawEvidenceBlockers"),
     ...extractScenarioBlockers(report),
     stringField(report, "blocker")
-  ].filter(Boolean) as string[]).map((blocker) => safeCode(blocker));
+  ].filter(Boolean) as string[]).map((blocker) => safePublicCode(blocker));
 }
 
 function extractScenarioBlockers(report: JsonObject): string[] {
@@ -271,7 +281,7 @@ function extractScenarioIds(report: JsonObject): string[] {
         stringField(scenario as JsonObject, "scenarioId")
       ];
     })
-  ].filter(Boolean) as string[]).map((id) => safeCode(id));
+  ].filter(Boolean) as string[]).map((id) => safePublicCode(id));
 }
 
 function buildDuplicateCheckQuery(title: string, primaryBlocker: string): string {
@@ -357,10 +367,22 @@ function safeCode(value: string): string {
   return value.replace(/[^A-Za-z0-9_:#./-]/g, "_").slice(0, 180);
 }
 
+function safePublicCode(value: string): string {
+  return safeCode(redactPrivateSpans(value));
+}
+
 function safeTitleSegment(value: string): string {
   return safeCode(value).replace(/_/g, " ").slice(0, 120).trim() || "runtime proof failure";
 }
 
 function safeQueryPhrase(value: string): string {
-  return value.replace(/["`$\\]/g, "").slice(0, 140);
+  return redactPrivateSpans(value).replace(/["`$\\]/g, "").slice(0, 140);
+}
+
+function redactPrivateSpans(value: string): string {
+  return value
+    .replace(SECRET_LIKE_PATTERN, "redacted_secret_like_value")
+    .replace(RAW_TRANSCRIPT_PATH_PATTERN, "redacted_raw_transcript_path")
+    .replace(SQLITE_ARTIFACT_PATTERN, "redacted_sqlite_artifact")
+    .replace(SCREENSHOT_PATTERN, "redacted_media_artifact");
 }

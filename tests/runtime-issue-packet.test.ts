@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -104,4 +104,66 @@ test("loo runtime issue-packet writes packet and fails closed for malformed inpu
   assert.equal(payload.actionsPerformed?.githubIssueCreated, false);
   assert.equal(payload.actionsPerformed?.externalWrite, false);
   assert.doesNotMatch(result.stdout, /npm_B/);
+});
+
+test("runtime proof issue packet redacts blocker values before writing public packet fields", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-runtime-issue-packet-redact-blockers-"));
+  const evidenceDir = join(root, "evidence");
+  const failureReport = join(root, "failed-runtime-proof.json");
+  const secretBlocker = `runtime_proof_missing:npm_${"C".repeat(24)}`;
+  const transcriptPath = "/home/alice/.codex/sessions/private-thread.jsonl";
+  writeJson(failureReport, {
+    ok: false,
+    blockers: [secretBlocker, transcriptPath],
+    rawEvidenceBlockers: [`ghp_${"D".repeat(24)}`],
+    scenarios: [{ id: "openclaw-gateway-live-codex-v1-1" }]
+  });
+
+  const report = createRuntimeProofIssuePacket({ evidenceDir, failureReport });
+  const serialized = JSON.stringify(report);
+
+  assert.equal(report.ok, true);
+  assert.equal(report.issuePacketReady, true);
+  assert.equal(report.redactionScan.publicSafe, true);
+  assert.equal(report.source.inputFindings.some((finding) => finding.reason === "secret_like_value"), true);
+  assert.equal(report.source.inputFindings.some((finding) => finding.reason === "raw_transcript_path"), true);
+  assert.doesNotMatch(serialized, /npm_C/);
+  assert.doesNotMatch(serialized, /ghp_D/);
+  assert.equal(serialized.includes("/home/alice/.codex/sessions"), false);
+  assert.match(serialized, /redacted_secret_like_value/);
+  assert.match(serialized, /redacted_raw_transcript_path/);
+});
+
+test("runtime proof issue packet fails closed for empty failure report input", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-runtime-issue-packet-empty-"));
+  const evidenceDir = join(root, "evidence");
+  const failureReport = join(root, "empty.json");
+  writeFileSync(failureReport, "");
+
+  const report = createRuntimeProofIssuePacket({ evidenceDir, failureReport });
+
+  assert.equal(report.ok, false);
+  assert.equal(report.issuePacketReady, false);
+  assert.equal(report.blockers.includes("failure_report_invalid_json"), true);
+  assert.equal(report.nextAction, "Repair the failure report input or packet redaction blockers before filing an issue.");
+});
+
+test("runtime proof issue packet rejects transcript-like failure report paths before reading content", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-runtime-issue-packet-transcript-input-"));
+  const codexSessionsDir = join(root, ".codex", "sessions", "2026", "07", "03");
+  mkdirSync(codexSessionsDir, { recursive: true });
+  const evidenceDir = join(root, "evidence");
+  const failureReport = join(codexSessionsDir, "private-thread.jsonl");
+  writeFileSync(failureReport, `{"token":"npm_${"E".repeat(24)}","blockers":["would_leak_if_read"]}\n`);
+
+  const report = createRuntimeProofIssuePacket({ evidenceDir, failureReport });
+  const serialized = JSON.stringify(report);
+
+  assert.equal(report.ok, false);
+  assert.equal(report.issuePacketReady, false);
+  assert.equal(report.blockers.includes("failure_report_transcript_path_rejected"), true);
+  assert.equal(report.actionsPerformed.rawTranscriptRead, false);
+  assert.deepEqual(report.source.inputFindings, []);
+  assert.doesNotMatch(serialized, /npm_E/);
+  assert.doesNotMatch(serialized, /would_leak_if_read/);
 });
