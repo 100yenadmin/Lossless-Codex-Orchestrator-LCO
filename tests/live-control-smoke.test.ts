@@ -26,6 +26,9 @@ class FakeLiveControlSmokeClient implements LiveControlSmokeClient {
     if (method === "thread/start") {
       return { ok: true, result: { thread: { id: this.nextThreadId, ephemeral: true } } };
     }
+    if (method === "thread/resume") {
+      return { ok: true, result: { thread: { id: params.threadId, loaded: true } } };
+    }
     if (method === "turn/start") {
       return { ok: true, result: { turn: { id: "turn_live_smoke", status: "inProgress" } } };
     }
@@ -85,8 +88,9 @@ test("live control smoke writes strict public-safe proof without raw prompt text
     assert.doesNotMatch(reportText, /raw prompt/i);
     assert.equal(JSON.stringify(report).includes(message), false);
 
-    assert.deepEqual(client.requests.map((request) => request.method), ["thread/start", "turn/start"]);
+    assert.deepEqual(client.requests.map((request) => request.method), ["thread/start", "thread/resume", "turn/start"]);
     assert.equal(client.requests[1]?.params.threadId, "thr_live_smoke");
+    assert.equal(client.requests[2]?.params.threadId, "thr_live_smoke");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -139,6 +143,41 @@ test("live control smoke fails closed on unexpected server requests during the h
       }),
       /server request/
     );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("live control smoke stops same-connection sequences after a failed step", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-live-smoke-sequence-failure-"));
+  const client = new FakeLiveControlSmokeClient();
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  client.request = async (method: string, params: Record<string, unknown>): Promise<unknown> => {
+    client.requests.push({ method, params });
+    if (method === "thread/start") {
+      return { ok: true, result: { thread: { id: "thr_live_smoke", ephemeral: true } } };
+    }
+    if (method === "thread/resume") {
+      return { ok: false, error: "resume failed before load" };
+    }
+    if (method === "turn/start") {
+      return { ok: true, result: { turn: { id: "turn_should_not_start", status: "inProgress" } } };
+    }
+    throw new Error(`unexpected method ${method}`);
+  };
+
+  try {
+    await assert.rejects(
+      () => runLiveControlSmoke({
+        client,
+        audit,
+        evidenceDir: root,
+        message: "Harmless smoke prompt"
+      }),
+      /control sequence step failed.*thread\/resume/i
+    );
+    assert.deepEqual(client.requests.map((request) => request.method), ["thread/start", "thread/resume"]);
+    assert.equal(audit.tail().some((record) => record.live), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -69,16 +69,49 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
     );
     assert.equal(calls.length, 0);
 
-    const live = await control.sendMessage({
+    await assert.rejects(
+      () => control.sendMessage({
+        threadId: "thr_1",
+        message: "continue",
+        dryRun: false,
+        approvalAuditId: dryRun.approvalAuditId
+      }),
+      /same-connection control sequence/
+    );
+    assert.equal(calls.length, 0);
+
+    const sequenceCalls: Array<Array<{ method: string; params: Record<string, unknown> }>> = [];
+    const sequenceControl = createCodexControl({
+      audit,
+      client: {
+        request: async (method, params) => {
+          calls.push({ method, params });
+          return { ok: true };
+        },
+        requestSequence: async (steps) => {
+          sequenceCalls.push(steps);
+          return steps.map((step) => ({ ok: true, method: step.method }));
+        }
+      }
+    });
+    const sequenceDryRun = await sequenceControl.sendMessage({
+      threadId: "thr_1",
+      message: "continue",
+      dryRun: true
+    });
+    const live = await sequenceControl.sendMessage({
       threadId: "thr_1",
       message: "continue",
       dryRun: false,
-      approvalAuditId: dryRun.approvalAuditId
+      approvalAuditId: sequenceDryRun.approvalAuditId
     });
     assert.equal(live.live, true);
-    assert.equal(calls[0]?.method, "turn/start");
+    assert.deepEqual(live.methodSequence, ["thread/resume", "turn/start"]);
+    assert.deepEqual(sequenceCalls[0]?.map((step) => step.method), ["thread/resume", "turn/start"]);
+    assert.deepEqual(sequenceCalls[0]?.[0]?.params, { threadId: "thr_1", excludeTurns: true });
+    assert.deepEqual(sequenceCalls[0]?.[1]?.params, { threadId: "thr_1", input: [{ type: "text", text: "continue" }] });
     await assert.rejects(
-      () => control.sendMessage({
+      () => sequenceControl.sendMessage({
         threadId: "thr_1",
         message: "continue",
         dryRun: false,
@@ -86,22 +119,31 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
       }),
       /must reference a dry-run/
     );
-    assert.equal(calls.length, 1);
+    assert.equal(calls.length, 0);
 
     const resumeDryRun = await control.resumeThread({ threadId: "thr_1", dryRun: true });
     assert.equal(resumeDryRun.live, false);
     assert.match(resumeDryRun.paramsHash, /^[a-f0-9]{64}$/);
     assert.equal(resumeDryRun.messageHash, undefined);
     await control.resumeThread({ threadId: "thr_1", dryRun: false, approvalAuditId: resumeDryRun.approvalAuditId });
-    assert.equal(calls[1]?.method, "thread/resume");
+    assert.equal(calls[0]?.method, "thread/resume");
 
-    const steerDryRun = await control.steerThread({ threadId: "thr_1", message: "focus on tests", dryRun: true });
-    await control.steerThread({ threadId: "thr_1", message: "focus on tests", dryRun: false, approvalAuditId: steerDryRun.approvalAuditId });
-    assert.equal(calls[2]?.method, "turn/steer");
+    assert.throws(
+      () => control.steerThread({ threadId: "thr_1", message: "focus on tests", dryRun: true }),
+      /expected_turn_id is required/
+    );
+    const steerDryRun = await control.steerThread({ threadId: "thr_1", message: "focus on tests", expectedTurnId: "turn_1", dryRun: true });
+    assert.throws(
+      () => control.steerThread({ threadId: "thr_1", message: "focus on tests", dryRun: false, approvalAuditId: steerDryRun.approvalAuditId }),
+      /expected_turn_id is required/
+    );
+    await control.steerThread({ threadId: "thr_1", message: "focus on tests", expectedTurnId: "turn_1", dryRun: false, approvalAuditId: steerDryRun.approvalAuditId });
+    assert.equal(calls[1]?.method, "turn/steer");
+    assert.deepEqual(calls[1]?.params, { threadId: "thr_1", expectedTurnId: "turn_1", input: [{ type: "text", text: "focus on tests" }] });
 
     const interruptDryRun = await control.interruptThread({ threadId: "thr_1", dryRun: true });
     await control.interruptThread({ threadId: "thr_1", dryRun: false, approvalAuditId: interruptDryRun.approvalAuditId });
-    assert.equal(calls[3]?.method, "turn/interrupt");
+    assert.equal(calls[2]?.method, "turn/interrupt");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -113,9 +155,11 @@ test("Codex control redacts live transport responses before returning them throu
   const control = createCodexControl({
     audit,
     client: {
-      request: async () => ({
-        content: `authorization: ${homedir()}/secret sk-test_1234567890`
-      })
+      request: async () => ({ ok: true }),
+      requestSequence: async () => [
+        { ok: true },
+        { content: `authorization: ${homedir()}/secret sk-test_1234567890` }
+      ]
     }
   });
 
@@ -131,6 +175,39 @@ test("Codex control redacts live transport responses before returning them throu
     assert.deepEqual(live.response, {
       content: "authorization: <redacted-secret>"
     });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Codex control rejects failed same-connection sequence responses before live audit", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-control-sequence-failure-"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const control = createCodexControl({
+    audit,
+    client: {
+      request: async () => ({ ok: true }),
+      requestSequence: async () => [
+        { ok: false, error: "thread/resume failed before load" }
+      ]
+    }
+  });
+
+  try {
+    const dryRun = await control.sendMessage({ threadId: "thr_1", message: "continue", dryRun: true });
+    await assert.rejects(
+      () => control.sendMessage({
+        threadId: "thr_1",
+        message: "continue",
+        dryRun: false,
+        approvalAuditId: dryRun.approvalAuditId
+      }),
+      /control sequence step failed.*thread\/resume/i
+    );
+
+    const auditRecords = readFileSync(audit.path, "utf8").split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as { live: boolean });
+    assert.equal(auditRecords.length, 1);
+    assert.equal(auditRecords[0]?.live, false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -201,6 +278,11 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
       approval_audit_id: string;
       params_hash: string;
       message_hash: string;
+      approval_packet: {
+        action: string;
+        methodSequence: string[];
+        predictedMutation: string[];
+      };
     };
     assert.equal(dryRun.live, false);
     assert.match(dryRun.approval_audit_id, /^loo_audit_/);
@@ -208,6 +290,9 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.match(dryRun.message_hash, /^[a-f0-9]{64}$/);
     assert.equal(dryRun.message_hash, audit.fingerprintText("continue"));
     assert.notEqual(dryRun.message_hash, sha256("continue"));
+    assert.equal(dryRun.approval_packet.action, "send_message");
+    assert.deepEqual(dryRun.approval_packet.methodSequence, ["thread/resume", "turn/start"]);
+    assert.deepEqual(dryRun.approval_packet.predictedMutation, ["thread/resume", "turn/start"]);
 
     const dryRunTool = tools.find((tool) => tool.name === "loo_codex_control_dry_run");
     assert.ok(dryRunTool);
@@ -222,6 +307,33 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.equal(genericDryRun.message_hash, audit.fingerprintText("continue"));
     assert.notEqual(genericDryRun.message_hash, sha256("continue"));
     assert.equal(genericDryRun.message_hash, dryRun.message_hash);
+
+    const steerTool = tools.find((tool) => tool.name === "loo_codex_steer_thread");
+    assert.ok(steerTool);
+    assert.ok((steerTool.inputSchema.properties as Record<string, unknown>).expected_turn_id);
+    const dryRunToolSchema = dryRunTool.inputSchema.properties as Record<string, unknown>;
+    assert.ok(dryRunToolSchema.expected_turn_id);
+    assert.throws(
+      () => dryRunTool.execute({ action: "send", thread_id: "thr_1" }),
+      /message is required/
+    );
+    assert.throws(
+      () => dryRunTool.execute({ action: "steer", thread_id: "thr_1", expected_turn_id: "turn_1" }),
+      /message is required/
+    );
+    assert.throws(
+      () => steerTool.execute({ thread_id: "thr_1", message: "focus", dry_run: true }),
+      /expected_turn_id is required/
+    );
+    const genericSteerDryRun = await dryRunTool.execute({
+      action: "steer",
+      thread_id: "thr_1",
+      message: "focus",
+      expected_turn_id: "turn_1"
+    }) as { method: string; action: string; approval_packet: { action: string } };
+    assert.equal(genericSteerDryRun.method, "turn/steer");
+    assert.equal(genericSteerDryRun.action, "codex_steer_thread");
+    assert.equal(genericSteerDryRun.approval_packet.action, "steer_thread");
 
     appendFileSync(audit.path, "{malformed audit jsonl\n");
 

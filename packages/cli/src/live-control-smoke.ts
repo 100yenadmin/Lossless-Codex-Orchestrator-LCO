@@ -138,7 +138,23 @@ export async function runLiveControlSmoke(options: LiveControlSmokeOptions): Pro
     const target = options.threadId
       ? { threadId: options.threadId, source: "provided_thread" as const }
       : { threadId: await startEphemeralThread(options.client, options.cwd), source: "ephemeral_thread_start" as const };
-    const control = createCodexControl({ audit: options.audit, client: { request: (method, params) => options.client.request(method, params) } });
+    const control = createCodexControl({
+      audit: options.audit,
+      client: {
+        request: (method, params) => options.client.request(method, params),
+        requestSequence: async (steps) => {
+          const responses = [];
+          for (const step of steps) {
+            const response = await options.client.request(step.method, step.params);
+            responses.push(response);
+            if (isFailedCodexResponse(response)) {
+              throw new Error(`Codex control sequence step failed: ${step.method}`);
+            }
+          }
+          return responses;
+        }
+      }
+    });
     const dryRun = await control.sendMessage({ threadId: target.threadId, message, dryRun: true });
     if (!dryRun.messageHash) throw new Error("dry-run did not produce a message hash");
     const live = await control.sendMessage({
@@ -231,6 +247,10 @@ function extractTurnId(response: unknown): string | null {
   const result = unwrapResult(response);
   const turn = objectField(result.turn);
   return stringField(turn, "id");
+}
+
+function isFailedCodexResponse(value: unknown): boolean {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value) && (value as Record<string, unknown>).ok === false);
 }
 
 function unwrapResult(value: unknown): Record<string, unknown> {

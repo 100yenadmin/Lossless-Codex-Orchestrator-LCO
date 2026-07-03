@@ -12,6 +12,12 @@ export * from "./redaction.js";
 
 export type CodexClient = {
   request(method: string, params: Record<string, unknown>): Promise<unknown>;
+  requestSequence?(steps: CodexControlStep[]): Promise<unknown[]>;
+};
+
+export type CodexControlStep = {
+  method: string;
+  params: Record<string, unknown>;
 };
 
 export type SourceCoverageState = "ok" | "partial" | "unavailable" | "not_configured";
@@ -581,6 +587,9 @@ export type ControlResult = {
   paramsHash: string;
   messageHash?: string;
   method?: string;
+  methodSequence?: string[];
+  connectionScope?: "single_request" | "same_connection_sequence";
+  loadedThreadReusable?: boolean;
   response?: unknown;
 };
 
@@ -654,12 +663,25 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
     method: string;
     threadId: string;
     params: Record<string, unknown>;
+    steps?: CodexControlStep[];
     message?: string;
     dryRun?: boolean;
     approvalAuditId?: string;
+    loadedThreadReusable?: boolean;
   }): Promise<ControlResult> => {
     assertCodexMethodAllowed(spec.method, "control");
-    const paramsHash = options.audit.fingerprintValue({ action: spec.action, method: spec.method, threadId: spec.threadId, params: spec.params });
+    const steps = spec.steps?.length ? spec.steps : [{ method: spec.method, params: spec.params }];
+    const methodSequence = steps.map((step) => step.method);
+    for (const step of steps) assertCodexMethodAllowed(step.method, "control");
+    const connectionScope = steps.length > 1 ? "same_connection_sequence" : "single_request";
+    const paramsHash = options.audit.fingerprintValue({
+      action: spec.action,
+      method: spec.method,
+      methodSequence,
+      threadId: spec.threadId,
+      params: spec.params,
+      steps
+    });
     const messageHash = spec.message === undefined ? undefined : options.audit.fingerprintText(spec.message);
     if (spec.dryRun !== false) {
       const record = options.audit.append({
@@ -669,7 +691,18 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
         messageHash,
         live: false
       });
-      return { action: spec.action, threadId: spec.threadId, live: false, approvalAuditId: record.id, paramsHash, messageHash, method: spec.method };
+      return {
+        action: spec.action,
+        threadId: spec.threadId,
+        live: false,
+        approvalAuditId: record.id,
+        paramsHash,
+        messageHash,
+        method: spec.method,
+        methodSequence,
+        connectionScope,
+        loadedThreadReusable: spec.loadedThreadReusable
+      };
     }
 
     if (!spec.approvalAuditId) {
@@ -689,13 +722,29 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
     if (!Number.isFinite(dryRunCreatedAtMs) || dryRunCreatedAtMs + CODEX_CONTROL_DRY_RUN_TTL_MS <= Date.now()) {
       throw new Error("approval_audit_id dry-run record expired");
     }
-    const response = await options.client.request(spec.method, spec.params);
+    const response = steps.length > 1
+      ? await requestCodexControlSequence(options.client, steps)
+      : await options.client.request(spec.method, spec.params);
     const liveRecord = options.audit.append({ action: spec.action, target: spec.threadId, paramsHash, messageHash, live: true });
-    return { action: spec.action, threadId: spec.threadId, live: true, approvalAuditId: liveRecord.id, paramsHash, messageHash, method: spec.method, response: redactValue(response) };
+    return {
+      action: spec.action,
+      threadId: spec.threadId,
+      live: true,
+      approvalAuditId: liveRecord.id,
+      paramsHash,
+      messageHash,
+      method: spec.method,
+      methodSequence,
+      connectionScope,
+      loadedThreadReusable: spec.loadedThreadReusable,
+      response: redactValue(response)
+    };
   };
 
   return {
     sendMessage(input: { threadId: string; message: string; dryRun?: boolean; approvalAuditId?: string }) {
+      const resumeParams = { threadId: input.threadId, excludeTurns: true };
+      const turnStartParams = { threadId: input.threadId, input: [{ type: "text", text: input.message }] };
       return execute({
         action: "codex_send_message",
         method: "turn/start",
@@ -703,7 +752,12 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
         message: input.message,
         dryRun: input.dryRun,
         approvalAuditId: input.approvalAuditId,
-        params: { threadId: input.threadId, input: [{ type: "text", text: input.message }] }
+        params: turnStartParams,
+        steps: [
+          { method: "thread/resume", params: resumeParams },
+          { method: "turn/start", params: turnStartParams }
+        ],
+        loadedThreadReusable: true
       });
     },
     resumeThread(input: { threadId: string; dryRun?: boolean; approvalAuditId?: string }) {
@@ -713,10 +767,12 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
         threadId: input.threadId,
         dryRun: input.dryRun,
         approvalAuditId: input.approvalAuditId,
-        params: { threadId: input.threadId, excludeTurns: true }
+        params: { threadId: input.threadId, excludeTurns: true },
+        loadedThreadReusable: false
       });
     },
-    steerThread(input: { threadId: string; message: string; dryRun?: boolean; approvalAuditId?: string }) {
+    steerThread(input: { threadId: string; message: string; expectedTurnId?: string; dryRun?: boolean; approvalAuditId?: string }) {
+      if (!input.expectedTurnId) throw new Error("expected_turn_id is required for steer actions");
       return execute({
         action: "codex_steer_thread",
         method: "turn/steer",
@@ -724,7 +780,7 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
         message: input.message,
         dryRun: input.dryRun,
         approvalAuditId: input.approvalAuditId,
-        params: { threadId: input.threadId, input: [{ type: "text", text: input.message }] }
+        params: { threadId: input.threadId, expectedTurnId: input.expectedTurnId, input: [{ type: "text", text: input.message }] }
       });
     },
     interruptThread(input: { threadId: string; dryRun?: boolean; approvalAuditId?: string }) {
@@ -738,6 +794,22 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
       });
     }
   };
+}
+
+async function requestCodexControlSequence(client: CodexClient, steps: CodexControlStep[]): Promise<unknown> {
+  if (!client.requestSequence) {
+    throw new Error("same-connection control sequence is required for this Codex control action");
+  }
+  const responses = await client.requestSequence(steps);
+  for (let index = 0; index < responses.length; index += 1) {
+    if (asRecord(responses[index])?.ok === false) {
+      throw new Error(`Codex control sequence step failed: ${steps[index]?.method ?? "unknown"}`);
+    }
+  }
+  if (responses.length !== steps.length) {
+    throw new Error(`Codex control sequence returned ${responses.length} response(s) for ${steps.length} step(s)`);
+  }
+  return responses.at(-1) ?? { ok: true };
 }
 
 export async function createCodexAppServerStatusReport(options: {
