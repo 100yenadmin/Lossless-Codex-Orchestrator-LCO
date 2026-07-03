@@ -85,7 +85,7 @@ export const CODEX_FORBIDDEN_METHODS = new Set([
   "externalAgentConfig/import"
 ]);
 
-export type LooCommandMode = "read_only" | "approval_gated_control" | "dry_run_only";
+export type LooCommandMode = "read_only" | "local_cache_write" | "approval_gated_control" | "dry_run_only";
 export type LooCommandSource = "local_index" | "structured_operating_inputs" | "codex_direct" | "desktop_fallback" | "audit";
 export type LooMutationClass =
   | "source_store"
@@ -118,7 +118,11 @@ function readOnly(source: LooCommandSource, mutationClasses: readonly LooMutatio
   return commandSafety("read_only", source, false, mutationClasses);
 }
 
-function approvalGatedControl(source: LooCommandSource, mutationClasses: readonly LooMutationClass[] = ["live_control"]): LooCommandSafety {
+function localCacheWrite(source: LooCommandSource, mutationClasses: readonly LooMutationClass[] = ["derived_cache"]): LooCommandSafety {
+  return commandSafety("local_cache_write", source, false, mutationClasses);
+}
+
+function approvalGatedControl(source: LooCommandSource, mutationClasses: readonly LooMutationClass[] = ["derived_cache", "live_control"]): LooCommandSafety {
   return commandSafety("approval_gated_control", source, true, mutationClasses);
 }
 
@@ -127,7 +131,7 @@ function dryRunOnly(source: LooCommandSource, mutationClasses: readonly LooMutat
 }
 
 export const LOO_COMMAND_POLICY: Record<string, LooCommandSafety> = {
-  loo_index_sessions: readOnly("local_index", ["derived_cache"]),
+  loo_index_sessions: localCacheWrite("local_index"),
   loo_grep: readOnly("local_index"),
   loo_search_sessions: readOnly("local_index"),
   loo_describe_ref: readOnly("local_index"),
@@ -166,7 +170,7 @@ export const LOO_COMMAND_POLICY: Record<string, LooCommandSafety> = {
   loo_session_sanitizer: readOnly("local_index"),
   loo_codex_sqlite_stores: readOnly("local_index"),
   loo_lcm_peer_dbs: readOnly("local_index"),
-  loo_codex_control_dry_run: readOnly("audit", ["derived_cache"]),
+  loo_codex_control_dry_run: localCacheWrite("audit"),
   loo_codex_resume_thread: approvalGatedControl("codex_direct"),
   loo_codex_send_message: approvalGatedControl("codex_direct"),
   loo_codex_steer_thread: approvalGatedControl("codex_direct"),

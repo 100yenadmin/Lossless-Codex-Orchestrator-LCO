@@ -51,7 +51,7 @@ export type LimitedCodexFile = {
 };
 
 export type IndexCodexResult = {
-  publicSafe: true;
+  publicSafe: false;
   readOnly: false;
   mutationClasses: ["derived_cache"];
   indexedFiles: number;
@@ -1662,7 +1662,7 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
   const maxBytesPerFile = positiveLimit(options.maxBytesPerFile, DEFAULT_CODEX_MAX_BYTES_PER_FILE, "maxBytesPerFile");
   const maxEventsPerFile = positiveLimit(options.maxEventsPerFile, DEFAULT_CODEX_MAX_EVENTS_PER_FILE, "maxEventsPerFile");
   const result: IndexCodexResult = {
-    publicSafe: true,
+    publicSafe: false,
     readOnly: false,
     mutationClasses: ["derived_cache"],
     indexedFiles: 0,

@@ -209,8 +209,9 @@ Default behavior:
 - direct Codex protocol before desktop fallback
 - dry-run plus matching `approval_audit_id` before live Codex control
 - explicit mutation classes: pure reads use empty `mutationClasses`, and
-  LCO-owned indexing/audit/prepared-state writes use `derived_cache` instead of
-  mutating Codex source stores, external systems, live control, or GUI state
+  LCO-owned indexing/audit/prepared-state writes use `mode: "local_cache_write"`
+  with `derived_cache` instead of mutating Codex source stores, external
+  systems, live control, or GUI state
 
 Not claimed:
 

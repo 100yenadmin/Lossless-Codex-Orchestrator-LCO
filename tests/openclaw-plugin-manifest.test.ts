@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { LOO_COMMAND_POLICY } from "../packages/adapters/src/index.js";
 import { createLooToolDeclarations } from "../packages/mcp-server/src/tools.js";
 
 const PLUGIN_ENTRY = "./dist/packages/openclaw-plugin/src/index.js";
@@ -34,11 +35,17 @@ test("npm bin metadata is publish-normalized for the beta CLI entrypoints", () =
 
 test("OpenClaw plugin contracts match the exported loo tool declarations", () => {
   const manifest = readJson("openclaw.plugin.json");
+  const sourceManifest = readJson("packages/openclaw-plugin/openclaw.plugin.json");
   const contracts = manifest.contracts as { tools?: unknown; toolDeclarations?: unknown } | undefined;
+  const sourceContracts = sourceManifest.contracts as { tools?: unknown; toolDeclarations?: unknown } | undefined;
   const expectedTools = createLooToolDeclarations();
 
   assert.deepEqual(contracts?.tools, expectedTools.map((tool) => tool.name));
   assert.deepEqual(contracts?.toolDeclarations, expectedTools);
+  assert.deepEqual(sourceContracts?.toolDeclarations, expectedTools);
+  for (const declaration of [...(contracts?.toolDeclarations as typeof expectedTools), ...(sourceContracts?.toolDeclarations as typeof expectedTools)]) {
+    assert.deepEqual(declaration.safety, LOO_COMMAND_POLICY[declaration.name]);
+  }
   assert.deepEqual(manifest.activation, { onStartup: true });
   assert.deepEqual(manifest.configSchema, {
     type: "object",

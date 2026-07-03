@@ -14,7 +14,10 @@ Default behavior:
 
 Mutation classes:
 
-- Pure read tools have an empty `mutationClasses` list.
+- Pure read tools use `mode: "read_only"` and have an empty
+  `mutationClasses` list.
+- LCO-owned local cache or audit writes use `mode: "local_cache_write"` and
+  `mutationClasses: ["derived_cache"]`.
 - `derived_cache` means LCO writes its own local SQLite cache or audit record,
   such as `loo_index_sessions` or `loo_codex_control_dry_run`.
 - `source_store` is reserved for mutations to Codex/OpenClaw source stores and
@@ -24,9 +27,9 @@ Mutation classes:
 - `live_control` and `desktop_gui` remain approval-gated and outside normal
   recall, prepared-state, and watcher reads.
 
-When a tool says `read_only`, read it as "no source-store, external-system,
-live-control, or GUI mutation." Tools may still declare `derived_cache` when
-they update LCO-owned local advisory state.
+When a tool says `read_only`, read it as no writes. When a tool says
+`local_cache_write`, read it as an LCO-owned advisory cache or audit write only,
+not Codex source-store, external-system, live-control, or GUI mutation.
 
 Non-goals for the beta:
 

@@ -92,7 +92,7 @@
         "name": "loo_index_sessions",
         "description": "Index local Codex session JSONL files into the local orchestrator database.",
         "safety": {
-          "mode": "read_only",
+          "mode": "local_cache_write",
           "source": "local_index",
           "requiresApproval": false,
           "mutationClasses": [
@@ -1549,7 +1549,7 @@
         "name": "loo_codex_control_dry_run",
         "description": "Create a dry-run audit id for a Codex control action.",
         "safety": {
-          "mode": "read_only",
+          "mode": "local_cache_write",
           "source": "audit",
           "requiresApproval": false,
           "mutationClasses": [
@@ -1589,6 +1589,7 @@
           "source": "codex_direct",
           "requiresApproval": true,
           "mutationClasses": [
+            "derived_cache",
             "live_control"
           ]
         },
@@ -1617,6 +1618,7 @@
           "source": "codex_direct",
           "requiresApproval": true,
           "mutationClasses": [
+            "derived_cache",
             "live_control"
           ]
         },
@@ -1648,6 +1650,7 @@
           "source": "codex_direct",
           "requiresApproval": true,
           "mutationClasses": [
+            "derived_cache",
             "live_control"
           ]
         },
@@ -1682,6 +1685,7 @@
           "source": "codex_direct",
           "requiresApproval": true,
           "mutationClasses": [
+            "derived_cache",
             "live_control"
           ]
         },

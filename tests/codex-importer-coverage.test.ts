@@ -11,6 +11,7 @@ import {
   defaultCodexRoots,
   getSourceFileWatermark,
   indexCodexSessions,
+  type IndexCodexResult,
   probeCodexSqliteStores,
   searchSessions
 } from "../packages/core/src/index.js";
@@ -246,18 +247,12 @@ test("MCP index tool forwards byte and event ceilings", async () => {
       max_files: 10,
       max_bytes_per_file: 100_000,
       max_events_per_file: 2
-    }) as {
-      publicSafe: boolean;
-      readOnly: boolean;
-      mutationClasses: string[];
-      indexedFiles: number;
-      skippedFiles: number;
-      limitedFiles: Array<{ reason: string; limit: number; actual: number }>;
-    };
+    }) as IndexCodexResult;
 
-    assert.equal(indexed.publicSafe, true);
+    assert.equal(indexed.publicSafe, false);
     assert.equal(indexed.readOnly, false);
     assert.deepEqual(indexed.mutationClasses, ["derived_cache"]);
+    assert.equal(indexed.mutationClasses.length, 1);
     assert.equal(indexed.indexedFiles, 0);
     assert.equal(indexed.skippedFiles, 1);
     assert.deepEqual(indexed.limitedFiles, [{
@@ -304,16 +299,11 @@ test("MCP tools expose default Codex roots and read-only SQLite probes", async (
     });
     const indexTool = tools.find((tool) => tool.name === "loo_index_sessions");
     assert.ok(indexTool);
-    const indexed = await indexTool.execute({ roots: [] }) as {
-      publicSafe: boolean;
-      readOnly: boolean;
-      mutationClasses: string[];
-      indexedFiles: number;
-      indexedThreads: number;
-    };
-    assert.equal(indexed.publicSafe, true);
+    const indexed = await indexTool.execute({ roots: [] }) as IndexCodexResult;
+    assert.equal(indexed.publicSafe, false);
     assert.equal(indexed.readOnly, false);
     assert.deepEqual(indexed.mutationClasses, ["derived_cache"]);
+    assert.equal(indexed.mutationClasses.length, 1);
     assert.equal(indexed.indexedFiles, 2);
     assert.equal(indexed.indexedThreads, 2);
 
