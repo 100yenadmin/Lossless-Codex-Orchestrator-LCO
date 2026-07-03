@@ -417,6 +417,26 @@ if (method === "tools.invoke") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, digest: { sourceCoverage: { lco: "ok", github: "not_configured", plan_state: "not_configured" } } } }));
     process.exit(0);
   }
+  if (name === "loo_summary_leaves") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.summary.leaves.v1", publicSafe: true, readOnly: true, sourceCoverage: { summaryLeaves: "ok", preparedSourceRanges: "ok" }, summary: { total: 1, returned: 1 }, leaves: [{ schema: "lco.summary.leaf.v1", leafRef: "summary_leaf:50000000000000000000000000000005", threadId: toolArgs.thread_id || "thread-1", leafKind: "final_message", sourceRefs: ["codex_thread:" + (toolArgs.thread_id || "thread-1")], sourceRangeRefs: ["codex_range:50000000000000000000000000000005"], confidence: 0.9, privacyClass: "public_safe_metadata" }], actionsPerformed: { derivedCacheWrite: false, sourceStoreMutation: false, externalWrite: false, liveControl: false, guiMutation: false, rawTranscriptRead: false } } }));
+    process.exit(0);
+  }
+  if (name === "loo_summary_expand") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.summary.expansion.v1", publicSafe: true, readOnly: true, root: { leafRef: null, threadId: toolArgs.thread_id || "thread-1" }, limits: { maxDepth: toolArgs.max_depth, maxNodes: toolArgs.max_nodes, tokenBudget: toolArgs.token_budget }, leaves: [{ leafRef: "summary_leaf:50000000000000000000000000000005", threadId: toolArgs.thread_id || "thread-1", sourceRangeRefs: ["codex_range:50000000000000000000000000000005"] }], omissions: [], actionsPerformed: { derivedCacheWrite: false, sourceStoreMutation: false, externalWrite: false, liveControl: false, guiMutation: false, rawTranscriptRead: false } } }));
+    process.exit(0);
+  }
+  if (name === "loo_prepared_state_status") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.preparedState.status.v1", publicSafe: true, readOnly: true, sourceCoverage: { summaryLeaves: "ok", preparedCards: "ok", preparedInboxItems: "ok", watcherObservations: "not_configured" }, summary: { summaryLeaves: 1, cards: 1, inboxItems: 1, staleCards: 0, partialCards: 0, unknownCards: 0, lowConfidenceCards: 0 }, actionsPerformed: { derivedCacheWrite: false, sourceStoreMutation: false, externalWrite: false, liveControl: false, guiMutation: false, rawTranscriptRead: false } } }));
+    process.exit(0);
+  }
+  if (name === "loo_prepared_cards") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.prepared.cards.v1", publicSafe: true, readOnly: true, sourceCoverage: { preparedCards: "ok", summaryLeaves: "ok", watcherObservations: "not_configured" }, summary: { total: 1, returned: 1, stale: 0, partial: 0, unknown: 0, lowConfidence: 0 }, cards: [{ schema: "lco.prepared.card.v1", cardRef: "prepared_card:50000000000000000000000000000005", targetRef: "codex_thread:" + (toolArgs.thread_id || "thread-1"), cardKind: "codex_session", title: "Thread 1", summary: "Public-safe prepared card.", nextAction: "Review bounded summary evidence.", sourceRefs: ["codex_thread:" + (toolArgs.thread_id || "thread-1"), "summary_leaf:50000000000000000000000000000005"], sourceRangeRefs: ["codex_range:50000000000000000000000000000005"], sourceRangeRefsOmitted: 2, authorityCoverage: { summaryLeaves: { status: "ok", leafCount: 1, rangeCount: 3 }, sessionMetadata: { status: "ok" }, watcherObservations: { status: "not_configured" } }, confidence: 0.9, freshnessAt: "2026-07-01T12:00:00.000Z", stale: false, state: "ready", reasonCodes: ["summary_leaves_ready"], privacyClass: "public_safe_metadata" }], actionsPerformed: { derivedCacheWrite: false, sourceStoreMutation: false, externalWrite: false, liveControl: false, guiMutation: false, rawTranscriptRead: false } } }));
+    process.exit(0);
+  }
+  if (name === "loo_prepared_inbox") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.prepared.inbox.v1", publicSafe: true, readOnly: true, sourceCoverage: { preparedCards: "ok", summaryLeaves: "ok", watcherObservations: "not_configured" }, summary: { total: 1, returned: 1, critical: 0, high: 1, lowConfidence: 0 }, items: [{ schema: "lco.prepared.inboxItem.v1", itemRef: "prepared_inbox:50000000000000000000000000000005", cardRef: "prepared_card:50000000000000000000000000000005", targetRef: "codex_thread:" + (toolArgs.thread_id || "thread-1"), urgencyScore: 80, state: "ready", reasonCodes: ["summary_leaves_ready"], sourceRefs: ["codex_thread:" + (toolArgs.thread_id || "thread-1"), "prepared_card:50000000000000000000000000000005"], execute: false }], actionsPerformed: { derivedCacheWrite: false, sourceStoreMutation: false, externalWrite: false, liveControl: false, guiMutation: false, rawTranscriptRead: false } } }));
+    process.exit(0);
+  }
   if (name === "loo_codex_control_dry_run") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: ${dryRunOutputCode} }));
     process.exit(0);
@@ -584,11 +604,17 @@ test("OpenClaw tool smoke invokes required loo tools through gateway call and wr
     assert.equal(report.invocations.find((call) => call.toolName === "loo_search_sessions")?.summary.sourceRefs?.[0], "codex_thread:thread-1");
     assert.equal(report.invocations.find((call) => call.toolName === "loo_describe_session")?.summary.threadId, "thread-1");
     assert.equal(report.invocations.find((call) => call.toolName === "loo_expand_query")?.summary.profile, "brief");
+    assert.equal(report.invocations.find((call) => call.toolName === "loo_summary_leaves")?.summary.sourceRefs?.some((ref) => ref.startsWith("summary_leaf:")), true);
+    assert.equal(report.invocations.find((call) => call.toolName === "loo_summary_expand")?.summary.tokenBudget, 1000);
+    assert.equal(report.invocations.find((call) => call.toolName === "loo_prepared_cards")?.summary.sourceRefs?.some((ref) => ref.startsWith("prepared_card:")), true);
+    assert.equal(report.invocations.find((call) => call.toolName === "loo_prepared_inbox")?.summary.sourceRefs?.some((ref) => ref.startsWith("prepared_inbox:")), true);
     assert.equal(report.invocations.find((call) => call.toolName === "loo_codex_control_dry_run")?.summary.live, false);
     assert.equal(report.invocations.find((call) => call.toolName === "loo_codex_control_dry_run")?.summary.approvalAuditId, "loo_audit_test");
     assert.equal(report.agentReasoning?.safeRecommendation, "Review the selected Codex session from source refs, then ask the user before any live Codex control.");
     assert.equal(report.agentReasoning?.selectedThreadId, "thread-1");
-    assert.deepEqual(report.agentReasoning?.sourceRefs, ["codex_thread:thread-1"]);
+    assert.equal(report.agentReasoning?.sourceRefs.includes("codex_thread:thread-1"), true);
+    assert.equal(report.agentReasoning?.sourceRefs.some((ref) => ref.startsWith("summary_leaf:")), true);
+    assert.equal(report.agentReasoning?.sourceRefs.some((ref) => ref.startsWith("prepared_card:")), true);
     assert.deepEqual(report.agentReasoning?.workflowEvidence, [
       "doctor_ready",
       "search_source_ref",
@@ -613,6 +639,9 @@ test("OpenClaw tool smoke invokes required loo tools through gateway call and wr
     assert.equal(calls[0]?.method, "tools.catalog");
     assert.deepEqual(calls.slice(1).map((call) => call.params.name), report.invocations.map((call) => call.toolName));
     assert.equal(calls.find((call) => call.params.name === "loo_describe_session")?.params.args?.thread_id, "thread-1");
+    assert.equal(calls.find((call) => call.params.name === "loo_prepared_cards")?.params.args?.thread_id, "thread-1");
+    assert.equal(calls.find((call) => call.params.name === "loo_prepared_inbox")?.params.args?.thread_id, "thread-1");
+    assert.equal(calls.find((call) => call.params.name === "loo_summary_expand")?.params.args?.thread_id, "thread-1");
     assert.equal(calls.some((call) => call.args.includes("--token")), false);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;

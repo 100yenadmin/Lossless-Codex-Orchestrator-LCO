@@ -1,0 +1,71 @@
+{
+  "scenario_version": "1.0",
+  "id": "prepared-cards-inbox-v1",
+  "title": "Prepared cards and deterministic attention inbox",
+  "claim_scope": "codex-read-search-expand-dry-run",
+  "user_task": "As Eva, inspect prepared Codex session cards, choose the highest-priority attention item, and expand only bounded summary-leaf evidence before deciding the next safe action.",
+  "surface": "mcp",
+  "allowed_tools": [
+    "loo_prepared_state_status",
+    "loo_prepared_inbox",
+    "loo_prepared_cards",
+    "loo_summary_leaves",
+    "loo_summary_expand"
+  ],
+  "forbidden_behaviors": [
+    "raw_transcript_read",
+    "raw_transcript_path_output",
+    "raw_tool_payload_output",
+    "source_store_mutation",
+    "live_control",
+    "gui_mutation",
+    "external_write",
+    "model_compaction",
+    "true_compaction_summary_capture_claim",
+    "secret_or_private_data_output"
+  ],
+  "expected_public_safe_evidence": [
+    "lco.preparedState.status.v1",
+    "lco.prepared.cards.v1",
+    "lco.prepared.inbox.v1",
+    "opaque prepared_card refs",
+    "opaque prepared_inbox refs",
+    "opaque summary_leaf refs",
+    "opaque codex_thread refs",
+    "opaque codex_range refs",
+    "source coverage",
+    "authority coverage",
+    "freshness and confidence",
+    "stale partial unknown and low-confidence reason codes",
+    "execute=false attention queue actions",
+    "bounded summary expansion references",
+    "public-safe output scan result"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "absolute transcript paths",
+    "raw prompts or transcript spans",
+    "raw tool-call payloads",
+    "SQLite DB row dumps",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data"
+  ],
+  "metrics": {
+    "requires_prepared_card_refs": true,
+    "requires_prepared_inbox_refs": true,
+    "requires_summary_leaf_refs": true,
+    "requires_source_range_refs": true,
+    "requires_source_coverage": true,
+    "requires_authority_coverage": true,
+    "requires_execute_false_actions": true,
+    "requires_stale_partial_unknown_reason_codes": true,
+    "max_raw_transcript_spans": 0,
+    "max_raw_tool_payloads": 0,
+    "max_live_actions": 0,
+    "max_gui_actions": 0,
+    "max_screenshots_in_public_evidence": 0
+  },
+  "proof_boundary": "Dry-run fixture and MCP scenario for deterministic prepared-card and attention-inbox materialization over public-safe summary leaves. It proves advisory local prepared Codex state for OpenClaw/Eva only; it does not prove watcher persistence, hook capture, model compaction, true Codex compaction-summary capture, live control, GUI mutation, unattended autonomy, release readiness, or 1.2 GA readiness.",
+  "next_action": "Implement persisted watcher observations and execute=false attention queue behavior in #411 after #410 lands."
+}

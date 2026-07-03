@@ -254,6 +254,47 @@ test("Eva operating picture dogfood scenario captures the full cockpit workflow"
   assert.match(String(scenario.proof_boundary), /does not prove.*full business truth/i);
 });
 
+test("prepared cards inbox scenario captures public-safe prepared-state handoff", () => {
+  const scenario = JSON.parse(readFileSync(join("evals", "scenarios", "v1", "prepared-cards-inbox-v1.json"), "utf8")) as {
+    id?: string;
+    surface?: string;
+    user_task?: string;
+    allowed_tools?: string[];
+    expected_public_safe_evidence?: string[];
+    forbidden_behaviors?: string[];
+    metrics?: Record<string, unknown>;
+    proof_boundary?: string;
+  };
+
+  assert.equal(scenario.id, "prepared-cards-inbox-v1");
+  assert.equal(scenario.surface, "mcp");
+  assert.match(String(scenario.user_task), /prepared Codex session cards.*highest-priority attention item/i);
+  assert.deepEqual(scenario.allowed_tools, [
+    "loo_prepared_state_status",
+    "loo_prepared_inbox",
+    "loo_prepared_cards",
+    "loo_summary_leaves",
+    "loo_summary_expand"
+  ]);
+  const expectedEvidence = JSON.stringify(scenario.expected_public_safe_evidence);
+  assert.match(expectedEvidence, /lco\.preparedState\.status\.v1/);
+  assert.match(expectedEvidence, /lco\.prepared\.cards\.v1/);
+  assert.match(expectedEvidence, /lco\.prepared\.inbox\.v1/);
+  assert.match(expectedEvidence, /source coverage/i);
+  assert.match(expectedEvidence, /authority coverage/i);
+  assert.match(expectedEvidence, /execute=false/i);
+  assert.match(JSON.stringify(scenario.forbidden_behaviors), /raw_transcript_read/);
+  assert.match(JSON.stringify(scenario.forbidden_behaviors), /live_control/);
+  assert.match(JSON.stringify(scenario.forbidden_behaviors), /gui_mutation/);
+  assert.equal(scenario.metrics?.requires_prepared_card_refs, true);
+  assert.equal(scenario.metrics?.requires_prepared_inbox_refs, true);
+  assert.equal(scenario.metrics?.requires_execute_false_actions, true);
+  assert.equal(scenario.metrics?.max_raw_transcript_spans, 0);
+  assert.equal(scenario.metrics?.max_live_actions, 0);
+  assert.match(String(scenario.proof_boundary), /does not prove.*model compaction/i);
+  assert.match(String(scenario.proof_boundary), /does not prove.*live control/i);
+});
+
 test("Codex collaboration cockpit scenario captures read-only Desktop evidence composition", () => {
   const scenario = JSON.parse(readFileSync(join("evals", "scenarios", "v1", "codex-collaboration-cockpit.json"), "utf8")) as {
     id?: string;
