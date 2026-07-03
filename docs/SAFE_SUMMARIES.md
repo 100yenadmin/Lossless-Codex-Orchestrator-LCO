@@ -31,3 +31,17 @@ The beta summary line is deterministic and bounded. It may combine title, model,
 - 4k token evidence bundle: the same safe fields with a larger budget for plan and evidence detail.
 
 Profiles are generated from indexed safe text, Codex metadata, and optionally read-only OpenClaw LCM peer summaries. LCM peer summaries stay in their source DB and are referenced by `lcm_summary:*`; they are not merged into the Codex index. If an agent needs raw source context, it should request a specific local source ref and preserve user approval and privacy boundaries.
+
+## Prepared Source Ranges
+
+The 1.2 prepared-state foundation adds source-range metadata as LCO-owned
+derived cache. A prepared source range is an opaque pointer with `codex_event:*`,
+`codex_range:*`, and `codex_source:*` refs, hashes, line/byte offsets, extractor
+version, privacy class, confidence, and omission status. It is not transcript
+text and should not expose absolute transcript paths, raw prompts, tool payloads,
+SQLite row dumps, tokens, cookies, or secrets.
+
+Summary leaves and prepared cards may later cite these ranges, but the ranges
+themselves remain advisory routing metadata. They do not replace Codex source
+truth and they do not authorize live control, GUI mutation, model compaction, or
+compaction-summary capture.
