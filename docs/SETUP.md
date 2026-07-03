@@ -213,7 +213,15 @@ The safe loop is:
    `loo_codex_touched_files`
 5. `loo_expand_session` or `loo_expand_query`
 6. `loo_codex_control_dry_run` only when action is needed
-7. live action only with a matching `approval_audit_id`
+7. `loo_codex_start_thread` only after dry-run approval when a new Codex thread
+   is needed
+8. live action only with a matching `approval_audit_id`
+
+Live start/send/resume results distinguish `accepted_by_transport`, `started`,
+`completed`, `persisted`, and `unverified_pending`. If a result is
+`unverified_pending`, treat it as transport acceptance only and run the returned
+read-only `next_proof` tool call before claiming durable execution or local
+session persistence.
 
 ## 9. Desktop Fallback Readiness
 

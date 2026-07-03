@@ -19,6 +19,7 @@ export const CODEX_READ_METHODS = new Set([
 ]);
 
 export const CODEX_CONTROL_METHODS = new Set([
+  "thread/start",
   "thread/resume",
   "turn/start",
   "turn/steer",
@@ -26,7 +27,6 @@ export const CODEX_CONTROL_METHODS = new Set([
 ]);
 
 export const CODEX_FORBIDDEN_METHODS = new Set([
-  "thread/start",
   "thread/fork",
   "thread/archive",
   "thread/delete",
@@ -180,6 +180,7 @@ export const LOO_COMMAND_POLICY: Record<string, LooCommandSafety> = {
   loo_codex_sqlite_stores: readOnly("local_index"),
   loo_lcm_peer_dbs: readOnly("local_index"),
   loo_codex_control_dry_run: localCacheWrite("audit"),
+  loo_codex_start_thread: approvalGatedControl("codex_direct"),
   loo_codex_resume_thread: approvalGatedControl("codex_direct"),
   loo_codex_send_message: approvalGatedControl("codex_direct"),
   loo_codex_steer_thread: approvalGatedControl("codex_direct"),

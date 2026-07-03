@@ -148,10 +148,17 @@ For normal agent workflows, use the MCP/OpenClaw tools:
 - `loo_codex_final_messages`
 - `loo_codex_touched_files`
 - `loo_codex_control_dry_run`
+- `loo_codex_start_thread`
 
 `loo_codex_control_dry_run` returns the audit id and hashes an agent should show
-before any live resume/send/steer/interrupt call. Live control requires the
-matching `approval_audit_id`.
+before any live start/resume/send/steer/interrupt call. Live control requires
+the matching `approval_audit_id`.
+
+Live Codex control results include `proof_state` fields for
+`accepted_by_transport`, `started`, `completed`, `persisted`, and
+`unverified_pending`. Transport acceptance is not durable execution: when
+`unverified_pending` is true, run the returned `next_proof` read-only tool call
+before claiming the turn or thread completed, persisted, or is safe to build on.
 
 The packaged agent playbook is
 [skills/lossless-openclaw-orchestrator/SKILL.md](skills/lossless-openclaw-orchestrator/SKILL.md).
@@ -207,7 +214,8 @@ Default behavior:
 - bounded expansion profiles
 - read-only OpenClaw LCM peer DB access
 - direct Codex protocol before desktop fallback
-- dry-run plus matching `approval_audit_id` before live Codex control
+- dry-run plus matching `approval_audit_id` before live Codex control,
+  including new-thread creation
 - explicit mutation classes: pure reads use empty `mutationClasses`, and
   LCO-owned indexing/audit/prepared-state writes use `mode: "local_cache_write"`
   with `derived_cache` instead of mutating Codex source stores, external
