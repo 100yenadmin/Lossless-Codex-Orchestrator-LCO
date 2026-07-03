@@ -84,6 +84,16 @@ export type LooTool = {
 
 export type LooToolDeclaration = Pick<LooTool, "name" | "description" | "safety" | "inputSchema">;
 
+export type PublicSafeToolValidationFailure = {
+  ok: false;
+  code: "validation_failed";
+  publicSafe: true;
+  error: {
+    code: "validation_failed";
+    message: string;
+  };
+};
+
 const metadataOnlyAudit: AuditStore = {
   path: "metadata-only",
   append() {
@@ -115,6 +125,16 @@ export function createLooToolDeclarations(): LooToolDeclaration[] {
     audit: metadataOnlyAudit,
     codexClient: metadataOnlyCodexClient
   }).map(({ name, description, safety, inputSchema }) => ({ name, description, safety, inputSchema }));
+}
+
+export async function executeLooToolForOpenClaw(tool: LooTool, input: Record<string, unknown>): Promise<unknown> {
+  try {
+    return await tool.execute(input);
+  } catch (error) {
+    const message = publicSafeValidationMessage(error);
+    if (message) return publicSafeValidationFailure(message);
+    throw error;
+  }
 }
 
 export function createLooTools(options: { db: LooDatabase; audit: AuditStore; codexClient: CodexClient; codexReadClient?: CodexClient; desktopProbe?: DesktopProbe }): LooTool[] {
@@ -620,7 +640,7 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
     tool("loo_codex_sqlite_stores", "Probe local Codex state_*.sqlite and logs_*.sqlite stores read-only.", {
       roots: { type: "array", items: { type: "string" } },
       max_files: { type: "integer", minimum: 1, maximum: 1000 }
-    }, (input) => probeCodexSqliteStores(optionalRoots(input.roots, [`${process.env.HOME || "."}/.codex`]), optionalNumber(input.max_files))),
+    }, (input) => publicSafeCodexSqliteProbe(probeCodexSqliteStores(optionalRoots(input.roots, [`${process.env.HOME || "."}/.codex`]), optionalNumber(input.max_files)))),
     tool("loo_lcm_peer_dbs", "Probe configured OpenClaw LCM peer DBs read-only.", {
       lcm_db_paths: { type: "array", items: { type: "string" } }
     }, (input) => probeLcmPeerDbs(optionalRoots(input.lcm_db_paths, configuredLcmPeerDbPaths()))),
@@ -735,9 +755,98 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
     })),
     tool("loo_audit_tail", "Read recent local audit records without raw prompt text.", {
       limit: { type: "integer", minimum: 1, maximum: 1000 }
-    }, (input) => ({ auditPath: options.audit.path, records: options.audit.tail(optionalNumber(input.limit) ?? 20) }))
+    }, (input) => ({
+      auditPath: publicSafeLocalPath(options.audit.path, "audit.jsonl"),
+      auditRef: publicSafeLocalRef("loo_audit_store", options.audit.path, "audit.jsonl"),
+      records: options.audit.tail(optionalNumber(input.limit) ?? 20)
+    }))
   ];
 }
+
+function publicSafeCodexSqliteProbe(report: ReturnType<typeof probeCodexSqliteStores>) {
+  return {
+    stores: report.stores.map((store) => ({
+      ...store,
+      path: publicSafeLocalPath(store.path, "store.sqlite"),
+      sourceRef: publicSafeLocalRef("codex_sqlite_store", store.path, "store.sqlite"),
+      reason: store.reason ? publicSafeDiagnosticText(store.reason, store.path) : store.reason
+    }))
+  };
+}
+
+function publicSafeLocalPath(path: string, fallbackBasename: string): string {
+  if (!rawLocalPathLike(path)) return path;
+  return `<redacted-local-path>/${publicSafeBasename(path, fallbackBasename)}`;
+}
+
+function publicSafeLocalRef(prefix: string, path: string, fallbackBasename: string): string {
+  return `${prefix}:${publicSafeRefSegment(publicSafeBasename(path, fallbackBasename))}`;
+}
+
+function publicSafeBasename(path: string, fallbackBasename: string): string {
+  const segments = path.split(/[\\/]/).filter(Boolean);
+  return segments.at(-1) || basename(path) || fallbackBasename;
+}
+
+function publicSafeRefSegment(value: string): string {
+  return (value || "unknown").replace(/[^A-Za-z0-9._-]/g, "_");
+}
+
+function publicSafeDiagnosticText(value: string, rawPath?: string): string {
+  let text = value;
+  if (rawPath) text = text.split(rawPath).join(publicSafeLocalPath(rawPath, "local-file"));
+  return text
+    .replace(/(?:\/Volumes\/|\/Users\/|\/private\/|\/var\/folders\/|\/tmp\/)[^\s"',)]+/g, "<redacted-local-path>")
+    .replace(/[A-Za-z]:\\[^\s"',)]+/g, "<redacted-local-path>");
+}
+
+function rawLocalPathLike(value: string): boolean {
+  return /^(?:\/|~|[A-Za-z]:\\)/.test(value);
+}
+
+function publicSafeValidationFailure(message: string): PublicSafeToolValidationFailure {
+  return {
+    ok: false,
+    code: "validation_failed",
+    publicSafe: true,
+    error: {
+      code: "validation_failed",
+      message
+    }
+  };
+}
+
+function publicSafeValidationMessage(error: unknown): string | null {
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  if (!message) return null;
+
+  const requiredField = message.match(/\b([a-z][a-z0-9_]{0,80}(?:\[[0-9]+\])?(?:\.[a-z][a-z0-9_]{0,80})?) is required\b/i)?.[1];
+  if (requiredField) return `${requiredField.toLowerCase()} is required`;
+
+  const requiredFields = message.match(/\b([a-z][a-z0-9_]{0,80}(?:\.[a-z][a-z0-9_]{0,80})?) are required\b/i)?.[1];
+  if (requiredFields) return `${requiredFields.toLowerCase()} are required`;
+
+  if (SAFE_VALIDATION_MESSAGES.has(message)) return message;
+  return null;
+}
+
+const SAFE_VALIDATION_MESSAGES = new Set([
+  "value must be an object",
+  "value must be an array",
+  "profile must be metadata, brief, or evidence",
+  "scope must be active, recent, or all",
+  "risk must be low, medium, or high",
+  "window must be today, 24h, 7d, or custom",
+  "desktop backend must be direct, cua-driver, or peekaboo",
+  "refresh_kind must be none, desktop_refresh, or desktop_restart",
+  "roots must be an array",
+  "github_items must be an array",
+  "github_records must be an array",
+  "watcher_specs must be an array",
+  "recommended_action must be inspect, resume, approve, or ignore",
+  "github item state must be green, yellow, red, or unknown",
+  "github item urgency must be low, medium, high, or critical"
+]);
 
 function tool(name: string, description: string, properties: Record<string, unknown>, execute: LooTool["execute"]): LooTool {
   const safety = LOO_COMMAND_POLICY[name];

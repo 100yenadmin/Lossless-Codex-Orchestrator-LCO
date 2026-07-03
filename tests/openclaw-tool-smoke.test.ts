@@ -542,6 +542,39 @@ process.exit(7);
   return { bin, callsPath };
 }
 
+function createValidationFailureFakeOpenClaw(dir: string): { bin: string; callsPath: string } {
+  const callsPath = join(dir, "calls.jsonl");
+  const bin = join(dir, "openclaw-validation-failure-fake.mjs");
+  writeFileSync(bin, `#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
+const args = process.argv.slice(2);
+const callIndex = args.indexOf("call");
+const method = callIndex >= 0 ? args[callIndex + 1] : "";
+const paramsIndex = args.indexOf("--params");
+const params = paramsIndex >= 0 ? JSON.parse(args[paramsIndex + 1] || "{}") : {};
+appendFileSync(process.env.OPENCLAW_FAKE_CALLS, JSON.stringify({ method, params, args, envTokenPresent: Boolean(process.env.OPENCLAW_GATEWAY_TOKEN) }) + "\\n");
+if (method === "tools.catalog") {
+  console.log(JSON.stringify({ tools: [{ name: "loo_codex_steer_thread" }] }));
+  process.exit(0);
+}
+if (method === "tools.invoke") {
+  console.log(JSON.stringify({
+    ok: false,
+    toolName: params.name,
+    source: "plugin",
+    error: {
+      code: "internal_error",
+      message: "expected_turn_id is required for steer actions; raw prompt at /Users/example/.codex/sessions/private.jsonl super-secret-transcript-span"
+    }
+  }));
+  process.exit(0);
+}
+process.exit(7);
+`);
+  chmodSync(bin, 0o755);
+  return { bin, callsPath };
+}
+
 function createInvalidCatalogFakeOpenClaw(dir: string): { bin: string; callsPath: string } {
   const callsPath = join(dir, "calls.jsonl");
   const bin = join(dir, "openclaw-invalid-catalog-fake.mjs");
@@ -1661,6 +1694,35 @@ test("OpenClaw tool smoke does not mask mixed setup and tool-defect blockers as 
       doesNotIndicatePackageFailure: false
     });
     assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /super-secret-transcript-span|requires credentials before opening a websocket/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke preserves public-safe validation reasons from tools.invoke failures", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-validation-failure-"));
+  const { bin, callsPath } = createValidationFailureFakeOpenClaw(dir);
+
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      requiredTools: ["loo_codex_steer_thread"]
+    });
+
+    assert.equal(report.ok, false);
+    assert.ok(
+      report.blockers.includes("openclaw_tool_validation_failed:loo_codex_steer_thread:expected_turn_id_required"),
+      JSON.stringify(report.blockers)
+    );
+    assert.ok(
+      report.blockers.includes("openclaw_tool_result_not_ok:loo_codex_steer_thread:internal_error"),
+      JSON.stringify(report.blockers)
+    );
+    assert.doesNotMatch(JSON.stringify(report), /super-secret-transcript-span|\/Users\/example|private\.jsonl/);
+    assert.equal(report.invocations[0]?.toolName, "loo_codex_steer_thread");
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;

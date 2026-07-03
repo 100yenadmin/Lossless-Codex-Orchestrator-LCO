@@ -8,7 +8,7 @@ import test from "node:test";
 
 import { createDatabase } from "../packages/core/src/index.js";
 import { LOO_COMMAND_POLICY, createAuditStore, createCodexControl } from "../packages/adapters/src/index.js";
-import { createLooToolDeclarations, createLooTools } from "../packages/mcp-server/src/tools.js";
+import { createLooToolDeclarations, createLooTools, executeLooToolForOpenClaw } from "../packages/mcp-server/src/tools.js";
 
 test("Codex control requires dry-run audit before live message, steer, resume, or interrupt", async () => {
   const root = mkdtempSync(join(tmpdir(), "loo-control-"));
@@ -342,6 +342,16 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
       () => steerTool.execute({ thread_id: "thr_1", message: "focus", dry_run: true }),
       /expected_turn_id is required/
     );
+    const gatewayValidation = await executeLooToolForOpenClaw(steerTool, {
+      thread_id: "thr_1",
+      message: "focus",
+      dry_run: true
+    }) as { ok: boolean; code?: string; error?: { code?: string; message?: string } };
+    assert.equal(gatewayValidation.ok, false);
+    assert.equal(gatewayValidation.code, "validation_failed");
+    assert.equal(gatewayValidation.error?.code, "validation_failed");
+    assert.equal(gatewayValidation.error?.message, "expected_turn_id is required");
+    assertNoRawLocalPaths(gatewayValidation);
     const genericSteerDryRun = await dryRunTool.execute({
       action: "steer",
       thread_id: "thr_1",
@@ -358,12 +368,15 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.ok(auditTailTool);
     const auditTail = await auditTailTool.execute({ limit: 5 }) as {
       auditPath: string;
+      auditRef: string;
       records: Array<{ id: string; paramsHash: string; messageHash?: string }>;
     };
-    assert.equal(auditTail.auditPath, audit.path);
+    assert.equal(auditTail.auditPath, "<redacted-local-path>/audit.jsonl");
+    assert.equal(auditTail.auditRef, "loo_audit_store:audit.jsonl");
     assert.equal(auditTail.records.some((record) => record.id === genericDryRun.approval_audit_id), true);
     assert.equal(auditTail.records.some((record) => record.paramsHash === genericDryRun.params_hash), true);
     assert.equal(JSON.stringify(auditTail).includes("continue"), false);
+    assertNoRawLocalPaths(auditTail);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -450,4 +463,12 @@ test("Audit fingerprint key is memoized after first use", () => {
 
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function assertNoRawLocalPaths(value: unknown): void {
+  assert.doesNotMatch(
+    JSON.stringify(value),
+    /(?:\/Volumes\/|\/Users\/|\/private\/|\/var\/folders\/|\/tmp\/|[A-Za-z]:\\)/,
+    "public tool output must not expose raw local filesystem paths"
+  );
 }

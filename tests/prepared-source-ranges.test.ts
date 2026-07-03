@@ -445,7 +445,8 @@ test("prepared source events are scoped to opaque source path refs for identical
     const indexed = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
     assert.equal(indexed.errors.length, 0);
     assert.equal(indexed.indexedFiles, 2);
-    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM prepared_source_events").get().count, 4);
+    const countRow = db.prepare("SELECT COUNT(*) AS count FROM prepared_source_events").get() as { count: number };
+    assert.equal(countRow.count, 4);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });

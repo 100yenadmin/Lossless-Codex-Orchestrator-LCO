@@ -343,10 +343,12 @@ test("MCP tools expose default Codex roots and read-only SQLite probes", async (
 
     const probeTool = tools.find((tool) => tool.name === "loo_codex_sqlite_stores");
     assert.ok(probeTool);
-    const probe = await probeTool.execute({ roots: [] }) as { stores: Array<{ path: string; supported: boolean }> };
+    const probe = await probeTool.execute({ roots: [] }) as { stores: Array<{ path: string; sourceRef?: string; supported: boolean }> };
     assert.equal(probe.stores.length, 1);
-    assert.equal(probe.stores[0]?.path, statePath);
+    assert.equal(probe.stores[0]?.path, "<redacted-local-path>/state_5.sqlite");
+    assert.equal(probe.stores[0]?.sourceRef, "codex_sqlite_store:state_5.sqlite");
     assert.equal(probe.stores[0]?.supported, true);
+    assertNoRawLocalPaths(probe);
   } finally {
     if (oldHome === undefined) {
       delete process.env.HOME;
@@ -359,3 +361,11 @@ test("MCP tools expose default Codex roots and read-only SQLite probes", async (
     }
   }
 });
+
+function assertNoRawLocalPaths(value: unknown): void {
+  assert.doesNotMatch(
+    JSON.stringify(value),
+    /(?:\/Volumes\/|\/Users\/|\/private\/|\/var\/folders\/|\/tmp\/|[A-Za-z]:\\)/,
+    "public tool output must not expose raw local filesystem paths"
+  );
+}
