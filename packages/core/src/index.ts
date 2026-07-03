@@ -119,7 +119,7 @@ export type PreparedSourceRangesReport = {
     returned: number;
     /** Count of low-confidence rows across the full matching public-safe set, not just the returned page. */
     lowConfidence: number;
-    lowConfidenceScope: "matching_total";
+    lowConfidenceScope: "matching_public_safe_total";
   };
   ranges: PreparedSourceRange[];
   omitted: {
@@ -2239,7 +2239,21 @@ export function getPreparedSourceRanges(db: LooDatabase, options: PreparedSource
     params.push(options.rangeKind);
   }
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  const publicSafeClauses = [
+    ...clauses,
+    "range_ref LIKE 'codex_range:%'",
+    "length(range_ref) = 44",
+    "event_ref LIKE 'codex_event:%'",
+    "length(event_ref) = 44",
+    "source_ref LIKE 'codex_thread:%'",
+    "source_path_ref LIKE 'codex_source:%'",
+    "length(source_path_ref) = 29",
+    "length(source_hash) = 32",
+    "length(content_hash) = 32"
+  ];
+  const publicSafeWhere = `WHERE ${publicSafeClauses.join(" AND ")}`;
   const countRow = db.prepare(`SELECT COUNT(*) AS count FROM prepared_source_ranges ${where}`).get(...params) as { count: number };
+  const publicSafeCountRow = db.prepare(`SELECT COUNT(*) AS count FROM prepared_source_ranges ${publicSafeWhere}`).get(...params) as { count: number };
   const rows = db.prepare(`
     SELECT
       range_ref AS rangeRef,
@@ -2262,7 +2276,7 @@ export function getPreparedSourceRanges(db: LooDatabase, options: PreparedSource
       observed_at AS observedAt,
       reason_codes_json AS reasonCodesJson
     FROM prepared_source_ranges
-    ${where}
+    ${publicSafeWhere}
     ORDER BY thread_id ASC, ordinal ASC, range_ref ASC
     LIMIT ?
   `).all(...params, limit) as Array<{
@@ -2289,8 +2303,8 @@ export function getPreparedSourceRanges(db: LooDatabase, options: PreparedSource
   const lowConfidenceRow = db.prepare(`
     SELECT COUNT(*) AS count
     FROM prepared_source_ranges
-    ${where}
-      ${where ? "AND" : "WHERE"} confidence < 0.5
+    ${publicSafeWhere}
+      AND confidence < 0.5
   `).get(...params) as { count: number };
   const ranges: PreparedSourceRange[] = rows.flatMap((row) => {
     if (!isPublicPreparedSourceRangeRow(row)) return [];
@@ -2318,8 +2332,10 @@ export function getPreparedSourceRanges(db: LooDatabase, options: PreparedSource
     }];
   });
   const total = Number(countRow.count ?? 0);
-  const filteredUnsafeRows = rows.length - ranges.length;
-  const limitOmissions = Math.max(0, total - rows.length);
+  const publicSafeTotal = Number(publicSafeCountRow.count ?? 0);
+  const strictFilteredUnsafeRows = rows.length - ranges.length;
+  const filteredUnsafeRows = Math.max(0, total - publicSafeTotal) + strictFilteredUnsafeRows;
+  const limitOmissions = Math.max(0, publicSafeTotal - rows.length);
   const omittedCount = limitOmissions + filteredUnsafeRows;
   const omittedReasons = [
     limitOmissions > 0 ? "limit" : null,
@@ -2340,7 +2356,7 @@ export function getPreparedSourceRanges(db: LooDatabase, options: PreparedSource
       total,
       returned: ranges.length,
       lowConfidence: Number(lowConfidenceRow.count ?? 0),
-      lowConfidenceScope: "matching_total"
+      lowConfidenceScope: "matching_public_safe_total"
     },
     ranges,
     omitted: {
@@ -8031,6 +8047,7 @@ function preparedRangeConfidence(rangeKind: PreparedSourceRangeKind): number {
 }
 
 function preparedEventConfidence(event: PreparedSourceEventDraft): number {
+  // Event confidence is the floor of its child range confidences; public reports expose per-range confidence.
   const confidences = event.ranges.map((range) => preparedRangeConfidence(range.rangeKind));
   return confidences.length > 0 ? Math.min(...confidences) : 0.4;
 }

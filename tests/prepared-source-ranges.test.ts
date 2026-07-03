@@ -124,10 +124,11 @@ test("prepared source range report skips malformed unsafe derived-cache rows", (
     const before = getPreparedSourceRanges(db, { threadId: "019f-prepared-safe-row", limit: 50 });
     assert.equal(before.ranges.length > 1, true);
 
+    const unsafeRange = before.ranges.find((range) => range.confidence < 0.5) ?? before.ranges[0]!;
     db.prepare("UPDATE prepared_source_ranges SET source_path_ref = ?, privacy_class = ? WHERE range_ref = ?").run(
       "/Users/lume/private/raw-transcript.jsonl",
       "public_safe_metadata",
-      before.ranges[0]!.rangeRef
+      unsafeRange.rangeRef
     );
 
     const report = getPreparedSourceRanges(db, { threadId: "019f-prepared-safe-row", limit: 50 });
@@ -140,11 +141,12 @@ test("prepared source range report skips malformed unsafe derived-cache rows", (
     assert.equal(report.omitted.reason, "filtered_unsafe_rows");
     assert.deepEqual(report.omitted.reasons, ["filtered_unsafe_rows"]);
     assert.equal(report.omitted.filteredUnsafeRows, 1);
+    assert.equal(report.summary.lowConfidence, report.ranges.filter((range) => range.confidence < 0.5).length);
 
     const limitedUnsafe = getPreparedSourceRanges(db, { threadId: "019f-prepared-safe-row", limit: 1 });
     assert.equal(limitedUnsafe.omitted.reason, "limit_and_filtered_unsafe_rows");
     assert.deepEqual(limitedUnsafe.omitted.reasons, ["limit", "filtered_unsafe_rows"]);
-    assert.equal(limitedUnsafe.omitted.limitCount > 0, true);
+    assert.equal(limitedUnsafe.omitted.limitCount, before.ranges.length - 2);
     assert.equal(limitedUnsafe.omitted.filteredUnsafeRows, 1);
   } finally {
     db.close();
@@ -157,7 +159,9 @@ test("prepared source ranges are public-safe opaque refs with hashes and no raw 
   const sessions = join(root, "sessions");
   mkdirSync(sessions, { recursive: true });
   const sourcePath = join(sessions, "rollout-2026-07-03T00-00-00-019f-prepared-ranges.jsonl");
-  writePreparedJsonl(sourcePath, "019f-prepared-ranges", "Prepared range proof");
+  writePreparedJsonl(sourcePath, "019f-prepared-ranges", "Prepared range proof", [
+    { timestamp: "2026-07-03T00:00:06Z", event_msg: { type: "noop" } }
+  ]);
 
   const db = createDatabase(join(root, "orchestrator.sqlite"));
   try {
@@ -185,6 +189,12 @@ test("prepared source ranges are public-safe opaque refs with hashes and no raw 
     assert.equal(kinds.has("final_message"), true);
     assert.equal(kinds.has("tool_call_metadata"), true);
 
+    const confidenceByKind = new Map(report.ranges.map((range) => [range.rangeKind, range.confidence]));
+    assert.equal(confidenceByKind.get("event_metadata"), 0.4);
+    assert.equal(confidenceByKind.get("tool_call_metadata"), 0.45);
+    assert.equal(confidenceByKind.get("proposed_plan"), 0.95);
+    assert.equal(confidenceByKind.get("final_message"), 0.95);
+
     for (const range of report.ranges) {
       assert.match(range.rangeRef, /^codex_range:/);
       assert.match(range.eventRef, /^codex_event:/);
@@ -204,12 +214,12 @@ test("prepared source ranges are public-safe opaque refs with hashes and no raw 
     assert.equal(rawRowsSerialized.includes("/Users/lume"), false);
     assert.equal(rawRowsSerialized.includes("PRIVATE_CANARY_TOKEN"), false);
     assert.equal(report.summary.lowConfidence > 0, true);
-    assert.equal(report.summary.lowConfidenceScope, "matching_total");
+    assert.equal(report.summary.lowConfidenceScope, "matching_public_safe_total");
 
     const limited = getPreparedSourceRanges(db, { threadId: "019f-prepared-ranges", limit: 1 });
     assert.equal(limited.ranges.length, 1);
     assert.equal(limited.summary.lowConfidence, report.summary.lowConfidence);
-    assert.equal(limited.summary.lowConfidenceScope, "matching_total");
+    assert.equal(limited.summary.lowConfidenceScope, "matching_public_safe_total");
     assert.equal(limited.omitted.reason, "limit");
     assert.deepEqual(limited.omitted.reasons, ["limit"]);
   } finally {
