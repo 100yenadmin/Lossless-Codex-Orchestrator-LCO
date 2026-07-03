@@ -373,7 +373,9 @@ export type PreparedInboxReport = {
   publicSafe: true;
   readOnly: true;
   generatedAt: string;
-  sourceCoverage: PreparedCardsReport["sourceCoverage"];
+  sourceCoverage: PreparedCardsReport["sourceCoverage"] & {
+    preparedInboxItems: PreparedStateCoverage;
+  };
   summary: {
     total: number;
     returned: number;
@@ -2076,6 +2078,11 @@ export function migrate(db: LooDatabase): void {
         'Additive prepared-state card and inbox tables'
       ),
       (
+        '2026-07-04-prepared-card-source-range-omissions',
+        datetime('now'),
+        'Persist prepared-card source range omission counts'
+      ),
+      (
         '2026-07-03-watcher-observations',
         datetime('now'),
         'Additive prepared-state watcher spec, observation, and attention queue tables'
@@ -2190,6 +2197,7 @@ export function migrate(db: LooDatabase): void {
       next_action TEXT,
       source_refs_json TEXT NOT NULL DEFAULT '[]',
       source_range_refs_json TEXT NOT NULL DEFAULT '[]',
+      source_range_refs_omitted INTEGER NOT NULL DEFAULT 0,
       authority_coverage_json TEXT NOT NULL DEFAULT '{}',
       input_hash TEXT NOT NULL,
       extractor_version TEXT NOT NULL,
@@ -2312,6 +2320,7 @@ export function migrate(db: LooDatabase): void {
   ensureColumn(db, "codex_session_metadata", "closeout_envelope_text", "TEXT");
   ensureColumn(db, "codex_session_metadata", "closeout_envelope_open_count", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "codex_session_metadata", "closeout_envelope_close_count", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "prepared_cards", "source_range_refs_omitted", "INTEGER NOT NULL DEFAULT 0");
 }
 
 function ensureColumn(db: LooDatabase, table: string, column: string, definition: string): void {
@@ -3245,10 +3254,10 @@ export function materializePreparedCards(db: LooDatabase, options: { threadId?: 
       db.prepare(`
         INSERT INTO prepared_cards (
           card_id, card_ref, target_ref, card_kind, title, summary_text, next_action,
-          source_refs_json, source_range_refs_json, authority_coverage_json,
+          source_refs_json, source_range_refs_json, source_range_refs_omitted, authority_coverage_json,
           input_hash, extractor_version, privacy_class, confidence, freshness_at,
           stale, state, reason_codes_json, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         card.cardId,
         card.cardRef,
@@ -3259,6 +3268,7 @@ export function materializePreparedCards(db: LooDatabase, options: { threadId?: 
         card.nextAction,
         JSON.stringify(card.sourceRefs),
         JSON.stringify(card.sourceRangeRefs),
+        card.sourceRangeRefsOmitted,
         JSON.stringify(card.authorityCoverage),
         card.inputHash,
         PREPARED_CARD_EXTRACTOR_VERSION,
@@ -3383,7 +3393,7 @@ export function getPreparedStateStatus(db: LooDatabase): PreparedStateStatusRepo
     sourceCoverage: {
       summaryLeaves: leaves > 0 ? "ok" : "not_configured",
       preparedCards: cardsReport.sourceCoverage.preparedCards,
-      preparedInboxItems: inboxReport.sourceCoverage.preparedCards === "ok" ? "ok" : inboxReport.sourceCoverage.preparedCards,
+      preparedInboxItems: inboxReport.sourceCoverage.preparedInboxItems,
       watcherObservations: "not_configured"
     },
     summary: {
@@ -3427,6 +3437,7 @@ export function getPreparedCards(db: LooDatabase, options: PreparedCardsOptions 
       next_action AS nextAction,
       source_refs_json AS sourceRefsJson,
       source_range_refs_json AS sourceRangeRefsJson,
+      source_range_refs_omitted AS sourceRangeRefsOmitted,
       authority_coverage_json AS authorityCoverageJson,
       input_hash AS inputHash,
       extractor_version AS extractorVersion,
@@ -3527,12 +3538,14 @@ export function getPreparedInbox(db: LooDatabase, options: PreparedInboxOptions 
     if (item.reasonCodes.includes("low_confidence")) lowConfidence += 1;
     if (validItems.length < limit) validItems.push(item);
   }
+  const inboxCoverage: PreparedStateCoverage = validTotal > 0 ? "ok" : rows.length > 0 ? "partial" : "not_configured";
   return {
     schema: "lco.prepared.inbox.v1",
     publicSafe: true,
     readOnly: true,
     generatedAt: new Date().toISOString(),
     sourceCoverage: {
+      preparedInboxItems: inboxCoverage,
       preparedCards: validItems.length > 0 ? "ok" : rows.length > 0 ? "partial" : "not_configured",
       summaryLeaves: preparedSummaryLeafCoverage(db, options.threadId),
       watcherObservations: "not_configured"
@@ -3566,6 +3579,7 @@ type PreparedCardRow = {
   nextAction: string | null;
   sourceRefsJson: string;
   sourceRangeRefsJson: string;
+  sourceRangeRefsOmitted: number;
   authorityCoverageJson: string;
   inputHash: string;
   extractorVersion: string;
@@ -3733,7 +3747,7 @@ function publicPreparedCardFromRow(row: PreparedCardRow): PreparedCard | null {
     nextAction: publicSafeText(row.nextAction ?? "", 240),
     sourceRefs,
     sourceRangeRefs,
-    sourceRangeRefsOmitted: Math.max(0, Number(authorityCoverage.summaryLeaves.rangeCount) - sourceRangeRefs.length),
+    sourceRangeRefsOmitted: boundedNonNegativeInteger(row.sourceRangeRefsOmitted, 1_000_000),
     authorityCoverage,
     sourceCoverage: preparedCardSourceCoverage(authorityCoverage),
     inputHash: row.inputHash,
@@ -3759,6 +3773,7 @@ function getPreparedCardRowByTargetRef(db: LooDatabase, targetRef: string): Prep
       next_action AS nextAction,
       source_refs_json AS sourceRefsJson,
       source_range_refs_json AS sourceRangeRefsJson,
+      source_range_refs_omitted AS sourceRangeRefsOmitted,
       authority_coverage_json AS authorityCoverageJson,
       input_hash AS inputHash,
       extractor_version AS extractorVersion,

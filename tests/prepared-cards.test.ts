@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -14,6 +15,9 @@ import {
   materializeSummaryLeaves
 } from "../packages/core/src/index.js";
 import { createLooToolDeclarations, createLooTools } from "../packages/mcp-server/src/tools.js";
+
+const require = createRequire(import.meta.url);
+const { DatabaseSync } = require("node:sqlite") as { DatabaseSync: new (path: string) => ReturnType<typeof createDatabase> };
 
 function writePreparedCardJsonl(path: string, threadId: string, title: string): void {
   const lines = [
@@ -169,6 +173,49 @@ test("prepared cards materialize public-safe advisory cards and inbox entries", 
   }
 });
 
+test("prepared card migration preserves existing beta databases and adds persisted omitted ranges", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-card-migration-"));
+  const dbPath = join(root, "orchestrator.sqlite");
+  const legacyDb = new DatabaseSync(dbPath);
+  try {
+    legacyDb.exec(`
+      CREATE TABLE prepared_cards (
+        card_id TEXT PRIMARY KEY,
+        card_ref TEXT NOT NULL UNIQUE,
+        target_ref TEXT NOT NULL,
+        card_kind TEXT NOT NULL,
+        title TEXT NOT NULL DEFAULT '',
+        summary_text TEXT NOT NULL DEFAULT '',
+        next_action TEXT,
+        source_refs_json TEXT NOT NULL DEFAULT '[]',
+        source_range_refs_json TEXT NOT NULL DEFAULT '[]',
+        authority_coverage_json TEXT NOT NULL DEFAULT '{}',
+        input_hash TEXT NOT NULL,
+        extractor_version TEXT NOT NULL,
+        privacy_class TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        freshness_at TEXT,
+        stale INTEGER NOT NULL DEFAULT 0,
+        state TEXT NOT NULL DEFAULT 'unknown',
+        reason_codes_json TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+  } finally {
+    legacyDb.close();
+  }
+
+  const db = createDatabase(dbPath);
+  try {
+    const columns = db.prepare("PRAGMA table_info(prepared_cards)").all() as Array<{ name: string }>;
+    assert.equal(columns.some((row) => row.name === "source_range_refs_omitted"), true);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("prepared card materialization downgrades stale or partial authority inputs", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-prepared-card-stale-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
@@ -193,6 +240,60 @@ test("prepared card materialization downgrades stale or partial authority inputs
     assert.equal(card.reasonCodes.includes("stale_cache"), true);
     assert.equal(card.reasonCodes.includes("authority_partial"), true);
     assert.equal(card.authorityCoverage.summaryLeaves.status, "partial");
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared status and card reads keep inbox coverage and omitted ranges independent", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-card-coverage-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    db.prepare(`
+      INSERT INTO prepared_cards (
+        card_id, card_ref, target_ref, card_kind, title, summary_text, next_action,
+        source_refs_json, source_range_refs_json, source_range_refs_omitted, authority_coverage_json,
+        input_hash, extractor_version, privacy_class, confidence, freshness_at,
+        stale, state, reason_codes_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "coverage-card",
+      "prepared_card:60000000000000000000000000000006",
+      "codex_thread:019f-prepared-coverage",
+      "codex_session",
+      "Prepared coverage",
+      "Prepared state: one public-safe card.",
+      "Review bounded summary evidence.",
+      JSON.stringify(["codex_thread:019f-prepared-coverage", "summary_leaf:60000000000000000000000000000006"]),
+      JSON.stringify(["codex_range:60000000000000000000000000000006"]),
+      7,
+      JSON.stringify({
+        summaryLeaves: { status: "ok", leafCount: 2, rangeCount: 8 },
+        sessionMetadata: { status: "ok" },
+        watcherObservations: { status: "not_configured" }
+      }),
+      "60000000000000000000000000000006",
+      "prepared-cards-v1",
+      "public_safe_metadata",
+      0.9,
+      "2026-07-03T00:00:00.000Z",
+      0,
+      "ready",
+      JSON.stringify(["summary_leaves_ready"]),
+      "2026-07-03T00:00:00.000Z",
+      "2026-07-03T00:00:00.000Z"
+    );
+
+    const cards = getPreparedCards(db, { threadId: "019f-prepared-coverage" });
+    assert.equal(cards.cards.length, 1);
+    assert.equal(cards.cards[0]!.sourceRangeRefsOmitted, 7);
+
+    const status = getPreparedStateStatus(db);
+    assert.equal(status.sourceCoverage.preparedCards, "ok");
+    assert.equal(status.sourceCoverage.preparedInboxItems, "not_configured");
+    assert.equal(status.summary.cards, 1);
+    assert.equal(status.summary.inboxItems, 0);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -237,10 +338,10 @@ test("prepared card reports filter unsafe cached rows without leaking canaries",
     db.prepare(`
       INSERT INTO prepared_cards (
         card_id, card_ref, target_ref, card_kind, title, summary_text, next_action,
-        source_refs_json, source_range_refs_json, authority_coverage_json,
+        source_refs_json, source_range_refs_json, source_range_refs_omitted, authority_coverage_json,
         input_hash, extractor_version, privacy_class, confidence, freshness_at,
         stale, state, reason_codes_json, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       "unsafe-card",
       "prepared_card:40000000000000000000000000000004",
@@ -251,6 +352,7 @@ test("prepared card reports filter unsafe cached rows without leaking canaries",
       "cat /Users/lume/private/customer.txt",
       JSON.stringify(["/Users/lume/private/customer.txt"]),
       JSON.stringify(["codex_range:40000000000000000000000000000004"]),
+      0,
       JSON.stringify({ summaryLeaves: { status: "ok" } }),
       "40000000000000000000000000000004",
       "prepared-cards-v1",
