@@ -93,7 +93,49 @@ test("prepared-state migration adds additive shadow tables to an existing 1.1-st
     ]) {
       assert.equal(tables.has(table), true, `${table} exists`);
     }
+    const migrationIds = new Set((db.prepare("SELECT migration_id AS migrationId FROM loo_schema_migrations").all() as Array<{ migrationId: string }>).map((row) => row.migrationId));
+    for (const migrationId of [
+      "2026-07-03-prepared-source-ranges",
+      "2026-07-03-summary-leaves",
+      "2026-07-03-prepared-cards",
+      "2026-07-03-watcher-observations",
+      "2026-07-03-hook-capture-packets",
+      "2026-07-03-state-prep-jobs"
+    ]) {
+      assert.equal(migrationIds.has(migrationId), true, `${migrationId} migration is logged`);
+    }
     assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared source range report skips malformed unsafe derived-cache rows", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-safe-row-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const sourcePath = join(sessions, "rollout-2026-07-03T00-00-00-019f-prepared-safe-row.jsonl");
+  writePreparedJsonl(sourcePath, "019f-prepared-safe-row", "Prepared safe row proof");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    const before = getPreparedSourceRanges(db, { threadId: "019f-prepared-safe-row", limit: 50 });
+    assert.equal(before.ranges.length > 1, true);
+
+    db.prepare("UPDATE prepared_source_ranges SET source_path_ref = ?, privacy_class = ? WHERE range_ref = ?").run(
+      "/Users/lume/private/raw-transcript.jsonl",
+      "public_safe_metadata",
+      before.ranges[0]!.rangeRef
+    );
+
+    const report = getPreparedSourceRanges(db, { threadId: "019f-prepared-safe-row", limit: 50 });
+    const serialized = JSON.stringify(report);
+    assert.equal(serialized.includes("/Users/lume/private"), false);
+    assert.equal(report.ranges.some((range) => range.sourcePathRef === "/Users/lume/private/raw-transcript.jsonl"), false);
+    assert.equal(report.ranges.every((range) => /^codex_source:[0-9a-f]{16}$/.test(range.sourcePathRef)), true);
+    assert.equal(report.ranges.length, before.ranges.length - 1);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -151,6 +193,7 @@ test("prepared source ranges are public-safe opaque refs with hashes and no raw 
     assert.equal(rawRowsSerialized.includes(sourcePath), false);
     assert.equal(rawRowsSerialized.includes("/Users/lume"), false);
     assert.equal(rawRowsSerialized.includes("PRIVATE_CANARY_TOKEN"), false);
+    assert.equal(report.summary.lowConfidence > 0, true);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -184,6 +227,7 @@ test("prepared source ranges reindex append truncate and same-size changes witho
     const appended = getPreparedSourceRanges(db, { threadId: "019f-prepared-reindex", limit: 100 });
     assert.equal(appended.summary.total > first.summary.total, true);
     assert.equal(new Set(appended.ranges.map((range) => range.rangeRef)).size, appended.ranges.length);
+    assertNoDuplicatePreparedEvents(db, "019f-prepared-reindex");
 
     writePreparedJsonl(sourcePath, "019f-prepared-reindex", "Bravo range proof");
     utimesSync(sourcePath, fixedTime, fixedTime);
@@ -191,6 +235,7 @@ test("prepared source ranges reindex append truncate and same-size changes witho
     indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
     const sameSize = getPreparedSourceRanges(db, { threadId: "019f-prepared-reindex", limit: 100 });
     assert.notEqual(sameSize.ranges[0]?.sourceHash, firstHash);
+    assertNoDuplicatePreparedEvents(db, "019f-prepared-reindex");
 
     writeFileSync(sourcePath, [
       JSON.stringify({ timestamp: "2026-07-03T00:00:00Z", session_meta: { payload: { id: "019f-prepared-reindex" } } }),
@@ -201,8 +246,85 @@ test("prepared source ranges reindex append truncate and same-size changes witho
     assert.equal(truncated.ranges.some((range) => range.rangeKind === "final_message"), false);
     assert.equal(truncated.ranges.every((range) => range.lineEnd <= 2), true);
     assert.equal(truncated.ranges.every((range) => range.confidence < 0.99), true);
+    assertNoDuplicatePreparedEvents(db, "019f-prepared-reindex");
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("prepared source ranges backfill unchanged watermarked sources after migration", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-backfill-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const sourcePath = join(sessions, "rollout-2026-07-03T00-00-00-019f-prepared-backfill.jsonl");
+  writePreparedJsonl(sourcePath, "019f-prepared-backfill", "Prepared backfill proof");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const first = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    assert.equal(first.indexedFiles, 1);
+    db.prepare("DELETE FROM prepared_source_ranges").run();
+    db.prepare("DELETE FROM prepared_source_events").run();
+
+    const backfill = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    assert.equal(backfill.skippedFiles, 0);
+    assert.equal(backfill.indexedFiles, 1);
+    const report = getPreparedSourceRanges(db, { threadId: "019f-prepared-backfill", limit: 50 });
+    assert.equal(report.summary.total > 0, true);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared source events are scoped to opaque source path refs for identical fallback transcripts", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-source-scope-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const lines = [
+    { timestamp: "2026-07-03T00:00:00Z", event_msg: { type: "thread_name", name: "Fallback duplicate proof" } },
+    { timestamp: "2026-07-03T00:00:01Z", event_msg: { type: "user_message", message: "Build duplicate fallback proof." } }
+  ].map((line) => JSON.stringify(line)).join("\n") + "\n";
+  writeFileSync(join(sessions, "rollout-2026-07-03T00-00-00-019f-source-copy-a.jsonl"), lines);
+  writeFileSync(join(sessions, "rollout-2026-07-03T00-00-00-019f-source-copy-b.jsonl"), lines);
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const indexed = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    assert.equal(indexed.errors.length, 0);
+    assert.equal(indexed.indexedFiles, 2);
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM prepared_source_events").get().count, 4);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared source range cleanup removes stale rows when a source path maps to a new thread", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-source-remap-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const sourcePath = join(sessions, "rollout-2026-07-03T00-00-00-019f-source-remap.jsonl");
+  writePreparedJsonl(sourcePath, "019f-source-remap-a", "Source remap A");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    assert.equal(getPreparedSourceRanges(db, { threadId: "019f-source-remap-a", limit: 50 }).summary.total > 0, true);
+
+    writePreparedJsonl(sourcePath, "019f-source-remap-b", "Source remap B");
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    assert.equal(getPreparedSourceRanges(db, { threadId: "019f-source-remap-a", limit: 50 }).summary.total, 0);
+    assert.equal(getPreparedSourceRanges(db, { threadId: "019f-source-remap-b", limit: 50 }).summary.total > 0, true);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function assertNoDuplicatePreparedEvents(db: DatabaseSync, threadId: string): void {
+  const eventRows = db.prepare("SELECT event_id AS eventId, event_ref AS eventRef FROM prepared_source_events WHERE thread_id = ?").all(threadId) as Array<{ eventId: string; eventRef: string }>;
+  assert.equal(new Set(eventRows.map((row) => row.eventId)).size, eventRows.length, "no duplicate prepared_source_events.event_id rows");
+  assert.equal(new Set(eventRows.map((row) => row.eventRef)).size, eventRows.length, "no duplicate prepared_source_events.event_ref rows");
+}

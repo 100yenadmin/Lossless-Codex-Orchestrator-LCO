@@ -1732,11 +1732,37 @@ export function migrate(db: LooDatabase): void {
     );
 
     INSERT OR IGNORE INTO loo_schema_migrations (migration_id, applied_at, description)
-    VALUES (
-      '2026-07-03-prepared-source-ranges',
-      datetime('now'),
-      'Additive prepared-state source events, source ranges, summary, card, watcher, hook, and prep-job tables'
-    );
+    VALUES
+      (
+        '2026-07-03-prepared-source-ranges',
+        datetime('now'),
+        'Additive prepared-state source events and source ranges'
+      ),
+      (
+        '2026-07-03-summary-leaves',
+        datetime('now'),
+        'Additive prepared-state summary leaf and edge tables'
+      ),
+      (
+        '2026-07-03-prepared-cards',
+        datetime('now'),
+        'Additive prepared-state card and inbox tables'
+      ),
+      (
+        '2026-07-03-watcher-observations',
+        datetime('now'),
+        'Additive prepared-state watcher spec, observation, and attention queue tables'
+      ),
+      (
+        '2026-07-03-hook-capture-packets',
+        datetime('now'),
+        'Additive prepared-state hook capture packet table'
+      ),
+      (
+        '2026-07-03-state-prep-jobs',
+        datetime('now'),
+        'Additive prepared-state prep job table'
+      );
 
     CREATE TABLE IF NOT EXISTS prepared_source_events (
       event_id TEXT PRIMARY KEY,
@@ -1763,6 +1789,7 @@ export function migrate(db: LooDatabase): void {
 
     CREATE INDEX IF NOT EXISTS prepared_source_events_thread_idx ON prepared_source_events(thread_id, ordinal);
     CREATE INDEX IF NOT EXISTS prepared_source_events_source_ref_idx ON prepared_source_events(source_ref);
+    CREATE INDEX IF NOT EXISTS prepared_source_events_source_path_ref_idx ON prepared_source_events(source_path_ref);
 
     CREATE TABLE IF NOT EXISTS prepared_source_ranges (
       range_id TEXT PRIMARY KEY,
@@ -1793,6 +1820,7 @@ export function migrate(db: LooDatabase): void {
     CREATE INDEX IF NOT EXISTS prepared_source_ranges_thread_idx ON prepared_source_ranges(thread_id, ordinal);
     CREATE INDEX IF NOT EXISTS prepared_source_ranges_kind_idx ON prepared_source_ranges(range_kind);
     CREATE INDEX IF NOT EXISTS prepared_source_ranges_source_ref_idx ON prepared_source_ranges(source_ref);
+    CREATE INDEX IF NOT EXISTS prepared_source_ranges_source_path_ref_idx ON prepared_source_ranges(source_path_ref);
 
     CREATE TABLE IF NOT EXISTS summary_leaves (
       leaf_id TEXT PRIMARY KEY,
@@ -1991,7 +2019,7 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
         continue;
       }
       if (watermark && watermark.size === stat.size && watermark.mtimeMs === mtimeMs) {
-        if (watermark.pathHash === stableId(text) && !sourceNeedsMetadataBackfill(db, path)) {
+        if (watermark.pathHash === stableId(text) && !sourceNeedsMetadataBackfill(db, path) && !sourceNeedsPreparedSourceRangeBackfill(db, path)) {
           result.skippedFiles += 1;
           continue;
         }
@@ -2187,8 +2215,16 @@ export function getSourceFileWatermark(db: LooDatabase, sourcePath: string): Sou
 
 export function getPreparedSourceRanges(db: LooDatabase, options: PreparedSourceRangesOptions = {}): PreparedSourceRangesReport {
   const limit = clamp(options.limit ?? 100, 1, 1000);
-  const clauses: string[] = [];
-  const params: Array<string | number> = [];
+  const clauses: string[] = [
+    "privacy_class = ?",
+    "omission_status = ?",
+    "extractor_version = ?"
+  ];
+  const params: Array<string | number> = [
+    "public_safe_metadata",
+    "metadata_only",
+    PREPARED_SOURCE_EXTRACTOR_VERSION
+  ];
   if (options.threadId) {
     clauses.push("thread_id = ?");
     params.push(options.threadId);
@@ -2245,28 +2281,31 @@ export function getPreparedSourceRanges(db: LooDatabase, options: PreparedSource
     observedAt: string | null;
     reasonCodesJson: string;
   }>;
-  const ranges: PreparedSourceRange[] = rows.map((row) => ({
-    schema: "lco.prepared.sourceRange.v1",
-    rangeRef: row.rangeRef,
-    eventRef: row.eventRef,
-    threadId: row.threadId,
-    sourceRef: row.sourceRef,
-    sourcePathRef: row.sourcePathRef,
-    rangeKind: row.rangeKind,
-    lineStart: Number(row.lineStart),
-    lineEnd: Number(row.lineEnd),
-    byteStart: Number(row.byteStart),
-    byteEnd: Number(row.byteEnd),
-    ordinal: Number(row.ordinal),
-    sourceHash: row.sourceHash,
-    contentHash: row.contentHash,
-    extractorVersion: PREPARED_SOURCE_EXTRACTOR_VERSION,
-    privacyClass: "public_safe_metadata",
-    omissionStatus: "metadata_only",
-    confidence: Number(row.confidence),
-    observedAt: row.observedAt,
-    reasonCodes: parseSourceRefsJson(row.reasonCodesJson)
-  }));
+  const ranges: PreparedSourceRange[] = rows.flatMap((row) => {
+    if (!isPublicPreparedSourceRangeRow(row)) return [];
+    return [{
+      schema: "lco.prepared.sourceRange.v1",
+      rangeRef: row.rangeRef,
+      eventRef: row.eventRef,
+      threadId: row.threadId,
+      sourceRef: row.sourceRef,
+      sourcePathRef: row.sourcePathRef,
+      rangeKind: row.rangeKind,
+      lineStart: Number(row.lineStart),
+      lineEnd: Number(row.lineEnd),
+      byteStart: Number(row.byteStart),
+      byteEnd: Number(row.byteEnd),
+      ordinal: Number(row.ordinal),
+      sourceHash: row.sourceHash,
+      contentHash: row.contentHash,
+      extractorVersion: PREPARED_SOURCE_EXTRACTOR_VERSION,
+      privacyClass: "public_safe_metadata",
+      omissionStatus: "metadata_only",
+      confidence: Number(row.confidence),
+      observedAt: row.observedAt,
+      reasonCodes: parseSourceRefsJson(row.reasonCodesJson)
+    }];
+  });
   const total = Number(countRow.count ?? 0);
   return {
     schema: "lco.prepared.sourceRanges.v1",
@@ -2298,6 +2337,42 @@ export function getPreparedSourceRanges(db: LooDatabase, options: PreparedSource
   };
 }
 
+function isPublicPreparedSourceRangeRow(row: {
+  rangeRef: string;
+  eventRef: string;
+  threadId: string;
+  sourceRef: string;
+  sourcePathRef: string;
+  rangeKind: PreparedSourceRangeKind;
+  lineStart: number;
+  lineEnd: number;
+  byteStart: number;
+  byteEnd: number;
+  ordinal: number;
+  sourceHash: string;
+  contentHash: string;
+  extractorVersion: string;
+  privacyClass: string;
+  omissionStatus: string;
+  confidence: number;
+}): boolean {
+  return row.extractorVersion === PREPARED_SOURCE_EXTRACTOR_VERSION
+    && row.privacyClass === "public_safe_metadata"
+    && row.omissionStatus === "metadata_only"
+    && /^codex_range:[0-9a-f]{32}$/.test(row.rangeRef)
+    && /^codex_event:[0-9a-f]{32}$/.test(row.eventRef)
+    && /^codex_thread:.+/.test(row.sourceRef)
+    && /^codex_source:[0-9a-f]{16}$/.test(row.sourcePathRef)
+    && /^[0-9a-f]{32}$/.test(row.sourceHash)
+    && /^[0-9a-f]{32}$/.test(row.contentHash)
+    && Number.isFinite(Number(row.lineStart))
+    && Number.isFinite(Number(row.lineEnd))
+    && Number.isFinite(Number(row.byteStart))
+    && Number.isFinite(Number(row.byteEnd))
+    && Number.isFinite(Number(row.ordinal))
+    && Number.isFinite(Number(row.confidence));
+}
+
 function sourceNeedsMetadataBackfill(db: LooDatabase, sourcePath: string): boolean {
   const rows = db.prepare(`
     SELECT s.thread_id AS threadId, m.thread_id AS metadataThreadId, m.metadata_schema_version AS metadataSchemaVersion
@@ -2306,6 +2381,20 @@ function sourceNeedsMetadataBackfill(db: LooDatabase, sourcePath: string): boole
     WHERE s.source_path = ?
   `).all(sourcePath) as Array<{ threadId: string; metadataThreadId: string | null; metadataSchemaVersion: number | null }>;
   return rows.length === 0 || rows.some((row) => !row.metadataThreadId || Number(row.metadataSchemaVersion ?? 0) < SESSION_METADATA_SCHEMA_VERSION);
+}
+
+function sourceNeedsPreparedSourceRangeBackfill(db: LooDatabase, sourcePath: string): boolean {
+  const sourcePathRef = publicSourcePathRef(sourcePath);
+  const row = db.prepare(`
+    SELECT 1 AS found
+    FROM prepared_source_ranges
+    WHERE source_path_ref = ?
+      AND extractor_version = ?
+      AND privacy_class = 'public_safe_metadata'
+      AND omission_status = 'metadata_only'
+    LIMIT 1
+  `).get(sourcePathRef, PREPARED_SOURCE_EXTRACTOR_VERSION) as { found: number } | undefined;
+  return row?.found !== 1;
 }
 
 export function probeCodexSqliteStores(roots: string[], maxFiles = 100): { stores: CodexSqliteProbe[] } {
@@ -7736,6 +7825,7 @@ function parseCodexJsonl(sourcePath: string, text: string): ImportedSession {
     } catch {
       continue;
     }
+    if (session.eventCount >= DEFAULT_CODEX_MAX_EVENTS_PER_FILE) break;
     session.eventCount += 1;
     const rangeKinds = new Set<PreparedSourceRangeKind>();
     const timestamp = findTimestamp(item);
@@ -7815,20 +7905,25 @@ function parseCodexJsonl(sourcePath: string, text: string): ImportedSession {
 function jsonlLineRecords(text: string): JsonlLineRecord[] {
   const records: JsonlLineRecord[] = [];
   let cursor = 0;
+  let byteCursor = 0;
   let lineNumber = 1;
   while (cursor < text.length) {
     const newlineIndex = text.indexOf("\n", cursor);
     const lineEnd = newlineIndex === -1 ? text.length : newlineIndex;
-    const rawLine = text.slice(cursor, lineEnd).replace(/\r$/, "");
+    const lineText = text.slice(cursor, lineEnd);
+    const rawLine = lineText.replace(/\r$/, "");
+    const byteStart = byteCursor;
+    const byteEnd = byteStart + Buffer.byteLength(lineText);
     if (rawLine.trim()) {
       records.push({
         lineNumber,
         text: rawLine,
-        byteStart: Buffer.byteLength(text.slice(0, cursor)),
-        byteEnd: Buffer.byteLength(text.slice(0, lineEnd))
+        byteStart,
+        byteEnd
       });
     }
     if (newlineIndex === -1) break;
+    byteCursor += Buffer.byteLength(text.slice(cursor, newlineIndex + 1));
     cursor = newlineIndex + 1;
     lineNumber += 1;
   }
@@ -7847,7 +7942,7 @@ function createPreparedSourceEventDraft(input: {
 }): PreparedSourceEventDraft {
   const contentHash = stableId(input.record.text);
   const eventKind = preparedEventKind(input.item, input.rangeKinds);
-  const eventId = stableId(`${input.sourceHash}:${input.record.lineNumber}:${eventKind}:${contentHash}`);
+  const eventId = stableId(`${input.sourcePathRef}:${input.sourceHash}:${input.ordinal}:${input.record.lineNumber}:${eventKind}:${contentHash}`);
   const eventRef = `codex_event:${eventId}`;
   const uniqueKinds = [...new Set(input.rangeKinds)];
   return {
@@ -7863,7 +7958,7 @@ function createPreparedSourceEventDraft(input: {
     ordinal: input.ordinal,
     observedAt: input.observedAt,
     ranges: uniqueKinds.map((rangeKind, rangeOrdinal) => {
-      const rangeId = stableId(`${eventRef}:${rangeKind}:${rangeOrdinal}:${contentHash}`);
+      const rangeId = stableId(`${eventRef}:${rangeKind}`);
       return {
         rangeRef: `codex_range:${rangeId}`,
         rangeKind: rangeKind as PreparedSourceRangeKind,
@@ -7901,6 +7996,18 @@ function preparedRangeReasonCodes(rangeKind: PreparedSourceRangeKind): string[] 
   ]);
 }
 
+function preparedRangeConfidence(rangeKind: PreparedSourceRangeKind): number {
+  if (rangeKind === "event_metadata") return 0.4;
+  if (rangeKind === "tool_call_metadata") return 0.45;
+  if (rangeKind === "closeout" || rangeKind === "final_message" || rangeKind === "proposed_plan") return 0.95;
+  return 0.9;
+}
+
+function preparedEventConfidence(event: PreparedSourceEventDraft): number {
+  const confidences = event.ranges.map((range) => preparedRangeConfidence(range.rangeKind));
+  return confidences.length > 0 ? Math.min(...confidences) : 0.4;
+}
+
 function fallbackThreadId(sourcePath: string): string {
   const name = basename(sourcePath).replace(/\.jsonl$/i, "");
   const uuidLike = name.match(/(019[0-9a-f]{5,}(?:-[0-9a-f]{4,}){2,})/i)?.[1];
@@ -7912,6 +8019,7 @@ function fallbackThreadId(sourcePath: string): string {
 function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, session: ImportedSession, stat: { size: number; mtimeMs: number }): void {
   const now = new Date().toISOString();
   const sourceHash = stableId(rawText);
+  const sourcePathRef = publicSourcePathRef(sourcePath);
   db.exec("BEGIN");
   try {
     db.prepare(`
@@ -7959,8 +8067,8 @@ function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, ses
     db.prepare("DELETE FROM codex_touched_files WHERE thread_id = ?").run(session.threadId);
     db.prepare("DELETE FROM codex_tool_calls WHERE thread_id = ?").run(session.threadId);
     db.prepare("DELETE FROM codex_safe_text_fts WHERE thread_id = ?").run(session.threadId);
-    db.prepare("DELETE FROM prepared_source_ranges WHERE thread_id = ?").run(session.threadId);
-    db.prepare("DELETE FROM prepared_source_events WHERE thread_id = ?").run(session.threadId);
+    db.prepare("DELETE FROM prepared_source_ranges WHERE thread_id = ? OR source_path_ref = ?").run(session.threadId, sourcePathRef);
+    db.prepare("DELETE FROM prepared_source_events WHERE thread_id = ? OR source_path_ref = ?").run(session.threadId, sourcePathRef);
     db.prepare(`
       INSERT INTO codex_session_metadata (
         thread_id, project, status, priority, owner, blocker, next_action, closeout_state, plan_completion_state,
@@ -8048,7 +8156,7 @@ function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, ses
         PREPARED_SOURCE_EXTRACTOR_VERSION,
         "public_safe_metadata",
         "metadata_only",
-        0.9,
+        preparedEventConfidence(event),
         JSON.stringify({ rangeCount: event.ranges.length }),
         now
       );
@@ -8073,7 +8181,7 @@ function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, ses
           PREPARED_SOURCE_EXTRACTOR_VERSION,
           "public_safe_metadata",
           "metadata_only",
-          0.9,
+          preparedRangeConfidence(range.rangeKind),
           JSON.stringify(range.reasonCodes),
           JSON.stringify({ eventKind: event.eventKind }),
           now
