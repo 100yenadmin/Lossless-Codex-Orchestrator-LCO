@@ -84,6 +84,65 @@ test("summary leaves materialize deterministic public-safe routing cards from so
   }
 });
 
+test("indexing materializes summary leaves for production read surfaces", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-summary-index-path-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const threadId = "019f-summary-index-path";
+  writeSummaryJsonl(join(sessions, "rollout-2026-07-03T00-00-00-019f-summary-index-path.jsonl"), threadId);
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+
+    const report = getSummaryLeaves(db, { threadId, limit: 50 });
+    assert.equal(report.sourceCoverage.summaryLeaves, "ok");
+    assert.equal(report.summary.total > 0, true);
+    assert.equal(report.leaves.some((leaf) => leaf.leafKind === "final_message"), true);
+
+    const expanded = expandSummaryLeaves(db, {
+      leafRef: report.leaves[0]!.leafRef,
+      maxDepth: 2,
+      maxNodes: 5,
+      tokenBudget: 300
+    });
+    assert.equal(expanded.root.leafRef, report.leaves[0]!.leafRef);
+    assert.equal(expanded.leaves.length > 0, true);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("summary leaves backfill unchanged watermarked sources after prepared-range migration", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-summary-backfill-path-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const threadId = "019f-summary-backfill-path";
+  writeSummaryJsonl(join(sessions, "rollout-2026-07-03T00-00-00-019f-summary-backfill-path.jsonl"), threadId);
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const first = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    assert.equal(first.indexedFiles, 1);
+    assert.equal(getSummaryLeaves(db, { threadId, limit: 50 }).summary.total > 0, true);
+
+    db.prepare("DELETE FROM summary_edges").run();
+    db.prepare("DELETE FROM summary_leaves").run();
+    assert.equal(getSummaryLeaves(db, { threadId, limit: 50 }).summary.total, 0);
+
+    const backfilled = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    assert.equal(backfilled.indexedFiles, 1);
+    assert.equal(backfilled.skippedFiles, 0);
+    const report = getSummaryLeaves(db, { threadId, limit: 50 });
+    assert.equal(report.sourceCoverage.summaryLeaves, "ok");
+    assert.equal(report.summary.total > 0, true);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("summary leaf reports filter rows without source ranges or event lineage", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-summary-unsafe-row-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
@@ -192,6 +251,54 @@ test("summary expansion rejects cycles and reports node and token omissions", ()
     assert.equal(tokenLimited.omitted.reasons.includes("token_budget"), true);
     assert.equal(serialized.includes("/Users/lume"), false);
     assert.equal(serialized.includes("PRIVATE_CANARY_TOKEN"), false);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("summary expansion reports missing roots as null and stays within the root thread", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-summary-expand-root-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const firstThreadId = "019f-summary-expand-root-a";
+  const secondThreadId = "019f-summary-expand-root-b";
+  writeSummaryJsonl(join(sessions, "rollout-2026-07-03T00-00-00-019f-summary-expand-root-a.jsonl"), firstThreadId);
+  writeSummaryJsonl(join(sessions, "rollout-2026-07-03T00-01-00-019f-summary-expand-root-b.jsonl"), secondThreadId);
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    materializeSummaryLeaves(db, { threadId: firstThreadId });
+    materializeSummaryLeaves(db, { threadId: secondThreadId });
+    const firstLeaf = getSummaryLeaves(db, { threadId: firstThreadId, limit: 50 }).leaves[0]!;
+    const secondLeaf = getSummaryLeaves(db, { threadId: secondThreadId, limit: 50 }).leaves[0]!;
+
+    const missing = expandSummaryLeaves(db, {
+      leafRef: `summary_leaf:${"f".repeat(32)}`,
+      maxDepth: 2,
+      maxNodes: 5,
+      tokenBudget: 300
+    });
+    assert.equal(missing.root.leafRef, null);
+    assert.equal(missing.leaves.length, 0);
+
+    db.prepare("INSERT INTO summary_edges (edge_id, parent_leaf_ref, child_leaf_ref, edge_kind, created_at) VALUES (?, ?, ?, ?, ?)").run(
+      "cross-thread-edge",
+      firstLeaf.leafRef,
+      secondLeaf.leafRef,
+      "same_thread_context",
+      "2026-07-03T00:00:00.000Z"
+    );
+
+    const expanded = expandSummaryLeaves(db, {
+      leafRef: firstLeaf.leafRef,
+      maxDepth: 5,
+      maxNodes: 20,
+      tokenBudget: 1000
+    });
+    assert.equal(expanded.leaves.some((leaf) => leaf.threadId === secondThreadId), false);
+    assert.equal(expanded.edges.some((edge) => edge.childLeafRef === secondLeaf.leafRef), false);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });

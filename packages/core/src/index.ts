@@ -1765,6 +1765,7 @@ const DEFAULT_CODEX_MAX_BYTES_PER_FILE = 50 * 1024 * 1024;
 const DEFAULT_CODEX_MAX_EVENTS_PER_FILE = 50_000;
 const PREPARED_SOURCE_EXTRACTOR_VERSION = "prepared-source-ranges-v1" as const;
 const SUMMARY_LEAF_EXTRACTOR_VERSION = "summary-leaves-v1" as const;
+const SUMMARY_LEAF_EDGE_DELETE_BATCH_SIZE = 400;
 
 export function createDatabase(dbPath?: string): LooDatabase {
   const resolved = dbPath ?? defaultDatabasePath();
@@ -2167,7 +2168,12 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
         continue;
       }
       if (watermark && watermark.size === stat.size && watermark.mtimeMs === mtimeMs) {
-        if (watermark.pathHash === stableId(text) && !sourceNeedsMetadataBackfill(db, path) && !sourceNeedsPreparedSourceRangeBackfill(db, path)) {
+        if (
+          watermark.pathHash === stableId(text)
+          && !sourceNeedsMetadataBackfill(db, path)
+          && !sourceNeedsPreparedSourceRangeBackfill(db, path)
+          && !sourceNeedsSummaryLeafBackfill(db, path)
+        ) {
           result.skippedFiles += 1;
           continue;
         }
@@ -2177,6 +2183,7 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
       result.indexedFiles += 1;
       result.indexedEvents += session.eventCount;
       seenThreads.add(session.threadId);
+      materializeSummaryLeaves(db, { threadId: session.threadId });
     } catch (error) {
       result.errors.push({ path, message: error instanceof Error ? error.message : String(error) });
     }
@@ -2334,8 +2341,17 @@ function clearSourceFileIndex(db: LooDatabase, sourcePath: string): void {
   const rows = db.prepare("SELECT thread_id AS threadId FROM codex_sessions WHERE source_path = ?").all(sourcePath) as Array<{ threadId: string }>;
   db.exec("BEGIN");
   try {
+    const threadIds = rows.map((row) => String(row.threadId)).filter(Boolean);
+    deleteSummaryLeavesForThreadIds(db, threadIds);
     const deleteFts = db.prepare("DELETE FROM codex_safe_text_fts WHERE thread_id = ?");
-    for (const row of rows) deleteFts.run(String(row.threadId));
+    const deletePreparedRanges = db.prepare("DELETE FROM prepared_source_ranges WHERE thread_id = ?");
+    const deletePreparedEvents = db.prepare("DELETE FROM prepared_source_events WHERE thread_id = ?");
+    for (const row of rows) {
+      const threadId = String(row.threadId);
+      deleteFts.run(threadId);
+      deletePreparedRanges.run(threadId);
+      deletePreparedEvents.run(threadId);
+    }
     db.prepare("DELETE FROM codex_sessions WHERE source_path = ?").run(sourcePath);
     db.prepare("DELETE FROM codex_source_files WHERE source_path = ?").run(sourcePath);
     db.exec("COMMIT");
@@ -2780,23 +2796,11 @@ export function expandSummaryLeaves(db: LooDatabase, options: SummaryExpansionOp
   const roots = options.leafRef
     ? [leafByRef.get(options.leafRef)].filter((leaf): leaf is SummaryLeaf => Boolean(leaf))
     : allLeaves.slice(0, maxNodes);
-  const edgeRows = db.prepare(`
-    SELECT parent_leaf_ref AS parentLeafRef, child_leaf_ref AS childLeafRef, edge_kind AS edgeKind
-    FROM summary_edges
-    ORDER BY parent_leaf_ref ASC, child_leaf_ref ASC, edge_kind ASC
-  `).all() as Array<{ parentLeafRef: string; childLeafRef: string; edgeKind: string }>;
-  const childrenByParent = new Map<string, Array<{ parentLeafRef: string; childLeafRef: string; edgeKind: string }>>();
-  for (const edge of edgeRows) {
-    if (!isPublicSummaryLeafRef(edge.parentLeafRef) || !isPublicSummaryLeafRef(edge.childLeafRef) || !/^[A-Za-z0-9_.:-]{1,80}$/.test(edge.edgeKind)) continue;
-    if (options.threadId && (!leafByRef.has(edge.parentLeafRef) || !leafByRef.has(edge.childLeafRef))) continue;
-    const list = childrenByParent.get(edge.parentLeafRef) ?? [];
-    list.push(edge);
-    childrenByParent.set(edge.parentLeafRef, list);
-  }
   const leaves: SummaryLeaf[] = [];
   const edges: SummaryExpansionReport["edges"] = [];
   const seen = new Set<string>();
   const queued = roots.map((leaf) => ({ leaf, depth: 0 }));
+  const edgeKeys = new Set<string>();
   let approxTokens = 0;
   const omitted = {
     cycleCount: 0,
@@ -2826,10 +2830,14 @@ export function expandSummaryLeaves(db: LooDatabase, options: SummaryExpansionOp
     seen.add(next.leaf.leafRef);
     approxTokens += nextTokens;
     leaves.push(next.leaf);
-    for (const edge of childrenByParent.get(next.leaf.leafRef) ?? []) {
-      edges.push(edge);
+    for (const edge of getSummaryEdgesForParent(db, next.leaf, maxNodes * 2)) {
       const child = leafByRef.get(edge.childLeafRef);
       if (!child) continue;
+      const edgeKey = `${edge.parentLeafRef}:${edge.childLeafRef}:${edge.edgeKind}`;
+      if (!edgeKeys.has(edgeKey)) {
+        edges.push(edge);
+        edgeKeys.add(edgeKey);
+      }
       if (seen.has(child.leafRef)) {
         omitted.cycleCount += 1;
       } else {
@@ -2849,8 +2857,8 @@ export function expandSummaryLeaves(db: LooDatabase, options: SummaryExpansionOp
     readOnly: true,
     generatedAt: new Date().toISOString(),
     root: {
-      leafRef: options.leafRef ?? roots[0]?.leafRef ?? null,
-      threadId: options.threadId ?? roots[0]?.threadId ?? null
+      leafRef: roots[0]?.leafRef ?? null,
+      threadId: roots[0]?.threadId ?? options.threadId ?? null
     },
     limits: {
       maxDepth,
@@ -3006,10 +3014,58 @@ function insertSummaryLeafEdges(db: LooDatabase, leaves: SummaryLeafDraft[], cre
   return count;
 }
 
+function getSummaryEdgesForParent(db: LooDatabase, parent: SummaryLeaf, limit: number): Array<{ parentLeafRef: string; childLeafRef: string; edgeKind: string }> {
+  if (!isPublicSummaryLeafRef(parent.leafRef)) return [];
+  const clauses = [
+    "e.parent_leaf_ref = ?",
+    "c.extractor_version = ?",
+    "c.privacy_class = 'public_safe_metadata'",
+    "c.omission_status = 'metadata_only'",
+    "c.leaf_ref LIKE 'summary_leaf:%'",
+    "length(c.leaf_ref) = 45",
+    "substr(c.leaf_ref, 14) NOT GLOB '*[^0-9a-f]*'"
+  ];
+  const params: Array<string | number> = [parent.leafRef, SUMMARY_LEAF_EXTRACTOR_VERSION];
+  if (parent.threadId) {
+    clauses.push("c.thread_id = ?");
+    params.push(parent.threadId);
+  } else {
+    clauses.push("c.thread_id IS NULL");
+  }
+  const rows = db.prepare(`
+    SELECT e.parent_leaf_ref AS parentLeafRef, e.child_leaf_ref AS childLeafRef, e.edge_kind AS edgeKind
+    FROM summary_edges e
+    JOIN summary_leaves c ON c.leaf_ref = e.child_leaf_ref
+    WHERE ${clauses.join(" AND ")}
+    ORDER BY e.parent_leaf_ref ASC, e.child_leaf_ref ASC, e.edge_kind ASC
+    LIMIT ?
+  `).all(...params, clamp(limit, 1, 400)) as Array<{ parentLeafRef: string; childLeafRef: string; edgeKind: string }>;
+  return rows.filter((edge) =>
+    isPublicSummaryLeafRef(edge.parentLeafRef)
+    && isPublicSummaryLeafRef(edge.childLeafRef)
+    && /^[A-Za-z0-9_.:-]{1,80}$/.test(edge.edgeKind)
+  );
+}
+
 function deleteSummaryLeafEdges(db: LooDatabase, leafRefs: string[]): void {
   if (leafRefs.length === 0) return;
-  const placeholders = leafRefs.map(() => "?").join(",");
-  db.prepare(`DELETE FROM summary_edges WHERE parent_leaf_ref IN (${placeholders}) OR child_leaf_ref IN (${placeholders})`).run(...leafRefs, ...leafRefs);
+  for (let index = 0; index < leafRefs.length; index += SUMMARY_LEAF_EDGE_DELETE_BATCH_SIZE) {
+    const batch = leafRefs.slice(index, index + SUMMARY_LEAF_EDGE_DELETE_BATCH_SIZE);
+    const placeholders = batch.map(() => "?").join(",");
+    db.prepare(`DELETE FROM summary_edges WHERE parent_leaf_ref IN (${placeholders}) OR child_leaf_ref IN (${placeholders})`).run(...batch, ...batch);
+  }
+}
+
+function deleteSummaryLeavesForThreadIds(db: LooDatabase, threadIds: string[]): void {
+  const uniqueThreadIds = unique(threadIds).filter(Boolean);
+  if (uniqueThreadIds.length === 0) return;
+  for (let index = 0; index < uniqueThreadIds.length; index += SUMMARY_LEAF_EDGE_DELETE_BATCH_SIZE) {
+    const batch = uniqueThreadIds.slice(index, index + SUMMARY_LEAF_EDGE_DELETE_BATCH_SIZE);
+    const placeholders = batch.map(() => "?").join(",");
+    const leafRows = db.prepare(`SELECT leaf_ref AS leafRef FROM summary_leaves WHERE thread_id IN (${placeholders})`).all(...batch) as Array<{ leafRef: string }>;
+    deleteSummaryLeafEdges(db, leafRows.map((row) => String(row.leafRef)));
+    db.prepare(`DELETE FROM summary_leaves WHERE thread_id IN (${placeholders})`).run(...batch);
+  }
 }
 
 function publicSummaryLeafFromRow(row: SummaryLeafRow): SummaryLeaf | null {
@@ -3107,6 +3163,32 @@ function sourceNeedsPreparedSourceRangeBackfill(db: LooDatabase, sourcePath: str
     LIMIT 1
   `).get(sourcePathRef, PREPARED_SOURCE_EXTRACTOR_VERSION) as { found: number } | undefined;
   return row?.found !== 1;
+}
+
+function sourceNeedsSummaryLeafBackfill(db: LooDatabase, sourcePath: string): boolean {
+  const rows = db.prepare(`
+    SELECT DISTINCT r.thread_id AS threadId
+    FROM prepared_source_ranges r
+    JOIN codex_sessions s ON s.thread_id = r.thread_id
+    WHERE s.source_path = ?
+      AND r.extractor_version = ?
+      AND r.privacy_class = 'public_safe_metadata'
+      AND r.omission_status = 'metadata_only'
+  `).all(sourcePath, PREPARED_SOURCE_EXTRACTOR_VERSION) as Array<{ threadId: string }>;
+  if (rows.length === 0) return false;
+  const leafExists = db.prepare(`
+    SELECT 1 AS found
+    FROM summary_leaves
+    WHERE thread_id = ?
+      AND extractor_version = ?
+      AND privacy_class = 'public_safe_metadata'
+      AND omission_status = 'metadata_only'
+    LIMIT 1
+  `);
+  return rows.some((row) => {
+    const found = leafExists.get(String(row.threadId), SUMMARY_LEAF_EXTRACTOR_VERSION) as { found: number } | undefined;
+    return found?.found !== 1;
+  });
 }
 
 export function probeCodexSqliteStores(roots: string[], maxFiles = 100): { stores: CodexSqliteProbe[] } {
@@ -8785,6 +8867,12 @@ function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, ses
     db.prepare("DELETE FROM codex_safe_text_fts WHERE thread_id = ?").run(session.threadId);
     // Prepared rows are an LCO-owned derived cache for the current codex_sessions row.
     // Clear both remap directions: same source -> new thread and same thread -> new source.
+    const affectedSummaryRows = db.prepare(`
+      SELECT DISTINCT thread_id AS threadId
+      FROM prepared_source_ranges
+      WHERE source_path_ref = ? OR thread_id = ?
+    `).all(sourcePathRef, session.threadId) as Array<{ threadId: string }>;
+    deleteSummaryLeavesForThreadIds(db, [...affectedSummaryRows.map((row) => String(row.threadId)), session.threadId]);
     db.prepare("DELETE FROM prepared_source_ranges WHERE source_path_ref = ? OR thread_id = ?").run(sourcePathRef, session.threadId);
     db.prepare("DELETE FROM prepared_source_events WHERE source_path_ref = ? OR thread_id = ?").run(sourcePathRef, session.threadId);
     db.prepare(`
