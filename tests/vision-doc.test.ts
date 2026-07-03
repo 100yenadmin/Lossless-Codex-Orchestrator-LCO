@@ -14,7 +14,7 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
 
   for (const heading of [
     "## North Star",
-    "## Current Milestone: 1.1 Desktop Collaboration Cockpit",
+    "## Current Milestone: 1.2 Prepared State And Summary Leaves",
     "## Completed Proof: Working App Runtime",
     "## Primary User Stories",
     "## Orchestrator Product-Management Mode",
@@ -63,6 +63,12 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
     /Working App Proof Sprint/i,
     /evals\/scenarios\/v1\.1/i,
     /working-app-runtime-proof-review\.json/i,
+    /brief-lco-1\.2-prepared-state-summary-leaves-2026-07-03\.md/i,
+    /prepared state/i,
+    /summary leaves/i,
+    /source ranges/i,
+    /advisory cache/i,
+    /compaction observed/i,
     /bounded file, byte, and event limits/i,
     /loo_codex_control_dry_run/i,
     /local OpenClaw gateway/i,
@@ -90,6 +96,8 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
   assert.match(readme, /generic GUI mutation is not supported/i);
   assert.match(readme, /Codex GUI mutation is not a stable public claim/i);
   assert.match(readme, /Roadmap And Proof Status/i);
+  assert.match(readme, /1\.2 prepared-state and summary-leaves lane/i);
+  assert.match(readme, /brief-lco-1\.2-prepared-state-summary-leaves-2026-07-03\.md/i);
   assert.doesNotMatch(readme, /## Current Sprint:/);
   assert.doesNotMatch(readme, /What a local OpenClaw agent can do today[\s\S]{1000,}/i);
   assert.doesNotMatch(readme, /## Current Sprint: Working App Proof/);
