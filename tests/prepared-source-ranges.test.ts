@@ -136,6 +136,7 @@ test("prepared source range report skips malformed unsafe derived-cache rows", (
     assert.equal(report.ranges.some((range) => range.sourcePathRef === "/Users/lume/private/raw-transcript.jsonl"), false);
     assert.equal(report.ranges.every((range) => /^codex_source:[0-9a-f]{16}$/.test(range.sourcePathRef)), true);
     assert.equal(report.ranges.length, before.ranges.length - 1);
+    assert.deepEqual(report.omitted, { count: 1, reason: "filtered_unsafe_rows" });
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -194,6 +195,34 @@ test("prepared source ranges are public-safe opaque refs with hashes and no raw 
     assert.equal(rawRowsSerialized.includes("/Users/lume"), false);
     assert.equal(rawRowsSerialized.includes("PRIVATE_CANARY_TOKEN"), false);
     assert.equal(report.summary.lowConfidence > 0, true);
+
+    const limited = getPreparedSourceRanges(db, { threadId: "019f-prepared-ranges", limit: 1 });
+    assert.equal(limited.ranges.length, 1);
+    assert.equal(limited.summary.lowConfidence, report.summary.lowConfidence);
+    assert.equal(limited.omitted.reason, "limit");
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared source range byte offsets exclude stripped CR while advancing through CRLF", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-crlf-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const sourcePath = join(sessions, "rollout-2026-07-03T00-00-00-019f-prepared-crlf.jsonl");
+  const line = JSON.stringify({ timestamp: "2026-07-03T00:00:00Z", session_meta: { payload: { id: "019f-prepared-crlf" } }, event_msg: { type: "thread_name", name: "CRLF proof" } });
+  writeFileSync(sourcePath, `${line}\r\n`);
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    const report = getPreparedSourceRanges(db, { threadId: "019f-prepared-crlf", limit: 10 });
+    assert.equal(report.ranges.length > 0, true);
+    for (const range of report.ranges) {
+      assert.equal(range.byteStart, 0);
+      assert.equal(range.byteEnd, Buffer.byteLength(line));
+    }
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });

@@ -122,7 +122,7 @@ export type PreparedSourceRangesReport = {
   ranges: PreparedSourceRange[];
   omitted: {
     count: number;
-    reason: "limit" | "none";
+    reason: "limit" | "filtered_unsafe_rows" | "none";
   };
   actionsPerformed: {
     derivedCacheWrite: false;
@@ -2281,6 +2281,12 @@ export function getPreparedSourceRanges(db: LooDatabase, options: PreparedSource
     observedAt: string | null;
     reasonCodesJson: string;
   }>;
+  const lowConfidenceRow = db.prepare(`
+    SELECT COUNT(*) AS count
+    FROM prepared_source_ranges
+    ${where}
+      ${where ? "AND" : "WHERE"} confidence < 0.5
+  `).get(...params) as { count: number };
   const ranges: PreparedSourceRange[] = rows.flatMap((row) => {
     if (!isPublicPreparedSourceRangeRow(row)) return [];
     return [{
@@ -2307,6 +2313,10 @@ export function getPreparedSourceRanges(db: LooDatabase, options: PreparedSource
     }];
   });
   const total = Number(countRow.count ?? 0);
+  const filteredUnsafeRows = rows.length - ranges.length;
+  const limitOmissions = Math.max(0, total - rows.length);
+  const omittedCount = limitOmissions + filteredUnsafeRows;
+  const omittedReason = limitOmissions > 0 ? "limit" : filteredUnsafeRows > 0 ? "filtered_unsafe_rows" : "none";
   return {
     schema: "lco.prepared.sourceRanges.v1",
     publicSafe: true,
@@ -2318,12 +2328,12 @@ export function getPreparedSourceRanges(db: LooDatabase, options: PreparedSource
     summary: {
       total,
       returned: ranges.length,
-      lowConfidence: ranges.filter((range) => range.confidence < 0.5).length
+      lowConfidence: Number(lowConfidenceRow.count ?? 0)
     },
     ranges,
     omitted: {
-      count: Math.max(0, total - ranges.length),
-      reason: total > ranges.length ? "limit" : "none"
+      count: omittedCount,
+      reason: omittedReason
     },
     actionsPerformed: {
       derivedCacheWrite: false,
@@ -7913,7 +7923,7 @@ function jsonlLineRecords(text: string): JsonlLineRecord[] {
     const lineText = text.slice(cursor, lineEnd);
     const rawLine = lineText.replace(/\r$/, "");
     const byteStart = byteCursor;
-    const byteEnd = byteStart + Buffer.byteLength(lineText);
+    const byteEnd = byteStart + Buffer.byteLength(rawLine);
     if (rawLine.trim()) {
       records.push({
         lineNumber,
