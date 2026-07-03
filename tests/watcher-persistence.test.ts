@@ -172,6 +172,27 @@ test("watcher event coverage reports unknown when every observation row is filte
   });
 });
 
+test("watcher events report omitted queue items when queue output is limited", () => {
+  withWatcherDb((db) => {
+    const now = "2026-07-03T20:05:00.000Z";
+    const targetRef = "codex_thread:019f-watcher-limit";
+    persistWatcherObservations(db, [
+      finalMessageWatchSpec({ watchId: "watch_alpha", targetRef, evidenceIds: ["ev_alpha"] }),
+      finalMessageWatchSpec({ watchId: "watch_beta", targetRef, evidenceIds: ["ev_beta"] }),
+      finalMessageWatchSpec({ watchId: "watch_gamma", targetRef, evidenceIds: ["ev_gamma"] })
+    ], { now });
+
+    const events = getWatcherEvents(db, { now, targetRef, limit: 1 });
+    assert.equal(events.observations.length, 1);
+    assert.equal(events.queue.length, 1);
+    assert.equal(events.omitted.reason, "limit");
+    assert.equal(events.omitted.observationLimitCount, 2);
+    assert.equal(events.omitted.queueLimitCount, 2);
+    assert.equal(events.omitted.limitCount, 4);
+    assert.equal(events.omitted.count, 4);
+  });
+});
+
 test("watcher persistence fails closed when a watcher attempts mutation", () => {
   withWatcherDb((db) => {
     assert.throws(

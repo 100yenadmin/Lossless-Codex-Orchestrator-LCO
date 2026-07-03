@@ -1322,7 +1322,11 @@ export type WatcherEventsReport = {
     reason: "limit" | "filtered_unsafe_rows" | "limit_and_filtered_unsafe_rows" | "none";
     reasons: Array<"limit" | "filtered_unsafe_rows"> | ["none"];
     limitCount: number;
+    observationLimitCount: number;
+    queueLimitCount: number;
     filteredUnsafeRows: number;
+    filteredUnsafeObservationRows: number;
+    filteredUnsafeQueueRows: number;
   };
   actionsPerformed: {
     derivedCacheWrite: false;
@@ -5553,11 +5557,21 @@ export function getWatcherEvents(db: LooDatabase, options: WatcherEventsOptions 
   const queueRows = requestedWatcherSourceRef
     ? queueRowsRaw.filter((row) => parseSourceRefsJson(row.sourceRefsJson).includes(requestedWatcherSourceRef))
     : queueRowsRaw;
-  const queue = queueRows.map(publicWatcherAttentionQueueItemFromRow).filter((item): item is WatcherAttentionQueueItem => Boolean(item)).slice(0, limit);
-  const limitCount = Math.max(0, observations.length - selectedObservations.length);
+  const queueItems: WatcherAttentionQueueItem[] = [];
+  let filteredUnsafeQueueRows = 0;
+  for (const row of queueRows) {
+    const item = publicWatcherAttentionQueueItemFromRow(row);
+    if (item) queueItems.push(item);
+    else filteredUnsafeQueueRows += 1;
+  }
+  const queue = queueItems.slice(0, limit);
+  const observationLimitCount = Math.max(0, observations.length - selectedObservations.length);
+  const queueLimitCount = Math.max(0, queueItems.length - queue.length);
+  const limitCount = observationLimitCount + queueLimitCount;
+  const filteredUnsafeTotal = filteredUnsafeRows + filteredUnsafeQueueRows;
   const omittedReasons = [
     limitCount > 0 ? "limit" : null,
-    filteredUnsafeRows > 0 ? "filtered_unsafe_rows" : null
+    filteredUnsafeTotal > 0 ? "filtered_unsafe_rows" : null
   ].filter((reason): reason is "limit" | "filtered_unsafe_rows" => Boolean(reason));
   const watcherSpecCount = watcherSpecCoverageCount(db, requestedWatchId, requestedTargetRef);
   return {
@@ -5579,16 +5593,20 @@ export function getWatcherEvents(db: LooDatabase, options: WatcherEventsOptions 
       expired: selectedObservations.filter((observation) => observation.watcher.status === "expired").length,
       lowConfidence: selectedObservations.filter((observation) => observation.watcher.status === "low_confidence").length,
       queueItems: queue.length,
-      filteredUnsafeRows
+      filteredUnsafeRows: filteredUnsafeTotal
     },
     observations: selectedObservations,
     queue,
     omitted: {
-      count: limitCount + filteredUnsafeRows,
+      count: limitCount + filteredUnsafeTotal,
       reason: omittedReasons.length === 2 ? "limit_and_filtered_unsafe_rows" : omittedReasons[0] ?? "none",
       reasons: omittedReasons.length ? omittedReasons : ["none"],
       limitCount,
-      filteredUnsafeRows
+      observationLimitCount,
+      queueLimitCount,
+      filteredUnsafeRows: filteredUnsafeTotal,
+      filteredUnsafeObservationRows: filteredUnsafeRows,
+      filteredUnsafeQueueRows
     },
     actionsPerformed: watcherReadActions(),
     proofBoundary: "Watcher events expose only public-safe persisted watcher observations and execute=false local attention queue items from LCO-owned derived cache. They do not read raw transcripts, mint approvals, run live control, mutate Desktop GUI, write external systems, publish npm, or create GitHub releases."
