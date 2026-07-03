@@ -74,7 +74,7 @@ test("prepared-state migration adds additive shadow tables to an existing 1.1-st
     oldDb.close();
   }
 
-  const db = createDatabase(dbPath);
+  let db: ReturnType<typeof createDatabase> | null = createDatabase(dbPath);
   try {
     const tables = new Set((db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map((row) => row.name));
     for (const table of [
@@ -105,8 +105,20 @@ test("prepared-state migration adds additive shadow tables to an existing 1.1-st
       assert.equal(migrationIds.has(migrationId), true, `${migrationId} migration is logged`);
     }
     assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
-  } finally {
     db.close();
+    db = null;
+
+    const reopened = createDatabase(dbPath);
+    try {
+      const reopenedTables = new Set((reopened.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map((row) => row.name));
+      assert.deepEqual(reopenedTables, tables);
+      const migrationRows = reopened.prepare("SELECT migration_id AS migrationId FROM loo_schema_migrations ORDER BY migration_id").all() as Array<{ migrationId: string }>;
+      assert.equal(migrationRows.length, migrationIds.size);
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    db?.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -125,10 +137,15 @@ test("prepared source range report skips malformed unsafe derived-cache rows", (
     assert.equal(before.ranges.length > 1, true);
 
     const unsafeRange = before.ranges.find((range) => range.confidence < 0.5) ?? before.ranges[0]!;
+    const hashUnsafeRange = before.ranges.find((range) => range.rangeRef !== unsafeRange.rangeRef && range.confidence >= 0.9) ?? before.ranges[1]!;
     db.prepare("UPDATE prepared_source_ranges SET source_path_ref = ?, privacy_class = ? WHERE range_ref = ?").run(
       "/Users/lume/private/raw-transcript.jsonl",
       "public_safe_metadata",
       unsafeRange.rangeRef
+    );
+    db.prepare("UPDATE prepared_source_ranges SET content_hash = ? WHERE range_ref = ?").run(
+      "g".repeat(32),
+      hashUnsafeRange.rangeRef
     );
 
     const report = getPreparedSourceRanges(db, { threadId: "019f-prepared-safe-row", limit: 50 });
@@ -136,18 +153,55 @@ test("prepared source range report skips malformed unsafe derived-cache rows", (
     assert.equal(serialized.includes("/Users/lume/private"), false);
     assert.equal(report.ranges.some((range) => range.sourcePathRef === "/Users/lume/private/raw-transcript.jsonl"), false);
     assert.equal(report.ranges.every((range) => /^codex_source:[0-9a-f]{16}$/.test(range.sourcePathRef)), true);
-    assert.equal(report.ranges.length, before.ranges.length - 1);
-    assert.equal(report.omitted.count, 1);
+    assert.equal(report.sourceCoverage.preparedSourceRanges, "ok");
+    assert.equal(report.summary.total, before.ranges.length - 2);
+    assert.equal(report.ranges.length, before.ranges.length - 2);
+    assert.equal(report.omitted.count, 2);
     assert.equal(report.omitted.reason, "filtered_unsafe_rows");
     assert.deepEqual(report.omitted.reasons, ["filtered_unsafe_rows"]);
-    assert.equal(report.omitted.filteredUnsafeRows, 1);
+    assert.equal(report.omitted.filteredUnsafeRows, 2);
     assert.equal(report.summary.lowConfidence, report.ranges.filter((range) => range.confidence < 0.5).length);
 
     const limitedUnsafe = getPreparedSourceRanges(db, { threadId: "019f-prepared-safe-row", limit: 1 });
     assert.equal(limitedUnsafe.omitted.reason, "limit_and_filtered_unsafe_rows");
     assert.deepEqual(limitedUnsafe.omitted.reasons, ["limit", "filtered_unsafe_rows"]);
-    assert.equal(limitedUnsafe.omitted.limitCount, before.ranges.length - 2);
-    assert.equal(limitedUnsafe.omitted.filteredUnsafeRows, 1);
+    assert.equal(limitedUnsafe.omitted.limitCount, before.ranges.length - 3);
+    assert.equal(limitedUnsafe.omitted.filteredUnsafeRows, 2);
+
+    db.prepare("UPDATE prepared_source_ranges SET source_path_ref = ? WHERE thread_id = ?").run(
+      "/Users/lume/private/all-unsafe.jsonl",
+      "019f-prepared-safe-row"
+    );
+    const allUnsafe = getPreparedSourceRanges(db, { threadId: "019f-prepared-safe-row", limit: 50 });
+    assert.equal(allUnsafe.sourceCoverage.preparedSourceRanges, "partial");
+    assert.equal(allUnsafe.summary.total, 0);
+    assert.equal(allUnsafe.ranges.length, 0);
+    assert.equal(allUnsafe.omitted.filteredUnsafeRows, before.ranges.length);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared source range gate rejects implausible offsets and confidence", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-implausible-range-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const sourcePath = join(sessions, "rollout-2026-07-03T00-00-00-019f-prepared-implausible.jsonl");
+  writePreparedJsonl(sourcePath, "019f-prepared-implausible", "Prepared implausible proof");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    const before = getPreparedSourceRanges(db, { threadId: "019f-prepared-implausible", limit: 50 });
+    assert.equal(before.ranges.length > 2, true);
+    db.prepare("UPDATE prepared_source_ranges SET byte_end = byte_start - 1 WHERE range_ref = ?").run(before.ranges[0]!.rangeRef);
+    db.prepare("UPDATE prepared_source_ranges SET confidence = 1.5 WHERE range_ref = ?").run(before.ranges[1]!.rangeRef);
+
+    const report = getPreparedSourceRanges(db, { threadId: "019f-prepared-implausible", limit: 50 });
+    assert.equal(report.ranges.length, before.ranges.length - 2);
+    assert.equal(report.omitted.filteredUnsafeRows, 2);
+    assert.equal(report.ranges.every((range) => range.byteEnd >= range.byteStart && range.confidence >= 0 && range.confidence <= 1), true);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -346,6 +400,27 @@ test("prepared source events are scoped to opaque source path refs for identical
     assert.equal(indexed.errors.length, 0);
     assert.equal(indexed.indexedFiles, 2);
     assert.equal(db.prepare("SELECT COUNT(*) AS count FROM prepared_source_events").get().count, 4);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared source reindex cleanup is scoped to source path refs for fallback thread collisions", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-fallback-collision-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const fallbackId = "abcdefabcdefabcde";
+  const firstPath = join(sessions, `rollout-alpha-${fallbackId}.jsonl`);
+  const secondPath = join(sessions, `rollout-beta-${fallbackId}.jsonl`);
+  writeFileSync(firstPath, JSON.stringify({ timestamp: "2026-07-03T00:00:00Z", event_msg: { type: "thread_name", name: "Fallback first" } }) + "\n");
+  writeFileSync(secondPath, JSON.stringify({ timestamp: "2026-07-03T00:00:01Z", event_msg: { type: "thread_name", name: "Fallback second" } }) + "\n");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    const report = getPreparedSourceRanges(db, { threadId: fallbackId, limit: 50 });
+    assert.equal(new Set(report.ranges.map((range) => range.sourcePathRef)).size, 2);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });

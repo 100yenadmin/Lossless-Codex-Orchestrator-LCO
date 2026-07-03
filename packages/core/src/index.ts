@@ -2243,13 +2243,25 @@ export function getPreparedSourceRanges(db: LooDatabase, options: PreparedSource
     ...clauses,
     "range_ref LIKE 'codex_range:%'",
     "length(range_ref) = 44",
+    "substr(range_ref, 13) NOT GLOB '*[^0-9a-f]*'",
     "event_ref LIKE 'codex_event:%'",
     "length(event_ref) = 44",
+    "substr(event_ref, 13) NOT GLOB '*[^0-9a-f]*'",
     "source_ref LIKE 'codex_thread:%'",
     "source_path_ref LIKE 'codex_source:%'",
     "length(source_path_ref) = 29",
+    "substr(source_path_ref, 14) NOT GLOB '*[^0-9a-f]*'",
     "length(source_hash) = 32",
-    "length(content_hash) = 32"
+    "source_hash NOT GLOB '*[^0-9a-f]*'",
+    "length(content_hash) = 32",
+    "content_hash NOT GLOB '*[^0-9a-f]*'",
+    "line_start >= 1",
+    "line_end >= line_start",
+    "byte_start >= 0",
+    "byte_end >= byte_start",
+    "ordinal >= 0",
+    "confidence >= 0",
+    "confidence <= 1"
   ];
   const publicSafeWhere = `WHERE ${publicSafeClauses.join(" AND ")}`;
   const countRow = db.prepare(`SELECT COUNT(*) AS count FROM prepared_source_ranges ${where}`).get(...params) as { count: number };
@@ -2350,10 +2362,10 @@ export function getPreparedSourceRanges(db: LooDatabase, options: PreparedSource
     readOnly: true,
     generatedAt: new Date().toISOString(),
     sourceCoverage: {
-      preparedSourceRanges: total > 0 ? "ok" : "not_configured"
+      preparedSourceRanges: publicSafeTotal > 0 ? "ok" : total > 0 ? "partial" : "not_configured"
     },
     summary: {
-      total,
+      total: publicSafeTotal,
       returned: ranges.length,
       lowConfidence: Number(lowConfidenceRow.count ?? 0),
       lowConfidenceScope: "matching_public_safe_total"
@@ -2406,12 +2418,19 @@ function isPublicPreparedSourceRangeRow(row: {
     && /^codex_source:[0-9a-f]{16}$/.test(row.sourcePathRef)
     && /^[0-9a-f]{32}$/.test(row.sourceHash)
     && /^[0-9a-f]{32}$/.test(row.contentHash)
-    && Number.isFinite(Number(row.lineStart))
-    && Number.isFinite(Number(row.lineEnd))
-    && Number.isFinite(Number(row.byteStart))
-    && Number.isFinite(Number(row.byteEnd))
-    && Number.isFinite(Number(row.ordinal))
-    && Number.isFinite(Number(row.confidence));
+    && Number.isInteger(Number(row.lineStart))
+    && Number.isInteger(Number(row.lineEnd))
+    && Number.isInteger(Number(row.byteStart))
+    && Number.isInteger(Number(row.byteEnd))
+    && Number.isInteger(Number(row.ordinal))
+    && Number.isFinite(Number(row.confidence))
+    && Number(row.lineStart) >= 1
+    && Number(row.lineEnd) >= Number(row.lineStart)
+    && Number(row.byteStart) >= 0
+    && Number(row.byteEnd) >= Number(row.byteStart)
+    && Number(row.ordinal) >= 0
+    && Number(row.confidence) >= 0
+    && Number(row.confidence) <= 1;
 }
 
 function sourceNeedsMetadataBackfill(db: LooDatabase, sourcePath: string): boolean {
@@ -8111,8 +8130,8 @@ function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, ses
     db.prepare("DELETE FROM codex_touched_files WHERE thread_id = ?").run(session.threadId);
     db.prepare("DELETE FROM codex_tool_calls WHERE thread_id = ?").run(session.threadId);
     db.prepare("DELETE FROM codex_safe_text_fts WHERE thread_id = ?").run(session.threadId);
-    db.prepare("DELETE FROM prepared_source_ranges WHERE thread_id = ? OR source_path_ref = ?").run(session.threadId, sourcePathRef);
-    db.prepare("DELETE FROM prepared_source_events WHERE thread_id = ? OR source_path_ref = ?").run(session.threadId, sourcePathRef);
+    db.prepare("DELETE FROM prepared_source_ranges WHERE source_path_ref = ?").run(sourcePathRef);
+    db.prepare("DELETE FROM prepared_source_events WHERE source_path_ref = ?").run(sourcePathRef);
     db.prepare(`
       INSERT INTO codex_session_metadata (
         thread_id, project, status, priority, owner, blocker, next_action, closeout_state, plan_completion_state,
