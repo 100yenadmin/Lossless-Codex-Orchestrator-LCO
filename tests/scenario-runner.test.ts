@@ -384,7 +384,10 @@ test("hook sidecar scenario captures closeout state-prep and marker-only compact
   assert.equal(scenario.metrics?.requires_no_true_compaction_summary_claim, true);
   assert.equal(scenario.metrics?.requires_derived_cache_mutation_class, true);
   assert.equal(scenario.metrics?.max_raw_transcript_spans, 0);
+  assert.equal(scenario.metrics?.max_raw_transcript_paths, 0);
   assert.equal(scenario.metrics?.max_live_actions, 0);
+  assert.equal(scenario.metrics?.max_external_writes, 0);
+  assert.equal(scenario.metrics?.max_screenshots_in_public_evidence, 0);
   assert.match(String(scenario.proof_boundary), /does not prove true Codex compaction-summary capture/i);
   assert.match(String(scenario.proof_boundary), /does not prove.*live control/i);
 });

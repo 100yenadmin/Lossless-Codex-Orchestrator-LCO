@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -14,6 +15,7 @@ import {
 
 const rawTranscriptPath = "/Users/lume/.codex/sessions/2026/07/04/raw-thread.jsonl";
 const rawToken = "npm_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456";
+const tsxImport = createRequire(import.meta.url).resolve("tsx");
 
 function closeoutMessage(): string {
   return [
@@ -119,6 +121,24 @@ test("compaction hook records marker lifecycle only without true summary-capture
       assert.equal(report.blockers.length, 0);
       assert.doesNotMatch(serialized, /raw summary-shaped value|\/Users\/lume|raw-thread\.jsonl|npm_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456/);
       assert.match(report.proofBoundary, /Codex-native/i);
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("compaction hook rejects non-marker modes", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-hook-compaction-mode-"));
+  try {
+    const db = createDatabase(join(root, "orchestrator.sqlite"));
+    try {
+      assert.throws(() => captureCompactionMarkerHookPacket(db, {
+        threadId: "019f-hook-sidecar",
+        mode: "sanitized_summary" as "marker",
+        lifecycle: "pre_compact"
+      }), /supports --mode marker only/);
     } finally {
       db.close();
     }
@@ -318,7 +338,7 @@ test("CLI hook commands write sanitized evidence for closeout state prep and com
 
     const closeoutResult = spawnSync(process.execPath, [
       "--import",
-      "tsx",
+      tsxImport,
       "packages/cli/src/index.ts",
       "hook",
       "closeout-capture",
@@ -337,7 +357,7 @@ test("CLI hook commands write sanitized evidence for closeout state prep and com
     });
     const statePrepResult = spawnSync(process.execPath, [
       "--import",
-      "tsx",
+      tsxImport,
       "packages/cli/src/index.ts",
       "hook",
       "state-prep",
@@ -356,7 +376,7 @@ test("CLI hook commands write sanitized evidence for closeout state prep and com
     });
     const compactionResult = spawnSync(process.execPath, [
       "--import",
-      "tsx",
+      tsxImport,
       "packages/cli/src/index.ts",
       "hook",
       "compaction-capture",

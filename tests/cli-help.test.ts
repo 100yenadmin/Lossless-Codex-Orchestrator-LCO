@@ -29,6 +29,7 @@ test("loo --help exits zero with top-level usage", () => {
   assert.match(result.stdout, /loo --version/);
   assert.match(result.stdout, /loo doctor/);
   assert.match(result.stdout, /loo hook closeout-capture/);
+  assert.match(result.stdout, /loo hook state-prep/);
   assert.match(result.stdout, /loo hook compaction-capture --mode marker/);
   assert.equal(result.stderr.trim(), "");
 });
