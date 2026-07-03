@@ -60,8 +60,13 @@ function insertSummaryLeafRow(
     leafKind?: string;
     authorityCoverage?: Record<string, unknown>;
     summaryText?: string;
+    sourceRangeRefs?: string[];
   }
 ): void {
+  const leafKind = input.leafKind ?? "user_prompt";
+  const sourceRangeRefs = input.sourceRangeRefs ?? [`codex_range:${input.id}`];
+  const rangeCount = Number(input.authorityCoverage?.rangeCount ?? sourceRangeRefs.length);
+  const defaultSummaryText = `${leafKind === "user_prompt" ? "User prompt evidence" : "Assistant message evidence"}: ${rangeCount} prepared source range${rangeCount === 1 ? "" : "s"} available. Expand by summary leaf or source range for bounded evidence.`;
   db.prepare(`
     INSERT OR IGNORE INTO codex_sessions (
       thread_id, title, source_path, safe_text, indexed_at
@@ -84,10 +89,10 @@ function insertSummaryLeafRow(
     input.id,
     `summary_leaf:${input.id}`,
     input.threadId,
-    input.leafKind ?? "user_prompt",
-    input.summaryText ?? "Public-safe summary leaf",
+    leafKind,
+    input.summaryText ?? defaultSummaryText,
     JSON.stringify([`codex_thread:${input.threadId}`]),
-    JSON.stringify([`codex_range:${input.id}`]),
+    JSON.stringify(sourceRangeRefs),
     input.id,
     input.id.split("").reverse().join(""),
     "summary-leaves-v1",
@@ -222,6 +227,8 @@ test("summary materialization scans all public-safe ranges for large sessions", 
     assert.equal(kinds.has("closeout"), true);
     const userPromptLeaf = report.leaves.find((leaf) => leaf.leafKind === "user_prompt");
     assert.equal(userPromptLeaf?.authorityCoverage.rangeCount, 1100);
+    assert.equal(userPromptLeaf?.sourceRangeRefs.length, 50);
+    assert.equal(userPromptLeaf?.sourceRangeRefsOmitted, 1050);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -246,6 +253,33 @@ test("summary materialization without a thread target refreshes per thread witho
     assert.equal(refreshed.summary.created, 2);
     assert.equal(getSummaryLeaves(db, { threadId: firstThreadId, limit: 50 }).summary.total > 0, true);
     assert.equal(getSummaryLeaves(db, { threadId: secondThreadId, limit: 50 }).summary.total > 0, true);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("summary leaves backfill partial caches with missing leaf kinds and range coverage", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-summary-partial-backfill-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const threadId = "019f-summary-partial-backfill";
+  writeSummaryJsonl(join(sessions, "rollout-2026-07-03T00-00-00-019f-summary-partial-backfill.jsonl"), threadId);
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    assert.equal(indexCodexSessions(db, { roots: [sessions], maxFiles: 10 }).indexedFiles, 1);
+    const partial = materializeSummaryLeaves(db, { threadId, limit: 1 });
+    assert.equal(partial.summary.created, 1);
+    assert.equal(getSummaryLeaves(db, { threadId, limit: 50 }).leaves.some((leaf) => leaf.leafKind === "final_message"), false);
+
+    const backfilled = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    assert.equal(backfilled.indexedFiles, 1);
+    const report = getSummaryLeaves(db, { threadId, limit: 50 });
+    const kinds = new Set(report.leaves.map((leaf) => leaf.leafKind));
+    assert.equal(kinds.has("final_message"), true);
+    assert.equal(kinds.has("closeout"), true);
+    assert.equal(kinds.has("tool_call_metadata"), true);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -296,8 +330,39 @@ test("summary leaf reports filter rows without source ranges or event lineage", 
 
     const report = getSummaryLeaves(db, { threadId: "019f-summary-unsafe", limit: 10 });
     assert.equal(report.leaves.length, 0);
+    assert.equal(report.sourceCoverage.summaryLeaves, "partial");
+    assert.equal(report.summary.total, 0);
     assert.equal(report.omitted.filteredUnsafeRows, 1);
     assert.equal(report.omitted.reasons.includes("filtered_unsafe_rows"), true);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("summary leaf reports filter unsafe thread ids and non-template summary text", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-summary-thread-text-safety-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    insertSummaryLeafRow(db, {
+      id: "b".repeat(32),
+      threadId: "/Users/lume/private/thread",
+      authorityCoverage: { source: "prepared_source_ranges", status: "ok", rangeCount: 1 }
+    });
+    insertSummaryLeafRow(db, {
+      id: "c".repeat(32),
+      threadId: "019f-summary-template-reject",
+      summaryText: "PRIVATE_CANARY_TOKEN_1234567890 should never surface",
+      authorityCoverage: { source: "prepared_source_ranges", status: "ok", rangeCount: 1 }
+    });
+
+    const report = getSummaryLeaves(db, { limit: 10 });
+    const serialized = JSON.stringify(report);
+    assert.equal(report.leaves.length, 0);
+    assert.equal(report.sourceCoverage.summaryLeaves, "partial");
+    assert.equal(report.omitted.filteredUnsafeRows, 2);
+    assert.equal(serialized.includes("/Users/lume"), false);
+    assert.equal(serialized.includes("PRIVATE_CANARY_TOKEN"), false);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -408,8 +473,7 @@ test("summary expansion can root on a valid leaf outside the first public page",
       const id = index.toString(16).padStart(32, "0");
       insertSummaryLeafRow(db, {
         id,
-        threadId: `019f-summary-page-${index.toString().padStart(4, "0")}`,
-        summaryText: `Public-safe summary leaf ${index}`
+        threadId: `019f-summary-page-${index.toString().padStart(4, "0")}`
       });
     }
     const targetId = (1000).toString(16).padStart(32, "0");
@@ -434,8 +498,8 @@ test("summary expansion reports null root thread for unscoped cross-thread expan
   try {
     const firstId = "4".repeat(32);
     const secondId = "5".repeat(32);
-    insertSummaryLeafRow(db, { id: firstId, threadId: "019f-summary-unscoped-a", summaryText: "Public-safe first unscoped leaf" });
-    insertSummaryLeafRow(db, { id: secondId, threadId: "019f-summary-unscoped-b", summaryText: "Public-safe second unscoped leaf" });
+    insertSummaryLeafRow(db, { id: firstId, threadId: "019f-summary-unscoped-a" });
+    insertSummaryLeafRow(db, { id: secondId, threadId: "019f-summary-unscoped-b" });
 
     const expanded = expandSummaryLeaves(db, {
       maxDepth: 1,
@@ -451,6 +515,31 @@ test("summary expansion reports null root thread for unscoped cross-thread expan
   }
 });
 
+test("summary expansion reports omitted roots when unrooted expansion exceeds max nodes", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-summary-expand-root-limit-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    for (let index = 0; index < 5; index += 1) {
+      insertSummaryLeafRow(db, {
+        id: (index + 20).toString(16).padStart(32, "0"),
+        threadId: `019f-summary-root-limit-${index}`
+      });
+    }
+
+    const expanded = expandSummaryLeaves(db, {
+      maxDepth: 1,
+      maxNodes: 2,
+      tokenBudget: 1000
+    });
+    assert.equal(expanded.leaves.length, 2);
+    assert.equal(expanded.omitted.reasons.includes("node_limit"), true);
+    assert.equal(expanded.omitted.nodeLimitCount, 3);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("summary expansion does not count duplicate queued paths as cycles", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-summary-expand-dedupe-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
@@ -459,9 +548,9 @@ test("summary expansion does not count duplicate queued paths as cycles", () => 
     const firstId = "1".repeat(32);
     const secondId = "2".repeat(32);
     const thirdId = "3".repeat(32);
-    insertSummaryLeafRow(db, { id: firstId, threadId, summaryText: "Public-safe first leaf" });
-    insertSummaryLeafRow(db, { id: secondId, threadId, summaryText: "Public-safe second leaf" });
-    insertSummaryLeafRow(db, { id: thirdId, threadId, summaryText: "Public-safe third leaf" });
+    insertSummaryLeafRow(db, { id: firstId, threadId });
+    insertSummaryLeafRow(db, { id: secondId, threadId });
+    insertSummaryLeafRow(db, { id: thirdId, threadId });
     const insertEdge = db.prepare("INSERT INTO summary_edges (edge_id, parent_leaf_ref, child_leaf_ref, edge_kind, created_at) VALUES (?, ?, ?, ?, ?)");
     insertEdge.run("dedupe-a-b", `summary_leaf:${firstId}`, `summary_leaf:${secondId}`, "same_thread_context", "2026-07-03T00:00:00.000Z");
     insertEdge.run("dedupe-a-c", `summary_leaf:${firstId}`, `summary_leaf:${thirdId}`, "same_thread_context", "2026-07-03T00:00:00.000Z");
