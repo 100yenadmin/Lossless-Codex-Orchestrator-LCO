@@ -22,6 +22,7 @@ The current target is:
 
 - File and execute the 1.2 prepared-state tracker and child issues from the sprint brief, using test/eval-first slices and public-safe evidence.
 - Keep prepared state as advisory cache: cards, inbox items, and summary leaves route an agent to source refs; they do not become authority for PR/CI/release/runtime/customer truth.
+- Classify mutations explicitly: pure reads use empty `mutationClasses`, LCO-owned indexing/audit/prepared-state writes use `derived_cache`, and source-store, external-system, live-control, GUI, release, and npm mutations stay non-default.
 - Add source ranges and summary leaves as an additive DB layer behind the existing search/describe/expand tools instead of rewriting the current session-level DB in one migration.
 - Treat Codex compaction hooks outside Codex as marker capture only. True compaction-summary capture waits for Codex-native sanitized summary support.
 - Keep model compaction opt-in and behind a later spike. It must not receive raw transcripts or current `safe_text` by default.

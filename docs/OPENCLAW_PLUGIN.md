@@ -47,6 +47,11 @@ longer sufficient for a working-app claim.
 Recommended OpenClaw configuration should expose the `loo_*` tools and keep live controls approval-gated:
 
 - Read tools may run immediately.
+- Each shared tool declaration includes a `safety` object with `mode`, `source`,
+  `requiresApproval`, and `mutationClasses`. Empty `mutationClasses` means a
+  pure read. `derived_cache` means LCO updates only its own local cache or audit
+  state; it is still not Codex source-store mutation, external mutation, live
+  control, or GUI mutation.
 - Optional LCM peer recall uses `LOO_LCM_DB_PATHS` or per-call `lcm_db_paths` and opens those DBs read-only.
 - Control tools should run `dry_run=true` first.
 - Live control requires `approval_audit_id` from the dry-run result.

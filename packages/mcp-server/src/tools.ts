@@ -62,17 +62,19 @@ import {
   type AuditStore,
   type DesktopBackend,
   type CodexClient,
-  type DesktopProbe
+  type DesktopProbe,
+  type LooCommandSafety
 } from "../../adapters/src/index.js";
 
 export type LooTool = {
   name: string;
   description: string;
+  safety: LooCommandSafety;
   inputSchema: Record<string, unknown>;
   execute(input: Record<string, unknown>): Promise<unknown> | unknown;
 };
 
-export type LooToolDeclaration = Pick<LooTool, "name" | "description" | "inputSchema">;
+export type LooToolDeclaration = Pick<LooTool, "name" | "description" | "safety" | "inputSchema">;
 
 const metadataOnlyAudit: AuditStore = {
   path: "metadata-only",
@@ -104,7 +106,7 @@ export function createLooToolDeclarations(): LooToolDeclaration[] {
     db: {} as LooDatabase,
     audit: metadataOnlyAudit,
     codexClient: metadataOnlyCodexClient
-  }).map(({ name, description, inputSchema }) => ({ name, description, inputSchema }));
+  }).map(({ name, description, safety, inputSchema }) => ({ name, description, safety, inputSchema }));
 }
 
 export function createLooTools(options: { db: LooDatabase; audit: AuditStore; codexClient: CodexClient; codexReadClient?: CodexClient; desktopProbe?: DesktopProbe }): LooTool[] {
@@ -679,9 +681,12 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
 }
 
 function tool(name: string, description: string, properties: Record<string, unknown>, execute: LooTool["execute"]): LooTool {
+  const safety = LOO_COMMAND_POLICY[name];
+  if (!safety) throw new Error(`Missing LOO command policy for ${name}`);
   return {
     name,
     description,
+    safety,
     inputSchema: { type: "object", additionalProperties: false, properties },
     execute
   };

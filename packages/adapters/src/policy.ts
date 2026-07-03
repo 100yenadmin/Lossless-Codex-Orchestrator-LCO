@@ -85,65 +85,100 @@ export const CODEX_FORBIDDEN_METHODS = new Set([
   "externalAgentConfig/import"
 ]);
 
+export type LooCommandMode = "read_only" | "approval_gated_control" | "dry_run_only";
+export type LooCommandSource = "local_index" | "structured_operating_inputs" | "codex_direct" | "desktop_fallback" | "audit";
+export type LooMutationClass =
+  | "source_store"
+  | "derived_cache"
+  | "external_system"
+  | "live_control"
+  | "desktop_gui"
+  | "github_write"
+  | "notion_write"
+  | "release_publish"
+  | "npm_publish";
+
 export type LooCommandSafety = {
-  mode: "read_only" | "approval_gated_control" | "dry_run_only";
-  source: "local_index" | "structured_operating_inputs" | "codex_direct" | "desktop_fallback" | "audit";
+  mode: LooCommandMode;
+  source: LooCommandSource;
   requiresApproval: boolean;
+  mutationClasses: LooMutationClass[];
 };
 
+function commandSafety(
+  mode: LooCommandMode,
+  source: LooCommandSource,
+  requiresApproval: boolean,
+  mutationClasses: readonly LooMutationClass[] = []
+): LooCommandSafety {
+  return { mode, source, requiresApproval, mutationClasses: [...mutationClasses] };
+}
+
+function readOnly(source: LooCommandSource, mutationClasses: readonly LooMutationClass[] = []): LooCommandSafety {
+  return commandSafety("read_only", source, false, mutationClasses);
+}
+
+function approvalGatedControl(source: LooCommandSource, mutationClasses: readonly LooMutationClass[] = ["live_control"]): LooCommandSafety {
+  return commandSafety("approval_gated_control", source, true, mutationClasses);
+}
+
+function dryRunOnly(source: LooCommandSource, mutationClasses: readonly LooMutationClass[] = []): LooCommandSafety {
+  return commandSafety("dry_run_only", source, true, mutationClasses);
+}
+
 export const LOO_COMMAND_POLICY: Record<string, LooCommandSafety> = {
-  loo_index_sessions: { mode: "read_only", source: "local_index", requiresApproval: false },
-  loo_grep: { mode: "read_only", source: "local_index", requiresApproval: false },
-  loo_search_sessions: { mode: "read_only", source: "local_index", requiresApproval: false },
-  loo_describe_ref: { mode: "read_only", source: "local_index", requiresApproval: false },
-  loo_describe_session: { mode: "read_only", source: "local_index", requiresApproval: false },
-  loo_expand_session: { mode: "read_only", source: "local_index", requiresApproval: false },
-  loo_expand_query: { mode: "read_only", source: "local_index", requiresApproval: false },
-  loo_codex_thread_map: { mode: "read_only", source: "local_index", requiresApproval: false },
-  loo_codex_session_management_map: { mode: "read_only", source: "local_index", requiresApproval: false },
-  loo_recent_sessions: { mode: "read_only", source: "local_index", requiresApproval: false },
-  loo_cockpit_inbox: { mode: "read_only", source: "local_index", requiresApproval: false },
-  loo_codex_collaboration_cockpit: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },
-  loo_codex_collaboration_next_steps: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },
-  loo_codex_desktop_collaboration_proof: { mode: "read_only", source: "desktop_fallback", requiresApproval: false },
-  loo_codex_runtime_desktop_visibility_status: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },
-  loo_codex_active_thread_state: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },
-  loo_codex_autonomy_tick: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },
-  loo_watchers_list: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },
-  loo_watcher_status: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },
-  loo_watcher_dry_run: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },
-  loo_resume_request_packet: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },
-  loo_codex_app_server_status: { mode: "read_only", source: "codex_direct", requiresApproval: false },
-  loo_codex_app_server_threads: { mode: "read_only", source: "codex_direct", requiresApproval: false },
-  loo_visible_codex_map: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },
-  loo_codex_desktop_coherence: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },
-  loo_codex_desktop_fallback_status: { mode: "read_only", source: "desktop_fallback", requiresApproval: false },
-  loo_plan_state_pins: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },
-  loo_github_operating_items: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },
-  loo_project_digest: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },
-  loo_attention_inbox: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },
-  loo_business_pulse: { mode: "read_only", source: "structured_operating_inputs", requiresApproval: false },
-  loo_codex_final_messages: { mode: "read_only", source: "local_index", requiresApproval: false },
-  loo_codex_plans: { mode: "read_only", source: "local_index", requiresApproval: false },
-  loo_codex_touched_files: { mode: "read_only", source: "local_index", requiresApproval: false },
-  loo_codex_tool_calls: { mode: "read_only", source: "local_index", requiresApproval: false },
-  loo_closeout_dry_run: { mode: "read_only", source: "local_index", requiresApproval: false },
-  loo_session_sanitizer: { mode: "read_only", source: "local_index", requiresApproval: false },
-  loo_codex_sqlite_stores: { mode: "read_only", source: "local_index", requiresApproval: false },
-  loo_lcm_peer_dbs: { mode: "read_only", source: "local_index", requiresApproval: false },
-  loo_codex_control_dry_run: { mode: "read_only", source: "audit", requiresApproval: false },
-  loo_codex_resume_thread: { mode: "approval_gated_control", source: "codex_direct", requiresApproval: true },
-  loo_codex_send_message: { mode: "approval_gated_control", source: "codex_direct", requiresApproval: true },
-  loo_codex_steer_thread: { mode: "approval_gated_control", source: "codex_direct", requiresApproval: true },
-  loo_codex_interrupt_thread: { mode: "approval_gated_control", source: "codex_direct", requiresApproval: true },
-  loo_desktop_see: { mode: "read_only", source: "desktop_fallback", requiresApproval: false },
-  loo_desktop_act: { mode: "dry_run_only", source: "desktop_fallback", requiresApproval: true },
-  loo_desktop_proof_action: { mode: "approval_gated_control", source: "desktop_fallback", requiresApproval: true },
-  loo_desktop_proof_report: { mode: "read_only", source: "desktop_fallback", requiresApproval: false },
-  loo_desktop_live_proof_harness: { mode: "read_only", source: "desktop_fallback", requiresApproval: false },
-  loo_doctor: { mode: "read_only", source: "audit", requiresApproval: false },
-  loo_permissions: { mode: "read_only", source: "audit", requiresApproval: false },
-  loo_audit_tail: { mode: "read_only", source: "audit", requiresApproval: false }
+  loo_index_sessions: readOnly("local_index", ["derived_cache"]),
+  loo_grep: readOnly("local_index"),
+  loo_search_sessions: readOnly("local_index"),
+  loo_describe_ref: readOnly("local_index"),
+  loo_describe_session: readOnly("local_index"),
+  loo_expand_session: readOnly("local_index"),
+  loo_expand_query: readOnly("local_index"),
+  loo_codex_thread_map: readOnly("local_index"),
+  loo_codex_session_management_map: readOnly("local_index"),
+  loo_recent_sessions: readOnly("local_index"),
+  loo_cockpit_inbox: readOnly("local_index"),
+  loo_codex_collaboration_cockpit: readOnly("structured_operating_inputs"),
+  loo_codex_collaboration_next_steps: readOnly("structured_operating_inputs"),
+  loo_codex_desktop_collaboration_proof: readOnly("desktop_fallback"),
+  loo_codex_runtime_desktop_visibility_status: readOnly("structured_operating_inputs"),
+  loo_codex_active_thread_state: readOnly("structured_operating_inputs"),
+  loo_codex_autonomy_tick: readOnly("structured_operating_inputs"),
+  loo_watchers_list: readOnly("structured_operating_inputs"),
+  loo_watcher_status: readOnly("structured_operating_inputs"),
+  loo_watcher_dry_run: readOnly("structured_operating_inputs"),
+  loo_resume_request_packet: readOnly("structured_operating_inputs"),
+  loo_codex_app_server_status: readOnly("codex_direct"),
+  loo_codex_app_server_threads: readOnly("codex_direct"),
+  loo_visible_codex_map: readOnly("structured_operating_inputs"),
+  loo_codex_desktop_coherence: readOnly("structured_operating_inputs"),
+  loo_codex_desktop_fallback_status: readOnly("desktop_fallback"),
+  loo_plan_state_pins: readOnly("structured_operating_inputs"),
+  loo_github_operating_items: readOnly("structured_operating_inputs"),
+  loo_project_digest: readOnly("structured_operating_inputs"),
+  loo_attention_inbox: readOnly("structured_operating_inputs"),
+  loo_business_pulse: readOnly("structured_operating_inputs"),
+  loo_codex_final_messages: readOnly("local_index"),
+  loo_codex_plans: readOnly("local_index"),
+  loo_codex_touched_files: readOnly("local_index"),
+  loo_codex_tool_calls: readOnly("local_index"),
+  loo_closeout_dry_run: readOnly("local_index"),
+  loo_session_sanitizer: readOnly("local_index"),
+  loo_codex_sqlite_stores: readOnly("local_index"),
+  loo_lcm_peer_dbs: readOnly("local_index"),
+  loo_codex_control_dry_run: readOnly("audit", ["derived_cache"]),
+  loo_codex_resume_thread: approvalGatedControl("codex_direct"),
+  loo_codex_send_message: approvalGatedControl("codex_direct"),
+  loo_codex_steer_thread: approvalGatedControl("codex_direct"),
+  loo_codex_interrupt_thread: approvalGatedControl("codex_direct"),
+  loo_desktop_see: readOnly("desktop_fallback"),
+  loo_desktop_act: dryRunOnly("desktop_fallback"),
+  loo_desktop_proof_action: approvalGatedControl("desktop_fallback", ["desktop_gui"]),
+  loo_desktop_proof_report: readOnly("desktop_fallback"),
+  loo_desktop_live_proof_harness: readOnly("desktop_fallback"),
+  loo_doctor: readOnly("audit"),
+  loo_permissions: readOnly("audit"),
+  loo_audit_tail: readOnly("audit")
 };
 
 export function assertCodexMethodAllowed(method: string, surface: CodexMethodSurface = "generic"): void {
