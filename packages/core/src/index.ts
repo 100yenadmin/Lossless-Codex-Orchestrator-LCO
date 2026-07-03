@@ -1730,6 +1730,8 @@ export function migrate(db: LooDatabase): void {
       tokenize = 'unicode61'
     );
 
+    -- Audit ledger only: migration DDL in this module must remain independently
+    -- idempotent via IF NOT EXISTS, INSERT OR IGNORE, or explicit guards.
     CREATE TABLE IF NOT EXISTS loo_schema_migrations (
       migration_id TEXT PRIMARY KEY,
       applied_at TEXT NOT NULL,
@@ -8138,8 +8140,10 @@ function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, ses
     db.prepare("DELETE FROM codex_touched_files WHERE thread_id = ?").run(session.threadId);
     db.prepare("DELETE FROM codex_tool_calls WHERE thread_id = ?").run(session.threadId);
     db.prepare("DELETE FROM codex_safe_text_fts WHERE thread_id = ?").run(session.threadId);
-    db.prepare("DELETE FROM prepared_source_ranges WHERE source_path_ref = ?").run(sourcePathRef);
-    db.prepare("DELETE FROM prepared_source_events WHERE source_path_ref = ?").run(sourcePathRef);
+    // Prepared rows are an LCO-owned derived cache for the current codex_sessions row.
+    // Clear both remap directions: same source -> new thread and same thread -> new source.
+    db.prepare("DELETE FROM prepared_source_ranges WHERE source_path_ref = ? OR thread_id = ?").run(sourcePathRef, session.threadId);
+    db.prepare("DELETE FROM prepared_source_events WHERE source_path_ref = ? OR thread_id = ?").run(sourcePathRef, session.threadId);
     db.prepare(`
       INSERT INTO codex_session_metadata (
         thread_id, project, status, priority, owner, blocker, next_action, closeout_state, plan_completion_state,

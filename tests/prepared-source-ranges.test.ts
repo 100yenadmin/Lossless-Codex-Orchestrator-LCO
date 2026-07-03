@@ -441,7 +441,7 @@ test("prepared source events are scoped to opaque source path refs for identical
   }
 });
 
-test("prepared source reindex cleanup is scoped to source path refs for fallback thread collisions", () => {
+test("prepared source cleanup keeps one current source for fallback thread collisions", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-prepared-fallback-collision-"));
   const sessions = join(root, "sessions");
   mkdirSync(sessions, { recursive: true });
@@ -455,7 +455,9 @@ test("prepared source reindex cleanup is scoped to source path refs for fallback
   try {
     indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
     const report = getPreparedSourceRanges(db, { threadId: fallbackId, limit: 50 });
-    assert.equal(new Set(report.ranges.map((range) => range.sourcePathRef)).size, 2);
+    assert.equal(report.ranges.length > 0, true);
+    assert.equal(new Set(report.ranges.map((range) => range.sourcePathRef)).size, 1);
+    assertNoDuplicatePreparedEvents(db, fallbackId);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -478,6 +480,34 @@ test("prepared source range cleanup removes stale rows when a source path maps t
     indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
     assert.equal(getPreparedSourceRanges(db, { threadId: "019f-source-remap-a", limit: 50 }).summary.total, 0);
     assert.equal(getPreparedSourceRanges(db, { threadId: "019f-source-remap-b", limit: 50 }).summary.total > 0, true);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared source range cleanup removes old source rows when a thread maps to a new source path", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-thread-remap-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const threadId = "019f-thread-remap-proof";
+  const firstPath = join(sessions, "rollout-2026-07-03T00-00-00-019f-thread-remap-a.jsonl");
+  const secondPath = join(sessions, "rollout-2026-07-03T00-00-01-019f-thread-remap-b.jsonl");
+  writePreparedJsonl(firstPath, threadId, "Thread remap A");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    const before = getPreparedSourceRanges(db, { threadId, limit: 50 });
+    assert.equal(new Set(before.ranges.map((range) => range.sourcePathRef)).size, 1);
+
+    writePreparedJsonl(secondPath, threadId, "Thread remap B");
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+
+    const sessionRow = db.prepare("SELECT source_path AS sourcePath FROM codex_sessions WHERE thread_id = ?").get(threadId) as { sourcePath: string };
+    assert.equal(sessionRow.sourcePath, secondPath);
+    const report = getPreparedSourceRanges(db, { threadId, limit: 50 });
+    assert.equal(new Set(report.ranges.map((range) => range.sourcePathRef)).size, 1);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
