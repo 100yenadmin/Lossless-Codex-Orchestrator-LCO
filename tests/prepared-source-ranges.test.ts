@@ -218,15 +218,22 @@ test("prepared source ranges hash unsafe thread ids and drop malformed timestamp
   const sessions = join(root, "sessions");
   mkdirSync(sessions, { recursive: true });
   const sourcePath = join(sessions, "rollout-2026-07-03T00-00-00-019f-prepared-thread-timestamp.jsonl");
-  writeFileSync(sourcePath, JSON.stringify({
-    timestamp: "/Users/lume/private/PRIVATE_CANARY_TOKEN_1234567890",
-    session_meta: { payload: { id: "/Users/lume/private/PRIVATE_CANARY_TOKEN_1234567890" } },
-    event_msg: { type: "thread_name", name: "Unsafe metadata proof" }
-  }) + "\n");
+  writeFileSync(sourcePath, [
+    {
+      timestamp: "/Users/lume/private/PRIVATE_CANARY_TOKEN_1234567890",
+      session_meta: { payload: { id: "/Users/lume/private/PRIVATE_CANARY_TOKEN_1234567890" } },
+      event_msg: { type: "thread_name", name: "Unsafe metadata proof" }
+    },
+    {
+      timestamp: 1e300,
+      event_msg: { type: "user_message", message: "Out-of-range numeric timestamp should not skip the file." }
+    }
+  ].map((line) => JSON.stringify(line)).join("\n") + "\n");
 
   const db = createDatabase(join(root, "orchestrator.sqlite"));
   try {
-    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    const indexed = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    assert.deepEqual(indexed.errors, []);
     const report = getPreparedSourceRanges(db, { limit: 10 });
     const serialized = JSON.stringify(report);
     assert.equal(serialized.includes("/Users/lume"), false);

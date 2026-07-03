@@ -8581,8 +8581,15 @@ function lastAssistantText(parts: string[]): string | null {
 function findTimestamp(item: any): string | null {
   const value = item.timestamp ?? item.ts ?? item.created_at ?? item.event_msg?.timestamp;
   if (typeof value === "string") return safeIsoTimestamp(value);
-  if (typeof value === "number") return new Date(value > 10_000_000_000 ? value : value * 1000).toISOString();
+  if (typeof value === "number") return safeNumericTimestamp(value);
   return null;
+}
+
+function safeNumericTimestamp(value: number): string | null {
+  if (!Number.isFinite(value)) return null;
+  const timestamp = value > 10_000_000_000 ? value : value * 1000;
+  const date = new Date(timestamp);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
 }
 
 function safeIsoTimestamp(value: string): string | null {
