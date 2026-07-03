@@ -63,6 +63,7 @@ export type CodexAppServerThreadSignal = {
   appServerRef: string;
   threadId: string;
   titleSanitized: string | null;
+  titleAliases: string[];
   titleHash: string | null;
   status: string | null;
   loaded: boolean | null;
@@ -2572,11 +2573,13 @@ function threadIdsFromLoadedResult(result: unknown): string[] {
 function appServerThreadSignal(thread: Record<string, unknown>, loadedThreadIds: Set<string> | null): CodexAppServerThreadSignal {
   const threadId = capTextValue(stringField(thread.id) ?? "unknown", 160);
   const title = publicTextField(thread.name, 160);
+  const titleAliases = publicTitleAliases(thread, title);
   const loaded = loadedThreadIds ? loadedThreadIds.has(threadId) : null;
   return {
     appServerRef: codexAppThreadRef(threadId),
     threadId,
     titleSanitized: title ?? null,
+    titleAliases,
     titleHash: title ? shortHash(title) : null,
     status: threadStatus(thread.status),
     loaded,
@@ -2585,6 +2588,22 @@ function appServerThreadSignal(thread: Record<string, unknown>, loadedThreadIds:
     sourceRef: `codex_thread:${threadId}`,
     confidence: title ? 0.9 : 0.62
   };
+}
+
+function publicTitleAliases(thread: Record<string, unknown>, primaryTitle: string | undefined): string[] {
+  const aliases = [
+    thread.displayName,
+    thread.display_name,
+    thread.title,
+    thread.titleSanitized,
+    ...(Array.isArray(thread.titleAliases) ? thread.titleAliases : []),
+    ...(Array.isArray(thread.title_aliases) ? thread.title_aliases : [])
+  ];
+  const sanitized = aliases
+    .map((alias) => publicTextField(alias, 160))
+    .filter((alias): alias is string => Boolean(alias && alias.trim()))
+    .filter((alias) => alias !== primaryTitle);
+  return [...new Set(sanitized)].slice(0, 12);
 }
 
 function threadStatus(value: unknown): string | null {

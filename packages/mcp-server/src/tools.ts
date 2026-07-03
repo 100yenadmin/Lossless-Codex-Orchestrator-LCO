@@ -154,8 +154,26 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
     })),
     tool("loo_search_sessions", "Search indexed Codex sessions with bounded safe text.", {
       query: { type: "string" },
-      limit: { type: "integer", minimum: 1, maximum: 100 }
-    }, (input) => searchSessions(options.db, { query: requiredString(input.query, "query"), limit: optionalNumber(input.limit) })),
+      limit: { type: "integer", minimum: 1, maximum: 100 },
+      include_app_server: { type: "boolean" },
+      app_server_threads: { type: "object", additionalProperties: true },
+      now: { type: "string" }
+    }, async (input) => {
+      const appServerThreads = optionalRecord(input.app_server_threads) as AppServerThreadsInput | undefined
+        ?? (input.include_app_server === true
+          ? await createCodexAppServerThreadsReport({
+            client: codexReadClient,
+            limit: optionalNumber(input.limit),
+            now: optionalString(input.now)
+          })
+          : undefined);
+      return searchSessions(options.db, {
+        query: requiredString(input.query, "query"),
+        limit: optionalNumber(input.limit),
+        appServerThreads,
+        now: optionalString(input.now)
+      });
+    }),
     tool("loo_grep", "Search Codex index and optional read-only OpenClaw LCM peer DBs with source-prefixed refs.", {
       query: { type: "string" },
       limit: { type: "integer", minimum: 1, maximum: 100 },

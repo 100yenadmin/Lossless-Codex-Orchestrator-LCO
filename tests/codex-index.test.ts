@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+import { createAuditStore } from "../packages/adapters/src/index.js";
 import {
   createDatabase,
   describeSession,
@@ -11,12 +12,14 @@ import {
   expandSession,
   getCodexFinalMessages,
   getCodexPlans,
+  getCodexToolCalls,
   getCodexThreadMap,
   getCodexTouchedFiles,
   getRecentSessions,
   indexCodexSessions,
   searchSessions
 } from "../packages/core/src/index.js";
+import { createLooTools } from "../packages/mcp-server/src/tools.js";
 
 function makeFixture() {
   const root = mkdtempSync(join(tmpdir(), "loo-codex-"));
@@ -104,6 +107,169 @@ test("indexes Codex sessions with plans, finals, touched files, and search text"
   } finally {
     db.close();
     rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("search resolves exact thread ids and app-server display aliases without raw paths", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-session-discovery-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const rawPathCanary = join(sessions, "private-thread.jsonl");
+  const threadPath = join(sessions, "rollout-2026-07-03T00-00-00-019f-app-alias-thread.jsonl");
+  const lines = [
+    {
+      timestamp: "2026-07-03T00:00:00.000Z",
+      session_meta: {
+        payload: {
+          id: "019f-app-alias-thread",
+          cwd: "/Volumes/LEXAR/repos/lossless-openclaw-orchestrator",
+          model: "gpt-5.5"
+        }
+      }
+    },
+    { timestamp: "2026-07-03T00:00:01.000Z", event_msg: { type: "thread_name", name: "Indexed canonical session title" } },
+    {
+      timestamp: "2026-07-03T00:00:02.000Z",
+      event_msg: {
+        type: "agent_message",
+        message: `Final: canonical session finished. Private source ${rawPathCanary} must stay hidden.`
+      }
+    }
+  ];
+  writeFileSync(threadPath, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  const readRequests: Array<{ method: string; params: Record<string, unknown> }> = [];
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+
+    const byBareId = searchSessions(db, {
+      query: "019f-app-alias-thread",
+      limit: 5,
+      now: "2026-07-03T00:00:05.000Z"
+    });
+    assert.equal(byBareId[0]?.threadId, "019f-app-alias-thread");
+    assert.equal(byBareId[0]?.matchKind, "thread_id");
+    assert.equal(byBareId[0]?.freshness.stale, false);
+
+    const byRef = searchSessions(db, { query: "codex_thread:019f-app-alias-thread", limit: 5 });
+    assert.equal(byRef[0]?.threadId, "019f-app-alias-thread");
+    assert.equal(byRef[0]?.reasonCodes.includes("exact_thread_id"), true);
+
+    const tools = createLooTools({
+      db,
+      audit: createAuditStore(join(root, "audit.jsonl")),
+      codexClient: { request: async () => ({ ok: true }) },
+      codexReadClient: {
+        async request(method, params) {
+          readRequests.push({ method, params });
+          if (method === "thread/list") {
+            return {
+              ok: true,
+              result: {
+                data: [{
+                  id: "019f-app-alias-thread",
+                  name: "Indexed canonical session title",
+                  displayName: "EVA-LCO",
+                  titleAliases: ["EVA-LCO", `${rawPathCanary} sk-test_1234567890`],
+                  updatedAt: 1783036802,
+                  status: { type: "active" }
+                }]
+              },
+              notifications: []
+            };
+          }
+          throw new Error(`unexpected read method ${method}`);
+        }
+      }
+    });
+
+    const searchTool = tools.find((tool) => tool.name === "loo_search_sessions");
+    assert.ok(searchTool);
+    const byAlias = await searchTool.execute({
+      query: "EVA-LCO",
+      limit: 5,
+      include_app_server: true
+    }) as Array<ReturnType<typeof searchSessions>[number]>;
+
+    assert.equal(byAlias[0]?.threadId, "019f-app-alias-thread");
+    assert.equal(byAlias[0]?.matchKind, "app_server_alias");
+    assert.equal(byAlias[0]?.reasonCodes.includes("app_server_alias"), true);
+    assert.equal(byAlias[0]?.snippet, "App-server alias: EVA-LCO");
+    assert.deepEqual(readRequests.map((request) => request.method), ["thread/list"]);
+    assert.doesNotMatch(JSON.stringify(byAlias), /private-thread|sk-test_1234567890|\/Volumes\/LEXAR/);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("legacy tool-call extraction recovers structured names and emits reason codes for unsupported shapes", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-legacy-tools-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const threadPath = join(sessions, "rollout-2026-07-03T00-00-00-019f-legacy-tools.jsonl");
+  const privatePath = join(sessions, "private-tool-input.txt");
+  const longValue = "bounded legacy argument ".repeat(250);
+  const lines = [
+    { timestamp: "2026-07-03T00:00:00.000Z", session_meta: { payload: { id: "019f-legacy-tools" } } },
+    {
+      timestamp: "2026-07-03T00:00:01.000Z",
+      response_item: {
+        type: "message",
+        role: "assistant",
+        tool_calls: [{
+          id: "legacy_openai_call",
+          type: "function",
+          function: {
+            name: "functions.exec_command",
+            arguments: JSON.stringify({
+              cmd: `sed -n '1,20p' ${privatePath}`,
+              token: "sk-test_1234567890abcdef",
+              longValue
+            })
+          }
+        }]
+      }
+    },
+    {
+      timestamp: "2026-07-03T00:00:02.000Z",
+      response_item: {
+        type: "function_call",
+        call_id: "missing_name_call",
+        arguments: { cmd: "echo safe missing name" }
+      }
+    },
+    {
+      timestamp: "2026-07-03T00:00:03.000Z",
+      response_item: {
+        type: "tool_call",
+        id: "unsupported_shape_call",
+        function: {}
+      }
+    }
+  ];
+  writeFileSync(threadPath, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+
+    const calls = getCodexToolCalls(db, { threadId: "019f-legacy-tools", limit: 10 });
+    const byId = new Map(calls.map((call) => [call.callId, call]));
+    assert.equal(byId.get("legacy_openai_call")?.toolName, "functions.exec_command");
+    assert.equal(byId.get("legacy_openai_call")?.reasonCode, null);
+    assert.match(byId.get("legacy_openai_call")?.argumentsText ?? "", /sed -n/);
+    assert.match(byId.get("legacy_openai_call")?.argumentsText ?? "", /<redacted-secret>/);
+    assert.equal((byId.get("legacy_openai_call")?.argumentsText.length ?? 0) <= 2000, true);
+    assert.equal(byId.get("missing_name_call")?.toolName, "unknown");
+    assert.equal(byId.get("missing_name_call")?.reasonCode, "missing_tool_name_source");
+    assert.equal(byId.get("unsupported_shape_call")?.toolName, "unknown");
+    assert.equal(byId.get("unsupported_shape_call")?.reasonCode, "unsupported_legacy_shape");
+    assert.doesNotMatch(JSON.stringify(calls), /sk-test_1234567890|private-tool-input|\/Volumes\/LEXAR/);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

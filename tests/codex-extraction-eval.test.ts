@@ -20,7 +20,7 @@ type ExpectedEval = {
   finalMessages: string[];
   touchedFiles: string[];
   toolCalls: string[];
-  toolCallDetails: Array<{ threadId: string; callId: string; toolName: string; argumentsText: string }>;
+  toolCallDetails: Array<{ threadId: string; callId: string; toolName: string; argumentsText: string; reasonCode?: string | null }>;
   safeTextRequired: string[];
   safeTextForbidden: string[];
 };

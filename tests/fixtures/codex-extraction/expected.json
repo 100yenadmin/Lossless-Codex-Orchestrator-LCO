@@ -27,19 +27,22 @@
       "threadId": "019f-eval-thread",
       "callId": "call_secret",
       "toolName": "functions.exec_command",
-      "argumentsText": "{\"cmd\":\"printf 'authorization: <redacted-secret>' && printf 'Cookie: <redacted-secret>' && echo <redacted-secret> && printf '<redacted-secret>' && curl https://example.invalid\",\"cwd\":\"~/private\"}"
+      "argumentsText": "{\"cmd\":\"printf 'authorization: <redacted-secret>' && printf 'Cookie: <redacted-secret>' && echo <redacted-secret> && printf '<redacted-secret>' && curl https://example.invalid\",\"cwd\":\"~/private\"}",
+      "reasonCode": null
     },
     {
       "threadId": "019f-eval-thread",
       "callId": "call_edit",
       "toolName": "functions.apply_patch",
-      "argumentsText": "*** Begin Patch\n*** Update File: /Volumes/LEXAR/repos/acme/packages/ui/Button.tsx\n@@\n+export const label = 'Safe summary';\n*** End Patch"
+      "argumentsText": "*** Begin Patch\n*** Update File: <redacted-path>\n@@\n+export const label = 'Safe summary';\n*** End Patch",
+      "reasonCode": null
     },
     {
       "threadId": "019f-eval-thread",
       "callId": "call_read",
       "toolName": "functions.exec_command",
-      "argumentsText": "{\"cmd\":\"sed -n '1,120p' packages/core/src/index.ts\"}"
+      "argumentsText": "{\"cmd\":\"sed -n '1,120p' packages/core/src/index.ts\"}",
+      "reasonCode": null
     }
   ],
   "safeTextRequired": [
