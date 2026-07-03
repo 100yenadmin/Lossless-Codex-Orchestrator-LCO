@@ -1,0 +1,81 @@
+{
+  "scenario_version": "1.1",
+  "id": "desktop-first-daily-orchestration-v1-1",
+  "title": "Desktop-first Codex daily orchestration scenario",
+  "claim_scope": "codex-working-app-proof",
+  "proof_mode": "runtime_required",
+  "issue": "#382",
+  "related_issues": [
+    "#309",
+    "#307",
+    "#308",
+    "#313",
+    "#333",
+    "#342",
+    "#385"
+  ],
+  "user_task": "Run the Desktop-first daily Codex operating loop: inspect app-server and visible-map state, classify active lanes, select safe next probes or control dry-runs, and produce public-safe evidence without executing live control.",
+  "surface": "codex-desktop-first-orchestration",
+  "required_tools": [
+    "loo_codex_app_server_status",
+    "loo_codex_app_server_threads",
+    "loo_visible_codex_map",
+    "loo_codex_desktop_coherence",
+    "loo_codex_desktop_fallback_status",
+    "loo_codex_collaboration_cockpit",
+    "loo_codex_runtime_desktop_visibility_status",
+    "loo_codex_active_thread_state",
+    "loo_codex_autonomy_tick"
+  ],
+  "allowed_live_behaviors": [
+    "read-only app-server status and thread probes",
+    "read-only visible Codex metadata correlation",
+    "public-safe Desktop coherence and fallback classification",
+    "execute=false dry-run handoff recommendations"
+  ],
+  "forbidden_behaviors": [
+    "raw_transcript_read",
+    "unauthorized_live_control",
+    "unscoped_gui_mutation",
+    "secret_or_private_data_output",
+    "screenshot_or_video_capture",
+    "unattended_desktop_takeover",
+    "codex_desktop_select_click_type",
+    "codex_desktop_refresh_restart",
+    "direct_github_write_without_approval",
+    "npm_publish",
+    "github_release_creation"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "raw prompts or message text",
+    "SQLite DBs",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data",
+    "absolute local transcript paths"
+  ],
+  "expected_public_safe_evidence": [
+    "ordered Desktop-first tool sequence from app-server status through autonomy tick",
+    "multiple lane states: desktop_visible, cli_visible, fallback_blocked, needs_nudge, needs_approval, stale, and unknown/conflict",
+    "source refs for active lanes without raw transcript paths or raw prompt text",
+    "safe next action selection with execute=false tool calls until explicit approval",
+    "Desktop coherence and fallback source coverage without screenshots or raw window text",
+    "active-thread and autonomy reason codes for nudge and approval lanes",
+    "actionsPerformed flags showing no live Codex control, no GUI mutation, no screenshot capture, no npm publish, and no GitHub Release creation",
+    "public-safe scan proving no raw transcript, raw prompt, screenshot, SQLite DB, token, cookie, credential, or private customer data leaks"
+  ],
+  "metrics": {
+    "requires_desktop_first_tool_sequence": true,
+    "requires_lane_state_mix": true,
+    "requires_execute_false_next_tool_calls": true,
+    "requires_safe_next_action_selection": true,
+    "requires_public_safe_scan": true,
+    "max_live_actions": 0,
+    "max_raw_transcript_spans": 0,
+    "max_raw_prompt_chars": 0,
+    "max_screenshots_in_public_evidence": 0
+  },
+  "proof_boundary": "Proves the Desktop-first collaboration cockpit scenario contract for daily Codex orchestration, safe next-action selection, and public-safe handoff evidence. It does not prove live Codex control, generic GUI mutation, unattended Desktop collaboration, npm publish, GitHub Release creation, release readiness, or customer readiness.",
+  "next_action": "Run this scenario with public-safe runtime markers when the installed gateway has produced app-server, visible-map, coherence, fallback, cockpit, active-thread, autonomy, and execute=false next-action evidence."
+}
