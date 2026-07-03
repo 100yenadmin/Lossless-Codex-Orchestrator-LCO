@@ -28,6 +28,7 @@ test("public beta release notes exist and preserve the proof boundary", () => {
   assert.match(notes, /No unattended desktop takeover/i);
   assert.match(notes, /No release-grade enterprise security/i);
   assert.doesNotMatch(notes, /Full Claude Code parity/i);
+  assert.doesNotMatch(notes, /\/Volumes\/LEXAR|\/Users\/lume/i);
 });
 
 test("release bundle writes public-safe local artifacts without publishing", () => {

@@ -43,11 +43,14 @@ separate release status packet proves a broader claim.
 
 ## Release Gate Notes
 
-- Release evidence:
-  `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/2026-07-03/release-0.1.0-beta.49/`.
-- Implementation evidence:
-  `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/2026-07-03/issue-375-release-finalization-gate/`.
-- PR #376 merged at `66770c985ce81a0c737126e815e1ab3a5ce47bdd`.
+- Implementation PR #376 merged the finalization gate at
+  `66770c985ce81a0c737126e815e1ab3a5ce47bdd`.
+- Release PR #378 prepares package `lossless-openclaw-orchestrator@0.1.0-beta.49`
+  and candidate tarball `lossless-openclaw-orchestrator-0.1.0-beta.49.tgz`.
+- Publication finalization, when run, must verify npm dist-tag `beta`, git tag
+  `v0.1.0-beta.49`, GitHub prerelease
+  `https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/releases/tag/v0.1.0-beta.49`,
+  and the merged release commit through `loo release finalization-status --strict`.
 - PR #376 gates passed:
   - GitHub CI `test`
   - CodeQL
