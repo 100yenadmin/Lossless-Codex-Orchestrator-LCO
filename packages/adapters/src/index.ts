@@ -801,6 +801,14 @@ async function requestCodexControlSequence(client: CodexClient, steps: CodexCont
     throw new Error("same-connection control sequence is required for this Codex control action");
   }
   const responses = await client.requestSequence(steps);
+  for (let index = 0; index < responses.length; index += 1) {
+    if (asRecord(responses[index])?.ok === false) {
+      throw new Error(`Codex control sequence step failed: ${steps[index]?.method ?? "unknown"}`);
+    }
+  }
+  if (responses.length !== steps.length) {
+    throw new Error(`Codex control sequence returned ${responses.length} response(s) for ${steps.length} step(s)`);
+  }
   return responses.at(-1) ?? { ok: true };
 }
 

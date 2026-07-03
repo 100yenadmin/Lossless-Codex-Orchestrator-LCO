@@ -145,7 +145,11 @@ export async function runLiveControlSmoke(options: LiveControlSmokeOptions): Pro
         requestSequence: async (steps) => {
           const responses = [];
           for (const step of steps) {
-            responses.push(await options.client.request(step.method, step.params));
+            const response = await options.client.request(step.method, step.params);
+            responses.push(response);
+            if (isFailedCodexResponse(response)) {
+              throw new Error(`Codex control sequence step failed: ${step.method}`);
+            }
           }
           return responses;
         }
@@ -243,6 +247,10 @@ function extractTurnId(response: unknown): string | null {
   const result = unwrapResult(response);
   const turn = objectField(result.turn);
   return stringField(turn, "id");
+}
+
+function isFailedCodexResponse(value: unknown): boolean {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value) && (value as Record<string, unknown>).ok === false);
 }
 
 function unwrapResult(value: unknown): Record<string, unknown> {

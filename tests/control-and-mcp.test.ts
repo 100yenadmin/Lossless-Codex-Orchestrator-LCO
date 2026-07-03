@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -175,6 +175,39 @@ test("Codex control redacts live transport responses before returning them throu
     assert.deepEqual(live.response, {
       content: "authorization: <redacted-secret>"
     });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Codex control rejects failed same-connection sequence responses before live audit", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-control-sequence-failure-"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const control = createCodexControl({
+    audit,
+    client: {
+      request: async () => ({ ok: true }),
+      requestSequence: async () => [
+        { ok: false, error: "thread/resume failed before load" }
+      ]
+    }
+  });
+
+  try {
+    const dryRun = await control.sendMessage({ threadId: "thr_1", message: "continue", dryRun: true });
+    await assert.rejects(
+      () => control.sendMessage({
+        threadId: "thr_1",
+        message: "continue",
+        dryRun: false,
+        approvalAuditId: dryRun.approvalAuditId
+      }),
+      /control sequence step failed.*thread\/resume/i
+    );
+
+    const auditRecords = readFileSync(audit.path, "utf8").split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as { live: boolean });
+    assert.equal(auditRecords.length, 1);
+    assert.equal(auditRecords[0]?.live, false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
