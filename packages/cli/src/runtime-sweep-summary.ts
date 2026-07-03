@@ -75,13 +75,17 @@ export function createRuntimeSweepSummary(options: RuntimeSweepSummaryOptions): 
   const summaryPath = join(evidenceDir, "runtime-sweep-summary.json");
   const generatedAt = options.now ?? new Date().toISOString();
 
-  const dryRunPayload = readJsonObject(options.dryRunScenarios);
-  const runtimePayload = readJsonObject(options.runtimeScenarios);
-  const scorecardPayload = readJsonObject(options.scorecardSweep);
-  const publishedSmokePayload = readJsonObject(options.publishedSmoke);
+  const dryRunInput = readRequiredJsonObject(options.dryRunScenarios, "dry_run_scenarios_unreadable_or_invalid");
+  const runtimeInput = readRequiredJsonObject(options.runtimeScenarios, "runtime_scenarios_unreadable_or_invalid");
+  const scorecardInput = readRequiredJsonObject(options.scorecardSweep, "scorecard_sweep_unreadable_or_invalid");
+  const publishedSmokeInput = readRequiredJsonObject(options.publishedSmoke, "published_smoke_unreadable_or_invalid");
+  const dryRunPayload = dryRunInput.payload;
+  const runtimePayload = runtimeInput.payload;
+  const scorecardPayload = scorecardInput.payload;
+  const publishedSmokePayload = publishedSmokeInput.payload;
 
   const dryRunScenarios = summarizeScenarioPayload(dryRunPayload);
-  const runtimeRequiredScenarios = summarizeScenarioPayload(runtimePayload);
+  const runtimeRequiredScenarios = summarizeScenarioPayload(runtimePayload, { requireRuntimeProof: true });
   const runtimeProofMarkers = summarizeRuntimeProofMarkers(runtimePayload, options.runtimeProofDir);
   const scorecards = summarizeScorecards(scorecardPayload);
   const gatewaySetup = summarizeGatewaySetup(publishedSmokePayload);
@@ -89,12 +93,21 @@ export function createRuntimeSweepSummary(options: RuntimeSweepSummaryOptions): 
   const claimBoundary = summarizeClaimBoundary({
     dryRunReady: dryRunScenarios.scenarioReady,
     runtimeReady: runtimeRequiredScenarios.scenarioReady,
+    runtimeScenarioBlockers: runtimeRequiredScenarios.blockers,
     missingRuntimeMarkers: runtimeProofMarkers.missingCount,
+    workingAppScorecardStatus: scorecards.workingAppRuntimeProofReview.status,
     workingAppScorecardBlockers: scorecards.workingAppRuntimeProofReview.blockers,
-    gatewayClassification: gatewaySetup.classification
+    gatewayClassification: gatewaySetup.classification,
+    liveControlProof: false
   });
   const blockers = [
-    ...missingInputBlockers(options)
+    ...missingInputBlockers(options),
+    ...[
+      dryRunInput.blocker,
+      runtimeInput.blocker,
+      scorecardInput.blocker,
+      publishedSmokeInput.blocker
+    ].filter((blocker): blocker is string => Boolean(blocker))
   ];
   const report: RuntimeSweepSummaryReport = {
     kind: "loo_runtime_sweep_summary",
@@ -128,24 +141,46 @@ export function createRuntimeSweepSummary(options: RuntimeSweepSummaryOptions): 
   return report;
 }
 
-function readJsonObject(path: string | undefined): JsonObject | null {
-  if (!path) return null;
+function readRequiredJsonObject(path: string | undefined, blocker: string): { payload: JsonObject | null; blocker: string | null } {
+  if (!path) return { payload: null, blocker: null };
   try {
     const parsed = JSON.parse(readFileSync(resolve(path), "utf8")) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as JsonObject : null;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? { payload: parsed as JsonObject, blocker: null }
+      : { payload: null, blocker };
   } catch {
-    return null;
+    return { payload: null, blocker };
   }
 }
 
-function summarizeScenarioPayload(payload: JsonObject | null): RuntimeSweepSummaryReport["dryRunScenarios"] {
+function summarizeScenarioPayload(
+  payload: JsonObject | null,
+  options: { requireRuntimeProof?: boolean } = {}
+): RuntimeSweepSummaryReport["dryRunScenarios"] {
   const scenarios = arrayField(payload, "scenarios");
+  const blockers = [...stringArrayField(payload, "blockers")];
+  if (options.requireRuntimeProof && !hasRuntimeProofRequirements(payload)) {
+    blockers.push("runtime_required_scenarios_missing");
+  }
   return {
     ok: booleanField(payload, "ok"),
-    scenarioReady: booleanField(payload, "scenarioReady"),
+    scenarioReady: booleanField(payload, "scenarioReady") && (!options.requireRuntimeProof || !blockers.includes("runtime_required_scenarios_missing")),
     scenarioCount: scenarios.length,
-    blockers: stringArrayField(payload, "blockers")
+    blockers: uniqueStrings(blockers)
   };
+}
+
+function hasRuntimeProofRequirements(payload: JsonObject | null): boolean {
+  const scenarios = arrayField(payload, "scenarios");
+  const version = stringField(payload, "scenarioVersion") ?? stringField(payload, "scenario_version");
+  const requiredMarkerCount = scenarios.reduce<number>((count, scenario) => {
+    if (!isJsonObject(scenario)) return count;
+    const proof = isJsonObject(scenario.runtimeProof) ? scenario.runtimeProof : null;
+    return count + stringArrayField(proof, "requiredMarkers").length;
+  }, 0);
+  const blockerHasRuntimeMarker = stringArrayField(payload, "blockers")
+    .some((blocker) => /^runtime_proof_missing:[^:]+:[^:]+$/.test(blocker));
+  return version === "1.1" && (requiredMarkerCount > 0 || blockerHasRuntimeMarker);
 }
 
 function summarizeRuntimeProofMarkers(payload: JsonObject | null, runtimeProofDir: string | undefined): RuntimeSweepSummaryReport["runtimeProofMarkers"] {
@@ -180,28 +215,42 @@ function summarizeScorecards(payload: JsonObject | null): RuntimeSweepSummaryRep
   const card = scorecards.find((entry) => isJsonObject(entry) && stringField(entry, "name") === WORKING_APP_SCORECARD);
   const blockers = uniqueStrings([
     ...stringArrayField(payload, "blockers").filter((blocker) => blocker.includes(WORKING_APP_SCORECARD)),
-    ...(isJsonObject(card) ? stringArrayField(card, "blockers") : [])
+    ...(isJsonObject(card) ? stringArrayField(card, "blockers") : [`scorecard_missing:${WORKING_APP_SCORECARD}`])
   ]);
   return {
     workingAppRuntimeProofReview: {
-      status: isJsonObject(card) ? stringField(card, "status") ?? "unknown" : "unknown",
+      status: isJsonObject(card) ? stringField(card, "status") ?? "unknown" : "missing",
       blockers
     }
   };
 }
 
 function summarizeGatewaySetup(payload: JsonObject | null): RuntimeSweepSummaryReport["gatewaySetup"] {
-  const setupBlockers = stringArrayField(payload, "setupBlockers");
+  const setupBlockers = uniqueStrings([
+    ...stringArrayField(payload, "setupBlockers"),
+    ...stringArrayField(payload, "blockers").filter((blocker) => /credential|gateway_setup|setup_required/i.test(blocker))
+  ]);
   const recovery = isJsonObject(payload?.setupRecovery) ? payload?.setupRecovery as JsonObject : null;
+  const setupStatus = isJsonObject(payload?.setupStatus) ? payload?.setupStatus as JsonObject : null;
   const recoveryClassification = stringField(recovery, "classification");
+  const setupStatusClassification = stringField(setupStatus, "classification");
   const packageLikelyOk = booleanField(recovery, "packageInstallLikelyOk");
-  if (setupBlockers.includes("openclaw_gateway_credentials_required") || recoveryClassification === "gateway_setup_required") {
+  const setupRequired = booleanField(payload, "setupRequired")
+    || setupBlockers.length > 0
+    || ["gateway_setup_required", "credential_required", "setup_required"].includes(recoveryClassification ?? "")
+    || ["gateway_setup_required", "credential_required", "setup_required"].includes(setupStatusClassification ?? "");
+  const packageFailure = recoveryClassification === "package_failure_or_unknown"
+    || payload?.publishedSmokeReady === false
+    || payload?.toolSmokeReady === false
+    || stringArrayField(payload, "blockers").some((blocker) => /package_failure|tool_smoke_not_ready|package_or_unknown/i.test(blocker))
+    || (!packageLikelyOk && (setupBlockers.length > 0 || recoveryClassification === "package_failure_or_unknown"));
+  if (setupRequired) {
     return { classification: "setup_required", packageFailure: false, setupBlockers };
   }
-  if (recoveryClassification === "package_failure_or_unknown" || (!packageLikelyOk && setupBlockers.length > 0)) {
+  if (packageFailure) {
     return { classification: "package_failure_or_unknown", packageFailure: true, setupBlockers };
   }
-  if (payload && setupBlockers.length === 0) {
+  if (payload && booleanField(payload, "ok") && setupBlockers.length === 0) {
     return { classification: "ready", packageFailure: false, setupBlockers };
   }
   return { classification: "unknown", packageFailure: false, setupBlockers };
@@ -220,19 +269,26 @@ function summarizeActions(payload: JsonObject | null): RuntimeSweepSummaryReport
 function summarizeClaimBoundary(input: {
   dryRunReady: boolean;
   runtimeReady: boolean;
+  runtimeScenarioBlockers: string[];
   missingRuntimeMarkers: number;
+  workingAppScorecardStatus: string;
   workingAppScorecardBlockers: string[];
   gatewayClassification: RuntimeSweepSummaryReport["gatewaySetup"]["classification"];
+  liveControlProof: boolean;
 }): RuntimeSweepSummaryReport["claimBoundary"] {
   const readSearchExpandDryRun = input.dryRunReady;
-  const workingAppScorecardReady = input.workingAppScorecardBlockers.length === 0;
+  const runtimeScenarioShapeReady = !input.runtimeScenarioBlockers.includes("runtime_required_scenarios_missing");
+  const runtimeReady = input.runtimeReady && runtimeScenarioShapeReady;
+  const workingAppScorecardReady = input.workingAppScorecardStatus === "pass" && input.workingAppScorecardBlockers.length === 0;
   const gatewayReady = input.gatewayClassification === "ready";
-  const workingAppProof = input.runtimeReady && input.missingRuntimeMarkers === 0 && workingAppScorecardReady && gatewayReady;
+  const workingAppProof = runtimeReady && input.missingRuntimeMarkers === 0 && workingAppScorecardReady && gatewayReady && input.liveControlProof;
   const reasonCodes = [
-    ...(input.missingRuntimeMarkers > 0 || !input.runtimeReady ? ["runtime_proof_markers_missing"] : []),
+    ...(runtimeScenarioShapeReady ? [] : ["runtime_required_scenarios_missing"]),
+    ...(input.missingRuntimeMarkers > 0 || !runtimeReady ? ["runtime_proof_markers_missing"] : []),
     ...(workingAppScorecardReady ? [] : ["working_app_scorecard_not_run"]),
     ...(input.gatewayClassification === "setup_required" ? ["gateway_setup_required"] : []),
-    ...(input.gatewayClassification === "package_failure_or_unknown" ? ["gateway_package_failure_or_unknown"] : [])
+    ...(input.gatewayClassification === "package_failure_or_unknown" ? ["gateway_package_failure_or_unknown"] : []),
+    ...(runtimeReady && input.missingRuntimeMarkers === 0 && workingAppScorecardReady && gatewayReady && !input.liveControlProof ? ["live_control_proof_missing"] : [])
   ];
   return {
     readSearchExpandDryRun,

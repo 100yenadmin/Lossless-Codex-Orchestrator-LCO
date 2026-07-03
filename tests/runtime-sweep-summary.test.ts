@@ -163,3 +163,188 @@ test("loo runtime sweep-summary strict mode writes public-safe summary for zero-
   assert.equal(payload.claimBoundary.supportedClaimScope, "codex-read-search-expand-dry-run");
   assert.match(readFileSync(join(inputs.evidenceDir, "runtime-sweep-summary.json"), "utf8"), /scorecard_not_run:working-app-runtime-proof-review/);
 });
+
+test("runtime sweep summary fails closed when required reports cannot be read", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-runtime-sweep-summary-invalid-input-"));
+  const inputs = writeZeroRuntimeMarkerInputs(root);
+  writeFileSync(inputs.runtimeScenarios, "{ not valid json");
+
+  const report = createRuntimeSweepSummary(inputs);
+
+  assert.equal(report.ok, false);
+  assert.equal(report.summaryReady, false);
+  assert.equal(report.blockers.includes("runtime_scenarios_unreadable_or_invalid"), true);
+  assert.equal(report.claimBoundary.supportedClaimScope, "codex-read-search-expand-dry-run");
+});
+
+test("runtime sweep summary rejects dry-run scenario sweeps as runtime-required proof", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-runtime-sweep-summary-runtime-shape-"));
+  const inputs = writeZeroRuntimeMarkerInputs(root);
+  writeJson(inputs.runtimeScenarios, {
+    ok: true,
+    scenarioReady: true,
+    scenarioVersion: "1.0",
+    scenarios: [{ id: "dry-run-only-v1", status: "dry_run_ready" }],
+    blockers: []
+  });
+  writeJson(inputs.scorecardSweep, {
+    ok: true,
+    claimScope: "codex-working-app-proof",
+    blockers: [],
+    scorecards: [{ name: "working-app-runtime-proof-review", status: "pass", blockers: [] }]
+  });
+  writeJson(inputs.publishedSmoke, {
+    ok: true,
+    publishedSmokeReady: true,
+    setupBlockers: [],
+    actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, npmPublished: false, githubReleaseCreated: false }
+  });
+
+  const report = createRuntimeSweepSummary(inputs);
+
+  assert.equal(report.runtimeRequiredScenarios.blockers.includes("runtime_required_scenarios_missing"), true);
+  assert.equal(report.claimBoundary.workingAppProof, false);
+  assert.equal(report.claimBoundary.supportedClaimScope, "codex-read-search-expand-dry-run");
+  assert.equal(report.claimBoundary.reasonCodes.includes("runtime_required_scenarios_missing"), true);
+});
+
+test("runtime sweep summary requires the working-app scorecard before widening claims", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-runtime-sweep-summary-scorecard-required-"));
+  const inputs = writeZeroRuntimeMarkerInputs(root);
+  writeJson(inputs.runtimeScenarios, {
+    ok: true,
+    scenarioReady: true,
+    scenarioVersion: "1.1",
+    scenarios: [{
+      id: "openclaw-gateway-live-codex-v1-1",
+      status: "runtime_proof_ready",
+      runtimeProof: {
+        requiredMarkers: ["installed_gateway_path"],
+        presentMarkers: ["installed_gateway_path"]
+      },
+      blockers: []
+    }],
+    blockers: []
+  });
+  writeJson(inputs.scorecardSweep, {
+    ok: true,
+    claimScope: "codex-read-search-expand-dry-run",
+    blockers: [],
+    scorecards: []
+  });
+  writeJson(inputs.publishedSmoke, {
+    ok: true,
+    publishedSmokeReady: true,
+    setupBlockers: [],
+    actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, npmPublished: false, githubReleaseCreated: false }
+  });
+
+  const report = createRuntimeSweepSummary(inputs);
+
+  assert.equal(report.scorecards.workingAppRuntimeProofReview.status, "missing");
+  assert.equal(report.claimBoundary.workingAppProof, false);
+  assert.equal(report.claimBoundary.supportedClaimScope, "codex-read-search-expand-dry-run");
+  assert.equal(report.claimBoundary.reasonCodes.includes("working_app_scorecard_not_run"), true);
+});
+
+test("runtime sweep summary does not support working-app claims without live-control proof", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-runtime-sweep-summary-live-control-"));
+  const inputs = writeZeroRuntimeMarkerInputs(root);
+  writeJson(inputs.runtimeScenarios, {
+    ok: true,
+    scenarioReady: true,
+    scenarioVersion: "1.1",
+    scenarios: [{
+      id: "openclaw-gateway-live-codex-v1-1",
+      status: "runtime_proof_ready",
+      runtimeProof: {
+        requiredMarkers: ["installed_gateway_path"],
+        presentMarkers: ["installed_gateway_path"]
+      },
+      blockers: []
+    }],
+    blockers: []
+  });
+  writeJson(inputs.scorecardSweep, {
+    ok: true,
+    claimScope: "codex-working-app-proof",
+    blockers: [],
+    scorecards: [{ name: "working-app-runtime-proof-review", status: "pass", blockers: [] }]
+  });
+  writeJson(inputs.publishedSmoke, {
+    ok: true,
+    publishedSmokeReady: true,
+    setupBlockers: [],
+    actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, npmPublished: false, githubReleaseCreated: false }
+  });
+
+  const report = createRuntimeSweepSummary(inputs);
+
+  assert.equal(report.claimBoundary.liveControlProof, false);
+  assert.equal(report.claimBoundary.workingAppProof, false);
+  assert.equal(report.claimBoundary.supportedClaimScope, "codex-read-search-expand-dry-run");
+  assert.equal(report.claimBoundary.reasonCodes.includes("live_control_proof_missing"), true);
+});
+
+test("runtime sweep summary recognizes real gateway setup and package failure classifications", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-runtime-sweep-summary-gateway-"));
+  const inputs = writeZeroRuntimeMarkerInputs(root);
+
+  writeJson(inputs.publishedSmoke, {
+    ok: false,
+    publishedSmokeReady: false,
+    setupBlockers: ["fresh_profile_gateway_credentials_required"],
+    setupRecovery: { classification: "credential_required", packageInstallLikelyOk: true },
+    setupStatus: { classification: "gateway_setup_required" }
+  });
+  const setupRequired = createRuntimeSweepSummary(inputs);
+  assert.equal(setupRequired.gatewaySetup.classification, "setup_required");
+  assert.equal(setupRequired.claimBoundary.reasonCodes.includes("gateway_setup_required"), true);
+
+  writeJson(inputs.publishedSmoke, {
+    ok: false,
+    publishedSmokeReady: false,
+    blockers: ["openclaw_tool_smoke_not_ready"],
+    setupRecovery: { classification: "package_failure_or_unknown", packageInstallLikelyOk: false }
+  });
+  const packageFailure = createRuntimeSweepSummary(inputs);
+  assert.equal(packageFailure.gatewaySetup.classification, "package_failure_or_unknown");
+  assert.equal(packageFailure.gatewaySetup.packageFailure, true);
+  assert.equal(packageFailure.claimBoundary.reasonCodes.includes("gateway_package_failure_or_unknown"), true);
+});
+
+test("loo runtime sweep-summary strict mode fails when no claim scope is supported", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-runtime-sweep-summary-cli-none-"));
+  const inputs = writeZeroRuntimeMarkerInputs(root);
+  writeJson(inputs.dryRunScenarios, {
+    ok: false,
+    scenarioReady: false,
+    scenarioVersion: "1.0",
+    scenarios: [],
+    blockers: ["scenario_missing_field:demo:steps"]
+  });
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "runtime",
+    "sweep-summary",
+    "--evidence-dir",
+    inputs.evidenceDir,
+    "--dry-run-scenarios",
+    inputs.dryRunScenarios,
+    "--runtime-scenarios",
+    inputs.runtimeScenarios,
+    "--scorecard-sweep",
+    inputs.scorecardSweep,
+    "--published-smoke",
+    inputs.publishedSmoke,
+    "--strict"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as ReturnType<typeof createRuntimeSweepSummary>;
+  assert.equal(payload.summaryReady, true);
+  assert.equal(payload.claimBoundary.supportedClaimScope, "none");
+});

@@ -409,7 +409,7 @@ async function main() {
     const parsed = parseRuntimeSweepSummaryArgs(args.slice(1));
     const report = createRuntimeSweepSummary(parsed);
     console.log(JSON.stringify(report, null, 2));
-    if (parsed.strict && !report.summaryReady) process.exitCode = 1;
+    if (parsed.strict && (!report.summaryReady || report.claimBoundary.supportedClaimScope === "none")) process.exitCode = 1;
     return;
   }
   if (command === "ui" && args[0] === "local-mac-search") {
@@ -1004,7 +1004,7 @@ function printRuntimeSweepSummaryHelp(): void {
     "  --published-smoke points to the published-package or gateway setup smoke report.",
     "",
     "Strict mode:",
-    "  --strict exits non-zero only when the summary itself cannot be produced safely.",
+    "  --strict exits non-zero when the summary itself cannot be produced safely or no claim scope is supported.",
     "  Missing runtime markers remain claim-boundary blockers, not packet-generation failures.",
     "",
     "Safety boundary:",
