@@ -865,7 +865,7 @@ function mainUsageText(): string {
     "  loo openclaw published-smoke --evidence-dir path --dogfood-report path --tool-smoke-report path [--configured-tool-smoke-report path] [--npm-install-diagnostic-report path] [--registry-version version] [--registry-beta-version version] [--root path] [--now iso] [--strict]",
     "  loo openclaw live-control-smoke --evidence-dir path --thread-id id [--action send|resume] [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--message text] [--strict]",
     "  loo openclaw post-action-refresh-smoke --evidence-dir path --thread-id id --live-proof-report path [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--expand-profile metadata|brief|evidence] [--token-budget n] [--strict]",
-    "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--strict]",
+    "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--runtime-proof-dir path] [--strict]",
     "  loo runtime sweep-summary --evidence-dir path --dry-run-scenarios path --runtime-scenarios path --scorecard-sweep path --published-smoke path [--runtime-proof-dir path] [--now iso] [--strict]",
     "  loo ui local-mac-search --evidence-dir path [--sample] [--strict]",
     "  loo eval retrieval --scenario-file path [--evidence-path path] [--strict]",
@@ -987,17 +987,18 @@ function printOpenClawToolSmokeHelp(): void {
 function printScorecardSweepHelp(): void {
   console.log([
     "Usage:",
-    "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--strict]",
+    "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--runtime-proof-dir path] [--strict]",
     "",
     "Writes a public-safe scorecard sweep packet for the beta acceptance scorecards.",
     "",
     "Required:",
     "  --evidence-dir is required and must not be the same directory as --scorecard-dir.",
     "  --claim-scope follows the release gate scope; reduced-scope beta sweeps do not require working-app runtime proof scorecards.",
+    "  --runtime-proof-dir is required for an all-green codex-working-app-proof sweep and points at v1.1 public-safe runtime marker JSON files.",
     "",
     "Strict mode:",
-    "  --strict exits non-zero when scorecards are missing, invalid, example-not-run, failed, or when raw evidence artifacts are present.",
-    "  Common blockers include scorecard_not_run:<name>, scorecard_missing:<name>, and raw_artifact:<reason>:<name>.",
+    "  --strict exits non-zero when scorecards are missing, invalid, example-not-run, failed, runtime proof is missing, or when raw evidence artifacts are present.",
+    "  Common blockers include scorecard_not_run:<name>, scorecard_missing:<name>, runtime_proof_missing:<id>:<marker>, and raw_artifact:<reason>:<name>.",
     "",
     "Safety boundary:",
     "  The command does not run live Codex control, does not mutate a desktop GUI, does not publish npm, and does not create a GitHub Release."
@@ -2469,10 +2470,11 @@ function requireOptionValue(value: string | undefined, option: string): string {
   return value;
 }
 
-function parseScorecardSweepArgs(input: string[]): { evidenceDir: string; scorecardDir?: string; claimScope?: ReleaseClaimScope; strict: boolean } {
+function parseScorecardSweepArgs(input: string[]): { evidenceDir: string; scorecardDir?: string; claimScope?: ReleaseClaimScope; runtimeProofDir?: string; strict: boolean } {
   let evidenceDir: string | undefined;
   let scorecardDir: string | undefined;
   let claimScope: ReleaseClaimScope | undefined;
+  let runtimeProofDir: string | undefined;
   let strict = false;
   for (let index = 0; index < input.length; index += 1) {
     const arg = input[index]!;
@@ -2482,6 +2484,8 @@ function parseScorecardSweepArgs(input: string[]): { evidenceDir: string; scorec
       scorecardDir = requireOptionValue(input[++index], arg);
     } else if (arg === "--claim-scope") {
       claimScope = parseReleaseClaimScope(input, ++index, arg);
+    } else if (arg === "--runtime-proof-dir") {
+      runtimeProofDir = requireOptionValue(input[++index], arg);
     } else if (arg === "--strict") {
       strict = true;
     } else {
@@ -2489,7 +2493,7 @@ function parseScorecardSweepArgs(input: string[]): { evidenceDir: string; scorec
     }
   }
   if (!evidenceDir) throw new Error("scorecards sweep requires --evidence-dir");
-  return { evidenceDir, scorecardDir, claimScope, strict };
+  return { evidenceDir, scorecardDir, claimScope, runtimeProofDir, strict };
 }
 
 function parseRuntimeSweepSummaryArgs(input: string[]): {

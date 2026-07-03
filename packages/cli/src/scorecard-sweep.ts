@@ -6,11 +6,13 @@ import {
   releaseClaimScopeRequiresWorkingAppRuntimeProof,
   type ReleaseClaimScope
 } from "./release-claim-scope.js";
+import { validateWorkingAppRuntimeProof } from "./runtime-proof-gate.js";
 
 export type ScorecardSweepOptions = {
   evidenceDir: string;
   scorecardDir?: string;
   claimScope?: ReleaseClaimScope;
+  runtimeProofDir?: string;
   now?: string;
   rootDir?: string;
 };
@@ -35,6 +37,7 @@ export type ScorecardSweepReport = {
   ok: boolean;
   sweepReady: boolean;
   publicSafe: boolean;
+  scorecardDeclarationReady: boolean;
   generatedAt: string;
   claimScope: ReleaseClaimScope;
   scorecardVersion: string;
@@ -47,11 +50,21 @@ export type ScorecardSweepReport = {
     githubReleaseCreated: false;
   };
   scorecards: ScorecardSweepEntry[];
+  scorecardDeclarationBlockers: string[];
+  runtimeEvidenceValidation: RuntimeEvidenceValidation;
   rawEvidenceArtifacts: RawEvidenceArtifact[];
   blockers: string[];
   privateDataExclusions: string[];
   proofBoundary: string;
   nextAction: string;
+};
+
+export type RuntimeEvidenceValidation = {
+  required: boolean;
+  ok: boolean;
+  proofDir: string | null;
+  acceptedMarkerCount: number;
+  blockers: string[];
 };
 
 type ScorecardJson = {
@@ -135,12 +148,15 @@ export function createScorecardSweep(options: ScorecardSweepOptions): ScorecardS
     .filter((name) => !scorecards.some((scorecard) => scorecard.name === name))
     .map((name) => `scorecard_missing:${name}`);
   const rawArtifactBlockers = rawEvidenceArtifacts.map((artifact) => `raw_artifact:${artifact.reason}:${artifact.name}`);
-  const blockers = [...scorecards.flatMap((scorecard) => scorecard.blockers), ...missingRequiredScorecards, ...rawArtifactBlockers];
+  const scorecardDeclarationBlockers = [...scorecards.flatMap((scorecard) => scorecard.blockers), ...missingRequiredScorecards];
+  const runtimeEvidenceValidation = validateRuntimeEvidenceForScope(claimScope, options.runtimeProofDir);
+  const blockers = [...scorecardDeclarationBlockers, ...rawArtifactBlockers, ...runtimeEvidenceValidation.blockers];
   const sweepPath = join(evidenceDir, "scorecard-sweep.json");
   const report: ScorecardSweepReport = {
     ok: blockers.length === 0,
     sweepReady: blockers.length === 0,
     publicSafe: rawEvidenceArtifacts.length === 0,
+    scorecardDeclarationReady: scorecardDeclarationBlockers.length === 0,
     generatedAt: options.now ?? new Date().toISOString(),
     claimScope,
     scorecardVersion: SCORECARD_VERSION,
@@ -153,17 +169,41 @@ export function createScorecardSweep(options: ScorecardSweepOptions): ScorecardS
       githubReleaseCreated: false
     },
     scorecards,
+    scorecardDeclarationBlockers,
+    runtimeEvidenceValidation,
     rawEvidenceArtifacts,
     blockers,
     privateDataExclusions: uniqueStrings(scorecards.flatMap((scorecard) => scorecard.privateDataExclusions).concat(DEFAULT_PRIVATE_DATA_EXCLUSIONS)),
-    proofBoundary: "This scorecard sweep is public-safe beta evidence only; it does not approve live Codex control, GUI mutation, npm publish, or GitHub Release creation.",
-    nextAction: blockers.length === 0
-      ? "Review the public-safe sweep packet before any beta release step."
-      : "Run the missing scorecard evidence commands and update each scorecard before claiming beta readiness."
+    proofBoundary: "This scorecard sweep validates public-safe scorecard declarations. For codex-working-app-proof, it also requires public-safe runtime proof markers; passing declarations alone do not approve live Codex control, GUI mutation, npm publish, GitHub Release creation, or runtime-proven working-app behavior.",
+    nextAction: nextScorecardSweepAction(blockers, scorecardDeclarationBlockers, runtimeEvidenceValidation)
   };
 
   writeFileSync(sweepPath, `${JSON.stringify(report, null, 2)}\n`);
   return report;
+}
+
+function validateRuntimeEvidenceForScope(claimScope: ReleaseClaimScope, runtimeProofDir: string | undefined): RuntimeEvidenceValidation {
+  if (!releaseClaimScopeRequiresWorkingAppRuntimeProof(claimScope)) {
+    return {
+      required: false,
+      ok: true,
+      proofDir: runtimeProofDir ? resolve(runtimeProofDir) : null,
+      acceptedMarkerCount: 0,
+      blockers: []
+    };
+  }
+  return {
+    required: true,
+    ...validateWorkingAppRuntimeProof(runtimeProofDir)
+  };
+}
+
+function nextScorecardSweepAction(blockers: string[], scorecardDeclarationBlockers: string[], runtimeEvidenceValidation: RuntimeEvidenceValidation): string {
+  if (blockers.length === 0) return "Review the public-safe sweep packet before any beta release step.";
+  if (runtimeEvidenceValidation.required && !runtimeEvidenceValidation.ok && scorecardDeclarationBlockers.length === 0) {
+    return "Provide the public-safe runtime-proof marker directory before reading working-app scorecards as runtime proof.";
+  }
+  return "Run the missing scorecard evidence commands and update each scorecard before claiming beta readiness.";
 }
 
 function requiredScorecardsForScope(claimScope: ReleaseClaimScope): string[] {
