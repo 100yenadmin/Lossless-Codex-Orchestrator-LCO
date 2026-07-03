@@ -72,6 +72,80 @@ export type SourceFileWatermark = {
   lastIndexedAt: string;
 };
 
+export type PreparedSourceRangeKind =
+  | "session_metadata"
+  | "thread_title"
+  | "user_prompt"
+  | "assistant_message"
+  | "proposed_plan"
+  | "final_message"
+  | "closeout"
+  | "tool_call_metadata"
+  | "event_metadata";
+
+export type PreparedSourceRange = {
+  schema: "lco.prepared.sourceRange.v1";
+  rangeRef: string;
+  eventRef: string;
+  threadId: string;
+  sourceRef: string;
+  sourcePathRef: string;
+  rangeKind: PreparedSourceRangeKind;
+  lineStart: number;
+  lineEnd: number;
+  byteStart: number;
+  byteEnd: number;
+  ordinal: number;
+  sourceHash: string;
+  contentHash: string;
+  extractorVersion: "prepared-source-ranges-v1";
+  privacyClass: "public_safe_metadata";
+  omissionStatus: "metadata_only";
+  confidence: number;
+  observedAt: string | null;
+  reasonCodes: string[];
+};
+
+export type PreparedSourceRangesReport = {
+  schema: "lco.prepared.sourceRanges.v1";
+  publicSafe: true;
+  readOnly: true;
+  generatedAt: string;
+  sourceCoverage: {
+    preparedSourceRanges: "ok" | "partial" | "not_configured";
+  };
+  summary: {
+    total: number;
+    returned: number;
+    /** Count of low-confidence rows across the full matching public-safe set, not just the returned page. */
+    lowConfidence: number;
+    lowConfidenceScope: "matching_public_safe_total";
+  };
+  ranges: PreparedSourceRange[];
+  omitted: {
+    count: number;
+    reason: "limit" | "filtered_unsafe_rows" | "limit_and_filtered_unsafe_rows" | "none";
+    reasons: Array<"limit" | "filtered_unsafe_rows"> | ["none"];
+    limitCount: number;
+    filteredUnsafeRows: number;
+  };
+  actionsPerformed: {
+    derivedCacheWrite: false;
+    sourceStoreMutation: false;
+    externalWrite: false;
+    liveControl: false;
+    guiMutation: false;
+    rawTranscriptRead: false;
+  };
+  proofBoundary: string;
+};
+
+export type PreparedSourceRangesOptions = {
+  threadId?: string;
+  rangeKind?: PreparedSourceRangeKind;
+  limit?: number;
+};
+
 export type CodexSqliteProbe = {
   path: string;
   kind: "state" | "logs" | "unknown";
@@ -1514,10 +1588,42 @@ type ImportedSession = {
   closeoutEnvelopeCloseCount: number;
   safeText: string;
   eventCount: number;
+  sourceEvents: PreparedSourceEventDraft[];
+};
+
+type JsonlLineRecord = {
+  lineNumber: number;
+  text: string;
+  byteStart: number;
+  byteEnd: number;
+};
+
+type PreparedSourceEventDraft = {
+  eventRef: string;
+  eventKind: string;
+  sourcePathRef: string;
+  sourceHash: string;
+  contentHash: string;
+  lineStart: number;
+  lineEnd: number;
+  byteStart: number;
+  byteEnd: number;
+  ordinal: number;
+  observedAt: string | null;
+  ranges: PreparedSourceRangeDraft[];
+};
+
+type PreparedSourceRangeDraft = {
+  rangeRef: string;
+  rangeKind: PreparedSourceRangeKind;
+  contentHash: string;
+  ordinal: number;
+  reasonCodes: string[];
 };
 
 const DEFAULT_CODEX_MAX_BYTES_PER_FILE = 50 * 1024 * 1024;
 const DEFAULT_CODEX_MAX_EVENTS_PER_FILE = 50_000;
+const PREPARED_SOURCE_EXTRACTOR_VERSION = "prepared-source-ranges-v1" as const;
 
 export function createDatabase(dbPath?: string): LooDatabase {
   const resolved = dbPath ?? defaultDatabasePath();
@@ -1624,6 +1730,234 @@ export function migrate(db: LooDatabase): void {
       tokenize = 'unicode61'
     );
 
+    -- Audit ledger only: migration DDL in this module must remain independently
+    -- idempotent via IF NOT EXISTS, INSERT OR IGNORE, or explicit guards.
+    CREATE TABLE IF NOT EXISTS loo_schema_migrations (
+      migration_id TEXT PRIMARY KEY,
+      applied_at TEXT NOT NULL,
+      description TEXT NOT NULL
+    );
+
+    INSERT OR IGNORE INTO loo_schema_migrations (migration_id, applied_at, description)
+    VALUES
+      (
+        '2026-07-03-prepared-source-ranges',
+        datetime('now'),
+        'Additive prepared-state source events and source ranges'
+      ),
+      (
+        '2026-07-03-summary-leaves',
+        datetime('now'),
+        'Additive prepared-state summary leaf and edge tables'
+      ),
+      (
+        '2026-07-03-prepared-cards',
+        datetime('now'),
+        'Additive prepared-state card and inbox tables'
+      ),
+      (
+        '2026-07-03-watcher-observations',
+        datetime('now'),
+        'Additive prepared-state watcher spec, observation, and attention queue tables'
+      ),
+      (
+        '2026-07-03-hook-capture-packets',
+        datetime('now'),
+        'Additive prepared-state hook capture packet table'
+      ),
+      (
+        '2026-07-03-state-prep-jobs',
+        datetime('now'),
+        'Additive prepared-state prep job table'
+      );
+
+    CREATE TABLE IF NOT EXISTS prepared_source_events (
+      event_id TEXT PRIMARY KEY,
+      event_ref TEXT NOT NULL UNIQUE,
+      thread_id TEXT NOT NULL REFERENCES codex_sessions(thread_id) ON DELETE CASCADE,
+      source_ref TEXT NOT NULL,
+      source_path_ref TEXT NOT NULL,
+      source_hash TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      event_kind TEXT NOT NULL,
+      line_start INTEGER NOT NULL,
+      line_end INTEGER NOT NULL,
+      byte_start INTEGER NOT NULL,
+      byte_end INTEGER NOT NULL,
+      ordinal INTEGER NOT NULL,
+      observed_at TEXT,
+      extractor_version TEXT NOT NULL,
+      privacy_class TEXT NOT NULL,
+      omission_status TEXT NOT NULL,
+      confidence REAL NOT NULL,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS prepared_source_events_thread_idx ON prepared_source_events(thread_id, ordinal);
+    CREATE INDEX IF NOT EXISTS prepared_source_events_source_ref_idx ON prepared_source_events(source_ref);
+    CREATE INDEX IF NOT EXISTS prepared_source_events_source_path_ref_idx ON prepared_source_events(source_path_ref);
+
+    CREATE TABLE IF NOT EXISTS prepared_source_ranges (
+      range_id TEXT PRIMARY KEY,
+      range_ref TEXT NOT NULL UNIQUE,
+      event_id TEXT NOT NULL REFERENCES prepared_source_events(event_id) ON DELETE CASCADE,
+      event_ref TEXT NOT NULL,
+      thread_id TEXT NOT NULL REFERENCES codex_sessions(thread_id) ON DELETE CASCADE,
+      source_ref TEXT NOT NULL,
+      source_path_ref TEXT NOT NULL,
+      source_hash TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      range_kind TEXT NOT NULL,
+      line_start INTEGER NOT NULL,
+      line_end INTEGER NOT NULL,
+      byte_start INTEGER NOT NULL,
+      byte_end INTEGER NOT NULL,
+      ordinal INTEGER NOT NULL,
+      observed_at TEXT,
+      extractor_version TEXT NOT NULL,
+      privacy_class TEXT NOT NULL,
+      omission_status TEXT NOT NULL,
+      confidence REAL NOT NULL,
+      reason_codes_json TEXT NOT NULL DEFAULT '[]',
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS prepared_source_ranges_thread_idx ON prepared_source_ranges(thread_id, ordinal);
+    CREATE INDEX IF NOT EXISTS prepared_source_ranges_kind_idx ON prepared_source_ranges(range_kind);
+    CREATE INDEX IF NOT EXISTS prepared_source_ranges_source_ref_idx ON prepared_source_ranges(source_ref);
+    CREATE INDEX IF NOT EXISTS prepared_source_ranges_source_path_ref_idx ON prepared_source_ranges(source_path_ref);
+
+    CREATE TABLE IF NOT EXISTS summary_leaves (
+      leaf_id TEXT PRIMARY KEY,
+      leaf_ref TEXT NOT NULL UNIQUE,
+      thread_id TEXT REFERENCES codex_sessions(thread_id) ON DELETE CASCADE,
+      leaf_kind TEXT NOT NULL,
+      summary_text TEXT NOT NULL DEFAULT '',
+      source_refs_json TEXT NOT NULL DEFAULT '[]',
+      source_range_refs_json TEXT NOT NULL DEFAULT '[]',
+      input_hash TEXT NOT NULL,
+      output_hash TEXT NOT NULL,
+      extractor_version TEXT NOT NULL,
+      privacy_class TEXT NOT NULL,
+      authority_coverage_json TEXT NOT NULL DEFAULT '{}',
+      confidence REAL NOT NULL,
+      freshness_at TEXT,
+      stale INTEGER NOT NULL DEFAULT 0,
+      omission_status TEXT NOT NULL DEFAULT 'metadata_only',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS summary_edges (
+      edge_id TEXT PRIMARY KEY,
+      parent_leaf_ref TEXT NOT NULL,
+      child_leaf_ref TEXT NOT NULL,
+      edge_kind TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(parent_leaf_ref, child_leaf_ref, edge_kind)
+    );
+
+    CREATE TABLE IF NOT EXISTS prepared_cards (
+      card_id TEXT PRIMARY KEY,
+      card_ref TEXT NOT NULL UNIQUE,
+      target_ref TEXT NOT NULL,
+      card_kind TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      summary_text TEXT NOT NULL DEFAULT '',
+      next_action TEXT,
+      source_refs_json TEXT NOT NULL DEFAULT '[]',
+      source_range_refs_json TEXT NOT NULL DEFAULT '[]',
+      authority_coverage_json TEXT NOT NULL DEFAULT '{}',
+      input_hash TEXT NOT NULL,
+      extractor_version TEXT NOT NULL,
+      privacy_class TEXT NOT NULL,
+      confidence REAL NOT NULL,
+      freshness_at TEXT,
+      stale INTEGER NOT NULL DEFAULT 0,
+      state TEXT NOT NULL DEFAULT 'unknown',
+      reason_codes_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS prepared_inbox_items (
+      item_id TEXT PRIMARY KEY,
+      card_ref TEXT NOT NULL,
+      target_ref TEXT NOT NULL,
+      urgency_score REAL NOT NULL,
+      state TEXT NOT NULL DEFAULT 'unknown',
+      reason_codes_json TEXT NOT NULL DEFAULT '[]',
+      source_refs_json TEXT NOT NULL DEFAULT '[]',
+      execute_false INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS watcher_specs (
+      watch_id TEXT PRIMARY KEY,
+      target_ref TEXT NOT NULL,
+      spec_json TEXT NOT NULL,
+      input_hash TEXT NOT NULL,
+      privacy_class TEXT NOT NULL,
+      confidence REAL NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS watcher_observations (
+      observation_id TEXT PRIMARY KEY,
+      watch_id TEXT NOT NULL,
+      target_ref TEXT NOT NULL,
+      observation_json TEXT NOT NULL,
+      evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+      input_hash TEXT NOT NULL,
+      privacy_class TEXT NOT NULL,
+      confidence REAL NOT NULL,
+      observed_at TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS attention_queue (
+      queue_id TEXT PRIMARY KEY,
+      target_ref TEXT NOT NULL,
+      item_kind TEXT NOT NULL,
+      status TEXT NOT NULL,
+      tool_call_json TEXT,
+      execute_false INTEGER NOT NULL DEFAULT 1,
+      source_refs_json TEXT NOT NULL DEFAULT '[]',
+      reason_codes_json TEXT NOT NULL DEFAULT '[]',
+      confidence REAL NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS hook_capture_packets (
+      packet_id TEXT PRIMARY KEY,
+      hook_kind TEXT NOT NULL,
+      target_ref TEXT NOT NULL,
+      payload_hash TEXT NOT NULL,
+      packet_json TEXT NOT NULL,
+      privacy_class TEXT NOT NULL,
+      confidence REAL NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(hook_kind, target_ref, payload_hash)
+    );
+
+    CREATE TABLE IF NOT EXISTS state_prep_jobs (
+      job_id TEXT PRIMARY KEY,
+      job_kind TEXT NOT NULL,
+      status TEXT NOT NULL,
+      target_ref TEXT,
+      input_hash TEXT NOT NULL,
+      output_hash TEXT,
+      mutation_classes_json TEXT NOT NULL DEFAULT '["derived_cache"]',
+      started_at TEXT,
+      finished_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS claude_sessions (
       session_id TEXT PRIMARY KEY,
       title TEXT,
@@ -1692,12 +2026,12 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
         continue;
       }
       if (watermark && watermark.size === stat.size && watermark.mtimeMs === mtimeMs) {
-        if (watermark.pathHash === stableId(text) && !sourceNeedsMetadataBackfill(db, path)) {
+        if (watermark.pathHash === stableId(text) && !sourceNeedsMetadataBackfill(db, path) && !sourceNeedsPreparedSourceRangeBackfill(db, path)) {
           result.skippedFiles += 1;
           continue;
         }
       }
-      const session = parseCodexJsonl(path, text);
+      const session = parseCodexJsonl(path, text, maxEventsPerFile);
       upsertSession(db, path, text, session, { size: stat.size, mtimeMs });
       result.indexedFiles += 1;
       result.indexedEvents += session.eventCount;
@@ -1886,6 +2220,228 @@ export function getSourceFileWatermark(db: LooDatabase, sourcePath: string): Sou
   };
 }
 
+export function getPreparedSourceRanges(db: LooDatabase, options: PreparedSourceRangesOptions = {}): PreparedSourceRangesReport {
+  const limit = clamp(options.limit ?? 100, 1, 1000);
+  const clauses: string[] = [
+    "privacy_class = ?",
+    "omission_status = ?",
+    "extractor_version = ?"
+  ];
+  const params: Array<string | number> = [
+    "public_safe_metadata",
+    "metadata_only",
+    PREPARED_SOURCE_EXTRACTOR_VERSION
+  ];
+  if (options.threadId) {
+    clauses.push("thread_id = ?");
+    params.push(options.threadId);
+  }
+  if (options.rangeKind) {
+    clauses.push("range_kind = ?");
+    params.push(options.rangeKind);
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  const publicSafeClauses = [
+    ...clauses,
+    "range_ref LIKE 'codex_range:%'",
+    "length(range_ref) = 44",
+    "substr(range_ref, 13) NOT GLOB '*[^0-9a-f]*'",
+    "event_ref LIKE 'codex_event:%'",
+    "length(event_ref) = 44",
+    "substr(event_ref, 13) NOT GLOB '*[^0-9a-f]*'",
+    "source_ref LIKE 'codex_thread:%'",
+    "length(source_ref) BETWEEN 14 AND 173",
+    "source_ref NOT LIKE '%/%'",
+    "source_ref NOT LIKE '%\\%'",
+    "source_ref NOT LIKE '% %'",
+    "source_path_ref LIKE 'codex_source:%'",
+    "length(source_path_ref) = 29",
+    "substr(source_path_ref, 14) NOT GLOB '*[^0-9a-f]*'",
+    "length(source_hash) = 32",
+    "source_hash NOT GLOB '*[^0-9a-f]*'",
+    "length(content_hash) = 32",
+    "content_hash NOT GLOB '*[^0-9a-f]*'",
+    "line_start >= 1",
+    "line_end >= line_start",
+    "byte_start >= 0",
+    "byte_end >= byte_start",
+    "ordinal >= 0",
+    "confidence >= 0",
+    "confidence <= 1",
+    "(observed_at IS NULL OR (length(observed_at) BETWEEN 20 AND 35 AND observed_at LIKE '____-__-__T%Z'))"
+  ];
+  const publicSafeWhere = `WHERE ${publicSafeClauses.join(" AND ")}`;
+  const countRow = db.prepare(`SELECT COUNT(*) AS count FROM prepared_source_ranges ${where}`).get(...params) as { count: number };
+  const publicSafeCountRow = db.prepare(`SELECT COUNT(*) AS count FROM prepared_source_ranges ${publicSafeWhere}`).get(...params) as { count: number };
+  const rows = db.prepare(`
+    SELECT
+      range_ref AS rangeRef,
+      event_ref AS eventRef,
+      thread_id AS threadId,
+      source_ref AS sourceRef,
+      source_path_ref AS sourcePathRef,
+      range_kind AS rangeKind,
+      line_start AS lineStart,
+      line_end AS lineEnd,
+      byte_start AS byteStart,
+      byte_end AS byteEnd,
+      ordinal,
+      source_hash AS sourceHash,
+      content_hash AS contentHash,
+      extractor_version AS extractorVersion,
+      privacy_class AS privacyClass,
+      omission_status AS omissionStatus,
+      confidence,
+      observed_at AS observedAt,
+      reason_codes_json AS reasonCodesJson
+    FROM prepared_source_ranges
+    ${publicSafeWhere}
+    ORDER BY thread_id ASC, ordinal ASC, range_ref ASC
+    LIMIT ?
+  `).all(...params, limit) as Array<{
+    rangeRef: string;
+    eventRef: string;
+    threadId: string;
+    sourceRef: string;
+    sourcePathRef: string;
+    rangeKind: PreparedSourceRangeKind;
+    lineStart: number;
+    lineEnd: number;
+    byteStart: number;
+    byteEnd: number;
+    ordinal: number;
+    sourceHash: string;
+    contentHash: string;
+    extractorVersion: "prepared-source-ranges-v1";
+    privacyClass: "public_safe_metadata";
+    omissionStatus: "metadata_only";
+    confidence: number;
+    observedAt: string | null;
+    reasonCodesJson: string;
+  }>;
+  const lowConfidenceRow = db.prepare(`
+    SELECT COUNT(*) AS count
+    FROM prepared_source_ranges
+    ${publicSafeWhere}
+      AND confidence < 0.5
+  `).get(...params) as { count: number };
+  const ranges: PreparedSourceRange[] = rows.flatMap((row) => {
+    if (!isPublicPreparedSourceRangeRow(row)) return [];
+    return [{
+      schema: "lco.prepared.sourceRange.v1",
+      rangeRef: row.rangeRef,
+      eventRef: row.eventRef,
+      threadId: row.threadId,
+      sourceRef: row.sourceRef,
+      sourcePathRef: row.sourcePathRef,
+      rangeKind: row.rangeKind,
+      lineStart: Number(row.lineStart),
+      lineEnd: Number(row.lineEnd),
+      byteStart: Number(row.byteStart),
+      byteEnd: Number(row.byteEnd),
+      ordinal: Number(row.ordinal),
+      sourceHash: row.sourceHash,
+      contentHash: row.contentHash,
+      extractorVersion: PREPARED_SOURCE_EXTRACTOR_VERSION,
+      privacyClass: "public_safe_metadata",
+      omissionStatus: "metadata_only",
+      confidence: Number(row.confidence),
+      observedAt: row.observedAt,
+      reasonCodes: parseSourceRefsJson(row.reasonCodesJson)
+    }];
+  });
+  const total = Number(countRow.count ?? 0);
+  const publicSafeTotal = Number(publicSafeCountRow.count ?? 0);
+  const strictFilteredUnsafeRows = rows.length - ranges.length;
+  const filteredUnsafeRows = Math.max(0, total - publicSafeTotal) + strictFilteredUnsafeRows;
+  const limitOmissions = Math.max(0, publicSafeTotal - rows.length);
+  const omittedCount = limitOmissions + filteredUnsafeRows;
+  const omittedReasons = [
+    limitOmissions > 0 ? "limit" : null,
+    filteredUnsafeRows > 0 ? "filtered_unsafe_rows" : null
+  ].filter((reason): reason is "limit" | "filtered_unsafe_rows" => Boolean(reason));
+  const omittedReason = omittedReasons.length === 2
+    ? "limit_and_filtered_unsafe_rows"
+    : omittedReasons[0] ?? "none";
+  return {
+    schema: "lco.prepared.sourceRanges.v1",
+    publicSafe: true,
+    readOnly: true,
+    generatedAt: new Date().toISOString(),
+    sourceCoverage: {
+      preparedSourceRanges: publicSafeTotal > 0 ? "ok" : total > 0 ? "partial" : "not_configured"
+    },
+    summary: {
+      total: publicSafeTotal,
+      returned: ranges.length,
+      lowConfidence: Number(lowConfidenceRow.count ?? 0),
+      lowConfidenceScope: "matching_public_safe_total"
+    },
+    ranges,
+    omitted: {
+      count: omittedCount,
+      reason: omittedReason,
+      reasons: omittedReasons.length ? omittedReasons : ["none"],
+      limitCount: limitOmissions,
+      filteredUnsafeRows
+    },
+    actionsPerformed: {
+      derivedCacheWrite: false,
+      sourceStoreMutation: false,
+      externalWrite: false,
+      liveControl: false,
+      guiMutation: false,
+      rawTranscriptRead: false
+    },
+    proofBoundary: "Prepared source ranges are public-safe metadata over LCO-owned derived cache rows. They expose opaque refs, hashes, and source ranges only; they do not expose raw transcript text, local transcript paths, source-store mutation, live control, GUI mutation, external writes, model compaction, or compaction-summary capture."
+  };
+}
+
+function isPublicPreparedSourceRangeRow(row: {
+  rangeRef: string;
+  eventRef: string;
+  threadId: string;
+  sourceRef: string;
+  sourcePathRef: string;
+  rangeKind: PreparedSourceRangeKind;
+  lineStart: number;
+  lineEnd: number;
+  byteStart: number;
+  byteEnd: number;
+  ordinal: number;
+  sourceHash: string;
+  contentHash: string;
+  extractorVersion: string;
+  privacyClass: string;
+  omissionStatus: string;
+  confidence: number;
+  observedAt: string | null;
+}): boolean {
+  return row.extractorVersion === PREPARED_SOURCE_EXTRACTOR_VERSION
+    && row.privacyClass === "public_safe_metadata"
+    && row.omissionStatus === "metadata_only"
+    && /^codex_range:[0-9a-f]{32}$/.test(row.rangeRef)
+    && /^codex_event:[0-9a-f]{32}$/.test(row.eventRef)
+    && /^codex_thread:[A-Za-z0-9._:-]{1,160}$/.test(row.sourceRef)
+    && /^codex_source:[0-9a-f]{16}$/.test(row.sourcePathRef)
+    && /^[0-9a-f]{32}$/.test(row.sourceHash)
+    && /^[0-9a-f]{32}$/.test(row.contentHash)
+    && Number.isInteger(Number(row.lineStart))
+    && Number.isInteger(Number(row.lineEnd))
+    && Number.isInteger(Number(row.byteStart))
+    && Number.isInteger(Number(row.byteEnd))
+    && Number.isInteger(Number(row.ordinal))
+    && Number.isFinite(Number(row.confidence))
+    && Number(row.lineStart) >= 1
+    && Number(row.lineEnd) >= Number(row.lineStart)
+    && Number(row.byteStart) >= 0
+    && Number(row.byteEnd) >= Number(row.byteStart)
+    && Number(row.ordinal) >= 0
+    && Number(row.confidence) >= 0
+    && Number(row.confidence) <= 1
+    && (row.observedAt === null || isSafeIsoTimestamp(row.observedAt));
+}
+
 function sourceNeedsMetadataBackfill(db: LooDatabase, sourcePath: string): boolean {
   const rows = db.prepare(`
     SELECT s.thread_id AS threadId, m.thread_id AS metadataThreadId, m.metadata_schema_version AS metadataSchemaVersion
@@ -1894,6 +2450,20 @@ function sourceNeedsMetadataBackfill(db: LooDatabase, sourcePath: string): boole
     WHERE s.source_path = ?
   `).all(sourcePath) as Array<{ threadId: string; metadataThreadId: string | null; metadataSchemaVersion: number | null }>;
   return rows.length === 0 || rows.some((row) => !row.metadataThreadId || Number(row.metadataSchemaVersion ?? 0) < SESSION_METADATA_SCHEMA_VERSION);
+}
+
+function sourceNeedsPreparedSourceRangeBackfill(db: LooDatabase, sourcePath: string): boolean {
+  const sourcePathRef = publicSourcePathRef(sourcePath);
+  const row = db.prepare(`
+    SELECT 1 AS found
+    FROM prepared_source_ranges
+    WHERE source_path_ref = ?
+      AND extractor_version = ?
+      AND privacy_class = 'public_safe_metadata'
+      AND omission_status = 'metadata_only'
+    LIMIT 1
+  `).get(sourcePathRef, PREPARED_SOURCE_EXTRACTOR_VERSION) as { found: number } | undefined;
+  return row?.found !== 1;
 }
 
 export function probeCodexSqliteStores(roots: string[], maxFiles = 100): { stores: CodexSqliteProbe[] } {
@@ -5014,8 +5584,9 @@ function codexDesktopCoherenceTargetMismatch(threadId: string | null, sourceRef:
 
 function safeThreadId(value: string): string {
   const trimmed = value.startsWith("codex_thread:") ? value.slice("codex_thread:".length) : value;
-  const safe = publicSafeText(trimmed, 120).replace(/[^A-Za-z0-9._:-]+/g, "");
-  return safe || `thread_${stableId(trimmed).slice(0, 16)}`;
+  const redacted = publicSafeText(trimmed, 120).trim();
+  if (trimmed && redacted === trimmed && !looksSensitiveRefLike(trimmed) && /^[A-Za-z0-9._:-]{1,96}$/.test(trimmed)) return trimmed;
+  return `thread_${stableId(redacted || trimmed || "unknown").slice(0, 16)}`;
 }
 
 function publicCodexDesktopActionEvidence(input: Record<string, unknown> | null | undefined): CodexDesktopCoherenceActionEvidence {
@@ -7287,7 +7858,7 @@ function countJsonlEvents(text: string): number {
   return text.split(/\r?\n/).filter((line) => line.trim().length > 0).length;
 }
 
-function parseCodexJsonl(sourcePath: string, text: string): ImportedSession {
+function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: number): ImportedSession {
   const fallbackId = fallbackThreadId(sourcePath);
   const session: ImportedSession = {
     threadId: fallbackId.replace(/^rollout-[^-]+-/, ""),
@@ -7307,20 +7878,26 @@ function parseCodexJsonl(sourcePath: string, text: string): ImportedSession {
     closeoutEnvelopeOpenCount: 0,
     closeoutEnvelopeCloseCount: 0,
     safeText: "",
-    eventCount: 0
+    eventCount: 0,
+    sourceEvents: []
   };
 
   const safeParts: string[] = [];
   const touched = new Set<string>();
-  const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
-  for (let i = 0; i < lines.length; i += 1) {
+  const records = jsonlLineRecords(text);
+  const sourceHash = stableId(text);
+  const sourcePathRef = publicSourcePathRef(sourcePath);
+  for (let i = 0; i < records.length; i += 1) {
+    const record = records[i]!;
     let item: any;
     try {
-      item = JSON.parse(lines[i]!);
+      item = JSON.parse(record.text);
     } catch {
       continue;
     }
+    if (session.eventCount >= maxEventsPerFile) break;
     session.eventCount += 1;
+    const rangeKinds = new Set<PreparedSourceRangeKind>();
     const timestamp = findTimestamp(item);
     if (timestamp) {
       session.createdAt ??= timestamp;
@@ -7328,18 +7905,20 @@ function parseCodexJsonl(sourcePath: string, text: string): ImportedSession {
     }
     const meta = item.session_meta?.payload ?? item.session_meta ?? item.turn_context?.payload ?? null;
     if (meta) {
-      session.threadId = String(meta.id ?? meta.thread_id ?? session.threadId);
+      session.threadId = safeThreadId(String(meta.id ?? meta.thread_id ?? session.threadId));
       const cwd = stringOrNull(meta.cwd ?? meta.workdir ?? session.cwd);
       session.cwd = cwd ? redactSafeString(cwd) : null;
       session.model = stringOrNull(meta.model ?? session.model);
       session.branch = stringOrNull(meta.git?.branch ?? meta.git_branch ?? session.branch);
       session.gitSha = stringOrNull(meta.git?.commit_hash ?? meta.git_sha ?? session.gitSha);
+      rangeKinds.add("session_metadata");
     }
 
     const title = item.event_msg?.name ?? item.thread_name ?? item.payload?.title;
     if (typeof title === "string" && title.trim()) {
       session.title = redactSafeString(title.trim());
       safeParts.push(session.title);
+      rangeKinds.add("thread_title");
     }
 
     const textPayloads = extractTextPayloads(item);
@@ -7352,8 +7931,14 @@ function parseCodexJsonl(sourcePath: string, text: string): ImportedSession {
       const clean = redactSafeString(normalizeText(payload));
       if (!clean) continue;
       safeParts.push(clean);
-      for (const plan of extractPlans(clean)) session.plans.push(plan);
-      if (isLikelyFinal(clean)) session.finalMessage = clean;
+      rangeKinds.add(textRangeKind(item));
+      const plans = extractPlans(clean);
+      for (const plan of plans) session.plans.push(plan);
+      if (plans.length > 0) rangeKinds.add("proposed_plan");
+      const finalMessage = isLikelyFinal(clean);
+      if (finalMessage) session.finalMessage = clean;
+      if (finalMessage) rangeKinds.add("final_message");
+      if (containsCloseoutEnvelope(clean)) rangeKinds.add("closeout");
       for (const file of extractTouchedFiles(clean)) touched.add(file);
     }
 
@@ -7365,7 +7950,19 @@ function parseCodexJsonl(sourcePath: string, text: string): ImportedSession {
       session.toolCalls.push({ callId, toolName, argumentsText: args });
       for (const file of extractTouchedFiles(args)) touched.add(file);
       safeParts.push(`${toolName} ${args}`);
+      rangeKinds.add("tool_call_metadata");
     }
+    if (rangeKinds.size === 0) rangeKinds.add("event_metadata");
+    session.sourceEvents.push(createPreparedSourceEventDraft({
+      record,
+      item,
+      ordinal: i,
+      sourceHash,
+      sourcePathRef,
+      threadId: session.threadId,
+      observedAt: timestamp,
+      rangeKinds: [...rangeKinds]
+    }));
   }
 
   session.touchedFiles = [...touched].sort();
@@ -7375,6 +7972,113 @@ function parseCodexJsonl(sourcePath: string, text: string): ImportedSession {
   session.updatedAt ??= new Date().toISOString();
   session.createdAt ??= session.updatedAt;
   return session;
+}
+
+function jsonlLineRecords(text: string): JsonlLineRecord[] {
+  const records: JsonlLineRecord[] = [];
+  let cursor = 0;
+  let byteCursor = 0;
+  let lineNumber = 1;
+  while (cursor < text.length) {
+    const newlineIndex = text.indexOf("\n", cursor);
+    const lineEnd = newlineIndex === -1 ? text.length : newlineIndex;
+    const lineText = text.slice(cursor, lineEnd);
+    const rawLine = lineText.replace(/\r$/, "");
+    const byteStart = byteCursor;
+    const byteEnd = byteStart + Buffer.byteLength(rawLine);
+    if (rawLine.trim()) {
+      records.push({
+        lineNumber,
+        text: rawLine,
+        byteStart,
+        byteEnd
+      });
+    }
+    if (newlineIndex === -1) break;
+    byteCursor += Buffer.byteLength(text.slice(cursor, newlineIndex + 1));
+    cursor = newlineIndex + 1;
+    lineNumber += 1;
+  }
+  return records;
+}
+
+function createPreparedSourceEventDraft(input: {
+  record: JsonlLineRecord;
+  item: any;
+  ordinal: number;
+  sourceHash: string;
+  sourcePathRef: string;
+  threadId: string;
+  observedAt: string | null;
+  rangeKinds: PreparedSourceRangeKind[];
+}): PreparedSourceEventDraft {
+  const contentHash = stableId(input.record.text);
+  const eventKind = preparedEventKind(input.item, input.rangeKinds);
+  const eventId = stableId(`${input.sourcePathRef}:${input.sourceHash}:${input.ordinal}:${input.record.lineNumber}:${eventKind}:${contentHash}`);
+  const eventRef = `codex_event:${eventId}`;
+  const uniqueKinds = [...new Set(input.rangeKinds)];
+  return {
+    eventRef,
+    eventKind,
+    sourcePathRef: input.sourcePathRef,
+    sourceHash: input.sourceHash,
+    contentHash,
+    lineStart: input.record.lineNumber,
+    lineEnd: input.record.lineNumber,
+    byteStart: input.record.byteStart,
+    byteEnd: input.record.byteEnd,
+    ordinal: input.ordinal,
+    observedAt: input.observedAt,
+    ranges: uniqueKinds.map((rangeKind, rangeOrdinal) => {
+      const rangeId = stableId(`${eventRef}:${rangeKind}`);
+      return {
+        rangeRef: `codex_range:${rangeId}`,
+        rangeKind: rangeKind as PreparedSourceRangeKind,
+        contentHash: stableId(`${contentHash}:${rangeKind}`),
+        ordinal: input.ordinal * 100 + rangeOrdinal,
+        reasonCodes: preparedRangeReasonCodes(rangeKind)
+      };
+    })
+  };
+}
+
+function preparedEventKind(item: any, rangeKinds: PreparedSourceRangeKind[]): string {
+  const eventType = stringOrNull(item.event_msg?.type ?? item.type ?? item.response_item?.type ?? item.payload?.type);
+  if (eventType && /^[A-Za-z0-9_.:-]{1,64}$/.test(eventType)) return eventType;
+  return rangeKinds[0] ?? "event_metadata";
+}
+
+function textRangeKind(item: any): PreparedSourceRangeKind {
+  const role = stringOrNull(item.response_item?.role ?? item.message?.role ?? item.event_msg?.role ?? item.payload?.role)?.toLowerCase();
+  const eventType = stringOrNull(item.event_msg?.type ?? item.type ?? item.payload?.type)?.toLowerCase();
+  if (role === "user" || eventType?.includes("user")) return "user_prompt";
+  if (role === "assistant" || eventType?.includes("agent") || eventType?.includes("assistant")) return "assistant_message";
+  return "event_metadata";
+}
+
+function containsCloseoutEnvelope(text: string): boolean {
+  return /<loo_closeout>|closeout state\s*:/i.test(text);
+}
+
+function preparedRangeReasonCodes(rangeKind: PreparedSourceRangeKind): string[] {
+  return unique([
+    "prepared_source_range",
+    "metadata_only",
+    `range_kind:${rangeKind}`
+  ]);
+}
+
+function preparedRangeConfidence(rangeKind: PreparedSourceRangeKind): number {
+  if (rangeKind === "event_metadata") return 0.4;
+  if (rangeKind === "tool_call_metadata") return 0.45;
+  if (rangeKind === "closeout" || rangeKind === "final_message" || rangeKind === "proposed_plan") return 0.95;
+  return 0.9;
+}
+
+function preparedEventConfidence(event: PreparedSourceEventDraft): number {
+  // Event confidence is the floor of its child range confidences; public reports expose per-range confidence.
+  const confidences = event.ranges.map((range) => preparedRangeConfidence(range.rangeKind));
+  return confidences.length > 0 ? Math.min(...confidences) : 0.4;
 }
 
 function fallbackThreadId(sourcePath: string): string {
@@ -7388,6 +8092,7 @@ function fallbackThreadId(sourcePath: string): string {
 function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, session: ImportedSession, stat: { size: number; mtimeMs: number }): void {
   const now = new Date().toISOString();
   const sourceHash = stableId(rawText);
+  const sourcePathRef = publicSourcePathRef(sourcePath);
   db.exec("BEGIN");
   try {
     db.prepare(`
@@ -7435,6 +8140,10 @@ function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, ses
     db.prepare("DELETE FROM codex_touched_files WHERE thread_id = ?").run(session.threadId);
     db.prepare("DELETE FROM codex_tool_calls WHERE thread_id = ?").run(session.threadId);
     db.prepare("DELETE FROM codex_safe_text_fts WHERE thread_id = ?").run(session.threadId);
+    // Prepared rows are an LCO-owned derived cache for the current codex_sessions row.
+    // Clear both remap directions: same source -> new thread and same thread -> new source.
+    db.prepare("DELETE FROM prepared_source_ranges WHERE source_path_ref = ? OR thread_id = ?").run(sourcePathRef, session.threadId);
+    db.prepare("DELETE FROM prepared_source_events WHERE source_path_ref = ? OR thread_id = ?").run(sourcePathRef, session.threadId);
     db.prepare(`
       INSERT INTO codex_session_metadata (
         thread_id, project, status, priority, owner, blocker, next_action, closeout_state, plan_completion_state,
@@ -7487,6 +8196,73 @@ function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, ses
     session.toolCalls.forEach((call) => {
       db.prepare("INSERT OR REPLACE INTO codex_tool_calls (call_id, thread_id, tool_name, arguments_text) VALUES (?, ?, ?, ?)").run(call.callId, session.threadId, call.toolName, call.argumentsText);
     });
+    const insertPreparedEvent = db.prepare(`
+      INSERT INTO prepared_source_events (
+        event_id, event_ref, thread_id, source_ref, source_path_ref, source_hash, content_hash,
+        event_kind, line_start, line_end, byte_start, byte_end, ordinal, observed_at,
+        extractor_version, privacy_class, omission_status, confidence, metadata_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const insertPreparedRange = db.prepare(`
+      INSERT INTO prepared_source_ranges (
+        range_id, range_ref, event_id, event_ref, thread_id, source_ref, source_path_ref, source_hash,
+        content_hash, range_kind, line_start, line_end, byte_start, byte_end, ordinal, observed_at,
+        extractor_version, privacy_class, omission_status, confidence, reason_codes_json, metadata_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const event of session.sourceEvents) {
+      const eventId = event.eventRef.slice("codex_event:".length);
+      const sourceRef = codexThreadRef(session.threadId);
+      insertPreparedEvent.run(
+        eventId,
+        event.eventRef,
+        session.threadId,
+        sourceRef,
+        event.sourcePathRef,
+        event.sourceHash,
+        event.contentHash,
+        event.eventKind,
+        event.lineStart,
+        event.lineEnd,
+        event.byteStart,
+        event.byteEnd,
+        event.ordinal,
+        event.observedAt,
+        PREPARED_SOURCE_EXTRACTOR_VERSION,
+        "public_safe_metadata",
+        "metadata_only",
+        preparedEventConfidence(event),
+        JSON.stringify({ rangeCount: event.ranges.length }),
+        now
+      );
+      for (const range of event.ranges) {
+        insertPreparedRange.run(
+          range.rangeRef.slice("codex_range:".length),
+          range.rangeRef,
+          eventId,
+          event.eventRef,
+          session.threadId,
+          sourceRef,
+          event.sourcePathRef,
+          event.sourceHash,
+          range.contentHash,
+          range.rangeKind,
+          event.lineStart,
+          event.lineEnd,
+          event.byteStart,
+          event.byteEnd,
+          range.ordinal,
+          event.observedAt,
+          PREPARED_SOURCE_EXTRACTOR_VERSION,
+          "public_safe_metadata",
+          "metadata_only",
+          preparedRangeConfidence(range.rangeKind),
+          JSON.stringify(range.reasonCodes),
+          JSON.stringify({ eventKind: event.eventKind }),
+          now
+        );
+      }
+    }
     db.prepare("INSERT INTO codex_safe_text_fts (thread_id, content) VALUES (?, ?)").run(session.threadId, session.safeText);
     db.exec("COMMIT");
   } catch (error) {
@@ -7804,9 +8580,27 @@ function lastAssistantText(parts: string[]): string | null {
 
 function findTimestamp(item: any): string | null {
   const value = item.timestamp ?? item.ts ?? item.created_at ?? item.event_msg?.timestamp;
-  if (typeof value === "string") return value;
-  if (typeof value === "number") return new Date(value > 10_000_000_000 ? value : value * 1000).toISOString();
+  if (typeof value === "string") return safeIsoTimestamp(value);
+  if (typeof value === "number") return safeNumericTimestamp(value);
   return null;
+}
+
+function safeNumericTimestamp(value: number): string | null {
+  if (!Number.isFinite(value)) return null;
+  const timestamp = value > 10_000_000_000 ? value : value * 1000;
+  const date = new Date(timestamp);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+}
+
+function safeIsoTimestamp(value: string): string | null {
+  const trimmed = value.trim();
+  if (!isSafeIsoTimestamp(trimmed)) return null;
+  const timestamp = Date.parse(trimmed);
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
+}
+
+function isSafeIsoTimestamp(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}T[0-9:.+-]+Z?$/.test(value) && Number.isFinite(Date.parse(value));
 }
 
 function normalizeText(text: string): string {

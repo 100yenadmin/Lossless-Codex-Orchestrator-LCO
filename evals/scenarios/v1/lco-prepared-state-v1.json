@@ -1,0 +1,59 @@
+{
+  "scenario_version": "1.0",
+  "id": "lco-prepared-state-v1",
+  "title": "LCO prepared state source-range foundation",
+  "claim_scope": "codex-read-search-expand-dry-run",
+  "user_task": "As Eva, verify that LCO can prepare source-ref-backed range metadata for Codex sessions before asking for summary leaves, prepared cards, or raw expansion.",
+  "surface": "core-fixture",
+  "allowed_tools": [
+    "loo_index_sessions",
+    "loo_search_sessions",
+    "loo_describe_session",
+    "loo_expand_session"
+  ],
+  "forbidden_behaviors": [
+    "raw_transcript_read",
+    "raw_transcript_path_output",
+    "live_control",
+    "gui_mutation",
+    "external_write",
+    "model_compaction",
+    "secret_or_private_data_output"
+  ],
+  "expected_public_safe_evidence": [
+    "additive prepared-state tables",
+    "opaque codex_event refs",
+    "opaque codex_range refs",
+    "opaque codex_source refs",
+    "source hashes and content hashes",
+    "line and byte ranges",
+    "extractor version",
+    "privacy class",
+    "omission status",
+    "append truncate and same-size rewrite fixture proof",
+    "public-safe output scan result"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "absolute transcript paths",
+    "raw prompts or transcript spans",
+    "SQLite DB row dumps",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data"
+  ],
+  "metrics": {
+    "requires_additive_schema": true,
+    "requires_source_range_refs": true,
+    "requires_source_hashes": true,
+    "requires_extractor_version": true,
+    "requires_privacy_class": true,
+    "requires_omission_status": true,
+    "requires_append_truncate_same_size_reindex": true,
+    "max_raw_transcript_spans": 0,
+    "max_live_actions": 0,
+    "max_screenshots_in_public_evidence": 0
+  },
+  "proof_boundary": "Dry-run fixture scenario for the LCO 1.2 prepared-state source-range foundation. It may prove additive local derived-cache tables and public-safe source range metadata, but does not prove summary leaves, prepared cards, watcher persistence, hook capture, model compaction, true Codex compaction-summary capture, live control, GUI mutation, or release readiness.",
+  "next_action": "Implement summary leaves on top of these source ranges in the #409 lane after #408 lands."
+}
