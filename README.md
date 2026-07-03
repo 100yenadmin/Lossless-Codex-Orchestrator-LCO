@@ -274,11 +274,19 @@ The stable public product is Codex-first local orchestration: index, search,
 describe, expand, OpenClaw/MCP tools, and approval-gated dry-run/live-control
 boundaries.
 
-Current deeper product work is tracked in GitHub issues and summarized in
-[VISION.md](VISION.md). Keep sprint and agent-operator details there, in
-[AGENTS.md](AGENTS.md), and in the packaged
-[agent skill](skills/lossless-openclaw-orchestrator/SKILL.md), not in this
-public landing page.
+Current deeper product work is the 1.2 prepared-state and summary-leaves lane.
+It is tracked in GitHub issues, summarized in [VISION.md](VISION.md), and
+handed off in
+[docs/sprints/brief-lco-1.2-prepared-state-summary-leaves-2026-07-03.md](docs/sprints/brief-lco-1.2-prepared-state-summary-leaves-2026-07-03.md).
+Keep sprint and agent-operator details there, in [AGENTS.md](AGENTS.md), and in
+the packaged [agent skill](skills/lossless-openclaw-orchestrator/SKILL.md), not
+in this public landing page.
+
+The 1.2 lane is local, deterministic, and opt-in. It prepares source-ref-backed
+cards and summary leaves so an OpenClaw/Eva agent can start from compact
+prepared state rather than rereading huge Codex transcripts. It does not claim
+hidden autonomy, GUI mutation, Claude parity, or true Codex compaction-summary
+capture.
 
 ## Maintainer Proof
 
