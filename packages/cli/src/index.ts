@@ -48,6 +48,7 @@ import { runOpenClawGatewayLiveControlSmoke } from "./openclaw-live-control-smok
 import { runOpenClawPostActionRefreshSmoke } from "./openclaw-post-action-refresh-smoke.js";
 import { createScorecardSweep } from "./scorecard-sweep.js";
 import { createScenarioSweep } from "./scenario-sweep.js";
+import { createRuntimeProofIssuePacket } from "./runtime-issue-packet.js";
 import { createOnboardingStatusReport, writeOnboardingStatusReport } from "./onboarding-status.js";
 import { normalizeReleaseClaimScope, type ReleaseClaimScope } from "./release-claim-scope.js";
 import { AppServerLiveControlSmokeClient, runLiveControlSmoke } from "./live-control-smoke.js";
@@ -470,6 +471,24 @@ async function main() {
     if (parsed.strict && !report.scenarioReady) process.exitCode = 1;
     return;
   }
+  if (command === "runtime" && args[0] === "issue-packet") {
+    if (hasHelpFlag(args.slice(1))) {
+      printRuntimeIssuePacketHelp();
+      return;
+    }
+    const parsed = parseRuntimeIssuePacketArgs(args.slice(1));
+    const report = createRuntimeProofIssuePacket({
+      evidenceDir: parsed.evidenceDir,
+      failureReport: parsed.failureReport,
+      parentIssue: parsed.parentIssue,
+      operatingLoopIssue: parsed.operatingLoopIssue,
+      milestone: parsed.milestone,
+      now: parsed.now
+    });
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.issuePacketReady) process.exitCode = 1;
+    return;
+  }
   if (command === "release" && args[0] === "preflight") {
     if (hasHelpFlag(args.slice(1))) {
       printReleasePreflightHelp();
@@ -778,6 +797,7 @@ function mainUsageText(): string {
     "  loo ui local-mac-search --evidence-dir path [--sample] [--strict]",
     "  loo eval retrieval --scenario-file path [--evidence-path path] [--strict]",
     "  loo eval scenarios --evidence-dir path [--scenario-dir path] [--runtime-proof-dir path] [--strict]",
+    "  loo runtime issue-packet --evidence-dir path --failure-report path [--parent-issue #n] [--operating-loop #n] [--milestone name] [--now iso] [--strict]",
     "  loo release preflight [--evidence-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--strict]",
     "  loo release bundle --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--strict]",
     "  loo release status --evidence-dir path --candidate-sha sha [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--github-ci-evidence path] [--codeql-evidence path] [--desktop-gui-required --desktop-gui-approval-evidence path] [--now iso] [--strict]",
@@ -933,6 +953,27 @@ function printScenarioSweepHelp(): void {
     "Safety boundary:",
     "  The command validates dry-run contracts or supplied public-safe runtime proof markers.",
     "  It does not read raw Codex transcripts, run live Codex control, mutate a desktop GUI, publish npm, or create a GitHub Release."
+  ].join("\n"));
+}
+
+function printRuntimeIssuePacketHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo runtime issue-packet --evidence-dir path --failure-report path [--parent-issue #n] [--operating-loop #n] [--milestone name] [--now iso] [--strict]",
+    "",
+    "Writes a public-safe issue-ready handoff packet from a failed runtime proof or scenario sweep report.",
+    "",
+    "Required:",
+    "  --evidence-dir is required and receives runtime-proof-issue-packet.json.",
+    "  --failure-report points to the failed public-safe runtime proof, smoke, or scenario-sweep JSON report.",
+    "",
+    "Strict mode:",
+    "  --strict exits non-zero when the failure report is missing, malformed, lacks blocker codes, or when packet redaction fails.",
+    "",
+    "Safety boundary:",
+    "  The command never runs gh issue create and never writes to GitHub.",
+    "  It records only blocker codes, scenario ids, duplicate-check query, acceptance criteria, proof boundary, and redaction categories.",
+    "  It does not read raw Codex transcripts, run live Codex control, mutate a GUI, publish npm, or create a GitHub Release."
   ].join("\n"));
 }
 
@@ -1670,6 +1711,47 @@ function parseScenarioSweepArgs(input: string[]): { evidenceDir: string; scenari
   }
   if (!evidenceDir) throw new Error("eval scenarios requires --evidence-dir");
   return { evidenceDir, scenarioDir, runtimeProofDir, scenarioIds: scenarioIds.length ? scenarioIds : undefined, strict };
+}
+
+function parseRuntimeIssuePacketArgs(input: string[]): {
+  evidenceDir: string;
+  failureReport: string;
+  parentIssue?: string;
+  operatingLoopIssue?: string;
+  milestone?: string;
+  now?: string;
+  strict: boolean;
+} {
+  let evidenceDir = "";
+  let failureReport = "";
+  let parentIssue: string | undefined;
+  let operatingLoopIssue: string | undefined;
+  let milestone: string | undefined;
+  let now: string | undefined;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--evidence-dir") {
+      evidenceDir = requireOptionValue(input[++index], arg);
+    } else if (arg === "--failure-report") {
+      failureReport = requireOptionValue(input[++index], arg);
+    } else if (arg === "--parent-issue") {
+      parentIssue = requireOptionValue(input[++index], arg);
+    } else if (arg === "--operating-loop") {
+      operatingLoopIssue = requireOptionValue(input[++index], arg);
+    } else if (arg === "--milestone") {
+      milestone = requireOptionValue(input[++index], arg);
+    } else if (arg === "--now") {
+      now = requireOptionValue(input[++index], arg);
+    } else if (arg === "--strict") {
+      strict = true;
+    } else {
+      throw new Error(`Unknown runtime issue-packet option: ${arg}`);
+    }
+  }
+  if (!evidenceDir) throw new Error("runtime issue-packet requires --evidence-dir");
+  if (!failureReport) throw new Error("runtime issue-packet requires --failure-report");
+  return { evidenceDir, failureReport, parentIssue, operatingLoopIssue, milestone, now, strict };
 }
 
 function readRetrievalScenarioFile(path: string): {
