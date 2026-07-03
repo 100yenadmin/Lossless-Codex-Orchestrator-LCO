@@ -2680,6 +2680,7 @@ function getPreparedSourceRangesForSummaryMaterialization(
 }
 
 export function materializeSummaryLeaves(db: LooDatabase, options: { threadId?: string; limit?: number } = {}): SummaryLeafMaterializationReport {
+  if (!options.threadId) return materializeSummaryLeavesForAllThreads(db, options);
   const generatedAt = new Date().toISOString();
   const rangesReport = getPreparedSourceRangesForSummaryMaterialization(db, { threadId: options.threadId, limit: options.limit });
   const leafDrafts = buildSummaryLeafDrafts(rangesReport.ranges);
@@ -2753,6 +2754,51 @@ export function materializeSummaryLeaves(db: LooDatabase, options: { threadId?: 
     db.exec("ROLLBACK");
     throw error;
   }
+}
+
+function materializeSummaryLeavesForAllThreads(db: LooDatabase, options: { limit?: number } = {}): SummaryLeafMaterializationReport {
+  const generatedAt = new Date().toISOString();
+  const rows = db.prepare(`
+    SELECT DISTINCT thread_id AS threadId
+    FROM prepared_source_ranges
+    WHERE extractor_version = ?
+      AND privacy_class = 'public_safe_metadata'
+      AND omission_status = 'metadata_only'
+    ORDER BY thread_id ASC
+  `).all(PREPARED_SOURCE_EXTRACTOR_VERSION) as Array<{ threadId: string }>;
+  const summary = {
+    scannedRanges: 0,
+    created: 0,
+    edges: 0,
+    skippedUnsafeRanges: 0
+  };
+  for (const row of rows) {
+    const report = materializeSummaryLeaves(db, { threadId: String(row.threadId), limit: options.limit });
+    summary.scannedRanges += report.summary.scannedRanges;
+    summary.created += report.summary.created;
+    summary.edges += report.summary.edges;
+    summary.skippedUnsafeRanges += report.summary.skippedUnsafeRanges;
+  }
+  return {
+    schema: "lco.summary.materialization.v1",
+    publicSafe: false,
+    readOnly: false,
+    mutationClasses: ["derived_cache"],
+    generatedAt,
+    target: {
+      threadId: null
+    },
+    summary,
+    actionsPerformed: {
+      derivedCacheWrite: true,
+      sourceStoreMutation: false,
+      externalWrite: false,
+      liveControl: false,
+      guiMutation: false,
+      rawTranscriptRead: false
+    },
+    proofBoundary: "Summary leaves are deterministic metadata-only routing cards over LCO prepared source ranges. A no-thread materialization refreshes each thread independently and writes only LCO-owned derived cache; it does not read raw transcripts, run model compaction, mutate source stores, perform live control, or perform GUI actions."
+  };
 }
 
 export function getSummaryLeaves(db: LooDatabase, options: SummaryLeavesOptions = {}): SummaryLeavesReport {
@@ -2883,6 +2929,7 @@ export function expandSummaryLeaves(db: LooDatabase, options: SummaryExpansionOp
   const edges: SummaryExpansionReport["edges"] = [];
   const seen = new Set<string>();
   const queued = roots.map((leaf) => ({ leaf, depth: 0 }));
+  const queuedRefs = new Set(roots.map((leaf) => leaf.leafRef));
   const edgeKeys = new Set<string>();
   let approxTokens = 0;
   const omitted = {
@@ -2893,6 +2940,7 @@ export function expandSummaryLeaves(db: LooDatabase, options: SummaryExpansionOp
   };
   while (queued.length > 0) {
     const next = queued.shift()!;
+    queuedRefs.delete(next.leaf.leafRef);
     if (seen.has(next.leaf.leafRef)) {
       omitted.cycleCount += 1;
       continue;
@@ -2927,8 +2975,11 @@ export function expandSummaryLeaves(db: LooDatabase, options: SummaryExpansionOp
       }
       if (seen.has(child.leafRef)) {
         omitted.cycleCount += 1;
+      } else if (queuedRefs.has(child.leafRef)) {
+        continue;
       } else {
         queued.push({ leaf: child, depth: next.depth + 1 });
+        queuedRefs.add(child.leafRef);
       }
     }
   }

@@ -228,6 +228,29 @@ test("summary materialization scans all public-safe ranges for large sessions", 
   }
 });
 
+test("summary materialization without a thread target refreshes per thread without global partial wipe", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-summary-global-refresh-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const firstThreadId = "019f-summary-global-refresh-a";
+  const secondThreadId = "019f-summary-global-refresh-b";
+  writeSummaryJsonl(join(sessions, "rollout-2026-07-03T00-00-00-019f-summary-global-refresh-a.jsonl"), firstThreadId);
+  writeSummaryJsonl(join(sessions, "rollout-2026-07-03T00-01-00-019f-summary-global-refresh-b.jsonl"), secondThreadId);
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    const refreshed = materializeSummaryLeaves(db, { limit: 1 });
+    assert.equal(refreshed.target.threadId, null);
+    assert.equal(refreshed.summary.created, 2);
+    assert.equal(getSummaryLeaves(db, { threadId: firstThreadId, limit: 50 }).summary.total > 0, true);
+    assert.equal(getSummaryLeaves(db, { threadId: secondThreadId, limit: 50 }).summary.total > 0, true);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("summary leaf reports filter rows without source ranges or event lineage", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-summary-unsafe-row-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
@@ -398,6 +421,37 @@ test("summary expansion can root on a valid leaf outside the first public page",
     assert.equal(expanded.root.leafRef, `summary_leaf:${targetId}`);
     assert.equal(expanded.leaves.length, 1);
     assert.equal(expanded.leaves[0]!.threadId, "019f-summary-page-1000");
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("summary expansion does not count duplicate queued paths as cycles", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-summary-expand-dedupe-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const threadId = "019f-summary-expand-dedupe";
+    const firstId = "1".repeat(32);
+    const secondId = "2".repeat(32);
+    const thirdId = "3".repeat(32);
+    insertSummaryLeafRow(db, { id: firstId, threadId, summaryText: "Public-safe first leaf" });
+    insertSummaryLeafRow(db, { id: secondId, threadId, summaryText: "Public-safe second leaf" });
+    insertSummaryLeafRow(db, { id: thirdId, threadId, summaryText: "Public-safe third leaf" });
+    const insertEdge = db.prepare("INSERT INTO summary_edges (edge_id, parent_leaf_ref, child_leaf_ref, edge_kind, created_at) VALUES (?, ?, ?, ?, ?)");
+    insertEdge.run("dedupe-a-b", `summary_leaf:${firstId}`, `summary_leaf:${secondId}`, "same_thread_context", "2026-07-03T00:00:00.000Z");
+    insertEdge.run("dedupe-a-c", `summary_leaf:${firstId}`, `summary_leaf:${thirdId}`, "same_thread_context", "2026-07-03T00:00:00.000Z");
+    insertEdge.run("dedupe-b-c", `summary_leaf:${secondId}`, `summary_leaf:${thirdId}`, "same_thread_context", "2026-07-03T00:00:00.000Z");
+
+    const expanded = expandSummaryLeaves(db, {
+      leafRef: `summary_leaf:${firstId}`,
+      maxDepth: 5,
+      maxNodes: 10,
+      tokenBudget: 1000
+    });
+    assert.equal(expanded.leaves.length, 3);
+    assert.equal(expanded.omitted.cycleCount, 0);
+    assert.equal(expanded.omitted.reasons.includes("cycle"), false);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
