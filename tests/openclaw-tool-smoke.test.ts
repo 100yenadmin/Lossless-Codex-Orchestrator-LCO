@@ -21,9 +21,19 @@ function sleepSync(ms: number): void {
 
 function waitForJsonFile<T>(path: string, timeoutMs = 5000): T {
   const deadline = Date.now() + timeoutMs;
+  let lastParseError: unknown;
   while (Date.now() < deadline) {
-    if (existsSync(path)) return JSON.parse(readFileSync(path, "utf8")) as T;
+    if (existsSync(path)) {
+      try {
+        return JSON.parse(readFileSync(path, "utf8")) as T;
+      } catch (error) {
+        lastParseError = error;
+      }
+    }
     sleepSync(25);
+  }
+  if (lastParseError instanceof Error) {
+    throw new Error(`Timed out waiting for valid JSON in ${path}: ${lastParseError.message}`);
   }
   throw new Error(`Timed out waiting for ${path}`);
 }
