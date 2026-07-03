@@ -50,6 +50,7 @@ import { createScorecardSweep } from "./scorecard-sweep.js";
 import { createScenarioSweep } from "./scenario-sweep.js";
 import { createRuntimeProofIssuePacket } from "./runtime-issue-packet.js";
 import { createOnboardingStatusReport, writeOnboardingStatusReport } from "./onboarding-status.js";
+import { createRuntimeSweepSummary } from "./runtime-sweep-summary.js";
 import { normalizeReleaseClaimScope, type ReleaseClaimScope } from "./release-claim-scope.js";
 import { AppServerLiveControlSmokeClient, runLiveControlSmoke } from "./live-control-smoke.js";
 import {
@@ -398,6 +399,17 @@ async function main() {
     const report = createScorecardSweep(parsed);
     console.log(JSON.stringify(report, null, 2));
     if (parsed.strict && !report.sweepReady) process.exitCode = 1;
+    return;
+  }
+  if (command === "runtime" && args[0] === "sweep-summary") {
+    if (hasHelpFlag(args.slice(1))) {
+      printRuntimeSweepSummaryHelp();
+      return;
+    }
+    const parsed = parseRuntimeSweepSummaryArgs(args.slice(1));
+    const report = createRuntimeSweepSummary(parsed);
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.summaryReady) process.exitCode = 1;
     return;
   }
   if (command === "ui" && args[0] === "local-mac-search") {
@@ -794,6 +806,7 @@ function mainUsageText(): string {
     "  loo openclaw live-control-smoke --evidence-dir path --thread-id id [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--message text] [--strict]",
     "  loo openclaw post-action-refresh-smoke --evidence-dir path --thread-id id --live-proof-report path [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--expand-profile metadata|brief|evidence] [--token-budget n] [--strict]",
     "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--strict]",
+    "  loo runtime sweep-summary --evidence-dir path --dry-run-scenarios path --runtime-scenarios path --scorecard-sweep path --published-smoke path [--runtime-proof-dir path] [--now iso] [--strict]",
     "  loo ui local-mac-search --evidence-dir path [--sample] [--strict]",
     "  loo eval retrieval --scenario-file path [--evidence-path path] [--strict]",
     "  loo eval scenarios --evidence-dir path [--scenario-dir path] [--runtime-proof-dir path] [--strict]",
@@ -974,6 +987,29 @@ function printRuntimeIssuePacketHelp(): void {
     "  The command never runs gh issue create and never writes to GitHub.",
     "  It records only blocker codes, scenario ids, duplicate-check query, acceptance criteria, proof boundary, and redaction categories.",
     "  It does not read raw Codex transcripts, run live Codex control, mutate a GUI, publish npm, or create a GitHub Release."
+  ].join("\n"));
+}
+
+function printRuntimeSweepSummaryHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo runtime sweep-summary --evidence-dir path --dry-run-scenarios path --runtime-scenarios path --scorecard-sweep path --published-smoke path [--runtime-proof-dir path] [--now iso] [--strict]",
+    "",
+    "Writes a public-safe summary that separates dry-run scenario readiness from missing runtime proof markers.",
+    "",
+    "Required:",
+    "  --dry-run-scenarios points to the v1 dry-run scenario sweep report.",
+    "  --runtime-scenarios points to the v1.1 runtime-required scenario sweep report.",
+    "  --scorecard-sweep points to the working-app scorecard sweep report.",
+    "  --published-smoke points to the published-package or gateway setup smoke report.",
+    "",
+    "Strict mode:",
+    "  --strict exits non-zero only when the summary itself cannot be produced safely.",
+    "  Missing runtime markers remain claim-boundary blockers, not packet-generation failures.",
+    "",
+    "Safety boundary:",
+    "  The command consumes public-safe reports only.",
+    "  It does not read raw Codex transcripts, run live Codex control, mutate a GUI, publish npm, create tags, or create a GitHub Release."
   ].join("\n"));
 }
 
@@ -2187,6 +2223,54 @@ function parseScorecardSweepArgs(input: string[]): { evidenceDir: string; scorec
   }
   if (!evidenceDir) throw new Error("scorecards sweep requires --evidence-dir");
   return { evidenceDir, scorecardDir, claimScope, strict };
+}
+
+function parseRuntimeSweepSummaryArgs(input: string[]): {
+  evidenceDir: string;
+  dryRunScenarios: string;
+  runtimeScenarios: string;
+  scorecardSweep: string;
+  publishedSmoke: string;
+  runtimeProofDir?: string;
+  now?: string;
+  strict: boolean;
+} {
+  let evidenceDir: string | undefined;
+  let dryRunScenarios: string | undefined;
+  let runtimeScenarios: string | undefined;
+  let scorecardSweep: string | undefined;
+  let publishedSmoke: string | undefined;
+  let runtimeProofDir: string | undefined;
+  let now: string | undefined;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--evidence-dir") {
+      evidenceDir = requireOptionValue(input[++index], arg);
+    } else if (arg === "--dry-run-scenarios") {
+      dryRunScenarios = requireOptionValue(input[++index], arg);
+    } else if (arg === "--runtime-scenarios") {
+      runtimeScenarios = requireOptionValue(input[++index], arg);
+    } else if (arg === "--scorecard-sweep") {
+      scorecardSweep = requireOptionValue(input[++index], arg);
+    } else if (arg === "--published-smoke") {
+      publishedSmoke = requireOptionValue(input[++index], arg);
+    } else if (arg === "--runtime-proof-dir") {
+      runtimeProofDir = requireOptionValue(input[++index], arg);
+    } else if (arg === "--now") {
+      now = requireOptionValue(input[++index], arg);
+    } else if (arg === "--strict") {
+      strict = true;
+    } else {
+      throw new Error(`Unknown runtime sweep-summary option: ${arg}`);
+    }
+  }
+  if (!evidenceDir) throw new Error("runtime sweep-summary requires --evidence-dir");
+  if (!dryRunScenarios) throw new Error("runtime sweep-summary requires --dry-run-scenarios");
+  if (!runtimeScenarios) throw new Error("runtime sweep-summary requires --runtime-scenarios");
+  if (!scorecardSweep) throw new Error("runtime sweep-summary requires --scorecard-sweep");
+  if (!publishedSmoke) throw new Error("runtime sweep-summary requires --published-smoke");
+  return { evidenceDir, dryRunScenarios, runtimeScenarios, scorecardSweep, publishedSmoke, runtimeProofDir, now, strict };
 }
 
 function parsePositiveInteger(value: string | undefined, name: string, max?: number): number {
