@@ -136,7 +136,16 @@ test("prepared source range report skips malformed unsafe derived-cache rows", (
     assert.equal(report.ranges.some((range) => range.sourcePathRef === "/Users/lume/private/raw-transcript.jsonl"), false);
     assert.equal(report.ranges.every((range) => /^codex_source:[0-9a-f]{16}$/.test(range.sourcePathRef)), true);
     assert.equal(report.ranges.length, before.ranges.length - 1);
-    assert.deepEqual(report.omitted, { count: 1, reason: "filtered_unsafe_rows" });
+    assert.equal(report.omitted.count, 1);
+    assert.equal(report.omitted.reason, "filtered_unsafe_rows");
+    assert.deepEqual(report.omitted.reasons, ["filtered_unsafe_rows"]);
+    assert.equal(report.omitted.filteredUnsafeRows, 1);
+
+    const limitedUnsafe = getPreparedSourceRanges(db, { threadId: "019f-prepared-safe-row", limit: 1 });
+    assert.equal(limitedUnsafe.omitted.reason, "limit_and_filtered_unsafe_rows");
+    assert.deepEqual(limitedUnsafe.omitted.reasons, ["limit", "filtered_unsafe_rows"]);
+    assert.equal(limitedUnsafe.omitted.limitCount > 0, true);
+    assert.equal(limitedUnsafe.omitted.filteredUnsafeRows, 1);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -195,11 +204,14 @@ test("prepared source ranges are public-safe opaque refs with hashes and no raw 
     assert.equal(rawRowsSerialized.includes("/Users/lume"), false);
     assert.equal(rawRowsSerialized.includes("PRIVATE_CANARY_TOKEN"), false);
     assert.equal(report.summary.lowConfidence > 0, true);
+    assert.equal(report.summary.lowConfidenceScope, "matching_total");
 
     const limited = getPreparedSourceRanges(db, { threadId: "019f-prepared-ranges", limit: 1 });
     assert.equal(limited.ranges.length, 1);
     assert.equal(limited.summary.lowConfidence, report.summary.lowConfidence);
+    assert.equal(limited.summary.lowConfidenceScope, "matching_total");
     assert.equal(limited.omitted.reason, "limit");
+    assert.deepEqual(limited.omitted.reasons, ["limit"]);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });

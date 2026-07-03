@@ -146,6 +146,40 @@ test("skips Codex JSONL files that exceed byte or event ceilings without indexin
   }
 });
 
+test("honors raised maxEventsPerFile above the default parser guard", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-importer-raised-event-cap-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const sourcePath = join(sessions, "rollout-2026-06-28T00-00-00-019f-raised-event-cap.jsonl");
+  const defaultCap = 50_000;
+  const totalEvents = defaultCap + 2;
+  const lines: unknown[] = [
+    { timestamp: "2026-06-28T00:00:00Z", session_meta: { payload: { id: "019f-raised-event-cap" } } }
+  ];
+  for (let index = 1; index < totalEvents - 1; index += 1) {
+    lines.push({ timestamp: "2026-06-28T00:00:01Z", event_msg: { type: "noop", index } });
+  }
+  lines.push({ timestamp: "2026-06-28T00:00:02Z", event_msg: { type: "thread_name", name: "Raised cap title past default parser guard" } });
+  writeFileSync(sourcePath, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const indexed = indexCodexSessions(db, {
+      roots: [sessions],
+      maxFiles: 10,
+      maxBytesPerFile: 20_000_000,
+      maxEventsPerFile: totalEvents
+    });
+    assert.equal(indexed.indexedFiles, 1);
+    assert.equal(indexed.indexedEvents, totalEvents);
+    assert.deepEqual(indexed.limitedFiles, []);
+    assert.equal(searchSessions(db, { query: "Raised cap title past default parser guard", limit: 5 }).length, 1);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("clears previously indexed Codex evidence when a source file exceeds a later ceiling", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-importer-ceiling-stale-"));
   const sessions = join(root, "sessions");

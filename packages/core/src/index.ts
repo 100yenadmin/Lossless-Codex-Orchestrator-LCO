@@ -117,12 +117,17 @@ export type PreparedSourceRangesReport = {
   summary: {
     total: number;
     returned: number;
+    /** Count of low-confidence rows across the full matching public-safe set, not just the returned page. */
     lowConfidence: number;
+    lowConfidenceScope: "matching_total";
   };
   ranges: PreparedSourceRange[];
   omitted: {
     count: number;
-    reason: "limit" | "filtered_unsafe_rows" | "none";
+    reason: "limit" | "filtered_unsafe_rows" | "limit_and_filtered_unsafe_rows" | "none";
+    reasons: Array<"limit" | "filtered_unsafe_rows"> | ["none"];
+    limitCount: number;
+    filteredUnsafeRows: number;
   };
   actionsPerformed: {
     derivedCacheWrite: false;
@@ -2024,7 +2029,7 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
           continue;
         }
       }
-      const session = parseCodexJsonl(path, text);
+      const session = parseCodexJsonl(path, text, maxEventsPerFile);
       upsertSession(db, path, text, session, { size: stat.size, mtimeMs });
       result.indexedFiles += 1;
       result.indexedEvents += session.eventCount;
@@ -2316,7 +2321,13 @@ export function getPreparedSourceRanges(db: LooDatabase, options: PreparedSource
   const filteredUnsafeRows = rows.length - ranges.length;
   const limitOmissions = Math.max(0, total - rows.length);
   const omittedCount = limitOmissions + filteredUnsafeRows;
-  const omittedReason = limitOmissions > 0 ? "limit" : filteredUnsafeRows > 0 ? "filtered_unsafe_rows" : "none";
+  const omittedReasons = [
+    limitOmissions > 0 ? "limit" : null,
+    filteredUnsafeRows > 0 ? "filtered_unsafe_rows" : null
+  ].filter((reason): reason is "limit" | "filtered_unsafe_rows" => Boolean(reason));
+  const omittedReason = omittedReasons.length === 2
+    ? "limit_and_filtered_unsafe_rows"
+    : omittedReasons[0] ?? "none";
   return {
     schema: "lco.prepared.sourceRanges.v1",
     publicSafe: true,
@@ -2328,12 +2339,16 @@ export function getPreparedSourceRanges(db: LooDatabase, options: PreparedSource
     summary: {
       total,
       returned: ranges.length,
-      lowConfidence: Number(lowConfidenceRow.count ?? 0)
+      lowConfidence: Number(lowConfidenceRow.count ?? 0),
+      lowConfidenceScope: "matching_total"
     },
     ranges,
     omitted: {
       count: omittedCount,
-      reason: omittedReason
+      reason: omittedReason,
+      reasons: omittedReasons.length ? omittedReasons : ["none"],
+      limitCount: limitOmissions,
+      filteredUnsafeRows
     },
     actionsPerformed: {
       derivedCacheWrite: false,
@@ -7798,7 +7813,7 @@ function countJsonlEvents(text: string): number {
   return text.split(/\r?\n/).filter((line) => line.trim().length > 0).length;
 }
 
-function parseCodexJsonl(sourcePath: string, text: string): ImportedSession {
+function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: number): ImportedSession {
   const fallbackId = fallbackThreadId(sourcePath);
   const session: ImportedSession = {
     threadId: fallbackId.replace(/^rollout-[^-]+-/, ""),
@@ -7835,7 +7850,7 @@ function parseCodexJsonl(sourcePath: string, text: string): ImportedSession {
     } catch {
       continue;
     }
-    if (session.eventCount >= DEFAULT_CODEX_MAX_EVENTS_PER_FILE) break;
+    if (session.eventCount >= maxEventsPerFile) break;
     session.eventCount += 1;
     const rangeKinds = new Set<PreparedSourceRangeKind>();
     const timestamp = findTimestamp(item);
@@ -7872,10 +7887,12 @@ function parseCodexJsonl(sourcePath: string, text: string): ImportedSession {
       if (!clean) continue;
       safeParts.push(clean);
       rangeKinds.add(textRangeKind(item));
-      for (const plan of extractPlans(clean)) session.plans.push(plan);
-      if (extractPlans(clean).length > 0) rangeKinds.add("proposed_plan");
-      if (isLikelyFinal(clean)) session.finalMessage = clean;
-      if (isLikelyFinal(clean)) rangeKinds.add("final_message");
+      const plans = extractPlans(clean);
+      for (const plan of plans) session.plans.push(plan);
+      if (plans.length > 0) rangeKinds.add("proposed_plan");
+      const finalMessage = isLikelyFinal(clean);
+      if (finalMessage) session.finalMessage = clean;
+      if (finalMessage) rangeKinds.add("final_message");
       if (containsCloseoutEnvelope(clean)) rangeKinds.add("closeout");
       for (const file of extractTouchedFiles(clean)) touched.add(file);
     }
