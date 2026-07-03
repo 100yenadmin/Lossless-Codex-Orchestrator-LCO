@@ -80,6 +80,21 @@ test("persisted watcher observations reproduce deterministic watcher state and e
   });
 });
 
+test("watcher persistence treats same timestamp and spec replay as idempotent", () => {
+  withWatcherDb((db) => {
+    const now = "2026-07-03T20:05:00.000Z";
+    const spec = finalMessageWatchSpec();
+
+    persistWatcherObservations(db, [spec], { now });
+    persistWatcherObservations(db, [spec], { now });
+
+    const events = getWatcherEvents(db, { now, targetRef: spec.targetRef, limit: 10 });
+    assert.equal(events.summary.total, 1);
+    assert.equal(events.summary.queueItems, 1);
+    assert.equal(events.omitted.reason, "none");
+  });
+});
+
 test("watcher persistence sanitizes raw paths tokens and transcript canaries before cache writes", () => {
   withWatcherDb((db) => {
     const npmTokenCanary = `npm_${"A".repeat(36)}`;
@@ -190,6 +205,7 @@ test("watcher events report omitted queue items when queue output is limited", (
     assert.equal(events.omitted.queueLimitCount, 2);
     assert.equal(events.omitted.limitCount, 4);
     assert.equal(events.omitted.count, 4);
+    assert.equal(events.sourceCoverage.attentionQueue, "ok");
   });
 });
 

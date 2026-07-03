@@ -5390,6 +5390,7 @@ export function persistWatcherObservations(
       const sourceRefs = watcherSourceRefs(watcher);
       const inputHash = stableId(canonicalJsonString({ safeSpec, watcher, extractorVersion: "watcher-observations-v1" }));
       const observedAt = watcher.lastObservedAt ?? generatedAt;
+      // Same spec + same observedAt is an idempotent replay, not a second observation.
       const observationId = stableId(`watcher-observation:${watcher.watchId}:${watcher.targetRef}:${inputHash}:${observedAt}`);
       const evidenceRefs = watcher.evidenceIds;
       db.prepare(`
@@ -5582,7 +5583,7 @@ export function getWatcherEvents(db: LooDatabase, options: WatcherEventsOptions 
     sourceCoverage: {
       watcherSpecs: coverageFromCounts(watcherSpecCount, watcherSpecCount),
       watcherObservations: coverageFromPublicRows(observationRows.length, observations.length),
-      attentionQueue: coverageFromPublicRows(queueRows.length, queue.length)
+      attentionQueue: coverageFromPublicRows(queueRows.length, queueItems.length)
     },
     summary: {
       total: observations.length,
