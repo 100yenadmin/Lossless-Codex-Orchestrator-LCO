@@ -268,6 +268,22 @@ export function createCodexMcpStdioClient(options: {
       } finally {
         await client.close();
       }
+    },
+    async requestSequence(steps: Array<{ method: string; params: Record<string, unknown> }>) {
+      const client = new CodexJsonRpcClient(
+        () => new LineProcessTransport(options.command ?? "codex", options.args ?? ["app-server", "--stdio"], options.timeoutMs),
+        { timeoutMs: options.timeoutMs, surface: options.surface ?? "control" }
+      );
+      await client.connect();
+      try {
+        const responses = [];
+        for (const step of steps) {
+          responses.push(await client.request(step.method, step.params));
+        }
+        return responses;
+      } finally {
+        await client.close();
+      }
     }
   };
 }

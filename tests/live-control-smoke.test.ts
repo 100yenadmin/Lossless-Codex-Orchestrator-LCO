@@ -26,6 +26,9 @@ class FakeLiveControlSmokeClient implements LiveControlSmokeClient {
     if (method === "thread/start") {
       return { ok: true, result: { thread: { id: this.nextThreadId, ephemeral: true } } };
     }
+    if (method === "thread/resume") {
+      return { ok: true, result: { thread: { id: params.threadId, loaded: true } } };
+    }
     if (method === "turn/start") {
       return { ok: true, result: { turn: { id: "turn_live_smoke", status: "inProgress" } } };
     }
@@ -85,8 +88,9 @@ test("live control smoke writes strict public-safe proof without raw prompt text
     assert.doesNotMatch(reportText, /raw prompt/i);
     assert.equal(JSON.stringify(report).includes(message), false);
 
-    assert.deepEqual(client.requests.map((request) => request.method), ["thread/start", "turn/start"]);
+    assert.deepEqual(client.requests.map((request) => request.method), ["thread/start", "thread/resume", "turn/start"]);
     assert.equal(client.requests[1]?.params.threadId, "thr_live_smoke");
+    assert.equal(client.requests[2]?.params.threadId, "thr_live_smoke");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
