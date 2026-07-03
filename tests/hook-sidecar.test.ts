@@ -118,6 +118,72 @@ test("compaction hook records marker lifecycle only without true summary-capture
   }
 });
 
+test("closeout hook flags truncated closeout payloads where fields may be incomplete", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-hook-closeout-truncated-"));
+  try {
+    const db = createDatabase(join(root, "orchestrator.sqlite"));
+    try {
+      const longCloseout = [
+        "<loo_closeout>",
+        `Status: ${"padding ".repeat(260)}`,
+        "Next action: this field is intentionally beyond the 1800 char capture boundary",
+        "</loo_closeout>"
+      ].join("\n");
+      const report = captureCloseoutHookPacket(db, {
+        threadId: "019f-hook-truncated",
+        lastAssistantMessage: longCloseout
+      });
+
+      assert.equal(report.packet.payload.closeout?.present, true);
+      assert.equal(report.packet.payload.closeout?.truncated, true);
+      assert.deepEqual(report.packet.payload.closeout?.omissions, ["closeout_text_truncated"]);
+      assert.match(report.packet.payload.closeout?.text ?? "", /…$/);
+      assert.equal(report.packet.payload.closeout?.fields.next_action, undefined);
+      assert.match(report.packet.payload.omissions.join(","), /closeout_text_truncated/);
+      assert.match(report.packet.reasonCodes.join(","), /closeout_text_truncated/);
+      assert.equal(report.blockers.length, 0);
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("hook redaction covers common Linux and sensitive transcript path roots", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-hook-path-redaction-"));
+  try {
+    const db = createDatabase(join(root, "orchestrator.sqlite"));
+    try {
+      const linuxTranscriptPath = "/mnt/workspace/.codex/sessions/2026/raw-thread.jsonl";
+      const report = captureCloseoutHookPacket(db, {
+        threadId: "019f-hook-linux-paths",
+        transcriptPath: linuxTranscriptPath,
+        lastAssistantMessage: [
+          "<loo_closeout>",
+          "Status: complete",
+          "Blocker: none",
+          "Next action: inspect /data/lco/transcript/raw.jsonl and /opt/codex/sessions/session.jsonl",
+          "</loo_closeout>",
+          "Also never leak /srv/lco/sessions/hidden.jsonl or /etc/codex/transcript.secret"
+        ].join("\n")
+      });
+      const serialized = JSON.stringify(report);
+
+      assert.equal(report.publicSafe, true);
+      assert.equal(report.blockers.length, 0);
+      assert.doesNotMatch(serialized, /\/mnt\/workspace|\/data\/lco|\/opt\/codex|\/srv\/lco|\/etc\/codex|raw-thread\.jsonl|hidden\.jsonl|transcript\.secret/);
+      assert.match(serialized, /<redacted-local-path>/);
+      assert.equal(report.packet.payload.transcriptPathRedacted, true);
+      assert.match(report.packet.payload.transcriptPathHash ?? "", /^[0-9a-f]{32}$/);
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("state-prep hook writes a bounded job from prepared state only", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-hook-state-prep-"));
   try {

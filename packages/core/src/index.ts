@@ -448,6 +448,8 @@ export type HookCapturePacket = {
       present: boolean;
       text: string | null;
       fields: Record<string, string>;
+      truncated: boolean;
+      omissions: string[];
     };
     mode?: "marker";
     lifecycle?: HookCompactionLifecycle;
@@ -3856,7 +3858,7 @@ export function captureCloseoutHookPacket(db: LooDatabase, input: CloseoutHookCa
   const omissions = [
     transcriptPath ? "transcript_path_hash_only" : null,
     lastAssistantMessage && lastAssistantMessage.length > 420 ? "message_preview_truncated" : null,
-    closeout.text && closeout.text.length > 1800 ? "closeout_text_truncated" : null
+    closeout.truncated ? "closeout_text_truncated" : null
   ].filter((item): item is string => Boolean(item));
   const packet: HookCapturePacket = {
     schema: "lco.hookCapturePacket.v1",
@@ -3882,8 +3884,9 @@ export function captureCloseoutHookPacket(db: LooDatabase, input: CloseoutHookCa
       "hook_sidecar_capture",
       "derived_cache_only",
       closeout.present ? "closeout_envelope_present" : "closeout_envelope_missing",
+      closeout.truncated ? "closeout_text_truncated" : "",
       transcriptPath ? "transcript_path_hash_only" : "transcript_path_absent"
-    ])
+    ].filter(Boolean))
   };
   const inserted = insertHookCapturePacket(db, packet);
   return hookCaptureReport(packet, inserted, generatedAt, [
@@ -4608,14 +4611,18 @@ function insertStatePrepJob(
 }
 
 function extractHookCloseout(message: string | null): NonNullable<HookCapturePacket["payload"]["closeout"]> {
-  if (!message) return { present: false, text: null, fields: {} };
+  if (!message) return { present: false, text: null, fields: {}, truncated: false, omissions: [] };
   const match = message.match(/<loo_closeout>\s*([\s\S]*?)\s*<\/loo_closeout>/i);
-  if (!match) return { present: false, text: null, fields: {} };
-  const text = redactHookString(match[1]?.trim() ?? "", 1800);
+  if (!match) return { present: false, text: null, fields: {}, truncated: false, omissions: [] };
+  const rawText = match[1]?.trim() ?? "";
+  const truncated = rawText.length > 1800;
+  const text = redactHookString(rawText, 1800);
   return {
     present: true,
     text,
-    fields: hookCloseoutFields(text)
+    fields: hookCloseoutFields(text),
+    truncated,
+    omissions: truncated ? ["closeout_text_truncated"] : []
   };
 }
 
@@ -4646,11 +4653,17 @@ function hookSourceRefs(targetRef: string, text: string): string[] {
   ]).slice(0, 30);
 }
 
+const HOOK_POSIX_LOCAL_PATH_PATTERN = /(?:file:\/\/)?(?:\/Users|\/Volumes|\/private\/var|\/private\/tmp|\/var\/folders|\/home|\/root|\/tmp|\/workspace|\/workspaces|\/mnt|\/data|\/opt|\/srv|\/etc)\/[^\s"'`)]+/g;
+const HOOK_SENSITIVE_SEGMENT_PATH_PATTERN = /(?:file:\/\/)?\/(?:[^\s"'`)]+\/)*(?:\.codex|sessions|transcripts?|transcript)(?:\/[^\s"'`)]+|[^\s"'`)]*)?/gi;
+const HOOK_WINDOWS_LOCAL_PATH_PATTERN = /(?:[A-Za-z]:)?\\(?:Users|home|tmp|workspace|workspaces|mnt|data|opt|srv|etc)\\[^\s"'`)]+/g;
+const HOOK_WINDOWS_SENSITIVE_SEGMENT_PATH_PATTERN = /(?:[A-Za-z]:)?\\(?:[^\s"'`)]+\\)*(?:\.codex|sessions|transcripts?|transcript)(?:\\[^\s"'`)]+|[^\s"'`)]*)?/gi;
+
 function redactHookString(value: string, maxChars: number): string {
   const redacted = value
-    .replace(/file:\/\/(?:\/Users|\/Volumes|\/private\/var|\/var\/folders|\/home|\/root|\/tmp|\/workspace|\/workspaces)\/[^\s"'`)]+/g, "<redacted-local-path>")
-    .replace(/(?:\/Users|\/Volumes|\/private\/var|\/var\/folders|\/home|\/root|\/tmp|\/workspace|\/workspaces)\/[^\s"'`)]+/g, "<redacted-local-path>")
-    .replace(/(?:[A-Za-z]:)?\\(?:Users|home|tmp|workspace|workspaces)\\[^\s"'`)]+/g, "<redacted-local-path>")
+    .replace(HOOK_POSIX_LOCAL_PATH_PATTERN, "<redacted-local-path>")
+    .replace(HOOK_SENSITIVE_SEGMENT_PATH_PATTERN, "<redacted-local-path>")
+    .replace(HOOK_WINDOWS_LOCAL_PATH_PATTERN, "<redacted-local-path>")
+    .replace(HOOK_WINDOWS_SENSITIVE_SEGMENT_PATH_PATTERN, "<redacted-local-path>")
     .replace(/~\/\.codex\/[^\s"'`)]+/g, "<redacted-local-path>")
     .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "<redacted-secret>")
     .replace(/\bnpm_[A-Za-z0-9]{20,}\b/g, "<redacted-secret>")
@@ -4668,10 +4681,23 @@ function redactHookString(value: string, maxChars: number): string {
 function hookPublicSafetyBlockers(value: unknown): string[] {
   const serialized = JSON.stringify(value);
   const blockers: string[] = [];
-  if (/(?:\/Users|\/Volumes|\/private\/var|\/var\/folders|\/home|\/root|\/tmp|\/workspace|\/workspaces)\//.test(serialized)) blockers.push("raw_local_path_leak");
+  if (
+    hookRegexTest(HOOK_POSIX_LOCAL_PATH_PATTERN, serialized)
+    || hookRegexTest(HOOK_SENSITIVE_SEGMENT_PATH_PATTERN, serialized)
+    || hookRegexTest(HOOK_WINDOWS_LOCAL_PATH_PATTERN, serialized)
+    || hookRegexTest(HOOK_WINDOWS_SENSITIVE_SEGMENT_PATH_PATTERN, serialized)
+    || /~\/\.codex\//.test(serialized)
+  ) blockers.push("raw_local_path_leak");
   if (/(?:npm_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{10,}|PRIVATE_CANARY[A-Za-z0-9_:-]*|BEGIN [A-Z ]*PRIVATE KEY)/.test(serialized)) blockers.push("raw_secret_like_value");
   if (/"transcript_path"\s*:/.test(serialized)) blockers.push("raw_transcript_path_key");
   return blockers;
+}
+
+function hookRegexTest(pattern: RegExp, value: string): boolean {
+  pattern.lastIndex = 0;
+  const result = pattern.test(value);
+  pattern.lastIndex = 0;
+  return result;
 }
 
 type WatcherObservationRow = {
