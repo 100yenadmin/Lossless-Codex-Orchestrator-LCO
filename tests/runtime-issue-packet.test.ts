@@ -104,6 +104,7 @@ test("loo runtime issue-packet writes packet and fails closed for malformed inpu
   assert.equal(payload.actionsPerformed?.githubIssueCreated, false);
   assert.equal(payload.actionsPerformed?.externalWrite, false);
   assert.doesNotMatch(result.stdout, /npm_B/);
+  assert.equal(existsSync(join(evidenceDir, "runtime-proof-issue-packet.json")), true);
 });
 
 test("runtime proof issue packet redacts blocker values before writing public packet fields", () => {
@@ -166,4 +167,85 @@ test("runtime proof issue packet rejects transcript-like failure report paths be
   assert.deepEqual(report.source.inputFindings, []);
   assert.doesNotMatch(serialized, /npm_E/);
   assert.doesNotMatch(serialized, /would_leak_if_read/);
+});
+
+test("runtime proof issue packet redacts claim scope and public issue body evidence path", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-runtime-issue-packet-claim-scope-"));
+  const evidenceDir = join(root, "user-home-like", "evidence");
+  const failureReport = join(root, "failed-runtime-proof.json");
+  writeJson(failureReport, {
+    ok: false,
+    claimScope: `npm_${"F".repeat(24)}`,
+    blockers: ["runtime_proof_missing:openclaw-gateway-live-codex-v1-1:installed_gateway_path"]
+  });
+
+  const report = createRuntimeProofIssuePacket({ evidenceDir, failureReport });
+
+  assert.equal(report.ok, true);
+  assert.equal(report.source.claimScope, "redacted_secret_like_value");
+  assert.match(report.issueBody, /local-evidence-dir:evidence/);
+  assert.equal(report.issueBody.includes(root), false);
+  assert.doesNotMatch(JSON.stringify(report), /npm_F/);
+});
+
+test("runtime proof issue packet fails closed for invalid generatedAt input", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-runtime-issue-packet-invalid-now-"));
+  const evidenceDir = join(root, "evidence");
+  const failureReport = join(root, "failed-runtime-proof.json");
+  writeJson(failureReport, {
+    ok: false,
+    blockers: ["runtime_proof_missing:openclaw-gateway-live-codex-v1-1:installed_gateway_path"]
+  });
+
+  const report = createRuntimeProofIssuePacket({ evidenceDir, failureReport, now: "not-an-iso-date" });
+
+  assert.equal(report.ok, false);
+  assert.equal(report.issuePacketReady, false);
+  assert.equal(report.blockers.includes("invalid_generated_at"), true);
+  assert.notEqual(Number.isNaN(Date.parse(report.generatedAt)), true);
+  assert.notEqual(report.generatedAt, "not-an-iso-date");
+});
+
+test("runtime proof issue packet does not force default tracker refs when explicit refs are supplied", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-runtime-issue-packet-parent-refs-"));
+  const evidenceDir = join(root, "evidence");
+  const failureReport = join(root, "failed-runtime-proof.json");
+  writeJson(failureReport, {
+    ok: false,
+    blockers: ["runtime_proof_missing:custom-lane-v1:runtime_marker"]
+  });
+
+  const report = createRuntimeProofIssuePacket({
+    evidenceDir,
+    failureReport,
+    parentIssue: "#999",
+    operatingLoopIssue: "#998"
+  });
+
+  assert.deepEqual(report.parentRefs, ["#999", "#998"]);
+});
+
+test("runtime proof issue packet writes a minimal stub when final redaction scan fails", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-runtime-issue-packet-redaction-stub-"));
+  const evidenceDir = join(root, "evidence");
+  const failureReport = join(root, "failed-runtime-proof.json");
+  writeJson(failureReport, {
+    ok: false,
+    blockers: ["runtime_proof_missing:openclaw-gateway-live-codex-v1-1:installed_gateway_path"]
+  });
+
+  const report = createRuntimeProofIssuePacket({
+    evidenceDir,
+    failureReport,
+    milestone: `npm_${"G".repeat(24)}`
+  });
+  const persisted = readFileSync(join(evidenceDir, "runtime-proof-issue-packet.json"), "utf8");
+
+  assert.equal(report.ok, false);
+  assert.equal(report.issuePacketReady, false);
+  assert.equal(report.blockers.includes("issue_packet_redaction_failed"), true);
+  assert.equal(report.milestone, null);
+  assert.doesNotMatch(JSON.stringify(report), /npm_G/);
+  assert.doesNotMatch(persisted, /npm_G/);
+  assert.equal(JSON.parse(persisted).issueBody, "");
 });

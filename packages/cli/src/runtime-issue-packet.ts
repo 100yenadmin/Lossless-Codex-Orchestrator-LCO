@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 
 export type RuntimeProofIssuePacketOptions = {
   evidenceDir: string;
@@ -74,12 +74,13 @@ export function createRuntimeProofIssuePacket(options: RuntimeProofIssuePacketOp
   mkdirSync(evidenceDir, { recursive: true });
   const failureReportPath = resolve(options.failureReport);
   const packetPath = join(evidenceDir, "runtime-proof-issue-packet.json");
-  const generatedAt = options.now ?? new Date().toISOString();
-  const parentRefs = uniqueStrings([
+  const generatedAtResult = normalizeGeneratedAt(options.now);
+  const generatedAt = generatedAtResult.value;
+  const explicitParentRefs = [
     normalizeIssueRef(options.parentIssue),
-    normalizeIssueRef(options.operatingLoopIssue),
-    ...DEFAULT_PARENT_REFS
-  ].filter(Boolean) as string[]);
+    normalizeIssueRef(options.operatingLoopIssue)
+  ].filter(Boolean) as string[];
+  const parentRefs = uniqueStrings(explicitParentRefs.length > 0 ? explicitParentRefs : DEFAULT_PARENT_REFS);
 
   const sourceMissing = !existsSync(failureReportPath);
   const transcriptPathRejected = !sourceMissing && hasPrivateFinding(failureReportPath, "raw_transcript_path");
@@ -95,7 +96,8 @@ export function createRuntimeProofIssuePacket(options: RuntimeProofIssuePacketOp
       ? extractBlockerCodes(parsed)
       : ["failure_report_invalid_json"];
   const scenarioIds = parsed ? extractScenarioIds(parsed) : [];
-  const claimScope = parsed ? stringField(parsed, "claimScope") ?? stringField(parsed, "claim_scope") : null;
+  const rawClaimScope = parsed ? stringField(parsed, "claimScope") ?? stringField(parsed, "claim_scope") : null;
+  const claimScope = rawClaimScope ? safePublicCode(rawClaimScope) : null;
   const primaryBlocker = blockerCodes[0] ?? "runtime_proof_failure";
   const title = `Runtime proof failed: ${safeTitleSegment(primaryBlocker)}`;
   const labels = uniqueStrings([
@@ -103,7 +105,7 @@ export function createRuntimeProofIssuePacket(options: RuntimeProofIssuePacketOp
     ...(scenarioIds.some((id) => /codex|gateway|desktop/i.test(id)) || blockerCodes.some((blocker) => /codex|gateway|desktop/i.test(blocker)) ? ["codex"] : [])
   ]);
   const duplicateCheckQuery = buildDuplicateCheckQuery(title, primaryBlocker);
-  const evidencePath = evidenceDir;
+  const evidencePath = publicEvidencePath(evidenceDir);
   const steps = [
     "Run the relevant LCO runtime proof or scenario sweep with a public-safe evidence directory.",
     "Inspect the sanitized failure report and blocker codes.",
@@ -189,6 +191,7 @@ export function createRuntimeProofIssuePacket(options: RuntimeProofIssuePacketOp
       "private customer data"
     ],
     blockers: [
+      ...(generatedAtResult.invalid ? ["invalid_generated_at"] : []),
       ...(sourceMissing ? ["failure_report_missing"] : []),
       ...(transcriptPathRejected ? ["failure_report_transcript_path_rejected"] : []),
       ...(invalidJson ? ["failure_report_invalid_json"] : []),
@@ -219,8 +222,9 @@ export function createRuntimeProofIssuePacket(options: RuntimeProofIssuePacketOp
       ? "Review the duplicate-check query, then manually create or update the GitHub issue with this public-safe packet."
       : "Repair the failure report input or packet redaction blockers before filing an issue."
   };
-  writeFileSync(packetPath, `${JSON.stringify(report, null, 2)}\n`);
-  return report;
+  const persistedReport = redactionScan.publicSafe ? report : createRedactionFailureStub(report, redactionScan, blockers);
+  writeFileSync(packetPath, `${JSON.stringify(persistedReport, null, 2)}\n`);
+  return persistedReport;
 }
 
 function readJsonObject(text: string): JsonObject | null {
@@ -230,6 +234,48 @@ function readJsonObject(text: string): JsonObject | null {
   } catch {
     return null;
   }
+}
+
+function normalizeGeneratedAt(value: string | undefined): { value: string; invalid: boolean } {
+  if (!value) return { value: new Date().toISOString(), invalid: false };
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return { value: new Date().toISOString(), invalid: true };
+  const normalized = parsed.toISOString();
+  return { value: normalized, invalid: normalized !== value };
+}
+
+function publicEvidencePath(evidenceDir: string): string {
+  return `local-evidence-dir:${safeCode(basename(evidenceDir) || "evidence")}`;
+}
+
+function createRedactionFailureStub(
+  report: RuntimeProofIssuePacketReport,
+  redactionScan: RuntimeProofIssuePacketReport["redactionScan"],
+  blockers: string[]
+): RuntimeProofIssuePacketReport {
+  return {
+    ...report,
+    ok: false,
+    issuePacketReady: false,
+    title: "Runtime proof packet redaction failed",
+    milestone: null,
+    duplicateCheckQuery: "",
+    steps: [],
+    expected: "A runtime proof issue packet must be public-safe before it is persisted.",
+    actual: "The generated packet failed its final redaction scan; unsafe fields were replaced by this minimal fail-closed stub.",
+    acceptanceCriteria: [],
+    issueBody: "",
+    source: {
+      failureReportPath: redactPrivateSpans(report.source.failureReportPath),
+      claimScope: null,
+      scenarioIds: [],
+      blockerCodes: [],
+      inputFindings: report.source.inputFindings
+    },
+    redactionScan,
+    blockers,
+    nextAction: "Repair the failure report input or packet redaction blockers before filing an issue."
+  };
 }
 
 function scanTextForPrivateFindings(text: string): RuntimeProofIssuePacketFinding[] {
