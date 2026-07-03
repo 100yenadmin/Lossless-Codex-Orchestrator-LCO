@@ -1286,7 +1286,33 @@ function toolPayloadBlockers(toolName: string, payload: unknown): string[] {
   if (!isRecord(failedPayload)) return [];
   const code = stringPath(failedPayload, ["error", "code"]);
   const safeCode = code && /^[a-z0-9_.-]+$/i.test(code) ? `:${code}` : "";
-  return [`openclaw_tool_result_not_ok:${toolName}${safeCode}`];
+  return [
+    `openclaw_tool_result_not_ok:${toolName}${safeCode}`,
+    ...toolValidationBlockers(toolName, failedPayload)
+  ];
+}
+
+function toolValidationBlockers(toolName: string, failedPayload: Record<string, unknown>): string[] {
+  const reason = safeValidationFailureReason(failedPayload);
+  return reason ? [`openclaw_tool_validation_failed:${toolName}:${reason}`] : [];
+}
+
+function safeValidationFailureReason(failedPayload: Record<string, unknown>): string | null {
+  const message = stringPath(failedPayload, ["error", "message"]) || stringPath(failedPayload, ["message"]);
+  if (message && /\bexpected_turn_id\b/i.test(message) && /\brequired\b/i.test(message)) return "expected_turn_id_required";
+
+  const requiredField = message?.match(/\b([a-z][a-z0-9_]{1,80}) is required\b/i)?.[1];
+  if (requiredField) return `${safeBlockerSegment(requiredField)}_required`;
+
+  const code = stringPath(failedPayload, ["error", "code"]) || stringPath(failedPayload, ["code"]);
+  if (code && /^(?:validation|invalid|missing|required)[a-z0-9_.-]*$/i.test(code)) {
+    return safeBlockerSegment(code);
+  }
+  return null;
+}
+
+function safeBlockerSegment(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9_.-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 96) || "validation_failed";
 }
 
 function hasPreparedReadOnlyActionMarkers(value: unknown): boolean {

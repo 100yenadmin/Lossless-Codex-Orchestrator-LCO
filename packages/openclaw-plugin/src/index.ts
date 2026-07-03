@@ -10,6 +10,7 @@ import {
 import { createDatabase, type LooDatabase } from "../../core/src/index.js";
 import {
   createLooToolDeclarations,
+  executeLooToolForOpenClaw,
   createLooTools,
   type LooTool
 } from "../../mcp-server/src/tools.js";
@@ -64,7 +65,7 @@ export default defineToolPlugin({
     async execute(input: unknown) {
       const runtimeTool = getNativeRuntime().tools.find((candidate) => candidate.name === declaration.name);
       if (!runtimeTool) throw new Error(`Unknown LOO tool: ${declaration.name}`);
-      return await runtimeTool.execute(asRecord(input));
+      return await executeLooToolForOpenClaw(runtimeTool, asRecord(input));
     }
   }))
 });
