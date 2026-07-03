@@ -247,6 +247,173 @@ export type SummaryLeafMaterializationOptions = {
   limit?: number;
 };
 
+export type PreparedCardState = "ready" | "stale" | "partial" | "unknown";
+export type PreparedCardKind = "codex_session";
+export type PreparedStateCoverage = "ok" | "partial" | "not_configured" | "unknown";
+
+export type PreparedCard = {
+  schema: "lco.prepared.card.v1";
+  cardRef: string;
+  targetRef: string;
+  cardKind: PreparedCardKind;
+  title: string;
+  summaryText: string;
+  nextAction: string;
+  sourceRefs: string[];
+  sourceRangeRefs: string[];
+  sourceRangeRefsOmitted: number;
+  authorityCoverage: {
+    summaryLeaves: { status: PreparedStateCoverage; leafCount: number; rangeCount: number };
+    sessionMetadata: { status: PreparedStateCoverage };
+    watcherObservations: { status: "not_configured" };
+  };
+  sourceCoverage: {
+    summaryLeaves: PreparedStateCoverage;
+    sessionMetadata: PreparedStateCoverage;
+    watcherObservations: "not_configured";
+  };
+  inputHash: string;
+  extractorVersion: "prepared-cards-v1";
+  privacyClass: "public_safe_metadata";
+  confidence: number;
+  freshnessAt: string | null;
+  stale: boolean;
+  state: PreparedCardState;
+  reasonCodes: string[];
+};
+
+export type PreparedInboxItem = {
+  schema: "lco.prepared.inboxItem.v1";
+  itemRef: string;
+  cardRef: string;
+  targetRef: string;
+  urgencyScore: number;
+  state: PreparedCardState;
+  reasonCodes: string[];
+  sourceRefs: string[];
+  execute: false;
+};
+
+export type PreparedCardMaterializationReport = {
+  schema: "lco.preparedCards.materialization.v1";
+  publicSafe: false;
+  readOnly: false;
+  mutationClasses: ["derived_cache"];
+  generatedAt: string;
+  target: {
+    threadId: string | null;
+  };
+  summary: {
+    summaryLeaves: number;
+    cards: number;
+    inboxItems: number;
+    skippedUnsafeRows: number;
+  };
+  actionsPerformed: {
+    derivedCacheWrite: true;
+    sourceStoreMutation: false;
+    externalWrite: false;
+    liveControl: false;
+    guiMutation: false;
+    rawTranscriptRead: false;
+  };
+  proofBoundary: string;
+};
+
+export type PreparedCardsOptions = {
+  threadId?: string;
+  state?: PreparedCardState;
+  limit?: number;
+};
+
+export type PreparedCardsReport = {
+  schema: "lco.prepared.cards.v1";
+  publicSafe: true;
+  readOnly: true;
+  generatedAt: string;
+  sourceCoverage: {
+    preparedCards: PreparedStateCoverage;
+    summaryLeaves: PreparedStateCoverage;
+    watcherObservations: "not_configured";
+  };
+  summary: {
+    total: number;
+    returned: number;
+    stale: number;
+    partial: number;
+    unknown: number;
+    lowConfidence: number;
+  };
+  cards: PreparedCard[];
+  omitted: {
+    count: number;
+    reason: "limit" | "filtered_unsafe_rows" | "limit_and_filtered_unsafe_rows" | "none";
+    reasons: Array<"limit" | "filtered_unsafe_rows"> | ["none"];
+    limitCount: number;
+    filteredUnsafeRows: number;
+  };
+  actionsPerformed: {
+    derivedCacheWrite: false;
+    sourceStoreMutation: false;
+    externalWrite: false;
+    liveControl: false;
+    guiMutation: false;
+    rawTranscriptRead: false;
+  };
+  proofBoundary: string;
+};
+
+export type PreparedInboxOptions = {
+  threadId?: string;
+  limit?: number;
+};
+
+export type PreparedInboxReport = {
+  schema: "lco.prepared.inbox.v1";
+  publicSafe: true;
+  readOnly: true;
+  generatedAt: string;
+  sourceCoverage: PreparedCardsReport["sourceCoverage"];
+  summary: {
+    total: number;
+    returned: number;
+    critical: number;
+    high: number;
+    lowConfidence: number;
+  };
+  items: PreparedInboxItem[];
+  omitted: {
+    count: number;
+    reason: "limit" | "none";
+  };
+  actionsPerformed: PreparedCardsReport["actionsPerformed"];
+  proofBoundary: string;
+};
+
+export type PreparedStateStatusReport = {
+  schema: "lco.preparedState.status.v1";
+  publicSafe: true;
+  readOnly: true;
+  generatedAt: string;
+  sourceCoverage: {
+    summaryLeaves: PreparedStateCoverage;
+    preparedCards: PreparedStateCoverage;
+    preparedInboxItems: PreparedStateCoverage;
+    watcherObservations: "not_configured";
+  };
+  summary: {
+    summaryLeaves: number;
+    cards: number;
+    inboxItems: number;
+    staleCards: number;
+    partialCards: number;
+    unknownCards: number;
+    lowConfidenceCards: number;
+  };
+  actionsPerformed: PreparedCardsReport["actionsPerformed"];
+  proofBoundary: string;
+};
+
 export type SummaryExpansionReport = {
   schema: "lco.summary.expansion.v1";
   publicSafe: true;
@@ -1773,8 +1940,10 @@ const DEFAULT_CODEX_MAX_BYTES_PER_FILE = 50 * 1024 * 1024;
 const DEFAULT_CODEX_MAX_EVENTS_PER_FILE = 50_000;
 const PREPARED_SOURCE_EXTRACTOR_VERSION = "prepared-source-ranges-v1" as const;
 const SUMMARY_LEAF_EXTRACTOR_VERSION = "summary-leaves-v1" as const;
+const PREPARED_CARD_EXTRACTOR_VERSION = "prepared-cards-v1" as const;
 const SUMMARY_LEAF_EDGE_DELETE_BATCH_SIZE = 400;
 const SUMMARY_LEAF_SOURCE_RANGE_REF_LIMIT = 50;
+const PREPARED_CARD_SOURCE_RANGE_REF_LIMIT = 50;
 
 export function createDatabase(dbPath?: string): LooDatabase {
   const resolved = dbPath ?? defaultDatabasePath();
@@ -2034,6 +2203,8 @@ export function migrate(db: LooDatabase): void {
       updated_at TEXT NOT NULL
     );
 
+    CREATE INDEX IF NOT EXISTS prepared_cards_target_extractor_idx ON prepared_cards(target_ref, extractor_version, privacy_class, state);
+
     CREATE TABLE IF NOT EXISTS prepared_inbox_items (
       item_id TEXT PRIMARY KEY,
       card_ref TEXT NOT NULL,
@@ -2046,6 +2217,8 @@ export function migrate(db: LooDatabase): void {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE INDEX IF NOT EXISTS prepared_inbox_target_score_idx ON prepared_inbox_items(target_ref, urgency_score DESC, updated_at DESC);
 
     CREATE TABLE IF NOT EXISTS watcher_specs (
       watch_id TEXT PRIMARY KEY,
@@ -2163,6 +2336,7 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
   };
   const seenThreads = new Set<string>();
   const summaryThreadsToMaterialize = new Set<string>();
+  const preparedThreadsToMaterialize = new Set<string>();
 
   for (const path of files) {
     try {
@@ -2185,6 +2359,7 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
           && !sourceNeedsMetadataBackfill(db, path)
           && !sourceNeedsPreparedSourceRangeBackfill(db, path)
           && !sourceNeedsSummaryLeafBackfill(db, path)
+          && !sourceNeedsPreparedCardBackfill(db, path)
         ) {
           result.skippedFiles += 1;
           continue;
@@ -2196,6 +2371,7 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
       result.indexedEvents += session.eventCount;
       seenThreads.add(session.threadId);
       summaryThreadsToMaterialize.add(session.threadId);
+      preparedThreadsToMaterialize.add(session.threadId);
     } catch (error) {
       result.errors.push({ path, message: error instanceof Error ? error.message : String(error) });
     }
@@ -2203,6 +2379,13 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
   for (const threadId of summaryThreadsToMaterialize) {
     try {
       materializeSummaryLeaves(db, { threadId });
+    } catch (error) {
+      result.errors.push({ path: codexThreadRef(threadId), message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  for (const threadId of preparedThreadsToMaterialize) {
+    try {
+      materializePreparedCards(db, { threadId });
     } catch (error) {
       result.errors.push({ path: codexThreadRef(threadId), message: error instanceof Error ? error.message : String(error) });
     }
@@ -3047,7 +3230,753 @@ export function expandSummaryLeaves(db: LooDatabase, options: SummaryExpansionOp
   };
 }
 
+export function materializePreparedCards(db: LooDatabase, options: { threadId?: string } = {}): PreparedCardMaterializationReport {
+  if (!options.threadId) return materializePreparedCardsForAllThreads(db);
+  const generatedAt = new Date().toISOString();
+  const targetRef = codexThreadRef(options.threadId);
+  const leavesReport = getSummaryLeaves(db, { threadId: options.threadId, limit: 1000 });
+  const card = leavesReport.leaves.length > 0
+    ? buildPreparedCardDraft(db, options.threadId, leavesReport.leaves, leavesReport.omitted.filteredUnsafeRows)
+    : null;
+  db.exec("BEGIN");
+  try {
+    deletePreparedCardsForTargetRefs(db, [targetRef]);
+    if (card) {
+      db.prepare(`
+        INSERT INTO prepared_cards (
+          card_id, card_ref, target_ref, card_kind, title, summary_text, next_action,
+          source_refs_json, source_range_refs_json, authority_coverage_json,
+          input_hash, extractor_version, privacy_class, confidence, freshness_at,
+          stale, state, reason_codes_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        card.cardId,
+        card.cardRef,
+        card.targetRef,
+        card.cardKind,
+        card.title,
+        card.summaryText,
+        card.nextAction,
+        JSON.stringify(card.sourceRefs),
+        JSON.stringify(card.sourceRangeRefs),
+        JSON.stringify(card.authorityCoverage),
+        card.inputHash,
+        PREPARED_CARD_EXTRACTOR_VERSION,
+        "public_safe_metadata",
+        card.confidence,
+        card.freshnessAt,
+        card.stale ? 1 : 0,
+        card.state,
+        JSON.stringify(card.reasonCodes),
+        generatedAt,
+        generatedAt
+      );
+      const inbox = preparedInboxItemFromCard(card);
+      db.prepare(`
+        INSERT INTO prepared_inbox_items (
+          item_id, card_ref, target_ref, urgency_score, state, reason_codes_json,
+          source_refs_json, execute_false, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        inbox.itemRef,
+        inbox.cardRef,
+        inbox.targetRef,
+        inbox.urgencyScore,
+        inbox.state,
+        JSON.stringify(inbox.reasonCodes),
+        JSON.stringify(inbox.sourceRefs),
+        1,
+        generatedAt,
+        generatedAt
+      );
+    }
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+  return {
+    schema: "lco.preparedCards.materialization.v1",
+    publicSafe: false,
+    readOnly: false,
+    mutationClasses: ["derived_cache"],
+    generatedAt,
+    target: {
+      threadId: options.threadId
+    },
+    summary: {
+      summaryLeaves: leavesReport.summary.total,
+      cards: card ? 1 : 0,
+      inboxItems: card ? 1 : 0,
+      skippedUnsafeRows: leavesReport.omitted.filteredUnsafeRows
+    },
+    actionsPerformed: preparedCardWriteActions(),
+    proofBoundary: "Prepared cards are deterministic advisory cache rows over public-safe summary leaves and session metadata. They write only LCO-owned derived cache and do not read raw transcripts, run model compaction, mutate source stores, perform live control, or perform GUI actions."
+  };
+}
+
+function materializePreparedCardsForAllThreads(db: LooDatabase): PreparedCardMaterializationReport {
+  const generatedAt = new Date().toISOString();
+  const rows = db.prepare(`
+    SELECT DISTINCT thread_id AS threadId
+    FROM summary_leaves
+    WHERE extractor_version = ?
+      AND privacy_class = 'public_safe_metadata'
+      AND omission_status = 'metadata_only'
+      AND thread_id IS NOT NULL
+    ORDER BY thread_id ASC
+  `).all(SUMMARY_LEAF_EXTRACTOR_VERSION) as Array<{ threadId: string }>;
+  const summary = {
+    summaryLeaves: 0,
+    cards: 0,
+    inboxItems: 0,
+    skippedUnsafeRows: 0
+  };
+  for (const row of rows) {
+    const report = materializePreparedCards(db, { threadId: String(row.threadId) });
+    summary.summaryLeaves += report.summary.summaryLeaves;
+    summary.cards += report.summary.cards;
+    summary.inboxItems += report.summary.inboxItems;
+    summary.skippedUnsafeRows += report.summary.skippedUnsafeRows;
+  }
+  return {
+    schema: "lco.preparedCards.materialization.v1",
+    publicSafe: false,
+    readOnly: false,
+    mutationClasses: ["derived_cache"],
+    generatedAt,
+    target: {
+      threadId: null
+    },
+    summary,
+    actionsPerformed: preparedCardWriteActions(),
+    proofBoundary: "Prepared cards are deterministic advisory cache rows over public-safe summary leaves and session metadata. A no-thread materialization refreshes each thread independently and writes only LCO-owned derived cache; it does not read raw transcripts, run model compaction, mutate source stores, perform live control, or perform GUI actions."
+  };
+}
+
+export function getPreparedStateStatus(db: LooDatabase): PreparedStateStatusReport {
+  const leaves = Number((db.prepare(`
+    SELECT COUNT(*) AS count
+    FROM summary_leaves
+    WHERE extractor_version = ?
+      AND privacy_class = 'public_safe_metadata'
+      AND omission_status = 'metadata_only'
+  `).get(SUMMARY_LEAF_EXTRACTOR_VERSION) as { count: number }).count);
+  const cardsReport = getPreparedCards(db, { limit: 1 });
+  const inboxReport = getPreparedInbox(db, { limit: 1 });
+  const cardCounts = db.prepare(`
+    SELECT
+      COUNT(*) AS total,
+      SUM(CASE WHEN stale = 1 THEN 1 ELSE 0 END) AS stale,
+      SUM(CASE WHEN state = 'partial' THEN 1 ELSE 0 END) AS partial,
+      SUM(CASE WHEN state = 'unknown' THEN 1 ELSE 0 END) AS unknown,
+      SUM(CASE WHEN confidence < 0.5 THEN 1 ELSE 0 END) AS lowConfidence
+    FROM prepared_cards
+    WHERE extractor_version = ?
+      AND privacy_class = 'public_safe_metadata'
+  `).get(PREPARED_CARD_EXTRACTOR_VERSION) as { total: number; stale: number | null; partial: number | null; unknown: number | null; lowConfidence: number | null };
+  return {
+    schema: "lco.preparedState.status.v1",
+    publicSafe: true,
+    readOnly: true,
+    generatedAt: new Date().toISOString(),
+    sourceCoverage: {
+      summaryLeaves: leaves > 0 ? "ok" : "not_configured",
+      preparedCards: cardsReport.sourceCoverage.preparedCards,
+      preparedInboxItems: inboxReport.sourceCoverage.preparedCards === "ok" ? "ok" : inboxReport.sourceCoverage.preparedCards,
+      watcherObservations: "not_configured"
+    },
+    summary: {
+      summaryLeaves: leaves,
+      cards: cardsReport.summary.total,
+      inboxItems: inboxReport.summary.total,
+      staleCards: Number(cardCounts.stale ?? 0),
+      partialCards: Number(cardCounts.partial ?? 0),
+      unknownCards: Number(cardCounts.unknown ?? 0),
+      lowConfidenceCards: Number(cardCounts.lowConfidence ?? 0)
+    },
+    actionsPerformed: preparedCardReadActions(),
+    proofBoundary: "Prepared-state status reports only LCO-owned public-safe derived-cache coverage and counts. It does not read raw transcripts, run model compaction, mutate source stores, perform live control, perform GUI actions, or treat prepared cache as source authority."
+  };
+}
+
+export function getPreparedCards(db: LooDatabase, options: PreparedCardsOptions = {}): PreparedCardsReport {
+  const limit = clamp(options.limit ?? 50, 1, 500);
+  const clauses = [
+    "extractor_version = ?",
+    "privacy_class = ?"
+  ];
+  const params: Array<string | number> = [PREPARED_CARD_EXTRACTOR_VERSION, "public_safe_metadata"];
+  if (options.threadId) {
+    clauses.push("target_ref = ?");
+    params.push(codexThreadRef(options.threadId));
+  }
+  if (options.state) {
+    clauses.push("state = ?");
+    params.push(options.state);
+  }
+  const where = `WHERE ${clauses.join(" AND ")}`;
+  const total = Number((db.prepare(`SELECT COUNT(*) AS count FROM prepared_cards ${where}`).get(...params) as { count: number }).count);
+  const rows = db.prepare(`
+    SELECT
+      card_ref AS cardRef,
+      target_ref AS targetRef,
+      card_kind AS cardKind,
+      title,
+      summary_text AS summaryText,
+      next_action AS nextAction,
+      source_refs_json AS sourceRefsJson,
+      source_range_refs_json AS sourceRangeRefsJson,
+      authority_coverage_json AS authorityCoverageJson,
+      input_hash AS inputHash,
+      extractor_version AS extractorVersion,
+      privacy_class AS privacyClass,
+      confidence,
+      freshness_at AS freshnessAt,
+      stale,
+      state,
+      reason_codes_json AS reasonCodesJson
+    FROM prepared_cards
+    ${where}
+    ORDER BY stale DESC, confidence ASC, freshness_at DESC, target_ref ASC, card_ref ASC
+  `).all(...params) as PreparedCardRow[];
+  const validCards: PreparedCard[] = [];
+  let filteredUnsafeRows = 0;
+  let stale = 0;
+  let partial = 0;
+  let unknown = 0;
+  let lowConfidence = 0;
+  for (const row of rows) {
+    const card = publicPreparedCardFromRow(row);
+    if (!card) {
+      filteredUnsafeRows += 1;
+      continue;
+    }
+    if (card.stale) stale += 1;
+    if (card.state === "partial") partial += 1;
+    if (card.state === "unknown") unknown += 1;
+    if (card.confidence < 0.5) lowConfidence += 1;
+    if (validCards.length < limit) validCards.push(card);
+  }
+  const limitOmissions = Math.max(0, rows.length - filteredUnsafeRows - validCards.length);
+  const omittedReasons = [
+    limitOmissions > 0 ? "limit" : null,
+    filteredUnsafeRows > 0 ? "filtered_unsafe_rows" : null
+  ].filter((reason): reason is "limit" | "filtered_unsafe_rows" => Boolean(reason));
+  return {
+    schema: "lco.prepared.cards.v1",
+    publicSafe: true,
+    readOnly: true,
+    generatedAt: new Date().toISOString(),
+    sourceCoverage: {
+      preparedCards: validCards.length > 0 ? "ok" : total > 0 ? "partial" : "not_configured",
+      summaryLeaves: preparedSummaryLeafCoverage(db, options.threadId),
+      watcherObservations: "not_configured"
+    },
+    summary: {
+      total: rows.length - filteredUnsafeRows,
+      returned: validCards.length,
+      stale,
+      partial,
+      unknown,
+      lowConfidence
+    },
+    cards: validCards,
+    omitted: {
+      count: limitOmissions + filteredUnsafeRows,
+      reason: omittedReasons.length === 2 ? "limit_and_filtered_unsafe_rows" : omittedReasons[0] ?? "none",
+      reasons: omittedReasons.length ? omittedReasons : ["none"],
+      limitCount: limitOmissions,
+      filteredUnsafeRows
+    },
+    actionsPerformed: preparedCardReadActions(),
+    proofBoundary: "Prepared cards are public-safe advisory cache rows over summary leaves and session metadata. They expose opaque refs, coverage, confidence, and bounded text only; they do not expose raw transcript text, local paths, secrets, source-store mutation, live control, GUI mutation, external writes, model compaction, or true Codex compaction-summary capture."
+  };
+}
+
+export function getPreparedInbox(db: LooDatabase, options: PreparedInboxOptions = {}): PreparedInboxReport {
+  const limit = clamp(options.limit ?? 25, 1, 200);
+  const clauses = ["execute_false = 1"];
+  const params: Array<string | number> = [];
+  if (options.threadId) {
+    clauses.push("target_ref = ?");
+    params.push(codexThreadRef(options.threadId));
+  }
+  const where = `WHERE ${clauses.join(" AND ")}`;
+  const rows = db.prepare(`
+    SELECT
+      item_id AS itemRef,
+      card_ref AS cardRef,
+      target_ref AS targetRef,
+      urgency_score AS urgencyScore,
+      state,
+      reason_codes_json AS reasonCodesJson,
+      source_refs_json AS sourceRefsJson,
+      execute_false AS executeFalse
+    FROM prepared_inbox_items
+    ${where}
+    ORDER BY urgency_score DESC, state ASC, target_ref ASC, card_ref ASC
+  `).all(...params) as PreparedInboxRow[];
+  const validItems: PreparedInboxItem[] = [];
+  let validTotal = 0;
+  let lowConfidence = 0;
+  for (const row of rows) {
+    const item = publicPreparedInboxItemFromRow(row);
+    if (!item) continue;
+    validTotal += 1;
+    if (item.reasonCodes.includes("low_confidence")) lowConfidence += 1;
+    if (validItems.length < limit) validItems.push(item);
+  }
+  return {
+    schema: "lco.prepared.inbox.v1",
+    publicSafe: true,
+    readOnly: true,
+    generatedAt: new Date().toISOString(),
+    sourceCoverage: {
+      preparedCards: validItems.length > 0 ? "ok" : rows.length > 0 ? "partial" : "not_configured",
+      summaryLeaves: preparedSummaryLeafCoverage(db, options.threadId),
+      watcherObservations: "not_configured"
+    },
+    summary: {
+      total: validTotal,
+      returned: validItems.length,
+      critical: validItems.filter((item) => item.urgencyScore >= 90).length,
+      high: validItems.filter((item) => item.urgencyScore >= 70 && item.urgencyScore < 90).length,
+      lowConfidence
+    },
+    items: validItems,
+    omitted: {
+      count: Math.max(0, validTotal - validItems.length),
+      reason: validTotal > validItems.length ? "limit" : "none"
+    },
+    actionsPerformed: preparedCardReadActions(),
+    proofBoundary: "Prepared inbox is a deterministic execute=false attention queue over public-safe prepared cards. It does not read raw transcripts, run model compaction, mutate source stores, perform live control, perform GUI actions, external writes, npm publish, or GitHub Release creation."
+  };
+}
+
 type SummaryLeafDraft = SummaryLeaf & { leafId: string };
+type PreparedCardDraft = PreparedCard & { cardId: string };
+
+type PreparedCardRow = {
+  cardRef: string;
+  targetRef: string;
+  cardKind: string;
+  title: string;
+  summaryText: string;
+  nextAction: string | null;
+  sourceRefsJson: string;
+  sourceRangeRefsJson: string;
+  authorityCoverageJson: string;
+  inputHash: string;
+  extractorVersion: string;
+  privacyClass: string;
+  confidence: number;
+  freshnessAt: string | null;
+  stale: number;
+  state: string;
+  reasonCodesJson: string;
+};
+
+type PreparedInboxRow = {
+  itemRef: string;
+  cardRef: string;
+  targetRef: string;
+  urgencyScore: number;
+  state: string;
+  reasonCodesJson: string;
+  sourceRefsJson: string;
+  executeFalse: number;
+};
+
+function buildPreparedCardDraft(db: LooDatabase, threadId: string, leaves: SummaryLeaf[], filteredUnsafeRows: number): PreparedCardDraft {
+  const targetRef = codexThreadRef(threadId);
+  const session = db.prepare(`
+    SELECT title, summary, updated_at AS updatedAt
+    FROM codex_sessions
+    WHERE thread_id = ?
+  `).get(threadId) as { title: string | null; summary: string | null; updatedAt: string | null } | undefined;
+  const metadata = getSessionMetadata(db, threadId);
+  const sessionMetadataStatus: PreparedStateCoverage = session
+    ? sessionMetadataHasAnyValue(metadata) ? "ok" : "partial"
+    : "not_configured";
+  const authorityStatuses = leaves.map((leaf) => String(leaf.authorityCoverage.status ?? "unknown"));
+  const leafRangeCount = leaves.reduce((count, leaf) => count + summaryLeafAuthorityRangeCount(leaf.authorityCoverage), 0);
+  const summaryLeavesStatus: PreparedStateCoverage = leaves.length === 0
+    ? "not_configured"
+    : authorityStatuses.includes("unknown")
+      ? "unknown"
+      : filteredUnsafeRows > 0 || authorityStatuses.includes("partial")
+        ? "partial"
+        : "ok";
+  const freshnessAt = latestIso([...leaves.map((leaf) => leaf.freshnessAt), session?.updatedAt ?? null]);
+  const stale = leaves.some((leaf) => leaf.stale);
+  const reasonCodes = unique([
+    leaves.length > 0 ? "summary_leaves_ready" : "summary_leaves_missing",
+    "metadata_only",
+    "watcher_not_configured",
+    stale ? "stale_cache" : "",
+    summaryLeavesStatus === "partial" ? "authority_partial" : "",
+    summaryLeavesStatus === "unknown" ? "authority_unknown" : "",
+    sessionMetadataStatus === "partial" ? "session_metadata_partial" : "",
+    filteredUnsafeRows > 0 ? "filtered_unsafe_rows" : ""
+  ].filter(Boolean));
+  const state: PreparedCardState = stale
+    ? "stale"
+    : summaryLeavesStatus === "unknown"
+      ? "unknown"
+      : summaryLeavesStatus === "partial" || sessionMetadataStatus === "partial"
+        ? "partial"
+        : "ready";
+  const averageLeafConfidence = leaves.length
+    ? leaves.reduce((sum, leaf) => sum + leaf.confidence, 0) / leaves.length
+    : 0.3;
+  const confidence = preparedCardConfidence(averageLeafConfidence, state);
+  const sourceRangeRefsFull = unique(leaves.flatMap((leaf) => leaf.sourceRangeRefs));
+  const sourceRangeRefs = sourceRangeRefsFull.slice(0, PREPARED_CARD_SOURCE_RANGE_REF_LIMIT);
+  const sourceRangeRefsOmitted = Math.max(0, sourceRangeRefsFull.length - sourceRangeRefs.length)
+    + leaves.reduce((count, leaf) => count + leaf.sourceRangeRefsOmitted, 0);
+  const sourceRefs = unique([targetRef, ...leaves.flatMap((leaf) => leaf.sourceRefs)])
+    .filter(isPublicPreparedSourceRef)
+    .slice(0, 40);
+  const title = cleanCardPresentationText(session?.title ?? threadId, {
+    fallback: threadId,
+    maxChars: 160,
+    role: "title"
+  }).text;
+  const summaryText = publicSafeText(
+    `Prepared state: ${leaves.length} summary leaf${leaves.length === 1 ? "" : "s"} across ${Math.max(0, leafRangeCount)} prepared source range${leafRangeCount === 1 ? "" : "s"}.`,
+    320
+  );
+  const nextAction = preparedCardNextAction(state);
+  const authorityCoverage: PreparedCard["authorityCoverage"] = {
+    summaryLeaves: {
+      status: summaryLeavesStatus,
+      leafCount: leaves.length,
+      rangeCount: Math.max(0, leafRangeCount)
+    },
+    sessionMetadata: {
+      status: sessionMetadataStatus
+    },
+    watcherObservations: {
+      status: "not_configured"
+    }
+  };
+  const inputHash = stableId(JSON.stringify({
+    targetRef,
+    leafRefs: leaves.map((leaf) => leaf.leafRef),
+    inputHashes: leaves.map((leaf) => leaf.inputHash),
+    outputHashes: leaves.map((leaf) => leaf.outputHash),
+    freshnessAt,
+    stale,
+    summaryLeavesStatus,
+    sessionMetadataStatus,
+    extractorVersion: PREPARED_CARD_EXTRACTOR_VERSION
+  }));
+  const cardId = stableId(`prepared-card:${targetRef}:${inputHash}`);
+  return {
+    schema: "lco.prepared.card.v1",
+    cardId,
+    cardRef: `prepared_card:${cardId}`,
+    targetRef,
+    cardKind: "codex_session",
+    title,
+    summaryText,
+    nextAction,
+    sourceRefs,
+    sourceRangeRefs,
+    sourceRangeRefsOmitted,
+    authorityCoverage,
+    sourceCoverage: preparedCardSourceCoverage(authorityCoverage),
+    inputHash,
+    extractorVersion: PREPARED_CARD_EXTRACTOR_VERSION,
+    privacyClass: "public_safe_metadata",
+    confidence,
+    freshnessAt,
+    stale,
+    state,
+    reasonCodes: confidence < 0.5 ? unique([...reasonCodes, "low_confidence"]) : reasonCodes
+  };
+}
+
+function preparedInboxItemFromCard(card: PreparedCard): PreparedInboxItem {
+  const reasonCodes = unique([
+    ...card.reasonCodes,
+    card.state === "ready" ? "prepared_card_ready" : "needs_attention"
+  ]);
+  const urgencyScore = preparedInboxUrgencyScore(card, reasonCodes);
+  return {
+    schema: "lco.prepared.inboxItem.v1",
+    itemRef: `prepared_inbox:${stableId(`${card.cardRef}:${card.inputHash}`)}`,
+    cardRef: card.cardRef,
+    targetRef: card.targetRef,
+    urgencyScore,
+    state: card.state,
+    reasonCodes,
+    sourceRefs: card.sourceRefs,
+    execute: false
+  };
+}
+
+function publicPreparedCardFromRow(row: PreparedCardRow): PreparedCard | null {
+  const sourceRefs = parseSourceRefsJson(row.sourceRefsJson).filter(isPublicPreparedSourceRef).slice(0, 40);
+  const sourceRangeRefs = parseSourceRefsJson(row.sourceRangeRefsJson).filter((ref) => /^codex_range:[0-9a-f]{32}$/.test(ref)).slice(0, PREPARED_CARD_SOURCE_RANGE_REF_LIMIT);
+  const authorityCoverage = sanitizePreparedAuthorityCoverage(parseObjectJson(row.authorityCoverageJson));
+  const reasonCodes = parseSourceRefsJson(row.reasonCodesJson).map(publicSafeIdentifier).filter((code): code is string => Boolean(code)).slice(0, 30);
+  if (!isPublicPreparedCardRow(row, sourceRefs, sourceRangeRefs, authorityCoverage, reasonCodes)) return null;
+  return {
+    schema: "lco.prepared.card.v1",
+    cardRef: row.cardRef,
+    targetRef: row.targetRef,
+    cardKind: "codex_session",
+    title: publicSafeText(row.title, 160),
+    summaryText: publicSafeText(row.summaryText, 320),
+    nextAction: publicSafeText(row.nextAction ?? "", 240),
+    sourceRefs,
+    sourceRangeRefs,
+    sourceRangeRefsOmitted: Math.max(0, Number(authorityCoverage.summaryLeaves.rangeCount) - sourceRangeRefs.length),
+    authorityCoverage,
+    sourceCoverage: preparedCardSourceCoverage(authorityCoverage),
+    inputHash: row.inputHash,
+    extractorVersion: PREPARED_CARD_EXTRACTOR_VERSION,
+    privacyClass: "public_safe_metadata",
+    confidence: Number(row.confidence),
+    freshnessAt: row.freshnessAt,
+    stale: Number(row.stale) === 1,
+    state: row.state as PreparedCardState,
+    reasonCodes
+  };
+}
+
+function getPreparedCardRowByTargetRef(db: LooDatabase, targetRef: string): PreparedCardRow | null {
+  if (!isPublicPreparedSourceRef(targetRef)) return null;
+  const row = db.prepare(`
+    SELECT
+      card_ref AS cardRef,
+      target_ref AS targetRef,
+      card_kind AS cardKind,
+      title,
+      summary_text AS summaryText,
+      next_action AS nextAction,
+      source_refs_json AS sourceRefsJson,
+      source_range_refs_json AS sourceRangeRefsJson,
+      authority_coverage_json AS authorityCoverageJson,
+      input_hash AS inputHash,
+      extractor_version AS extractorVersion,
+      privacy_class AS privacyClass,
+      confidence,
+      freshness_at AS freshnessAt,
+      stale,
+      state,
+      reason_codes_json AS reasonCodesJson
+    FROM prepared_cards
+    WHERE target_ref = ?
+      AND extractor_version = ?
+      AND privacy_class = 'public_safe_metadata'
+    ORDER BY updated_at DESC, card_ref ASC
+    LIMIT 1
+  `).get(targetRef, PREPARED_CARD_EXTRACTOR_VERSION) as PreparedCardRow | undefined;
+  return row ?? null;
+}
+
+function publicPreparedInboxItemFromRow(row: PreparedInboxRow): PreparedInboxItem | null {
+  const reasonCodes = parseSourceRefsJson(row.reasonCodesJson).map(publicSafeIdentifier).filter((code): code is string => Boolean(code)).slice(0, 30);
+  const sourceRefs = parseSourceRefsJson(row.sourceRefsJson).filter(isPublicPreparedSourceRef).slice(0, 40);
+  const urgencyScore = Number(row.urgencyScore);
+  if (!/^prepared_inbox:[0-9a-f]{32}$/.test(row.itemRef)
+    || !/^prepared_card:[0-9a-f]{32}$/.test(row.cardRef)
+    || !isPublicPreparedSourceRef(row.targetRef)
+    || !isPreparedCardState(row.state)
+    || !Number.isFinite(urgencyScore)
+    || urgencyScore < 0
+    || urgencyScore > 100
+    || Number(row.executeFalse) !== 1
+    || sourceRefs.length === 0
+  ) return null;
+  return {
+    schema: "lco.prepared.inboxItem.v1",
+    itemRef: row.itemRef,
+    cardRef: row.cardRef,
+    targetRef: row.targetRef,
+    urgencyScore,
+    state: row.state,
+    reasonCodes,
+    sourceRefs,
+    execute: false
+  };
+}
+
+function isPublicPreparedCardRow(
+  row: PreparedCardRow,
+  sourceRefs: string[],
+  sourceRangeRefs: string[],
+  authorityCoverage: PreparedCard["authorityCoverage"],
+  reasonCodes: string[]
+): boolean {
+  return /^prepared_card:[0-9a-f]{32}$/.test(row.cardRef)
+    && isPublicPreparedSourceRef(row.targetRef)
+    && row.cardKind === "codex_session"
+    && row.extractorVersion === PREPARED_CARD_EXTRACTOR_VERSION
+    && row.privacyClass === "public_safe_metadata"
+    && /^[0-9a-f]{32}$/.test(row.inputHash)
+    && Number.isFinite(Number(row.confidence))
+    && Number(row.confidence) >= 0
+    && Number(row.confidence) <= 1
+    && (row.freshnessAt === null || isSafeIsoTimestamp(row.freshnessAt))
+    && (Number(row.stale) === 0 || Number(row.stale) === 1)
+    && isPreparedCardState(row.state)
+    && sourceRefs.length > 0
+    && sourceRangeRefs.every((ref) => /^codex_range:[0-9a-f]{32}$/.test(ref))
+    && row.title === publicSafeText(row.title, 160)
+    && row.summaryText === publicSafeText(row.summaryText, 320)
+    && (row.nextAction ?? "") === publicSafeText(row.nextAction ?? "", 240)
+    && !looksSensitiveRefLike(row.title)
+    && !looksSensitiveRefLike(row.summaryText)
+    && !looksSensitiveRefLike(row.nextAction ?? "")
+    && reasonCodes.length > 0
+    && ["ok", "partial", "not_configured", "unknown"].includes(authorityCoverage.summaryLeaves.status)
+    && ["ok", "partial", "not_configured", "unknown"].includes(authorityCoverage.sessionMetadata.status);
+}
+
+function sanitizePreparedAuthorityCoverage(value: Record<string, unknown>): PreparedCard["authorityCoverage"] {
+  const summaryLeaves = isObjectRecord(value.summaryLeaves) ? value.summaryLeaves : {};
+  const sessionMetadata = isObjectRecord(value.sessionMetadata) ? value.sessionMetadata : {};
+  const summaryStatus = preparedCoverageState(summaryLeaves.status);
+  const sessionStatus = preparedCoverageState(sessionMetadata.status);
+  const leafCount = boundedNonNegativeInteger(summaryLeaves.leafCount, 1_000_000);
+  const rangeCount = boundedNonNegativeInteger(summaryLeaves.rangeCount, 1_000_000);
+  return {
+    summaryLeaves: {
+      status: summaryStatus,
+      leafCount,
+      rangeCount
+    },
+    sessionMetadata: {
+      status: sessionStatus
+    },
+    watcherObservations: {
+      status: "not_configured"
+    }
+  };
+}
+
+function preparedCardSourceCoverage(authorityCoverage: PreparedCard["authorityCoverage"]): PreparedCard["sourceCoverage"] {
+  return {
+    summaryLeaves: authorityCoverage.summaryLeaves.status,
+    sessionMetadata: authorityCoverage.sessionMetadata.status,
+    watcherObservations: "not_configured"
+  };
+}
+
+function preparedSummaryLeafCoverage(db: LooDatabase, threadId?: string): PreparedStateCoverage {
+  const clauses = [
+    "extractor_version = ?",
+    "privacy_class = 'public_safe_metadata'",
+    "omission_status = 'metadata_only'"
+  ];
+  const params: Array<string | number> = [SUMMARY_LEAF_EXTRACTOR_VERSION];
+  if (threadId) {
+    clauses.push("thread_id = ?");
+    params.push(threadId);
+  }
+  const count = Number((db.prepare(`SELECT COUNT(*) AS count FROM summary_leaves WHERE ${clauses.join(" AND ")}`).get(...params) as { count: number }).count);
+  return count > 0 ? "ok" : "not_configured";
+}
+
+function preparedCoverageState(value: unknown): PreparedStateCoverage {
+  return value === "ok" || value === "partial" || value === "not_configured" || value === "unknown" ? value : "unknown";
+}
+
+function isPreparedCardState(value: string): value is PreparedCardState {
+  return value === "ready" || value === "stale" || value === "partial" || value === "unknown";
+}
+
+function isPublicPreparedSourceRef(value: string): boolean {
+  if (value.startsWith("codex_thread:")) return isPublicSummaryThreadId(value.slice("codex_thread:".length));
+  if (value.startsWith("summary_leaf:")) return isPublicSummaryLeafRef(value);
+  return false;
+}
+
+function preparedCardConfidence(averageLeafConfidence: number, state: PreparedCardState): number {
+  let confidence = Number.isFinite(averageLeafConfidence) ? averageLeafConfidence : 0.3;
+  if (state === "partial") confidence = Math.min(confidence, 0.49);
+  if (state === "stale") confidence = Math.min(confidence, 0.49);
+  if (state === "unknown") confidence = Math.min(confidence, 0.44);
+  return Math.max(0.2, Math.min(0.99, Number(confidence.toFixed(2))));
+}
+
+function preparedCardNextAction(state: PreparedCardState): string {
+  if (state === "ready") return "Use loo_summary_expand for bounded evidence before deciding whether broader session expansion is needed.";
+  if (state === "stale") return "Refresh the local prepared-state cache before treating this card as current.";
+  if (state === "partial") return "Inspect source coverage and summary leaves before relying on this prepared card.";
+  return "Inspect summary leaves and source coverage; missing or conflicting authority prevents a ready claim.";
+}
+
+function preparedInboxUrgencyScore(card: PreparedCard, reasonCodes: string[]): number {
+  const stateScore = {
+    unknown: 88,
+    stale: 82,
+    partial: 74,
+    ready: 42
+  } as const;
+  const codeScore = reasonCodes.reduce((score, code) => score + ({
+    authority_unknown: 8,
+    authority_partial: 6,
+    stale_cache: 8,
+    low_confidence: 6,
+    filtered_unsafe_rows: 5,
+    needs_attention: 4
+  }[code] ?? 0), 0);
+  return Math.max(0, Math.min(100, Number((stateScore[card.state] + codeScore + Math.round((1 - card.confidence) * 10)).toFixed(2))));
+}
+
+function preparedCardReadActions(): PreparedCardsReport["actionsPerformed"] {
+  return {
+    derivedCacheWrite: false,
+    sourceStoreMutation: false,
+    externalWrite: false,
+    liveControl: false,
+    guiMutation: false,
+    rawTranscriptRead: false
+  };
+}
+
+function preparedCardWriteActions(): PreparedCardMaterializationReport["actionsPerformed"] {
+  return {
+    derivedCacheWrite: true,
+    sourceStoreMutation: false,
+    externalWrite: false,
+    liveControl: false,
+    guiMutation: false,
+    rawTranscriptRead: false
+  };
+}
+
+function deletePreparedCardsForThreadIds(db: LooDatabase, threadIds: string[]): void {
+  deletePreparedCardsForTargetRefs(db, unique(threadIds).filter(Boolean).map(codexThreadRef));
+}
+
+function deletePreparedCardsForTargetRefs(db: LooDatabase, targetRefs: string[]): void {
+  const safeTargetRefs = unique(targetRefs).filter(isPublicPreparedSourceRef);
+  if (safeTargetRefs.length === 0) return;
+  for (let index = 0; index < safeTargetRefs.length; index += SUMMARY_LEAF_EDGE_DELETE_BATCH_SIZE) {
+    const batch = safeTargetRefs.slice(index, index + SUMMARY_LEAF_EDGE_DELETE_BATCH_SIZE);
+    const placeholders = batch.map(() => "?").join(",");
+    const cardRows = db.prepare(`SELECT card_ref AS cardRef FROM prepared_cards WHERE target_ref IN (${placeholders})`).all(...batch) as Array<{ cardRef: string }>;
+    const cardRefs = cardRows.map((row) => String(row.cardRef)).filter((ref) => /^prepared_card:[0-9a-f]{32}$/.test(ref));
+    db.prepare(`DELETE FROM prepared_inbox_items WHERE target_ref IN (${placeholders})`).run(...batch);
+    if (cardRefs.length > 0) {
+      const cardPlaceholders = cardRefs.map(() => "?").join(",");
+      db.prepare(`DELETE FROM prepared_inbox_items WHERE card_ref IN (${cardPlaceholders})`).run(...cardRefs);
+    }
+    db.prepare(`DELETE FROM prepared_cards WHERE target_ref IN (${placeholders})`).run(...batch);
+  }
+}
+
+function boundedNonNegativeInteger(value: unknown, max: number): number {
+  const number = Number(value);
+  return Number.isInteger(number) && number >= 0 && number <= max ? number : 0;
+}
+
 
 type PreparedSourceRangeRow = {
   rangeRef: string;
@@ -3246,6 +4175,7 @@ function deleteSummaryLeafEdges(db: LooDatabase, leafRefs: string[]): void {
 function deleteSummaryLeavesForThreadIds(db: LooDatabase, threadIds: string[]): void {
   const uniqueThreadIds = unique(threadIds).filter(Boolean);
   if (uniqueThreadIds.length === 0) return;
+  deletePreparedCardsForThreadIds(db, uniqueThreadIds);
   for (let index = 0; index < uniqueThreadIds.length; index += SUMMARY_LEAF_EDGE_DELETE_BATCH_SIZE) {
     const batch = uniqueThreadIds.slice(index, index + SUMMARY_LEAF_EDGE_DELETE_BATCH_SIZE);
     const placeholders = batch.map(() => "?").join(",");
@@ -3455,6 +4385,24 @@ function sourceNeedsSummaryLeafBackfill(db: LooDatabase, sourcePath: string): bo
       if (Number(edgeRow.count ?? 0) < leaves.length - 1) return true;
     }
     return false;
+  });
+}
+
+function sourceNeedsPreparedCardBackfill(db: LooDatabase, sourcePath: string): boolean {
+  const rows = db.prepare(`
+    SELECT thread_id AS threadId
+    FROM codex_sessions
+    WHERE source_path = ?
+  `).all(sourcePath) as Array<{ threadId: string }>;
+  if (rows.length === 0) return false;
+  return rows.some((row) => {
+    const threadId = String(row.threadId);
+    const leaves = getValidatedSummaryLeavesForThread(db, threadId);
+    if (leaves.length === 0) return false;
+    const expected = buildPreparedCardDraft(db, threadId, leaves, 0);
+    const cardRow = getPreparedCardRowByTargetRef(db, codexThreadRef(threadId));
+    const card = cardRow ? publicPreparedCardFromRow(cardRow) : null;
+    return !card || card.inputHash !== expected.inputHash;
   });
 }
 

@@ -16,7 +16,12 @@
     "loo_codex_desktop_coherence",
     "loo_codex_desktop_fallback_status",
     "loo_codex_desktop_collaboration_proof",
-    "loo_closeout_dry_run"
+    "loo_closeout_dry_run",
+    "loo_prepared_state_status",
+    "loo_prepared_cards",
+    "loo_prepared_inbox",
+    "loo_summary_leaves",
+    "loo_summary_expand"
   ],
   "expected_public_safe_evidence": [
     "command or tool name",
@@ -30,7 +35,8 @@
     "fallback-status actionsPerformed flags proving no live control, GUI mutation, screenshot capture, refresh, restart, click, select, or type",
     "action-bound Desktop collaboration proof blockers for generic GUI action, live Codex control, missing approval, mismatched hash, stale approval, and source coverage gaps",
     "tool command-policy mutationClasses distinguishing pure reads from derived_cache, source_store, external_system, live_control, desktop_gui, release_publish, and npm_publish families",
-    "public comment hygiene blocker codes and redacted previews for malformed closeout bodies"
+    "public comment hygiene blocker codes and redacted previews for malformed closeout bodies",
+    "prepared-state card and inbox outputs with opaque refs, source coverage, authority coverage, stale/partial/unknown states, execute=false actions, and no raw transcript/path payloads"
   ],
   "private_data_exclusions": [
     "raw Codex transcripts",
@@ -51,6 +57,7 @@
     "Codex Desktop collaboration proof fails closed unless the target ref, backend, target app/window, action, action hash, approval packet, freshness, source coverage, and no-screenshot policy all match.",
     "Indexing and dry-run audit tools are labeled derived_cache only, while watcher request tools remain pure reads and live/GUI/release/external mutation classes stay out of default prepared-state paths.",
     "Summary leaf list and expansion tools remain pure reads over metadata-only derived cache, while any summary-leaf materialization is classified as derived_cache and omits raw transcript spans and raw tool payloads.",
+    "Prepared card and inbox read tools remain pure reads over public-safe derived cache, while materialization is classified as derived_cache and next actions are advisory `execute:false` packets only.",
     "Closeout dry-run blocks wouldAttach when the proposed public comment body repeats local path fragments or becomes path-token dense."
   ],
   "fail_criteria": [
@@ -59,6 +66,7 @@
     "Evidence stores raw prompt text, raw transcript spans, screenshots, SQLite pages, or secrets.",
     "A tool mutates LCO-owned cache or audit state while declaring no mutation class, or a watcher/prepared-state read implies live control or external mutation.",
     "Summary leaf outputs expose raw prompts, raw tool-call arguments, absolute transcript paths, or hidden model-compaction claims instead of metadata-only leaf refs and omission markers.",
+    "Prepared card or inbox outputs expose raw transcript paths, raw prompt spans, raw tool payloads, secrets, high-confidence stale cache, or executable live-control/GUI actions.",
     "Read-only app-server tools expose preview, cwd, path, turns, or remote-control enablement fields as public evidence.",
     "Public GitHub issue or PR comment recommendations include repeated absolute local paths or raw evidence-root spam instead of concise public-safe summaries."
   ],
@@ -70,5 +78,5 @@
     "Visible Codex map joins are read-only correlation proof only, not a Codex GUI control proof."
   ],
   "next_action": "Keep live control, GUI mutation, and public comment posting excluded from automated paths unless a future issue records explicit approved runtime proof and public-comment hygiene pass evidence.",
-  "proof_boundary": "Scored as public-safe beta safety evidence for current fail-closed control, read-only app-server, visible-map, desktop coherence, desktop fallback status, desktop proof-action, action-bound dry-run Codex Desktop collaboration proof, and public closeout comment hygiene tests through issue #333. It does not prove live Codex control, GUI mutation, Codex GUI mutation, generic desktop control, unattended operation, or automated GitHub comment posting."
+  "proof_boundary": "Scored as public-safe beta safety evidence for current fail-closed control, read-only app-server, visible-map, desktop coherence, desktop fallback status, desktop proof-action, action-bound dry-run Codex Desktop collaboration proof, prepared cards/inbox over derived cache, and public closeout comment hygiene tests through issue #410. It does not prove live Codex control, GUI mutation, Codex GUI mutation, generic desktop control, unattended operation, model compaction, true Codex compaction-summary capture, or automated GitHub comment posting."
 }

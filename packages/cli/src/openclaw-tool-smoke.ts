@@ -33,7 +33,12 @@ export const DEFAULT_REQUIRED_TOOL_CALLS = [
   "loo_github_operating_items",
   "loo_project_digest",
   "loo_attention_inbox",
-  "loo_business_pulse"
+  "loo_business_pulse",
+  "loo_summary_leaves",
+  "loo_summary_expand",
+  "loo_prepared_state_status",
+  "loo_prepared_cards",
+  "loo_prepared_inbox"
 ];
 
 const AUTONOMY_TICK_SUMMARY_KEYS = [
@@ -630,6 +635,27 @@ function buildToolArgs(params: {
       now: TOOL_SMOKE_NOW
     };
   }
+  if (params.toolName === "loo_summary_leaves") {
+    return {
+      ...(params.threadId ? { thread_id: params.threadId } : {}),
+      limit: 5
+    };
+  }
+  if (params.toolName === "loo_summary_expand") {
+    return {
+      ...(params.threadId ? { thread_id: params.threadId } : {}),
+      max_depth: 2,
+      max_nodes: 8,
+      token_budget: Math.min(params.tokenBudget, 1000)
+    };
+  }
+  if (params.toolName === "loo_prepared_state_status") return {};
+  if (params.toolName === "loo_prepared_cards" || params.toolName === "loo_prepared_inbox") {
+    return {
+      ...(params.threadId ? { thread_id: params.threadId } : {}),
+      limit: 5
+    };
+  }
   if (params.toolName === "loo_codex_control_dry_run") {
     return params.threadId ? {
       action: "send",
@@ -873,6 +899,10 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
     const profile = stringPath(summarySource, ["profile", "name"]) || stringPath(summarySource, ["profile"]);
     if (profile) summary.profile = profile;
     const tokenBudget = numberPath(summarySource, ["tokenBudget"]) ?? numberPath(summarySource, ["token_budget"]);
+    if (tokenBudget !== undefined) summary.tokenBudget = tokenBudget;
+  }
+  if (toolName === "loo_summary_expand") {
+    const tokenBudget = numberPath(summarySource, ["limits", "tokenBudget"]) ?? numberPath(summarySource, ["tokenBudget"]) ?? numberPath(summarySource, ["token_budget"]);
     if (tokenBudget !== undefined) summary.tokenBudget = tokenBudget;
   }
   if (toolName === "loo_codex_control_dry_run") {
@@ -1126,6 +1156,73 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
     }
     if (blockers.length === 0 && nextToolCall) summary.nextToolCall = nextToolCall;
   }
+  if (toolName === "loo_summary_leaves") {
+    const leafOutput = details ?? output;
+    if (stringPath(leafOutput, ["schema"]) !== "lco.summary.leaves.v1") blockers.push("summary_leaves_schema_invalid");
+    if (booleanPath(leafOutput, ["publicSafe"]) !== true || booleanPath(leafOutput, ["readOnly"]) !== true) {
+      blockers.push("summary_leaves_public_safe_read_only_missing");
+    }
+    const leaves = arrayPath(leafOutput, ["leaves"]).filter(isRecord);
+    if (leaves.some((leaf) => {
+      const leafRef = stringPath(leaf, ["leafRef"]);
+      const sourceRangeRefs = arrayPath(leaf, ["sourceRangeRefs"]);
+      return !leafRef?.startsWith("summary_leaf:") || sourceRangeRefs.some((ref) => typeof ref !== "string" || !ref.startsWith("codex_range:"));
+    })) blockers.push("summary_leaves_public_refs_invalid");
+  }
+  if (toolName === "loo_summary_expand") {
+    const expansionOutput = details ?? output;
+    if (stringPath(expansionOutput, ["schema"]) !== "lco.summary.expansion.v1") blockers.push("summary_expand_schema_invalid");
+    if (booleanPath(expansionOutput, ["publicSafe"]) !== true || booleanPath(expansionOutput, ["readOnly"]) !== true) {
+      blockers.push("summary_expand_public_safe_read_only_missing");
+    }
+    if (!isRecord(expansionOutput) || !isRecord(expansionOutput.limits)) blockers.push("summary_expand_limits_missing");
+  }
+  if (toolName === "loo_prepared_state_status") {
+    const statusOutput = details ?? output;
+    if (stringPath(statusOutput, ["schema"]) !== "lco.preparedState.status.v1") blockers.push("prepared_state_status_schema_invalid");
+    if (booleanPath(statusOutput, ["publicSafe"]) !== true || booleanPath(statusOutput, ["readOnly"]) !== true) {
+      blockers.push("prepared_state_status_public_safe_read_only_missing");
+    }
+    if (!isRecord(statusOutput) || !isRecord(statusOutput.sourceCoverage)) blockers.push("prepared_state_status_coverage_missing");
+    if (!hasPreparedReadOnlyActionMarkers(statusOutput)) blockers.push("prepared_state_status_action_markers_invalid");
+  }
+  if (toolName === "loo_prepared_cards") {
+    const cardsOutput = details ?? output;
+    if (stringPath(cardsOutput, ["schema"]) !== "lco.prepared.cards.v1") blockers.push("prepared_cards_schema_invalid");
+    if (booleanPath(cardsOutput, ["publicSafe"]) !== true || booleanPath(cardsOutput, ["readOnly"]) !== true) {
+      blockers.push("prepared_cards_public_safe_read_only_missing");
+    }
+    if (!isRecord(cardsOutput) || !isRecord(cardsOutput.sourceCoverage)) blockers.push("prepared_cards_coverage_missing");
+    if (!hasPreparedReadOnlyActionMarkers(cardsOutput)) blockers.push("prepared_cards_action_markers_invalid");
+    const cards = arrayPath(cardsOutput, ["cards"]).filter(isRecord);
+    if (cards.some((card) => {
+      const cardRef = stringPath(card, ["cardRef"]);
+      const targetRef = stringPath(card, ["targetRef"]);
+      const state = stringPath(card, ["state"]);
+      return !cardRef?.startsWith("prepared_card:")
+        || !targetRef?.startsWith("codex_thread:")
+        || !["ready", "stale", "partial", "unknown"].includes(state ?? "");
+    })) blockers.push("prepared_cards_public_refs_invalid");
+  }
+  if (toolName === "loo_prepared_inbox") {
+    const inboxOutput = details ?? output;
+    if (stringPath(inboxOutput, ["schema"]) !== "lco.prepared.inbox.v1") blockers.push("prepared_inbox_schema_invalid");
+    if (booleanPath(inboxOutput, ["publicSafe"]) !== true || booleanPath(inboxOutput, ["readOnly"]) !== true) {
+      blockers.push("prepared_inbox_public_safe_read_only_missing");
+    }
+    if (!isRecord(inboxOutput) || !isRecord(inboxOutput.sourceCoverage)) blockers.push("prepared_inbox_coverage_missing");
+    if (!hasPreparedReadOnlyActionMarkers(inboxOutput)) blockers.push("prepared_inbox_action_markers_invalid");
+    const items = arrayPath(inboxOutput, ["items"]).filter(isRecord);
+    if (items.some((item) => {
+      const itemRef = stringPath(item, ["itemRef"]);
+      const cardRef = stringPath(item, ["cardRef"]);
+      const targetRef = stringPath(item, ["targetRef"]);
+      return !itemRef?.startsWith("prepared_inbox:")
+        || !cardRef?.startsWith("prepared_card:")
+        || !targetRef?.startsWith("codex_thread:")
+        || item.execute !== false;
+    })) blockers.push("prepared_inbox_public_refs_invalid");
+  }
 
   return {
     toolName,
@@ -1145,6 +1242,17 @@ function toolPayloadBlockers(toolName: string, payload: unknown): string[] {
   const code = stringPath(failedPayload, ["error", "code"]);
   const safeCode = code && /^[a-z0-9_.-]+$/i.test(code) ? `:${code}` : "";
   return [`openclaw_tool_result_not_ok:${toolName}${safeCode}`];
+}
+
+function hasPreparedReadOnlyActionMarkers(value: unknown): boolean {
+  if (!isRecord(value) || !isRecord(value.actionsPerformed)) return false;
+  const actions = value.actionsPerformed;
+  return actions.derivedCacheWrite === false
+    && actions.sourceStoreMutation === false
+    && actions.externalWrite === false
+    && actions.liveControl === false
+    && actions.guiMutation === false
+    && actions.rawTranscriptRead === false;
 }
 
 function publicSafeFallbackNextToolCall(value: unknown): OpenClawToolInvocationSummary["summary"]["nextToolCall"] | undefined {
@@ -1384,7 +1492,7 @@ function collectSourceRefs(value: unknown): string[] {
   const refs = new Set<string>();
   const visit = (item: unknown) => {
     if (typeof item === "string") {
-      if (/^(codex_thread|codex_event|lcm_summary):/.test(item)) refs.add(item);
+      if (/^(codex_thread|codex_event|codex_range|codex_source|summary_leaf|prepared_card|prepared_inbox|lcm_summary):/.test(item)) refs.add(item);
       return;
     }
     if (Array.isArray(item)) {
@@ -1393,8 +1501,24 @@ function collectSourceRefs(value: unknown): string[] {
     }
     if (isRecord(item)) {
       for (const [key, child] of Object.entries(item)) {
-        if ((key === "sourceRef" || key === "source_ref") && typeof child === "string") visit(child);
-        else if (key === "threadId" || key === "thread_id" || key === "sourceRef" || key === "source_ref" || key === "results") visit(child);
+        if (["sourceRef", "source_ref", "leafRef", "cardRef", "itemRef"].includes(key) && typeof child === "string") visit(child);
+        else if (
+          key === "threadId" ||
+          key === "thread_id" ||
+          key === "sourceRef" ||
+          key === "source_ref" ||
+          key === "sourceRefs" ||
+          key === "source_refs" ||
+          key === "sourceRangeRefs" ||
+          key === "source_range_refs" ||
+          key === "leafRef" ||
+          key === "cardRef" ||
+          key === "itemRef" ||
+          key === "results" ||
+          key === "cards" ||
+          key === "items" ||
+          key === "leaves"
+        ) visit(child);
       }
     }
   };
@@ -1437,6 +1561,9 @@ function outputCount(value: unknown): number | undefined {
   if (isRecord(value) && Array.isArray(value.results)) return value.results.length;
   if (isRecord(value) && Array.isArray(value.lanes)) return value.lanes.length;
   if (isRecord(value) && Array.isArray(value.steps)) return value.steps.length;
+  if (isRecord(value) && Array.isArray(value.cards)) return value.cards.length;
+  if (isRecord(value) && Array.isArray(value.items)) return value.items.length;
+  if (isRecord(value) && Array.isArray(value.leaves)) return value.leaves.length;
   return undefined;
 }
 

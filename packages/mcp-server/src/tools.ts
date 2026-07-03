@@ -19,6 +19,9 @@ import {
   expandSession,
   expandQuery,
   expandSummaryLeaves,
+  getPreparedCards,
+  getPreparedInbox,
+  getPreparedStateStatus,
   createPlanStatePinsReport,
   createGithubOperatingItemsReport,
   createProjectDigest,
@@ -43,6 +46,7 @@ import {
   type AppServerThreadsInput,
   type VisibleCodexInput,
   type VisibleCodexSessionMapReport,
+  type PreparedCardState,
   type SummaryLeafKind,
   type WatchSpec,
   searchSessions
@@ -191,6 +195,24 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       maxDepth: optionalNumber(input.max_depth),
       maxNodes: optionalNumber(input.max_nodes),
       tokenBudget: optionalNumber(input.token_budget)
+    })),
+    tool("loo_prepared_state_status", "Read public-safe prepared-state cache coverage and counts.", {
+    }, () => getPreparedStateStatus(options.db)),
+    tool("loo_prepared_cards", "List public-safe prepared Codex state cards over summary leaves.", {
+      thread_id: { type: "string" },
+      state: { type: "string", enum: ["ready", "stale", "partial", "unknown"] },
+      limit: { type: "integer", minimum: 1, maximum: 500 }
+    }, (input) => getPreparedCards(options.db, {
+      threadId: optionalString(input.thread_id),
+      state: optionalPreparedCardState(input.state),
+      limit: optionalNumber(input.limit)
+    })),
+    tool("loo_prepared_inbox", "Read the deterministic execute-false prepared-state attention inbox.", {
+      thread_id: { type: "string" },
+      limit: { type: "integer", minimum: 1, maximum: 200 }
+    }, (input) => getPreparedInbox(options.db, {
+      threadId: optionalString(input.thread_id),
+      limit: optionalNumber(input.limit)
     })),
     tool("loo_codex_thread_map", "Read the indexed Codex thread map.", {
       limit: { type: "integer", minimum: 1, maximum: 500 },
@@ -954,6 +976,12 @@ function optionalSummaryLeafKind(value: unknown): SummaryLeafKind | undefined {
     || value === "event_metadata"
   ) return value;
   throw new Error("leaf_kind must be user_prompt, assistant_message, proposed_plan, final_message, closeout, tool_call_metadata, or event_metadata");
+}
+
+function optionalPreparedCardState(value: unknown): PreparedCardState | undefined {
+  if (value === undefined) return undefined;
+  if (value === "ready" || value === "stale" || value === "partial" || value === "unknown") return value;
+  throw new Error("state must be ready, stale, partial, or unknown");
 }
 
 function optionalRecentScope(value: unknown): "active" | "recent" | "all" | undefined {

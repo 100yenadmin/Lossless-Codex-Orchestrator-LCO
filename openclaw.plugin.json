@@ -43,6 +43,9 @@
       "loo_expand_query",
       "loo_summary_leaves",
       "loo_summary_expand",
+      "loo_prepared_state_status",
+      "loo_prepared_cards",
+      "loo_prepared_inbox",
       "loo_codex_thread_map",
       "loo_codex_session_management_map",
       "loo_recent_sessions",
@@ -379,6 +382,78 @@
               "type": "integer",
               "minimum": 8,
               "maximum": 8000
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_prepared_state_status",
+        "description": "Read public-safe prepared-state cache coverage and counts.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        }
+      },
+      {
+        "name": "loo_prepared_cards",
+        "description": "List public-safe prepared Codex state cards over summary leaves.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "thread_id": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "ready",
+                "stale",
+                "partial",
+                "unknown"
+              ]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_prepared_inbox",
+        "description": "Read the deterministic execute-false prepared-state attention inbox.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "thread_id": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
             }
           }
         }
