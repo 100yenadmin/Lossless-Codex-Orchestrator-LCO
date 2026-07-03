@@ -2455,27 +2455,7 @@ export function getPreparedSourceRanges(db: LooDatabase, options: PreparedSource
     ${publicSafeWhere}
     ORDER BY thread_id ASC, ordinal ASC, range_ref ASC
     LIMIT ?
-  `).all(...params, limit) as Array<{
-    rangeRef: string;
-    eventRef: string;
-    threadId: string;
-    sourceRef: string;
-    sourcePathRef: string;
-    rangeKind: PreparedSourceRangeKind;
-    lineStart: number;
-    lineEnd: number;
-    byteStart: number;
-    byteEnd: number;
-    ordinal: number;
-    sourceHash: string;
-    contentHash: string;
-    extractorVersion: "prepared-source-ranges-v1";
-    privacyClass: "public_safe_metadata";
-    omissionStatus: "metadata_only";
-    confidence: number;
-    observedAt: string | null;
-    reasonCodesJson: string;
-  }>;
+  `).all(...params, limit) as PreparedSourceRangeRow[];
   const lowConfidenceRow = db.prepare(`
     SELECT COUNT(*) AS count
     FROM prepared_source_ranges
@@ -2483,29 +2463,8 @@ export function getPreparedSourceRanges(db: LooDatabase, options: PreparedSource
       AND confidence < 0.5
   `).get(...params) as { count: number };
   const ranges: PreparedSourceRange[] = rows.flatMap((row) => {
-    if (!isPublicPreparedSourceRangeRow(row)) return [];
-    return [{
-      schema: "lco.prepared.sourceRange.v1",
-      rangeRef: row.rangeRef,
-      eventRef: row.eventRef,
-      threadId: row.threadId,
-      sourceRef: row.sourceRef,
-      sourcePathRef: row.sourcePathRef,
-      rangeKind: row.rangeKind,
-      lineStart: Number(row.lineStart),
-      lineEnd: Number(row.lineEnd),
-      byteStart: Number(row.byteStart),
-      byteEnd: Number(row.byteEnd),
-      ordinal: Number(row.ordinal),
-      sourceHash: row.sourceHash,
-      contentHash: row.contentHash,
-      extractorVersion: PREPARED_SOURCE_EXTRACTOR_VERSION,
-      privacyClass: "public_safe_metadata",
-      omissionStatus: "metadata_only",
-      confidence: Number(row.confidence),
-      observedAt: row.observedAt,
-      reasonCodes: parseSourceRefsJson(row.reasonCodesJson)
-    }];
+    const range = preparedSourceRangeFromRow(row);
+    return range ? [range] : [];
   });
   const total = Number(countRow.count ?? 0);
   const publicSafeTotal = Number(publicSafeCountRow.count ?? 0);
@@ -2554,6 +2513,32 @@ export function getPreparedSourceRanges(db: LooDatabase, options: PreparedSource
   };
 }
 
+function preparedSourceRangeFromRow(row: PreparedSourceRangeRow): PreparedSourceRange | null {
+  if (!isPublicPreparedSourceRangeRow(row)) return null;
+  return {
+    schema: "lco.prepared.sourceRange.v1",
+    rangeRef: row.rangeRef,
+    eventRef: row.eventRef,
+    threadId: row.threadId,
+    sourceRef: row.sourceRef,
+    sourcePathRef: row.sourcePathRef,
+    rangeKind: row.rangeKind,
+    lineStart: Number(row.lineStart),
+    lineEnd: Number(row.lineEnd),
+    byteStart: Number(row.byteStart),
+    byteEnd: Number(row.byteEnd),
+    ordinal: Number(row.ordinal),
+    sourceHash: row.sourceHash,
+    contentHash: row.contentHash,
+    extractorVersion: PREPARED_SOURCE_EXTRACTOR_VERSION,
+    privacyClass: "public_safe_metadata",
+    omissionStatus: "metadata_only",
+    confidence: Number(row.confidence),
+    observedAt: row.observedAt,
+    reasonCodes: parseSourceRefsJson(row.reasonCodesJson)
+  };
+}
+
 function isPublicPreparedSourceRangeRow(row: {
   rangeRef: string;
   eventRef: string;
@@ -2599,9 +2584,104 @@ function isPublicPreparedSourceRangeRow(row: {
     && (row.observedAt === null || isSafeIsoTimestamp(row.observedAt));
 }
 
+function getPreparedSourceRangesForSummaryMaterialization(
+  db: LooDatabase,
+  options: { threadId?: string; limit?: number } = {}
+): { ranges: PreparedSourceRange[]; filteredUnsafeRows: number } {
+  const clauses: string[] = [
+    "privacy_class = ?",
+    "omission_status = ?",
+    "extractor_version = ?"
+  ];
+  const params: Array<string | number> = [
+    "public_safe_metadata",
+    "metadata_only",
+    PREPARED_SOURCE_EXTRACTOR_VERSION
+  ];
+  if (options.threadId) {
+    clauses.push("thread_id = ?");
+    params.push(options.threadId);
+  }
+  const where = `WHERE ${clauses.join(" AND ")}`;
+  const publicSafeClauses = [
+    ...clauses,
+    "range_ref LIKE 'codex_range:%'",
+    "length(range_ref) = 44",
+    "substr(range_ref, 13) NOT GLOB '*[^0-9a-f]*'",
+    "event_ref LIKE 'codex_event:%'",
+    "length(event_ref) = 44",
+    "substr(event_ref, 13) NOT GLOB '*[^0-9a-f]*'",
+    "source_ref LIKE 'codex_thread:%'",
+    "length(source_ref) BETWEEN 14 AND 173",
+    "source_ref NOT LIKE '%/%'",
+    "source_ref NOT LIKE '%\\%'",
+    "source_ref NOT LIKE '% %'",
+    "source_path_ref LIKE 'codex_source:%'",
+    "length(source_path_ref) = 29",
+    "substr(source_path_ref, 14) NOT GLOB '*[^0-9a-f]*'",
+    "length(source_hash) = 32",
+    "source_hash NOT GLOB '*[^0-9a-f]*'",
+    "length(content_hash) = 32",
+    "content_hash NOT GLOB '*[^0-9a-f]*'",
+    "line_start >= 1",
+    "line_end >= line_start",
+    "byte_start >= 0",
+    "byte_end >= byte_start",
+    "ordinal >= 0",
+    "confidence >= 0",
+    "confidence <= 1",
+    "(observed_at IS NULL OR (length(observed_at) BETWEEN 20 AND 35 AND observed_at LIKE '____-__-__T%Z'))"
+  ];
+  const publicSafeWhere = `WHERE ${publicSafeClauses.join(" AND ")}`;
+  const total = Number((db.prepare(`SELECT COUNT(*) AS count FROM prepared_source_ranges ${where}`).get(...params) as { count: number }).count ?? 0);
+  const publicSafeTotal = Number((db.prepare(`SELECT COUNT(*) AS count FROM prepared_source_ranges ${publicSafeWhere}`).get(...params) as { count: number }).count ?? 0);
+  const maxRows = options.limit ? clamp(options.limit, 1, 100_000) : publicSafeTotal;
+  const pageSize = 1000;
+  const ranges: PreparedSourceRange[] = [];
+  let strictFilteredUnsafeRows = 0;
+  for (let offset = 0; offset < maxRows; offset += pageSize) {
+    const rows = db.prepare(`
+      SELECT
+        range_ref AS rangeRef,
+        event_ref AS eventRef,
+        thread_id AS threadId,
+        source_ref AS sourceRef,
+        source_path_ref AS sourcePathRef,
+        range_kind AS rangeKind,
+        line_start AS lineStart,
+        line_end AS lineEnd,
+        byte_start AS byteStart,
+        byte_end AS byteEnd,
+        ordinal,
+        source_hash AS sourceHash,
+        content_hash AS contentHash,
+        extractor_version AS extractorVersion,
+        privacy_class AS privacyClass,
+        omission_status AS omissionStatus,
+        confidence,
+        observed_at AS observedAt,
+        reason_codes_json AS reasonCodesJson
+      FROM prepared_source_ranges
+      ${publicSafeWhere}
+      ORDER BY thread_id ASC, ordinal ASC, range_ref ASC
+      LIMIT ? OFFSET ?
+    `).all(...params, Math.min(pageSize, maxRows - offset), offset) as PreparedSourceRangeRow[];
+    if (rows.length === 0) break;
+    for (const row of rows) {
+      const range = preparedSourceRangeFromRow(row);
+      if (range) ranges.push(range);
+      else strictFilteredUnsafeRows += 1;
+    }
+  }
+  return {
+    ranges,
+    filteredUnsafeRows: Math.max(0, total - publicSafeTotal) + strictFilteredUnsafeRows
+  };
+}
+
 export function materializeSummaryLeaves(db: LooDatabase, options: { threadId?: string; limit?: number } = {}): SummaryLeafMaterializationReport {
   const generatedAt = new Date().toISOString();
-  const rangesReport = getPreparedSourceRanges(db, { threadId: options.threadId, limit: options.limit ?? 1000 });
+  const rangesReport = getPreparedSourceRangesForSummaryMaterialization(db, { threadId: options.threadId, limit: options.limit });
   const leafDrafts = buildSummaryLeafDrafts(rangesReport.ranges);
   db.exec("BEGIN");
   try {
@@ -2657,7 +2737,7 @@ export function materializeSummaryLeaves(db: LooDatabase, options: { threadId?: 
         scannedRanges: rangesReport.ranges.length,
         created: leafDrafts.length,
         edges: edgeCount,
-        skippedUnsafeRanges: rangesReport.omitted.filteredUnsafeRows
+        skippedUnsafeRanges: rangesReport.filteredUnsafeRows
       },
       actionsPerformed: {
         derivedCacheWrite: true,
@@ -2791,10 +2871,13 @@ export function expandSummaryLeaves(db: LooDatabase, options: SummaryExpansionOp
   const maxDepth = clamp(options.maxDepth ?? 3, 0, 20);
   const maxNodes = clamp(options.maxNodes ?? 20, 1, 200);
   const tokenBudget = clamp(options.tokenBudget ?? 1000, 8, 8000);
-  const allLeaves = getSummaryLeaves(db, { threadId: options.threadId, limit: 1000 }).leaves;
+  const requestedRoot = options.leafRef ? getSummaryLeafByRef(db, options.leafRef, options.threadId) : null;
+  const leafScopeThreadId = options.threadId ?? requestedRoot?.threadId ?? undefined;
+  const allLeaves = getSummaryLeaves(db, { threadId: leafScopeThreadId, limit: 1000 }).leaves;
   const leafByRef = new Map(allLeaves.map((leaf) => [leaf.leafRef, leaf]));
+  if (requestedRoot) leafByRef.set(requestedRoot.leafRef, requestedRoot);
   const roots = options.leafRef
-    ? [leafByRef.get(options.leafRef)].filter((leaf): leaf is SummaryLeaf => Boolean(leaf))
+    ? [requestedRoot].filter((leaf): leaf is SummaryLeaf => Boolean(leaf))
     : allLeaves.slice(0, maxNodes);
   const leaves: SummaryLeaf[] = [];
   const edges: SummaryExpansionReport["edges"] = [];
@@ -2823,7 +2906,7 @@ export function expandSummaryLeaves(db: LooDatabase, options: SummaryExpansionOp
       continue;
     }
     const nextTokens = approximateTokens(next.leaf.summaryText);
-    if (leaves.length > 0 && approxTokens + nextTokens > tokenBudget) {
+    if (approxTokens + nextTokens > tokenBudget) {
       omitted.tokenBudgetCount += 1;
       continue;
     }
@@ -2831,7 +2914,11 @@ export function expandSummaryLeaves(db: LooDatabase, options: SummaryExpansionOp
     approxTokens += nextTokens;
     leaves.push(next.leaf);
     for (const edge of getSummaryEdgesForParent(db, next.leaf, maxNodes * 2)) {
-      const child = leafByRef.get(edge.childLeafRef);
+      let child = leafByRef.get(edge.childLeafRef);
+      if (!child) {
+        child = getSummaryLeafByRef(db, edge.childLeafRef, next.leaf.threadId ?? undefined) ?? undefined;
+        if (child) leafByRef.set(child.leafRef, child);
+      }
       if (!child) continue;
       const edgeKey = `${edge.parentLeafRef}:${edge.childLeafRef}:${edge.edgeKind}`;
       if (!edgeKeys.has(edgeKey)) {
@@ -2885,6 +2972,28 @@ export function expandSummaryLeaves(db: LooDatabase, options: SummaryExpansionOp
 }
 
 type SummaryLeafDraft = SummaryLeaf & { leafId: string };
+
+type PreparedSourceRangeRow = {
+  rangeRef: string;
+  eventRef: string;
+  threadId: string;
+  sourceRef: string;
+  sourcePathRef: string;
+  rangeKind: PreparedSourceRangeKind;
+  lineStart: number;
+  lineEnd: number;
+  byteStart: number;
+  byteEnd: number;
+  ordinal: number;
+  sourceHash: string;
+  contentHash: string;
+  extractorVersion: "prepared-source-ranges-v1";
+  privacyClass: "public_safe_metadata";
+  omissionStatus: "metadata_only";
+  confidence: number;
+  observedAt: string | null;
+  reasonCodesJson: string;
+};
 
 type SummaryLeafRow = {
   leafRef: string;
@@ -3068,6 +3177,48 @@ function deleteSummaryLeavesForThreadIds(db: LooDatabase, threadIds: string[]): 
   }
 }
 
+function getSummaryLeafByRef(db: LooDatabase, leafRef: string, threadId?: string): SummaryLeaf | null {
+  if (!isPublicSummaryLeafRef(leafRef)) return null;
+  const clauses = [
+    "leaf_ref = ?",
+    "privacy_class = ?",
+    "omission_status = ?",
+    "extractor_version = ?"
+  ];
+  const params: Array<string | number> = [
+    leafRef,
+    "public_safe_metadata",
+    "metadata_only",
+    SUMMARY_LEAF_EXTRACTOR_VERSION
+  ];
+  if (threadId) {
+    clauses.push("thread_id = ?");
+    params.push(threadId);
+  }
+  const row = db.prepare(`
+    SELECT
+      leaf_ref AS leafRef,
+      thread_id AS threadId,
+      leaf_kind AS leafKind,
+      summary_text AS summaryText,
+      source_refs_json AS sourceRefsJson,
+      source_range_refs_json AS sourceRangeRefsJson,
+      input_hash AS inputHash,
+      output_hash AS outputHash,
+      extractor_version AS extractorVersion,
+      privacy_class AS privacyClass,
+      authority_coverage_json AS authorityCoverageJson,
+      confidence,
+      freshness_at AS freshnessAt,
+      stale,
+      omission_status AS omissionStatus
+    FROM summary_leaves
+    WHERE ${clauses.join(" AND ")}
+    LIMIT 1
+  `).get(...params) as SummaryLeafRow | undefined;
+  return row ? publicSummaryLeafFromRow(row) : null;
+}
+
 function publicSummaryLeafFromRow(row: SummaryLeafRow): SummaryLeaf | null {
   const sourceRefs = parseSourceRefsJson(row.sourceRefsJson);
   const sourceRangeRefs = parseSourceRefsJson(row.sourceRangeRefsJson);
@@ -3085,7 +3236,7 @@ function publicSummaryLeafFromRow(row: SummaryLeafRow): SummaryLeaf | null {
     outputHash: row.outputHash,
     extractorVersion: SUMMARY_LEAF_EXTRACTOR_VERSION,
     privacyClass: "public_safe_metadata",
-    authorityCoverage,
+    authorityCoverage: sanitizeSummaryAuthorityCoverage(authorityCoverage),
     confidence: Number(row.confidence),
     freshnessAt: row.freshnessAt,
     stale: Number(row.stale) === 1,
@@ -3111,6 +3262,15 @@ function isPublicSummaryLeafRow(row: SummaryLeafRow, sourceRefs: string[], sourc
     && (row.freshnessAt === null || isSafeIsoTimestamp(row.freshnessAt))
     && !looksSensitiveRefLike(row.summaryText)
     && publicSafeText(row.summaryText, 500) === row.summaryText;
+}
+
+function sanitizeSummaryAuthorityCoverage(value: Record<string, unknown>): Record<string, unknown> {
+  const source = value.source === "prepared_source_ranges" ? "prepared_source_ranges" : "unknown";
+  const status = ["ok", "partial", "not_configured", "unknown"].includes(String(value.status)) ? String(value.status) : "unknown";
+  const out: Record<string, unknown> = { source, status };
+  const rangeCount = Number(value.rangeCount);
+  if (Number.isInteger(rangeCount) && rangeCount >= 0 && rangeCount <= 1_000_000) out.rangeCount = rangeCount;
+  return out;
 }
 
 function isPublicSummaryLeafRef(value: string): boolean {

@@ -40,6 +40,67 @@ function writeSummaryJsonl(path: string, threadId: string): void {
   writeFileSync(path, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
 }
 
+function writeLargeSummaryJsonl(path: string, threadId: string): void {
+  const lines: unknown[] = [
+    { timestamp: "2026-07-03T00:00:00Z", session_meta: { payload: { id: threadId, model: "gpt-5.4-mini" } } },
+    { timestamp: "2026-07-03T00:00:01Z", event_msg: { type: "thread_name", name: "Large summary leaf proof" } }
+  ];
+  for (let index = 0; index < 1100; index += 1) {
+    lines.push({ timestamp: "2026-07-03T00:00:02Z", event_msg: { type: "user_message", message: `Public-safe prompt marker ${index}` } });
+  }
+  lines.push({ timestamp: "2026-07-03T00:00:03Z", event_msg: { type: "agent_message", message: "Final: large summary leaves complete. Closeout State: done." } });
+  writeFileSync(path, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+}
+
+function insertSummaryLeafRow(
+  db: ReturnType<typeof createDatabase>,
+  input: {
+    id: string;
+    threadId: string;
+    leafKind?: string;
+    authorityCoverage?: Record<string, unknown>;
+    summaryText?: string;
+  }
+): void {
+  db.prepare(`
+    INSERT OR IGNORE INTO codex_sessions (
+      thread_id, title, source_path, safe_text, indexed_at
+    ) VALUES (?, ?, ?, ?, ?)
+  `).run(
+    input.threadId,
+    "Summary leaf direct fixture",
+    `summary-fixture-${input.threadId}.jsonl`,
+    "",
+    "2026-07-03T00:00:00.000Z"
+  );
+  db.prepare(`
+    INSERT INTO summary_leaves (
+      leaf_id, leaf_ref, thread_id, leaf_kind, summary_text, source_refs_json,
+      source_range_refs_json, input_hash, output_hash, extractor_version,
+      privacy_class, authority_coverage_json, confidence, freshness_at, stale,
+      omission_status, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    input.id,
+    `summary_leaf:${input.id}`,
+    input.threadId,
+    input.leafKind ?? "user_prompt",
+    input.summaryText ?? "Public-safe summary leaf",
+    JSON.stringify([`codex_thread:${input.threadId}`]),
+    JSON.stringify([`codex_range:${input.id}`]),
+    input.id,
+    input.id.split("").reverse().join(""),
+    "summary-leaves-v1",
+    "public_safe_metadata",
+    JSON.stringify(input.authorityCoverage ?? { source: "prepared_source_ranges", status: "ok", rangeCount: 1 }),
+    0.9,
+    "2026-07-03T00:00:00.000Z",
+    0,
+    "metadata_only",
+    "2026-07-03T00:00:00.000Z"
+  );
+}
+
 test("summary leaves materialize deterministic public-safe routing cards from source ranges", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-summary-leaves-"));
   const sessions = join(root, "sessions");
@@ -143,6 +204,30 @@ test("summary leaves backfill unchanged watermarked sources after prepared-range
   }
 });
 
+test("summary materialization scans all public-safe ranges for large sessions", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-summary-large-ranges-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const threadId = "019f-summary-large-ranges";
+  writeLargeSummaryJsonl(join(sessions, "rollout-2026-07-03T00-00-00-019f-summary-large-ranges.jsonl"), threadId);
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10, maxEventsPerFile: 2000 });
+
+    const report = getSummaryLeaves(db, { threadId, limit: 50 });
+    const kinds = new Set(report.leaves.map((leaf) => leaf.leafKind));
+    assert.equal(kinds.has("user_prompt"), true);
+    assert.equal(kinds.has("final_message"), true);
+    assert.equal(kinds.has("closeout"), true);
+    const userPromptLeaf = report.leaves.find((leaf) => leaf.leafKind === "user_prompt");
+    assert.equal(userPromptLeaf?.authorityCoverage.rangeCount, 1100);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("summary leaf reports filter rows without source ranges or event lineage", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-summary-unsafe-row-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
@@ -189,6 +274,39 @@ test("summary leaf reports filter rows without source ranges or event lineage", 
     assert.equal(report.leaves.length, 0);
     assert.equal(report.omitted.filteredUnsafeRows, 1);
     assert.equal(report.omitted.reasons.includes("filtered_unsafe_rows"), true);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("summary leaf reports sanitize authority coverage metadata", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-summary-authority-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const leafId = "a".repeat(32);
+    insertSummaryLeafRow(db, {
+      id: leafId,
+      threadId: "019f-summary-authority",
+      authorityCoverage: {
+        source: "prepared_source_ranges",
+        status: "ok",
+        rangeCount: 1,
+        path: "/Users/lume/private/customer.txt",
+        token: "PRIVATE_CANARY_TOKEN_1234567890"
+      }
+    });
+
+    const report = getSummaryLeaves(db, { threadId: "019f-summary-authority", limit: 10 });
+    assert.equal(report.leaves.length, 1);
+    assert.deepEqual(report.leaves[0]!.authorityCoverage, {
+      source: "prepared_source_ranges",
+      status: "ok",
+      rangeCount: 1
+    });
+    const serialized = JSON.stringify(report);
+    assert.equal(serialized.includes("/Users/lume"), false);
+    assert.equal(serialized.includes("PRIVATE_CANARY_TOKEN"), false);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -246,11 +364,40 @@ test("summary expansion rejects cycles and reports node and token omissions", ()
       leafRef: leaves[0]!.leafRef,
       maxDepth: 5,
       maxNodes: 20,
-      tokenBudget: 12
+      tokenBudget: 8
     });
     assert.equal(tokenLimited.omitted.reasons.includes("token_budget"), true);
+    assert.equal(tokenLimited.leaves.length, 0);
     assert.equal(serialized.includes("/Users/lume"), false);
     assert.equal(serialized.includes("PRIVATE_CANARY_TOKEN"), false);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("summary expansion can root on a valid leaf outside the first public page", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-summary-expand-page-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    for (let index = 0; index < 1001; index += 1) {
+      const id = index.toString(16).padStart(32, "0");
+      insertSummaryLeafRow(db, {
+        id,
+        threadId: `019f-summary-page-${index.toString().padStart(4, "0")}`,
+        summaryText: `Public-safe summary leaf ${index}`
+      });
+    }
+    const targetId = (1000).toString(16).padStart(32, "0");
+    const expanded = expandSummaryLeaves(db, {
+      leafRef: `summary_leaf:${targetId}`,
+      maxDepth: 1,
+      maxNodes: 5,
+      tokenBudget: 300
+    });
+    assert.equal(expanded.root.leafRef, `summary_leaf:${targetId}`);
+    assert.equal(expanded.leaves.length, 1);
+    assert.equal(expanded.leaves[0]!.threadId, "019f-summary-page-1000");
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
