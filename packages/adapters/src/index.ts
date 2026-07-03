@@ -322,6 +322,7 @@ export type DesktopCollaborationRuntimeProof = {
   public_safe: true;
   proof_markers: {
     action_bound_target: true;
+    approval_packet_bound: true;
     backend_specific_observation: true;
     no_focus_measurement: true;
   };
@@ -1184,6 +1185,7 @@ export function createDesktopGuiProofReport(input: unknown): DesktopGuiProofRepo
       public_safe: true,
       proof_markers: {
         action_bound_target: true,
+        approval_packet_bound: true,
         backend_specific_observation: true,
         no_focus_measurement: true
       },

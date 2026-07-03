@@ -15,4 +15,4 @@ Use the JSON examples for repeatable sweeps:
 
 Use `issue-scorecard-update-template.md` for issue and PR comments after focused validation.
 
-These examples are not proof that beta readiness or working-app readiness is complete. They define the minimum public-safe evidence shape, scoring boundary, and next-action language that future issues must fill in. `working-app-runtime-proof-review.json` is the Milestone 7 scorecard for actual installed-user-path proof; it must stay `example-not-run` until runtime evidence exists.
+These examples define the minimum public-safe evidence shape, scoring boundary, and next-action language that future issues must fill in. `working-app-runtime-proof-review.json` is the scored installed-user-path proof scorecard once a release packet includes the matching public-safe runtime markers; for narrower release scopes, run the scorecard sweep with the relevant `--claim-scope` instead of overclaiming working-app readiness.

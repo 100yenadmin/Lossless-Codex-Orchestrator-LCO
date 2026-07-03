@@ -59,14 +59,14 @@
     "Evidence stores raw prompt text, raw transcript spans, screenshots, SQLite pages, or secrets.",
     "Docs imply unsupported adapter parity, broad desktop control, remote sync, or enterprise readiness."
   ],
-  "current_score": "example-not-run",
-  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-156-working-app-proof/working-app-runtime-proof-review.json",
+  "current_score": "pass",
+  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-1.1.0/runtime-proof/",
   "known_gaps": [
-    "The runtime proof runner can validate public-safe v1.1 proof markers, but the full installed gateway live-control and post-action refresh loop still needs real runtime evidence.",
+    "The runtime proof packet now includes installed OpenClaw gateway live Codex proof, post-action refresh, Desktop coherence/fallback status, runtime Desktop visibility status, connected local UI readiness, and action-bound Desktop collaboration proof markers for the scoped 1.1 release claim.",
     "Desktop collaboration has backend-specific scratch proofs; release status now requires the action-bound runtime marker, proof-action is limited to the CUA Driver TextEdit scratch launch path, generic gateway invocation without exact proof args fails closed, proof-report emits that marker for valid public-safe observations, verifies desktop approval action hashes against backend, target app, target window, and action, binds the runtime marker action_hash to the approved action when desktop GUI collaboration is claimed, and loo_desktop_act returns structured missing-proof blockers while remaining dry-run-only. This is still not a generic product-level action path.",
     "The local Mac search UI has a connected live CLI proof path, but not packaged/signed macOS product UI readiness.",
     "Claude Code remains an adapter inventory item, not an equivalent working path."
   ],
-  "next_action": "Keep claim-scoped runtime markers tied to their release claims: #158/#159 for Codex working-app proof, #160 only when desktop GUI collaboration is claimed, and #161 only when connected local UI readiness is claimed.",
-  "proof_boundary": "This local public-safe scorecard defines Milestone 7 working-app proof. It is not proof until runtime evidence from the installed gateway and named local surfaces exists."
+  "next_action": "Keep claim-scoped runtime markers tied to their release claims and rerun #387 release gates before publishing stable 1.1.0.",
+  "proof_boundary": "This local public-safe scorecard proves the scoped working-app runtime packet for installed OpenClaw gateway live Codex proof, post-action refresh, Desktop coherence/fallback status, connected local UI readiness, runtime Desktop visibility status, and action-bound CUA TextEdit scratch proof. It does not prove generic GUI mutation, unattended Desktop-visible operation, arbitrary app control, enterprise/customer readiness, or equivalent Claude Code operation."
 }

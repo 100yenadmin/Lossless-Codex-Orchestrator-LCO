@@ -319,6 +319,7 @@ test("CLI desktop proof-report writes a release-compatible approval fixture for 
     assert.equal(runtimeProof.public_safe, true);
     assert.deepEqual(runtimeProof.proof_markers, {
       action_bound_target: true,
+      approval_packet_bound: true,
       backend_specific_observation: true,
       no_focus_measurement: true
     });
