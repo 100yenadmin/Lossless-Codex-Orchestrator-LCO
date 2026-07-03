@@ -148,6 +148,65 @@ test("live control smoke fails closed on unexpected server requests during the h
   }
 });
 
+test("live control smoke writes failure report when setup connect fails", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-live-smoke-connect-failure-"));
+  const client = new FakeLiveControlSmokeClient();
+  client.connect = async () => {
+    throw new Error("setup handshake failed");
+  };
+
+  try {
+    await assert.rejects(
+      () => runLiveControlSmoke({
+        client,
+        audit: createAuditStore(join(root, "audit.jsonl")),
+        evidenceDir: root,
+        message: "Setup failure prompt"
+      }),
+      /setup handshake failed/
+    );
+    const failureReport = JSON.parse(readFileSync(join(root, "live-control-smoke-failure-report.json"), "utf8")) as {
+      ok?: boolean;
+      proofReady?: boolean;
+      blocker?: string;
+      target?: { refClass?: string; source?: string };
+      dryRun?: { attempted?: boolean };
+      live?: { accepted?: boolean };
+      rawPromptIncluded?: boolean;
+    };
+    assert.equal(failureReport.ok, false);
+    assert.equal(failureReport.proofReady, false);
+    assert.equal(failureReport.blocker, "codex_app_server_setup_failed");
+    assert.equal(failureReport.target?.refClass, "unknown");
+    assert.equal(failureReport.target?.source, "unknown");
+    assert.equal(failureReport.dryRun?.attempted, false);
+    assert.equal(failureReport.live?.accepted, false);
+    assert.equal(failureReport.rawPromptIncluded, false);
+    assert.equal(JSON.stringify(failureReport).includes("Setup failure prompt"), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("live control smoke preserves original failure when failure report cannot be written", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-live-smoke-report-write-failure-"));
+  const client = new FakeLiveControlSmokeClient();
+  client.request = async () => {
+    rmSync(root, { recursive: true, force: true });
+    throw new Error("original request failure");
+  };
+
+  await assert.rejects(
+    () => runLiveControlSmoke({
+      client,
+      audit: createAuditStore(join(root, "audit.jsonl")),
+      evidenceDir: root,
+      message: "Report write failure prompt"
+    }),
+    /original request failure/
+  );
+});
+
 test("live control smoke stops same-connection sequences after a failed step", async () => {
   const root = mkdtempSync(join(tmpdir(), "loo-live-smoke-sequence-failure-"));
   const client = new FakeLiveControlSmokeClient();

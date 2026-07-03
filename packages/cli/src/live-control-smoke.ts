@@ -180,7 +180,6 @@ export async function runLiveControlSmoke(options: LiveControlSmokeOptions): Pro
   mkdirSync(options.evidenceDir, { recursive: true });
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const message = options.message ?? DEFAULT_MESSAGE;
-  await options.client.connect();
   let targetState: { threadId: string | null; source: "ephemeral_thread_start" | "provided_thread" | "unknown" } = {
     threadId: options.threadId ?? null,
     source: options.threadId ? "provided_thread" : "unknown"
@@ -205,7 +204,9 @@ export async function runLiveControlSmoke(options: LiveControlSmokeOptions): Pro
     approvalRequestCount: 0,
     serverRequestCount: 0
   };
+  let failed = false;
   try {
+    await options.client.connect();
     const target = options.threadId
       ? { threadId: options.threadId, source: "provided_thread" as const }
       : { threadId: await startEphemeralThread(options.client, options.cwd), source: "ephemeral_thread_start" as const };
@@ -311,15 +312,24 @@ export async function runLiveControlSmoke(options: LiveControlSmokeOptions): Pro
     writeJson(reportPath, report);
     return report;
   } catch (error) {
-    writeFailureReport(options, {
-      error,
-      target: targetState,
-      dryRun: dryRunState,
-      live: liveState
-    });
+    failed = true;
+    try {
+      writeFailureReport(options, {
+        error,
+        target: targetState,
+        dryRun: dryRunState,
+        live: liveState
+      });
+    } catch {
+      // Best-effort evidence: never let report-writing failures mask the original smoke failure.
+    }
     throw error;
   } finally {
-    await options.client.close();
+    try {
+      await options.client.close();
+    } catch (closeError) {
+      if (!failed) throw closeError;
+    }
   }
 }
 
@@ -445,6 +455,9 @@ function writeFailureReport(
 
 function classifyFailureBlocker(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
+  if (/connect|handshake|spawn|ENOENT|codex.*not found|not connected/i.test(message)) {
+    return "codex_app_server_setup_failed";
+  }
   if (/thread(?:\/resume| not found)|control sequence step failed:\s*thread\/resume/i.test(message)) {
     return "same_connection_resume_load_diagnostics_required";
   }
@@ -457,6 +470,8 @@ function classifyFailureBlocker(error: unknown): string {
 
 function nextDiagnosticStep(blocker: string): string {
   switch (blocker) {
+    case "codex_app_server_setup_failed":
+      return "Check Codex app-server command availability, stdio handshake, and local transport setup before retrying live control.";
     case "same_connection_resume_load_diagnostics_required":
       return "Run same-connection resume/load diagnostics for the selected thread before retrying live control.";
     case "codex_approval_request_observed":
