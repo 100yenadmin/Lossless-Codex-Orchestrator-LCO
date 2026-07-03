@@ -24,6 +24,7 @@ export const DEFAULT_REQUIRED_TOOL_CALLS = [
   "loo_watchers_list",
   "loo_watcher_status",
   "loo_watcher_dry_run",
+  "loo_watcher_events",
   "loo_resume_request_packet",
   "loo_codex_app_server_status",
   "loo_codex_app_server_threads",
@@ -103,6 +104,7 @@ export type OpenClawToolInvocationSummary = {
     activeThreadControlDryRunRecommendations?: number;
     activeThreadNextReadOnlyActions?: number;
     autonomyTick?: Record<string, number>;
+    watcherEvents?: Record<string, number>;
   };
   blockers: string[];
 };
@@ -576,6 +578,9 @@ function buildToolArgs(params: {
   }
   if (params.toolName === "loo_watcher_status") {
     return { watcher_specs: smokeWatcherSpecs(params.threadId), watch_id: "watch_tool_smoke_checks", now: TOOL_SMOKE_NOW };
+  }
+  if (params.toolName === "loo_watcher_events") {
+    return { watch_id: "watch_tool_smoke_checks", limit: 5, now: TOOL_SMOKE_NOW };
   }
   if (params.toolName === "loo_resume_request_packet") {
     return { watcher_spec: smokeWatcherSpecs(params.threadId)[0], now: TOOL_SMOKE_NOW, ttl_seconds: 900 };
@@ -1155,6 +1160,46 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
       blockers.push("autonomy_tick_restricted_action");
     }
     if (blockers.length === 0 && nextToolCall) summary.nextToolCall = nextToolCall;
+  }
+  if (toolName === "loo_watcher_events") {
+    const eventsOutput = details ?? output;
+    if (stringPath(eventsOutput, ["schema"]) !== "lco.watchers.events.v1") blockers.push("watcher_events_schema_invalid");
+    if (booleanPath(eventsOutput, ["publicSafe"]) !== true || booleanPath(eventsOutput, ["readOnly"]) !== true) {
+      blockers.push("watcher_events_public_safe_read_only_missing");
+    }
+    if (!isRecord(eventsOutput) || !isRecord(eventsOutput.sourceCoverage)) blockers.push("watcher_events_coverage_missing");
+    if (!hasPreparedReadOnlyActionMarkers(eventsOutput)) blockers.push("watcher_events_action_markers_invalid");
+    const summaryRecord = isRecord(eventsOutput) && isRecord(eventsOutput.summary) ? eventsOutput.summary : null;
+    summary.watcherEvents = Object.fromEntries(["total", "returned", "triggered", "queueItems", "filteredUnsafeRows"].map((key) => {
+      const value = summaryRecord?.[key];
+      return [key, typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0];
+    }));
+    const observations = arrayPath(eventsOutput, ["observations"]).filter(isRecord);
+    if (observations.some((observation) => {
+      const observationRef = stringPath(observation, ["observationRef"]);
+      const targetRef = stringPath(observation, ["targetRef"]);
+      const watcher = isRecord(observation.watcher) ? observation.watcher : null;
+      const status = watcher ? stringPath(watcher, ["status"]) : undefined;
+      return !observationRef?.startsWith("watcher_observation:")
+        || !targetRef
+        || !watcher
+        || !["active", "triggered", "stale", "expired", "low_confidence"].includes(status ?? "")
+        || watcher.mutates !== false;
+    })) blockers.push("watcher_events_observation_invalid");
+    const queue = arrayPath(eventsOutput, ["queue"]).filter(isRecord);
+    if (queue.some((item) => {
+      const itemRef = stringPath(item, ["itemRef"]);
+      const targetRef = stringPath(item, ["targetRef"]);
+      const toolCall = isRecord(item.toolCall) ? item.toolCall : null;
+      const tool = toolCall ? stringPath(toolCall, ["tool"]) : undefined;
+      return !itemRef?.startsWith("attention_queue:")
+        || !targetRef
+        || item.execute !== false
+        || !toolCall
+        || toolCall.execute !== false
+        || !["loo_resume_request_packet", "loo_watcher_status"].includes(tool ?? "")
+        || !isRecord(toolCall.args);
+    })) blockers.push("watcher_events_queue_invalid");
   }
   if (toolName === "loo_summary_leaves") {
     const leafOutput = details ?? output;

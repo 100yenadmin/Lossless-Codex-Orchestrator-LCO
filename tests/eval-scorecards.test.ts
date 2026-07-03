@@ -108,7 +108,26 @@ test("local-agent usability scorecard requires OpenClaw gateway dogfood without 
   assert.match(JSON.stringify(scorecard.pass_criteria), /describe/i);
   assert.match(JSON.stringify(scorecard.pass_criteria), /expand/i);
   assert.match(JSON.stringify(scorecard.pass_criteria), /dry-run/i);
+  assert.match(JSON.stringify(scorecard.command_or_tool), /loo_watcher_events/);
+  assert.match(JSON.stringify(scorecard.expected_public_safe_evidence), /persisted watcher observation refs/i);
+  assert.match(JSON.stringify(scorecard.pass_criteria), /attention queue items/i);
+  assert.match(JSON.stringify(scorecard.pass_criteria), /execute:false/i);
   assert.match(JSON.stringify(scorecard.private_data_exclusions), /raw Codex transcripts/i);
+});
+
+test("safety bypass scorecard covers persisted watcher events and execute-false queues", () => {
+  const scorecard = readScorecard("safety-bypass-review.json");
+  const serialized = JSON.stringify(scorecard);
+
+  assert.equal(scorecard.surface, "safety control");
+  assert.match(JSON.stringify(scorecard.command_or_tool), /loo_watcher_events/);
+  assert.match(JSON.stringify(scorecard.expected_public_safe_evidence), /local attention queue items/i);
+  assert.match(JSON.stringify(scorecard.pass_criteria), /watcher persistence.*derived_cache/i);
+  assert.match(JSON.stringify(scorecard.pass_criteria), /watcher event read tools remain pure reads/i);
+  assert.match(JSON.stringify(scorecard.fail_criteria), /execute=true/i);
+  assert.match(JSON.stringify(scorecard.fail_criteria), /approval ids/i);
+  assert.match(String(scorecard.proof_boundary), /through issue #411/i);
+  assert.doesNotMatch(serialized, /unattended desktop takeover|cloud sync|Claude parity/i);
 });
 
 test("orchestrator leverage scorecard prioritizes highest-signal session management for bounded context", () => {

@@ -59,6 +59,7 @@
       "loo_watchers_list",
       "loo_watcher_status",
       "loo_watcher_dry_run",
+      "loo_watcher_events",
       "loo_resume_request_packet",
       "loo_codex_app_server_status",
       "loo_codex_app_server_threads",
@@ -1046,6 +1047,36 @@
                 "type": "object",
                 "additionalProperties": true
               }
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "now": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_watcher_events",
+        "description": "Read persisted public-safe watcher observations and execute-false local attention queue items.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "watch_id": {
+              "type": "string"
+            },
+            "target_ref": {
+              "type": "string"
             },
             "limit": {
               "type": "integer",
