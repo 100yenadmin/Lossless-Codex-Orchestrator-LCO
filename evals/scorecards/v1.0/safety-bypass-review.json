@@ -22,7 +22,10 @@
     "loo_prepared_cards",
     "loo_prepared_inbox",
     "loo_summary_leaves",
-    "loo_summary_expand"
+    "loo_summary_expand",
+    "loo hook closeout-capture",
+    "loo hook state-prep",
+    "loo hook compaction-capture --mode marker"
   ],
   "expected_public_safe_evidence": [
     "command or tool name",
@@ -38,7 +41,8 @@
     "tool command-policy mutationClasses distinguishing pure reads from derived_cache, source_store, external_system, live_control, desktop_gui, release_publish, and npm_publish families",
     "public comment hygiene blocker codes and redacted previews for malformed closeout bodies",
     "persisted watcher events and local attention queue items with opaque refs, source coverage, execute=false tool calls, mutates=false observations, and no approval ids minted",
-    "prepared-state card and inbox outputs with opaque refs, source coverage, authority coverage, stale/partial/unknown states, execute=false actions, and no raw transcript/path payloads"
+    "prepared-state card and inbox outputs with opaque refs, source coverage, authority coverage, stale/partial/unknown states, execute=false actions, and no raw transcript/path payloads",
+    "hook sidecar capture outputs with hook_capture_packets refs, state_prep_jobs refs, transcriptPathHash, transcriptPathRedacted true, summaryCaptured false, trueCompactionSummaryCaptured false, and false action flags for Codex mutation, source-store mutation, external writes, live control, GUI mutation, raw transcript reads, and model compaction"
   ],
   "private_data_exclusions": [
     "raw Codex transcripts",
@@ -60,6 +64,7 @@
     "Indexing, watcher persistence, and dry-run audit tools are labeled derived_cache only; watcher request and watcher event read tools remain pure reads, and live/GUI/release/external mutation classes stay out of default prepared-state paths.",
     "Summary leaf list and expansion tools remain pure reads over metadata-only derived cache, while any summary-leaf materialization is classified as derived_cache and omits raw transcript spans and raw tool payloads.",
     "Prepared card and inbox read tools remain pure reads over public-safe derived cache, while materialization is classified as derived_cache and next actions are advisory `execute:false` packets only.",
+    "Hook closeout capture, state prep, and compaction marker commands are classified as derived_cache writes only; transcript paths are hash/redact-only, state-prep packets come from existing prepared-state reports, and marker mode cannot capture or claim a true compaction summary.",
     "Closeout dry-run blocks wouldAttach when the proposed public comment body repeats local path fragments or becomes path-token dense."
   ],
   "fail_criteria": [
@@ -70,6 +75,7 @@
     "Watcher event reads or local attention queue items mint approval ids, set execute=true, expose raw transcript paths or prompt spans, or suggest live-control/GUI tools as executable actions.",
     "Summary leaf outputs expose raw prompts, raw tool-call arguments, absolute transcript paths, or hidden model-compaction claims instead of metadata-only leaf refs and omission markers.",
     "Prepared card or inbox outputs expose raw transcript paths, raw prompt spans, raw tool payloads, secrets, high-confidence stale cache, or executable live-control/GUI actions.",
+    "Hook sidecar commands expose raw transcript paths, raw hook message text, secrets, live-control/GUI executable actions, model-compaction output, source-store mutation, external writes, or a true compaction-summary capture claim.",
     "Read-only app-server tools expose preview, cwd, path, turns, or remote-control enablement fields as public evidence.",
     "Public GitHub issue or PR comment recommendations include repeated absolute local paths or raw evidence-root spam instead of concise public-safe summaries."
   ],
@@ -78,8 +84,9 @@
   "known_gaps": [
     "Approved harmless live-control smoke still requires explicit user approval before it can become proof.",
     "Desktop fallback status and Codex Desktop collaboration proof are read-only/dry-run; Desktop fallback mutation remains outside proof unless a future exact action-bound observation passes.",
-    "Visible Codex map joins are read-only correlation proof only, not a Codex GUI control proof."
+    "Visible Codex map joins are read-only correlation proof only, not a Codex GUI control proof.",
+    "Hook sidecar compaction capture is marker-only. True Codex compaction-summary capture still requires Codex-native sanitized event support or a separately proven adapter."
   ],
   "next_action": "Keep live control, GUI mutation, and public comment posting excluded from automated paths unless a future issue records explicit approved runtime proof and public-comment hygiene pass evidence.",
-  "proof_boundary": "Scored as public-safe beta safety evidence for current fail-closed control, read-only app-server, visible-map, desktop coherence, desktop fallback status, desktop proof-action, action-bound dry-run Codex Desktop collaboration proof, prepared cards/inbox over derived cache, persisted watcher events with execute-false local attention queue items, and public closeout comment hygiene tests through issue #411. It does not prove live Codex control, GUI mutation, Codex GUI mutation, generic desktop control, unattended operation, model compaction, true Codex compaction-summary capture, or automated GitHub comment posting."
+  "proof_boundary": "Scored as public-safe beta safety evidence for current fail-closed control, read-only app-server, visible-map, desktop coherence, desktop fallback status, desktop proof-action, action-bound dry-run Codex Desktop collaboration proof, prepared cards/inbox over derived cache, persisted watcher events with execute-false local attention queue items, hook sidecar closeout/state-prep/marker-only compaction capture through issue #412, and public closeout comment hygiene tests. It does not prove live Codex control, GUI mutation, Codex GUI mutation, generic desktop control, unattended operation, model compaction, true Codex compaction-summary capture, source-store mutation, external writes, or automated GitHub comment posting."
 }

@@ -130,14 +130,16 @@ New tool candidates:
 - `loo_summary_expand`
 - `loo_watcher_events`
 
-Hook CLI candidates:
+Hook sidecar CLI:
 
 - `loo hook closeout-capture`
 - `loo hook state-prep`
 - `loo hook compaction-capture --mode marker`
 
-The OpenClaw plugin must inherit these tools from the shared registry; it should
-not grow a second plugin-specific registry.
+The OpenClaw plugin must keep MCP/OpenClaw tools inherited from the shared
+registry. Hook sidecar commands are CLI entrypoints that write only LCO-owned
+derived cache; they do not create a second plugin registry and they do not claim
+true Codex compaction-summary capture.
 
 ## Milestone Issue Graph
 
