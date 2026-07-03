@@ -3446,6 +3446,7 @@ function autonomyTickStepPriority(item: CodexActiveThreadStateItem, stepType: Co
     unknown: 2,
     idle: 1
   } as const satisfies Record<CodexActiveThreadStateKind, number>;
+  // Urgency is intentionally bucketed; ties fall through to deterministic refs.
   const urgency = Number.isFinite(item.attention.urgencyScore) ? Math.max(0, Math.trunc(item.attention.urgencyScore)) : 0;
   const typeRank = stepType === "read_only_probe" ? 1_000 : 900;
   return typeRank + stateRank[item.state] * 100 + urgency;

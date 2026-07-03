@@ -36,6 +36,14 @@ export const DEFAULT_REQUIRED_TOOL_CALLS = [
   "loo_business_pulse"
 ];
 
+const AUTONOMY_TICK_SUMMARY_KEYS = [
+  "totalLanes",
+  "returnedSteps",
+  "readOnlyProbes",
+  "controlDryRunRecommendations",
+  "blockedControlDryRuns"
+] as const;
+
 export type OpenClawToolSmokeOptions = {
   openclawBin?: string;
   dev?: boolean;
@@ -1088,9 +1096,9 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
     const rawSteps = arrayPath(tickOutput, ["steps"]);
     const steps = rawSteps.filter(isRecord);
     const summaryRecord = isRecord(tickOutput) && isRecord(tickOutput.summary) ? tickOutput.summary : null;
-    const autonomyTickCounts = Object.fromEntries(["returnedSteps", "readOnlyProbes", "controlDryRunRecommendations", "blockedControlDryRuns"].map((key) => {
+    const autonomyTickCounts = Object.fromEntries(AUTONOMY_TICK_SUMMARY_KEYS.map((key) => {
       const value = summaryRecord?.[key];
-      return [key, typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0];
+      return [key, isNonNegativeInteger(value) ? value : 0];
     }));
     summary.autonomyTick = autonomyTickCounts;
     const nextToolCall = steps.map(publicSafeAutonomyTickNextToolCall).find((candidate) => Boolean(candidate));
@@ -1099,8 +1107,9 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
     if (booleanPath(tickOutput, ["publicSafe"]) !== true || booleanPath(tickOutput, ["readOnly"]) !== true) {
       blockers.push("autonomy_tick_public_safe_read_only_missing");
     }
-    if (rawSteps.length !== steps.length || !autonomyTickSummaryMatchesSteps(autonomyTickCounts, steps)) {
-      blockers.push("autonomy_tick_step_count_mismatch");
+    if (summaryRecord) {
+      const summaryBlocker = autonomyTickSummaryBlocker(summaryRecord, rawSteps.length, steps);
+      if (summaryBlocker) blockers.push(summaryBlocker);
     }
     if (steps.some((step) => !hasValidAutonomyTickStep(step))) blockers.push("autonomy_tick_invalid_step");
     const actions = isRecord(tickOutput) && isRecord(tickOutput.actionsPerformed) ? tickOutput.actionsPerformed : null;
@@ -1485,6 +1494,23 @@ function autonomyTickSummaryMatchesSteps(
     }).length;
 }
 
+function autonomyTickSummaryBlocker(
+  summary: Record<string, unknown>,
+  rawStepCount: number,
+  steps: Record<string, unknown>[]
+): string | null {
+  if (AUTONOMY_TICK_SUMMARY_KEYS.some((key) => !isNonNegativeInteger(summary[key]))) {
+    return "autonomy_tick_summary_count_invalid";
+  }
+  const counts = Object.fromEntries(AUTONOMY_TICK_SUMMARY_KEYS.map((key) => [key, summary[key] as number]));
+  if (rawStepCount !== steps.length || !autonomyTickSummaryMatchesSteps(counts, steps)) {
+    return "autonomy_tick_step_count_mismatch";
+  }
+  const uniqueStepLanes = new Set(steps.map((step) => stringPath(step, ["threadId"])).filter(Boolean)).size;
+  if (counts.totalLanes < uniqueStepLanes) return "autonomy_tick_total_lanes_mismatch";
+  return null;
+}
+
 function hasValidAutonomyTickStep(step: Record<string, unknown>): boolean {
   const stepType = stringPath(step, ["stepType"]);
   const tool = stringPath(step, ["tool"]);
@@ -1511,6 +1537,7 @@ function hasValidAutonomyTickStep(step: Record<string, unknown>): boolean {
     priority === undefined ||
     !Number.isFinite(priority) ||
     confidence === undefined ||
+    !Number.isFinite(confidence) ||
     confidence < 0 ||
     confidence > 1 ||
     reasonCodes.length === 0 ||
@@ -1539,6 +1566,10 @@ function hasValidAutonomyTickStep(step: Record<string, unknown>): boolean {
       && stopConditions.includes("live_control_requires_approval_audit_id");
   }
   return false;
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && Number.isInteger(value) && value >= 0;
 }
 
 function publicSafeAutonomyTickNextToolCall(value: unknown): OpenClawToolInvocationSummary["summary"]["nextToolCall"] | undefined {

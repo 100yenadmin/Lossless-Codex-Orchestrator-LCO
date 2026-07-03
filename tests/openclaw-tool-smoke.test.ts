@@ -349,6 +349,14 @@ if (method === "tools.invoke") {
       console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.codex.autonomyTick.v1", publicSafe: true, readOnly: true, generatedAt: "2026-07-01T12:00:00.000Z", summary: { totalLanes: 1, returnedSteps: 1, readOnlyProbes: 1, controlDryRunRecommendations: 0, blockedControlDryRuns: 0 }, sourceCoverage: { indexedSession: "ok", cockpitInbox: "ok", watchers: "ok", codexAppServer: "ok", visibleCodexMap: "not_configured" }, steps: [null], actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false, npmPublished: false, githubReleaseCreated: false } } }));
       process.exit(0);
     }
+    if (autonomyThreadId === "mismatched-autonomy-tick-total-lanes") {
+      console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.codex.autonomyTick.v1", publicSafe: true, readOnly: true, generatedAt: "2026-07-01T12:00:00.000Z", summary: { totalLanes: 0, returnedSteps: 1, readOnlyProbes: 1, controlDryRunRecommendations: 0, blockedControlDryRuns: 0 }, sourceCoverage: { indexedSession: "ok", cockpitInbox: "ok", watchers: "ok", codexAppServer: "ok", visibleCodexMap: "not_configured" }, steps: [{ stepId: "autonomy_step_probe", threadId: "codex_thread:mismatched-autonomy-tick-total-lanes", stepType: "read_only_probe", priority: 1880, tool: "loo_codex_app_server_threads", execute: false, args: { read_thread_id: "mismatched-autonomy-tick-total-lanes", limit: 20 }, reason: "Refresh read-only Codex app-server thread metadata before trusting the active-state lane.", idempotencyKey: "autonomy_tick:mismatched-total-lanes", stopConditions: ["execute_false_only", "recompute_tick_after_probe", "raw_transcript_not_read"], reasonCodes: ["autonomy_tick_read_only_probe", "autonomy_tool:loo_codex_app_server_threads"], evidenceIds: ["ev_tool_smoke"], confidence: 0.9, sourceCoverage: { indexedSession: "ok", cockpitInbox: "ok", watchers: "ok", codexAppServer: "ok", visibleCodexMap: "not_configured" } }], actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false, npmPublished: false, githubReleaseCreated: false } } }));
+      process.exit(0);
+    }
+    if (autonomyThreadId === "missing-autonomy-tick-summary") {
+      console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.codex.autonomyTick.v1", publicSafe: true, readOnly: true, generatedAt: "2026-07-01T12:00:00.000Z", sourceCoverage: { indexedSession: "ok", cockpitInbox: "ok", watchers: "ok", codexAppServer: "ok", visibleCodexMap: "not_configured" }, steps: [], actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false, npmPublished: false, githubReleaseCreated: false } } }));
+      process.exit(0);
+    }
     if (autonomyThreadId === "blocked-autonomy-dry-run") {
       console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.codex.autonomyTick.v1", publicSafe: true, readOnly: true, generatedAt: "2026-07-01T12:00:00.000Z", summary: { totalLanes: 1, returnedSteps: 1, readOnlyProbes: 0, controlDryRunRecommendations: 1, blockedControlDryRuns: 1 }, sourceCoverage: { indexedSession: "ok", cockpitInbox: "ok", watchers: "ok", codexAppServer: "ok", visibleCodexMap: "not_configured" }, steps: [{ stepId: "autonomy_step_blocked", threadId: "codex_thread:blocked-autonomy-dry-run", stepType: "control_dry_run", status: "blocked", priority: 1700, tool: "loo_codex_control_dry_run", execute: false, args: { action: "resume", thread_id: "blocked-autonomy-dry-run" }, reason: "Record that a future control dry-run is blocked until the approval boundary is resolved.", approvalBoundary: "Live control still requires approval_audit_id.", blockers: ["codex_approval_required"], idempotencyKey: "autonomy_tick:blocked-dry-run", stopConditions: ["execute_false_only", "live_control_requires_approval_audit_id", "codex_approval_sandbox_gates_preserved"], reasonCodes: ["autonomy_tick_control_dry_run", "autonomy_tool:loo_codex_control_dry_run", "control_dry_run_blocked"], evidenceIds: ["ev_tool_smoke"], confidence: 0.86, sourceCoverage: { indexedSession: "ok", cockpitInbox: "ok", watchers: "ok", codexAppServer: "ok", visibleCodexMap: "not_configured" } }], actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false, npmPublished: false, githubReleaseCreated: false } } }));
       process.exit(0);
@@ -943,6 +951,59 @@ test("OpenClaw tool smoke rejects malformed raw autonomy tick steps", () => {
 
     assert.equal(report.ok, false);
     assert.match(report.blockers.join("\n"), /autonomy_tick_step_count_mismatch/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke validates autonomy tick total lane coverage", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-autonomy-tick-total-lanes-"));
+  const evidencePath = join(dir, "tool-smoke.json");
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_codex_autonomy_tick"]);
+
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      profile: "lco-issue-371-total-lanes",
+      sessionKey: "agent:main:lco-issue-371-total-lanes",
+      evidencePath,
+      requiredTools: ["loo_codex_autonomy_tick"],
+      threadId: "mismatched-autonomy-tick-total-lanes",
+      strict: true
+    });
+
+    assert.equal(report.ok, false);
+    assert.match(report.blockers.join("\n"), /autonomy_tick_total_lanes_mismatch/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke reports missing autonomy tick summary precisely", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-autonomy-tick-missing-summary-"));
+  const evidencePath = join(dir, "tool-smoke.json");
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_codex_autonomy_tick"]);
+
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      profile: "lco-issue-371-missing-summary",
+      sessionKey: "agent:main:lco-issue-371-missing-summary",
+      evidencePath,
+      requiredTools: ["loo_codex_autonomy_tick"],
+      threadId: "missing-autonomy-tick-summary",
+      strict: true
+    });
+
+    assert.equal(report.ok, false);
+    assert.match(report.blockers.join("\n"), /autonomy_tick_summary_missing/);
+    assert.doesNotMatch(report.blockers.join("\n"), /autonomy_tick_step_count_mismatch/);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;
