@@ -235,6 +235,23 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.equal(toolNames.includes("loo_codex_send_message"), true);
     assert.equal(toolNames.includes("loo_desktop_see"), true);
     assert.deepEqual(toolNames.filter((name) => !LOO_COMMAND_POLICY[name]), []);
+    for (const declaration of createLooToolDeclarations()) {
+      assert.deepEqual(declaration.safety, LOO_COMMAND_POLICY[declaration.name]);
+      assert.ok(Array.isArray(declaration.safety.mutationClasses));
+    }
+    assert.equal(LOO_COMMAND_POLICY.loo_index_sessions.mode, "local_cache_write");
+    assert.deepEqual(LOO_COMMAND_POLICY.loo_index_sessions.mutationClasses, ["derived_cache"]);
+    assert.equal(LOO_COMMAND_POLICY.loo_index_sessions.mutationClasses.includes("source_store"), false);
+    assert.equal(LOO_COMMAND_POLICY.loo_index_sessions.mutationClasses.includes("external_system"), false);
+    assert.equal(LOO_COMMAND_POLICY.loo_index_sessions.mutationClasses.includes("live_control"), false);
+    assert.equal(LOO_COMMAND_POLICY.loo_codex_control_dry_run.mode, "local_cache_write");
+    assert.deepEqual(LOO_COMMAND_POLICY.loo_codex_control_dry_run.mutationClasses, ["derived_cache"]);
+    assert.deepEqual(LOO_COMMAND_POLICY.loo_watchers_list.mutationClasses, []);
+    assert.deepEqual(LOO_COMMAND_POLICY.loo_watcher_status.mutationClasses, []);
+    assert.deepEqual(LOO_COMMAND_POLICY.loo_watcher_dry_run.mutationClasses, []);
+    assert.deepEqual(LOO_COMMAND_POLICY.loo_resume_request_packet.mutationClasses, []);
+    assert.deepEqual(LOO_COMMAND_POLICY.loo_codex_send_message.mutationClasses, ["derived_cache", "live_control"]);
+    assert.deepEqual(LOO_COMMAND_POLICY.loo_desktop_proof_action.mutationClasses, ["derived_cache", "desktop_gui"]);
 
     const closeoutTool = tools.find((tool) => tool.name === "loo_closeout_dry_run");
     assert.ok(closeoutTool);

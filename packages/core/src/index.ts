@@ -51,6 +51,11 @@ export type LimitedCodexFile = {
 };
 
 export type IndexCodexResult = {
+  // Fixed safety stamp: indexing writes only LCO-owned derived cache, while
+  // limited/error rows can contain local paths and are not public evidence.
+  publicSafe: false;
+  readOnly: false;
+  mutationClasses: ["derived_cache"];
   indexedFiles: number;
   skippedFiles: number;
   indexedThreads: number;
@@ -1658,7 +1663,17 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
   const files = collectJsonlFiles(options.roots, options.maxFiles ?? 10_000);
   const maxBytesPerFile = positiveLimit(options.maxBytesPerFile, DEFAULT_CODEX_MAX_BYTES_PER_FILE, "maxBytesPerFile");
   const maxEventsPerFile = positiveLimit(options.maxEventsPerFile, DEFAULT_CODEX_MAX_EVENTS_PER_FILE, "maxEventsPerFile");
-  const result: IndexCodexResult = { indexedFiles: 0, skippedFiles: 0, indexedThreads: 0, indexedEvents: 0, limitedFiles: [], errors: [] };
+  const result: IndexCodexResult = {
+    publicSafe: false,
+    readOnly: false,
+    mutationClasses: ["derived_cache"],
+    indexedFiles: 0,
+    skippedFiles: 0,
+    indexedThreads: 0,
+    indexedEvents: 0,
+    limitedFiles: [],
+    errors: []
+  };
   const seenThreads = new Set<string>();
 
   for (const path of files) {

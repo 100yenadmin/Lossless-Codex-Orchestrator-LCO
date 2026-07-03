@@ -91,6 +91,14 @@
       {
         "name": "loo_index_sessions",
         "description": "Index local Codex session JSONL files into the local orchestrator database.",
+        "safety": {
+          "mode": "local_cache_write",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": [
+            "derived_cache"
+          ]
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -122,6 +130,12 @@
       {
         "name": "loo_search_sessions",
         "description": "Search indexed Codex sessions with bounded safe text.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -140,6 +154,12 @@
       {
         "name": "loo_grep",
         "description": "Search Codex index and optional read-only OpenClaw LCM peer DBs with source-prefixed refs.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -177,6 +197,12 @@
       {
         "name": "loo_describe_session",
         "description": "Describe one indexed Codex session by thread id.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -190,6 +216,12 @@
       {
         "name": "loo_describe_ref",
         "description": "Describe a source-prefixed recall ref such as codex_thread:* or lcm_summary:*.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -209,6 +241,12 @@
       {
         "name": "loo_expand_session",
         "description": "Expand one indexed Codex session into a bounded evidence brief.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -235,6 +273,12 @@
       {
         "name": "loo_expand_query",
         "description": "Search then expand the best matching Codex or LCM peer recall ref.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -267,6 +311,12 @@
       {
         "name": "loo_codex_thread_map",
         "description": "Read the indexed Codex thread map.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -300,6 +350,12 @@
       {
         "name": "loo_codex_session_management_map",
         "description": "Read a public-safe orchestration map for active, blocked, expansion, archive, fork, and resume lanes.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -333,6 +389,12 @@
       {
         "name": "loo_recent_sessions",
         "description": "List recent or active Codex sessions as compact public-safe cards without requiring query text.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -391,6 +453,12 @@
       {
         "name": "loo_cockpit_inbox",
         "description": "Rank Codex sessions that need attention using deterministic public-safe session cards.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -422,6 +490,12 @@
       {
         "name": "loo_codex_collaboration_cockpit",
         "description": "Summarize Codex collaboration lanes from indexed sessions, inbox urgency, watcher requests, and optional Desktop coherence/fallback evidence without performing actions.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -467,6 +541,12 @@
       {
         "name": "loo_codex_collaboration_next_steps",
         "description": "Plan exact read-only next tool calls for Codex collaboration lanes without executing control or GUI actions.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -512,6 +592,12 @@
       {
         "name": "loo_codex_runtime_desktop_visibility_status",
         "description": "Summarize whether collaboration cockpit lanes have public-safe runtime Desktop visibility proof or exact read-only next proof steps.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -564,6 +650,12 @@
       {
         "name": "loo_codex_active_thread_state",
         "description": "Classify active Codex threads using public-safe cockpit signals, attention coverage, execute-false read-only probes, and non-executed control dry-run recommendations where safe.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -617,6 +709,12 @@
       {
         "name": "loo_codex_autonomy_tick",
         "description": "Plan one deterministic read-only Codex autonomy loop tick from active-thread state without executing control, GUI actions, raw transcript reads, publishing, or releases.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -670,6 +768,12 @@
       {
         "name": "loo_codex_desktop_collaboration_proof",
         "description": "Validate an exact action-bound Codex Desktop collaboration proof packet without running live control or GUI mutation.",
+        "safety": {
+          "mode": "read_only",
+          "source": "desktop_fallback",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -716,6 +820,12 @@
       {
         "name": "loo_watchers_list",
         "description": "List read-only watcher specs as deterministic public-safe watcher status rows.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -741,6 +851,12 @@
       {
         "name": "loo_watcher_status",
         "description": "Describe one read-only watcher status without cleanup or mutation.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -764,6 +880,12 @@
       {
         "name": "loo_watcher_dry_run",
         "description": "Preview watcher-triggered resume request packets without sending or mutating anything.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -789,6 +911,12 @@
       {
         "name": "loo_resume_request_packet",
         "description": "Create one approval-bounded resume request packet from a read-only watcher spec.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -820,6 +948,12 @@
       {
         "name": "loo_codex_app_server_status",
         "description": "Read Codex app-server status and read-method posture without enabling control.",
+        "safety": {
+          "mode": "read_only",
+          "source": "codex_direct",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -829,6 +963,12 @@
       {
         "name": "loo_codex_app_server_threads",
         "description": "Read Codex app-server thread metadata and loaded-signal posture without turns or raw paths.",
+        "safety": {
+          "mode": "read_only",
+          "source": "codex_direct",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -847,6 +987,12 @@
       {
         "name": "loo_visible_codex_map",
         "description": "Join indexed session cards with optional visible Codex and read-only app-server signals.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -894,6 +1040,12 @@
       {
         "name": "loo_codex_desktop_coherence",
         "description": "Classify whether CLI/direct/app-server Codex thread evidence is also visible in Codex Desktop without performing control or GUI actions.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -966,6 +1118,12 @@
       {
         "name": "loo_codex_desktop_fallback_status",
         "description": "Report CUA-first and Peekaboo-secondary Codex Desktop fallback readiness for a target thread without performing GUI actions.",
+        "safety": {
+          "mode": "read_only",
+          "source": "desktop_fallback",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1002,6 +1160,12 @@
       {
         "name": "loo_plan_state_pins",
         "description": "Extract only manual pins, approval boundaries, and exception ledger entries from PLAN_STATE text.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1018,6 +1182,12 @@
       {
         "name": "loo_github_operating_items",
         "description": "Normalize public-safe GitHub issue, PR, and check records into Eva operating-picture github_items without writing to GitHub.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1046,6 +1216,12 @@
       {
         "name": "loo_project_digest",
         "description": "Create a read-only Eva operating digest from LCO/Codex cards, optional structured GitHub items, PLAN_STATE pins, and source authority coverage.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1086,6 +1262,12 @@
       {
         "name": "loo_attention_inbox",
         "description": "Return only operating-picture cards that need action, review, approval, watch, or blocker triage.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1126,6 +1308,12 @@
       {
         "name": "loo_business_pulse",
         "description": "Answer 'How is the business?' from bounded cited operating cards with explicit source and authority coverage gaps.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1166,6 +1354,12 @@
       {
         "name": "loo_codex_final_messages",
         "description": "Read final assistant/status messages extracted from Codex sessions.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1184,6 +1378,12 @@
       {
         "name": "loo_codex_plans",
         "description": "Read proposed_plan blocks extracted from Codex sessions.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1202,6 +1402,12 @@
       {
         "name": "loo_codex_touched_files",
         "description": "Read touched files extracted for one Codex session.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1215,6 +1421,12 @@
       {
         "name": "loo_codex_tool_calls",
         "description": "Read redacted tool-call metadata extracted from Codex sessions.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1233,6 +1445,12 @@
       {
         "name": "loo_closeout_dry_run",
         "description": "Preview public-safe closeout envelopes that a hook-agent could attach without mutating Codex.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1254,6 +1472,12 @@
       {
         "name": "loo_session_sanitizer",
         "description": "Dry-run public-safe sanitizer findings from indexed Codex safe text without reading raw transcripts or mutating sessions.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1275,6 +1499,12 @@
       {
         "name": "loo_codex_sqlite_stores",
         "description": "Probe local Codex state_*.sqlite and logs_*.sqlite stores read-only.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1296,6 +1526,12 @@
       {
         "name": "loo_lcm_peer_dbs",
         "description": "Probe configured OpenClaw LCM peer DBs read-only.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1312,6 +1548,14 @@
       {
         "name": "loo_codex_control_dry_run",
         "description": "Create a dry-run audit id for a Codex control action.",
+        "safety": {
+          "mode": "local_cache_write",
+          "source": "audit",
+          "requiresApproval": false,
+          "mutationClasses": [
+            "derived_cache"
+          ]
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1340,6 +1584,15 @@
       {
         "name": "loo_codex_resume_thread",
         "description": "Resume or rejoin a Codex thread. Live mode requires approval_audit_id.",
+        "safety": {
+          "mode": "approval_gated_control",
+          "source": "codex_direct",
+          "requiresApproval": true,
+          "mutationClasses": [
+            "derived_cache",
+            "live_control"
+          ]
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1360,6 +1613,15 @@
       {
         "name": "loo_codex_send_message",
         "description": "Send a message to a Codex thread. Live mode requires approval_audit_id.",
+        "safety": {
+          "mode": "approval_gated_control",
+          "source": "codex_direct",
+          "requiresApproval": true,
+          "mutationClasses": [
+            "derived_cache",
+            "live_control"
+          ]
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1383,6 +1645,15 @@
       {
         "name": "loo_codex_steer_thread",
         "description": "Steer a running Codex thread. Live mode requires approval_audit_id and expected_turn_id.",
+        "safety": {
+          "mode": "approval_gated_control",
+          "source": "codex_direct",
+          "requiresApproval": true,
+          "mutationClasses": [
+            "derived_cache",
+            "live_control"
+          ]
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1409,6 +1680,15 @@
       {
         "name": "loo_codex_interrupt_thread",
         "description": "Interrupt a Codex thread. Live mode requires approval_audit_id.",
+        "safety": {
+          "mode": "approval_gated_control",
+          "source": "codex_direct",
+          "requiresApproval": true,
+          "mutationClasses": [
+            "derived_cache",
+            "live_control"
+          ]
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1429,6 +1709,12 @@
       {
         "name": "loo_desktop_see",
         "description": "Inspect desktop fallback readiness through direct/CUA/Peekaboo backends.",
+        "safety": {
+          "mode": "read_only",
+          "source": "desktop_fallback",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1460,6 +1746,12 @@
       {
         "name": "loo_desktop_act",
         "description": "Dry-run desktop fallback action for CUA/Peekaboo; live requests return structured missing-proof blockers.",
+        "safety": {
+          "mode": "dry_run_only",
+          "source": "desktop_fallback",
+          "requiresApproval": true,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1508,6 +1800,12 @@
       {
         "name": "loo_desktop_proof_report",
         "description": "Validate a supplied public-safe desktop GUI action observation and return release-compatible proof when it satisfies no-focus/action-bound gates.",
+        "safety": {
+          "mode": "read_only",
+          "source": "desktop_fallback",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1522,6 +1820,12 @@
       {
         "name": "loo_desktop_live_proof_harness",
         "description": "Prepare a public-safe desktop live/no-focus proof packet without running the GUI action.",
+        "safety": {
+          "mode": "read_only",
+          "source": "desktop_fallback",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1555,6 +1859,15 @@
       {
         "name": "loo_desktop_proof_action",
         "description": "Run the one approved CUA TextEdit scratch launch proof action and return a public-safe observation for proof-report validation.",
+        "safety": {
+          "mode": "approval_gated_control",
+          "source": "desktop_fallback",
+          "requiresApproval": true,
+          "mutationClasses": [
+            "derived_cache",
+            "desktop_gui"
+          ]
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1608,6 +1921,12 @@
       {
         "name": "loo_doctor",
         "description": "Read local orchestrator health.",
+        "safety": {
+          "mode": "read_only",
+          "source": "audit",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1617,6 +1936,12 @@
       {
         "name": "loo_permissions",
         "description": "Read safety posture for live controls.",
+        "safety": {
+          "mode": "read_only",
+          "source": "audit",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1626,6 +1951,12 @@
       {
         "name": "loo_audit_tail",
         "description": "Read recent local audit records without raw prompt text.",
+        "safety": {
+          "mode": "read_only",
+          "source": "audit",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,

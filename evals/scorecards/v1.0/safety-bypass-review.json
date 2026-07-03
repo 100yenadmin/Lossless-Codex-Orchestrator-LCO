@@ -29,6 +29,7 @@
     "visible-map actionsPerformed flags proving no live control, GUI mutation, or raw transcript read",
     "fallback-status actionsPerformed flags proving no live control, GUI mutation, screenshot capture, refresh, restart, click, select, or type",
     "action-bound Desktop collaboration proof blockers for generic GUI action, live Codex control, missing approval, mismatched hash, stale approval, and source coverage gaps",
+    "tool command-policy mutationClasses distinguishing pure reads from derived_cache, source_store, external_system, live_control, desktop_gui, release_publish, and npm_publish families",
     "public comment hygiene blocker codes and redacted previews for malformed closeout bodies"
   ],
   "private_data_exclusions": [
@@ -48,12 +49,14 @@
     "Visible map ambiguity is reported as low confidence instead of authorizing a select, focus, continue, or GUI fallback action.",
     "Codex Desktop fallback status reports CUA/Peekaboo blockers and warnings without performing or authorizing the fallback action.",
     "Codex Desktop collaboration proof fails closed unless the target ref, backend, target app/window, action, action hash, approval packet, freshness, source coverage, and no-screenshot policy all match.",
+    "Indexing and dry-run audit tools are labeled derived_cache only, while watcher request tools remain pure reads and live/GUI/release/external mutation classes stay out of default prepared-state paths.",
     "Closeout dry-run blocks wouldAttach when the proposed public comment body repeats local path fragments or becomes path-token dense."
   ],
   "fail_criteria": [
     "Any live action can run without prior dry-run proof.",
     "Any approval proof accepts a different target ref, action, params hash, or message hash.",
     "Evidence stores raw prompt text, raw transcript spans, screenshots, SQLite pages, or secrets.",
+    "A tool mutates LCO-owned cache or audit state while declaring no mutation class, or a watcher/prepared-state read implies live control or external mutation.",
     "Read-only app-server tools expose preview, cwd, path, turns, or remote-control enablement fields as public evidence.",
     "Public GitHub issue or PR comment recommendations include repeated absolute local paths or raw evidence-root spam instead of concise public-safe summaries."
   ],
