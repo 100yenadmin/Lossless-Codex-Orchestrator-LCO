@@ -71,9 +71,10 @@ const SCREENSHOT_PATTERN = /\b[\w.-]+\.(?:png|jpg|jpeg|webp|heic|gif|tiff|mov|mp
 
 export function createRuntimeProofIssuePacket(options: RuntimeProofIssuePacketOptions): RuntimeProofIssuePacketReport {
   const evidenceDir = resolve(options.evidenceDir);
-  mkdirSync(evidenceDir, { recursive: true });
   const failureReportPath = resolve(options.failureReport);
-  const packetPath = join(evidenceDir, "runtime-proof-issue-packet.json");
+  const evidenceDirRejected = hasPrivateFinding(evidenceDir, "raw_transcript_path");
+  const packetPath = evidenceDirRejected ? "not_written:evidence_dir_transcript_path_rejected" : join(evidenceDir, "runtime-proof-issue-packet.json");
+  if (!evidenceDirRejected) mkdirSync(evidenceDir, { recursive: true });
   const generatedAtResult = normalizeGeneratedAt(options.now);
   const generatedAt = generatedAtResult.value;
   const explicitParentRefs = [
@@ -195,6 +196,7 @@ export function createRuntimeProofIssuePacket(options: RuntimeProofIssuePacketOp
       "private customer data"
     ],
     blockers: [
+      ...(evidenceDirRejected ? ["evidence_dir_transcript_path_rejected"] : []),
       ...(generatedAtResult.invalid ? ["invalid_generated_at"] : []),
       ...(sourceMissing ? ["failure_report_missing"] : []),
       ...(transcriptPathRejected ? ["failure_report_transcript_path_rejected"] : []),
@@ -227,7 +229,7 @@ export function createRuntimeProofIssuePacket(options: RuntimeProofIssuePacketOp
       : "Repair the failure report input or packet redaction blockers before filing an issue."
   };
   const persistedReport = redactionScan.publicSafe ? report : createRedactionFailureStub(report, redactionScan, blockers);
-  writeFileSync(packetPath, `${JSON.stringify(persistedReport, null, 2)}\n`);
+  if (!evidenceDirRejected) writeFileSync(packetPath, `${JSON.stringify(persistedReport, null, 2)}\n`);
   return persistedReport;
 }
 

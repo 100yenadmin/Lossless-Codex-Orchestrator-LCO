@@ -301,3 +301,25 @@ test("runtime proof issue packet rejects symlinked transcript failure reports be
   assert.doesNotMatch(serialized, /github_pat_/);
   assert.doesNotMatch(serialized, /symlink_leak_if_read/);
 });
+
+test("runtime proof issue packet rejects transcript-shaped evidence dirs before writing", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-runtime-issue-packet-evidence-dir-"));
+  const codexSessionsDir = join(root, ".codex", "sessions", "2026", "07", "03");
+  mkdirSync(codexSessionsDir, { recursive: true });
+  const evidenceDir = join(codexSessionsDir, "packet-output");
+  const failureReport = join(root, "failed-runtime-proof.json");
+  writeJson(failureReport, {
+    ok: false,
+    blockers: ["runtime_proof_missing:review-fix-3"]
+  });
+
+  const report = createRuntimeProofIssuePacket({ evidenceDir, failureReport });
+  const serialized = JSON.stringify(report);
+
+  assert.equal(report.ok, false);
+  assert.equal(report.issuePacketReady, false);
+  assert.equal(report.packetPath, "not_written:evidence_dir_transcript_path_rejected");
+  assert.equal(report.blockers.includes("evidence_dir_transcript_path_rejected"), true);
+  assert.equal(existsSync(evidenceDir), false);
+  assert.equal(serialized.includes(".codex/sessions"), false);
+});
