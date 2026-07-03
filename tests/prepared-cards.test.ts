@@ -157,6 +157,7 @@ test("prepared cards materialize public-safe advisory cards and inbox entries", 
     assert.equal(card.state, "ready");
     assert.equal(card.reasonCodes.includes("summary_leaves_ready"), true);
     assert.equal(card.sourceRefs.includes(`codex_thread:${threadId}`), true);
+    assert.equal(card.sourceRefs.some((ref) => /^summary_leaf:[0-9a-f]{32}$/.test(ref)), true);
     assert.equal(card.sourceRangeRefs.every((ref) => /^codex_range:[0-9a-f]{32}$/.test(ref)), true);
 
     const inbox = getPreparedInbox(db, { limit: 10 });
@@ -166,6 +167,7 @@ test("prepared cards materialize public-safe advisory cards and inbox entries", 
     assert.equal(inbox.items.length, 1);
     assert.equal(inbox.items[0]!.cardRef, card.cardRef);
     assert.equal(inbox.items[0]!.targetRef, card.targetRef);
+    assert.equal(inbox.items[0]!.sourceRefs.some((ref) => /^summary_leaf:[0-9a-f]{32}$/.test(ref)), true);
     assert.equal(inbox.items[0]!.execute, false);
   } finally {
     db.close();
@@ -300,6 +302,56 @@ test("prepared status and card reads keep inbox coverage and omitted ranges inde
   }
 });
 
+test("prepared cards fall back for path-like titles before public reads", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-card-title-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const threadId = "019f-prepared-path-title";
+    insertSummaryLeafRow(db, {
+      id: "70000000000000000000000000000007",
+      threadId
+    });
+    db.prepare("UPDATE codex_sessions SET title = ? WHERE thread_id = ?").run("packages/core/src/index.ts", threadId);
+
+    materializePreparedCards(db, { threadId });
+    const cards = getPreparedCards(db, { threadId });
+    assert.equal(cards.cards.length, 1);
+    assert.equal(cards.cards[0]!.title, threadId);
+    assert.equal(cards.cards[0]!.title.includes("/"), false);
+
+    const inbox = getPreparedInbox(db, { threadId });
+    assert.equal(inbox.items.length, 1);
+    assert.equal(inbox.items[0]!.cardRef, cards.cards[0]!.cardRef);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared-card all-thread refresh deletes cards whose leaves disappeared", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-card-delete-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const threadId = "019f-prepared-delete";
+    insertSummaryLeafRow(db, {
+      id: "80000000000000000000000000000008",
+      threadId
+    });
+    materializePreparedCards(db);
+    assert.equal(getPreparedCards(db, { threadId }).summary.total, 1);
+    assert.equal(getPreparedInbox(db, { threadId }).summary.total, 1);
+
+    db.prepare("DELETE FROM summary_leaves WHERE thread_id = ?").run(threadId);
+    const report = materializePreparedCards(db);
+    assert.equal(report.summary.cards, 0);
+    assert.equal(getPreparedCards(db, { threadId }).summary.total, 0);
+    assert.equal(getPreparedInbox(db, { threadId }).summary.total, 0);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("prepared inbox ordering is deterministic and attention-first", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-prepared-inbox-order-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
@@ -365,6 +417,23 @@ test("prepared card reports filter unsafe cached rows without leaking canaries",
       "2026-07-03T00:00:00.000Z",
       "2026-07-03T00:00:00.000Z"
     );
+    db.prepare(`
+      INSERT INTO prepared_inbox_items (
+        item_id, card_ref, target_ref, urgency_score, state, reason_codes_json,
+        source_refs_json, execute_false, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "prepared_inbox:40000000000000000000000000000004",
+      "prepared_card:40000000000000000000000000000004",
+      "codex_thread:019f-unsafe-card",
+      80,
+      "ready",
+      JSON.stringify(["summary_leaves_ready"]),
+      JSON.stringify(["codex_thread:019f-unsafe-card"]),
+      1,
+      "2026-07-03T00:00:00.000Z",
+      "2026-07-03T00:00:00.000Z"
+    );
 
     const report = getPreparedCards(db);
     const serialized = JSON.stringify(report);
@@ -374,6 +443,15 @@ test("prepared card reports filter unsafe cached rows without leaking canaries",
     assert.equal(serialized.includes("PRIVATE_CANARY_TOKEN"), false);
     assert.equal(serialized.includes("/Users/lume"), false);
     assert.equal(serialized.includes("customer.txt"), false);
+
+    const inbox = getPreparedInbox(db);
+    assert.equal(inbox.items.length, 0);
+    assert.equal(inbox.sourceCoverage.preparedInboxItems, "partial");
+
+    const status = getPreparedStateStatus(db);
+    assert.equal(status.summary.cards, 0);
+    assert.equal(status.summary.staleCards, 0);
+    assert.equal(status.summary.inboxItems, 0);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });

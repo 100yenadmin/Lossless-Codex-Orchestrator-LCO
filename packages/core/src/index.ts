@@ -3328,22 +3328,33 @@ export function materializePreparedCards(db: LooDatabase, options: { threadId?: 
 function materializePreparedCardsForAllThreads(db: LooDatabase): PreparedCardMaterializationReport {
   const generatedAt = new Date().toISOString();
   const rows = db.prepare(`
-    SELECT DISTINCT thread_id AS threadId
-    FROM summary_leaves
-    WHERE extractor_version = ?
-      AND privacy_class = 'public_safe_metadata'
-      AND omission_status = 'metadata_only'
-      AND thread_id IS NOT NULL
-    ORDER BY thread_id ASC
-  `).all(SUMMARY_LEAF_EXTRACTOR_VERSION) as Array<{ threadId: string }>;
+    SELECT DISTINCT threadId
+    FROM (
+      SELECT thread_id AS threadId
+      FROM summary_leaves
+      WHERE extractor_version = ?
+        AND privacy_class = 'public_safe_metadata'
+        AND omission_status = 'metadata_only'
+        AND thread_id IS NOT NULL
+      UNION
+      SELECT substr(target_ref, length('codex_thread:') + 1) AS threadId
+      FROM prepared_cards
+      WHERE extractor_version = ?
+        AND privacy_class = 'public_safe_metadata'
+        AND target_ref LIKE 'codex_thread:%'
+    )
+    WHERE threadId IS NOT NULL
+    ORDER BY threadId ASC
+  `).all(SUMMARY_LEAF_EXTRACTOR_VERSION, PREPARED_CARD_EXTRACTOR_VERSION) as Array<{ threadId: string }>;
   const summary = {
     summaryLeaves: 0,
     cards: 0,
     inboxItems: 0,
     skippedUnsafeRows: 0
   };
-  for (const row of rows) {
-    const report = materializePreparedCards(db, { threadId: String(row.threadId) });
+  const threadIds = unique(rows.map((row) => String(row.threadId ?? "")).filter(isPublicSummaryThreadId));
+  for (const threadId of threadIds) {
+    const report = materializePreparedCards(db, { threadId });
     summary.summaryLeaves += report.summary.summaryLeaves;
     summary.cards += report.summary.cards;
     summary.inboxItems += report.summary.inboxItems;
@@ -3374,17 +3385,6 @@ export function getPreparedStateStatus(db: LooDatabase): PreparedStateStatusRepo
   `).get(SUMMARY_LEAF_EXTRACTOR_VERSION) as { count: number }).count);
   const cardsReport = getPreparedCards(db, { limit: 1 });
   const inboxReport = getPreparedInbox(db, { limit: 1 });
-  const cardCounts = db.prepare(`
-    SELECT
-      COUNT(*) AS total,
-      SUM(CASE WHEN stale = 1 THEN 1 ELSE 0 END) AS stale,
-      SUM(CASE WHEN state = 'partial' THEN 1 ELSE 0 END) AS partial,
-      SUM(CASE WHEN state = 'unknown' THEN 1 ELSE 0 END) AS unknown,
-      SUM(CASE WHEN confidence < 0.5 THEN 1 ELSE 0 END) AS lowConfidence
-    FROM prepared_cards
-    WHERE extractor_version = ?
-      AND privacy_class = 'public_safe_metadata'
-  `).get(PREPARED_CARD_EXTRACTOR_VERSION) as { total: number; stale: number | null; partial: number | null; unknown: number | null; lowConfidence: number | null };
   return {
     schema: "lco.preparedState.status.v1",
     publicSafe: true,
@@ -3400,10 +3400,10 @@ export function getPreparedStateStatus(db: LooDatabase): PreparedStateStatusRepo
       summaryLeaves: leaves,
       cards: cardsReport.summary.total,
       inboxItems: inboxReport.summary.total,
-      staleCards: Number(cardCounts.stale ?? 0),
-      partialCards: Number(cardCounts.partial ?? 0),
-      unknownCards: Number(cardCounts.unknown ?? 0),
-      lowConfidenceCards: Number(cardCounts.lowConfidence ?? 0)
+      staleCards: cardsReport.summary.stale,
+      partialCards: cardsReport.summary.partial,
+      unknownCards: cardsReport.summary.unknown,
+      lowConfidenceCards: cardsReport.summary.lowConfidence
     },
     actionsPerformed: preparedCardReadActions(),
     proofBoundary: "Prepared-state status reports only LCO-owned public-safe derived-cache coverage and counts. It does not read raw transcripts, run model compaction, mutate source stores, perform live control, perform GUI actions, or treat prepared cache as source authority."
@@ -3534,6 +3534,8 @@ export function getPreparedInbox(db: LooDatabase, options: PreparedInboxOptions 
   for (const row of rows) {
     const item = publicPreparedInboxItemFromRow(row);
     if (!item) continue;
+    const cardRow = getPreparedCardRowByCardRef(db, item.cardRef);
+    if (!cardRow || !publicPreparedCardFromRow(cardRow)) continue;
     validTotal += 1;
     if (item.reasonCodes.includes("low_confidence")) lowConfidence += 1;
     if (validItems.length < limit) validItems.push(item);
@@ -3649,14 +3651,15 @@ function buildPreparedCardDraft(db: LooDatabase, threadId: string, leaves: Summa
   const sourceRangeRefs = sourceRangeRefsFull.slice(0, PREPARED_CARD_SOURCE_RANGE_REF_LIMIT);
   const sourceRangeRefsOmitted = Math.max(0, sourceRangeRefsFull.length - sourceRangeRefs.length)
     + leaves.reduce((count, leaf) => count + leaf.sourceRangeRefsOmitted, 0);
-  const sourceRefs = unique([targetRef, ...leaves.flatMap((leaf) => leaf.sourceRefs)])
+  const sourceRefs = unique([targetRef, ...leaves.map((leaf) => leaf.leafRef), ...leaves.flatMap((leaf) => leaf.sourceRefs)])
     .filter(isPublicPreparedSourceRef)
     .slice(0, 40);
-  const title = cleanCardPresentationText(session?.title ?? threadId, {
+  const cleanedTitle = cleanCardPresentationText(session?.title ?? threadId, {
     fallback: threadId,
     maxChars: 160,
     role: "title"
-  }).text;
+  });
+  const title = looksSensitiveRefLike(cleanedTitle.text) ? publicSafeText(safeThreadId(threadId), 160) : cleanedTitle.text;
   const summaryText = publicSafeText(
     `Prepared state: ${leaves.length} summary leaf${leaves.length === 1 ? "" : "s"} across ${Math.max(0, leafRangeCount)} prepared source range${leafRangeCount === 1 ? "" : "s"}.`,
     320
@@ -3790,6 +3793,37 @@ function getPreparedCardRowByTargetRef(db: LooDatabase, targetRef: string): Prep
     ORDER BY updated_at DESC, card_ref ASC
     LIMIT 1
   `).get(targetRef, PREPARED_CARD_EXTRACTOR_VERSION) as PreparedCardRow | undefined;
+  return row ?? null;
+}
+
+function getPreparedCardRowByCardRef(db: LooDatabase, cardRef: string): PreparedCardRow | null {
+  if (!/^prepared_card:[0-9a-f]{32}$/.test(cardRef)) return null;
+  const row = db.prepare(`
+    SELECT
+      card_ref AS cardRef,
+      target_ref AS targetRef,
+      card_kind AS cardKind,
+      title,
+      summary_text AS summaryText,
+      next_action AS nextAction,
+      source_refs_json AS sourceRefsJson,
+      source_range_refs_json AS sourceRangeRefsJson,
+      source_range_refs_omitted AS sourceRangeRefsOmitted,
+      authority_coverage_json AS authorityCoverageJson,
+      input_hash AS inputHash,
+      extractor_version AS extractorVersion,
+      privacy_class AS privacyClass,
+      confidence,
+      freshness_at AS freshnessAt,
+      stale,
+      state,
+      reason_codes_json AS reasonCodesJson
+    FROM prepared_cards
+    WHERE card_ref = ?
+      AND extractor_version = ?
+      AND privacy_class = 'public_safe_metadata'
+    LIMIT 1
+  `).get(cardRef, PREPARED_CARD_EXTRACTOR_VERSION) as PreparedCardRow | undefined;
   return row ?? null;
 }
 
