@@ -54,6 +54,6 @@
     "max_live_actions": 0,
     "max_screenshots_in_public_evidence": 0
   },
-  "proof_boundary": "Dry-run fixture scenario for the LCO 1.2 prepared-state source-range foundation. It may prove additive local derived-cache tables and public-safe source range metadata, but does not prove summary leaves, prepared cards, watcher persistence, hook capture, model compaction, true Codex compaction-summary capture, live control, GUI mutation, or release readiness.",
-  "next_action": "Implement summary leaves on top of these source ranges in the #409 lane after #408 lands."
+  "proof_boundary": "Dry-run fixture scenario for the LCO 1.2 prepared-state source-range foundation. It may prove additive local derived-cache tables and public-safe source range metadata, but does not by itself prove summary leaves, prepared cards, watcher persistence, hook capture, model compaction, true Codex compaction-summary capture, live control, GUI mutation, or release readiness.",
+  "next_action": "Use summary-leaves-v1 for the #409 summary-leaf proof slice, then implement prepared cards and inbox materialization in #410."
 }

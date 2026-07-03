@@ -146,6 +146,154 @@ export type PreparedSourceRangesOptions = {
   limit?: number;
 };
 
+export type SummaryLeafKind =
+  | "user_prompt"
+  | "assistant_message"
+  | "proposed_plan"
+  | "final_message"
+  | "closeout"
+  | "tool_call_metadata"
+  | "event_metadata";
+
+export type SummaryLeaf = {
+  schema: "lco.summary.leaf.v1";
+  leafRef: string;
+  threadId: string | null;
+  leafKind: SummaryLeafKind;
+  summaryText: string;
+  sourceRefs: string[];
+  sourceRangeRefs: string[];
+  sourceRangeRefsOmitted: number;
+  inputHash: string;
+  outputHash: string;
+  extractorVersion: "summary-leaves-v1";
+  privacyClass: "public_safe_metadata";
+  authorityCoverage: Record<string, unknown>;
+  confidence: number;
+  freshnessAt: string | null;
+  stale: boolean;
+  omissionStatus: "metadata_only";
+};
+
+export type SummaryLeavesReport = {
+  schema: "lco.summary.leaves.v1";
+  publicSafe: true;
+  readOnly: true;
+  generatedAt: string;
+  sourceCoverage: {
+    summaryLeaves: "ok" | "partial" | "not_configured";
+  };
+  summary: {
+    total: number;
+    returned: number;
+    lowConfidence: number;
+    lowConfidenceScope: "matching_public_safe_total";
+  };
+  leaves: SummaryLeaf[];
+  omitted: {
+    count: number;
+    reason: "limit" | "filtered_unsafe_rows" | "limit_and_filtered_unsafe_rows" | "none";
+    reasons: Array<"limit" | "filtered_unsafe_rows"> | ["none"];
+    limitCount: number;
+    filteredUnsafeRows: number;
+  };
+  actionsPerformed: {
+    derivedCacheWrite: false;
+    sourceStoreMutation: false;
+    externalWrite: false;
+    liveControl: false;
+    guiMutation: false;
+    rawTranscriptRead: false;
+  };
+  proofBoundary: string;
+};
+
+export type SummaryLeavesOptions = {
+  threadId?: string;
+  leafKind?: SummaryLeafKind;
+  limit?: number;
+};
+
+export type SummaryLeafMaterializationReport = {
+  schema: "lco.summary.materialization.v1";
+  publicSafe: false;
+  readOnly: false;
+  mutationClasses: ["derived_cache"];
+  generatedAt: string;
+  target: {
+    threadId: string | null;
+  };
+  summary: {
+    scannedRanges: number;
+    created: number;
+    edges: number;
+    skippedUnsafeRanges: number;
+    omittedRanges: number;
+  };
+  actionsPerformed: {
+    derivedCacheWrite: true;
+    sourceStoreMutation: false;
+    externalWrite: false;
+    liveControl: false;
+    guiMutation: false;
+    rawTranscriptRead: false;
+  };
+  proofBoundary: string;
+};
+
+export type SummaryLeafMaterializationOptions = {
+  threadId?: string;
+  /** Maximum prepared source ranges scanned per target thread. For all-thread materialization, this limit applies independently to each thread. */
+  limit?: number;
+};
+
+export type SummaryExpansionReport = {
+  schema: "lco.summary.expansion.v1";
+  publicSafe: true;
+  readOnly: true;
+  generatedAt: string;
+  root: {
+    leafRef: string | null;
+    threadId: string | null;
+  };
+  limits: {
+    maxDepth: number;
+    maxNodes: number;
+    tokenBudget: number;
+  };
+  leaves: SummaryLeaf[];
+  edges: Array<{
+    parentLeafRef: string;
+    childLeafRef: string;
+    edgeKind: string;
+  }>;
+  omitted: {
+    count: number;
+    reasons: Array<"cycle" | "depth" | "node_limit" | "token_budget"> | ["none"];
+    cycleCount: number;
+    depthCount: number;
+    nodeLimitCount: number;
+    tokenBudgetCount: number;
+  };
+  actionsPerformed: {
+    derivedCacheWrite: false;
+    sourceStoreMutation: false;
+    externalWrite: false;
+    liveControl: false;
+    guiMutation: false;
+    rawTranscriptRead: false;
+  };
+  proofBoundary: string;
+};
+
+export type SummaryExpansionOptions = {
+  leafRef?: string;
+  threadId?: string;
+  maxDepth?: number;
+  maxNodes?: number;
+  tokenBudget?: number;
+};
+
 export type CodexSqliteProbe = {
   path: string;
   kind: "state" | "logs" | "unknown";
@@ -1624,6 +1772,9 @@ type PreparedSourceRangeDraft = {
 const DEFAULT_CODEX_MAX_BYTES_PER_FILE = 50 * 1024 * 1024;
 const DEFAULT_CODEX_MAX_EVENTS_PER_FILE = 50_000;
 const PREPARED_SOURCE_EXTRACTOR_VERSION = "prepared-source-ranges-v1" as const;
+const SUMMARY_LEAF_EXTRACTOR_VERSION = "summary-leaves-v1" as const;
+const SUMMARY_LEAF_EDGE_DELETE_BATCH_SIZE = 400;
+const SUMMARY_LEAF_SOURCE_RANGE_REF_LIMIT = 50;
 
 export function createDatabase(dbPath?: string): LooDatabase {
   const resolved = dbPath ?? defaultDatabasePath();
@@ -1858,6 +2009,8 @@ export function migrate(db: LooDatabase): void {
       UNIQUE(parent_leaf_ref, child_leaf_ref, edge_kind)
     );
 
+    CREATE INDEX IF NOT EXISTS summary_leaves_thread_extractor_idx ON summary_leaves(thread_id, extractor_version, privacy_class, omission_status);
+
     CREATE TABLE IF NOT EXISTS prepared_cards (
       card_id TEXT PRIMARY KEY,
       card_ref TEXT NOT NULL UNIQUE,
@@ -2009,6 +2162,7 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
     errors: []
   };
   const seenThreads = new Set<string>();
+  const summaryThreadsToMaterialize = new Set<string>();
 
   for (const path of files) {
     try {
@@ -2026,7 +2180,12 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
         continue;
       }
       if (watermark && watermark.size === stat.size && watermark.mtimeMs === mtimeMs) {
-        if (watermark.pathHash === stableId(text) && !sourceNeedsMetadataBackfill(db, path) && !sourceNeedsPreparedSourceRangeBackfill(db, path)) {
+        if (
+          watermark.pathHash === stableId(text)
+          && !sourceNeedsMetadataBackfill(db, path)
+          && !sourceNeedsPreparedSourceRangeBackfill(db, path)
+          && !sourceNeedsSummaryLeafBackfill(db, path)
+        ) {
           result.skippedFiles += 1;
           continue;
         }
@@ -2036,8 +2195,16 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
       result.indexedFiles += 1;
       result.indexedEvents += session.eventCount;
       seenThreads.add(session.threadId);
+      summaryThreadsToMaterialize.add(session.threadId);
     } catch (error) {
       result.errors.push({ path, message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  for (const threadId of summaryThreadsToMaterialize) {
+    try {
+      materializeSummaryLeaves(db, { threadId });
+    } catch (error) {
+      result.errors.push({ path: codexThreadRef(threadId), message: error instanceof Error ? error.message : String(error) });
     }
   }
 
@@ -2193,8 +2360,17 @@ function clearSourceFileIndex(db: LooDatabase, sourcePath: string): void {
   const rows = db.prepare("SELECT thread_id AS threadId FROM codex_sessions WHERE source_path = ?").all(sourcePath) as Array<{ threadId: string }>;
   db.exec("BEGIN");
   try {
+    const threadIds = rows.map((row) => String(row.threadId)).filter(Boolean);
+    deleteSummaryLeavesForThreadIds(db, threadIds);
     const deleteFts = db.prepare("DELETE FROM codex_safe_text_fts WHERE thread_id = ?");
-    for (const row of rows) deleteFts.run(String(row.threadId));
+    const deletePreparedRanges = db.prepare("DELETE FROM prepared_source_ranges WHERE thread_id = ?");
+    const deletePreparedEvents = db.prepare("DELETE FROM prepared_source_events WHERE thread_id = ?");
+    for (const row of rows) {
+      const threadId = String(row.threadId);
+      deleteFts.run(threadId);
+      deletePreparedRanges.run(threadId);
+      deletePreparedEvents.run(threadId);
+    }
     db.prepare("DELETE FROM codex_sessions WHERE source_path = ?").run(sourcePath);
     db.prepare("DELETE FROM codex_source_files WHERE source_path = ?").run(sourcePath);
     db.exec("COMMIT");
@@ -2298,27 +2474,7 @@ export function getPreparedSourceRanges(db: LooDatabase, options: PreparedSource
     ${publicSafeWhere}
     ORDER BY thread_id ASC, ordinal ASC, range_ref ASC
     LIMIT ?
-  `).all(...params, limit) as Array<{
-    rangeRef: string;
-    eventRef: string;
-    threadId: string;
-    sourceRef: string;
-    sourcePathRef: string;
-    rangeKind: PreparedSourceRangeKind;
-    lineStart: number;
-    lineEnd: number;
-    byteStart: number;
-    byteEnd: number;
-    ordinal: number;
-    sourceHash: string;
-    contentHash: string;
-    extractorVersion: "prepared-source-ranges-v1";
-    privacyClass: "public_safe_metadata";
-    omissionStatus: "metadata_only";
-    confidence: number;
-    observedAt: string | null;
-    reasonCodesJson: string;
-  }>;
+  `).all(...params, limit) as PreparedSourceRangeRow[];
   const lowConfidenceRow = db.prepare(`
     SELECT COUNT(*) AS count
     FROM prepared_source_ranges
@@ -2326,29 +2482,8 @@ export function getPreparedSourceRanges(db: LooDatabase, options: PreparedSource
       AND confidence < 0.5
   `).get(...params) as { count: number };
   const ranges: PreparedSourceRange[] = rows.flatMap((row) => {
-    if (!isPublicPreparedSourceRangeRow(row)) return [];
-    return [{
-      schema: "lco.prepared.sourceRange.v1",
-      rangeRef: row.rangeRef,
-      eventRef: row.eventRef,
-      threadId: row.threadId,
-      sourceRef: row.sourceRef,
-      sourcePathRef: row.sourcePathRef,
-      rangeKind: row.rangeKind,
-      lineStart: Number(row.lineStart),
-      lineEnd: Number(row.lineEnd),
-      byteStart: Number(row.byteStart),
-      byteEnd: Number(row.byteEnd),
-      ordinal: Number(row.ordinal),
-      sourceHash: row.sourceHash,
-      contentHash: row.contentHash,
-      extractorVersion: PREPARED_SOURCE_EXTRACTOR_VERSION,
-      privacyClass: "public_safe_metadata",
-      omissionStatus: "metadata_only",
-      confidence: Number(row.confidence),
-      observedAt: row.observedAt,
-      reasonCodes: parseSourceRefsJson(row.reasonCodesJson)
-    }];
+    const range = preparedSourceRangeFromRow(row);
+    return range ? [range] : [];
   });
   const total = Number(countRow.count ?? 0);
   const publicSafeTotal = Number(publicSafeCountRow.count ?? 0);
@@ -2397,6 +2532,32 @@ export function getPreparedSourceRanges(db: LooDatabase, options: PreparedSource
   };
 }
 
+function preparedSourceRangeFromRow(row: PreparedSourceRangeRow): PreparedSourceRange | null {
+  if (!isPublicPreparedSourceRangeRow(row)) return null;
+  return {
+    schema: "lco.prepared.sourceRange.v1",
+    rangeRef: row.rangeRef,
+    eventRef: row.eventRef,
+    threadId: row.threadId,
+    sourceRef: row.sourceRef,
+    sourcePathRef: row.sourcePathRef,
+    rangeKind: row.rangeKind,
+    lineStart: Number(row.lineStart),
+    lineEnd: Number(row.lineEnd),
+    byteStart: Number(row.byteStart),
+    byteEnd: Number(row.byteEnd),
+    ordinal: Number(row.ordinal),
+    sourceHash: row.sourceHash,
+    contentHash: row.contentHash,
+    extractorVersion: PREPARED_SOURCE_EXTRACTOR_VERSION,
+    privacyClass: "public_safe_metadata",
+    omissionStatus: "metadata_only",
+    confidence: Number(row.confidence),
+    observedAt: row.observedAt,
+    reasonCodes: parseSourceRefsJson(row.reasonCodesJson)
+  };
+}
+
 function isPublicPreparedSourceRangeRow(row: {
   rangeRef: string;
   eventRef: string;
@@ -2442,6 +2603,800 @@ function isPublicPreparedSourceRangeRow(row: {
     && (row.observedAt === null || isSafeIsoTimestamp(row.observedAt));
 }
 
+function getPreparedSourceRangesForSummaryMaterialization(
+  db: LooDatabase,
+  options: { threadId?: string; limit?: number } = {}
+): { ranges: PreparedSourceRange[]; filteredUnsafeRows: number; omittedRanges: number } {
+  const clauses: string[] = [
+    "privacy_class = ?",
+    "omission_status = ?",
+    "extractor_version = ?"
+  ];
+  const params: Array<string | number> = [
+    "public_safe_metadata",
+    "metadata_only",
+    PREPARED_SOURCE_EXTRACTOR_VERSION
+  ];
+  if (options.threadId) {
+    clauses.push("thread_id = ?");
+    params.push(options.threadId);
+  }
+  const where = `WHERE ${clauses.join(" AND ")}`;
+  const publicSafeClauses = [
+    ...clauses,
+    "range_ref LIKE 'codex_range:%'",
+    "length(range_ref) = 44",
+    "substr(range_ref, 13) NOT GLOB '*[^0-9a-f]*'",
+    "event_ref LIKE 'codex_event:%'",
+    "length(event_ref) = 44",
+    "substr(event_ref, 13) NOT GLOB '*[^0-9a-f]*'",
+    "source_ref LIKE 'codex_thread:%'",
+    "length(source_ref) BETWEEN 14 AND 173",
+    "source_ref NOT LIKE '%/%'",
+    "source_ref NOT LIKE '%\\%'",
+    "source_ref NOT LIKE '% %'",
+    "source_path_ref LIKE 'codex_source:%'",
+    "length(source_path_ref) = 29",
+    "substr(source_path_ref, 14) NOT GLOB '*[^0-9a-f]*'",
+    "length(source_hash) = 32",
+    "source_hash NOT GLOB '*[^0-9a-f]*'",
+    "length(content_hash) = 32",
+    "content_hash NOT GLOB '*[^0-9a-f]*'",
+    "line_start >= 1",
+    "line_end >= line_start",
+    "byte_start >= 0",
+    "byte_end >= byte_start",
+    "ordinal >= 0",
+    "confidence >= 0",
+    "confidence <= 1",
+    "(observed_at IS NULL OR (length(observed_at) BETWEEN 20 AND 35 AND observed_at LIKE '____-__-__T%Z'))"
+  ];
+  const publicSafeWhere = `WHERE ${publicSafeClauses.join(" AND ")}`;
+  const total = Number((db.prepare(`SELECT COUNT(*) AS count FROM prepared_source_ranges ${where}`).get(...params) as { count: number }).count ?? 0);
+  const publicSafeTotal = Number((db.prepare(`SELECT COUNT(*) AS count FROM prepared_source_ranges ${publicSafeWhere}`).get(...params) as { count: number }).count ?? 0);
+  const maxRows = options.limit ? clamp(options.limit, 1, 100_000) : publicSafeTotal;
+  const pageSize = 1000;
+  const ranges: PreparedSourceRange[] = [];
+  let strictFilteredUnsafeRows = 0;
+  for (let offset = 0; offset < maxRows; offset += pageSize) {
+    const rows = db.prepare(`
+      SELECT
+        range_ref AS rangeRef,
+        event_ref AS eventRef,
+        thread_id AS threadId,
+        source_ref AS sourceRef,
+        source_path_ref AS sourcePathRef,
+        range_kind AS rangeKind,
+        line_start AS lineStart,
+        line_end AS lineEnd,
+        byte_start AS byteStart,
+        byte_end AS byteEnd,
+        ordinal,
+        source_hash AS sourceHash,
+        content_hash AS contentHash,
+        extractor_version AS extractorVersion,
+        privacy_class AS privacyClass,
+        omission_status AS omissionStatus,
+        confidence,
+        observed_at AS observedAt,
+        reason_codes_json AS reasonCodesJson
+      FROM prepared_source_ranges
+      ${publicSafeWhere}
+      ORDER BY thread_id ASC, ordinal ASC, range_ref ASC
+      LIMIT ? OFFSET ?
+    `).all(...params, Math.min(pageSize, maxRows - offset), offset) as PreparedSourceRangeRow[];
+    if (rows.length === 0) break;
+    for (const row of rows) {
+      const range = preparedSourceRangeFromRow(row);
+      if (range) ranges.push(range);
+      else strictFilteredUnsafeRows += 1;
+    }
+  }
+  return {
+    ranges,
+    filteredUnsafeRows: Math.max(0, total - publicSafeTotal) + strictFilteredUnsafeRows,
+    omittedRanges: Math.max(0, publicSafeTotal - maxRows)
+  };
+}
+
+export function materializeSummaryLeaves(db: LooDatabase, options: SummaryLeafMaterializationOptions = {}): SummaryLeafMaterializationReport {
+  if (!options.threadId) return materializeSummaryLeavesForAllThreads(db, options);
+  const generatedAt = new Date().toISOString();
+  const rangesReport = getPreparedSourceRangesForSummaryMaterialization(db, { threadId: options.threadId, limit: options.limit });
+  const leafDrafts = buildSummaryLeafDrafts(rangesReport.ranges);
+  db.exec("BEGIN");
+  try {
+    const oldLeafRefs = db.prepare("SELECT leaf_ref AS leafRef FROM summary_leaves WHERE thread_id = ?").all(options.threadId) as Array<{ leafRef: string }>;
+    deleteSummaryLeafEdges(db, oldLeafRefs.map((row) => row.leafRef));
+    db.prepare("DELETE FROM summary_leaves WHERE thread_id = ?").run(options.threadId);
+    for (const leaf of leafDrafts) {
+      db.prepare(`
+        INSERT INTO summary_leaves (
+          leaf_id, leaf_ref, thread_id, leaf_kind, summary_text, source_refs_json,
+          source_range_refs_json, input_hash, output_hash, extractor_version,
+          privacy_class, authority_coverage_json, confidence, freshness_at, stale,
+          omission_status, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        leaf.leafId,
+        leaf.leafRef,
+        leaf.threadId,
+        leaf.leafKind,
+        leaf.summaryText,
+        JSON.stringify(leaf.sourceRefs),
+        JSON.stringify(leaf.sourceRangeRefs),
+        leaf.inputHash,
+        leaf.outputHash,
+        SUMMARY_LEAF_EXTRACTOR_VERSION,
+        "public_safe_metadata",
+        JSON.stringify(leaf.authorityCoverage),
+        leaf.confidence,
+        leaf.freshnessAt,
+        leaf.stale ? 1 : 0,
+        "metadata_only",
+        generatedAt
+      );
+    }
+    const edgeCount = insertSummaryLeafEdges(db, leafDrafts, generatedAt);
+    db.exec("COMMIT");
+    return {
+      schema: "lco.summary.materialization.v1",
+      publicSafe: false,
+      readOnly: false,
+      mutationClasses: ["derived_cache"],
+      generatedAt,
+      target: {
+        threadId: options.threadId ?? null
+      },
+      summary: {
+        scannedRanges: rangesReport.ranges.length,
+        created: leafDrafts.length,
+        edges: edgeCount,
+        skippedUnsafeRanges: rangesReport.filteredUnsafeRows,
+        omittedRanges: rangesReport.omittedRanges
+      },
+      actionsPerformed: {
+        derivedCacheWrite: true,
+        sourceStoreMutation: false,
+        externalWrite: false,
+        liveControl: false,
+        guiMutation: false,
+        rawTranscriptRead: false
+      },
+      proofBoundary: "Summary leaves are deterministic metadata-only routing cards over LCO prepared source ranges. They write only LCO-owned derived cache and do not read raw transcripts, run model compaction, mutate source stores, perform live control, or perform GUI actions."
+    };
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+function materializeSummaryLeavesForAllThreads(db: LooDatabase, options: SummaryLeafMaterializationOptions = {}): SummaryLeafMaterializationReport {
+  const generatedAt = new Date().toISOString();
+  const rows = db.prepare(`
+    SELECT DISTINCT thread_id AS threadId
+    FROM prepared_source_ranges
+    WHERE extractor_version = ?
+      AND privacy_class = 'public_safe_metadata'
+      AND omission_status = 'metadata_only'
+    ORDER BY thread_id ASC
+  `).all(PREPARED_SOURCE_EXTRACTOR_VERSION) as Array<{ threadId: string }>;
+  const summary = {
+    scannedRanges: 0,
+    created: 0,
+    edges: 0,
+    skippedUnsafeRanges: 0,
+    omittedRanges: 0
+  };
+  for (const row of rows) {
+    const report = materializeSummaryLeaves(db, { threadId: String(row.threadId), limit: options.limit });
+    summary.scannedRanges += report.summary.scannedRanges;
+    summary.created += report.summary.created;
+    summary.edges += report.summary.edges;
+    summary.skippedUnsafeRanges += report.summary.skippedUnsafeRanges;
+    summary.omittedRanges += report.summary.omittedRanges;
+  }
+  return {
+    schema: "lco.summary.materialization.v1",
+    publicSafe: false,
+    readOnly: false,
+    mutationClasses: ["derived_cache"],
+    generatedAt,
+    target: {
+      threadId: null
+    },
+    summary,
+    actionsPerformed: {
+      derivedCacheWrite: true,
+      sourceStoreMutation: false,
+      externalWrite: false,
+      liveControl: false,
+      guiMutation: false,
+      rawTranscriptRead: false
+    },
+    proofBoundary: "Summary leaves are deterministic metadata-only routing cards over LCO prepared source ranges. A no-thread materialization refreshes each thread independently and writes only LCO-owned derived cache; it does not read raw transcripts, run model compaction, mutate source stores, perform live control, or perform GUI actions."
+  };
+}
+
+export function getSummaryLeaves(db: LooDatabase, options: SummaryLeavesOptions = {}): SummaryLeavesReport {
+  const limit = clamp(options.limit ?? 100, 1, 1000);
+  const clauses: string[] = [
+    "privacy_class = ?",
+    "omission_status = ?",
+    "extractor_version = ?"
+  ];
+  const params: Array<string | number> = [
+    "public_safe_metadata",
+    "metadata_only",
+    SUMMARY_LEAF_EXTRACTOR_VERSION
+  ];
+  if (options.threadId) {
+    clauses.push("thread_id = ?");
+    params.push(options.threadId);
+  }
+  if (options.leafKind) {
+    clauses.push("leaf_kind = ?");
+    params.push(options.leafKind);
+  }
+  const where = `WHERE ${clauses.join(" AND ")}`;
+  const publicSafeClauses = [
+    ...clauses,
+    "leaf_ref LIKE 'summary_leaf:%'",
+    "length(leaf_ref) = 45",
+    "substr(leaf_ref, 14) NOT GLOB '*[^0-9a-f]*'",
+    "length(input_hash) = 32",
+    "input_hash NOT GLOB '*[^0-9a-f]*'",
+    "length(output_hash) = 32",
+    "output_hash NOT GLOB '*[^0-9a-f]*'",
+    "confidence >= 0",
+    "confidence <= 1",
+    "(freshness_at IS NULL OR (length(freshness_at) BETWEEN 20 AND 35 AND freshness_at LIKE '____-__-__T%Z'))"
+  ];
+  const publicSafeWhere = `WHERE ${publicSafeClauses.join(" AND ")}`;
+  const countRow = db.prepare(`SELECT COUNT(*) AS count FROM summary_leaves ${where}`).get(...params) as { count: number };
+  const publicSafeCountRow = db.prepare(`SELECT COUNT(*) AS count FROM summary_leaves ${publicSafeWhere}`).get(...params) as { count: number };
+  const selectRows = db.prepare(`
+    SELECT
+      leaf_ref AS leafRef,
+      thread_id AS threadId,
+      leaf_kind AS leafKind,
+      summary_text AS summaryText,
+      source_refs_json AS sourceRefsJson,
+      source_range_refs_json AS sourceRangeRefsJson,
+      input_hash AS inputHash,
+      output_hash AS outputHash,
+      extractor_version AS extractorVersion,
+      privacy_class AS privacyClass,
+      authority_coverage_json AS authorityCoverageJson,
+      confidence,
+      freshness_at AS freshnessAt,
+      stale,
+      omission_status AS omissionStatus
+    FROM summary_leaves
+    ${publicSafeWhere}
+    ORDER BY thread_id ASC, freshness_at DESC, leaf_kind ASC, leaf_ref ASC
+    LIMIT ? OFFSET ?
+  `);
+  const total = Number(countRow.count ?? 0);
+  const sqlPublicSafeTotal = Number(publicSafeCountRow.count ?? 0);
+  const leaves: SummaryLeaf[] = [];
+  let publicSafeTotal = 0;
+  let lowConfidence = 0;
+  let strictFilteredUnsafeRows = 0;
+  const pageSize = 1000;
+  for (let offset = 0; offset < sqlPublicSafeTotal; offset += pageSize) {
+    const rows = selectRows.all(...params, pageSize, offset) as SummaryLeafRow[];
+    if (rows.length === 0) break;
+    for (const row of rows) {
+      const leaf = publicSummaryLeafFromRow(row);
+      if (!leaf) {
+        strictFilteredUnsafeRows += 1;
+        continue;
+      }
+      publicSafeTotal += 1;
+      if (leaf.confidence < 0.5) lowConfidence += 1;
+      if (leaves.length < limit) leaves.push(leaf);
+    }
+  }
+  const filteredUnsafeRows = Math.max(0, total - sqlPublicSafeTotal) + strictFilteredUnsafeRows;
+  const limitOmissions = Math.max(0, publicSafeTotal - leaves.length);
+  const omittedReasons = [
+    limitOmissions > 0 ? "limit" : null,
+    filteredUnsafeRows > 0 ? "filtered_unsafe_rows" : null
+  ].filter((reason): reason is "limit" | "filtered_unsafe_rows" => Boolean(reason));
+  return {
+    schema: "lco.summary.leaves.v1",
+    publicSafe: true,
+    readOnly: true,
+    generatedAt: new Date().toISOString(),
+    sourceCoverage: {
+      summaryLeaves: publicSafeTotal > 0 ? "ok" : total > 0 ? "partial" : "not_configured"
+    },
+    summary: {
+      total: publicSafeTotal,
+      returned: leaves.length,
+      lowConfidence,
+      lowConfidenceScope: "matching_public_safe_total"
+    },
+    leaves,
+    omitted: {
+      count: limitOmissions + filteredUnsafeRows,
+      reason: omittedReasons.length === 2 ? "limit_and_filtered_unsafe_rows" : omittedReasons[0] ?? "none",
+      reasons: omittedReasons.length ? omittedReasons : ["none"],
+      limitCount: limitOmissions,
+      filteredUnsafeRows
+    },
+    actionsPerformed: {
+      derivedCacheWrite: false,
+      sourceStoreMutation: false,
+      externalWrite: false,
+      liveControl: false,
+      guiMutation: false,
+      rawTranscriptRead: false
+    },
+    proofBoundary: "Summary leaves are public-safe metadata-only routing cards over prepared source ranges. They expose opaque refs, hashes, and bounded summary text only; they do not expose raw transcript text, local paths, secrets, source-store mutation, live control, GUI mutation, external writes, model compaction, or true Codex compaction-summary capture."
+  };
+}
+
+export function expandSummaryLeaves(db: LooDatabase, options: SummaryExpansionOptions = {}): SummaryExpansionReport {
+  const maxDepth = clamp(options.maxDepth ?? 3, 0, 20);
+  const maxNodes = clamp(options.maxNodes ?? 20, 1, 200);
+  const tokenBudget = clamp(options.tokenBudget ?? 1000, 8, 8000);
+  const requestedRoot = options.leafRef ? getSummaryLeafByRef(db, options.leafRef, options.threadId) : null;
+  const leafScopeThreadId = options.threadId ?? requestedRoot?.threadId ?? undefined;
+  const allLeaves = getSummaryLeaves(db, { threadId: leafScopeThreadId, limit: 1000 }).leaves;
+  const leafByRef = new Map(allLeaves.map((leaf) => [leaf.leafRef, leaf]));
+  if (requestedRoot) leafByRef.set(requestedRoot.leafRef, requestedRoot);
+  const roots = options.leafRef
+    ? [requestedRoot].filter((leaf): leaf is SummaryLeaf => Boolean(leaf))
+    : allLeaves.slice(0, maxNodes);
+  const leaves: SummaryLeaf[] = [];
+  const edges: SummaryExpansionReport["edges"] = [];
+  const seen = new Set<string>();
+  const queued = roots.map((leaf) => ({ leaf, depth: 0 }));
+  const queuedRefs = new Set(roots.map((leaf) => leaf.leafRef));
+  const edgeKeys = new Set<string>();
+  let approxTokens = 0;
+  const omitted = {
+    cycleCount: 0,
+    depthCount: 0,
+    nodeLimitCount: options.leafRef ? 0 : Math.max(0, allLeaves.length - roots.length),
+    tokenBudgetCount: 0
+  };
+  while (queued.length > 0) {
+    const next = queued.shift()!;
+    queuedRefs.delete(next.leaf.leafRef);
+    if (seen.has(next.leaf.leafRef)) {
+      omitted.cycleCount += 1;
+      continue;
+    }
+    if (next.depth > maxDepth) {
+      omitted.depthCount += 1;
+      continue;
+    }
+    if (leaves.length >= maxNodes) {
+      omitted.nodeLimitCount += 1;
+      continue;
+    }
+    const nextTokens = approximateTokens(next.leaf.summaryText);
+    if (approxTokens + nextTokens > tokenBudget) {
+      omitted.tokenBudgetCount += 1;
+      continue;
+    }
+    seen.add(next.leaf.leafRef);
+    approxTokens += nextTokens;
+    leaves.push(next.leaf);
+    for (const edge of getSummaryEdgesForParent(db, next.leaf, maxNodes * 2)) {
+      let child = leafByRef.get(edge.childLeafRef);
+      if (!child) {
+        child = getSummaryLeafByRef(db, edge.childLeafRef, next.leaf.threadId ?? undefined) ?? undefined;
+        if (child) leafByRef.set(child.leafRef, child);
+      }
+      if (!child) continue;
+      const edgeKey = `${edge.parentLeafRef}:${edge.childLeafRef}:${edge.edgeKind}`;
+      if (!edgeKeys.has(edgeKey)) {
+        edges.push(edge);
+        edgeKeys.add(edgeKey);
+      }
+      if (seen.has(child.leafRef)) {
+        omitted.cycleCount += 1;
+      } else if (queuedRefs.has(child.leafRef)) {
+        continue;
+      } else {
+        queued.push({ leaf: child, depth: next.depth + 1 });
+        queuedRefs.add(child.leafRef);
+      }
+    }
+  }
+  const reasons = [
+    omitted.cycleCount > 0 ? "cycle" : null,
+    omitted.depthCount > 0 ? "depth" : null,
+    omitted.nodeLimitCount > 0 ? "node_limit" : null,
+    omitted.tokenBudgetCount > 0 ? "token_budget" : null
+  ].filter((reason): reason is "cycle" | "depth" | "node_limit" | "token_budget" => Boolean(reason));
+  return {
+    schema: "lco.summary.expansion.v1",
+    publicSafe: true,
+    readOnly: true,
+    generatedAt: new Date().toISOString(),
+    root: {
+      leafRef: roots[0]?.leafRef ?? null,
+      threadId: options.leafRef ? roots[0]?.threadId ?? options.threadId ?? null : options.threadId ?? null
+    },
+    limits: {
+      maxDepth,
+      maxNodes,
+      tokenBudget
+    },
+    leaves,
+    edges: edges.filter((edge) => seen.has(edge.parentLeafRef) && (seen.has(edge.childLeafRef) || edge.childLeafRef === options.leafRef)).slice(0, maxNodes * 2),
+    omitted: {
+      count: omitted.cycleCount + omitted.depthCount + omitted.nodeLimitCount + omitted.tokenBudgetCount,
+      reasons: reasons.length ? reasons : ["none"],
+      ...omitted
+    },
+    actionsPerformed: {
+      derivedCacheWrite: false,
+      sourceStoreMutation: false,
+      externalWrite: false,
+      liveControl: false,
+      guiMutation: false,
+      rawTranscriptRead: false
+    },
+    proofBoundary: "Summary expansion traverses public-safe summary-leaf metadata under depth, node, and token caps. It reports omissions explicitly and does not read raw transcripts, run model compaction, mutate source stores, perform live control, or perform GUI actions."
+  };
+}
+
+type SummaryLeafDraft = SummaryLeaf & { leafId: string };
+
+type PreparedSourceRangeRow = {
+  rangeRef: string;
+  eventRef: string;
+  threadId: string;
+  sourceRef: string;
+  sourcePathRef: string;
+  rangeKind: PreparedSourceRangeKind;
+  lineStart: number;
+  lineEnd: number;
+  byteStart: number;
+  byteEnd: number;
+  ordinal: number;
+  sourceHash: string;
+  contentHash: string;
+  extractorVersion: "prepared-source-ranges-v1";
+  privacyClass: "public_safe_metadata";
+  omissionStatus: "metadata_only";
+  confidence: number;
+  observedAt: string | null;
+  reasonCodesJson: string;
+};
+
+type SummaryLeafRow = {
+  leafRef: string;
+  threadId: string | null;
+  leafKind: string;
+  summaryText: string;
+  sourceRefsJson: string;
+  sourceRangeRefsJson: string;
+  inputHash: string;
+  outputHash: string;
+  extractorVersion: string;
+  privacyClass: string;
+  authorityCoverageJson: string;
+  confidence: number;
+  freshnessAt: string | null;
+  stale: number;
+  omissionStatus: string;
+};
+
+function buildSummaryLeafDrafts(ranges: PreparedSourceRange[]): SummaryLeafDraft[] {
+  const groups = new Map<string, PreparedSourceRange[]>();
+  for (const range of ranges) {
+    const leafKind = summaryLeafKindFromRangeKind(range.rangeKind);
+    const key = `${range.threadId}|${leafKind}`;
+    const list = groups.get(key) ?? [];
+    list.push(range);
+    groups.set(key, list);
+  }
+  return [...groups.entries()].map(([key, group]) => {
+    const [, leafKind] = key.split("|");
+    const sorted = group.sort((left, right) => left.ordinal - right.ordinal || left.rangeRef.localeCompare(right.rangeRef));
+    const threadId = sorted[0]?.threadId ?? null;
+    const sourceRefs = unique(sorted.map((range) => range.sourceRef)).sort();
+    const fullSourceRangeRefs = unique(sorted.map((range) => range.rangeRef)).sort();
+    const sourceRangeRefs = fullSourceRangeRefs.slice(0, SUMMARY_LEAF_SOURCE_RANGE_REF_LIMIT);
+    const inputHash = stableId(sorted.map((range) => `${range.rangeRef}:${range.contentHash}`).join("|"));
+    const summaryText = summaryLeafText(leafKind as SummaryLeafKind, sorted.length);
+    const leafId = stableId(`${SUMMARY_LEAF_EXTRACTOR_VERSION}:${threadId}:${leafKind}:${inputHash}`);
+    const freshnessAt = latestIso(sorted.map((range) => range.observedAt));
+    const confidence = Math.min(...sorted.map((range) => range.confidence));
+    const draft: SummaryLeafDraft = {
+      schema: "lco.summary.leaf.v1",
+      leafId,
+      leafRef: `summary_leaf:${leafId}`,
+      threadId,
+      leafKind: leafKind as SummaryLeafKind,
+      summaryText,
+      sourceRefs,
+      sourceRangeRefs,
+      sourceRangeRefsOmitted: Math.max(0, fullSourceRangeRefs.length - sourceRangeRefs.length),
+      inputHash,
+      outputHash: stableId(summaryText),
+      extractorVersion: SUMMARY_LEAF_EXTRACTOR_VERSION,
+      privacyClass: "public_safe_metadata",
+      authorityCoverage: {
+        source: "prepared_source_ranges",
+        status: "ok",
+        rangeCount: sorted.length
+      },
+      confidence: Number.isFinite(confidence) ? confidence : 0.4,
+      freshnessAt,
+      stale: false,
+      omissionStatus: "metadata_only"
+    };
+    return draft;
+  }).sort((left, right) => (left.threadId ?? "").localeCompare(right.threadId ?? "") || summaryLeafSortOrder(left.leafKind) - summaryLeafSortOrder(right.leafKind) || left.leafRef.localeCompare(right.leafRef));
+}
+
+function summaryLeafKindFromRangeKind(rangeKind: PreparedSourceRangeKind): SummaryLeafKind {
+  if (rangeKind === "user_prompt") return "user_prompt";
+  if (rangeKind === "assistant_message") return "assistant_message";
+  if (rangeKind === "proposed_plan") return "proposed_plan";
+  if (rangeKind === "final_message") return "final_message";
+  if (rangeKind === "closeout") return "closeout";
+  if (rangeKind === "tool_call_metadata") return "tool_call_metadata";
+  return "event_metadata";
+}
+
+function summaryLeafText(leafKind: SummaryLeafKind, rangeCount: number): string {
+  const label: Record<SummaryLeafKind, string> = {
+    user_prompt: "User prompt evidence",
+    assistant_message: "Assistant message evidence",
+    proposed_plan: "Proposed plan evidence",
+    final_message: "Final assistant message evidence",
+    closeout: "Closeout evidence",
+    tool_call_metadata: "Tool-call metadata evidence",
+    event_metadata: "Event metadata evidence"
+  };
+  return `${label[leafKind]}: ${rangeCount} prepared source range${rangeCount === 1 ? "" : "s"} available. Expand by summary leaf or source range for bounded evidence.`;
+}
+
+function summaryLeafSortOrder(leafKind: SummaryLeafKind): number {
+  const order: Record<SummaryLeafKind, number> = {
+    closeout: 0,
+    final_message: 1,
+    proposed_plan: 2,
+    user_prompt: 3,
+    assistant_message: 4,
+    tool_call_metadata: 5,
+    event_metadata: 6
+  };
+  return order[leafKind] ?? 99;
+}
+
+function insertSummaryLeafEdges(db: LooDatabase, leaves: SummaryLeafDraft[], createdAt: string): number {
+  let count = 0;
+  const byThread = new Map<string, SummaryLeafDraft[]>();
+  for (const leaf of leaves) {
+    if (!leaf.threadId) continue;
+    const list = byThread.get(leaf.threadId) ?? [];
+    list.push(leaf);
+    byThread.set(leaf.threadId, list);
+  }
+  for (const list of byThread.values()) {
+    const sorted = [...list].sort((left, right) => summaryLeafSortOrder(left.leafKind) - summaryLeafSortOrder(right.leafKind) || left.leafRef.localeCompare(right.leafRef));
+    for (let index = 1; index < sorted.length; index += 1) {
+      const parent = sorted[index - 1]!;
+      const child = sorted[index]!;
+      db.prepare("INSERT OR IGNORE INTO summary_edges (edge_id, parent_leaf_ref, child_leaf_ref, edge_kind, created_at) VALUES (?, ?, ?, ?, ?)").run(
+        stableId(`${parent.leafRef}:${child.leafRef}:same_thread_context`),
+        parent.leafRef,
+        child.leafRef,
+        "same_thread_context",
+        createdAt
+      );
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function getSummaryEdgesForParent(db: LooDatabase, parent: SummaryLeaf, limit: number): Array<{ parentLeafRef: string; childLeafRef: string; edgeKind: string }> {
+  if (!isPublicSummaryLeafRef(parent.leafRef)) return [];
+  const clauses = [
+    "e.parent_leaf_ref = ?",
+    "c.extractor_version = ?",
+    "c.privacy_class = 'public_safe_metadata'",
+    "c.omission_status = 'metadata_only'",
+    "c.leaf_ref LIKE 'summary_leaf:%'",
+    "length(c.leaf_ref) = 45",
+    "substr(c.leaf_ref, 14) NOT GLOB '*[^0-9a-f]*'"
+  ];
+  const params: Array<string | number> = [parent.leafRef, SUMMARY_LEAF_EXTRACTOR_VERSION];
+  if (parent.threadId) {
+    clauses.push("c.thread_id = ?");
+    params.push(parent.threadId);
+  } else {
+    clauses.push("c.thread_id IS NULL");
+  }
+  const rows = db.prepare(`
+    SELECT e.parent_leaf_ref AS parentLeafRef, e.child_leaf_ref AS childLeafRef, e.edge_kind AS edgeKind
+    FROM summary_edges e
+    JOIN summary_leaves c ON c.leaf_ref = e.child_leaf_ref
+    WHERE ${clauses.join(" AND ")}
+    ORDER BY e.parent_leaf_ref ASC, e.child_leaf_ref ASC, e.edge_kind ASC
+    LIMIT ?
+  `).all(...params, clamp(limit, 1, 400)) as Array<{ parentLeafRef: string; childLeafRef: string; edgeKind: string }>;
+  return rows.filter((edge) =>
+    isPublicSummaryLeafRef(edge.parentLeafRef)
+    && isPublicSummaryLeafRef(edge.childLeafRef)
+    && /^[A-Za-z0-9_.:-]{1,80}$/.test(edge.edgeKind)
+  );
+}
+
+function deleteSummaryLeafEdges(db: LooDatabase, leafRefs: string[]): void {
+  if (leafRefs.length === 0) return;
+  for (let index = 0; index < leafRefs.length; index += SUMMARY_LEAF_EDGE_DELETE_BATCH_SIZE) {
+    const batch = leafRefs.slice(index, index + SUMMARY_LEAF_EDGE_DELETE_BATCH_SIZE);
+    const placeholders = batch.map(() => "?").join(",");
+    db.prepare(`DELETE FROM summary_edges WHERE parent_leaf_ref IN (${placeholders}) OR child_leaf_ref IN (${placeholders})`).run(...batch, ...batch);
+  }
+}
+
+function deleteSummaryLeavesForThreadIds(db: LooDatabase, threadIds: string[]): void {
+  const uniqueThreadIds = unique(threadIds).filter(Boolean);
+  if (uniqueThreadIds.length === 0) return;
+  for (let index = 0; index < uniqueThreadIds.length; index += SUMMARY_LEAF_EDGE_DELETE_BATCH_SIZE) {
+    const batch = uniqueThreadIds.slice(index, index + SUMMARY_LEAF_EDGE_DELETE_BATCH_SIZE);
+    const placeholders = batch.map(() => "?").join(",");
+    const leafRows = db.prepare(`SELECT leaf_ref AS leafRef FROM summary_leaves WHERE thread_id IN (${placeholders})`).all(...batch) as Array<{ leafRef: string }>;
+    deleteSummaryLeafEdges(db, leafRows.map((row) => String(row.leafRef)));
+    db.prepare(`DELETE FROM summary_leaves WHERE thread_id IN (${placeholders})`).run(...batch);
+  }
+}
+
+function getSummaryLeafByRef(db: LooDatabase, leafRef: string, threadId?: string): SummaryLeaf | null {
+  if (!isPublicSummaryLeafRef(leafRef)) return null;
+  const clauses = [
+    "leaf_ref = ?",
+    "privacy_class = ?",
+    "omission_status = ?",
+    "extractor_version = ?"
+  ];
+  const params: Array<string | number> = [
+    leafRef,
+    "public_safe_metadata",
+    "metadata_only",
+    SUMMARY_LEAF_EXTRACTOR_VERSION
+  ];
+  if (threadId) {
+    clauses.push("thread_id = ?");
+    params.push(threadId);
+  }
+  const row = db.prepare(`
+    SELECT
+      leaf_ref AS leafRef,
+      thread_id AS threadId,
+      leaf_kind AS leafKind,
+      summary_text AS summaryText,
+      source_refs_json AS sourceRefsJson,
+      source_range_refs_json AS sourceRangeRefsJson,
+      input_hash AS inputHash,
+      output_hash AS outputHash,
+      extractor_version AS extractorVersion,
+      privacy_class AS privacyClass,
+      authority_coverage_json AS authorityCoverageJson,
+      confidence,
+      freshness_at AS freshnessAt,
+      stale,
+      omission_status AS omissionStatus
+    FROM summary_leaves
+    WHERE ${clauses.join(" AND ")}
+    LIMIT 1
+  `).get(...params) as SummaryLeafRow | undefined;
+  return row ? publicSummaryLeafFromRow(row) : null;
+}
+
+function publicSummaryLeafFromRow(row: SummaryLeafRow): SummaryLeaf | null {
+  const sourceRefs = parseSourceRefsJson(row.sourceRefsJson);
+  const sourceRangeRefs = parseSourceRefsJson(row.sourceRangeRefsJson);
+  const authorityCoverage = parseObjectJson(row.authorityCoverageJson);
+  if (!isPublicSummaryLeafRow(row, sourceRefs, sourceRangeRefs, authorityCoverage)) return null;
+  const rangeCount = summaryLeafAuthorityRangeCount(authorityCoverage);
+  const cappedSourceRangeRefs = sourceRangeRefs.slice(0, SUMMARY_LEAF_SOURCE_RANGE_REF_LIMIT);
+  return {
+    schema: "lco.summary.leaf.v1",
+    leafRef: row.leafRef,
+    threadId: row.threadId,
+    leafKind: row.leafKind as SummaryLeafKind,
+    summaryText: publicSafeText(row.summaryText, 500),
+    sourceRefs,
+    sourceRangeRefs: cappedSourceRangeRefs,
+    sourceRangeRefsOmitted: Math.max(0, rangeCount - cappedSourceRangeRefs.length),
+    inputHash: row.inputHash,
+    outputHash: row.outputHash,
+    extractorVersion: SUMMARY_LEAF_EXTRACTOR_VERSION,
+    privacyClass: "public_safe_metadata",
+    authorityCoverage: sanitizeSummaryAuthorityCoverage(authorityCoverage),
+    confidence: Number(row.confidence),
+    freshnessAt: row.freshnessAt,
+    stale: Number(row.stale) === 1,
+    omissionStatus: "metadata_only"
+  };
+}
+
+function isPublicSummaryLeafRow(row: SummaryLeafRow, sourceRefs: string[], sourceRangeRefs: string[], authorityCoverage: Record<string, unknown>): boolean {
+  const threadId = row.threadId ?? "";
+  const rangeCount = summaryLeafAuthorityRangeCount(authorityCoverage);
+  return row.extractorVersion === SUMMARY_LEAF_EXTRACTOR_VERSION
+    && row.privacyClass === "public_safe_metadata"
+    && row.omissionStatus === "metadata_only"
+    && isPublicSummaryLeafRef(row.leafRef)
+    && isSummaryLeafKind(row.leafKind)
+    && isPublicSummaryThreadId(threadId)
+    && sourceRefs.length > 0
+    && sourceRefs.every((ref) => /^codex_thread:[A-Za-z0-9._:-]{1,160}$/.test(ref) && !looksSensitiveRefLike(ref))
+    && sourceRefs.includes(codexThreadRef(threadId))
+    && sourceRangeRefs.length > 0
+    && sourceRangeRefs.every((ref) => /^codex_range:[0-9a-f]{32}$/.test(ref))
+    && rangeCount >= sourceRangeRefs.length
+    && /^[0-9a-f]{32}$/.test(row.inputHash)
+    && /^[0-9a-f]{32}$/.test(row.outputHash)
+    && Number.isFinite(Number(row.confidence))
+    && Number(row.confidence) >= 0
+    && Number(row.confidence) <= 1
+    && (row.freshnessAt === null || isSafeIsoTimestamp(row.freshnessAt))
+    && !looksSensitiveRefLike(row.summaryText)
+    && publicSafeText(row.summaryText, 500) === row.summaryText
+    && row.summaryText === summaryLeafText(row.leafKind, rangeCount);
+}
+
+function sanitizeSummaryAuthorityCoverage(value: Record<string, unknown>): Record<string, unknown> {
+  const source = value.source === "prepared_source_ranges" ? "prepared_source_ranges" : "unknown";
+  const status = ["ok", "partial", "not_configured", "unknown"].includes(String(value.status)) ? String(value.status) : "unknown";
+  const out: Record<string, unknown> = { source, status };
+  const rangeCount = Number(value.rangeCount);
+  if (Number.isInteger(rangeCount) && rangeCount >= 0 && rangeCount <= 1_000_000) out.rangeCount = rangeCount;
+  return out;
+}
+
+function summaryLeafAuthorityRangeCount(value: Record<string, unknown>): number {
+  const rangeCount = Number(value.rangeCount);
+  return Number.isInteger(rangeCount) && rangeCount >= 0 && rangeCount <= 1_000_000 ? rangeCount : -1;
+}
+
+function isPublicSummaryLeafRef(value: string): boolean {
+  return /^summary_leaf:[0-9a-f]{32}$/.test(value);
+}
+
+function isPublicSummaryThreadId(value: string): boolean {
+  return /^[A-Za-z0-9._:-]{1,160}$/.test(value) && !looksSensitiveRefLike(value);
+}
+
+function isSummaryLeafKind(value: string): value is SummaryLeafKind {
+  return ["user_prompt", "assistant_message", "proposed_plan", "final_message", "closeout", "tool_call_metadata", "event_metadata"].includes(value);
+}
+
+function parseObjectJson(value: unknown): Record<string, unknown> {
+  if (typeof value !== "string") return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+function latestIso(values: Array<string | null>): string | null {
+  const timestamps = values.flatMap((value) => value && isSafeIsoTimestamp(value) ? [Date.parse(value)] : []);
+  if (timestamps.length === 0) return null;
+  return new Date(Math.max(...timestamps)).toISOString();
+}
+
+function approximateTokens(text: string): number {
+  return Math.max(1, Math.ceil(text.length / 4));
+}
+
 function sourceNeedsMetadataBackfill(db: LooDatabase, sourcePath: string): boolean {
   const rows = db.prepare(`
     SELECT s.thread_id AS threadId, m.thread_id AS metadataThreadId, m.metadata_schema_version AS metadataSchemaVersion
@@ -2464,6 +3419,92 @@ function sourceNeedsPreparedSourceRangeBackfill(db: LooDatabase, sourcePath: str
     LIMIT 1
   `).get(sourcePathRef, PREPARED_SOURCE_EXTRACTOR_VERSION) as { found: number } | undefined;
   return row?.found !== 1;
+}
+
+function sourceNeedsSummaryLeafBackfill(db: LooDatabase, sourcePath: string): boolean {
+  const rows = db.prepare(`
+    SELECT DISTINCT r.thread_id AS threadId
+    FROM prepared_source_ranges r
+    JOIN codex_sessions s ON s.thread_id = r.thread_id
+    WHERE s.source_path = ?
+      AND r.extractor_version = ?
+      AND r.privacy_class = 'public_safe_metadata'
+      AND r.omission_status = 'metadata_only'
+  `).all(sourcePath, PREPARED_SOURCE_EXTRACTOR_VERSION) as Array<{ threadId: string }>;
+  if (rows.length === 0) return false;
+  return rows.some((row) => {
+    const threadId = String(row.threadId);
+    const expected = expectedSummaryLeafKindCounts(db, threadId);
+    if (expected.size === 0) return false;
+    const leaves = getValidatedSummaryLeavesForThread(db, threadId);
+    const byKind = new Map(leaves.map((leaf) => [leaf.leafKind, leaf]));
+    for (const [kind, rangeCount] of expected.entries()) {
+      const leaf = byKind.get(kind);
+      if (!leaf) return true;
+      if (Number(leaf.authorityCoverage.rangeCount ?? -1) !== rangeCount) return true;
+    }
+    if (leaves.length > 1) {
+      const leafRefs = leaves.map((leaf) => leaf.leafRef);
+      const placeholders = leafRefs.map(() => "?").join(",");
+      const edgeRow = db.prepare(`
+        SELECT COUNT(*) AS count
+        FROM summary_edges
+        WHERE parent_leaf_ref IN (${placeholders})
+          AND child_leaf_ref IN (${placeholders})
+      `).get(...leafRefs, ...leafRefs) as { count: number };
+      if (Number(edgeRow.count ?? 0) < leaves.length - 1) return true;
+    }
+    return false;
+  });
+}
+
+function expectedSummaryLeafKindCounts(db: LooDatabase, threadId: string): Map<SummaryLeafKind, number> {
+  const rows = db.prepare(`
+    SELECT range_kind AS rangeKind, COUNT(*) AS count
+    FROM prepared_source_ranges
+    WHERE thread_id = ?
+      AND extractor_version = ?
+      AND privacy_class = 'public_safe_metadata'
+      AND omission_status = 'metadata_only'
+    GROUP BY range_kind
+  `).all(threadId, PREPARED_SOURCE_EXTRACTOR_VERSION) as Array<{ rangeKind: PreparedSourceRangeKind; count: number }>;
+  const counts = new Map<SummaryLeafKind, number>();
+  for (const row of rows) {
+    const kind = summaryLeafKindFromRangeKind(row.rangeKind);
+    counts.set(kind, (counts.get(kind) ?? 0) + Number(row.count ?? 0));
+  }
+  return counts;
+}
+
+function getValidatedSummaryLeavesForThread(db: LooDatabase, threadId: string): SummaryLeaf[] {
+  const rows = db.prepare(`
+    SELECT
+      leaf_ref AS leafRef,
+      thread_id AS threadId,
+      leaf_kind AS leafKind,
+      summary_text AS summaryText,
+      source_refs_json AS sourceRefsJson,
+      source_range_refs_json AS sourceRangeRefsJson,
+      input_hash AS inputHash,
+      output_hash AS outputHash,
+      extractor_version AS extractorVersion,
+      privacy_class AS privacyClass,
+      authority_coverage_json AS authorityCoverageJson,
+      confidence,
+      freshness_at AS freshnessAt,
+      stale,
+      omission_status AS omissionStatus
+    FROM summary_leaves
+    WHERE thread_id = ?
+      AND extractor_version = ?
+      AND privacy_class = 'public_safe_metadata'
+      AND omission_status = 'metadata_only'
+    ORDER BY leaf_kind ASC, leaf_ref ASC
+  `).all(threadId, SUMMARY_LEAF_EXTRACTOR_VERSION) as SummaryLeafRow[];
+  return rows.flatMap((row) => {
+    const leaf = publicSummaryLeafFromRow(row);
+    return leaf ? [leaf] : [];
+  });
 }
 
 export function probeCodexSqliteStores(roots: string[], maxFiles = 100): { stores: CodexSqliteProbe[] } {
@@ -5560,6 +6601,7 @@ function publicSafeCoherenceState(value: unknown): CodexDesktopCoherenceState {
 
 function looksSensitiveRefLike(value: string): boolean {
   return /(?:^|[^A-Za-z0-9])(npm_[A-Za-z0-9]{10,}|sk-[A-Za-z0-9_-]{10,}|ghp_[A-Za-z0-9]{10,}|github_pat_[A-Za-z0-9_]{10,}|xox[baprs]-[A-Za-z0-9-]{10,})/.test(value)
+    || /PRIVATE_CANARY|BEGIN [A-Z ]*PRIVATE KEY/i.test(value)
     || value.includes("/")
     || value.includes("\\");
 }
@@ -8142,6 +9184,12 @@ function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, ses
     db.prepare("DELETE FROM codex_safe_text_fts WHERE thread_id = ?").run(session.threadId);
     // Prepared rows are an LCO-owned derived cache for the current codex_sessions row.
     // Clear both remap directions: same source -> new thread and same thread -> new source.
+    const affectedSummaryRows = db.prepare(`
+      SELECT DISTINCT thread_id AS threadId
+      FROM prepared_source_ranges
+      WHERE source_path_ref = ? OR thread_id = ?
+    `).all(sourcePathRef, session.threadId) as Array<{ threadId: string }>;
+    deleteSummaryLeavesForThreadIds(db, [...affectedSummaryRows.map((row) => String(row.threadId)), session.threadId]);
     db.prepare("DELETE FROM prepared_source_ranges WHERE source_path_ref = ? OR thread_id = ?").run(sourcePathRef, session.threadId);
     db.prepare("DELETE FROM prepared_source_events WHERE source_path_ref = ? OR thread_id = ?").run(sourcePathRef, session.threadId);
     db.prepare(`
@@ -8611,6 +9659,7 @@ function redactSafeString(value: string): string {
   let redacted = value.replace(/\/Users\/[^/\s"'`)]+/g, "~");
   redacted = redacted.replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "<redacted-secret>");
   redacted = redacted.replace(/sk-[A-Za-z0-9_-]{10,}/g, "<redacted-secret>");
+  redacted = redacted.replace(/PRIVATE_CANARY[A-Za-z0-9_:-]*/g, "<redacted-secret>");
   redacted = redacted.replace(/(Bearer\s+)[A-Za-z0-9._-]{10,}/gi, "$1<redacted-secret>");
   redacted = redacted.replace(/(Basic\s+)[A-Za-z0-9._~+/-]+=*/gi, "$1<redacted-secret>");
   redacted = redacted.replace(/(\bauthorization\s*:\s*)[^\r\n"'`)]+/gi, "$1<redacted-secret>");

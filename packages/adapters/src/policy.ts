@@ -141,6 +141,8 @@ export const LOO_COMMAND_POLICY: Record<string, LooCommandSafety> = {
   loo_describe_session: readOnly("local_index"),
   loo_expand_session: readOnly("local_index"),
   loo_expand_query: readOnly("local_index"),
+  loo_summary_leaves: readOnly("local_index"),
+  loo_summary_expand: readOnly("local_index"),
   loo_codex_thread_map: readOnly("local_index"),
   loo_codex_session_management_map: readOnly("local_index"),
   loo_recent_sessions: readOnly("local_index"),

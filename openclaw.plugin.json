@@ -41,6 +41,8 @@
       "loo_describe_ref",
       "loo_expand_session",
       "loo_expand_query",
+      "loo_summary_leaves",
+      "loo_summary_expand",
       "loo_codex_thread_map",
       "loo_codex_session_management_map",
       "loo_recent_sessions",
@@ -304,6 +306,79 @@
               "items": {
                 "type": "string"
               }
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_summary_leaves",
+        "description": "List deterministic public-safe summary leaves over prepared Codex source ranges.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "thread_id": {
+              "type": "string"
+            },
+            "leaf_kind": {
+              "type": "string",
+              "enum": [
+                "user_prompt",
+                "assistant_message",
+                "proposed_plan",
+                "final_message",
+                "closeout",
+                "tool_call_metadata",
+                "event_metadata"
+              ]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_summary_expand",
+        "description": "Expand public-safe summary leaf lineage under depth, node, and token caps.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "leaf_ref": {
+              "type": "string"
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "max_depth": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20
+            },
+            "max_nodes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "token_budget": {
+              "type": "integer",
+              "minimum": 8,
+              "maximum": 8000
             }
           }
         }
