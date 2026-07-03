@@ -66,6 +66,13 @@ test("closeout hook sidecar writes idempotent public-safe derived-cache packets"
       assert.equal(first.packet.targetRef, "codex_thread:019f-hook-sidecar");
       assert.equal(first.packet.payload.transcriptPathRedacted, true);
       assert.match(first.packet.payload.transcriptPathHash, /^[0-9a-f]{32}$/);
+      assert.equal(first.packet.payload.messagePreview, null);
+      assert.equal(first.packet.payload.messageRedacted, true);
+      assert.match(first.packet.payload.messageHash ?? "", /^[0-9a-f]{32}$/);
+      assert.equal(first.packet.payload.closeout?.text, null);
+      assert.equal(first.packet.payload.closeout?.textRedacted, true);
+      assert.match(first.packet.payload.closeout?.textHash ?? "", /^[0-9a-f]{32}$/);
+      assert.match(first.packet.payload.closeout?.omissions.join(","), /closeout_text_hash_only/);
       assert.equal(first.actionsPerformed.derivedCacheWrite, true);
       assert.equal(first.actionsPerformed.codexMutation, false);
       assert.equal(first.actionsPerformed.sourceStoreMutation, false);
@@ -76,7 +83,9 @@ test("closeout hook sidecar writes idempotent public-safe derived-cache packets"
       assert.equal(first.actionsPerformed.modelCompactionRun, false);
       assert.equal(first.actionsPerformed.trueCompactionSummaryCaptured, false);
       assert.doesNotMatch(serialized, /\/Users\/lume|raw-thread\.jsonl|npm_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456/);
-      assert.match(serialized, /<redacted-secret>|<redacted-local-path>/);
+      assert.doesNotMatch(serialized, /Final: hook sidecar capture complete|<loo_closeout>|<\/loo_closeout>|Do not leak/);
+      assert.match(first.packet.payload.omissions.join(","), /transcript_path_hash_only/);
+      assert.match(first.packet.payload.omissions.join(","), /message_hash_only/);
     } finally {
       db.close();
     }
@@ -136,12 +145,45 @@ test("closeout hook flags truncated closeout payloads where fields may be incomp
 
       assert.equal(report.packet.payload.closeout?.present, true);
       assert.equal(report.packet.payload.closeout?.truncated, true);
-      assert.deepEqual(report.packet.payload.closeout?.omissions, ["closeout_text_truncated"]);
-      assert.match(report.packet.payload.closeout?.text ?? "", /…$/);
-      assert.equal(report.packet.payload.closeout?.fields.next_action, undefined);
+      assert.deepEqual(report.packet.payload.closeout?.omissions, ["closeout_text_hash_only", "closeout_text_truncated"]);
+      assert.equal(report.packet.payload.closeout?.text, null);
+      assert.match(report.packet.payload.closeout?.textHash ?? "", /^[0-9a-f]{32}$/);
+      assert.equal(report.packet.payload.closeout?.fields.next_action, "this field is intentionally beyond the 1800 char capture boundary");
       assert.match(report.packet.payload.omissions.join(","), /closeout_text_truncated/);
       assert.match(report.packet.reasonCodes.join(","), /closeout_text_truncated/);
       assert.equal(report.blockers.length, 0);
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("closeout hook reuses latest balanced attributed envelope semantics", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-hook-closeout-parser-"));
+  try {
+    const db = createDatabase(join(root, "orchestrator.sqlite"));
+    try {
+      const report = captureCloseoutHookPacket(db, {
+        threadId: "019f-hook-parser",
+        lastAssistantMessage: [
+          "<loo_closeout version=\"old\">",
+          "Status: stale",
+          "Next action: ignore older envelope",
+          "</loo_closeout>",
+          "intervening text",
+          "<loo_closeout version=\"current\" source=\"hook\">",
+          "Status: complete",
+          "Next action: use latest attributed envelope",
+          "</loo_closeout>"
+        ].join("\n")
+      });
+
+      assert.equal(report.packet.payload.closeout?.present, true);
+      assert.equal(report.packet.payload.closeout?.fields.status, "complete");
+      assert.equal(report.packet.payload.closeout?.fields.next_action, "use latest attributed envelope");
+      assert.doesNotMatch(JSON.stringify(report), /ignore older envelope|<loo_closeout/);
     } finally {
       db.close();
     }
@@ -271,10 +313,8 @@ test("CLI hook commands write sanitized evidence for closeout state prep and com
       "packages/cli/src/index.ts",
       "hook",
       "state-prep",
-      "--thread-id",
-      "019f-hook-sidecar-cli",
       "--payload-json",
-      JSON.stringify({ last_assistant_message: `Ignore ${rawTranscriptPath} ${rawToken}` }),
+      JSON.stringify({ thread_id: "019f-hook-sidecar-cli", last_assistant_message: `Ignore ${rawTranscriptPath} ${rawToken}` }),
       "--evidence-path",
       statePrepEvidencePath,
       "--strict"
@@ -316,9 +356,12 @@ test("CLI hook commands write sanitized evidence for closeout state prep and com
     const closeoutEvidence = readFileSync(closeoutEvidencePath, "utf8");
     const statePrepEvidence = readFileSync(statePrepEvidencePath, "utf8");
     const compactionEvidence = readFileSync(compactionEvidencePath, "utf8");
+    const statePrepReport = JSON.parse(statePrepResult.stdout) as ReturnType<typeof runStatePrepHook>;
     const compactionReport = JSON.parse(compactionResult.stdout) as ReturnType<typeof captureCompactionMarkerHookPacket>;
     assert.equal(stdoutReport.publicSafe, true);
     assert.equal(stdoutReport.packet.targetRef, "codex_thread:019f-hook-sidecar-cli");
+    assert.equal(statePrepReport.job.targetRef, "codex_thread:019f-hook-sidecar-cli");
+    assert.equal(statePrepReport.packet.targetRef, "codex_thread:019f-hook-sidecar-cli");
     assert.equal(compactionReport.packet.payload.summaryCaptured, false);
     for (const output of [closeoutResult.stdout, statePrepResult.stdout, compactionResult.stdout, closeoutEvidence, statePrepEvidence, compactionEvidence]) {
       assert.doesNotMatch(output, /\/Users\/lume|raw-thread\.jsonl|npm_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456|summary-shaped payload/);

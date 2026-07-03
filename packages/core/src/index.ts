@@ -443,10 +443,14 @@ export type HookCapturePacket = {
   payload: {
     transcriptPathHash: string | null;
     transcriptPathRedacted: boolean;
+    messageHash?: string | null;
+    messageRedacted?: boolean;
     messagePreview?: string | null;
     closeout?: {
       present: boolean;
       text: string | null;
+      textHash: string | null;
+      textRedacted: boolean;
       fields: Record<string, string>;
       truncated: boolean;
       omissions: string[];
@@ -3844,7 +3848,6 @@ export function captureCloseoutHookPacket(db: LooDatabase, input: CloseoutHookCa
   const lastAssistantMessage = hookStringInput(input.lastAssistantMessage ?? input.last_assistant_message);
   const transcriptPath = hookStringInput(input.transcriptPath ?? input.transcript_path);
   const closeout = extractHookCloseout(lastAssistantMessage);
-  const messagePreview = lastAssistantMessage ? redactHookString(lastAssistantMessage, 420) : null;
   const payloadHash = hookPayloadHash({
     hookKind: "closeout_capture",
     targetRef: resolved.targetRef,
@@ -3854,10 +3857,11 @@ export function captureCloseoutHookPacket(db: LooDatabase, input: CloseoutHookCa
     lastAssistantMessage
   });
   const packetId = stableId(`hook:closeout:${resolved.targetRef}:${payloadHash}`);
-  const sourceRefs = hookSourceRefs(resolved.targetRef, closeout.text ?? lastAssistantMessage ?? "");
+  const sourceRefs = hookSourceRefs(resolved.targetRef, Object.values(closeout.fields).join("\n"));
   const omissions = [
     transcriptPath ? "transcript_path_hash_only" : null,
-    lastAssistantMessage && lastAssistantMessage.length > 420 ? "message_preview_truncated" : null,
+    lastAssistantMessage ? "message_hash_only" : null,
+    closeout.textHash ? "closeout_text_hash_only" : null,
     closeout.truncated ? "closeout_text_truncated" : null
   ].filter((item): item is string => Boolean(item));
   const packet: HookCapturePacket = {
@@ -3872,7 +3876,9 @@ export function captureCloseoutHookPacket(db: LooDatabase, input: CloseoutHookCa
     payload: {
       transcriptPathHash: transcriptPath ? stableId(transcriptPath) : null,
       transcriptPathRedacted: Boolean(transcriptPath),
-      messagePreview,
+      messageHash: lastAssistantMessage ? stableId(lastAssistantMessage) : null,
+      messageRedacted: Boolean(lastAssistantMessage),
+      messagePreview: null,
       closeout,
       omissions
     },
@@ -3883,7 +3889,9 @@ export function captureCloseoutHookPacket(db: LooDatabase, input: CloseoutHookCa
     reasonCodes: unique([
       "hook_sidecar_capture",
       "derived_cache_only",
+      lastAssistantMessage ? "message_hash_only" : "",
       closeout.present ? "closeout_envelope_present" : "closeout_envelope_missing",
+      closeout.textHash ? "closeout_text_hash_only" : "",
       closeout.truncated ? "closeout_text_truncated" : "",
       transcriptPath ? "transcript_path_hash_only" : "transcript_path_absent"
     ].filter(Boolean))
@@ -4549,16 +4557,8 @@ function hookPayloadHash(value: unknown): string {
 }
 
 function insertHookCapturePacket(db: LooDatabase, packet: HookCapturePacket): boolean {
-  const existing = db.prepare(`
-    SELECT packet_id AS packetId
-    FROM hook_capture_packets
-    WHERE hook_kind = ?
-      AND target_ref = ?
-      AND payload_hash = ?
-  `).get(packet.hookKind, packet.targetRef, packet.payloadHash) as { packetId: string } | undefined;
-  if (existing) return false;
-  db.prepare(`
-    INSERT INTO hook_capture_packets (
+  const result = db.prepare(`
+    INSERT OR IGNORE INTO hook_capture_packets (
       packet_id, hook_kind, target_ref, payload_hash, packet_json,
       privacy_class, confidence, created_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -4572,7 +4572,7 @@ function insertHookCapturePacket(db: LooDatabase, packet: HookCapturePacket): bo
     packet.confidence,
     packet.createdAt
   );
-  return true;
+  return result.changes > 0;
 }
 
 function insertStatePrepJob(
@@ -4611,18 +4611,21 @@ function insertStatePrepJob(
 }
 
 function extractHookCloseout(message: string | null): NonNullable<HookCapturePacket["payload"]["closeout"]> {
-  if (!message) return { present: false, text: null, fields: {}, truncated: false, omissions: [] };
-  const match = message.match(/<loo_closeout>\s*([\s\S]*?)\s*<\/loo_closeout>/i);
-  if (!match) return { present: false, text: null, fields: {}, truncated: false, omissions: [] };
-  const rawText = match[1]?.trim() ?? "";
+  if (!message) return { present: false, text: null, textHash: null, textRedacted: false, fields: {}, truncated: false, omissions: [] };
+  const rawText = latestBalancedCloseoutEnvelopeText(message);
+  if (rawText === null) return { present: false, text: null, textHash: null, textRedacted: false, fields: {}, truncated: false, omissions: [] };
   const truncated = rawText.length > 1800;
-  const text = redactHookString(rawText, 1800);
   return {
     present: true,
-    text,
-    fields: hookCloseoutFields(text),
+    text: null,
+    textHash: stableId(rawText),
+    textRedacted: true,
+    fields: hookCloseoutFields(rawText),
     truncated,
-    omissions: truncated ? ["closeout_text_truncated"] : []
+    omissions: unique([
+      "closeout_text_hash_only",
+      truncated ? "closeout_text_truncated" : ""
+    ].filter(Boolean))
   };
 }
 

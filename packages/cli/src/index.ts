@@ -1734,8 +1734,33 @@ function parseHookStatePrepArgs(input: string[]): { payload: StatePrepHookInput;
       throw new Error(`Unknown hook state-prep option: ${arg}`);
     }
   }
-  if (rawPayload) payload.payload = rawPayload;
+  if (rawPayload) {
+    const remainingPayload = applyStatePrepHookPayload(rawPayload, payload);
+    if (Object.keys(remainingPayload).length > 0) payload.payload = remainingPayload;
+  }
   return { payload, evidencePath, strict };
+}
+
+function applyStatePrepHookPayload(rawPayload: Record<string, unknown>, payload: StatePrepHookInput): Record<string, unknown> {
+  const remainingPayload = { ...rawPayload };
+  const threadId = hookPayloadString(rawPayload.threadId ?? rawPayload.thread_id);
+  const targetRef = hookPayloadString(rawPayload.targetRef ?? rawPayload.target_ref);
+  if (!payload.threadId && threadId) payload.threadId = threadId;
+  if (!payload.targetRef && targetRef) payload.targetRef = targetRef;
+  if (payload.limit === undefined) {
+    const rawLimit = rawPayload.limit;
+    if (typeof rawLimit === "number" || typeof rawLimit === "string") {
+      payload.limit = parsePositiveInteger(String(rawLimit), "--limit", 25);
+    }
+  }
+  for (const key of ["threadId", "thread_id", "targetRef", "target_ref", "limit"]) {
+    delete remainingPayload[key];
+  }
+  return remainingPayload;
+}
+
+function hookPayloadString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function parseHookCompactionCaptureArgs(input: string[]): { payload: CompactionMarkerHookInput; evidencePath?: string; strict: boolean } {
