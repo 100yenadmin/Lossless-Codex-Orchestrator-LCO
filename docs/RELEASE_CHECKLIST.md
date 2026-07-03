@@ -44,6 +44,8 @@ Every beta, RC, and stable release must have public-safe evidence for:
 - `npm run check`
 - `npm pack --dry-run`
 - release preflight, bundle, demo-status, release-status, and scorecard sweep
+- post-publish `loo release finalization-status --strict` evidence showing npm
+  package/dist-tag, git tag, and GitHub Release all match the candidate SHA
 - README, VISION, release notes, claim audit, runbook, and skills truth scan
 - privacy scan showing no raw transcripts, raw prompts, SQLite DBs, screenshots,
   tokens, cookies, credentials, or private customer data in public evidence
@@ -94,8 +96,10 @@ npm install -g lossless-openclaw-orchestrator@beta
 Move `latest` only as part of a separate stable-release issue after the
 pre-publish candidate gates pass and the release-status approval markers
 explicitly cover npm publication and GitHub Release creation. After publication,
-run fresh npm `@latest` published-smoke and `loo release general-readiness
---strict`; the stable issue is not complete until those post-publish gates pass.
+run `loo release finalization-status --expected-dist-tag latest
+--expected-github-prerelease false --strict`, fresh npm `@latest`
+published-smoke, and `loo release general-readiness --strict`; the stable issue
+is not complete until those post-publish gates pass.
 
 ## Blocking Signals
 
@@ -108,6 +112,12 @@ Treat these as hard blockers:
 - `fresh_npm_clean_profile_restricted_actions_performed`
 - `agent_dogfood_evidence_missing`
 - `release_checklist_missing_or_incomplete`
+- `npm_publish_evidence_missing`
+- `git_tag_evidence_missing`
+- `github_release_evidence_missing`
+- `npm_dist_tag_version_mismatch`
+- `git_tag_sha_mismatch`
+- `github_release_prerelease_mismatch`
 - `agent_skill_missing_or_incomplete`
 - `m9_scenario_contracts_missing_or_incomplete`
 - `docs_general_readiness_links_missing`
