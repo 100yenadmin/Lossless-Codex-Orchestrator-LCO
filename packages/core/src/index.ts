@@ -51,6 +51,8 @@ export type LimitedCodexFile = {
 };
 
 export type IndexCodexResult = {
+  // Fixed safety stamp: indexing writes only LCO-owned derived cache, while
+  // limited/error rows can contain local paths and are not public evidence.
   publicSafe: false;
   readOnly: false;
   mutationClasses: ["derived_cache"];

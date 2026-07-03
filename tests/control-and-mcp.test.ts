@@ -251,7 +251,7 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.deepEqual(LOO_COMMAND_POLICY.loo_watcher_dry_run.mutationClasses, []);
     assert.deepEqual(LOO_COMMAND_POLICY.loo_resume_request_packet.mutationClasses, []);
     assert.deepEqual(LOO_COMMAND_POLICY.loo_codex_send_message.mutationClasses, ["derived_cache", "live_control"]);
-    assert.deepEqual(LOO_COMMAND_POLICY.loo_desktop_proof_action.mutationClasses, ["desktop_gui"]);
+    assert.deepEqual(LOO_COMMAND_POLICY.loo_desktop_proof_action.mutationClasses, ["derived_cache", "desktop_gui"]);
 
     const closeoutTool = tools.find((tool) => tool.name === "loo_closeout_dry_run");
     assert.ok(closeoutTool);

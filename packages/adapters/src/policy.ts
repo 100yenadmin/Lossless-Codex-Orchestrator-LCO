@@ -130,6 +130,9 @@ function dryRunOnly(source: LooCommandSource, mutationClasses: readonly LooMutat
   return commandSafety("dry_run_only", source, true, mutationClasses);
 }
 
+// This table is the manually reviewed safety contract for tool side effects.
+// Any execute-path change that adds or removes a write/control/publish behavior
+// must update this table, the manifests, and the focused policy tests together.
 export const LOO_COMMAND_POLICY: Record<string, LooCommandSafety> = {
   loo_index_sessions: localCacheWrite("local_index"),
   loo_grep: readOnly("local_index"),
@@ -177,7 +180,7 @@ export const LOO_COMMAND_POLICY: Record<string, LooCommandSafety> = {
   loo_codex_interrupt_thread: approvalGatedControl("codex_direct"),
   loo_desktop_see: readOnly("desktop_fallback"),
   loo_desktop_act: dryRunOnly("desktop_fallback"),
-  loo_desktop_proof_action: approvalGatedControl("desktop_fallback", ["desktop_gui"]),
+  loo_desktop_proof_action: approvalGatedControl("desktop_fallback", ["derived_cache", "desktop_gui"]),
   loo_desktop_proof_report: readOnly("desktop_fallback"),
   loo_desktop_live_proof_harness: readOnly("desktop_fallback"),
   loo_doctor: readOnly("audit"),

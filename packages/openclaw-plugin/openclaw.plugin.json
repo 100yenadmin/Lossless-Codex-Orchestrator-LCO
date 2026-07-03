@@ -1864,6 +1864,7 @@
           "source": "desktop_fallback",
           "requiresApproval": true,
           "mutationClasses": [
+            "derived_cache",
             "desktop_gui"
           ]
         },
