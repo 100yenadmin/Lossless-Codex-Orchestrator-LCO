@@ -16,6 +16,7 @@ const LIVE_AUDIT_ID = "loo_audit_def45678";
 
 function createFakeOpenClaw(dir: string, options: {
   auditDetailsEnvelope?: boolean;
+  liveTurnStatus?: string;
   liveResponseOkFalse?: boolean;
   mismatchedLiveMessageHash?: boolean;
   missingLiveTurnStatus?: boolean;
@@ -27,7 +28,7 @@ function createFakeOpenClaw(dir: string, options: {
     ? `{ ok: false, error: "thread not found: thr_gateway_live" }`
     : options.missingLiveTurnStatus
       ? `{ ok: true }`
-      : `{ ok: true, turn: { id: "turn_1", status: "completed" } }`;
+      : `{ ok: true, turn: { id: "turn_1", status: "${options.liveTurnStatus ?? "completed"}" } }`;
   const auditTailPayload = `{
       auditPath: "metadata-only",
       records: [
@@ -161,6 +162,29 @@ test("OpenClaw live-control smoke proves dry-run live send and audit tail throug
     assert.equal(calls[2]?.params.args?.approval_audit_id, DRY_RUN_AUDIT_ID);
     assert.equal(calls[2]?.params.args?.dry_run, false);
     assert.equal(calls[3]?.params.name, "loo_audit_tail");
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw live-control smoke accepts documented in-flight turn statuses", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-smoke-running-status-"));
+  const { bin, callsPath } = createFakeOpenClaw(root, { liveTurnStatus: "running" });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+
+  try {
+    const report = runOpenClawGatewayLiveControlSmoke({
+      openclawBin: bin,
+      evidenceDir: join(root, "evidence"),
+      threadId: "thr_gateway_live"
+    });
+
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.equal(report.live.turnStatus, "running");
+    assert.deepEqual(report.blockers, []);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;

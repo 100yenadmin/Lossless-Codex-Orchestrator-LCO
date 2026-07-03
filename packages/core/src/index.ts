@@ -706,12 +706,14 @@ export type CodexAutonomyTickStep = {
   stepId: string;
   threadId: string;
   stepType: CodexAutonomyTickStepType;
+  status?: "ready" | "blocked";
   priority: number;
   tool: CodexAutonomyTickTool;
   execute: false;
   args: Record<string, string | number | boolean>;
   reason: string;
   approvalBoundary?: string;
+  blockers?: string[];
   idempotencyKey: string;
   stopConditions: string[];
   reasonCodes: string[];
@@ -736,7 +738,7 @@ export type CodexAutonomyTickReport = {
   steps: CodexAutonomyTickStep[];
   omitted: {
     count: number;
-    reason: "limit" | "none";
+    reason: "limit" | "upstream_lanes_omitted" | "limit_and_upstream_lanes_omitted" | "none";
   };
   actionsPerformed: {
     liveCodexControlRun: false;
@@ -2641,7 +2643,9 @@ export function createCodexAutonomyTick(
   // priorityOrder is applied while selecting active lanes; final tick ordering stays safety-first.
   const candidateSteps = activeState.items.flatMap((item) => autonomyTickStepsForItem(item)).sort(autonomyTickStepComparator);
   const steps = candidateSteps.slice(0, limit);
-  const omittedCount = Math.max(0, candidateSteps.length - steps.length) + Math.max(0, activeState.omitted.count);
+  const tickLimitOmitted = Math.max(0, candidateSteps.length - steps.length);
+  const upstreamOmitted = Math.max(0, activeState.omitted.count);
+  const omittedCount = tickLimitOmitted + upstreamOmitted;
 
   return {
     schema: "lco.codex.autonomyTick.v1",
@@ -2659,7 +2663,7 @@ export function createCodexAutonomyTick(
     steps,
     omitted: {
       count: omittedCount,
-      reason: omittedCount > 0 ? "limit" : "none"
+      reason: autonomyTickOmittedReason(tickLimitOmitted, upstreamOmitted)
     },
     actionsPerformed: {
       liveCodexControlRun: false,
@@ -3343,10 +3347,12 @@ function autonomyTickControlDryRunStep(
     stepType: "control_dry_run",
     tool: recommendation.tool,
     args: recommendation.args,
+    status: recommendation.status,
     reason: recommendation.status === "blocked"
       ? "Record that a future control dry-run is blocked until the approval boundary is resolved."
       : "Prepare a future dry-run resume packet after read-only attention probes are refreshed.",
     approvalBoundary: recommendation.approvalBoundary,
+    blockers: recommendation.blockers,
     reasonCodes: [
       "autonomy_tick_control_dry_run",
       `autonomy_tool:${recommendation.tool}`,
@@ -3363,8 +3369,10 @@ function autonomyTickStepRecord(
     stepType: CodexAutonomyTickStepType;
     tool: CodexAutonomyTickTool;
     args: Record<string, string | number | boolean>;
+    status?: "ready" | "blocked";
     reason: string;
     approvalBoundary?: string;
+    blockers?: string[];
     reasonCodes: string[];
     stopConditions: string[];
   }
@@ -3373,7 +3381,7 @@ function autonomyTickStepRecord(
     .map(collaborationPublicSafeReasonCode)
     .filter((code): code is string => Boolean(code))
     .slice(0, 30);
-  const argsKey = JSON.stringify(input.args, Object.keys(input.args).sort());
+  const argsKey = canonicalJsonString(input.args);
   const idKey = `${item.threadId}:${input.stepType}:${input.tool}:${argsKey}`;
   const confidence = Number.isFinite(item.confidence) ? Math.max(0.1, Math.min(1, item.confidence)) : 0.1;
   return {
@@ -3384,8 +3392,10 @@ function autonomyTickStepRecord(
     tool: input.tool,
     execute: false,
     args: input.args,
+    ...(input.status ? { status: input.status } : {}),
     reason: publicSafeText(input.reason, 240),
     ...(input.approvalBoundary ? { approvalBoundary: publicSafeText(input.approvalBoundary, 360) } : {}),
+    ...(input.blockers ? { blockers: unique(input.blockers.map(collaborationPublicSafeReasonCode).filter((code): code is string => Boolean(code))).slice(0, 12) } : {}),
     idempotencyKey: `autonomy_tick:${stableId(idKey).slice(0, 24)}`,
     stopConditions: unique(input.stopConditions.map(collaborationPublicSafeReasonCode).filter((code): code is string => Boolean(code))).slice(0, 12),
     reasonCodes: safeReasonCodes,
@@ -3393,6 +3403,36 @@ function autonomyTickStepRecord(
     confidence,
     sourceCoverage: item.sourceCoverage
   };
+}
+
+function autonomyTickOmittedReason(
+  tickLimitOmitted: number,
+  upstreamOmitted: number
+): CodexAutonomyTickReport["omitted"]["reason"] {
+  if (tickLimitOmitted > 0 && upstreamOmitted > 0) return "limit_and_upstream_lanes_omitted";
+  if (tickLimitOmitted > 0) return "limit";
+  if (upstreamOmitted > 0) return "upstream_lanes_omitted";
+  return "none";
+}
+
+function canonicalJsonString(value: unknown): string {
+  return JSON.stringify(canonicalJsonValue(value));
+}
+
+function canonicalJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalJsonValue);
+  if (isCanonicalJsonRecord(value)) {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, canonicalJsonValue(value[key])])
+    );
+  }
+  return value;
+}
+
+function isCanonicalJsonRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function autonomyTickStepPriority(item: CodexActiveThreadStateItem, stepType: CodexAutonomyTickStepType): number {

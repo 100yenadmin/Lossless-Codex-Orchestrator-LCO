@@ -3156,6 +3156,7 @@ test("Codex autonomy tick orders read-only probes before control dry-run recomme
     assert.equal(report.steps[0]?.stopConditions.includes("recompute_tick_after_probe"), true);
     assert.equal(report.steps[1]?.tool, "loo_codex_control_dry_run");
     assert.equal(report.steps[1]?.execute, false);
+    assert.equal(report.steps[1]?.status, "ready");
     assert.deepEqual(report.steps[1]?.args, { action: "resume", thread_id: "019f-autonomy-nudge" });
     assert.equal(report.steps[1]?.approvalBoundary?.includes("approval_audit_id"), true);
     assert.equal(report.steps[1]?.reasonCodes.includes("control_dry_run_ready"), true);
@@ -3254,8 +3255,33 @@ test("Codex autonomy tick reports blocked dry-runs and omitted limited steps", (
     assert.equal(full.summary.blockedControlDryRuns, 1);
     assert.equal(blocked.tool, "loo_codex_control_dry_run");
     assert.equal(blocked.execute, false);
+    assert.equal(blocked.status, "blocked");
+    assert.equal((blocked.blockers?.length ?? 0) > 0, true);
     assert.equal(blocked.reasonCodes.includes("control_dry_run_blocked"), true);
     assert.equal(blocked.stopConditions.includes("live_control_requires_approval_audit_id"), true);
+  });
+});
+
+test("Codex autonomy tick distinguishes upstream lane omission from tick step limit", () => {
+  const fixtures = Array.from({ length: 505 }, (_, index) => ({
+    id: `019f-autonomy-upstream-${String(index).padStart(3, "0")}`,
+    title: `Autonomy upstream lane ${index}`,
+    status: "running" as const,
+    priority: "medium" as const,
+    nextAction: "keep watching upstream lane",
+    updatedAt: relativeIso(index + 1),
+    refs: true
+  }));
+
+  withIndexedSessions(fixtures, ({ db }) => {
+    const report = createCodexAutonomyTick(db, {
+      limit: 500,
+      now: "2026-07-02T00:00:00.000Z"
+    });
+
+    assert.equal(report.steps.length, 500);
+    assert.equal(report.omitted.count, 5);
+    assert.equal(report.omitted.reason, "upstream_lanes_omitted");
   });
 });
 

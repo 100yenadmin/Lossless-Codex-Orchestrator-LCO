@@ -82,6 +82,7 @@ type ControlSummary = {
 };
 
 const SCENARIO_ID = "openclaw-gateway-live-codex-v1-1";
+const ACCEPTED_LIVE_TURN_STATUSES = new Set(["accepted", "completed", "in_progress", "pending", "queued", "running"]);
 const DEFAULT_MESSAGE = "LCO OpenClaw gateway live-control smoke. Reply with exactly: LCO gateway live smoke acknowledged. Do not run commands, edit files, or use tools.";
 const REQUIRED_TOOLS = ["loo_codex_control_dry_run", "loo_codex_send_message", "loo_audit_tail"];
 const PRIVATE_DATA_EXCLUSIONS = [
@@ -275,7 +276,9 @@ function validLive(summary: ControlSummary): boolean {
 }
 
 function liveTurnStatusProvesSendAccepted(value: string | null): boolean {
-  return typeof value === "string" && /^(completed|in[_-]?progress)$/i.test(value);
+  if (typeof value !== "string") return false;
+  const normalized = value.trim().toLowerCase().replace(/[-\s]+/g, "_");
+  return ACCEPTED_LIVE_TURN_STATUSES.has(normalized);
 }
 
 function safeAuditId(value: string | null): value is string {

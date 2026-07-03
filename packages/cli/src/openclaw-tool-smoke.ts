@@ -1085,7 +1085,8 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
   }
   if (toolName === "loo_codex_autonomy_tick") {
     const tickOutput = details ?? output;
-    const steps = arrayPath(tickOutput, ["steps"]).filter(isRecord);
+    const rawSteps = arrayPath(tickOutput, ["steps"]);
+    const steps = rawSteps.filter(isRecord);
     const summaryRecord = isRecord(tickOutput) && isRecord(tickOutput.summary) ? tickOutput.summary : null;
     const autonomyTickCounts = Object.fromEntries(["returnedSteps", "readOnlyProbes", "controlDryRunRecommendations", "blockedControlDryRuns"].map((key) => {
       const value = summaryRecord?.[key];
@@ -1098,6 +1099,9 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
     if (stringPath(tickOutput, ["schema"]) !== "lco.codex.autonomyTick.v1") blockers.push("autonomy_tick_schema_invalid");
     if (booleanPath(tickOutput, ["publicSafe"]) !== true || booleanPath(tickOutput, ["readOnly"]) !== true) {
       blockers.push("autonomy_tick_public_safe_read_only_missing");
+    }
+    if (rawSteps.length !== steps.length || !autonomyTickSummaryMatchesSteps(autonomyTickCounts, steps)) {
+      blockers.push("autonomy_tick_step_count_mismatch");
     }
     if (steps.some((step) => !hasValidAutonomyTickStep(step))) blockers.push("autonomy_tick_invalid_step");
     const actions = isRecord(tickOutput) && isRecord(tickOutput.actionsPerformed) ? tickOutput.actionsPerformed : null;
@@ -1467,16 +1471,32 @@ function hasValidActiveThreadReadOnlyActionArgs(tool: string | undefined, args: 
   return false;
 }
 
+function autonomyTickSummaryMatchesSteps(
+  summary: Record<string, number>,
+  steps: Record<string, unknown>[]
+): boolean {
+  return summary.returnedSteps === steps.length
+    && summary.readOnlyProbes === steps.filter((step) => stringPath(step, ["stepType"]) === "read_only_probe").length
+    && summary.controlDryRunRecommendations === steps.filter((step) => stringPath(step, ["stepType"]) === "control_dry_run").length
+    && summary.blockedControlDryRuns === steps.filter((step) => {
+      const reasonCodes = arrayPath(step, ["reasonCodes"]);
+      return stringPath(step, ["stepType"]) === "control_dry_run"
+        && (stringPath(step, ["status"]) === "blocked" || reasonCodes.includes("control_dry_run_blocked"));
+    }).length;
+}
+
 function hasValidAutonomyTickStep(step: Record<string, unknown>): boolean {
   const stepType = stringPath(step, ["stepType"]);
   const tool = stringPath(step, ["tool"]);
   const args = isRecord(step.args) ? step.args : null;
+  const status = stringPath(step, ["status"]);
   const priority = numberPath(step, ["priority"]);
   const threadId = stringPath(step, ["threadId"]);
   const idempotencyKey = stringPath(step, ["idempotencyKey"]);
   const reason = stringPath(step, ["reason"]);
   const reasonCodes = arrayPath(step, ["reasonCodes"]).filter((value): value is string => typeof value === "string" && value.length > 0);
   const evidenceIds = arrayPath(step, ["evidenceIds"]).filter((value): value is string => typeof value === "string" && value.length > 0);
+  const stepBlockers = arrayPath(step, ["blockers"]).filter((value): value is string => typeof value === "string" && value.length > 0);
   const stopConditions = arrayPath(step, ["stopConditions"]).filter((value): value is string => typeof value === "string" && value.length > 0);
   const sourceCoverage = isRecord(step.sourceCoverage) ? step.sourceCoverage : null;
   const confidence = numberPath(step, ["confidence"]);
@@ -1508,11 +1528,14 @@ function hasValidAutonomyTickStep(step: Record<string, unknown>): boolean {
       && hasValidActiveThreadReadOnlyActionArgs(tool, args);
   }
   if (stepType === "control_dry_run") {
+    const blocked = status === "blocked" || reasonCodes.includes("control_dry_run_blocked");
     return tool === "loo_codex_control_dry_run"
+      && (status === "ready" || status === "blocked")
       && stringPath(args, ["action"]) === "resume"
       && Boolean(stringPath(args, ["thread_id"]))
       && Boolean(stringPath(step, ["approvalBoundary"]))
       && (reasonCodes.includes("control_dry_run_ready") || reasonCodes.includes("control_dry_run_blocked"))
+      && (!blocked || stepBlockers.length > 0)
       && stopConditions.includes("live_control_requires_approval_audit_id");
   }
   return false;
@@ -1520,6 +1543,7 @@ function hasValidAutonomyTickStep(step: Record<string, unknown>): boolean {
 
 function publicSafeAutonomyTickNextToolCall(value: unknown): OpenClawToolInvocationSummary["summary"]["nextToolCall"] | undefined {
   if (!isRecord(value) || !hasValidAutonomyTickStep(value)) return undefined;
+  if (stringPath(value, ["stepType"]) === "control_dry_run" && stringPath(value, ["status"]) === "blocked") return undefined;
   const tool = stringPath(value, ["tool"]);
   const args = isRecord(value.args) ? value.args : {};
   const safeArgs = publicSafeAutonomyTickArgs(tool, args);
