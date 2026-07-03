@@ -50,6 +50,7 @@
     "Codex Desktop fallback status reports CUA/Peekaboo blockers and warnings without performing or authorizing the fallback action.",
     "Codex Desktop collaboration proof fails closed unless the target ref, backend, target app/window, action, action hash, approval packet, freshness, source coverage, and no-screenshot policy all match.",
     "Indexing and dry-run audit tools are labeled derived_cache only, while watcher request tools remain pure reads and live/GUI/release/external mutation classes stay out of default prepared-state paths.",
+    "Summary leaf list and expansion tools remain pure reads over metadata-only derived cache, while any summary-leaf materialization is classified as derived_cache and omits raw transcript spans and raw tool payloads.",
     "Closeout dry-run blocks wouldAttach when the proposed public comment body repeats local path fragments or becomes path-token dense."
   ],
   "fail_criteria": [
@@ -57,6 +58,7 @@
     "Any approval proof accepts a different target ref, action, params hash, or message hash.",
     "Evidence stores raw prompt text, raw transcript spans, screenshots, SQLite pages, or secrets.",
     "A tool mutates LCO-owned cache or audit state while declaring no mutation class, or a watcher/prepared-state read implies live control or external mutation.",
+    "Summary leaf outputs expose raw prompts, raw tool-call arguments, absolute transcript paths, or hidden model-compaction claims instead of metadata-only leaf refs and omission markers.",
     "Read-only app-server tools expose preview, cwd, path, turns, or remote-control enablement fields as public evidence.",
     "Public GitHub issue or PR comment recommendations include repeated absolute local paths or raw evidence-root spam instead of concise public-safe summaries."
   ],

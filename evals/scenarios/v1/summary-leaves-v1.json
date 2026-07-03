@@ -1,0 +1,66 @@
+{
+  "scenario_version": "1.0",
+  "id": "summary-leaves-v1",
+  "title": "Deterministic summary leaves and bounded DAG expansion",
+  "claim_scope": "codex-read-search-expand-dry-run",
+  "user_task": "As Eva, start from prepared Codex source ranges, inspect deterministic summary leaves, and expand only bounded summary-leaf lineage before deciding whether a full session expansion is needed.",
+  "surface": "mcp",
+  "allowed_tools": [
+    "loo_summary_leaves",
+    "loo_summary_expand",
+    "loo_describe_session",
+    "loo_expand_session"
+  ],
+  "forbidden_behaviors": [
+    "raw_transcript_read",
+    "raw_transcript_path_output",
+    "raw_tool_payload_output",
+    "source_store_mutation",
+    "live_control",
+    "gui_mutation",
+    "external_write",
+    "model_compaction",
+    "true_compaction_summary_capture_claim",
+    "secret_or_private_data_output"
+  ],
+  "expected_public_safe_evidence": [
+    "opaque summary_leaf refs",
+    "opaque codex_thread refs",
+    "opaque codex_range refs",
+    "summary leaf kind",
+    "source range refs",
+    "input and output hashes",
+    "extractor version",
+    "privacy class",
+    "confidence and freshness",
+    "metadata-only omission status",
+    "bounded depth node and token limits",
+    "cycle depth node-limit and token-budget omission markers",
+    "public-safe output scan result"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "absolute transcript paths",
+    "raw prompts or transcript spans",
+    "raw tool-call payloads",
+    "SQLite DB row dumps",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data"
+  ],
+  "metrics": {
+    "requires_summary_leaf_refs": true,
+    "requires_source_range_refs": true,
+    "requires_extractor_version": true,
+    "requires_privacy_class": true,
+    "requires_omission_status": true,
+    "requires_bounded_dag_expansion": true,
+    "requires_cycle_omission_markers": true,
+    "max_raw_transcript_spans": 0,
+    "max_raw_tool_payloads": 0,
+    "max_live_actions": 0,
+    "max_screenshots_in_public_evidence": 0
+  },
+  "proof_boundary": "Dry-run fixture and MCP scenario for deterministic metadata-only summary leaves over LCO prepared source ranges. It proves public-safe leaf listing and bounded DAG expansion only; it does not prove prepared cards, watcher persistence, hook capture, model compaction, true Codex compaction-summary capture, live control, GUI mutation, or release readiness.",
+  "next_action": "Implement prepared cards and inbox materialization in #410 after #409 lands."
+}

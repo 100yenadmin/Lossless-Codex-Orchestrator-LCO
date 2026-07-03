@@ -18,6 +18,7 @@ import {
   createIndexedSessionSanitizerRepairPlan,
   expandSession,
   expandQuery,
+  expandSummaryLeaves,
   createPlanStatePinsReport,
   createGithubOperatingItemsReport,
   createProjectDigest,
@@ -33,6 +34,7 @@ import {
   getCodexTouchedFiles,
   getCodexToolCalls,
   getRecentSessions,
+  getSummaryLeaves,
   grepRecall,
   indexCodexSessions,
   probeLcmPeerDbs,
@@ -41,6 +43,7 @@ import {
   type AppServerThreadsInput,
   type VisibleCodexInput,
   type VisibleCodexSessionMapReport,
+  type SummaryLeafKind,
   type WatchSpec,
   searchSessions
 } from "../../core/src/index.js";
@@ -166,6 +169,28 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       profile: optionalProfile(input.profile),
       tokenBudget: optionalNumber(input.token_budget),
       lcmDbPaths: optionalRoots(input.lcm_db_paths, configuredLcmPeerDbPaths())
+    })),
+    tool("loo_summary_leaves", "List deterministic public-safe summary leaves over prepared Codex source ranges.", {
+      thread_id: { type: "string" },
+      leaf_kind: { type: "string", enum: ["user_prompt", "assistant_message", "proposed_plan", "final_message", "closeout", "tool_call_metadata", "event_metadata"] },
+      limit: { type: "integer", minimum: 1, maximum: 1000 }
+    }, (input) => getSummaryLeaves(options.db, {
+      threadId: optionalString(input.thread_id),
+      leafKind: optionalSummaryLeafKind(input.leaf_kind),
+      limit: optionalNumber(input.limit)
+    })),
+    tool("loo_summary_expand", "Expand public-safe summary leaf lineage under depth, node, and token caps.", {
+      leaf_ref: { type: "string" },
+      thread_id: { type: "string" },
+      max_depth: { type: "integer", minimum: 0, maximum: 20 },
+      max_nodes: { type: "integer", minimum: 1, maximum: 200 },
+      token_budget: { type: "integer", minimum: 8, maximum: 8000 }
+    }, (input) => expandSummaryLeaves(options.db, {
+      leafRef: optionalString(input.leaf_ref),
+      threadId: optionalString(input.thread_id),
+      maxDepth: optionalNumber(input.max_depth),
+      maxNodes: optionalNumber(input.max_nodes),
+      tokenBudget: optionalNumber(input.token_budget)
     })),
     tool("loo_codex_thread_map", "Read the indexed Codex thread map.", {
       limit: { type: "integer", minimum: 1, maximum: 500 },
@@ -915,6 +940,20 @@ function optionalProfile(value: unknown): "metadata" | "brief" | "evidence" | un
   if (value === undefined) return undefined;
   if (value === "metadata" || value === "brief" || value === "evidence") return value;
   throw new Error("profile must be metadata, brief, or evidence");
+}
+
+function optionalSummaryLeafKind(value: unknown): SummaryLeafKind | undefined {
+  if (value === undefined) return undefined;
+  if (
+    value === "user_prompt"
+    || value === "assistant_message"
+    || value === "proposed_plan"
+    || value === "final_message"
+    || value === "closeout"
+    || value === "tool_call_metadata"
+    || value === "event_metadata"
+  ) return value;
+  throw new Error("leaf_kind must be user_prompt, assistant_message, proposed_plan, final_message, closeout, tool_call_metadata, or event_metadata");
 }
 
 function optionalRecentScope(value: unknown): "active" | "recent" | "all" | undefined {

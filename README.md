@@ -286,11 +286,12 @@ Keep sprint and agent-operator details there, in [AGENTS.md](AGENTS.md), and in
 the packaged [agent skill](skills/lossless-openclaw-orchestrator/SKILL.md), not
 in this public landing page.
 
-The 1.2 lane is local, deterministic, and opt-in. It prepares source-ref-backed
-cards and summary leaves so an OpenClaw/Eva agent can start from compact
-prepared state rather than rereading huge Codex transcripts. It does not claim
-hidden autonomy, GUI mutation, Claude parity, or true Codex compaction-summary
-capture.
+The 1.2 lane is local, deterministic, and opt-in. It is building
+source-ref-backed ranges, summary leaves, prepared cards, watcher observations,
+and hook capture so an OpenClaw/Eva agent can start from compact prepared state
+rather than rereading huge Codex transcripts. Summary leaves are advisory
+routing/evidence cards over prepared ranges; they are not authority, hidden
+autonomy, GUI mutation, Claude parity, or true Codex compaction-summary capture.
 
 ## Maintainer Proof
 
