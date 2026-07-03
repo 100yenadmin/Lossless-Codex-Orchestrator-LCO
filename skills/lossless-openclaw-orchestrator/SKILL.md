@@ -169,8 +169,11 @@ Desktop collaboration state, or a safe next nudge recommendation.
    `loo_codex_active_thread_state`, and `loo_codex_autonomy_tick`.
 5. For `needs_nudge` or `needs_approval`, show `nextControlDryRun` as an
    `execute=false` handoff only. Do not run live control from this packet.
+   Treat all autonomy tick steps as recommendations until the requesting user
+   separately asks for and approves the exact action.
 6. Live control requires the exact dry-run audit id, matching
-   `approval_audit_id`, and Andrew approval for the exact target and action.
+   `approval_audit_id`, and explicit requesting-user approval for the exact
+   target and action.
 7. After an approved live action, run post-action refresh before claiming
    success or updating the operating picture.
 8. If proof fails, create an issue-ready public-safe packet instead of pasting

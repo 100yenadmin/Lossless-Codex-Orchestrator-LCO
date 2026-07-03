@@ -89,8 +89,11 @@ test("OpenClaw agent usage skill teaches the Desktop-first daily loop without wi
     /needs_approval/,
     /nextControlDryRun/,
     /execute=false/,
+    /all autonomy tick steps as recommendations/i,
+    /requesting user/i,
+    /separately asks for and approves the exact action/i,
     /exact dry-run audit id/i,
-    /Andrew approval/i,
+    /explicit requesting-user approval/i,
     /post-action refresh/i,
     /issue-ready public-safe packet/i
   ]) {
@@ -98,6 +101,7 @@ test("OpenClaw agent usage skill teaches the Desktop-first daily loop without wi
   }
 
   for (const forbidden of [
+    /Andrew approval/i,
     /use raw transcripts as the default/i,
     /run unapproved live control/i,
     /generic GUI mutation is supported/i,
