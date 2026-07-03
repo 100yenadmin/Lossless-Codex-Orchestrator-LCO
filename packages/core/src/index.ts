@@ -3469,7 +3469,8 @@ export function getPreparedCards(db: LooDatabase, options: PreparedCardsOptions 
     if (card.confidence < 0.5) lowConfidence += 1;
     if (validCards.length < limit) validCards.push(card);
   }
-  const limitOmissions = Math.max(0, rows.length - filteredUnsafeRows - validCards.length);
+  const validTotal = rows.length - filteredUnsafeRows;
+  const limitOmissions = Math.max(0, validTotal - validCards.length);
   const omittedReasons = [
     limitOmissions > 0 ? "limit" : null,
     filteredUnsafeRows > 0 ? "filtered_unsafe_rows" : null
@@ -3480,12 +3481,12 @@ export function getPreparedCards(db: LooDatabase, options: PreparedCardsOptions 
     readOnly: true,
     generatedAt: new Date().toISOString(),
     sourceCoverage: {
-      preparedCards: validCards.length > 0 ? "ok" : total > 0 ? "partial" : "not_configured",
+      preparedCards: filteredUnsafeRows > 0 ? "partial" : validTotal > 0 ? "ok" : total > 0 ? "partial" : "not_configured",
       summaryLeaves: preparedSummaryLeafCoverage(db, options.threadId),
       watcherObservations: "not_configured"
     },
     summary: {
-      total: rows.length - filteredUnsafeRows,
+      total: validTotal,
       returned: validCards.length,
       stale,
       partial,
@@ -3529,14 +3530,17 @@ export function getPreparedInbox(db: LooDatabase, options: PreparedInboxOptions 
     ORDER BY urgency_score DESC, state ASC, target_ref ASC, card_ref ASC
   `).all(...params) as PreparedInboxRow[];
   const validItems: PreparedInboxItem[] = [];
+  const candidateItems = rows.map(publicPreparedInboxItemFromRow).filter((item): item is PreparedInboxItem => Boolean(item));
+  const cardByRef = getPublicPreparedCardsByCardRef(db, candidateItems.map((item) => item.cardRef));
   let validTotal = 0;
+  let critical = 0;
+  let high = 0;
   let lowConfidence = 0;
-  for (const row of rows) {
-    const item = publicPreparedInboxItemFromRow(row);
-    if (!item) continue;
-    const cardRow = getPreparedCardRowByCardRef(db, item.cardRef);
-    if (!cardRow || !publicPreparedCardFromRow(cardRow)) continue;
+  for (const item of candidateItems) {
+    if (!cardByRef.has(item.cardRef)) continue;
     validTotal += 1;
+    if (item.urgencyScore >= 90) critical += 1;
+    if (item.urgencyScore >= 70 && item.urgencyScore < 90) high += 1;
     if (item.reasonCodes.includes("low_confidence")) lowConfidence += 1;
     if (validItems.length < limit) validItems.push(item);
   }
@@ -3556,8 +3560,8 @@ export function getPreparedInbox(db: LooDatabase, options: PreparedInboxOptions 
     summary: {
       total: validTotal,
       returned: validItems.length,
-      critical: validItems.filter((item) => item.urgencyScore >= 90).length,
-      high: validItems.filter((item) => item.urgencyScore >= 70 && item.urgencyScore < 90).length,
+      critical,
+      high,
       lowConfidence
     },
     items: validItems,
@@ -3797,35 +3801,44 @@ function getPreparedCardRowByTargetRef(db: LooDatabase, targetRef: string): Prep
   return row ?? null;
 }
 
-function getPreparedCardRowByCardRef(db: LooDatabase, cardRef: string): PreparedCardRow | null {
-  if (!/^prepared_card:[0-9a-f]{32}$/.test(cardRef)) return null;
-  const row = db.prepare(`
-    SELECT
-      card_ref AS cardRef,
-      target_ref AS targetRef,
-      card_kind AS cardKind,
-      title,
-      summary_text AS summaryText,
-      next_action AS nextAction,
-      source_refs_json AS sourceRefsJson,
-      source_range_refs_json AS sourceRangeRefsJson,
-      source_range_refs_omitted AS sourceRangeRefsOmitted,
-      authority_coverage_json AS authorityCoverageJson,
-      input_hash AS inputHash,
-      extractor_version AS extractorVersion,
-      privacy_class AS privacyClass,
-      confidence,
-      freshness_at AS freshnessAt,
-      stale,
-      state,
-      reason_codes_json AS reasonCodesJson
-    FROM prepared_cards
-    WHERE card_ref = ?
-      AND extractor_version = ?
-      AND privacy_class = 'public_safe_metadata'
-    LIMIT 1
-  `).get(cardRef, PREPARED_CARD_EXTRACTOR_VERSION) as PreparedCardRow | undefined;
-  return row ?? null;
+function getPublicPreparedCardsByCardRef(db: LooDatabase, cardRefs: string[]): Map<string, PreparedCard> {
+  const refs = unique(cardRefs.filter((ref) => /^prepared_card:[0-9a-f]{32}$/.test(ref)));
+  const cards = new Map<string, PreparedCard>();
+  for (let offset = 0; offset < refs.length; offset += 400) {
+    const chunk = refs.slice(offset, offset + 400);
+    if (!chunk.length) continue;
+    const placeholders = chunk.map(() => "?").join(", ");
+    const rows = db.prepare(`
+      SELECT
+        card_ref AS cardRef,
+        target_ref AS targetRef,
+        card_kind AS cardKind,
+        title,
+        summary_text AS summaryText,
+        next_action AS nextAction,
+        source_refs_json AS sourceRefsJson,
+        source_range_refs_json AS sourceRangeRefsJson,
+        source_range_refs_omitted AS sourceRangeRefsOmitted,
+        authority_coverage_json AS authorityCoverageJson,
+        input_hash AS inputHash,
+        extractor_version AS extractorVersion,
+        privacy_class AS privacyClass,
+        confidence,
+        freshness_at AS freshnessAt,
+        stale,
+        state,
+        reason_codes_json AS reasonCodesJson
+      FROM prepared_cards
+      WHERE card_ref IN (${placeholders})
+        AND extractor_version = ?
+        AND privacy_class = 'public_safe_metadata'
+    `).all(...chunk, PREPARED_CARD_EXTRACTOR_VERSION) as PreparedCardRow[];
+    for (const row of rows) {
+      const card = publicPreparedCardFromRow(row);
+      if (card) cards.set(card.cardRef, card);
+    }
+  }
+  return cards;
 }
 
 function publicPreparedInboxItemFromRow(row: PreparedInboxRow): PreparedInboxItem | null {

@@ -112,6 +112,89 @@ function insertSummaryLeafRow(
   );
 }
 
+function insertPreparedCardRow(
+  db: ReturnType<typeof createDatabase>,
+  input: {
+    id: string;
+    threadId: string;
+    title?: string;
+    summaryText?: string;
+    sourceRefs?: string[];
+    sourceRangeRefs?: string[];
+    confidence?: number;
+    stale?: boolean;
+    state?: "ready" | "stale" | "partial" | "unknown";
+    reasonCodes?: string[];
+  }
+): string {
+  const cardRef = `prepared_card:${input.id}`;
+  db.prepare(`
+    INSERT INTO prepared_cards (
+      card_id, card_ref, target_ref, card_kind, title, summary_text, next_action,
+      source_refs_json, source_range_refs_json, source_range_refs_omitted, authority_coverage_json,
+      input_hash, extractor_version, privacy_class, confidence, freshness_at,
+      stale, state, reason_codes_json, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    `card-${input.id}`,
+    cardRef,
+    `codex_thread:${input.threadId}`,
+    "codex_session",
+    input.title ?? `Prepared ${input.threadId}`,
+    input.summaryText ?? "Prepared state: public-safe card.",
+    "Review bounded summary evidence.",
+    JSON.stringify(input.sourceRefs ?? [`codex_thread:${input.threadId}`, `summary_leaf:${input.id}`]),
+    JSON.stringify(input.sourceRangeRefs ?? [`codex_range:${input.id}`]),
+    0,
+    JSON.stringify({
+      summaryLeaves: { status: "ok", leafCount: 1, rangeCount: 1 },
+      sessionMetadata: { status: "ok" },
+      watcherObservations: { status: "not_configured" }
+    }),
+    input.id,
+    "prepared-cards-v1",
+    "public_safe_metadata",
+    input.confidence ?? 0.9,
+    "2026-07-03T00:00:00.000Z",
+    input.stale ? 1 : 0,
+    input.state ?? "ready",
+    JSON.stringify(input.reasonCodes ?? ["summary_leaves_ready"]),
+    "2026-07-03T00:00:00.000Z",
+    "2026-07-03T00:00:00.000Z"
+  );
+  return cardRef;
+}
+
+function insertPreparedInboxRow(
+  db: ReturnType<typeof createDatabase>,
+  input: {
+    id: string;
+    cardRef: string;
+    threadId: string;
+    urgencyScore: number;
+    state?: "ready" | "stale" | "partial" | "unknown";
+    reasonCodes?: string[];
+  }
+): void {
+  db.prepare(`
+    INSERT INTO prepared_inbox_items (
+      item_id, card_ref, target_ref, urgency_score, state, reason_codes_json,
+      source_refs_json, execute_false, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    `prepared_inbox:${input.id}`,
+    input.cardRef,
+    `codex_thread:${input.threadId}`,
+    input.urgencyScore,
+    input.state ?? "ready",
+    JSON.stringify(input.reasonCodes ?? ["summary_leaves_ready"]),
+    JSON.stringify([`codex_thread:${input.threadId}`, input.cardRef]),
+    1,
+    "2026-07-03T00:00:00.000Z",
+    "2026-07-03T00:00:00.000Z"
+  );
+}
+
 test("prepared cards materialize public-safe advisory cards and inbox entries", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-prepared-cards-"));
   const sessions = join(root, "sessions");
@@ -457,6 +540,84 @@ test("prepared card reports filter unsafe cached rows without leaking canaries",
     assert.equal(status.summary.cards, 0);
     assert.equal(status.summary.staleCards, 0);
     assert.equal(status.summary.inboxItems, 0);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared card coverage remains partial when a limited page also has filtered rows", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-card-limited-coverage-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    insertPreparedCardRow(db, {
+      id: "90000000000000000000000000000009",
+      threadId: "019f-prepared-limited-safe"
+    });
+    insertPreparedCardRow(db, {
+      id: "a000000000000000000000000000000a",
+      threadId: "019f-prepared-limited-unsafe",
+      title: "/Users/lume/private/customer.txt",
+      summaryText: "PRIVATE_CANARY_TOKEN_1234567890",
+      sourceRefs: ["/Users/lume/private/customer.txt"]
+    });
+
+    const cards = getPreparedCards(db, { limit: 1 });
+    assert.equal(cards.summary.total, 1);
+    assert.equal(cards.summary.returned, 1);
+    assert.equal(cards.omitted.filteredUnsafeRows, 1);
+    assert.equal(cards.sourceCoverage.preparedCards, "partial");
+
+    const status = getPreparedStateStatus(db);
+    assert.equal(status.summary.cards, 1);
+    assert.equal(status.sourceCoverage.preparedCards, "partial");
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared inbox critical and high counts cover all valid items before page truncation", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-inbox-total-counts-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const criticalA = insertPreparedCardRow(db, {
+      id: "b000000000000000000000000000000b",
+      threadId: "019f-prepared-critical-a"
+    });
+    const criticalB = insertPreparedCardRow(db, {
+      id: "c000000000000000000000000000000c",
+      threadId: "019f-prepared-critical-b"
+    });
+    const high = insertPreparedCardRow(db, {
+      id: "d000000000000000000000000000000d",
+      threadId: "019f-prepared-high"
+    });
+    insertPreparedInboxRow(db, {
+      id: "b000000000000000000000000000000b",
+      cardRef: criticalA,
+      threadId: "019f-prepared-critical-a",
+      urgencyScore: 95
+    });
+    insertPreparedInboxRow(db, {
+      id: "c000000000000000000000000000000c",
+      cardRef: criticalB,
+      threadId: "019f-prepared-critical-b",
+      urgencyScore: 91
+    });
+    insertPreparedInboxRow(db, {
+      id: "d000000000000000000000000000000d",
+      cardRef: high,
+      threadId: "019f-prepared-high",
+      urgencyScore: 75
+    });
+
+    const inbox = getPreparedInbox(db, { limit: 1 });
+    assert.equal(inbox.summary.total, 3);
+    assert.equal(inbox.summary.returned, 1);
+    assert.equal(inbox.summary.critical, 2);
+    assert.equal(inbox.summary.high, 1);
+    assert.equal(inbox.omitted.count, 2);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
