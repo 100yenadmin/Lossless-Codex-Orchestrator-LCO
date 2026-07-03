@@ -645,11 +645,12 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       lcm_db_paths: { type: "array", items: { type: "string" } }
     }, (input) => probeLcmPeerDbs(optionalRoots(input.lcm_db_paths, configuredLcmPeerDbPaths()))),
     tool("loo_codex_control_dry_run", "Create a dry-run audit id for a Codex control action.", {
-      action: { type: "string", enum: ["send", "resume", "steer", "interrupt"] },
+      action: { type: "string", enum: ["start", "send", "resume", "steer", "interrupt"] },
       thread_id: { type: "string" },
       message: { type: "string" },
       expected_turn_id: { type: "string" }
     }, (input) => snakeCaseControlResult(dispatchControl(control, input, true))),
+    tool("loo_codex_start_thread", "Create a new Codex thread. Dry-run by default; live mode requires approval_audit_id and still needs follow-up proof before durability claims.", startControlSchema(), (input) => snakeCaseControlResult(control.startThread(startControlInput(input)))),
     tool("loo_codex_resume_thread", "Resume or rejoin a Codex thread. Live mode requires approval_audit_id.", controlSchema(), (input) => snakeCaseControlResult(control.resumeThread(controlInput(input)))),
     tool("loo_codex_send_message", "Send a message to a Codex thread. Live mode requires approval_audit_id.", controlSchema(true), (input) => snakeCaseControlResult(control.sendMessage(messageControlInput(input)))),
     tool("loo_codex_steer_thread", "Steer a running Codex thread. Live mode requires approval_audit_id and expected_turn_id.", controlSchema(true, true), (input) => snakeCaseControlResult(control.steerThread(messageControlInput(input, true)))),
@@ -948,6 +949,7 @@ function targetThreadIdFromCoherenceInput(input: Record<string, unknown>): strin
 
 function dispatchControl(control: ReturnType<typeof createCodexControl>, input: Record<string, unknown>, dryRun: boolean) {
   const action = requiredString(input.action, "action");
+  if (action === "start") return control.startThread({ dryRun });
   const common = {
     threadId: requiredString(input.thread_id, "thread_id"),
     message: action === "send" || action === "steer"
@@ -973,10 +975,24 @@ function controlSchema(message = false, expectedTurn = false): Record<string, un
   };
 }
 
+function startControlSchema(): Record<string, unknown> {
+  return {
+    dry_run: { type: "boolean", default: true },
+    approval_audit_id: { type: "string" }
+  };
+}
+
 function controlInput(input: Record<string, unknown>, message = false) {
   return {
     threadId: requiredString(input.thread_id, "thread_id"),
     ...(message ? { message: requiredString(input.message, "message") } : {}),
+    dryRun: input.dry_run !== false,
+    approvalAuditId: optionalString(input.approval_audit_id)
+  };
+}
+
+function startControlInput(input: Record<string, unknown>) {
+  return {
     dryRun: input.dry_run !== false,
     approvalAuditId: optionalString(input.approval_audit_id)
   };
@@ -995,18 +1011,24 @@ function messageControlInput(input: Record<string, unknown>, expectedTurn = fals
 async function snakeCaseControlResult(value: Promise<any>) {
   const result = await value;
   const approvalPacket = result.live === false ? approvalPacketFromControlResult(result) : undefined;
+  const proofState = result.proofState ? snakeCaseProofState(result.proofState) : undefined;
   return {
     ...result,
+    thread_id: result.threadId,
+    created_thread_id: result.createdThreadId,
     approval_audit_id: result.approvalAuditId,
     params_hash: result.paramsHash,
     message_hash: result.messageHash,
+    ...(proofState ? { proof_state: proofState } : {}),
     ...(approvalPacket ? { approval_packet: approvalPacket } : {})
   };
 }
 
 function approvalPacketFromControlResult(result: any): Record<string, unknown> {
   const action = String(result.action ?? "resume");
-  const packetAction = action === "send" || action === "codex_send_message"
+  const packetAction = action === "start" || action === "codex_start_thread"
+    ? "start_thread"
+    : action === "send" || action === "codex_send_message"
     ? "send_message"
     : action === "steer" || action === "codex_steer_thread"
       ? "steer_thread"
@@ -1044,6 +1066,32 @@ function approvalPacketFromControlResult(result: any): Record<string, unknown> {
       paramsHash: String(result.paramsHash ?? ""),
       ...(result.messageHash ? { messageHash: String(result.messageHash) } : {})
     }
+  };
+}
+
+function snakeCaseProofState(value: any): Record<string, unknown> {
+  const nextProof = value.nextProof
+    ? {
+        tool: value.nextProof.tool,
+        execute: value.nextProof.execute,
+        args: value.nextProof.args,
+        reason: value.nextProof.reason,
+        stop_conditions: value.nextProof.stopConditions
+      }
+    : undefined;
+  return {
+    accepted_by_transport: value.acceptedByTransport,
+    started: value.started,
+    completed: value.completed,
+    persisted: value.persisted,
+    unverified_pending: value.unverifiedPending,
+    status: value.status,
+    thread_id: value.threadId,
+    turn_id: value.turnId,
+    response_status: value.responseStatus,
+    ...(nextProof ? { next_proof: nextProof } : {}),
+    caller_instruction: value.callerInstruction,
+    proof_boundary: value.proofBoundary
   };
 }
 

@@ -213,14 +213,147 @@ test("Codex control rejects failed same-connection sequence responses before liv
   }
 });
 
+test("Codex live send reports transport acceptance as unverified until follow-up proof", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-control-proof-state-"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const control = createCodexControl({
+    audit,
+    client: {
+      request: async () => ({ ok: true }),
+      requestSequence: async (steps) => steps.map((step) => step.method === "turn/start"
+        ? { ok: true, result: { turn: { id: "turn_pending", status: "inProgress" } } }
+        : { ok: true, result: { thread: { id: "thr_1", loaded: true } } })
+    }
+  });
+
+  try {
+    const dryRun = await control.sendMessage({ threadId: "thr_1", message: "continue", dryRun: true });
+    const live = await control.sendMessage({
+      threadId: "thr_1",
+      message: "continue",
+      dryRun: false,
+      approvalAuditId: dryRun.approvalAuditId
+    });
+
+    assert.equal(live.live, true);
+    assert.equal(live.proofState.acceptedByTransport, true);
+    assert.equal(live.proofState.started, true);
+    assert.equal(live.proofState.completed, false);
+    assert.equal(live.proofState.persisted, false);
+    assert.equal(live.proofState.unverifiedPending, true);
+    assert.equal(live.proofState.status, "unverified_pending");
+    assert.equal(live.proofState.turnId, "turn_pending");
+    assert.equal(live.proofState.nextProof?.tool, "loo_codex_app_server_threads");
+    assert.equal(live.proofState.nextProof?.execute, false);
+    assert.deepEqual(live.proofState.nextProof?.args, { read_thread_id: "thr_1", limit: 20 });
+    assert.match(live.proofState.callerInstruction, /Transport acceptance is not durable execution/i);
+    assert.equal(JSON.stringify(live).includes("continue"), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Codex live send with completed transport status still needs durable follow-up proof", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-control-proof-completed-"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const control = createCodexControl({
+    audit,
+    client: {
+      request: async () => ({ ok: true }),
+      requestSequence: async (steps) => steps.map((step) => step.method === "turn/start"
+        ? { ok: true, result: { turn: { id: "turn_completed", status: "completed" } } }
+        : { ok: true, result: { thread: { id: "thr_1", loaded: true } } })
+    }
+  });
+
+  try {
+    const dryRun = await control.sendMessage({ threadId: "thr_1", message: "continue", dryRun: true });
+    const live = await control.sendMessage({
+      threadId: "thr_1",
+      message: "continue",
+      dryRun: false,
+      approvalAuditId: dryRun.approvalAuditId
+    });
+
+    assert.equal(live.proofState.completed, true);
+    assert.equal(live.proofState.persisted, false);
+    assert.equal(live.proofState.unverifiedPending, true);
+    assert.equal(live.proofState.status, "unverified_pending");
+    assert.deepEqual(live.proofState.nextProof?.args, { read_thread_id: "thr_1", limit: 20 });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Codex start-thread workflow is dry-run first and live creation remains pending proof", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-control-start-thread-"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const control = createCodexControl({
+    audit,
+    client: {
+      request: async (method, params) => {
+        calls.push({ method, params });
+        return { ok: true, result: { thread: { id: "thr_created", status: "ready" } } };
+      }
+    }
+  });
+
+  try {
+    const defaultDryRun = await control.startThread();
+    assert.equal(defaultDryRun.live, false);
+    assert.equal(defaultDryRun.proofState.status, "dry_run");
+    assert.equal(calls.length, 0);
+
+    const dryRun = await control.startThread({ dryRun: true });
+    assert.equal(dryRun.live, false);
+    assert.equal(dryRun.action, "codex_start_thread");
+    assert.equal(dryRun.threadId, "new_thread");
+    assert.equal(dryRun.method, "thread/start");
+    assert.equal(dryRun.proofState.status, "dry_run");
+    assert.equal(calls.length, 0);
+
+    await assert.rejects(
+      () => control.startThread({ dryRun: false }),
+      /approval_audit_id is required/
+    );
+    assert.equal(calls.length, 0);
+
+    const live = await control.startThread({
+      dryRun: false,
+      approvalAuditId: dryRun.approvalAuditId
+    });
+    assert.equal(calls[0]?.method, "thread/start");
+    assert.deepEqual(calls[0]?.params, {});
+    assert.equal(live.live, true);
+    assert.equal(live.createdThreadId, "thr_created");
+    assert.equal(live.proofState.acceptedByTransport, true);
+    assert.equal(live.proofState.started, true);
+    assert.equal(live.proofState.completed, false);
+    assert.equal(live.proofState.persisted, false);
+    assert.equal(live.proofState.unverifiedPending, true);
+    assert.equal(live.proofState.status, "unverified_pending");
+    assert.equal(live.proofState.threadId, "thr_created");
+    assert.deepEqual(live.proofState.nextProof?.args, { read_thread_id: "thr_created", limit: 20 });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("MCP tool registry exposes loo-prefixed tools with local-only control safety", async () => {
   const root = mkdtempSync(join(tmpdir(), "loo-mcp-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
   const audit = createAuditStore(join(root, "audit.jsonl"));
+  const codexRequests: Array<{ method: string; params: Record<string, unknown> }> = [];
   const tools = createLooTools({
     db,
     audit,
-    codexClient: { request: async () => ({ ok: true }) }
+    codexClient: {
+      request: async (method, params) => {
+        codexRequests.push({ method, params });
+        return { ok: true, result: { thread: { id: "thr_created", status: "ready" } } };
+      }
+    }
   });
 
   try {
@@ -232,6 +365,7 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.equal(toolNames.includes("loo_search_sessions"), true);
     assert.equal(toolNames.includes("loo_describe_ref"), true);
     assert.equal(toolNames.includes("loo_closeout_dry_run"), true);
+    assert.equal(toolNames.includes("loo_codex_start_thread"), true);
     assert.equal(toolNames.includes("loo_codex_send_message"), true);
     assert.equal(toolNames.includes("loo_desktop_see"), true);
     assert.deepEqual(toolNames.filter((name) => !LOO_COMMAND_POLICY[name]), []);
@@ -246,6 +380,7 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.equal(LOO_COMMAND_POLICY.loo_index_sessions.mutationClasses.includes("live_control"), false);
     assert.equal(LOO_COMMAND_POLICY.loo_codex_control_dry_run.mode, "local_cache_write");
     assert.deepEqual(LOO_COMMAND_POLICY.loo_codex_control_dry_run.mutationClasses, ["derived_cache"]);
+    assert.deepEqual(LOO_COMMAND_POLICY.loo_codex_start_thread.mutationClasses, ["derived_cache", "live_control"]);
     assert.deepEqual(LOO_COMMAND_POLICY.loo_watchers_list.mutationClasses, []);
     assert.deepEqual(LOO_COMMAND_POLICY.loo_watcher_status.mutationClasses, []);
     assert.deepEqual(LOO_COMMAND_POLICY.loo_watcher_dry_run.mutationClasses, []);
@@ -325,6 +460,51 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.notEqual(genericDryRun.message_hash, sha256("continue"));
     assert.equal(genericDryRun.message_hash, dryRun.message_hash);
 
+    const startTool = tools.find((tool) => tool.name === "loo_codex_start_thread");
+    assert.ok(startTool);
+    const startDryRun = await startTool.execute({}) as {
+      live: boolean;
+      action: string;
+      thread_id: string;
+      approval_audit_id: string;
+      proof_state: { status: string };
+      approval_packet: { action: string; predictedMutation: string[] };
+    };
+    assert.equal(startDryRun.live, false);
+    assert.equal(startDryRun.action, "codex_start_thread");
+    assert.equal(startDryRun.thread_id, "new_thread");
+    assert.equal(startDryRun.proof_state.status, "dry_run");
+    assert.equal(startDryRun.approval_packet.action, "start_thread");
+    assert.deepEqual(startDryRun.approval_packet.predictedMutation, ["thread/start"]);
+    await assert.rejects(
+      () => startTool.execute({ dry_run: false }),
+      /approval_audit_id is required/
+    );
+    const startLive = await startTool.execute({
+      dry_run: false,
+      approval_audit_id: startDryRun.approval_audit_id
+    }) as {
+      live: boolean;
+      created_thread_id: string;
+      proof_state: {
+        status: string;
+        accepted_by_transport: boolean;
+        completed: boolean;
+        persisted: boolean;
+        unverified_pending: boolean;
+        next_proof: { tool: string; execute: boolean; args: Record<string, unknown> };
+      };
+    };
+    assert.equal(codexRequests.at(-1)?.method, "thread/start");
+    assert.equal(startLive.live, true);
+    assert.equal(startLive.created_thread_id, "thr_created");
+    assert.equal(startLive.proof_state.accepted_by_transport, true);
+    assert.equal(startLive.proof_state.completed, false);
+    assert.equal(startLive.proof_state.persisted, false);
+    assert.equal(startLive.proof_state.unverified_pending, true);
+    assert.equal(startLive.proof_state.status, "unverified_pending");
+    assert.deepEqual(startLive.proof_state.next_proof.args, { read_thread_id: "thr_created", limit: 20 });
+
     const steerTool = tools.find((tool) => tool.name === "loo_codex_steer_thread");
     assert.ok(steerTool);
     assert.ok((steerTool.inputSchema.properties as Record<string, unknown>).expected_turn_id);
@@ -361,6 +541,17 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.equal(genericSteerDryRun.method, "turn/steer");
     assert.equal(genericSteerDryRun.action, "codex_steer_thread");
     assert.equal(genericSteerDryRun.approval_packet.action, "steer_thread");
+
+    const genericStartDryRun = await dryRunTool.execute({ action: "start" }) as {
+      method: string;
+      action: string;
+      approval_packet: { action: string };
+      proof_state: { status: string };
+    };
+    assert.equal(genericStartDryRun.method, "thread/start");
+    assert.equal(genericStartDryRun.action, "codex_start_thread");
+    assert.equal(genericStartDryRun.approval_packet.action, "start_thread");
+    assert.equal(genericStartDryRun.proof_state.status, "dry_run");
 
     appendFileSync(audit.path, "{malformed audit jsonl\n");
 

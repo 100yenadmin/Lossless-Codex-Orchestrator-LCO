@@ -80,6 +80,7 @@
       "loo_codex_sqlite_stores",
       "loo_lcm_peer_dbs",
       "loo_codex_control_dry_run",
+      "loo_codex_start_thread",
       "loo_codex_resume_thread",
       "loo_codex_send_message",
       "loo_codex_steer_thread",
@@ -1744,6 +1745,7 @@
             "action": {
               "type": "string",
               "enum": [
+                "start",
                 "send",
                 "resume",
                 "steer",
@@ -1757,6 +1759,32 @@
               "type": "string"
             },
             "expected_turn_id": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_start_thread",
+        "description": "Create a new Codex thread. Dry-run by default; live mode requires approval_audit_id and still needs follow-up proof before durability claims.",
+        "safety": {
+          "mode": "approval_gated_control",
+          "source": "codex_direct",
+          "requiresApproval": true,
+          "mutationClasses": [
+            "derived_cache",
+            "live_control"
+          ]
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "dry_run": {
+              "type": "boolean",
+              "default": true
+            },
+            "approval_audit_id": {
               "type": "string"
             }
           }

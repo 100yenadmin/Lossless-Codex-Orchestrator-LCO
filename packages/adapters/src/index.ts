@@ -590,7 +590,42 @@ export type ControlResult = {
   methodSequence?: string[];
   connectionScope?: "single_request" | "same_connection_sequence";
   loadedThreadReusable?: boolean;
+  createdThreadId?: string;
+  proofState: ControlProofState;
   response?: unknown;
+};
+
+export type ControlProofStateStatus =
+  | "dry_run"
+  | "accepted_by_transport"
+  | "started"
+  | "completed"
+  | "persisted"
+  | "unverified_pending"
+  | "transport_rejected";
+
+export type ControlProofState = {
+  acceptedByTransport: boolean;
+  started: boolean;
+  completed: boolean;
+  persisted: boolean;
+  unverifiedPending: boolean;
+  status: ControlProofStateStatus;
+  threadId?: string;
+  turnId?: string;
+  responseStatus?: string;
+  nextProof?: {
+    tool: "loo_codex_app_server_threads";
+    execute: false;
+    args: {
+      read_thread_id: string;
+      limit: 20;
+    };
+    reason: string;
+    stopConditions: string[];
+  };
+  callerInstruction: string;
+  proofBoundary: string;
 };
 
 export type AuditStore = ReturnType<typeof createAuditStore>;
@@ -668,6 +703,7 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
     dryRun?: boolean;
     approvalAuditId?: string;
     loadedThreadReusable?: boolean;
+    createdThreadFromResponse?: boolean;
   }): Promise<ControlResult> => {
     assertCodexMethodAllowed(spec.method, "control");
     const steps = spec.steps?.length ? spec.steps : [{ method: spec.method, params: spec.params }];
@@ -701,7 +737,8 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
         method: spec.method,
         methodSequence,
         connectionScope,
-        loadedThreadReusable: spec.loadedThreadReusable
+        loadedThreadReusable: spec.loadedThreadReusable,
+        proofState: dryRunProofState()
       };
     }
 
@@ -726,6 +763,8 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
       ? await requestCodexControlSequence(options.client, steps)
       : await options.client.request(spec.method, spec.params);
     const liveRecord = options.audit.append({ action: spec.action, target: spec.threadId, paramsHash, messageHash, live: true });
+    const createdThreadId = spec.createdThreadFromResponse ? extractControlThreadId(response) : undefined;
+    const proofThreadId = createdThreadId ?? spec.threadId;
     return {
       action: spec.action,
       threadId: spec.threadId,
@@ -737,11 +776,29 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
       methodSequence,
       connectionScope,
       loadedThreadReusable: spec.loadedThreadReusable,
+      createdThreadId,
+      proofState: liveProofState({
+        method: spec.method,
+        methodSequence,
+        threadId: proofThreadId,
+        response
+      }),
       response: redactValue(response)
     };
   };
 
   return {
+    startThread(input: { dryRun?: boolean; approvalAuditId?: string } = {}) {
+      return execute({
+        action: "codex_start_thread",
+        method: "thread/start",
+        threadId: "new_thread",
+        dryRun: input.dryRun,
+        approvalAuditId: input.approvalAuditId,
+        params: {},
+        createdThreadFromResponse: true
+      });
+    },
     sendMessage(input: { threadId: string; message: string; dryRun?: boolean; approvalAuditId?: string }) {
       const resumeParams = { threadId: input.threadId, excludeTurns: true };
       const turnStartParams = { threadId: input.threadId, input: [{ type: "text", text: input.message }] };
@@ -794,6 +851,116 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
       });
     }
   };
+}
+
+function dryRunProofState(): ControlProofState {
+  return {
+    acceptedByTransport: false,
+    started: false,
+    completed: false,
+    persisted: false,
+    unverifiedPending: false,
+    status: "dry_run",
+    callerInstruction: "Dry-run only. Live Codex control still requires the matching approval_audit_id for the exact params_hash.",
+    proofBoundary: "A dry-run approval packet does not execute Codex control and cannot prove transport acceptance, execution, completion, or persistence."
+  };
+}
+
+function liveProofState(input: {
+  method: string;
+  methodSequence: string[];
+  threadId: string;
+  response: unknown;
+}): ControlProofState {
+  const acceptedByTransport = asRecord(input.response)?.ok === false ? false : true;
+  const turnId = extractControlTurnId(input.response);
+  const responseThreadId = extractControlThreadId(input.response);
+  const responseStatus = extractControlStatus(input.response);
+  const normalizedStatus = normalizeControlStatus(responseStatus);
+  const started = acceptedByTransport && Boolean(
+    turnId
+    || responseThreadId
+    || normalizedStatus === "in_progress"
+    || normalizedStatus === "running"
+    || normalizedStatus === "started"
+    || normalizedStatus === "pending"
+    || normalizedStatus === "queued"
+  );
+  const completed = acceptedByTransport && Boolean(
+    normalizedStatus === "completed"
+    || normalizedStatus === "complete"
+    || normalizedStatus === "done"
+  );
+  const persisted = false;
+  const unverifiedPending = acceptedByTransport && !persisted && (started || completed || normalizedStatus !== null);
+  const status: ControlProofStateStatus = !acceptedByTransport
+    ? "transport_rejected"
+    : persisted
+      ? "persisted"
+      : unverifiedPending
+        ? "unverified_pending"
+        : completed
+          ? "completed"
+          : started
+            ? "started"
+            : "accepted_by_transport";
+  const proofThreadId = responseThreadId ?? input.threadId;
+  return {
+    acceptedByTransport,
+    started,
+    completed,
+    persisted,
+    unverifiedPending,
+    status,
+    threadId: proofThreadId,
+    ...(turnId ? { turnId } : {}),
+    ...(responseStatus ? { responseStatus } : {}),
+    ...(acceptedByTransport && !persisted && proofThreadId !== "new_thread" ? { nextProof: {
+      tool: "loo_codex_app_server_threads",
+      execute: false,
+      args: { read_thread_id: proofThreadId, limit: 20 },
+      reason: "Bounded read-only follow-up proof is required before treating transport acceptance as durable Codex execution or persistence.",
+      stopConditions: ["execute_false_only", "raw_transcript_not_read", "do_not_claim_completed_or_persisted_until_durable_read"]
+    } } : {}),
+    callerInstruction: acceptedByTransport
+      ? "Transport acceptance is not durable execution. Run the bounded follow-up proof before claiming the turn or thread completed, persisted, or is safe to build on."
+      : "Codex transport did not accept the control request. Do not retry live control without a fresh dry-run and approval.",
+    proofBoundary: "This proof state is public-safe transport/output classification only. It does not read raw transcripts, prove durable local-session persistence, mutate the GUI, or claim completed orchestration without follow-up evidence."
+  };
+}
+
+function extractControlTurnId(value: unknown): string | undefined {
+  const turn = nestedRecord(value, ["result", "turn"]) ?? nestedRecord(value, ["turn"]);
+  return stringField(turn?.id) ?? undefined;
+}
+
+function extractControlThreadId(value: unknown): string | undefined {
+  const thread = nestedRecord(value, ["result", "thread"]) ?? nestedRecord(value, ["thread"]);
+  return stringField(thread?.id) ?? undefined;
+}
+
+function extractControlStatus(value: unknown): string | null {
+  const turn = nestedRecord(value, ["result", "turn"]) ?? nestedRecord(value, ["turn"]);
+  const thread = nestedRecord(value, ["result", "thread"]) ?? nestedRecord(value, ["thread"]);
+  return stringField(turn?.status)
+    ?? stringField(thread?.status)
+    ?? stringField(nestedRecord(value, ["result"])?.status)
+    ?? stringField(asRecord(value)?.status);
+}
+
+function nestedRecord(value: unknown, path: string[]): Record<string, unknown> | null {
+  let current: unknown = value;
+  for (const segment of path) {
+    const record = asRecord(current);
+    if (!record) return null;
+    current = record[segment];
+  }
+  return asRecord(current);
+}
+
+function normalizeControlStatus(value: string | null): string | null {
+  if (!value) return null;
+  return value.trim().replace(/([a-z])([A-Z])/g, "$1_$2").replace(/[\s-]+/g, "_").toLowerCase();
 }
 
 async function requestCodexControlSequence(client: CodexClient, steps: CodexControlStep[]): Promise<unknown> {
