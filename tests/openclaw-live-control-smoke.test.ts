@@ -16,6 +16,7 @@ const LIVE_AUDIT_ID = "loo_audit_def45678";
 
 function createFakeOpenClaw(dir: string, options: {
   auditDetailsEnvelope?: boolean;
+  liveResponseMissingOk?: boolean;
   liveTurnStatus?: string;
   liveResponseOkFalse?: boolean;
   mismatchedLiveMessageHash?: boolean;
@@ -28,6 +29,8 @@ function createFakeOpenClaw(dir: string, options: {
     ? `{ ok: false, error: "thread not found: thr_gateway_live" }`
     : options.missingLiveTurnStatus
       ? `{ ok: true }`
+      : options.liveResponseMissingOk
+        ? `{ turn: { id: "turn_1", status: "${options.liveTurnStatus ?? "completed"}" } }`
       : `{ ok: true, turn: { id: "turn_1", status: "${options.liveTurnStatus ?? "completed"}" } }`;
   const auditTailPayload = `{
       auditPath: "metadata-only",
@@ -297,6 +300,29 @@ test("OpenClaw live-control smoke fails closed when live response is not ok", ()
     };
     assert.equal(proof.public_safe, false);
     assert.equal(proof.proof_markers?.matching_approval_audit_id, false);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw live-control smoke fails closed when live response omits ok proof", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-smoke-response-missing-ok-"));
+  const { bin, callsPath } = createFakeOpenClaw(root, { liveResponseMissingOk: true });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+
+  try {
+    const report = runOpenClawGatewayLiveControlSmoke({
+      openclawBin: bin,
+      evidenceDir: join(root, "evidence"),
+      threadId: "thr_gateway_live"
+    });
+
+    assert.equal(report.ok, false);
+    assert.equal(report.live.responseOk, null);
+    assert.match(report.blockers.join("\n"), /openclaw_live_send_not_proven/);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;

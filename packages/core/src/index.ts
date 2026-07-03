@@ -3456,7 +3456,9 @@ function autonomyTickStepComparator(left: CodexAutonomyTickStep, right: CodexAut
   const threadDelta = left.threadId.localeCompare(right.threadId);
   if (threadDelta !== 0) return threadDelta;
   if (left.stepType !== right.stepType) return left.stepType === "read_only_probe" ? -1 : 1;
-  return left.stepId.localeCompare(right.stepId);
+  if (left.stepId < right.stepId) return -1;
+  if (left.stepId > right.stepId) return 1;
+  return 0;
 }
 
 function activeThreadStateItemSourceCoverage(input: {

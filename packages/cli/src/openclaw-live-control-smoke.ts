@@ -271,7 +271,7 @@ function validLive(summary: ControlSummary): boolean {
     && safeAuditId(summary.approvalAuditId)
     && safeHash(summary.paramsHash)
     && safeHash(summary.messageHash)
-    && summary.responseOk !== false
+    && summary.responseOk === true
     && liveTurnStatusProvesSendAccepted(summary.turnStatus);
 }
 

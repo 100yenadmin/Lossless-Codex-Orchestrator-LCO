@@ -1094,7 +1094,6 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
     }));
     summary.autonomyTick = autonomyTickCounts;
     const nextToolCall = steps.map(publicSafeAutonomyTickNextToolCall).find((candidate) => Boolean(candidate));
-    if (nextToolCall) summary.nextToolCall = nextToolCall;
     if (!summaryRecord) blockers.push("autonomy_tick_summary_missing");
     if (stringPath(tickOutput, ["schema"]) !== "lco.codex.autonomyTick.v1") blockers.push("autonomy_tick_schema_invalid");
     if (booleanPath(tickOutput, ["publicSafe"]) !== true || booleanPath(tickOutput, ["readOnly"]) !== true) {
@@ -1116,6 +1115,7 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
     ) {
       blockers.push("autonomy_tick_restricted_action");
     }
+    if (blockers.length === 0 && nextToolCall) summary.nextToolCall = nextToolCall;
   }
 
   return {
