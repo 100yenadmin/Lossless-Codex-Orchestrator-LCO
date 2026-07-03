@@ -44,7 +44,7 @@ import { createGeneralReleaseReadiness } from "./general-release-readiness.js";
 import { runOpenClawDogfood } from "./openclaw-dogfood.js";
 import { DEFAULT_REQUIRED_TOOL_CALLS, runOpenClawToolSmoke } from "./openclaw-tool-smoke.js";
 import { createPublishedPackageSmokeReport } from "./published-package-smoke.js";
-import { runOpenClawGatewayLiveControlSmoke } from "./openclaw-live-control-smoke.js";
+import { runOpenClawGatewayLiveControlSmoke, type OpenClawGatewayLiveControlAction } from "./openclaw-live-control-smoke.js";
 import { runOpenClawPostActionRefreshSmoke } from "./openclaw-post-action-refresh-smoke.js";
 import { createScorecardSweep } from "./scorecard-sweep.js";
 import { createScenarioSweep } from "./scenario-sweep.js";
@@ -803,7 +803,7 @@ function mainUsageText(): string {
     "  loo openclaw dogfood [--dev] [--profile name] [--install-source path] [--link] [--force-install] [--evidence-path path] [--strict]",
     "  loo openclaw tool-smoke [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--thread-id id] [--expand-profile metadata|brief|evidence] [--token-budget n] [--required-tool name] [--evidence-path path] [--strict]",
     "  loo openclaw published-smoke --evidence-dir path --dogfood-report path --tool-smoke-report path [--configured-tool-smoke-report path] [--npm-install-diagnostic-report path] [--registry-version version] [--registry-beta-version version] [--root path] [--now iso] [--strict]",
-    "  loo openclaw live-control-smoke --evidence-dir path --thread-id id [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--message text] [--strict]",
+    "  loo openclaw live-control-smoke --evidence-dir path --thread-id id [--action send|resume] [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--message text] [--strict]",
     "  loo openclaw post-action-refresh-smoke --evidence-dir path --thread-id id --live-proof-report path [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--expand-profile metadata|brief|evidence] [--token-budget n] [--strict]",
     "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--strict]",
     "  loo runtime sweep-summary --evidence-dir path --dry-run-scenarios path --runtime-scenarios path --scorecard-sweep path --published-smoke path [--runtime-proof-dir path] [--now iso] [--strict]",
@@ -1212,9 +1212,9 @@ function printLiveControlSmokeHelp(): void {
 function printOpenClawLiveControlSmokeHelp(): void {
   console.log([
     "Usage:",
-    "  loo openclaw live-control-smoke --evidence-dir path --thread-id id [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--message text] [--strict]",
+    "  loo openclaw live-control-smoke --evidence-dir path --thread-id id [--action send|resume] [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--message text] [--strict]",
     "",
-    "Runs one approval-gated live Codex send through the installed OpenClaw gateway tools.invoke path.",
+    "Runs one approval-gated live Codex send or resume through the installed OpenClaw gateway tools.invoke path.",
     "",
     "Outputs:",
     "  openclaw-gateway-live-codex-v1-1.runtime-proof.json",
@@ -1222,7 +1222,7 @@ function printOpenClawLiveControlSmokeHelp(): void {
     "",
     "Safety boundary:",
     "  The command requires an explicit --thread-id target.",
-    "  It invokes loo_codex_control_dry_run first, then uses the matching approval_audit_id for loo_codex_send_message with dry_run:false.",
+    "  It invokes loo_codex_control_dry_run first, then uses the matching approval_audit_id for the selected live tool with dry_run:false.",
     "  It reads loo_audit_tail to prove matching dry-run/live audit metadata.",
     "  Evidence contains refs, audit ids, hashes, tool names, and status only.",
     "  It does not write raw prompt text, raw transcript spans, screenshots, SQLite DBs, tokens, or credentials.",
@@ -2026,6 +2026,7 @@ function parseOpenClawLiveControlSmokeArgs(input: string[]): {
   token?: string;
   sessionKey?: string;
   threadId: string;
+  action?: OpenClawGatewayLiveControlAction;
   message?: string;
   evidenceDir: string;
   gatewayTimeoutMs?: number;
@@ -2050,6 +2051,8 @@ function parseOpenClawLiveControlSmokeArgs(input: string[]): {
       parsed.sessionKey = requireOptionValue(input[++index], arg);
     } else if (arg === "--thread-id") {
       parsed.threadId = requireOptionValue(input[++index], arg);
+    } else if (arg === "--action") {
+      parsed.action = parseOpenClawLiveControlAction(requireOptionValue(input[++index], arg));
     } else if (arg === "--message") {
       parsed.message = requireOptionValue(input[++index], arg);
     } else if (arg === "--evidence-dir") {
@@ -2063,6 +2066,11 @@ function parseOpenClawLiveControlSmokeArgs(input: string[]): {
   if (!parsed.evidenceDir) throw new Error("openclaw live-control-smoke requires --evidence-dir");
   if (!parsed.threadId) throw new Error("openclaw live-control-smoke requires --thread-id");
   return parsed as ReturnType<typeof parseOpenClawLiveControlSmokeArgs>;
+}
+
+function parseOpenClawLiveControlAction(value: string): OpenClawGatewayLiveControlAction {
+  if (value === "send" || value === "resume") return value;
+  throw new Error("--action must be send or resume");
 }
 
 function parseOpenClawPostActionRefreshSmokeArgs(input: string[]): {

@@ -351,6 +351,7 @@ function readRuntimeScenario(scenario: ScenarioJson, file: string, evidenceDir: 
   const fallbackId = safeEvidenceStem(basename(file, ".json")) || "scenario";
   const id = isSafeScenarioId(requestedId) ? requestedId : fallbackId;
   const requiredTools = stringArray(scenario.required_tools);
+  const allowedTools = stringArray(scenario.allowed_tools);
   const forbiddenBehaviors = stringArray(scenario.forbidden_behaviors);
   const expectedPublicSafeEvidence = stringArray(scenario.expected_public_safe_evidence);
   const privateDataExclusions = stringArray(scenario.private_data_exclusions).length
@@ -393,7 +394,7 @@ function readRuntimeScenario(scenario: ScenarioJson, file: string, evidenceDir: 
     surface: stringValue(scenario.surface) || "unknown",
     status: contractBlockers.length > 0 ? "invalid" : proof.blockers.length > 0 ? "runtime_proof_required" : "runtime_proof_ready",
     evidencePath: join(evidenceDir, `${id}.json`),
-    allowedTools: requiredTools,
+    allowedTools: allowedTools.length > 0 ? allowedTools : requiredTools,
     forbiddenBehaviors,
     expectedPublicSafeEvidence,
     privateDataExclusions,

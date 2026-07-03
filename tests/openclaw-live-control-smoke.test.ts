@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, copyFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,6 +21,9 @@ function createFakeOpenClaw(dir: string, options: {
   liveResponseOkFalse?: boolean;
   mismatchedLiveMessageHash?: boolean;
   missingLiveTurnStatus?: boolean;
+  resumeResponseMissingStatus?: boolean;
+  resumeResponseOkFalse?: boolean;
+  resumeMethod?: string;
 } = {}): { bin: string; callsPath: string } {
   const callsPath = join(dir, "calls.jsonl");
   const bin = join(dir, "openclaw-live-fake.mjs");
@@ -32,6 +35,12 @@ function createFakeOpenClaw(dir: string, options: {
       : options.liveResponseMissingOk
         ? `{ turn: { id: "turn_1", status: "${options.liveTurnStatus ?? "completed"}" } }`
       : `{ ok: true, turn: { id: "turn_1", status: "${options.liveTurnStatus ?? "completed"}" } }`;
+  const resumeResponse = options.resumeResponseOkFalse
+    ? `{ ok: false, error: "resume rejected" }`
+    : options.resumeResponseMissingStatus
+      ? `{ ok: true }`
+      : `{ ok: true, status: "completed" }`;
+  const resumeMethod = options.resumeMethod ?? "thread/resume";
   const auditTailPayload = `{
       auditPath: "metadata-only",
       records: [
@@ -50,10 +59,11 @@ const method = callIndex >= 0 ? args[callIndex + 1] : "";
 const paramsIndex = args.indexOf("--params");
 const params = paramsIndex >= 0 ? JSON.parse(args[paramsIndex + 1] || "{}") : {};
 appendFileSync(process.env.OPENCLAW_FAKE_CALLS, JSON.stringify({ method, params, args }) + "\\n");
-if (method === "tools.catalog") {
+  if (method === "tools.catalog") {
   console.log(JSON.stringify({ groups: [{ tools: [
     { id: "loo_codex_control_dry_run" },
     { id: "loo_codex_send_message" },
+    { id: "loo_codex_resume_thread" },
     { id: "loo_audit_tail" }
   ] }] }));
   process.exit(0);
@@ -62,18 +72,22 @@ if (method === "tools.invoke") {
   const name = params.name;
   const toolArgs = params.args || {};
   if (name === "loo_codex_control_dry_run") {
-    console.log(JSON.stringify({ ok: true, output: {
-      action: "codex_send_message",
+    const action = toolArgs.action === "resume" ? "codex_resume_thread" : "codex_send_message";
+    const output = {
+      action,
       threadId: toolArgs.thread_id,
       live: false,
       approvalAuditId: "${DRY_RUN_AUDIT_ID}",
       paramsHash: "${PARAMS_HASH}",
-      messageHash: "${MESSAGE_HASH}",
-      method: "turn/start",
+      method: toolArgs.action === "resume" ? "thread/resume" : "turn/start",
       approval_audit_id: "${DRY_RUN_AUDIT_ID}",
-      params_hash: "${PARAMS_HASH}",
-      message_hash: "${MESSAGE_HASH}"
-    } }));
+      params_hash: "${PARAMS_HASH}"
+    };
+    if (toolArgs.action !== "resume") {
+      output.messageHash = "${MESSAGE_HASH}";
+      output.message_hash = "${MESSAGE_HASH}";
+    }
+    console.log(JSON.stringify({ ok: true, output }));
     process.exit(0);
   }
   if (name === "loo_codex_send_message") {
@@ -93,6 +107,24 @@ if (method === "tools.invoke") {
       params_hash: "${PARAMS_HASH}",
       message_hash: "${liveMessageHash}",
       response: ${liveResponse}
+    } }));
+    process.exit(0);
+  }
+  if (name === "loo_codex_resume_thread") {
+    if (toolArgs.approval_audit_id !== "${DRY_RUN_AUDIT_ID}" || toolArgs.dry_run !== false) {
+      console.log(JSON.stringify({ ok: false, error: { code: "approval_mismatch" } }));
+      process.exit(0);
+    }
+    console.log(JSON.stringify({ ok: true, output: {
+      action: "codex_resume_thread",
+      threadId: toolArgs.thread_id,
+      live: true,
+      approvalAuditId: "${LIVE_AUDIT_ID}",
+      paramsHash: "${PARAMS_HASH}",
+      method: "${resumeMethod}",
+      approval_audit_id: "${LIVE_AUDIT_ID}",
+      params_hash: "${PARAMS_HASH}",
+      response: ${resumeResponse}
     } }));
     process.exit(0);
   }
@@ -165,6 +197,166 @@ test("OpenClaw live-control smoke proves dry-run live send and audit tail throug
     assert.equal(calls[2]?.params.args?.approval_audit_id, DRY_RUN_AUDIT_ID);
     assert.equal(calls[2]?.params.args?.dry_run, false);
     assert.equal(calls[3]?.params.name, "loo_audit_tail");
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw live-control smoke proves a recommended resume action through tools.invoke", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-smoke-resume-"));
+  const evidenceDir = join(root, "evidence");
+  const { bin, callsPath } = createFakeOpenClaw(root);
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+
+  try {
+    const report = runOpenClawGatewayLiveControlSmoke({
+      openclawBin: bin,
+      evidenceDir,
+      threadId: "thr_gateway_resume",
+      action: "resume",
+      now: "2026-07-01T00:00:00.000Z"
+    });
+
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.equal(report.action, "resume");
+    assert.equal(report.targetRef, "codex_thread:thr_gateway_resume");
+    assert.equal(report.dryRun.approvalAuditId, DRY_RUN_AUDIT_ID);
+    assert.equal(report.dryRun.live, false);
+    assert.equal(report.dryRun.messageHash, null);
+    assert.equal(report.live.live, true);
+    assert.equal(report.live.method, "thread/resume");
+    assert.equal(report.live.messageHash, null);
+    assert.equal(report.live.turnStatus, "completed");
+    assert.equal(report.audit.matchingDryRunRecord, true);
+    assert.equal(report.audit.matchingLiveRecord, true);
+    assert.deepEqual(report.blockers, []);
+
+    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { method: string; params: { name?: string; args?: Record<string, unknown> } });
+    assert.equal(calls[1]?.params.name, "loo_codex_control_dry_run");
+    assert.equal(calls[1]?.params.args?.action, "resume");
+    assert.equal(calls[2]?.params.name, "loo_codex_resume_thread");
+    assert.equal(calls[2]?.params.args?.approval_audit_id, DRY_RUN_AUDIT_ID);
+    assert.equal(calls[2]?.params.args?.dry_run, false);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw live-control smoke accepts status-less ok response for resume actions", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-smoke-resume-statusless-"));
+  const evidenceDir = join(root, "evidence");
+  const { bin, callsPath } = createFakeOpenClaw(root, { resumeResponseMissingStatus: true });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+
+  try {
+    const report = runOpenClawGatewayLiveControlSmoke({
+      openclawBin: bin,
+      evidenceDir,
+      threadId: "thr_gateway_resume_statusless",
+      action: "resume",
+      now: "2026-07-01T00:00:00.000Z"
+    });
+
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.equal(report.action, "resume");
+    assert.equal(report.live.method, "thread/resume");
+    assert.equal(report.live.responseOk, true);
+    assert.equal(report.live.turnStatus, null);
+    assert.equal(report.audit.matchingDryRunRecord, true);
+    assert.equal(report.audit.matchingLiveRecord, true);
+
+    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { method: string; params: { name?: string } });
+    assert.equal(calls[3]?.params.name, "loo_audit_tail");
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw live-control smoke fails closed when resume response is not ok", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-smoke-resume-not-ok-"));
+  const evidenceDir = join(root, "evidence");
+  const { bin, callsPath } = createFakeOpenClaw(root, { resumeResponseOkFalse: true });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+
+  try {
+    const report = runOpenClawGatewayLiveControlSmoke({
+      openclawBin: bin,
+      evidenceDir,
+      threadId: "thr_gateway_resume_not_ok",
+      action: "resume",
+      now: "2026-07-01T00:00:00.000Z"
+    });
+
+    assert.equal(report.ok, false);
+    assert.equal(report.action, "resume");
+    assert.equal(report.live.method, "thread/resume");
+    assert.equal(report.live.responseOk, false);
+    assert.match(report.blockers.join("\n"), /openclaw_live_resume_not_proven/);
+
+    const proof = JSON.parse(readFileSync(join(evidenceDir, "openclaw-gateway-live-codex-v1-1.runtime-proof.json"), "utf8")) as {
+      proof_markers?: { matching_approval_audit_id?: boolean };
+    };
+    assert.equal(proof.proof_markers?.matching_approval_audit_id, false);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw live-control smoke fails closed when resume method is not thread/resume", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-smoke-resume-wrong-method-"));
+  const evidenceDir = join(root, "evidence");
+  const { bin, callsPath } = createFakeOpenClaw(root, { resumeMethod: "turn/start" });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+
+  try {
+    const report = runOpenClawGatewayLiveControlSmoke({
+      openclawBin: bin,
+      evidenceDir,
+      threadId: "thr_gateway_resume_wrong_method",
+      action: "resume",
+      now: "2026-07-01T00:00:00.000Z"
+    });
+
+    assert.equal(report.ok, false);
+    assert.equal(report.action, "resume");
+    assert.equal(report.live.method, "turn/start");
+    assert.equal(report.live.responseOk, true);
+    assert.match(report.blockers.join("\n"), /openclaw_live_resume_not_proven/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw live-control smoke rejects unknown action values before gateway calls", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-smoke-bad-action-"));
+  const evidenceDir = join(root, "evidence");
+  const { bin, callsPath } = createFakeOpenClaw(root);
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+
+  try {
+    assert.throws(() => runOpenClawGatewayLiveControlSmoke({
+      openclawBin: bin,
+      evidenceDir,
+      threadId: "thr_gateway_bad_action",
+      action: "Resume" as "resume",
+      now: "2026-07-01T00:00:00.000Z"
+    }), /action must be send or resume/);
+    assert.equal(existsSync(callsPath), false);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;

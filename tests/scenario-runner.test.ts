@@ -424,6 +424,28 @@ test("scenario sweep fails closed for v1.1 runtime scenarios until proof markers
   assert.equal(saved.scenarios[0]?.status, "runtime_proof_required");
 });
 
+test("live gateway runtime scenario allows alternate actions without requiring both", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-runtime-scenario-live-action-choice-"));
+
+  const report = createScenarioSweep({
+    evidenceDir,
+    scenarioDir: join("evals", "scenarios", "v1.1"),
+    scenarioIds: ["openclaw-gateway-live-codex-v1-1"],
+    now: "2026-07-03T14:20:00.000Z"
+  });
+
+  const scenario = report.scenarios[0];
+  assert.equal(scenario?.id, "openclaw-gateway-live-codex-v1-1");
+  assert.equal(scenario.allowedTools.includes("loo_codex_send_message"), true);
+  assert.equal(scenario.allowedTools.includes("loo_codex_resume_thread"), true);
+  assert.equal(scenario.dryRunPlan.toolSequence.includes("loo_codex_send_message"), false);
+  assert.equal(scenario.dryRunPlan.toolSequence.includes("loo_codex_resume_thread"), false);
+  assert.deepEqual(scenario.dryRunPlan.toolSequence, [
+    "loo_codex_control_dry_run",
+    "loo_audit_tail"
+  ]);
+});
+
 test("loo eval scenarios accepts v1.1 runtime proof markers through the CLI", () => {
   const evidenceDir = mkdtempSync(join(tmpdir(), "loo-runtime-scenario-cli-evidence-"));
   const runtimeProofDir = mkdtempSync(join(tmpdir(), "loo-runtime-scenario-cli-proof-"));
