@@ -239,6 +239,12 @@ export type SummaryLeafMaterializationReport = {
   proofBoundary: string;
 };
 
+export type SummaryLeafMaterializationOptions = {
+  threadId?: string;
+  /** Maximum prepared source ranges scanned per target thread. For all-thread materialization, this limit applies independently to each thread. */
+  limit?: number;
+};
+
 export type SummaryExpansionReport = {
   schema: "lco.summary.expansion.v1";
   publicSafe: true;
@@ -2679,7 +2685,7 @@ function getPreparedSourceRangesForSummaryMaterialization(
   };
 }
 
-export function materializeSummaryLeaves(db: LooDatabase, options: { threadId?: string; limit?: number } = {}): SummaryLeafMaterializationReport {
+export function materializeSummaryLeaves(db: LooDatabase, options: SummaryLeafMaterializationOptions = {}): SummaryLeafMaterializationReport {
   if (!options.threadId) return materializeSummaryLeavesForAllThreads(db, options);
   const generatedAt = new Date().toISOString();
   const rangesReport = getPreparedSourceRangesForSummaryMaterialization(db, { threadId: options.threadId, limit: options.limit });
@@ -2756,7 +2762,7 @@ export function materializeSummaryLeaves(db: LooDatabase, options: { threadId?: 
   }
 }
 
-function materializeSummaryLeavesForAllThreads(db: LooDatabase, options: { limit?: number } = {}): SummaryLeafMaterializationReport {
+function materializeSummaryLeavesForAllThreads(db: LooDatabase, options: SummaryLeafMaterializationOptions = {}): SummaryLeafMaterializationReport {
   const generatedAt = new Date().toISOString();
   const rows = db.prepare(`
     SELECT DISTINCT thread_id AS threadId
@@ -2996,7 +3002,7 @@ export function expandSummaryLeaves(db: LooDatabase, options: SummaryExpansionOp
     generatedAt: new Date().toISOString(),
     root: {
       leafRef: roots[0]?.leafRef ?? null,
-      threadId: roots[0]?.threadId ?? options.threadId ?? null
+      threadId: options.leafRef ? roots[0]?.threadId ?? options.threadId ?? null : options.threadId ?? null
     },
     limits: {
       maxDepth,

@@ -242,6 +242,7 @@ test("summary materialization without a thread target refreshes per thread witho
     indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
     const refreshed = materializeSummaryLeaves(db, { limit: 1 });
     assert.equal(refreshed.target.threadId, null);
+    assert.equal(refreshed.summary.scannedRanges, 2);
     assert.equal(refreshed.summary.created, 2);
     assert.equal(getSummaryLeaves(db, { threadId: firstThreadId, limit: 50 }).summary.total > 0, true);
     assert.equal(getSummaryLeaves(db, { threadId: secondThreadId, limit: 50 }).summary.total > 0, true);
@@ -421,6 +422,29 @@ test("summary expansion can root on a valid leaf outside the first public page",
     assert.equal(expanded.root.leafRef, `summary_leaf:${targetId}`);
     assert.equal(expanded.leaves.length, 1);
     assert.equal(expanded.leaves[0]!.threadId, "019f-summary-page-1000");
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("summary expansion reports null root thread for unscoped cross-thread expansion", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-summary-expand-unscoped-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const firstId = "4".repeat(32);
+    const secondId = "5".repeat(32);
+    insertSummaryLeafRow(db, { id: firstId, threadId: "019f-summary-unscoped-a", summaryText: "Public-safe first unscoped leaf" });
+    insertSummaryLeafRow(db, { id: secondId, threadId: "019f-summary-unscoped-b", summaryText: "Public-safe second unscoped leaf" });
+
+    const expanded = expandSummaryLeaves(db, {
+      maxDepth: 1,
+      maxNodes: 2,
+      tokenBudget: 1000
+    });
+    assert.equal(expanded.root.leafRef, `summary_leaf:${firstId}`);
+    assert.equal(expanded.root.threadId, null);
+    assert.equal(expanded.leaves.length, 2);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
