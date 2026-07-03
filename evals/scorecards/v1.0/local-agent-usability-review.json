@@ -39,7 +39,10 @@
     "loo_prepared_cards",
     "loo_prepared_inbox",
     "loo_summary_leaves",
-    "loo_summary_expand"
+    "loo_summary_expand",
+    "loo hook closeout-capture",
+    "loo hook state-prep",
+    "loo hook compaction-capture --mode marker"
   ],
   "expected_public_safe_evidence": [
     "packaged agent usage skill path",
@@ -70,7 +73,8 @@
     "runtime Desktop visibility status report with covered, partial, and blocked lane counts, source coverage, read-only execute=false next proof calls, and false action flags",
     "active-thread state report with running, blocked, needs-nudge, stale, waiting, approval-needed, idle, unknown, confidence, freshness, reason codes, source coverage, attention coverage, non-executed read-only probe recommendations, non-executed control dry-run recommendations, and false action flags",
     "Codex autonomy tick report with prioritized execute=false read-only probes and control dry-run recommendations, idempotency keys, stop conditions, approval boundaries, source coverage, and false action flags",
-    "prepared-state status, prepared card refs, prepared inbox refs, source coverage, authority coverage, stale/partial/unknown reason codes, execute=false actions, and bounded summary-leaf expansion refs"
+    "prepared-state status, prepared card refs, prepared inbox refs, source coverage, authority coverage, stale/partial/unknown reason codes, execute=false actions, and bounded summary-leaf expansion refs",
+    "hook capture packet refs, state-prep job refs, transcript_path hash-only handling, marker-only compaction lifecycle, and false action flags for Codex mutation, live control, GUI mutation, raw transcript reads, model compaction, and true compaction-summary capture"
   ],
   "private_data_exclusions": [
     "raw Codex transcripts",
@@ -110,7 +114,8 @@
     "Agent can ask `loo_codex_runtime_desktop_visibility_status` for one compact covered/partial/blocked status across active Desktop collaboration lanes, with source coverage and next proof calls still read-only and execute=false.",
     "Agent can ask `loo_codex_active_thread_state` for one compact active-thread state answer; each item reports attention coverage and any next read-only probe with `execute:false`; conflicting app-server/indexed signals degrade to unknown or low confidence instead of being hidden or overclaimed; and needs-nudge lanes can expose a `nextControlDryRun` packet with `execute:false` instead of making the agent invent control args.",
     "Agent can ask `loo_codex_autonomy_tick` for one deterministic ordered loop tick whose steps are all `execute:false`, put read-only probes before control dry-run recommendations for the same lane, include idempotency keys and stop conditions, and preserve approval boundaries without minting audit ids or performing actions.",
-    "Agent can ask `loo_prepared_state_status`, `loo_prepared_cards`, and `loo_prepared_inbox` for advisory prepared Codex state; cards and inbox items cite opaque refs, source coverage, authority coverage, freshness, confidence, stale/partial/unknown reason codes, and any next action remains `execute:false`."
+    "Agent can ask `loo_prepared_state_status`, `loo_prepared_cards`, and `loo_prepared_inbox` for advisory prepared Codex state; cards and inbox items cite opaque refs, source coverage, authority coverage, freshness, confidence, stale/partial/unknown reason codes, and any next action remains `execute:false`.",
+    "Agent or a local hook runner can call `loo hook closeout-capture`, `loo hook state-prep`, and `loo hook compaction-capture --mode marker` to write LCO-owned derived cache only; transcript paths are hash/redact-only and compaction marker mode cannot claim summary capture."
   ],
   "fail_criteria": [
     "Agent must read raw transcripts to answer the session-management question.",
@@ -120,6 +125,7 @@
     "Card summaries or next actions expose directive syntax, markdown tables, duplicated Title/Final prefixes, or raw transcript-shaped excerpts as user-facing presentation.",
     "Watcher event reads or local attention queue items expose raw transcript paths, raw prompt spans, raw tool payloads, secrets, or executable live-control/GUI actions.",
     "Prepared cards or inbox items expose raw transcript paths, raw prompt spans, raw tool payloads, secrets, or executable live-control/GUI actions.",
+    "Hook sidecar output exposes raw transcript paths, raw hook message text, secrets, executable live-control/GUI actions, model-compaction output, or a true compaction-summary capture claim.",
     "Operating-picture output hides missing sources, omits authority coverage, treats readable empty PLAN_STATE input as not configured, or treats PLAN_STATE prose as current truth."
   ],
   "current_score": "pass",
@@ -131,6 +137,6 @@
     "Codex Desktop coherence classification can prove cli_visible, desktop_visible, desktop_refresh_required, desktop_restart_required, or unknown states from supplied public-safe evidence. Fallback status can report CUA/Peekaboo readiness, and when called with only a target it returns coherence_input_missing plus the exact coherence tool args instead of inventing hidden state. The collaboration cockpit can summarize those states across active lanes, the next-step planner can emit execute=false packets for the next safe proof step, the action-bound proof contract can validate exact dry-run approval packets, runtime visibility status can summarize covered/partial/blocked lane coverage, active-thread state can classify running/blocked/needs-nudge/stale lanes with conflict downgrades, attention coverage, non-executed read-only probe recommendations, and non-executed control dry-run recommendations, and autonomy tick can order those next probes/dry-run recommendations into one deterministic execute=false loop packet. None of these performs a live direct-protocol action, Desktop refresh/restart, or GUI mutation.",
     "This does not prove live Codex control, generic GUI mutation, Claude Code adapter parity, full business truth, stable release, npm latest promotion, or release-grade customer readiness."
   ],
-  "next_action": "Continue LCO 1.2 prepared-state work with hook sidecar closeout, state-prep, and compaction-marker capture after watcher persistence lands.",
-  "proof_boundary": "This proves local OpenClaw gateway agent usability for Codex read/search/describe/expand/detail lookup/recommend/dry-run, read-only watcher request packets, persisted watcher events, execute-false local attention queue items, read-only app-server status/thread signals, visible-to-indexed session correlation, Codex Desktop coherence classification, Codex Desktop fallback readiness reporting, read-only collaboration cockpit summaries, read-only execute=false collaboration next-step packets, action-bound dry-run Desktop collaboration proof contracts, runtime Desktop visibility status reporting, read-only active-thread state classification with attention coverage, non-executed read-only probe recommendations and control dry-run recommendations, deterministic execute=false autonomy tick planning, P0 cockpit/operating-picture cards, deterministic prepared-state cards and inbox items, bounded summary-leaf expansion, and fresh-profile gateway-ready invocation using public-safe evidence only; it does not prove live control, GUI mutation, unattended Desktop-visible live collaboration, Claude Code adapter parity, full business truth, stable release, npm latest promotion, or enterprise/customer readiness."
+  "next_action": "Continue LCO 1.2 prepared-state work with OpenClaw gateway dogfood over prepared-state tools after hook sidecar capture lands.",
+  "proof_boundary": "This proves local OpenClaw gateway agent usability for Codex read/search/describe/expand/detail lookup/recommend/dry-run, read-only watcher request packets, persisted watcher events, execute-false local attention queue items, read-only app-server status/thread signals, visible-to-indexed session correlation, Codex Desktop coherence classification, Codex Desktop fallback readiness reporting, read-only collaboration cockpit summaries, read-only execute=false collaboration next-step packets, action-bound dry-run Desktop collaboration proof contracts, runtime Desktop visibility status reporting, read-only active-thread state classification with attention coverage, non-executed read-only probe recommendations and control dry-run recommendations, deterministic execute=false autonomy tick planning, P0 cockpit/operating-picture cards, deterministic prepared-state cards and inbox items, bounded summary-leaf expansion, hook sidecar closeout/state-prep/marker-only compaction capture as LCO-owned derived cache, and fresh-profile gateway-ready invocation using public-safe evidence only; it does not prove live control, GUI mutation, unattended Desktop-visible live collaboration, model compaction, true Codex compaction-summary capture, Claude Code adapter parity, full business truth, stable release, npm latest promotion, or enterprise/customer readiness."
 }

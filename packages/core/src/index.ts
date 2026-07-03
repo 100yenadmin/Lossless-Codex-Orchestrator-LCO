@@ -416,6 +416,151 @@ export type PreparedStateStatusReport = {
   proofBoundary: string;
 };
 
+export type HookCaptureKind = "closeout_capture" | "compaction_marker";
+export type HookCompactionLifecycle = "pre_compact" | "post_compact";
+
+export type HookSidecarActions = {
+  derivedCacheWrite: true;
+  codexMutation: false;
+  sourceStoreMutation: false;
+  externalWrite: false;
+  liveControl: false;
+  guiMutation: false;
+  rawTranscriptRead: false;
+  modelCompactionRun: false;
+  trueCompactionSummaryCaptured: false;
+};
+
+export type HookCapturePacket = {
+  schema: "lco.hookCapturePacket.v1";
+  packetId: string;
+  hookKind: HookCaptureKind;
+  targetRef: string;
+  threadId: string | null;
+  turnId: string | null;
+  eventId: string | null;
+  payloadHash: string;
+  payload: {
+    transcriptPathHash: string | null;
+    transcriptPathRedacted: boolean;
+    messageHash?: string | null;
+    messageRedacted?: boolean;
+    messagePreview?: string | null;
+    closeout?: {
+      present: boolean;
+      text: string | null;
+      textHash: string | null;
+      textRedacted: boolean;
+      fields: Record<string, string>;
+      truncated: boolean;
+      omissions: string[];
+    };
+    mode?: "marker";
+    lifecycle?: HookCompactionLifecycle;
+    markerNote?: string | null;
+    summaryCaptured?: false;
+    omissions: string[];
+  };
+  sourceRefs: string[];
+  privacyClass: "public_safe_metadata";
+  confidence: number;
+  createdAt: string;
+  reasonCodes: string[];
+};
+
+export type HookCaptureReport = {
+  schema: "lco.hookCapture.v1";
+  publicSafe: true;
+  readOnly: false;
+  mutationClasses: ["derived_cache"];
+  generatedAt: string;
+  inserted: boolean;
+  packet: HookCapturePacket;
+  blockers: string[];
+  actionsPerformed: HookSidecarActions;
+  proofBoundary: string;
+};
+
+export type CloseoutHookCaptureInput = {
+  threadId?: string;
+  thread_id?: string;
+  targetRef?: string;
+  target_ref?: string;
+  turnId?: string;
+  turn_id?: string;
+  eventId?: string;
+  event_id?: string;
+  transcriptPath?: string;
+  transcript_path?: string;
+  lastAssistantMessage?: string;
+  last_assistant_message?: string;
+};
+
+export type CompactionMarkerHookInput = {
+  threadId?: string;
+  thread_id?: string;
+  targetRef?: string;
+  target_ref?: string;
+  turnId?: string;
+  turn_id?: string;
+  eventId?: string;
+  event_id?: string;
+  transcriptPath?: string;
+  transcript_path?: string;
+  mode: "marker";
+  lifecycle: HookCompactionLifecycle | "PreCompact" | "PostCompact";
+  markerNote?: string;
+  marker_note?: string;
+  summary?: string;
+};
+
+export type StatePrepHookInput = {
+  threadId?: string;
+  thread_id?: string;
+  targetRef?: string;
+  target_ref?: string;
+  limit?: number;
+  payload?: Record<string, unknown>;
+};
+
+export type StatePrepHookReport = {
+  schema: "lco.hook.statePrep.v1";
+  publicSafe: true;
+  readOnly: false;
+  mutationClasses: ["derived_cache"];
+  generatedAt: string;
+  inserted: boolean;
+  job: {
+    jobId: string;
+    jobKind: "state_prep";
+    status: "complete";
+    targetRef: string;
+    inputHash: string;
+    outputHash: string;
+    mutationClasses: ["derived_cache"];
+  };
+  packet: {
+    schema: "lco.hook.statePrepPacket.v1";
+    targetRef: string;
+    inputHash: string;
+    limits: {
+      cards: number;
+      inboxItems: number;
+      summaryLeaves: number;
+    };
+    preparedState: {
+      status: PreparedStateStatusReport;
+    };
+    preparedCards: PreparedCardsReport;
+    preparedInbox: PreparedInboxReport;
+    summaryLeaves: SummaryLeavesReport;
+    omissions: string[];
+  };
+  blockers: string[];
+  actionsPerformed: HookSidecarActions;
+  proofBoundary: string;
+};
+
 export type SummaryExpansionReport = {
   schema: "lco.summary.expansion.v1";
   publicSafe: true;
@@ -3697,6 +3842,195 @@ export function getPreparedInbox(db: LooDatabase, options: PreparedInboxOptions 
   };
 }
 
+export function captureCloseoutHookPacket(db: LooDatabase, input: CloseoutHookCaptureInput): HookCaptureReport {
+  const generatedAt = new Date().toISOString();
+  const resolved = resolveHookTarget(input);
+  const lastAssistantMessage = hookStringInput(input.lastAssistantMessage ?? input.last_assistant_message);
+  const transcriptPath = hookStringInput(input.transcriptPath ?? input.transcript_path);
+  const closeout = extractHookCloseout(lastAssistantMessage);
+  const payloadHash = hookPayloadHash({
+    hookKind: "closeout_capture",
+    targetRef: resolved.targetRef,
+    turnId: resolved.turnId,
+    eventId: resolved.eventId,
+    transcriptPath,
+    lastAssistantMessage
+  });
+  const packetId = stableId(`hook:closeout:${resolved.targetRef}:${payloadHash}`);
+  const sourceRefs = hookSourceRefs(resolved.targetRef, Object.values(closeout.fields).join("\n"));
+  const omissions = [
+    transcriptPath ? "transcript_path_hash_only" : null,
+    lastAssistantMessage ? "message_hash_only" : null,
+    closeout.textHash ? "closeout_text_hash_only" : null,
+    closeout.truncated ? "closeout_text_truncated" : null
+  ].filter((item): item is string => Boolean(item));
+  const packet: HookCapturePacket = {
+    schema: "lco.hookCapturePacket.v1",
+    packetId,
+    hookKind: "closeout_capture",
+    targetRef: resolved.targetRef,
+    threadId: resolved.threadId,
+    turnId: resolved.turnId,
+    eventId: resolved.eventId,
+    payloadHash,
+    payload: {
+      transcriptPathHash: transcriptPath ? stableId(transcriptPath) : null,
+      transcriptPathRedacted: Boolean(transcriptPath),
+      messageHash: lastAssistantMessage ? stableId(lastAssistantMessage) : null,
+      messageRedacted: Boolean(lastAssistantMessage),
+      messagePreview: null,
+      closeout,
+      omissions
+    },
+    sourceRefs,
+    privacyClass: "public_safe_metadata",
+    confidence: closeout.present ? 0.82 : 0.46,
+    createdAt: generatedAt,
+    reasonCodes: unique([
+      "hook_sidecar_capture",
+      "derived_cache_only",
+      lastAssistantMessage ? "message_hash_only" : "",
+      closeout.present ? "closeout_envelope_present" : "closeout_envelope_missing",
+      closeout.textHash ? "closeout_text_hash_only" : "",
+      closeout.truncated ? "closeout_text_truncated" : "",
+      transcriptPath ? "transcript_path_hash_only" : "transcript_path_absent"
+    ].filter(Boolean))
+  };
+  const inserted = insertHookCapturePacket(db, packet);
+  return hookCaptureReport(packet, inserted, generatedAt, [
+    ...hookPublicSafetyBlockers(packet),
+    closeout.present ? null : "closeout_envelope_missing"
+  ].filter((item): item is string => Boolean(item)), "Closeout hook capture writes only a sanitized LCO-owned derived-cache packet from bounded hook payloads. It hashes/redacts transcript paths, does not open transcript paths, does not mutate Codex source stores, does not run live control, does not mutate a GUI, does not write external systems, and does not run model compaction.");
+}
+
+export function captureCompactionMarkerHookPacket(db: LooDatabase, input: CompactionMarkerHookInput): HookCaptureReport {
+  if (input.mode !== "marker") throw new Error("compaction-capture currently supports --mode marker only");
+  const generatedAt = new Date().toISOString();
+  const lifecycle = normalizeCompactionLifecycle(input.lifecycle);
+  const resolved = resolveHookTarget(input);
+  const transcriptPath = hookStringInput(input.transcriptPath ?? input.transcript_path);
+  const markerNote = hookStringInput(input.markerNote ?? input.marker_note);
+  const summary = hookStringInput(input.summary);
+  const payloadHash = hookPayloadHash({
+    hookKind: "compaction_marker",
+    targetRef: resolved.targetRef,
+    turnId: resolved.turnId,
+    eventId: resolved.eventId,
+    transcriptPath,
+    lifecycle,
+    mode: input.mode,
+    markerNote,
+    summaryHash: summary ? stableId(summary) : null
+  });
+  const packetId = stableId(`hook:compaction:${resolved.targetRef}:${payloadHash}`);
+  const packet: HookCapturePacket = {
+    schema: "lco.hookCapturePacket.v1",
+    packetId,
+    hookKind: "compaction_marker",
+    targetRef: resolved.targetRef,
+    threadId: resolved.threadId,
+    turnId: resolved.turnId,
+    eventId: resolved.eventId,
+    payloadHash,
+    payload: {
+      transcriptPathHash: transcriptPath ? stableId(transcriptPath) : null,
+      transcriptPathRedacted: Boolean(transcriptPath),
+      mode: "marker",
+      lifecycle,
+      markerNote: markerNote ? redactHookString(markerNote, 240) : null,
+      summaryCaptured: false,
+      omissions: unique([
+        transcriptPath ? "transcript_path_hash_only" : "",
+        summary ? "summary_payload_not_captured_marker_mode" : "",
+        markerNote && markerNote.length > 240 ? "marker_note_truncated" : ""
+      ].filter(Boolean))
+    },
+    sourceRefs: hookSourceRefs(resolved.targetRef, markerNote ?? ""),
+    privacyClass: "public_safe_metadata",
+    confidence: 0.72,
+    createdAt: generatedAt,
+    reasonCodes: unique([
+      "hook_sidecar_capture",
+      "derived_cache_only",
+      "compaction_marker_only",
+      lifecycle
+    ])
+  };
+  const inserted = insertHookCapturePacket(db, packet);
+  return hookCaptureReport(packet, inserted, generatedAt, hookPublicSafetyBlockers(packet), "Compaction hook capture records PreCompact/PostCompact lifecycle markers only. True compaction-summary capture is not claimed; it requires Codex-native sanitized event support or a separately proven adapter. This packet writes only LCO-owned derived cache and never reads raw transcripts, runs model compaction, mutates source stores, performs live control, mutates a GUI, or writes external systems.");
+}
+
+export function runStatePrepHook(db: LooDatabase, input: StatePrepHookInput = {}): StatePrepHookReport {
+  const generatedAt = new Date().toISOString();
+  const resolved = resolveHookTarget(input);
+  const limit = clamp(input.limit ?? 5, 1, 25);
+  const status = getPreparedStateStatus(db);
+  const threadId = resolved.threadId ?? undefined;
+  const cards = getPreparedCards(db, { threadId, limit });
+  const inbox = getPreparedInbox(db, { threadId, limit });
+  const leaves = getSummaryLeaves(db, { threadId, limit });
+  const inputHash = hookPayloadHash({
+    hookKind: "state_prep",
+    targetRef: resolved.targetRef,
+    threadId: resolved.threadId,
+    limit,
+    payloadHash: input.payload ? stableId(canonicalJsonString(input.payload)) : null
+  });
+  const packet = {
+    schema: "lco.hook.statePrepPacket.v1" as const,
+    targetRef: resolved.targetRef,
+    inputHash,
+    limits: {
+      cards: limit,
+      inboxItems: limit,
+      summaryLeaves: limit
+    },
+    preparedState: {
+      status
+    },
+    preparedCards: cards,
+    preparedInbox: inbox,
+    summaryLeaves: leaves,
+    omissions: unique([
+      cards.omitted.count > 0 ? "prepared_cards_omitted" : "",
+      inbox.omitted.count > 0 ? "prepared_inbox_omitted" : "",
+      leaves.omitted.count > 0 ? "summary_leaves_omitted" : "",
+      input.payload ? "hook_payload_hash_only" : ""
+    ].filter(Boolean))
+  };
+  const outputHash = stableId(canonicalJsonString(packet));
+  const jobId = stableId(`state-prep:${resolved.targetRef}:${inputHash}`);
+  const inserted = insertStatePrepJob(db, {
+    jobId,
+    targetRef: resolved.targetRef,
+    inputHash,
+    outputHash,
+    generatedAt
+  });
+  const report: StatePrepHookReport = {
+    schema: "lco.hook.statePrep.v1",
+    publicSafe: true,
+    readOnly: false,
+    mutationClasses: ["derived_cache"],
+    generatedAt,
+    inserted,
+    job: {
+      jobId,
+      jobKind: "state_prep",
+      status: "complete",
+      targetRef: resolved.targetRef,
+      inputHash,
+      outputHash,
+      mutationClasses: ["derived_cache"]
+    },
+    packet,
+    blockers: hookPublicSafetyBlockers(packet),
+    actionsPerformed: hookSidecarActions(),
+    proofBoundary: "State-prep hooks generate bounded packets from existing LCO prepared-state reports only and persist a local state_prep_jobs derived-cache row. They do not read raw transcripts, open transcript paths, run model compaction, mutate Codex source stores, perform live control, mutate a GUI, or write external systems."
+  };
+  return report;
+}
+
 type SummaryLeafDraft = SummaryLeaf & { leafId: string };
 type PreparedCardDraft = PreparedCard & { cardId: string };
 
@@ -4142,6 +4476,261 @@ function preparedCardWriteActions(): PreparedCardMaterializationReport["actionsP
     guiMutation: false,
     rawTranscriptRead: false
   };
+}
+
+function hookSidecarActions(): HookSidecarActions {
+  return {
+    derivedCacheWrite: true,
+    codexMutation: false,
+    sourceStoreMutation: false,
+    externalWrite: false,
+    liveControl: false,
+    guiMutation: false,
+    rawTranscriptRead: false,
+    modelCompactionRun: false,
+    trueCompactionSummaryCaptured: false
+  };
+}
+
+function hookCaptureReport(
+  packet: HookCapturePacket,
+  inserted: boolean,
+  generatedAt: string,
+  blockers: string[],
+  proofBoundary: string
+): HookCaptureReport {
+  return {
+    schema: "lco.hookCapture.v1",
+    publicSafe: true,
+    readOnly: false,
+    mutationClasses: ["derived_cache"],
+    generatedAt,
+    inserted,
+    packet,
+    blockers: unique(blockers),
+    actionsPerformed: hookSidecarActions(),
+    proofBoundary
+  };
+}
+
+function resolveHookTarget(input: {
+  threadId?: string;
+  thread_id?: string;
+  targetRef?: string;
+  target_ref?: string;
+  turnId?: string;
+  turn_id?: string;
+  eventId?: string;
+  event_id?: string;
+}): { targetRef: string; threadId: string | null; turnId: string | null; eventId: string | null } {
+  const rawThreadId = hookStringInput(input.threadId ?? input.thread_id);
+  const safeId = rawThreadId ? safeThreadId(rawThreadId) : null;
+  const targetCandidate = hookStringInput(input.targetRef ?? input.target_ref);
+  const normalizedTarget = targetCandidate
+    ? publicSafeRefLike(targetCandidate, "target")
+    : safeId
+      ? codexThreadRef(safeId)
+      : null;
+  const targetRef = normalizedTarget && normalizedTarget.startsWith("codex_thread:")
+    ? codexThreadRef(safeThreadId(normalizedTarget))
+    : normalizedTarget ?? "target_unknown";
+  const threadId = targetRef.startsWith("codex_thread:") ? bareCodexThreadId(targetRef) : safeId;
+  return {
+    targetRef,
+    threadId,
+    turnId: hookOptionalIdentifier(input.turnId ?? input.turn_id, "turn"),
+    eventId: hookOptionalIdentifier(input.eventId ?? input.event_id, "event")
+  };
+}
+
+function hookOptionalIdentifier(value: unknown, prefix: string): string | null {
+  const raw = hookStringInput(value);
+  return raw ? publicSafeRefLike(raw, prefix) ?? `${prefix}_${stableId(raw).slice(0, 16)}` : null;
+}
+
+function hookStringInput(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function hookPayloadHash(value: unknown): string {
+  return stableId(canonicalJsonString(value));
+}
+
+function insertHookCapturePacket(db: LooDatabase, packet: HookCapturePacket): boolean {
+  const result = db.prepare(`
+    INSERT OR IGNORE INTO hook_capture_packets (
+      packet_id, hook_kind, target_ref, payload_hash, packet_json,
+      privacy_class, confidence, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    packet.packetId,
+    packet.hookKind,
+    packet.targetRef,
+    packet.payloadHash,
+    JSON.stringify(packet),
+    packet.privacyClass,
+    packet.confidence,
+    packet.createdAt
+  );
+  return result.changes > 0;
+}
+
+function insertStatePrepJob(
+  db: LooDatabase,
+  input: { jobId: string; targetRef: string; inputHash: string; outputHash: string; generatedAt: string }
+): boolean {
+  const existing = db.prepare(`
+    SELECT job_id AS jobId
+    FROM state_prep_jobs
+    WHERE job_id = ?
+  `).get(input.jobId) as { jobId: string } | undefined;
+  db.prepare(`
+    INSERT INTO state_prep_jobs (
+      job_id, job_kind, status, target_ref, input_hash, output_hash,
+      mutation_classes_json, started_at, finished_at, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(job_id) DO UPDATE SET
+      status = excluded.status,
+      output_hash = excluded.output_hash,
+      finished_at = excluded.finished_at,
+      updated_at = excluded.updated_at
+  `).run(
+    input.jobId,
+    "state_prep",
+    "complete",
+    input.targetRef,
+    input.inputHash,
+    input.outputHash,
+    JSON.stringify(["derived_cache"]),
+    input.generatedAt,
+    input.generatedAt,
+    input.generatedAt,
+    input.generatedAt
+  );
+  return !existing;
+}
+
+function extractHookCloseout(message: string | null): NonNullable<HookCapturePacket["payload"]["closeout"]> {
+  if (!message) return { present: false, text: null, textHash: null, textRedacted: false, fields: {}, truncated: false, omissions: [] };
+  const rawText = latestBalancedCloseoutEnvelopeText(message);
+  if (rawText === null) return { present: false, text: null, textHash: null, textRedacted: false, fields: {}, truncated: false, omissions: [] };
+  const redactedText = redactHookStringUnbounded(rawText);
+  const truncated = rawText.length > 1800 || redactedText.length > 1800;
+  return {
+    present: true,
+    text: null,
+    textHash: stableId(rawText),
+    textRedacted: true,
+    fields: hookCloseoutFields(rawText),
+    truncated,
+    omissions: unique([
+      "closeout_text_hash_only",
+      truncated ? "closeout_text_truncated" : ""
+    ].filter(Boolean))
+  };
+}
+
+function hookCloseoutFields(text: string): Record<string, string> {
+  const fields: Record<string, string> = {};
+  for (const line of text.split(/\r?\n/)) {
+    const match = line.match(/^\s*([A-Za-z][A-Za-z -]{1,60})\s*:\s*(.+?)\s*$/);
+    if (!match) continue;
+    const key = publicSafeIdentifier(match[1]!.toLowerCase().replace(/\s+/g, "_").replace(/-/g, "_"));
+    if (!key) continue;
+    fields[key] = redactHookString(match[2]!, 240);
+  }
+  return fields;
+}
+
+function normalizeCompactionLifecycle(value: CompactionMarkerHookInput["lifecycle"]): HookCompactionLifecycle {
+  if (value === "pre_compact" || value === "PreCompact") return "pre_compact";
+  if (value === "post_compact" || value === "PostCompact") return "post_compact";
+  throw new Error("compaction-capture lifecycle must be pre_compact, post_compact, PreCompact, or PostCompact");
+}
+
+function hookSourceRefs(targetRef: string, text: string): string[] {
+  return unique([
+    targetRef,
+    ...extractSourceRefs(text)
+      .map((ref) => publicSafeRefLike(ref, "source") ?? "")
+      .filter(Boolean)
+  ]).slice(0, 30);
+}
+
+const HOOK_POSIX_LOCAL_PATH_PATTERN = /(?:file:\/\/)?(?:\/Users|\/Volumes|\/private\/var|\/private\/tmp|\/var\/folders|\/home|\/root|\/tmp|\/workspace|\/workspaces|\/mnt|\/data|\/opt|\/srv|\/etc)\/[^\s"'`)]+/g;
+const HOOK_WINDOWS_LOCAL_PATH_PATTERN = /(?:[A-Za-z]:)?\\(?:Users|home|tmp|workspace|workspaces|mnt|data|opt|srv|etc)\\[^\s"'`)]+/g;
+
+function redactHookString(value: string, maxChars: number): string {
+  return truncate(redactHookStringUnbounded(value), maxChars);
+}
+
+function redactHookStringUnbounded(value: string): string {
+  return redactSensitiveHookPathTokens(value
+    .replace(HOOK_POSIX_LOCAL_PATH_PATTERN, "<redacted-local-path>")
+    .replace(HOOK_WINDOWS_LOCAL_PATH_PATTERN, "<redacted-local-path>")
+    .replace(/~\/\.codex\/[^\s"'`)]+/g, "<redacted-local-path>")
+    .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "<redacted-secret>")
+    .replace(/\bnpm_[A-Za-z0-9]{20,}\b/g, "<redacted-secret>")
+    .replace(/\bgithub_pat_[A-Za-z0-9_]{20,}\b/g, "<redacted-secret>")
+    .replace(/\bgh[pousr]_[A-Za-z0-9_]{20,}\b/g, "<redacted-secret>")
+    .replace(/\bsk-[A-Za-z0-9_-]{10,}\b/g, "<redacted-secret>")
+    .replace(/\bPRIVATE_CANARY[A-Za-z0-9_:-]*/g, "<redacted-secret>")
+    .replace(/(Bearer\s+)[A-Za-z0-9._-]{10,}/gi, "$1<redacted-secret>")
+    .replace(/(Basic\s+)[A-Za-z0-9._~+/-]+=*/gi, "$1<redacted-secret>")
+    .replace(/(\bauthorization\s*:\s*)[^\r\n"'`)]+/gi, "$1<redacted-secret>")
+    .replace(/(\bcookie\s*:\s*)[^\r\n"'`)]+/gi, "$1<redacted-secret>"));
+}
+
+function redactSensitiveHookPathTokens(value: string): string {
+  return value.replace(/[^\s"'`)]+/g, (token) => isSensitiveHookPathToken(token) ? "<redacted-local-path>" : token);
+}
+
+function isSensitiveHookPathToken(token: string): boolean {
+  const normalizedToken = token
+    .replace(/^file:\/\//i, "")
+    .replace(/\\/g, "/");
+  const drivePathMatch = normalizedToken.match(/[A-Za-z]:\//);
+  const slashPathIndex = normalizedToken.indexOf("/");
+  const pathStart = drivePathMatch?.index ?? slashPathIndex;
+  if (pathStart < 0) return false;
+  const normalized = normalizedToken.slice(pathStart);
+  if (!normalized.startsWith("/") && !/^[A-Za-z]:\//.test(normalized)) return false;
+  const pathPart = normalized.split(/[?#]/, 1)[0] ?? normalized;
+  const segments = pathPart.split("/").filter(Boolean).map((segment) => segment.toLowerCase());
+  return segments.some((segment) => (
+    segment === ".codex"
+    || segment === "sessions"
+    || segment === "transcripts"
+    || segment === "transcript"
+    || segment.startsWith("transcript.")
+  ));
+}
+
+function hookPublicSafetyBlockers(value: unknown): string[] {
+  const serialized = JSON.stringify(value);
+  const blockers: string[] = [];
+  if (
+    hookRegexTest(HOOK_POSIX_LOCAL_PATH_PATTERN, serialized)
+    || hookRegexTest(HOOK_WINDOWS_LOCAL_PATH_PATTERN, serialized)
+    || containsSensitiveHookPathToken(serialized)
+    || /~\/\.codex\//.test(serialized)
+  ) blockers.push("raw_local_path_leak");
+  if (/(?:npm_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{10,}|PRIVATE_CANARY[A-Za-z0-9_:-]*|BEGIN [A-Z ]*PRIVATE KEY)/.test(serialized)) blockers.push("raw_secret_like_value");
+  return blockers;
+}
+
+function containsSensitiveHookPathToken(value: string): boolean {
+  for (const token of value.match(/[^\s"'`)]+/g) ?? []) {
+    if (isSensitiveHookPathToken(token)) return true;
+  }
+  return false;
+}
+
+function hookRegexTest(pattern: RegExp, value: string): boolean {
+  pattern.lastIndex = 0;
+  const result = pattern.test(value);
+  pattern.lastIndex = 0;
+  return result;
 }
 
 type WatcherObservationRow = {

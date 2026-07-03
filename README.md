@@ -293,6 +293,10 @@ OpenClaw/Eva agent can start from compact prepared state rather than rereading
 huge Codex transcripts. Summary leaves are advisory
 routing/evidence cards over prepared ranges; they are not authority, hidden
 autonomy, GUI mutation, Claude parity, or true Codex compaction-summary capture.
+The hook sidecar CLI lives under `loo hook closeout-capture`,
+`loo hook state-prep`, and `loo hook compaction-capture --mode marker`; those
+commands write only LCO-owned derived cache and treat transcript paths as
+hash/redact-only inputs.
 
 ## Maintainer Proof
 

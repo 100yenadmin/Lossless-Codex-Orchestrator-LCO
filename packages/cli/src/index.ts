@@ -12,6 +12,8 @@ import {
   type DesktopBackend
 } from "../../adapters/src/index.js";
 import {
+  captureCloseoutHookPacket,
+  captureCompactionMarkerHookPacket,
   configuredLcmPeerDbPaths,
   createCloseoutEnvelopeReport,
   createDatabase,
@@ -30,8 +32,12 @@ import {
   indexCodexSessions,
   probeCodexSqliteStores,
   probeLcmPeerDbs,
+  runStatePrepHook,
   searchSessions,
-  type RecallProfileName
+  type CloseoutHookCaptureInput,
+  type CompactionMarkerHookInput,
+  type RecallProfileName,
+  type StatePrepHookInput
 } from "../../core/src/index.js";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -275,6 +281,57 @@ async function main() {
     const db = createDatabase();
     try {
       console.log(JSON.stringify(createCloseoutEnvelopeReport(db, parsed), null, 2));
+    } finally {
+      db.close();
+    }
+    return;
+  }
+  if (command === "hook" && args[0] === "closeout-capture") {
+    if (hasHelpFlag(args.slice(1))) {
+      printHookCloseoutCaptureHelp();
+      return;
+    }
+    const parsed = parseHookCaptureArgs(args.slice(1));
+    const db = createDatabase();
+    try {
+      const report = captureCloseoutHookPacket(db, parsed.payload);
+      writeHookEvidence(parsed.evidencePath, report);
+      console.log(JSON.stringify(report, null, 2));
+      if (parsed.strict && report.blockers.length > 0) process.exitCode = 1;
+    } finally {
+      db.close();
+    }
+    return;
+  }
+  if (command === "hook" && args[0] === "state-prep") {
+    if (hasHelpFlag(args.slice(1))) {
+      printHookStatePrepHelp();
+      return;
+    }
+    const parsed = parseHookStatePrepArgs(args.slice(1));
+    const db = createDatabase();
+    try {
+      const report = runStatePrepHook(db, parsed.payload);
+      writeHookEvidence(parsed.evidencePath, report);
+      console.log(JSON.stringify(report, null, 2));
+      if (parsed.strict && report.blockers.length > 0) process.exitCode = 1;
+    } finally {
+      db.close();
+    }
+    return;
+  }
+  if (command === "hook" && args[0] === "compaction-capture") {
+    if (hasHelpFlag(args.slice(1))) {
+      printHookCompactionCaptureHelp();
+      return;
+    }
+    const parsed = parseHookCompactionCaptureArgs(args.slice(1));
+    const db = createDatabase();
+    try {
+      const report = captureCompactionMarkerHookPacket(db, parsed.payload);
+      writeHookEvidence(parsed.evidencePath, report);
+      console.log(JSON.stringify(report, null, 2));
+      if (parsed.strict && report.blockers.length > 0) process.exitCode = 1;
     } finally {
       db.close();
     }
@@ -796,6 +853,9 @@ function mainUsageText(): string {
     "  loo expand-query [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <query>",
     "  loo expand-ref [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <source-ref>",
     "  loo closeout dry-run [--thread-id id] [--limit n] [--include-unavailable]",
+    "  loo hook closeout-capture --payload-file path|--payload-json json [--evidence-path path] [--strict]",
+    "  loo hook state-prep [--thread-id id] [--target-ref ref] [--limit n] [--payload-file path|--payload-json json] [--evidence-path path] [--strict]",
+    "  loo hook compaction-capture --mode marker --lifecycle pre_compact|post_compact [--payload-file path|--payload-json json] [--thread-id id] [--target-ref ref] [--summary text] [--evidence-path path] [--strict]",
     "  loo sanitize sessions [--thread-id id] [--limit n] [--evidence-dir path] [--strict]",
     "  loo serve",
     "  loo audit-path",
@@ -1048,6 +1108,51 @@ function printSanitizeSessionsHelp(): void {
     "Safety boundary:",
     "  The command reads the local orchestrator index only.",
     "  It does not read raw Codex transcripts directly, perform repairs, run live Codex control, mutate a GUI, publish npm, or create a GitHub Release."
+  ].join("\n"));
+}
+
+function printHookCloseoutCaptureHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo hook closeout-capture --payload-file path|--payload-json json [--evidence-path path] [--strict]",
+    "",
+    "Captures a bounded closeout hook payload into LCO-owned derived cache.",
+    "",
+    "Payload fields:",
+    "  thread_id/threadId, turn_id/turnId, event_id/eventId, transcript_path/transcriptPath, last_assistant_message/lastAssistantMessage.",
+    "",
+    "Safety boundary:",
+    "  transcript_path is hashed/redacted and never opened.",
+    "  The command writes only hook_capture_packets in the local LCO DB.",
+    "  It does not mutate Codex source stores, run live control, mutate a GUI, write external systems, publish npm, or create a GitHub Release."
+  ].join("\n"));
+}
+
+function printHookStatePrepHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo hook state-prep [--thread-id id] [--target-ref ref] [--limit n] [--payload-file path|--payload-json json] [--evidence-path path] [--strict]",
+    "",
+    "Writes one state_prep_jobs derived-cache row and emits a bounded packet from existing LCO prepared-state reports.",
+    "",
+    "Safety boundary:",
+    "  Hook payloads are hashed only; prepared state comes from LCO summary leaves/cards/inbox.",
+    "  The command does not read raw Codex transcripts, run model compaction, mutate source stores, run live control, mutate a GUI, write external systems, publish npm, or create a GitHub Release."
+  ].join("\n"));
+}
+
+function printHookCompactionCaptureHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo hook compaction-capture --mode marker --lifecycle pre_compact|post_compact [--payload-file path|--payload-json json] [--thread-id id] [--target-ref ref] [--summary text] [--evidence-path path] [--strict]",
+    "",
+    "Records PreCompact/PostCompact lifecycle markers as marker-only hook packets.",
+    "",
+    "Safety boundary:",
+    "  Marker notes are bounded/redacted; --summary and summary-shaped payload text are hash-only and never stored.",
+    "  Marker mode never claims true compaction-summary capture and ignores summary-shaped payload text except for a local hash.",
+    "  True compaction-summary capture requires Codex-native sanitized event support or a separately proven adapter.",
+    "  The command writes only LCO-owned derived cache and does not mutate Codex source stores, run live control, mutate a GUI, run model compaction, publish npm, or create a GitHub Release."
   ].join("\n"));
 }
 
@@ -1569,6 +1674,160 @@ function parseCloseoutDryRunArgs(input: string[]): { threadId?: string; limit?: 
     }
   }
   return parsed;
+}
+
+function parseHookCaptureArgs(input: string[]): { payload: CloseoutHookCaptureInput; evidencePath?: string; strict: boolean } {
+  let payload: CloseoutHookCaptureInput = {};
+  let evidencePath: string | undefined;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--payload-file") {
+      payload = { ...payload, ...readHookPayloadFile(requireOptionValue(input[++index], arg)) };
+    } else if (arg === "--payload-json") {
+      payload = { ...payload, ...parseHookPayloadJson(requireOptionValue(input[++index], arg)) };
+    } else if (arg === "--thread-id") {
+      payload.threadId = requireOptionValue(input[++index], arg);
+    } else if (arg === "--target-ref") {
+      payload.targetRef = requireOptionValue(input[++index], arg);
+    } else if (arg === "--turn-id") {
+      payload.turnId = requireOptionValue(input[++index], arg);
+    } else if (arg === "--event-id") {
+      payload.eventId = requireOptionValue(input[++index], arg);
+    } else if (arg === "--transcript-path") {
+      payload.transcriptPath = requireOptionValue(input[++index], arg);
+    } else if (arg === "--last-assistant-message") {
+      payload.lastAssistantMessage = requireOptionValue(input[++index], arg);
+    } else if (arg === "--evidence-path") {
+      evidencePath = requireOptionValue(input[++index], arg);
+    } else if (arg === "--strict") {
+      strict = true;
+    } else {
+      throw new Error(`Unknown hook closeout-capture option: ${arg}`);
+    }
+  }
+  if (!payload.lastAssistantMessage && !payload.last_assistant_message) throw new Error("hook closeout-capture requires last_assistant_message in --payload-file/--payload-json or --last-assistant-message");
+  return { payload, evidencePath, strict };
+}
+
+function parseHookStatePrepArgs(input: string[]): { payload: StatePrepHookInput; evidencePath?: string; strict: boolean } {
+  let rawPayload: Record<string, unknown> | undefined;
+  const payload: StatePrepHookInput = {};
+  let evidencePath: string | undefined;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--payload-file") {
+      rawPayload = { ...(rawPayload ?? {}), ...readHookPayloadFile(requireOptionValue(input[++index], arg)) };
+    } else if (arg === "--payload-json") {
+      rawPayload = { ...(rawPayload ?? {}), ...parseHookPayloadJson(requireOptionValue(input[++index], arg)) };
+    } else if (arg === "--thread-id") {
+      payload.threadId = requireOptionValue(input[++index], arg);
+    } else if (arg === "--target-ref") {
+      payload.targetRef = requireOptionValue(input[++index], arg);
+    } else if (arg === "--limit") {
+      payload.limit = parsePositiveInteger(input[++index], "--limit", 25);
+    } else if (arg === "--evidence-path") {
+      evidencePath = requireOptionValue(input[++index], arg);
+    } else if (arg === "--strict") {
+      strict = true;
+    } else {
+      throw new Error(`Unknown hook state-prep option: ${arg}`);
+    }
+  }
+  if (rawPayload) {
+    const remainingPayload = applyStatePrepHookPayload(rawPayload, payload);
+    if (Object.keys(remainingPayload).length > 0) payload.payload = remainingPayload;
+  }
+  return { payload, evidencePath, strict };
+}
+
+function applyStatePrepHookPayload(rawPayload: Record<string, unknown>, payload: StatePrepHookInput): Record<string, unknown> {
+  const remainingPayload = { ...rawPayload };
+  const threadId = hookPayloadString(rawPayload.threadId ?? rawPayload.thread_id);
+  const targetRef = hookPayloadString(rawPayload.targetRef ?? rawPayload.target_ref);
+  if (!payload.threadId && threadId) payload.threadId = threadId;
+  if (!payload.targetRef && targetRef) payload.targetRef = targetRef;
+  if (payload.limit === undefined) {
+    const rawLimit = rawPayload.limit;
+    if (typeof rawLimit === "number" || typeof rawLimit === "string") {
+      payload.limit = parsePositiveInteger(String(rawLimit), "--limit", 25);
+    }
+  }
+  for (const key of ["threadId", "thread_id", "targetRef", "target_ref", "limit"]) {
+    delete remainingPayload[key];
+  }
+  return remainingPayload;
+}
+
+function hookPayloadString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function parseHookCompactionCaptureArgs(input: string[]): { payload: CompactionMarkerHookInput; evidencePath?: string; strict: boolean } {
+  let payload = {} as CompactionMarkerHookInput;
+  let evidencePath: string | undefined;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--payload-file") {
+      payload = { ...payload, ...readHookPayloadFile(requireOptionValue(input[++index], arg)) } as CompactionMarkerHookInput;
+    } else if (arg === "--payload-json") {
+      payload = { ...payload, ...parseHookPayloadJson(requireOptionValue(input[++index], arg)) } as CompactionMarkerHookInput;
+    } else if (arg === "--thread-id") {
+      payload.threadId = requireOptionValue(input[++index], arg);
+    } else if (arg === "--target-ref") {
+      payload.targetRef = requireOptionValue(input[++index], arg);
+    } else if (arg === "--turn-id") {
+      payload.turnId = requireOptionValue(input[++index], arg);
+    } else if (arg === "--event-id") {
+      payload.eventId = requireOptionValue(input[++index], arg);
+    } else if (arg === "--transcript-path") {
+      payload.transcriptPath = requireOptionValue(input[++index], arg);
+    } else if (arg === "--mode") {
+      const mode = requireOptionValue(input[++index], arg);
+      if (mode !== "marker") throw new Error("hook compaction-capture --mode must be marker");
+      payload.mode = "marker";
+    } else if (arg === "--lifecycle") {
+      payload.lifecycle = requireOptionValue(input[++index], arg) as CompactionMarkerHookInput["lifecycle"];
+    } else if (arg === "--marker-note") {
+      payload.markerNote = requireOptionValue(input[++index], arg);
+    } else if (arg === "--summary") {
+      payload.summary = requireOptionValue(input[++index], arg);
+    } else if (arg === "--evidence-path") {
+      evidencePath = requireOptionValue(input[++index], arg);
+    } else if (arg === "--strict") {
+      strict = true;
+    } else {
+      throw new Error(`Unknown hook compaction-capture option: ${arg}`);
+    }
+  }
+  if (payload.mode !== "marker") throw new Error("hook compaction-capture requires --mode marker");
+  if (!payload.lifecycle) throw new Error("hook compaction-capture requires --lifecycle pre_compact or post_compact");
+  return { payload, evidencePath, strict };
+}
+
+function readHookPayloadFile(path: string): Record<string, unknown> {
+  return objectPayload(readJsonFile(path, "hook payload file"), "hook payload file");
+}
+
+function parseHookPayloadJson(value: string): Record<string, unknown> {
+  try {
+    return objectPayload(JSON.parse(value), "hook payload JSON");
+  } catch (error) {
+    throw new Error(`Failed to parse hook payload JSON: ${(error as Error).message}`);
+  }
+}
+
+function objectPayload(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must contain a JSON object`);
+  return value as Record<string, unknown>;
+}
+
+function writeHookEvidence(path: string | undefined, report: unknown): void {
+  if (!path) return;
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(report, null, 2)}\n`);
 }
 
 function parseOnboardingStatusArgs(input: string[]): {
