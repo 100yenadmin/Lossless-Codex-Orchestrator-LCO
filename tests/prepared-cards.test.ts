@@ -291,6 +291,10 @@ test("prepared status and card reads keep inbox coverage and omitted ranges inde
     assert.equal(cards.cards.length, 1);
     assert.equal(cards.cards[0]!.sourceRangeRefsOmitted, 7);
 
+    const inbox = getPreparedInbox(db, { threadId: "019f-prepared-coverage" });
+    assert.equal(inbox.sourceCoverage.preparedCards, "ok");
+    assert.equal(inbox.sourceCoverage.preparedInboxItems, "not_configured");
+
     const status = getPreparedStateStatus(db);
     assert.equal(status.sourceCoverage.preparedCards, "ok");
     assert.equal(status.sourceCoverage.preparedInboxItems, "not_configured");
@@ -446,6 +450,7 @@ test("prepared card reports filter unsafe cached rows without leaking canaries",
 
     const inbox = getPreparedInbox(db);
     assert.equal(inbox.items.length, 0);
+    assert.equal(inbox.sourceCoverage.preparedCards, "partial");
     assert.equal(inbox.sourceCoverage.preparedInboxItems, "partial");
 
     const status = getPreparedStateStatus(db);

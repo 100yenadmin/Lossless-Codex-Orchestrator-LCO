@@ -3541,6 +3541,7 @@ export function getPreparedInbox(db: LooDatabase, options: PreparedInboxOptions 
     if (validItems.length < limit) validItems.push(item);
   }
   const inboxCoverage: PreparedStateCoverage = validTotal > 0 ? "ok" : rows.length > 0 ? "partial" : "not_configured";
+  const cardsCoverage = getPreparedCards(db, { threadId: options.threadId, limit: 1 }).sourceCoverage.preparedCards;
   return {
     schema: "lco.prepared.inbox.v1",
     publicSafe: true,
@@ -3548,7 +3549,7 @@ export function getPreparedInbox(db: LooDatabase, options: PreparedInboxOptions 
     generatedAt: new Date().toISOString(),
     sourceCoverage: {
       preparedInboxItems: inboxCoverage,
-      preparedCards: validItems.length > 0 ? "ok" : rows.length > 0 ? "partial" : "not_configured",
+      preparedCards: cardsCoverage,
       summaryLeaves: preparedSummaryLeafCoverage(db, options.threadId),
       watcherObservations: "not_configured"
     },
@@ -4448,10 +4449,8 @@ function sourceNeedsPreparedCardBackfill(db: LooDatabase, sourcePath: string): b
     const threadId = String(row.threadId);
     const leaves = getValidatedSummaryLeavesForThread(db, threadId);
     if (leaves.length === 0) return false;
-    const expected = buildPreparedCardDraft(db, threadId, leaves, 0);
     const cardRow = getPreparedCardRowByTargetRef(db, codexThreadRef(threadId));
-    const card = cardRow ? publicPreparedCardFromRow(cardRow) : null;
-    return !card || card.inputHash !== expected.inputHash;
+    return !cardRow || !publicPreparedCardFromRow(cardRow);
   });
 }
 
