@@ -42,7 +42,7 @@ What 1.2 should let a local OpenClaw agent do next:
 - Start from `loo_prepared_inbox` instead of rerunning broad search for every resume.
 - Inspect `loo_prepared_cards` for public-safe thread/project/blocker/next-action cards with source refs, freshness, confidence, privacy class, and authority coverage.
 - Follow `loo_summary_leaves` and `loo_summary_expand` through a source-range-backed summary DAG when a huge thread needs more detail.
-- See watcher observations and local attention queue items without executing live control.
+- See persisted watcher observations and local attention queue items through `loo_watcher_events` without executing live control.
 - Capture closeout/state-prep/compaction-marker hook packets into LCO-owned state without writing Codex source stores.
 - Distinguish "compaction observed" from "compaction summary captured" until Codex provides a sanitized compaction-summary event.
 - Treat optional model compaction as an explicit later capability, not the default prepared-state engine.
@@ -59,7 +59,7 @@ What a local OpenClaw agent can do today:
 - Read cockpit cards whose user-facing `title`, `objective`, `summary`, and `nextAction` fields are deterministic presentation text, not raw directive fragments, markdown tables, duplicated `Title:`/`Final:` prefixes, or transcript-shaped excerpts.
 - Preserve caller-provided GitHub PR/check fidelity in `loo_github_operating_items`, including pending `statusCheckRollup` entries, failing checks, passed checks that can be omitted as green by default, and open PRs whose check data is genuinely unknown.
 - Rank current-lane GitHub PR/check signals ahead of old low-confidence Codex cards when no customer/runtime/security red card is present, using inspectable reason codes such as `current_lane`, `fresh_signal`, and `low_confidence_downgraded`.
-- Use `loo_watchers_list`, `loo_watcher_status`, `loo_watcher_dry_run`, and `loo_resume_request_packet` to represent read-only watcher attention and approval-bounded resume requests without running live control.
+- Use `loo_watchers_list`, `loo_watcher_status`, `loo_watcher_dry_run`, `loo_watcher_events`, and `loo_resume_request_packet` to represent read-only watcher attention, persisted watcher observations, execute-false local attention queue items, and approval-bounded resume requests without running live control.
 - Use `loo_codex_app_server_status`, `loo_codex_app_server_threads`, and `loo_visible_codex_map` to inspect read-only Codex app-server readiness and correlate sanitized visible Codex candidates with indexed session cards, including source coverage, confidence, and ambiguity markers.
 - Use `loo_codex_desktop_coherence` to classify whether a target Codex thread is only CLI/direct/app-server visible or also Desktop visible. `cli_visible` is a useful proof state but not a Desktop-visible collaboration claim; `desktop_refresh_required` and `desktop_restart_required` are explicit gap states.
 - Use `loo_codex_desktop_fallback_status` to inspect CUA-first and Peekaboo-secondary readiness, blocker codes, focus status, and screen-takeover warnings before suggesting a visible Codex Desktop fallback. If called with a target but no coherence report, it returns `coherence_input_missing` plus the exact `loo_codex_desktop_coherence` args to run first.

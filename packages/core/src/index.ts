@@ -265,12 +265,12 @@ export type PreparedCard = {
   authorityCoverage: {
     summaryLeaves: { status: PreparedStateCoverage; leafCount: number; rangeCount: number };
     sessionMetadata: { status: PreparedStateCoverage };
-    watcherObservations: { status: "not_configured" };
+    watcherObservations: { status: PreparedStateCoverage };
   };
   sourceCoverage: {
     summaryLeaves: PreparedStateCoverage;
     sessionMetadata: PreparedStateCoverage;
-    watcherObservations: "not_configured";
+    watcherObservations: PreparedStateCoverage;
   };
   inputHash: string;
   extractorVersion: "prepared-cards-v1";
@@ -334,7 +334,7 @@ export type PreparedCardsReport = {
   sourceCoverage: {
     preparedCards: PreparedStateCoverage;
     summaryLeaves: PreparedStateCoverage;
-    watcherObservations: "not_configured";
+    watcherObservations: PreparedStateCoverage;
   };
   summary: {
     total: number;
@@ -401,7 +401,7 @@ export type PreparedStateStatusReport = {
     summaryLeaves: PreparedStateCoverage;
     preparedCards: PreparedStateCoverage;
     preparedInboxItems: PreparedStateCoverage;
-    watcherObservations: "not_configured";
+    watcherObservations: PreparedStateCoverage;
   };
   summary: {
     summaryLeaves: number;
@@ -1238,6 +1238,108 @@ export type ResumeRequestPacket = {
   evidenceIds: string[];
   reasonCodes: string[];
   expiresAt: string;
+};
+
+export type WatcherPersistenceReport = {
+  schema: "lco.watchers.persistence.v1";
+  publicSafe: false;
+  readOnly: false;
+  mutationClasses: ["derived_cache"];
+  generatedAt: string;
+  summary: {
+    specs: number;
+    observations: number;
+    queueItems: number;
+    skippedUnsafeRows: number;
+  };
+  actionsPerformed: {
+    derivedCacheWrite: true;
+    sourceStoreMutation: false;
+    externalWrite: false;
+    liveControl: false;
+    guiMutation: false;
+    rawTranscriptRead: false;
+  };
+  proofBoundary: string;
+};
+
+export type WatcherObservationRecord = {
+  schema: "lco.watcherObservation.v1";
+  observationRef: string;
+  watchId: string;
+  targetRef: string;
+  watcher: WatcherState;
+  evidenceRefs: string[];
+  sourceRefs: string[];
+  observedAt: string;
+  freshness: {
+    lastObservedAt: string | null;
+    expiresAt: string | null;
+    stale: boolean;
+    expired: boolean;
+  };
+  reasonCodes: string[];
+  confidence: number;
+  privacyClass: "public_safe_metadata";
+};
+
+export type WatcherAttentionQueueItem = {
+  schema: "lco.attentionQueue.item.v1";
+  itemRef: string;
+  targetRef: string;
+  itemKind: "watcher_resume_request" | "watcher_inspection";
+  status: WatcherStatus;
+  toolCall: {
+    tool: "loo_resume_request_packet" | "loo_watcher_status";
+    execute: false;
+    args: Record<string, unknown>;
+  };
+  execute: false;
+  sourceRefs: string[];
+  reasonCodes: string[];
+  confidence: number;
+  freshnessAt: string | null;
+};
+
+export type WatcherEventsReport = {
+  schema: "lco.watchers.events.v1";
+  publicSafe: true;
+  readOnly: true;
+  generatedAt: string;
+  sourceCoverage: {
+    watcherSpecs: PreparedStateCoverage;
+    watcherObservations: PreparedStateCoverage;
+    attentionQueue: PreparedStateCoverage;
+  };
+  summary: WatcherStatusReport["summary"] & {
+    queueItems: number;
+    filteredUnsafeRows: number;
+  };
+  observations: WatcherObservationRecord[];
+  queue: WatcherAttentionQueueItem[];
+  omitted: {
+    count: number;
+    reason: "limit" | "filtered_unsafe_rows" | "limit_and_filtered_unsafe_rows" | "none";
+    reasons: Array<"limit" | "filtered_unsafe_rows"> | ["none"];
+    limitCount: number;
+    filteredUnsafeRows: number;
+  };
+  actionsPerformed: {
+    derivedCacheWrite: false;
+    sourceStoreMutation: false;
+    externalWrite: false;
+    liveControl: false;
+    guiMutation: false;
+    rawTranscriptRead: false;
+  };
+  proofBoundary: string;
+};
+
+export type WatcherEventsOptions = {
+  now?: string;
+  limit?: number;
+  watchId?: string;
+  targetRef?: string;
 };
 
 export type VisibleCodexCoverageState = "ok" | "partial" | "unavailable" | "not_configured";
@@ -3411,7 +3513,7 @@ export function getPreparedStateStatus(db: LooDatabase): PreparedStateStatusRepo
       summaryLeaves: leaves > 0 ? "ok" : "not_configured",
       preparedCards: cardsReport.sourceCoverage.preparedCards,
       preparedInboxItems: inboxReport.sourceCoverage.preparedInboxItems,
-      watcherObservations: "not_configured"
+      watcherObservations: watcherObservationCoverage(db)
     },
     summary: {
       summaryLeaves: leaves,
@@ -3500,7 +3602,7 @@ export function getPreparedCards(db: LooDatabase, options: PreparedCardsOptions 
     sourceCoverage: {
       preparedCards: filteredUnsafeRows > 0 ? "partial" : validTotal > 0 ? "ok" : total > 0 ? "partial" : "not_configured",
       summaryLeaves: preparedSummaryLeafCoverage(db, options.threadId),
-      watcherObservations: "not_configured"
+      watcherObservations: options.threadId ? watcherObservationCoverageForTarget(db, codexThreadRef(options.threadId)) : watcherObservationCoverage(db)
     },
     summary: {
       total: validTotal,
@@ -3572,7 +3674,7 @@ export function getPreparedInbox(db: LooDatabase, options: PreparedInboxOptions 
       preparedInboxItems: inboxCoverage,
       preparedCards: cardsCoverage,
       summaryLeaves: preparedSummaryLeafCoverage(db, options.threadId),
-      watcherObservations: "not_configured"
+      watcherObservations: options.threadId ? watcherObservationCoverageForTarget(db, codexThreadRef(options.threadId)) : watcherObservationCoverage(db)
     },
     summary: {
       total: validTotal,
@@ -3646,16 +3748,19 @@ function buildPreparedCardDraft(db: LooDatabase, threadId: string, leaves: Summa
       : filteredUnsafeRows > 0 || authorityStatuses.includes("partial")
         ? "partial"
         : "ok";
+  const watcherObservationsStatus = watcherObservationCoverageForTarget(db, targetRef);
   const freshnessAt = latestIso([...leaves.map((leaf) => leaf.freshnessAt), session?.updatedAt ?? null]);
   const stale = leaves.some((leaf) => leaf.stale);
   const reasonCodes = unique([
     leaves.length > 0 ? "summary_leaves_ready" : "summary_leaves_missing",
     "metadata_only",
-    "watcher_not_configured",
+    watcherObservationsStatus === "not_configured" ? "watcher_not_configured" : "watcher_observations_available",
     stale ? "stale_cache" : "",
     summaryLeavesStatus === "partial" ? "authority_partial" : "",
     summaryLeavesStatus === "unknown" ? "authority_unknown" : "",
     sessionMetadataStatus === "partial" ? "session_metadata_partial" : "",
+    watcherObservationsStatus === "partial" ? "watcher_observations_partial" : "",
+    watcherObservationsStatus === "unknown" ? "watcher_observations_unknown" : "",
     filteredUnsafeRows > 0 ? "filtered_unsafe_rows" : ""
   ].filter(Boolean));
   const state: PreparedCardState = stale
@@ -3697,7 +3802,7 @@ function buildPreparedCardDraft(db: LooDatabase, threadId: string, leaves: Summa
       status: sessionMetadataStatus
     },
     watcherObservations: {
-      status: "not_configured"
+      status: watcherObservationsStatus
     }
   };
   const inputHash = stableId(JSON.stringify({
@@ -3709,6 +3814,7 @@ function buildPreparedCardDraft(db: LooDatabase, threadId: string, leaves: Summa
     stale,
     summaryLeavesStatus,
     sessionMetadataStatus,
+    watcherObservationsStatus,
     extractorVersion: PREPARED_CARD_EXTRACTOR_VERSION
   }));
   const cardId = stableId(`prepared-card:${targetRef}:${inputHash}`);
@@ -3914,14 +4020,17 @@ function isPublicPreparedCardRow(
     && !looksSensitiveRefLike(row.nextAction ?? "")
     && reasonCodes.length > 0
     && ["ok", "partial", "not_configured", "unknown"].includes(authorityCoverage.summaryLeaves.status)
-    && ["ok", "partial", "not_configured", "unknown"].includes(authorityCoverage.sessionMetadata.status);
+    && ["ok", "partial", "not_configured", "unknown"].includes(authorityCoverage.sessionMetadata.status)
+    && ["ok", "partial", "not_configured", "unknown"].includes(authorityCoverage.watcherObservations.status);
 }
 
 function sanitizePreparedAuthorityCoverage(value: Record<string, unknown>): PreparedCard["authorityCoverage"] {
   const summaryLeaves = isObjectRecord(value.summaryLeaves) ? value.summaryLeaves : {};
   const sessionMetadata = isObjectRecord(value.sessionMetadata) ? value.sessionMetadata : {};
+  const watcherObservations = isObjectRecord(value.watcherObservations) ? value.watcherObservations : {};
   const summaryStatus = preparedCoverageState(summaryLeaves.status);
   const sessionStatus = preparedCoverageState(sessionMetadata.status);
+  const watcherStatus = preparedCoverageState(watcherObservations.status);
   const leafCount = boundedNonNegativeInteger(summaryLeaves.leafCount, 1_000_000);
   const rangeCount = boundedNonNegativeInteger(summaryLeaves.rangeCount, 1_000_000);
   return {
@@ -3934,7 +4043,7 @@ function sanitizePreparedAuthorityCoverage(value: Record<string, unknown>): Prep
       status: sessionStatus
     },
     watcherObservations: {
-      status: "not_configured"
+      status: watcherStatus
     }
   };
 }
@@ -3943,7 +4052,7 @@ function preparedCardSourceCoverage(authorityCoverage: PreparedCard["authorityCo
   return {
     summaryLeaves: authorityCoverage.summaryLeaves.status,
     sessionMetadata: authorityCoverage.sessionMetadata.status,
-    watcherObservations: "not_configured"
+    watcherObservations: authorityCoverage.watcherObservations.status
   };
 }
 
@@ -4029,6 +4138,297 @@ function preparedCardWriteActions(): PreparedCardMaterializationReport["actionsP
     guiMutation: false,
     rawTranscriptRead: false
   };
+}
+
+type WatcherObservationRow = {
+  observationId: string;
+  watchId: string;
+  targetRef: string;
+  observationJson: string;
+  evidenceRefsJson: string;
+  privacyClass: string;
+  confidence: number;
+  observedAt: string;
+};
+
+type WatcherAttentionQueueRow = {
+  queueId: string;
+  targetRef: string;
+  itemKind: string;
+  status: string;
+  toolCallJson: string | null;
+  executeFalse: number;
+  sourceRefsJson: string;
+  reasonCodesJson: string;
+  confidence: number;
+  updatedAt: string;
+};
+
+type WatcherAttentionQueueDraft = {
+  queueId: string;
+  targetRef: string;
+  itemKind: WatcherAttentionQueueItem["itemKind"];
+  status: WatcherStatus;
+  toolCall: WatcherAttentionQueueItem["toolCall"];
+  reasonCodes: string[];
+  confidence: number;
+};
+
+function watcherReadActions(): WatcherEventsReport["actionsPerformed"] {
+  return {
+    derivedCacheWrite: false,
+    sourceStoreMutation: false,
+    externalWrite: false,
+    liveControl: false,
+    guiMutation: false,
+    rawTranscriptRead: false
+  };
+}
+
+function watcherWriteActions(): WatcherPersistenceReport["actionsPerformed"] {
+  return {
+    derivedCacheWrite: true,
+    sourceStoreMutation: false,
+    externalWrite: false,
+    liveControl: false,
+    guiMutation: false,
+    rawTranscriptRead: false
+  };
+}
+
+function assertWatcherSpecDoesNotMutate(spec: WatchSpec): void {
+  if ((spec as { mutates?: unknown }).mutates === true) throw new Error("watcher spec must be read-only with mutates=false");
+}
+
+function publicSafePersistedWatchSpec(spec: WatchSpec, watcher: WatcherState): Record<string, unknown> {
+  return collaborationPublicSafeWatchSpecArg({
+    ...spec,
+    watchId: watcher.watchId,
+    targetRef: watcher.targetRef,
+    lastObservedAt: watcher.lastObservedAt,
+    stopConditions: watcher.stopConditions,
+    evidenceIds: watcher.evidenceIds,
+    confidence: watcher.confidence,
+    mutates: false
+  });
+}
+
+function watcherSourceRefs(watcher: WatcherState): string[] {
+  return unique([
+    watcher.targetRef,
+    `watcher:${watcher.watchId}`,
+    ...watcher.evidenceIds
+  ].map((ref) => publicSafeRefLike(ref, "source") ?? "").filter(Boolean)).slice(0, 30);
+}
+
+function watcherAttentionQueueDraft(
+  watcher: WatcherState,
+  safeSpec: Record<string, unknown>
+): WatcherAttentionQueueDraft | null {
+  if (watcher.status === "active" || watcher.status === "expired") return null;
+  const toolCall: WatcherAttentionQueueItem["toolCall"] = watcher.status === "triggered"
+    ? {
+        tool: "loo_resume_request_packet",
+        execute: false,
+        args: {
+          watcher_spec: safeSpec,
+          recommended_action: watcher.recommendedAction
+        }
+      }
+    : {
+        tool: "loo_watcher_status",
+        execute: false,
+        args: {
+          watcher_specs: [safeSpec],
+          watch_id: watcher.watchId
+        }
+      };
+  const itemKind: WatcherAttentionQueueItem["itemKind"] = toolCall.tool === "loo_resume_request_packet"
+    ? "watcher_resume_request"
+    : "watcher_inspection";
+  const reasonCodes = unique([
+    "watcher_attention_queue",
+    `recommended_action:${watcher.recommendedAction}`,
+    ...watcher.reasonCodes
+  ].map((code) => publicSafeIdentifier(code) ?? "").filter(Boolean)).slice(0, 30);
+  const queueId = stableId(`attention-queue:${watcher.watchId}:${watcher.targetRef}:${watcher.status}:${canonicalJsonString(toolCall.args)}`);
+  return {
+    queueId,
+    targetRef: watcher.targetRef,
+    itemKind,
+    status: watcher.status,
+    toolCall,
+    reasonCodes,
+    confidence: watcher.confidence
+  };
+}
+
+function publicWatcherObservationFromRow(row: WatcherObservationRow): WatcherObservationRecord | null {
+  if (row.privacyClass !== "public_safe_metadata") return null;
+  const watcher = publicWatcherStateFromRecord(parseObjectJson(row.observationJson));
+  if (!watcher) return null;
+  const observedAt = publicIsoTimestamp(row.observedAt) ?? watcher.lastObservedAt;
+  if (!observedAt) return null;
+  const evidenceRefs = parseSourceRefsJson(row.evidenceRefsJson)
+    .map((ref) => publicSafeRefLike(ref, "evidence") ?? "")
+    .filter(Boolean)
+    .slice(0, 20);
+  const observationId = publicSafeIdentifier(row.observationId) ?? stableId(row.observationId || canonicalJsonString(watcher));
+  const sourceRefs = watcherSourceRefs(watcher);
+  return {
+    schema: "lco.watcherObservation.v1",
+    observationRef: `watcher_observation:${observationId}`,
+    watchId: watcher.watchId,
+    targetRef: watcher.targetRef,
+    watcher,
+    evidenceRefs,
+    sourceRefs,
+    observedAt,
+    freshness: {
+      lastObservedAt: watcher.lastObservedAt,
+      expiresAt: watcher.expiresAt,
+      stale: watcher.stale,
+      expired: watcher.expired
+    },
+    reasonCodes: watcher.reasonCodes,
+    confidence: watcher.confidence,
+    privacyClass: "public_safe_metadata"
+  };
+}
+
+function publicWatcherStateFromRecord(record: Record<string, unknown>): WatcherState | null {
+  const kind = knownWatcherKind(record.kind);
+  const status = publicWatcherStatus(record.status);
+  if (!kind || !status) return null;
+  const watchId = publicSafeWatcherIdentifier(String(record.watchId ?? record.watch_id ?? "watch"), "watch");
+  const targetRef = publicSafeWatcherTargetRef(String(record.targetRef ?? record.target_ref ?? "unknown"));
+  const recommendedAction = publicWatcherRecommendedAction(record.recommendedAction ?? record.recommended_action) ?? watcherRecommendedAction(status, kind);
+  const lastObservedAt = publicIsoTimestamp(String(record.lastObservedAt ?? record.last_observed_at ?? "")) ?? null;
+  const expiresAt = publicIsoTimestamp(String(record.expiresAt ?? record.expires_at ?? "")) ?? null;
+  const confidence = Math.max(0, Math.min(1, Number(record.confidence ?? 0.1)));
+  const reasonCodes = watcherStringArray(record.reasonCodes ?? record.reason_codes)
+    .map((code) => publicSafeIdentifier(code) ?? "")
+    .filter(Boolean)
+    .slice(0, 30);
+  const evidenceIds = watcherStringArray(record.evidenceIds ?? record.evidence_ids)
+    .map((id) => publicSafeRefLike(id, "evidence") ?? "")
+    .filter(Boolean)
+    .slice(0, 20);
+  return {
+    schema: "lco.watcherState.v1",
+    watchId,
+    targetRef,
+    kind,
+    status,
+    wakeReason: status === "triggered" ? knownWatcherKind(record.wakeReason ?? record.wake_reason) : null,
+    recommendedAction,
+    requiresApproval: true,
+    mutates: false,
+    stale: record.stale === true,
+    expired: record.expired === true,
+    expiresAt,
+    lastObservedAt,
+    stopConditions: watcherStringArray(record.stopConditions ?? record.stop_conditions)
+      .map((condition) => publicSafeWatcherIdentifier(condition, "condition"))
+      .slice(0, 12),
+    reasonCodes: reasonCodes.length ? reasonCodes : watcherReasonCodes(kind, status, null, record.stale === true, record.expired === true, confidence),
+    confidence,
+    evidenceIds,
+    approvalBoundary: publicSafeText(String(record.approvalBoundary ?? record.approval_boundary ?? "Read-only watcher; requests attention only. No live Codex control, GUI mutation, external write, or cleanup without a separate matching approval packet."), 360)
+  };
+}
+
+function publicWatcherAttentionQueueItemFromRow(row: WatcherAttentionQueueRow): WatcherAttentionQueueItem | null {
+  if (Number(row.executeFalse) !== 1) return null;
+  const itemKind = publicWatcherQueueItemKind(row.itemKind);
+  const status = publicWatcherStatus(row.status);
+  const toolCall = publicWatcherToolCallFromStored(parseObjectJson(row.toolCallJson ?? "{}"));
+  if (!itemKind || !status || !toolCall) return null;
+  const queueId = publicSafeIdentifier(row.queueId) ?? stableId(row.queueId);
+  const targetRef = publicSafeWatcherTargetRef(row.targetRef);
+  const sourceRefs = parseSourceRefsJson(row.sourceRefsJson).map((ref) => publicSafeRefLike(ref, "source") ?? "").filter(Boolean).slice(0, 30);
+  const reasonCodes = parseSourceRefsJson(row.reasonCodesJson).map((code) => publicSafeIdentifier(code) ?? "").filter(Boolean).slice(0, 30);
+  const freshnessAt = publicIsoTimestamp(row.updatedAt) ?? null;
+  return {
+    schema: "lco.attentionQueue.item.v1",
+    itemRef: `attention_queue:${queueId}`,
+    targetRef,
+    itemKind,
+    status,
+    toolCall,
+    execute: false,
+    sourceRefs,
+    reasonCodes,
+    confidence: Math.max(0, Math.min(1, Number(row.confidence ?? 0.1))),
+    freshnessAt
+  };
+}
+
+function publicWatcherToolCallFromStored(record: Record<string, unknown>): WatcherAttentionQueueItem["toolCall"] | null {
+  const serialized = JSON.stringify(record);
+  if (looksSensitiveRefLike(serialized)) return null;
+  const tool = record.tool === "loo_resume_request_packet" || record.tool === "loo_watcher_status" ? record.tool : null;
+  const args = isObjectRecord(record.args) ? record.args : null;
+  if (!tool || !args || record.execute !== false) return null;
+  return {
+    tool,
+    execute: false,
+    args
+  };
+}
+
+function publicWatcherStatus(value: unknown): WatcherStatus | null {
+  return value === "active"
+    || value === "triggered"
+    || value === "stale"
+    || value === "expired"
+    || value === "low_confidence"
+    ? value
+    : null;
+}
+
+function publicWatcherRecommendedAction(value: unknown): WatcherRecommendedAction | null {
+  return value === "inspect" || value === "resume" || value === "approve" || value === "ignore" ? value : null;
+}
+
+function publicWatcherQueueItemKind(value: unknown): WatcherAttentionQueueItem["itemKind"] | null {
+  return value === "watcher_resume_request" || value === "watcher_inspection" ? value : null;
+}
+
+function watcherStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
+}
+
+function watcherSpecCoverageCount(db: LooDatabase, watchId: string | null, targetRef: string | null): number {
+  const clauses = ["privacy_class = 'public_safe_metadata'"];
+  const params: string[] = [];
+  if (watchId) {
+    clauses.push("watch_id = ?");
+    params.push(watchId);
+  }
+  if (targetRef) {
+    clauses.push("target_ref = ?");
+    params.push(targetRef);
+  }
+  return Number((db.prepare(`SELECT COUNT(*) AS count FROM watcher_specs WHERE ${clauses.join(" AND ")}`).get(...params) as { count: number }).count);
+}
+
+function watcherObservationCoverage(db: LooDatabase): PreparedStateCoverage {
+  const raw = Number((db.prepare("SELECT COUNT(*) AS count FROM watcher_observations").get() as { count: number }).count);
+  const safe = Number((db.prepare("SELECT COUNT(*) AS count FROM watcher_observations WHERE privacy_class = 'public_safe_metadata'").get() as { count: number }).count);
+  return coverageFromCounts(raw, safe);
+}
+
+function watcherObservationCoverageForTarget(db: LooDatabase, targetRef: string): PreparedStateCoverage {
+  const raw = Number((db.prepare("SELECT COUNT(*) AS count FROM watcher_observations WHERE target_ref = ?").get(targetRef) as { count: number }).count);
+  const safe = Number((db.prepare("SELECT COUNT(*) AS count FROM watcher_observations WHERE target_ref = ? AND privacy_class = 'public_safe_metadata'").get(targetRef) as { count: number }).count);
+  return coverageFromCounts(raw, safe);
+}
+
+function coverageFromCounts(raw: number, safe: number): PreparedStateCoverage {
+  if (raw <= 0) return "not_configured";
+  if (safe <= 0 || safe < raw) return "partial";
+  return "ok";
 }
 
 function deletePreparedCardsForThreadIds(db: LooDatabase, threadIds: string[]): void {
@@ -4929,6 +5329,230 @@ export function createResumeRequestPacket(watcher: WatcherState, options: { now?
     evidenceIds: watcher.evidenceIds,
     reasonCodes: unique(["resume_request", ...watcher.reasonCodes]).slice(0, 12),
     expiresAt
+  };
+}
+
+export function persistWatcherObservations(
+  db: LooDatabase,
+  specs: WatchSpec[],
+  options: { now?: string } = {}
+): WatcherPersistenceReport {
+  const nowMs = timestampMillis(options.now ?? null) ?? Date.now();
+  const generatedAt = new Date(nowMs).toISOString();
+  const summary = {
+    specs: 0,
+    observations: 0,
+    queueItems: 0,
+    skippedUnsafeRows: 0
+  };
+  db.exec("BEGIN");
+  try {
+    for (const spec of specs) {
+      assertWatcherSpecDoesNotMutate(spec);
+      const watcher = watcherStateFromSpec(spec, nowMs);
+      const safeSpec = publicSafePersistedWatchSpec(spec, watcher);
+      const sourceRefs = watcherSourceRefs(watcher);
+      const inputHash = stableId(canonicalJsonString({ safeSpec, watcher, extractorVersion: "watcher-observations-v1" }));
+      const observedAt = watcher.lastObservedAt ?? generatedAt;
+      const observationId = stableId(`watcher-observation:${watcher.watchId}:${watcher.targetRef}:${inputHash}:${observedAt}`);
+      const evidenceRefs = watcher.evidenceIds;
+      db.prepare(`
+        INSERT INTO watcher_specs (
+          watch_id, target_ref, spec_json, input_hash, privacy_class, confidence, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(watch_id) DO UPDATE SET
+          target_ref = excluded.target_ref,
+          spec_json = excluded.spec_json,
+          input_hash = excluded.input_hash,
+          privacy_class = excluded.privacy_class,
+          confidence = excluded.confidence,
+          updated_at = excluded.updated_at
+      `).run(
+        watcher.watchId,
+        watcher.targetRef,
+        JSON.stringify(safeSpec),
+        inputHash,
+        "public_safe_metadata",
+        watcher.confidence,
+        generatedAt,
+        generatedAt
+      );
+      db.prepare(`
+        INSERT OR REPLACE INTO watcher_observations (
+          observation_id, watch_id, target_ref, observation_json, evidence_refs_json,
+          input_hash, privacy_class, confidence, observed_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        observationId,
+        watcher.watchId,
+        watcher.targetRef,
+        JSON.stringify(watcher),
+        JSON.stringify(evidenceRefs),
+        inputHash,
+        "public_safe_metadata",
+        watcher.confidence,
+        observedAt,
+        generatedAt
+      );
+      db.prepare(`
+        DELETE FROM attention_queue
+        WHERE target_ref = ?
+          AND item_kind IN ('watcher_resume_request', 'watcher_inspection')
+          AND source_refs_json LIKE ?
+      `).run(watcher.targetRef, `%${watcher.watchId}%`);
+      const queue = watcherAttentionQueueDraft(watcher, safeSpec);
+      if (queue) {
+        db.prepare(`
+          INSERT INTO attention_queue (
+            queue_id, target_ref, item_kind, status, tool_call_json, execute_false,
+            source_refs_json, reason_codes_json, confidence, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(queue_id) DO UPDATE SET
+            status = excluded.status,
+            tool_call_json = excluded.tool_call_json,
+            execute_false = 1,
+            source_refs_json = excluded.source_refs_json,
+            reason_codes_json = excluded.reason_codes_json,
+            confidence = excluded.confidence,
+            updated_at = excluded.updated_at
+        `).run(
+          queue.queueId,
+          queue.targetRef,
+          queue.itemKind,
+          queue.status,
+          JSON.stringify(queue.toolCall),
+          1,
+          JSON.stringify(sourceRefs),
+          JSON.stringify(queue.reasonCodes),
+          queue.confidence,
+          generatedAt,
+          generatedAt
+        );
+        summary.queueItems += 1;
+      }
+      summary.specs += 1;
+      summary.observations += 1;
+    }
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+  return {
+    schema: "lco.watchers.persistence.v1",
+    publicSafe: false,
+    readOnly: false,
+    mutationClasses: ["derived_cache"],
+    generatedAt,
+    summary,
+    actionsPerformed: watcherWriteActions(),
+    proofBoundary: "Watcher observation persistence writes only sanitized LCO-owned derived-cache rows and execute=false attention queue items. It does not mint approval audit ids, resume/send/steer/interrupt Codex, mutate source stores, write external systems, perform GUI actions, read raw transcripts, publish npm, or create GitHub releases."
+  };
+}
+
+export function getWatcherEvents(db: LooDatabase, options: WatcherEventsOptions = {}): WatcherEventsReport {
+  const generatedAt = publicIsoTimestamp(options.now) ?? new Date().toISOString();
+  const limit = clamp(options.limit ?? 100, 1, 1000);
+  const requestedWatchId = options.watchId ? publicSafeWatcherIdentifier(options.watchId, "watch") : null;
+  const requestedTargetRef = options.targetRef ? publicSafeWatcherTargetRef(options.targetRef) : null;
+  const observationClauses = ["privacy_class = 'public_safe_metadata'"];
+  const observationParams: string[] = [];
+  if (requestedWatchId) {
+    observationClauses.push("watch_id = ?");
+    observationParams.push(requestedWatchId);
+  }
+  if (requestedTargetRef) {
+    observationClauses.push("target_ref = ?");
+    observationParams.push(requestedTargetRef);
+  }
+  const observationWhere = `WHERE ${observationClauses.join(" AND ")}`;
+  const observationRows = db.prepare(`
+    SELECT
+      observation_id AS observationId,
+      watch_id AS watchId,
+      target_ref AS targetRef,
+      observation_json AS observationJson,
+      evidence_refs_json AS evidenceRefsJson,
+      privacy_class AS privacyClass,
+      confidence,
+      observed_at AS observedAt
+    FROM watcher_observations
+    ${observationWhere}
+    ORDER BY observed_at DESC, watch_id ASC, observation_id ASC
+  `).all(...observationParams) as WatcherObservationRow[];
+  const observations: WatcherObservationRecord[] = [];
+  let filteredUnsafeRows = 0;
+  for (const row of observationRows) {
+    const observation = publicWatcherObservationFromRow(row);
+    if (!observation) {
+      filteredUnsafeRows += 1;
+      continue;
+    }
+    observations.push(observation);
+  }
+  observations.sort((left, right) => watcherStateComparator(left.watcher, right.watcher) || right.observedAt.localeCompare(left.observedAt) || left.observationRef.localeCompare(right.observationRef));
+  const selectedObservations = observations.slice(0, limit);
+  const queueRows = db.prepare(`
+    SELECT
+      queue_id AS queueId,
+      target_ref AS targetRef,
+      item_kind AS itemKind,
+      status,
+      tool_call_json AS toolCallJson,
+      execute_false AS executeFalse,
+      source_refs_json AS sourceRefsJson,
+      reason_codes_json AS reasonCodesJson,
+      confidence,
+      updated_at AS updatedAt
+    FROM attention_queue
+    WHERE execute_false = 1
+      AND item_kind IN ('watcher_resume_request', 'watcher_inspection')
+      ${requestedTargetRef ? "AND target_ref = ?" : ""}
+      ${requestedWatchId ? "AND source_refs_json LIKE ?" : ""}
+    ORDER BY confidence DESC, updated_at DESC, queue_id ASC
+  `).all(...[
+    ...(requestedTargetRef ? [requestedTargetRef] : []),
+    ...(requestedWatchId ? [`%${requestedWatchId}%`] : [])
+  ]) as WatcherAttentionQueueRow[];
+  const queue = queueRows.map(publicWatcherAttentionQueueItemFromRow).filter((item): item is WatcherAttentionQueueItem => Boolean(item)).slice(0, limit);
+  const limitCount = Math.max(0, observations.length - selectedObservations.length);
+  const omittedReasons = [
+    limitCount > 0 ? "limit" : null,
+    filteredUnsafeRows > 0 ? "filtered_unsafe_rows" : null
+  ].filter((reason): reason is "limit" | "filtered_unsafe_rows" => Boolean(reason));
+  const watcherSpecCount = watcherSpecCoverageCount(db, requestedWatchId, requestedTargetRef);
+  return {
+    schema: "lco.watchers.events.v1",
+    publicSafe: true,
+    readOnly: true,
+    generatedAt,
+    sourceCoverage: {
+      watcherSpecs: coverageFromCounts(watcherSpecCount, watcherSpecCount),
+      watcherObservations: coverageFromCounts(observationRows.length, observations.length),
+      attentionQueue: coverageFromCounts(queueRows.length, queue.length)
+    },
+    summary: {
+      total: observations.length,
+      returned: selectedObservations.length,
+      active: selectedObservations.filter((observation) => observation.watcher.status === "active").length,
+      triggered: selectedObservations.filter((observation) => observation.watcher.status === "triggered").length,
+      stale: selectedObservations.filter((observation) => observation.watcher.status === "stale").length,
+      expired: selectedObservations.filter((observation) => observation.watcher.status === "expired").length,
+      lowConfidence: selectedObservations.filter((observation) => observation.watcher.status === "low_confidence").length,
+      queueItems: queue.length,
+      filteredUnsafeRows
+    },
+    observations: selectedObservations,
+    queue,
+    omitted: {
+      count: limitCount + filteredUnsafeRows,
+      reason: omittedReasons.length === 2 ? "limit_and_filtered_unsafe_rows" : omittedReasons[0] ?? "none",
+      reasons: omittedReasons.length ? omittedReasons : ["none"],
+      limitCount,
+      filteredUnsafeRows
+    },
+    actionsPerformed: watcherReadActions(),
+    proofBoundary: "Watcher events expose only public-safe persisted watcher observations and execute=false local attention queue items from LCO-owned derived cache. They do not read raw transcripts, mint approvals, run live control, mutate Desktop GUI, write external systems, publish npm, or create GitHub releases."
   };
 }
 

@@ -23,6 +23,7 @@
     "loo_watchers_list",
     "loo_watcher_status",
     "loo_watcher_dry_run",
+    "loo_watcher_events",
     "loo_resume_request_packet",
     "loo_codex_app_server_status",
     "loo_codex_app_server_threads",
@@ -52,6 +53,7 @@
     "collaboration cockpit active-lane counts, attention levels, Desktop state boundary, source coverage, and false action flags",
     "clean card title/objective/summary/nextAction fields plus presentation_cleaned or presentation_low_confidence reason codes when extraction needed cleanup",
     "watcher status, watcher_triggered reason codes, resume request packet expiry, mutates=false, and approval boundary",
+    "persisted watcher observation refs, attention queue refs, watcher source coverage, execute=false queue tool calls, and false action flags",
     "Codex app-server read-only availability, allowed/forbidden method posture, thread source coverage, and no-turns proof",
     "visible Codex map source coverage, confidence, ambiguity markers, and public-safe session card refs",
     "Codex Desktop coherence state distinguishing cli_visible from desktop_visible, desktop_refresh_required, desktop_restart_required, and unknown proof states",
@@ -88,6 +90,7 @@
     "Agent can inspect one read-only collaboration cockpit summary that composes recent cards, inbox urgency, watcher requests, and supplied Desktop coherence/fallback evidence without performing actions.",
     "Agent-facing card summaries and next actions are cleaned deterministic presentation text rather than raw directive fragments, markdown tables, or duplicated Title/Final labels.",
     "Agent can inspect read-only watcher status and generate resume-request packets without live control, GUI mutation, cleanup, or external writes.",
+    "Agent can inspect persisted watcher observations and local attention queue items; every queued tool call remains `execute:false`, source-ref-backed, and public-safe.",
     "Agent can inspect Codex app-server status and thread signals without reading raw turns, enabling remote control, or mutating Codex.",
     "Agent can correlate sanitized visible Codex candidates with indexed session cards while ambiguous title matches stay low confidence.",
     "Agent can classify Codex Desktop coherence without treating CLI/direct/app-server visibility as Desktop-visible collaboration proof.",
@@ -115,6 +118,7 @@
     "Evidence captures local DBs, transcript files, screenshots, prompt text, or secrets.",
     "Tool output is too vague for the agent to choose a safe next action.",
     "Card summaries or next actions expose directive syntax, markdown tables, duplicated Title/Final prefixes, or raw transcript-shaped excerpts as user-facing presentation.",
+    "Watcher event reads or local attention queue items expose raw transcript paths, raw prompt spans, raw tool payloads, secrets, or executable live-control/GUI actions.",
     "Prepared cards or inbox items expose raw transcript paths, raw prompt spans, raw tool payloads, secrets, or executable live-control/GUI actions.",
     "Operating-picture output hides missing sources, omits authority coverage, treats readable empty PLAN_STATE input as not configured, or treats PLAN_STATE prose as current truth."
   ],
@@ -127,6 +131,6 @@
     "Codex Desktop coherence classification can prove cli_visible, desktop_visible, desktop_refresh_required, desktop_restart_required, or unknown states from supplied public-safe evidence. Fallback status can report CUA/Peekaboo readiness, and when called with only a target it returns coherence_input_missing plus the exact coherence tool args instead of inventing hidden state. The collaboration cockpit can summarize those states across active lanes, the next-step planner can emit execute=false packets for the next safe proof step, the action-bound proof contract can validate exact dry-run approval packets, runtime visibility status can summarize covered/partial/blocked lane coverage, active-thread state can classify running/blocked/needs-nudge/stale lanes with conflict downgrades, attention coverage, non-executed read-only probe recommendations, and non-executed control dry-run recommendations, and autonomy tick can order those next probes/dry-run recommendations into one deterministic execute=false loop packet. None of these performs a live direct-protocol action, Desktop refresh/restart, or GUI mutation.",
     "This does not prove live Codex control, generic GUI mutation, Claude Code adapter parity, full business truth, stable release, npm latest promotion, or release-grade customer readiness."
   ],
-  "next_action": "Continue LCO 1.2 prepared-state work with watcher persistence and hook sidecar capture after prepared cards/inbox land.",
-  "proof_boundary": "This proves local OpenClaw gateway agent usability for Codex read/search/describe/expand/detail lookup/recommend/dry-run, read-only watcher request packets, read-only app-server status/thread signals, visible-to-indexed session correlation, Codex Desktop coherence classification, Codex Desktop fallback readiness reporting, read-only collaboration cockpit summaries, read-only execute=false collaboration next-step packets, action-bound dry-run Desktop collaboration proof contracts, runtime Desktop visibility status reporting, read-only active-thread state classification with attention coverage, non-executed read-only probe recommendations and control dry-run recommendations, deterministic execute=false autonomy tick planning, P0 cockpit/operating-picture cards, deterministic prepared-state cards and inbox items, bounded summary-leaf expansion, and fresh-profile gateway-ready invocation using public-safe evidence only; it does not prove live control, GUI mutation, unattended Desktop-visible live collaboration, Claude Code adapter parity, full business truth, stable release, npm latest promotion, or enterprise/customer readiness."
+  "next_action": "Continue LCO 1.2 prepared-state work with hook sidecar closeout, state-prep, and compaction-marker capture after watcher persistence lands.",
+  "proof_boundary": "This proves local OpenClaw gateway agent usability for Codex read/search/describe/expand/detail lookup/recommend/dry-run, read-only watcher request packets, persisted watcher events, execute-false local attention queue items, read-only app-server status/thread signals, visible-to-indexed session correlation, Codex Desktop coherence classification, Codex Desktop fallback readiness reporting, read-only collaboration cockpit summaries, read-only execute=false collaboration next-step packets, action-bound dry-run Desktop collaboration proof contracts, runtime Desktop visibility status reporting, read-only active-thread state classification with attention coverage, non-executed read-only probe recommendations and control dry-run recommendations, deterministic execute=false autonomy tick planning, P0 cockpit/operating-picture cards, deterministic prepared-state cards and inbox items, bounded summary-leaf expansion, and fresh-profile gateway-ready invocation using public-safe evidence only; it does not prove live control, GUI mutation, unattended Desktop-visible live collaboration, Claude Code adapter parity, full business truth, stable release, npm latest promotion, or enterprise/customer readiness."
 }

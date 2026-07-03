@@ -22,6 +22,7 @@ import {
   getPreparedCards,
   getPreparedInbox,
   getPreparedStateStatus,
+  getWatcherEvents,
   createPlanStatePinsReport,
   createGithubOperatingItemsReport,
   createProjectDigest,
@@ -426,6 +427,17 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
         proofBoundary: "Dry-run watcher packets are requests only; no live Codex control, GUI mutation, external write, cleanup, or notification is performed."
       };
     }),
+    tool("loo_watcher_events", "Read persisted public-safe watcher observations and execute-false local attention queue items.", {
+      watch_id: { type: "string" },
+      target_ref: { type: "string" },
+      limit: { type: "integer", minimum: 1, maximum: 1000 },
+      now: { type: "string" }
+    }, (input) => getWatcherEvents(options.db, {
+      watchId: optionalString(input.watch_id),
+      targetRef: optionalString(input.target_ref),
+      limit: optionalNumber(input.limit),
+      now: optionalString(input.now)
+    })),
     tool("loo_resume_request_packet", "Create one approval-bounded resume request packet from a read-only watcher spec.", {
       watcher_spec: { type: "object", additionalProperties: true },
       now: { type: "string" },

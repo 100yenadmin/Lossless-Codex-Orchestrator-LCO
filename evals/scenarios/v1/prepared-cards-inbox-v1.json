@@ -66,6 +66,6 @@
     "max_gui_actions": 0,
     "max_screenshots_in_public_evidence": 0
   },
-  "proof_boundary": "Dry-run fixture and MCP scenario for deterministic prepared-card and attention-inbox materialization over public-safe summary leaves. It proves advisory local prepared Codex state for OpenClaw/Eva only; it does not prove watcher persistence, hook capture, model compaction, true Codex compaction-summary capture, live control, GUI mutation, unattended autonomy, release readiness, or 1.2 GA readiness.",
-  "next_action": "Implement persisted watcher observations and execute=false attention queue behavior in #411 after #410 lands."
+  "proof_boundary": "Dry-run fixture and MCP scenario for deterministic prepared-card and attention-inbox materialization over public-safe summary leaves. It proves advisory local prepared Codex state for OpenClaw/Eva only; pair it with watcher-events-attention-queue-v1 for persisted watcher proof. It does not prove hook capture, model compaction, true Codex compaction-summary capture, live control, GUI mutation, unattended autonomy, release readiness, or 1.2 GA readiness.",
+  "next_action": "Implement hook sidecar closeout, state-prep, and compaction-marker capture in #412 after #411 lands."
 }

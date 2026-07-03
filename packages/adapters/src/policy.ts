@@ -159,6 +159,7 @@ export const LOO_COMMAND_POLICY: Record<string, LooCommandSafety> = {
   loo_watchers_list: readOnly("structured_operating_inputs"),
   loo_watcher_status: readOnly("structured_operating_inputs"),
   loo_watcher_dry_run: readOnly("structured_operating_inputs"),
+  loo_watcher_events: readOnly("structured_operating_inputs"),
   loo_resume_request_packet: readOnly("structured_operating_inputs"),
   loo_codex_app_server_status: readOnly("codex_direct"),
   loo_codex_app_server_threads: readOnly("codex_direct"),
