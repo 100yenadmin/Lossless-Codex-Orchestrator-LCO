@@ -2248,6 +2248,10 @@ export function getPreparedSourceRanges(db: LooDatabase, options: PreparedSource
     "length(event_ref) = 44",
     "substr(event_ref, 13) NOT GLOB '*[^0-9a-f]*'",
     "source_ref LIKE 'codex_thread:%'",
+    "length(source_ref) BETWEEN 14 AND 173",
+    "source_ref NOT LIKE '%/%'",
+    "source_ref NOT LIKE '%\\%'",
+    "source_ref NOT LIKE '% %'",
     "source_path_ref LIKE 'codex_source:%'",
     "length(source_path_ref) = 29",
     "substr(source_path_ref, 14) NOT GLOB '*[^0-9a-f]*'",
@@ -2261,7 +2265,8 @@ export function getPreparedSourceRanges(db: LooDatabase, options: PreparedSource
     "byte_end >= byte_start",
     "ordinal >= 0",
     "confidence >= 0",
-    "confidence <= 1"
+    "confidence <= 1",
+    "(observed_at IS NULL OR (length(observed_at) BETWEEN 20 AND 35 AND observed_at LIKE '____-__-__T%Z'))"
   ];
   const publicSafeWhere = `WHERE ${publicSafeClauses.join(" AND ")}`;
   const countRow = db.prepare(`SELECT COUNT(*) AS count FROM prepared_source_ranges ${where}`).get(...params) as { count: number };
@@ -2408,13 +2413,14 @@ function isPublicPreparedSourceRangeRow(row: {
   privacyClass: string;
   omissionStatus: string;
   confidence: number;
+  observedAt: string | null;
 }): boolean {
   return row.extractorVersion === PREPARED_SOURCE_EXTRACTOR_VERSION
     && row.privacyClass === "public_safe_metadata"
     && row.omissionStatus === "metadata_only"
     && /^codex_range:[0-9a-f]{32}$/.test(row.rangeRef)
     && /^codex_event:[0-9a-f]{32}$/.test(row.eventRef)
-    && /^codex_thread:.+/.test(row.sourceRef)
+    && /^codex_thread:[A-Za-z0-9._:-]{1,160}$/.test(row.sourceRef)
     && /^codex_source:[0-9a-f]{16}$/.test(row.sourcePathRef)
     && /^[0-9a-f]{32}$/.test(row.sourceHash)
     && /^[0-9a-f]{32}$/.test(row.contentHash)
@@ -2430,7 +2436,8 @@ function isPublicPreparedSourceRangeRow(row: {
     && Number(row.byteEnd) >= Number(row.byteStart)
     && Number(row.ordinal) >= 0
     && Number(row.confidence) >= 0
-    && Number(row.confidence) <= 1;
+    && Number(row.confidence) <= 1
+    && (row.observedAt === null || isSafeIsoTimestamp(row.observedAt));
 }
 
 function sourceNeedsMetadataBackfill(db: LooDatabase, sourcePath: string): boolean {
@@ -5575,8 +5582,9 @@ function codexDesktopCoherenceTargetMismatch(threadId: string | null, sourceRef:
 
 function safeThreadId(value: string): string {
   const trimmed = value.startsWith("codex_thread:") ? value.slice("codex_thread:".length) : value;
-  const safe = publicSafeText(trimmed, 120).replace(/[^A-Za-z0-9._:-]+/g, "");
-  return safe || `thread_${stableId(trimmed).slice(0, 16)}`;
+  const redacted = publicSafeText(trimmed, 120).trim();
+  if (trimmed && redacted === trimmed && !looksSensitiveRefLike(trimmed) && /^[A-Za-z0-9._:-]{1,96}$/.test(trimmed)) return trimmed;
+  return `thread_${stableId(redacted || trimmed || "unknown").slice(0, 16)}`;
 }
 
 function publicCodexDesktopActionEvidence(input: Record<string, unknown> | null | undefined): CodexDesktopCoherenceActionEvidence {
@@ -7895,7 +7903,7 @@ function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: num
     }
     const meta = item.session_meta?.payload ?? item.session_meta ?? item.turn_context?.payload ?? null;
     if (meta) {
-      session.threadId = String(meta.id ?? meta.thread_id ?? session.threadId);
+      session.threadId = safeThreadId(String(meta.id ?? meta.thread_id ?? session.threadId));
       const cwd = stringOrNull(meta.cwd ?? meta.workdir ?? session.cwd);
       session.cwd = cwd ? redactSafeString(cwd) : null;
       session.model = stringOrNull(meta.model ?? session.model);
@@ -8568,9 +8576,20 @@ function lastAssistantText(parts: string[]): string | null {
 
 function findTimestamp(item: any): string | null {
   const value = item.timestamp ?? item.ts ?? item.created_at ?? item.event_msg?.timestamp;
-  if (typeof value === "string") return value;
+  if (typeof value === "string") return safeIsoTimestamp(value);
   if (typeof value === "number") return new Date(value > 10_000_000_000 ? value : value * 1000).toISOString();
   return null;
+}
+
+function safeIsoTimestamp(value: string): string | null {
+  const trimmed = value.trim();
+  if (!isSafeIsoTimestamp(trimmed)) return null;
+  const timestamp = Date.parse(trimmed);
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
+}
+
+function isSafeIsoTimestamp(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}T[0-9:.+-]+Z?$/.test(value) && Number.isFinite(Date.parse(value));
 }
 
 function normalizeText(text: string): string {

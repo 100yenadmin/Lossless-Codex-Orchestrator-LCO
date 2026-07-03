@@ -195,13 +195,48 @@ test("prepared source range gate rejects implausible offsets and confidence", ()
     indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
     const before = getPreparedSourceRanges(db, { threadId: "019f-prepared-implausible", limit: 50 });
     assert.equal(before.ranges.length > 2, true);
-    db.prepare("UPDATE prepared_source_ranges SET byte_end = byte_start - 1 WHERE range_ref = ?").run(before.ranges[0]!.rangeRef);
-    db.prepare("UPDATE prepared_source_ranges SET confidence = 1.5 WHERE range_ref = ?").run(before.ranges[1]!.rangeRef);
+    db.prepare("UPDATE prepared_source_ranges SET source_ref = ? WHERE range_ref = ?").run("codex_thread:/Users/lume/private/raw-thread", before.ranges[0]!.rangeRef);
+    db.prepare("UPDATE prepared_source_ranges SET byte_end = byte_start - 1 WHERE range_ref = ?").run(before.ranges[1]!.rangeRef);
+    db.prepare("UPDATE prepared_source_ranges SET confidence = 1.5 WHERE range_ref = ?").run(before.ranges[2]!.rangeRef);
 
     const report = getPreparedSourceRanges(db, { threadId: "019f-prepared-implausible", limit: 50 });
-    assert.equal(report.ranges.length, before.ranges.length - 2);
-    assert.equal(report.omitted.filteredUnsafeRows, 2);
+    assert.equal(report.ranges.length, before.ranges.length - 3);
+    assert.equal(report.omitted.filteredUnsafeRows, 3);
     assert.equal(report.ranges.every((range) => range.byteEnd >= range.byteStart && range.confidence >= 0 && range.confidence <= 1), true);
+
+    const limited = getPreparedSourceRanges(db, { threadId: "019f-prepared-implausible", limit: 1 });
+    assert.equal(limited.ranges.length, 1);
+    assert.equal(JSON.stringify(limited).includes("/Users/lume/private"), false);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared source ranges hash unsafe thread ids and drop malformed timestamps", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-thread-timestamp-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const sourcePath = join(sessions, "rollout-2026-07-03T00-00-00-019f-prepared-thread-timestamp.jsonl");
+  writeFileSync(sourcePath, JSON.stringify({
+    timestamp: "/Users/lume/private/PRIVATE_CANARY_TOKEN_1234567890",
+    session_meta: { payload: { id: "/Users/lume/private/PRIVATE_CANARY_TOKEN_1234567890" } },
+    event_msg: { type: "thread_name", name: "Unsafe metadata proof" }
+  }) + "\n");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    const report = getPreparedSourceRanges(db, { limit: 10 });
+    const serialized = JSON.stringify(report);
+    assert.equal(serialized.includes("/Users/lume"), false);
+    assert.equal(serialized.includes("PRIVATE_CANARY_TOKEN"), false);
+    assert.equal(report.ranges.length > 0, true);
+    for (const range of report.ranges) {
+      assert.match(range.threadId, /^thread_[0-9a-f]{16}$/);
+      assert.equal(range.sourceRef, `codex_thread:${range.threadId}`);
+      assert.equal(range.observedAt, null);
+    }
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
