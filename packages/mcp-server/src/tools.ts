@@ -566,11 +566,12 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
     tool("loo_codex_control_dry_run", "Create a dry-run audit id for a Codex control action.", {
       action: { type: "string", enum: ["send", "resume", "steer", "interrupt"] },
       thread_id: { type: "string" },
-      message: { type: "string" }
+      message: { type: "string" },
+      expected_turn_id: { type: "string" }
     }, (input) => snakeCaseControlResult(dispatchControl(control, input, true))),
     tool("loo_codex_resume_thread", "Resume or rejoin a Codex thread. Live mode requires approval_audit_id.", controlSchema(), (input) => snakeCaseControlResult(control.resumeThread(controlInput(input)))),
     tool("loo_codex_send_message", "Send a message to a Codex thread. Live mode requires approval_audit_id.", controlSchema(true), (input) => snakeCaseControlResult(control.sendMessage(messageControlInput(input)))),
-    tool("loo_codex_steer_thread", "Steer a running Codex thread. Live mode requires approval_audit_id.", controlSchema(true), (input) => snakeCaseControlResult(control.steerThread(messageControlInput(input)))),
+    tool("loo_codex_steer_thread", "Steer a running Codex thread. Live mode requires approval_audit_id and expected_turn_id.", controlSchema(true, true), (input) => snakeCaseControlResult(control.steerThread(messageControlInput(input, true)))),
     tool("loo_codex_interrupt_thread", "Interrupt a Codex thread. Live mode requires approval_audit_id.", controlSchema(), (input) => snakeCaseControlResult(control.interruptThread(controlInput(input)))),
     tool("loo_desktop_see", "Inspect desktop fallback readiness through direct/CUA/Peekaboo backends.", {
       backend: { type: "string", enum: ["direct", "cua-driver", "peekaboo"] },
@@ -774,7 +775,12 @@ function targetThreadIdFromCoherenceInput(input: Record<string, unknown>): strin
 
 function dispatchControl(control: ReturnType<typeof createCodexControl>, input: Record<string, unknown>, dryRun: boolean) {
   const action = requiredString(input.action, "action");
-  const common = { threadId: requiredString(input.thread_id, "thread_id"), message: optionalString(input.message) ?? "continue", dryRun };
+  const common = {
+    threadId: requiredString(input.thread_id, "thread_id"),
+    message: optionalString(input.message) ?? "continue",
+    expectedTurnId: optionalString(input.expected_turn_id) ?? optionalString(input.expectedTurnId),
+    dryRun
+  };
   if (action === "send") return control.sendMessage(common);
   if (action === "resume") return control.resumeThread(common);
   if (action === "steer") return control.steerThread(common);
@@ -782,10 +788,11 @@ function dispatchControl(control: ReturnType<typeof createCodexControl>, input: 
   throw new Error(`Unsupported control action: ${action}`);
 }
 
-function controlSchema(message = false): Record<string, unknown> {
+function controlSchema(message = false, expectedTurn = false): Record<string, unknown> {
   return {
     thread_id: { type: "string" },
     ...(message ? { message: { type: "string" } } : {}),
+    ...(expectedTurn ? { expected_turn_id: { type: "string" } } : {}),
     dry_run: { type: "boolean", default: true },
     approval_audit_id: { type: "string" }
   };
@@ -800,10 +807,11 @@ function controlInput(input: Record<string, unknown>, message = false) {
   };
 }
 
-function messageControlInput(input: Record<string, unknown>) {
+function messageControlInput(input: Record<string, unknown>, expectedTurn = false) {
   return {
     threadId: requiredString(input.thread_id, "thread_id"),
     message: requiredString(input.message, "message"),
+    ...(expectedTurn ? { expectedTurnId: requiredString(input.expected_turn_id ?? input.expectedTurnId, "expected_turn_id") } : {}),
     dryRun: input.dry_run !== false,
     approvalAuditId: optionalString(input.approval_audit_id)
   };
@@ -817,17 +825,21 @@ async function snakeCaseControlResult(value: Promise<any>) {
     approval_audit_id: result.approvalAuditId,
     params_hash: result.paramsHash,
     message_hash: result.messageHash,
+    method_sequence: result.methodSequence,
+    connection_scope: result.connectionScope,
+    loaded_state_reusable: result.loadedStateReusable,
     ...(approvalPacket ? { approval_packet: approvalPacket } : {})
   };
 }
 
 function approvalPacketFromControlResult(result: any): Record<string, unknown> {
   const action = String(result.action ?? "resume");
-  const packetAction = action === "send"
+  const isInterrupt = action === "interrupt" || action === "codex_interrupt_thread";
+  const packetAction = action === "send" || action === "codex_send_message"
     ? "send_message"
-    : action === "steer"
+    : action === "steer" || action === "codex_steer_thread"
       ? "steer_thread"
-      : action === "interrupt"
+      : isInterrupt
         ? "interrupt_thread"
         : "resume_session";
   const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
@@ -840,10 +852,12 @@ function approvalPacketFromControlResult(result: any): Record<string, unknown> {
       title: String(result.threadId ?? "unknown")
     },
     intent: `${packetAction} dry-run for ${String(result.threadId ?? "unknown")}`,
-    predictedMutation: [String(result.method ?? "codex_control")],
+    predictedMutation: Array.isArray(result.methodSequence) && result.methodSequence.length > 0
+      ? result.methodSequence.map((method: unknown) => String(method))
+      : [String(result.method ?? "codex_control")],
     preconditions: ["dry_run_record_exists", "matching_params_hash_required", "approval_packet_not_expired"],
     risk: {
-      level: action === "interrupt" ? "high" : "medium",
+      level: isInterrupt ? "high" : "medium",
       requiresHuman: true,
       reasons: ["codex_thread_mutation"]
     },

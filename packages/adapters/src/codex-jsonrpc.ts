@@ -17,6 +17,11 @@ export type CodexJsonRpcResponse = {
   notifications: JsonRpcNotification[];
 };
 
+export type CodexJsonRpcRequest = {
+  method: string;
+  params: Record<string, unknown>;
+};
+
 export type JsonRpcNotification = {
   method: string;
   params: Record<string, unknown>;
@@ -256,15 +261,30 @@ export function createCodexMcpStdioClient(options: {
   timeoutMs?: number;
   surface?: CodexMethodSurface;
 } = {}) {
+  const createClient = () => new CodexJsonRpcClient(
+    () => new LineProcessTransport(options.command ?? "codex", options.args ?? ["app-server", "--stdio"], options.timeoutMs),
+    { timeoutMs: options.timeoutMs, surface: options.surface ?? "control" }
+  );
   return {
     async request(method: string, params: Record<string, unknown>) {
-      const client = new CodexJsonRpcClient(
-        () => new LineProcessTransport(options.command ?? "codex", options.args ?? ["app-server", "--stdio"], options.timeoutMs),
-        { timeoutMs: options.timeoutMs, surface: options.surface ?? "control" }
-      );
+      const client = createClient();
       await client.connect();
       try {
         return await client.request(method, params);
+      } finally {
+        await client.close();
+      }
+    },
+    async requestSequence(requests: CodexJsonRpcRequest[]) {
+      const client = createClient();
+      await client.connect();
+      try {
+        let response: CodexJsonRpcResponse = { ok: true, notifications: [] };
+        for (const request of requests) {
+          response = await client.request(request.method, request.params);
+          if (!response.ok) return response;
+        }
+        return response;
       } finally {
         await client.close();
       }

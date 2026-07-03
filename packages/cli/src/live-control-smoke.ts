@@ -138,7 +138,20 @@ export async function runLiveControlSmoke(options: LiveControlSmokeOptions): Pro
     const target = options.threadId
       ? { threadId: options.threadId, source: "provided_thread" as const }
       : { threadId: await startEphemeralThread(options.client, options.cwd), source: "ephemeral_thread_start" as const };
-    const control = createCodexControl({ audit: options.audit, client: { request: (method, params) => options.client.request(method, params) } });
+    const control = createCodexControl({
+      audit: options.audit,
+      client: {
+        request: (method, params) => options.client.request(method, params),
+        requestSequence: async (requests) => {
+          let response: unknown;
+          for (const request of requests) {
+            response = await options.client.request(request.method, request.params);
+            if (isFailedCodexResponse(response)) return response;
+          }
+          return response;
+        }
+      }
+    });
     const dryRun = await control.sendMessage({ threadId: target.threadId, message, dryRun: true });
     if (!dryRun.messageHash) throw new Error("dry-run did not produce a message hash");
     const live = await control.sendMessage({
@@ -246,6 +259,10 @@ function unwrapResult(value: unknown): Record<string, unknown> {
 
 function objectField(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function isFailedCodexResponse(value: unknown): boolean {
+  return objectField(value).ok === false;
 }
 
 function stringField(record: Record<string, unknown>, key: string): string | null {

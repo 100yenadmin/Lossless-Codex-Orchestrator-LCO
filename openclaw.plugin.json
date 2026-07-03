@@ -1330,6 +1330,9 @@
             },
             "message": {
               "type": "string"
+            },
+            "expected_turn_id": {
+              "type": "string"
             }
           }
         }
@@ -1379,7 +1382,7 @@
       },
       {
         "name": "loo_codex_steer_thread",
-        "description": "Steer a running Codex thread. Live mode requires approval_audit_id.",
+        "description": "Steer a running Codex thread. Live mode requires approval_audit_id and expected_turn_id.",
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1388,6 +1391,9 @@
               "type": "string"
             },
             "message": {
+              "type": "string"
+            },
+            "expected_turn_id": {
               "type": "string"
             },
             "dry_run": {

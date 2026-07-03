@@ -26,6 +26,9 @@ class FakeLiveControlSmokeClient implements LiveControlSmokeClient {
     if (method === "thread/start") {
       return { ok: true, result: { thread: { id: this.nextThreadId, ephemeral: true } } };
     }
+    if (method === "thread/resume") {
+      return { ok: true, result: { thread: { id: String(params.threadId), loaded: true } } };
+    }
     if (method === "turn/start") {
       return { ok: true, result: { turn: { id: "turn_live_smoke", status: "inProgress" } } };
     }
@@ -85,8 +88,41 @@ test("live control smoke writes strict public-safe proof without raw prompt text
     assert.doesNotMatch(reportText, /raw prompt/i);
     assert.equal(JSON.stringify(report).includes(message), false);
 
-    assert.deepEqual(client.requests.map((request) => request.method), ["thread/start", "turn/start"]);
-    assert.equal(client.requests[1]?.params.threadId, "thr_live_smoke");
+    assert.deepEqual(client.requests.map((request) => request.method), ["thread/start", "thread/resume", "turn/start"]);
+    assert.equal(client.requests[2]?.params.threadId, "thr_live_smoke");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("live control smoke stops same-connection send when resume fails", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-live-smoke-resume-fail-"));
+  const client = new FakeLiveControlSmokeClient();
+  client.request = async (method, params) => {
+    client.requests.push({ method, params });
+    if (method === "thread/start") {
+      return { ok: true, result: { thread: { id: "thr_resume_fail", ephemeral: true } } };
+    }
+    if (method === "thread/resume") {
+      return { ok: false, error: "thread not found" };
+    }
+    if (method === "turn/start") {
+      throw new Error("turn/start must not run after failed resume");
+    }
+    throw new Error(`unexpected method ${method}`);
+  };
+
+  try {
+    await assert.rejects(
+      () => runLiveControlSmoke({
+        client,
+        audit: createAuditStore(join(root, "audit.jsonl")),
+        evidenceDir: root,
+        message: "Resume failure prompt"
+      }),
+      /thread not found/
+    );
+    assert.deepEqual(client.requests.map((request) => request.method), ["thread/start", "thread/resume"]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

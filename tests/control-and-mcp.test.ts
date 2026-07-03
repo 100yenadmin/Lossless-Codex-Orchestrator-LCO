@@ -13,12 +13,19 @@ import { createLooToolDeclarations, createLooTools } from "../packages/mcp-serve
 test("Codex control requires dry-run audit before live message, steer, resume, or interrupt", async () => {
   const root = mkdtempSync(join(tmpdir(), "loo-control-"));
   const audit = createAuditStore(join(root, "audit.jsonl"));
-  const calls: Array<{ method: string; params: unknown }> = [];
+  const calls: Array<
+    | { kind: "request"; method: string; params: unknown }
+    | { kind: "sequence"; requests: Array<{ method: string; params: Record<string, unknown> }> }
+  > = [];
   const control = createCodexControl({
     audit,
     client: {
       request: async (method, params) => {
-        calls.push({ method, params });
+        calls.push({ kind: "request", method, params });
+        return { ok: true };
+      },
+      requestSequence: async (requests) => {
+        calls.push({ kind: "sequence", requests });
         return { ok: true };
       }
     }
@@ -76,7 +83,12 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
       approvalAuditId: dryRun.approvalAuditId
     });
     assert.equal(live.live, true);
-    assert.equal(calls[0]?.method, "turn/start");
+    assert.equal(live.method, "thread/resume -> turn/start");
+    assert.deepEqual(live.methodSequence, ["thread/resume", "turn/start"]);
+    assert.equal(live.connectionScope, "same_connection_sequence");
+    const sendCall = calls[0];
+    assert.equal(sendCall?.kind, "sequence");
+    assert.deepEqual(sendCall?.kind === "sequence" ? sendCall.requests.map((request) => request.method) : [], ["thread/resume", "turn/start"]);
     await assert.rejects(
       () => control.sendMessage({
         threadId: "thr_1",
@@ -93,15 +105,28 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
     assert.match(resumeDryRun.paramsHash, /^[a-f0-9]{64}$/);
     assert.equal(resumeDryRun.messageHash, undefined);
     await control.resumeThread({ threadId: "thr_1", dryRun: false, approvalAuditId: resumeDryRun.approvalAuditId });
-    assert.equal(calls[1]?.method, "thread/resume");
+    assert.equal(calls[1]?.kind, "request");
+    assert.equal(calls[1]?.kind === "request" ? calls[1].method : undefined, "thread/resume");
 
-    const steerDryRun = await control.steerThread({ threadId: "thr_1", message: "focus on tests", dryRun: true });
-    await control.steerThread({ threadId: "thr_1", message: "focus on tests", dryRun: false, approvalAuditId: steerDryRun.approvalAuditId });
-    assert.equal(calls[2]?.method, "turn/steer");
+    assert.throws(
+      () => control.steerThread({ threadId: "thr_1", message: "focus on tests", dryRun: false, approvalAuditId: "loo_audit_missing" }),
+      /expected_turn_id is required/
+    );
+    assert.equal(calls.length, 2);
+
+    const steerDryRun = await control.steerThread({ threadId: "thr_1", message: "focus on tests", expectedTurnId: "turn_1", dryRun: true });
+    const changedExpectedTurnDryRun = await control.steerThread({ threadId: "thr_1", message: "focus on tests", expectedTurnId: "turn_2", dryRun: true });
+    assert.notEqual(changedExpectedTurnDryRun.paramsHash, steerDryRun.paramsHash);
+    await control.steerThread({ threadId: "thr_1", message: "focus on tests", expectedTurnId: "turn_1", dryRun: false, approvalAuditId: steerDryRun.approvalAuditId });
+    const steerCall = calls[2];
+    assert.equal(steerCall?.kind, "sequence");
+    assert.deepEqual(steerCall?.kind === "sequence" ? steerCall.requests.map((request) => request.method) : [], ["thread/resume", "turn/steer"]);
+    assert.equal(steerCall?.kind === "sequence" ? steerCall.requests[1]?.params.expectedTurnId : undefined, "turn_1");
 
     const interruptDryRun = await control.interruptThread({ threadId: "thr_1", dryRun: true });
     await control.interruptThread({ threadId: "thr_1", dryRun: false, approvalAuditId: interruptDryRun.approvalAuditId });
-    assert.equal(calls[3]?.method, "turn/interrupt");
+    assert.equal(calls[3]?.kind, "request");
+    assert.equal(calls[3]?.kind === "request" ? calls[3].method : undefined, "turn/interrupt");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -114,6 +139,9 @@ test("Codex control redacts live transport responses before returning them throu
     audit,
     client: {
       request: async () => ({
+        content: `authorization: ${homedir()}/secret sk-test_1234567890`
+      }),
+      requestSequence: async () => ({
         content: `authorization: ${homedir()}/secret sk-test_1234567890`
       })
     }
@@ -131,6 +159,87 @@ test("Codex control redacts live transport responses before returning them throu
     assert.deepEqual(live.response, {
       content: "authorization: <redacted-secret>"
     });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Codex send loads and starts the turn on one control connection", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-control-connection-"));
+  const oneShotAudit = createAuditStore(join(root, "one-shot-audit.jsonl"));
+  const sameConnectionAudit = createAuditStore(join(root, "same-connection-audit.jsonl"));
+  const oneShotSequences: string[][] = [];
+  const sameConnectionSequences: string[][] = [];
+
+  const requestOnConnection = (loadedThreads: Set<string>, method: string, params: Record<string, unknown>) => {
+    const threadId = String(params.threadId ?? "");
+    if (method === "thread/resume") {
+      loadedThreads.add(threadId);
+      return { ok: true, result: { thread: { id: threadId, loaded: true } } };
+    }
+    if (method === "turn/start") {
+      return loadedThreads.has(threadId)
+        ? { ok: true, result: { turn: { id: "turn_same_connection", status: "accepted" } } }
+        : { ok: false, error: "thread not found" };
+    }
+    throw new Error(`unexpected method ${method}`);
+  };
+
+  const oneShotControl = createCodexControl({
+    audit: oneShotAudit,
+    client: {
+      request: async (method, params) => requestOnConnection(new Set(), method, params),
+      requestSequence: async (requests) => {
+        oneShotSequences.push(requests.map((request) => request.method));
+        let response: unknown;
+        for (const request of requests) {
+          response = requestOnConnection(new Set(), request.method, request.params);
+          if (typeof response === "object" && response && "ok" in response && response.ok === false) return response;
+        }
+        return response;
+      }
+    }
+  });
+  const sameConnectionControl = createCodexControl({
+    audit: sameConnectionAudit,
+    client: {
+      request: async (method, params) => requestOnConnection(new Set(), method, params),
+      requestSequence: async (requests) => {
+        sameConnectionSequences.push(requests.map((request) => request.method));
+        const loadedThreads = new Set<string>();
+        let response: unknown;
+        for (const request of requests) {
+          response = requestOnConnection(loadedThreads, request.method, request.params);
+          if (typeof response === "object" && response && "ok" in response && response.ok === false) return response;
+        }
+        return response;
+      }
+    }
+  });
+
+  try {
+    const oneShotDryRun = await oneShotControl.sendMessage({ threadId: "thr_1", message: "continue", dryRun: true });
+    const oneShotLive = await oneShotControl.sendMessage({
+      threadId: "thr_1",
+      message: "continue",
+      dryRun: false,
+      approvalAuditId: oneShotDryRun.approvalAuditId
+    });
+    assert.deepEqual(oneShotSequences, [["thread/resume", "turn/start"]]);
+    assert.equal((oneShotLive.response as { ok?: boolean }).ok, false);
+    assert.match(String((oneShotLive.response as { error?: string }).error), /thread not found/);
+
+    const sameConnectionDryRun = await sameConnectionControl.sendMessage({ threadId: "thr_1", message: "continue", dryRun: true });
+    const sameConnectionLive = await sameConnectionControl.sendMessage({
+      threadId: "thr_1",
+      message: "continue",
+      dryRun: false,
+      approvalAuditId: sameConnectionDryRun.approvalAuditId
+    });
+    assert.deepEqual(sameConnectionSequences, [["thread/resume", "turn/start"]]);
+    assert.equal((sameConnectionLive.response as { ok?: boolean }).ok, true);
+    assert.equal(sameConnectionLive.method, "thread/resume -> turn/start");
+    assert.equal(sameConnectionLive.connectionScope, "same_connection_sequence");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -201,6 +310,9 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
       approval_audit_id: string;
       params_hash: string;
       message_hash: string;
+      method: string;
+      method_sequence: string[];
+      approval_packet: { action: string; predictedMutation: string[] };
     };
     assert.equal(dryRun.live, false);
     assert.match(dryRun.approval_audit_id, /^loo_audit_/);
@@ -208,6 +320,31 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.match(dryRun.message_hash, /^[a-f0-9]{64}$/);
     assert.equal(dryRun.message_hash, audit.fingerprintText("continue"));
     assert.notEqual(dryRun.message_hash, sha256("continue"));
+    assert.equal(dryRun.method, "thread/resume -> turn/start");
+    assert.deepEqual(dryRun.method_sequence, ["thread/resume", "turn/start"]);
+    assert.equal(dryRun.approval_packet.action, "send_message");
+    assert.deepEqual(dryRun.approval_packet.predictedMutation, ["thread/resume", "turn/start"]);
+
+    const steerTool = tools.find((tool) => tool.name === "loo_codex_steer_thread");
+    assert.ok(steerTool);
+    const steerSchemaProperties = steerTool.inputSchema.properties as Record<string, unknown>;
+    assert.deepEqual(steerSchemaProperties.expected_turn_id, { type: "string" });
+    assert.throws(
+      () => steerTool.execute({ thread_id: "thr_1", message: "focus", dry_run: true }),
+      /expected_turn_id is required/
+    );
+    const steerDryRun = await steerTool.execute({ thread_id: "thr_1", message: "focus", expected_turn_id: "turn_1", dry_run: true }) as {
+      params_hash: string;
+      method_sequence: string[];
+      approval_packet: { action: string; predictedMutation: string[] };
+    };
+    const changedSteerDryRun = await steerTool.execute({ thread_id: "thr_1", message: "focus", expected_turn_id: "turn_2", dry_run: true }) as {
+      params_hash: string;
+    };
+    assert.notEqual(changedSteerDryRun.params_hash, steerDryRun.params_hash);
+    assert.deepEqual(steerDryRun.method_sequence, ["thread/resume", "turn/steer"]);
+    assert.equal(steerDryRun.approval_packet.action, "steer_thread");
+    assert.deepEqual(steerDryRun.approval_packet.predictedMutation, ["thread/resume", "turn/steer"]);
 
     const dryRunTool = tools.find((tool) => tool.name === "loo_codex_control_dry_run");
     assert.ok(dryRunTool);
@@ -222,6 +359,12 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.equal(genericDryRun.message_hash, audit.fingerprintText("continue"));
     assert.notEqual(genericDryRun.message_hash, sha256("continue"));
     assert.equal(genericDryRun.message_hash, dryRun.message_hash);
+    const genericSteerDryRun = await dryRunTool.execute({ action: "steer", thread_id: "thr_1", message: "focus", expected_turn_id: "turn_1" }) as {
+      params_hash: string;
+      method_sequence: string[];
+    };
+    assert.equal(genericSteerDryRun.params_hash, steerDryRun.params_hash);
+    assert.deepEqual(genericSteerDryRun.method_sequence, ["thread/resume", "turn/steer"]);
 
     appendFileSync(audit.path, "{malformed audit jsonl\n");
 

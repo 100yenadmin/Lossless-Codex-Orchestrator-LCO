@@ -2,7 +2,7 @@ import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { codexTransportStatus } from "./codex-jsonrpc.js";
+import { codexTransportStatus, type CodexJsonRpcRequest } from "./codex-jsonrpc.js";
 import { CODEX_CONTROL_METHODS, CODEX_FORBIDDEN_METHODS, CODEX_READ_METHODS, assertCodexMethodAllowed } from "./policy.js";
 import { redactValue } from "./redaction.js";
 
@@ -12,6 +12,7 @@ export * from "./redaction.js";
 
 export type CodexClient = {
   request(method: string, params: Record<string, unknown>): Promise<unknown>;
+  requestSequence?(requests: CodexJsonRpcRequest[]): Promise<unknown>;
 };
 
 export type SourceCoverageState = "ok" | "partial" | "unavailable" | "not_configured";
@@ -580,6 +581,9 @@ export type ControlResult = {
   paramsHash: string;
   messageHash?: string;
   method?: string;
+  methodSequence?: string[];
+  connectionScope?: "one_shot" | "same_connection_sequence";
+  loadedStateReusable?: boolean;
   response?: unknown;
 };
 
@@ -650,15 +654,21 @@ export function createAuditStore(path: string) {
 export function createCodexControl(options: { audit: ControlAuditStore; client: CodexClient }) {
   const execute = async (spec: {
     action: string;
-    method: string;
+    sequence: CodexJsonRpcRequest[];
     threadId: string;
-    params: Record<string, unknown>;
     message?: string;
     dryRun?: boolean;
     approvalAuditId?: string;
+    loadedStateReusable?: boolean;
   }): Promise<ControlResult> => {
-    assertCodexMethodAllowed(spec.method, "control");
-    const paramsHash = options.audit.fingerprintValue({ action: spec.action, method: spec.method, threadId: spec.threadId, params: spec.params });
+    if (spec.sequence.length === 0) throw new Error("Codex control sequence must include at least one request");
+    for (const request of spec.sequence) {
+      assertCodexMethodAllowed(request.method, "control");
+    }
+    const methodSequence = spec.sequence.map((request) => request.method);
+    const method = methodSequence.join(" -> ");
+    const connectionScope = spec.sequence.length > 1 ? "same_connection_sequence" : "one_shot";
+    const paramsHash = options.audit.fingerprintValue({ action: spec.action, sequence: spec.sequence, threadId: spec.threadId });
     const messageHash = spec.message === undefined ? undefined : options.audit.fingerprintText(spec.message);
     if (spec.dryRun !== false) {
       const record = options.audit.append({
@@ -668,7 +678,18 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
         messageHash,
         live: false
       });
-      return { action: spec.action, threadId: spec.threadId, live: false, approvalAuditId: record.id, paramsHash, messageHash, method: spec.method };
+      return {
+        action: spec.action,
+        threadId: spec.threadId,
+        live: false,
+        approvalAuditId: record.id,
+        paramsHash,
+        messageHash,
+        method,
+        methodSequence,
+        connectionScope,
+        loadedStateReusable: spec.loadedStateReusable ?? false
+      };
     }
 
     if (!spec.approvalAuditId) {
@@ -688,55 +709,91 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
     if (!Number.isFinite(dryRunCreatedAtMs) || dryRunCreatedAtMs + CODEX_CONTROL_DRY_RUN_TTL_MS <= Date.now()) {
       throw new Error("approval_audit_id dry-run record expired");
     }
-    const response = await options.client.request(spec.method, spec.params);
+    const response = await executeControlSequence(options.client, spec.sequence);
     const liveRecord = options.audit.append({ action: spec.action, target: spec.threadId, paramsHash, messageHash, live: true });
-    return { action: spec.action, threadId: spec.threadId, live: true, approvalAuditId: liveRecord.id, paramsHash, messageHash, method: spec.method, response: redactValue(response) };
+    return {
+      action: spec.action,
+      threadId: spec.threadId,
+      live: true,
+      approvalAuditId: liveRecord.id,
+      paramsHash,
+      messageHash,
+      method,
+      methodSequence,
+      connectionScope,
+      loadedStateReusable: spec.loadedStateReusable ?? false,
+      response: redactValue(response)
+    };
   };
 
   return {
     sendMessage(input: { threadId: string; message: string; dryRun?: boolean; approvalAuditId?: string }) {
       return execute({
         action: "codex_send_message",
-        method: "turn/start",
         threadId: input.threadId,
         message: input.message,
         dryRun: input.dryRun,
         approvalAuditId: input.approvalAuditId,
-        params: { threadId: input.threadId, input: [{ type: "text", text: input.message }] }
+        loadedStateReusable: false,
+        sequence: [
+          { method: "thread/resume", params: { threadId: input.threadId, excludeTurns: true } },
+          { method: "turn/start", params: { threadId: input.threadId, input: [{ type: "text", text: input.message }] } }
+        ]
       });
     },
     resumeThread(input: { threadId: string; dryRun?: boolean; approvalAuditId?: string }) {
       return execute({
         action: "codex_resume_thread",
-        method: "thread/resume",
         threadId: input.threadId,
         dryRun: input.dryRun,
         approvalAuditId: input.approvalAuditId,
-        params: { threadId: input.threadId, excludeTurns: true }
+        loadedStateReusable: false,
+        sequence: [
+          { method: "thread/resume", params: { threadId: input.threadId, excludeTurns: true } }
+        ]
       });
     },
-    steerThread(input: { threadId: string; message: string; dryRun?: boolean; approvalAuditId?: string }) {
+    steerThread(input: { threadId: string; message: string; expectedTurnId?: string; dryRun?: boolean; approvalAuditId?: string }) {
+      if (!input.expectedTurnId || !input.expectedTurnId.trim()) {
+        throw new Error("expected_turn_id is required for Codex steer control actions");
+      }
       return execute({
         action: "codex_steer_thread",
-        method: "turn/steer",
         threadId: input.threadId,
         message: input.message,
         dryRun: input.dryRun,
         approvalAuditId: input.approvalAuditId,
-        params: { threadId: input.threadId, input: [{ type: "text", text: input.message }] }
+        loadedStateReusable: false,
+        sequence: [
+          { method: "thread/resume", params: { threadId: input.threadId, excludeTurns: true } },
+          { method: "turn/steer", params: { threadId: input.threadId, expectedTurnId: input.expectedTurnId.trim(), input: [{ type: "text", text: input.message }] } }
+        ]
       });
     },
     interruptThread(input: { threadId: string; dryRun?: boolean; approvalAuditId?: string }) {
       return execute({
         action: "codex_interrupt_thread",
-        method: "turn/interrupt",
         threadId: input.threadId,
         dryRun: input.dryRun,
         approvalAuditId: input.approvalAuditId,
-        params: { threadId: input.threadId }
+        loadedStateReusable: false,
+        sequence: [
+          { method: "turn/interrupt", params: { threadId: input.threadId } }
+        ]
       });
     }
   };
+}
+
+async function executeControlSequence(client: CodexClient, sequence: CodexJsonRpcRequest[]): Promise<unknown> {
+  if (sequence.length === 1) {
+    const [request] = sequence;
+    return client.request(request.method, request.params);
+  }
+  if (!client.requestSequence) {
+    throw new Error("Codex client does not support same-connection control sequences");
+  }
+  return client.requestSequence(sequence);
 }
 
 export async function createCodexAppServerStatusReport(options: {
