@@ -95,6 +95,32 @@ test("watcher persistence treats same timestamp and spec replay as idempotent", 
   });
 });
 
+test("watcher persistence replaces prior observation when the same watcher advances", () => {
+  withWatcherDb((db) => {
+    const now = "2026-07-03T20:05:00.000Z";
+    const targetRef = "codex_thread:019f-watcher-advance";
+    const first = finalMessageWatchSpec({
+      targetRef,
+      lastObservedAt: "2026-07-03T20:04:00.000Z",
+      evidenceIds: ["ev_first"]
+    });
+    const second = finalMessageWatchSpec({
+      targetRef,
+      lastObservedAt: "2026-07-03T20:06:00.000Z",
+      evidenceIds: ["ev_second"]
+    });
+
+    persistWatcherObservations(db, [first], { now });
+    persistWatcherObservations(db, [second], { now: "2026-07-03T20:06:00.000Z" });
+
+    const events = getWatcherEvents(db, { now: "2026-07-03T20:06:00.000Z", targetRef, limit: 10 });
+    assert.equal(events.summary.total, 1);
+    assert.equal(events.summary.queueItems, 1);
+    assert.equal(events.observations[0]?.observedAt, "2026-07-03T20:06:00.000Z");
+    assert.deepEqual(events.observations[0]?.evidenceRefs, ["ev_second"]);
+  });
+});
+
 test("watcher persistence sanitizes raw paths tokens and transcript canaries before cache writes", () => {
   withWatcherDb((db) => {
     const npmTokenCanary = `npm_${"A".repeat(36)}`;

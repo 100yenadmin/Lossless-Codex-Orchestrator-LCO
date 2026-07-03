@@ -5414,6 +5414,7 @@ export function persistWatcherObservations(
         generatedAt,
         generatedAt
       );
+      db.prepare("DELETE FROM watcher_observations WHERE watch_id = ? AND target_ref = ?").run(watcher.watchId, watcher.targetRef);
       db.prepare(`
         INSERT OR REPLACE INTO watcher_observations (
           observation_id, watch_id, target_ref, observation_json, evidence_refs_json,
