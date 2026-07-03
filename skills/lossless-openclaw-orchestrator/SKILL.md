@@ -151,6 +151,31 @@ Typical live tools after approval are `loo_codex_resume_thread`,
 13. If action is requested, run `loo_codex_control_dry_run`
 14. Wait for explicit approval before any live control
 
+## Codex Desktop-First Daily Loop
+
+Use this loop when the user wants the daily Codex operating picture, active
+Desktop collaboration state, or a safe next nudge recommendation.
+
+1. Start read-only with `loo_codex_app_server_status`,
+   `loo_codex_app_server_threads`, and `loo_visible_codex_map`.
+2. Run `loo_codex_desktop_coherence` before any Codex Desktop-visible claim.
+   Treat `cli_visible`, `desktop_refresh_required`,
+   `desktop_restart_required`, and `unknown` as proof gaps.
+3. If coherence exists, use `loo_codex_desktop_fallback_status` for fallback
+   readiness. If it returns `coherence_input_missing`, follow the returned
+   `nextToolCall` for coherence first.
+4. Build the daily attention view with `loo_codex_collaboration_cockpit`,
+   `loo_codex_runtime_desktop_visibility_status`,
+   `loo_codex_active_thread_state`, and `loo_codex_autonomy_tick`.
+5. For `needs_nudge` or `needs_approval`, show `nextControlDryRun` as an
+   `execute=false` handoff only. Do not run live control from this packet.
+6. Live control requires the exact dry-run audit id, matching
+   `approval_audit_id`, and Andrew approval for the exact target and action.
+7. After an approved live action, run post-action refresh before claiming
+   success or updating the operating picture.
+8. If proof fails, create an issue-ready public-safe packet instead of pasting
+   raw logs, raw transcripts, screenshots, or unredacted tool evidence.
+
 ## Public-Safe Output Shape
 
 When reporting to a user or another agent, include:
