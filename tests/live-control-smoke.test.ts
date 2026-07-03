@@ -148,6 +148,65 @@ test("live control smoke fails closed on unexpected server requests during the h
   }
 });
 
+test("live control smoke writes failure report when setup connect fails", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-live-smoke-connect-failure-"));
+  const client = new FakeLiveControlSmokeClient();
+  client.connect = async () => {
+    throw new Error("setup handshake failed");
+  };
+
+  try {
+    await assert.rejects(
+      () => runLiveControlSmoke({
+        client,
+        audit: createAuditStore(join(root, "audit.jsonl")),
+        evidenceDir: root,
+        message: "Setup failure prompt"
+      }),
+      /setup handshake failed/
+    );
+    const failureReport = JSON.parse(readFileSync(join(root, "live-control-smoke-failure-report.json"), "utf8")) as {
+      ok?: boolean;
+      proofReady?: boolean;
+      blocker?: string;
+      target?: { refClass?: string; source?: string };
+      dryRun?: { attempted?: boolean };
+      live?: { accepted?: boolean };
+      rawPromptIncluded?: boolean;
+    };
+    assert.equal(failureReport.ok, false);
+    assert.equal(failureReport.proofReady, false);
+    assert.equal(failureReport.blocker, "codex_app_server_setup_failed");
+    assert.equal(failureReport.target?.refClass, "unknown");
+    assert.equal(failureReport.target?.source, "unknown");
+    assert.equal(failureReport.dryRun?.attempted, false);
+    assert.equal(failureReport.live?.accepted, false);
+    assert.equal(failureReport.rawPromptIncluded, false);
+    assert.equal(JSON.stringify(failureReport).includes("Setup failure prompt"), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("live control smoke preserves original failure when failure report cannot be written", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-live-smoke-report-write-failure-"));
+  const client = new FakeLiveControlSmokeClient();
+  client.request = async () => {
+    rmSync(root, { recursive: true, force: true });
+    throw new Error("original request failure");
+  };
+
+  await assert.rejects(
+    () => runLiveControlSmoke({
+      client,
+      audit: createAuditStore(join(root, "audit.jsonl")),
+      evidenceDir: root,
+      message: "Report write failure prompt"
+    }),
+    /original request failure/
+  );
+});
+
 test("live control smoke stops same-connection sequences after a failed step", async () => {
   const root = mkdtempSync(join(tmpdir(), "loo-live-smoke-sequence-failure-"));
   const client = new FakeLiveControlSmokeClient();
@@ -178,6 +237,44 @@ test("live control smoke stops same-connection sequences after a failed step", a
     );
     assert.deepEqual(client.requests.map((request) => request.method), ["thread/start", "thread/resume"]);
     assert.equal(audit.tail().some((record) => record.live), false);
+    const failureReport = JSON.parse(readFileSync(join(root, "live-control-smoke-failure-report.json"), "utf8")) as {
+      ok?: boolean;
+      proofReady?: boolean;
+      blocker?: string;
+      command?: { action?: string; actionClass?: string };
+      target?: { refClass?: string; source?: string };
+      dryRun?: { attempted?: boolean; live?: boolean; approvalAuditId?: string; paramsHash?: string; messageHash?: string };
+      live?: { accepted?: boolean; method?: string | null };
+      postActionRefresh?: { ran?: boolean };
+      nextDiagnosticStep?: string;
+      rawPromptIncluded?: boolean;
+      rawTranscriptIncluded?: boolean;
+      rawSecretIncluded?: boolean;
+      screenshotIncluded?: boolean;
+      sqliteIncluded?: boolean;
+    };
+    assert.equal(failureReport.ok, false);
+    assert.equal(failureReport.proofReady, false);
+    assert.equal(failureReport.blocker, "same_connection_resume_load_diagnostics_required");
+    assert.equal(failureReport.command?.action, "send");
+    assert.equal(failureReport.command?.actionClass, "codex_live_control_send");
+    assert.equal(failureReport.target?.refClass, "codex_thread");
+    assert.equal(failureReport.target?.source, "ephemeral_thread_start");
+    assert.equal(failureReport.dryRun?.attempted, true);
+    assert.equal(failureReport.dryRun?.live, false);
+    assert.match(failureReport.dryRun?.approvalAuditId ?? "", /^loo_audit_/);
+    assert.match(failureReport.dryRun?.paramsHash ?? "", /^[a-f0-9]{64}$/);
+    assert.match(failureReport.dryRun?.messageHash ?? "", /^[a-f0-9]{64}$/);
+    assert.equal(failureReport.live?.accepted, false);
+    assert.equal(failureReport.live?.method, null);
+    assert.equal(failureReport.postActionRefresh?.ran, false);
+    assert.match(failureReport.nextDiagnosticStep ?? "", /same-connection resume\/load/i);
+    assert.equal(failureReport.rawPromptIncluded, false);
+    assert.equal(failureReport.rawTranscriptIncluded, false);
+    assert.equal(failureReport.rawSecretIncluded, false);
+    assert.equal(failureReport.screenshotIncluded, false);
+    assert.equal(failureReport.sqliteIncluded, false);
+    assert.equal(JSON.stringify(failureReport).includes("Harmless smoke prompt"), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

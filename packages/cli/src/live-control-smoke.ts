@@ -63,6 +63,53 @@ export type LiveControlSmokeReport = {
   rawPromptIncluded: false;
 };
 
+export type LiveControlSmokeFailureReport = {
+  kind: "loo_live_control_smoke_failure";
+  ok: false;
+  proofReady: false;
+  generatedAt: string;
+  blocker: string;
+  command: {
+    action: "send";
+    actionClass: "codex_live_control_send";
+  };
+  target: {
+    source: "ephemeral_thread_start" | "provided_thread" | "unknown";
+    refClass: "codex_thread" | "unknown";
+    ref: string | null;
+  };
+  dryRun: {
+    attempted: boolean;
+    approvalAuditId: string | null;
+    paramsHash: string | null;
+    messageHash: string | null;
+    live: false | null;
+  };
+  transport: {
+    class: "codex_app_server";
+    connection: "single_connection_sequence";
+  };
+  live: {
+    accepted: boolean;
+    approvalAuditId: string | null;
+    method: string | null;
+    completed: boolean;
+    status: string | null;
+    notificationMethods: string[];
+    approvalRequestCount: number;
+    serverRequestCount: number;
+  };
+  postActionRefresh: {
+    ran: false;
+  };
+  nextDiagnosticStep: string;
+  rawPromptIncluded: false;
+  rawTranscriptIncluded: false;
+  rawSecretIncluded: false;
+  screenshotIncluded: false;
+  sqliteIncluded: false;
+};
+
 export type LiveControlSmokeOptions = {
   client: LiveControlSmokeClient;
   audit: AuditStore;
@@ -133,11 +180,37 @@ export async function runLiveControlSmoke(options: LiveControlSmokeOptions): Pro
   mkdirSync(options.evidenceDir, { recursive: true });
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const message = options.message ?? DEFAULT_MESSAGE;
-  await options.client.connect();
+  let targetState: { threadId: string | null; source: "ephemeral_thread_start" | "provided_thread" | "unknown" } = {
+    threadId: options.threadId ?? null,
+    source: options.threadId ? "provided_thread" : "unknown"
+  };
+  let dryRunState: { approvalAuditId: string; paramsHash: string; messageHash?: string; live: false } | null = null;
+  let liveState: {
+    accepted: boolean;
+    approvalAuditId: string | null;
+    method: string | null;
+    completed: boolean;
+    status: string | null;
+    notificationMethods: string[];
+    approvalRequestCount: number;
+    serverRequestCount: number;
+  } = {
+    accepted: false,
+    approvalAuditId: null,
+    method: null,
+    completed: false,
+    status: null,
+    notificationMethods: [],
+    approvalRequestCount: 0,
+    serverRequestCount: 0
+  };
+  let failed = false;
   try {
+    await options.client.connect();
     const target = options.threadId
       ? { threadId: options.threadId, source: "provided_thread" as const }
       : { threadId: await startEphemeralThread(options.client, options.cwd), source: "ephemeral_thread_start" as const };
+    targetState = target;
     const control = createCodexControl({
       audit: options.audit,
       client: {
@@ -156,6 +229,12 @@ export async function runLiveControlSmoke(options: LiveControlSmokeOptions): Pro
       }
     });
     const dryRun = await control.sendMessage({ threadId: target.threadId, message, dryRun: true });
+    dryRunState = {
+      approvalAuditId: dryRun.approvalAuditId,
+      paramsHash: dryRun.paramsHash,
+      messageHash: dryRun.messageHash,
+      live: false
+    };
     if (!dryRun.messageHash) throw new Error("dry-run did not produce a message hash");
     const live = await control.sendMessage({
       threadId: target.threadId,
@@ -163,9 +242,23 @@ export async function runLiveControlSmoke(options: LiveControlSmokeOptions): Pro
       dryRun: false,
       approvalAuditId: dryRun.approvalAuditId
     });
+    liveState = {
+      ...liveState,
+      accepted: true,
+      approvalAuditId: live.approvalAuditId,
+      method: live.method ?? null
+    };
     const turnId = extractTurnId(live.response);
     if (!turnId) throw new Error("live Codex control response did not include a turn id");
     const completion = await options.client.waitForTurnCompletion({ threadId: target.threadId, turnId, timeoutMs });
+    liveState = {
+      ...liveState,
+      completed: completion.completed,
+      status: completion.status,
+      notificationMethods: summarizeMethods(completion.notificationMethods),
+      approvalRequestCount: completion.approvalRequestCount,
+      serverRequestCount: completion.serverRequestCount
+    };
     if (completion.approvalRequestCount > 0) {
       throw new Error("live Codex control smoke observed a Codex approval request; harmless smoke must not require approvals");
     }
@@ -218,8 +311,25 @@ export async function runLiveControlSmoke(options: LiveControlSmokeOptions): Pro
     writeJson(proofPath, proof);
     writeJson(reportPath, report);
     return report;
+  } catch (error) {
+    failed = true;
+    try {
+      writeFailureReport(options, {
+        error,
+        target: targetState,
+        dryRun: dryRunState,
+        live: liveState
+      });
+    } catch {
+      // Best-effort evidence: never let report-writing failures mask the original smoke failure.
+    }
+    throw error;
   } finally {
-    await options.client.close();
+    try {
+      await options.client.close();
+    } catch (closeError) {
+      if (!failed) throw closeError;
+    }
   }
 }
 
@@ -282,4 +392,97 @@ function summarizeMethods(methods: string[]): string[] {
 
 function writeJson(path: string, value: unknown): void {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function writeFailureReport(
+  options: LiveControlSmokeOptions,
+  state: {
+    error: unknown;
+    target: { threadId: string | null; source: "ephemeral_thread_start" | "provided_thread" | "unknown" };
+    dryRun: { approvalAuditId: string; paramsHash: string; messageHash?: string; live: false } | null;
+    live: {
+      accepted: boolean;
+      approvalAuditId: string | null;
+      method: string | null;
+      completed: boolean;
+      status: string | null;
+      notificationMethods: string[];
+      approvalRequestCount: number;
+      serverRequestCount: number;
+    };
+  }
+): void {
+  const blocker = classifyFailureBlocker(state.error);
+  const report: LiveControlSmokeFailureReport = {
+    kind: "loo_live_control_smoke_failure",
+    ok: false,
+    proofReady: false,
+    generatedAt: options.now ?? new Date().toISOString(),
+    blocker,
+    command: {
+      action: "send",
+      actionClass: "codex_live_control_send"
+    },
+    target: {
+      source: state.target.source,
+      refClass: state.target.threadId ? "codex_thread" : "unknown",
+      ref: state.target.threadId ? `codex_thread:${state.target.threadId}` : null
+    },
+    dryRun: {
+      attempted: state.dryRun !== null,
+      approvalAuditId: state.dryRun?.approvalAuditId ?? null,
+      paramsHash: state.dryRun?.paramsHash ?? null,
+      messageHash: state.dryRun?.messageHash ?? null,
+      live: state.dryRun ? false : null
+    },
+    transport: {
+      class: "codex_app_server",
+      connection: "single_connection_sequence"
+    },
+    live: state.live,
+    postActionRefresh: {
+      ran: false
+    },
+    nextDiagnosticStep: nextDiagnosticStep(blocker),
+    rawPromptIncluded: false,
+    rawTranscriptIncluded: false,
+    rawSecretIncluded: false,
+    screenshotIncluded: false,
+    sqliteIncluded: false
+  };
+  writeJson(join(options.evidenceDir, "live-control-smoke-failure-report.json"), report);
+}
+
+function classifyFailureBlocker(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/connect|handshake|spawn|ENOENT|codex.*not found|not connected/i.test(message)) {
+    return "codex_app_server_setup_failed";
+  }
+  if (/thread(?:\/resume| not found)|control sequence step failed:\s*thread\/resume/i.test(message)) {
+    return "same_connection_resume_load_diagnostics_required";
+  }
+  if (/approval request/i.test(message)) return "codex_approval_request_observed";
+  if (/server request/i.test(message)) return "codex_server_request_observed";
+  if (/turn id/i.test(message)) return "live_control_turn_id_missing";
+  if (/did not complete cleanly|timeout/i.test(message)) return "live_control_smoke_not_completed_cleanly";
+  return "live_control_smoke_failed";
+}
+
+function nextDiagnosticStep(blocker: string): string {
+  switch (blocker) {
+    case "codex_app_server_setup_failed":
+      return "Check Codex app-server command availability, stdio handshake, and local transport setup before retrying live control.";
+    case "same_connection_resume_load_diagnostics_required":
+      return "Run same-connection resume/load diagnostics for the selected thread before retrying live control.";
+    case "codex_approval_request_observed":
+      return "Inspect why the harmless smoke triggered a Codex approval request; do not treat this as approved live-control proof.";
+    case "codex_server_request_observed":
+      return "Inspect unexpected server requests from the app-server smoke; do not retry live control until the request class is understood.";
+    case "live_control_turn_id_missing":
+      return "Inspect the app-server turn/start response shape and protocol drift before retrying.";
+    case "live_control_smoke_not_completed_cleanly":
+      return "Inspect turn completion notifications, status, and timeout behavior before retrying live control.";
+    default:
+      return "Inspect the public-safe failure report and route a focused issue before retrying live control.";
+  }
 }
