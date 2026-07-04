@@ -13,6 +13,21 @@ import {
 } from "./session-sanitizer.js";
 
 export { createSessionSanitizerRepairPlan, createSessionSanitizerReport } from "./session-sanitizer.js";
+export {
+  AGENT_PROVENANCE_PARSE_SCHEMA,
+  AGENT_PROVENANCE_SCHEMA,
+  findAgentProvenanceRecords,
+  parseAgentProvenanceText
+} from "./agent-provenance.js";
+export type {
+  AgentProvenanceFinding,
+  AgentProvenanceLookup,
+  AgentProvenanceMarkerKind,
+  AgentProvenanceParseReport,
+  AgentProvenanceRecord,
+  AgentProvenanceSourceKind,
+  ParseAgentProvenanceOptions
+} from "./agent-provenance.js";
 export type {
   SessionSanitizerConfidence,
   SessionSanitizerFinding,
