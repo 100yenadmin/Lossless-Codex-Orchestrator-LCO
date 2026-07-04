@@ -772,6 +772,34 @@ test("OpenClaw facade tool smoke supplies safe args for describe-ref and resume 
   }
 });
 
+test("OpenClaw facade tool smoke blocks describe-ref and resume when target thread is missing", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-facade-tool-smoke-missing-thread-"));
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_describe_ref", "loo_codex_resume_thread"]);
+
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      profile: "lco-facade",
+      sessionKey: "agent:main:lco-facade",
+      requiredTools: ["loo_describe_ref", "loo_codex_resume_thread"],
+      query: "Proposed plan"
+    });
+
+    assert.equal(report.ok, false, JSON.stringify(report, null, 2));
+    assert.equal(report.toolSmokeReady, false, JSON.stringify(report, null, 2));
+    assert.equal(report.blockers.includes("openclaw_tool_smoke_missing_thread_ref"), true, JSON.stringify(report, null, 2));
+    assert.equal(report.invocations.length, 0, JSON.stringify(report, null, 2));
+
+    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { method: string; params: { name?: string } });
+    assert.equal(calls.some((call) => call.method === "tools.invoke"), false);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
 test("OpenClaw tool smoke blocks targeted prepared-state status without target coverage", () => {
   const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-missing-target-coverage-"));
   const { bin, callsPath } = createFakeOpenClaw(dir, DEFAULT_REQUIRED_TOOL_CALLS, "flat", {
