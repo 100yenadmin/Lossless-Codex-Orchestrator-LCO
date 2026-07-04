@@ -1626,12 +1626,12 @@ export type VisibleCodexSessionMapReport = {
   proofBoundary: string;
 };
 
-export type CodexDesktopCoherenceState = "cli_visible" | "desktop_visible" | "desktop_refresh_required" | "desktop_restart_required" | "unknown";
+export type CodexDesktopCoherenceState = "cli_visible" | "desktop_visible" | "desktop_refresh_required" | "desktop_restart_required" | "gui_persisted_read_state_stale" | "unknown";
 
 export type CodexDesktopCoherenceVisibility = "proven" | "not_seen" | "refresh_required" | "restart_required" | "ambiguous" | "unknown";
 
 export type CodexDesktopCoherenceActionEvidence = {
-  actionKind: "none" | "cli" | "direct_protocol" | "codex_app_server" | "lco_control" | "unknown";
+  actionKind: "none" | "cli" | "direct_protocol" | "codex_app_server" | "desktop_gui_observation" | "lco_control" | "unknown";
   action: string | null;
   dryRun: boolean | null;
   live: boolean | null;
@@ -7255,6 +7255,24 @@ function collaborationNextStepForLane(
   }
 
   const coherenceState = input.coherence ? publicSafeCoherenceState(input.coherence.state) : null;
+  if ((lane.desktop.state === "cli_visible" || lane.desktop.state === "unknown") && input.coherence && coherenceState === "gui_persisted_read_state_stale") {
+    return collaborationNextStep({
+      ...base,
+      category: "desktop_coherence",
+      status: "ready",
+      reasonCodes: unique([...lane.reasonCodes, "read_state_reconciliation_required", "desktop_coherence_required"]),
+      blockers: [],
+      confidence: Math.max(0.6, lane.desktop.confidence),
+      toolCall: collaborationToolCall("loo_codex_desktop_coherence", {
+        thread_id: threadId,
+        source_ref: sourceRef,
+        action_evidence: collaborationPublicSafeActionEvidenceArg(input.coherence.actionEvidence),
+        include_app_server: true,
+        include_visible_snapshot: false,
+        limit: 20
+      })
+    });
+  }
   if ((lane.desktop.state === "cli_visible" || lane.desktop.state === "unknown") && input.coherence && coherenceState !== "desktop_visible") {
     return collaborationNextStep({
       ...base,
@@ -8068,6 +8086,21 @@ function collaborationPublicSafeCoherenceArg(
   };
 }
 
+function collaborationPublicSafeActionEvidenceArg(input: unknown): Record<string, unknown> | undefined {
+  if (!isObjectRecord(input)) return undefined;
+  const evidence = publicCodexDesktopActionEvidence(input);
+  if (evidence.actionKind === "none" || evidence.actionKind === "unknown") return undefined;
+  return {
+    action_kind: evidence.actionKind,
+    action: evidence.action ?? undefined,
+    dry_run: evidence.dryRun ?? undefined,
+    live: evidence.live ?? undefined,
+    approval_audit_id_present: evidence.approvalAuditIdPresent,
+    evidence_id: evidence.evidenceId ?? undefined,
+    observed_at: evidence.observedAt ?? undefined
+  };
+}
+
 function collaborationPublicSafeWatchSpecArg(spec: WatchSpec): Record<string, unknown> {
   return {
     schema: "lco.watchSpec.v1",
@@ -8109,7 +8142,10 @@ function collaborationDesktopState(input: {
   const fallbackDetails = isObjectRecord(fallback?.fallback) ? fallback.fallback : null;
   const coherenceState = collaborationString(coherence?.state, 80);
   const coherenceConfidence = collaborationNumber(coherence?.confidence);
-  const fallbackRequired = typeof fallbackDetails?.required === "boolean"
+  const readStateReconciliationRequired = coherenceState === "gui_persisted_read_state_stale";
+  const fallbackRequired = readStateReconciliationRequired
+    ? false
+    : typeof fallbackDetails?.required === "boolean"
     ? fallbackDetails.required
     : collaborationCoherenceRequiresFallback(Boolean(coherence), coherenceState);
   const fallbackReason = collaborationString(fallbackDetails?.reason, 120);
@@ -8139,6 +8175,7 @@ function collaborationDesktopState(input: {
   const reasonCodes = unique([
     ...collaborationStringArray(coherence?.reasonCodes, 120),
     ...(fallbackReason ? [fallbackReason] : []),
+    ...(readStateReconciliationRequired ? ["read_state_reconciliation_required"] : []),
     ...(fallbackRequired ? ["desktop_fallback_required"] : []),
     ...(fallbackRequired && readyBackend ? ["desktop_fallback_ready"] : []),
     ...(fallbackBlocked ? ["desktop_fallback_blocked"] : [])
@@ -8151,7 +8188,7 @@ function collaborationDesktopState(input: {
         ? "fallback_blocked"
         : coherenceState === "desktop_visible" || fallbackReason === "desktop_visibility_already_proven"
           ? "desktop_visible"
-          : coherenceState && ["cli_visible", "desktop_refresh_required", "desktop_restart_required"].includes(coherenceState)
+          : coherenceState && ["cli_visible", "desktop_refresh_required", "desktop_restart_required", "gui_persisted_read_state_stale"].includes(coherenceState)
             ? "cli_visible"
             : !coherence && !fallback
               ? "not_configured"
@@ -8226,6 +8263,7 @@ function collaborationJoinedReportCount(reportsByThread: Map<string, Record<stri
 
 function collaborationCoherenceRequiresFallback(hasCoherence: boolean, coherenceState: string | null): boolean {
   if (!hasCoherence) return false;
+  if (coherenceState === "gui_persisted_read_state_stale") return false;
   return coherenceState !== "desktop_visible";
 }
 
@@ -8455,6 +8493,10 @@ export function createCodexDesktopCoherenceReport(options: CodexDesktopCoherence
   const desktopVisibleCurrent = current?.desktopVisible === true;
   const desktopVisibleAfter = after?.desktopVisible === true;
   const desktopVisible = desktopVisibleBefore || desktopVisibleCurrent || desktopVisibleAfter;
+  const desktopGuiObservationSupplied = actionEvidence.actionKind === "desktop_gui_observation" && actionEvidence.live === true && actionEvidence.dryRun === false;
+  const postObservationReadStateEvidence = desktopGuiObservationSupplied && codexDesktopHasPostObservationReadStateEvidence([currentMap, afterMap], sourceRef, actionEvidence.observedAt);
+  const readStatePostObservationEvidencePending = desktopGuiObservationSupplied && !desktopVisible && !ambiguous && !postObservationReadStateEvidence;
+  const guiPersistedReadStateStale = desktopGuiObservationSupplied && postObservationReadStateEvidence && cliVisible && !desktopVisible && !ambiguous;
   const priorDesktopMiss = Boolean(
     (before && before.matchedItemCount > 0 && !before.ambiguous && !before.desktopVisible)
     || (current && current.matchedItemCount > 0 && !current.ambiguous && !current.desktopVisible)
@@ -8469,7 +8511,8 @@ export function createCodexDesktopCoherenceReport(options: CodexDesktopCoherence
     ].some(Boolean) ? ["malformed_visible_map"] : []),
     ...(ambiguous ? ["ambiguous_desktop_join"] : []),
     ...(!latest?.mapPresent ? ["desktop_coherence_map_missing"] : []),
-    ...(latest && latest.matchedItemCount === 0 ? ["target_not_found_in_visible_map"] : [])
+    ...(latest && latest.matchedItemCount === 0 ? ["target_not_found_in_visible_map"] : []),
+    ...(guiPersistedReadStateStale ? ["read_state_stale_after_gui_observation"] : [])
   ];
   const state = codexDesktopCoherenceState({
     ambiguous,
@@ -8477,6 +8520,8 @@ export function createCodexDesktopCoherenceReport(options: CodexDesktopCoherence
     desktopVisibleBefore,
     desktopVisibleCurrent,
     desktopVisibleAfter,
+    guiPersistedReadStateStale,
+    readStatePostObservationEvidencePending,
     priorDesktopMiss,
     refreshKind
   });
@@ -8499,6 +8544,10 @@ export function createCodexDesktopCoherenceReport(options: CodexDesktopCoherence
     ...(after?.reasonCodes ?? []),
     ...(ambiguous ? ["ambiguous_join"] : []),
     ...(cliVisible && !desktopVisible ? ["cli_direct_visible_without_desktop_proof"] : []),
+    ...(desktopGuiObservationSupplied ? ["desktop_gui_observation_supplied"] : []),
+    ...(postObservationReadStateEvidence ? ["read_state_post_observation_evidence_current"] : []),
+    ...(readStatePostObservationEvidencePending ? ["read_state_post_observation_evidence_pending"] : []),
+    ...(guiPersistedReadStateStale ? ["read_state_stale_after_gui_observation"] : []),
     ...(desktopVisible ? ["desktop_visible_candidate"] : [])
   ])].map((reason) => publicSafeIdentifier(reason)).filter((reason): reason is string => Boolean(reason));
 
@@ -8531,7 +8580,7 @@ export function createCodexDesktopCoherenceReport(options: CodexDesktopCoherence
       rawTranscriptRead: false
     },
     proofBoundary: "This report classifies public-safe evidence about whether a Codex CLI/direct-protocol/app-server thread is also visible in Codex Desktop. It does not read raw transcript turns, send or steer a Codex thread, refresh/restart/select/click/type in Codex Desktop, mutate a GUI, or prove Desktop-visible collaboration unless supplied evidence proves it.",
-    nextAction: codexDesktopCoherenceNextAction(state)
+    nextAction: codexDesktopCoherenceNextAction(state, { readStatePostObservationEvidencePending })
   };
 }
 
@@ -9273,6 +9322,46 @@ function codexDesktopCoherenceObservation(
   };
 }
 
+function codexDesktopHasPostObservationReadStateEvidence(
+  maps: unknown[],
+  sourceRef: string | null,
+  observedAt: string | null
+): boolean {
+  const observedAtMs = timestampMillis(observedAt);
+  if (observedAtMs === null) return false;
+  return maps.some((map) => {
+    const freshnessAtMs = codexDesktopReadStateFreshnessMillis(map, sourceRef);
+    return freshnessAtMs !== null && freshnessAtMs >= observedAtMs;
+  });
+}
+
+function codexDesktopReadStateFreshnessMillis(map: unknown, sourceRef: string | null): number | null {
+  if (!isVisibleCodexSessionMapReport(map)) return null;
+  const matched = sourceRef
+    ? map.items.filter((item) => visibleMapItemMatchesTarget(item, sourceRef))
+    : [];
+  if (matched.length === 0) return null;
+  const timestamps = [
+    map.generatedAt,
+    ...matched.flatMap(codexDesktopMapItemReadTimestamps)
+  ].flatMap((value) => {
+    const parsed = timestampMillis(value);
+    return parsed === null ? [] : [parsed];
+  });
+  return timestamps.length === 0 ? null : Math.max(...timestamps);
+}
+
+function codexDesktopMapItemReadTimestamps(item: VisibleCodexSessionMapItem): string[] {
+  const itemRecord = item as unknown as Record<string, unknown>;
+  const freshness = isObjectRecord(itemRecord.freshness)
+    ? itemRecord.freshness
+    : {};
+  return [
+    typeof freshness.indexedUpdatedAt === "string" ? freshness.indexedUpdatedAt : null,
+    typeof freshness.appServerUpdatedAt === "string" ? freshness.appServerUpdatedAt : null
+  ].filter((value): value is string => Boolean(value));
+}
+
 function missingCodexDesktopCoherenceObservation(): CodexDesktopCoherenceObservation {
   return {
     mapPresent: false,
@@ -9354,6 +9443,7 @@ function publicSafeCoherenceState(value: unknown): CodexDesktopCoherenceState {
     || value === "desktop_visible"
     || value === "desktop_refresh_required"
     || value === "desktop_restart_required"
+    || value === "gui_persisted_read_state_stale"
     || value === "unknown"
     ? value
     : "unknown";
@@ -9432,6 +9522,7 @@ function optionalActionKind(value: unknown): CodexDesktopCoherenceActionEvidence
   return value === "cli"
     || value === "direct_protocol"
     || value === "codex_app_server"
+    || value === "desktop_gui_observation"
     || value === "lco_control"
     || value === "none"
     ? value
@@ -9444,10 +9535,14 @@ function codexDesktopCoherenceState(input: {
   desktopVisibleBefore: boolean;
   desktopVisibleCurrent: boolean;
   desktopVisibleAfter: boolean;
+  guiPersistedReadStateStale: boolean;
+  readStatePostObservationEvidencePending: boolean;
   priorDesktopMiss: boolean;
   refreshKind: CodexDesktopCoherenceReport["refreshKind"];
 }): CodexDesktopCoherenceState {
   if (input.ambiguous) return "unknown";
+  if (input.guiPersistedReadStateStale) return "gui_persisted_read_state_stale";
+  if (input.readStatePostObservationEvidencePending) return "unknown";
   if (input.desktopVisibleBefore || input.desktopVisibleCurrent) return "desktop_visible";
   if (input.desktopVisibleAfter && input.refreshKind === "desktop_refresh" && input.priorDesktopMiss) return "desktop_refresh_required";
   if (input.desktopVisibleAfter && input.refreshKind === "desktop_restart" && input.priorDesktopMiss) return "desktop_restart_required";
@@ -9467,6 +9562,7 @@ function codexDesktopVisibility(input: {
   const cli = input.cliVisible ? "proven" : "unknown";
   if (input.state === "desktop_refresh_required") return { cli, desktop: "refresh_required" };
   if (input.state === "desktop_restart_required") return { cli, desktop: "restart_required" };
+  if (input.state === "gui_persisted_read_state_stale") return { cli, desktop: "not_seen" };
   if (input.desktopVisible) return { cli, desktop: "proven" };
   if (input.state === "cli_visible") return { cli, desktop: "not_seen" };
   return { cli, desktop: "unknown" };
@@ -9481,6 +9577,7 @@ function codexDesktopCoherenceConfidence(input: {
   const max = input.observations.length ? Math.max(...input.observations.map((item) => item.confidence)) : 0;
   if (input.state === "desktop_visible") return Number(Math.max(0.75, max).toFixed(2));
   if (input.state === "desktop_refresh_required" || input.state === "desktop_restart_required") return Number(Math.max(0.68, max).toFixed(2));
+  if (input.state === "gui_persisted_read_state_stale") return Number(Math.max(0.66, max).toFixed(2));
   if (input.state === "cli_visible") return Number(Math.max(0.62, max).toFixed(2));
   return Number(Math.min(0.4, max || 0.2).toFixed(2));
 }
@@ -9489,6 +9586,7 @@ function codexDesktopCoherenceReasonCodes(state: CodexDesktopCoherenceState): st
   if (state === "desktop_visible") return ["desktop_visible_without_refresh"];
   if (state === "desktop_refresh_required") return ["desktop_visible_after_refresh_only"];
   if (state === "desktop_restart_required") return ["desktop_visible_after_restart_only"];
+  if (state === "gui_persisted_read_state_stale") return ["gui_persisted_read_state_stale"];
   if (state === "cli_visible") return ["cli_or_direct_protocol_visible"];
   return ["desktop_coherence_unknown"];
 }
@@ -9513,11 +9611,13 @@ function strongestCoverage(values: VisibleCodexCoverageState[]): VisibleCodexCov
   return "not_configured";
 }
 
-function codexDesktopCoherenceNextAction(state: CodexDesktopCoherenceState): string {
+function codexDesktopCoherenceNextAction(state: CodexDesktopCoherenceState, options: { readStatePostObservationEvidencePending?: boolean } = {}): string {
   if (state === "desktop_visible") return "Desktop visibility is proven by supplied public-safe map evidence; do not treat this as GUI mutation approval.";
   if (state === "desktop_refresh_required") return "Record the safe Desktop refresh flow before claiming live visible collaboration.";
   if (state === "desktop_restart_required") return "Route the live-refresh gap to the desktop fallback lane before claiming same-session Desktop collaboration.";
+  if (state === "gui_persisted_read_state_stale") return "A supplied public-safe Desktop observation indicates the GUI action completed, but LCO read-state surfaces have not converged; refresh indexed/session/app-server evidence before claiming coherent Desktop read-state.";
   if (state === "cli_visible") return "CLI/direct/app-server visibility is proven, but Desktop visibility is not; gather visible Codex evidence or route #308 fallback proof.";
+  if (options.readStatePostObservationEvidencePending) return "Refresh post-observation Codex read-state evidence and reconcile the visible map before classifying the Desktop GUI observation as stale.";
   return "Gather a public-safe visible Codex map and app-server signal for the target thread before making a Desktop-visible collaboration claim.";
 }
 
