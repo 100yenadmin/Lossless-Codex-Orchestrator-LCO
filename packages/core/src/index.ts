@@ -672,6 +672,40 @@ export type IndexClaudeSessionInventoryResult = {
   rejectedSessions: ClaudeSessionInventoryRejected[];
 };
 
+export type NativeCodexSubagentResultFixture = Record<string, unknown> & {
+  resultId?: string;
+  id?: string;
+  title?: string | null;
+  summary?: string | null;
+  finalReport?: string | null;
+  provenance?: Record<string, unknown> | null;
+  touchedFiles?: string[];
+  blockers?: string[];
+  observedAt?: string | null;
+};
+
+export type NativeCodexSubagentResultRejected = {
+  resultId: string | null;
+  reason: "missing_result_id";
+};
+
+export type IndexNativeCodexSubagentResultsResult = {
+  publicSafe: false;
+  readOnly: false;
+  mutationClasses: ["derived_cache"];
+  indexedResults: number;
+  rejectedResults: NativeCodexSubagentResultRejected[];
+  actionsPerformed: {
+    derivedCacheWrite: true;
+    sourceStoreMutation: false;
+    externalWrite: false;
+    liveControl: false;
+    guiMutation: false;
+    rawTranscriptRead: false;
+  };
+  proofBoundary: string;
+};
+
 export type ClaudeSessionInventoryDescription = {
   sourceKind: "claude_session";
   sourceRef: string;
@@ -2802,6 +2836,64 @@ export function indexClaudeSessionInventory(
   return { indexedSessions: accepted.length, rejectedSessions };
 }
 
+export function indexNativeCodexSubagentResults(
+  db: LooDatabase,
+  options: { results: NativeCodexSubagentResultFixture[]; now?: string }
+): IndexNativeCodexSubagentResultsResult {
+  const now = options.now ?? new Date().toISOString();
+  const rejectedResults: NativeCodexSubagentResultRejected[] = [];
+  let indexedResults = 0;
+
+  for (const fixture of options.results) {
+    const rawResultId = stringOrNull(fixture.resultId ?? fixture.id);
+    if (!rawResultId) {
+      rejectedResults.push({ resultId: null, reason: "missing_result_id" });
+      continue;
+    }
+    const resultId = safeNativeCodexSubagentResultId(rawResultId);
+    const sourceRef = nativeCodexSubagentResultRef(resultId);
+    const threadId = `subagent_${resultId}`;
+    const rawText = nativeCodexSubagentResultSyntheticJsonl(fixture, {
+      resultId,
+      threadId,
+      sourceRef,
+      now
+    });
+    const session = parseCodexJsonl(`native_codex_subagent_result:${resultId}`, rawText, 100);
+    session.threadId = threadId;
+    session.metadata.sourceRefs = unique([sourceRef, ...session.metadata.sourceRefs]);
+    upsertSession(
+      db,
+      `native_codex_subagent_result:${resultId}`,
+      rawText,
+      session,
+      { size: Buffer.byteLength(rawText), mtimeMs: Date.parse(now) || Date.now() },
+      {
+        sourceRef,
+        rangeReasonCodes: ["native_codex_subagent_result", "derived_advisory_source"]
+      }
+    );
+    indexedResults += 1;
+  }
+
+  return {
+    publicSafe: false,
+    readOnly: false,
+    mutationClasses: ["derived_cache"],
+    indexedResults,
+    rejectedResults,
+    actionsPerformed: {
+      derivedCacheWrite: true,
+      sourceStoreMutation: false,
+      externalWrite: false,
+      liveControl: false,
+      guiMutation: false,
+      rawTranscriptRead: false
+    },
+    proofBoundary: "Native Codex subagent result import writes only sanitized, advisory LCO derived-cache rows from explicit result metadata. It does not discover raw transcripts, read raw transcript paths, mutate Codex stores, run live control, mutate GUI state, write external systems, publish npm, or create GitHub releases."
+  };
+}
+
 function positiveLimit(value: number | undefined, fallback: number, name: string): number {
   const limit = value ?? fallback;
   if (!Number.isInteger(limit) || limit < 1) throw new Error(`${name} requires a positive integer`);
@@ -2883,7 +2975,7 @@ export function getPreparedSourceRanges(db: LooDatabase, options: PreparedSource
     "event_ref LIKE 'codex_event:%'",
     "length(event_ref) = 44",
     "substr(event_ref, 13) NOT GLOB '*[^0-9a-f]*'",
-    "source_ref LIKE 'codex_thread:%'",
+    "(source_ref LIKE 'codex_thread:%' OR source_ref LIKE 'codex_subagent_result:%')",
     "length(source_ref) BETWEEN 14 AND 173",
     "source_ref NOT LIKE '%/%'",
     "source_ref NOT LIKE '%\\%'",
@@ -3041,7 +3133,8 @@ function isPublicPreparedSourceRangeRow(row: {
     && row.omissionStatus === "metadata_only"
     && /^codex_range:[0-9a-f]{32}$/.test(row.rangeRef)
     && /^codex_event:[0-9a-f]{32}$/.test(row.eventRef)
-    && /^codex_thread:[A-Za-z0-9._:-]{1,160}$/.test(row.sourceRef)
+    && /^(?:codex_thread|codex_subagent_result):[A-Za-z0-9._:%-]{1,160}$/.test(row.sourceRef)
+    && !looksSensitiveRefLike(row.sourceRef)
     && /^codex_source:[0-9a-f]{16}$/.test(row.sourcePathRef)
     && /^[0-9a-f]{32}$/.test(row.sourceHash)
     && /^[0-9a-f]{32}$/.test(row.contentHash)
@@ -11628,10 +11721,19 @@ function fallbackThreadId(sourcePath: string): string {
   return rolloutSuffix ?? stableId(sourcePath);
 }
 
-function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, session: ImportedSession, stat: { size: number; mtimeMs: number }): void {
+function upsertSession(
+  db: LooDatabase,
+  sourcePath: string,
+  rawText: string,
+  session: ImportedSession,
+  stat: { size: number; mtimeMs: number },
+  options: { sourceRef?: string; rangeReasonCodes?: string[] } = {}
+): void {
   const now = new Date().toISOString();
   const sourceHash = stableId(rawText);
   const sourcePathRef = publicSourcePathRef(sourcePath);
+  const preparedSourceRef = options.sourceRef ?? codexThreadRef(session.threadId);
+  const rangeReasonCodes = unique(options.rangeReasonCodes ?? []);
   db.exec("BEGIN");
   try {
     db.prepare(`
@@ -11757,12 +11859,11 @@ function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, ses
     `);
     for (const event of session.sourceEvents) {
       const eventId = event.eventRef.slice("codex_event:".length);
-      const sourceRef = codexThreadRef(session.threadId);
       insertPreparedEvent.run(
         eventId,
         event.eventRef,
         session.threadId,
-        sourceRef,
+        preparedSourceRef,
         event.sourcePathRef,
         event.sourceHash,
         event.contentHash,
@@ -11787,7 +11888,7 @@ function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, ses
           eventId,
           event.eventRef,
           session.threadId,
-          sourceRef,
+          preparedSourceRef,
           event.sourcePathRef,
           event.sourceHash,
           range.contentHash,
@@ -11802,7 +11903,7 @@ function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, ses
           "public_safe_metadata",
           "metadata_only",
           preparedRangeConfidence(range.rangeKind),
-          JSON.stringify(range.reasonCodes),
+          JSON.stringify(unique([...range.reasonCodes, ...rangeReasonCodes])),
           JSON.stringify({ eventKind: event.eventKind }),
           now
         );
@@ -12146,6 +12247,86 @@ function safeIsoTimestamp(value: string): string | null {
 
 function isSafeIsoTimestamp(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}T[0-9:.+-]+Z?$/.test(value) && Number.isFinite(Date.parse(value));
+}
+
+function nativeCodexSubagentResultRef(resultId: string): string {
+  return `codex_subagent_result:${encodeURIComponent(resultId)}`;
+}
+
+function safeNativeCodexSubagentResultId(value: string): string {
+  const trimmed = value.trim();
+  const redacted = publicSafeText(trimmed, 120).trim();
+  if (trimmed && redacted === trimmed && !looksSensitiveRefLike(trimmed) && /^[A-Za-z0-9._:-]{1,96}$/.test(trimmed)) return trimmed;
+  return `native_${stableId(trimmed).slice(0, 16)}`;
+}
+
+function nativeCodexSubagentResultSyntheticJsonl(
+  fixture: NativeCodexSubagentResultFixture,
+  options: { resultId: string; threadId: string; sourceRef: string; now: string }
+): string {
+  const observedAt = publicIsoTimestamp(fixture.observedAt ?? null) ?? options.now;
+  const title = safeNullableFixtureString(fixture.title) ?? "Native Codex subagent result";
+  const summary = safeNullableFixtureString(fixture.summary);
+  const finalReport = safeNullableFixtureString(fixture.finalReport);
+  const touchedFiles = publicSafeRelativePaths(fixture.touchedFiles);
+  const blockers = publicSafeStringList(fixture.blockers, 120);
+  const provenance = publicNativeCodexSubagentProvenance(fixture.provenance);
+  const metadataLines = [
+    `Native Codex subagent result: ${options.sourceRef}`,
+    `Result id: ${options.resultId}`,
+    provenance.length ? `Provenance: ${provenance.join(", ")}` : null,
+    touchedFiles.length ? `Touched files: ${touchedFiles.join(", ")}` : null,
+    blockers.length ? `Blockers: ${blockers.join(", ")}` : null
+  ].filter(Boolean).join("\n");
+  const finalText = finalReport ?? summary ?? "Final: Native Codex subagent result recorded as advisory prepared source metadata.";
+  const lines = [
+    {
+      timestamp: observedAt,
+      session_meta: {
+        payload: {
+          id: options.threadId,
+          model: "native-codex-subagent-result",
+          cwd: "native_codex_subagent_result"
+        }
+      }
+    },
+    { timestamp: observedAt, event_msg: { type: "thread_name", name: title } },
+    { timestamp: observedAt, event_msg: { type: "native_subagent_result_metadata", message: metadataLines } },
+    { timestamp: observedAt, event_msg: { type: "agent_message", role: "assistant", message: finalText } }
+  ];
+  return `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`;
+}
+
+function publicNativeCodexSubagentProvenance(value: unknown): string[] {
+  if (!isObjectRecord(value)) return [];
+  const out: string[] = [];
+  const issue = boundedNonNegativeInteger(value.issue, 1_000_000);
+  const pr = boundedNonNegativeInteger(value.pr, 1_000_000);
+  const branch = safeNullableFixtureString(value.branch);
+  if (issue > 0) out.push(`issue:${issue}`);
+  if (pr > 0) out.push(`pr:${pr}`);
+  if (branch && /^[A-Za-z0-9._/-]{1,160}$/.test(branch) && !looksSensitiveRefLike(branch)) out.push(`branch:${publicSafeText(branch, 160)}`);
+  return out.slice(0, 12);
+}
+
+function publicSafeRelativePaths(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  return unique(values.flatMap((value) => {
+    const raw = stringOrNull(value);
+    if (!raw || looksSensitiveRefLike(raw)) return [];
+    const safe = publicSafeText(raw, 180);
+    return /^(?:[A-Za-z0-9._-]+\/)+[A-Za-z0-9._-]+$/.test(safe) ? [safe] : [];
+  })).slice(0, 40);
+}
+
+function publicSafeStringList(values: unknown, maxChars: number): string[] {
+  if (!Array.isArray(values)) return [];
+  return unique(values.flatMap((value) => {
+    const raw = stringOrNull(value);
+    if (!raw) return [];
+    const safe = publicSafeText(raw, maxChars).trim();
+    return safe && !looksSensitiveRefLike(safe) ? [safe] : [];
+  })).slice(0, 20);
 }
 
 function normalizeText(text: string): string {

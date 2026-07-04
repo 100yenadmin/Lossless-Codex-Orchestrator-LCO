@@ -8,7 +8,8 @@ import test from "node:test";
 import {
   createDatabase,
   getPreparedSourceRanges,
-  indexCodexSessions
+  indexCodexSessions,
+  indexNativeCodexSubagentResults
 } from "../packages/core/src/index.js";
 
 function writePreparedJsonl(path: string, threadId: string, title: string, extraLines: unknown[] = []): void {
@@ -322,6 +323,63 @@ test("prepared source ranges are public-safe opaque refs with hashes and no raw 
     assert.equal(limited.summary.lowConfidenceScope, "matching_public_safe_total");
     assert.equal(limited.omitted.reason, "limit");
     assert.deepEqual(limited.omitted.reasons, ["limit"]);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("native Codex subagent result adapter imports public-safe advisory prepared ranges", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-native-subagent-result-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const result = indexNativeCodexSubagentResults(db, {
+      results: [
+        {
+          resultId: "/Users/lume/.codex/private/subagent-result.jsonl PRIVATE_CANARY_TOKEN_1234567890",
+          title: "Issue 447 native subagent proof",
+          summary: "Worker found prepared source adapter shape and opened draft PR.",
+          finalReport: "Final: implemented native subagent result adapter. Next action: review PR #447.",
+          provenance: {
+            issue: 447,
+            pr: 0,
+            branch: "issue-447-native-subagent-results"
+          },
+          touchedFiles: [
+            "packages/core/src/index.ts",
+            "/Users/lume/private/customer-secret.txt"
+          ],
+          blockers: ["none"],
+          observedAt: "2026-07-04T10:30:00Z",
+          rawTranscriptPath: "/Users/lume/.codex/sessions/private.jsonl",
+          transcriptText: "PRIVATE_CANARY_TOKEN_1234567890 raw hidden prompt text"
+        }
+      ],
+      now: "2026-07-04T10:31:00Z"
+    });
+
+    assert.equal(result.indexedResults, 1);
+    assert.deepEqual(result.rejectedResults, []);
+    assert.equal(result.actionsPerformed.derivedCacheWrite, true);
+    assert.equal(result.actionsPerformed.sourceStoreMutation, false);
+    assert.equal(result.actionsPerformed.rawTranscriptRead, false);
+
+    const report = getPreparedSourceRanges(db, { limit: 50 });
+    const serialized = JSON.stringify(report);
+    assert.equal(report.sourceCoverage.preparedSourceRanges, "ok");
+    assert.equal(report.ranges.length > 0, true);
+    assert.equal(report.ranges.some((range) => range.sourceRef.startsWith("codex_subagent_result:")), true);
+    assert.equal(report.ranges.some((range) => range.rangeKind === "final_message"), true);
+    assert.equal(report.ranges.some((range) => range.reasonCodes.includes("native_codex_subagent_result")), true);
+    assert.equal(serialized.includes("/Users/lume"), false);
+    assert.equal(serialized.includes("PRIVATE_CANARY_TOKEN"), false);
+    assert.equal(serialized.includes("customer-secret"), false);
+    assert.equal(serialized.includes("raw hidden prompt"), false);
+    assert.equal(serialized.includes("subagent-result.jsonl"), false);
+    assert.equal(report.ranges.every((range) => /^codex_source:[0-9a-f]{16}$/.test(range.sourcePathRef)), true);
+    assert.equal(report.actionsPerformed.liveControl, false);
+    assert.equal(report.actionsPerformed.guiMutation, false);
+    assert.equal(report.actionsPerformed.rawTranscriptRead, false);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
