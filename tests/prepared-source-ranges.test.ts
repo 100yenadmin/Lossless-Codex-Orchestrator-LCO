@@ -8,7 +8,8 @@ import test from "node:test";
 import {
   createDatabase,
   getPreparedSourceRanges,
-  indexCodexSessions
+  indexCodexSessions,
+  indexNativeCodexSubagentResults
 } from "../packages/core/src/index.js";
 
 function writePreparedJsonl(path: string, threadId: string, title: string, extraLines: unknown[] = []): void {
@@ -322,6 +323,86 @@ test("prepared source ranges are public-safe opaque refs with hashes and no raw 
     assert.equal(limited.summary.lowConfidenceScope, "matching_public_safe_total");
     assert.equal(limited.omitted.reason, "limit");
     assert.deepEqual(limited.omitted.reasons, ["limit"]);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("native Codex subagent result adapter imports public-safe advisory prepared ranges", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-native-subagent-result-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const result = indexNativeCodexSubagentResults(db, {
+      results: [
+        {
+          resultId: "/Users/lume/.codex/private/subagent-result.jsonl PRIVATE_CANARY_TOKEN_1234567890",
+          title: "Issue 447 native subagent proof at /Volumes/LEXAR/canary_TITLE",
+          summary: "Worker found prepared source adapter shape from ~/.codex/canary_SUMMARY and opened draft PR.",
+          finalReport: "Final: implemented native subagent result adapter from /tmp/canary_FINAL. Next action: review PR #447.",
+          provenance: {
+            issue: 447,
+            pr: 0,
+            branch: "feature/issue-447-native-subagent-results"
+          },
+          touchedFiles: [
+            "packages/core/src/index.ts",
+            "/Users/lume/private/customer-secret.txt"
+          ],
+          blockers: ["none"],
+          observedAt: "2026-07-04T10:30:00Z",
+          rawTranscriptPath: "/Users/lume/.codex/sessions/private.jsonl",
+          transcriptText: "PRIVATE_CANARY_TOKEN_1234567890 raw hidden prompt text"
+        },
+        {
+          resultId: "worker:123",
+          title: "Worker 123 safe native proof",
+          summary: "Worker 123 retained public summary.",
+          finalReport: "Final: worker 123 retained public final report.",
+          provenance: {
+            issue: 447,
+            branch: "release/1.2"
+          },
+          touchedFiles: ["packages/core/src/index.ts"],
+          observedAt: "2026-07-04T10:32:00Z"
+        }
+      ],
+      now: "2026-07-04T10:31:00Z"
+    });
+
+    assert.equal(result.indexedResults, 2);
+    assert.deepEqual(result.rejectedResults, []);
+    assert.equal(result.actionsPerformed.derivedCacheWrite, true);
+    assert.equal(result.actionsPerformed.sourceStoreMutation, false);
+    assert.equal(result.actionsPerformed.rawTranscriptRead, false);
+
+    const report = getPreparedSourceRanges(db, { limit: 50 });
+    const serialized = JSON.stringify(report);
+    assert.equal(report.sourceCoverage.preparedSourceRanges, "ok");
+    assert.equal(report.ranges.length > 0, true);
+    assert.equal(report.ranges.every((range) => range.sourceRef.startsWith("codex_subagent_result:")), true);
+    assert.equal(report.ranges.every((range) => range.threadId.startsWith("subagent_")), true);
+    assert.equal(report.ranges.some((range) => range.sourceRef === "codex_subagent_result:worker:123"), true);
+    assert.equal(report.ranges.some((range) => range.threadId === "subagent_worker:123"), true);
+    assert.equal(report.ranges.some((range) => range.rangeKind === "final_message"), true);
+    assert.equal(report.ranges.some((range) => range.reasonCodes.includes("native_codex_subagent_result")), true);
+    assert.equal(serialized.includes("codex_subagent_result:worker:123"), true);
+    assert.equal(serialized.includes("codex_subagent_result:worker%3A123"), false);
+    assert.equal(serialized.includes("/Users/lume"), false);
+    assert.equal(serialized.includes("PRIVATE_CANARY_TOKEN"), false);
+    assert.equal(serialized.includes("customer-secret"), false);
+    assert.equal(serialized.includes("/Volumes/LEXAR/canary_TITLE"), false);
+    assert.equal(serialized.includes("~/.codex/canary_SUMMARY"), false);
+    assert.equal(serialized.includes("/tmp/canary_FINAL"), false);
+    assert.equal(serialized.includes("canary_TITLE"), false);
+    assert.equal(serialized.includes("canary_SUMMARY"), false);
+    assert.equal(serialized.includes("canary_FINAL"), false);
+    assert.equal(serialized.includes("raw hidden prompt"), false);
+    assert.equal(serialized.includes("subagent-result.jsonl"), false);
+    assert.equal(report.ranges.every((range) => /^codex_source:[0-9a-f]{16}$/.test(range.sourcePathRef)), true);
+    assert.equal(report.actionsPerformed.liveControl, false);
+    assert.equal(report.actionsPerformed.guiMutation, false);
+    assert.equal(report.actionsPerformed.rawTranscriptRead, false);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
