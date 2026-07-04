@@ -381,8 +381,11 @@ separate operations are actually approved and executed.
 Record `npm dist-tag ls lossless-openclaw-orchestrator` in the release evidence
 after every npm publication. Stable releases publish with
 `npm publish --tag latest`; public betas publish with `npm publish --tag beta`;
-release candidates publish with `npm publish --tag next`. The first stable release must move `latest` to the stable version and keep beta and other
-prereleases on prerelease tags. Do not publish a fake stable package just to move a dist-tag. Release candidates must publish with `npm publish --tag next`;
+release candidates publish with `npm publish --tag next`. The stable channel
+currently points at `1.2.0`; future stable releases move `latest` only after the
+separate stable-promotion gate proves the exact candidate. Keep beta and other
+prereleases on prerelease tags. Do not publish a fake stable package just to
+move a dist-tag. Release candidates must publish with `npm publish --tag next`;
 RC branches also carry `package.json` `publishConfig.tag` set to `next` as a
 fail-closed guard against accidental untagged publication. Stable branches carry
 `package.json` `publishConfig.tag` set to `latest`. Do not run untagged
