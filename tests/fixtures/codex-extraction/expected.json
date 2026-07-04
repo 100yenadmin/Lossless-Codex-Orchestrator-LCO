@@ -27,7 +27,7 @@
       "threadId": "019f-eval-thread",
       "callId": "call_secret",
       "toolName": "functions.exec_command",
-      "argumentsText": "{\"cmd\":\"printf 'authorization: <redacted-secret>' && printf 'Cookie: <redacted-secret>' && echo <redacted-secret> && printf '<redacted-secret>' && curl https://example.invalid\",\"cwd\":\"~/private\"}",
+      "argumentsText": "{\"cmd\":\"printf 'authorization: <redacted-secret>' && printf 'Cookie: <redacted-secret>' && echo <redacted-secret> && printf '<redacted-secret>' && curl https://example.invalid\",\"cwd\":\"<redacted-path>\"}",
       "reasonCode": null
     },
     {
@@ -49,13 +49,14 @@
     "Build redacted extraction evals",
     "Final: extraction eval complete",
     "<redacted-secret>",
-    "~/private"
+    "<redacted-path>"
   ],
   "safeTextForbidden": [
     "sk-test_1234567890abc\u0064ef",
     "Bearer abcdefghijklmno\u0070",
     "Coo\u006bie: sessionid=abcdefghijklmnopqrstuvwxy\u007a",
     "/Us\u0065rs/example",
+    "~/private",
     "-----BEGIN PRIVA\u0054E KEY-----"
   ]
 }

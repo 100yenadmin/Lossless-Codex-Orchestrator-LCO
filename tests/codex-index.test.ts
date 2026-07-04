@@ -652,6 +652,8 @@ test("bounded expansion keeps proposed plans and touched files visible when fina
         arguments: JSON.stringify({
           cmd: [
             "sed -n '1,20p' /Volumes/LEXAR/repos/example/src/expansion.ts",
+            "cat /Users/lume/.codex/sessions/private-thread.jsonl",
+            "cat /private/tmp/lco/private-cache.sqlite",
             ...Array.from({ length: 12 }, (_, index) => `/Volumes/LEXAR/repos/example/packages/really-long-path-segment-${index}/nested/with/many/directories/for/expansion-${index}.ts`)
           ].join(" ")
         })
@@ -660,7 +662,16 @@ test("bounded expansion keeps proposed plans and touched files visible when fina
     {
       event_msg: {
         type: "agent_message",
-        message: `Final: ${"long final evidence ".repeat(500)}`
+        message: [
+          "Final:",
+          "/Volumes/My Backup Drive/lco/private secret.ts",
+          "/Users/lume/User Projects/lco/private secret.ts",
+          "/home/lume/work/private-cache.sqlite",
+          "/var/folders/lco/private-cache.sqlite",
+          "/root/.codex/sessions/private-thread.jsonl",
+          "~/.codex/sessions/private-thread.jsonl",
+          "long final evidence ".repeat(500)
+        ].join(" ")
       }
     }
   ];
@@ -674,7 +685,17 @@ test("bounded expansion keeps proposed plans and touched files visible when fina
 
     assert.equal(expanded.text.includes("Final message:"), true);
     assert.equal(expanded.text.includes("Touched files:"), true);
-    assert.equal(expanded.text.includes("really-long-path-segment"), true);
+    assert.equal(expanded.text.includes("<redacted-path>"), true);
+    assert.equal(expanded.text.includes("/Volumes/"), false);
+    assert.equal(expanded.text.includes("/Users/"), false);
+    assert.equal(expanded.text.includes("/home/"), false);
+    assert.equal(expanded.text.includes("/var/"), false);
+    assert.equal(expanded.text.includes("/root/.codex/"), false);
+    assert.equal(expanded.text.includes("~/.codex/"), false);
+    assert.equal(expanded.text.includes("/private/tmp/"), false);
+    assert.equal(expanded.text.includes(".codex/sessions"), false);
+    assert.equal(expanded.text.includes("Backup Drive"), false);
+    assert.equal(expanded.text.includes("User Projects"), false);
     assert.equal(expanded.text.includes("more touched files omitted"), true);
     const touchedBlock = expanded.text.match(/Touched files:\n(?<block>[\s\S]*?)\n\nPlans:/)?.groups?.block ?? "";
     const renderedFiles = touchedBlock.split("\n").filter((line) => line.startsWith("- ") && !line.startsWith("- ... ")).length;

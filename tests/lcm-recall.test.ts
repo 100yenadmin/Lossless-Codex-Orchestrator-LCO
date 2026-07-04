@@ -90,7 +90,7 @@ function makeRecallFixture() {
       42,
       "leaf",
       0,
-      "Peer recall summary links OpenClaw LCM to Codex without merging stores. It mentions /Users/lume/private and authorization: Bearer sk-test_1234567890 so safe outputs must redact secrets.",
+      "Peer recall summary links OpenClaw LCM to Codex without merging stores. It mentions /Users/lume/private, ~/private/notes.md, /home/lume/private, /tmp/lcm-peer.sqlite, and authorization: Bearer sk-test_1234567890 so safe outputs must redact secrets.",
       44,
       JSON.stringify(["packages/core/src/index.ts"]),
       "2026-06-28T00:00:00Z",
@@ -160,6 +160,9 @@ test("grep -> describe -> expand_query preserves Codex and read-only LCM source 
     assert.equal(metadata.tokenBudget, 0);
     assert.equal(metadata.text.includes("Content:"), false);
     assert.equal(metadata.text.includes("Summary ID: sum_peer_recall"), true);
+    assert.equal(metadata.text.includes("Source path:"), false);
+    assert.equal(metadata.text.includes(fixture.lcmPath), false);
+    assert.equal(metadata.text.includes("lcm-peer.sqlite"), false);
 
     const brief = expandQuery(db, {
       query: "OpenClaw LCM",
@@ -169,16 +172,24 @@ test("grep -> describe -> expand_query preserves Codex and read-only LCM source 
     assert.equal(brief.sourceRef, lcmRef);
     assert.equal(brief.profile.name, "brief");
     assert.equal(brief.tokenBudget, 1000);
-    assert.equal(brief.text.includes("~/private"), true);
+    assert.equal(brief.text.includes("<redacted-path>"), true);
+    assert.equal(brief.text.includes("~/private"), false);
     assert.equal(brief.text.includes("authorization: <redacted-secret>"), true);
     assert.equal(brief.text.includes("/Users/lume/private"), false);
+    assert.equal(brief.text.includes("/home/lume/private"), false);
+    assert.equal(brief.text.includes("/tmp/lcm-peer.sqlite"), false);
+    assert.equal(brief.text.includes("lcm-peer.sqlite"), false);
+    assert.equal(brief.text.includes("Source path:"), false);
     assert.equal(brief.text.includes("sk-test_1234567890"), false);
 
     const evidence = expandRecallRef(db, { sourceRef: lcmRef!, lcmDbPaths: [fixture.lcmPath], profile: "evidence" });
     assert.equal(evidence.profile.name, "evidence");
     assert.equal(evidence.tokenBudget, 4000);
     assert.equal(evidence.text.length >= brief.text.length, true);
+    assert.equal(evidence.text.includes("~/private"), false);
     assert.equal(evidence.text.includes("/Users/lume/private"), false);
+    assert.equal(evidence.text.includes("lcm-peer.sqlite"), false);
+    assert.equal(evidence.text.includes("Source path:"), false);
     assert.equal(evidence.text.includes("sk-test_1234567890"), false);
 
     const relativePeer = relative(process.cwd(), fixture.lcmPath);

@@ -6531,13 +6531,13 @@ function formatClaudeSessionInventoryMetadata(description: ClaudeSessionInventor
   return [
     `Claude session ID: ${description.sessionId}`,
     `Ref: ${description.sourceRef}`,
-    description.title ? `Title: ${description.title}` : null,
-    description.project ? `Project: ${description.project}` : null,
-    description.workspaceHint ? `Workspace: ${description.workspaceHint}` : null,
+    description.title ? `Title: ${publicSafeText(description.title, 500)}` : null,
+    description.project ? `Project: ${publicSafeText(description.project, 500)}` : null,
+    description.workspaceHint ? `Workspace: ${publicSafeText(description.workspaceHint, 500)}` : null,
     description.status ? `Status: ${description.status}` : null,
     description.updatedAt ? `Updated: ${description.updatedAt}` : null,
-    `Source path: ${description.sourcePath}`,
-    description.sourceRefs.length ? `Source refs: ${description.sourceRefs.join(", ")}` : null,
+    `Source ref: ${publicSourcePathRef(description.sourcePath)}`,
+    description.sourceRefs.length ? `Source refs: ${description.sourceRefs.map((ref) => publicSafeText(ref, 180)).join(", ")}` : null,
     "Proof boundary: read-only Claude metadata fixture inventory only; no private transcript content, live control, GUI mutation, parity, or cloud sync proof."
   ].filter(Boolean).join("\n");
 }
@@ -11405,15 +11405,15 @@ export function expandSession(db: LooDatabase, options: ExpandSessionOptions): E
       `Thread: ${description.title ?? description.threadId}`,
       `Ref: ${description.sourceRef}`,
       `ID: ${description.threadId}`,
-      description.cwd ? `CWD: ${description.cwd}` : null,
+      description.cwd ? `CWD: ${publicSafeText(description.cwd, 500)}` : null,
       description.branch ? `Branch: ${description.branch}` : null,
       description.gitSha ? `Git SHA: ${description.gitSha}` : null,
-      description.summary ? `Summary: ${description.summary}` : null,
+      description.summary ? `Summary: ${publicSafeText(description.summary, 2000)}` : null,
       formatSessionMetadata(description.metadata),
       `Plans: ${description.planCount}`,
       `Touched files: ${description.touchedFiles.length}`,
       `Tool calls: ${description.toolCallCount}`,
-      `Source path: ${description.sourcePath}`
+      `Source ref: ${publicSourcePathRef(description.sourcePath)}`
     ].filter(Boolean).join("\n");
     return {
       sourceKind: "codex_thread",
@@ -11427,13 +11427,13 @@ export function expandSession(db: LooDatabase, options: ExpandSessionOptions): E
   const text = [
     `Thread: ${description.title ?? description.threadId}`,
     `ID: ${description.threadId}`,
-    description.cwd ? `CWD: ${description.cwd}` : null,
+    description.cwd ? `CWD: ${publicSafeText(description.cwd, 500)}` : null,
     description.branch ? `Branch: ${description.branch}` : null,
     description.gitSha ? `Git SHA: ${description.gitSha}` : null,
-    description.summary ? `Summary: ${description.summary}` : null,
-    description.finalMessage ? `Final message: ${truncate(description.finalMessage, profile.name === "evidence" ? 3200 : 900)}` : null,
+    description.summary ? `Summary: ${publicSafeText(description.summary, profile.name === "evidence" ? 3200 : 1600)}` : null,
+    description.finalMessage ? `Final message: ${publicSafeText(description.finalMessage, profile.name === "evidence" ? 3200 : 900)}` : null,
     description.touchedFiles.length ? `Touched files:\n${formatTouchedFiles(description.touchedFiles, profile.name === "evidence" ? 50 : 12, profile.name === "evidence" ? 3200 : 900)}` : null,
-    plans.length ? `Plans:\n${plans.map((plan) => truncate(plan, profile.name === "evidence" ? 3200 : 1200)).join("\n\n")}` : null
+    plans.length ? `Plans:\n${plans.map((plan) => publicSafeText(plan, profile.name === "evidence" ? 3200 : 1200)).join("\n\n")}` : null
   ].filter(Boolean).join("\n\n");
   return {
     sourceKind: "codex_thread",
@@ -11449,7 +11449,7 @@ function formatTouchedFiles(files: string[], limit: number, maxChars: number): s
   const perPathLimit = maxChars > 1000 ? 180 : 120;
   const visible: string[] = [];
   for (const file of files.slice(0, limit)) {
-    const next = `- ${truncate(file, perPathLimit)}`;
+    const next = `- ${publicSafeText(file, perPathLimit)}`;
     const hiddenIfAccepted = files.length - (visible.length + 1);
     const markerIfAccepted = hiddenIfAccepted > 0 ? `- ... ${hiddenIfAccepted} more touched files omitted` : null;
     const visibleMaxChars = markerIfAccepted ? Math.max(0, maxChars - markerIfAccepted.length - 1) : maxChars;
@@ -11552,7 +11552,7 @@ export function expandRecallRef(db: LooDatabase, options: {
     const metadata = formatClaudeSessionInventoryMetadata(description);
     const text = profile.name === "metadata"
       ? metadata
-      : truncateByApproxTokens(`${metadata}\n\nSafe summary:\n${description.summary ?? ""}`, profile.tokenBudget);
+      : truncateByApproxTokens(`${metadata}\n\nSafe summary:\n${publicSafeText(description.summary ?? "", profile.tokenBudget * 6)}`, profile.tokenBudget);
     return {
       sourceKind: "claude_session",
       sourceRef: description.sourceRef,
@@ -11568,18 +11568,18 @@ export function expandRecallRef(db: LooDatabase, options: {
   const metadata = [
     `Summary ID: ${summary.summaryId}`,
     `Ref: ${lcmSummaryRef(summary.sourcePath, summary.summaryId)}`,
-    `Conversation: ${summary.conversationTitle ?? summary.conversationId}`,
+    `Conversation: ${publicSafeText(summary.conversationTitle ?? String(summary.conversationId), 500)}`,
     `Conversation ID: ${summary.conversationId}`,
     summary.kind ? `Kind: ${summary.kind}` : null,
     summary.depth !== null ? `Depth: ${summary.depth}` : null,
     summary.tokenCount !== null ? `Token count: ${summary.tokenCount}` : null,
-    summary.model ? `Model: ${summary.model}` : null,
+    summary.model ? `Model: ${publicSafeText(summary.model, 120)}` : null,
     summary.updatedAt ? `Updated: ${summary.updatedAt}` : null,
-    `Source path: ${summary.sourcePath}`
+    `Source ref: ${publicSourcePathRef(summary.sourcePath)}`
   ].filter(Boolean).join("\n");
   const text = profile.name === "metadata"
     ? metadata
-    : truncateByApproxTokens(`${metadata}\n\nContent:\n${summary.content}`, profile.tokenBudget);
+    : truncateByApproxTokens(`${metadata}\n\nContent:\n${publicSafeText(summary.content, profile.tokenBudget * 6)}`, profile.tokenBudget);
   return {
     sourceKind: "lcm_summary",
     sourceRef: lcmSummaryRef(summary.sourcePath, summary.summaryId),
@@ -11855,7 +11855,7 @@ function lcmSummaryRecord(path: string, row: Record<string, unknown>): LcmSummar
     conversationTitle: nullableString(row.conversationTitle),
     kind: nullableString(row.kind),
     depth: row.depth === null || row.depth === undefined ? null : Number(row.depth),
-    content: redactSafeString(String(row.content ?? "")),
+    content: redactPublicSafeString(String(row.content ?? "")),
     tokenCount: row.tokenCount === null || row.tokenCount === undefined ? null : Number(row.tokenCount),
     createdAt: nullableString(row.createdAt),
     updatedAt: nullableString(row.updatedAt),
@@ -11969,13 +11969,20 @@ function publicSourcePathRef(sourcePath: string): string {
 }
 
 function publicSafeText(value: string, maxChars = 500): string {
-  const redacted = redactSafeString(value)
-    .replace(/\/Volumes\/[^\s"'`)]+/g, "<redacted-path>")
-    .replace(/\/(?:Users|home)\/[^/\s"'`)]+\/\.codex\/[^\s"'`)]+/g, "<redacted-path>")
-    .replace(/\/root\/\.codex\/[^\s"'`)]+/g, "<redacted-path>")
-    .replace(/\/(?:private\/)?(?:tmp|var)\/[^\s"'`)]+/g, "<redacted-path>")
-    .replace(/~\/\.codex\/[^\s"'`)]+/g, "<redacted-path>");
-  return truncate(redacted, maxChars);
+  return truncate(redactPublicSafeString(value), maxChars);
+}
+
+function redactPublicSafeString(value: string): string {
+  const localPathRootPattern =
+    "(?:\\/Volumes\\/|\\/(?:Users|home|root)\\/|\\/(?:private\\/)?(?:tmp|var)\\/|~\\/|(?<![A-Za-z])[A-Za-z]:[\\\\/])";
+  const structuredLabelPattern = "[A-Za-z][A-Za-z0-9 _-]{0,32}:";
+  const relativePathStartPattern = "(?:\\.{1,2}\\/|[A-Za-z0-9_.-]+\\/)";
+  const omissionMarkerPattern = "\\+\\d+\\s+more\\b";
+  const localPathTerminatorPattern =
+    `(?=$|[\\r\\n"'\\\`)\\]}]|\\s+(?:${localPathRootPattern}|${relativePathStartPattern}|${omissionMarkerPattern}|${structuredLabelPattern}))`;
+  const localPathPattern = new RegExp(`${localPathRootPattern}(?:(?!${localPathTerminatorPattern}).)+`, "g");
+  const pathRedacted = value.replace(localPathPattern, "<redacted-path>");
+  return redactSafeString(pathRedacted).replace(localPathPattern, "<redacted-path>");
 }
 
 function publicSafeSearchText(value: string, maxChars = 500): string {
