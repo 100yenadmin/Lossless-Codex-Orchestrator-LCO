@@ -1235,6 +1235,7 @@ function printOpenClawPublishedSmokeHelp(): void {
     "Strict mode:",
     "  --strict exits non-zero only when ok/packagePathOk is false; it is package-path strict.",
     "  --gateway-ready-strict exits non-zero unless publishedSmokeReady is true for the clean published profile.",
+    "  With both flags, any failed package-path or clean-profile gateway-ready condition exits non-zero.",
     "  A configured gateway proof is recorded separately and never substitutes for fresh-profile gateway readiness.",
     "",
     "It does not run npm install, does not call OpenClaw, does not run live Codex control, and does not mutate a desktop GUI."

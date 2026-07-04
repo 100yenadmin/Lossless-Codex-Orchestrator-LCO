@@ -74,9 +74,7 @@ export function createGeneralReleaseReadiness(options: GeneralReleaseReadinessOp
   const packageVersion = readString(packageJson, "version");
   const expectedDistTag = distTagForVersion(packageVersion ?? "");
   const expectedPackage = packageName ? `${packageName}@${expectedDistTag}` : null;
-  const releaseLabel = expectedPackage && packageVersion
-    ? `${expectedPackage} (${packageVersion})`
-    : "the current package release";
+  const releaseLabel = formatReleaseLabel(expectedPackage, packageVersion);
   const freshNpmEvidence = resolveEvidencePath(evidenceDir, options.freshNpmEvidence);
   const agentDogfoodEvidence = resolveEvidencePath(evidenceDir, options.agentDogfoodEvidence);
   const checks: Record<string, GeneralReleaseReadinessCheck> = {
@@ -327,6 +325,14 @@ function readJson(path: string): JsonObject {
 function readString(input: JsonObject, key: string): string | null {
   const value = input[key];
   return typeof value === "string" ? value : null;
+}
+
+function formatReleaseLabel(expectedPackage: string | null, packageVersion: string | null): string {
+  if (!expectedPackage || !packageVersion) return "the current package release";
+  const safePackageVersion = /^[0-9A-Za-z.+-]{1,80}$/.test(packageVersion)
+    ? packageVersion
+    : "untrusted-version";
+  return `${expectedPackage} (${safePackageVersion})`;
 }
 
 function readNestedString(input: JsonObject, path: string[]): string | null {

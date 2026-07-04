@@ -218,6 +218,7 @@ test("loo openclaw published-smoke --help exposes selector-drift diagnostic inpu
   assert.match(result.stdout, /npm selector drift/i);
   assert.match(result.stdout, /package-path strict/i);
   assert.match(result.stdout, /publishedSmokeReady/i);
+  assert.match(result.stdout, /both flags/i);
   assert.match(result.stdout, /configured gateway proof is recorded separately/i);
   assert.match(result.stdout, /without storing raw npm output/i);
   assert.doesNotMatch(result.stdout, /published npm beta install path/i);

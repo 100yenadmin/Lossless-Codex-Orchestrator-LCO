@@ -557,6 +557,7 @@ test("published-smoke emits clean-profile setup recovery classifications", () =>
       });
 
       assert.equal(report.ok, true);
+      assert.equal(Object.isFrozen(report.readinessSemantics), true);
       assert.equal(report.setupRecovery.classification, item.expected);
       assert.equal(report.setupRecovery.packageInstallLikelyOk, true);
       assert.equal(report.setupRecovery.ready, false);
