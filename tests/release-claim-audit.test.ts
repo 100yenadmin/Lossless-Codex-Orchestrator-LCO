@@ -762,8 +762,12 @@ test("release preflight checks package files from the package root regardless of
 
 test("release preflight reports raw artifacts already present in the evidence directory", () => {
   const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-raw-"));
+  mkdirSync(join(evidenceDir, "nested", "state"), { recursive: true });
   writeFileSync(join(evidenceDir, "session.jsonl"), "{}\n");
   writeFileSync(join(evidenceDir, "private.sqlite"), "");
+  writeFileSync(join(evidenceDir, "nested", "state", "openclaw.sqlite-wal"), "");
+  writeFileSync(join(evidenceDir, "nested", "state", "openclaw.sqlite-shm"), "");
+  writeFileSync(join(evidenceDir, "nested", "config-audit.jsonl"), "{}\n");
   const result = spawnSync(process.execPath, [
     "--import",
     tsxImport,
@@ -785,6 +789,9 @@ test("release preflight reports raw artifacts already present in the evidence di
   assert.equal(payload.releaseReady, false);
   assert.deepEqual(payload.blockers, ["raw_session_artifacts_present", "approved_live_control_smoke_missing"]);
   assert.deepEqual(payload.rawSessionArtifacts, [
+    { name: "nested/config-audit.jsonl", reason: "raw_codex_jsonl" },
+    { name: "nested/state/openclaw.sqlite-shm", reason: "sqlite_database" },
+    { name: "nested/state/openclaw.sqlite-wal", reason: "sqlite_database" },
     { name: "private.sqlite", reason: "sqlite_database" },
     { name: "session.jsonl", reason: "raw_codex_jsonl" }
   ]);

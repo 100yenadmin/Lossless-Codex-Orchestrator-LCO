@@ -23,7 +23,7 @@ safe action without rereading raw transcripts.
 | Approval-gated boundaries | Dry-run Codex actions and verify matching audit ids before any live control. |
 | OpenClaw/MCP tools | Use the same local-first recall and approval-bounded surfaces from agent workflows. |
 
-[Setup](docs/SETUP.md) · [Contributing](CONTRIBUTING.md) · [Agent Instructions](AGENTS.md) · [Agent Skill](skills/lossless-openclaw-orchestrator/SKILL.md) · [OpenClaw Plugin](docs/OPENCLAW_PLUGIN.md) · [Security](SECURITY.md) · [Code of Conduct](CODE_OF_CONDUCT.md) · [Vision](VISION.md) · [Privacy](docs/PRIVACY.md) · [Claude Boundary](docs/CLAUDE_ADAPTER_BOUNDARY.md) · [Claim Audit](docs/CLAIM_AUDIT.md) · [Release Notes](docs/RELEASE_NOTES_1.2.2.md) · [1.2.1 Notes](docs/RELEASE_NOTES_1.2.1.md) · [1.2.0 Notes](docs/RELEASE_NOTES_1.2.0.md) · [1.1.4 Notes](docs/RELEASE_NOTES_1.1.4.md) · [1.0 Notes](docs/RELEASE_NOTES_1.0.0.md) · [License](LICENSE)
+[Setup](docs/SETUP.md) · [Contributing](CONTRIBUTING.md) · [Agent Instructions](AGENTS.md) · [Agent Skill](skills/lossless-openclaw-orchestrator/SKILL.md) · [OpenClaw Plugin](docs/OPENCLAW_PLUGIN.md) · [Security](SECURITY.md) · [Code of Conduct](CODE_OF_CONDUCT.md) · [Vision](VISION.md) · [Privacy](docs/PRIVACY.md) · [Claude Boundary](docs/CLAUDE_ADAPTER_BOUNDARY.md) · [Claim Audit](docs/CLAIM_AUDIT.md) · [Release Notes](docs/RELEASE_NOTES_1.2.3.md) · [1.2.2 Notes](docs/RELEASE_NOTES_1.2.2.md) · [1.2.1 Notes](docs/RELEASE_NOTES_1.2.1.md) · [1.2.0 Notes](docs/RELEASE_NOTES_1.2.0.md) · [1.1.4 Notes](docs/RELEASE_NOTES_1.1.4.md) · [1.0 Notes](docs/RELEASE_NOTES_1.0.0.md) · [License](LICENSE)
 
 ## Why It Matters
 
@@ -325,7 +325,7 @@ The stable public product is Codex-first local orchestration: index, search,
 describe, expand, prepared-state recall, OpenClaw/MCP tools, and
 approval-gated dry-run/control boundaries.
 
-The 1.2 prepared-state and summary-leaves lane is shipped in stable `1.2.2`.
+The 1.2 prepared-state and summary-leaves lane is shipped in stable `1.2.3`.
 Current launch work is the M11 GA assurance sprint, tracked in GitHub and
 summarized in [VISION.md](VISION.md). Keep sprint and agent-operator details
 there, in [AGENTS.md](AGENTS.md), and in the packaged
