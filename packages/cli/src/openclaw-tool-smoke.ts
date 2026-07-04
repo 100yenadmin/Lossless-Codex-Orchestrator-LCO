@@ -1280,6 +1280,13 @@ function summarizeInvocation(
       else {
         if (stringPath(targetCoverage, ["schema"]) !== "lco.prepared.targetCoverage.v1") blockers.push("prepared_state_status_target_coverage_schema_invalid");
         if (!isRecord(targetCoverage.sourceCoverage)) blockers.push("prepared_state_status_target_source_coverage_missing");
+        if (targetedThreadId) {
+          const targetThreadId = stringPath(targetCoverage, ["threadId"]) || stringPath(targetCoverage, ["thread_id"]);
+          const targetRef = stringPath(targetCoverage, ["targetRef"]) || stringPath(targetCoverage, ["target_ref"]);
+          if (targetThreadId !== targetedThreadId || targetRef !== `codex_thread:${targetedThreadId}`) {
+            blockers.push("prepared_state_status_target_coverage_mismatch");
+          }
+        }
         const targetStatus = stringPath(targetCoverage, ["status"]);
         if (!["ready", "source_present_not_indexed", "not_found", "partial", "unknown"].includes(targetStatus ?? "")) {
           blockers.push("prepared_state_status_target_status_invalid");
