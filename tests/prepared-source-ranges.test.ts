@@ -337,9 +337,9 @@ test("native Codex subagent result adapter imports public-safe advisory prepared
       results: [
         {
           resultId: "/Users/lume/.codex/private/subagent-result.jsonl PRIVATE_CANARY_TOKEN_1234567890",
-          title: "Issue 447 native subagent proof",
-          summary: "Worker found prepared source adapter shape and opened draft PR.",
-          finalReport: "Final: implemented native subagent result adapter. Next action: review PR #447.",
+          title: "Issue 447 native subagent proof at /Volumes/LEXAR/canary_TITLE",
+          summary: "Worker found prepared source adapter shape from ~/.codex/canary_SUMMARY and opened draft PR.",
+          finalReport: "Final: implemented native subagent result adapter from /tmp/canary_FINAL. Next action: review PR #447.",
           provenance: {
             issue: 447,
             pr: 0,
@@ -374,6 +374,12 @@ test("native Codex subagent result adapter imports public-safe advisory prepared
     assert.equal(serialized.includes("/Users/lume"), false);
     assert.equal(serialized.includes("PRIVATE_CANARY_TOKEN"), false);
     assert.equal(serialized.includes("customer-secret"), false);
+    assert.equal(serialized.includes("/Volumes/LEXAR/canary_TITLE"), false);
+    assert.equal(serialized.includes("~/.codex/canary_SUMMARY"), false);
+    assert.equal(serialized.includes("/tmp/canary_FINAL"), false);
+    assert.equal(serialized.includes("canary_TITLE"), false);
+    assert.equal(serialized.includes("canary_SUMMARY"), false);
+    assert.equal(serialized.includes("canary_FINAL"), false);
     assert.equal(serialized.includes("raw hidden prompt"), false);
     assert.equal(serialized.includes("subagent-result.jsonl"), false);
     assert.equal(report.ranges.every((range) => /^codex_source:[0-9a-f]{16}$/.test(range.sourcePathRef)), true);

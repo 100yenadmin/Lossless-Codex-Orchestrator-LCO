@@ -3133,7 +3133,7 @@ function isPublicPreparedSourceRangeRow(row: {
     && row.omissionStatus === "metadata_only"
     && /^codex_range:[0-9a-f]{32}$/.test(row.rangeRef)
     && /^codex_event:[0-9a-f]{32}$/.test(row.eventRef)
-    && /^(?:codex_thread|codex_subagent_result):[A-Za-z0-9._:%-]{1,160}$/.test(row.sourceRef)
+    && /^(?:codex_thread|codex_subagent_result):[A-Za-z0-9._:-]{1,160}$/.test(row.sourceRef)
     && !looksSensitiveRefLike(row.sourceRef)
     && /^codex_source:[0-9a-f]{16}$/.test(row.sourcePathRef)
     && /^[0-9a-f]{32}$/.test(row.sourceHash)
@@ -12396,7 +12396,7 @@ function toolCallReasonCode(value: unknown): CodexToolCall["reasonCode"] {
 
 function safeNullableFixtureString(value: unknown): string | null {
   const raw = stringOrNull(value);
-  return raw ? redactSafeString(raw) : null;
+  return raw ? redactSafeString(publicSafeText(raw, 900)).trim() || null : null;
 }
 
 function stringOrNull(value: unknown): string | null {
