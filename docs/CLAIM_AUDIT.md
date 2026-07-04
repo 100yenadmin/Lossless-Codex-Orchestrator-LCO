@@ -33,6 +33,11 @@ Claude Code is an adapter stub in this beta. Public docs may mention the stub, b
 - CUA Driver is the preferred fallback backend, but no no-focus behavior is claimed without local proof.
 - Peekaboo is a secondary macOS fallback for permission diagnostics and guarded snapshots; desktop action remains dry-run-only.
 - OpenClaw LCM peer DBs are read-only and remain separate from the Codex index.
+- Optional local model compaction is canary-only, disabled by default, and not a
+  release claim. The current proof is limited to
+  [local model compaction canary](LOCAL_MODEL_COMPACTION_CANARY.md) validation
+  over approved prepared-card and summary-leaf refs; it does not call a model,
+  read raw transcripts, feed current `safe_text`, or claim true compaction.
 
 ## Working App Proof Boundary
 
