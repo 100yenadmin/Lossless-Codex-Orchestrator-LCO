@@ -935,7 +935,9 @@ function liveProofState(input: {
           }
     } : {}),
     callerInstruction: acceptedByTransport
-      ? "Transport acceptance is not durable execution. Run the bounded follow-up proof before claiming the turn or thread completed, persisted, or is safe to build on."
+      ? input.method === "thread/start"
+        ? "Transport acceptance is not durable thread creation. Run the bounded post-create proof before claiming the new thread completed, persisted, or is safe to build on."
+        : "Transport acceptance is not durable execution. Run the bounded follow-up proof before claiming the turn or thread completed, persisted, or is safe to build on."
       : "Codex transport did not accept the control request. Do not retry live control without a fresh dry-run and approval.",
     proofBoundary: "This proof state is public-safe transport/output classification only. It does not read raw transcripts, prove durable local-session persistence, mutate the GUI, or claim completed orchestration without follow-up evidence."
   };
@@ -1072,8 +1074,9 @@ export async function createCodexAppServerThreadsReport(options: {
   let readProbe: CodexAppServerThreadsReport["readProbe"];
   let readProbeOk: boolean | undefined;
   if (options.readThreadId) {
-    const threadId = capTextValue(options.readThreadId, 160);
-    const read = await codexReadRequest(options.client, "thread/read", { threadId, includeTurns: false });
+    const requestedThreadId = options.readThreadId;
+    const threadId = capTextValue(requestedThreadId, 160);
+    const read = await codexReadRequest(options.client, "thread/read", { threadId: requestedThreadId, includeTurns: false });
     readProbeOk = read.ok;
     if (!read.ok) {
       if (read.error) errors.push(read.error);

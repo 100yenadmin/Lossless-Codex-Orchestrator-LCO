@@ -1285,6 +1285,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "proof_debug"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,

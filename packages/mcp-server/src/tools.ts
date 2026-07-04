@@ -196,6 +196,7 @@ export const LOO_TOOL_SURFACE: Record<string, LooToolSurfaceMetadata> = {
     operatorPathRole: "Create the exact dry-run action packet and approval hashes before live control."
   },
   loo_codex_start_thread: { tier: "workflow_detail" },
+  loo_codex_start_thread_post_create_proof: { tier: "proof_debug" },
   loo_codex_resume_thread: {
     tier: "public_facade",
     operatorPathRank: 8,
@@ -1330,7 +1331,7 @@ async function createStartThreadPostCreateProof(options: {
     readThreadId: createdThreadId
   });
   const appThread = appServerThreads.threads.find((thread) => thread.threadId === createdThreadId) ?? null;
-  const readProbeOk = appServerThreads.readProbe?.threadId === createdThreadId && appServerThreads.readProbe.error === null;
+  const readProbeOk = appServerThreads.readProbe?.error === null;
   const appServerFound = Boolean(appThread || readProbeOk);
   const rawSearch = searchSessions(options.db, { query: createdThreadId, limit: 5, appServerThreads });
   const refSearch = searchSessions(options.db, { query: startProofThreadRef(createdThreadId), limit: 5, appServerThreads });

@@ -340,6 +340,7 @@ test("Codex start-thread workflow is dry-run first and live creation remains pen
       created_thread_ref: "codex_thread:thr_created",
       limit: 20
     });
+    assert.match(live.proofState.callerInstruction, /post-create proof/i);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -430,6 +431,60 @@ test("Codex start-thread post-create proof reports public-safe created-but-unind
     assert.equal(proof.actions_performed.raw_transcript_read, false);
     assert.match(proof.proof_boundary, /public-safe/i);
     assert.equal(JSON.stringify(proof).includes(root), false);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Codex start-thread post-create proof reads the full created thread id even when public output is capped", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-control-start-proof-long-id-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const longThreadId = `thr_${"x".repeat(220)}`;
+  const readCalls: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const tools = createLooTools({
+    db,
+    audit,
+    codexClient: {
+      request: async () => ({ ok: true })
+    },
+    codexReadClient: {
+      request: async (method, params) => {
+        readCalls.push({ method, params });
+        if (method === "thread/list") {
+          return { ok: true, result: { threads: [] } };
+        }
+        if (method === "thread/read") {
+          assert.equal(params?.threadId, longThreadId);
+          return { ok: true, result: { thread: { id: longThreadId, name: "Long id worker", status: "ready" } } };
+        }
+        throw new Error(`unexpected read method ${method}`);
+      }
+    }
+  });
+
+  try {
+    const proofTool = tools.find((tool) => tool.name === "loo_codex_start_thread_post_create_proof");
+    assert.ok(proofTool);
+    const proof = await proofTool.execute({
+      created_thread_id: longThreadId,
+      requested_title: "Long id worker",
+      limit: 10
+    }) as {
+      status: string;
+      proof: {
+        app_server: { found: boolean; read_probe_ok: boolean };
+        index: { found: boolean };
+      };
+      reason_codes: string[];
+    };
+    assert.deepEqual(readCalls.map((call) => call.method), ["thread/list", "thread/read"]);
+    assert.equal(proof.status, "created_but_unindexed");
+    assert.equal(proof.proof.app_server.found, true);
+    assert.equal(proof.proof.app_server.read_probe_ok, true);
+    assert.equal(proof.proof.index.found, false);
+    assert.equal(proof.reason_codes.includes("read_probe_found_thread"), true);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
