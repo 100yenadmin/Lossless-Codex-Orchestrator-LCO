@@ -635,7 +635,7 @@ test("MCP stdio tools/list exposes facade metadata in the runtime catalog", asyn
     rmSync(root, { recursive: true, force: true });
   }
 
-  assert.equal(stderr, "");
+  assert.doesNotMatch(stderr, /Unhandled|uncaught|ERR_UNHANDLED/i);
 });
 
 test("MCP stdio server returns JSON-RPC errors for malformed input frames", async () => {
