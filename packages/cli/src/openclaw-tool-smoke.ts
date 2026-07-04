@@ -983,7 +983,12 @@ function summarizeInvocation(
     if (messageHash) summary.messageHash = messageHash;
     if (method) summary.method = method;
     if (action) summary.action = action;
-    if (!upstreamBlocked && (summary.live !== false || !approvalAuditId || !paramsHash || !messageHash)) {
+    const messageHashRequired =
+      action === "codex_send_message"
+      || action === "codex_steer_thread"
+      || method === "turn/start"
+      || method === "turn/steer";
+    if (!upstreamBlocked && (summary.live !== false || !approvalAuditId || !paramsHash || (messageHashRequired && !messageHash))) {
       blockers.push("openclaw_control_dry_run_not_proven");
     }
   }
