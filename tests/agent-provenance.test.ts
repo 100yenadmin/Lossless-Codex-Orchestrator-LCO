@@ -87,6 +87,20 @@ test("parses visible PR-body provenance block and lookup finds lanes by thread i
   assert.deepEqual(matches.map((record) => record.sourceRef), ["github_pr:454"]);
 });
 
+test("lookup treats supplied but unresolvable string filters as misses", () => {
+  const comment = `<!-- lco-agent-provenance repo=100yenadmin/Lossless-Codex-Orchestrator-LCO issue=436 parent_thread=codex_thread:${parentThreadId} worker_thread=codex_thread:${workerThreadId} branch=${branchName} final_turn=${finalTurnId} -->`;
+  const report = parseAgentProvenanceText(comment, {
+    sourceKind: "issue_comment",
+    sourceRef: "github_issue_comment:436#lookup-miss"
+  });
+
+  assert.equal(findAgentProvenanceRecords(report.records, { parentThreadId: "none" }).length, 0);
+  assert.equal(findAgentProvenanceRecords(report.records, { workerThreadId: "unavailable" }).length, 0);
+  assert.equal(findAgentProvenanceRecords(report.records, { branch: "/private/path" }).length, 0);
+  assert.equal(findAgentProvenanceRecords(report.records, { finalTurnId: "" }).length, 0);
+  assert.equal(findAgentProvenanceRecords(report.records, {}).length, 1);
+});
+
 test("provenance parser reports redaction canaries without leaking raw private values", () => {
   const rawLocalPath = "/Users/exampleuser/.codex/sessions/raw-private.jsonl";
   const rawSecret = "sk-test_private_canary_1234567890";

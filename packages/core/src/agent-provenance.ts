@@ -101,18 +101,27 @@ export function parseAgentProvenanceText(text: string, options: ParseAgentProven
 }
 
 export function findAgentProvenanceRecords(records: AgentProvenanceRecord[], lookup: AgentProvenanceLookup): AgentProvenanceRecord[] {
-  const parentThreadId = normalizeThreadId(lookup.parentThreadId ?? "");
-  const workerThreadId = normalizeThreadId(lookup.workerThreadId ?? "");
-  const finalTurnId = normalizeSafeIdentifier(lookup.finalTurnId ?? "");
-  const branch = normalizeBranch(lookup.branch ?? "");
+  const parentThreadId = lookup.parentThreadId === undefined ? undefined : normalizeThreadId(lookup.parentThreadId);
+  const workerThreadId = lookup.workerThreadId === undefined ? undefined : normalizeThreadId(lookup.workerThreadId);
+  const finalTurnId = lookup.finalTurnId === undefined ? undefined : normalizeSafeIdentifier(lookup.finalTurnId);
+  const branch = lookup.branch === undefined ? undefined : normalizeBranch(lookup.branch);
+
+  if (
+    parentThreadId === null
+    || workerThreadId === null
+    || finalTurnId === null
+    || branch === null
+  ) {
+    return [];
+  }
 
   return records.filter((record) => {
-    if (parentThreadId && record.parentThreadId !== parentThreadId) return false;
-    if (workerThreadId && record.workerThreadId !== workerThreadId) return false;
+    if (parentThreadId !== undefined && record.parentThreadId !== parentThreadId) return false;
+    if (workerThreadId !== undefined && record.workerThreadId !== workerThreadId) return false;
     if (lookup.targetIssue !== undefined && !record.targetIssues.includes(lookup.targetIssue)) return false;
     if (lookup.pullRequest !== undefined && !record.pullRequests.includes(lookup.pullRequest)) return false;
-    if (branch && record.branch !== branch) return false;
-    if (finalTurnId && record.finalTurnId !== finalTurnId) return false;
+    if (branch !== undefined && record.branch !== branch) return false;
+    if (finalTurnId !== undefined && record.finalTurnId !== finalTurnId) return false;
     return true;
   });
 }
