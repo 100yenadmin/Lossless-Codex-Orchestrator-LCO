@@ -78,6 +78,30 @@ type CompactionProposalScenario = {
 
 const proposalDocPath = "docs/CODEX_NATIVE_COMPACTION_CAPTURE.md";
 const proposalScenarioPath = join("evals", "scenarios", "v1", "codex-native-compaction-capture-proposal-v1.json");
+const SANITIZED_PACKET_HASH_FIELDS = [
+  "packet_kind",
+  "source",
+  "compactionId",
+  "threadRef",
+  "sessionRef",
+  "lifecycle",
+  "lifecycleTimestamp",
+  "sourceModel",
+  "extractorVersion",
+  "claim",
+  "summaryCaptured",
+  "summaryHash",
+  "summaryExcerpt",
+  "excerptCharLimit",
+  "tokenCount",
+  "privacyClass",
+  "publicSafe",
+  "actionsPerformed",
+  "sourceRefs",
+  "omitted",
+  "mutationClasses",
+  "storage"
+] as const;
 
 function read(path: string): string {
   return readFileSync(path, "utf8");
@@ -101,11 +125,9 @@ function stableStringify(value: unknown): string {
 
 function sanitizedPacketPayloadHash(packet: CompactionPacketFixture | undefined): string {
   assert.ok(packet);
-  const {
-    createsAdvisorySummaryLeaf: _createsAdvisorySummaryLeaf,
-    expectedAdvisorySummaryLeaf: _expectedAdvisorySummaryLeaf,
-    ...payload
-  } = packet;
+  const payload = Object.fromEntries(
+    SANITIZED_PACKET_HASH_FIELDS.map((field) => [field, packet[field]])
+  );
   return createHash("sha256").update(stableStringify(payload)).digest("hex").slice(0, 32);
 }
 
@@ -121,6 +143,10 @@ test("Codex-native compaction proposal documents marker-only reality and public 
   assert.match(proposal, /bounded summary excerpt/i);
   assert.match(proposal, /token count/i);
   assert.match(proposal, /source refs/i);
+  assert.match(proposal, /first 32 hex characters \(128 bits\) of the SHA-256 digest/i);
+  assert.match(proposal, /stable-stringified canonical sanitized packet payload/i);
+  assert.match(proposal, /The current field list is: `packet_kind`, `source`, `compactionId`/i);
+  assert.match(proposal, /`mutationClasses`,\s+and `storage`/i);
   assert.match(proposal, /no-history-rewrite/i);
   assert.match(proposal, /bounded-fragment/i);
   assert.match(proposal, /LCO-owned sidecar/i);
@@ -221,6 +247,10 @@ test("Codex-native compaction proposal scenario validates marker fixture and san
   assert.match(String(advisoryLeaf?.input_hash), /^[0-9a-f]{32}$/);
   assert.match(String(advisoryLeaf?.output_hash), /^[0-9a-f]{32}$/);
   assert.equal(advisoryLeaf?.input_hash, sanitizedPacketPayloadHash(sanitizedPacket));
+  assert.equal(
+    sanitizedPacketPayloadHash({ ...sanitizedPacket, futureOptionalField: "ignored-by-canonical-hash-list" }),
+    advisoryLeaf?.input_hash
+  );
   assert.equal(advisoryLeaf?.output_hash, String(sanitizedPacket?.summaryHash).replace(/^sha256:/, "").slice(0, 32));
   assert.notEqual(advisoryLeaf?.input_hash, sanitizedPacket?.summaryHash);
   assert.notEqual(advisoryLeaf?.input_hash, advisoryLeaf?.output_hash);

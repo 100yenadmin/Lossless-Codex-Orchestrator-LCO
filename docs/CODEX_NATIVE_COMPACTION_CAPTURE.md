@@ -68,7 +68,8 @@ materialize an advisory summary leaf:
 - `summary_text`: the current metadata-only summary-leaf text for that kind;
   the bounded excerpt stays on the sanitized packet until a dedicated leaf kind
   is added
-- `input_hash`: unprefixed 32-hex hash of the sanitized packet payload, excluding
+- `input_hash`: first 32 hex characters (128 bits) of the SHA-256 digest over
+  the stable-stringified canonical sanitized packet payload, excluding
   scenario-only materialization controls
 - `output_hash`: unprefixed 32-hex digest derived from the packet summary hash
 - `source_refs`: opaque `codex_thread:` refs accepted by current summary-leaf
@@ -81,6 +82,15 @@ materialize an advisory summary leaf:
 
 If the packet has only a marker and no sanitized summary payload, LCO should
 create at most a marker leaf or marker packet with `summaryCaptured: false`.
+
+The canonical sanitized packet payload for `input_hash` is intentionally
+field-listed so future packet additions do not silently change advisory-leaf
+lineage. The current field list is: `packet_kind`, `source`, `compactionId`,
+`threadRef`, `sessionRef`, `lifecycle`, `lifecycleTimestamp`, `sourceModel`,
+`extractorVersion`, `claim`, `summaryCaptured`, `summaryHash`,
+`summaryExcerpt`, `excerptCharLimit`, `tokenCount`, `privacyClass`,
+`publicSafe`, `actionsPerformed`, `sourceRefs`, `omitted`, `mutationClasses`,
+and `storage`.
 
 ## Claim Boundary
 
