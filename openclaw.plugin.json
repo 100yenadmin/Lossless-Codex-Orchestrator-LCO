@@ -63,6 +63,7 @@
       "loo_resume_request_packet",
       "loo_codex_app_server_status",
       "loo_codex_app_server_threads",
+      "loo_codex_start_thread_post_create_proof",
       "loo_visible_codex_map",
       "loo_codex_desktop_coherence",
       "loo_codex_desktop_fallback_status",
@@ -1271,6 +1272,48 @@
             },
             "read_thread_id": {
               "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_start_thread_post_create_proof",
+        "description": "Read public-safe post-create proof for a newly started Codex thread without control, raw transcripts, or GUI mutation.",
+        "safety": {
+          "mode": "read_only",
+          "source": "codex_direct",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "proof_debug"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "created_thread_id": {
+              "type": "string"
+            },
+            "worker_thread_id": {
+              "type": "string"
+            },
+            "created_thread_ref": {
+              "type": "string"
+            },
+            "requested_title": {
+              "type": "string"
+            },
+            "alias": {
+              "type": "string"
+            },
+            "parent_thread_id": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
             }
           }
         }
