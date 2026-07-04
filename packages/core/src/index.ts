@@ -4668,7 +4668,7 @@ function getPreparedTargetCoverage(db: LooDatabase, threadId?: string): Prepared
     preparedSourceEvents: preparedSourceEvents.count > 0 ? "ok" : "not_configured",
     preparedSourceRanges: preparedSourceRanges.publicCount > 0 ? "ok" : preparedSourceRanges.rawCount > 0 ? "partial" : "not_configured",
     summaryLeaves: summaryLeaves.publicCount > 0 ? "ok" : summaryLeaves.rawCount > 0 ? "partial" : "not_configured",
-    preparedCards: publicCard ? publicCard.state === "ready" && !publicCard.stale ? "ok" : "partial" : preparedCards > 0 ? "partial" : "not_configured",
+    preparedCards: publicCard ? preparedTargetCardCoverage(publicCard) : preparedCards > 0 ? "partial" : "not_configured",
     preparedInboxItems: publicCard && preparedInboxItems.publicCount > 0 ? "ok" : preparedInboxItems.rawCount > 0 ? "partial" : "not_configured",
     watcherObservations: watcherObservationCoverageForTarget(db, targetRef)
   } satisfies PreparedTargetCoverage["sourceCoverage"];
@@ -4694,8 +4694,7 @@ function getPreparedTargetCoverage(db: LooDatabase, threadId?: string): Prepared
   const allDerivedLayersMissing = requiredCoverage.every((state) => state === "not_configured");
   const stale = Boolean(session && (
     missingDerivedCache
-    || publicCard?.stale
-    || publicCard?.state !== "ready"
+    || (publicCard ? preparedTargetCardCoverage(publicCard) !== "ok" : false)
     || summaryLeaves.staleCount > 0
     || (sourceUpdatedAt && preparedFreshnessAt && sourceUpdatedAt > preparedFreshnessAt)
   ));
@@ -4733,6 +4732,19 @@ function getPreparedTargetCoverage(db: LooDatabase, threadId?: string): Prepared
     reasonCodes,
     nextAction: preparedTargetNextAction(status)
   };
+}
+
+function preparedTargetCardCoverage(card: PreparedCard): PreparedStateCoverage {
+  if (card.stale) return "partial";
+  return preparedCardStateHasFreshTargetCoverage(card.state) ? "ok" : "partial";
+}
+
+function preparedCardStateHasFreshTargetCoverage(state: PreparedCardState): boolean {
+  return state !== "stale"
+    && state !== "partial"
+    && state !== "stale_or_partial"
+    && state !== "unknown"
+    && state !== "unknown_lifecycle";
 }
 
 function countPreparedTargetRows(db: LooDatabase, sql: string, ...params: Array<string | number>): number {
