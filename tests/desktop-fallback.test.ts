@@ -1621,6 +1621,157 @@ test("Peekaboo visible Codex thread map extracts redacted bounded candidates fro
   assert.equal(threads[1]?.title.includes("sk-test_1234567890"), false);
 });
 
+test("Peekaboo visible Codex thread map extracts sidebar child title from generic action row", async () => {
+  const status = await desktopSee({
+    backend: "peekaboo",
+    includeSnapshot: true,
+    probe: {
+      commandStatus: () => ({ available: true, command: "peekaboo", version: "Peekaboo 3.2.2" }),
+      activeApplication: () => "Codex",
+      commandOutput: (command: string, args: string[] = []) => {
+        if (args[0] === "permissions") {
+          return { status: 0, command, stdout: JSON.stringify({ success: true, data: { permissions: [] } }) };
+        }
+        return {
+          status: 0,
+          command,
+          stdout: JSON.stringify({
+            success: true,
+            data: {
+              application_name: "Codex",
+              ui_elements: [
+                { id: "tasks-list", role: "list", label: "Scheduled tasks in Codex", bounds: { x: 8, y: 84, width: 300, height: 360 } },
+                { id: "row-eva", role: "AXButton", label: "Pin chat Archive chat 1h", bounds: { x: 12, y: 120, width: 280, height: 44 }, is_actionable: true },
+                { id: "title-eva", role: "AXStaticText", label: "EVA-LCO", bounds: { x: 48, y: 130, width: 160, height: 18 } },
+                { id: "time-eva", role: "AXStaticText", label: "1h", bounds: { x: 244, y: 130, width: 18, height: 18 } },
+                { id: "private-child", role: "AXStaticText", label: "/Users/lume/private sk-test_1234567890", bounds: { x: 48, y: 142, width: 190, height: 18 } }
+              ]
+            }
+          })
+        };
+      }
+    }
+  });
+
+  const threads = status.visibleCodex?.threadMap?.threads ?? [];
+  const eva = threads.find((thread) => thread.title === "EVA-LCO");
+  assert.ok(eva);
+  assert.equal(eva.rawTitle, "EVA-LCO 1h");
+  assert.equal(eva.updatedLabel, "1h");
+  assert.equal(eva.sourceElementId, "row-eva");
+  assert.equal(eva.role, "AXButton");
+  assert.equal(eva.center?.x, 152);
+  assert.equal(threads.some((thread) => thread.rawTitle.includes("Pin chat")), false);
+  assert.equal(threads.some((thread) => thread.title.includes("<redacted-")), false);
+  assert.equal(threads.some((thread) => thread.rawTitle.includes("<redacted-")), false);
+  assert.doesNotMatch(JSON.stringify(status.visibleCodex?.threadMap), /\/Users\/lume|sk-test_1234567890/);
+});
+
+test("Peekaboo visible Codex thread map does not collapse sidebar rows with fallback child ids", async () => {
+  const status = await desktopSee({
+    backend: "peekaboo",
+    includeSnapshot: true,
+    probe: {
+      commandStatus: () => ({ available: true, command: "peekaboo", version: "Peekaboo 3.2.2" }),
+      activeApplication: () => "Codex",
+      commandOutput: (command: string, args: string[] = []) => {
+        if (args[0] === "permissions") {
+          return { status: 0, command, stdout: JSON.stringify({ success: true, data: { permissions: [] } }) };
+        }
+        return {
+          status: 0,
+          command,
+          stdout: JSON.stringify({
+            success: true,
+            data: {
+              application_name: "Codex",
+              ui_elements: [
+                { id: "row-alpha", role: "AXButton", label: "Pin chat Archive chat 4m", bounds: { x: 12, y: 120, width: 280, height: 44 }, is_actionable: true },
+                { role: "AXStaticText", label: "Alpha visible lane", bounds: { x: 48, y: 130, width: 170, height: 18 } },
+                { role: "AXButton", label: "Pin chat Archive chat 6m", bounds: { x: 12, y: 176, width: 280, height: 44 }, is_actionable: true },
+                { id: "title-beta", role: "AXStaticText", label: "Beta visible lane", bounds: { x: 48, y: 186, width: 170, height: 18 } }
+              ]
+            }
+          })
+        };
+      }
+    }
+  });
+
+  const titles = (status.visibleCodex?.threadMap?.threads ?? []).map((thread) => thread.title);
+  assert.deepEqual(titles, ["Alpha visible lane", "Beta visible lane"]);
+});
+
+test("Peekaboo visible Codex thread map avoids duplicate child-first sidebar rows", async () => {
+  const status = await desktopSee({
+    backend: "peekaboo",
+    includeSnapshot: true,
+    probe: {
+      commandStatus: () => ({ available: true, command: "peekaboo", version: "Peekaboo 3.2.2" }),
+      activeApplication: () => "Codex",
+      commandOutput: (command: string, args: string[] = []) => {
+        if (args[0] === "permissions") {
+          return { status: 0, command, stdout: JSON.stringify({ success: true, data: { permissions: [] } }) };
+        }
+        return {
+          status: 0,
+          command,
+          stdout: JSON.stringify({
+            success: true,
+            data: {
+              application_name: "Codex",
+              ui_elements: [
+                { id: "title-child-first", role: "AXStaticText", label: "Child first visible lane", bounds: { x: 48, y: 130, width: 190, height: 18 } },
+                { id: "row-child-first", role: "AXButton", label: "Pin chat Archive chat 2m", bounds: { x: 12, y: 120, width: 280, height: 44 }, is_actionable: true },
+                { id: "time-child-first", role: "AXStaticText", label: "2m", bounds: { x: 244, y: 130, width: 18, height: 18 } }
+              ]
+            }
+          })
+        };
+      }
+    }
+  });
+
+  const threads = status.visibleCodex?.threadMap?.threads ?? [];
+  assert.equal(threads.filter((thread) => thread.title === "Child first visible lane").length, 1);
+  assert.equal(threads[0]?.sourceElementId, "title-child-first");
+});
+
+test("Peekaboo visible Codex thread map rejects status-only sidebar child labels", async () => {
+  const status = await desktopSee({
+    backend: "peekaboo",
+    includeSnapshot: true,
+    probe: {
+      commandStatus: () => ({ available: true, command: "peekaboo", version: "Peekaboo 3.2.2" }),
+      activeApplication: () => "Codex",
+      commandOutput: (command: string, args: string[] = []) => {
+        if (args[0] === "permissions") {
+          return { status: 0, command, stdout: JSON.stringify({ success: true, data: { permissions: [] } }) };
+        }
+        return {
+          status: 0,
+          command,
+          stdout: JSON.stringify({
+            success: true,
+            data: {
+              application_name: "Codex",
+              ui_elements: [
+                { id: "row-status", role: "AXButton", label: "Pin chat Archive chat 8m", bounds: { x: 12, y: 120, width: 280, height: 54 }, is_actionable: true },
+                { id: "status-status", role: "AXStaticText", label: "Running", bounds: { x: 48, y: 128, width: 70, height: 18 } },
+                { id: "title-status", role: "AXStaticText", label: "Status is not the title", bounds: { x: 48, y: 150, width: 190, height: 18 } }
+              ]
+            }
+          })
+        };
+      }
+    }
+  });
+
+  const threads = status.visibleCodex?.threadMap?.threads ?? [];
+  assert.equal(threads.some((thread) => thread.title === "Running"), false);
+  assert.equal(threads.some((thread) => thread.title === "Status is not the title"), true);
+});
+
 test("Peekaboo visible Codex windows inventory is derived from guarded Codex snapshots", async () => {
   const status = await desktopSee({
     backend: "peekaboo",
