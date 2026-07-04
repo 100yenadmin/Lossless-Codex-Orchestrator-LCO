@@ -46,6 +46,7 @@ export type AdvisoryLocalModelCompactionLeaf = {
   leafKind: "event_metadata";
   summaryText: string;
   sourceRefs: string[];
+  sourceRefsOmitted: number;
   sourceRangeRefs: string[];
   sourceRangeRefsOmitted: number;
   inputHash: string;
@@ -154,14 +155,16 @@ export function validateLocalModelCompactionJob(input: {
     ...acceptedPreparedInputs.flatMap((candidate) => candidate.sourceRefs ?? [])
   ].filter(isPublicCompactionSourceRef));
   const sourceRangeRefs = uniqueStrings(acceptedPreparedInputs.flatMap((candidate) => candidate.sourceRangeRefs ?? []).filter(isPublicSourceRangeRef));
+  const sourceRefsPresent = sourceRefs.length > 0 && sourceRangeRefs.length > 0;
   const sanitizerCheckRefs = [
     "sanitizer:raw_transcript_excluded",
-    "sanitizer:current_safe_text_excluded",
+    "sanitizer:safe_text_excluded",
     "sanitizer:prompt_injection_isolated",
     "sanitizer:output_public_safe"
   ];
+  const sourceRefBlockers = sourceRefsPresent ? [] : ["source_refs_or_range_refs_required"];
 
-  const advisoryLeaf = blockers.length === 0
+  const advisoryLeaf = blockers.length === 0 && sourceRefBlockers.length === 0
     ? createAdvisoryLocalModelCompactionLeaf({
       preparedInputRefs: acceptedPreparedInputs.map((candidate) => candidate.ref),
       sourceRefs,
@@ -172,14 +175,14 @@ export function validateLocalModelCompactionJob(input: {
   const serializedLeaf = advisoryLeaf ? JSON.stringify(advisoryLeaf) : "";
   const sanitizerChecks = {
     rawTranscriptExcluded: !serializedLeaf.includes("raw transcript") && !serializedLeaf.includes("BEGIN RAW TRANSCRIPT"),
-    currentSafeTextExcluded: !serializedLeaf.includes("current safe_text") && !serializedLeaf.includes("Current safe_text"),
+    currentSafeTextExcluded: !serializedLeaf.includes("current_safe_text") && !serializedLeaf.includes("current safe_text") && !serializedLeaf.includes("Current safe_text"),
     onlyApprovedPreparedInputs: acceptedPreparedInputs.length === inputs.length && acceptedPreparedInputs.every((candidate) => approvedInputRefs.has(candidate.ref)),
     promptInjectionIsolated: !PROMPT_INJECTION_PATTERN.test(serializedLeaf),
     outputPublicSafe: advisoryLeaf ? isPublicSafeOutput(serializedLeaf) : true,
-    sourceRefsPresent: sourceRefs.length > 0 && sourceRangeRefs.length > 0
+    sourceRefsPresent
   };
   const sanitizerBlockers = advisoryLeaf && !sanitizerChecks.outputPublicSafe ? ["advisory_output_not_public_safe"] : [];
-  const finalBlockers = uniqueStrings([...blockers, ...sanitizerBlockers]);
+  const finalBlockers = uniqueStrings([...blockers, ...sourceRefBlockers, ...sanitizerBlockers]);
 
   return {
     schema: "lco.localModelCompaction.canary.v1",
@@ -206,18 +209,25 @@ export function createAdvisoryLocalModelCompactionLeaf(input: {
   sourceRangeRefs: string[];
   sanitizerCheckRefs?: string[];
 }): AdvisoryLocalModelCompactionLeaf {
-  const sanitizerCheckRefs = uniqueStrings((input.sanitizerCheckRefs ?? []).filter(isPublicCompactionSourceRef));
-  const sourceRefs = uniqueStrings([
+  const sanitizerCheckRefs = uniqueStrings((input.sanitizerCheckRefs ?? [])
+    .map(normalizeSanitizerCheckRef)
+    .filter(isPublicCompactionSourceRef))
+    .sort();
+  const allSourceRefs = uniqueStrings([
     ...input.sourceRefs,
     ...input.preparedInputRefs,
     ...sanitizerCheckRefs
-  ].filter(isPublicCompactionSourceRef)).slice(0, 40);
-  const sourceRangeRefs = uniqueStrings(input.sourceRangeRefs.filter(isPublicSourceRangeRef)).slice(0, 40);
+  ].filter(isPublicCompactionSourceRef)).sort();
+  const allSourceRangeRefs = uniqueStrings(input.sourceRangeRefs.filter(isPublicSourceRangeRef)).sort();
+  const sourceRefs = allSourceRefs.slice(0, 40);
+  const sourceRangeRefs = allSourceRangeRefs.slice(0, 40);
+  const sourceRefsOmitted = Math.max(0, allSourceRefs.length - sourceRefs.length);
+  const sourceRangeRefsOmitted = Math.max(0, allSourceRangeRefs.length - sourceRangeRefs.length);
   const inputHash = stableId(JSON.stringify({
     preparedInputRefs: uniqueStrings(input.preparedInputRefs.filter(isPublicCompactionSourceRef)).sort(),
-    sourceRefs: sourceRefs.slice().sort(),
-    sourceRangeRefs: sourceRangeRefs.slice().sort(),
-    sanitizerCheckRefs: sanitizerCheckRefs.slice().sort()
+    sourceRefs,
+    sourceRangeRefs,
+    sanitizerCheckRefs
   }));
   const summaryText = "Local model compaction canary advisory: approved prepared-card and summary-leaf inputs passed the opt-in boundary checks; no model call was run.";
   const outputHash = stableId(JSON.stringify({ inputHash, summaryText, sourceRefs, sourceRangeRefs }));
@@ -229,8 +239,9 @@ export function createAdvisoryLocalModelCompactionLeaf(input: {
     leafKind: "event_metadata",
     summaryText,
     sourceRefs,
+    sourceRefsOmitted,
     sourceRangeRefs,
-    sourceRangeRefsOmitted: 0,
+    sourceRangeRefsOmitted,
     inputHash,
     outputHash,
     extractorVersion: "summary-leaves-v1",
@@ -296,4 +307,8 @@ function safeIdentifier(value: string): string {
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values)];
+}
+
+function normalizeSanitizerCheckRef(value: string): string {
+  return value === "sanitizer:current_safe_text_excluded" ? "sanitizer:safe_text_excluded" : value;
 }

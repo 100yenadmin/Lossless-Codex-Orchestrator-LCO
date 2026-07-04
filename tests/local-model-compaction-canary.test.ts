@@ -139,6 +139,28 @@ test("local model compaction canary accepts only approved prepared inputs and em
   assert.equal(JSON.stringify(leaf).includes("run live Codex control"), false);
 });
 
+test("local model compaction canary blocks accepted inputs without source range refs", () => {
+  const report = validateLocalModelCompactionJob({
+    config: { enabled: true, mode: "canary" },
+    approval,
+    inputs: [
+      {
+        ...preparedCardInput,
+        sourceRangeRefs: []
+      },
+      {
+        ...summaryLeafInput,
+        sourceRangeRefs: []
+      }
+    ]
+  });
+
+  assert.equal(report.allowed, false);
+  assert.equal(report.sanitizerChecks.sourceRefsPresent, false);
+  assert.match(report.blockers.join("\n"), /source_refs_or_range_refs_required/);
+  assert.equal(report.advisoryLeaf, null);
+});
+
 test("local model compaction advisory leaf builder never performs model work", () => {
   const leaf = createAdvisoryLocalModelCompactionLeaf({
     preparedInputRefs: [preparedCardInput.ref, summaryLeafInput.ref],
@@ -155,6 +177,59 @@ test("local model compaction advisory leaf builder never performs model work", (
   assert.equal(leaf.authorityCoverage.trueModelCompactionCaptured, false);
   assert.equal(leaf.authorityCoverage.modelCallRun, false);
   assert.equal(leaf.sourceRefs.includes("sanitizer:raw_transcript_excluded"), true);
+});
+
+test("local model compaction advisory leaf builder canonicalizes refs and counts omitted metadata", () => {
+  const manySourceRefs = Array.from(
+    { length: 45 },
+    (_, index) => `codex_thread:source-${String(index).padStart(2, "0")}`
+  );
+  const manyRangeRefs = Array.from(
+    { length: 43 },
+    (_, index) => `codex_range:${String(index).padStart(32, "0")}`
+  );
+  const forward = createAdvisoryLocalModelCompactionLeaf({
+    preparedInputRefs: [summaryLeafInput.ref, preparedCardInput.ref],
+    sourceRefs: manySourceRefs,
+    sourceRangeRefs: manyRangeRefs,
+    sanitizerCheckRefs: [
+      "sanitizer:raw_transcript_excluded",
+      "sanitizer:safe_text_excluded"
+    ]
+  });
+  const reversed = createAdvisoryLocalModelCompactionLeaf({
+    preparedInputRefs: [preparedCardInput.ref, summaryLeafInput.ref],
+    sourceRefs: manySourceRefs.slice().reverse(),
+    sourceRangeRefs: manyRangeRefs.slice().reverse(),
+    sanitizerCheckRefs: [
+      "sanitizer:safe_text_excluded",
+      "sanitizer:raw_transcript_excluded"
+    ]
+  });
+
+  assert.deepEqual(forward.sourceRefs, reversed.sourceRefs);
+  assert.deepEqual(forward.sourceRangeRefs, reversed.sourceRangeRefs);
+  assert.equal(forward.inputHash, reversed.inputHash);
+  assert.equal(forward.outputHash, reversed.outputHash);
+  assert.equal(forward.leafRef, reversed.leafRef);
+  assert.equal(forward.sourceRefs.length, 40);
+  assert.equal(forward.sourceRangeRefs.length, 40);
+  assert.equal(forward.sourceRefsOmitted, 9);
+  assert.equal(forward.sourceRangeRefsOmitted, 3);
+});
+
+test("local model compaction advisory leaf excludes the current_safe_text token", () => {
+  const leaf = createAdvisoryLocalModelCompactionLeaf({
+    preparedInputRefs: [preparedCardInput.ref, summaryLeafInput.ref],
+    sourceRefs: [preparedCardInput.ref, summaryLeafInput.ref],
+    sourceRangeRefs: ["codex_range:33333333333333333333333333333333"],
+    sanitizerCheckRefs: [
+      "sanitizer:raw_transcript_excluded",
+      "sanitizer:current_safe_text_excluded"
+    ]
+  });
+
+  assert.equal(JSON.stringify(leaf).includes("current_safe_text"), false);
 });
 
 test("local model compaction canary scenario records dry-run gates", () => {
