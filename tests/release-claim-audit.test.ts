@@ -11,6 +11,7 @@ import { createLooToolDeclarations } from "../packages/mcp-server/src/tools.js";
 
 const tsxImport = createRequire(import.meta.url).resolve("tsx");
 const packageVersion = JSON.parse(readFileSync("package.json", "utf8")).version as string;
+const escapedPackageVersion = packageVersion.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const releaseNotesPath = `docs/RELEASE_NOTES_${packageVersion}.md`;
 
 function read(path: string): string {
@@ -115,7 +116,7 @@ test("public docs include setup, MCP/OpenClaw, demo, and approval-boundary proof
   }
 
   for (const required of [
-    /Allowed Stable 1\.2\.0 Claim/i,
+    new RegExp(`Allowed Stable ${escapedPackageVersion} Claim`, "i"),
     /Forbidden beta claims/i,
     /Claude Code.*adapter stub/i,
     /No cloud sync/i,
@@ -176,7 +177,7 @@ test("npm dist-tag policy is explicit for stable, beta, and rc channels", () => 
     assert.match(content, /npm dist-tag policy/i, surface);
     assert.match(content, /latest/i, surface);
     assert.match(content, /beta/i, surface);
-    assert.match(content, /stable channel\s+currently points at\s+`1\.2\.0`/i, surface);
+    assert.match(content, new RegExp("stable channel\\s+currently points at\\s+`" + escapedPackageVersion + "`", "i"), surface);
     assert.match(content, /Do not publish\s+a\s+fake stable/i, surface);
     assert.doesNotMatch(content, /latest[\s\S]{0,80}1\.0\.0/i, `${surface} must not say latest currently moves to 1.0.0`);
     assert.doesNotMatch(content, /latest[\s\S]{0,200}(?:follows|point at|resolves to)[\s\S]{0,120}newest public beta/i, `${surface} must not imply latest follows the newest beta`);
