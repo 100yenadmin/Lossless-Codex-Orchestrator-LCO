@@ -18,7 +18,7 @@ import {
 export const pluginMetadata = {
   id: "lossless-openclaw-orchestrator",
   name: "Lossless OpenClaw Orchestrator",
-  description: "Control and collaborate with local Codex sessions through OpenClaw using local indexing, bounded recall, and approval-gated controls.",
+  description: "Collaborate with local Codex sessions through OpenClaw using local indexing, prepared-state recall, bounded expansion, and approval-gated dry-run/control boundaries.",
   kind: "tool",
   mcp: {
     command: "loo-mcp-server",

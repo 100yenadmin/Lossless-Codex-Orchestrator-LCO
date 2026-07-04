@@ -1,10 +1,10 @@
-# Public Beta Claim Audit
+# Public Claim Audit
 
-## Allowed Public Beta Claim
+## Allowed Stable 1.2.0 Claim
 
-Control and collaborate with local Codex sessions through OpenClaw using local indexing, bounded recall, and approval-gated controls.
+Collaborate with local Codex sessions through OpenClaw using local indexing, prepared-state recall, bounded expansion, and approval-gated dry-run/control boundaries.
 
-This claim is limited to the Codex beta path that has tests and local smoke coverage: indexing, search, describe, bounded expansion, read-only LCM peer recall, Codex direct protocol diagnostics, dry-run approval audits, and read-only CUA/Peekaboo readiness.
+This claim is limited to the Codex stable path that has tests and local smoke coverage: indexing, search, describe, prepared-state cards/inbox, summary leaves, bounded expansion, read-only LCM peer recall, Codex direct protocol diagnostics, dry-run approval audits, and read-only CUA/Peekaboo readiness.
 
 When a release candidate is scoped to read/search/describe/expand plus dry-run
 control only, use `--claim-scope codex-read-search-expand-dry-run` on release
@@ -74,8 +74,11 @@ blockers instead of allowing a working-app claim.
 ## npm dist-tag policy
 
 Install stable releases through the `latest` dist-tag, public betas through the
-`beta` dist-tag, and release candidates through `next`. The first stable release moves `latest` to `1.0.0` only after the separate stable-promotion gate
-proves the exact candidate. Keep beta and other prereleases on prerelease tags. Do not publish a fake stable package just to move a dist-tag.
+`beta` dist-tag, and release candidates through `next`. The stable channel
+currently points at `1.2.0`; future stable releases move `latest` only after the
+separate stable-promotion gate proves the exact candidate. Keep beta and other
+prereleases on prerelease tags. Do not publish a fake stable package just to
+move a dist-tag.
 
 ## Release Checklist
 

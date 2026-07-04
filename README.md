@@ -20,10 +20,10 @@ safe action without rereading raw transcripts.
 | --- | --- |
 | Searchable local session memory | Find plans, finals, touched files, and refs without raw transcript rereads. |
 | Bounded evidence expansion | Read compact public-safe briefs before opening larger source material. |
-| Approval-gated control | Dry-run Codex actions and verify matching audit ids before live control. |
-| OpenClaw/MCP tools | Use the same local-first recall and control surfaces from agent workflows. |
+| Approval-gated boundaries | Dry-run Codex actions and verify matching audit ids before any live control. |
+| OpenClaw/MCP tools | Use the same local-first recall and approval-bounded surfaces from agent workflows. |
 
-[Setup](docs/SETUP.md) · [Contributing](CONTRIBUTING.md) · [Agent Instructions](AGENTS.md) · [Agent Skill](skills/lossless-openclaw-orchestrator/SKILL.md) · [OpenClaw Plugin](docs/OPENCLAW_PLUGIN.md) · [Security](SECURITY.md) · [Code of Conduct](CODE_OF_CONDUCT.md) · [Vision](VISION.md) · [Privacy](docs/PRIVACY.md) · [Claude Boundary](docs/CLAUDE_ADAPTER_BOUNDARY.md) · [Claim Audit](docs/CLAIM_AUDIT.md) · [Release Notes](docs/RELEASE_NOTES_1.2.0-beta.0.md) · [1.1.4 Notes](docs/RELEASE_NOTES_1.1.4.md) · [1.0 Notes](docs/RELEASE_NOTES_1.0.0.md) · [License](LICENSE)
+[Setup](docs/SETUP.md) · [Contributing](CONTRIBUTING.md) · [Agent Instructions](AGENTS.md) · [Agent Skill](skills/lossless-openclaw-orchestrator/SKILL.md) · [OpenClaw Plugin](docs/OPENCLAW_PLUGIN.md) · [Security](SECURITY.md) · [Code of Conduct](CODE_OF_CONDUCT.md) · [Vision](VISION.md) · [Privacy](docs/PRIVACY.md) · [Claude Boundary](docs/CLAUDE_ADAPTER_BOUNDARY.md) · [Claim Audit](docs/CLAIM_AUDIT.md) · [Release Notes](docs/RELEASE_NOTES_1.2.0.md) · [1.1.4 Notes](docs/RELEASE_NOTES_1.1.4.md) · [1.0 Notes](docs/RELEASE_NOTES_1.0.0.md) · [License](LICENSE)
 
 ## Why It Matters
 
@@ -322,18 +322,18 @@ connector URLs, or customer data into public issues or PRs. Use
 ## Roadmap And Proof Status
 
 The stable public product is Codex-first local orchestration: index, search,
-describe, expand, OpenClaw/MCP tools, and approval-gated dry-run/live-control
-boundaries.
+describe, expand, prepared-state recall, OpenClaw/MCP tools, and
+approval-gated dry-run/control boundaries.
 
-Current deeper product work is the 1.2 prepared-state and summary-leaves lane.
-It is tracked in GitHub issues, summarized in [VISION.md](VISION.md), and
-handed off in
+The 1.2 prepared-state and summary-leaves lane is shipped in stable `1.2.0`.
+Current launch work is the M11 GA assurance sprint, tracked in GitHub and
+summarized in [VISION.md](VISION.md). Keep sprint and agent-operator details
+there, in [AGENTS.md](AGENTS.md), and in the packaged
+[agent skill](skills/lossless-openclaw-orchestrator/SKILL.md), not in this
+public landing page. The historical 1.2 architecture handoff remains in
 [docs/sprints/brief-lco-1.2-prepared-state-summary-leaves-2026-07-03.md](docs/sprints/brief-lco-1.2-prepared-state-summary-leaves-2026-07-03.md).
-Keep sprint and agent-operator details there, in [AGENTS.md](AGENTS.md), and in
-the packaged [agent skill](skills/lossless-openclaw-orchestrator/SKILL.md), not
-in this public landing page.
 
-The 1.2 lane is local, deterministic, and opt-in. It is building
+The shipped 1.2 layer is local, deterministic, and opt-in. It provides
 source-ref-backed ranges, summary leaves, prepared cards, persisted watcher
 observations, execute-false local attention queue items, and hook capture so an
 OpenClaw/Eva agent can start from compact prepared state rather than rereading
@@ -359,9 +359,9 @@ path:
 - [Claim Audit](docs/CLAIM_AUDIT.md)
 - [QA Demo](docs/BETA_RELEASE_DEMO.md)
 
-For `1.0`, the general release checklist requires fresh npm clean-profile
-evidence, agent dogfood evidence through gateway tools, CI, scorecards, and
-claim-audit proof before `latest` promotion.
+For stable releases, the general release checklist requires fresh npm
+clean-profile evidence, agent dogfood evidence through gateway tools, CI,
+scorecards, and claim-audit proof before `latest` promotion.
 
 Versioned proof contracts live in `evals/scorecards/v1.0` and
 `evals/scenarios/v1`; runtime-required scenario contracts live in
