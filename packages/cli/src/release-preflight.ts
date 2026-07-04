@@ -280,6 +280,7 @@ function scanRawSessionArtifacts(evidenceDir: string | undefined): RawSessionArt
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const absolutePath = join(dir, entry.name);
       const relativePath = normalizePackagePath(relative(root, absolutePath));
+      if (entry.isSymbolicLink()) continue;
       if (entry.isDirectory()) {
         visit(absolutePath);
         continue;
