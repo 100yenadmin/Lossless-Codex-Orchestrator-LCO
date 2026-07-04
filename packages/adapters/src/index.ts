@@ -2306,6 +2306,7 @@ const threadStatusLabels = [
   "Failed",
   "Error"
 ];
+const threadStatusLabelSet = new Set(threadStatusLabels.map((label) => label.toLowerCase()));
 const threadSectionLabels = new Set(["pinned", "projects", "chats", "recent", "show more"]);
 const threadControlLabels = new Set(["archive chat", "automation folders", "automations", "unarchive chat", "pin chat", "unpin chat", "continue", "copy", "copy message", "new chat", "new thread", "search", "settings", "send", "plugins"]);
 const threadControlPrefixLabels = ["archive chat", "automation folders", "automations", "pin chat", "unarchive chat", "unpin chat"];
@@ -2360,11 +2361,14 @@ function visibleThreadMapFromSnapshot(snapshot: DesktopSnapshotStatus): VisibleC
   const threads: VisibleCodexThreadCandidate[] = [];
   const seen = new Set<string>();
   const consumedChildElementIds = new Set<string>();
+  const consumedChildFingerprints = new Set<string>();
+  const acceptedElementFingerprints = new Set<string>();
   let currentProject: string | undefined;
   let inProjects = false;
   for (const element of snapshot.elements) {
     if (threads.length >= snapshot.maxNodes) break;
-    if (consumedChildElementIds.has(element.elementId)) continue;
+    const elementFingerprint = sidebarChildFingerprint(element);
+    if (consumedChildElementIds.has(element.elementId) || (elementFingerprint && consumedChildFingerprints.has(elementFingerprint))) continue;
     const rawLabel = element.label?.trim();
     if (!rawLabel || !isThreadCandidateRole(element.role)) continue;
     const lowered = rawLabel.toLowerCase();
@@ -2380,6 +2384,7 @@ function visibleThreadMapFromSnapshot(snapshot: DesktopSnapshotStatus): VisibleC
       ? sidebarThreadCandidateFromChildText(snapshot.elements, element)
       : null;
     if (isThreadControlLabel(lowered) && !childCandidate) continue;
+    if (childCandidate?.titleElementFingerprint && acceptedElementFingerprints.has(childCandidate.titleElementFingerprint)) continue;
     const split = childCandidate?.split ?? splitThreadTitleStatus(rawLabel);
     if (!split.title || isThreadControlLabel(split.title.toLowerCase())) continue;
     if (split.title.length < 3 || ["codex", "vantage"].includes(split.title.toLowerCase())) continue;
@@ -2387,6 +2392,8 @@ function visibleThreadMapFromSnapshot(snapshot: DesktopSnapshotStatus): VisibleC
     if (seen.has(visibleId)) continue;
     seen.add(visibleId);
     for (const childId of childCandidate?.consumedElementIds ?? []) consumedChildElementIds.add(childId);
+    for (const childFingerprint of childCandidate?.consumedElementFingerprints ?? []) consumedChildFingerprints.add(childFingerprint);
+    if (elementFingerprint) acceptedElementFingerprints.add(elementFingerprint);
     const center = centerFromBounds(element.bounds);
     threads.push({
       visibleId,
@@ -2418,7 +2425,13 @@ function visibleThreadMapFromSnapshot(snapshot: DesktopSnapshotStatus): VisibleC
 function sidebarThreadCandidateFromChildText(
   elements: DesktopSnapshotElement[],
   row: DesktopSnapshotElement
-): { split: ReturnType<typeof splitThreadTitleStatus>; rawLabel: string; consumedElementIds: string[] } | null {
+): {
+  split: ReturnType<typeof splitThreadTitleStatus>;
+  rawLabel: string;
+  consumedElementIds: string[];
+  consumedElementFingerprints: string[];
+  titleElementFingerprint?: string;
+} | null {
   if (!row.bounds) return null;
   const children = elements
     .filter((element) => element.elementId !== row.elementId && element.label && isStaticThreadRole(element.role) && rectContains(row.bounds, element.bounds))
@@ -2433,7 +2446,9 @@ function sidebarThreadCandidateFromChildText(
   return {
     split: splitThreadTitleStatus(rawLabel),
     rawLabel,
-    consumedElementIds: children.map((child) => child.elementId)
+    consumedElementIds: children.map((child) => stableElementId(child)).filter((id): id is string => Boolean(id)),
+    consumedElementFingerprints: children.map(sidebarChildFingerprint).filter((fingerprint): fingerprint is string => Boolean(fingerprint)),
+    titleElementFingerprint: sidebarChildFingerprint(titleChild)
   };
 }
 
@@ -2441,8 +2456,22 @@ function looksLikeSidebarThreadTitle(label: string): boolean {
   const trimmed = label.trim();
   if (!trimmed || trimmed.length < 3) return false;
   const lowered = trimmed.toLowerCase();
-  if (threadSectionLabels.has(lowered) || isThreadControlLabel(lowered) || threadTimePattern.test(lowered)) return false;
+  if (threadSectionLabels.has(lowered) || isThreadControlLabel(lowered) || threadTimePattern.test(lowered) || threadStatusLabelSet.has(lowered)) return false;
   return !/[\\/]/.test(trimmed) && !trimmed.includes("<redacted-");
+}
+
+function stableElementId(element: DesktopSnapshotElement): string | undefined {
+  const id = element.elementId.trim();
+  return id && id !== "unknown" ? id : undefined;
+}
+
+function sidebarChildFingerprint(element: DesktopSnapshotElement | undefined): string | undefined {
+  if (!element?.bounds || !element.label) return undefined;
+  const label = element.label.trim();
+  if (!label) return undefined;
+  const role = (element.role || "").trim().toLowerCase();
+  const { x, y, width, height } = element.bounds;
+  return `${role}:${label}:${x}:${y}:${width}:${height}`;
 }
 
 function isCodexSnapshot(snapshot: DesktopSnapshotStatus): boolean {
