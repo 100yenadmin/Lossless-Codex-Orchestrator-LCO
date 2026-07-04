@@ -44,7 +44,34 @@ must prove post-action refresh and safe source-ref-based reasoning. Tool
 declaration, package install, and dry-run audit proof are necessary but no
 longer sufficient for a working-app claim.
 
-Recommended OpenClaw configuration should expose the `loo_*` tools and keep live controls approval-gated:
+Recommended OpenClaw configuration should expose the `loo_*` tools and keep live controls approval-gated.
+
+Tool declarations include a `metadata.tier` value so agents can distinguish the
+compact operator path from detail, proof, and low-level recovery surfaces:
+
+- `public_facade`: the normal 8-tool operator path:
+  `loo_prepared_inbox`, `loo_describe_ref`, `loo_expand_query`,
+  `loo_recent_sessions`, `loo_attention_inbox`, `loo_project_digest`,
+  `loo_codex_control_dry_run`, and `loo_codex_resume_thread`.
+- `workflow_detail`: supporting read/detail/setup/control tools that a facade
+  result may route to.
+- `proof_debug`: safety, proof, fallback, sanitizer, permission, and audit
+  tools for diagnosis and release evidence.
+- `internal_low_level`: direct store or protocol probes that should stay
+  explicit and bounded.
+
+New tools must choose one tier in the shared registry before they can pass the
+manifest snapshot test. The tier metadata is advisory routing metadata only: it
+does not hide tools, relax `requiresApproval`, change `safety.mode`, alter
+`mutationClasses`, or reduce proof obligations.
+
+Naming policy for #434: `loo_` remains the canonical, backward-compatible tool
+prefix. `LCO` is the product abbreviation and may be used in prose, package
+names, issues, and docs. This facade work does not create a broad `lco_*`
+rename or alias layer; any compatibility alias plan belongs with
+[#434](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/434).
+
+Safety details:
 
 - Read tools may run immediately.
 - Each shared tool declaration includes a `safety` object with `mode`, `source`,

@@ -9,6 +9,17 @@ const PACKAGE_BINS = {
   loo: "dist/packages/cli/src/index.js",
   "loo-mcp-server": "dist/packages/mcp-server/src/server.js"
 };
+const TOOL_TIERS = ["public_facade", "workflow_detail", "proof_debug", "internal_low_level"];
+const PUBLIC_FACADE_TOOLS = [
+  "loo_prepared_inbox",
+  "loo_describe_ref",
+  "loo_expand_query",
+  "loo_recent_sessions",
+  "loo_attention_inbox",
+  "loo_project_digest",
+  "loo_codex_control_dry_run",
+  "loo_codex_resume_thread"
+];
 
 function readJson(path: string): Record<string, unknown> {
   return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
@@ -52,4 +63,62 @@ test("OpenClaw plugin contracts match the exported loo tool declarations", () =>
     additionalProperties: false,
     properties: {}
   });
+});
+
+test("OpenClaw plugin contracts classify every tool into an operator surface tier", () => {
+  const manifest = readJson("openclaw.plugin.json");
+  const sourceManifest = readJson("packages/openclaw-plugin/openclaw.plugin.json");
+  const contracts = manifest.contracts as { toolDeclarations?: unknown; toolSurface?: unknown } | undefined;
+  const sourceContracts = sourceManifest.contracts as { toolDeclarations?: unknown; toolSurface?: unknown } | undefined;
+  const declarations = createLooToolDeclarations() as Array<{
+    name: string;
+    metadata?: {
+      tier?: unknown;
+      operatorPathRank?: unknown;
+      operatorPathRole?: unknown;
+    };
+  }>;
+
+  assert.equal(declarations.length > PUBLIC_FACADE_TOOLS.length, true, "expert/debug tools must remain declared");
+  for (const declaration of declarations) {
+    assert.equal(
+      TOOL_TIERS.includes(String(declaration.metadata?.tier)),
+      true,
+      `${declaration.name} must choose one supported tool tier`
+    );
+  }
+
+  const publicFacade = declarations
+    .filter((declaration) => declaration.metadata?.tier === "public_facade")
+    .sort((left, right) => Number(left.metadata?.operatorPathRank) - Number(right.metadata?.operatorPathRank));
+  assert.equal(publicFacade.length >= 6 && publicFacade.length <= 8, true, "public facade must stay compact");
+  assert.deepEqual(publicFacade.map((declaration) => declaration.name), PUBLIC_FACADE_TOOLS);
+  assert.deepEqual(publicFacade.map((declaration) => declaration.metadata?.operatorPathRank), [1, 2, 3, 4, 5, 6, 7, 8]);
+  for (const declaration of publicFacade) {
+    assert.equal(typeof declaration.metadata?.operatorPathRole, "string", `${declaration.name} must describe its facade role`);
+  }
+
+  for (const manifestContracts of [contracts, sourceContracts]) {
+    assert.deepEqual(manifestContracts?.toolDeclarations, declarations);
+    assert.deepEqual(
+      (manifestContracts?.toolSurface as { publicFacadeTools?: unknown } | undefined)?.publicFacadeTools,
+      PUBLIC_FACADE_TOOLS
+    );
+    assert.deepEqual(
+      (manifestContracts?.toolSurface as { tiers?: unknown } | undefined)?.tiers,
+      TOOL_TIERS
+    );
+    assert.match(
+      JSON.stringify((manifestContracts?.toolSurface as { namingPolicy?: unknown } | undefined)?.namingPolicy),
+      /#434/
+    );
+    assert.match(
+      JSON.stringify((manifestContracts?.toolSurface as { namingPolicy?: unknown } | undefined)?.namingPolicy),
+      /loo_/
+    );
+    assert.match(
+      JSON.stringify((manifestContracts?.toolSurface as { namingPolicy?: unknown } | undefined)?.namingPolicy),
+      /lco/i
+    );
+  }
 });

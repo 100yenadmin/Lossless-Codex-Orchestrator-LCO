@@ -18,6 +18,7 @@ const expectedScorecards = [
   "public-community-readiness-review",
   "retrieval-quality-review",
   "safety-bypass-review",
+  "tool-facade-usability-review",
   "working-app-runtime-proof-review"
 ];
 const liveControlScorecards = expectedScorecards

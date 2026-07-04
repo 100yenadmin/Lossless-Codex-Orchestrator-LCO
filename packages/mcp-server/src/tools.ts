@@ -78,11 +78,160 @@ export type LooTool = {
   name: string;
   description: string;
   safety: LooCommandSafety;
+  metadata: LooToolSurfaceMetadata;
   inputSchema: Record<string, unknown>;
   execute(input: Record<string, unknown>): Promise<unknown> | unknown;
 };
 
-export type LooToolDeclaration = Pick<LooTool, "name" | "description" | "safety" | "inputSchema">;
+export type LooToolTier = "public_facade" | "workflow_detail" | "proof_debug" | "internal_low_level";
+
+export type LooToolSurfaceMetadata = {
+  tier: LooToolTier;
+  operatorPathRank?: number;
+  operatorPathRole?: string;
+};
+
+export type LooToolSurfaceSummary = {
+  tiers: LooToolTier[];
+  publicFacadeTools: string[];
+  namingPolicy: {
+    canonicalPrefix: "loo_";
+    packageName: "lossless-openclaw-orchestrator";
+    compatibilityIssue: "#434";
+    aliasPolicy: string;
+  };
+  proofBoundary: string;
+};
+
+export type LooToolDeclaration = Pick<LooTool, "name" | "description" | "safety" | "metadata" | "inputSchema">;
+
+export const LOO_TOOL_TIERS: LooToolTier[] = ["public_facade", "workflow_detail", "proof_debug", "internal_low_level"];
+
+export const LOO_PUBLIC_FACADE_TOOLS = [
+  "loo_prepared_inbox",
+  "loo_describe_ref",
+  "loo_expand_query",
+  "loo_recent_sessions",
+  "loo_attention_inbox",
+  "loo_project_digest",
+  "loo_codex_control_dry_run",
+  "loo_codex_resume_thread"
+] as const;
+
+export const LOO_TOOL_SURFACE: Record<string, LooToolSurfaceMetadata> = {
+  loo_index_sessions: { tier: "workflow_detail" },
+  loo_search_sessions: { tier: "workflow_detail" },
+  loo_grep: { tier: "workflow_detail" },
+  loo_describe_session: { tier: "workflow_detail" },
+  loo_describe_ref: {
+    tier: "public_facade",
+    operatorPathRank: 2,
+    operatorPathRole: "Look up a specific session or source ref after the inbox identifies it."
+  },
+  loo_expand_session: { tier: "workflow_detail" },
+  loo_expand_query: {
+    tier: "public_facade",
+    operatorPathRank: 3,
+    operatorPathRole: "Expand one bounded evidence brief from a query when the ref is not known."
+  },
+  loo_summary_leaves: { tier: "workflow_detail" },
+  loo_summary_expand: { tier: "workflow_detail" },
+  loo_prepared_state_status: { tier: "workflow_detail" },
+  loo_prepared_cards: { tier: "workflow_detail" },
+  loo_prepared_inbox: {
+    tier: "public_facade",
+    operatorPathRank: 1,
+    operatorPathRole: "Start from the compact prepared-state operating picture."
+  },
+  loo_codex_thread_map: { tier: "workflow_detail" },
+  loo_codex_session_management_map: { tier: "workflow_detail" },
+  loo_recent_sessions: {
+    tier: "public_facade",
+    operatorPathRank: 4,
+    operatorPathRole: "Refresh recent or active session cards after reads or approved actions."
+  },
+  loo_cockpit_inbox: { tier: "workflow_detail" },
+  loo_codex_collaboration_cockpit: { tier: "workflow_detail" },
+  loo_codex_collaboration_next_steps: { tier: "workflow_detail" },
+  loo_codex_runtime_desktop_visibility_status: { tier: "workflow_detail" },
+  loo_codex_active_thread_state: { tier: "workflow_detail" },
+  loo_codex_autonomy_tick: { tier: "workflow_detail" },
+  loo_codex_desktop_collaboration_proof: { tier: "proof_debug" },
+  loo_watchers_list: { tier: "workflow_detail" },
+  loo_watcher_status: { tier: "workflow_detail" },
+  loo_watcher_dry_run: { tier: "workflow_detail" },
+  loo_watcher_events: { tier: "workflow_detail" },
+  loo_resume_request_packet: { tier: "workflow_detail" },
+  loo_codex_app_server_status: { tier: "proof_debug" },
+  loo_codex_app_server_threads: { tier: "internal_low_level" },
+  loo_visible_codex_map: { tier: "proof_debug" },
+  loo_codex_desktop_coherence: { tier: "proof_debug" },
+  loo_codex_desktop_fallback_status: { tier: "proof_debug" },
+  loo_plan_state_pins: { tier: "workflow_detail" },
+  loo_github_operating_items: { tier: "workflow_detail" },
+  loo_project_digest: {
+    tier: "public_facade",
+    operatorPathRank: 6,
+    operatorPathRole: "Create a bounded provenance and handoff digest from available operating inputs."
+  },
+  loo_attention_inbox: {
+    tier: "public_facade",
+    operatorPathRank: 5,
+    operatorPathRole: "Review the compact attention queue before choosing a next action."
+  },
+  loo_business_pulse: { tier: "workflow_detail" },
+  loo_codex_final_messages: { tier: "workflow_detail" },
+  loo_codex_plans: { tier: "workflow_detail" },
+  loo_codex_touched_files: { tier: "workflow_detail" },
+  loo_codex_tool_calls: { tier: "workflow_detail" },
+  loo_closeout_dry_run: { tier: "workflow_detail" },
+  loo_session_sanitizer: { tier: "proof_debug" },
+  loo_codex_sqlite_stores: { tier: "internal_low_level" },
+  loo_lcm_peer_dbs: { tier: "internal_low_level" },
+  loo_codex_control_dry_run: {
+    tier: "public_facade",
+    operatorPathRank: 7,
+    operatorPathRole: "Create the exact dry-run action packet and approval hashes before live control."
+  },
+  loo_codex_start_thread: { tier: "workflow_detail" },
+  loo_codex_resume_thread: {
+    tier: "public_facade",
+    operatorPathRank: 8,
+    operatorPathRole: "Run the approved resume action only after a matching dry-run audit id."
+  },
+  loo_codex_send_message: { tier: "workflow_detail" },
+  loo_codex_steer_thread: { tier: "workflow_detail" },
+  loo_codex_interrupt_thread: { tier: "workflow_detail" },
+  loo_desktop_see: { tier: "proof_debug" },
+  loo_desktop_act: { tier: "proof_debug" },
+  loo_desktop_proof_report: { tier: "proof_debug" },
+  loo_desktop_live_proof_harness: { tier: "proof_debug" },
+  loo_desktop_proof_action: { tier: "proof_debug" },
+  loo_doctor: { tier: "proof_debug" },
+  loo_permissions: { tier: "proof_debug" },
+  loo_audit_tail: { tier: "proof_debug" }
+};
+
+export function createLooToolSurfaceSummary(): LooToolSurfaceSummary {
+  return {
+    tiers: LOO_TOOL_TIERS,
+    publicFacadeTools: publicFacadeToolNames(),
+    namingPolicy: {
+      canonicalPrefix: "loo_",
+      packageName: "lossless-openclaw-orchestrator",
+      compatibilityIssue: "#434",
+      aliasPolicy: "The historical `loo_` tool prefix remains canonical and backward compatible. `lco` may be used in prose as the product abbreviation, but this issue does not rename or duplicate tools to `lco_*`; any alias work belongs with #434."
+    },
+    proofBoundary: "This metadata defines recommended operator tiers only. It does not remove tools, hide expert/debug surfaces, loosen approvals, run live Codex control, mutate a GUI, publish npm, or create GitHub releases."
+  };
+}
+
+function publicFacadeToolNames(): string[] {
+  return Object.entries(LOO_TOOL_SURFACE)
+    .filter(([, metadata]) => metadata.tier === "public_facade")
+    .sort((left, right) => Number(left[1].operatorPathRank) - Number(right[1].operatorPathRank))
+    .map(([name]) => name);
+}
 
 export type PublicSafeToolValidationFailure = {
   ok: false;
@@ -124,7 +273,7 @@ export function createLooToolDeclarations(): LooToolDeclaration[] {
     db: {} as LooDatabase,
     audit: metadataOnlyAudit,
     codexClient: metadataOnlyCodexClient
-  }).map(({ name, description, safety, inputSchema }) => ({ name, description, safety, inputSchema }));
+  }).map(({ name, description, safety, metadata, inputSchema }) => ({ name, description, safety, metadata, inputSchema }));
 }
 
 export async function executeLooToolForOpenClaw(tool: LooTool, input: Record<string, unknown>): Promise<unknown> {
@@ -870,10 +1019,13 @@ const SAFE_VALIDATION_MESSAGES = new Set([
 function tool(name: string, description: string, properties: Record<string, unknown>, execute: LooTool["execute"]): LooTool {
   const safety = LOO_COMMAND_POLICY[name];
   if (!safety) throw new Error(`Missing LOO command policy for ${name}`);
+  const metadata = LOO_TOOL_SURFACE[name];
+  if (!metadata) throw new Error(`Missing LOO tool surface metadata for ${name}`);
   return {
     name,
     description,
     safety,
+    metadata,
     inputSchema: { type: "object", additionalProperties: false, properties },
     execute
   };
