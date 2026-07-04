@@ -111,6 +111,14 @@ export type PublishedPackageSmokeReport = {
   proofBoundary: string;
 };
 
+const READINESS_SEMANTICS = Object.freeze({
+  okField: "packagePathOk",
+  strictModeExitsOn: "packagePathOk_false",
+  gatewayReadyStrictExitsOn: "publishedSmokeReady_false",
+  cleanProfileGatewayReadyField: "publishedSmokeReady",
+  configuredGatewayProofSeparate: true
+} as const);
+
 export function createPublishedPackageSmokeReport(options: PublishedPackageSmokeOptions): PublishedPackageSmokeReport {
   const rootDir = options.rootDir
     ? resolve(options.rootDir)
@@ -174,18 +182,11 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
     setupBlockers,
     npmInstallDiagnostic
   });
-  const readinessSemantics = Object.freeze({
-    okField: "packagePathOk",
-    strictModeExitsOn: "packagePathOk_false",
-    gatewayReadyStrictExitsOn: "publishedSmokeReady_false",
-    cleanProfileGatewayReadyField: "publishedSmokeReady",
-    configuredGatewayProofSeparate: true
-  } as const);
   const report: PublishedPackageSmokeReport = {
     ok: packagePathOk,
     publishedSmokeReady: packagePathOk && toolSmokeReady,
     packagePathOk,
-    readinessSemantics,
+    readinessSemantics: READINESS_SEMANTICS,
     publicSafe: true,
     localOnly: true,
     dryRun: true,
