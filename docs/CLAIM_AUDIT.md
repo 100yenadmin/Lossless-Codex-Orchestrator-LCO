@@ -39,6 +39,13 @@ Claude Code is an adapter stub in this beta. Public docs may mention the stub, b
   over approved prepared-card and summary-leaf refs; it does not call a model,
   read raw transcripts, feed current `safe_text`, or claim true compaction.
 
+Compaction hook sidecars are marker-only. Public and release-facing copy may say
+`compaction observed`, but must not claim the generated compaction summary was
+captured until Codex-native sanitized packet support exists. The proposal and
+claim-audit fixture live in
+[docs/CODEX_NATIVE_COMPACTION_CAPTURE.md](CODEX_NATIVE_COMPACTION_CAPTURE.md)
+and `evals/scenarios/v1/codex-native-compaction-capture-proposal-v1.json`.
+
 ## Working App Proof Boundary
 
 Milestone 7 introduces a stricter working-app target in

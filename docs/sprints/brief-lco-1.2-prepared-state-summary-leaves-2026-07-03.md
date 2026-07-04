@@ -14,7 +14,11 @@ and approval boundaries.
 
 Model compaction, true Codex compaction-summary capture, and automatic hook
 execution are staged follow-ups after the deterministic layer proves privacy,
-authority, and performance.
+authority, and performance. The Codex-native compaction proposal is
+[docs/CODEX_NATIVE_COMPACTION_CAPTURE.md](../CODEX_NATIVE_COMPACTION_CAPTURE.md)
+with dry-run claim-audit fixture
+`codex-native-compaction-capture-proposal-v1`; public wording remains
+`compaction observed` until sanitized Codex-native packet support exists.
 
 ## Durable Plan Contract
 
@@ -169,7 +173,12 @@ Child issues:
 9. Optional local model compaction spike, gated behind explicit config and
    canary tests.
 10. Codex-native compaction-summary capture proposal or adapter, separate from
-    the LCO public claim.
+    the LCO public claim; issue #415 uses
+    [docs/CODEX_NATIVE_COMPACTION_CAPTURE.md](../CODEX_NATIVE_COMPACTION_CAPTURE.md)
+    and `codex-native-compaction-capture-proposal-v1` to require sanitized
+    `CompactionCaptured` or enriched `PostCompact` packets before advisory
+    summary leaves can claim refs, omissions, summary hash, excerpt, or token
+    count.
 11. Beta release gate and public-claim audit.
 
 ## Adversarial Review Summary

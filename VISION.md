@@ -24,7 +24,7 @@ The current target is:
 - Keep prepared state as advisory cache: cards, inbox items, and summary leaves route an agent to source refs; they do not become authority for PR/CI/release/runtime/customer truth.
 - Classify mutations explicitly: pure reads use empty `mutationClasses`, LCO-owned indexing/audit/prepared-state writes use `mode: "local_cache_write"` with `derived_cache`, and source-store, external-system, live-control, GUI, release, and npm mutations stay non-default.
 - Add source ranges and summary leaves as an additive DB layer behind the existing search/describe/expand tools instead of rewriting the current session-level DB in one migration. Source ranges are the first 1.2 proof slice; summary leaves sit on top as metadata-only routing/evidence cards with bounded DAG expansion.
-- Treat Codex compaction hooks outside Codex as marker capture only. True compaction-summary capture waits for Codex-native sanitized summary support.
+- Treat Codex compaction hooks outside Codex as marker capture only. True compaction-summary capture waits for Codex-native sanitized summary support. The proposal is [docs/CODEX_NATIVE_COMPACTION_CAPTURE.md](docs/CODEX_NATIVE_COMPACTION_CAPTURE.md) and its dry-run claim-audit contract is `codex-native-compaction-capture-proposal-v1`.
 - Keep model compaction opt-in and behind a later spike. It must not receive raw transcripts or current `safe_text` by default.
 - Keep README, VISION, release notes, and scorecards current so completed release gates are recorded as completed proof, not active work.
 - Treat #307/#308 as completed proof for Desktop-visible classification and fallback readiness/status, not as proof of Codex GUI mutation, prompt typing, clicking, refresh/restart automation, or unattended visible collaboration.
@@ -264,6 +264,7 @@ Core eval scenarios:
 - Prove the Milestone 7 working-app runtime path from `evals/scenarios/v1.1`: installed gateway, approved live Codex action, post-action refresh, and safe agent reasoning.
 - Prove `runtime-desktop-visibility-status-v1-1` when a release claim needs one compact lane-level Desktop visibility status report, while keeping actual GUI mutation and unattended collaboration out of scope.
 - Keep Claude Code behind the inventory in [docs/CLAUDE_ADAPTER_BOUNDARY.md](docs/CLAUDE_ADAPTER_BOUNDARY.md): the first adapter proof step is read-only session inventory, not control or parity.
+- Run `codex-native-compaction-capture-proposal-v1` when auditing the future Codex-native compaction packet: outside-Codex markers stay on `compaction observed`, while sanitized `CompactionCaptured` or enriched `PostCompact` packets may only create advisory summary leaves with refs and omissions.
 
 ## Adversarial Milestone Sweeps
 
