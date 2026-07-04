@@ -126,7 +126,9 @@ test("OpenClaw plugin contracts classify every tool into an operator surface tie
     assert.equal(toolSurface?.desktopFallback?.bundledByLco, false);
     assert.equal(toolSurface?.desktopFallback?.secondaryBackend, "peekaboo");
     assert.match(String(toolSurface?.desktopFallback?.missingPreferredBackendBehavior), /read\/search\/describe/);
-    assert.match(String(toolSurface?.desktopFallback?.proofBoundary), /re-read the Codex composer value before send/);
+    assert.match(String(toolSurface?.desktopFallback?.proofBoundary), /cua-driver mcp --help/);
+    assert.match(String(toolSurface?.desktopFallback?.proofBoundary), /do not validate a composer read-back field/);
+    assert.match(String(toolSurface?.desktopFallback?.proofBoundary), /composer send approval/);
     assert.match(String(toolSurface?.desktopFallback?.proofBoundary), /No generic GUI mutation/);
   }
 });

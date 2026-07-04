@@ -347,7 +347,7 @@ Peekaboo remains a secondary visible fallback for explicit read-only
 observation.
 
 Install or update CUA Driver through its own distribution channel, then verify
-that the daemon entrypoint is available:
+that the daemon entrypoint launches and inspect LCO's readiness view separately:
 
 ```bash
 cua-driver mcp --help
@@ -363,12 +363,12 @@ loo desktop see peekaboo --snapshot --max-nodes 50
 
 The desktop fallback surface reports readiness and blockers. For CUA readiness,
 check the CUA daemon permissions rather than assuming Terminal permissions are
-enough. Action-bound Codex fallback smoke must re-read the composer after text
-insertion and verify the expected value before send; a CUA `type_text` success
-payload alone is not sufficient proof for Electron/Codex composer writes. The
-fallback surface does not grant generic GUI mutation, unattended control,
-prompt typing, clicking, no-focus behavior, or release readiness without an
-explicit action-bound proof packet.
+enough. The current LCO proof report and live-proof harness do not validate a
+Codex composer read-back field, so do not treat a CUA `type_text` success
+payload or ready desktop proof packet as proof that the inserted composer value
+was verified. The fallback surface does not grant generic GUI mutation,
+unattended control, prompt typing, clicking, no-focus behavior, composer send
+approval, or release readiness without an explicit action-bound proof packet.
 
 ## 10. Troubleshooting
 

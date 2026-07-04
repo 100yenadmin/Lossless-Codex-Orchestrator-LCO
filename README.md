@@ -261,9 +261,10 @@ clicking, refresh/restart automation, or arbitrary app control.
 
 Desktop fallback readiness is optional for normal read/search/describe
 workflows. Operators who need fallback control should install CUA Driver
-separately, verify `cua-driver mcp` availability through `loo doctor --json` or
-`loo desktop see cua-driver`, and treat missing CUA as a desktop-fallback
-readiness blocker rather than a package install failure.
+separately, verify the launch entrypoint with `cua-driver mcp --help`, then use
+`loo doctor --json` or `loo desktop see cua-driver` only for LCO readiness and
+blocker reporting. Treat missing CUA as a desktop-fallback readiness blocker
+rather than a package install failure.
 
 Claude adapter proof boundaries live in
 [docs/CLAUDE_ADAPTER_BOUNDARY.md](docs/CLAUDE_ADAPTER_BOUNDARY.md). Public
