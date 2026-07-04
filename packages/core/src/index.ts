@@ -3181,7 +3181,7 @@ function getPreparedSourceRangesForSummaryMaterialization(
     "event_ref LIKE 'codex_event:%'",
     "length(event_ref) = 44",
     "substr(event_ref, 13) NOT GLOB '*[^0-9a-f]*'",
-    "source_ref LIKE 'codex_thread:%'",
+    "(source_ref LIKE 'codex_thread:%' OR source_ref LIKE 'codex_subagent_result:%')",
     "length(source_ref) BETWEEN 14 AND 173",
     "source_ref NOT LIKE '%/%'",
     "source_ref NOT LIKE '%\\%'",
@@ -3767,7 +3767,7 @@ export function getPreparedStateStatus(db: LooDatabase): PreparedStateStatusRepo
     readOnly: true,
     generatedAt: new Date().toISOString(),
     sourceCoverage: {
-      summaryLeaves: leaves > 0 ? "ok" : "not_configured",
+      summaryLeaves: preparedSummaryLeafCoverage(db),
       preparedCards: cardsReport.sourceCoverage.preparedCards,
       preparedInboxItems: inboxReport.sourceCoverage.preparedInboxItems,
       watcherObservations: watcherObservationCoverage(db)
@@ -3851,14 +3851,22 @@ export function getPreparedCards(db: LooDatabase, options: PreparedCardsOptions 
     limitOmissions > 0 ? "limit" : null,
     filteredUnsafeRows > 0 ? "filtered_unsafe_rows" : null
   ].filter((reason): reason is "limit" | "filtered_unsafe_rows" => Boolean(reason));
+  const summaryLeavesCoverage = preparedSummaryLeafCoverage(db, options.threadId);
+  const preparedCardsCoverage: PreparedStateCoverage = filteredUnsafeRows > 0
+    ? "partial"
+    : validTotal > 0
+      ? "ok"
+      : total > 0 || summaryLeavesCoverage === "ok" || summaryLeavesCoverage === "partial"
+        ? "partial"
+        : "not_configured";
   return {
     schema: "lco.prepared.cards.v1",
     publicSafe: true,
     readOnly: true,
     generatedAt: new Date().toISOString(),
     sourceCoverage: {
-      preparedCards: filteredUnsafeRows > 0 ? "partial" : validTotal > 0 ? "ok" : total > 0 ? "partial" : "not_configured",
-      summaryLeaves: preparedSummaryLeafCoverage(db, options.threadId),
+      preparedCards: preparedCardsCoverage,
+      summaryLeaves: summaryLeavesCoverage,
       watcherObservations: options.threadId ? watcherObservationCoverageForTarget(db, codexThreadRef(options.threadId)) : watcherObservationCoverage(db)
     },
     summary: {
@@ -3920,8 +3928,8 @@ export function getPreparedInbox(db: LooDatabase, options: PreparedInboxOptions 
     if (item.reasonCodes.includes("low_confidence")) lowConfidence += 1;
     if (validItems.length < limit) validItems.push(item);
   }
-  const inboxCoverage: PreparedStateCoverage = validTotal > 0 ? "ok" : rows.length > 0 ? "partial" : "not_configured";
   const cardsCoverage = getPreparedCards(db, { threadId: options.threadId, limit: 1 }).sourceCoverage.preparedCards;
+  const inboxCoverage: PreparedStateCoverage = validTotal > 0 ? "ok" : rows.length > 0 || cardsCoverage === "partial" ? "partial" : "not_configured";
   return {
     schema: "lco.prepared.inbox.v1",
     publicSafe: true,
@@ -4514,6 +4522,22 @@ function preparedSummaryLeafCoverage(db: LooDatabase, threadId?: string): Prepar
     params.push(threadId);
   }
   const count = Number((db.prepare(`SELECT COUNT(*) AS count FROM summary_leaves WHERE ${clauses.join(" AND ")}`).get(...params) as { count: number }).count);
+  if (count > 0) return "ok";
+  return preparedSourceRangeCoverage(db, threadId) === "ok" ? "partial" : "not_configured";
+}
+
+function preparedSourceRangeCoverage(db: LooDatabase, threadId?: string): PreparedStateCoverage {
+  const clauses = [
+    "extractor_version = ?",
+    "privacy_class = 'public_safe_metadata'",
+    "omission_status = 'metadata_only'"
+  ];
+  const params: Array<string | number> = [PREPARED_SOURCE_EXTRACTOR_VERSION];
+  if (threadId) {
+    clauses.push("thread_id = ?");
+    params.push(threadId);
+  }
+  const count = Number((db.prepare(`SELECT COUNT(*) AS count FROM prepared_source_ranges WHERE ${clauses.join(" AND ")}`).get(...params) as { count: number }).count);
   return count > 0 ? "ok" : "not_configured";
 }
 
@@ -4527,8 +4551,21 @@ function isPreparedCardState(value: string): value is PreparedCardState {
 
 function isPublicPreparedSourceRef(value: string): boolean {
   if (value.startsWith("codex_thread:")) return isPublicSummaryThreadId(value.slice("codex_thread:".length));
+  if (value.startsWith("codex_subagent_result:")) return isPublicCodexSubagentResultRef(value);
   if (value.startsWith("summary_leaf:")) return isPublicSummaryLeafRef(value);
   return false;
+}
+
+function isPublicCodexSubagentResultRef(value: string): boolean {
+  const encodedId = value.slice("codex_subagent_result:".length);
+  if (!/^[A-Za-z0-9._:%-]{1,200}$/.test(encodedId)) return false;
+  let decodedId = encodedId;
+  try {
+    decodedId = decodeURIComponent(encodedId);
+  } catch {
+    return false;
+  }
+  return /^[A-Za-z0-9._:-]{1,160}$/.test(decodedId) && !looksSensitiveRefLike(decodedId);
 }
 
 function preparedCardConfidence(averageLeafConfidence: number, state: PreparedCardState): number {
@@ -5244,7 +5281,7 @@ function buildSummaryLeafDrafts(ranges: PreparedSourceRange[]): SummaryLeafDraft
     const [, leafKind] = key.split("|");
     const sorted = group.sort((left, right) => left.ordinal - right.ordinal || left.rangeRef.localeCompare(right.rangeRef));
     const threadId = sorted[0]?.threadId ?? null;
-    const sourceRefs = unique(sorted.map((range) => range.sourceRef)).sort();
+    const sourceRefs = unique([threadId ? codexThreadRef(threadId) : null, ...sorted.map((range) => range.sourceRef)].filter((ref): ref is string => Boolean(ref))).sort();
     const fullSourceRangeRefs = unique(sorted.map((range) => range.rangeRef)).sort();
     const sourceRangeRefs = fullSourceRangeRefs.slice(0, SUMMARY_LEAF_SOURCE_RANGE_REF_LIMIT);
     const inputHash = stableId(sorted.map((range) => `${range.rangeRef}:${range.contentHash}`).join("|"));
@@ -5478,7 +5515,7 @@ function isPublicSummaryLeafRow(row: SummaryLeafRow, sourceRefs: string[], sourc
     && isSummaryLeafKind(row.leafKind)
     && isPublicSummaryThreadId(threadId)
     && sourceRefs.length > 0
-    && sourceRefs.every((ref) => /^codex_thread:[A-Za-z0-9._:-]{1,160}$/.test(ref) && !looksSensitiveRefLike(ref))
+    && sourceRefs.every(isPublicPreparedSourceRef)
     && sourceRefs.includes(codexThreadRef(threadId))
     && sourceRangeRefs.length > 0
     && sourceRangeRefs.every((ref) => /^codex_range:[0-9a-f]{32}$/.test(ref))
