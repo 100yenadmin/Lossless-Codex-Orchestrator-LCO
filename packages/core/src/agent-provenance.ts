@@ -32,7 +32,7 @@ export type AgentProvenanceRecord = {
 };
 
 export type AgentProvenanceFinding = {
-  patternClass: "connector_url" | "local_path" | "raw_transcript" | "secret" | "unsafe_value";
+  patternClass: "connector_url" | "local_path" | "raw_transcript" | "secret";
   sourceRef: string;
   field: string | null;
   fingerprint: string;
@@ -77,9 +77,8 @@ type ProvenanceFields = {
 };
 
 const HIDDEN_MARKER_PATTERN = /<!--\s*lco-agent-provenance\s+([\s\S]*?)-->/g;
-const ATTRIBUTE_PATTERN = /([A-Za-z_][A-Za-z0-9_-]*)=("[^"]*"|'[^']*'|[^\s>]+)/g;
-const LOCAL_PATH_PATTERN = /(?:\/Users\/[^\s`'"<>]+|\/Volumes\/[^\s`'"<>]+|~\/(?:\.codex|Library|Documents|Desktop)\/[^\s`'"<>]+)/g;
-const SECRET_PATTERN = /\b(?:sk-[A-Za-z0-9_-]{10,}|gh[pousr]_[A-Za-z0-9_]{10,}|github_pat_[A-Za-z0-9_]{10,}|npm_[A-Za-z0-9_]{10,}|PRIVATE_CANARY[A-Za-z0-9_:-]*)\b/g;
+const LOCAL_PATH_PATTERN = /(?:\/Users\/[^\s`'"<>]+|\/Volumes\/[^\s`'"<>]+|\/home\/[^\s`'"<>]+|\/root(?:\/[^\s`'"<>]+)?|~\/(?:\.codex|Library|Documents|Desktop)\/[^\s`'"<>]+|[A-Za-z]:\\Users\\[^\s`'"<>]+)/g;
+const SECRET_PATTERN = /\b(?:sk-[A-Za-z0-9_-]{10,}|gh[pousr]_[A-Za-z0-9_]{10,}|github_pat_[A-Za-z0-9_]{10,}|npm_[A-Za-z0-9_]{10,}|AKIA[0-9A-Z]{16}|xox[abprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{20,}|Bearer\s+eyJ[A-Za-z0-9_-]{10,}(?:\.[A-Za-z0-9_-]{10,}){1,2}|PRIVATE_CANARY[A-Za-z0-9_:-]*)\b/g;
 const CONNECTOR_URL_PATTERN = /\b(?:app|connector):\/\/[^\s`'"<>]+/g;
 const RAW_TRANSCRIPT_PATTERN = /\bRAW_TRANSCRIPT_CANARY[^\r\n]*/g;
 
@@ -137,9 +136,9 @@ function parseHiddenMarkers(text: string, sourceKind: AgentProvenanceSourceKind,
 
 function hiddenMarkerFields(rawAttributes: string): ProvenanceFields {
   const fields: ProvenanceFields = {};
-  for (const match of rawAttributes.matchAll(ATTRIBUTE_PATTERN)) {
-    const key = normalizeKey(match[1] ?? "");
-    const value = stripQuotes(match[2] ?? "");
+  for (const attribute of parseHiddenAttributes(rawAttributes)) {
+    const key = normalizeKey(attribute.key);
+    const value = attribute.value;
     if (key === "repo") fields.repo = value;
     if (key === "issue" || key === "issues" || key === "target_issue" || key === "target_issues") fields.issues = appendTokenList(fields.issues, value);
     if (key === "pr" || key === "prs" || key === "pull_request" || key === "pull_requests") fields.pullRequests = appendTokenList(fields.pullRequests, value);
@@ -153,6 +152,40 @@ function hiddenMarkerFields(rawAttributes: string): ProvenanceFields {
     if (key === "model") fields.model = value;
   }
   return fields;
+}
+
+function parseHiddenAttributes(rawAttributes: string): Array<{ key: string; value: string }> {
+  const attributes: Array<{ key: string; value: string }> = [];
+  let index = 0;
+  while (index < rawAttributes.length) {
+    while (/\s/.test(rawAttributes[index] ?? "")) index += 1;
+    const keyMatch = /^[A-Za-z_][A-Za-z0-9_-]*/.exec(rawAttributes.slice(index));
+    if (!keyMatch) {
+      index += 1;
+      continue;
+    }
+    const key = keyMatch[0];
+    index += key.length;
+    while (/\s/.test(rawAttributes[index] ?? "")) index += 1;
+    if (rawAttributes[index] !== "=") continue;
+    index += 1;
+    while (/\s/.test(rawAttributes[index] ?? "")) index += 1;
+
+    const quote = rawAttributes[index];
+    if (quote === "\"" || quote === "'") {
+      index += 1;
+      const start = index;
+      while (index < rawAttributes.length && rawAttributes[index] !== quote) index += 1;
+      attributes.push({ key, value: rawAttributes.slice(start, index) });
+      if (rawAttributes[index] === quote) index += 1;
+      continue;
+    }
+
+    const start = index;
+    while (index < rawAttributes.length && !/\s|>/.test(rawAttributes[index] ?? "")) index += 1;
+    attributes.push({ key, value: rawAttributes.slice(start, index) });
+  }
+  return attributes;
 }
 
 function parseVisibleBlocks(text: string, sourceKind: AgentProvenanceSourceKind, sourceRef: string): AgentProvenanceRecord[] {
@@ -175,11 +208,17 @@ function parseVisibleBlocks(text: string, sourceKind: AgentProvenanceSourceKind,
 
 function assignVisibleField(fields: ProvenanceFields, label: string, value: string): void {
   const key = normalizeKey(label);
+  if (key === "repo" || key === "repository") fields.repo = value;
   if (key === "orchestrator_thread" || key === "parent_thread") fields.parentThread = value;
   if (key === "worker_thread") fields.workerThread = value;
   if (key === "agent_role_name" || key === "agent_role" || key === "agent_name") fields.agentRole = value;
   if (key === "model") fields.model = value;
   if (key === "target_issues" || key === "target_issue_s") fields.issues = appendTokenList(fields.issues, value);
+  if (key === "pull_request" || key === "pull_requests" || key === "pr" || key === "prs") {
+    fields.pullRequests = appendTokenList(fields.pullRequests, extractPullRequestTokens(value).join(" ") || value);
+  }
+  if (key === "branch") fields.branch = value;
+  if (key === "commit" || key === "sha") fields.commit = value;
   if (key === "pr_branch" || key === "pr_or_branch") {
     const pullRequests = extractPullRequestTokens(value);
     if (pullRequests.length > 0) {
@@ -189,7 +228,7 @@ function assignVisibleField(fields: ProvenanceFields, label: string, value: stri
     }
   }
   if (key === "final_turn_id" || key === "final_turn") fields.finalTurnId = value;
-  if (key === "evidence_packet" || key === "evidence") fields.evidenceRef = value;
+  if (key === "evidence_packet" || key === "evidence" || key === "evidence_ref") fields.evidenceRef = value;
 }
 
 function createRecord(
@@ -205,7 +244,7 @@ function createRecord(
     sourceRef,
     repo: normalizeRepo(fields.repo ?? "") ?? null,
     targetIssues: uniqueNumbers(extractNumbers(fields.targetIssues ?? fields.issues ?? "")),
-    pullRequests: uniqueNumbers(extractNumbers(fields.pullRequests ?? fields.pr ?? "")),
+    pullRequests: extractPullRequestNumbers(fields.pullRequests ?? fields.pr ?? ""),
     parentThreadId: normalizeThreadId(fields.parentThread ?? ""),
     workerThreadId: normalizeThreadId(fields.workerThread ?? ""),
     branch: normalizeBranch(fields.branch ?? ""),
@@ -237,12 +276,12 @@ function matchesForPattern(
 ): AgentProvenanceFinding[] {
   const findings: AgentProvenanceFinding[] = [];
   for (const match of text.matchAll(pattern)) {
-    const value = match[0] ?? "";
+    const position = match.index ?? findings.length;
     findings.push({
       patternClass,
       sourceRef,
       field,
-      fingerprint: `sha256:${createHash("sha256").update(`${patternClass}:${value}`).digest("hex").slice(0, 24)}`,
+      fingerprint: `match-position:${position}`,
       evidencePreview
     });
   }
@@ -306,6 +345,7 @@ function normalizeEvidenceRef(value: string): string | null {
   if (!trimmed || trimmed === "none" || trimmed === "unavailable") return null;
   if (hasUnsafeCanary(trimmed)) return null;
   if (/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/(?:issues|pull)\/\d+(?:#[-A-Za-z0-9_]+)?$/.test(trimmed)) return trimmed;
+  if (/^artifact:[A-Za-z0-9._:#/ >-]{1,220}$/.test(trimmed)) return trimmed;
   if (/^(?:github_issue|github_pr|github_issue_comment|codex_thread|artifact):[A-Za-z0-9._:#/-]{1,220}$/.test(trimmed)) return trimmed;
   return null;
 }
@@ -313,7 +353,7 @@ function normalizeEvidenceRef(value: string): string | null {
 function normalizeShortPublicText(value: string): string | null {
   const trimmed = stripMarkdownValue(value);
   if (!trimmed || hasUnsafeCanary(trimmed)) return null;
-  const cleaned = trimmed.replace(/[^\w .:/@+-]/g, "").replace(/\s+/g, " ").trim();
+  const cleaned = trimmed.replace(/[^\w .:/@+>,-]/g, "").replace(/\s+/g, " ").trim();
   return cleaned.slice(0, 120) || null;
 }
 
@@ -338,7 +378,16 @@ function extractNumbers(value: string): number[] {
 }
 
 function extractPullRequestTokens(value: string): string[] {
+  if (/^\s*#?\d+\s*$/.test(value)) return [(value.match(/\d+/)?.[0] ?? "")].filter(Boolean);
   return [...value.matchAll(/(?:\/pull\/|#)(\d+)/g)].map((match) => match[1] ?? "").filter(Boolean);
+}
+
+function extractPullRequestNumbers(value: string): number[] {
+  const pullRequestTokens = extractPullRequestTokens(value);
+  const numbers = pullRequestTokens.length > 0
+    ? pullRequestTokens.map((token) => Number(token))
+    : extractNumbers(value);
+  return uniqueNumbers(numbers.filter((number) => Number.isSafeInteger(number) && number > 0));
 }
 
 function uniqueNumbers(values: number[]): number[] {
