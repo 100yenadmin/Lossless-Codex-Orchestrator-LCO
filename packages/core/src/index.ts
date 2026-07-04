@@ -6916,6 +6916,7 @@ function collaborationNextStepForLane(
       toolCall: collaborationToolCall("loo_codex_desktop_coherence", {
         thread_id: threadId,
         source_ref: sourceRef,
+        action_evidence: collaborationPublicSafeActionEvidenceArg(input.coherence.actionEvidence),
         include_app_server: true,
         include_visible_snapshot: false,
         limit: 20
@@ -7735,6 +7736,21 @@ function collaborationPublicSafeCoherenceArg(
   };
 }
 
+function collaborationPublicSafeActionEvidenceArg(input: unknown): Record<string, unknown> | undefined {
+  if (!isObjectRecord(input)) return undefined;
+  const evidence = publicCodexDesktopActionEvidence(input);
+  if (evidence.actionKind === "none" || evidence.actionKind === "unknown") return undefined;
+  return {
+    action_kind: evidence.actionKind,
+    action: evidence.action ?? undefined,
+    dry_run: evidence.dryRun ?? undefined,
+    live: evidence.live ?? undefined,
+    approval_audit_id_present: evidence.approvalAuditIdPresent,
+    evidence_id: evidence.evidenceId ?? undefined,
+    observed_at: evidence.observedAt ?? undefined
+  };
+}
+
 function collaborationPublicSafeWatchSpecArg(spec: WatchSpec): Record<string, unknown> {
   return {
     schema: "lco.watchSpec.v1",
@@ -8127,7 +8143,7 @@ export function createCodexDesktopCoherenceReport(options: CodexDesktopCoherence
   const desktopVisibleCurrent = current?.desktopVisible === true;
   const desktopVisibleAfter = after?.desktopVisible === true;
   const desktopVisible = desktopVisibleBefore || desktopVisibleCurrent || desktopVisibleAfter;
-  const desktopGuiObservationSupplied = actionEvidence.actionKind === "desktop_gui_observation" && actionEvidence.live === true;
+  const desktopGuiObservationSupplied = actionEvidence.actionKind === "desktop_gui_observation" && actionEvidence.live === true && actionEvidence.dryRun === false;
   const postObservationReadStateEvidence = desktopGuiObservationSupplied && codexDesktopHasPostObservationReadStateEvidence([currentMap, afterMap], sourceRef, actionEvidence.observedAt);
   const readStatePostObservationEvidencePending = desktopGuiObservationSupplied && !desktopVisible && !ambiguous && !postObservationReadStateEvidence;
   const guiPersistedReadStateStale = desktopGuiObservationSupplied && postObservationReadStateEvidence && cliVisible && !desktopVisible && !ambiguous;
@@ -8974,6 +8990,7 @@ function codexDesktopReadStateFreshnessMillis(map: unknown, sourceRef: string | 
   const matched = sourceRef
     ? map.items.filter((item) => visibleMapItemMatchesTarget(item, sourceRef))
     : [];
+  if (matched.length === 0) return null;
   const timestamps = [
     map.generatedAt,
     ...matched.flatMap(codexDesktopMapItemReadTimestamps)

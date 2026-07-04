@@ -1651,6 +1651,14 @@ test("Codex collaboration cockpit routes stale GUI read-state to reconciliation 
         "gui_persisted_read_state_stale",
         "read_state_stale_after_gui_observation"
       ],
+      actionEvidence: {
+        actionKind: "desktop_gui_observation",
+        action: "CUA selected target thread and observed JSONL task_complete ack",
+        dryRun: false,
+        live: true,
+        evidenceId: "ev_cua_ack",
+        observedAt: "2026-07-02T00:00:00.000Z"
+      },
       actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
     }];
     const desktopFallbackReports = [{
@@ -1695,6 +1703,15 @@ test("Codex collaboration cockpit routes stale GUI read-state to reconciliation 
     assert.equal(step.toolCall?.args.source_ref, "codex_thread:019f-collab-read-state-stale");
     assert.equal(step.toolCall?.args.include_app_server, true);
     assert.equal(step.toolCall?.args.include_visible_snapshot, false);
+    assert.deepEqual(step.toolCall?.args.action_evidence, {
+      action_kind: "desktop_gui_observation",
+      action: "CUA selected target thread and observed JSONL task_complete ack",
+      dry_run: false,
+      live: true,
+      approval_audit_id_present: false,
+      evidence_id: "ev_cua_ack",
+      observed_at: "2026-07-02T00:00:00.000Z"
+    });
     assert.equal(step.reasonCodes.includes("read_state_reconciliation_required"), true);
     assert.equal(step.reasonCodes.includes("desktop_fallback_status_required"), false);
   });

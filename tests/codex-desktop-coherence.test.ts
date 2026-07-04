@@ -350,6 +350,95 @@ test("Codex Desktop coherence report marks CUA GUI read-state stale only with cu
   assert.match(report.proofBoundary, /does not.*send|steer|refresh|restart|select|click|type/i);
 });
 
+test("Codex Desktop coherence report rejects dry-run GUI evidence before marking read-state stale", () => {
+  const postObservationMap = visibleMapFixture({
+    desktopRef: null,
+    appServerRef: "codex_app_thread:019f291c-0dc6-7281-95e1-85bbcaaa9ca1",
+    sourceRef: "codex_thread:019f291c-0dc6-7281-95e1-85bbcaaa9ca1",
+    sessionCardRef: "codex_thread:019f291c-0dc6-7281-95e1-85bbcaaa9ca1",
+    titleSanitized: "EVA-LCO",
+    confidence: 0.78,
+    freshness: {
+      indexedUpdatedAt: "2026-07-03T20:10:00.000Z",
+      appServerUpdatedAt: "2026-07-03T20:11:30.000Z",
+      visibleUpdatedLabel: null,
+      freshestSource: "codex_app_server"
+    }
+  });
+  postObservationMap.generatedAt = "2026-07-03T20:11:45.000Z";
+
+  const report = createCodexDesktopCoherenceReport({
+    threadId: "019f291c-0dc6-7281-95e1-85bbcaaa9ca1",
+    visibleMap: postObservationMap,
+    actionEvidence: {
+      actionKind: "desktop_gui_observation",
+      action: "dry-run CUA plan only",
+      live: true,
+      dryRun: true,
+      evidenceId: "ev_cua_lco_dry_run",
+      observedAt: "2026-07-03T20:11:00.000Z"
+    },
+    now: "2026-07-03T20:12:00.000Z"
+  });
+
+  assert.equal(report.state, "cli_visible");
+  assert.equal(report.reasonCodes.includes("desktop_gui_observation_supplied"), false);
+  assert.equal(report.reasonCodes.includes("read_state_post_observation_evidence_current"), false);
+  assert.equal(report.reasonCodes.includes("read_state_stale_after_gui_observation"), false);
+  assert.equal(report.blockers.includes("read_state_stale_after_gui_observation"), false);
+  assert.equal(report.actionEvidence.dryRun, true);
+});
+
+test("Codex Desktop coherence report requires target rows for post-observation read-state evidence", () => {
+  const beforeMap = visibleMapFixture({
+    desktopRef: null,
+    appServerRef: "codex_app_thread:019f291c-0dc6-7281-95e1-85bbcaaa9ca1",
+    sourceRef: "codex_thread:019f291c-0dc6-7281-95e1-85bbcaaa9ca1",
+    sessionCardRef: "codex_thread:019f291c-0dc6-7281-95e1-85bbcaaa9ca1",
+    titleSanitized: "EVA-LCO",
+    confidence: 0.78
+  });
+  beforeMap.generatedAt = "2026-07-03T20:10:00.000Z";
+  const postObservationMap = visibleMapFixture({
+    desktopRef: null,
+    appServerRef: "codex_app_thread:unrelated",
+    sourceRef: "codex_thread:unrelated",
+    sessionCardRef: "codex_thread:unrelated",
+    titleSanitized: "Unrelated lane",
+    confidence: 0.78,
+    freshness: {
+      indexedUpdatedAt: "2026-07-03T20:11:30.000Z",
+      appServerUpdatedAt: "2026-07-03T20:11:30.000Z",
+      visibleUpdatedLabel: null,
+      freshestSource: "codex_app_server"
+    }
+  });
+  postObservationMap.generatedAt = "2026-07-03T20:11:45.000Z";
+
+  const report = createCodexDesktopCoherenceReport({
+    threadId: "019f291c-0dc6-7281-95e1-85bbcaaa9ca1",
+    beforeMap,
+    visibleMap: postObservationMap,
+    actionEvidence: {
+      actionKind: "desktop_gui_observation",
+      action: "CUA selected target thread, verified composer value, sent prompt, and observed JSONL task_complete ack",
+      live: true,
+      dryRun: false,
+      evidenceId: "ev_cua_lco_ack_0311",
+      observedAt: "2026-07-03T20:11:00.000Z"
+    },
+    now: "2026-07-03T20:12:00.000Z"
+  });
+
+  assert.equal(report.state, "unknown");
+  assert.equal(report.reasonCodes.includes("desktop_gui_observation_supplied"), true);
+  assert.equal(report.reasonCodes.includes("read_state_post_observation_evidence_pending"), true);
+  assert.equal(report.reasonCodes.includes("read_state_post_observation_evidence_current"), false);
+  assert.equal(report.reasonCodes.includes("read_state_stale_after_gui_observation"), false);
+  assert.equal(report.blockers.includes("read_state_stale_after_gui_observation"), false);
+  assert.equal(report.blockers.includes("target_not_found_in_visible_map"), true);
+});
+
 test("Codex Desktop coherence report rejects mismatched thread targets", () => {
   const report = createCodexDesktopCoherenceReport({
     threadId: "thr_cli_a",
