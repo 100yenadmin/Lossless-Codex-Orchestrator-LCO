@@ -336,7 +336,7 @@ function buildAgentReasoning(
     ...(dryRun?.summary.approvalAuditId && dryRun.summary.live === false ? ["dry_run_audit"] : [])
   ];
 
-  if (!selectedThreadId || sourceRefs.length === 0 || (!workflowEvidence.includes("bounded_expand") && !workflowEvidence.includes("summary_expand"))) return undefined;
+  if (!selectedThreadId || sourceRefs.length === 0 || !workflowEvidence.includes("bounded_expand")) return undefined;
 
   return {
     safeRecommendation: "Review the selected Codex session from source refs, then ask the user before any live Codex control.",
