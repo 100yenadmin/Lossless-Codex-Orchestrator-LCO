@@ -82,13 +82,13 @@ What a local OpenClaw agent can do today:
 - Inspect `authorityCoverage` on operating-picture outputs before trusting GitHub, PLAN_STATE, or future P1 source claims.
 - Classify package and gateway readiness with `loo onboard status`, `loo openclaw dogfood`, `loo openclaw tool-smoke`, and `loo openclaw published-smoke`.
 - Follow the packaged agent skill and M9 dogfood scenario to produce a public-safe recommendation from source refs, bounded expansion, detail lookups, and dry-run audit hashes.
-- Use `loo release general-readiness --strict` to decide whether fresh npm install, clean-profile OpenClaw load, and agent dogfood evidence are enough for a 1.0 claim.
+- Use `loo release general-readiness --strict` to decide whether fresh npm install, clean-profile OpenClaw load, clean-profile gateway readiness, and agent dogfood evidence are enough for a stable/general release claim.
 
 ## Completed Proof: Working App Runtime
 
 Completed proof from M7/M9 remains part of the evidence base. Milestone 7 and the [Working App Proof Sprint](docs/WORKING_APP_PROOF_SPRINT.md) moved LCO beyond reduced-scope dry-run claims by proving installed OpenClaw gateway paths, live `loo_*` calls through the same surface an OpenClaw agent uses, approved live Codex action proof where explicitly claimed, post-action refresh reasoning, action-bound desktop collaboration proof gates, connected local search UI contracts, runtime proof gates, and Claude Code adapter inventory boundaries. M9 added the agent handoff lane, first-class OpenClaw agent usage skill, docs truth pass, agent dogfood scenario, fresh npm clean-profile smoke, and 1.0 readiness gate.
 
-Completed proof does not mean 1.0 or broad automation parity. Generic GUI mutation, Codex GUI mutation, Claude Code parity, cloud sync, unattended takeover, and release-grade enterprise security remain excluded until separate issues and evidence prove them.
+Completed proof does not mean broad automation parity. Generic GUI mutation, Codex GUI mutation, Claude Code parity, cloud sync, unattended takeover, and release-grade enterprise security remain excluded until separate issues and evidence prove them.
 
 ## Primary User Stories
 

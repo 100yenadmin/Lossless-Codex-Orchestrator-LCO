@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { test } from "node:test";
+import { createGeneralReleaseReadiness } from "../packages/cli/src/general-release-readiness.js";
 
 const tsxImport = createRequire(import.meta.url).resolve("tsx");
 
@@ -495,6 +496,7 @@ test("general release readiness passes with public-safe fresh npm and agent dogf
     blockers?: string[];
     checks?: Record<string, { ok: boolean; detail: string }>;
     proofBoundary?: string;
+    nextAction?: string;
   };
 
   assert.equal(payload.ok, true);
@@ -504,7 +506,68 @@ test("general release readiness passes with public-safe fresh npm and agent dogf
   assert.equal(payload.checks?.agentSkill?.ok, true);
   assert.equal(payload.checks?.freshNpmCleanProfile?.ok, true);
   assert.equal(payload.checks?.agentDogfood?.ok, true);
-  assert.match(payload.proofBoundary ?? "", /does not publish 1\.0/i);
+  assert.match(payload.proofBoundary ?? "", /general-release readiness evidence/i);
+  assert.match(payload.proofBoundary ?? "", new RegExp(packageJson.version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.match(payload.proofBoundary ?? "", /does not publish npm/i);
+  assert.doesNotMatch(payload.proofBoundary ?? "", /\b1\.0\b/i);
+  assert.doesNotMatch(payload.nextAction ?? "", /\b1\.0\b/i);
+});
+
+test("general release readiness sanitizes package version inside public proof boundary", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-general-release-label-"));
+  const rootDir = join(dir, "root");
+  const evidenceDir = join(dir, "evidence");
+  mkdirSync(join(rootDir, "docs"), { recursive: true });
+  mkdirSync(join(rootDir, "skills", "lossless-openclaw-orchestrator"), { recursive: true });
+  mkdirSync(join(rootDir, "evals", "scenarios", "v1"), { recursive: true });
+  mkdirSync(evidenceDir, { recursive: true });
+
+  writeJson(join(rootDir, "package.json"), {
+    name: packageJson.name,
+    version: "1.2.1\nunsafe-boundary-text"
+  });
+  writeFileSync(join(rootDir, "docs", "RELEASE_CHECKLIST.md"), [
+    "Every Release",
+    "Claim Tiers",
+    "loo release general-readiness",
+    "fresh npm",
+    "agent dogfood",
+    "Do not move `latest`",
+    "resume steer interrupt"
+  ].join("\n"));
+  writeFileSync(join(rootDir, "skills", "lossless-openclaw-orchestrator", "SKILL.md"), [
+    "Safety Boundary",
+    "Recommended Agent Loop",
+    "loo_search_sessions",
+    "loo_expand_query",
+    "loo_codex_control_dry_run",
+    "raw transcripts"
+  ].join("\n"));
+  writeFileSync(join(rootDir, "README.md"), "loo release general-readiness\nfresh npm\nagent dogfood\n");
+  writeFileSync(join(rootDir, "VISION.md"), "loo release general-readiness\nfresh npm\nagent dogfood\n");
+  writeFileSync(join(rootDir, "docs", "BETA_RELEASE_RUNBOOK.md"), "loo release general-readiness\nfresh npm\nagent dogfood\n");
+  writeJson(join(rootDir, "evals", "scenarios", "v1", "m9-fresh-npm-clean-profile.json"), {
+    id: "m9-fresh-npm-clean-profile-v1",
+    surface: "npm-openclaw-install"
+  });
+  writeJson(join(rootDir, "evals", "scenarios", "v1", "m9-agent-dogfood-core-workflow.json"), {
+    id: "m9-agent-dogfood-core-workflow-v1",
+    surface: "openclaw-gateway"
+  });
+  writePassingPublishedSmoke(join(evidenceDir, "published-package-smoke.json"));
+  writePassingAgentDogfood(join(evidenceDir, "openclaw-tool-smoke.json"));
+
+  const report = createGeneralReleaseReadiness({
+    rootDir,
+    evidenceDir,
+    freshNpmEvidence: "published-package-smoke.json",
+    agentDogfoodEvidence: "openclaw-tool-smoke.json"
+  });
+
+  assert.equal(report.ok, true);
+  assert.match(report.proofBoundary, /lossless-openclaw-orchestrator@latest \(untrusted-version\)/);
+  assert.doesNotMatch(report.proofBoundary, /unsafe-boundary-text/);
+  assert.doesNotMatch(report.proofBoundary, /\n/);
 });
 
 test("README, VISION, and release runbook point to the general release checklist", () => {
@@ -523,7 +586,6 @@ test("README, VISION, and release runbook point to the general release checklist
     assert.match(content, /loo release general-readiness/i, surface);
     assert.match(content, /fresh npm/i, surface);
     assert.match(content, /agent dogfood/i, surface);
-    assert.match(content, /1\.0/i, surface);
   }
 
   assert.match(checklist, /Every Release/i);

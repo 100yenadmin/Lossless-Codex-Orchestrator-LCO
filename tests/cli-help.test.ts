@@ -214,8 +214,28 @@ test("loo openclaw published-smoke --help exposes selector-drift diagnostic inpu
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /Usage:\n  loo openclaw published-smoke/);
   assert.match(result.stdout, /--npm-install-diagnostic-report path/);
+  assert.match(result.stdout, /--gateway-ready-strict/);
   assert.match(result.stdout, /npm selector drift/i);
+  assert.match(result.stdout, /package-path strict/i);
+  assert.match(result.stdout, /publishedSmokeReady/i);
+  assert.match(result.stdout, /both flags/i);
+  assert.match(result.stdout, /configured gateway proof is recorded separately/i);
   assert.match(result.stdout, /without storing raw npm output/i);
+  assert.doesNotMatch(result.stdout, /published npm beta install path/i);
+  assert.equal(result.stderr.trim(), "");
+});
+
+test("loo release general-readiness --help uses version-neutral stable wording", () => {
+  const result = runLoo(["release", "general-readiness", "--help"]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Usage:\n  loo release general-readiness/);
+  assert.match(result.stdout, /current package version/i);
+  assert.match(result.stdout, /fresh npm proof/i);
+  assert.match(result.stdout, /agent dogfood proof/i);
+  assert.match(result.stdout, /does not move npm dist-tags/i);
+  assert.doesNotMatch(result.stdout, /1\.0 general-release readiness/i);
+  assert.doesNotMatch(result.stdout, /move npm latest/i);
   assert.equal(result.stderr.trim(), "");
 });
 

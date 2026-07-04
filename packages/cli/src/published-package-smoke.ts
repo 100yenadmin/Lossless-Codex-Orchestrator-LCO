@@ -19,6 +19,13 @@ export type PublishedPackageSmokeReport = {
   ok: boolean;
   publishedSmokeReady: boolean;
   packagePathOk: boolean;
+  readinessSemantics: Readonly<{
+    okField: "packagePathOk";
+    strictModeExitsOn: "packagePathOk_false";
+    gatewayReadyStrictExitsOn: "publishedSmokeReady_false";
+    cleanProfileGatewayReadyField: "publishedSmokeReady";
+    configuredGatewayProofSeparate: true;
+  }>;
   publicSafe: true;
   localOnly: true;
   dryRun: true;
@@ -167,10 +174,18 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
     setupBlockers,
     npmInstallDiagnostic
   });
+  const readinessSemantics = Object.freeze({
+    okField: "packagePathOk",
+    strictModeExitsOn: "packagePathOk_false",
+    gatewayReadyStrictExitsOn: "publishedSmokeReady_false",
+    cleanProfileGatewayReadyField: "publishedSmokeReady",
+    configuredGatewayProofSeparate: true
+  } as const);
   const report: PublishedPackageSmokeReport = {
     ok: packagePathOk,
     publishedSmokeReady: packagePathOk && toolSmokeReady,
     packagePathOk,
+    readinessSemantics,
     publicSafe: true,
     localOnly: true,
     dryRun: true,
@@ -220,7 +235,7 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
       "tokens, credentials, API keys, cookies",
       "private customer data"
     ],
-    proofBoundary: `This published package smoke report summarizes public-safe ${expectedDistTag} install and gateway setup evidence only; it does not run live Codex control, mutate a desktop GUI, publish npm, create a GitHub Release, store raw npm output, or store raw OpenClaw gateway output.`
+    proofBoundary: `This published package smoke report summarizes public-safe ${expectedDistTag} install and gateway setup evidence only. ok/packagePathOk are package-path claims; publishedSmokeReady is the clean-profile gateway-ready claim. This command does not run live Codex control, mutate a desktop GUI, publish npm, create a GitHub Release, store raw npm output, or store raw OpenClaw gateway output.`
   };
   if (options.evidenceDir) writePublishedPackageSmokeReport(report, options.evidenceDir);
   return report;

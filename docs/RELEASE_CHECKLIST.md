@@ -52,9 +52,9 @@ Every beta, RC, and stable release must have public-safe evidence for:
 - GitHub issue/tracker updates with evidence path and proof boundary
 - no open PRs or release-blocking issues for the claimed tier
 
-## 1.0 General Release
+## Stable General Release
 
-For 1.0, the release must additionally prove:
+For a stable/general release, the release must additionally prove:
 
 - fresh npm stable install from the registry, not a linked repo checkout or a
   beta/RC substitute
@@ -63,8 +63,8 @@ For 1.0, the release must additionally prove:
 - if fresh-profile gateway credentials are missing, published-smoke evidence
   must classify the blocker as setup-required and show token generation,
   env-ref onboarding, gateway status, and fresh-profile tool-smoke commands
-  without storing raw tokens; this remains a 1.0 blocker until tool-smoke is
-  actually ready
+  without storing raw tokens; this remains a stable-readiness blocker until
+  clean-profile tool-smoke is actually ready
 - first-class agent skill/playbook is packaged and current
 - agent dogfood completes the core workflow through gateway tools:
   doctor, search, describe, expand, plan/final/touched-file lookup, recommend,
@@ -75,8 +75,8 @@ For 1.0, the release must additionally prove:
 - live control claims name the exact control matrix that passed
 
 If resume, steer, or interrupt have not passed live proof on disposable threads,
-the 1.0 claim must exclude broad live control and say only the proven live send
-path is available.
+the stable/general release claim must exclude broad live control and say only the
+proven live send path is available.
 
 ## npm Dist-Tag Boundary
 

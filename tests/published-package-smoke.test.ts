@@ -100,6 +100,13 @@ test("loo openclaw published-smoke summarizes install and gateway setup without 
       ok: boolean;
       publishedSmokeReady: boolean;
       packagePathOk: boolean;
+      readinessSemantics: {
+        okField: string;
+        strictModeExitsOn: string;
+        gatewayReadyStrictExitsOn: string;
+        cleanProfileGatewayReadyField: string;
+        configuredGatewayProofSeparate: boolean;
+      };
       publicSafe: boolean;
       packageName: string;
       localVersion: string;
@@ -120,6 +127,13 @@ test("loo openclaw published-smoke summarizes install and gateway setup without 
     assert.equal(report.ok, true);
     assert.equal(report.publishedSmokeReady, false);
     assert.equal(report.packagePathOk, true);
+    assert.deepEqual(report.readinessSemantics, {
+      okField: "packagePathOk",
+      strictModeExitsOn: "packagePathOk_false",
+      gatewayReadyStrictExitsOn: "publishedSmokeReady_false",
+      cleanProfileGatewayReadyField: "publishedSmokeReady",
+      configuredGatewayProofSeparate: true
+    });
     assert.equal(report.publicSafe, true);
     assert.equal(report.packageName, "lossless-openclaw-orchestrator");
     assert.equal(report.localVersion, packageJson.version);
@@ -148,10 +162,121 @@ test("loo openclaw published-smoke summarizes install and gateway setup without 
       liveCodexControlRun: false,
       desktopGuiActionRun: false
     });
+    assert.match(report.proofBoundary, /ok\/packagePathOk are package-path claims/i);
+    assert.match(report.proofBoundary, /publishedSmokeReady is the clean-profile gateway-ready claim/i);
     assert.match(report.proofBoundary, /does not run live Codex control/i);
     assert.equal(existsSync(join(evidenceDir, "published-package-smoke.json")), true);
     assert.doesNotMatch(result.stdout, /super-secret|\.sqlite\b|\.db\b|Bearer\s+/i);
     assert.doesNotMatch(readFileSync(join(evidenceDir, "published-package-smoke.json"), "utf8"), /super-secret|\.sqlite\b|\.db\b|Bearer\s+/i);
+
+    const gatewayReadyResult = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "openclaw",
+      "published-smoke",
+      "--evidence-dir",
+      evidenceDir,
+      "--registry-version",
+      packageJson.version,
+      "--dogfood-report",
+      dogfoodPath,
+      "--tool-smoke-report",
+      toolSmokePath,
+      "--gateway-ready-strict"
+    ], {
+      cwd: new URL("..", import.meta.url),
+      encoding: "utf8",
+      timeout: 15_000
+    });
+
+    assert.equal(gatewayReadyResult.status, 1, gatewayReadyResult.stderr || gatewayReadyResult.stdout);
+    const gatewayReadyReport = JSON.parse(gatewayReadyResult.stdout) as {
+      ok: boolean;
+      packagePathOk: boolean;
+      publishedSmokeReady: boolean;
+    };
+    assert.equal(gatewayReadyReport.ok, true);
+    assert.equal(gatewayReadyReport.packagePathOk, true);
+    assert.equal(gatewayReadyReport.publishedSmokeReady, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loo openclaw published-smoke --gateway-ready-strict exits zero when clean profile gateway is ready", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-published-smoke-gateway-ready-"));
+  try {
+    const evidenceDir = join(dir, "evidence");
+    const dogfoodPath = join(dir, "dogfood.json");
+    const toolSmokePath = join(dir, "tool-smoke.json");
+    const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+    writeJson(dogfoodPath, {
+      ok: true,
+      dogfoodReady: true,
+      publicSafe: true,
+      targetPlugin: { id: "lossless-openclaw-orchestrator", enabled: true, loaded: true, toolCount: 30 },
+      requiredToolsPresent: true,
+      missingRequiredTools: [],
+      blockers: [],
+      warnings: [],
+      installAttempted: true,
+      installOutcome: { status: "installed", exitStatus: 0 }
+    });
+    writeJson(toolSmokePath, {
+      ok: true,
+      toolSmokeReady: true,
+      publicSafe: true,
+      catalog: {
+        requiredToolsPresent: true,
+        missingRequiredTools: [],
+        toolCount: 30
+      },
+      setupBlockers: [],
+      setupStatus: {
+        classification: "ready",
+        packageInstallLikelyOk: true,
+        recoverable: false,
+        retryAfterSetup: false,
+        doesNotIndicatePackageFailure: true
+      }
+    });
+
+    const result = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "openclaw",
+      "published-smoke",
+      "--evidence-dir",
+      evidenceDir,
+      "--registry-version",
+      packageJson.version,
+      "--dogfood-report",
+      dogfoodPath,
+      "--tool-smoke-report",
+      toolSmokePath,
+      "--gateway-ready-strict"
+    ], {
+      cwd: new URL("..", import.meta.url),
+      encoding: "utf8",
+      timeout: 15_000
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const report = JSON.parse(result.stdout) as {
+      ok: boolean;
+      packagePathOk: boolean;
+      publishedSmokeReady: boolean;
+      setupRequired: boolean;
+      setupRecovery: { classification: string; ready: boolean };
+    };
+    assert.equal(report.ok, true);
+    assert.equal(report.packagePathOk, true);
+    assert.equal(report.publishedSmokeReady, true);
+    assert.equal(report.setupRequired, false);
+    assert.equal(report.setupRecovery.classification, "ready");
+    assert.equal(report.setupRecovery.ready, true);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -315,6 +440,7 @@ test("published-smoke reports configured gateway proof separately from fresh-pro
       ok: boolean;
       publishedSmokeReady: boolean;
       packagePathOk: boolean;
+      readinessSemantics: { configuredGatewayProofSeparate: boolean };
       setupRequired: boolean;
       dogfood: { dogfoodReady: boolean; installOutcomeStatus: string; requiredToolsPresent: boolean };
       toolSmoke: { toolSmokeReady: boolean; gatewaySetupClassification: string; packageInstallLikelyOk: boolean };
@@ -332,6 +458,7 @@ test("published-smoke reports configured gateway proof separately from fresh-pro
     assert.equal(report.ok, true);
     assert.equal(report.packagePathOk, true);
     assert.equal(report.publishedSmokeReady, false);
+    assert.equal(report.readinessSemantics.configuredGatewayProofSeparate, true);
     assert.equal(report.setupRequired, true);
     assert.deepEqual(report.dogfood, {
       dogfoodReady: true,
@@ -430,6 +557,7 @@ test("published-smoke emits clean-profile setup recovery classifications", () =>
       });
 
       assert.equal(report.ok, true);
+      assert.equal(Object.isFrozen(report.readinessSemantics), true);
       assert.equal(report.setupRecovery.classification, item.expected);
       assert.equal(report.setupRecovery.packageInstallLikelyOk, true);
       assert.equal(report.setupRecovery.ready, false);

@@ -321,10 +321,11 @@ A release candidate may be announced internally when all of these are true:
 - no public artifact contains raw Codex JSONL, local SQLite databases, raw
   prompts, screenshots, credentials, tokens, or private transcripts
 
-## 1.0 General Readiness Gate
+## Stable General Readiness Gate
 
-The beta train can publish scoped prereleases without claiming 1.0. A 1.0
-candidate must also pass the deeper [Release Checklist](RELEASE_CHECKLIST.md).
+The beta train can publish scoped prereleases without claiming stable/general
+readiness. A stable candidate must also pass the deeper
+[Release Checklist](RELEASE_CHECKLIST.md).
 Run candidate gates before publication, then run fresh npm `@latest` and agent
 dogfood evidence after publication before closing the stable issue. The
 user-facing post-publish command is `loo release general-readiness`; the
@@ -338,13 +339,14 @@ node ./dist/packages/cli/src/index.js release general-readiness \
   --strict
 ```
 
-This post-publish gate is intentionally stricter than a beta first-run classifier:
-`gateway_setup_required` can be acceptable beta onboarding evidence, but it is
-not enough for 1.0. The stable gate requires a fresh npm install, clean-profile
-OpenClaw load, agent dogfood through gateway tools, and docs truth. If resume,
-steer, or interrupt have not passed live proof on disposable threads, the
-release copy must exclude broad live control and name only the proven live send
-path.
+This post-publish gate is intentionally stricter than a beta first-run
+classifier: `gateway_setup_required` can be acceptable beta onboarding evidence,
+but it is not enough for a stable/general readiness claim. The stable gate
+requires a fresh npm install, clean-profile OpenClaw load, clean-profile gateway
+tool-smoke readiness, agent dogfood through gateway tools, and docs truth. If
+resume, steer, or interrupt have not passed live proof on disposable threads,
+the release copy must exclude broad live control and name only the proven live
+send path.
 
 ## Publication Approval Gates
 
