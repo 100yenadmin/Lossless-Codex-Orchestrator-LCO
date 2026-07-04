@@ -72,6 +72,24 @@ test("setup guide covers install, local indexing, OpenClaw, MCP, and troubleshoo
   }
 });
 
+test("setup guide tells Codex and Claude users how to install agent provenance rules safely", () => {
+  const setup = read("docs/SETUP.md");
+
+  for (const required of [
+    /AGENTS\.md/,
+    /CLAUDE\.md/,
+    /Codex-oriented/i,
+    /Claude-oriented/i,
+    /#436/,
+    /correlation handles, not authorization/i,
+    /raw transcripts, secrets,[\s\S]*private logs/i,
+    /visible block/i,
+    /hidden marker/i
+  ]) {
+    assert.match(setup, required);
+  }
+});
+
 test("public docs preserve release claim boundaries", () => {
   const readme = read("README.md");
   const setup = read("docs/SETUP.md");
