@@ -668,6 +668,19 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       limit: optionalNumber(input.limit),
       readThreadId: optionalString(input.read_thread_id)
     })),
+    tool("loo_codex_start_thread_post_create_proof", "Read public-safe post-create proof for a newly started Codex thread without control, raw transcripts, or GUI mutation.", {
+      created_thread_id: { type: "string" },
+      worker_thread_id: { type: "string" },
+      created_thread_ref: { type: "string" },
+      requested_title: { type: "string" },
+      alias: { type: "string" },
+      parent_thread_id: { type: "string" },
+      limit: { type: "integer", minimum: 1, maximum: 100 }
+    }, (input) => createStartThreadPostCreateProof({
+      db: options.db,
+      codexReadClient,
+      input
+    })),
     tool("loo_visible_codex_map", "Join indexed session cards with optional visible Codex and read-only app-server signals.", {
       limit: { type: "integer", minimum: 1, maximum: 500 },
       include_app_server: { type: "boolean" },
@@ -1279,6 +1292,178 @@ function snakeCaseProofState(value: any): Record<string, unknown> {
     caller_instruction: value.callerInstruction,
     proof_boundary: value.proofBoundary
   };
+}
+
+async function createStartThreadPostCreateProof(options: {
+  db: LooDatabase;
+  codexReadClient: CodexClient;
+  input: Record<string, unknown>;
+}) {
+  const createdThreadId = startProofThreadId(options.input);
+  if (!createdThreadId) {
+    return startProofBase({
+      status: "transport_accepted",
+      reasonCodes: ["created_thread_id_missing", "transport_acceptance_only"],
+      createdThreadId: null,
+      parentThreadId: optionalString(options.input.parent_thread_id) ?? null
+    });
+  }
+
+  const limit = optionalNumber(options.input.limit);
+  const requestedTitle = optionalString(options.input.requested_title) ?? null;
+  const alias = optionalString(options.input.alias) ?? null;
+  const parentThreadId = optionalString(options.input.parent_thread_id) ?? null;
+  const appServerThreads = await createCodexAppServerThreadsReport({
+    client: options.codexReadClient,
+    limit,
+    readThreadId: createdThreadId
+  });
+  const appThread = appServerThreads.threads.find((thread) => thread.threadId === createdThreadId) ?? null;
+  const readProbeOk = appServerThreads.readProbe?.threadId === createdThreadId && appServerThreads.readProbe.error === null;
+  const appServerFound = Boolean(appThread || readProbeOk);
+  const rawSearch = searchSessions(options.db, { query: createdThreadId, limit: 5, appServerThreads });
+  const refSearch = searchSessions(options.db, { query: startProofThreadRef(createdThreadId), limit: 5, appServerThreads });
+  const titleSearch = requestedTitle ? searchSessions(options.db, { query: requestedTitle, limit: 5, appServerThreads }) : [];
+  const aliasSearch = alias ? searchSessions(options.db, { query: alias, limit: 5, appServerThreads }) : [];
+  const parentSearch = parentThreadId ? searchSessions(options.db, { query: parentThreadId, limit: 5, appServerThreads }) : [];
+  const description = describeSession(options.db, createdThreadId);
+  const preparedCards = getPreparedCards(options.db, { threadId: createdThreadId, limit: 1 });
+  const preparedCard = preparedCards.cards[0] ?? null;
+  const indexFound = Boolean(description || startProofSearchHasThread(rawSearch, createdThreadId) || startProofSearchHasThread(refSearch, createdThreadId));
+  const described = Boolean(description);
+  const preparedCardAvailable = Boolean(preparedCard);
+  const persisted = (readProbeOk && indexFound) || preparedCardAvailable;
+  const matchedBy = {
+    raw_id: appServerFound || startProofSearchHasThread(rawSearch, createdThreadId),
+    codex_thread_ref: appServerFound || startProofSearchHasThread(refSearch, createdThreadId),
+    requested_title: requestedTitle ? startProofAliasMatch(requestedTitle, appThread) || startProofSearchHasThread(titleSearch, createdThreadId) : false,
+    alias: alias ? startProofAliasMatch(alias, appThread) || startProofSearchHasThread(aliasSearch, createdThreadId) : false,
+    parent_worker_provenance: parentThreadId ? startProofAliasMatch(`parent:${parentThreadId}`, appThread) || startProofSearchHasThread(parentSearch, createdThreadId) : false
+  };
+  const status = persisted
+    ? "persisted"
+    : described
+      ? "described"
+      : indexFound
+        ? "indexed"
+        : appServerFound
+          ? "created_but_unindexed"
+          : "unresolved_unknown";
+  const reasonCodes = [
+    appServerFound ? "read_only_app_server_signal" : "app_server_thread_missing",
+    readProbeOk ? "read_probe_found_thread" : "read_probe_missing_or_failed",
+    indexFound ? "indexed_session_found" : "created_but_unindexed",
+    described ? "indexed_description_available" : "indexed_description_missing",
+    preparedCardAvailable ? "prepared_card_available" : "prepared_card_missing",
+    status === "unresolved_unknown" ? "unresolved_unknown" : null
+  ].filter((reason): reason is string => Boolean(reason));
+
+  return {
+    ...startProofBase({
+      status,
+      reasonCodes,
+      createdThreadId,
+      parentThreadId
+    }),
+    worker_thread_ref: startProofThreadRef(createdThreadId),
+    matched_by: matchedBy,
+    proof: {
+      app_server: {
+        found: appServerFound,
+        thread_ref: appThread?.sourceRef ?? startProofThreadRef(createdThreadId),
+        app_server_ref: appThread?.appServerRef ?? null,
+        status: appThread?.status ?? appServerThreads.readProbe?.status ?? null,
+        title_sanitized: appThread?.titleSanitized ?? appServerThreads.readProbe?.titleSanitized ?? null,
+        read_probe_ok: readProbeOk,
+        coverage: appServerThreads.sourceCoverage.codexAppServer,
+        errors: appServerThreads.errors.slice(0, 3)
+      },
+      index: {
+        found: indexFound,
+        described,
+        source_ref: startProofThreadRef(createdThreadId),
+        title: description?.title ?? rawSearch.find((result) => result.threadId === createdThreadId)?.title ?? null,
+        summary_available: Boolean(description?.summary),
+        match_refs: startProofMatchRefs([rawSearch, refSearch, titleSearch, aliasSearch, parentSearch], createdThreadId)
+      },
+      prepared_state: {
+        card_available: preparedCardAvailable,
+        card_ref: preparedCard?.cardRef ?? null,
+        state: preparedCard?.state ?? null,
+        coverage_gap: preparedCardAvailable ? null : "prepared_card_missing",
+        source_coverage: preparedCards.sourceCoverage.preparedCards
+      }
+    },
+    prepared_card_ref: preparedCard?.cardRef ?? null
+  };
+}
+
+function startProofBase(input: {
+  status: string;
+  reasonCodes: string[];
+  createdThreadId: string | null;
+  parentThreadId: string | null;
+}) {
+  return {
+    schema: "lco.codex.startThreadPostCreateProof.v1",
+    public_safe: true,
+    read_only: true,
+    generated_at: new Date().toISOString(),
+    status: input.status,
+    created_thread_ref: input.createdThreadId ? startProofThreadRef(input.createdThreadId) : null,
+    parent_thread_ref: input.parentThreadId ? startProofThreadRef(input.parentThreadId) : null,
+    reason_codes: [...new Set(input.reasonCodes)],
+    actions_performed: {
+      live_codex_control_run: false,
+      desktop_gui_action_run: false,
+      raw_transcript_read: false,
+      source_store_mutation: false,
+      npm_publish: false,
+      github_release: false
+    },
+    proof_boundary: "Public-safe read-only post-create proof only. This packet reads app-server metadata, indexed safe cache rows, and prepared-card coverage; it does not read raw transcripts, expose local paths, run live Codex control, mutate GUI state, mutate source stores, publish packages, or claim customer/release readiness."
+  };
+}
+
+function startProofThreadId(input: Record<string, unknown>): string | null {
+  return optionalString(input.created_thread_id)
+    ?? optionalString(input.worker_thread_id)
+    ?? bareStartProofThreadRef(optionalString(input.created_thread_ref))
+    ?? null;
+}
+
+function bareStartProofThreadRef(value: string | undefined): string | null {
+  if (!value) return null;
+  return value.startsWith("codex_thread:") ? value.slice("codex_thread:".length).trim() || null : value;
+}
+
+function startProofThreadRef(threadId: string): string {
+  return `codex_thread:${threadId}`;
+}
+
+function startProofSearchHasThread(results: Array<{ threadId?: string }>, threadId: string): boolean {
+  return results.some((result) => result.threadId === threadId);
+}
+
+function startProofMatchRefs(searches: Array<Array<{ threadId?: string; sourceRef?: string }>>, threadId: string): string[] {
+  const refs = searches
+    .flat()
+    .filter((result) => result.threadId === threadId)
+    .map((result) => result.sourceRef)
+    .filter((ref): ref is string => Boolean(ref));
+  return [...new Set(refs)].slice(0, 8);
+}
+
+function startProofAliasMatch(value: string, thread: { titleSanitized?: string | null; titleAliases?: string[] } | null): boolean {
+  const expected = normalizedStartProofText(value);
+  if (!expected || !thread) return false;
+  return [thread.titleSanitized ?? "", ...(thread.titleAliases ?? [])]
+    .map(normalizedStartProofText)
+    .some((candidate) => candidate === expected || candidate.includes(expected) || expected.includes(candidate));
+}
+
+function normalizedStartProofText(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 function requiredString(value: unknown, name: string): string {
