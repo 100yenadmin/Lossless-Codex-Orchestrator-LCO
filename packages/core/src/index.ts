@@ -13,6 +13,21 @@ import {
 } from "./session-sanitizer.js";
 
 export { createSessionSanitizerRepairPlan, createSessionSanitizerReport } from "./session-sanitizer.js";
+export {
+  AGENT_PROVENANCE_PARSE_SCHEMA,
+  AGENT_PROVENANCE_SCHEMA,
+  findAgentProvenanceRecords,
+  parseAgentProvenanceText
+} from "./agent-provenance.js";
+export type {
+  AgentProvenanceFinding,
+  AgentProvenanceLookup,
+  AgentProvenanceMarkerKind,
+  AgentProvenanceParseReport,
+  AgentProvenanceRecord,
+  AgentProvenanceSourceKind,
+  ParseAgentProvenanceOptions
+} from "./agent-provenance.js";
 export type {
   SessionSanitizerConfidence,
   SessionSanitizerFinding,
@@ -341,6 +356,41 @@ export type PreparedCardsOptions = {
   limit?: number;
 };
 
+export type PreparedTargetCoverageStatus = "ready" | "source_present_not_indexed" | "not_found" | "partial" | "unknown";
+
+export type PreparedTargetCoverage = {
+  schema: "lco.prepared.targetCoverage.v1";
+  threadId: string;
+  targetRef: string;
+  status: PreparedTargetCoverageStatus;
+  sourceRefs: string[];
+  sourceCoverage: {
+    indexedSession: PreparedStateCoverage;
+    sourceFile: PreparedStateCoverage;
+    preparedSourceEvents: PreparedStateCoverage;
+    preparedSourceRanges: PreparedStateCoverage;
+    summaryLeaves: PreparedStateCoverage;
+    preparedCards: PreparedStateCoverage;
+    preparedInboxItems: PreparedStateCoverage;
+    watcherObservations: PreparedStateCoverage;
+  };
+  counts: {
+    preparedSourceEvents: number;
+    preparedSourceRanges: number;
+    summaryLeaves: number;
+    preparedCards: number;
+    preparedInboxItems: number;
+  };
+  freshness: {
+    sourceUpdatedAt: string | null;
+    indexedAt: string | null;
+    preparedFreshnessAt: string | null;
+    stale: boolean;
+  };
+  reasonCodes: string[];
+  nextAction: string;
+};
+
 export type PreparedCardsReport = {
   schema: "lco.prepared.cards.v1";
   publicSafe: true;
@@ -351,12 +401,14 @@ export type PreparedCardsReport = {
     summaryLeaves: PreparedStateCoverage;
     watcherObservations: PreparedStateCoverage;
   };
+  targetCoverage?: PreparedTargetCoverage | null;
   summary: {
     total: number;
     returned: number;
     stale: number;
     partial: number;
     unknown: number;
+    completed: number;
     lowConfidence: number;
   };
   cards: PreparedCard[];
@@ -391,6 +443,7 @@ export type PreparedInboxReport = {
   sourceCoverage: PreparedCardsReport["sourceCoverage"] & {
     preparedInboxItems: PreparedStateCoverage;
   };
+  targetCoverage?: PreparedTargetCoverage | null;
   summary: {
     total: number;
     returned: number;
@@ -407,6 +460,10 @@ export type PreparedInboxReport = {
   proofBoundary: string;
 };
 
+export type PreparedStateStatusOptions = {
+  threadId?: string;
+};
+
 export type PreparedStateStatusReport = {
   schema: "lco.preparedState.status.v1";
   publicSafe: true;
@@ -418,6 +475,7 @@ export type PreparedStateStatusReport = {
     preparedInboxItems: PreparedStateCoverage;
     watcherObservations: PreparedStateCoverage;
   };
+  targetCoverage?: PreparedTargetCoverage | null;
   summary: {
     summaryLeaves: number;
     cards: number;
@@ -685,6 +743,40 @@ export type ClaudeSessionInventoryRejected = {
 export type IndexClaudeSessionInventoryResult = {
   indexedSessions: number;
   rejectedSessions: ClaudeSessionInventoryRejected[];
+};
+
+export type NativeCodexSubagentResultFixture = Record<string, unknown> & {
+  resultId?: string;
+  id?: string;
+  title?: string | null;
+  summary?: string | null;
+  finalReport?: string | null;
+  provenance?: Record<string, unknown> | null;
+  touchedFiles?: string[];
+  blockers?: string[];
+  observedAt?: string | null;
+};
+
+export type NativeCodexSubagentResultRejected = {
+  resultId: string | null;
+  reason: "missing_result_id";
+};
+
+export type IndexNativeCodexSubagentResultsResult = {
+  publicSafe: false;
+  readOnly: false;
+  mutationClasses: ["derived_cache"];
+  indexedResults: number;
+  rejectedResults: NativeCodexSubagentResultRejected[];
+  actionsPerformed: {
+    derivedCacheWrite: true;
+    sourceStoreMutation: false;
+    externalWrite: false;
+    liveControl: false;
+    guiMutation: false;
+    rawTranscriptRead: false;
+  };
+  proofBoundary: string;
 };
 
 export type ClaudeSessionInventoryDescription = {
@@ -1599,12 +1691,12 @@ export type VisibleCodexSessionMapReport = {
   proofBoundary: string;
 };
 
-export type CodexDesktopCoherenceState = "cli_visible" | "desktop_visible" | "desktop_refresh_required" | "desktop_restart_required" | "unknown";
+export type CodexDesktopCoherenceState = "cli_visible" | "desktop_visible" | "desktop_refresh_required" | "desktop_restart_required" | "gui_persisted_read_state_stale" | "unknown";
 
 export type CodexDesktopCoherenceVisibility = "proven" | "not_seen" | "refresh_required" | "restart_required" | "ambiguous" | "unknown";
 
 export type CodexDesktopCoherenceActionEvidence = {
-  actionKind: "none" | "cli" | "direct_protocol" | "codex_app_server" | "lco_control" | "unknown";
+  actionKind: "none" | "cli" | "direct_protocol" | "codex_app_server" | "desktop_gui_observation" | "lco_control" | "unknown";
   action: string | null;
   dryRun: boolean | null;
   live: boolean | null;
@@ -2817,6 +2909,64 @@ export function indexClaudeSessionInventory(
   return { indexedSessions: accepted.length, rejectedSessions };
 }
 
+export function indexNativeCodexSubagentResults(
+  db: LooDatabase,
+  options: { results: NativeCodexSubagentResultFixture[]; now?: string }
+): IndexNativeCodexSubagentResultsResult {
+  const now = options.now ?? new Date().toISOString();
+  const rejectedResults: NativeCodexSubagentResultRejected[] = [];
+  let indexedResults = 0;
+
+  for (const fixture of options.results) {
+    const rawResultId = stringOrNull(fixture.resultId ?? fixture.id);
+    if (!rawResultId) {
+      rejectedResults.push({ resultId: null, reason: "missing_result_id" });
+      continue;
+    }
+    const resultId = safeNativeCodexSubagentResultId(rawResultId);
+    const sourceRef = nativeCodexSubagentResultRef(resultId);
+    const threadId = `subagent_${resultId}`;
+    const rawText = nativeCodexSubagentResultSyntheticJsonl(fixture, {
+      resultId,
+      threadId,
+      sourceRef,
+      now
+    });
+    const session = parseCodexJsonl(`native_codex_subagent_result:${resultId}`, rawText, 100);
+    session.threadId = threadId;
+    session.metadata.sourceRefs = unique([sourceRef, ...session.metadata.sourceRefs]);
+    upsertSession(
+      db,
+      `native_codex_subagent_result:${resultId}`,
+      rawText,
+      session,
+      { size: Buffer.byteLength(rawText), mtimeMs: Date.parse(now) || Date.now() },
+      {
+        sourceRef,
+        rangeReasonCodes: ["native_codex_subagent_result", "derived_advisory_source"]
+      }
+    );
+    indexedResults += 1;
+  }
+
+  return {
+    publicSafe: false,
+    readOnly: false,
+    mutationClasses: ["derived_cache"],
+    indexedResults,
+    rejectedResults,
+    actionsPerformed: {
+      derivedCacheWrite: true,
+      sourceStoreMutation: false,
+      externalWrite: false,
+      liveControl: false,
+      guiMutation: false,
+      rawTranscriptRead: false
+    },
+    proofBoundary: "Native Codex subagent result import writes only sanitized, advisory LCO derived-cache rows from explicit result metadata. It does not discover raw transcripts, read raw transcript paths, mutate Codex stores, run live control, mutate GUI state, write external systems, publish npm, or create GitHub releases."
+  };
+}
+
 function positiveLimit(value: number | undefined, fallback: number, name: string): number {
   const limit = value ?? fallback;
   if (!Number.isInteger(limit) || limit < 1) throw new Error(`${name} requires a positive integer`);
@@ -2898,7 +3048,7 @@ export function getPreparedSourceRanges(db: LooDatabase, options: PreparedSource
     "event_ref LIKE 'codex_event:%'",
     "length(event_ref) = 44",
     "substr(event_ref, 13) NOT GLOB '*[^0-9a-f]*'",
-    "source_ref LIKE 'codex_thread:%'",
+    "(source_ref LIKE 'codex_thread:%' OR source_ref LIKE 'codex_subagent_result:%')",
     "length(source_ref) BETWEEN 14 AND 173",
     "source_ref NOT LIKE '%/%'",
     "source_ref NOT LIKE '%\\%'",
@@ -3056,7 +3206,8 @@ function isPublicPreparedSourceRangeRow(row: {
     && row.omissionStatus === "metadata_only"
     && /^codex_range:[0-9a-f]{32}$/.test(row.rangeRef)
     && /^codex_event:[0-9a-f]{32}$/.test(row.eventRef)
-    && /^codex_thread:[A-Za-z0-9._:-]{1,160}$/.test(row.sourceRef)
+    && /^(?:codex_thread|codex_subagent_result):[A-Za-z0-9._:-]{1,160}$/.test(row.sourceRef)
+    && !looksSensitiveRefLike(row.sourceRef)
     && /^codex_source:[0-9a-f]{16}$/.test(row.sourcePathRef)
     && /^[0-9a-f]{32}$/.test(row.sourceHash)
     && /^[0-9a-f]{32}$/.test(row.contentHash)
@@ -3103,7 +3254,7 @@ function getPreparedSourceRangesForSummaryMaterialization(
     "event_ref LIKE 'codex_event:%'",
     "length(event_ref) = 44",
     "substr(event_ref, 13) NOT GLOB '*[^0-9a-f]*'",
-    "source_ref LIKE 'codex_thread:%'",
+    "(source_ref LIKE 'codex_thread:%' OR source_ref LIKE 'codex_subagent_result:%')",
     "length(source_ref) BETWEEN 14 AND 173",
     "source_ref NOT LIKE '%/%'",
     "source_ref NOT LIKE '%\\%'",
@@ -3673,7 +3824,7 @@ function materializePreparedCardsForThread(
   };
 }
 
-export function getPreparedStateStatus(db: LooDatabase): PreparedStateStatusReport {
+export function getPreparedStateStatus(db: LooDatabase, options: PreparedStateStatusOptions = {}): PreparedStateStatusReport {
   const leaves = Number((db.prepare(`
     SELECT COUNT(*) AS count
     FROM summary_leaves
@@ -3683,17 +3834,19 @@ export function getPreparedStateStatus(db: LooDatabase): PreparedStateStatusRepo
   `).get(SUMMARY_LEAF_EXTRACTOR_VERSION) as { count: number }).count);
   const cardsReport = getPreparedCards(db, { limit: 1 });
   const inboxReport = getPreparedInbox(db, { limit: 1 });
+  const targetCoverage = getPreparedTargetCoverage(db, options.threadId);
   return {
     schema: "lco.preparedState.status.v1",
     publicSafe: true,
     readOnly: true,
     generatedAt: new Date().toISOString(),
     sourceCoverage: {
-      summaryLeaves: leaves > 0 ? "ok" : "not_configured",
+      summaryLeaves: preparedSummaryLeafCoverage(db),
       preparedCards: cardsReport.sourceCoverage.preparedCards,
       preparedInboxItems: inboxReport.sourceCoverage.preparedInboxItems,
       watcherObservations: watcherObservationCoverage(db)
     },
+    ...(targetCoverage ? { targetCoverage } : {}),
     summary: {
       summaryLeaves: leaves,
       cards: cardsReport.summary.total,
@@ -3754,6 +3907,7 @@ export function getPreparedCards(db: LooDatabase, options: PreparedCardsOptions 
   let stale = 0;
   let partial = 0;
   let unknown = 0;
+  let completed = 0;
   let lowConfidence = 0;
   for (const row of rows) {
     const card = publicPreparedCardFromRow(row);
@@ -3764,6 +3918,7 @@ export function getPreparedCards(db: LooDatabase, options: PreparedCardsOptions 
     if (card.stale || card.state === "stale") stale += 1;
     if (preparedCardCountsAsPartialSummary(card.state)) partial += 1;
     if (card.state === "unknown" || card.state === "unknown_lifecycle") unknown += 1;
+    if (card.state === "completed") completed += 1;
     if (card.confidence < 0.5) lowConfidence += 1;
     if (validCards.length < limit) validCards.push(card);
   }
@@ -3773,22 +3928,33 @@ export function getPreparedCards(db: LooDatabase, options: PreparedCardsOptions 
     limitOmissions > 0 ? "limit" : null,
     filteredUnsafeRows > 0 ? "filtered_unsafe_rows" : null
   ].filter((reason): reason is "limit" | "filtered_unsafe_rows" => Boolean(reason));
+  const targetCoverage = getPreparedTargetCoverage(db, options.threadId);
+  const summaryLeavesCoverage = preparedSummaryLeafCoverage(db, options.threadId);
+  const preparedCardsCoverage: PreparedStateCoverage = filteredUnsafeRows > 0
+    ? "partial"
+    : validTotal > 0
+      ? "ok"
+      : total > 0 || summaryLeavesCoverage === "ok" || summaryLeavesCoverage === "partial"
+        ? "partial"
+        : "not_configured";
   return {
     schema: "lco.prepared.cards.v1",
     publicSafe: true,
     readOnly: true,
     generatedAt: new Date().toISOString(),
     sourceCoverage: {
-      preparedCards: filteredUnsafeRows > 0 ? "partial" : validTotal > 0 ? "ok" : total > 0 ? "partial" : "not_configured",
-      summaryLeaves: preparedSummaryLeafCoverage(db, options.threadId),
+      preparedCards: preparedCardsCoverage,
+      summaryLeaves: summaryLeavesCoverage,
       watcherObservations: options.threadId ? watcherObservationCoverageForTarget(db, codexThreadRef(options.threadId)) : watcherObservationCoverage(db)
     },
+    ...(targetCoverage ? { targetCoverage } : {}),
     summary: {
       total: validTotal,
       returned: validCards.length,
       stale,
       partial,
       unknown,
+      completed,
       lowConfidence
     },
     cards: validCards,
@@ -3842,8 +4008,9 @@ export function getPreparedInbox(db: LooDatabase, options: PreparedInboxOptions 
     if (item.reasonCodes.includes("low_confidence")) lowConfidence += 1;
     if (validItems.length < limit) validItems.push(item);
   }
-  const inboxCoverage: PreparedStateCoverage = validTotal > 0 ? "ok" : rows.length > 0 ? "partial" : "not_configured";
   const cardsCoverage = getPreparedCards(db, { threadId: options.threadId, limit: 1 }).sourceCoverage.preparedCards;
+  const targetCoverage = getPreparedTargetCoverage(db, options.threadId);
+  const inboxCoverage: PreparedStateCoverage = validTotal > 0 ? "ok" : rows.length > 0 || cardsCoverage === "partial" ? "partial" : "not_configured";
   return {
     schema: "lco.prepared.inbox.v1",
     publicSafe: true,
@@ -3855,6 +4022,7 @@ export function getPreparedInbox(db: LooDatabase, options: PreparedInboxOptions 
       summaryLeaves: preparedSummaryLeafCoverage(db, options.threadId),
       watcherObservations: options.threadId ? watcherObservationCoverageForTarget(db, codexThreadRef(options.threadId)) : watcherObservationCoverage(db)
     },
+    ...(targetCoverage ? { targetCoverage } : {}),
     summary: {
       total: validTotal,
       returned: validItems.length,
@@ -4443,7 +4611,325 @@ function preparedSummaryLeafCoverage(db: LooDatabase, threadId?: string): Prepar
     params.push(threadId);
   }
   const count = Number((db.prepare(`SELECT COUNT(*) AS count FROM summary_leaves WHERE ${clauses.join(" AND ")}`).get(...params) as { count: number }).count);
+  if (count > 0) return "ok";
+  return preparedSourceRangeCoverage(db, threadId) === "ok" ? "partial" : "not_configured";
+}
+
+function preparedSourceRangeCoverage(db: LooDatabase, threadId?: string): PreparedStateCoverage {
+  const clauses = [
+    "extractor_version = ?",
+    "privacy_class = 'public_safe_metadata'",
+    "omission_status = 'metadata_only'"
+  ];
+  const params: Array<string | number> = [PREPARED_SOURCE_EXTRACTOR_VERSION];
+  if (threadId) {
+    clauses.push("thread_id = ?");
+    params.push(threadId);
+  }
+  const count = Number((db.prepare(`SELECT COUNT(*) AS count FROM prepared_source_ranges WHERE ${clauses.join(" AND ")}`).get(...params) as { count: number }).count);
   return count > 0 ? "ok" : "not_configured";
+}
+
+function getPreparedTargetCoverage(db: LooDatabase, threadId?: string): PreparedTargetCoverage | null {
+  if (!threadId || !isPublicSummaryThreadId(threadId)) return null;
+  const targetRef = codexThreadRef(threadId);
+  const session = db.prepare(`
+    SELECT
+      thread_id AS threadId,
+      source_path AS sourcePath,
+      updated_at AS updatedAt,
+      indexed_at AS indexedAt
+    FROM codex_sessions
+    WHERE thread_id = ?
+    LIMIT 1
+  `).get(threadId) as { threadId: string; sourcePath: string; updatedAt: string | null; indexedAt: string | null } | undefined;
+  const sourceFile = session ? db.prepare(`
+    SELECT last_indexed_at AS lastIndexedAt
+    FROM codex_source_files
+    WHERE source_path = ?
+    LIMIT 1
+  `).get(session.sourcePath) as { lastIndexedAt: string | null } | undefined : undefined;
+  const preparedSourceEvents = countPublicPreparedTargetSourceEvents(db, threadId);
+  const preparedSourceRanges = countPublicPreparedTargetSourceRanges(db, threadId);
+  const summaryLeaves = countPublicPreparedTargetSummaryLeaves(db, threadId);
+  const preparedCards = countPreparedTargetRows(db, `
+    SELECT COUNT(*) AS count
+    FROM prepared_cards
+    WHERE target_ref = ?
+      AND extractor_version = ?
+      AND privacy_class = 'public_safe_metadata'
+  `, targetRef, PREPARED_CARD_EXTRACTOR_VERSION);
+  const cardRow = getPreparedCardRowByTargetRef(db, targetRef);
+  const publicCard = cardRow ? publicPreparedCardFromRow(cardRow) : null;
+  const preparedInboxItems = countPreparedTargetInboxItems(db, targetRef);
+  const coverage = {
+    indexedSession: session ? "ok" : "not_configured",
+    sourceFile: session ? sourceFile ? "ok" : "partial" : "not_configured",
+    preparedSourceEvents: preparedSourceEvents.count > 0 ? "ok" : "not_configured",
+    preparedSourceRanges: preparedSourceRanges.publicCount > 0 ? "ok" : preparedSourceRanges.rawCount > 0 ? "partial" : "not_configured",
+    summaryLeaves: summaryLeaves.publicCount > 0 ? "ok" : summaryLeaves.rawCount > 0 ? "partial" : "not_configured",
+    preparedCards: publicCard ? publicCard.state === "ready" && !publicCard.stale ? "ok" : "partial" : preparedCards > 0 ? "partial" : "not_configured",
+    preparedInboxItems: publicCard && preparedInboxItems.publicCount > 0 ? "ok" : preparedInboxItems.rawCount > 0 ? "partial" : "not_configured",
+    watcherObservations: watcherObservationCoverageForTarget(db, targetRef)
+  } satisfies PreparedTargetCoverage["sourceCoverage"];
+  const cardFreshnessAt = publicCard ? maxPublicPreparedTargetCardUpdatedAt(db, targetRef) : null;
+  const preparedFreshnessAt = oldestSafeTimestamp([
+    preparedSourceEvents.maxCreatedAt,
+    preparedSourceRanges.maxCreatedAt,
+    summaryLeaves.maxCreatedAt,
+    cardFreshnessAt,
+    preparedInboxItems.maxUpdatedAt
+  ]);
+  const sourceUpdatedAt = safeIsoOrNull(session?.updatedAt ?? null);
+  const indexedAt = safeIsoOrNull(session?.indexedAt ?? sourceFile?.lastIndexedAt ?? null);
+  const requiredCoverage: PreparedStateCoverage[] = [
+    coverage.preparedSourceEvents,
+    coverage.preparedSourceRanges,
+    coverage.summaryLeaves,
+    coverage.preparedCards,
+    coverage.preparedInboxItems
+  ];
+  const missingDerivedCache = requiredCoverage.some((state) => state !== "ok");
+  const partialDerivedCache = requiredCoverage.some((state) => state === "partial");
+  const allDerivedLayersMissing = requiredCoverage.every((state) => state === "not_configured");
+  const stale = Boolean(session && (
+    missingDerivedCache
+    || publicCard?.stale
+    || publicCard?.state !== "ready"
+    || summaryLeaves.staleCount > 0
+    || (sourceUpdatedAt && preparedFreshnessAt && sourceUpdatedAt > preparedFreshnessAt)
+  ));
+  const anyDerivedRows = preparedSourceEvents.count + preparedSourceRanges.rawCount + summaryLeaves.rawCount + preparedCards + preparedInboxItems.rawCount > 0;
+  const status: PreparedTargetCoverageStatus = !session
+    ? anyDerivedRows ? "partial" : "not_found"
+    : missingDerivedCache
+      ? allDerivedLayersMissing ? "source_present_not_indexed" : "partial"
+      : stale ? "partial" : "ready";
+  const reasonCodes = preparedTargetReasonCodes(status, coverage, stale);
+  const sourceRefs = unique([
+    targetRef,
+    session?.sourcePath ? publicSourcePathRef(session.sourcePath) : ""
+  ].filter(Boolean));
+  return {
+    schema: "lco.prepared.targetCoverage.v1",
+    threadId,
+    targetRef,
+    status,
+    sourceRefs,
+    sourceCoverage: coverage,
+    counts: {
+      preparedSourceEvents: preparedSourceEvents.count,
+      preparedSourceRanges: preparedSourceRanges.publicCount,
+      summaryLeaves: summaryLeaves.publicCount,
+      preparedCards: publicCard ? 1 : 0,
+      preparedInboxItems: preparedInboxItems.publicCount
+    },
+    freshness: {
+      sourceUpdatedAt,
+      indexedAt,
+      preparedFreshnessAt,
+      stale
+    },
+    reasonCodes,
+    nextAction: preparedTargetNextAction(status)
+  };
+}
+
+function countPreparedTargetRows(db: LooDatabase, sql: string, ...params: Array<string | number>): number {
+  return Number((db.prepare(sql).get(...params) as { count: number } | undefined)?.count ?? 0);
+}
+
+function countPublicPreparedTargetSourceEvents(db: LooDatabase, threadId: string): { count: number; maxCreatedAt: string | null } {
+  const row = db.prepare(`
+    SELECT COUNT(*) AS count, MAX(created_at) AS maxCreatedAt
+    FROM prepared_source_events
+    WHERE thread_id = ?
+      AND extractor_version = ?
+      AND privacy_class = 'public_safe_metadata'
+      AND omission_status = 'metadata_only'
+  `).get(threadId, PREPARED_SOURCE_EXTRACTOR_VERSION) as { count: number; maxCreatedAt: string | null } | undefined;
+  return {
+    count: Number(row?.count ?? 0),
+    maxCreatedAt: safeIsoOrNull(row?.maxCreatedAt ?? null)
+  };
+}
+
+function countPublicPreparedTargetSourceRanges(db: LooDatabase, threadId: string): { rawCount: number; publicCount: number; maxCreatedAt: string | null } {
+  const rows = db.prepare(`
+    SELECT
+      range_ref AS rangeRef,
+      event_ref AS eventRef,
+      thread_id AS threadId,
+      source_ref AS sourceRef,
+      source_path_ref AS sourcePathRef,
+      range_kind AS rangeKind,
+      line_start AS lineStart,
+      line_end AS lineEnd,
+      byte_start AS byteStart,
+      byte_end AS byteEnd,
+      ordinal,
+      source_hash AS sourceHash,
+      content_hash AS contentHash,
+      extractor_version AS extractorVersion,
+      privacy_class AS privacyClass,
+      omission_status AS omissionStatus,
+      confidence,
+      observed_at AS observedAt,
+      reason_codes_json AS reasonCodesJson,
+      created_at AS createdAt
+    FROM prepared_source_ranges
+    WHERE thread_id = ?
+      AND extractor_version = ?
+      AND privacy_class = 'public_safe_metadata'
+      AND omission_status = 'metadata_only'
+  `).all(threadId, PREPARED_SOURCE_EXTRACTOR_VERSION) as Array<PreparedSourceRangeRow & { createdAt: string | null }>;
+  const publicRows = rows.filter((row) => Boolean(preparedSourceRangeFromRow(row)));
+  return {
+    rawCount: rows.length,
+    publicCount: publicRows.length,
+    maxCreatedAt: latestSafeTimestamp(publicRows.map((row) => row.createdAt))
+  };
+}
+
+function countPublicPreparedTargetSummaryLeaves(db: LooDatabase, threadId: string): { rawCount: number; publicCount: number; staleCount: number; maxCreatedAt: string | null } {
+  const rows = db.prepare(`
+    SELECT
+      leaf_ref AS leafRef,
+      thread_id AS threadId,
+      leaf_kind AS leafKind,
+      summary_text AS summaryText,
+      source_refs_json AS sourceRefsJson,
+      source_range_refs_json AS sourceRangeRefsJson,
+      input_hash AS inputHash,
+      output_hash AS outputHash,
+      extractor_version AS extractorVersion,
+      privacy_class AS privacyClass,
+      authority_coverage_json AS authorityCoverageJson,
+      confidence,
+      freshness_at AS freshnessAt,
+      stale,
+      omission_status AS omissionStatus,
+      created_at AS createdAt
+    FROM summary_leaves
+    WHERE thread_id = ?
+      AND extractor_version = ?
+      AND privacy_class = 'public_safe_metadata'
+      AND omission_status = 'metadata_only'
+  `).all(threadId, SUMMARY_LEAF_EXTRACTOR_VERSION) as Array<SummaryLeafRow & { createdAt: string | null }>;
+  const publicLeaves = rows.flatMap((row) => {
+    const leaf = publicSummaryLeafFromRow(row);
+    return leaf ? [{ leaf, createdAt: row.createdAt }] : [];
+  });
+  return {
+    rawCount: rows.length,
+    publicCount: publicLeaves.length,
+    staleCount: publicLeaves.filter(({ leaf }) => leaf.stale).length,
+    maxCreatedAt: latestSafeTimestamp(publicLeaves.map(({ createdAt }) => createdAt))
+  };
+}
+
+function countPreparedTargetInboxItems(db: LooDatabase, targetRef: string): { rawCount: number; publicCount: number; maxUpdatedAt: string | null } {
+  if (!isPublicPreparedSourceRef(targetRef)) return { rawCount: 0, publicCount: 0, maxUpdatedAt: null };
+  const rows = db.prepare(`
+    SELECT
+      item_id AS itemRef,
+      card_ref AS cardRef,
+      target_ref AS targetRef,
+      urgency_score AS urgencyScore,
+      state,
+      reason_codes_json AS reasonCodesJson,
+      source_refs_json AS sourceRefsJson,
+      execute_false AS executeFalse,
+      updated_at AS updatedAt
+    FROM prepared_inbox_items
+    WHERE target_ref = ?
+      AND execute_false = 1
+  `).all(targetRef) as Array<PreparedInboxRow & { updatedAt: string | null }>;
+  const candidateItems = rows.map(publicPreparedInboxItemFromRow).filter((item): item is PreparedInboxItem => Boolean(item));
+  const cardByRef = getPublicPreparedCardsByCardRef(db, candidateItems.map((item) => item.cardRef));
+  const publicRows = rows.filter((row) => {
+    const item = publicPreparedInboxItemFromRow(row);
+    return item ? cardByRef.has(item.cardRef) : false;
+  });
+  return {
+    rawCount: rows.length,
+    publicCount: publicRows.length,
+    maxUpdatedAt: latestSafeTimestamp(publicRows.map((row) => row.updatedAt))
+  };
+}
+
+function maxPublicPreparedTargetCardUpdatedAt(db: LooDatabase, targetRef: string): string | null {
+  if (!isPublicPreparedSourceRef(targetRef)) return null;
+  const rows = db.prepare(`
+    SELECT
+      card_ref AS cardRef,
+      target_ref AS targetRef,
+      card_kind AS cardKind,
+      title,
+      summary_text AS summaryText,
+      next_action AS nextAction,
+      source_refs_json AS sourceRefsJson,
+      source_range_refs_json AS sourceRangeRefsJson,
+      source_range_refs_omitted AS sourceRangeRefsOmitted,
+      authority_coverage_json AS authorityCoverageJson,
+      input_hash AS inputHash,
+      extractor_version AS extractorVersion,
+      privacy_class AS privacyClass,
+      confidence,
+      freshness_at AS freshnessAt,
+      stale,
+      state,
+      reason_codes_json AS reasonCodesJson,
+      updated_at AS updatedAt
+    FROM prepared_cards
+    WHERE target_ref = ?
+      AND extractor_version = ?
+      AND privacy_class = 'public_safe_metadata'
+  `).all(targetRef, PREPARED_CARD_EXTRACTOR_VERSION) as Array<PreparedCardRow & { updatedAt: string | null }>;
+  const publicRows = rows.filter((row) => Boolean(publicPreparedCardFromRow(row)));
+  return latestSafeTimestamp(publicRows.map((row) => row.updatedAt));
+}
+
+function latestSafeTimestamp(values: Array<string | null>): string | null {
+  return values.filter((value): value is string => typeof value === "string" && isSafeIsoTimestamp(value)).sort().at(-1) ?? null;
+}
+
+function oldestSafeTimestamp(values: Array<string | null>): string | null {
+  return values.filter((value): value is string => typeof value === "string" && isSafeIsoTimestamp(value)).sort().at(0) ?? null;
+}
+
+function safeIsoOrNull(value: string | null | undefined): string | null {
+  return value && isSafeIsoTimestamp(value) ? value : null;
+}
+
+function preparedTargetReasonCodes(
+  status: PreparedTargetCoverageStatus,
+  coverage: PreparedTargetCoverage["sourceCoverage"],
+  stale: boolean
+): string[] {
+  return unique([
+    "targeted_thread_coverage",
+    coverage.indexedSession === "ok" ? "indexed_session_present" : "thread_not_indexed",
+    coverage.sourceFile === "partial" ? "source_file_watermark_missing" : "",
+    coverage.preparedSourceEvents !== "ok" ? "prepared_source_events_missing" : "",
+    coverage.preparedSourceRanges !== "ok" ? "prepared_source_ranges_missing" : "",
+    coverage.summaryLeaves !== "ok" ? "summary_leaves_missing" : "",
+    coverage.preparedCards !== "ok" ? "prepared_cards_missing" : "",
+    coverage.preparedInboxItems !== "ok" ? "prepared_inbox_missing" : "",
+    status === "source_present_not_indexed" ? "source_present_not_indexed" : "",
+    status === "source_present_not_indexed" ? "active_session_pending_index" : "",
+    status === "ready" ? "prepared_state_ready" : "",
+    status === "partial" ? "partial_prepared_state" : "",
+    stale ? "prepared_cache_stale_or_missing" : ""
+  ].filter(Boolean));
+}
+
+function preparedTargetNextAction(status: PreparedTargetCoverageStatus): string {
+  if (status === "ready") return "Use prepared cards, prepared inbox, or summary expansion for bounded public-safe evidence.";
+  if (status === "source_present_not_indexed") return "Refresh the local LCO derived cache with loo index codex or loo prep run --once, then re-check this thread.";
+  if (status === "partial") return "Inspect coverage reason codes and refresh the local LCO derived cache before treating this thread as current.";
+  if (status === "not_found") return "Run a bounded Codex index refresh or verify the thread is under configured local Codex session roots.";
+  return "Inspect source coverage and configured local Codex roots before making a prepared-state claim.";
 }
 
 function preparedCoverageState(value: unknown): PreparedStateCoverage {
@@ -4456,8 +4942,21 @@ function isPreparedCardState(value: string): value is PreparedCardState {
 
 function isPublicPreparedSourceRef(value: string): boolean {
   if (value.startsWith("codex_thread:")) return isPublicSummaryThreadId(value.slice("codex_thread:".length));
+  if (value.startsWith("codex_subagent_result:")) return isPublicCodexSubagentResultRef(value);
   if (value.startsWith("summary_leaf:")) return isPublicSummaryLeafRef(value);
   return false;
+}
+
+function isPublicCodexSubagentResultRef(value: string): boolean {
+  const encodedId = value.slice("codex_subagent_result:".length);
+  if (!/^[A-Za-z0-9._:%-]{1,200}$/.test(encodedId)) return false;
+  let decodedId = encodedId;
+  try {
+    decodedId = decodeURIComponent(encodedId);
+  } catch {
+    return false;
+  }
+  return /^[A-Za-z0-9._:-]{1,160}$/.test(decodedId) && !looksSensitiveRefLike(decodedId);
 }
 
 function preparedLifecycleFromMetadata(
@@ -4483,8 +4982,8 @@ function preparedLifecycleFromMetadata(
   const completed = completedByStatus || completedByCloseoutAndPlan;
   const dirtyHandoff = /\b(?:dirty[-_ ]?worktree|uncommitted|worktree[-_ ]?handoff|dirty[-_ ]?handoff|handoff[-_ ]?dirty|cleanup[-_ ]?required)\b/.test(text);
   const waitingApproval = /\b(?:waiting[-_ ]?(?:for[-_ ]?)?approval|needs[-_ ]?approval|requires[-_ ]?approval|approval[-_ ]?(?:required|needed|pending)|pending[-_ ]?approval|approval[-_ ]?gate|do[-_ ]?not[-_ ]?execute[-_ ]?without[-_ ]?explicit[-_ ]?approval)\b/.test(text);
-  const needsResume = /\b(?:resume|needs[-_ ]?resume|resume[-_ ]?needed|rejoin|nudge)\b/.test(text);
-  const watchingExternalCheck = /\b(?:watch|watching|monitor|monitoring|external[-_ ]?(?:check|review)|ci|checks?|codeql|coderabbit|deploy[-_ ]?check|review[-_ ]?check|waiting[-_ ]?(?:on|for)[-_ ]?(?:ci|checks?|codeql|coderabbit|deploy|external[-_ ]?check|review[-_ ]?check))\b/.test(text);
+  const needsResume = /\b(?:needs[-_ ]?(?:to[-_ ]?)?resume|resume[-_ ]?(?:session|thread|work|run|lane|needed|required|requested|request)|continue[-_ ]?(?:session|thread|lane)|nudge[-_ ]?(?:session|thread|agent|lane)|rejoin[-_ ]?(?:session|thread|lane))\b/.test(text);
+  const watchingExternalCheck = /\b(?:(?:watch|watching|monitor|monitoring)[-_ ]+(?:ci|checks?|codeql|coderabbit|deploy(?:[-_ ]?check)?|external[-_ ]?(?:check|review)|review[-_ ]?check)|(?:waiting[-_ ]?(?:on|for)|pending)[-_ ]+(?:ci|checks?|codeql|coderabbit|deploy|external[-_ ]?check|review[-_ ]?check)|(?:ci|checks?|codeql|coderabbit|deploy[-_ ]?check|review[-_ ]?check)[-_ ]+(?:pending|queued|running|failing|failed|blocked|red|not[-_ ]?green|in[-_ ]?progress))\b/.test(text);
   const readyForReview = /\b(?:ready[-_ ]?for[-_ ]?review|review[-_ ]?ready|ready[-_ ]?to[-_ ]?review|pr[-_ ]?ready|needs[-_ ]?review)\b/.test(text);
   const negatedBlocker = /\b(?:not[-_ ]?blocked|no[-_ ]?blocker|unblocked|without[-_ ]?blocker|blocker[-_ ]?(?:none|na|n[-_ ]?a))\b/.test(text);
   const missingInfoSignal = /\b(?:missing[-_ ]?(?:info|input|context)|needs[-_ ]?(?:info|input|context)|waiting[-_ ]?(?:on|for)[-_ ]?(?:user|operator|human|input|context)|cannot[-_ ]?proceed)\b/.test(nonBlockerText);
@@ -5337,7 +5836,7 @@ function buildSummaryLeafDrafts(ranges: PreparedSourceRange[]): SummaryLeafDraft
     const [, leafKind] = key.split("|");
     const sorted = group.sort((left, right) => left.ordinal - right.ordinal || left.rangeRef.localeCompare(right.rangeRef));
     const threadId = sorted[0]?.threadId ?? null;
-    const sourceRefs = unique(sorted.map((range) => range.sourceRef)).sort();
+    const sourceRefs = unique([threadId ? codexThreadRef(threadId) : null, ...sorted.map((range) => range.sourceRef)].filter((ref): ref is string => Boolean(ref))).sort();
     const fullSourceRangeRefs = unique(sorted.map((range) => range.rangeRef)).sort();
     const sourceRangeRefs = fullSourceRangeRefs.slice(0, SUMMARY_LEAF_SOURCE_RANGE_REF_LIMIT);
     const inputHash = stableId(sorted.map((range) => `${range.rangeRef}:${range.contentHash}`).join("|"));
@@ -5571,7 +6070,7 @@ function isPublicSummaryLeafRow(row: SummaryLeafRow, sourceRefs: string[], sourc
     && isSummaryLeafKind(row.leafKind)
     && isPublicSummaryThreadId(threadId)
     && sourceRefs.length > 0
-    && sourceRefs.every((ref) => /^codex_thread:[A-Za-z0-9._:-]{1,160}$/.test(ref) && !looksSensitiveRefLike(ref))
+    && sourceRefs.every(isPublicPreparedSourceRef)
     && sourceRefs.includes(codexThreadRef(threadId))
     && sourceRangeRefs.length > 0
     && sourceRangeRefs.every((ref) => /^codex_range:[0-9a-f]{32}$/.test(ref))
@@ -7091,6 +7590,24 @@ function collaborationNextStepForLane(
   }
 
   const coherenceState = input.coherence ? publicSafeCoherenceState(input.coherence.state) : null;
+  if ((lane.desktop.state === "cli_visible" || lane.desktop.state === "unknown") && input.coherence && coherenceState === "gui_persisted_read_state_stale") {
+    return collaborationNextStep({
+      ...base,
+      category: "desktop_coherence",
+      status: "ready",
+      reasonCodes: unique([...lane.reasonCodes, "read_state_reconciliation_required", "desktop_coherence_required"]),
+      blockers: [],
+      confidence: Math.max(0.6, lane.desktop.confidence),
+      toolCall: collaborationToolCall("loo_codex_desktop_coherence", {
+        thread_id: threadId,
+        source_ref: sourceRef,
+        action_evidence: collaborationPublicSafeActionEvidenceArg(input.coherence.actionEvidence),
+        include_app_server: true,
+        include_visible_snapshot: false,
+        limit: 20
+      })
+    });
+  }
   if ((lane.desktop.state === "cli_visible" || lane.desktop.state === "unknown") && input.coherence && coherenceState !== "desktop_visible") {
     return collaborationNextStep({
       ...base,
@@ -7904,6 +8421,21 @@ function collaborationPublicSafeCoherenceArg(
   };
 }
 
+function collaborationPublicSafeActionEvidenceArg(input: unknown): Record<string, unknown> | undefined {
+  if (!isObjectRecord(input)) return undefined;
+  const evidence = publicCodexDesktopActionEvidence(input);
+  if (evidence.actionKind === "none" || evidence.actionKind === "unknown") return undefined;
+  return {
+    action_kind: evidence.actionKind,
+    action: evidence.action ?? undefined,
+    dry_run: evidence.dryRun ?? undefined,
+    live: evidence.live ?? undefined,
+    approval_audit_id_present: evidence.approvalAuditIdPresent,
+    evidence_id: evidence.evidenceId ?? undefined,
+    observed_at: evidence.observedAt ?? undefined
+  };
+}
+
 function collaborationPublicSafeWatchSpecArg(spec: WatchSpec): Record<string, unknown> {
   return {
     schema: "lco.watchSpec.v1",
@@ -7945,7 +8477,10 @@ function collaborationDesktopState(input: {
   const fallbackDetails = isObjectRecord(fallback?.fallback) ? fallback.fallback : null;
   const coherenceState = collaborationString(coherence?.state, 80);
   const coherenceConfidence = collaborationNumber(coherence?.confidence);
-  const fallbackRequired = typeof fallbackDetails?.required === "boolean"
+  const readStateReconciliationRequired = coherenceState === "gui_persisted_read_state_stale";
+  const fallbackRequired = readStateReconciliationRequired
+    ? false
+    : typeof fallbackDetails?.required === "boolean"
     ? fallbackDetails.required
     : collaborationCoherenceRequiresFallback(Boolean(coherence), coherenceState);
   const fallbackReason = collaborationString(fallbackDetails?.reason, 120);
@@ -7975,6 +8510,7 @@ function collaborationDesktopState(input: {
   const reasonCodes = unique([
     ...collaborationStringArray(coherence?.reasonCodes, 120),
     ...(fallbackReason ? [fallbackReason] : []),
+    ...(readStateReconciliationRequired ? ["read_state_reconciliation_required"] : []),
     ...(fallbackRequired ? ["desktop_fallback_required"] : []),
     ...(fallbackRequired && readyBackend ? ["desktop_fallback_ready"] : []),
     ...(fallbackBlocked ? ["desktop_fallback_blocked"] : [])
@@ -7987,7 +8523,7 @@ function collaborationDesktopState(input: {
         ? "fallback_blocked"
         : coherenceState === "desktop_visible" || fallbackReason === "desktop_visibility_already_proven"
           ? "desktop_visible"
-          : coherenceState && ["cli_visible", "desktop_refresh_required", "desktop_restart_required"].includes(coherenceState)
+          : coherenceState && ["cli_visible", "desktop_refresh_required", "desktop_restart_required", "gui_persisted_read_state_stale"].includes(coherenceState)
             ? "cli_visible"
             : !coherence && !fallback
               ? "not_configured"
@@ -8062,6 +8598,7 @@ function collaborationJoinedReportCount(reportsByThread: Map<string, Record<stri
 
 function collaborationCoherenceRequiresFallback(hasCoherence: boolean, coherenceState: string | null): boolean {
   if (!hasCoherence) return false;
+  if (coherenceState === "gui_persisted_read_state_stale") return false;
   return coherenceState !== "desktop_visible";
 }
 
@@ -8291,6 +8828,10 @@ export function createCodexDesktopCoherenceReport(options: CodexDesktopCoherence
   const desktopVisibleCurrent = current?.desktopVisible === true;
   const desktopVisibleAfter = after?.desktopVisible === true;
   const desktopVisible = desktopVisibleBefore || desktopVisibleCurrent || desktopVisibleAfter;
+  const desktopGuiObservationSupplied = actionEvidence.actionKind === "desktop_gui_observation" && actionEvidence.live === true && actionEvidence.dryRun === false;
+  const postObservationReadStateEvidence = desktopGuiObservationSupplied && codexDesktopHasPostObservationReadStateEvidence([currentMap, afterMap], sourceRef, actionEvidence.observedAt);
+  const readStatePostObservationEvidencePending = desktopGuiObservationSupplied && !desktopVisible && !ambiguous && !postObservationReadStateEvidence;
+  const guiPersistedReadStateStale = desktopGuiObservationSupplied && postObservationReadStateEvidence && cliVisible && !desktopVisible && !ambiguous;
   const priorDesktopMiss = Boolean(
     (before && before.matchedItemCount > 0 && !before.ambiguous && !before.desktopVisible)
     || (current && current.matchedItemCount > 0 && !current.ambiguous && !current.desktopVisible)
@@ -8305,7 +8846,8 @@ export function createCodexDesktopCoherenceReport(options: CodexDesktopCoherence
     ].some(Boolean) ? ["malformed_visible_map"] : []),
     ...(ambiguous ? ["ambiguous_desktop_join"] : []),
     ...(!latest?.mapPresent ? ["desktop_coherence_map_missing"] : []),
-    ...(latest && latest.matchedItemCount === 0 ? ["target_not_found_in_visible_map"] : [])
+    ...(latest && latest.matchedItemCount === 0 ? ["target_not_found_in_visible_map"] : []),
+    ...(guiPersistedReadStateStale ? ["read_state_stale_after_gui_observation"] : [])
   ];
   const state = codexDesktopCoherenceState({
     ambiguous,
@@ -8313,6 +8855,8 @@ export function createCodexDesktopCoherenceReport(options: CodexDesktopCoherence
     desktopVisibleBefore,
     desktopVisibleCurrent,
     desktopVisibleAfter,
+    guiPersistedReadStateStale,
+    readStatePostObservationEvidencePending,
     priorDesktopMiss,
     refreshKind
   });
@@ -8335,6 +8879,10 @@ export function createCodexDesktopCoherenceReport(options: CodexDesktopCoherence
     ...(after?.reasonCodes ?? []),
     ...(ambiguous ? ["ambiguous_join"] : []),
     ...(cliVisible && !desktopVisible ? ["cli_direct_visible_without_desktop_proof"] : []),
+    ...(desktopGuiObservationSupplied ? ["desktop_gui_observation_supplied"] : []),
+    ...(postObservationReadStateEvidence ? ["read_state_post_observation_evidence_current"] : []),
+    ...(readStatePostObservationEvidencePending ? ["read_state_post_observation_evidence_pending"] : []),
+    ...(guiPersistedReadStateStale ? ["read_state_stale_after_gui_observation"] : []),
     ...(desktopVisible ? ["desktop_visible_candidate"] : [])
   ])].map((reason) => publicSafeIdentifier(reason)).filter((reason): reason is string => Boolean(reason));
 
@@ -8367,7 +8915,7 @@ export function createCodexDesktopCoherenceReport(options: CodexDesktopCoherence
       rawTranscriptRead: false
     },
     proofBoundary: "This report classifies public-safe evidence about whether a Codex CLI/direct-protocol/app-server thread is also visible in Codex Desktop. It does not read raw transcript turns, send or steer a Codex thread, refresh/restart/select/click/type in Codex Desktop, mutate a GUI, or prove Desktop-visible collaboration unless supplied evidence proves it.",
-    nextAction: codexDesktopCoherenceNextAction(state)
+    nextAction: codexDesktopCoherenceNextAction(state, { readStatePostObservationEvidencePending })
   };
 }
 
@@ -9109,6 +9657,46 @@ function codexDesktopCoherenceObservation(
   };
 }
 
+function codexDesktopHasPostObservationReadStateEvidence(
+  maps: unknown[],
+  sourceRef: string | null,
+  observedAt: string | null
+): boolean {
+  const observedAtMs = timestampMillis(observedAt);
+  if (observedAtMs === null) return false;
+  return maps.some((map) => {
+    const freshnessAtMs = codexDesktopReadStateFreshnessMillis(map, sourceRef);
+    return freshnessAtMs !== null && freshnessAtMs >= observedAtMs;
+  });
+}
+
+function codexDesktopReadStateFreshnessMillis(map: unknown, sourceRef: string | null): number | null {
+  if (!isVisibleCodexSessionMapReport(map)) return null;
+  const matched = sourceRef
+    ? map.items.filter((item) => visibleMapItemMatchesTarget(item, sourceRef))
+    : [];
+  if (matched.length === 0) return null;
+  const timestamps = [
+    map.generatedAt,
+    ...matched.flatMap(codexDesktopMapItemReadTimestamps)
+  ].flatMap((value) => {
+    const parsed = timestampMillis(value);
+    return parsed === null ? [] : [parsed];
+  });
+  return timestamps.length === 0 ? null : Math.max(...timestamps);
+}
+
+function codexDesktopMapItemReadTimestamps(item: VisibleCodexSessionMapItem): string[] {
+  const itemRecord = item as unknown as Record<string, unknown>;
+  const freshness = isObjectRecord(itemRecord.freshness)
+    ? itemRecord.freshness
+    : {};
+  return [
+    typeof freshness.indexedUpdatedAt === "string" ? freshness.indexedUpdatedAt : null,
+    typeof freshness.appServerUpdatedAt === "string" ? freshness.appServerUpdatedAt : null
+  ].filter((value): value is string => Boolean(value));
+}
+
 function missingCodexDesktopCoherenceObservation(): CodexDesktopCoherenceObservation {
   return {
     mapPresent: false,
@@ -9190,6 +9778,7 @@ function publicSafeCoherenceState(value: unknown): CodexDesktopCoherenceState {
     || value === "desktop_visible"
     || value === "desktop_refresh_required"
     || value === "desktop_restart_required"
+    || value === "gui_persisted_read_state_stale"
     || value === "unknown"
     ? value
     : "unknown";
@@ -9268,6 +9857,7 @@ function optionalActionKind(value: unknown): CodexDesktopCoherenceActionEvidence
   return value === "cli"
     || value === "direct_protocol"
     || value === "codex_app_server"
+    || value === "desktop_gui_observation"
     || value === "lco_control"
     || value === "none"
     ? value
@@ -9280,10 +9870,14 @@ function codexDesktopCoherenceState(input: {
   desktopVisibleBefore: boolean;
   desktopVisibleCurrent: boolean;
   desktopVisibleAfter: boolean;
+  guiPersistedReadStateStale: boolean;
+  readStatePostObservationEvidencePending: boolean;
   priorDesktopMiss: boolean;
   refreshKind: CodexDesktopCoherenceReport["refreshKind"];
 }): CodexDesktopCoherenceState {
   if (input.ambiguous) return "unknown";
+  if (input.guiPersistedReadStateStale) return "gui_persisted_read_state_stale";
+  if (input.readStatePostObservationEvidencePending) return "unknown";
   if (input.desktopVisibleBefore || input.desktopVisibleCurrent) return "desktop_visible";
   if (input.desktopVisibleAfter && input.refreshKind === "desktop_refresh" && input.priorDesktopMiss) return "desktop_refresh_required";
   if (input.desktopVisibleAfter && input.refreshKind === "desktop_restart" && input.priorDesktopMiss) return "desktop_restart_required";
@@ -9303,6 +9897,7 @@ function codexDesktopVisibility(input: {
   const cli = input.cliVisible ? "proven" : "unknown";
   if (input.state === "desktop_refresh_required") return { cli, desktop: "refresh_required" };
   if (input.state === "desktop_restart_required") return { cli, desktop: "restart_required" };
+  if (input.state === "gui_persisted_read_state_stale") return { cli, desktop: "not_seen" };
   if (input.desktopVisible) return { cli, desktop: "proven" };
   if (input.state === "cli_visible") return { cli, desktop: "not_seen" };
   return { cli, desktop: "unknown" };
@@ -9317,6 +9912,7 @@ function codexDesktopCoherenceConfidence(input: {
   const max = input.observations.length ? Math.max(...input.observations.map((item) => item.confidence)) : 0;
   if (input.state === "desktop_visible") return Number(Math.max(0.75, max).toFixed(2));
   if (input.state === "desktop_refresh_required" || input.state === "desktop_restart_required") return Number(Math.max(0.68, max).toFixed(2));
+  if (input.state === "gui_persisted_read_state_stale") return Number(Math.max(0.66, max).toFixed(2));
   if (input.state === "cli_visible") return Number(Math.max(0.62, max).toFixed(2));
   return Number(Math.min(0.4, max || 0.2).toFixed(2));
 }
@@ -9325,6 +9921,7 @@ function codexDesktopCoherenceReasonCodes(state: CodexDesktopCoherenceState): st
   if (state === "desktop_visible") return ["desktop_visible_without_refresh"];
   if (state === "desktop_refresh_required") return ["desktop_visible_after_refresh_only"];
   if (state === "desktop_restart_required") return ["desktop_visible_after_restart_only"];
+  if (state === "gui_persisted_read_state_stale") return ["gui_persisted_read_state_stale"];
   if (state === "cli_visible") return ["cli_or_direct_protocol_visible"];
   return ["desktop_coherence_unknown"];
 }
@@ -9349,11 +9946,13 @@ function strongestCoverage(values: VisibleCodexCoverageState[]): VisibleCodexCov
   return "not_configured";
 }
 
-function codexDesktopCoherenceNextAction(state: CodexDesktopCoherenceState): string {
+function codexDesktopCoherenceNextAction(state: CodexDesktopCoherenceState, options: { readStatePostObservationEvidencePending?: boolean } = {}): string {
   if (state === "desktop_visible") return "Desktop visibility is proven by supplied public-safe map evidence; do not treat this as GUI mutation approval.";
   if (state === "desktop_refresh_required") return "Record the safe Desktop refresh flow before claiming live visible collaboration.";
   if (state === "desktop_restart_required") return "Route the live-refresh gap to the desktop fallback lane before claiming same-session Desktop collaboration.";
+  if (state === "gui_persisted_read_state_stale") return "A supplied public-safe Desktop observation indicates the GUI action completed, but LCO read-state surfaces have not converged; refresh indexed/session/app-server evidence before claiming coherent Desktop read-state.";
   if (state === "cli_visible") return "CLI/direct/app-server visibility is proven, but Desktop visibility is not; gather visible Codex evidence or route #308 fallback proof.";
+  if (options.readStatePostObservationEvidencePending) return "Refresh post-observation Codex read-state evidence and reconcile the visible map before classifying the Desktop GUI observation as stale.";
   return "Gather a public-safe visible Codex map and app-server signal for the target thread before making a Desktop-visible collaboration claim.";
 }
 
@@ -11814,10 +12413,19 @@ function fallbackThreadId(sourcePath: string): string {
   return rolloutSuffix ?? stableId(sourcePath);
 }
 
-function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, session: ImportedSession, stat: { size: number; mtimeMs: number }): void {
+function upsertSession(
+  db: LooDatabase,
+  sourcePath: string,
+  rawText: string,
+  session: ImportedSession,
+  stat: { size: number; mtimeMs: number },
+  options: { sourceRef?: string; rangeReasonCodes?: string[] } = {}
+): void {
   const now = new Date().toISOString();
   const sourceHash = stableId(rawText);
   const sourcePathRef = publicSourcePathRef(sourcePath);
+  const preparedSourceRef = options.sourceRef ?? codexThreadRef(session.threadId);
+  const rangeReasonCodes = unique(options.rangeReasonCodes ?? []);
   db.exec("BEGIN");
   try {
     db.prepare(`
@@ -11943,12 +12551,11 @@ function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, ses
     `);
     for (const event of session.sourceEvents) {
       const eventId = event.eventRef.slice("codex_event:".length);
-      const sourceRef = codexThreadRef(session.threadId);
       insertPreparedEvent.run(
         eventId,
         event.eventRef,
         session.threadId,
-        sourceRef,
+        preparedSourceRef,
         event.sourcePathRef,
         event.sourceHash,
         event.contentHash,
@@ -11973,7 +12580,7 @@ function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, ses
           eventId,
           event.eventRef,
           session.threadId,
-          sourceRef,
+          preparedSourceRef,
           event.sourcePathRef,
           event.sourceHash,
           range.contentHash,
@@ -11988,7 +12595,7 @@ function upsertSession(db: LooDatabase, sourcePath: string, rawText: string, ses
           "public_safe_metadata",
           "metadata_only",
           preparedRangeConfidence(range.rangeKind),
-          JSON.stringify(range.reasonCodes),
+          JSON.stringify(unique([...range.reasonCodes, ...rangeReasonCodes])),
           JSON.stringify({ eventKind: event.eventKind }),
           now
         );
@@ -12334,6 +12941,94 @@ function isSafeIsoTimestamp(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}T[0-9:.+-]+Z?$/.test(value) && Number.isFinite(Date.parse(value));
 }
 
+function nativeCodexSubagentResultRef(resultId: string): string {
+  return `codex_subagent_result:${resultId}`;
+}
+
+function safeNativeCodexSubagentResultId(value: string): string {
+  const trimmed = value.trim();
+  const redacted = publicSafeText(trimmed, 120).trim();
+  if (trimmed && redacted === trimmed && !looksSensitiveRefLike(trimmed) && /^[A-Za-z0-9._:-]{1,96}$/.test(trimmed)) return trimmed;
+  return `native_${stableId(trimmed).slice(0, 16)}`;
+}
+
+function nativeCodexSubagentResultSyntheticJsonl(
+  fixture: NativeCodexSubagentResultFixture,
+  options: { resultId: string; threadId: string; sourceRef: string; now: string }
+): string {
+  const observedAt = publicIsoTimestamp(fixture.observedAt ?? null) ?? options.now;
+  const title = safeNullableFixtureString(fixture.title) ?? "Native Codex subagent result";
+  const summary = safeNullableFixtureString(fixture.summary);
+  const finalReport = safeNullableFixtureString(fixture.finalReport);
+  const touchedFiles = publicSafeRelativePaths(fixture.touchedFiles);
+  const blockers = publicSafeStringList(fixture.blockers, 120);
+  const provenance = publicNativeCodexSubagentProvenance(fixture.provenance);
+  const metadataLines = [
+    `Native Codex subagent result: ${options.sourceRef}`,
+    `Result id: ${options.resultId}`,
+    provenance.length ? `Provenance: ${provenance.join(", ")}` : null,
+    touchedFiles.length ? `Touched files: ${touchedFiles.join(", ")}` : null,
+    blockers.length ? `Blockers: ${blockers.join(", ")}` : null
+  ].filter(Boolean).join("\n");
+  const finalText = finalReport ?? summary ?? "Final: Native Codex subagent result recorded as advisory prepared source metadata.";
+  const lines = [
+    {
+      timestamp: observedAt,
+      session_meta: {
+        payload: {
+          id: options.threadId,
+          model: "native-codex-subagent-result",
+          cwd: "native_codex_subagent_result"
+        }
+      }
+    },
+    { timestamp: observedAt, event_msg: { type: "thread_name", name: title } },
+    { timestamp: observedAt, event_msg: { type: "native_subagent_result_metadata", message: metadataLines } },
+    { timestamp: observedAt, event_msg: { type: "agent_message", role: "assistant", message: finalText } }
+  ];
+  return `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`;
+}
+
+function publicNativeCodexSubagentProvenance(value: unknown): string[] {
+  if (!isObjectRecord(value)) return [];
+  const out: string[] = [];
+  const issue = boundedNonNegativeInteger(value.issue, 1_000_000);
+  const pr = boundedNonNegativeInteger(value.pr, 1_000_000);
+  const branch = safeNullableFixtureString(value.branch);
+  if (issue > 0) out.push(`issue:${issue}`);
+  if (pr > 0) out.push(`pr:${pr}`);
+  if (branch && isPublicSafeBranchRef(branch)) out.push(`branch:${publicSafeText(branch, 160)}`);
+  return out.slice(0, 12);
+}
+
+function isPublicSafeBranchRef(value: string): boolean {
+  return /^(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]{1,160}$/.test(value)
+    && !value.includes("..")
+    && !/^(?:Users|Volumes|private|tmp|var|home|root)(?:\/|$)/i.test(value)
+    && !/(?:^|\/)\.(?:codex|ssh|aws|config)(?:\/|$)/i.test(value)
+    && !/(?:npm_[A-Za-z0-9]{10,}|sk-[A-Za-z0-9_-]{10,}|ghp_[A-Za-z0-9]{10,}|github_pat_[A-Za-z0-9_]{10,}|xox[baprs]-[A-Za-z0-9-]{10,}|PRIVATE_CANARY)/i.test(value);
+}
+
+function publicSafeRelativePaths(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  return unique(values.flatMap((value) => {
+    const raw = stringOrNull(value);
+    if (!raw || looksSensitiveRefLike(raw)) return [];
+    const safe = publicSafeText(raw, 180);
+    return /^(?:[A-Za-z0-9._-]+\/)+[A-Za-z0-9._-]+$/.test(safe) ? [safe] : [];
+  })).slice(0, 40);
+}
+
+function publicSafeStringList(values: unknown, maxChars: number): string[] {
+  if (!Array.isArray(values)) return [];
+  return unique(values.flatMap((value) => {
+    const raw = stringOrNull(value);
+    if (!raw) return [];
+    const safe = publicSafeText(raw, maxChars).trim();
+    return safe && !looksSensitiveRefLike(safe) ? [safe] : [];
+  })).slice(0, 20);
+}
+
 function normalizeText(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
@@ -12401,7 +13096,7 @@ function toolCallReasonCode(value: unknown): CodexToolCall["reasonCode"] {
 
 function safeNullableFixtureString(value: unknown): string | null {
   const raw = stringOrNull(value);
-  return raw ? redactSafeString(raw) : null;
+  return raw ? redactSafeString(publicSafeText(raw, 900)).trim() || null : null;
 }
 
 function stringOrNull(value: unknown): string | null {

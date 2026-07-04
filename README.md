@@ -3,9 +3,7 @@
 **LCO turns local Codex sessions into searchable, bounded, approval-aware
 work objects for OpenClaw.**
 
-Use it when an agent or user needs to answer: what sessions are active, what did
-they plan, what did they finish, what files did they touch, and what is the next
-safe action without rereading raw transcripts.
+![Enchanted open-claw conductor guiding bounded session cards and an abstract code beast in a dark technical workshop](assets/readme/hero.png)
 
 [![npm latest](https://img.shields.io/npm/v/lossless-openclaw-orchestrator/latest?label=npm%20latest)](https://www.npmjs.com/package/lossless-openclaw-orchestrator)
 [![npm beta](https://img.shields.io/npm/v/lossless-openclaw-orchestrator/beta?label=npm%20beta)](https://www.npmjs.com/package/lossless-openclaw-orchestrator)
@@ -13,6 +11,17 @@ safe action without rereading raw transcripts.
 [![CodeQL](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/actions/workflows/codeql.yml/badge.svg)](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/actions/workflows/codeql.yml)
 [![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)](LICENSE)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](CONTRIBUTING.md)
+
+Use it when an agent or user needs to answer: what sessions are active, what did
+they plan, what did they finish, what files did they touch, and what is the next
+safe action without rereading raw transcripts.
+
+| What LCO gives agents | Why it matters |
+| --- | --- |
+| Searchable local session memory | Find plans, finals, touched files, and refs without raw transcript rereads. |
+| Bounded evidence expansion | Read compact public-safe briefs before opening larger source material. |
+| Approval-gated control | Dry-run Codex actions and verify matching audit ids before live control. |
+| OpenClaw/MCP tools | Use the same local-first recall and control surfaces from agent workflows. |
 
 [Setup](docs/SETUP.md) · [Contributing](CONTRIBUTING.md) · [Agent Instructions](AGENTS.md) · [Agent Skill](skills/lossless-openclaw-orchestrator/SKILL.md) · [OpenClaw Plugin](docs/OPENCLAW_PLUGIN.md) · [Security](SECURITY.md) · [Code of Conduct](CODE_OF_CONDUCT.md) · [Vision](VISION.md) · [Privacy](docs/PRIVACY.md) · [Claude Boundary](docs/CLAUDE_ADAPTER_BOUNDARY.md) · [Claim Audit](docs/CLAIM_AUDIT.md) · [Release Notes](docs/RELEASE_NOTES_1.2.0-beta.0.md) · [1.1.4 Notes](docs/RELEASE_NOTES_1.1.4.md) · [1.0 Notes](docs/RELEASE_NOTES_1.0.0.md) · [License](LICENSE)
 
@@ -113,6 +122,10 @@ loo doctor
 loo onboard status --strict
 ```
 
+If agents will author PRs, issue comments, or closeouts in the repo, also copy
+the provenance snippets from [docs/SETUP.md](docs/SETUP.md#agent-provenance-setup)
+into the repo's `AGENTS.md` and `CLAUDE.md` files.
+
 ## First Workflow
 
 Search for a session:
@@ -139,16 +152,25 @@ Expand from a query when you do not know the ref yet:
 loo expand-query --profile brief --token-budget 1000 "billing bridge"
 ```
 
-For normal agent workflows, use the MCP/OpenClaw tools:
+For normal agent workflows, start with the compact public/operator facade
+instead of treating every `loo_*` tool as a peer:
 
-- `loo_search_sessions`
-- `loo_describe_session`
-- `loo_expand_session`
-- `loo_codex_plans`
-- `loo_codex_final_messages`
-- `loo_codex_touched_files`
-- `loo_codex_control_dry_run`
-- `loo_codex_start_thread`
+| Step | Tool | Purpose |
+| --- | --- | --- |
+| 1 | `loo_prepared_inbox` | Start from the compact prepared-state operating picture. |
+| 2 | `loo_describe_ref` | Look up a specific session or source ref from the inbox. |
+| 3 | `loo_expand_query` | Expand one bounded evidence brief when the ref is not known. |
+| 4 | `loo_recent_sessions` | Refresh recent or active cards after reads or approved actions. |
+| 5 | `loo_attention_inbox` | Review the compact attention queue before choosing a next action. |
+| 6 | `loo_project_digest` | Produce a bounded provenance and handoff digest. |
+| 7 | `loo_codex_control_dry_run` | Create the exact dry-run action packet and approval hashes. |
+| 8 | `loo_codex_resume_thread` | Run an approved resume only after the matching audit id. |
+
+Other declared tools remain available as `workflow_detail`, `proof_debug`, or
+`internal_low_level` surfaces for setup, diagnosis, proof, and recovery. Their
+existence is deliberate: normal agents should start from the facade, then drop
+to the lower tiers only when the compact path returns a specific next step or
+blocker.
 
 `loo_codex_control_dry_run` returns the audit id and hashes an agent should show
 before any live start/resume/send/steer/interrupt call. Live control requires
@@ -162,6 +184,13 @@ before claiming the turn or thread completed, persisted, or is safe to build on.
 
 The packaged agent playbook is
 [skills/lossless-openclaw-orchestrator/SKILL.md](skills/lossless-openclaw-orchestrator/SKILL.md).
+
+Naming policy: `LCO` is the public product abbreviation and `lco_*` is the
+forward public alias target for new user-facing tool names. The currently
+callable OpenClaw/MCP tools still use the historical `loo_*` runtime prefix, so
+examples that must run today continue to show `loo_*` until #434 lands a tested
+alias layer. Do not delete or silently rename the `loo_*` tools; keep them as
+backward-compatible aliases when `lco_*` aliases are added.
 
 ## OpenClaw And MCP
 
@@ -214,6 +243,9 @@ Default behavior:
 - bounded expansion profiles
 - read-only OpenClaw LCM peer DB access
 - direct Codex protocol before desktop fallback
+- CUA Driver as the preferred/default desktop fallback backend when desktop
+  fallback is needed; CUA is externally installed, not bundled by LCO, and
+  Peekaboo remains a secondary visible fallback
 - dry-run plus matching `approval_audit_id` before live Codex control,
   including new-thread creation
 - explicit mutation classes: pure reads use empty `mutationClasses`, and
@@ -235,6 +267,13 @@ Claude Code support is an adapter stub and redacted fixture inventory until its
 storage and control paths are proven. Desktop fallback surfaces report
 readiness, blockers, and proof states; they do not authorize prompt typing,
 clicking, refresh/restart automation, or arbitrary app control.
+
+Desktop fallback readiness is optional for normal read/search/describe
+workflows. Operators who need fallback control should install CUA Driver
+separately, verify the launch entrypoint with `cua-driver mcp --help`, then use
+`loo doctor --json` or `loo desktop see cua-driver` only for LCO readiness and
+blocker reporting. Treat missing CUA as a desktop-fallback readiness blocker
+rather than a package install failure.
 
 Claude adapter proof boundaries live in
 [docs/CLAUDE_ADAPTER_BOUNDARY.md](docs/CLAUDE_ADAPTER_BOUNDARY.md). Public
@@ -301,6 +340,10 @@ OpenClaw/Eva agent can start from compact prepared state rather than rereading
 huge Codex transcripts. Summary leaves are advisory
 routing/evidence cards over prepared ranges; they are not authority, hidden
 autonomy, GUI mutation, Claude parity, or true Codex compaction-summary capture.
+When a specific Codex thread id is requested, prepared-state status reports
+thread-level `targetCoverage` with opaque source refs, freshness, coverage, and
+reason codes such as `source_present_not_indexed` instead of hiding a miss
+behind healthy global cache counts.
 The hook sidecar CLI lives under `loo hook closeout-capture`,
 `loo hook state-prep`, and `loo hook compaction-capture --mode marker`; those
 commands write only LCO-owned derived cache and treat transcript paths as

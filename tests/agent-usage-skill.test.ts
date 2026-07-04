@@ -65,6 +65,38 @@ test("OpenClaw agent usage skill teaches bounded recall and approval-gated contr
   }
 });
 
+test("OpenClaw agent usage skill starts normal operators from the compact public facade", () => {
+  const skill = read("skills/lossless-openclaw-orchestrator/SKILL.md");
+  const facade = section(skill, "Compact Public Facade");
+  const recommendedLoop = section(skill, "Recommended Agent Loop");
+
+  for (const required of [
+    /loo_prepared_inbox/,
+    /loo_describe_ref/,
+    /loo_expand_query/,
+    /loo_recent_sessions/,
+    /loo_attention_inbox/,
+    /loo_project_digest/,
+    /loo_codex_control_dry_run/,
+    /loo_codex_resume_thread/,
+    /workflow_detail/,
+    /proof_debug/,
+    /internal_low_level/,
+    /expert\s+tools remain explicit/i,
+    /#434/,
+    /forward public\s+alias target/i,
+    /currently use `loo_\*`/i,
+    /backward-compatible aliases/i
+  ]) {
+    assert.match(skill, required);
+  }
+
+  assert.match(recommendedLoop, /Start with `loo_prepared_inbox`/);
+  assert.match(recommendedLoop, /workflow-detail fallbacks/i);
+  assert.doesNotMatch(facade, /raw transcripts/i);
+  assert.doesNotMatch(facade, /lco_\*/i);
+});
+
 test("OpenClaw agent usage skill teaches the Desktop-first daily loop without widening claims", () => {
   const skill = read("skills/lossless-openclaw-orchestrator/SKILL.md");
   const dailyLoop = section(skill, "Codex Desktop-First Daily Loop");

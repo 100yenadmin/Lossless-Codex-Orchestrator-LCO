@@ -616,12 +616,9 @@ export type ControlProofState = {
   turnId?: string;
   responseStatus?: string;
   nextProof?: {
-    tool: "loo_codex_app_server_threads";
+    tool: "loo_codex_app_server_threads" | "loo_codex_start_thread_post_create_proof";
     execute: false;
-    args: {
-      read_thread_id: string;
-      limit: 20;
-    };
+    args: Record<string, string | number>;
     reason: string;
     stopConditions: string[];
   };
@@ -916,15 +913,31 @@ function liveProofState(input: {
     threadId: proofThreadId,
     ...(turnId ? { turnId } : {}),
     ...(responseStatus ? { responseStatus } : {}),
-    ...(acceptedByTransport && !persisted && proofThreadId !== "new_thread" ? { nextProof: {
-      tool: "loo_codex_app_server_threads",
-      execute: false,
-      args: { read_thread_id: proofThreadId, limit: 20 },
-      reason: "Bounded read-only follow-up proof is required before treating transport acceptance as durable Codex execution or persistence.",
-      stopConditions: ["execute_false_only", "raw_transcript_not_read", "do_not_claim_completed_or_persisted_until_durable_read"]
-    } } : {}),
+    ...(acceptedByTransport && !persisted && proofThreadId !== "new_thread" ? {
+      nextProof: input.method === "thread/start"
+        ? {
+            tool: "loo_codex_start_thread_post_create_proof",
+            execute: false,
+            args: {
+              created_thread_id: proofThreadId,
+              created_thread_ref: `codex_thread:${proofThreadId}`,
+              limit: 20
+            },
+            reason: "Run the bounded read-only post-create proof before treating transport acceptance as durable Codex thread creation or persistence.",
+            stopConditions: ["execute_false_only", "raw_transcript_not_read", "do_not_claim_created_or_persisted_until_post_create_proof"]
+          }
+        : {
+            tool: "loo_codex_app_server_threads",
+            execute: false,
+            args: { read_thread_id: proofThreadId, limit: 20 },
+            reason: "Bounded read-only follow-up proof is required before treating transport acceptance as durable Codex execution or persistence.",
+            stopConditions: ["execute_false_only", "raw_transcript_not_read", "do_not_claim_completed_or_persisted_until_durable_read"]
+          }
+    } : {}),
     callerInstruction: acceptedByTransport
-      ? "Transport acceptance is not durable execution. Run the bounded follow-up proof before claiming the turn or thread completed, persisted, or is safe to build on."
+      ? input.method === "thread/start"
+        ? "Transport acceptance is not durable thread creation. Run the bounded post-create proof before claiming the new thread completed, persisted, or is safe to build on."
+        : "Transport acceptance is not durable execution. Run the bounded follow-up proof before claiming the turn or thread completed, persisted, or is safe to build on."
       : "Codex transport did not accept the control request. Do not retry live control without a fresh dry-run and approval.",
     proofBoundary: "This proof state is public-safe transport/output classification only. It does not read raw transcripts, prove durable local-session persistence, mutate the GUI, or claim completed orchestration without follow-up evidence."
   };
@@ -1061,8 +1074,9 @@ export async function createCodexAppServerThreadsReport(options: {
   let readProbe: CodexAppServerThreadsReport["readProbe"];
   let readProbeOk: boolean | undefined;
   if (options.readThreadId) {
-    const threadId = capTextValue(options.readThreadId, 160);
-    const read = await codexReadRequest(options.client, "thread/read", { threadId, includeTurns: false });
+    const requestedThreadId = options.readThreadId;
+    const threadId = capTextValue(requestedThreadId, 160);
+    const read = await codexReadRequest(options.client, "thread/read", { threadId: requestedThreadId, includeTurns: false });
     readProbeOk = read.ok;
     if (!read.ok) {
       if (read.error) errors.push(read.error);
@@ -2306,6 +2320,7 @@ const threadStatusLabels = [
   "Failed",
   "Error"
 ];
+const threadStatusLabelSet = new Set(threadStatusLabels.map((label) => label.toLowerCase()));
 const threadSectionLabels = new Set(["pinned", "projects", "chats", "recent", "show more"]);
 const threadControlLabels = new Set(["archive chat", "automation folders", "automations", "unarchive chat", "pin chat", "unpin chat", "continue", "copy", "copy message", "new chat", "new thread", "search", "settings", "send", "plugins"]);
 const threadControlPrefixLabels = ["archive chat", "automation folders", "automations", "pin chat", "unarchive chat", "unpin chat"];
@@ -2359,10 +2374,15 @@ function visibleWindowsFromSnapshot(snapshot: DesktopSnapshotStatus): VisibleCod
 function visibleThreadMapFromSnapshot(snapshot: DesktopSnapshotStatus): VisibleCodexThreadMap {
   const threads: VisibleCodexThreadCandidate[] = [];
   const seen = new Set<string>();
+  const consumedChildElementIds = new Set<string>();
+  const consumedChildFingerprints = new Set<string>();
+  const acceptedElementFingerprints = new Set<string>();
   let currentProject: string | undefined;
   let inProjects = false;
   for (const element of snapshot.elements) {
     if (threads.length >= snapshot.maxNodes) break;
+    const elementFingerprint = sidebarChildFingerprint(element);
+    if (consumedChildElementIds.has(element.elementId) || (elementFingerprint && consumedChildFingerprints.has(elementFingerprint))) continue;
     const rawLabel = element.label?.trim();
     if (!rawLabel || !isThreadCandidateRole(element.role)) continue;
     const lowered = rawLabel.toLowerCase();
@@ -2374,19 +2394,27 @@ function visibleThreadMapFromSnapshot(snapshot: DesktopSnapshotStatus): VisibleC
       currentProject = capTextValue(rawLabel, 160);
       continue;
     }
-    if (isThreadControlLabel(lowered)) continue;
-    const split = splitThreadTitleStatus(rawLabel);
+    const childCandidate = isThreadControlLabel(lowered)
+      ? sidebarThreadCandidateFromChildText(snapshot.elements, element)
+      : null;
+    if (isThreadControlLabel(lowered) && !childCandidate) continue;
+    if (childCandidate?.titleElementFingerprint && acceptedElementFingerprints.has(childCandidate.titleElementFingerprint)) continue;
+    const split = childCandidate?.split ?? splitThreadTitleStatus(rawLabel);
     if (!split.title || isThreadControlLabel(split.title.toLowerCase())) continue;
+    if (!isVisibleSidebarCandidateTitle({ title: split.title, rawLabel, element, childCandidate: Boolean(childCandidate), split })) continue;
     if (split.title.length < 3 || ["codex", "vantage"].includes(split.title.toLowerCase())) continue;
     const visibleId = visibleThreadId({ index: threads.length, title: split.title, sourceElementId: element.elementId });
     if (seen.has(visibleId)) continue;
     seen.add(visibleId);
+    for (const childId of childCandidate?.consumedElementIds ?? []) consumedChildElementIds.add(childId);
+    for (const childFingerprint of childCandidate?.consumedElementFingerprints ?? []) consumedChildFingerprints.add(childFingerprint);
+    if (elementFingerprint) acceptedElementFingerprints.add(elementFingerprint);
     const center = centerFromBounds(element.bounds);
     threads.push({
       visibleId,
       index: threads.length,
       title: split.title,
-      rawTitle: capTextValue(rawLabel, 200),
+      rawTitle: capTextValue(childCandidate?.rawLabel ?? rawLabel, 200),
       project: currentProject,
       status: split.status,
       updatedLabel: split.updatedLabel,
@@ -2407,6 +2435,78 @@ function visibleThreadMapFromSnapshot(snapshot: DesktopSnapshotStatus): VisibleC
     threads,
     warnings: snapshot.truncated ? ["Snapshot was truncated before thread-map extraction; rerun with a larger bounded max_nodes value if more visible rows are needed."] : []
   };
+}
+
+function sidebarThreadCandidateFromChildText(
+  elements: DesktopSnapshotElement[],
+  row: DesktopSnapshotElement
+): {
+  split: ReturnType<typeof splitThreadTitleStatus>;
+  rawLabel: string;
+  consumedElementIds: string[];
+  consumedElementFingerprints: string[];
+  titleElementFingerprint?: string;
+} | null {
+  if (!row.bounds) return null;
+  const children = elements
+    .filter((element) => element.elementId !== row.elementId && element.label && isStaticThreadRole(element.role) && rectContains(row.bounds, element.bounds))
+    .sort((left, right) => (left.bounds?.y ?? 0) - (right.bounds?.y ?? 0) || (left.bounds?.x ?? 0) - (right.bounds?.x ?? 0));
+  if (!children.length) return null;
+  const updatedLabel = children.map((child) => child.label?.trim()).find((label): label is string => Boolean(label && threadTimePattern.test(label)))
+    ?? splitThreadTitleStatus(row.label ?? "").updatedLabel;
+  const titleChild = children.find((child) => looksLikeSidebarThreadTitle(child.label ?? ""));
+  const title = titleChild?.label?.trim();
+  if (!title) return null;
+  const rawLabel = [title, updatedLabel].filter(Boolean).join(" ");
+  return {
+    split: splitThreadTitleStatus(rawLabel),
+    rawLabel,
+    consumedElementIds: children.map((child) => stableElementId(child)).filter((id): id is string => Boolean(id)),
+    consumedElementFingerprints: children.map(sidebarChildFingerprint).filter((fingerprint): fingerprint is string => Boolean(fingerprint)),
+    titleElementFingerprint: sidebarChildFingerprint(titleChild)
+  };
+}
+
+function looksLikeSidebarThreadTitle(label: string): boolean {
+  const trimmed = label.trim();
+  if (!trimmed || trimmed.length < 3) return false;
+  const lowered = trimmed.toLowerCase();
+  if (threadSectionLabels.has(lowered) || isThreadControlLabel(lowered) || threadTimePattern.test(lowered) || threadStatusLabelSet.has(lowered)) return false;
+  return !/[\\/]/.test(trimmed) && !trimmed.includes("<redacted-");
+}
+
+function isVisibleSidebarCandidateTitle({
+  title,
+  rawLabel,
+  element,
+  childCandidate,
+  split
+}: {
+  title: string;
+  rawLabel: string;
+  element: DesktopSnapshotElement;
+  childCandidate: boolean;
+  split: ReturnType<typeof splitThreadTitleStatus>;
+}): boolean {
+  if (looksLikeSidebarThreadTitle(title)) return true;
+  if (childCandidate || isStaticThreadRole(element.role)) return false;
+  if (!title.includes("<redacted-")) return false;
+  const rawSplit = splitThreadTitleStatus(rawLabel);
+  return Boolean(split.status || split.updatedLabel || rawSplit.status || rawSplit.updatedLabel);
+}
+
+function stableElementId(element: DesktopSnapshotElement): string | undefined {
+  const id = element.elementId.trim();
+  return id && id !== "unknown" ? id : undefined;
+}
+
+function sidebarChildFingerprint(element: DesktopSnapshotElement | undefined): string | undefined {
+  if (!element?.bounds || !element.label) return undefined;
+  const label = element.label.trim();
+  if (!label) return undefined;
+  const role = (element.role || "").trim().toLowerCase();
+  const { x, y, width, height } = element.bounds;
+  return `${role}:${label}:${x}:${y}:${width}:${height}`;
 }
 
 function isCodexSnapshot(snapshot: DesktopSnapshotStatus): boolean {
@@ -2469,6 +2569,14 @@ function shortHash(value: string): string {
 function centerFromBounds(bounds: DesktopSnapshotElement["bounds"]): { x: number; y: number } | undefined {
   if (!bounds) return undefined;
   return { x: Math.trunc(bounds.x + bounds.width / 2), y: Math.trunc(bounds.y + bounds.height / 2) };
+}
+
+function rectContains(parent: DesktopSnapshotElement["bounds"], child: DesktopSnapshotElement["bounds"]): boolean {
+  if (!parent || !child) return false;
+  return child.x >= parent.x
+    && child.y >= parent.y
+    && child.x + child.width <= parent.x + parent.width
+    && child.y + child.height <= parent.y + parent.height;
 }
 
 function threadConfidence(input: {

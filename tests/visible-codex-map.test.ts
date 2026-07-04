@@ -342,6 +342,74 @@ test("visible Codex map joins public-safe visible app-server and indexed session
   });
 });
 
+test("visible Codex map joins sidebar child-title candidate to app-server thread id", async () => {
+  withIndexedSessions([
+    {
+      id: "019f291c-0dc6-7281-95e1-85bbcaaa9ca1",
+      title: "EVA-LCO",
+      status: "active",
+      priority: "high",
+      nextAction: "verify visible sidebar inventory",
+      refs: true
+    }
+  ], ({ db }) => {
+    const map = createVisibleCodexSessionMap(db, {
+      visibleCodex: {
+        threadMap: {
+          threads: [{
+            visibleId: "visible-sidebar-eva",
+            title: "EVA-LCO",
+            rawTitle: "EVA-LCO 1h",
+            updatedLabel: "1h",
+            confidence: "high",
+            source: "peekaboo_snapshot"
+          }]
+        }
+      },
+      appServerThreads: {
+        schema: "lco.codex.appServerThreads.v1",
+        publicSafe: true,
+        readOnly: true,
+        generatedAt: "2026-07-04T10:00:00.000Z",
+        sourceCoverage: { codexAppServer: "ok" },
+        threads: [{
+          appServerRef: "codex_app_thread:019f291c-0dc6-7281-95e1-85bbcaaa9ca1",
+          threadId: "019f291c-0dc6-7281-95e1-85bbcaaa9ca1",
+          titleSanitized: "EVA-LCO",
+          titleHash: "unused",
+          status: "notLoaded",
+          loaded: false,
+          loadedState: "not_loaded",
+          updatedAt: null,
+          sourceRef: "codex_thread:019f291c-0dc6-7281-95e1-85bbcaaa9ca1",
+          confidence: 0.9
+        }],
+        loadedThreadRefs: [],
+        loadedSignalSource: "same_connection",
+        errors: [],
+        actionsPerformed: {
+          liveCodexControlRun: false,
+          desktopGuiActionRun: false,
+          rawTranscriptRead: false
+        },
+        proofBoundary: "redacted fixture"
+      }
+    });
+
+    const item = map.items.find((candidate) => candidate.desktopRef === "visible-sidebar-eva");
+    assert.ok(item);
+    assert.equal(item.appServerRef, "codex_app_thread:019f291c-0dc6-7281-95e1-85bbcaaa9ca1");
+    assert.equal(item.sourceRef, "codex_thread:019f291c-0dc6-7281-95e1-85bbcaaa9ca1");
+    assert.equal(item.sessionCardRef, "codex_thread:019f291c-0dc6-7281-95e1-85bbcaaa9ca1");
+    assert.equal(item.reasonCodes.includes("visible_codex_candidate"), true);
+    assert.equal(item.reasonCodes.includes("app_server_signal"), true);
+    assert.deepEqual(item.ambiguity, []);
+    assert.equal(map.actionsPerformed.desktopGuiActionRun, false);
+    assert.equal(map.actionsPerformed.rawTranscriptRead, false);
+    assert.doesNotMatch(JSON.stringify(map), /\/Users\/lume|sk-test_|private\.jsonl|Pin chat|Archive chat/);
+  });
+});
+
 test("visible Codex map marks duplicate indexed titles ambiguous without app-server disambiguation", async () => {
   withIndexedSessions([
     {

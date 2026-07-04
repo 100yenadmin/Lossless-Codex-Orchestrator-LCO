@@ -24,7 +24,7 @@ The current target is:
 - Keep prepared state as advisory cache: cards, inbox items, and summary leaves route an agent to source refs; they do not become authority for PR/CI/release/runtime/customer truth.
 - Classify mutations explicitly: pure reads use empty `mutationClasses`, LCO-owned indexing/audit/prepared-state writes use `mode: "local_cache_write"` with `derived_cache`, and source-store, external-system, live-control, GUI, release, and npm mutations stay non-default.
 - Add source ranges and summary leaves as an additive DB layer behind the existing search/describe/expand tools instead of rewriting the current session-level DB in one migration. Source ranges are the first 1.2 proof slice; summary leaves sit on top as metadata-only routing/evidence cards with bounded DAG expansion.
-- Treat Codex compaction hooks outside Codex as marker capture only. True compaction-summary capture waits for Codex-native sanitized summary support.
+- Treat Codex compaction hooks outside Codex as marker capture only. True compaction-summary capture waits for Codex-native sanitized summary support. The proposal is [docs/CODEX_NATIVE_COMPACTION_CAPTURE.md](docs/CODEX_NATIVE_COMPACTION_CAPTURE.md) and its dry-run claim-audit contract is `codex-native-compaction-capture-proposal-v1`.
 - Keep model compaction opt-in and behind a later spike. It must not receive raw transcripts or current `safe_text` by default.
 - Keep README, VISION, release notes, and scorecards current so completed release gates are recorded as completed proof, not active work.
 - Treat #307/#308 as completed proof for Desktop-visible classification and fallback readiness/status, not as proof of Codex GUI mutation, prompt typing, clicking, refresh/restart automation, or unattended visible collaboration.
@@ -50,6 +50,12 @@ What 1.2 should let a local OpenClaw agent do next:
 What a local OpenClaw agent can do today:
 
 - Discover the installed LCO plugin and declared `loo_*` tools.
+- Start from the compact public facade (`loo_prepared_inbox`,
+  `loo_describe_ref`, `loo_expand_query`, `loo_recent_sessions`,
+  `loo_attention_inbox`, `loo_project_digest`, `loo_codex_control_dry_run`,
+  and approval-gated `loo_codex_resume_thread`) instead of treating every
+  declared tool as an equal first step. Expert/debug tools remain explicit for
+  detail, proof, and recovery.
 - Index and search local Codex sessions without reading raw transcripts.
 - Describe a session using metadata, source refs, status fields, plans, finals, touched files, and safe summaries.
 - Expand a selected session or query with bounded metadata, brief, or evidence profiles.
@@ -100,7 +106,10 @@ The 1.2 prepared-state layer is the next leverage step for this mode. It should
 store local, deterministic, public-safe prepared cards and summary leaves so an
 agent can operate from compact source-ref-backed state rather than repeatedly
 searching and expanding the same large threads. Summary leaves route the agent
-to the right source range; they do not replace authoritative sources.
+to the right source range; they do not replace authoritative sources. Targeted
+prepared-state reads must distinguish global cache health from a requested
+thread's own coverage, including `source_present_not_indexed` style gaps when
+the indexed source exists but prepared rows need refresh.
 
 Features should be prioritized by the `orchestrator-leverage-prioritization.json` scorecard when they change roadmap order. High-priority work gives the agent more session-management leverage per token: thread metadata, closeout hooks, project/status/priority tagging, archive and fork workflows, cited bounded expansion, and hybrid search when it improves top-k retrieval quality. Lower-priority work can still matter, but should wait when it makes the product more visually complete without reducing the orchestrator's rereading burden.
 
@@ -173,6 +182,7 @@ Versioned scorecards live under `evals/scorecards/v1.0/`. Use them as the shared
 - `orchestrator-leverage-prioritization.json`
 - `packaging-install-review.json`
 - `public-claim-review.json`
+- `tool-facade-usability-review.json`
 - `local-agent-usability-review.json`
 - `local-mac-search-ui-review.json`
 - `working-app-runtime-proof-review.json`
@@ -208,6 +218,7 @@ For implementation issues, copy `evals/scorecards/v1.0/issue-scorecard-update-te
 | Public claims | README/docs/release notes stay inside allowed beta wording | claim audit result |
 | Privacy | Evidence contains no raw session files, SQLite DBs, screenshots, tokens, or secrets | artifact scan result |
 | Source authority | Operating-picture tools distinguish source availability from source ownership | `authorityCoverage`, degraded unavailable-source cards, source-authority profile |
+| Tool facade usability | Agent starts from the 8-tool public facade, then drops to workflow/proof/debug tiers only when the facade returns a reason | `tool-facade-usability-review.json` score movement |
 | Cockpit card presentation | Agent-facing cards separate clean presentation text from source evidence and downgrade unclean extraction | `presentation_cleaned`, `presentation_low_confidence`, public-safe canary tests |
 
 ## Eval Scenarios
@@ -253,6 +264,7 @@ Core eval scenarios:
 - Prove the Milestone 7 working-app runtime path from `evals/scenarios/v1.1`: installed gateway, approved live Codex action, post-action refresh, and safe agent reasoning.
 - Prove `runtime-desktop-visibility-status-v1-1` when a release claim needs one compact lane-level Desktop visibility status report, while keeping actual GUI mutation and unattended collaboration out of scope.
 - Keep Claude Code behind the inventory in [docs/CLAUDE_ADAPTER_BOUNDARY.md](docs/CLAUDE_ADAPTER_BOUNDARY.md): the first adapter proof step is read-only session inventory, not control or parity.
+- Run `codex-native-compaction-capture-proposal-v1` when auditing the future Codex-native compaction packet: outside-Codex markers stay on `compaction observed`, while sanitized `CompactionCaptured` or enriched `PostCompact` packets may only create advisory summary leaves with refs and omissions.
 
 ## Adversarial Milestone Sweeps
 

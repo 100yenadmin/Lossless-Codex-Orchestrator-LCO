@@ -223,9 +223,136 @@ Live start/send/resume results distinguish `accepted_by_transport`, `started`,
 read-only `next_proof` tool call before claiming durable execution or local
 session persistence.
 
+### Agent Provenance Setup
+
+LCO can search and correlate Codex work better when durable agent outputs carry
+the same public-safe provenance convention as the underlying schema in
+[#436](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/436).
+Add a provenance rule to both project-level agent instruction files:
+
+- `AGENTS.md` for Codex / OpenAI Codex agents.
+- `CLAUDE.md` for Claude Code / Claude agents.
+
+Put the rule near repo workflow, closeout, maintainer, or GitHub posting rules.
+Thread and session ids are correlation handles, not authorization. They help a
+future agent find the work lane; they do not grant permission to mutate state,
+bypass approvals, or expose private evidence. Do not include raw transcripts,
+secrets, local private paths, screenshots, customer data, connector URLs, or
+unredacted private logs in public GitHub surfaces.
+
+Codex-oriented `AGENTS.md` snippet:
+
+````markdown
+## Agent Provenance
+
+For every durable agent closeout and every agent-authored GitHub surface,
+include an agent provenance block so future agents can trace the work back to
+the thread that produced it.
+
+Apply this to:
+
+- final closeouts for non-trivial work
+- PR bodies
+- issue bodies created by an agent
+- durable issue/PR comments
+- review replies that summarize or close a work loop
+- evidence packets or handoff notes
+
+Use Codex thread ids as correlation handles, not authorization. If the current
+surface does not expose a Codex thread id, say `unavailable` and use the safest
+public-safe opaque run/session ref; do not invent one. Do not include raw
+transcripts, secrets, local private paths, screenshots, customer data, connector
+URLs, or unredacted private logs in public surfaces.
+
+Preferred visible block:
+
+```markdown
+## Agent provenance
+
+- Orchestrator thread: `codex_thread:<parent_thread_id>`
+- Worker thread: `codex_thread:<worker_thread_id>`
+- Agent role/name: `<role or lane name>`
+- Model: `<model id if public-safe>`
+- Target issue(s): `#123`, `#124`
+- PR/branch: `<branch or PR URL>`
+- Final turn id: `<turn id if available>`
+- Evidence packet: `<safe artifact URL, issue comment URL, or internal ref>`
+```
+
+For compact GitHub comments, a hidden marker is acceptable when a visible block
+would be noisy:
+
+```html
+<!-- lco-agent-provenance repo=<owner/repo> issue=<n-or-none> pr=<n-or-none> parent_thread=codex_thread:<id-or-none> worker_thread=codex_thread:<id> branch=<branch-or-none> commit=<sha-or-none> -->
+```
+````
+
+Claude-oriented `CLAUDE.md` snippet:
+
+````markdown
+## Agent Provenance
+
+When Claude Code performs durable repo work, it must leave a provenance trail in
+the closeout and in agent-authored GitHub surfaces.
+
+Include provenance on:
+
+- final closeouts for non-trivial work
+- PR bodies
+- issue bodies created by the agent
+- durable issue/PR comments
+- review replies that summarize or close a work loop
+- evidence packets or handoff notes
+
+Use the available conversation/thread/session id as the correlation handle. If
+running inside Codex/LCO, use the Codex thread id format:
+`codex_thread:<thread_id>`. If no Codex thread id exists, use Claude's session
+id or the safest available opaque run id.
+
+Do not expose raw transcripts, secrets, local private paths, screenshots,
+customer data, connector URLs, or unredacted private logs in public GitHub
+surfaces.
+
+Preferred visible block:
+
+```markdown
+## Agent provenance
+
+- Orchestrator thread/session: `<parent thread/session id if available>`
+- Worker thread/session: `<worker thread/session id>`
+- Agent role/name: `<role or lane name>`
+- Model: `<model id if public-safe>`
+- Target issue(s): `#123`, `#124`
+- PR/branch: `<branch or PR URL>`
+- Final turn/run id: `<turn or run id if available>`
+- Evidence packet: `<safe artifact URL, issue comment URL, or internal ref>`
+```
+
+For compact GitHub comments, a hidden marker is acceptable when a visible block
+would be noisy:
+
+```html
+<!-- agent-provenance repo=<owner/repo> issue=<n-or-none> pr=<n-or-none> parent_session=<id-or-none> worker_session=<id> branch=<branch-or-none> commit=<sha-or-none> -->
+```
+````
+
 ## 9. Desktop Fallback Readiness
 
-Desktop fallback is optional and proof-bound.
+Desktop fallback is optional and proof-bound. Direct Codex protocol remains the
+normal first path for thread control, but CUA Driver is the preferred/default
+desktop fallback backend when fallback is needed. CUA Driver is an external
+operator dependency, not bundled by LCO; missing CUA must not break normal
+read/search/describe workflows, but it is a desktop-fallback readiness blocker.
+Peekaboo remains a secondary visible fallback for explicit read-only
+observation.
+
+Install or update CUA Driver through its own distribution channel, then verify
+that the daemon entrypoint launches and inspect LCO's readiness view separately:
+
+```bash
+cua-driver mcp --help
+loo doctor --json
+```
 
 Read-only checks:
 
@@ -234,9 +361,14 @@ loo desktop see cua-driver
 loo desktop see peekaboo --snapshot --max-nodes 50
 ```
 
-The desktop fallback surface reports readiness and blockers. It does not grant
-generic GUI mutation, Codex GUI mutation, unattended control, prompt typing, or
-clicking.
+The desktop fallback surface reports readiness and blockers. For CUA readiness,
+check the CUA daemon permissions rather than assuming Terminal permissions are
+enough. The current LCO proof report and live-proof harness do not validate a
+Codex composer read-back field, so do not treat a CUA `type_text` success
+payload or ready desktop proof packet as proof that the inserted composer value
+was verified. The fallback surface does not grant generic GUI mutation,
+unattended control, prompt typing, clicking, no-focus behavior, composer send
+approval, or release readiness without an explicit action-bound proof packet.
 
 ## 10. Troubleshooting
 

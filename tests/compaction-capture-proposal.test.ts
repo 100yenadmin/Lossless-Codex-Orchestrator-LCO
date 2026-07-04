@@ -1,0 +1,346 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+
+import { createScenarioSweep } from "../packages/cli/src/scenario-sweep.js";
+
+type CompactionPacketFixture = {
+  packet_kind?: unknown;
+  source?: unknown;
+  compactionId?: unknown;
+  threadRef?: unknown;
+  sessionRef?: unknown;
+  lifecycle?: unknown;
+  lifecycleTimestamp?: unknown;
+  sourceModel?: unknown;
+  extractorVersion?: unknown;
+  claim?: unknown;
+  summaryCaptured?: unknown;
+  summaryHash?: unknown;
+  summaryExcerpt?: unknown;
+  excerptCharLimit?: unknown;
+  tokenCount?: unknown;
+  trueCompactionSummaryCaptured?: unknown;
+  privacyClass?: unknown;
+  publicSafe?: unknown;
+  actionsPerformed?: unknown;
+  sourceRefs?: unknown;
+  sqlitePath?: unknown;
+  sqliteRowDump?: unknown;
+  screenshotRef?: unknown;
+  secretValue?: unknown;
+  customerData?: unknown;
+  historyRewriteInstruction?: unknown;
+  summaryText?: unknown;
+  omitted?: unknown;
+  mutationClasses?: unknown;
+  storage?: unknown;
+  createsAdvisorySummaryLeaf?: unknown;
+  expectedAdvisorySummaryLeaf?: {
+    leaf_kind?: unknown;
+    summary_text?: unknown;
+    input_hash?: unknown;
+    output_hash?: unknown;
+    source_refs?: unknown;
+    source_range_refs?: unknown;
+    privacy_class?: unknown;
+    omission_status?: unknown;
+    authority_coverage?: unknown;
+  };
+  rejected?: unknown;
+  reason?: unknown;
+  disallowedFields?: unknown;
+  rawReplacementHistory?: unknown;
+  transcriptPath?: unknown;
+  rawTranscriptText?: unknown;
+  rawMessage?: unknown;
+};
+
+type CompactionProposalScenario = {
+  id?: unknown;
+  surface?: unknown;
+  user_task?: unknown;
+  allowed_tools?: unknown;
+  forbidden_behaviors?: unknown;
+  expected_public_safe_evidence?: unknown;
+  private_data_exclusions?: unknown;
+  metrics?: Record<string, unknown>;
+  proof_boundary?: unknown;
+  packet_fixtures?: {
+    outside_codex_marker?: CompactionPacketFixture;
+    sanitized_codex_native_packet?: CompactionPacketFixture;
+    rejected_packets?: CompactionPacketFixture[];
+  };
+};
+
+const proposalDocPath = "docs/CODEX_NATIVE_COMPACTION_CAPTURE.md";
+const proposalScenarioPath = join("evals", "scenarios", "v1", "codex-native-compaction-capture-proposal-v1.json");
+const SANITIZED_PACKET_HASH_FIELDS = [
+  "packet_kind",
+  "source",
+  "compactionId",
+  "threadRef",
+  "sessionRef",
+  "lifecycle",
+  "lifecycleTimestamp",
+  "sourceModel",
+  "extractorVersion",
+  "claim",
+  "summaryCaptured",
+  "summaryHash",
+  "summaryExcerpt",
+  "excerptCharLimit",
+  "tokenCount",
+  "privacyClass",
+  "publicSafe",
+  "actionsPerformed",
+  "sourceRefs",
+  "omitted",
+  "mutationClasses",
+  "storage"
+] as const;
+
+function read(path: string): string {
+  return readFileSync(path, "utf8");
+}
+
+function readScenario(): CompactionProposalScenario {
+  return JSON.parse(read(proposalScenarioPath)) as CompactionProposalScenario;
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort((left, right) => left.localeCompare(right))
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function sanitizedPacketPayloadHash(packet: CompactionPacketFixture | undefined): string {
+  assert.ok(packet);
+  const payload = Object.fromEntries(
+    SANITIZED_PACKET_HASH_FIELDS.map((field) => [field, packet[field]])
+  );
+  return createHash("sha256").update(stableStringify(payload)).digest("hex").slice(0, 32);
+}
+
+test("Codex-native compaction proposal documents marker-only reality and public claim boundary", () => {
+  const proposal = read(proposalDocPath);
+  const claimAudit = read("docs/CLAIM_AUDIT.md");
+
+  assert.match(proposal, /PreCompact\/PostCompact/i);
+  assert.match(proposal, /cannot honestly capture the generated summary/i);
+  assert.match(proposal, /CompactionCaptured/i);
+  assert.match(proposal, /enriched `PostCompact`/i);
+  assert.match(proposal, /summary hash/i);
+  assert.match(proposal, /bounded summary excerpt/i);
+  assert.match(proposal, /token count/i);
+  assert.match(proposal, /source refs/i);
+  assert.match(proposal, /first 32 hex characters \(128 bits\) of the SHA-256 digest/i);
+  assert.match(proposal, /stable-stringified canonical sanitized packet payload/i);
+  assert.match(proposal, /The current field list is: `packet_kind`, `source`, `compactionId`/i);
+  assert.match(proposal, /`mutationClasses`,\s+and `storage`/i);
+  assert.match(proposal, /no-history-rewrite/i);
+  assert.match(proposal, /bounded-fragment/i);
+  assert.match(proposal, /LCO-owned sidecar/i);
+  assert.match(proposal, /public claim remains `compaction observed`/i);
+  assert.doesNotMatch(proposal, /public claim.*compaction summary captured/i);
+  assert.match(claimAudit, /compaction observed/i);
+  assert.match(claimAudit, /Codex-native sanitized/i);
+});
+
+test("Codex-native compaction proposal scenario validates marker fixture and sanitized packet fixture", () => {
+  const scenario = readScenario();
+  const serialized = JSON.stringify(scenario);
+  const outsideMarker = scenario.packet_fixtures?.outside_codex_marker;
+  const sanitizedPacket = scenario.packet_fixtures?.sanitized_codex_native_packet;
+  const rejectedPackets = scenario.packet_fixtures?.rejected_packets ?? [];
+
+  assert.equal(scenario.id, "codex-native-compaction-capture-proposal-v1");
+  assert.equal(scenario.surface, "claim-audit");
+  assert.match(String(scenario.user_task), /Codex-native.*compaction-summary capture/i);
+  assert.deepEqual(scenario.allowed_tools, [
+    "loo hook compaction-capture --mode marker",
+    "loo_summary_leaves",
+    "loo eval scenarios",
+    "docs claim audit"
+  ]);
+  assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /CompactionCaptured/);
+  assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /summary hash/);
+  assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /bounded excerpt/);
+  assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /token count/);
+  assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /source refs/);
+  assert.match(JSON.stringify(scenario.forbidden_behaviors), /raw_replacement_history/);
+  assert.match(JSON.stringify(scenario.forbidden_behaviors), /transcript_path_output/);
+  assert.match(JSON.stringify(scenario.forbidden_behaviors), /source_store_mutation/);
+  assert.match(JSON.stringify(scenario.forbidden_behaviors), /true_compaction_summary_capture_claim_without_codex_native_packet/);
+  assert.equal(scenario.metrics?.requires_outside_codex_marker_observed_only, true);
+  assert.equal(scenario.metrics?.requires_sanitized_summary_hash_excerpt_token_refs, true);
+  assert.equal(scenario.metrics?.requires_advisory_summary_leaf_only, true);
+  assert.equal(scenario.metrics?.requires_reject_raw_replacement_history_packet, true);
+  assert.equal(scenario.metrics?.requires_reject_transcript_path_packet, true);
+  assert.equal(scenario.metrics?.requires_reject_raw_transcript_text_packet, true);
+  assert.equal(scenario.metrics?.requires_reject_sqlite_path_or_row_dump_packet, true);
+  assert.equal(scenario.metrics?.requires_reject_screenshot_secret_or_customer_data_packet, true);
+  assert.equal(scenario.metrics?.requires_reject_history_rewrite_instruction_packet, true);
+  assert.equal(scenario.metrics?.requires_reject_unbounded_summary_text_packet, true);
+  assert.equal(scenario.metrics?.requires_reject_non_opaque_source_refs_packet, true);
+  assert.equal(scenario.metrics?.max_raw_transcript_spans, 0);
+  assert.equal(scenario.metrics?.max_raw_transcript_paths, 0);
+  assert.equal(scenario.metrics?.max_raw_replacement_history_items, 0);
+
+  assert.equal(outsideMarker?.source, "outside_codex_hook_sidecar");
+  assert.equal(outsideMarker?.claim, "compaction observed");
+  assert.equal(outsideMarker?.summaryCaptured, false);
+  assert.equal(outsideMarker?.trueCompactionSummaryCaptured, false);
+  assert.equal(outsideMarker?.summaryHash, null);
+  assert.equal(outsideMarker?.summaryExcerpt, null);
+  assert.equal(outsideMarker?.tokenCount, null);
+  assert.match(JSON.stringify(outsideMarker?.omitted), /generated_summary_unavailable_outside_codex/);
+
+  assert.equal(sanitizedPacket?.packet_kind, "CompactionCaptured");
+  assert.equal(sanitizedPacket?.source, "codex_native");
+  assert.match(String(sanitizedPacket?.compactionId), /^codex_compaction:[0-9a-f]{32}$/);
+  assert.match(String(sanitizedPacket?.threadRef), /^codex_thread:[A-Za-z0-9._:-]{1,160}$/);
+  assert.match(String(sanitizedPacket?.sessionRef), /^codex_session:[A-Za-z0-9._:-]{1,160}$/);
+  assert.match(String(sanitizedPacket?.lifecycleTimestamp), /^2026-07-04T[0-9:.]+Z$/);
+  assert.match(String(sanitizedPacket?.sourceModel), /^gpt-[A-Za-z0-9._:-]+$/);
+  assert.equal(sanitizedPacket?.extractorVersion, "codex-native-compaction-capture-proposal-v1");
+  assert.equal(sanitizedPacket?.summaryCaptured, true);
+  assert.match(String(sanitizedPacket?.summaryHash), /^sha256:[0-9a-f]{64}$/);
+  const summaryExcerpt = sanitizedPacket?.summaryExcerpt;
+  const excerptCharLimit = sanitizedPacket?.excerptCharLimit;
+  assert.equal(typeof summaryExcerpt, "string");
+  assert.equal(excerptCharLimit, 240);
+  assert.equal((summaryExcerpt as string).length <= (excerptCharLimit as number), true);
+  assert.equal(typeof sanitizedPacket?.tokenCount, "number");
+  assert.equal(sanitizedPacket?.privacyClass, "public_safe_metadata");
+  assert.equal(sanitizedPacket?.publicSafe, true);
+  assert.deepEqual(sanitizedPacket?.actionsPerformed, {
+    liveControl: false,
+    guiMutation: false,
+    externalWrite: false,
+    sourceStoreMutation: false,
+    rawTranscriptRead: false,
+    modelCompactionRun: false
+  });
+  assert.equal(sanitizedPacket?.createsAdvisorySummaryLeaf, true);
+  assert.deepEqual(sanitizedPacket?.mutationClasses, ["derived_cache"]);
+  assert.equal(sanitizedPacket?.storage, "lco_sidecar_only");
+  assert.deepEqual(sanitizedPacket?.sourceRefs, ["codex_thread:019f-compaction-proposal"]);
+  assert.match(JSON.stringify(sanitizedPacket?.omitted), /raw_replacement_history/);
+  assert.match(JSON.stringify(sanitizedPacket?.omitted), /transcript_path/);
+  const advisoryLeaf = sanitizedPacket?.expectedAdvisorySummaryLeaf;
+  assert.equal(advisoryLeaf?.leaf_kind, "event_metadata");
+  const summaryText = advisoryLeaf?.summary_text;
+  assert.equal(
+    summaryText,
+    "Event metadata evidence: 1 prepared source range available. Expand by summary leaf or source range for bounded evidence."
+  );
+  assert.match(String(advisoryLeaf?.input_hash), /^[0-9a-f]{32}$/);
+  assert.match(String(advisoryLeaf?.output_hash), /^[0-9a-f]{32}$/);
+  assert.equal(advisoryLeaf?.input_hash, sanitizedPacketPayloadHash(sanitizedPacket));
+  assert.equal(
+    sanitizedPacketPayloadHash({ ...sanitizedPacket, futureOptionalField: "ignored-by-canonical-hash-list" }),
+    advisoryLeaf?.input_hash
+  );
+  assert.equal(advisoryLeaf?.output_hash, String(sanitizedPacket?.summaryHash).replace(/^sha256:/, "").slice(0, 32));
+  assert.notEqual(advisoryLeaf?.input_hash, sanitizedPacket?.summaryHash);
+  assert.notEqual(advisoryLeaf?.input_hash, advisoryLeaf?.output_hash);
+  assert.deepEqual(advisoryLeaf?.source_refs, sanitizedPacket?.sourceRefs);
+  assert.equal(
+    (advisoryLeaf?.source_refs as unknown[] | undefined)?.every((ref) => /^codex_thread:[A-Za-z0-9._:-]{1,160}$/.test(String(ref))),
+    true
+  );
+  assert.deepEqual(advisoryLeaf?.source_range_refs, ["codex_range:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]);
+  assert.equal(advisoryLeaf?.privacy_class, "public_safe_metadata");
+  assert.equal(advisoryLeaf?.omission_status, "metadata_only");
+  assert.deepEqual(advisoryLeaf?.authority_coverage, {
+    status: "partial",
+    source: "prepared_source_ranges",
+    rangeCount: 1
+  });
+
+  assert.equal(rejectedPackets.length, 8);
+  assert.equal(rejectedPackets.every((packet) => packet.rejected === true), true);
+  assert.equal(rejectedPackets.every((packet) => packet.createsAdvisorySummaryLeaf !== true), true);
+  assert.equal(rejectedPackets.every((packet) => packet.expectedAdvisorySummaryLeaf === undefined), true);
+  assert.equal(Object.hasOwn(rejectedPackets[0] ?? {}, "rawReplacementHistory"), true);
+  assert.equal(Array.isArray(rejectedPackets[0]?.rawReplacementHistory), true);
+  assert.equal((rejectedPackets[0]?.disallowedFields as unknown[] | undefined)?.includes("rawReplacementHistory"), true);
+  assert.equal(Object.hasOwn(rejectedPackets[1] ?? {}, "transcriptPath"), true);
+  assert.equal(typeof rejectedPackets[1]?.transcriptPath, "string");
+  assert.equal((rejectedPackets[1]?.disallowedFields as unknown[] | undefined)?.includes("transcriptPath"), true);
+  assert.equal(rejectedPackets[2]?.reason, "raw_transcript_text_present");
+  assert.equal(Object.hasOwn(rejectedPackets[2] ?? {}, "rawTranscriptText"), true);
+  assert.equal(Object.hasOwn(rejectedPackets[2] ?? {}, "rawMessage"), true);
+  assert.equal((rejectedPackets[2]?.disallowedFields as unknown[] | undefined)?.includes("rawTranscriptText"), true);
+  assert.equal((rejectedPackets[2]?.disallowedFields as unknown[] | undefined)?.includes("rawMessage"), true);
+  assert.equal(rejectedPackets[3]?.reason, "sqlite_path_or_row_dump_present");
+  assert.equal((rejectedPackets[3]?.disallowedFields as unknown[] | undefined)?.includes("sqlitePath"), true);
+  assert.equal((rejectedPackets[3]?.disallowedFields as unknown[] | undefined)?.includes("sqliteRowDump"), true);
+  assert.equal(rejectedPackets[4]?.reason, "screenshot_secret_or_customer_data_present");
+  assert.equal((rejectedPackets[4]?.disallowedFields as unknown[] | undefined)?.includes("screenshotRef"), true);
+  assert.equal((rejectedPackets[4]?.disallowedFields as unknown[] | undefined)?.includes("secretValue"), true);
+  assert.equal((rejectedPackets[4]?.disallowedFields as unknown[] | undefined)?.includes("customerData"), true);
+  assert.equal(rejectedPackets[5]?.reason, "history_rewrite_instruction_present");
+  assert.equal((rejectedPackets[5]?.disallowedFields as unknown[] | undefined)?.includes("historyRewriteInstruction"), true);
+  assert.equal(rejectedPackets[6]?.reason, "unbounded_summary_text_present");
+  assert.equal(rejectedPackets[6]?.excerptCharLimit, null);
+  assert.equal((rejectedPackets[6]?.disallowedFields as unknown[] | undefined)?.includes("summaryText"), true);
+  assert.equal(rejectedPackets[7]?.reason, "non_opaque_source_refs_present");
+  assert.equal((rejectedPackets[7]?.sourceRefs as unknown[] | undefined)?.some((ref) => !/^codex_thread:[A-Za-z0-9._:-]{1,160}$/.test(String(ref))), true);
+  assert.equal((rejectedPackets[7]?.disallowedFields as unknown[] | undefined)?.includes("sourceRefs"), true);
+  assert.doesNotMatch(
+    serialized,
+    /\/Users\/|\/Volumes\/|(?:~|\/[^\s"'`]*)\/\.codex\/(?:sessions|archived_sessions)\/[^\s"'`]+|\b[\w.-]+\.jsonl(?:\.gz)?\b|\b[\w.-]+\.(?:sqlite|sqlite-wal|sqlite-shm|db|db-journal|db-wal|db-shm)\b|npm_[A-Za-z0-9]{20,}|Bearer\s+[A-Za-z0-9._-]{20,}|sk-[A-Za-z0-9_-]{20,}|(?:gh[pousr]|github_pat|glpat|xox[baprs]|AKIA|ASIA|AIza)[A-Za-z0-9_=-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----/
+  );
+});
+
+test("Codex-native compaction proposal scenario remains a dry-run claim-audit contract", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-compaction-proposal-scenario-"));
+  try {
+    const report = createScenarioSweep({
+      evidenceDir,
+      scenarioDir: join(process.cwd(), "evals", "scenarios", "v1"),
+      scenarioIds: ["codex-native-compaction-capture-proposal-v1"],
+      now: "2026-07-04T00:00:00.000Z"
+    });
+
+    assert.equal(report.ok, true);
+    assert.equal(report.scenarioReady, true);
+    assert.equal(report.publicSafe, true);
+    assert.equal(report.scenarios.length, 1);
+    assert.equal(report.scenarios[0]?.id, "codex-native-compaction-capture-proposal-v1");
+    assert.equal(report.scenarios[0]?.status, "dry_run_ready");
+    assert.equal(report.actionsPerformed.rawTranscriptRead, false);
+    assert.equal(report.actionsPerformed.liveCodexControlRun, false);
+    assert.equal(report.actionsPerformed.desktopGuiActionRun, false);
+    assert.match(report.scenarios[0]?.proofBoundary ?? "", /does not prove true Codex compaction-summary capture/i);
+  } finally {
+    rmSync(evidenceDir, { recursive: true, force: true });
+  }
+});
+
+test("VISION and 1.2 sprint brief link the Codex-native compaction proposal without widening claims", () => {
+  const vision = read("VISION.md");
+  const sprintBrief = read("docs/sprints/brief-lco-1.2-prepared-state-summary-leaves-2026-07-03.md");
+
+  for (const [surface, content] of [
+    ["VISION.md", vision],
+    ["1.2 sprint brief", sprintBrief]
+  ] as const) {
+    assert.match(content, /docs\/CODEX_NATIVE_COMPACTION_CAPTURE\.md/, `${surface} must link the proposal doc`);
+    assert.match(content, /codex-native-compaction-capture-proposal-v1/, `${surface} must link the scenario fixture`);
+    assert.match(content, /compaction observed/i, `${surface} must preserve observed-only public claim`);
+    assert.match(content, /sanitized/i, `${surface} must require Codex-native sanitized packet support`);
+    assert.doesNotMatch(content, /public claim.*compaction summary captured/i, `${surface} must not widen the public claim`);
+  }
+});

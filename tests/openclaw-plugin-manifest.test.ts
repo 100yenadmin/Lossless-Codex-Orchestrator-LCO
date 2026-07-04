@@ -2,14 +2,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { LOO_COMMAND_POLICY } from "../packages/adapters/src/index.js";
-import { createLooToolDeclarations } from "../packages/mcp-server/src/tools.js";
+import { createLooToolDeclarations, createLooToolSurfaceSummary } from "../packages/mcp-server/src/tools.js";
 
 const PLUGIN_ENTRY = "./dist/packages/openclaw-plugin/src/index.js";
 const PACKAGE_BINS = {
   loo: "dist/packages/cli/src/index.js",
   "loo-mcp-server": "dist/packages/mcp-server/src/server.js"
 };
-
 function readJson(path: string): Record<string, unknown> {
   return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
 }
@@ -52,4 +51,92 @@ test("OpenClaw plugin contracts match the exported loo tool declarations", () =>
     additionalProperties: false,
     properties: {}
   });
+});
+
+test("OpenClaw plugin contracts classify every tool into an operator surface tier", () => {
+  const manifest = readJson("openclaw.plugin.json");
+  const sourceManifest = readJson("packages/openclaw-plugin/openclaw.plugin.json");
+  const contracts = manifest.contracts as { toolDeclarations?: unknown; toolSurface?: unknown } | undefined;
+  const sourceContracts = sourceManifest.contracts as { toolDeclarations?: unknown; toolSurface?: unknown } | undefined;
+  const generatedToolSurface = createLooToolSurfaceSummary();
+  const declarations = createLooToolDeclarations() as Array<{
+    name: string;
+    metadata?: {
+      tier?: unknown;
+      operatorPathRank?: unknown;
+      operatorPathRole?: unknown;
+    };
+  }>;
+
+  assert.equal(declarations.length > generatedToolSurface.publicFacadeTools.length, true, "expert/debug tools must remain declared");
+  for (const declaration of declarations) {
+    assert.equal(
+      (generatedToolSurface.tiers as string[]).includes(String(declaration.metadata?.tier)),
+      true,
+      `${declaration.name} must choose one supported tool tier`
+    );
+  }
+
+  const publicFacade = declarations
+    .filter((declaration) => declaration.metadata?.tier === "public_facade")
+    .sort((left, right) => Number(left.metadata?.operatorPathRank) - Number(right.metadata?.operatorPathRank));
+  assert.equal(publicFacade.length >= 6 && publicFacade.length <= 8, true, "public facade must stay compact");
+  assert.deepEqual(publicFacade.map((declaration) => declaration.name), generatedToolSurface.publicFacadeTools);
+  assert.deepEqual(publicFacade.map((declaration) => declaration.metadata?.operatorPathRank), [1, 2, 3, 4, 5, 6, 7, 8]);
+  for (const declaration of publicFacade) {
+    assert.equal(typeof declaration.metadata?.operatorPathRole, "string", `${declaration.name} must describe its facade role`);
+  }
+
+  for (const manifestContracts of [contracts, sourceContracts]) {
+    const toolSurface = manifestContracts?.toolSurface as
+      | {
+          publicFacadeTools?: unknown;
+          tiers?: unknown;
+          namingPolicy?: {
+            publicProductAbbreviation?: unknown;
+            forwardPublicAliasTarget?: unknown;
+            currentRuntimePrefix?: unknown;
+            legacyCompatiblePrefix?: unknown;
+            compatibilityIssue?: unknown;
+            aliasPolicy?: unknown;
+          };
+          desktopFallback?: {
+            normalFirstPath?: unknown;
+            preferredBackend?: unknown;
+            preferredLaunch?: unknown;
+            bundledByLco?: unknown;
+            secondaryBackend?: unknown;
+            missingPreferredBackendBehavior?: unknown;
+            proofBoundary?: unknown;
+          };
+        }
+      | undefined;
+
+    assert.deepEqual(manifestContracts?.toolDeclarations, declarations);
+    assert.deepEqual(manifestContracts?.toolSurface, generatedToolSurface);
+    assert.equal(toolSurface?.namingPolicy?.publicProductAbbreviation, "LCO");
+    assert.equal(toolSurface?.namingPolicy?.forwardPublicAliasTarget, "lco_*");
+    assert.equal(toolSurface?.namingPolicy?.currentRuntimePrefix, "loo_");
+    assert.equal(toolSurface?.namingPolicy?.legacyCompatiblePrefix, "loo_");
+    assert.equal(toolSurface?.namingPolicy?.compatibilityIssue, "#434");
+    assert.match(String(toolSurface?.namingPolicy?.aliasPolicy), /backward compatible/);
+    assert.equal(toolSurface?.desktopFallback?.normalFirstPath, "direct Codex protocol");
+    assert.equal(toolSurface?.desktopFallback?.preferredBackend, "cua-driver");
+    assert.equal(toolSurface?.desktopFallback?.preferredLaunch, "cua-driver mcp");
+    assert.equal(toolSurface?.desktopFallback?.bundledByLco, false);
+    assert.equal(toolSurface?.desktopFallback?.secondaryBackend, "peekaboo");
+    assert.match(String(toolSurface?.desktopFallback?.missingPreferredBackendBehavior), /read\/search\/describe/);
+    assert.match(String(toolSurface?.desktopFallback?.proofBoundary), /cua-driver mcp --help/);
+    assert.match(String(toolSurface?.desktopFallback?.proofBoundary), /do not validate a composer read-back field/);
+    assert.match(String(toolSurface?.desktopFallback?.proofBoundary), /composer send approval/);
+    assert.match(String(toolSurface?.desktopFallback?.proofBoundary), /No generic GUI mutation/);
+  }
+});
+
+test("native OpenClaw plugin wrapper passes facade metadata to runtime tool definitions", () => {
+  const pluginSource = readFileSync("packages/openclaw-plugin/src/index.ts", "utf8");
+
+  assert.match(pluginSource, /metadata:\s*LooTool\["metadata"\]/);
+  assert.match(pluginSource, /metadata:\s*declaration\.metadata/);
+  assert.match(pluginSource, /parameters:\s*declaration\.inputSchema/);
 });

@@ -62,11 +62,38 @@ test("setup guide covers install, local indexing, OpenClaw, MCP, and troubleshoo
     /OpenClaw/,
     /loo openclaw published-smoke/,
     /loo openclaw tool-smoke/,
+    /CUA Driver is the preferred\/default\s+desktop fallback backend/i,
+    /not bundled by LCO/i,
+    /desktop-fallback readiness blocker/i,
+    /cua-driver mcp --help/,
+    /do not treat a CUA `type_text` success\s+payload or ready desktop proof packet as proof/i,
     /Troubleshooting/,
     /Uninstall/,
     /does not read raw transcripts by default/i,
     /dry-run/i,
     /approval_audit_id/
+  ]) {
+    assert.match(setup, required);
+  }
+});
+
+test("setup guide tells Codex and Claude users how to install agent provenance rules safely", () => {
+  const setup = read("docs/SETUP.md");
+
+  for (const required of [
+    /AGENTS\.md/,
+    /CLAUDE\.md/,
+    /Codex-oriented/i,
+    /Claude-oriented/i,
+    /#436/,
+    /correlation handles, not authorization/i,
+    /raw transcripts, secrets,[\s\S]*private logs/i,
+    /private paths/i,
+    /screenshots/i,
+    /customer data/i,
+    /connector URLs/i,
+    /visible block/i,
+    /hidden marker/i
   ]) {
     assert.match(setup, required);
   }
@@ -90,9 +117,17 @@ test("public docs preserve release claim boundaries", () => {
     assert.match(publicDocs, required);
   }
 
+  assert.match(readme, /`lco_\*` is the\s+forward public alias target/i);
+  assert.match(readme, /currently\s+callable OpenClaw\/MCP tools still use the historical `loo_\*` runtime prefix/i);
+  assert.match(readme, /CUA Driver as the preferred\/default desktop fallback backend/i);
+  assert.match(readme, /externally installed, not bundled by LCO/i);
+  assert.match(readme, /verify the launch entrypoint with `cua-driver mcp --help`/i);
+  assert.match(setup, /do not treat a CUA `type_text` success\s+payload or ready desktop proof packet as proof/i);
+
   assert.doesNotMatch(publicDocs, /Full Claude Code parity is supported/i);
   assert.doesNotMatch(publicDocs, /cloud sync is supported/i);
   assert.doesNotMatch(publicDocs, /unattended desktop takeover is supported/i);
   assert.doesNotMatch(publicDocs, /bypasses Codex permissions/i);
   assert.doesNotMatch(publicDocs, /generic GUI mutation is supported/i);
+  assert.doesNotMatch(readme, /verify `cua-driver mcp` availability through `loo doctor/i);
 });

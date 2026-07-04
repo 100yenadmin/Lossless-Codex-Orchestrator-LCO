@@ -239,6 +239,9 @@ function createFakeOpenClaw(
     preparedThreadId?: string;
     queryExpansionTokenBudget?: number;
     summaryExpansionTokenBudget?: number;
+    omitPreparedTargetCoverage?: boolean;
+    mismatchedPreparedTargetCoverage?: boolean;
+    incompletePreparedTargetCoverage?: boolean;
   } = {}
 ): { bin: string; callsPath: string } {
   const callsPath = join(dir, "calls.jsonl");
@@ -266,6 +269,13 @@ function createFakeOpenClaw(
   const collaborationNextStepsOutputCode = options.unsafeCollaborationNextSteps
     ? `{ publicSafe: true, readOnly: true, schema: "lco.codex.collaborationNextSteps.v1", steps: [{ threadId: "codex_thread:thread-1", category: "desktop_coherence", status: "ready", toolCall: null }], actionsPerformed: { liveCodexControlRun: true, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false, npmPublished: false, githubReleaseCreated: false } }`
     : `{ publicSafe: true, readOnly: true, schema: "lco.codex.collaborationNextSteps.v1", steps: [{ threadId: "codex_thread:thread-1", category: "desktop_coherence", status: "ready", toolCall: { tool: "loo_codex_desktop_coherence", args: { thread_id: "thread-1", source_ref: "codex_thread:thread-1" }, execute: false } }], actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false, npmPublished: false, githubReleaseCreated: false } }`;
+  const preparedTargetCoverageCode = options.omitPreparedTargetCoverage
+    ? "undefined"
+    : options.mismatchedPreparedTargetCoverage
+      ? `toolArgs.thread_id ? { schema: "lco.prepared.targetCoverage.v1", threadId: "other-thread", targetRef: "codex_thread:other-thread", status: "ready", sourceRefs: ["codex_thread:other-thread", "codex_source:5000000000000000"], sourceCoverage: { indexedSession: "ok", sourceFile: "ok", preparedSourceEvents: "ok", preparedSourceRanges: "ok", summaryLeaves: "ok", preparedCards: "ok", preparedInboxItems: "ok", watcherObservations: "not_configured" }, counts: { preparedSourceEvents: 3, preparedSourceRanges: 3, summaryLeaves: 1, preparedCards: 1, preparedInboxItems: 1 }, freshness: { sourceUpdatedAt: "2026-07-01T12:00:00.000Z", indexedAt: "2026-07-01T12:00:00.000Z", preparedFreshnessAt: "2026-07-01T12:00:00.000Z", stale: false }, reasonCodes: ["targeted_thread_coverage", "indexed_session_present", "prepared_state_ready"], nextAction: "Use prepared cards, prepared inbox, or summary expansion for bounded public-safe evidence." } : undefined`
+      : options.incompletePreparedTargetCoverage
+        ? `toolArgs.thread_id ? { schema: "lco.prepared.targetCoverage.v1", threadId: toolArgs.thread_id, targetRef: "codex_thread:" + toolArgs.thread_id, status: "ready", sourceCoverage: {} } : undefined`
+    : `toolArgs.thread_id ? { schema: "lco.prepared.targetCoverage.v1", threadId: toolArgs.thread_id, targetRef: "codex_thread:" + toolArgs.thread_id, status: "ready", sourceRefs: ["codex_thread:" + toolArgs.thread_id, "codex_source:5000000000000000"], sourceCoverage: { indexedSession: "ok", sourceFile: "ok", preparedSourceEvents: "ok", preparedSourceRanges: "ok", summaryLeaves: "ok", preparedCards: "ok", preparedInboxItems: "ok", watcherObservations: "not_configured" }, counts: { preparedSourceEvents: 3, preparedSourceRanges: 3, summaryLeaves: 1, preparedCards: 1, preparedInboxItems: 1 }, freshness: { sourceUpdatedAt: "2026-07-01T12:00:00.000Z", indexedAt: "2026-07-01T12:00:00.000Z", preparedFreshnessAt: "2026-07-01T12:00:00.000Z", stale: false }, reasonCodes: ["targeted_thread_coverage", "indexed_session_present", "prepared_state_ready"], nextAction: "Use prepared cards, prepared inbox, or summary expansion for bounded public-safe evidence." } : undefined`;
   writeFileSync(bin, `#!/usr/bin/env node
 import { appendFileSync } from "node:fs";
 	const args = process.argv.slice(2);
@@ -457,7 +467,7 @@ if (method === "tools.invoke") {
 	    process.exit(0);
 	  }
   if (name === "loo_prepared_state_status") {
-    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.preparedState.status.v1", publicSafe: true, readOnly: true, sourceCoverage: { summaryLeaves: "ok", preparedCards: "ok", preparedInboxItems: "ok", watcherObservations: "not_configured" }, summary: { summaryLeaves: 1, cards: 1, inboxItems: 1, staleCards: 0, partialCards: 0, unknownCards: 0, lowConfidenceCards: 0 }, actionsPerformed: { derivedCacheWrite: false, sourceStoreMutation: false, externalWrite: false, liveControl: false, guiMutation: false, rawTranscriptRead: false } } }));
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.preparedState.status.v1", publicSafe: true, readOnly: true, sourceCoverage: { summaryLeaves: "ok", preparedCards: "ok", preparedInboxItems: "ok", watcherObservations: "not_configured" }, targetCoverage: ${preparedTargetCoverageCode}, summary: { summaryLeaves: 1, cards: 1, inboxItems: 1, staleCards: 0, partialCards: 0, unknownCards: 0, lowConfidenceCards: 0 }, actionsPerformed: { derivedCacheWrite: false, sourceStoreMutation: false, externalWrite: false, liveControl: false, guiMutation: false, rawTranscriptRead: false } } }));
     process.exit(0);
   }
 	  if (name === "loo_prepared_cards") {
@@ -709,10 +719,91 @@ test("OpenClaw tool smoke invokes required loo tools through gateway call and wr
     assert.equal(calls[0]?.method, "tools.catalog");
     assert.deepEqual(calls.slice(1).map((call) => call.params.name), report.invocations.map((call) => call.toolName));
     assert.equal(calls.find((call) => call.params.name === "loo_describe_session")?.params.args?.thread_id, "thread-1");
+    assert.equal(calls.find((call) => call.params.name === "loo_prepared_state_status")?.params.args?.thread_id, "thread-1");
     assert.equal(calls.find((call) => call.params.name === "loo_prepared_cards")?.params.args?.thread_id, "thread-1");
     assert.equal(calls.find((call) => call.params.name === "loo_prepared_inbox")?.params.args?.thread_id, "thread-1");
     assert.equal(calls.find((call) => call.params.name === "loo_summary_expand")?.params.args?.thread_id, "thread-1");
     assert.equal(calls.some((call) => call.args.includes("--token")), false);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke blocks targeted prepared-state status without target coverage", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-missing-target-coverage-"));
+  const { bin, callsPath } = createFakeOpenClaw(dir, DEFAULT_REQUIRED_TOOL_CALLS, "flat", {
+    omitPreparedTargetCoverage: true
+  });
+
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      profile: "lco-issue-451",
+      sessionKey: "agent:main:lco-issue-451",
+      query: "Proposed plan"
+    });
+
+    assert.equal(report.ok, false);
+    assert.equal(report.blockers.includes("prepared_state_status_target_coverage_missing"), true);
+    const statusCall = report.invocations.find((call) => call.toolName === "loo_prepared_state_status");
+    assert.equal(statusCall?.blockers.includes("prepared_state_status_target_coverage_missing"), true);
+    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { params: { name?: string; args?: Record<string, unknown> } });
+    assert.equal(calls.find((call) => call.params.name === "loo_prepared_state_status")?.params.args?.thread_id, "thread-1");
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke blocks target coverage for the wrong requested thread", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-mismatched-target-coverage-"));
+  const { bin, callsPath } = createFakeOpenClaw(dir, DEFAULT_REQUIRED_TOOL_CALLS, "flat", {
+    mismatchedPreparedTargetCoverage: true
+  });
+
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      profile: "lco-issue-451",
+      sessionKey: "agent:main:lco-issue-451",
+      query: "Proposed plan"
+    });
+
+    assert.equal(report.ok, false);
+    assert.equal(report.blockers.includes("prepared_state_status_target_coverage_mismatch"), true);
+    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { params: { name?: string; args?: Record<string, unknown> } });
+    assert.equal(calls.find((call) => call.params.name === "loo_prepared_state_status")?.params.args?.thread_id, "thread-1");
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke blocks incomplete targeted prepared-state details", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-incomplete-target-coverage-"));
+  const { bin, callsPath } = createFakeOpenClaw(dir, DEFAULT_REQUIRED_TOOL_CALLS, "flat", {
+    incompletePreparedTargetCoverage: true
+  });
+
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      profile: "lco-issue-451",
+      sessionKey: "agent:main:lco-issue-451",
+      query: "Proposed plan"
+    });
+
+    assert.equal(report.ok, false);
+    assert.equal(report.blockers.includes("prepared_state_status_target_coverage_details_missing"), true);
+    const statusCall = report.invocations.find((call) => call.toolName === "loo_prepared_state_status");
+    assert.equal(statusCall?.blockers.includes("prepared_state_status_target_coverage_details_missing"), true);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;

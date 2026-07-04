@@ -2,7 +2,7 @@
   "id": "lossless-openclaw-orchestrator",
   "name": "Lossless OpenClaw Orchestrator",
   "description": "Control and collaborate with local Codex sessions through OpenClaw using local indexing, bounded recall, and approval-gated controls.",
-  "version": "1.2.0-beta.1",
+  "version": "1.2.0-beta.2",
   "kind": "tool",
   "tools": {
     "prefix": "loo_"
@@ -63,6 +63,7 @@
       "loo_resume_request_packet",
       "loo_codex_app_server_status",
       "loo_codex_app_server_threads",
+      "loo_codex_start_thread_post_create_proof",
       "loo_visible_codex_map",
       "loo_codex_desktop_coherence",
       "loo_codex_desktop_fallback_status",
@@ -106,6 +107,9 @@
             "derived_cache"
           ]
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -143,6 +147,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -176,6 +183,9 @@
           "source": "local_index",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -220,6 +230,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -238,6 +251,11 @@
           "source": "local_index",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "public_facade",
+          "operatorPathRank": 2,
+          "operatorPathRole": "Look up a specific session or source ref after the inbox identifies it."
         },
         "inputSchema": {
           "type": "object",
@@ -263,6 +281,9 @@
           "source": "local_index",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -295,6 +316,11 @@
           "source": "local_index",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "public_facade",
+          "operatorPathRank": 3,
+          "operatorPathRole": "Expand one bounded evidence brief from a query when the ref is not known."
         },
         "inputSchema": {
           "type": "object",
@@ -334,6 +360,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -369,6 +398,9 @@
           "source": "local_index",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -407,10 +439,17 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
-          "properties": {}
+          "properties": {
+            "thread_id": {
+              "type": "string"
+            }
+          }
         }
       },
       {
@@ -421,6 +460,9 @@
           "source": "local_index",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -464,6 +506,11 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "public_facade",
+          "operatorPathRank": 1,
+          "operatorPathRole": "Start from the compact prepared-state operating picture."
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -487,6 +534,9 @@
           "source": "local_index",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -527,6 +577,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -565,6 +618,11 @@
           "source": "local_index",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "public_facade",
+          "operatorPathRank": 4,
+          "operatorPathRole": "Refresh recent or active session cards after reads or approved actions."
         },
         "inputSchema": {
           "type": "object",
@@ -630,6 +688,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -666,6 +727,9 @@
           "source": "structured_operating_inputs",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -718,6 +782,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -768,6 +835,9 @@
           "source": "structured_operating_inputs",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -826,6 +896,9 @@
           "source": "structured_operating_inputs",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -886,6 +959,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -945,6 +1021,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "proof_debug"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -997,6 +1076,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1028,6 +1110,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1056,6 +1141,9 @@
           "source": "structured_operating_inputs",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -1088,6 +1176,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1117,6 +1208,9 @@
           "source": "structured_operating_inputs",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -1155,6 +1249,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "proof_debug"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1169,6 +1266,9 @@
           "source": "codex_direct",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "internal_low_level"
         },
         "inputSchema": {
           "type": "object",
@@ -1186,6 +1286,48 @@
         }
       },
       {
+        "name": "loo_codex_start_thread_post_create_proof",
+        "description": "Read public-safe post-create proof for a newly started Codex thread without control, raw transcripts, or GUI mutation.",
+        "safety": {
+          "mode": "read_only",
+          "source": "codex_direct",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "proof_debug"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "created_thread_id": {
+              "type": "string"
+            },
+            "worker_thread_id": {
+              "type": "string"
+            },
+            "created_thread_ref": {
+              "type": "string"
+            },
+            "requested_title": {
+              "type": "string"
+            },
+            "alias": {
+              "type": "string"
+            },
+            "parent_thread_id": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        }
+      },
+      {
         "name": "loo_visible_codex_map",
         "description": "Join indexed session cards with optional visible Codex and read-only app-server signals.",
         "safety": {
@@ -1193,6 +1335,9 @@
           "source": "structured_operating_inputs",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "proof_debug"
         },
         "inputSchema": {
           "type": "object",
@@ -1246,6 +1391,9 @@
           "source": "structured_operating_inputs",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "proof_debug"
         },
         "inputSchema": {
           "type": "object",
@@ -1325,6 +1473,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "proof_debug"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1367,6 +1518,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1388,6 +1542,9 @@
           "source": "structured_operating_inputs",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -1422,6 +1579,11 @@
           "source": "structured_operating_inputs",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "public_facade",
+          "operatorPathRank": 6,
+          "operatorPathRole": "Create a bounded provenance and handoff digest from available operating inputs."
         },
         "inputSchema": {
           "type": "object",
@@ -1469,6 +1631,11 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "public_facade",
+          "operatorPathRank": 5,
+          "operatorPathRole": "Review the compact attention queue before choosing a next action."
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1514,6 +1681,9 @@
           "source": "structured_operating_inputs",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -1561,6 +1731,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1584,6 +1757,9 @@
           "source": "local_index",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -1609,6 +1785,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1627,6 +1806,9 @@
           "source": "local_index",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -1651,6 +1833,9 @@
           "source": "local_index",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -1679,6 +1864,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "proof_debug"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1705,6 +1893,9 @@
           "source": "local_index",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "internal_low_level"
         },
         "inputSchema": {
           "type": "object",
@@ -1733,6 +1924,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "internal_low_level"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1756,6 +1950,11 @@
           "mutationClasses": [
             "derived_cache"
           ]
+        },
+        "metadata": {
+          "tier": "public_facade",
+          "operatorPathRank": 7,
+          "operatorPathRole": "Create the exact dry-run action packet and approval hashes before live control."
         },
         "inputSchema": {
           "type": "object",
@@ -1795,6 +1994,9 @@
             "live_control"
           ]
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1820,6 +2022,11 @@
             "derived_cache",
             "live_control"
           ]
+        },
+        "metadata": {
+          "tier": "public_facade",
+          "operatorPathRank": 8,
+          "operatorPathRole": "Run the approved resume action only after a matching dry-run audit id."
         },
         "inputSchema": {
           "type": "object",
@@ -1849,6 +2056,9 @@
             "derived_cache",
             "live_control"
           ]
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -1881,6 +2091,9 @@
             "derived_cache",
             "live_control"
           ]
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -1917,6 +2130,9 @@
             "live_control"
           ]
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1942,6 +2158,9 @@
           "source": "desktop_fallback",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "proof_debug"
         },
         "inputSchema": {
           "type": "object",
@@ -1979,6 +2198,9 @@
           "source": "desktop_fallback",
           "requiresApproval": true,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "proof_debug"
         },
         "inputSchema": {
           "type": "object",
@@ -2034,6 +2256,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "proof_debug"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -2053,6 +2278,9 @@
           "source": "desktop_fallback",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "proof_debug"
         },
         "inputSchema": {
           "type": "object",
@@ -2095,6 +2323,9 @@
             "derived_cache",
             "desktop_gui"
           ]
+        },
+        "metadata": {
+          "tier": "proof_debug"
         },
         "inputSchema": {
           "type": "object",
@@ -2155,6 +2386,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "proof_debug"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -2169,6 +2403,9 @@
           "source": "audit",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "proof_debug"
         },
         "inputSchema": {
           "type": "object",
@@ -2185,6 +2422,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "proof_debug"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -2197,6 +2437,43 @@
           }
         }
       }
-    ]
+    ],
+    "toolSurface": {
+      "tiers": [
+        "public_facade",
+        "workflow_detail",
+        "proof_debug",
+        "internal_low_level"
+      ],
+      "publicFacadeTools": [
+        "loo_prepared_inbox",
+        "loo_describe_ref",
+        "loo_expand_query",
+        "loo_recent_sessions",
+        "loo_attention_inbox",
+        "loo_project_digest",
+        "loo_codex_control_dry_run",
+        "loo_codex_resume_thread"
+      ],
+      "namingPolicy": {
+        "publicProductAbbreviation": "LCO",
+        "forwardPublicAliasTarget": "lco_*",
+        "currentRuntimePrefix": "loo_",
+        "legacyCompatiblePrefix": "loo_",
+        "packageName": "lossless-openclaw-orchestrator",
+        "compatibilityIssue": "#434",
+        "aliasPolicy": "`lco_*` is the forward public alias target for new user-facing tool names. The current callable OpenClaw/MCP declarations still use the historical `loo_*` runtime prefix. Keep `loo_*` backward compatible when tested `lco_*` aliases are added; this docs/manifest cleanup does not rename, delete, or duplicate tools."
+      },
+      "desktopFallback": {
+        "normalFirstPath": "direct Codex protocol",
+        "preferredBackend": "cua-driver",
+        "preferredLaunch": "cua-driver mcp",
+        "bundledByLco": false,
+        "secondaryBackend": "peekaboo",
+        "missingPreferredBackendBehavior": "normal read/search/describe workflows continue; desktop fallback readiness reports an actionable CUA blocker",
+        "proofBoundary": "CUA fallback readiness reports daemon and blocker state; MCP launchability still requires an explicit `cua-driver mcp --help` check unless LCO adds a launch probe. Codex composer-write proof needs a separately documented read-back before any send claim, and the current LCO proof report/live-proof harness do not validate a composer read-back field. No generic GUI mutation, unattended control, no-focus behavior, composer send approval, or release readiness is claimed without action-bound proof."
+      },
+      "proofBoundary": "This metadata defines recommended operator tiers only. It does not remove tools, hide expert/debug surfaces, loosen approvals, run live Codex control, mutate a GUI, publish npm, or create GitHub releases."
+    }
   }
 }

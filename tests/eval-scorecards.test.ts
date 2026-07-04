@@ -64,6 +64,7 @@ test("scorecard v1 examples exist, are versioned, and preserve the beta evidence
     "packaging-install-review.json",
     "public-claim-review.json",
     "public-community-readiness-review.json",
+    "tool-facade-usability-review.json",
     "local-agent-usability-review.json",
     "local-mac-search-ui-review.json",
     "working-app-runtime-proof-review.json"
@@ -98,6 +99,35 @@ test("scorecard v1 examples exist, are versioned, and preserve the beta evidence
       assert.equal(match[1], currentBetaNumber, `${file} must not mention stale ${match[0]} when package version is ${packageVersion.version ?? "unknown"}`);
     }
   }
+});
+
+test("tool facade scorecard proves compact path selection without hiding expert tools", () => {
+  const scorecard = readScorecard("tool-facade-usability-review.json");
+  const serialized = JSON.stringify(scorecard);
+
+  assert.equal(scorecard.surface, "OpenClaw gateway");
+  assert.match(serialized, /public_facade/);
+  assert.match(serialized, /workflow_detail/);
+  assert.match(serialized, /proof_debug/);
+  assert.match(serialized, /internal_low_level/);
+  assert.match(serialized, /loo_prepared_inbox/);
+  assert.match(serialized, /loo_describe_ref/);
+  assert.match(serialized, /loo_expand_query/);
+  assert.match(serialized, /loo_attention_inbox/);
+  assert.match(serialized, /loo_project_digest/);
+  assert.match(serialized, /loo_codex_control_dry_run/);
+  assert.match(serialized, /loo_codex_resume_thread/);
+  assert.match(serialized, /metadata\.tier/);
+  assert.match(serialized, /requiresApproval/);
+  assert.match(serialized, /mutationClasses/);
+  assert.match(serialized, /lco_\*.*forward public alias target/i);
+  assert.match(serialized, /currently callable loo_\* runtime prefix/i);
+  assert.match(serialized, /backward compatible/i);
+  assert.doesNotMatch(serialized, /loo_\* as the canonical tool prefix/i);
+  assert.match(serialized, /#434/);
+  assert.match(serialized, /does not remove tools/i);
+  assert.match(serialized, /broad lco_\* aliases/i);
+  assert.doesNotMatch(serialized, /Full Claude Code parity|cloud sync|unattended desktop takeover/i);
 });
 
 test("local-agent usability scorecard requires OpenClaw gateway dogfood without raw transcript access", () => {

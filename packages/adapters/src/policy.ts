@@ -163,6 +163,7 @@ export const LOO_COMMAND_POLICY: Record<string, LooCommandSafety> = {
   loo_resume_request_packet: readOnly("structured_operating_inputs"),
   loo_codex_app_server_status: readOnly("codex_direct"),
   loo_codex_app_server_threads: readOnly("codex_direct"),
+  loo_codex_start_thread_post_create_proof: readOnly("codex_direct"),
   loo_visible_codex_map: readOnly("structured_operating_inputs"),
   loo_codex_desktop_coherence: readOnly("structured_operating_inputs"),
   loo_codex_desktop_fallback_status: readOnly("desktop_fallback"),

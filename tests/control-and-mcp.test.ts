@@ -334,8 +334,448 @@ test("Codex start-thread workflow is dry-run first and live creation remains pen
     assert.equal(live.proofState.unverifiedPending, true);
     assert.equal(live.proofState.status, "unverified_pending");
     assert.equal(live.proofState.threadId, "thr_created");
-    assert.deepEqual(live.proofState.nextProof?.args, { read_thread_id: "thr_created", limit: 20 });
+    assert.equal(live.proofState.nextProof?.tool, "loo_codex_start_thread_post_create_proof");
+    assert.deepEqual(live.proofState.nextProof?.args, {
+      created_thread_id: "thr_created",
+      created_thread_ref: "codex_thread:thr_created",
+      limit: 20
+    });
+    assert.match(live.proofState.callerInstruction, /post-create proof/i);
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Codex start-thread post-create proof reports public-safe created-but-unindexed coverage", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-control-start-proof-gap-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const readCalls: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const tools = createLooTools({
+    db,
+    audit,
+    codexClient: {
+      request: async () => ({ ok: true })
+    },
+    codexReadClient: {
+      request: async (method, params) => {
+        readCalls.push({ method, params });
+        if (method === "thread/list") {
+          return {
+            ok: true,
+            result: {
+              threads: [
+                {
+                  id: "thr_created",
+                  name: "Issue 425 post-create worker",
+                  titleAliases: ["issue-425-proof", "parent:thr_parent"],
+                  status: "ready",
+                  updatedAt: "2026-07-04T10:00:00Z"
+                }
+              ]
+            }
+          };
+        }
+        if (method === "thread/read") {
+          return { ok: true, result: { thread: { id: "thr_created", name: "Issue 425 post-create worker", status: "ready" } } };
+        }
+        throw new Error(`unexpected read method ${method}`);
+      }
+    }
+  });
+
+  try {
+    const proofTool = tools.find((tool) => tool.name === "loo_codex_start_thread_post_create_proof");
+    assert.ok(proofTool);
+    const proof = await proofTool.execute({
+      created_thread_id: "thr_created",
+      requested_title: "Issue 425 post-create worker",
+      alias: "issue-425-proof",
+      parent_thread_id: "thr_parent",
+      limit: 10
+    }) as {
+      public_safe: boolean;
+      read_only: boolean;
+      status: string;
+      created_thread_ref: string;
+      parent_thread_ref: string;
+      proof: {
+        app_server: { found: boolean; read_probe_ok: boolean };
+        index: { found: boolean; described: boolean };
+        prepared_state: { card_available: boolean; coverage_gap: string };
+      };
+      matched_by: Record<string, boolean>;
+      reason_codes: string[];
+      actions_performed: Record<string, boolean>;
+      proof_boundary: string;
+    };
+    assert.equal(proof.public_safe, true);
+    assert.equal(proof.read_only, true);
+    assert.equal(proof.status, "created_but_unindexed");
+    assert.equal(proof.created_thread_ref, "codex_thread:thr_created");
+    assert.equal(proof.parent_thread_ref, "codex_thread:thr_parent");
+    assert.equal(proof.proof.app_server.found, true);
+    assert.equal(proof.proof.app_server.read_probe_ok, true);
+    assert.equal(proof.proof.index.found, false);
+    assert.equal(proof.proof.index.described, false);
+    assert.equal(proof.proof.prepared_state.card_available, false);
+    assert.equal(proof.proof.prepared_state.coverage_gap, "prepared_card_missing");
+    assert.equal(proof.matched_by.raw_id, true);
+    assert.equal(proof.matched_by.codex_thread_ref, true);
+    assert.equal(proof.matched_by.requested_title, true);
+    assert.equal(proof.matched_by.alias, true);
+    assert.equal(proof.matched_by.parent_worker_provenance, true);
+    assert.deepEqual(readCalls.map((call) => call.method), ["thread/list", "thread/read"]);
+    assert.equal(proof.actions_performed.live_codex_control_run, false);
+    assert.equal(proof.actions_performed.desktop_gui_action_run, false);
+    assert.equal(proof.actions_performed.raw_transcript_read, false);
+    assert.match(proof.proof_boundary, /public-safe/i);
+    assert.equal(JSON.stringify(proof).includes(root), false);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Codex start-thread post-create proof reads the full created thread id even when public output is capped", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-control-start-proof-long-id-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const longThreadId = `thr_${"x".repeat(220)}`;
+  const readCalls: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const tools = createLooTools({
+    db,
+    audit,
+    codexClient: {
+      request: async () => ({ ok: true })
+    },
+    codexReadClient: {
+      request: async (method, params) => {
+        readCalls.push({ method, params });
+        if (method === "thread/list") {
+          return { ok: true, result: { threads: [] } };
+        }
+        if (method === "thread/read") {
+          assert.equal(params?.threadId, longThreadId);
+          return { ok: true, result: { thread: { id: longThreadId, name: "Long id worker", status: "ready" } } };
+        }
+        throw new Error(`unexpected read method ${method}`);
+      }
+    }
+  });
+
+  try {
+    const proofTool = tools.find((tool) => tool.name === "loo_codex_start_thread_post_create_proof");
+    assert.ok(proofTool);
+    const proof = await proofTool.execute({
+      created_thread_id: longThreadId,
+      requested_title: "Long id worker",
+      limit: 10
+    }) as {
+      status: string;
+      proof: {
+        app_server: { found: boolean; read_probe_ok: boolean };
+        index: { found: boolean };
+      };
+      reason_codes: string[];
+    };
+    assert.deepEqual(readCalls.map((call) => call.method), ["thread/list", "thread/read"]);
+    assert.equal(proof.status, "created_but_unindexed");
+    assert.equal(proof.proof.app_server.found, true);
+    assert.equal(proof.proof.app_server.read_probe_ok, true);
+    assert.equal(proof.proof.index.found, false);
+    assert.equal(proof.reason_codes.includes("read_probe_found_thread"), true);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Codex start-thread post-create proof fails closed without created thread id", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-control-start-proof-missing-id-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const readCalls: string[] = [];
+  const tools = createLooTools({
+    db,
+    audit,
+    codexClient: {
+      request: async () => ({ ok: true })
+    },
+    codexReadClient: {
+      request: async (method) => {
+        readCalls.push(method);
+        return { ok: true, result: {} };
+      }
+    }
+  });
+
+  try {
+    const proofTool = tools.find((tool) => tool.name === "loo_codex_start_thread_post_create_proof");
+    assert.ok(proofTool);
+    const proof = await proofTool.execute({ parent_thread_id: "thr_parent" }) as {
+      status: string;
+      created_thread_ref: string | null;
+      parent_thread_ref: string;
+      reason_codes: string[];
+    };
+    assert.equal(proof.status, "unresolved_unknown");
+    assert.equal(proof.created_thread_ref, null);
+    assert.equal(proof.parent_thread_ref, "codex_thread:thr_parent");
+    assert.equal(proof.reason_codes.includes("created_thread_id_missing"), true);
+    assert.equal(proof.reason_codes.includes("transport_acceptance_only"), false);
+    assert.deepEqual(readCalls, []);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Codex start-thread post-create proof redacts app-server errors", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-control-start-proof-errors-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const tools = createLooTools({
+    db,
+    audit,
+    codexClient: {
+      request: async () => ({ ok: true })
+    },
+    codexReadClient: {
+      request: async (method) => {
+        if (method === "thread/list") {
+          return {
+            ok: false,
+            error: "list failed at /Users/lume/private/project with npm_123456789012345678901234"
+          };
+        }
+        if (method === "thread/read") {
+          return {
+            ok: false,
+            error: "read failed at /Volumes/LEXAR/private/thread.jsonl with Bearer abcdefghijklmnopqrstuvwxyz"
+          };
+        }
+        throw new Error(`unexpected read method ${method}`);
+      }
+    }
+  });
+
+  try {
+    const proofTool = tools.find((tool) => tool.name === "loo_codex_start_thread_post_create_proof");
+    assert.ok(proofTool);
+    const proof = await proofTool.execute({ created_thread_id: "thr_created" }) as {
+      status: string;
+      proof: { app_server: { errors: string[] } };
+    };
+    assert.equal(proof.status, "unresolved_unknown");
+    assert.equal(proof.proof.app_server.errors.length, 2);
+    const serialized = JSON.stringify(proof);
+    assert.equal(serialized.includes("/Users/lume"), false);
+    assert.equal(serialized.includes("/Volumes/LEXAR"), false);
+    assert.equal(serialized.includes("npm_123456789012345678901234"), false);
+    assert.equal(serialized.includes("abcdefghijklmnopqrstuvwxyz"), false);
+    assert.match(serialized, /<redacted-local-path>/);
+    assert.match(serialized, /<redacted-secret>/);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Codex start-thread post-create proof does not treat stale prepared card alone as persisted", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-control-start-proof-stale-card-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  db.prepare(`
+    INSERT INTO prepared_cards (
+      card_id, card_ref, target_ref, card_kind, title, summary_text, next_action,
+      source_refs_json, source_range_refs_json, source_range_refs_omitted,
+      authority_coverage_json, input_hash, extractor_version, privacy_class,
+      confidence, freshness_at, stale, state, reason_codes_json, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    "card-stale-thr_created",
+    "prepared_card:33333333333333333333333333333333",
+    "codex_thread:thr_created",
+    "codex_session",
+    "Stale created worker",
+    "Prepared state is stale and cannot prove persistence.",
+    "Refresh before use.",
+    JSON.stringify(["codex_thread:thr_created"]),
+    JSON.stringify([]),
+    0,
+    JSON.stringify({
+      summaryLeaves: { status: "partial", leafCount: 1, rangeCount: 1 },
+      sessionMetadata: { status: "unknown" },
+      watcherObservations: { status: "not_configured" }
+    }),
+    "44444444444444444444444444444444",
+    "prepared-cards-v1",
+    "public_safe_metadata",
+    0.42,
+    "2026-07-04T09:00:00Z",
+    1,
+    "stale",
+    JSON.stringify(["stale_cache"]),
+    "2026-07-04T09:00:00Z",
+    "2026-07-04T09:00:00Z"
+  );
+  const tools = createLooTools({
+    db,
+    audit,
+    codexClient: {
+      request: async () => ({ ok: true })
+    },
+    codexReadClient: {
+      request: async (method) => {
+        if (method === "thread/list") return { ok: true, result: { threads: [] } };
+        if (method === "thread/read") return { ok: false, error: "thread/read not found" };
+        throw new Error(`unexpected read method ${method}`);
+      }
+    }
+  });
+
+  try {
+    const proofTool = tools.find((tool) => tool.name === "loo_codex_start_thread_post_create_proof");
+    assert.ok(proofTool);
+    const proof = await proofTool.execute({ created_thread_id: "thr_created" }) as {
+      status: string;
+      proof: {
+        prepared_state: {
+          card_available: boolean;
+          card_current: boolean;
+          stale: boolean;
+          coverage_gap: string;
+        };
+      };
+      prepared_card_ref: string;
+      reason_codes: string[];
+    };
+    assert.equal(proof.status, "unresolved_unknown");
+    assert.equal(proof.proof.prepared_state.card_available, true);
+    assert.equal(proof.proof.prepared_state.card_current, false);
+    assert.equal(proof.proof.prepared_state.stale, true);
+    assert.equal(proof.proof.prepared_state.coverage_gap, "prepared_card_stale_or_not_ready");
+    assert.equal(proof.prepared_card_ref, "prepared_card:33333333333333333333333333333333");
+    assert.equal(proof.reason_codes.includes("prepared_card_stale_or_not_ready"), true);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Codex start-thread post-create proof classifies indexed described persisted proof without raw paths", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-control-start-proof-indexed-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  db.prepare(`
+    INSERT INTO codex_sessions (
+      thread_id, title, cwd, model, branch, git_sha, source_path, created_at, updated_at,
+      summary, final_message, safe_text, event_count, tool_call_count, indexed_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    "thr_created",
+    "Issue 425 post-create worker",
+    "/Users/lume/private/project",
+    "gpt-5",
+    "issue-425-post-create-proof",
+    "abc123",
+    "/Users/lume/.codex/sessions/raw/private-thread.jsonl",
+    "2026-07-04T10:00:00Z",
+    "2026-07-04T10:01:00Z",
+    "Public-safe summary for the created worker.",
+    "Final: post-create worker proof complete.",
+    "Issue 425 post-create worker parent:thr_parent issue-425-proof",
+    4,
+    0,
+    "2026-07-04T10:02:00Z"
+  );
+  db.prepare(`
+    INSERT INTO prepared_cards (
+      card_id, card_ref, target_ref, card_kind, title, summary_text, next_action,
+      source_refs_json, source_range_refs_json, source_range_refs_omitted,
+      authority_coverage_json, input_hash, extractor_version, privacy_class,
+      confidence, freshness_at, stale, state, reason_codes_json, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    "card-thr_created",
+    "prepared_card:11111111111111111111111111111111",
+    "codex_thread:thr_created",
+    "codex_session",
+    "Issue 425 post-create worker",
+    "Prepared state: created worker has public-safe card.",
+    "Use read-only evidence only.",
+    JSON.stringify(["codex_thread:thr_created"]),
+    JSON.stringify([]),
+    0,
+    JSON.stringify({
+      summaryLeaves: { status: "ok", leafCount: 1, rangeCount: 1 },
+      sessionMetadata: { status: "ok" },
+      watcherObservations: { status: "not_configured" }
+    }),
+    "22222222222222222222222222222222",
+    "prepared-cards-v1",
+    "public_safe_metadata",
+    0.91,
+    "2026-07-04T10:03:00Z",
+    0,
+    "ready",
+    JSON.stringify(["post_create_proof"]),
+    "2026-07-04T10:03:00Z",
+    "2026-07-04T10:03:00Z"
+  );
+  const tools = createLooTools({
+    db,
+    audit,
+    codexClient: {
+      request: async () => ({ ok: true })
+    },
+    codexReadClient: {
+      request: async (method) => {
+        if (method === "thread/list") {
+          return { ok: true, result: { threads: [{ id: "thr_created", name: "Issue 425 post-create worker", titleAliases: ["issue-425-proof", "parent:thr_parent"], status: "ready" }] } };
+        }
+        if (method === "thread/read") {
+          return { ok: true, result: { thread: { id: "thr_created", name: "Issue 425 post-create worker", status: "ready" } } };
+        }
+        throw new Error(`unexpected read method ${method}`);
+      }
+    }
+  });
+
+  try {
+    const proofTool = tools.find((tool) => tool.name === "loo_codex_start_thread_post_create_proof");
+    assert.ok(proofTool);
+    const proof = await proofTool.execute({
+      created_thread_ref: "codex_thread:thr_created",
+      requested_title: "Issue 425 post-create worker",
+      alias: "issue-425-proof",
+      parent_thread_id: "thr_parent",
+      limit: 10
+    }) as {
+      status: string;
+      proof: {
+        app_server: { found: boolean; read_probe_ok: boolean };
+        index: { found: boolean; described: boolean };
+        prepared_state: { card_available: boolean; coverage_gap: string | null };
+      };
+      prepared_card_ref: string;
+      reason_codes: string[];
+      proof_boundary: string;
+    };
+    assert.equal(proof.status, "persisted");
+    assert.equal(proof.proof.app_server.found, true);
+    assert.equal(proof.proof.app_server.read_probe_ok, true);
+    assert.equal(proof.proof.index.found, true);
+    assert.equal(proof.proof.index.described, true);
+    assert.equal(proof.proof.prepared_state.card_available, true);
+    assert.equal(proof.proof.prepared_state.coverage_gap, null);
+    assert.equal(proof.prepared_card_ref, "prepared_card:11111111111111111111111111111111");
+    assert.equal(proof.reason_codes.includes("prepared_card_available"), true);
+    assert.equal(JSON.stringify(proof).includes("/Users/lume"), false);
+    assert.equal(JSON.stringify(proof).includes("private-thread.jsonl"), false);
+  } finally {
+    db.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -477,7 +917,7 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.equal(startDryRun.approval_packet.action, "start_thread");
     assert.deepEqual(startDryRun.approval_packet.predictedMutation, ["thread/start"]);
     await assert.rejects(
-      () => startTool.execute({ dry_run: false }),
+      async () => await startTool.execute({ dry_run: false }),
       /approval_audit_id is required/
     );
     const startLive = await startTool.execute({
@@ -503,7 +943,12 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.equal(startLive.proof_state.persisted, false);
     assert.equal(startLive.proof_state.unverified_pending, true);
     assert.equal(startLive.proof_state.status, "unverified_pending");
-    assert.deepEqual(startLive.proof_state.next_proof.args, { read_thread_id: "thr_created", limit: 20 });
+    assert.equal(startLive.proof_state.next_proof.tool, "loo_codex_start_thread_post_create_proof");
+    assert.deepEqual(startLive.proof_state.next_proof.args, {
+      created_thread_id: "thr_created",
+      created_thread_ref: "codex_thread:thr_created",
+      limit: 20
+    });
 
     const steerTool = tools.find((tool) => tool.name === "loo_codex_steer_thread");
     assert.ok(steerTool);
@@ -572,6 +1017,70 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     db.close();
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("MCP stdio tools/list exposes facade metadata in the runtime catalog", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-mcp-list-"));
+  const server = spawn(process.execPath, ["--import", "tsx", "packages/mcp-server/src/server.ts"], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      HOME: root,
+      LOO_DB_PATH: join(root, "orchestrator.sqlite"),
+      LOO_AUDIT_PATH: join(root, "audit.jsonl"),
+      LOO_CODEX_BIN: "loo-codex-not-needed-for-list"
+    },
+    stdio: ["pipe", "pipe", "pipe"]
+  });
+  let stdout = "";
+  let stderr = "";
+  server.stdout.setEncoding("utf8");
+  server.stderr.setEncoding("utf8");
+  server.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+
+  try {
+    const outputLine = await new Promise<string>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error(`Timed out waiting for MCP tools/list response. stderr=${stderr}`));
+      }, 5_000);
+      const cleanup = () => {
+        clearTimeout(timeout);
+        server.stdout.off("data", onStdout);
+        server.off("exit", onExit);
+      };
+      const onStdout = (chunk: string) => {
+        stdout += chunk;
+        const line = stdout.split("\n").find((candidate) => candidate.trim());
+        if (line) {
+          cleanup();
+          resolve(line);
+        }
+      };
+      const onExit = (code: number | null) => {
+        cleanup();
+        reject(new Error(`MCP server exited before tools/list response. code=${code} stderr=${stderr}`));
+      };
+      server.stdout.on("data", onStdout);
+      server.once("exit", onExit);
+      server.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" })}\n`);
+    });
+    const response = JSON.parse(outputLine) as { result?: unknown };
+    const tools = (response.result as { tools?: Array<{ name?: string; metadata?: { tier?: string; operatorPathRank?: number } }> }).tools ?? [];
+    const preparedInbox = tools.find((tool) => tool.name === "loo_prepared_inbox");
+    const debugTool = tools.find((tool) => tool.name === "loo_session_sanitizer");
+
+    assert.equal(preparedInbox?.metadata?.tier, "public_facade");
+    assert.equal(preparedInbox?.metadata?.operatorPathRank, 1);
+    assert.equal(debugTool?.metadata?.tier, "proof_debug");
+  } finally {
+    server.kill();
+    await new Promise<void>((resolve) => server.once("exit", () => resolve()));
+    rmSync(root, { recursive: true, force: true });
+  }
+
+  assert.doesNotMatch(stderr, /Unhandled|uncaught|ERR_UNHANDLED/i);
 });
 
 test("MCP stdio server returns JSON-RPC errors for malformed input frames", async () => {
