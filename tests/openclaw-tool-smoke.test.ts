@@ -315,6 +315,10 @@ if (method === "tools.invoke") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { threadId: toolArgs.thread_id, sourceRef: "codex_thread:" + toolArgs.thread_id, status: "active", summary: "super-secret-transcript-span" } }));
     process.exit(0);
   }
+  if (name === "loo_describe_ref") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { threadId: String(toolArgs.source_ref || "").replace(/^codex_thread:/, ""), sourceRef: toolArgs.source_ref, status: "active", summary: "super-secret-transcript-span" } }));
+    process.exit(0);
+  }
 	  if (name === "loo_expand_query") {
 	    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { sourceRef: "codex_thread:" + searchThreadId, profile: { name: toolArgs.profile || "brief" }, tokenBudget: queryExpansionTokenBudget ?? toolArgs.token_budget, text: "super-secret-transcript-span" } }));
 	    process.exit(0);
@@ -480,6 +484,10 @@ if (method === "tools.invoke") {
 	  }
   if (name === "loo_codex_control_dry_run") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: ${dryRunOutputCode} }));
+    process.exit(0);
+  }
+  if (name === "loo_codex_resume_thread") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { action: "codex_resume_thread", threadId: toolArgs.thread_id, live: false, approvalAuditId: "loo_audit_resume_test", paramsHash: "resume-params-hash", messageHash: "resume-message-hash", method: "thread/resume", approval_audit_id: "loo_audit_resume_test", params_hash: "resume-params-hash", message_hash: "resume-message-hash" } }));
     process.exit(0);
   }
 }
@@ -724,6 +732,39 @@ test("OpenClaw tool smoke invokes required loo tools through gateway call and wr
     assert.equal(calls.find((call) => call.params.name === "loo_prepared_inbox")?.params.args?.thread_id, "thread-1");
     assert.equal(calls.find((call) => call.params.name === "loo_summary_expand")?.params.args?.thread_id, "thread-1");
     assert.equal(calls.some((call) => call.args.includes("--token")), false);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw facade tool smoke supplies safe args for describe-ref and resume dry-run", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-facade-tool-smoke-"));
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_describe_ref", "loo_codex_resume_thread"]);
+
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      profile: "lco-facade",
+      sessionKey: "agent:main:lco-facade",
+      requiredTools: ["loo_describe_ref", "loo_codex_resume_thread"],
+      threadId: "thread-1",
+      query: "Proposed plan"
+    });
+
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.equal(report.toolSmokeReady, true, JSON.stringify(report, null, 2));
+
+    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { method: string; params: { name?: string; args?: Record<string, unknown> } });
+    const describe = calls.find((call) => call.method === "tools.invoke" && call.params.name === "loo_describe_ref");
+    const resume = calls.find((call) => call.method === "tools.invoke" && call.params.name === "loo_codex_resume_thread");
+
+    assert.deepEqual(describe?.params.args, { source_ref: "codex_thread:thread-1" });
+    assert.deepEqual(resume?.params.args, { thread_id: "thread-1", dry_run: true });
+    assert.equal(report.actionsPerformed.liveCodexControlRun, false);
+    assert.equal(report.actionsPerformed.desktopGuiActionRun, false);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;

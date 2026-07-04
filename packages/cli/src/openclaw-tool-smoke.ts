@@ -570,6 +570,7 @@ function buildToolArgs(params: {
   desktopFallbackCoherence?: "fixture" | "omit";
 }): Record<string, unknown> | null {
   if (params.toolName === "loo_search_sessions") return { query: params.query, limit: 3 };
+  if (params.toolName === "loo_describe_ref") return params.threadId ? { source_ref: `codex_thread:${params.threadId}` } : null;
   if (params.toolName === "loo_describe_session") return params.threadId ? { thread_id: params.threadId } : null;
   if (params.toolName === "loo_expand_session") {
     return params.threadId ? { thread_id: params.threadId, profile: params.expandProfile, token_budget: params.tokenBudget } : null;
@@ -706,6 +707,12 @@ function buildToolArgs(params: {
       action: "send",
       thread_id: params.threadId,
       message: CONTROL_DRY_RUN_MESSAGE
+    } : null;
+  }
+  if (params.toolName === "loo_codex_resume_thread") {
+    return params.threadId ? {
+      thread_id: params.threadId,
+      dry_run: true
     } : null;
   }
   return {};
