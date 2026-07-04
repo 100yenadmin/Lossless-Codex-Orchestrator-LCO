@@ -11,6 +11,7 @@ import {
   getPreparedInbox,
   getPreparedStateStatus,
   indexCodexSessions,
+  indexNativeCodexSubagentResults,
   materializePreparedCards,
   materializeSummaryLeaves
 } from "../packages/core/src/index.js";
@@ -252,6 +253,171 @@ test("prepared cards materialize public-safe advisory cards and inbox entries", 
     assert.equal(inbox.items[0]!.targetRef, card.targetRef);
     assert.equal(inbox.items[0]!.sourceRefs.some((ref) => /^summary_leaf:[0-9a-f]{32}$/.test(ref)), true);
     assert.equal(inbox.items[0]!.execute, false);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared cards and inbox cite sanitized native Codex subagent result sources", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-native-subagent-card-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const resultId = "issue-447-card-proof";
+    const sourceRef = `codex_subagent_result:${resultId}`;
+    const threadId = `subagent_${resultId}`;
+    indexNativeCodexSubagentResults(db, {
+      results: [
+        {
+          resultId,
+          title: "Issue 447 native subagent card proof",
+          summary: "Worker prepared a card-citable source.",
+          finalReport: "Final: prepared-state card citation proof complete. Next action: review stacked PR.",
+          provenance: {
+            issue: 447,
+            pr: 458,
+            branch: "issue-447-subagent-prepared-citations"
+          },
+          touchedFiles: ["packages/core/src/index.ts", "tests/prepared-cards.test.ts"],
+          blockers: ["none"],
+          observedAt: "2026-07-04T11:30:00Z",
+          rawTranscriptPath: "/Users/lume/.codex/private/subagent-result.jsonl",
+          transcriptText: "PRIVATE_CANARY_TOKEN_1234567890 raw hidden prompt text"
+        }
+      ],
+      now: "2026-07-04T11:31:00Z"
+    });
+
+    materializeSummaryLeaves(db, { threadId });
+    materializePreparedCards(db, { threadId });
+
+    const cards = getPreparedCards(db, { threadId, limit: 10 });
+    assert.equal(cards.sourceCoverage.preparedCards, "ok");
+    assert.equal(cards.cards.length, 1);
+    assert.equal(cards.cards[0]!.sourceRefs.includes(sourceRef), true);
+    assert.equal(cards.cards[0]!.reasonCodes.includes("summary_leaves_ready"), true);
+
+    const inbox = getPreparedInbox(db, { threadId, limit: 10 });
+    assert.equal(inbox.sourceCoverage.preparedInboxItems, "ok");
+    assert.equal(inbox.items.length, 1);
+    assert.equal(inbox.items[0]!.sourceRefs.includes(sourceRef), true);
+
+    const status = getPreparedStateStatus(db);
+    assert.equal(status.sourceCoverage.summaryLeaves, "ok");
+    assert.equal(status.sourceCoverage.preparedCards, "ok");
+    assert.equal(status.sourceCoverage.preparedInboxItems, "ok");
+
+    const serialized = JSON.stringify({ cards, inbox, status });
+    assert.equal(serialized.includes("/Users/lume"), false);
+    assert.equal(serialized.includes("PRIVATE_CANARY_TOKEN"), false);
+    assert.equal(serialized.includes("raw hidden prompt"), false);
+    assert.equal(serialized.includes("subagent-result.jsonl"), false);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared card and inbox outputs reject encoded unsafe native subagent result refs", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-native-subagent-encoded-ref-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const threadId = "subagent_encoded_ref";
+    const unsafeEncodedRef = "codex_subagent_result:%2FUsers%2Flume%2Fprivate%2Fresult.jsonl";
+    db.prepare(`
+      INSERT INTO prepared_cards (
+        card_id, card_ref, target_ref, card_kind, title, summary_text, next_action,
+        source_refs_json, source_range_refs_json, source_range_refs_omitted,
+        authority_coverage_json, input_hash, extractor_version, privacy_class,
+        confidence, freshness_at, stale, state, reason_codes_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "card-encoded-ref",
+      "prepared_card:55555555555555555555555555555555",
+      `codex_thread:${threadId}`,
+      "codex_session",
+      "Encoded ref safety proof",
+      "Prepared card should keep only public-safe source refs.",
+      "Use bounded public-safe evidence.",
+      JSON.stringify([`codex_thread:${threadId}`, unsafeEncodedRef]),
+      JSON.stringify([]),
+      0,
+      JSON.stringify({
+        summaryLeaves: { status: "ok", leafCount: 1, rangeCount: 1 },
+        sessionMetadata: { status: "ok" },
+        watcherObservations: { status: "not_configured" }
+      }),
+      "55555555555555555555555555555555",
+      "prepared-cards-v1",
+      "public_safe_metadata",
+      0.88,
+      "2026-07-04T11:40:00Z",
+      0,
+      "ready",
+      JSON.stringify(["summary_leaves_ready"]),
+      "2026-07-04T11:40:00Z",
+      "2026-07-04T11:40:00Z"
+    );
+    db.prepare(`
+      INSERT INTO prepared_inbox_items (
+        item_id, card_ref, target_ref, urgency_score, state, reason_codes_json,
+        source_refs_json, execute_false, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "prepared_inbox:55555555555555555555555555555555",
+      "prepared_card:55555555555555555555555555555555",
+      `codex_thread:${threadId}`,
+      67,
+      "ready",
+      JSON.stringify(["summary_leaves_ready"]),
+      JSON.stringify([`codex_thread:${threadId}`, unsafeEncodedRef]),
+      1,
+      "2026-07-04T11:40:00Z",
+      "2026-07-04T11:40:00Z"
+    );
+
+    const cards = getPreparedCards(db, { threadId, limit: 10 });
+    assert.equal(cards.cards.length, 1);
+    assert.equal(cards.cards[0]!.sourceRefs.includes(`codex_thread:${threadId}`), true);
+    assert.equal(cards.cards[0]!.sourceRefs.includes(unsafeEncodedRef), false);
+
+    const inbox = getPreparedInbox(db, { threadId, limit: 10 });
+    assert.equal(inbox.items.length, 1);
+    assert.equal(inbox.items[0]!.sourceRefs.includes(`codex_thread:${threadId}`), true);
+    assert.equal(inbox.items[0]!.sourceRefs.includes(unsafeEncodedRef), false);
+
+    const serialized = JSON.stringify({ cards, inbox });
+    assert.equal(serialized.includes("%2FUsers%2Flume"), false);
+    assert.equal(serialized.includes("/Users/lume"), false);
+    assert.equal(serialized.includes("result.jsonl"), false);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared-state status reports a gap when native subagent ranges lack card coverage", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-native-subagent-gap-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexNativeCodexSubagentResults(db, {
+      results: [
+        {
+          resultId: "issue-447-gap-proof",
+          title: "Issue 447 native subagent gap proof",
+          summary: "Worker source ranges exist before card materialization.",
+          finalReport: "Final: source ranges exist without prepared card coverage.",
+          provenance: { issue: 447 },
+          observedAt: "2026-07-04T11:35:00Z"
+        }
+      ],
+      now: "2026-07-04T11:36:00Z"
+    });
+
+    const status = getPreparedStateStatus(db);
+    assert.equal(status.sourceCoverage.summaryLeaves, "partial");
+    assert.equal(status.sourceCoverage.preparedCards, "partial");
+    assert.equal(status.sourceCoverage.preparedInboxItems, "partial");
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
