@@ -74,6 +74,9 @@ export function createGeneralReleaseReadiness(options: GeneralReleaseReadinessOp
   const packageVersion = readString(packageJson, "version");
   const expectedDistTag = distTagForVersion(packageVersion ?? "");
   const expectedPackage = packageName ? `${packageName}@${expectedDistTag}` : null;
+  const releaseLabel = expectedPackage && packageVersion
+    ? `${expectedPackage} (${packageVersion})`
+    : "the current package release";
   const freshNpmEvidence = resolveEvidencePath(evidenceDir, options.freshNpmEvidence);
   const agentDogfoodEvidence = resolveEvidencePath(evidenceDir, options.agentDogfoodEvidence);
   const checks: Record<string, GeneralReleaseReadinessCheck> = {
@@ -107,10 +110,10 @@ export function createGeneralReleaseReadiness(options: GeneralReleaseReadinessOp
       liveCodexControlRun: false,
       desktopGuiActionRun: false
     },
-    proofBoundary: "This gate defines and validates 1.0 general-release readiness evidence; it does not publish 1.0, move npm latest, create a GitHub Release, run live Codex control, mutate a GUI, claim Claude parity, or claim enterprise/customer-ready security.",
+    proofBoundary: `This gate defines and validates general-release readiness evidence for ${releaseLabel}; it does not publish npm, move npm dist-tags, create a GitHub Release, run live Codex control, mutate a GUI, claim Claude parity, or claim enterprise/customer-ready security.`,
     nextAction: blockers.length === 0
-      ? "Use this packet as one input to a separate explicit stable release issue before any npm latest promotion or GitHub Release."
-      : "Produce the missing public-safe evidence or update docs before treating 1.0 as ready."
+      ? "Use this packet as one input to a separate explicit stable release issue before any npm dist-tag promotion or GitHub Release."
+      : "Produce the missing public-safe evidence or update docs before treating this release candidate as generally ready."
   };
   writeFileSync(readinessManifestPath, `${JSON.stringify(report, null, 2)}\n`);
   return report;
@@ -163,9 +166,8 @@ function validateDocsTruth(rootDir: string): GeneralReleaseReadinessCheck {
     surfaces.every((content) => content
       && /loo release general-readiness/i.test(content)
       && /fresh npm/i.test(content)
-      && /agent dogfood/i.test(content)
-      && /1\.0/i.test(content))
-  ), "README, VISION, and release runbook point to the 1.0 general-readiness gate");
+      && /agent dogfood/i.test(content))
+  ), "README, VISION, and release runbook point to the general-readiness gate");
 }
 
 function validateFreshNpmEvidence(

@@ -495,6 +495,7 @@ test("general release readiness passes with public-safe fresh npm and agent dogf
     blockers?: string[];
     checks?: Record<string, { ok: boolean; detail: string }>;
     proofBoundary?: string;
+    nextAction?: string;
   };
 
   assert.equal(payload.ok, true);
@@ -504,7 +505,11 @@ test("general release readiness passes with public-safe fresh npm and agent dogf
   assert.equal(payload.checks?.agentSkill?.ok, true);
   assert.equal(payload.checks?.freshNpmCleanProfile?.ok, true);
   assert.equal(payload.checks?.agentDogfood?.ok, true);
-  assert.match(payload.proofBoundary ?? "", /does not publish 1\.0/i);
+  assert.match(payload.proofBoundary ?? "", /general-release readiness evidence/i);
+  assert.match(payload.proofBoundary ?? "", new RegExp(packageJson.version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.match(payload.proofBoundary ?? "", /does not publish npm/i);
+  assert.doesNotMatch(payload.proofBoundary ?? "", /\b1\.0\b/i);
+  assert.doesNotMatch(payload.nextAction ?? "", /\b1\.0\b/i);
 });
 
 test("README, VISION, and release runbook point to the general release checklist", () => {
@@ -523,7 +528,6 @@ test("README, VISION, and release runbook point to the general release checklist
     assert.match(content, /loo release general-readiness/i, surface);
     assert.match(content, /fresh npm/i, surface);
     assert.match(content, /agent dogfood/i, surface);
-    assert.match(content, /1\.0/i, surface);
   }
 
   assert.match(checklist, /Every Release/i);

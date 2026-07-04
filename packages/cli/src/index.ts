@@ -423,6 +423,7 @@ async function main() {
     const report = createPublishedPackageSmokeReport(parsed);
     console.log(JSON.stringify(report, null, 2));
     if (parsed.strict && !report.ok) process.exitCode = 1;
+    if (parsed.gatewayReadyStrict && !report.publishedSmokeReady) process.exitCode = 1;
     return;
   }
   if (command === "openclaw" && args[0] === "live-control-smoke") {
@@ -1206,7 +1207,7 @@ function printGeneralReleaseReadinessHelp(): void {
     "Usage:",
     "  loo release general-readiness --evidence-dir path [--fresh-npm-evidence path] [--agent-dogfood-evidence path] [--now iso] [--strict]",
     "",
-    "Writes a public-safe 1.0 general-release readiness packet without performing release actions.",
+    "Writes a public-safe general-release readiness packet for the current package version without performing release actions.",
     "",
     "Required evidence:",
     "  --fresh-npm-evidence points to a public-safe `loo openclaw published-smoke` report with clean-profile gateway status ready.",
@@ -1216,20 +1217,26 @@ function printGeneralReleaseReadinessHelp(): void {
     "  --strict exits non-zero until docs, skill/playbook, M9 scenarios, fresh npm proof, and agent dogfood proof are complete.",
     "",
     "Safety boundary:",
-    "  The command does not publish npm, does not move npm latest, does not create a GitHub Release, does not run live Codex control, and does not perform desktop GUI mutation."
+    "  The command does not publish npm, does not move npm dist-tags, does not create a GitHub Release, does not run live Codex control, and does not perform desktop GUI mutation."
   ].join("\n"));
 }
 
 function printOpenClawPublishedSmokeHelp(): void {
   console.log([
     "Usage:",
-    "  loo openclaw published-smoke --evidence-dir path --dogfood-report path --tool-smoke-report path [--configured-tool-smoke-report path] [--npm-install-diagnostic-report path] [--registry-version version] [--registry-beta-version version] [--root path] [--now iso] [--strict]",
+    "  loo openclaw published-smoke --evidence-dir path --dogfood-report path --tool-smoke-report path [--configured-tool-smoke-report path] [--npm-install-diagnostic-report path] [--registry-version version] [--registry-beta-version version] [--root path] [--now iso] [--strict] [--gateway-ready-strict]",
     "",
-    "Writes a public-safe summary of the published npm beta install path and gateway setup state.",
+    "Writes a public-safe summary of the published npm package path for the expected dist-tag and gateway setup state.",
     "",
     "This command consumes sanitized reports from `loo openclaw dogfood` and `loo openclaw tool-smoke`.",
     "Optional `--configured-tool-smoke-report` records a separately named configured-profile gateway proof without marking the fresh published profile ready.",
     "Optional `--npm-install-diagnostic-report` records public-safe npm selector drift and tarball fallback proof without storing raw npm output.",
+    "",
+    "Strict mode:",
+    "  --strict exits non-zero only when ok/packagePathOk is false; it is package-path strict.",
+    "  --gateway-ready-strict exits non-zero unless publishedSmokeReady is true for the clean published profile.",
+    "  A configured gateway proof is recorded separately and never substitutes for fresh-profile gateway readiness.",
+    "",
     "It does not run npm install, does not call OpenClaw, does not run live Codex control, and does not mutate a desktop GUI."
   ].join("\n"));
 }
@@ -2223,6 +2230,7 @@ function parseOpenClawPublishedSmokeArgs(input: string[]): {
   configuredToolSmokeReportPath?: string;
   npmInstallDiagnosticReportPath?: string;
   strict: boolean;
+  gatewayReadyStrict: boolean;
 } {
   const parsed: {
     evidenceDir?: string;
@@ -2235,7 +2243,8 @@ function parseOpenClawPublishedSmokeArgs(input: string[]): {
     configuredToolSmokeReportPath?: string;
     npmInstallDiagnosticReportPath?: string;
     strict: boolean;
-  } = { strict: false };
+    gatewayReadyStrict: boolean;
+  } = { strict: false, gatewayReadyStrict: false };
   for (let index = 0; index < input.length; index += 1) {
     const arg = input[index]!;
     if (arg === "--evidence-dir") {
@@ -2258,6 +2267,8 @@ function parseOpenClawPublishedSmokeArgs(input: string[]): {
       parsed.npmInstallDiagnosticReportPath = requireOptionValue(input[++index], arg);
     } else if (arg === "--strict") {
       parsed.strict = true;
+    } else if (arg === "--gateway-ready-strict") {
+      parsed.gatewayReadyStrict = true;
     } else {
       throw new Error(`Unknown openclaw published-smoke option: ${arg}`);
     }
@@ -2274,7 +2285,8 @@ function parseOpenClawPublishedSmokeArgs(input: string[]): {
     toolSmokeReportPath: parsed.toolSmokeReportPath,
     configuredToolSmokeReportPath: parsed.configuredToolSmokeReportPath,
     npmInstallDiagnosticReportPath: parsed.npmInstallDiagnosticReportPath,
-    strict: parsed.strict
+    strict: parsed.strict,
+    gatewayReadyStrict: parsed.gatewayReadyStrict
   };
 }
 

@@ -396,6 +396,10 @@ OpenClaw plugin installs but tools are missing
 OpenClaw gateway tool smoke reports credential or device blockers
 
 - Treat this as first-run gateway setup, not a package failure.
+- In `loo openclaw published-smoke`, `ok`/`packagePathOk` prove package-path
+  health only. `publishedSmokeReady` is the clean-profile gateway-ready claim.
+- A configured gateway proof is useful local evidence, but it does not satisfy
+  fresh-profile gateway readiness.
 - Use the recovery commands returned by `loo openclaw published-smoke` or
   `loo openclaw tool-smoke`.
 
