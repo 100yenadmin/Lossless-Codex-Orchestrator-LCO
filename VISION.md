@@ -50,6 +50,12 @@ What 1.2 should let a local OpenClaw agent do next:
 What a local OpenClaw agent can do today:
 
 - Discover the installed LCO plugin and declared `loo_*` tools.
+- Start from the compact public facade (`loo_prepared_inbox`,
+  `loo_describe_ref`, `loo_expand_query`, `loo_recent_sessions`,
+  `loo_attention_inbox`, `loo_project_digest`, `loo_codex_control_dry_run`,
+  and approval-gated `loo_codex_resume_thread`) instead of treating every
+  declared tool as an equal first step. Expert/debug tools remain explicit for
+  detail, proof, and recovery.
 - Index and search local Codex sessions without reading raw transcripts.
 - Describe a session using metadata, source refs, status fields, plans, finals, touched files, and safe summaries.
 - Expand a selected session or query with bounded metadata, brief, or evidence profiles.
@@ -176,6 +182,7 @@ Versioned scorecards live under `evals/scorecards/v1.0/`. Use them as the shared
 - `orchestrator-leverage-prioritization.json`
 - `packaging-install-review.json`
 - `public-claim-review.json`
+- `tool-facade-usability-review.json`
 - `local-agent-usability-review.json`
 - `local-mac-search-ui-review.json`
 - `working-app-runtime-proof-review.json`
@@ -211,6 +218,7 @@ For implementation issues, copy `evals/scorecards/v1.0/issue-scorecard-update-te
 | Public claims | README/docs/release notes stay inside allowed beta wording | claim audit result |
 | Privacy | Evidence contains no raw session files, SQLite DBs, screenshots, tokens, or secrets | artifact scan result |
 | Source authority | Operating-picture tools distinguish source availability from source ownership | `authorityCoverage`, degraded unavailable-source cards, source-authority profile |
+| Tool facade usability | Agent starts from the 8-tool public facade, then drops to workflow/proof/debug tiers only when the facade returns a reason | `tool-facade-usability-review.json` score movement |
 | Cockpit card presentation | Agent-facing cards separate clean presentation text from source evidence and downgrade unclean extraction | `presentation_cleaned`, `presentation_low_confidence`, public-safe canary tests |
 
 ## Eval Scenarios

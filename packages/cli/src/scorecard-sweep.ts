@@ -99,6 +99,7 @@ const REQUIRED_SCORECARD_NAMES = [
   "public-claim-review",
   "retrieval-quality-review",
   "safety-bypass-review",
+  "tool-facade-usability-review",
   "working-app-runtime-proof-review"
 ];
 const REQUIRED_SCORECARD_FIELDS: Array<keyof ScorecardJson> = [

@@ -11,6 +11,8 @@ Codex sessions through the installed `loo_*` tools.
 ## Safety Boundary
 
 - Prefer local `loo_*` tools through the OpenClaw gateway.
+- Treat the compact public facade as the normal path; do not rank every
+  declared tool as an equal first step.
 - Start with public-safe summaries, metadata, refs, and bounded expansion.
 - Do not read raw transcripts when a `loo_*` describe, expand, final, plan, or
   touched-file tool can answer the question.
@@ -43,6 +45,28 @@ Codex sessions through the installed `loo_*` tools.
   Use `nextControlDryRun` only as a non-executed dry-run handoff; treat
   low-confidence or conflicting states as inspect-first, never as approval to
   send or steer.
+- `loo_` is the canonical backward-compatible tool prefix. Use `LCO` as the
+  product abbreviation in prose only; do not invent `lco_*` tools unless the
+  #434 alias policy explicitly approves them.
+
+## Compact Public Facade
+
+Normal agents should start here:
+
+1. `loo_prepared_inbox` for the prepared-state operating picture.
+2. `loo_describe_ref` for the specific source ref or Codex thread.
+3. `loo_expand_query` for one bounded evidence brief when the ref is not known.
+4. `loo_recent_sessions` to refresh recent or active cards after a read or
+   approved action.
+5. `loo_attention_inbox` for the compact attention queue.
+6. `loo_project_digest` for bounded provenance and handoff.
+7. `loo_codex_control_dry_run` for exact action hashes and approval packet.
+8. `loo_codex_resume_thread` only after the matching dry-run approval id.
+
+Use `workflow_detail`, `proof_debug`, and `internal_low_level` tools only when
+the facade output or a proof/debug task gives you a specific reason. Expert
+tools remain explicit so blockers, safety state, and proof boundaries can be
+inspected instead of hidden behind a single magic command.
 
 ## Find Active Codex Sessions
 
@@ -127,16 +151,20 @@ Typical live tools after approval are `loo_codex_resume_thread`,
 
 ## Recommended Agent Loop
 
-1. `loo_doctor`
-2. `loo_prepared_state_status` with `thread_id` when resuming a known Codex
-   thread; treat `targetCoverage.status=source_present_not_indexed` or
+1. Start with `loo_prepared_inbox`.
+2. Use `loo_describe_ref` for the selected inbox/source ref.
+3. When resuming a known Codex thread, use `loo_prepared_state_status` with
+   `thread_id`; treat `targetCoverage.status=source_present_not_indexed` or
    `active_session_pending_index` as a cache-refresh route, not as a missing
    thread or raw-transcript permission.
-3. `loo_search_sessions`
-4. `loo_describe_session` or `loo_describe_ref`
-5. `loo_codex_plans`, `loo_codex_final_messages`, and
+4. Use `loo_expand_query` with a 1k budget only when the compact card and
+   describe output are not enough.
+5. Use `loo_recent_sessions`, `loo_attention_inbox`, or `loo_project_digest`
+   to refresh the operating picture or handoff.
+6. Use `loo_doctor`, `loo_search_sessions`, `loo_describe_session`,
+   `loo_expand_session`, `loo_codex_plans`, `loo_codex_final_messages`, and
    `loo_codex_touched_files`
-6. `loo_expand_session` or `loo_expand_query` with a 1k budget
+   only as workflow-detail fallbacks when the facade cannot answer the task.
 7. Optionally run `loo_codex_desktop_coherence` when the user asks whether the
    same work is visible in Codex Desktop
 8. If Desktop visibility is not proven, run

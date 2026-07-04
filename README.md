@@ -143,16 +143,25 @@ Expand from a query when you do not know the ref yet:
 loo expand-query --profile brief --token-budget 1000 "billing bridge"
 ```
 
-For normal agent workflows, use the MCP/OpenClaw tools:
+For normal agent workflows, start with the compact public/operator facade
+instead of treating every `loo_*` tool as a peer:
 
-- `loo_search_sessions`
-- `loo_describe_session`
-- `loo_expand_session`
-- `loo_codex_plans`
-- `loo_codex_final_messages`
-- `loo_codex_touched_files`
-- `loo_codex_control_dry_run`
-- `loo_codex_start_thread`
+| Step | Tool | Purpose |
+| --- | --- | --- |
+| 1 | `loo_prepared_inbox` | Start from the compact prepared-state operating picture. |
+| 2 | `loo_describe_ref` | Look up a specific session or source ref from the inbox. |
+| 3 | `loo_expand_query` | Expand one bounded evidence brief when the ref is not known. |
+| 4 | `loo_recent_sessions` | Refresh recent or active cards after reads or approved actions. |
+| 5 | `loo_attention_inbox` | Review the compact attention queue before choosing a next action. |
+| 6 | `loo_project_digest` | Produce a bounded provenance and handoff digest. |
+| 7 | `loo_codex_control_dry_run` | Create the exact dry-run action packet and approval hashes. |
+| 8 | `loo_codex_resume_thread` | Run an approved resume only after the matching audit id. |
+
+Other declared tools remain available as `workflow_detail`, `proof_debug`, or
+`internal_low_level` surfaces for setup, diagnosis, proof, and recovery. Their
+existence is deliberate: normal agents should start from the facade, then drop
+to the lower tiers only when the compact path returns a specific next step or
+blocker.
 
 `loo_codex_control_dry_run` returns the audit id and hashes an agent should show
 before any live start/resume/send/steer/interrupt call. Live control requires
@@ -166,6 +175,13 @@ before claiming the turn or thread completed, persisted, or is safe to build on.
 
 The packaged agent playbook is
 [skills/lossless-openclaw-orchestrator/SKILL.md](skills/lossless-openclaw-orchestrator/SKILL.md).
+
+Naming policy: `loo_` is the historical and canonical tool prefix for backward
+compatibility. `LCO` is the product abbreviation and may appear in prose,
+package names, issues, and docs. Do not broadly rename or duplicate tools to
+`lco_*` unless the compatibility work in
+[#434](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/434)
+explicitly approves an alias plan.
 
 ## OpenClaw And MCP
 

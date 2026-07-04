@@ -1,0 +1,60 @@
+{
+  "scorecard_version": "1.0",
+  "claim_class": "advisory",
+  "scenario": "A normal OpenClaw/LCO operator asks what to do next and the agent chooses the compact public facade before dropping into expert or debug tools.",
+  "surface": "OpenClaw gateway",
+  "command_or_tool": [
+    "openclaw.plugin.json contracts.toolSurface",
+    "packages/openclaw-plugin/openclaw.plugin.json contracts.toolSurface",
+    "loo_prepared_inbox",
+    "loo_describe_ref",
+    "loo_expand_query",
+    "loo_recent_sessions",
+    "loo_attention_inbox",
+    "loo_project_digest",
+    "loo_codex_control_dry_run",
+    "loo_codex_resume_thread",
+    "skills/lossless-openclaw-orchestrator/SKILL.md"
+  ],
+  "expected_public_safe_evidence": [
+    "manifest tool declarations include metadata.tier for every loo_* tool",
+    "exactly 6-8 public_facade tools are present and ordered by operatorPathRank",
+    "agent guidance names the compact public facade before workflow_detail or proof_debug tools",
+    "workflow_detail, proof_debug, and internal_low_level tools remain declared",
+    "safety.mode, requiresApproval, and mutationClasses are unchanged by facade metadata",
+    "LOO/LCO naming policy keeps loo_ canonical and routes alias work to #434"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "raw prompts or transcript spans",
+    "SQLite DBs",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data"
+  ],
+  "pass_criteria": [
+    "Given the full tool list, the agent starts with loo_prepared_inbox or another public_facade tool rather than scanning every declared tool as a peer.",
+    "The agent uses loo_describe_ref and loo_expand_query for bounded detail instead of opening raw transcripts or low-level stores.",
+    "The agent uses loo_codex_control_dry_run before any live control and treats loo_codex_resume_thread as approval-gated.",
+    "The agent enters workflow_detail, proof_debug, or internal_low_level tiers only when the facade returns a specific missing evidence, proof, setup, or recovery reason.",
+    "The manifest snapshot test fails if a new tool lacks one of public_facade, workflow_detail, proof_debug, or internal_low_level.",
+    "Docs and skill prompts keep expert/debug tools available and explicit instead of deleting, hiding, or over-consolidating them.",
+    "The naming policy preserves loo_* as the canonical tool prefix and does not invent broad lco_* aliases outside #434."
+  ],
+  "fail_criteria": [
+    "Agent treats all declared loo_* tools as equally recommended first steps.",
+    "Agent starts with proof_debug or internal_low_level tools for ordinary operator questions without a stated blocker.",
+    "A new tool can be added without choosing a tier.",
+    "Facade docs imply expert/debug tools were removed or hidden.",
+    "Facade metadata weakens approval, mutation-class, or public-safety boundaries.",
+    "Docs rename tools to lco_* without an explicit #434 compatibility plan."
+  ],
+  "current_score": "pass",
+  "evidence_path": "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-450-tool-facade-tiers/tool-facade-usability-review.json",
+  "known_gaps": [
+    "This scorecard proves routing guidance and manifest classification, not real agent behavior from a live OpenClaw gateway transcript.",
+    "Future alias implementation, if any, belongs with #434 and needs separate compatibility tests."
+  ],
+  "next_action": "Run the manifest snapshot test and focused scorecard tests whenever a new loo_* tool is added or the public facade changes.",
+  "proof_boundary": "This proves public-safe facade metadata, docs, skill prompts, and advisory scorecard coverage for choosing a compact operator path. It does not remove tools, prove live OpenClaw gateway behavior, approve live Codex control, mutate a GUI, publish npm, create a GitHub Release, or implement broad lco_* aliases."
+}

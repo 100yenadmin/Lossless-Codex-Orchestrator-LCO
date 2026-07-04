@@ -106,6 +106,9 @@
             "derived_cache"
           ]
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -143,6 +146,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -176,6 +182,9 @@
           "source": "local_index",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -220,6 +229,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -238,6 +250,11 @@
           "source": "local_index",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "public_facade",
+          "operatorPathRank": 2,
+          "operatorPathRole": "Look up a specific session or source ref after the inbox identifies it."
         },
         "inputSchema": {
           "type": "object",
@@ -263,6 +280,9 @@
           "source": "local_index",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -295,6 +315,11 @@
           "source": "local_index",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "public_facade",
+          "operatorPathRank": 3,
+          "operatorPathRole": "Expand one bounded evidence brief from a query when the ref is not known."
         },
         "inputSchema": {
           "type": "object",
@@ -334,6 +359,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -369,6 +397,9 @@
           "source": "local_index",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -407,6 +438,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -425,6 +459,9 @@
           "source": "local_index",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -459,6 +496,11 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "public_facade",
+          "operatorPathRank": 1,
+          "operatorPathRole": "Start from the compact prepared-state operating picture."
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -482,6 +524,9 @@
           "source": "local_index",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -522,6 +567,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -560,6 +608,11 @@
           "source": "local_index",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "public_facade",
+          "operatorPathRank": 4,
+          "operatorPathRole": "Refresh recent or active session cards after reads or approved actions."
         },
         "inputSchema": {
           "type": "object",
@@ -625,6 +678,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -661,6 +717,9 @@
           "source": "structured_operating_inputs",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -713,6 +772,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -763,6 +825,9 @@
           "source": "structured_operating_inputs",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -821,6 +886,9 @@
           "source": "structured_operating_inputs",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -881,6 +949,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -940,6 +1011,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "proof_debug"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -992,6 +1066,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1023,6 +1100,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1051,6 +1131,9 @@
           "source": "structured_operating_inputs",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -1083,6 +1166,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1112,6 +1198,9 @@
           "source": "structured_operating_inputs",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -1150,6 +1239,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "proof_debug"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1164,6 +1256,9 @@
           "source": "codex_direct",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "internal_low_level"
         },
         "inputSchema": {
           "type": "object",
@@ -1188,6 +1283,9 @@
           "source": "structured_operating_inputs",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "proof_debug"
         },
         "inputSchema": {
           "type": "object",
@@ -1241,6 +1339,9 @@
           "source": "structured_operating_inputs",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "proof_debug"
         },
         "inputSchema": {
           "type": "object",
@@ -1320,6 +1421,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "proof_debug"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1362,6 +1466,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1383,6 +1490,9 @@
           "source": "structured_operating_inputs",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -1417,6 +1527,11 @@
           "source": "structured_operating_inputs",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "public_facade",
+          "operatorPathRank": 6,
+          "operatorPathRole": "Create a bounded provenance and handoff digest from available operating inputs."
         },
         "inputSchema": {
           "type": "object",
@@ -1464,6 +1579,11 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "public_facade",
+          "operatorPathRank": 5,
+          "operatorPathRole": "Review the compact attention queue before choosing a next action."
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1509,6 +1629,9 @@
           "source": "structured_operating_inputs",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -1556,6 +1679,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1579,6 +1705,9 @@
           "source": "local_index",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -1604,6 +1733,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1622,6 +1754,9 @@
           "source": "local_index",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -1646,6 +1781,9 @@
           "source": "local_index",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -1674,6 +1812,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "proof_debug"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1700,6 +1841,9 @@
           "source": "local_index",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "internal_low_level"
         },
         "inputSchema": {
           "type": "object",
@@ -1728,6 +1872,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "internal_low_level"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1751,6 +1898,11 @@
           "mutationClasses": [
             "derived_cache"
           ]
+        },
+        "metadata": {
+          "tier": "public_facade",
+          "operatorPathRank": 7,
+          "operatorPathRole": "Create the exact dry-run action packet and approval hashes before live control."
         },
         "inputSchema": {
           "type": "object",
@@ -1790,6 +1942,9 @@
             "live_control"
           ]
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1815,6 +1970,11 @@
             "derived_cache",
             "live_control"
           ]
+        },
+        "metadata": {
+          "tier": "public_facade",
+          "operatorPathRank": 8,
+          "operatorPathRole": "Run the approved resume action only after a matching dry-run audit id."
         },
         "inputSchema": {
           "type": "object",
@@ -1844,6 +2004,9 @@
             "derived_cache",
             "live_control"
           ]
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -1876,6 +2039,9 @@
             "derived_cache",
             "live_control"
           ]
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -1912,6 +2078,9 @@
             "live_control"
           ]
         },
+        "metadata": {
+          "tier": "workflow_detail"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -1937,6 +2106,9 @@
           "source": "desktop_fallback",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "proof_debug"
         },
         "inputSchema": {
           "type": "object",
@@ -1974,6 +2146,9 @@
           "source": "desktop_fallback",
           "requiresApproval": true,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "proof_debug"
         },
         "inputSchema": {
           "type": "object",
@@ -2029,6 +2204,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "proof_debug"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -2048,6 +2226,9 @@
           "source": "desktop_fallback",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "proof_debug"
         },
         "inputSchema": {
           "type": "object",
@@ -2090,6 +2271,9 @@
             "derived_cache",
             "desktop_gui"
           ]
+        },
+        "metadata": {
+          "tier": "proof_debug"
         },
         "inputSchema": {
           "type": "object",
@@ -2150,6 +2334,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "proof_debug"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -2164,6 +2351,9 @@
           "source": "audit",
           "requiresApproval": false,
           "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "proof_debug"
         },
         "inputSchema": {
           "type": "object",
@@ -2180,6 +2370,9 @@
           "requiresApproval": false,
           "mutationClasses": []
         },
+        "metadata": {
+          "tier": "proof_debug"
+        },
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -2192,6 +2385,31 @@
           }
         }
       }
-    ]
+    ],
+    "toolSurface": {
+      "tiers": [
+        "public_facade",
+        "workflow_detail",
+        "proof_debug",
+        "internal_low_level"
+      ],
+      "publicFacadeTools": [
+        "loo_prepared_inbox",
+        "loo_describe_ref",
+        "loo_expand_query",
+        "loo_recent_sessions",
+        "loo_attention_inbox",
+        "loo_project_digest",
+        "loo_codex_control_dry_run",
+        "loo_codex_resume_thread"
+      ],
+      "namingPolicy": {
+        "canonicalPrefix": "loo_",
+        "packageName": "lossless-openclaw-orchestrator",
+        "compatibilityIssue": "#434",
+        "aliasPolicy": "The historical `loo_` tool prefix remains canonical and backward compatible. `lco` may be used in prose as the product abbreviation, but this issue does not rename or duplicate tools to `lco_*`; any alias work belongs with #434."
+      },
+      "proofBoundary": "This metadata defines recommended operator tiers only. It does not remove tools, hide expert/debug surfaces, loosen approvals, run live Codex control, mutate a GUI, publish npm, or create GitHub releases."
+    }
   }
 }
