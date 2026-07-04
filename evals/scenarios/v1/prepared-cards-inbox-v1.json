@@ -1,10 +1,10 @@
 {
   "scenario_version": "1.0",
   "id": "prepared-cards-inbox-v1",
-  "title": "Prepared cards and deterministic attention inbox",
+  "title": "Prepared-state OpenClaw gateway dogfood",
   "claim_scope": "codex-read-search-expand-dry-run",
   "user_task": "As Eva, inspect prepared Codex session cards, choose the highest-priority attention item, and expand only bounded summary-leaf evidence before deciding the next safe action.",
-  "surface": "mcp",
+  "surface": "openclaw_gateway",
   "allowed_tools": [
     "loo_prepared_state_status",
     "loo_prepared_inbox",
@@ -39,6 +39,9 @@
     "stale partial unknown and low-confidence reason codes",
     "execute=false attention queue actions",
     "bounded summary expansion references",
+    "OpenClaw gateway tool-smoke",
+    "agent recommendation derived from prepared refs and bounded summary evidence",
+    "rawTranscriptRead=false",
     "public-safe output scan result"
   ],
   "private_data_exclusions": [
@@ -59,6 +62,8 @@
     "requires_source_coverage": true,
     "requires_authority_coverage": true,
     "requires_execute_false_actions": true,
+    "requires_openclaw_gateway_tool_smoke": true,
+    "requires_agent_recommendation": true,
     "requires_stale_partial_unknown_reason_codes": true,
     "max_raw_transcript_spans": 0,
     "max_raw_tool_payloads": 0,
@@ -66,6 +71,6 @@
     "max_gui_actions": 0,
     "max_screenshots_in_public_evidence": 0
   },
-  "proof_boundary": "Dry-run fixture and MCP scenario for deterministic prepared-card and attention-inbox materialization over public-safe summary leaves. It proves advisory local prepared Codex state for OpenClaw/Eva only; pair it with watcher-events-attention-queue-v1 for persisted watcher proof. It does not prove hook capture, model compaction, true Codex compaction-summary capture, live control, GUI mutation, unattended autonomy, release readiness, or 1.2 GA readiness.",
-  "next_action": "Implement hook sidecar closeout, state-prep, and compaction-marker capture in #412 after #411 lands."
+  "proof_boundary": "Dry-run fixture and OpenClaw gateway dogfood scenario for deterministic prepared-card and attention-inbox materialization over public-safe summary leaves. It proves advisory local prepared Codex state handoff for OpenClaw/Eva only when paired with a public-safe `loo openclaw tool-smoke` report that invokes prepared-state tools, emits an agent recommendation, and records `rawTranscriptRead=false`. It does not prove model compaction, true Codex compaction-summary capture, live control, GUI mutation, unattended autonomy, release readiness, or 1.2 GA readiness.",
+  "next_action": "Attach issue-specific OpenClaw gateway dogfood evidence for #413, then continue #414 and #415 behind their explicit canary/protocol boundaries."
 }

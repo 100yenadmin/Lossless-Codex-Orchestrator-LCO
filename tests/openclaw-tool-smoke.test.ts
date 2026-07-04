@@ -671,6 +671,11 @@ test("OpenClaw tool smoke invokes required loo tools through gateway call and wr
       "plan_lookup",
       "final_message_lookup",
       "touched_files_lookup",
+      "prepared_state_status",
+      "prepared_cards",
+      "prepared_inbox",
+      "summary_leaf_lookup",
+      "summary_expand",
       "dry_run_audit"
     ]);
     assert.equal(report.agentReasoning?.dryRunApprovalAuditId, "loo_audit_test");

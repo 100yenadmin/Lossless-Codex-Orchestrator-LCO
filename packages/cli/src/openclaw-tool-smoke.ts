@@ -308,10 +308,18 @@ function buildAgentReasoning(
   const byTool = new Map(invocations.map((invocation) => [invocation.toolName, invocation]));
   const search = byTool.get("loo_search_sessions");
   const describe = byTool.get("loo_describe_session");
-  const expand = byTool.get("loo_expand_query") ?? byTool.get("loo_expand_session");
+  const preparedCards = byTool.get("loo_prepared_cards");
+  const preparedInbox = byTool.get("loo_prepared_inbox");
+  const summaryExpand = byTool.get("loo_summary_expand");
+  const expand = byTool.get("loo_expand_query") ?? byTool.get("loo_expand_session") ?? byTool.get("loo_summary_expand");
   const dryRun = byTool.get("loo_codex_control_dry_run");
   const sourceRefs = [...new Set(invocations.flatMap((invocation) => invocation.summary.sourceRefs ?? []))].slice(0, 5);
-  const selectedThreadId = describe?.summary.threadId || search?.summary.threadId || dryRun?.summary.threadId;
+  const selectedThreadId = describe?.summary.threadId
+    || search?.summary.threadId
+    || preparedInbox?.summary.threadId
+    || preparedCards?.summary.threadId
+    || summaryExpand?.summary.threadId
+    || dryRun?.summary.threadId;
   const workflowEvidence = [
     ...(byTool.get("loo_doctor")?.ok ? ["doctor_ready"] : []),
     ...(sourceRefs.length ? ["search_source_ref"] : []),
@@ -320,10 +328,15 @@ function buildAgentReasoning(
     ...(byTool.get("loo_codex_plans")?.ok ? ["plan_lookup"] : []),
     ...(byTool.get("loo_codex_final_messages")?.ok ? ["final_message_lookup"] : []),
     ...(byTool.get("loo_codex_touched_files")?.ok ? ["touched_files_lookup"] : []),
+    ...(byTool.get("loo_prepared_state_status")?.ok ? ["prepared_state_status"] : []),
+    ...(byTool.get("loo_prepared_cards")?.ok ? ["prepared_cards"] : []),
+    ...(byTool.get("loo_prepared_inbox")?.ok ? ["prepared_inbox"] : []),
+    ...(byTool.get("loo_summary_leaves")?.ok ? ["summary_leaf_lookup"] : []),
+    ...(byTool.get("loo_summary_expand")?.ok ? ["summary_expand"] : []),
     ...(dryRun?.summary.approvalAuditId && dryRun.summary.live === false ? ["dry_run_audit"] : [])
   ];
 
-  if (!selectedThreadId || sourceRefs.length === 0 || !workflowEvidence.includes("bounded_expand")) return undefined;
+  if (!selectedThreadId || sourceRefs.length === 0 || (!workflowEvidence.includes("bounded_expand") && !workflowEvidence.includes("summary_expand"))) return undefined;
 
   return {
     safeRecommendation: "Review the selected Codex session from source refs, then ask the user before any live Codex control.",
