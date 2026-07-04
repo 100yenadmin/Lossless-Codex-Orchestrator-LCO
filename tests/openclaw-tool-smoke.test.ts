@@ -760,11 +760,12 @@ test("OpenClaw facade tool smoke supplies safe args for describe-ref and resume 
     const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { method: string; params: { name?: string; args?: Record<string, unknown> } });
     const describe = calls.find((call) => call.method === "tools.invoke" && call.params.name === "loo_describe_ref");
     const resume = calls.find((call) => call.method === "tools.invoke" && call.params.name === "loo_codex_resume_thread");
+    const resumeInvocation = report.invocations.find((call) => call.toolName === "loo_codex_resume_thread");
 
     assert.deepEqual(describe?.params.args, { source_ref: "codex_thread:thread-1" });
     assert.deepEqual(resume?.params.args, { thread_id: "thread-1", dry_run: true });
-    assert.equal(report.actionsPerformed.liveCodexControlRun, false);
-    assert.equal(report.actionsPerformed.desktopGuiActionRun, false);
+    assert.equal(resumeInvocation?.summary.live, false);
+    assert.equal(resumeInvocation?.summary.approvalAuditId, "loo_audit_resume_test");
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;

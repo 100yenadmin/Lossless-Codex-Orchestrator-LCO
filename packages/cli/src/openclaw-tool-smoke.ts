@@ -235,7 +235,15 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
         tokenBudget,
         desktopFallbackCoherence: options.desktopFallbackCoherence
       });
-      if (toolName === "loo_describe_session" || toolName === "loo_expand_session" || toolName === "loo_codex_control_dry_run" || toolName === "loo_codex_desktop_coherence" || toolName === "loo_codex_desktop_fallback_status") {
+      if (
+        toolName === "loo_describe_ref"
+        || toolName === "loo_describe_session"
+        || toolName === "loo_expand_session"
+        || toolName === "loo_codex_control_dry_run"
+        || toolName === "loo_codex_resume_thread"
+        || toolName === "loo_codex_desktop_coherence"
+        || toolName === "loo_codex_desktop_fallback_status"
+      ) {
         if (!args) {
           blockers.push("openclaw_tool_smoke_missing_thread_ref");
           continue;
@@ -961,7 +969,7 @@ function summarizeInvocation(
     const tokenBudget = numberPath(summarySource, ["limits", "tokenBudget"]) ?? numberPath(summarySource, ["tokenBudget"]) ?? numberPath(summarySource, ["token_budget"]);
     if (tokenBudget !== undefined) summary.tokenBudget = tokenBudget;
   }
-  if (toolName === "loo_codex_control_dry_run") {
+  if (toolName === "loo_codex_control_dry_run" || toolName === "loo_codex_resume_thread") {
     const upstreamBlocked = blockers.length > 0;
     const dryRunOutput = details ?? output;
     summary.live = booleanPath(dryRunOutput, ["live"]);
