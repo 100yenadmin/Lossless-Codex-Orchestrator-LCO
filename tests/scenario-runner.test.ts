@@ -280,6 +280,9 @@ test("prepared cards inbox scenario captures public-safe prepared-state handoff"
   assert.match(expectedEvidence, /lco\.preparedState\.status\.v1/);
   assert.match(expectedEvidence, /lco\.prepared\.cards\.v1/);
   assert.match(expectedEvidence, /lco\.prepared\.inbox\.v1/);
+  assert.match(expectedEvidence, /lco\.prepared\.targetCoverage\.v1/);
+  assert.match(expectedEvidence, /source_present_not_indexed/i);
+  assert.match(expectedEvidence, /active_session_pending_index/i);
   assert.match(expectedEvidence, /source coverage/i);
   assert.match(expectedEvidence, /authority coverage/i);
   assert.match(expectedEvidence, /execute=false/i);
@@ -291,6 +294,8 @@ test("prepared cards inbox scenario captures public-safe prepared-state handoff"
   assert.match(JSON.stringify(scenario.forbidden_behaviors), /gui_mutation/);
   assert.equal(scenario.metrics?.requires_prepared_card_refs, true);
   assert.equal(scenario.metrics?.requires_prepared_inbox_refs, true);
+  assert.equal(scenario.metrics?.requires_targeted_thread_coverage, true);
+  assert.equal(scenario.metrics?.requires_targeted_missing_thread_reason_codes, true);
   assert.equal(scenario.metrics?.requires_execute_false_actions, true);
   assert.equal(scenario.metrics?.requires_openclaw_gateway_tool_smoke, true);
   assert.equal(scenario.metrics?.requires_agent_recommendation, true);

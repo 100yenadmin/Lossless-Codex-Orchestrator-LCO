@@ -130,6 +130,14 @@ New tool candidates:
 - `loo_summary_expand`
 - `loo_watcher_events`
 
+Targeted prepared-state reads may pass a thread id to
+`loo_prepared_state_status`, `loo_prepared_cards`, or `loo_prepared_inbox`.
+Those reads return advisory `targetCoverage` with opaque refs, freshness,
+coverage counts, and reason codes such as `source_present_not_indexed` or
+`active_session_pending_index` when the indexed source exists but prepared rows
+are missing. They must not expose transcript paths, raw prompts, tool payloads,
+or Desktop/app-server previews.
+
 Hook sidecar CLI:
 
 - `loo hook closeout-capture`

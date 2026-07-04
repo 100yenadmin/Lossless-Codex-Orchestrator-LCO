@@ -687,7 +687,11 @@ function buildToolArgs(params: {
       token_budget: Math.min(params.tokenBudget, 1000)
     };
   }
-  if (params.toolName === "loo_prepared_state_status") return {};
+  if (params.toolName === "loo_prepared_state_status") {
+    return {
+      ...(params.threadId ? { thread_id: params.threadId } : {})
+    };
+  }
   if (params.toolName === "loo_prepared_cards" || params.toolName === "loo_prepared_inbox") {
     return {
       ...(params.threadId ? { thread_id: params.threadId } : {}),
@@ -1262,6 +1266,18 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
       blockers.push("prepared_state_status_public_safe_read_only_missing");
     }
     if (!isRecord(statusOutput) || !isRecord(statusOutput.sourceCoverage)) blockers.push("prepared_state_status_coverage_missing");
+    if (isRecord(statusOutput) && statusOutput.targetCoverage !== undefined) {
+      const targetCoverage = statusOutput.targetCoverage;
+      if (!isRecord(targetCoverage)) blockers.push("prepared_state_status_target_coverage_invalid");
+      else {
+        if (stringPath(targetCoverage, ["schema"]) !== "lco.prepared.targetCoverage.v1") blockers.push("prepared_state_status_target_coverage_schema_invalid");
+        if (!isRecord(targetCoverage.sourceCoverage)) blockers.push("prepared_state_status_target_source_coverage_missing");
+        const targetStatus = stringPath(targetCoverage, ["status"]);
+        if (!["ready", "source_present_not_indexed", "not_found", "partial", "unknown"].includes(targetStatus ?? "")) {
+          blockers.push("prepared_state_status_target_status_invalid");
+        }
+      }
+    }
     if (!hasPreparedReadOnlyActionMarkers(statusOutput)) blockers.push("prepared_state_status_action_markers_invalid");
   }
   if (toolName === "loo_prepared_cards") {

@@ -389,6 +389,77 @@ test("prepared status and card reads keep inbox coverage and omitted ranges inde
   }
 });
 
+test("prepared targeted coverage reports indexed active threads missing prepared rows", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-active-thread-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const activeThreadId = "019f-active-prepared-miss";
+  const healthyThreadId = "019f-prepared-global-ok";
+  writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-00-00-019f-active-prepared-miss.jsonl"), activeThreadId, "Active sprint thread");
+  writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-00-01-019f-prepared-global-ok.jsonl"), healthyThreadId, "Healthy global thread");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    assert.equal(getPreparedStateStatus(db).sourceCoverage.preparedCards, "ok");
+
+    const targetRef = `codex_thread:${activeThreadId}`;
+    db.prepare(`
+      DELETE FROM summary_edges
+      WHERE parent_leaf_ref IN (SELECT leaf_ref FROM summary_leaves WHERE thread_id = ?)
+         OR child_leaf_ref IN (SELECT leaf_ref FROM summary_leaves WHERE thread_id = ?)
+    `).run(activeThreadId, activeThreadId);
+    db.prepare("DELETE FROM summary_leaves WHERE thread_id = ?").run(activeThreadId);
+    db.prepare("DELETE FROM prepared_inbox_items WHERE target_ref = ?").run(targetRef);
+    db.prepare("DELETE FROM prepared_cards WHERE target_ref = ?").run(targetRef);
+    db.prepare("DELETE FROM prepared_source_ranges WHERE thread_id = ?").run(activeThreadId);
+    db.prepare("DELETE FROM prepared_source_events WHERE thread_id = ?").run(activeThreadId);
+
+    const globalStatus = getPreparedStateStatus(db);
+    assert.equal(globalStatus.sourceCoverage.preparedCards, "ok");
+    assert.equal(globalStatus.summary.cards, 1);
+
+    const status = getPreparedStateStatus(db, { threadId: activeThreadId }) as ReturnType<typeof getPreparedStateStatus> & {
+      targetCoverage?: {
+        status: string;
+        sourceCoverage: Record<string, string>;
+        reasonCodes: string[];
+      } | null;
+    };
+    assert.equal(status.targetCoverage?.status, "source_present_not_indexed");
+    assert.equal(status.targetCoverage?.sourceCoverage.indexedSession, "ok");
+    assert.equal(status.targetCoverage?.sourceCoverage.preparedSourceRanges, "not_configured");
+    assert.equal(status.targetCoverage?.sourceCoverage.summaryLeaves, "not_configured");
+    assert.equal(status.targetCoverage?.sourceCoverage.preparedCards, "not_configured");
+    assert.equal(status.targetCoverage?.reasonCodes.includes("source_present_not_indexed"), true);
+    assert.equal(status.targetCoverage?.reasonCodes.includes("active_session_pending_index"), true);
+    assert.equal(JSON.stringify(status).includes(root), false);
+
+    const cards = getPreparedCards(db, { threadId: activeThreadId }) as ReturnType<typeof getPreparedCards> & {
+      targetCoverage?: NonNullable<typeof status.targetCoverage>;
+    };
+    assert.equal(cards.summary.total, 0);
+    assert.equal(cards.targetCoverage?.status, "source_present_not_indexed");
+    assert.equal(cards.targetCoverage?.reasonCodes.includes("source_present_not_indexed"), true);
+    assert.equal(JSON.stringify(cards).includes(root), false);
+
+    const inbox = getPreparedInbox(db, { threadId: activeThreadId }) as ReturnType<typeof getPreparedInbox> & {
+      targetCoverage?: NonNullable<typeof status.targetCoverage>;
+    };
+    assert.equal(inbox.summary.total, 0);
+    assert.equal(inbox.targetCoverage?.status, "source_present_not_indexed");
+
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    const refreshed = getPreparedStateStatus(db, { threadId: activeThreadId }) as typeof status;
+    assert.equal(refreshed.targetCoverage?.status, "ready");
+    assert.equal(getPreparedCards(db, { threadId: activeThreadId }).summary.total, 1);
+    assert.equal(getPreparedInbox(db, { threadId: activeThreadId }).summary.total, 1);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("prepared cards fall back for path-like titles before public reads", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-prepared-card-title-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
@@ -663,15 +734,18 @@ test("prepared-state tools are exposed through MCP as read-only public-safe tool
     assert.equal(declarationByName.get(toolName)?.safety.mode, "read_only");
     assert.deepEqual(declarationByName.get(toolName)?.safety.mutationClasses, []);
   }
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(declarationByName.get("loo_prepared_state_status")?.inputSchema.properties ?? {}, "thread_id"),
+    true
+  );
 
   const root = mkdtempSync(join(tmpdir(), "loo-prepared-card-tools-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-00-00-019f-prepared-tools.jsonl"), "019f-prepared-tools", "Prepared tools proof");
   const db = createDatabase(join(root, "orchestrator.sqlite"));
   try {
-    insertSummaryLeafRow(db, {
-      id: "50000000000000000000000000000005",
-      threadId: "019f-prepared-tools"
-    });
-    materializePreparedCards(db);
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
     const tools = createLooTools({
       db,
       audit: {
@@ -701,7 +775,12 @@ test("prepared-state tools are exposed through MCP as read-only public-safe tool
     const statusTool = tools.find((tool) => tool.name === "loo_prepared_state_status");
     const cardsTool = tools.find((tool) => tool.name === "loo_prepared_cards");
     const inboxTool = tools.find((tool) => tool.name === "loo_prepared_inbox");
-    assert.equal((await statusTool?.execute({}) as { publicSafe?: boolean }).publicSafe, true);
+    const status = await statusTool?.execute({ thread_id: "019f-prepared-tools" }) as {
+      publicSafe?: boolean;
+      targetCoverage?: { status?: string };
+    };
+    assert.equal(status.publicSafe, true);
+    assert.equal(status.targetCoverage?.status, "ready");
     assert.equal((await cardsTool?.execute({ thread_id: "019f-prepared-tools" }) as { publicSafe?: boolean }).publicSafe, true);
     assert.equal((await inboxTool?.execute({}) as { publicSafe?: boolean }).publicSafe, true);
   } finally {

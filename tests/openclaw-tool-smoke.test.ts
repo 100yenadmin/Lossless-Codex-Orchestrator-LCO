@@ -457,7 +457,7 @@ if (method === "tools.invoke") {
 	    process.exit(0);
 	  }
   if (name === "loo_prepared_state_status") {
-    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.preparedState.status.v1", publicSafe: true, readOnly: true, sourceCoverage: { summaryLeaves: "ok", preparedCards: "ok", preparedInboxItems: "ok", watcherObservations: "not_configured" }, summary: { summaryLeaves: 1, cards: 1, inboxItems: 1, staleCards: 0, partialCards: 0, unknownCards: 0, lowConfidenceCards: 0 }, actionsPerformed: { derivedCacheWrite: false, sourceStoreMutation: false, externalWrite: false, liveControl: false, guiMutation: false, rawTranscriptRead: false } } }));
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.preparedState.status.v1", publicSafe: true, readOnly: true, sourceCoverage: { summaryLeaves: "ok", preparedCards: "ok", preparedInboxItems: "ok", watcherObservations: "not_configured" }, targetCoverage: toolArgs.thread_id ? { schema: "lco.prepared.targetCoverage.v1", threadId: toolArgs.thread_id, targetRef: "codex_thread:" + toolArgs.thread_id, status: "ready", sourceRefs: ["codex_thread:" + toolArgs.thread_id, "codex_source:5000000000000000"], sourceCoverage: { indexedSession: "ok", sourceFile: "ok", preparedSourceEvents: "ok", preparedSourceRanges: "ok", summaryLeaves: "ok", preparedCards: "ok", preparedInboxItems: "ok", watcherObservations: "not_configured" }, counts: { preparedSourceEvents: 3, preparedSourceRanges: 3, summaryLeaves: 1, preparedCards: 1, preparedInboxItems: 1 }, freshness: { sourceUpdatedAt: "2026-07-01T12:00:00.000Z", indexedAt: "2026-07-01T12:00:00.000Z", preparedFreshnessAt: "2026-07-01T12:00:00.000Z", stale: false }, reasonCodes: ["targeted_thread_coverage", "indexed_session_present", "prepared_state_ready"], nextAction: "Use prepared cards, prepared inbox, or summary expansion for bounded public-safe evidence." } : undefined, summary: { summaryLeaves: 1, cards: 1, inboxItems: 1, staleCards: 0, partialCards: 0, unknownCards: 0, lowConfidenceCards: 0 }, actionsPerformed: { derivedCacheWrite: false, sourceStoreMutation: false, externalWrite: false, liveControl: false, guiMutation: false, rawTranscriptRead: false } } }));
     process.exit(0);
   }
 	  if (name === "loo_prepared_cards") {
@@ -709,6 +709,7 @@ test("OpenClaw tool smoke invokes required loo tools through gateway call and wr
     assert.equal(calls[0]?.method, "tools.catalog");
     assert.deepEqual(calls.slice(1).map((call) => call.params.name), report.invocations.map((call) => call.toolName));
     assert.equal(calls.find((call) => call.params.name === "loo_describe_session")?.params.args?.thread_id, "thread-1");
+    assert.equal(calls.find((call) => call.params.name === "loo_prepared_state_status")?.params.args?.thread_id, "thread-1");
     assert.equal(calls.find((call) => call.params.name === "loo_prepared_cards")?.params.args?.thread_id, "thread-1");
     assert.equal(calls.find((call) => call.params.name === "loo_prepared_inbox")?.params.args?.thread_id, "thread-1");
     assert.equal(calls.find((call) => call.params.name === "loo_summary_expand")?.params.args?.thread_id, "thread-1");

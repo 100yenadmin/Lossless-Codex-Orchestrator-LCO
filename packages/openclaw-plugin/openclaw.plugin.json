@@ -410,7 +410,11 @@
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
-          "properties": {}
+          "properties": {
+            "thread_id": {
+              "type": "string"
+            }
+          }
         }
       },
       {
