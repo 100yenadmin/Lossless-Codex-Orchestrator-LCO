@@ -136,11 +136,16 @@
       "expectedAdvisorySummaryLeaf": {
         "leaf_kind": "codex_compaction_summary",
         "summary_text": "Bounded Codex-generated compaction summary excerpt with private details omitted and source refs preserved.",
-        "input_hash": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        "output_hash": "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+        "input_hash": "sha256:2d4a6bfd5578cd0f932d595a5e716365a58dbce16664cf62d8b05f347ea7e384",
+        "output_hash": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "source_refs": [
+          "codex_event:019f-compaction-event",
+          "codex_range:019f-compaction-range"
+        ],
         "source_range_refs": [
           "codex_range:019f-compaction-range"
         ],
+        "privacy_class": "public_safe_metadata",
         "omission_status": "omitted_private_details",
         "authority_coverage": {
           "status": "advisory",
