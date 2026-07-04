@@ -16,6 +16,10 @@ type CompactionPacketFixture = {
   summaryExcerpt?: unknown;
   excerptCharLimit?: unknown;
   tokenCount?: unknown;
+  trueCompactionSummaryCaptured?: unknown;
+  privacyClass?: unknown;
+  publicSafe?: unknown;
+  actionsPerformed?: unknown;
   sourceRefs?: unknown;
   omitted?: unknown;
   mutationClasses?: unknown;
@@ -23,6 +27,8 @@ type CompactionPacketFixture = {
   createsAdvisorySummaryLeaf?: unknown;
   rejected?: unknown;
   disallowedFields?: unknown;
+  rawReplacementHistory?: unknown;
+  transcriptPath?: unknown;
 };
 
 type CompactionProposalScenario = {
@@ -111,6 +117,7 @@ test("Codex-native compaction proposal scenario validates marker fixture and san
   assert.equal(outsideMarker?.source, "outside_codex_hook_sidecar");
   assert.equal(outsideMarker?.claim, "compaction observed");
   assert.equal(outsideMarker?.summaryCaptured, false);
+  assert.equal(outsideMarker?.trueCompactionSummaryCaptured, false);
   assert.equal(outsideMarker?.summaryHash, null);
   assert.equal(outsideMarker?.summaryExcerpt, null);
   assert.equal(outsideMarker?.tokenCount, null);
@@ -122,6 +129,16 @@ test("Codex-native compaction proposal scenario validates marker fixture and san
   assert.equal(typeof sanitizedPacket?.summaryExcerpt, "string");
   assert.equal(sanitizedPacket?.excerptCharLimit, 240);
   assert.equal(typeof sanitizedPacket?.tokenCount, "number");
+  assert.equal(sanitizedPacket?.privacyClass, "public_safe_metadata");
+  assert.equal(sanitizedPacket?.publicSafe, true);
+  assert.deepEqual(sanitizedPacket?.actionsPerformed, {
+    liveControl: false,
+    guiMutation: false,
+    externalWrite: false,
+    sourceStoreMutation: false,
+    rawTranscriptRead: false,
+    modelCompactionRun: false
+  });
   assert.equal(sanitizedPacket?.createsAdvisorySummaryLeaf, true);
   assert.deepEqual(sanitizedPacket?.mutationClasses, ["derived_cache"]);
   assert.equal(sanitizedPacket?.storage, "lco_sidecar_only");
@@ -131,8 +148,12 @@ test("Codex-native compaction proposal scenario validates marker fixture and san
 
   assert.equal(rejectedPackets.length, 2);
   assert.equal(rejectedPackets.every((packet) => packet.rejected === true), true);
-  assert.match(JSON.stringify(rejectedPackets), /rawReplacementHistory/);
-  assert.match(JSON.stringify(rejectedPackets), /transcriptPath/);
+  assert.equal(Object.hasOwn(rejectedPackets[0] ?? {}, "rawReplacementHistory"), true);
+  assert.equal(Array.isArray(rejectedPackets[0]?.rawReplacementHistory), true);
+  assert.equal((rejectedPackets[0]?.disallowedFields as unknown[] | undefined)?.includes("rawReplacementHistory"), true);
+  assert.equal(Object.hasOwn(rejectedPackets[1] ?? {}, "transcriptPath"), true);
+  assert.equal(typeof rejectedPackets[1]?.transcriptPath, "string");
+  assert.equal((rejectedPackets[1]?.disallowedFields as unknown[] | undefined)?.includes("transcriptPath"), true);
   assert.doesNotMatch(serialized, /\/Users\/|\/Volumes\/|\.jsonl|state_5\.sqlite|logs_2\.sqlite|npm_[A-Za-z0-9]{20,}|Bearer\s+[A-Za-z0-9._-]{20,}|BEGIN [A-Z ]*PRIVATE KEY/);
 });
 

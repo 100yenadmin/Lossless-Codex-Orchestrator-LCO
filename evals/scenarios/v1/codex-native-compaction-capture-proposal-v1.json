@@ -72,6 +72,7 @@
       "lifecycle": "post_compact",
       "claim": "compaction observed",
       "summaryCaptured": false,
+      "trueCompactionSummaryCaptured": false,
       "summaryHash": null,
       "summaryExcerpt": null,
       "tokenCount": null,
@@ -99,6 +100,16 @@
       "summaryExcerpt": "Bounded Codex-generated compaction summary excerpt with private details omitted and source refs preserved.",
       "excerptCharLimit": 240,
       "tokenCount": 42,
+      "privacyClass": "public_safe_metadata",
+      "publicSafe": true,
+      "actionsPerformed": {
+        "liveControl": false,
+        "guiMutation": false,
+        "externalWrite": false,
+        "sourceStoreMutation": false,
+        "rawTranscriptRead": false,
+        "modelCompactionRun": false
+      },
       "sourceRefs": [
         "codex_event:019f-compaction-event",
         "codex_range:019f-compaction-range"
@@ -121,6 +132,10 @@
         "source": "codex_native",
         "rejected": true,
         "reason": "raw_replacement_history_present",
+        "rawReplacementHistory": [
+          "<redacted-pre-compaction-history>",
+          "<redacted-post-compaction-history>"
+        ],
         "disallowedFields": [
           "rawReplacementHistory"
         ]
@@ -130,6 +145,7 @@
         "source": "codex_native",
         "rejected": true,
         "reason": "transcript_path_present",
+        "transcriptPath": "<redacted-transcript-path>",
         "disallowedFields": [
           "transcriptPath"
         ]
