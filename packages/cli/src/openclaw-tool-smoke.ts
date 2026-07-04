@@ -235,7 +235,15 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
         tokenBudget,
         desktopFallbackCoherence: options.desktopFallbackCoherence
       });
-      if (toolName === "loo_describe_session" || toolName === "loo_expand_session" || toolName === "loo_codex_control_dry_run" || toolName === "loo_codex_desktop_coherence" || toolName === "loo_codex_desktop_fallback_status") {
+      if (
+        toolName === "loo_describe_ref"
+        || toolName === "loo_describe_session"
+        || toolName === "loo_expand_session"
+        || toolName === "loo_codex_control_dry_run"
+        || toolName === "loo_codex_resume_thread"
+        || toolName === "loo_codex_desktop_coherence"
+        || toolName === "loo_codex_desktop_fallback_status"
+      ) {
         if (!args) {
           blockers.push("openclaw_tool_smoke_missing_thread_ref");
           continue;
@@ -570,6 +578,7 @@ function buildToolArgs(params: {
   desktopFallbackCoherence?: "fixture" | "omit";
 }): Record<string, unknown> | null {
   if (params.toolName === "loo_search_sessions") return { query: params.query, limit: 3 };
+  if (params.toolName === "loo_describe_ref") return params.threadId ? { source_ref: `codex_thread:${params.threadId}` } : null;
   if (params.toolName === "loo_describe_session") return params.threadId ? { thread_id: params.threadId } : null;
   if (params.toolName === "loo_expand_session") {
     return params.threadId ? { thread_id: params.threadId, profile: params.expandProfile, token_budget: params.tokenBudget } : null;
@@ -706,6 +715,12 @@ function buildToolArgs(params: {
       action: "send",
       thread_id: params.threadId,
       message: CONTROL_DRY_RUN_MESSAGE
+    } : null;
+  }
+  if (params.toolName === "loo_codex_resume_thread") {
+    return params.threadId ? {
+      thread_id: params.threadId,
+      dry_run: true
     } : null;
   }
   return {};
@@ -954,7 +969,7 @@ function summarizeInvocation(
     const tokenBudget = numberPath(summarySource, ["limits", "tokenBudget"]) ?? numberPath(summarySource, ["tokenBudget"]) ?? numberPath(summarySource, ["token_budget"]);
     if (tokenBudget !== undefined) summary.tokenBudget = tokenBudget;
   }
-  if (toolName === "loo_codex_control_dry_run") {
+  if (toolName === "loo_codex_control_dry_run" || toolName === "loo_codex_resume_thread") {
     const upstreamBlocked = blockers.length > 0;
     const dryRunOutput = details ?? output;
     summary.live = booleanPath(dryRunOutput, ["live"]);
