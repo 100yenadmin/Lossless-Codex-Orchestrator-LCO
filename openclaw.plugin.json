@@ -435,7 +435,16 @@
                 "ready",
                 "stale",
                 "partial",
-                "unknown"
+                "unknown",
+                "completed",
+                "blocked_missing_info",
+                "waiting_approval",
+                "watching_external_check",
+                "needs_resume",
+                "dirty_worktree_handoff",
+                "stale_or_partial",
+                "ready_for_review",
+                "unknown_lifecycle"
               ]
             },
             "limit": {

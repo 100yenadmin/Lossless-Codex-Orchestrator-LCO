@@ -247,20 +247,22 @@ export type SummaryLeafMaterializationOptions = {
   limit?: number;
 };
 
-export type PreparedCardState =
-  | "ready"
-  | "stale"
-  | "partial"
-  | "unknown"
-  | "completed"
-  | "blocked_missing_info"
-  | "waiting_approval"
-  | "watching_external_check"
-  | "needs_resume"
-  | "dirty_worktree_handoff"
-  | "stale_or_partial"
-  | "ready_for_review"
-  | "unknown_lifecycle";
+export const PREPARED_CARD_STATES = [
+  "ready",
+  "stale",
+  "partial",
+  "unknown",
+  "completed",
+  "blocked_missing_info",
+  "waiting_approval",
+  "watching_external_check",
+  "needs_resume",
+  "dirty_worktree_handoff",
+  "stale_or_partial",
+  "ready_for_review",
+  "unknown_lifecycle"
+] as const;
+export type PreparedCardState = (typeof PREPARED_CARD_STATES)[number];
 export type PreparedCardKind = "codex_session";
 export type PreparedStateCoverage = "ok" | "partial" | "not_configured" | "unknown";
 
@@ -3759,8 +3761,8 @@ export function getPreparedCards(db: LooDatabase, options: PreparedCardsOptions 
       filteredUnsafeRows += 1;
       continue;
     }
-    if (card.stale) stale += 1;
-    if (card.state === "partial" || card.state === "stale_or_partial") partial += 1;
+    if (card.stale || card.state === "stale") stale += 1;
+    if (preparedCardCountsAsPartialSummary(card.state)) partial += 1;
     if (card.state === "unknown" || card.state === "unknown_lifecycle") unknown += 1;
     if (card.confidence < 0.5) lowConfidence += 1;
     if (validCards.length < limit) validCards.push(card);
@@ -4142,7 +4144,7 @@ function buildPreparedCardDraft(db: LooDatabase, threadId: string, leaves: Summa
   const averageLeafConfidence = leaves.length
     ? leaves.reduce((sum, leaf) => sum + leaf.confidence, 0) / leaves.length
     : 0.3;
-  const confidence = preparedCardConfidence(averageLeafConfidence, state);
+  const confidence = preparedCardConfidence(averageLeafConfidence, state, evidenceState);
   const sourceRangeRefsFull = unique(leaves.flatMap((leaf) => leaf.sourceRangeRefs));
   const sourceRangeRefs = sourceRangeRefsFull.slice(0, PREPARED_CARD_SOURCE_RANGE_REF_LIMIT);
   const sourceRangeRefsOmitted = Math.max(0, sourceRangeRefsFull.length - sourceRangeRefs.length)
@@ -4179,6 +4181,10 @@ function buildPreparedCardDraft(db: LooDatabase, threadId: string, leaves: Summa
     leafRefs: leaves.map((leaf) => leaf.leafRef),
     inputHashes: leaves.map((leaf) => leaf.inputHash),
     outputHashes: leaves.map((leaf) => leaf.outputHash),
+    metadataSignalHash: lifecycle.metadataSignalHash,
+    lifecycleState: state,
+    lifecycleReasonCodes: lifecycle.reasonCodes,
+    evidenceState,
     freshnessAt,
     stale,
     summaryLeavesStatus,
@@ -4445,19 +4451,7 @@ function preparedCoverageState(value: unknown): PreparedStateCoverage {
 }
 
 function isPreparedCardState(value: string): value is PreparedCardState {
-  return value === "ready"
-    || value === "stale"
-    || value === "partial"
-    || value === "unknown"
-    || value === "completed"
-    || value === "blocked_missing_info"
-    || value === "waiting_approval"
-    || value === "watching_external_check"
-    || value === "needs_resume"
-    || value === "dirty_worktree_handoff"
-    || value === "stale_or_partial"
-    || value === "ready_for_review"
-    || value === "unknown_lifecycle";
+  return (PREPARED_CARD_STATES as readonly string[]).includes(value);
 }
 
 function isPublicPreparedSourceRef(value: string): boolean {
@@ -4466,7 +4460,10 @@ function isPublicPreparedSourceRef(value: string): boolean {
   return false;
 }
 
-function preparedLifecycleFromMetadata(metadata: SessionMetadata, evidenceState: PreparedCardState): { state: PreparedCardState; reasonCodes: string[] } {
+function preparedLifecycleFromMetadata(
+  metadata: SessionMetadata,
+  evidenceState: PreparedCardState
+): { state: PreparedCardState; reasonCodes: string[]; metadataSignalHash: string } {
   const signals = {
     status: normalizedMetadataValue(metadata.status),
     blocker: normalizedMetadataValue(metadata.blocker),
@@ -4474,25 +4471,52 @@ function preparedLifecycleFromMetadata(metadata: SessionMetadata, evidenceState:
     closeoutState: normalizedMetadataValue(metadata.closeoutState),
     planCompletionState: normalizedMetadataValue(metadata.planCompletionState)
   };
-  const text = Object.values(signals).filter(Boolean).join(" ");
+  const metadataSignalHash = stableId(JSON.stringify(signals));
+  const nonBlockerText = [signals.status, signals.nextAction, signals.closeoutState, signals.planCompletionState].filter(Boolean).join(" ");
+  const text = [nonBlockerText, signals.blocker].filter(Boolean).join(" ");
   const sourceReasonCodes = Object.entries(signals)
     .filter(([, value]) => value.length > 0)
     .map(([field]) => `lifecycle_signal:${field.replace(/[A-Z]/g, (match) => `_${match.toLowerCase()}`)}`);
-  const completed = lifecycleCompletionLike(signals.status)
-    || lifecycleCompletionLike(signals.closeoutState)
-    || lifecycleCompletionLike(signals.planCompletionState);
+  const completedByStatus = lifecycleCompletionLike(signals.status);
+  const completedByCloseoutAndPlan = lifecycleCompletionLike(signals.closeoutState)
+    && lifecycleCompletionLike(signals.planCompletionState);
+  const completed = completedByStatus || completedByCloseoutAndPlan;
   const dirtyHandoff = /\b(?:dirty[-_ ]?worktree|uncommitted|worktree[-_ ]?handoff|dirty[-_ ]?handoff|handoff[-_ ]?dirty|cleanup[-_ ]?required)\b/.test(text);
   const waitingApproval = /\b(?:waiting[-_ ]?(?:for[-_ ]?)?approval|needs[-_ ]?approval|requires[-_ ]?approval|approval[-_ ]?(?:required|needed|pending)|pending[-_ ]?approval|approval[-_ ]?gate|do[-_ ]?not[-_ ]?execute[-_ ]?without[-_ ]?explicit[-_ ]?approval)\b/.test(text);
-  const blockedMissingInfo = (hasRealBlocker(metadata.blocker) && !waitingApproval && !dirtyHandoff)
-    || /\b(?:blocked|blocker|missing[-_ ]?(?:info|input|context)|needs[-_ ]?(?:info|input|context)|waiting[-_ ]?(?:on|for)[-_ ]?(?:user|operator|human|input|context)|cannot[-_ ]?proceed)\b/.test(text);
   const needsResume = /\b(?:resume|needs[-_ ]?resume|resume[-_ ]?needed|rejoin|nudge)\b/.test(text);
   const watchingExternalCheck = /\b(?:watch|watching|monitor|monitoring|external[-_ ]?(?:check|review)|ci|checks?|codeql|coderabbit|deploy[-_ ]?check|review[-_ ]?check|waiting[-_ ]?(?:on|for)[-_ ]?(?:ci|checks?|codeql|coderabbit|deploy|external[-_ ]?check|review[-_ ]?check))\b/.test(text);
   const readyForReview = /\b(?:ready[-_ ]?for[-_ ]?review|review[-_ ]?ready|ready[-_ ]?to[-_ ]?review|pr[-_ ]?ready|needs[-_ ]?review)\b/.test(text);
-  const conflict = completed && (dirtyHandoff || waitingApproval || blockedMissingInfo || needsResume || watchingExternalCheck || readyForReview);
+  const negatedBlocker = /\b(?:not[-_ ]?blocked|no[-_ ]?blocker|unblocked|without[-_ ]?blocker|blocker[-_ ]?(?:none|na|n[-_ ]?a))\b/.test(text);
+  const missingInfoSignal = /\b(?:missing[-_ ]?(?:info|input|context)|needs[-_ ]?(?:info|input|context)|waiting[-_ ]?(?:on|for)[-_ ]?(?:user|operator|human|input|context)|cannot[-_ ]?proceed)\b/.test(nonBlockerText);
+  const blockedSignal = !negatedBlocker && /\b(?:blocked|blocker)\b/.test(nonBlockerText);
+  const blockedMissingInfo = !waitingApproval
+    && !dirtyHandoff
+    && !watchingExternalCheck
+    && !negatedBlocker
+    && (hasRealBlocker(metadata.blocker) || missingInfoSignal || blockedSignal);
+  const matchedLifecycleStates: PreparedCardState[] = [
+    completed ? "completed" : null,
+    dirtyHandoff ? "dirty_worktree_handoff" : null,
+    waitingApproval ? "waiting_approval" : null,
+    blockedMissingInfo ? "blocked_missing_info" : null,
+    needsResume ? "needs_resume" : null,
+    watchingExternalCheck ? "watching_external_check" : null,
+    readyForReview ? "ready_for_review" : null
+  ].filter((state): state is PreparedCardState => Boolean(state));
+  const evidenceReasonCodes = evidenceState !== "ready" ? [`lifecycle:${evidenceState}`] : [];
+  const conflict = completed && matchedLifecycleStates.some((state) => state !== "completed");
   if (conflict) {
     return {
       state: "unknown_lifecycle",
-      reasonCodes: unique(["semantic_lifecycle", "lifecycle:unknown_lifecycle", "lifecycle_conflict", ...sourceReasonCodes])
+      reasonCodes: unique([
+        "semantic_lifecycle",
+        "lifecycle:unknown_lifecycle",
+        "lifecycle_conflict",
+        ...matchedLifecycleStates.map((state) => `lifecycle:${state}`),
+        ...evidenceReasonCodes,
+        ...sourceReasonCodes
+      ]),
+      metadataSignalHash
     };
   }
   const semanticState: PreparedCardState | null = dirtyHandoff
@@ -4510,27 +4534,36 @@ function preparedLifecycleFromMetadata(metadata: SessionMetadata, evidenceState:
               : completed
                 ? "completed"
                 : null;
+  if (semanticState === "completed" && evidenceState !== "ready") {
+    return {
+      state: evidenceState,
+      reasonCodes: unique(["semantic_lifecycle", "lifecycle:completed", `lifecycle:${evidenceState}`, ...sourceReasonCodes]),
+      metadataSignalHash
+    };
+  }
   if (semanticState) {
     return {
       state: semanticState,
-      reasonCodes: unique(["semantic_lifecycle", `lifecycle:${semanticState}`, ...sourceReasonCodes])
+      reasonCodes: unique(["semantic_lifecycle", `lifecycle:${semanticState}`, ...evidenceReasonCodes, ...sourceReasonCodes]),
+      metadataSignalHash
     };
   }
   if (evidenceState !== "ready") {
     return {
       state: evidenceState,
-      reasonCodes: unique(["semantic_lifecycle", `lifecycle:${evidenceState}`, "lifecycle_signal_missing", ...sourceReasonCodes])
+      reasonCodes: unique(["semantic_lifecycle", `lifecycle:${evidenceState}`, "lifecycle_signal_missing", ...sourceReasonCodes]),
+      metadataSignalHash
     };
   }
   return {
     state: "ready",
-    reasonCodes: unique(["semantic_lifecycle", "lifecycle:unknown_lifecycle", "lifecycle_signal_missing"])
+    reasonCodes: unique(["semantic_lifecycle", "lifecycle:unknown_lifecycle", "lifecycle_signal_missing"]),
+    metadataSignalHash
   };
 }
 
 function lifecycleCompletionLike(value: string): boolean {
-  return /\b(?:complete|completed|done|closed|merged|success|successful|passed)\b/.test(value)
-    && !/\b(?:not|incomplete|blocked|failed|pending)\b.{0,24}\b(?:complete|completed|done|closed|merged|success|successful|passed)\b/.test(value);
+  return ["complete", "completed", "done", "closed", "merged", "success", "successful", "succeeded", "passed"].includes(value);
 }
 
 function preparedCardStateLabel(state: PreparedCardState): string {
@@ -4551,13 +4584,15 @@ function preparedCardStateLabel(state: PreparedCardState): string {
   } as Record<PreparedCardState, string>)[state] ?? "unknown lifecycle";
 }
 
-function preparedCardConfidence(averageLeafConfidence: number, state: PreparedCardState): number {
+function preparedCardConfidence(averageLeafConfidence: number, state: PreparedCardState, evidenceState: PreparedCardState = state): number {
   let confidence = Number.isFinite(averageLeafConfidence) ? averageLeafConfidence : 0.3;
   if (state === "partial") confidence = Math.min(confidence, 0.49);
   if (state === "stale") confidence = Math.min(confidence, 0.49);
   if (state === "unknown") confidence = Math.min(confidence, 0.44);
   if (state === "stale_or_partial") confidence = Math.min(confidence, 0.49);
   if (state === "unknown_lifecycle") confidence = Math.min(confidence, 0.44);
+  if (evidenceState === "partial" || evidenceState === "stale" || evidenceState === "stale_or_partial") confidence = Math.min(confidence, 0.49);
+  if (evidenceState === "unknown" || evidenceState === "unknown_lifecycle") confidence = Math.min(confidence, 0.44);
   return Math.max(0.2, Math.min(0.99, Number(confidence.toFixed(2))));
 }
 
@@ -4607,7 +4642,19 @@ function preparedInboxUrgencyScore(card: PreparedCard, reasonCodes: string[]): n
     "lifecycle:watching_external_check": 5,
     "lifecycle:needs_resume": 5
   }[code] ?? 0), 0);
-  return Math.max(0, Math.min(100, Number((stateScore[card.state] + codeScore + Math.round((1 - card.confidence) * 10)).toFixed(2))));
+  const baseStateScore = stateScore[card.state] ?? 50;
+  return Math.max(0, Math.min(100, Number((baseStateScore + codeScore + Math.round((1 - card.confidence) * 10)).toFixed(2))));
+}
+
+function preparedCardCountsAsPartialSummary(state: PreparedCardState): boolean {
+  return state === "partial"
+    || state === "stale_or_partial"
+    || state === "blocked_missing_info"
+    || state === "waiting_approval"
+    || state === "watching_external_check"
+    || state === "needs_resume"
+    || state === "dirty_worktree_handoff"
+    || state === "ready_for_review";
 }
 
 function preparedCardReadActions(): PreparedCardsReport["actionsPerformed"] {

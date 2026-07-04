@@ -42,6 +42,22 @@ export const DEFAULT_REQUIRED_TOOL_CALLS = [
   "loo_prepared_inbox"
 ];
 
+const PREPARED_CARD_STATES = new Set([
+  "ready",
+  "stale",
+  "partial",
+  "unknown",
+  "completed",
+  "blocked_missing_info",
+  "waiting_approval",
+  "watching_external_check",
+  "needs_resume",
+  "dirty_worktree_handoff",
+  "stale_or_partial",
+  "ready_for_review",
+  "unknown_lifecycle"
+]);
+
 const AUTONOMY_TICK_SUMMARY_KEYS = [
   "totalLanes",
   "returnedSteps",
@@ -1279,7 +1295,7 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
       const state = stringPath(card, ["state"]);
       return !cardRef?.startsWith("prepared_card:")
         || !targetRef?.startsWith("codex_thread:")
-        || !["ready", "stale", "partial", "unknown"].includes(state ?? "");
+        || !PREPARED_CARD_STATES.has(state ?? "");
     })) blockers.push("prepared_cards_public_refs_invalid");
   }
   if (toolName === "loo_prepared_inbox") {

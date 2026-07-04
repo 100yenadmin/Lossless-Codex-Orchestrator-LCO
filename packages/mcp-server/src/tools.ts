@@ -22,6 +22,7 @@ import {
   getPreparedCards,
   getPreparedInbox,
   getPreparedStateStatus,
+  PREPARED_CARD_STATES,
   getWatcherEvents,
   createPlanStatePinsReport,
   createGithubOperatingItemsReport,
@@ -239,7 +240,7 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
     }, () => getPreparedStateStatus(options.db)),
     tool("loo_prepared_cards", "List public-safe prepared Codex state cards over summary leaves.", {
       thread_id: { type: "string" },
-      state: { type: "string", enum: ["ready", "stale", "partial", "unknown"] },
+      state: { type: "string", enum: [...PREPARED_CARD_STATES] },
       limit: { type: "integer", minimum: 1, maximum: 500 }
     }, (input) => getPreparedCards(options.db, {
       threadId: optionalString(input.thread_id),
@@ -1167,8 +1168,8 @@ function optionalSummaryLeafKind(value: unknown): SummaryLeafKind | undefined {
 
 function optionalPreparedCardState(value: unknown): PreparedCardState | undefined {
   if (value === undefined) return undefined;
-  if (value === "ready" || value === "stale" || value === "partial" || value === "unknown") return value;
-  throw new Error("state must be ready, stale, partial, or unknown");
+  if (typeof value === "string" && (PREPARED_CARD_STATES as readonly string[]).includes(value)) return value as PreparedCardState;
+  throw new Error(`state must be one of ${PREPARED_CARD_STATES.join(", ")}`);
 }
 
 function optionalRecentScope(value: unknown): "active" | "recent" | "all" | undefined {
