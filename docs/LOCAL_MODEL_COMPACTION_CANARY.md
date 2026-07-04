@@ -12,6 +12,7 @@ path. It does not implement compaction and does not call a model.
 - Accepts only approved `prepared_card:*` and `summary_leaf:*` refs.
 - Emits advisory `lco.summary.leaf.v1`-shaped output only.
 - Requires source refs, source range refs, and sanitizer check refs.
+- Reports zero-call usage indicators without recording prompt contents.
 - Records `modelCallRun: false` and all live/control/mutation action flags as
   false.
 

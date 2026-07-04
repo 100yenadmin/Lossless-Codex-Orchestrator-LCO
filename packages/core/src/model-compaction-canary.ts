@@ -84,6 +84,13 @@ export type LocalModelCompactionCanaryReport = {
     outputPublicSafe: boolean;
     sourceRefsPresent: boolean;
   };
+  usageIndicators: {
+    modelCalls: 0;
+    promptTokens: 0;
+    completionTokens: 0;
+    promptContentsCaptured: false;
+    provider: "none";
+  };
   advisoryLeaf: AdvisoryLocalModelCompactionLeaf | null;
   actionsPerformed: {
     modelCallRun: false;
@@ -183,6 +190,7 @@ export function validateLocalModelCompactionJob(input: {
     acceptedInputRefs: acceptedPreparedInputs.map((candidate) => candidate.ref),
     rejectedInputKinds: uniqueStrings(rejectedInputKinds),
     sanitizerChecks,
+    usageIndicators: NO_USAGE_INDICATORS,
     advisoryLeaf: finalBlockers.length === 0 ? advisoryLeaf : null,
     actionsPerformed: NO_ACTIONS_PERFORMED,
     proofBoundary: "This canary validates opt-in boundaries and advisory summary-leaf-shaped output only. It does not run local model compaction, call a model, read raw transcripts, use current safe_text, mutate Codex source stores, run live Codex control, mutate a GUI, write external systems, publish npm, or create a GitHub Release.",
@@ -251,6 +259,14 @@ const NO_ACTIONS_PERFORMED = {
   sourceStoreMutation: false,
   guiMutation: false,
   externalWrite: false
+} as const;
+
+const NO_USAGE_INDICATORS = {
+  modelCalls: 0,
+  promptTokens: 0,
+  completionTokens: 0,
+  promptContentsCaptured: false,
+  provider: "none"
 } as const;
 
 const SECRET_LIKE_PATTERN = /(PRIVATE_CANARY_TOKEN|BEGIN RAW TRANSCRIPT|npm_[A-Za-z0-9]{20,}|Bearer\s+[A-Za-z0-9._-]{20,}|sk-[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i;

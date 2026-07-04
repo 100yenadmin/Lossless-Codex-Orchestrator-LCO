@@ -114,6 +114,13 @@ test("local model compaction canary accepts only approved prepared inputs and em
   assert.equal(report.sanitizerChecks.promptInjectionIsolated, true);
   assert.equal(report.sanitizerChecks.outputPublicSafe, true);
   assert.equal(report.sanitizerChecks.sourceRefsPresent, true);
+  assert.deepEqual(report.usageIndicators, {
+    modelCalls: 0,
+    promptTokens: 0,
+    completionTokens: 0,
+    promptContentsCaptured: false,
+    provider: "none"
+  });
 
   const leaf = report.advisoryLeaf;
   assert.ok(leaf);
@@ -169,9 +176,11 @@ test("local model compaction canary scenario records dry-run gates", () => {
   assert.match(JSON.stringify(scenario.forbidden_behaviors), /raw_transcript_read/);
   assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /disabled by default/i);
   assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /summary-leaf-shaped advisory output/i);
+  assert.match(JSON.stringify(scenario.expected_public_safe_evidence), /usage indicators/i);
   assert.equal(scenario.metrics?.requires_explicit_config, true);
   assert.equal(scenario.metrics?.requires_explicit_approval, true);
   assert.equal(scenario.metrics?.max_model_calls, 0);
+  assert.equal(scenario.metrics?.max_prompt_tokens, 0);
   assert.equal(scenario.metrics?.max_raw_transcript_spans, 0);
   assert.match(String(scenario.proof_boundary), /does not run local model compaction/i);
 });

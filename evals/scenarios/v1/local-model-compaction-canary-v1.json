@@ -29,6 +29,7 @@
     "summary-leaf-shaped advisory output",
     "source refs and source range refs",
     "sanitizer checks",
+    "usage indicators without prompt contents",
     "modelCallRun false"
   ],
   "private_data_exclusions": [
@@ -48,6 +49,9 @@
     "requires_sanitizer_checks": true,
     "requires_advisory_only_output": true,
     "max_model_calls": 0,
+    "max_prompt_tokens": 0,
+    "max_completion_tokens": 0,
+    "prompt_contents_captured": false,
     "max_raw_transcript_spans": 0,
     "max_current_safe_text_inputs": 0
   },
