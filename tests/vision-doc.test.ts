@@ -14,7 +14,7 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
 
   for (const heading of [
     "## North Star",
-    "## Current Milestone: 1.2 Prepared State And Summary Leaves",
+    "## Current Milestone: 1.2.0 GA Assurance And Global Launch Readiness",
     "## Completed Proof: Working App Runtime",
     "## Primary User Stories",
     "## Orchestrator Product-Management Mode",
@@ -57,6 +57,8 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
     /M9 added/i,
     /agent handoff/i,
     /first-class OpenClaw agent usage skill/i,
+    /M11 GA assurance/i,
+    /1\.2 prepared-state tracker as completed proof/i,
     /What a local OpenClaw agent can do today/i,
     /Completed proof/i,
     /Milestone 7/i,

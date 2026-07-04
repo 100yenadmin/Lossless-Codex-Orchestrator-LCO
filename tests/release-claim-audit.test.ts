@@ -115,7 +115,7 @@ test("public docs include setup, MCP/OpenClaw, demo, and approval-boundary proof
   }
 
   for (const required of [
-    /Allowed public beta claim/i,
+    /Allowed Stable 1\.2\.0 Claim/i,
     /Forbidden beta claims/i,
     /Claude Code.*adapter stub/i,
     /No cloud sync/i,
@@ -163,7 +163,7 @@ test("read-search-expand-dry-run release examples name the explicit claim scope 
   assert.match(claimAudit, /approved_live_control_smoke[\s\S]*excluded/i);
 });
 
-test("npm beta dist-tag policy is explicit until the first stable release", () => {
+test("npm dist-tag policy is explicit for stable, beta, and rc channels", () => {
   const readme = read("README.md");
   const setup = read("docs/SETUP.md");
   const claimAudit = read("docs/CLAIM_AUDIT.md");
@@ -176,8 +176,9 @@ test("npm beta dist-tag policy is explicit until the first stable release", () =
     assert.match(content, /npm dist-tag policy/i, surface);
     assert.match(content, /latest/i, surface);
     assert.match(content, /beta/i, surface);
-    assert.match(content, /first stable release/i, surface);
+    assert.match(content, /stable channel\s+currently points at\s+`1\.2\.0`/i, surface);
     assert.match(content, /Do not publish\s+a\s+fake stable/i, surface);
+    assert.doesNotMatch(content, /latest[\s\S]{0,80}1\.0\.0/i, `${surface} must not say latest currently moves to 1.0.0`);
     assert.doesNotMatch(content, /latest[\s\S]{0,200}(?:follows|point at|resolves to)[\s\S]{0,120}newest public beta/i, `${surface} must not imply latest follows the newest beta`);
   }
 
@@ -187,7 +188,7 @@ test("npm beta dist-tag policy is explicit until the first stable release", () =
   assert.match(readme, /`beta` is the active prerelease train/i);
   assert.match(setup, /npm install -g lossless-openclaw-orchestrator@latest/i);
   assert.match(runbook, /npm dist-tag ls lossless-openclaw-orchestrator/i);
-  assert.match(runbook, /move `latest` to the stable/i);
+  assert.match(runbook, /future stable releases move `latest` only after/i);
 });
 
 test("stable and prerelease package metadata pins the intended npm dist-tag", () => {
@@ -215,7 +216,7 @@ test("stable and prerelease package metadata pins the intended npm dist-tag", ()
 
   assert.equal(packageJson.publishConfig?.tag, "latest");
   assert.match(runbook, /npm publish --tag latest/i);
-  assert.match(runbook, /move `latest` to the stable/i);
+  assert.match(runbook, /future stable releases move `latest` only after/i);
 });
 
 test("release workflows use non-deprecated action majors", () => {
@@ -391,7 +392,7 @@ test("OpenClaw plugin manifest is packageable and matches the beta safety bounda
   assert.deepEqual([...expectedToolNames].sort(), Object.keys(LOO_COMMAND_POLICY).sort());
   assert.equal(manifest.name, "Lossless OpenClaw Orchestrator");
   assert.match(manifest.description ?? "", /local Codex sessions/i);
-  assert.match(manifest.description ?? "", /approval-gated controls/i);
+  assert.match(manifest.description ?? "", /approval-gated dry-run\/control boundaries/i);
   assert.doesNotMatch(manifest.description ?? "", /Claude Code remotely/i);
   assert.equal(manifest.mcp?.command, "loo-mcp-server");
   assert.equal(manifest.mcp?.transport, "stdio");
@@ -799,7 +800,7 @@ function writeProjectSkeleton(rootDir: string, overrides: { readme?: string; run
   writeFileSync(join(rootDir, "package.json"), JSON.stringify({
     name: "lossless-openclaw-orchestrator",
     version: "0.1.0-beta.0",
-    description: "Index, search, and control local Codex sessions through OpenClaw with approval-gated safety.",
+    description: "Index, search, and prepare local Codex sessions for OpenClaw with approval-gated dry-run/control boundaries.",
     files: overrides.packageFiles ?? ["dist", "packages", "docs", "openclaw.plugin.json", "README.md", "LICENSE", "SECURITY.md"],
     openclaw: {
       extensions: ["./dist/packages/openclaw-plugin/src/index.js"],
@@ -847,7 +848,7 @@ function writeProjectSkeleton(rootDir: string, overrides: { readme?: string; run
   const manifest = JSON.stringify({
     id: "lossless-openclaw-orchestrator",
     name: "Lossless OpenClaw Orchestrator",
-    description: "Index, search, and control local Codex sessions through OpenClaw with approval-gated safety.",
+    description: "Index, search, and prepare local Codex sessions for OpenClaw with approval-gated dry-run/control boundaries.",
     mcp: { command: "loo-mcp-server", transport: "stdio" },
     tools: { prefix: "loo_" },
     configSchema: { type: "object", additionalProperties: false, properties: {} },
