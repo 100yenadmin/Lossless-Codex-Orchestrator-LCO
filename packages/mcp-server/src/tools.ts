@@ -107,17 +107,6 @@ export type LooToolDeclaration = Pick<LooTool, "name" | "description" | "safety"
 
 export const LOO_TOOL_TIERS: LooToolTier[] = ["public_facade", "workflow_detail", "proof_debug", "internal_low_level"];
 
-export const LOO_PUBLIC_FACADE_TOOLS = [
-  "loo_prepared_inbox",
-  "loo_describe_ref",
-  "loo_expand_query",
-  "loo_recent_sessions",
-  "loo_attention_inbox",
-  "loo_project_digest",
-  "loo_codex_control_dry_run",
-  "loo_codex_resume_thread"
-] as const;
-
 export const LOO_TOOL_SURFACE: Record<string, LooToolSurfaceMetadata> = {
   loo_index_sessions: { tier: "workflow_detail" },
   loo_search_sessions: { tier: "workflow_detail" },
