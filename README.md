@@ -400,8 +400,6 @@ Current source and current npm-published versions are source-available under the
 under those terms.
 
 Commercial, internal-business, hosted-service, or product use requires a
-separate commercial license from the project owner.
+separate commercial license from the project owner. 
 
-Earlier prerelease artifacts that previously carried MIT metadata are no longer
-published on npm. Any copies already downloaded remain governed by the license
-terms distributed with those copies.
+Email admin@electricsheephq.com for licensing information.
