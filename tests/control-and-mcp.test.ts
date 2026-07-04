@@ -477,7 +477,7 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.equal(startDryRun.approval_packet.action, "start_thread");
     assert.deepEqual(startDryRun.approval_packet.predictedMutation, ["thread/start"]);
     await assert.rejects(
-      () => startTool.execute({ dry_run: false }),
+      async () => await startTool.execute({ dry_run: false }),
       /approval_audit_id is required/
     );
     const startLive = await startTool.execute({
@@ -572,6 +572,70 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     db.close();
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("MCP stdio tools/list exposes facade metadata in the runtime catalog", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-mcp-list-"));
+  const server = spawn(process.execPath, ["--import", "tsx", "packages/mcp-server/src/server.ts"], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      HOME: root,
+      LOO_DB_PATH: join(root, "orchestrator.sqlite"),
+      LOO_AUDIT_PATH: join(root, "audit.jsonl"),
+      LOO_CODEX_BIN: "loo-codex-not-needed-for-list"
+    },
+    stdio: ["pipe", "pipe", "pipe"]
+  });
+  let stdout = "";
+  let stderr = "";
+  server.stdout.setEncoding("utf8");
+  server.stderr.setEncoding("utf8");
+  server.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+
+  try {
+    const outputLine = await new Promise<string>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error(`Timed out waiting for MCP tools/list response. stderr=${stderr}`));
+      }, 5_000);
+      const cleanup = () => {
+        clearTimeout(timeout);
+        server.stdout.off("data", onStdout);
+        server.off("exit", onExit);
+      };
+      const onStdout = (chunk: string) => {
+        stdout += chunk;
+        const line = stdout.split("\n").find((candidate) => candidate.trim());
+        if (line) {
+          cleanup();
+          resolve(line);
+        }
+      };
+      const onExit = (code: number | null) => {
+        cleanup();
+        reject(new Error(`MCP server exited before tools/list response. code=${code} stderr=${stderr}`));
+      };
+      server.stdout.on("data", onStdout);
+      server.once("exit", onExit);
+      server.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" })}\n`);
+    });
+    const response = JSON.parse(outputLine) as { result?: unknown };
+    const tools = (response.result as { tools?: Array<{ name?: string; metadata?: { tier?: string; operatorPathRank?: number } }> }).tools ?? [];
+    const preparedInbox = tools.find((tool) => tool.name === "loo_prepared_inbox");
+    const debugTool = tools.find((tool) => tool.name === "loo_session_sanitizer");
+
+    assert.equal(preparedInbox?.metadata?.tier, "public_facade");
+    assert.equal(preparedInbox?.metadata?.operatorPathRank, 1);
+    assert.equal(debugTool?.metadata?.tier, "proof_debug");
+  } finally {
+    server.kill();
+    await new Promise<void>((resolve) => server.once("exit", () => resolve()));
+    rmSync(root, { recursive: true, force: true });
+  }
+
+  assert.equal(stderr, "");
 });
 
 test("MCP stdio server returns JSON-RPC errors for malformed input frames", async () => {

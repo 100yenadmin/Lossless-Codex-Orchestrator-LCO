@@ -385,7 +385,10 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       tokenBudget: optionalNumber(input.token_budget)
     })),
     tool("loo_prepared_state_status", "Read public-safe prepared-state cache coverage and counts.", {
-    }, () => getPreparedStateStatus(options.db)),
+      thread_id: { type: "string" }
+    }, (input) => getPreparedStateStatus(options.db, {
+      threadId: optionalString(input.thread_id)
+    })),
     tool("loo_prepared_cards", "List public-safe prepared Codex state cards over summary leaves.", {
       thread_id: { type: "string" },
       state: { type: "string", enum: ["ready", "stale", "partial", "unknown"] },

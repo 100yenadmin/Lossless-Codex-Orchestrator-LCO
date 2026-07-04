@@ -326,6 +326,41 @@ export type PreparedCardsOptions = {
   limit?: number;
 };
 
+export type PreparedTargetCoverageStatus = "ready" | "source_present_not_indexed" | "not_found" | "partial" | "unknown";
+
+export type PreparedTargetCoverage = {
+  schema: "lco.prepared.targetCoverage.v1";
+  threadId: string;
+  targetRef: string;
+  status: PreparedTargetCoverageStatus;
+  sourceRefs: string[];
+  sourceCoverage: {
+    indexedSession: PreparedStateCoverage;
+    sourceFile: PreparedStateCoverage;
+    preparedSourceEvents: PreparedStateCoverage;
+    preparedSourceRanges: PreparedStateCoverage;
+    summaryLeaves: PreparedStateCoverage;
+    preparedCards: PreparedStateCoverage;
+    preparedInboxItems: PreparedStateCoverage;
+    watcherObservations: PreparedStateCoverage;
+  };
+  counts: {
+    preparedSourceEvents: number;
+    preparedSourceRanges: number;
+    summaryLeaves: number;
+    preparedCards: number;
+    preparedInboxItems: number;
+  };
+  freshness: {
+    sourceUpdatedAt: string | null;
+    indexedAt: string | null;
+    preparedFreshnessAt: string | null;
+    stale: boolean;
+  };
+  reasonCodes: string[];
+  nextAction: string;
+};
+
 export type PreparedCardsReport = {
   schema: "lco.prepared.cards.v1";
   publicSafe: true;
@@ -336,6 +371,7 @@ export type PreparedCardsReport = {
     summaryLeaves: PreparedStateCoverage;
     watcherObservations: PreparedStateCoverage;
   };
+  targetCoverage?: PreparedTargetCoverage | null;
   summary: {
     total: number;
     returned: number;
@@ -376,6 +412,7 @@ export type PreparedInboxReport = {
   sourceCoverage: PreparedCardsReport["sourceCoverage"] & {
     preparedInboxItems: PreparedStateCoverage;
   };
+  targetCoverage?: PreparedTargetCoverage | null;
   summary: {
     total: number;
     returned: number;
@@ -392,6 +429,10 @@ export type PreparedInboxReport = {
   proofBoundary: string;
 };
 
+export type PreparedStateStatusOptions = {
+  threadId?: string;
+};
+
 export type PreparedStateStatusReport = {
   schema: "lco.preparedState.status.v1";
   publicSafe: true;
@@ -403,6 +444,7 @@ export type PreparedStateStatusReport = {
     preparedInboxItems: PreparedStateCoverage;
     watcherObservations: PreparedStateCoverage;
   };
+  targetCoverage?: PreparedTargetCoverage | null;
   summary: {
     summaryLeaves: number;
     cards: number;
@@ -3658,7 +3700,7 @@ function materializePreparedCardsForThread(
   };
 }
 
-export function getPreparedStateStatus(db: LooDatabase): PreparedStateStatusReport {
+export function getPreparedStateStatus(db: LooDatabase, options: PreparedStateStatusOptions = {}): PreparedStateStatusReport {
   const leaves = Number((db.prepare(`
     SELECT COUNT(*) AS count
     FROM summary_leaves
@@ -3668,6 +3710,7 @@ export function getPreparedStateStatus(db: LooDatabase): PreparedStateStatusRepo
   `).get(SUMMARY_LEAF_EXTRACTOR_VERSION) as { count: number }).count);
   const cardsReport = getPreparedCards(db, { limit: 1 });
   const inboxReport = getPreparedInbox(db, { limit: 1 });
+  const targetCoverage = getPreparedTargetCoverage(db, options.threadId);
   return {
     schema: "lco.preparedState.status.v1",
     publicSafe: true,
@@ -3679,6 +3722,7 @@ export function getPreparedStateStatus(db: LooDatabase): PreparedStateStatusRepo
       preparedInboxItems: inboxReport.sourceCoverage.preparedInboxItems,
       watcherObservations: watcherObservationCoverage(db)
     },
+    ...(targetCoverage ? { targetCoverage } : {}),
     summary: {
       summaryLeaves: leaves,
       cards: cardsReport.summary.total,
@@ -3758,6 +3802,7 @@ export function getPreparedCards(db: LooDatabase, options: PreparedCardsOptions 
     limitOmissions > 0 ? "limit" : null,
     filteredUnsafeRows > 0 ? "filtered_unsafe_rows" : null
   ].filter((reason): reason is "limit" | "filtered_unsafe_rows" => Boolean(reason));
+  const targetCoverage = getPreparedTargetCoverage(db, options.threadId);
   return {
     schema: "lco.prepared.cards.v1",
     publicSafe: true,
@@ -3768,6 +3813,7 @@ export function getPreparedCards(db: LooDatabase, options: PreparedCardsOptions 
       summaryLeaves: preparedSummaryLeafCoverage(db, options.threadId),
       watcherObservations: options.threadId ? watcherObservationCoverageForTarget(db, codexThreadRef(options.threadId)) : watcherObservationCoverage(db)
     },
+    ...(targetCoverage ? { targetCoverage } : {}),
     summary: {
       total: validTotal,
       returned: validCards.length,
@@ -3829,6 +3875,7 @@ export function getPreparedInbox(db: LooDatabase, options: PreparedInboxOptions 
   }
   const inboxCoverage: PreparedStateCoverage = validTotal > 0 ? "ok" : rows.length > 0 ? "partial" : "not_configured";
   const cardsCoverage = getPreparedCards(db, { threadId: options.threadId, limit: 1 }).sourceCoverage.preparedCards;
+  const targetCoverage = getPreparedTargetCoverage(db, options.threadId);
   return {
     schema: "lco.prepared.inbox.v1",
     publicSafe: true,
@@ -3840,6 +3887,7 @@ export function getPreparedInbox(db: LooDatabase, options: PreparedInboxOptions 
       summaryLeaves: preparedSummaryLeafCoverage(db, options.threadId),
       watcherObservations: options.threadId ? watcherObservationCoverageForTarget(db, codexThreadRef(options.threadId)) : watcherObservationCoverage(db)
     },
+    ...(targetCoverage ? { targetCoverage } : {}),
     summary: {
       total: validTotal,
       returned: validItems.length,
@@ -4422,6 +4470,308 @@ function preparedSummaryLeafCoverage(db: LooDatabase, threadId?: string): Prepar
   }
   const count = Number((db.prepare(`SELECT COUNT(*) AS count FROM summary_leaves WHERE ${clauses.join(" AND ")}`).get(...params) as { count: number }).count);
   return count > 0 ? "ok" : "not_configured";
+}
+
+function getPreparedTargetCoverage(db: LooDatabase, threadId?: string): PreparedTargetCoverage | null {
+  if (!threadId || !isPublicSummaryThreadId(threadId)) return null;
+  const targetRef = codexThreadRef(threadId);
+  const session = db.prepare(`
+    SELECT
+      thread_id AS threadId,
+      source_path AS sourcePath,
+      updated_at AS updatedAt,
+      indexed_at AS indexedAt
+    FROM codex_sessions
+    WHERE thread_id = ?
+    LIMIT 1
+  `).get(threadId) as { threadId: string; sourcePath: string; updatedAt: string | null; indexedAt: string | null } | undefined;
+  const sourceFile = session ? db.prepare(`
+    SELECT last_indexed_at AS lastIndexedAt
+    FROM codex_source_files
+    WHERE source_path = ?
+    LIMIT 1
+  `).get(session.sourcePath) as { lastIndexedAt: string | null } | undefined : undefined;
+  const preparedSourceEvents = countPublicPreparedTargetSourceEvents(db, threadId);
+  const preparedSourceRanges = countPublicPreparedTargetSourceRanges(db, threadId);
+  const summaryLeaves = countPublicPreparedTargetSummaryLeaves(db, threadId);
+  const preparedCards = countPreparedTargetRows(db, `
+    SELECT COUNT(*) AS count
+    FROM prepared_cards
+    WHERE target_ref = ?
+      AND extractor_version = ?
+      AND privacy_class = 'public_safe_metadata'
+  `, targetRef, PREPARED_CARD_EXTRACTOR_VERSION);
+  const cardRow = getPreparedCardRowByTargetRef(db, targetRef);
+  const publicCard = cardRow ? publicPreparedCardFromRow(cardRow) : null;
+  const preparedInboxItems = countPreparedTargetInboxItems(db, targetRef);
+  const coverage = {
+    indexedSession: session ? "ok" : "not_configured",
+    sourceFile: session ? sourceFile ? "ok" : "partial" : "not_configured",
+    preparedSourceEvents: preparedSourceEvents.count > 0 ? "ok" : "not_configured",
+    preparedSourceRanges: preparedSourceRanges.publicCount > 0 ? "ok" : preparedSourceRanges.rawCount > 0 ? "partial" : "not_configured",
+    summaryLeaves: summaryLeaves.publicCount > 0 ? "ok" : summaryLeaves.rawCount > 0 ? "partial" : "not_configured",
+    preparedCards: publicCard ? publicCard.state === "ready" && !publicCard.stale ? "ok" : "partial" : preparedCards > 0 ? "partial" : "not_configured",
+    preparedInboxItems: publicCard && preparedInboxItems.publicCount > 0 ? "ok" : preparedInboxItems.rawCount > 0 ? "partial" : "not_configured",
+    watcherObservations: watcherObservationCoverageForTarget(db, targetRef)
+  } satisfies PreparedTargetCoverage["sourceCoverage"];
+  const cardFreshnessAt = publicCard ? maxPublicPreparedTargetCardUpdatedAt(db, targetRef) : null;
+  const preparedFreshnessAt = oldestSafeTimestamp([
+    preparedSourceEvents.maxCreatedAt,
+    preparedSourceRanges.maxCreatedAt,
+    summaryLeaves.maxCreatedAt,
+    cardFreshnessAt,
+    preparedInboxItems.maxUpdatedAt
+  ]);
+  const sourceUpdatedAt = safeIsoOrNull(session?.updatedAt ?? null);
+  const indexedAt = safeIsoOrNull(session?.indexedAt ?? sourceFile?.lastIndexedAt ?? null);
+  const requiredCoverage: PreparedStateCoverage[] = [
+    coverage.preparedSourceEvents,
+    coverage.preparedSourceRanges,
+    coverage.summaryLeaves,
+    coverage.preparedCards,
+    coverage.preparedInboxItems
+  ];
+  const missingDerivedCache = requiredCoverage.some((state) => state !== "ok");
+  const partialDerivedCache = requiredCoverage.some((state) => state === "partial");
+  const allDerivedLayersMissing = requiredCoverage.every((state) => state === "not_configured");
+  const stale = Boolean(session && (
+    missingDerivedCache
+    || publicCard?.stale
+    || publicCard?.state !== "ready"
+    || summaryLeaves.staleCount > 0
+    || (sourceUpdatedAt && preparedFreshnessAt && sourceUpdatedAt > preparedFreshnessAt)
+  ));
+  const anyDerivedRows = preparedSourceEvents.count + preparedSourceRanges.rawCount + summaryLeaves.rawCount + preparedCards + preparedInboxItems.rawCount > 0;
+  const status: PreparedTargetCoverageStatus = !session
+    ? anyDerivedRows ? "partial" : "not_found"
+    : missingDerivedCache
+      ? allDerivedLayersMissing ? "source_present_not_indexed" : "partial"
+      : stale ? "partial" : "ready";
+  const reasonCodes = preparedTargetReasonCodes(status, coverage, stale);
+  const sourceRefs = unique([
+    targetRef,
+    session?.sourcePath ? publicSourcePathRef(session.sourcePath) : ""
+  ].filter(Boolean));
+  return {
+    schema: "lco.prepared.targetCoverage.v1",
+    threadId,
+    targetRef,
+    status,
+    sourceRefs,
+    sourceCoverage: coverage,
+    counts: {
+      preparedSourceEvents: preparedSourceEvents.count,
+      preparedSourceRanges: preparedSourceRanges.publicCount,
+      summaryLeaves: summaryLeaves.publicCount,
+      preparedCards: publicCard ? 1 : 0,
+      preparedInboxItems: preparedInboxItems.publicCount
+    },
+    freshness: {
+      sourceUpdatedAt,
+      indexedAt,
+      preparedFreshnessAt,
+      stale
+    },
+    reasonCodes,
+    nextAction: preparedTargetNextAction(status)
+  };
+}
+
+function countPreparedTargetRows(db: LooDatabase, sql: string, ...params: Array<string | number>): number {
+  return Number((db.prepare(sql).get(...params) as { count: number } | undefined)?.count ?? 0);
+}
+
+function countPublicPreparedTargetSourceEvents(db: LooDatabase, threadId: string): { count: number; maxCreatedAt: string | null } {
+  const row = db.prepare(`
+    SELECT COUNT(*) AS count, MAX(created_at) AS maxCreatedAt
+    FROM prepared_source_events
+    WHERE thread_id = ?
+      AND extractor_version = ?
+      AND privacy_class = 'public_safe_metadata'
+      AND omission_status = 'metadata_only'
+  `).get(threadId, PREPARED_SOURCE_EXTRACTOR_VERSION) as { count: number; maxCreatedAt: string | null } | undefined;
+  return {
+    count: Number(row?.count ?? 0),
+    maxCreatedAt: safeIsoOrNull(row?.maxCreatedAt ?? null)
+  };
+}
+
+function countPublicPreparedTargetSourceRanges(db: LooDatabase, threadId: string): { rawCount: number; publicCount: number; maxCreatedAt: string | null } {
+  const rows = db.prepare(`
+    SELECT
+      range_ref AS rangeRef,
+      event_ref AS eventRef,
+      thread_id AS threadId,
+      source_ref AS sourceRef,
+      source_path_ref AS sourcePathRef,
+      range_kind AS rangeKind,
+      line_start AS lineStart,
+      line_end AS lineEnd,
+      byte_start AS byteStart,
+      byte_end AS byteEnd,
+      ordinal,
+      source_hash AS sourceHash,
+      content_hash AS contentHash,
+      extractor_version AS extractorVersion,
+      privacy_class AS privacyClass,
+      omission_status AS omissionStatus,
+      confidence,
+      observed_at AS observedAt,
+      reason_codes_json AS reasonCodesJson,
+      created_at AS createdAt
+    FROM prepared_source_ranges
+    WHERE thread_id = ?
+      AND extractor_version = ?
+      AND privacy_class = 'public_safe_metadata'
+      AND omission_status = 'metadata_only'
+  `).all(threadId, PREPARED_SOURCE_EXTRACTOR_VERSION) as Array<PreparedSourceRangeRow & { createdAt: string | null }>;
+  const publicRows = rows.filter((row) => Boolean(preparedSourceRangeFromRow(row)));
+  return {
+    rawCount: rows.length,
+    publicCount: publicRows.length,
+    maxCreatedAt: latestSafeTimestamp(publicRows.map((row) => row.createdAt))
+  };
+}
+
+function countPublicPreparedTargetSummaryLeaves(db: LooDatabase, threadId: string): { rawCount: number; publicCount: number; staleCount: number; maxCreatedAt: string | null } {
+  const rows = db.prepare(`
+    SELECT
+      leaf_ref AS leafRef,
+      thread_id AS threadId,
+      leaf_kind AS leafKind,
+      summary_text AS summaryText,
+      source_refs_json AS sourceRefsJson,
+      source_range_refs_json AS sourceRangeRefsJson,
+      input_hash AS inputHash,
+      output_hash AS outputHash,
+      extractor_version AS extractorVersion,
+      privacy_class AS privacyClass,
+      authority_coverage_json AS authorityCoverageJson,
+      confidence,
+      freshness_at AS freshnessAt,
+      stale,
+      omission_status AS omissionStatus,
+      created_at AS createdAt
+    FROM summary_leaves
+    WHERE thread_id = ?
+      AND extractor_version = ?
+      AND privacy_class = 'public_safe_metadata'
+      AND omission_status = 'metadata_only'
+  `).all(threadId, SUMMARY_LEAF_EXTRACTOR_VERSION) as Array<SummaryLeafRow & { createdAt: string | null }>;
+  const publicLeaves = rows.flatMap((row) => {
+    const leaf = publicSummaryLeafFromRow(row);
+    return leaf ? [{ leaf, createdAt: row.createdAt }] : [];
+  });
+  return {
+    rawCount: rows.length,
+    publicCount: publicLeaves.length,
+    staleCount: publicLeaves.filter(({ leaf }) => leaf.stale).length,
+    maxCreatedAt: latestSafeTimestamp(publicLeaves.map(({ createdAt }) => createdAt))
+  };
+}
+
+function countPreparedTargetInboxItems(db: LooDatabase, targetRef: string): { rawCount: number; publicCount: number; maxUpdatedAt: string | null } {
+  if (!isPublicPreparedSourceRef(targetRef)) return { rawCount: 0, publicCount: 0, maxUpdatedAt: null };
+  const rows = db.prepare(`
+    SELECT
+      item_id AS itemRef,
+      card_ref AS cardRef,
+      target_ref AS targetRef,
+      urgency_score AS urgencyScore,
+      state,
+      reason_codes_json AS reasonCodesJson,
+      source_refs_json AS sourceRefsJson,
+      execute_false AS executeFalse,
+      updated_at AS updatedAt
+    FROM prepared_inbox_items
+    WHERE target_ref = ?
+      AND execute_false = 1
+  `).all(targetRef) as Array<PreparedInboxRow & { updatedAt: string | null }>;
+  const candidateItems = rows.map(publicPreparedInboxItemFromRow).filter((item): item is PreparedInboxItem => Boolean(item));
+  const cardByRef = getPublicPreparedCardsByCardRef(db, candidateItems.map((item) => item.cardRef));
+  const publicRows = rows.filter((row) => {
+    const item = publicPreparedInboxItemFromRow(row);
+    return item ? cardByRef.has(item.cardRef) : false;
+  });
+  return {
+    rawCount: rows.length,
+    publicCount: publicRows.length,
+    maxUpdatedAt: latestSafeTimestamp(publicRows.map((row) => row.updatedAt))
+  };
+}
+
+function maxPublicPreparedTargetCardUpdatedAt(db: LooDatabase, targetRef: string): string | null {
+  if (!isPublicPreparedSourceRef(targetRef)) return null;
+  const rows = db.prepare(`
+    SELECT
+      card_ref AS cardRef,
+      target_ref AS targetRef,
+      card_kind AS cardKind,
+      title,
+      summary_text AS summaryText,
+      next_action AS nextAction,
+      source_refs_json AS sourceRefsJson,
+      source_range_refs_json AS sourceRangeRefsJson,
+      source_range_refs_omitted AS sourceRangeRefsOmitted,
+      authority_coverage_json AS authorityCoverageJson,
+      input_hash AS inputHash,
+      extractor_version AS extractorVersion,
+      privacy_class AS privacyClass,
+      confidence,
+      freshness_at AS freshnessAt,
+      stale,
+      state,
+      reason_codes_json AS reasonCodesJson,
+      updated_at AS updatedAt
+    FROM prepared_cards
+    WHERE target_ref = ?
+      AND extractor_version = ?
+      AND privacy_class = 'public_safe_metadata'
+  `).all(targetRef, PREPARED_CARD_EXTRACTOR_VERSION) as Array<PreparedCardRow & { updatedAt: string | null }>;
+  const publicRows = rows.filter((row) => Boolean(publicPreparedCardFromRow(row)));
+  return latestSafeTimestamp(publicRows.map((row) => row.updatedAt));
+}
+
+function latestSafeTimestamp(values: Array<string | null>): string | null {
+  return values.filter((value): value is string => typeof value === "string" && isSafeIsoTimestamp(value)).sort().at(-1) ?? null;
+}
+
+function oldestSafeTimestamp(values: Array<string | null>): string | null {
+  return values.filter((value): value is string => typeof value === "string" && isSafeIsoTimestamp(value)).sort().at(0) ?? null;
+}
+
+function safeIsoOrNull(value: string | null | undefined): string | null {
+  return value && isSafeIsoTimestamp(value) ? value : null;
+}
+
+function preparedTargetReasonCodes(
+  status: PreparedTargetCoverageStatus,
+  coverage: PreparedTargetCoverage["sourceCoverage"],
+  stale: boolean
+): string[] {
+  return unique([
+    "targeted_thread_coverage",
+    coverage.indexedSession === "ok" ? "indexed_session_present" : "thread_not_indexed",
+    coverage.sourceFile === "partial" ? "source_file_watermark_missing" : "",
+    coverage.preparedSourceEvents !== "ok" ? "prepared_source_events_missing" : "",
+    coverage.preparedSourceRanges !== "ok" ? "prepared_source_ranges_missing" : "",
+    coverage.summaryLeaves !== "ok" ? "summary_leaves_missing" : "",
+    coverage.preparedCards !== "ok" ? "prepared_cards_missing" : "",
+    coverage.preparedInboxItems !== "ok" ? "prepared_inbox_missing" : "",
+    status === "source_present_not_indexed" ? "source_present_not_indexed" : "",
+    status === "source_present_not_indexed" ? "active_session_pending_index" : "",
+    status === "ready" ? "prepared_state_ready" : "",
+    status === "partial" ? "partial_prepared_state" : "",
+    stale ? "prepared_cache_stale_or_missing" : ""
+  ].filter(Boolean));
+}
+
+function preparedTargetNextAction(status: PreparedTargetCoverageStatus): string {
+  if (status === "ready") return "Use prepared cards, prepared inbox, or summary expansion for bounded public-safe evidence.";
+  if (status === "source_present_not_indexed") return "Refresh the local LCO derived cache with loo index codex or loo prep run --once, then re-check this thread.";
+  if (status === "partial") return "Inspect coverage reason codes and refresh the local LCO derived cache before treating this thread as current.";
+  if (status === "not_found") return "Run a bounded Codex index refresh or verify the thread is under configured local Codex session roots.";
+  return "Inspect source coverage and configured local Codex roots before making a prepared-state claim.";
 }
 
 function preparedCoverageState(value: unknown): PreparedStateCoverage {

@@ -47,6 +47,7 @@ type NativeRuntime = {
 type NativeToolFactory = (definition: {
   name: string;
   description: string;
+  metadata: LooTool["metadata"];
   parameters: Record<string, unknown>;
   execute(input: unknown): Promise<unknown>;
 }) => unknown;
@@ -61,6 +62,7 @@ export default defineToolPlugin({
   tools: (tool: NativeToolFactory) => createLooToolDeclarations().map((declaration) => tool({
     name: declaration.name,
     description: declaration.description,
+    metadata: declaration.metadata,
     parameters: declaration.inputSchema,
     async execute(input: unknown) {
       const runtimeTool = getNativeRuntime().tools.find((candidate) => candidate.name === declaration.name);

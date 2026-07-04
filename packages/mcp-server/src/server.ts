@@ -32,7 +32,7 @@ rl.on("line", async (line) => {
     if (message.method === "initialize") {
       send({ id: message.id, result: { protocolVersion: "2024-11-05", serverInfo: { name: "lossless-openclaw-orchestrator", version: SERVER_VERSION }, capabilities: { tools: {} } } });
     } else if (message.method === "tools/list") {
-      send({ id: message.id, result: { tools: tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })) } });
+      send({ id: message.id, result: { tools: tools.map(({ name, description, metadata, inputSchema }) => ({ name, description, metadata, inputSchema })) } });
     } else if (message.method === "tools/call") {
       const tool = tools.find((candidate) => candidate.name === message.params?.name);
       if (!tool) throw new Error(`Unknown tool: ${message.params?.name}`);

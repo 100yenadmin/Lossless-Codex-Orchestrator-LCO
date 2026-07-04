@@ -122,3 +122,11 @@ test("OpenClaw plugin contracts classify every tool into an operator surface tie
     );
   }
 });
+
+test("native OpenClaw plugin wrapper passes facade metadata to runtime tool definitions", () => {
+  const pluginSource = readFileSync("packages/openclaw-plugin/src/index.ts", "utf8");
+
+  assert.match(pluginSource, /metadata:\s*LooTool\["metadata"\]/);
+  assert.match(pluginSource, /metadata:\s*declaration\.metadata/);
+  assert.match(pluginSource, /parameters:\s*declaration\.inputSchema/);
+});

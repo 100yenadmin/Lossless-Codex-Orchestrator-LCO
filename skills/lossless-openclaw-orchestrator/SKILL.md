@@ -153,31 +153,35 @@ Typical live tools after approval are `loo_codex_resume_thread`,
 
 1. Start with `loo_prepared_inbox`.
 2. Use `loo_describe_ref` for the selected inbox/source ref.
-3. Use `loo_expand_query` with a 1k budget only when the compact card and
+3. When resuming a known Codex thread, use `loo_prepared_state_status` with
+   `thread_id`; treat `targetCoverage.status=source_present_not_indexed` or
+   `active_session_pending_index` as a cache-refresh route, not as a missing
+   thread or raw-transcript permission.
+4. Use `loo_expand_query` with a 1k budget only when the compact card and
    describe output are not enough.
-4. Use `loo_recent_sessions`, `loo_attention_inbox`, or `loo_project_digest`
+5. Use `loo_recent_sessions`, `loo_attention_inbox`, or `loo_project_digest`
    to refresh the operating picture or handoff.
-5. Use `loo_doctor`, `loo_search_sessions`, `loo_describe_session`,
+6. Use `loo_doctor`, `loo_search_sessions`, `loo_describe_session`,
    `loo_expand_session`, `loo_codex_plans`, `loo_codex_final_messages`, and
    `loo_codex_touched_files`
    only as workflow-detail fallbacks when the facade cannot answer the task.
-6. Optionally run `loo_codex_desktop_coherence` when the user asks whether the
+7. Optionally run `loo_codex_desktop_coherence` when the user asks whether the
    same work is visible in Codex Desktop
-7. If Desktop visibility is not proven, run
+8. If Desktop visibility is not proven, run
    `loo_codex_desktop_fallback_status` before recommending CUA/Peekaboo work;
    if it returns `coherence_input_missing`, run the returned coherence call
    first
-8. Run `loo_codex_collaboration_cockpit` when the user wants one active-lane
+9. Run `loo_codex_collaboration_cockpit` when the user wants one active-lane
    cockpit summary
-9. Run `loo_codex_collaboration_next_steps` when the next action needs an exact
+10. Run `loo_codex_collaboration_next_steps` when the next action needs an exact
    tool packet instead of prose
-10. Run `loo_codex_runtime_desktop_visibility_status` when the user asks what is
+11. Run `loo_codex_runtime_desktop_visibility_status` when the user asks what is
    actually covered for Desktop-visible collaboration right now
-11. Run `loo_codex_active_thread_state` when the user asks which active Codex
+12. Run `loo_codex_active_thread_state` when the user asks which active Codex
     threads are running, blocked, stale, or need a nudge
-12. Recommend a next action with source refs
-13. If action is requested, run `loo_codex_control_dry_run`
-14. Wait for explicit approval before any live control
+13. Recommend a next action with source refs
+14. If action is requested, run `loo_codex_control_dry_run`
+15. Wait for explicit approval before any live control
 
 ## Codex Desktop-First Daily Loop
 
