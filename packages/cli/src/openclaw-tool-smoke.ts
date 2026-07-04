@@ -311,14 +311,14 @@ function buildAgentReasoning(
   const preparedCards = byTool.get("loo_prepared_cards");
   const preparedInbox = byTool.get("loo_prepared_inbox");
   const summaryExpand = byTool.get("loo_summary_expand");
-  const expand = byTool.get("loo_expand_query") ?? byTool.get("loo_expand_session") ?? byTool.get("loo_summary_expand");
+  const expand = summaryExpand ?? byTool.get("loo_expand_query") ?? byTool.get("loo_expand_session");
   const dryRun = byTool.get("loo_codex_control_dry_run");
-  const sourceRefs = [...new Set(invocations.flatMap((invocation) => invocation.summary.sourceRefs ?? []))].slice(0, 5);
-  const selectedThreadId = describe?.summary.threadId
-    || search?.summary.threadId
-    || preparedInbox?.summary.threadId
+  const sourceRefs = prioritizedReasoningSourceRefs(invocations, byTool).slice(0, 5);
+  const selectedThreadId = preparedInbox?.summary.threadId
     || preparedCards?.summary.threadId
     || summaryExpand?.summary.threadId
+    || describe?.summary.threadId
+    || search?.summary.threadId
     || dryRun?.summary.threadId;
   const workflowEvidence = [
     ...(byTool.get("loo_doctor")?.ok ? ["doctor_ready"] : []),
@@ -351,6 +351,26 @@ function buildAgentReasoning(
     ...(dryRun?.summary.live !== undefined ? { dryRunLive: dryRun.summary.live } : {}),
     rawTranscriptRead: false
   };
+}
+
+function prioritizedReasoningSourceRefs(
+  invocations: OpenClawToolInvocationSummary[],
+  byTool: Map<string, OpenClawToolInvocationSummary>
+): string[] {
+  const refs: string[] = [];
+  const seen = new Set<string>();
+  const addRefs = (invocation: OpenClawToolInvocationSummary | undefined) => {
+    for (const ref of invocation?.summary.sourceRefs ?? []) {
+      if (seen.has(ref)) continue;
+      seen.add(ref);
+      refs.push(ref);
+    }
+  };
+  for (const toolName of ["loo_prepared_inbox", "loo_prepared_cards", "loo_summary_expand", "loo_summary_leaves"]) {
+    addRefs(byTool.get(toolName));
+  }
+  for (const invocation of invocations) addRefs(invocation);
+  return refs;
 }
 
 function annotateRequestedExpansionProfile(summary: OpenClawToolInvocationSummary, args: Record<string, unknown> | null): void {
