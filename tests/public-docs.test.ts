@@ -83,6 +83,10 @@ test("setup guide tells Codex and Claude users how to install agent provenance r
     /#436/,
     /correlation handles, not authorization/i,
     /raw transcripts, secrets,[\s\S]*private logs/i,
+    /private paths/i,
+    /screenshots/i,
+    /customer data/i,
+    /connector URLs/i,
     /visible block/i,
     /hidden marker/i
   ]) {
