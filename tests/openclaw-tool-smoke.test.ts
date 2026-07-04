@@ -242,6 +242,7 @@ function createFakeOpenClaw(
     omitPreparedTargetCoverage?: boolean;
     mismatchedPreparedTargetCoverage?: boolean;
     incompletePreparedTargetCoverage?: boolean;
+    omitDryRunMessageHash?: boolean;
   } = {}
 ): { bin: string; callsPath: string } {
   const callsPath = join(dir, "calls.jsonl");
@@ -254,7 +255,10 @@ function createFakeOpenClaw(
   const preparedThreadId = options.preparedThreadId ?? "thread-1";
   const queryExpansionTokenBudget = options.queryExpansionTokenBudget;
   const summaryExpansionTokenBudget = options.summaryExpansionTokenBudget;
-  const dryRunDetailsCode = `{ action: "codex_send_message", threadId: toolArgs.thread_id, live: false, approvalAuditId: "loo_audit_test", paramsHash: "params-hash", messageHash: "message-hash", method: "turn/start", approval_audit_id: "loo_audit_test", params_hash: "params-hash", message_hash: "message-hash" }`;
+  const dryRunMessageHashCode = options.omitDryRunMessageHash
+    ? ""
+    : `, messageHash: "message-hash", message_hash: "message-hash"`;
+  const dryRunDetailsCode = `{ action: "codex_send_message", threadId: toolArgs.thread_id, live: false, approvalAuditId: "loo_audit_test", paramsHash: "params-hash"${dryRunMessageHashCode}, method: "turn/start", approval_audit_id: "loo_audit_test", params_hash: "params-hash" }`;
   const dryRunContentCode = `[{ type: "text", text: JSON.stringify(${dryRunDetailsCode}) }]`;
   const dryRunOutputCode = dryRunOutputShape === "both"
     ? `{ content: ${dryRunContentCode}, details: ${dryRunDetailsCode} }`
@@ -487,7 +491,7 @@ if (method === "tools.invoke") {
     process.exit(0);
   }
   if (name === "loo_codex_resume_thread") {
-    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { action: "codex_resume_thread", threadId: toolArgs.thread_id, live: false, approvalAuditId: "loo_audit_resume_test", paramsHash: "resume-params-hash", messageHash: "resume-message-hash", method: "thread/resume", approval_audit_id: "loo_audit_resume_test", params_hash: "resume-params-hash", message_hash: "resume-message-hash" } }));
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { action: "codex_resume_thread", threadId: toolArgs.thread_id, live: false, approvalAuditId: "loo_audit_resume_test", paramsHash: "resume-params-hash", method: "thread/resume", approval_audit_id: "loo_audit_resume_test", params_hash: "resume-params-hash" } }));
     process.exit(0);
   }
 }
@@ -1711,6 +1715,35 @@ test("OpenClaw tool smoke accepts gateway content-only dry-run proof", () => {
     assert.equal(dryRun?.summary.method, "turn/start");
     assert.equal(dryRun?.summary.action, "codex_send_message");
     assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /Harmless beta smoke/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke still requires message hash for send-message dry-runs", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-dryrun-message-hash-"));
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_codex_control_dry_run"], "flat", {
+    omitDryRunMessageHash: true
+  });
+
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      requiredTools: ["loo_codex_control_dry_run"],
+      threadId: "thread-1",
+      query: "Proposed plan"
+    });
+
+    const dryRun = report.invocations.find((call) => call.toolName === "loo_codex_control_dry_run");
+    assert.equal(report.ok, false, JSON.stringify(report, null, 2));
+    assert.equal(dryRun?.summary.live, false);
+    assert.equal(dryRun?.summary.approvalAuditId, "loo_audit_test");
+    assert.equal(dryRun?.summary.paramsHash, "params-hash");
+    assert.equal(dryRun?.summary.messageHash, undefined);
+    assert.equal(dryRun?.blockers.includes("openclaw_control_dry_run_not_proven"), true, JSON.stringify(report, null, 2));
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;
