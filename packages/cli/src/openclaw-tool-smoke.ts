@@ -245,7 +245,7 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
         confirm: false,
         idempotencyKey: `loo-tool-smoke-${runId}-${toolName}`
       }, gatewayCallOptions);
-      const summary = summarizeInvocation(toolName, call);
+      const summary = summarizeInvocation(toolName, call, args ?? {});
       annotateRequestedExpansionProfile(summary, args);
       invocations.push(summary);
       blockers.push(...summary.blockers);
@@ -687,7 +687,11 @@ function buildToolArgs(params: {
       token_budget: Math.min(params.tokenBudget, 1000)
     };
   }
-  if (params.toolName === "loo_prepared_state_status") return {};
+  if (params.toolName === "loo_prepared_state_status") {
+    return {
+      ...(params.threadId ? { thread_id: params.threadId } : {})
+    };
+  }
   if (params.toolName === "loo_prepared_cards" || params.toolName === "loo_prepared_inbox") {
     return {
       ...(params.threadId ? { thread_id: params.threadId } : {}),
@@ -913,7 +917,11 @@ function smokeCodexDesktopCollaborationProofReport(threadId?: string): Record<st
   };
 }
 
-function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenClawToolInvocationSummary {
+function summarizeInvocation(
+  toolName: string,
+  call: GatewayJsonResult,
+  requestArgs: Record<string, unknown> = {}
+): OpenClawToolInvocationSummary {
   const payload = call.parsed ? unwrapGatewayPayload(call.parsed) : undefined;
   const blockers = [
     ...gatewayFailureBlockers(call, `openclaw_tool_invoke_failed:${toolName}`, toolName),
@@ -1262,6 +1270,51 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
       blockers.push("prepared_state_status_public_safe_read_only_missing");
     }
     if (!isRecord(statusOutput) || !isRecord(statusOutput.sourceCoverage)) blockers.push("prepared_state_status_coverage_missing");
+    const targetedThreadId = stringPath(requestArgs, ["thread_id"]);
+    if (targetedThreadId && (!isRecord(statusOutput) || statusOutput.targetCoverage === undefined)) {
+      blockers.push("prepared_state_status_target_coverage_missing");
+    }
+    if (isRecord(statusOutput) && statusOutput.targetCoverage !== undefined) {
+      const targetCoverage = statusOutput.targetCoverage;
+      if (!isRecord(targetCoverage)) blockers.push("prepared_state_status_target_coverage_invalid");
+      else {
+        if (stringPath(targetCoverage, ["schema"]) !== "lco.prepared.targetCoverage.v1") blockers.push("prepared_state_status_target_coverage_schema_invalid");
+        const targetSourceCoverage = isRecord(targetCoverage.sourceCoverage) ? targetCoverage.sourceCoverage : null;
+        const targetCounts = isRecord(targetCoverage.counts) ? targetCoverage.counts : null;
+        const targetFreshness = isRecord(targetCoverage.freshness) ? targetCoverage.freshness : null;
+        const reasonCodes = arrayPath(targetCoverage, ["reasonCodes"]);
+        const validLayerStatuses = new Set(["ok", "partial", "not_configured", "unknown"]);
+        const requiredCoverageKeys = ["indexedSession", "sourceFile", "preparedSourceEvents", "preparedSourceRanges", "summaryLeaves", "preparedCards", "preparedInboxItems", "watcherObservations"];
+        const requiredCountKeys = ["preparedSourceEvents", "preparedSourceRanges", "summaryLeaves", "preparedCards", "preparedInboxItems"];
+        if (!targetSourceCoverage) blockers.push("prepared_state_status_target_source_coverage_missing");
+        else if (requiredCoverageKeys.some((key) => !validLayerStatuses.has(String(targetSourceCoverage[key] ?? "")))) {
+          blockers.push("prepared_state_status_target_source_coverage_invalid");
+        }
+        if (!targetCounts || requiredCountKeys.some((key) => {
+          const value = targetCounts[key];
+          return typeof value !== "number" || !Number.isFinite(value) || value < 0;
+        })) blockers.push("prepared_state_status_target_coverage_details_missing");
+        if (!targetFreshness || booleanPath(targetCoverage, ["freshness", "stale"]) === undefined) {
+          blockers.push("prepared_state_status_target_coverage_details_missing");
+        }
+        if (!reasonCodes.length || reasonCodes.some((code) => typeof code !== "string" || !code)) {
+          blockers.push("prepared_state_status_target_coverage_details_missing");
+        }
+        if (!stringPath(targetCoverage, ["nextAction"])) blockers.push("prepared_state_status_target_coverage_details_missing");
+        if (!arrayPath(targetCoverage, ["sourceRefs"]).length) blockers.push("prepared_state_status_target_coverage_details_missing");
+        if (targetedThreadId) {
+          const targetThreadId = stringPath(targetCoverage, ["threadId"]) || stringPath(targetCoverage, ["thread_id"]);
+          const targetRef = stringPath(targetCoverage, ["targetRef"]) || stringPath(targetCoverage, ["target_ref"]);
+          if (targetThreadId !== targetedThreadId || targetRef !== `codex_thread:${targetedThreadId}`) {
+            blockers.push("prepared_state_status_target_coverage_mismatch");
+          }
+        }
+        const targetStatus = stringPath(targetCoverage, ["status"]);
+        if (!["ready", "source_present_not_indexed", "not_found", "partial", "unknown"].includes(targetStatus ?? "")) {
+          blockers.push("prepared_state_status_target_status_invalid");
+        }
+      }
+    }
     if (!hasPreparedReadOnlyActionMarkers(statusOutput)) blockers.push("prepared_state_status_action_markers_invalid");
   }
   if (toolName === "loo_prepared_cards") {

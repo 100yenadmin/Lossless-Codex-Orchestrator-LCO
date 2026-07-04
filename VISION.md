@@ -100,7 +100,10 @@ The 1.2 prepared-state layer is the next leverage step for this mode. It should
 store local, deterministic, public-safe prepared cards and summary leaves so an
 agent can operate from compact source-ref-backed state rather than repeatedly
 searching and expanding the same large threads. Summary leaves route the agent
-to the right source range; they do not replace authoritative sources.
+to the right source range; they do not replace authoritative sources. Targeted
+prepared-state reads must distinguish global cache health from a requested
+thread's own coverage, including `source_present_not_indexed` style gaps when
+the indexed source exists but prepared rows need refresh.
 
 Features should be prioritized by the `orchestrator-leverage-prioritization.json` scorecard when they change roadmap order. High-priority work gives the agent more session-management leverage per token: thread metadata, closeout hooks, project/status/priority tagging, archive and fork workflows, cited bounded expansion, and hybrid search when it improves top-k retrieval quality. Lower-priority work can still matter, but should wait when it makes the product more visually complete without reducing the orchestrator's rereading burden.
 
