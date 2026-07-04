@@ -113,6 +113,52 @@ function insertSummaryLeafRow(
   );
 }
 
+function insertSessionMetadataRow(
+  db: ReturnType<typeof createDatabase>,
+  input: {
+    threadId: string;
+    status?: string | null;
+    priority?: string | null;
+    blocker?: string | null;
+    nextAction?: string | null;
+    closeoutState?: string | null;
+    planCompletionState?: string | null;
+  }
+): void {
+  db.prepare(`
+    INSERT INTO codex_session_metadata (
+      thread_id, status, priority, blocker, next_action, closeout_state, plan_completion_state,
+      proposed_plan_refs_json, final_message_refs_json, touched_file_refs_json,
+      source_refs_json, metadata_schema_version
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(thread_id) DO UPDATE SET
+      status = excluded.status,
+      priority = excluded.priority,
+      blocker = excluded.blocker,
+      next_action = excluded.next_action,
+      closeout_state = excluded.closeout_state,
+      plan_completion_state = excluded.plan_completion_state,
+      proposed_plan_refs_json = excluded.proposed_plan_refs_json,
+      final_message_refs_json = excluded.final_message_refs_json,
+      touched_file_refs_json = excluded.touched_file_refs_json,
+      source_refs_json = excluded.source_refs_json,
+      metadata_schema_version = excluded.metadata_schema_version
+  `).run(
+    input.threadId,
+    input.status ?? null,
+    input.priority ?? null,
+    input.blocker ?? null,
+    input.nextAction ?? null,
+    input.closeoutState ?? null,
+    input.planCompletionState ?? null,
+    JSON.stringify([`codex_thread:${input.threadId}`]),
+    JSON.stringify([`codex_thread:${input.threadId}`]),
+    JSON.stringify([`codex_thread:${input.threadId}`]),
+    JSON.stringify([`codex_thread:${input.threadId}`]),
+    1
+  );
+}
+
 function insertPreparedCardRow(
   db: ReturnType<typeof createDatabase>,
   input: {
@@ -124,7 +170,7 @@ function insertPreparedCardRow(
     sourceRangeRefs?: string[];
     confidence?: number;
     stale?: boolean;
-    state?: "ready" | "stale" | "partial" | "unknown";
+    state?: string;
     reasonCodes?: string[];
   }
 ): string {
@@ -173,7 +219,7 @@ function insertPreparedInboxRow(
     cardRef: string;
     threadId: string;
     urgencyScore: number;
-    state?: "ready" | "stale" | "partial" | "unknown";
+    state?: string;
     reasonCodes?: string[];
   }
 ): void {
@@ -239,6 +285,7 @@ test("prepared cards materialize public-safe advisory cards and inbox entries", 
     assert.equal(card.sourceCoverage.watcherObservations, "not_configured");
     assert.equal(card.authorityCoverage.summaryLeaves.status, "ok");
     assert.equal(card.state, "ready");
+    assert.equal(card.reasonCodes.includes("lifecycle:completed"), false);
     assert.equal(card.reasonCodes.includes("summary_leaves_ready"), true);
     assert.equal(card.sourceRefs.includes(`codex_thread:${threadId}`), true);
     assert.equal(card.sourceRefs.some((ref) => /^summary_leaf:[0-9a-f]{32}$/.test(ref)), true);
@@ -480,14 +527,22 @@ test("prepared card materialization downgrades stale or partial authority inputs
       authorityStatus: "partial",
       freshnessAt: "2026-06-01T00:00:00.000Z"
     });
+    insertSessionMetadataRow(db, {
+      threadId,
+      status: "done",
+      closeoutState: "done",
+      planCompletionState: "complete"
+    });
 
     materializePreparedCards(db, { threadId });
     const cards = getPreparedCards(db, { threadId });
     assert.equal(cards.cards.length, 1);
     const card = cards.cards[0]!;
     assert.equal(card.stale, true);
-    assert.equal(card.state, "stale");
+    assert.equal(card.state, "stale_or_partial");
     assert.equal(card.confidence <= 0.49, true);
+    assert.equal(card.reasonCodes.includes("lifecycle:completed"), true);
+    assert.equal(card.reasonCodes.includes("lifecycle:stale_or_partial"), true);
     assert.equal(card.reasonCodes.includes("stale_cache"), true);
     assert.equal(card.reasonCodes.includes("authority_partial"), true);
     assert.equal(card.authorityCoverage.summaryLeaves.status, "partial");
@@ -947,6 +1002,164 @@ test("prepared inbox ordering is deterministic and attention-first", () => {
   }
 });
 
+test("prepared cards promote semantic lifecycle states into card and inbox ranking", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-card-lifecycle-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const fixtures = [
+      {
+        id: "a1000000000000000000000000000001",
+        threadId: "019f-life-completed",
+        metadata: { status: "completed", closeoutState: "done", planCompletionState: "complete" },
+        expectedState: "completed"
+      },
+      {
+        id: "a2000000000000000000000000000002",
+        threadId: "019f-life-approval",
+        metadata: { status: "waiting approval", nextAction: "Wait for explicit approval before live control" },
+        expectedState: "waiting_approval"
+      },
+      {
+        id: "a3000000000000000000000000000003",
+        threadId: "019f-life-blocked",
+        metadata: { status: "blocked", blocker: "missing user input", nextAction: "Ask for the missing context" },
+        expectedState: "blocked_missing_info"
+      },
+      {
+        id: "a4000000000000000000000000000004",
+        threadId: "019f-life-ci-watch",
+        metadata: { status: "waiting", blocker: "CI checks pending", nextAction: "Watch CI checks and report when green" },
+        expectedState: "watching_external_check"
+      },
+      {
+        id: "a5000000000000000000000000000005",
+        threadId: "019f-life-resume",
+        metadata: { status: "paused", nextAction: "Resume session after the long-running monitor" },
+        expectedState: "needs_resume"
+      },
+      {
+        id: "a6000000000000000000000000000006",
+        threadId: "019f-life-dirty",
+        metadata: { status: "handoff", nextAction: "Clean dirty worktree handoff before closeout" },
+        expectedState: "dirty_worktree_handoff"
+      },
+      {
+        id: "a7000000000000000000000000000007",
+        threadId: "019f-life-review",
+        metadata: { status: "ready for review", nextAction: "Review bounded evidence before merge" },
+        expectedState: "ready_for_review"
+      },
+      {
+        id: "a8000000000000000000000000000008",
+        threadId: "019f-life-not-blocked",
+        metadata: { status: "not blocked", blocker: "not blocked", nextAction: "Continue bounded evidence review" },
+        expectedState: "ready"
+      },
+      {
+        id: "a9000000000000000000000000000009",
+        threadId: "019f-life-completion-negated",
+        metadata: { status: "completed, pending review", nextAction: "done? not yet" },
+        expectedState: "ready"
+      },
+      {
+        id: "ab000000000000000000000000000000",
+        threadId: "019f-life-conflict",
+        metadata: { status: "completed", blocker: "missing operator input", nextAction: "Ask for blocker details" },
+        expectedState: "unknown_lifecycle"
+      },
+      {
+        id: "ac000000000000000000000000000000",
+        threadId: "019f-life-upload-resume",
+        metadata: { status: "ready", nextAction: "Upload resume to the applicant tracker after evidence review" },
+        expectedState: "ready"
+      },
+      {
+        id: "ad000000000000000000000000000000",
+        threadId: "019f-life-monitor-dashboard",
+        metadata: { status: "ready", nextAction: "Monitor the dashboard styling language in docs" },
+        expectedState: "ready"
+      },
+      {
+        id: "ae000000000000000000000000000000",
+        threadId: "019f-life-verify-ci-note",
+        metadata: { status: "ready", nextAction: "Verify CI notes were copied to release evidence" },
+        expectedState: "ready"
+      }
+    ];
+    for (const fixture of fixtures) {
+      insertSummaryLeafRow(db, {
+        id: fixture.id,
+        threadId: fixture.threadId,
+        leafKind: "closeout",
+        confidence: 0.95
+      });
+      insertSessionMetadataRow(db, {
+        threadId: fixture.threadId,
+        priority: "high",
+        ...fixture.metadata
+      });
+    }
+
+    materializePreparedCards(db);
+
+    const cards = getPreparedCards(db, { limit: 20 });
+    const cardsByTarget = new Map(cards.cards.map((card) => [card.targetRef, card]));
+    for (const fixture of fixtures) {
+      const card = cardsByTarget.get(`codex_thread:${fixture.threadId}`);
+      assert.ok(card, fixture.threadId);
+      assert.equal(card.state, fixture.expectedState);
+      assert.equal(card.reasonCodes.includes("semantic_lifecycle"), true);
+      if (fixture.expectedState === "ready") {
+        assert.equal(card.reasonCodes.includes("lifecycle_signal_missing"), true);
+      } else {
+        assert.equal(card.reasonCodes.includes(`lifecycle:${fixture.expectedState}`), true);
+      }
+      assert.equal(card.reasonCodes.includes("summary_leaves_ready"), true);
+      assert.equal(card.summaryText.includes("Lifecycle:"), true);
+    }
+
+    const inbox = getPreparedInbox(db, { limit: 20 });
+    const inboxByTarget = new Map(inbox.items.map((item) => [item.targetRef, item]));
+    const blocked = inboxByTarget.get("codex_thread:019f-life-blocked");
+    const approval = inboxByTarget.get("codex_thread:019f-life-approval");
+    const completed = inboxByTarget.get("codex_thread:019f-life-completed");
+    const conflict = inboxByTarget.get("codex_thread:019f-life-conflict");
+    assert.ok(blocked);
+    assert.ok(approval);
+    assert.ok(completed);
+    assert.ok(conflict);
+    assert.equal(cards.summary.partial, 6);
+    assert.equal(cards.summary.unknown, 1);
+    assert.equal(cards.summary.completed, 1);
+    assert.equal(blocked.state, "blocked_missing_info");
+    assert.equal(approval.state, "waiting_approval");
+    assert.equal(completed.state, "completed");
+    assert.equal(conflict.state, "unknown_lifecycle");
+    assert.equal(blocked.reasonCodes.includes("needs_attention"), true);
+    assert.equal(conflict.reasonCodes.includes("lifecycle_conflict"), true);
+    assert.equal(conflict.reasonCodes.includes("lifecycle:completed"), true);
+    assert.equal(conflict.reasonCodes.includes("lifecycle:blocked_missing_info"), true);
+    assert.equal(completed.reasonCodes.includes("prepared_card_completed"), true);
+    assert.equal(blocked.urgencyScore > completed.urgencyScore, true);
+    assert.equal(approval.urgencyScore > completed.urgencyScore, true);
+
+    const originalCompletedCardRef = completed.cardRef;
+    insertSessionMetadataRow(db, {
+      threadId: "019f-life-completed",
+      status: "blocked",
+      blocker: "missing operator input",
+      nextAction: "Ask for the missing context"
+    });
+    materializePreparedCards(db, { threadId: "019f-life-completed" });
+    const rematerialized = getPreparedCards(db, { threadId: "019f-life-completed" }).cards[0]!;
+    assert.equal(rematerialized.state, "blocked_missing_info");
+    assert.notEqual(rematerialized.cardRef, originalCompletedCardRef);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("prepared card reports filter unsafe cached rows without leaking canaries", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-prepared-card-unsafe-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
@@ -1149,6 +1362,9 @@ test("prepared-state tools are exposed through MCP as read-only public-safe tool
     const statusTool = tools.find((tool) => tool.name === "loo_prepared_state_status");
     const cardsTool = tools.find((tool) => tool.name === "loo_prepared_cards");
     const inboxTool = tools.find((tool) => tool.name === "loo_prepared_inbox");
+    const stateEnum = ((cardsTool?.inputSchema.properties as Record<string, { enum?: string[] }> | undefined)?.state?.enum ?? []);
+    assert.equal(stateEnum.includes("completed"), true);
+    assert.equal(stateEnum.includes("blocked_missing_info"), true);
     const status = await statusTool?.execute({ thread_id: "019f-prepared-tools" }) as {
       publicSafe?: boolean;
       targetCoverage?: { status?: string };
@@ -1156,6 +1372,7 @@ test("prepared-state tools are exposed through MCP as read-only public-safe tool
     assert.equal(status.publicSafe, true);
     assert.equal(status.targetCoverage?.status, "ready");
     assert.equal((await cardsTool?.execute({ thread_id: "019f-prepared-tools" }) as { publicSafe?: boolean }).publicSafe, true);
+    assert.equal((await cardsTool?.execute({ thread_id: "019f-prepared-tools", state: "completed" }) as { publicSafe?: boolean }).publicSafe, true);
     assert.equal((await inboxTool?.execute({}) as { publicSafe?: boolean }).publicSafe, true);
   } finally {
     db.close();

@@ -1,9 +1,9 @@
 {
   "scenario_version": "1.0",
   "id": "prepared-cards-inbox-v1",
-  "title": "Prepared-state OpenClaw gateway dogfood",
+  "title": "Prepared-state lifecycle OpenClaw gateway dogfood",
   "claim_scope": "codex-read-search-expand-dry-run",
-  "user_task": "As Eva, inspect prepared Codex session cards, choose the highest-priority attention item, and expand only bounded summary-leaf evidence before deciding the next safe action.",
+  "user_task": "As Eva, inspect prepared Codex session cards, distinguish evidence readiness from semantic lifecycle state, choose the highest-priority attention item, and expand only bounded summary-leaf evidence before deciding the next safe action.",
   "surface": "openclaw_gateway",
   "allowed_tools": [
     "loo_prepared_state_status",
@@ -39,7 +39,9 @@
     "source coverage",
     "authority coverage",
     "freshness and confidence",
-    "stale partial unknown and low-confidence reason codes",
+    "semantic lifecycle state and lifecycle reason codes",
+    "completed blocked_missing_info waiting_approval watching_external_check needs_resume dirty_worktree_handoff ready_for_review stale_or_partial and unknown_lifecycle classification",
+    "stale partial unknown and low-confidence evidence-readiness reason codes",
     "execute=false attention queue actions",
     "bounded summary expansion references",
     "OpenClaw gateway tool-smoke",
@@ -69,6 +71,8 @@
     "requires_execute_false_actions": true,
     "requires_openclaw_gateway_tool_smoke": true,
     "requires_agent_recommendation": true,
+    "requires_semantic_lifecycle_reason_codes": true,
+    "requires_lifecycle_urgency_ranking": true,
     "requires_stale_partial_unknown_reason_codes": true,
     "max_raw_transcript_spans": 0,
     "max_raw_tool_payloads": 0,
@@ -76,6 +80,6 @@
     "max_gui_actions": 0,
     "max_screenshots_in_public_evidence": 0
   },
-  "proof_boundary": "Dry-run fixture and OpenClaw gateway dogfood scenario for deterministic prepared-card and attention-inbox materialization over public-safe summary leaves. It proves advisory local prepared Codex state handoff and targeted prepared-state coverage for OpenClaw/Eva only when paired with a public-safe `loo openclaw tool-smoke` report that invokes prepared-state tools for a requested thread id, emits an agent recommendation, and records `rawTranscriptRead=false`. It does not prove model compaction, true Codex compaction-summary capture, live control, GUI mutation, unattended autonomy, release readiness, or 1.2 GA readiness.",
-  "next_action": "Attach issue-specific OpenClaw gateway dogfood evidence for #413/#451, then continue #414 and #415 behind their explicit canary/protocol boundaries."
+  "proof_boundary": "Dry-run fixture and OpenClaw gateway dogfood scenario for deterministic prepared-card and attention-inbox materialization over public-safe summary leaves plus session metadata lifecycle signals. It proves advisory local prepared Codex lifecycle routing and targeted prepared-state coverage for OpenClaw/Eva only when paired with focused lifecycle fixtures, a public-safe `loo openclaw tool-smoke` report that invokes prepared-state tools for a requested thread id, emits an agent recommendation, and records `rawTranscriptRead=false`. It does not prove model compaction, true Codex compaction-summary capture, live control, GUI mutation, unattended autonomy, release readiness, or 1.2 GA readiness.",
+  "next_action": "Attach issue-specific semantic lifecycle evidence for #446, then continue remaining #405/#448 children behind their explicit canary/protocol boundaries."
 }

@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute } from "node:path";
+import { PREPARED_CARD_STATES } from "../../core/src/index.js";
 
 export const DEFAULT_REQUIRED_TOOL_CALLS = [
   "loo_doctor",
@@ -41,6 +42,8 @@ export const DEFAULT_REQUIRED_TOOL_CALLS = [
   "loo_prepared_cards",
   "loo_prepared_inbox"
 ];
+
+const PREPARED_CARD_STATE_SET = new Set<string>(PREPARED_CARD_STATES);
 
 const AUTONOMY_TICK_SUMMARY_KEYS = [
   "totalLanes",
@@ -1332,7 +1335,7 @@ function summarizeInvocation(
       const state = stringPath(card, ["state"]);
       return !cardRef?.startsWith("prepared_card:")
         || !targetRef?.startsWith("codex_thread:")
-        || !["ready", "stale", "partial", "unknown"].includes(state ?? "");
+        || !PREPARED_CARD_STATE_SET.has(state ?? "");
     })) blockers.push("prepared_cards_public_refs_invalid");
   }
   if (toolName === "loo_prepared_inbox") {

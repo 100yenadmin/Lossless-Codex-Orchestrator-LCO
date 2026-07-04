@@ -262,7 +262,22 @@ export type SummaryLeafMaterializationOptions = {
   limit?: number;
 };
 
-export type PreparedCardState = "ready" | "stale" | "partial" | "unknown";
+export const PREPARED_CARD_STATES = [
+  "ready",
+  "stale",
+  "partial",
+  "unknown",
+  "completed",
+  "blocked_missing_info",
+  "waiting_approval",
+  "watching_external_check",
+  "needs_resume",
+  "dirty_worktree_handoff",
+  "stale_or_partial",
+  "ready_for_review",
+  "unknown_lifecycle"
+] as const;
+export type PreparedCardState = (typeof PREPARED_CARD_STATES)[number];
 export type PreparedCardKind = "codex_session";
 export type PreparedStateCoverage = "ok" | "partial" | "not_configured" | "unknown";
 
@@ -393,6 +408,7 @@ export type PreparedCardsReport = {
     stale: number;
     partial: number;
     unknown: number;
+    completed: number;
     lowConfidence: number;
   };
   cards: PreparedCard[];
@@ -3891,6 +3907,7 @@ export function getPreparedCards(db: LooDatabase, options: PreparedCardsOptions 
   let stale = 0;
   let partial = 0;
   let unknown = 0;
+  let completed = 0;
   let lowConfidence = 0;
   for (const row of rows) {
     const card = publicPreparedCardFromRow(row);
@@ -3898,9 +3915,10 @@ export function getPreparedCards(db: LooDatabase, options: PreparedCardsOptions 
       filteredUnsafeRows += 1;
       continue;
     }
-    if (card.stale) stale += 1;
-    if (card.state === "partial") partial += 1;
-    if (card.state === "unknown") unknown += 1;
+    if (card.stale || card.state === "stale") stale += 1;
+    if (preparedCardCountsAsPartialSummary(card.state)) partial += 1;
+    if (card.state === "unknown" || card.state === "unknown_lifecycle") unknown += 1;
+    if (card.state === "completed") completed += 1;
     if (card.confidence < 0.5) lowConfidence += 1;
     if (validCards.length < limit) validCards.push(card);
   }
@@ -3936,6 +3954,7 @@ export function getPreparedCards(db: LooDatabase, options: PreparedCardsOptions 
       stale,
       partial,
       unknown,
+      completed,
       lowConfidence
     },
     cards: validCards,
@@ -4268,9 +4287,19 @@ function buildPreparedCardDraft(db: LooDatabase, threadId: string, leaves: Summa
   const watcherObservationsStatus = watcherObservationCoverageForTarget(db, targetRef);
   const freshnessAt = latestIso([...leaves.map((leaf) => leaf.freshnessAt), session?.updatedAt ?? null]);
   const stale = leaves.some((leaf) => leaf.stale);
+  const evidenceState: PreparedCardState = stale
+    ? "stale_or_partial"
+    : summaryLeavesStatus === "unknown"
+      ? "unknown_lifecycle"
+      : summaryLeavesStatus === "partial" || sessionMetadataStatus === "partial"
+        ? "stale_or_partial"
+        : "ready";
+  const lifecycle = preparedLifecycleFromMetadata(metadata, evidenceState);
+  const state = lifecycle.state;
   const reasonCodes = unique([
     leaves.length > 0 ? "summary_leaves_ready" : "summary_leaves_missing",
     "metadata_only",
+    ...lifecycle.reasonCodes,
     watcherObservationsStatus === "not_configured" ? "watcher_not_configured" : "watcher_observations_available",
     stale ? "stale_cache" : "",
     summaryLeavesStatus === "partial" ? "authority_partial" : "",
@@ -4280,17 +4309,10 @@ function buildPreparedCardDraft(db: LooDatabase, threadId: string, leaves: Summa
     watcherObservationsStatus === "unknown" ? "watcher_observations_unknown" : "",
     filteredUnsafeRows > 0 ? "filtered_unsafe_rows" : ""
   ].filter(Boolean));
-  const state: PreparedCardState = stale
-    ? "stale"
-    : summaryLeavesStatus === "unknown"
-      ? "unknown"
-      : summaryLeavesStatus === "partial" || sessionMetadataStatus === "partial"
-        ? "partial"
-        : "ready";
   const averageLeafConfidence = leaves.length
     ? leaves.reduce((sum, leaf) => sum + leaf.confidence, 0) / leaves.length
     : 0.3;
-  const confidence = preparedCardConfidence(averageLeafConfidence, state);
+  const confidence = preparedCardConfidence(averageLeafConfidence, state, evidenceState);
   const sourceRangeRefsFull = unique(leaves.flatMap((leaf) => leaf.sourceRangeRefs));
   const sourceRangeRefs = sourceRangeRefsFull.slice(0, PREPARED_CARD_SOURCE_RANGE_REF_LIMIT);
   const sourceRangeRefsOmitted = Math.max(0, sourceRangeRefsFull.length - sourceRangeRefs.length)
@@ -4305,7 +4327,7 @@ function buildPreparedCardDraft(db: LooDatabase, threadId: string, leaves: Summa
   });
   const title = looksSensitiveRefLike(cleanedTitle.text) ? publicSafeText(safeThreadId(threadId), 160) : cleanedTitle.text;
   const summaryText = publicSafeText(
-    `Prepared state: ${leaves.length} summary leaf${leaves.length === 1 ? "" : "s"} across ${Math.max(0, leafRangeCount)} prepared source range${leafRangeCount === 1 ? "" : "s"}.`,
+    `Prepared state: ${leaves.length} summary leaf${leaves.length === 1 ? "" : "s"} across ${Math.max(0, leafRangeCount)} prepared source range${leafRangeCount === 1 ? "" : "s"}. Lifecycle: ${preparedCardStateLabel(state)}.`,
     320
   );
   const nextAction = preparedCardNextAction(state);
@@ -4327,6 +4349,10 @@ function buildPreparedCardDraft(db: LooDatabase, threadId: string, leaves: Summa
     leafRefs: leaves.map((leaf) => leaf.leafRef),
     inputHashes: leaves.map((leaf) => leaf.inputHash),
     outputHashes: leaves.map((leaf) => leaf.outputHash),
+    metadataSignalHash: lifecycle.metadataSignalHash,
+    lifecycleState: state,
+    lifecycleReasonCodes: lifecycle.reasonCodes,
+    evidenceState,
     freshnessAt,
     stale,
     summaryLeavesStatus,
@@ -4363,7 +4389,7 @@ function buildPreparedCardDraft(db: LooDatabase, threadId: string, leaves: Summa
 function preparedInboxItemFromCard(card: PreparedCard): PreparedInboxItem {
   const reasonCodes = unique([
     ...card.reasonCodes,
-    card.state === "ready" ? "prepared_card_ready" : "needs_attention"
+    card.state === "ready" ? "prepared_card_ready" : card.state === "completed" ? "prepared_card_completed" : "needs_attention"
   ]);
   const urgencyScore = preparedInboxUrgencyScore(card, reasonCodes);
   return {
@@ -4911,7 +4937,7 @@ function preparedCoverageState(value: unknown): PreparedStateCoverage {
 }
 
 function isPreparedCardState(value: string): value is PreparedCardState {
-  return value === "ready" || value === "stale" || value === "partial" || value === "unknown";
+  return (PREPARED_CARD_STATES as readonly string[]).includes(value);
 }
 
 function isPublicPreparedSourceRef(value: string): boolean {
@@ -4933,11 +4959,139 @@ function isPublicCodexSubagentResultRef(value: string): boolean {
   return /^[A-Za-z0-9._:-]{1,160}$/.test(decodedId) && !looksSensitiveRefLike(decodedId);
 }
 
-function preparedCardConfidence(averageLeafConfidence: number, state: PreparedCardState): number {
+function preparedLifecycleFromMetadata(
+  metadata: SessionMetadata,
+  evidenceState: PreparedCardState
+): { state: PreparedCardState; reasonCodes: string[]; metadataSignalHash: string } {
+  const signals = {
+    status: normalizedMetadataValue(metadata.status),
+    blocker: normalizedMetadataValue(metadata.blocker),
+    nextAction: normalizedMetadataValue(metadata.nextAction),
+    closeoutState: normalizedMetadataValue(metadata.closeoutState),
+    planCompletionState: normalizedMetadataValue(metadata.planCompletionState)
+  };
+  const metadataSignalHash = stableId(JSON.stringify(signals));
+  const nonBlockerText = [signals.status, signals.nextAction, signals.closeoutState, signals.planCompletionState].filter(Boolean).join(" ");
+  const text = [nonBlockerText, signals.blocker].filter(Boolean).join(" ");
+  const sourceReasonCodes = Object.entries(signals)
+    .filter(([, value]) => value.length > 0)
+    .map(([field]) => `lifecycle_signal:${field.replace(/[A-Z]/g, (match) => `_${match.toLowerCase()}`)}`);
+  const completedByStatus = lifecycleCompletionLike(signals.status);
+  const completedByCloseoutAndPlan = lifecycleCompletionLike(signals.closeoutState)
+    && lifecycleCompletionLike(signals.planCompletionState);
+  const completed = completedByStatus || completedByCloseoutAndPlan;
+  const dirtyHandoff = /\b(?:dirty[-_ ]?worktree|uncommitted|worktree[-_ ]?handoff|dirty[-_ ]?handoff|handoff[-_ ]?dirty|cleanup[-_ ]?required)\b/.test(text);
+  const waitingApproval = /\b(?:waiting[-_ ]?(?:for[-_ ]?)?approval|needs[-_ ]?approval|requires[-_ ]?approval|approval[-_ ]?(?:required|needed|pending)|pending[-_ ]?approval|approval[-_ ]?gate|do[-_ ]?not[-_ ]?execute[-_ ]?without[-_ ]?explicit[-_ ]?approval)\b/.test(text);
+  const needsResume = /\b(?:needs[-_ ]?(?:to[-_ ]?)?resume|resume[-_ ]?(?:session|thread|work|run|lane|needed|required|requested|request)|continue[-_ ]?(?:session|thread|lane)|nudge[-_ ]?(?:session|thread|agent|lane)|rejoin[-_ ]?(?:session|thread|lane))\b/.test(text);
+  const watchingExternalCheck = /\b(?:(?:watch|watching|monitor|monitoring)[-_ ]+(?:ci|checks?|codeql|coderabbit|deploy(?:[-_ ]?check)?|external[-_ ]?(?:check|review)|review[-_ ]?check)|(?:waiting[-_ ]?(?:on|for)|pending)[-_ ]+(?:ci|checks?|codeql|coderabbit|deploy|external[-_ ]?check|review[-_ ]?check)|(?:ci|checks?|codeql|coderabbit|deploy[-_ ]?check|review[-_ ]?check)[-_ ]+(?:pending|queued|running|failing|failed|blocked|red|not[-_ ]?green|in[-_ ]?progress))\b/.test(text);
+  const readyForReview = /\b(?:ready[-_ ]?for[-_ ]?review|review[-_ ]?ready|ready[-_ ]?to[-_ ]?review|pr[-_ ]?ready|needs[-_ ]?review)\b/.test(text);
+  const negatedBlocker = /\b(?:not[-_ ]?blocked|no[-_ ]?blocker|unblocked|without[-_ ]?blocker|blocker[-_ ]?(?:none|na|n[-_ ]?a))\b/.test(text);
+  const missingInfoSignal = /\b(?:missing[-_ ]?(?:info|input|context)|needs[-_ ]?(?:info|input|context)|waiting[-_ ]?(?:on|for)[-_ ]?(?:user|operator|human|input|context)|cannot[-_ ]?proceed)\b/.test(nonBlockerText);
+  const blockedSignal = !negatedBlocker && /\b(?:blocked|blocker)\b/.test(nonBlockerText);
+  const blockedMissingInfo = !waitingApproval
+    && !dirtyHandoff
+    && !watchingExternalCheck
+    && !negatedBlocker
+    && (hasRealBlocker(metadata.blocker) || missingInfoSignal || blockedSignal);
+  const matchedLifecycleStates: PreparedCardState[] = [
+    completed ? "completed" : null,
+    dirtyHandoff ? "dirty_worktree_handoff" : null,
+    waitingApproval ? "waiting_approval" : null,
+    blockedMissingInfo ? "blocked_missing_info" : null,
+    needsResume ? "needs_resume" : null,
+    watchingExternalCheck ? "watching_external_check" : null,
+    readyForReview ? "ready_for_review" : null
+  ].filter((state): state is PreparedCardState => Boolean(state));
+  const evidenceReasonCodes = evidenceState !== "ready" ? [`lifecycle:${evidenceState}`] : [];
+  const conflict = completed && matchedLifecycleStates.some((state) => state !== "completed");
+  if (conflict) {
+    return {
+      state: "unknown_lifecycle",
+      reasonCodes: unique([
+        "semantic_lifecycle",
+        "lifecycle:unknown_lifecycle",
+        "lifecycle_conflict",
+        ...matchedLifecycleStates.map((state) => `lifecycle:${state}`),
+        ...evidenceReasonCodes,
+        ...sourceReasonCodes
+      ]),
+      metadataSignalHash
+    };
+  }
+  const semanticState: PreparedCardState | null = dirtyHandoff
+    ? "dirty_worktree_handoff"
+    : waitingApproval
+      ? "waiting_approval"
+      : blockedMissingInfo
+        ? "blocked_missing_info"
+        : needsResume
+          ? "needs_resume"
+          : watchingExternalCheck
+            ? "watching_external_check"
+            : readyForReview
+              ? "ready_for_review"
+              : completed
+                ? "completed"
+                : null;
+  if (semanticState === "completed" && evidenceState !== "ready") {
+    return {
+      state: evidenceState,
+      reasonCodes: unique(["semantic_lifecycle", "lifecycle:completed", `lifecycle:${evidenceState}`, ...sourceReasonCodes]),
+      metadataSignalHash
+    };
+  }
+  if (semanticState) {
+    return {
+      state: semanticState,
+      reasonCodes: unique(["semantic_lifecycle", `lifecycle:${semanticState}`, ...evidenceReasonCodes, ...sourceReasonCodes]),
+      metadataSignalHash
+    };
+  }
+  if (evidenceState !== "ready") {
+    return {
+      state: evidenceState,
+      reasonCodes: unique(["semantic_lifecycle", `lifecycle:${evidenceState}`, "lifecycle_signal_missing", ...sourceReasonCodes]),
+      metadataSignalHash
+    };
+  }
+  return {
+    state: "ready",
+    reasonCodes: unique(["semantic_lifecycle", "lifecycle:unknown_lifecycle", "lifecycle_signal_missing"]),
+    metadataSignalHash
+  };
+}
+
+function lifecycleCompletionLike(value: string): boolean {
+  return ["complete", "completed", "done", "closed", "merged", "success", "successful", "succeeded", "passed"].includes(value);
+}
+
+function preparedCardStateLabel(state: PreparedCardState): string {
+  return ({
+    ready: "evidence ready, lifecycle unknown",
+    stale: "stale evidence",
+    partial: "partial evidence",
+    unknown: "unknown evidence",
+    completed: "completed",
+    blocked_missing_info: "blocked missing info",
+    waiting_approval: "waiting approval",
+    watching_external_check: "watching external check",
+    needs_resume: "needs resume",
+    dirty_worktree_handoff: "dirty worktree handoff",
+    stale_or_partial: "stale or partial",
+    ready_for_review: "ready for review",
+    unknown_lifecycle: "unknown lifecycle"
+  } as Record<PreparedCardState, string>)[state] ?? "unknown lifecycle";
+}
+
+function preparedCardConfidence(averageLeafConfidence: number, state: PreparedCardState, evidenceState: PreparedCardState = state): number {
   let confidence = Number.isFinite(averageLeafConfidence) ? averageLeafConfidence : 0.3;
   if (state === "partial") confidence = Math.min(confidence, 0.49);
   if (state === "stale") confidence = Math.min(confidence, 0.49);
   if (state === "unknown") confidence = Math.min(confidence, 0.44);
+  if (state === "stale_or_partial") confidence = Math.min(confidence, 0.49);
+  if (state === "unknown_lifecycle") confidence = Math.min(confidence, 0.44);
+  if (evidenceState === "partial" || evidenceState === "stale" || evidenceState === "stale_or_partial") confidence = Math.min(confidence, 0.49);
+  if (evidenceState === "unknown" || evidenceState === "unknown_lifecycle") confidence = Math.min(confidence, 0.44);
   return Math.max(0.2, Math.min(0.99, Number(confidence.toFixed(2))));
 }
 
@@ -4945,15 +5099,33 @@ function preparedCardNextAction(state: PreparedCardState): string {
   if (state === "ready") return "Use loo_summary_expand for bounded evidence before deciding whether broader session expansion is needed.";
   if (state === "stale") return "Refresh the local prepared-state cache before treating this card as current.";
   if (state === "partial") return "Inspect source coverage and summary leaves before relying on this prepared card.";
+  if (state === "completed") return "No action is needed unless bounded evidence contradicts the completed lifecycle state.";
+  if (state === "blocked_missing_info") return "Inspect bounded evidence and resolve the missing input or blocker before resuming.";
+  if (state === "waiting_approval") return "Inspect the bounded approval context; do not execute without explicit approval.";
+  if (state === "watching_external_check") return "Refresh external check or watcher evidence before deciding the next action.";
+  if (state === "needs_resume") return "Inspect bounded evidence and resume only through the approval-gated control path.";
+  if (state === "dirty_worktree_handoff") return "Inspect handoff evidence and clean or transfer the dirty worktree deliberately.";
+  if (state === "stale_or_partial") return "Refresh or inspect partial prepared-state evidence before relying on this lifecycle card.";
+  if (state === "ready_for_review") return "Review bounded evidence and source refs before marking the lane complete.";
+  if (state === "unknown_lifecycle") return "Inspect summary leaves and session metadata; lifecycle signals are missing or conflicting.";
   return "Inspect summary leaves and source coverage; missing or conflicting authority prevents a ready claim.";
 }
 
 function preparedInboxUrgencyScore(card: PreparedCard, reasonCodes: string[]): number {
   const stateScore = {
     unknown: 88,
+    unknown_lifecycle: 60,
     stale: 82,
+    stale_or_partial: 74,
     partial: 74,
-    ready: 42
+    blocked_missing_info: 94,
+    waiting_approval: 92,
+    dirty_worktree_handoff: 89,
+    watching_external_check: 78,
+    needs_resume: 76,
+    ready_for_review: 68,
+    ready: 42,
+    completed: 18
   } as const;
   const codeScore = reasonCodes.reduce((score, code) => score + ({
     authority_unknown: 8,
@@ -4961,9 +5133,27 @@ function preparedInboxUrgencyScore(card: PreparedCard, reasonCodes: string[]): n
     stale_cache: 8,
     low_confidence: 6,
     filtered_unsafe_rows: 5,
-    needs_attention: 4
+    needs_attention: 4,
+    "lifecycle_conflict": 10,
+    "lifecycle:blocked_missing_info": 8,
+    "lifecycle:waiting_approval": 7,
+    "lifecycle:dirty_worktree_handoff": 7,
+    "lifecycle:watching_external_check": 5,
+    "lifecycle:needs_resume": 5
   }[code] ?? 0), 0);
-  return Math.max(0, Math.min(100, Number((stateScore[card.state] + codeScore + Math.round((1 - card.confidence) * 10)).toFixed(2))));
+  const baseStateScore = stateScore[card.state] ?? 50;
+  return Math.max(0, Math.min(100, Number((baseStateScore + codeScore + Math.round((1 - card.confidence) * 10)).toFixed(2))));
+}
+
+function preparedCardCountsAsPartialSummary(state: PreparedCardState): boolean {
+  return state === "partial"
+    || state === "stale_or_partial"
+    || state === "blocked_missing_info"
+    || state === "waiting_approval"
+    || state === "watching_external_check"
+    || state === "needs_resume"
+    || state === "dirty_worktree_handoff"
+    || state === "ready_for_review";
 }
 
 function preparedCardReadActions(): PreparedCardsReport["actionsPerformed"] {
