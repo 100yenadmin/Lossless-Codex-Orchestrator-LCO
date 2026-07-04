@@ -616,12 +616,9 @@ export type ControlProofState = {
   turnId?: string;
   responseStatus?: string;
   nextProof?: {
-    tool: "loo_codex_app_server_threads";
+    tool: "loo_codex_app_server_threads" | "loo_codex_start_thread_post_create_proof";
     execute: false;
-    args: {
-      read_thread_id: string;
-      limit: 20;
-    };
+    args: Record<string, string | number>;
     reason: string;
     stopConditions: string[];
   };
@@ -916,13 +913,27 @@ function liveProofState(input: {
     threadId: proofThreadId,
     ...(turnId ? { turnId } : {}),
     ...(responseStatus ? { responseStatus } : {}),
-    ...(acceptedByTransport && !persisted && proofThreadId !== "new_thread" ? { nextProof: {
-      tool: "loo_codex_app_server_threads",
-      execute: false,
-      args: { read_thread_id: proofThreadId, limit: 20 },
-      reason: "Bounded read-only follow-up proof is required before treating transport acceptance as durable Codex execution or persistence.",
-      stopConditions: ["execute_false_only", "raw_transcript_not_read", "do_not_claim_completed_or_persisted_until_durable_read"]
-    } } : {}),
+    ...(acceptedByTransport && !persisted && proofThreadId !== "new_thread" ? {
+      nextProof: input.method === "thread/start"
+        ? {
+            tool: "loo_codex_start_thread_post_create_proof",
+            execute: false,
+            args: {
+              created_thread_id: proofThreadId,
+              created_thread_ref: `codex_thread:${proofThreadId}`,
+              limit: 20
+            },
+            reason: "Run the bounded read-only post-create proof before treating transport acceptance as durable Codex thread creation or persistence.",
+            stopConditions: ["execute_false_only", "raw_transcript_not_read", "do_not_claim_created_or_persisted_until_post_create_proof"]
+          }
+        : {
+            tool: "loo_codex_app_server_threads",
+            execute: false,
+            args: { read_thread_id: proofThreadId, limit: 20 },
+            reason: "Bounded read-only follow-up proof is required before treating transport acceptance as durable Codex execution or persistence.",
+            stopConditions: ["execute_false_only", "raw_transcript_not_read", "do_not_claim_completed_or_persisted_until_durable_read"]
+          }
+    } : {}),
     callerInstruction: acceptedByTransport
       ? "Transport acceptance is not durable execution. Run the bounded follow-up proof before claiming the turn or thread completed, persisted, or is safe to build on."
       : "Codex transport did not accept the control request. Do not retry live control without a fresh dry-run and approval.",

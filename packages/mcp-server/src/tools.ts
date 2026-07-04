@@ -67,6 +67,7 @@ import {
   desktopFallbackDiagnostics,
   desktopSee,
   isDesktopBackend,
+  redactValue,
   type AuditStore,
   type DesktopBackend,
   type CodexClient,
@@ -993,8 +994,18 @@ function publicSafeDiagnosticText(value: string, rawPath?: string): string {
   let text = value;
   if (rawPath) text = text.split(rawPath).join(publicSafeLocalPath(rawPath, "local-file"));
   return text
+    .replace(/~\/[^\s"',)]+/g, "<redacted-local-path>")
     .replace(/(?:\/Volumes\/|\/Users\/|\/private\/|\/var\/folders\/|\/tmp\/)[^\s"',)]+/g, "<redacted-local-path>")
-    .replace(/[A-Za-z]:\\[^\s"',)]+/g, "<redacted-local-path>");
+    .replace(/[A-Za-z]:\\[^\s"',)]+/g, "<redacted-local-path>")
+    .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "<redacted-secret>")
+    .replace(/\bnpm_[A-Za-z0-9]{20,}\b/g, "<redacted-secret>")
+    .replace(/\bgithub_pat_[A-Za-z0-9_]{20,}\b/g, "<redacted-secret>")
+    .replace(/\bgh[pousr]_[A-Za-z0-9_]{20,}\b/g, "<redacted-secret>")
+    .replace(/\bsk-[A-Za-z0-9_-]{10,}\b/g, "<redacted-secret>")
+    .replace(/\bPRIVATE_CANARY[A-Za-z0-9_:-]*/g, "<redacted-secret>")
+    .replace(/(Bearer\s+)[A-Za-z0-9._-]{10,}/gi, "$1<redacted-secret>")
+    .replace(/(Basic\s+)[A-Za-z0-9._~+/-]+=*/gi, "$1<redacted-secret>")
+    .replace(/(\bauthorization\s*:\s*)[^\r\n"'`)]+/gi, "$1<redacted-secret>");
 }
 
 function rawLocalPathLike(value: string): boolean {
@@ -1302,8 +1313,8 @@ async function createStartThreadPostCreateProof(options: {
   const createdThreadId = startProofThreadId(options.input);
   if (!createdThreadId) {
     return startProofBase({
-      status: "transport_accepted",
-      reasonCodes: ["created_thread_id_missing", "transport_acceptance_only"],
+      status: "unresolved_unknown",
+      reasonCodes: ["created_thread_id_missing", "post_create_proof_input_missing"],
       createdThreadId: null,
       parentThreadId: optionalString(options.input.parent_thread_id) ?? null
     });
@@ -1332,7 +1343,8 @@ async function createStartThreadPostCreateProof(options: {
   const indexFound = Boolean(description || startProofSearchHasThread(rawSearch, createdThreadId) || startProofSearchHasThread(refSearch, createdThreadId));
   const described = Boolean(description);
   const preparedCardAvailable = Boolean(preparedCard);
-  const persisted = (readProbeOk && indexFound) || preparedCardAvailable;
+  const preparedCardCurrent = Boolean(preparedCard && !preparedCard.stale && preparedCard.state === "ready");
+  const persisted = readProbeOk && indexFound;
   const matchedBy = {
     raw_id: appServerFound || startProofSearchHasThread(rawSearch, createdThreadId),
     codex_thread_ref: appServerFound || startProofSearchHasThread(refSearch, createdThreadId),
@@ -1355,6 +1367,7 @@ async function createStartThreadPostCreateProof(options: {
     indexFound ? "indexed_session_found" : "created_but_unindexed",
     described ? "indexed_description_available" : "indexed_description_missing",
     preparedCardAvailable ? "prepared_card_available" : "prepared_card_missing",
+    preparedCardAvailable && !preparedCardCurrent ? "prepared_card_stale_or_not_ready" : null,
     status === "unresolved_unknown" ? "unresolved_unknown" : null
   ].filter((reason): reason is string => Boolean(reason));
 
@@ -1376,7 +1389,7 @@ async function createStartThreadPostCreateProof(options: {
         title_sanitized: appThread?.titleSanitized ?? appServerThreads.readProbe?.titleSanitized ?? null,
         read_probe_ok: readProbeOk,
         coverage: appServerThreads.sourceCoverage.codexAppServer,
-        errors: appServerThreads.errors.slice(0, 3)
+        errors: publicSafeAppServerErrors(appServerThreads.errors)
       },
       index: {
         found: indexFound,
@@ -1388,14 +1401,24 @@ async function createStartThreadPostCreateProof(options: {
       },
       prepared_state: {
         card_available: preparedCardAvailable,
+        card_current: preparedCardCurrent,
         card_ref: preparedCard?.cardRef ?? null,
         state: preparedCard?.state ?? null,
-        coverage_gap: preparedCardAvailable ? null : "prepared_card_missing",
+        stale: preparedCard?.stale ?? false,
+        coverage_gap: preparedCardAvailable
+          ? preparedCardCurrent ? null : "prepared_card_stale_or_not_ready"
+          : "prepared_card_missing",
         source_coverage: preparedCards.sourceCoverage.preparedCards
       }
     },
     prepared_card_ref: preparedCard?.cardRef ?? null
   };
+}
+
+function publicSafeAppServerErrors(errors: string[]): string[] {
+  return errors
+    .map((error) => publicSafeDiagnosticText(String(redactValue(error))))
+    .slice(0, 3);
 }
 
 function startProofBase(input: {
