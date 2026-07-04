@@ -230,7 +230,16 @@ function createFakeOpenClaw(
   dir: string,
   catalogTools: string[],
   catalogShape: "flat" | "groups" = "flat",
-  options: { dryRunOutputShape?: DryRunOutputShape; wrapDryRunOutput?: boolean; omitFallbackNextToolCall?: boolean; unsafeCollaborationNextSteps?: boolean } = {}
+  options: {
+    dryRunOutputShape?: DryRunOutputShape;
+    wrapDryRunOutput?: boolean;
+    omitFallbackNextToolCall?: boolean;
+    unsafeCollaborationNextSteps?: boolean;
+    searchThreadId?: string;
+    preparedThreadId?: string;
+    queryExpansionTokenBudget?: number;
+    summaryExpansionTokenBudget?: number;
+  } = {}
 ): { bin: string; callsPath: string } {
   const callsPath = join(dir, "calls.jsonl");
   const bin = join(dir, "openclaw-fake.mjs");
@@ -238,6 +247,10 @@ function createFakeOpenClaw(
     ? { groups: [{ id: "plugin:lossless-openclaw-orchestrator", tools: catalogTools.map((id) => ({ id, label: id, source: "plugin" })) }] }
     : { tools: catalogTools.map((name) => ({ name, description: "fake" })) };
   const dryRunOutputShape = options.dryRunOutputShape ?? (options.wrapDryRunOutput ? "both" : "plain");
+  const searchThreadId = options.searchThreadId ?? "thread-1";
+  const preparedThreadId = options.preparedThreadId ?? "thread-1";
+  const queryExpansionTokenBudget = options.queryExpansionTokenBudget;
+  const summaryExpansionTokenBudget = options.summaryExpansionTokenBudget;
   const dryRunDetailsCode = `{ action: "codex_send_message", threadId: toolArgs.thread_id, live: false, approvalAuditId: "loo_audit_test", paramsHash: "params-hash", messageHash: "message-hash", method: "turn/start", approval_audit_id: "loo_audit_test", params_hash: "params-hash", message_hash: "message-hash" }`;
   const dryRunContentCode = `[{ type: "text", text: JSON.stringify(${dryRunDetailsCode}) }]`;
   const dryRunOutputCode = dryRunOutputShape === "both"
@@ -255,12 +268,16 @@ function createFakeOpenClaw(
     : `{ publicSafe: true, readOnly: true, schema: "lco.codex.collaborationNextSteps.v1", steps: [{ threadId: "codex_thread:thread-1", category: "desktop_coherence", status: "ready", toolCall: { tool: "loo_codex_desktop_coherence", args: { thread_id: "thread-1", source_ref: "codex_thread:thread-1" }, execute: false } }], actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false, npmPublished: false, githubReleaseCreated: false } }`;
   writeFileSync(bin, `#!/usr/bin/env node
 import { appendFileSync } from "node:fs";
-const args = process.argv.slice(2);
-const callIndex = args.indexOf("call");
-const method = callIndex >= 0 ? args[callIndex + 1] : "";
-const paramsIndex = args.indexOf("--params");
-const params = paramsIndex >= 0 ? JSON.parse(args[paramsIndex + 1] || "{}") : {};
-appendFileSync(process.env.OPENCLAW_FAKE_CALLS, JSON.stringify({ method, params, args, envTokenPresent: Boolean(process.env.OPENCLAW_GATEWAY_TOKEN) }) + "\\n");
+	const args = process.argv.slice(2);
+	const callIndex = args.indexOf("call");
+	const method = callIndex >= 0 ? args[callIndex + 1] : "";
+	const paramsIndex = args.indexOf("--params");
+	const params = paramsIndex >= 0 ? JSON.parse(args[paramsIndex + 1] || "{}") : {};
+	const searchThreadId = ${JSON.stringify(searchThreadId)};
+	const preparedThreadId = ${JSON.stringify(preparedThreadId)};
+	const queryExpansionTokenBudget = ${queryExpansionTokenBudget === undefined ? "undefined" : JSON.stringify(queryExpansionTokenBudget)};
+	const summaryExpansionTokenBudget = ${summaryExpansionTokenBudget === undefined ? "undefined" : JSON.stringify(summaryExpansionTokenBudget)};
+	appendFileSync(process.env.OPENCLAW_FAKE_CALLS, JSON.stringify({ method, params, args, envTokenPresent: Boolean(process.env.OPENCLAW_GATEWAY_TOKEN) }) + "\\n");
 if (method === "tools.catalog") {
   console.log(JSON.stringify(${JSON.stringify(catalogPayload)}));
   process.exit(0);
@@ -280,18 +297,18 @@ if (method === "tools.invoke") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { ok: true, localOnly: true, toolPrefix: "loo_*" } }));
     process.exit(0);
   }
-  if (name === "loo_search_sessions") {
-    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: [{ sourceRef: "codex_thread:thread-1", threadId: "thread-1", score: 9, snippet: "super-secret-transcript-span" }] }));
-    process.exit(0);
-  }
+	  if (name === "loo_search_sessions") {
+	    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: [{ sourceRef: "codex_thread:" + searchThreadId, threadId: searchThreadId, score: 9, snippet: "super-secret-transcript-span" }] }));
+	    process.exit(0);
+	  }
   if (name === "loo_describe_session") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { threadId: toolArgs.thread_id, sourceRef: "codex_thread:" + toolArgs.thread_id, status: "active", summary: "super-secret-transcript-span" } }));
     process.exit(0);
   }
-  if (name === "loo_expand_query") {
-    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { sourceRef: "codex_thread:thread-1", profile: { name: toolArgs.profile || "brief" }, tokenBudget: toolArgs.token_budget, text: "super-secret-transcript-span" } }));
-    process.exit(0);
-  }
+	  if (name === "loo_expand_query") {
+	    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { sourceRef: "codex_thread:" + searchThreadId, profile: { name: toolArgs.profile || "brief" }, tokenBudget: queryExpansionTokenBudget ?? toolArgs.token_budget, text: "super-secret-transcript-span" } }));
+	    process.exit(0);
+	  }
   if (name === "loo_expand_session") {
     if (!toolArgs.thread_id) {
       console.log(JSON.stringify({ ok: false, toolName: name, source: "plugin", error: { code: "missing_thread_id", message: "thread_id is required" } }));
@@ -304,10 +321,10 @@ if (method === "tools.invoke") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: [{ sourceRef: "codex_thread:" + toolArgs.thread_id, threadId: toolArgs.thread_id, count: 1, text: "super-secret-transcript-span" }] }));
     process.exit(0);
   }
-  if (name === "loo_codex_thread_map") {
-    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { results: [{ sourceRef: "codex_thread:thread-1", threadId: "thread-1", status: "active" }] } }));
-    process.exit(0);
-  }
+	  if (name === "loo_codex_thread_map") {
+	    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { results: [{ sourceRef: "codex_thread:" + searchThreadId, threadId: searchThreadId, status: "active" }] } }));
+	    process.exit(0);
+	  }
   if (name === "loo_recent_sessions") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, cards: [{ threadId: "codex_thread:thread-1" }] } }));
     process.exit(0);
@@ -435,22 +452,22 @@ if (method === "tools.invoke") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.summary.leaves.v1", publicSafe: true, readOnly: true, sourceCoverage: { summaryLeaves: "ok", preparedSourceRanges: "ok" }, summary: { total: 1, returned: 1 }, leaves: [{ schema: "lco.summary.leaf.v1", leafRef: "summary_leaf:50000000000000000000000000000005", threadId: toolArgs.thread_id || "thread-1", leafKind: "final_message", sourceRefs: ["codex_thread:" + (toolArgs.thread_id || "thread-1")], sourceRangeRefs: ["codex_range:50000000000000000000000000000005"], confidence: 0.9, privacyClass: "public_safe_metadata" }], actionsPerformed: { derivedCacheWrite: false, sourceStoreMutation: false, externalWrite: false, liveControl: false, guiMutation: false, rawTranscriptRead: false } } }));
     process.exit(0);
   }
-  if (name === "loo_summary_expand") {
-    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.summary.expansion.v1", publicSafe: true, readOnly: true, root: { leafRef: null, threadId: toolArgs.thread_id || "thread-1" }, limits: { maxDepth: toolArgs.max_depth, maxNodes: toolArgs.max_nodes, tokenBudget: toolArgs.token_budget }, leaves: [{ leafRef: "summary_leaf:50000000000000000000000000000005", threadId: toolArgs.thread_id || "thread-1", sourceRangeRefs: ["codex_range:50000000000000000000000000000005"] }], omissions: [], actionsPerformed: { derivedCacheWrite: false, sourceStoreMutation: false, externalWrite: false, liveControl: false, guiMutation: false, rawTranscriptRead: false } } }));
-    process.exit(0);
-  }
+	  if (name === "loo_summary_expand") {
+	    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.summary.expansion.v1", publicSafe: true, readOnly: true, root: { leafRef: null, threadId: preparedThreadId }, limits: { maxDepth: toolArgs.max_depth, maxNodes: toolArgs.max_nodes, tokenBudget: summaryExpansionTokenBudget ?? toolArgs.token_budget }, leaves: [{ leafRef: "summary_leaf:50000000000000000000000000000005", threadId: preparedThreadId, sourceRangeRefs: ["codex_range:50000000000000000000000000000005"] }], omissions: [], actionsPerformed: { derivedCacheWrite: false, sourceStoreMutation: false, externalWrite: false, liveControl: false, guiMutation: false, rawTranscriptRead: false } } }));
+	    process.exit(0);
+	  }
   if (name === "loo_prepared_state_status") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.preparedState.status.v1", publicSafe: true, readOnly: true, sourceCoverage: { summaryLeaves: "ok", preparedCards: "ok", preparedInboxItems: "ok", watcherObservations: "not_configured" }, summary: { summaryLeaves: 1, cards: 1, inboxItems: 1, staleCards: 0, partialCards: 0, unknownCards: 0, lowConfidenceCards: 0 }, actionsPerformed: { derivedCacheWrite: false, sourceStoreMutation: false, externalWrite: false, liveControl: false, guiMutation: false, rawTranscriptRead: false } } }));
     process.exit(0);
   }
-  if (name === "loo_prepared_cards") {
-    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.prepared.cards.v1", publicSafe: true, readOnly: true, sourceCoverage: { preparedCards: "ok", summaryLeaves: "ok", watcherObservations: "not_configured" }, summary: { total: 1, returned: 1, stale: 0, partial: 0, unknown: 0, lowConfidence: 0 }, cards: [{ schema: "lco.prepared.card.v1", cardRef: "prepared_card:50000000000000000000000000000005", targetRef: "codex_thread:" + (toolArgs.thread_id || "thread-1"), cardKind: "codex_session", title: "Thread 1", summary: "Public-safe prepared card.", nextAction: "Review bounded summary evidence.", sourceRefs: ["codex_thread:" + (toolArgs.thread_id || "thread-1"), "summary_leaf:50000000000000000000000000000005"], sourceRangeRefs: ["codex_range:50000000000000000000000000000005"], sourceRangeRefsOmitted: 2, authorityCoverage: { summaryLeaves: { status: "ok", leafCount: 1, rangeCount: 3 }, sessionMetadata: { status: "ok" }, watcherObservations: { status: "not_configured" } }, confidence: 0.9, freshnessAt: "2026-07-01T12:00:00.000Z", stale: false, state: "ready", reasonCodes: ["summary_leaves_ready"], privacyClass: "public_safe_metadata" }], actionsPerformed: { derivedCacheWrite: false, sourceStoreMutation: false, externalWrite: false, liveControl: false, guiMutation: false, rawTranscriptRead: false } } }));
-    process.exit(0);
-  }
-  if (name === "loo_prepared_inbox") {
-    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.prepared.inbox.v1", publicSafe: true, readOnly: true, sourceCoverage: { preparedCards: "ok", summaryLeaves: "ok", watcherObservations: "not_configured" }, summary: { total: 1, returned: 1, critical: 0, high: 1, lowConfidence: 0 }, items: [{ schema: "lco.prepared.inboxItem.v1", itemRef: "prepared_inbox:50000000000000000000000000000005", cardRef: "prepared_card:50000000000000000000000000000005", targetRef: "codex_thread:" + (toolArgs.thread_id || "thread-1"), urgencyScore: 80, state: "ready", reasonCodes: ["summary_leaves_ready"], sourceRefs: ["codex_thread:" + (toolArgs.thread_id || "thread-1"), "prepared_card:50000000000000000000000000000005"], execute: false }], actionsPerformed: { derivedCacheWrite: false, sourceStoreMutation: false, externalWrite: false, liveControl: false, guiMutation: false, rawTranscriptRead: false } } }));
-    process.exit(0);
-  }
+	  if (name === "loo_prepared_cards") {
+	    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.prepared.cards.v1", publicSafe: true, readOnly: true, sourceCoverage: { preparedCards: "ok", summaryLeaves: "ok", watcherObservations: "not_configured" }, summary: { total: 1, returned: 1, stale: 0, partial: 0, unknown: 0, lowConfidence: 0 }, cards: [{ schema: "lco.prepared.card.v1", cardRef: "prepared_card:50000000000000000000000000000005", targetRef: "codex_thread:" + preparedThreadId, cardKind: "codex_session", title: "Thread 1", summary: "Public-safe prepared card.", nextAction: "Review bounded summary evidence.", sourceRefs: ["codex_thread:" + preparedThreadId, "summary_leaf:50000000000000000000000000000005"], sourceRangeRefs: ["codex_range:50000000000000000000000000000005"], sourceRangeRefsOmitted: 2, authorityCoverage: { summaryLeaves: { status: "ok", leafCount: 1, rangeCount: 3 }, sessionMetadata: { status: "ok" }, watcherObservations: { status: "not_configured" } }, confidence: 0.9, freshnessAt: "2026-07-01T12:00:00.000Z", stale: false, state: "ready", reasonCodes: ["summary_leaves_ready"], privacyClass: "public_safe_metadata" }], actionsPerformed: { derivedCacheWrite: false, sourceStoreMutation: false, externalWrite: false, liveControl: false, guiMutation: false, rawTranscriptRead: false } } }));
+	    process.exit(0);
+	  }
+	  if (name === "loo_prepared_inbox") {
+	    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.prepared.inbox.v1", publicSafe: true, readOnly: true, sourceCoverage: { preparedCards: "ok", summaryLeaves: "ok", watcherObservations: "not_configured" }, summary: { total: 1, returned: 1, critical: 0, high: 1, lowConfidence: 0 }, items: [{ schema: "lco.prepared.inboxItem.v1", itemRef: "prepared_inbox:50000000000000000000000000000005", cardRef: "prepared_card:50000000000000000000000000000005", targetRef: "codex_thread:" + preparedThreadId, urgencyScore: 80, state: "ready", reasonCodes: ["summary_leaves_ready"], sourceRefs: ["codex_thread:" + preparedThreadId, "prepared_card:50000000000000000000000000000005"], execute: false }], actionsPerformed: { derivedCacheWrite: false, sourceStoreMutation: false, externalWrite: false, liveControl: false, guiMutation: false, rawTranscriptRead: false } } }));
+	    process.exit(0);
+	  }
   if (name === "loo_codex_control_dry_run") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: ${dryRunOutputCode} }));
     process.exit(0);
@@ -671,6 +688,11 @@ test("OpenClaw tool smoke invokes required loo tools through gateway call and wr
       "plan_lookup",
       "final_message_lookup",
       "touched_files_lookup",
+      "prepared_state_status",
+      "prepared_cards",
+      "prepared_inbox",
+      "summary_leaf_lookup",
+      "summary_expand",
       "dry_run_audit"
     ]);
     assert.equal(report.agentReasoning?.dryRunApprovalAuditId, "loo_audit_test");
@@ -691,6 +713,46 @@ test("OpenClaw tool smoke invokes required loo tools through gateway call and wr
     assert.equal(calls.find((call) => call.params.name === "loo_prepared_inbox")?.params.args?.thread_id, "thread-1");
     assert.equal(calls.find((call) => call.params.name === "loo_summary_expand")?.params.args?.thread_id, "thread-1");
     assert.equal(calls.some((call) => call.args.includes("--token")), false);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke anchors agent reasoning to prepared-state evidence", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-prepared-priority-"));
+  const evidencePath = join(dir, "tool-smoke.json");
+  const { bin, callsPath } = createFakeOpenClaw(dir, DEFAULT_REQUIRED_TOOL_CALLS, "flat", {
+    searchThreadId: "search-thread",
+    preparedThreadId: "prepared-thread",
+    queryExpansionTokenBudget: 4000,
+    summaryExpansionTokenBudget: 1000
+  });
+
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      profile: "lco-issue-413",
+      sessionKey: "agent:main:lco-issue-413",
+      evidencePath,
+      query: "Proposed plan",
+      tokenBudget: 4000
+    });
+
+    assert.equal(report.ok, true);
+    assert.equal(report.agentReasoning?.selectedThreadId, "prepared-thread");
+    assert.equal(report.agentReasoning?.expansionTokenBudget, 1000);
+    assert.equal(report.agentReasoning?.expansionProfile, undefined);
+    assert.equal(report.agentReasoning?.sourceRefs[0], "prepared_inbox:50000000000000000000000000000005");
+    assert.equal(report.agentReasoning?.sourceRefs.includes("codex_thread:prepared-thread"), true);
+    assert.equal(report.agentReasoning?.sourceRefs.includes("prepared_card:50000000000000000000000000000005"), true);
+    assert.equal(report.agentReasoning?.sourceRefs.includes("summary_leaf:50000000000000000000000000000005"), true);
+    assert.equal(report.agentReasoning?.sourceRefs.includes("codex_thread:search-thread"), false);
+    assert.equal(report.agentReasoning?.workflowEvidence.includes("prepared_inbox"), true);
+    assert.equal(report.agentReasoning?.workflowEvidence.includes("summary_expand"), true);
+    assert.equal(report.agentReasoning?.rawTranscriptRead, false);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;

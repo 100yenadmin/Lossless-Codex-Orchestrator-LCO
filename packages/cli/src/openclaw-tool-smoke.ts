@@ -308,10 +308,18 @@ function buildAgentReasoning(
   const byTool = new Map(invocations.map((invocation) => [invocation.toolName, invocation]));
   const search = byTool.get("loo_search_sessions");
   const describe = byTool.get("loo_describe_session");
-  const expand = byTool.get("loo_expand_query") ?? byTool.get("loo_expand_session");
+  const preparedCards = byTool.get("loo_prepared_cards");
+  const preparedInbox = byTool.get("loo_prepared_inbox");
+  const summaryExpand = byTool.get("loo_summary_expand");
+  const expand = summaryExpand ?? byTool.get("loo_expand_query") ?? byTool.get("loo_expand_session");
   const dryRun = byTool.get("loo_codex_control_dry_run");
-  const sourceRefs = [...new Set(invocations.flatMap((invocation) => invocation.summary.sourceRefs ?? []))].slice(0, 5);
-  const selectedThreadId = describe?.summary.threadId || search?.summary.threadId || dryRun?.summary.threadId;
+  const sourceRefs = prioritizedReasoningSourceRefs(invocations, byTool).slice(0, 5);
+  const selectedThreadId = preparedInbox?.summary.threadId
+    || preparedCards?.summary.threadId
+    || summaryExpand?.summary.threadId
+    || describe?.summary.threadId
+    || search?.summary.threadId
+    || dryRun?.summary.threadId;
   const workflowEvidence = [
     ...(byTool.get("loo_doctor")?.ok ? ["doctor_ready"] : []),
     ...(sourceRefs.length ? ["search_source_ref"] : []),
@@ -320,6 +328,11 @@ function buildAgentReasoning(
     ...(byTool.get("loo_codex_plans")?.ok ? ["plan_lookup"] : []),
     ...(byTool.get("loo_codex_final_messages")?.ok ? ["final_message_lookup"] : []),
     ...(byTool.get("loo_codex_touched_files")?.ok ? ["touched_files_lookup"] : []),
+    ...(byTool.get("loo_prepared_state_status")?.ok ? ["prepared_state_status"] : []),
+    ...(byTool.get("loo_prepared_cards")?.ok ? ["prepared_cards"] : []),
+    ...(byTool.get("loo_prepared_inbox")?.ok ? ["prepared_inbox"] : []),
+    ...(byTool.get("loo_summary_leaves")?.ok ? ["summary_leaf_lookup"] : []),
+    ...(byTool.get("loo_summary_expand")?.ok ? ["summary_expand"] : []),
     ...(dryRun?.summary.approvalAuditId && dryRun.summary.live === false ? ["dry_run_audit"] : [])
   ];
 
@@ -338,6 +351,26 @@ function buildAgentReasoning(
     ...(dryRun?.summary.live !== undefined ? { dryRunLive: dryRun.summary.live } : {}),
     rawTranscriptRead: false
   };
+}
+
+function prioritizedReasoningSourceRefs(
+  invocations: OpenClawToolInvocationSummary[],
+  byTool: Map<string, OpenClawToolInvocationSummary>
+): string[] {
+  const refs: string[] = [];
+  const seen = new Set<string>();
+  const addRefs = (invocation: OpenClawToolInvocationSummary | undefined) => {
+    for (const ref of invocation?.summary.sourceRefs ?? []) {
+      if (seen.has(ref)) continue;
+      seen.add(ref);
+      refs.push(ref);
+    }
+  };
+  for (const toolName of ["loo_prepared_inbox", "loo_prepared_cards", "loo_summary_expand", "loo_summary_leaves"]) {
+    addRefs(byTool.get(toolName));
+  }
+  for (const invocation of invocations) addRefs(invocation);
+  return refs;
 }
 
 function annotateRequestedExpansionProfile(summary: OpenClawToolInvocationSummary, args: Record<string, unknown> | null): void {
