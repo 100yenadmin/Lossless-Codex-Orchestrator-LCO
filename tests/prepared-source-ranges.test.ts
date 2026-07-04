@@ -343,7 +343,7 @@ test("native Codex subagent result adapter imports public-safe advisory prepared
           provenance: {
             issue: 447,
             pr: 0,
-            branch: "issue-447-native-subagent-results"
+            branch: "feature/issue-447-native-subagent-results"
           },
           touchedFiles: [
             "packages/core/src/index.ts",
@@ -353,12 +353,24 @@ test("native Codex subagent result adapter imports public-safe advisory prepared
           observedAt: "2026-07-04T10:30:00Z",
           rawTranscriptPath: "/Users/lume/.codex/sessions/private.jsonl",
           transcriptText: "PRIVATE_CANARY_TOKEN_1234567890 raw hidden prompt text"
+        },
+        {
+          resultId: "worker:123",
+          title: "Worker 123 safe native proof",
+          summary: "Worker 123 retained public summary.",
+          finalReport: "Final: worker 123 retained public final report.",
+          provenance: {
+            issue: 447,
+            branch: "release/1.2"
+          },
+          touchedFiles: ["packages/core/src/index.ts"],
+          observedAt: "2026-07-04T10:32:00Z"
         }
       ],
       now: "2026-07-04T10:31:00Z"
     });
 
-    assert.equal(result.indexedResults, 1);
+    assert.equal(result.indexedResults, 2);
     assert.deepEqual(result.rejectedResults, []);
     assert.equal(result.actionsPerformed.derivedCacheWrite, true);
     assert.equal(result.actionsPerformed.sourceStoreMutation, false);
@@ -368,9 +380,14 @@ test("native Codex subagent result adapter imports public-safe advisory prepared
     const serialized = JSON.stringify(report);
     assert.equal(report.sourceCoverage.preparedSourceRanges, "ok");
     assert.equal(report.ranges.length > 0, true);
-    assert.equal(report.ranges.some((range) => range.sourceRef.startsWith("codex_subagent_result:")), true);
+    assert.equal(report.ranges.every((range) => range.sourceRef.startsWith("codex_subagent_result:")), true);
+    assert.equal(report.ranges.every((range) => range.threadId.startsWith("subagent_")), true);
+    assert.equal(report.ranges.some((range) => range.sourceRef === "codex_subagent_result:worker:123"), true);
+    assert.equal(report.ranges.some((range) => range.threadId === "subagent_worker:123"), true);
     assert.equal(report.ranges.some((range) => range.rangeKind === "final_message"), true);
     assert.equal(report.ranges.some((range) => range.reasonCodes.includes("native_codex_subagent_result")), true);
+    assert.equal(serialized.includes("codex_subagent_result:worker:123"), true);
+    assert.equal(serialized.includes("codex_subagent_result:worker%3A123"), false);
     assert.equal(serialized.includes("/Users/lume"), false);
     assert.equal(serialized.includes("PRIVATE_CANARY_TOKEN"), false);
     assert.equal(serialized.includes("customer-secret"), false);

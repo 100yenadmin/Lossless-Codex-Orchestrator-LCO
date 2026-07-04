@@ -12250,7 +12250,7 @@ function isSafeIsoTimestamp(value: string): boolean {
 }
 
 function nativeCodexSubagentResultRef(resultId: string): string {
-  return `codex_subagent_result:${encodeURIComponent(resultId)}`;
+  return `codex_subagent_result:${resultId}`;
 }
 
 function safeNativeCodexSubagentResultId(value: string): string {
@@ -12305,8 +12305,16 @@ function publicNativeCodexSubagentProvenance(value: unknown): string[] {
   const branch = safeNullableFixtureString(value.branch);
   if (issue > 0) out.push(`issue:${issue}`);
   if (pr > 0) out.push(`pr:${pr}`);
-  if (branch && /^[A-Za-z0-9._/-]{1,160}$/.test(branch) && !looksSensitiveRefLike(branch)) out.push(`branch:${publicSafeText(branch, 160)}`);
+  if (branch && isPublicSafeBranchRef(branch)) out.push(`branch:${publicSafeText(branch, 160)}`);
   return out.slice(0, 12);
+}
+
+function isPublicSafeBranchRef(value: string): boolean {
+  return /^(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]{1,160}$/.test(value)
+    && !value.includes("..")
+    && !/^(?:Users|Volumes|private|tmp|var|home|root)(?:\/|$)/i.test(value)
+    && !/(?:^|\/)\.(?:codex|ssh|aws|config)(?:\/|$)/i.test(value)
+    && !/(?:npm_[A-Za-z0-9]{10,}|sk-[A-Za-z0-9_-]{10,}|ghp_[A-Za-z0-9]{10,}|github_pat_[A-Za-z0-9_]{10,}|xox[baprs]-[A-Za-z0-9-]{10,}|PRIVATE_CANARY)/i.test(value);
 }
 
 function publicSafeRelativePaths(values: unknown): string[] {
