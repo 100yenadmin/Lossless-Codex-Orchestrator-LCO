@@ -58,6 +58,11 @@
     "requires_reject_raw_replacement_history_packet": true,
     "requires_reject_transcript_path_packet": true,
     "requires_reject_raw_transcript_text_packet": true,
+    "requires_reject_sqlite_path_or_row_dump_packet": true,
+    "requires_reject_screenshot_secret_or_customer_data_packet": true,
+    "requires_reject_history_rewrite_instruction_packet": true,
+    "requires_reject_unbounded_summary_text_packet": true,
+    "requires_reject_non_opaque_source_refs_packet": true,
     "requires_no_history_rewrite": true,
     "requires_lco_sidecar_only_storage": true,
     "max_raw_transcript_spans": 0,
@@ -119,8 +124,7 @@
         "modelCompactionRun": false
       },
       "sourceRefs": [
-        "codex_event:019f-compaction-event",
-        "codex_range:019f-compaction-range"
+        "codex_thread:019f-compaction-proposal"
       ],
       "omitted": [
         "raw_replacement_history",
@@ -134,26 +138,22 @@
       "storage": "lco_sidecar_only",
       "createsAdvisorySummaryLeaf": true,
       "expectedAdvisorySummaryLeaf": {
-        "leaf_kind": "codex_compaction_summary",
-        "summary_text": "Bounded Codex-generated compaction summary excerpt with private details omitted and source refs preserved.",
-        "input_hash": "sha256:2d4a6bfd5578cd0f932d595a5e716365a58dbce16664cf62d8b05f347ea7e384",
-        "output_hash": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "leaf_kind": "event_metadata",
+        "summary_text": "Event metadata evidence: 1 prepared source range available. Expand by summary leaf or source range for bounded evidence.",
+        "input_hash": "6554d8a3a426d20a4e59b0763a6fa783",
+        "output_hash": "0123456789abcdef0123456789abcdef",
         "source_refs": [
-          "codex_event:019f-compaction-event",
-          "codex_range:019f-compaction-range"
+          "codex_thread:019f-compaction-proposal"
         ],
         "source_range_refs": [
-          "codex_range:019f-compaction-range"
+          "codex_range:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         ],
         "privacy_class": "public_safe_metadata",
-        "omission_status": "omitted_private_details",
+        "omission_status": "metadata_only",
         "authority_coverage": {
-          "status": "advisory",
-          "source": "codex_native_compaction_packet",
-          "sourceRefs": [
-            "codex_event:019f-compaction-event",
-            "codex_range:019f-compaction-range"
-          ]
+          "status": "partial",
+          "source": "prepared_source_ranges",
+          "rangeCount": 1
         }
       }
     },
@@ -191,6 +191,65 @@
         "disallowedFields": [
           "rawTranscriptText",
           "rawMessage"
+        ]
+      },
+      {
+        "packet_kind": "CompactionCaptured",
+        "source": "codex_native",
+        "rejected": true,
+        "reason": "sqlite_path_or_row_dump_present",
+        "sqlitePath": "<redacted-sqlite-path>",
+        "sqliteRowDump": "<redacted-sqlite-row-dump>",
+        "disallowedFields": [
+          "sqlitePath",
+          "sqliteRowDump"
+        ]
+      },
+      {
+        "packet_kind": "CompactionCaptured",
+        "source": "codex_native",
+        "rejected": true,
+        "reason": "screenshot_secret_or_customer_data_present",
+        "screenshotRef": "<redacted-screenshot-ref>",
+        "secretValue": "<redacted-secret>",
+        "customerData": "<redacted-customer-data>",
+        "disallowedFields": [
+          "screenshotRef",
+          "secretValue",
+          "customerData"
+        ]
+      },
+      {
+        "packet_kind": "CompactionCaptured",
+        "source": "codex_native",
+        "rejected": true,
+        "reason": "history_rewrite_instruction_present",
+        "historyRewriteInstruction": "<redacted-history-rewrite-instruction>",
+        "disallowedFields": [
+          "historyRewriteInstruction"
+        ]
+      },
+      {
+        "packet_kind": "CompactionCaptured",
+        "source": "codex_native",
+        "rejected": true,
+        "reason": "unbounded_summary_text_present",
+        "summaryText": "<redacted-unbounded-summary-text>",
+        "excerptCharLimit": null,
+        "disallowedFields": [
+          "summaryText"
+        ]
+      },
+      {
+        "packet_kind": "CompactionCaptured",
+        "source": "codex_native",
+        "rejected": true,
+        "reason": "non_opaque_source_refs_present",
+        "sourceRefs": [
+          "raw_transcript_offset:line-1"
+        ],
+        "disallowedFields": [
+          "sourceRefs"
         ]
       }
     ]

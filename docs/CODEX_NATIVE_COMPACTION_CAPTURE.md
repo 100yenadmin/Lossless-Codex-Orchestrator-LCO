@@ -62,15 +62,22 @@ stores, rewrite Codex history, or make the LCO derived cache authoritative.
 When a future Codex-native sanitized packet passes the rejection rules, LCO may
 materialize an advisory summary leaf:
 
-- `leaf_kind`: `codex_compaction_summary`
-- `summary_text`: bounded excerpt only
-- `input_hash`: hash of the sanitized packet payload
-- `output_hash`: summary hash from the packet
-- `source_refs`: opaque thread/event/range refs from Codex
-- `source_range_refs`: opaque range refs when supplied
+- `leaf_kind`: a currently supported metadata-only leaf kind, such as
+  `event_metadata`, until the `loo_summary_leaves` schema explicitly adds a
+  dedicated compaction-summary kind
+- `summary_text`: the current metadata-only summary-leaf text for that kind;
+  the bounded excerpt stays on the sanitized packet until a dedicated leaf kind
+  is added
+- `input_hash`: unprefixed 32-hex hash of the sanitized packet payload, excluding
+  scenario-only materialization controls
+- `output_hash`: unprefixed 32-hex digest derived from the packet summary hash
+- `source_refs`: opaque `codex_thread:` refs accepted by current summary-leaf
+  validation
+- `source_range_refs`: opaque `codex_range:` refs when supplied
 - `privacy_class`: public-safe metadata or stricter
-- `omission_status`: explicit omissions from the packet
-- `authority_coverage`: advisory, not source authority
+- `omission_status`: `metadata_only`
+- `authority_coverage`: prepared-source-ranges coverage only; advisory, not
+  source authority
 
 If the packet has only a marker and no sanitized summary payload, LCO should
 create at most a marker leaf or marker packet with `summaryCaptured: false`.

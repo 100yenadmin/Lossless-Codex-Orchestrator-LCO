@@ -28,6 +28,13 @@ type CompactionPacketFixture = {
   publicSafe?: unknown;
   actionsPerformed?: unknown;
   sourceRefs?: unknown;
+  sqlitePath?: unknown;
+  sqliteRowDump?: unknown;
+  screenshotRef?: unknown;
+  secretValue?: unknown;
+  customerData?: unknown;
+  historyRewriteInstruction?: unknown;
+  summaryText?: unknown;
   omitted?: unknown;
   mutationClasses?: unknown;
   storage?: unknown;
@@ -94,8 +101,12 @@ function stableStringify(value: unknown): string {
 
 function sanitizedPacketPayloadHash(packet: CompactionPacketFixture | undefined): string {
   assert.ok(packet);
-  const { expectedAdvisorySummaryLeaf: _expectedAdvisorySummaryLeaf, ...payload } = packet;
-  return `sha256:${createHash("sha256").update(stableStringify(payload)).digest("hex")}`;
+  const {
+    createsAdvisorySummaryLeaf: _createsAdvisorySummaryLeaf,
+    expectedAdvisorySummaryLeaf: _expectedAdvisorySummaryLeaf,
+    ...payload
+  } = packet;
+  return createHash("sha256").update(stableStringify(payload)).digest("hex").slice(0, 32);
 }
 
 test("Codex-native compaction proposal documents marker-only reality and public claim boundary", () => {
@@ -150,6 +161,11 @@ test("Codex-native compaction proposal scenario validates marker fixture and san
   assert.equal(scenario.metrics?.requires_reject_raw_replacement_history_packet, true);
   assert.equal(scenario.metrics?.requires_reject_transcript_path_packet, true);
   assert.equal(scenario.metrics?.requires_reject_raw_transcript_text_packet, true);
+  assert.equal(scenario.metrics?.requires_reject_sqlite_path_or_row_dump_packet, true);
+  assert.equal(scenario.metrics?.requires_reject_screenshot_secret_or_customer_data_packet, true);
+  assert.equal(scenario.metrics?.requires_reject_history_rewrite_instruction_packet, true);
+  assert.equal(scenario.metrics?.requires_reject_unbounded_summary_text_packet, true);
+  assert.equal(scenario.metrics?.requires_reject_non_opaque_source_refs_packet, true);
   assert.equal(scenario.metrics?.max_raw_transcript_spans, 0);
   assert.equal(scenario.metrics?.max_raw_transcript_paths, 0);
   assert.equal(scenario.metrics?.max_raw_replacement_history_items, 0);
@@ -192,32 +208,40 @@ test("Codex-native compaction proposal scenario validates marker fixture and san
   assert.equal(sanitizedPacket?.createsAdvisorySummaryLeaf, true);
   assert.deepEqual(sanitizedPacket?.mutationClasses, ["derived_cache"]);
   assert.equal(sanitizedPacket?.storage, "lco_sidecar_only");
-  assert.match(JSON.stringify(sanitizedPacket?.sourceRefs), /codex_(?:range|event):/);
+  assert.deepEqual(sanitizedPacket?.sourceRefs, ["codex_thread:019f-compaction-proposal"]);
   assert.match(JSON.stringify(sanitizedPacket?.omitted), /raw_replacement_history/);
   assert.match(JSON.stringify(sanitizedPacket?.omitted), /transcript_path/);
   const advisoryLeaf = sanitizedPacket?.expectedAdvisorySummaryLeaf;
-  assert.equal(advisoryLeaf?.leaf_kind, "codex_compaction_summary");
+  assert.equal(advisoryLeaf?.leaf_kind, "event_metadata");
   const summaryText = advisoryLeaf?.summary_text;
-  assert.equal(summaryText, summaryExcerpt);
-  assert.equal((summaryText as string).length <= (excerptCharLimit as number), true);
-  assert.match(String(advisoryLeaf?.input_hash), /^sha256:[0-9a-f]{64}$/);
-  assert.match(String(advisoryLeaf?.output_hash), /^sha256:[0-9a-f]{64}$/);
+  assert.equal(
+    summaryText,
+    "Event metadata evidence: 1 prepared source range available. Expand by summary leaf or source range for bounded evidence."
+  );
+  assert.match(String(advisoryLeaf?.input_hash), /^[0-9a-f]{32}$/);
+  assert.match(String(advisoryLeaf?.output_hash), /^[0-9a-f]{32}$/);
   assert.equal(advisoryLeaf?.input_hash, sanitizedPacketPayloadHash(sanitizedPacket));
-  assert.equal(advisoryLeaf?.output_hash, sanitizedPacket?.summaryHash);
+  assert.equal(advisoryLeaf?.output_hash, String(sanitizedPacket?.summaryHash).replace(/^sha256:/, "").slice(0, 32));
   assert.notEqual(advisoryLeaf?.input_hash, sanitizedPacket?.summaryHash);
   assert.notEqual(advisoryLeaf?.input_hash, advisoryLeaf?.output_hash);
-  assert.deepEqual(advisoryLeaf?.source_refs, ["codex_event:019f-compaction-event", "codex_range:019f-compaction-range"]);
-  assert.deepEqual(advisoryLeaf?.source_range_refs, ["codex_range:019f-compaction-range"]);
+  assert.deepEqual(advisoryLeaf?.source_refs, sanitizedPacket?.sourceRefs);
+  assert.equal(
+    (advisoryLeaf?.source_refs as unknown[] | undefined)?.every((ref) => /^codex_thread:[A-Za-z0-9._:-]{1,160}$/.test(String(ref))),
+    true
+  );
+  assert.deepEqual(advisoryLeaf?.source_range_refs, ["codex_range:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]);
   assert.equal(advisoryLeaf?.privacy_class, "public_safe_metadata");
-  assert.equal(advisoryLeaf?.omission_status, "omitted_private_details");
+  assert.equal(advisoryLeaf?.omission_status, "metadata_only");
   assert.deepEqual(advisoryLeaf?.authority_coverage, {
-    status: "advisory",
-    source: "codex_native_compaction_packet",
-    sourceRefs: ["codex_event:019f-compaction-event", "codex_range:019f-compaction-range"]
+    status: "partial",
+    source: "prepared_source_ranges",
+    rangeCount: 1
   });
 
-  assert.equal(rejectedPackets.length, 3);
+  assert.equal(rejectedPackets.length, 8);
   assert.equal(rejectedPackets.every((packet) => packet.rejected === true), true);
+  assert.equal(rejectedPackets.every((packet) => packet.createsAdvisorySummaryLeaf !== true), true);
+  assert.equal(rejectedPackets.every((packet) => packet.expectedAdvisorySummaryLeaf === undefined), true);
   assert.equal(Object.hasOwn(rejectedPackets[0] ?? {}, "rawReplacementHistory"), true);
   assert.equal(Array.isArray(rejectedPackets[0]?.rawReplacementHistory), true);
   assert.equal((rejectedPackets[0]?.disallowedFields as unknown[] | undefined)?.includes("rawReplacementHistory"), true);
@@ -229,6 +253,21 @@ test("Codex-native compaction proposal scenario validates marker fixture and san
   assert.equal(Object.hasOwn(rejectedPackets[2] ?? {}, "rawMessage"), true);
   assert.equal((rejectedPackets[2]?.disallowedFields as unknown[] | undefined)?.includes("rawTranscriptText"), true);
   assert.equal((rejectedPackets[2]?.disallowedFields as unknown[] | undefined)?.includes("rawMessage"), true);
+  assert.equal(rejectedPackets[3]?.reason, "sqlite_path_or_row_dump_present");
+  assert.equal((rejectedPackets[3]?.disallowedFields as unknown[] | undefined)?.includes("sqlitePath"), true);
+  assert.equal((rejectedPackets[3]?.disallowedFields as unknown[] | undefined)?.includes("sqliteRowDump"), true);
+  assert.equal(rejectedPackets[4]?.reason, "screenshot_secret_or_customer_data_present");
+  assert.equal((rejectedPackets[4]?.disallowedFields as unknown[] | undefined)?.includes("screenshotRef"), true);
+  assert.equal((rejectedPackets[4]?.disallowedFields as unknown[] | undefined)?.includes("secretValue"), true);
+  assert.equal((rejectedPackets[4]?.disallowedFields as unknown[] | undefined)?.includes("customerData"), true);
+  assert.equal(rejectedPackets[5]?.reason, "history_rewrite_instruction_present");
+  assert.equal((rejectedPackets[5]?.disallowedFields as unknown[] | undefined)?.includes("historyRewriteInstruction"), true);
+  assert.equal(rejectedPackets[6]?.reason, "unbounded_summary_text_present");
+  assert.equal(rejectedPackets[6]?.excerptCharLimit, null);
+  assert.equal((rejectedPackets[6]?.disallowedFields as unknown[] | undefined)?.includes("summaryText"), true);
+  assert.equal(rejectedPackets[7]?.reason, "non_opaque_source_refs_present");
+  assert.equal((rejectedPackets[7]?.sourceRefs as unknown[] | undefined)?.some((ref) => !/^codex_thread:[A-Za-z0-9._:-]{1,160}$/.test(String(ref))), true);
+  assert.equal((rejectedPackets[7]?.disallowedFields as unknown[] | undefined)?.includes("sourceRefs"), true);
   assert.doesNotMatch(
     serialized,
     /\/Users\/|\/Volumes\/|(?:~|\/[^\s"'`]*)\/\.codex\/(?:sessions|archived_sessions)\/[^\s"'`]+|\b[\w.-]+\.jsonl(?:\.gz)?\b|\b[\w.-]+\.(?:sqlite|sqlite-wal|sqlite-shm|db|db-journal|db-wal|db-shm)\b|npm_[A-Za-z0-9]{20,}|Bearer\s+[A-Za-z0-9._-]{20,}|sk-[A-Za-z0-9_-]{20,}|(?:gh[pousr]|github_pat|glpat|xox[baprs]|AKIA|ASIA|AIza)[A-Za-z0-9_=-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----/
