@@ -36,6 +36,7 @@
     "node": ">=22.0.0"
   },
   "files": [
+    "assets",
     "dist",
     "packages",
     "docs",

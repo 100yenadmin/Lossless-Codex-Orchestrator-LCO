@@ -3,9 +3,7 @@
 **LCO turns local Codex sessions into searchable, bounded, approval-aware
 work objects for OpenClaw.**
 
-Use it when an agent or user needs to answer: what sessions are active, what did
-they plan, what did they finish, what files did they touch, and what is the next
-safe action without rereading raw transcripts.
+![Enchanted open-claw conductor guiding bounded session cards and an abstract code beast in a dark technical workshop](assets/readme/hero.png)
 
 [![npm latest](https://img.shields.io/npm/v/lossless-openclaw-orchestrator/latest?label=npm%20latest)](https://www.npmjs.com/package/lossless-openclaw-orchestrator)
 [![npm beta](https://img.shields.io/npm/v/lossless-openclaw-orchestrator/beta?label=npm%20beta)](https://www.npmjs.com/package/lossless-openclaw-orchestrator)
@@ -13,6 +11,17 @@ safe action without rereading raw transcripts.
 [![CodeQL](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/actions/workflows/codeql.yml/badge.svg)](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/actions/workflows/codeql.yml)
 [![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)](LICENSE)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](CONTRIBUTING.md)
+
+Use it when an agent or user needs to answer: what sessions are active, what did
+they plan, what did they finish, what files did they touch, and what is the next
+safe action without rereading raw transcripts.
+
+| What LCO gives agents | Why it matters |
+| --- | --- |
+| Searchable local session memory | Find plans, finals, touched files, and refs without raw transcript rereads. |
+| Bounded evidence expansion | Read compact public-safe briefs before opening larger source material. |
+| Approval-gated control | Dry-run Codex actions and verify matching audit ids before live control. |
+| OpenClaw/MCP tools | Use the same local-first recall and control surfaces from agent workflows. |
 
 [Setup](docs/SETUP.md) · [Contributing](CONTRIBUTING.md) · [Agent Instructions](AGENTS.md) · [Agent Skill](skills/lossless-openclaw-orchestrator/SKILL.md) · [OpenClaw Plugin](docs/OPENCLAW_PLUGIN.md) · [Security](SECURITY.md) · [Code of Conduct](CODE_OF_CONDUCT.md) · [Vision](VISION.md) · [Privacy](docs/PRIVACY.md) · [Claude Boundary](docs/CLAUDE_ADAPTER_BOUNDARY.md) · [Claim Audit](docs/CLAIM_AUDIT.md) · [Release Notes](docs/RELEASE_NOTES_1.2.0-beta.0.md) · [1.1.4 Notes](docs/RELEASE_NOTES_1.1.4.md) · [1.0 Notes](docs/RELEASE_NOTES_1.0.0.md) · [License](LICENSE)
 
