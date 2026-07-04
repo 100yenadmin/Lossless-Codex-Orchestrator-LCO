@@ -1626,6 +1626,80 @@ test("Codex collaboration cockpit does not count stale Desktop reports as active
   });
 });
 
+test("Codex collaboration cockpit routes stale GUI read-state to reconciliation instead of fallback proof", () => {
+  withIndexedSessions(() => ({
+    fixtures: [{
+      id: "019f-collab-read-state-stale",
+      title: "Read-state stale after CUA lane",
+      status: "running",
+      priority: "urgent",
+      nextAction: "reconcile Desktop read-state",
+      updatedAt: relativeIso(3),
+      refs: true
+    }]
+  }), ({ db }) => {
+    const desktopCoherenceReports = [{
+      schema: "lco.codexDesktopCoherence.v1",
+      publicSafe: true,
+      target: { threadId: "019f-collab-read-state-stale", sourceRef: "codex_thread:019f-collab-read-state-stale" },
+      state: "gui_persisted_read_state_stale",
+      confidence: 0.78,
+      evidenceIds: ["ev_cua_ack", "ev_post_observation_map"],
+      blockers: ["read_state_stale_after_gui_observation"],
+      reasonCodes: [
+        "desktop_gui_observation_supplied",
+        "gui_persisted_read_state_stale",
+        "read_state_stale_after_gui_observation"
+      ],
+      actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false }
+    }];
+    const desktopFallbackReports = [{
+      schema: "lco.codex.desktopFallback.v1",
+      publicSafe: true,
+      readOnly: true,
+      target: { threadId: "019f-collab-read-state-stale", sourceRef: "codex_thread:019f-collab-read-state-stale" },
+      fallback: { required: true, reason: "desktop_visibility_not_proven", coherenceState: "gui_persisted_read_state_stale", desktopVisibility: "not_proven" },
+      preferredBackend: "cua-driver",
+      backends: [
+        { backend: "cua-driver", role: "preferred_background", status: "ready", blockers: [], warnings: [], takesScreenWarning: false }
+      ],
+      actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, screenshotCaptured: false, rawTranscriptRead: false }
+    }];
+
+    const cockpit = createCodexCollaborationCockpit(db, {
+      limit: 5,
+      now: "2026-07-02T00:00:00.000Z",
+      desktopCoherenceReports,
+      desktopFallbackReports
+    });
+    const lane = cockpit.lanes.find((item) => item.threadId === "codex_thread:019f-collab-read-state-stale");
+    assert.ok(lane);
+    assert.equal(lane.desktop.state, "cli_visible");
+    assert.equal(lane.desktop.requiresFallback, false);
+    assert.equal(lane.desktop.reasonCodes.includes("gui_persisted_read_state_stale"), true);
+    assert.equal(lane.desktop.reasonCodes.includes("desktop_fallback_ready"), false);
+
+    const nextSteps = createCodexCollaborationNextSteps(db, {
+      limit: 5,
+      now: "2026-07-02T00:00:00.000Z",
+      desktopCoherenceReports,
+      desktopFallbackReports
+    });
+    const step = nextSteps.steps.find((item) => item.threadId === "codex_thread:019f-collab-read-state-stale");
+    assert.ok(step);
+    assert.equal(step.category, "desktop_coherence");
+    assert.equal(step.status, "ready");
+    assert.equal(step.toolCall?.tool, "loo_codex_desktop_coherence");
+    assert.equal(step.toolCall?.execute, false);
+    assert.equal(step.toolCall?.args.thread_id, "019f-collab-read-state-stale");
+    assert.equal(step.toolCall?.args.source_ref, "codex_thread:019f-collab-read-state-stale");
+    assert.equal(step.toolCall?.args.include_app_server, true);
+    assert.equal(step.toolCall?.args.include_visible_snapshot, false);
+    assert.equal(step.reasonCodes.includes("read_state_reconciliation_required"), true);
+    assert.equal(step.reasonCodes.includes("desktop_fallback_status_required"), false);
+  });
+});
+
 test("Codex collaboration cockpit treats unknown Desktop proof as fallback-required and ignores negated approval notes", () => {
   withIndexedSessions(() => ({
     fixtures: [

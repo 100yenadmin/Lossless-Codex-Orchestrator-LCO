@@ -257,7 +257,7 @@ test("Codex Desktop coherence report treats duplicate exact-target rows as corro
   assert.equal(report.blockers.includes("ambiguous_desktop_join"), false);
 });
 
-test("Codex Desktop coherence report represents CUA GUI success as stale read-state evidence without claiming mutation", () => {
+test("Codex Desktop coherence report waits for post-observation read-state evidence before marking CUA GUI state stale", () => {
   const report = createCodexDesktopCoherenceReport({
     threadId: "019f291c-0dc6-7281-95e1-85bbcaaa9ca1",
     visibleMap: visibleMapFixture({
@@ -285,10 +285,62 @@ test("Codex Desktop coherence report represents CUA GUI success as stale read-st
     now: "2026-07-03T20:12:00.000Z"
   });
 
+  assert.equal(report.state, "unknown");
+  assert.equal(report.visibility.cli, "proven");
+  assert.equal(report.visibility.desktop, "unknown");
+  assert.ok(report.reasonCodes.includes("desktop_gui_observation_supplied"));
+  assert.ok(report.reasonCodes.includes("read_state_post_observation_evidence_pending"));
+  assert.equal(report.reasonCodes.includes("read_state_stale_after_gui_observation"), false);
+  assert.equal(report.blockers.includes("read_state_stale_after_gui_observation"), false);
+  assert.match(report.nextAction, /post-observation|read-state|reconcil/i);
+  assert.equal(report.actionEvidence.actionKind, "desktop_gui_observation");
+  assert.equal(report.actionsPerformed.liveCodexControlRun, false);
+  assert.equal(report.actionsPerformed.desktopGuiActionRun, false);
+  assert.equal(report.actionsPerformed.rawTranscriptRead, false);
+});
+
+test("Codex Desktop coherence report marks CUA GUI read-state stale only with current post-observation evidence", () => {
+  const postObservationMap = visibleMapFixture({
+    desktopRef: null,
+    appServerRef: "codex_app_thread:019f291c-0dc6-7281-95e1-85bbcaaa9ca1",
+    sourceRef: "codex_thread:019f291c-0dc6-7281-95e1-85bbcaaa9ca1",
+    sessionCardRef: "codex_thread:019f291c-0dc6-7281-95e1-85bbcaaa9ca1",
+    titleSanitized: "EVA-LCO",
+    confidence: 0.78,
+    evidenceIds: ["ev_jsonl_ack_0311"],
+    freshness: {
+      indexedUpdatedAt: "2026-07-03T20:10:00.000Z",
+      appServerUpdatedAt: "2026-07-03T20:11:30.000Z",
+      visibleUpdatedLabel: null,
+      freshestSource: "codex_app_server"
+    },
+    reasonCodes: ["app_server_signal", "indexed_session_card"]
+  }, {
+    visibleCodex: "partial",
+    codexAppServer: "ok",
+    indexedLco: "ok"
+  });
+  postObservationMap.generatedAt = "2026-07-03T20:11:45.000Z";
+
+  const report = createCodexDesktopCoherenceReport({
+    threadId: "019f291c-0dc6-7281-95e1-85bbcaaa9ca1",
+    visibleMap: postObservationMap,
+    actionEvidence: {
+      actionKind: "desktop_gui_observation",
+      action: "CUA selected target thread, verified composer value, sent prompt, and observed JSONL task_complete ack",
+      live: true,
+      dryRun: false,
+      evidenceId: "ev_cua_lco_ack_0311",
+      observedAt: "2026-07-03T20:11:00.000Z"
+    },
+    now: "2026-07-03T20:12:00.000Z"
+  });
+
   assert.equal(report.state, "gui_persisted_read_state_stale");
   assert.equal(report.visibility.cli, "proven");
   assert.equal(report.visibility.desktop, "not_seen");
   assert.ok(report.reasonCodes.includes("desktop_gui_observation_supplied"));
+  assert.ok(report.reasonCodes.includes("read_state_post_observation_evidence_current"));
   assert.ok(report.reasonCodes.includes("read_state_stale_after_gui_observation"));
   assert.ok(report.blockers.includes("read_state_stale_after_gui_observation"));
   assert.equal(report.actionEvidence.actionKind, "desktop_gui_observation");
