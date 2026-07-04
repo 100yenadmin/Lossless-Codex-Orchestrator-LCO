@@ -2359,10 +2359,12 @@ function visibleWindowsFromSnapshot(snapshot: DesktopSnapshotStatus): VisibleCod
 function visibleThreadMapFromSnapshot(snapshot: DesktopSnapshotStatus): VisibleCodexThreadMap {
   const threads: VisibleCodexThreadCandidate[] = [];
   const seen = new Set<string>();
+  const consumedChildElementIds = new Set<string>();
   let currentProject: string | undefined;
   let inProjects = false;
   for (const element of snapshot.elements) {
     if (threads.length >= snapshot.maxNodes) break;
+    if (consumedChildElementIds.has(element.elementId)) continue;
     const rawLabel = element.label?.trim();
     if (!rawLabel || !isThreadCandidateRole(element.role)) continue;
     const lowered = rawLabel.toLowerCase();
@@ -2374,19 +2376,23 @@ function visibleThreadMapFromSnapshot(snapshot: DesktopSnapshotStatus): VisibleC
       currentProject = capTextValue(rawLabel, 160);
       continue;
     }
-    if (isThreadControlLabel(lowered)) continue;
-    const split = splitThreadTitleStatus(rawLabel);
+    const childCandidate = isThreadControlLabel(lowered)
+      ? sidebarThreadCandidateFromChildText(snapshot.elements, element)
+      : null;
+    if (isThreadControlLabel(lowered) && !childCandidate) continue;
+    const split = childCandidate?.split ?? splitThreadTitleStatus(rawLabel);
     if (!split.title || isThreadControlLabel(split.title.toLowerCase())) continue;
     if (split.title.length < 3 || ["codex", "vantage"].includes(split.title.toLowerCase())) continue;
     const visibleId = visibleThreadId({ index: threads.length, title: split.title, sourceElementId: element.elementId });
     if (seen.has(visibleId)) continue;
     seen.add(visibleId);
+    for (const childId of childCandidate?.consumedElementIds ?? []) consumedChildElementIds.add(childId);
     const center = centerFromBounds(element.bounds);
     threads.push({
       visibleId,
       index: threads.length,
       title: split.title,
-      rawTitle: capTextValue(rawLabel, 200),
+      rawTitle: capTextValue(childCandidate?.rawLabel ?? rawLabel, 200),
       project: currentProject,
       status: split.status,
       updatedLabel: split.updatedLabel,
@@ -2407,6 +2413,36 @@ function visibleThreadMapFromSnapshot(snapshot: DesktopSnapshotStatus): VisibleC
     threads,
     warnings: snapshot.truncated ? ["Snapshot was truncated before thread-map extraction; rerun with a larger bounded max_nodes value if more visible rows are needed."] : []
   };
+}
+
+function sidebarThreadCandidateFromChildText(
+  elements: DesktopSnapshotElement[],
+  row: DesktopSnapshotElement
+): { split: ReturnType<typeof splitThreadTitleStatus>; rawLabel: string; consumedElementIds: string[] } | null {
+  if (!row.bounds) return null;
+  const children = elements
+    .filter((element) => element.elementId !== row.elementId && element.label && isStaticThreadRole(element.role) && rectContains(row.bounds, element.bounds))
+    .sort((left, right) => (left.bounds?.y ?? 0) - (right.bounds?.y ?? 0) || (left.bounds?.x ?? 0) - (right.bounds?.x ?? 0));
+  if (!children.length) return null;
+  const updatedLabel = children.map((child) => child.label?.trim()).find((label): label is string => Boolean(label && threadTimePattern.test(label)))
+    ?? splitThreadTitleStatus(row.label ?? "").updatedLabel;
+  const titleChild = children.find((child) => looksLikeSidebarThreadTitle(child.label ?? ""));
+  const title = titleChild?.label?.trim();
+  if (!title) return null;
+  const rawLabel = [title, updatedLabel].filter(Boolean).join(" ");
+  return {
+    split: splitThreadTitleStatus(rawLabel),
+    rawLabel,
+    consumedElementIds: children.map((child) => child.elementId)
+  };
+}
+
+function looksLikeSidebarThreadTitle(label: string): boolean {
+  const trimmed = label.trim();
+  if (!trimmed || trimmed.length < 3) return false;
+  const lowered = trimmed.toLowerCase();
+  if (threadSectionLabels.has(lowered) || isThreadControlLabel(lowered) || threadTimePattern.test(lowered)) return false;
+  return !/[\\/]/.test(trimmed) && !trimmed.includes("<redacted-");
 }
 
 function isCodexSnapshot(snapshot: DesktopSnapshotStatus): boolean {
@@ -2469,6 +2505,14 @@ function shortHash(value: string): string {
 function centerFromBounds(bounds: DesktopSnapshotElement["bounds"]): { x: number; y: number } | undefined {
   if (!bounds) return undefined;
   return { x: Math.trunc(bounds.x + bounds.width / 2), y: Math.trunc(bounds.y + bounds.height / 2) };
+}
+
+function rectContains(parent: DesktopSnapshotElement["bounds"], child: DesktopSnapshotElement["bounds"]): boolean {
+  if (!parent || !child) return false;
+  return child.x >= parent.x
+    && child.y >= parent.y
+    && child.x + child.width <= parent.x + parent.width
+    && child.y + child.height <= parent.y + parent.height;
 }
 
 function threadConfidence(input: {
