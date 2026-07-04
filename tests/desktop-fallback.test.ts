@@ -1644,7 +1644,7 @@ test("Peekaboo visible Codex thread map extracts sidebar child title from generi
                 { id: "row-eva", role: "AXButton", label: "Pin chat Archive chat 1h", bounds: { x: 12, y: 120, width: 280, height: 44 }, is_actionable: true },
                 { id: "title-eva", role: "AXStaticText", label: "EVA-LCO", bounds: { x: 48, y: 130, width: 160, height: 18 } },
                 { id: "time-eva", role: "AXStaticText", label: "1h", bounds: { x: 244, y: 130, width: 18, height: 18 } },
-                { id: "private-child", role: "AXStaticText", label: "/Users/lume/private sk-test_1234567890", bounds: { x: 48, y: 154, width: 190, height: 18 } }
+                { id: "private-child", role: "AXStaticText", label: "/Users/lume/private sk-test_1234567890", bounds: { x: 48, y: 142, width: 190, height: 18 } }
               ]
             }
           })
@@ -1662,6 +1662,8 @@ test("Peekaboo visible Codex thread map extracts sidebar child title from generi
   assert.equal(eva.role, "AXButton");
   assert.equal(eva.center?.x, 152);
   assert.equal(threads.some((thread) => thread.rawTitle.includes("Pin chat")), false);
+  assert.equal(threads.some((thread) => thread.title.includes("<redacted-")), false);
+  assert.equal(threads.some((thread) => thread.rawTitle.includes("<redacted-")), false);
   assert.doesNotMatch(JSON.stringify(status.visibleCodex?.threadMap), /\/Users\/lume|sk-test_1234567890/);
 });
 

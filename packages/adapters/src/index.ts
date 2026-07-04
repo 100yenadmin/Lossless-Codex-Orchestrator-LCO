@@ -2387,6 +2387,7 @@ function visibleThreadMapFromSnapshot(snapshot: DesktopSnapshotStatus): VisibleC
     if (childCandidate?.titleElementFingerprint && acceptedElementFingerprints.has(childCandidate.titleElementFingerprint)) continue;
     const split = childCandidate?.split ?? splitThreadTitleStatus(rawLabel);
     if (!split.title || isThreadControlLabel(split.title.toLowerCase())) continue;
+    if (!isVisibleSidebarCandidateTitle({ title: split.title, rawLabel, element, childCandidate: Boolean(childCandidate), split })) continue;
     if (split.title.length < 3 || ["codex", "vantage"].includes(split.title.toLowerCase())) continue;
     const visibleId = visibleThreadId({ index: threads.length, title: split.title, sourceElementId: element.elementId });
     if (seen.has(visibleId)) continue;
@@ -2458,6 +2459,26 @@ function looksLikeSidebarThreadTitle(label: string): boolean {
   const lowered = trimmed.toLowerCase();
   if (threadSectionLabels.has(lowered) || isThreadControlLabel(lowered) || threadTimePattern.test(lowered) || threadStatusLabelSet.has(lowered)) return false;
   return !/[\\/]/.test(trimmed) && !trimmed.includes("<redacted-");
+}
+
+function isVisibleSidebarCandidateTitle({
+  title,
+  rawLabel,
+  element,
+  childCandidate,
+  split
+}: {
+  title: string;
+  rawLabel: string;
+  element: DesktopSnapshotElement;
+  childCandidate: boolean;
+  split: ReturnType<typeof splitThreadTitleStatus>;
+}): boolean {
+  if (looksLikeSidebarThreadTitle(title)) return true;
+  if (childCandidate || isStaticThreadRole(element.role)) return false;
+  if (!title.includes("<redacted-")) return false;
+  const rawSplit = splitThreadTitleStatus(rawLabel);
+  return Boolean(split.status || split.updatedLabel || rawSplit.status || rawSplit.updatedLabel);
 }
 
 function stableElementId(element: DesktopSnapshotElement): string | undefined {
