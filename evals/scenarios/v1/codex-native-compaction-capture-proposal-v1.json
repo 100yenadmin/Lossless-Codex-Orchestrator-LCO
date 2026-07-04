@@ -37,6 +37,7 @@
     "advisory summary leaf with refs and omissions",
     "rejection of raw replacement history packets",
     "rejection of transcript path packets",
+    "rejection of raw transcript text and raw-message packets",
     "LCO sidecar-only derived-cache storage",
     "public-safe output scan result"
   ],
@@ -56,6 +57,7 @@
     "requires_advisory_summary_leaf_only": true,
     "requires_reject_raw_replacement_history_packet": true,
     "requires_reject_transcript_path_packet": true,
+    "requires_reject_raw_transcript_text_packet": true,
     "requires_no_history_rewrite": true,
     "requires_lco_sidecar_only_storage": true,
     "max_raw_transcript_spans": 0,
@@ -93,7 +95,13 @@
     "sanitized_codex_native_packet": {
       "packet_kind": "CompactionCaptured",
       "source": "codex_native",
+      "compactionId": "codex_compaction:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "threadRef": "codex_thread:019f-compaction-proposal",
+      "sessionRef": "codex_session:019f-compaction-proposal",
       "lifecycle": "post_compact",
+      "lifecycleTimestamp": "2026-07-04T00:00:00.000Z",
+      "sourceModel": "gpt-5.5",
+      "extractorVersion": "codex-native-compaction-capture-proposal-v1",
       "claim": "advisory summary leaf candidate",
       "summaryCaptured": true,
       "summaryHash": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
@@ -124,7 +132,25 @@
         "derived_cache"
       ],
       "storage": "lco_sidecar_only",
-      "createsAdvisorySummaryLeaf": true
+      "createsAdvisorySummaryLeaf": true,
+      "expectedAdvisorySummaryLeaf": {
+        "leaf_kind": "codex_compaction_summary",
+        "summary_text": "Bounded Codex-generated compaction summary excerpt with private details omitted and source refs preserved.",
+        "input_hash": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "output_hash": "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+        "source_range_refs": [
+          "codex_range:019f-compaction-range"
+        ],
+        "omission_status": "omitted_private_details",
+        "authority_coverage": {
+          "status": "advisory",
+          "source": "codex_native_compaction_packet",
+          "sourceRefs": [
+            "codex_event:019f-compaction-event",
+            "codex_range:019f-compaction-range"
+          ]
+        }
+      }
     },
     "rejected_packets": [
       {
@@ -148,6 +174,18 @@
         "transcriptPath": "<redacted-transcript-path>",
         "disallowedFields": [
           "transcriptPath"
+        ]
+      },
+      {
+        "packet_kind": "CompactionCaptured",
+        "source": "codex_native",
+        "rejected": true,
+        "reason": "raw_transcript_text_present",
+        "rawTranscriptText": "<redacted-raw-transcript-text>",
+        "rawMessage": "<redacted-raw-message>",
+        "disallowedFields": [
+          "rawTranscriptText",
+          "rawMessage"
         ]
       }
     ]

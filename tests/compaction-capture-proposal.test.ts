@@ -9,7 +9,13 @@ import { createScenarioSweep } from "../packages/cli/src/scenario-sweep.js";
 type CompactionPacketFixture = {
   packet_kind?: unknown;
   source?: unknown;
+  compactionId?: unknown;
+  threadRef?: unknown;
+  sessionRef?: unknown;
   lifecycle?: unknown;
+  lifecycleTimestamp?: unknown;
+  sourceModel?: unknown;
+  extractorVersion?: unknown;
   claim?: unknown;
   summaryCaptured?: unknown;
   summaryHash?: unknown;
@@ -25,10 +31,21 @@ type CompactionPacketFixture = {
   mutationClasses?: unknown;
   storage?: unknown;
   createsAdvisorySummaryLeaf?: unknown;
+  expectedAdvisorySummaryLeaf?: {
+    leaf_kind?: unknown;
+    summary_text?: unknown;
+    input_hash?: unknown;
+    output_hash?: unknown;
+    source_range_refs?: unknown;
+    omission_status?: unknown;
+    authority_coverage?: unknown;
+  };
   rejected?: unknown;
   disallowedFields?: unknown;
   rawReplacementHistory?: unknown;
   transcriptPath?: unknown;
+  rawTranscriptText?: unknown;
+  rawMessage?: unknown;
 };
 
 type CompactionProposalScenario = {
@@ -110,6 +127,7 @@ test("Codex-native compaction proposal scenario validates marker fixture and san
   assert.equal(scenario.metrics?.requires_advisory_summary_leaf_only, true);
   assert.equal(scenario.metrics?.requires_reject_raw_replacement_history_packet, true);
   assert.equal(scenario.metrics?.requires_reject_transcript_path_packet, true);
+  assert.equal(scenario.metrics?.requires_reject_raw_transcript_text_packet, true);
   assert.equal(scenario.metrics?.max_raw_transcript_spans, 0);
   assert.equal(scenario.metrics?.max_raw_transcript_paths, 0);
   assert.equal(scenario.metrics?.max_raw_replacement_history_items, 0);
@@ -125,6 +143,12 @@ test("Codex-native compaction proposal scenario validates marker fixture and san
 
   assert.equal(sanitizedPacket?.packet_kind, "CompactionCaptured");
   assert.equal(sanitizedPacket?.source, "codex_native");
+  assert.match(String(sanitizedPacket?.compactionId), /^codex_compaction:[0-9a-f]{32}$/);
+  assert.match(String(sanitizedPacket?.threadRef), /^codex_thread:[A-Za-z0-9._:-]{1,160}$/);
+  assert.match(String(sanitizedPacket?.sessionRef), /^codex_session:[A-Za-z0-9._:-]{1,160}$/);
+  assert.match(String(sanitizedPacket?.lifecycleTimestamp), /^2026-07-04T[0-9:.]+Z$/);
+  assert.match(String(sanitizedPacket?.sourceModel), /^gpt-[A-Za-z0-9._:-]+$/);
+  assert.equal(sanitizedPacket?.extractorVersion, "codex-native-compaction-capture-proposal-v1");
   assert.match(String(sanitizedPacket?.summaryHash), /^sha256:[0-9a-f]{64}$/);
   assert.equal(typeof sanitizedPacket?.summaryExcerpt, "string");
   assert.equal(sanitizedPacket?.excerptCharLimit, 240);
@@ -145,8 +169,21 @@ test("Codex-native compaction proposal scenario validates marker fixture and san
   assert.match(JSON.stringify(sanitizedPacket?.sourceRefs), /codex_(?:range|event):/);
   assert.match(JSON.stringify(sanitizedPacket?.omitted), /raw_replacement_history/);
   assert.match(JSON.stringify(sanitizedPacket?.omitted), /transcript_path/);
+  const advisoryLeaf = sanitizedPacket?.expectedAdvisorySummaryLeaf;
+  assert.equal(advisoryLeaf?.leaf_kind, "codex_compaction_summary");
+  assert.equal(typeof advisoryLeaf?.summary_text, "string");
+  assert.equal((advisoryLeaf?.summary_text as string | undefined)?.length <= 240, true);
+  assert.match(String(advisoryLeaf?.input_hash), /^sha256:[0-9a-f]{64}$/);
+  assert.match(String(advisoryLeaf?.output_hash), /^sha256:[0-9a-f]{64}$/);
+  assert.deepEqual(advisoryLeaf?.source_range_refs, ["codex_range:019f-compaction-range"]);
+  assert.equal(advisoryLeaf?.omission_status, "omitted_private_details");
+  assert.deepEqual(advisoryLeaf?.authority_coverage, {
+    status: "advisory",
+    source: "codex_native_compaction_packet",
+    sourceRefs: ["codex_event:019f-compaction-event", "codex_range:019f-compaction-range"]
+  });
 
-  assert.equal(rejectedPackets.length, 2);
+  assert.equal(rejectedPackets.length, 3);
   assert.equal(rejectedPackets.every((packet) => packet.rejected === true), true);
   assert.equal(Object.hasOwn(rejectedPackets[0] ?? {}, "rawReplacementHistory"), true);
   assert.equal(Array.isArray(rejectedPackets[0]?.rawReplacementHistory), true);
@@ -154,6 +191,11 @@ test("Codex-native compaction proposal scenario validates marker fixture and san
   assert.equal(Object.hasOwn(rejectedPackets[1] ?? {}, "transcriptPath"), true);
   assert.equal(typeof rejectedPackets[1]?.transcriptPath, "string");
   assert.equal((rejectedPackets[1]?.disallowedFields as unknown[] | undefined)?.includes("transcriptPath"), true);
+  assert.equal(rejectedPackets[2]?.reason, "raw_transcript_text_present");
+  assert.equal(Object.hasOwn(rejectedPackets[2] ?? {}, "rawTranscriptText"), true);
+  assert.equal(Object.hasOwn(rejectedPackets[2] ?? {}, "rawMessage"), true);
+  assert.equal((rejectedPackets[2]?.disallowedFields as unknown[] | undefined)?.includes("rawTranscriptText"), true);
+  assert.equal((rejectedPackets[2]?.disallowedFields as unknown[] | undefined)?.includes("rawMessage"), true);
   assert.doesNotMatch(serialized, /\/Users\/|\/Volumes\/|\.jsonl|state_5\.sqlite|logs_2\.sqlite|npm_[A-Za-z0-9]{20,}|Bearer\s+[A-Za-z0-9._-]{20,}|BEGIN [A-Z ]*PRIVATE KEY/);
 });
 
