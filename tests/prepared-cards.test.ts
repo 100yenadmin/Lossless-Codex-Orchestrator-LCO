@@ -686,9 +686,11 @@ test("prepared targeted coverage downgrades stale cards and orphaned inbox rows"
   const sessions = join(root, "sessions");
   mkdirSync(sessions, { recursive: true });
   const staleThreadId = "019f-prepared-target-stale";
+  const completedThreadId = "019f-prepared-target-completed";
   const orphanThreadId = "019f-prepared-target-orphan";
   const noInboxThreadId = "019f-prepared-target-no-inbox";
   writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-01-00-019f-prepared-target-stale.jsonl"), staleThreadId, "Stale prepared target");
+  writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-01-03-019f-prepared-target-completed.jsonl"), completedThreadId, "Completed prepared target");
   writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-01-01-019f-prepared-target-orphan.jsonl"), orphanThreadId, "Orphan inbox target");
   writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-01-02-019f-prepared-target-no-inbox.jsonl"), noInboxThreadId, "No inbox target");
 
@@ -718,6 +720,28 @@ test("prepared targeted coverage downgrades stale cards and orphaned inbox rows"
     assert.equal(staleStatus.targetCoverage?.freshness.stale, true);
     assert.equal(staleStatus.targetCoverage?.reasonCodes.includes("prepared_cache_stale_or_missing"), true);
     assert.equal(staleStatus.targetCoverage?.counts.preparedInboxItems, 1);
+
+    const completedTargetRef = `codex_thread:${completedThreadId}`;
+    db.prepare(`
+      UPDATE prepared_cards
+      SET state = 'completed',
+          stale = 0,
+          reason_codes_json = ?
+      WHERE target_ref = ?
+    `).run(JSON.stringify(["summary_leaves_ready", "semantic_lifecycle", "lifecycle:completed"]), completedTargetRef);
+    db.prepare(`
+      UPDATE prepared_inbox_items
+      SET state = 'completed',
+          reason_codes_json = ?
+      WHERE target_ref = ?
+    `).run(JSON.stringify(["summary_leaves_ready", "prepared_card_completed", "lifecycle:completed"]), completedTargetRef);
+    const completedStatus = getPreparedStateStatus(db, { threadId: completedThreadId }) as typeof staleStatus;
+    assert.equal(completedStatus.targetCoverage?.sourceCoverage.preparedCards, "ok");
+    assert.equal(completedStatus.targetCoverage?.sourceCoverage.preparedInboxItems, "ok");
+    assert.equal(completedStatus.targetCoverage?.status, "ready");
+    assert.equal(completedStatus.targetCoverage?.freshness.stale, false);
+    assert.equal(completedStatus.targetCoverage?.reasonCodes.includes("prepared_cards_missing"), false);
+    assert.equal(completedStatus.targetCoverage?.reasonCodes.includes("prepared_cache_stale_or_missing"), false);
 
     const orphanTargetRef = `codex_thread:${orphanThreadId}`;
     db.prepare("DELETE FROM prepared_inbox_items WHERE target_ref = ?").run(orphanTargetRef);
