@@ -65,10 +65,13 @@ manifest snapshot test. The tier metadata is advisory routing metadata only: it
 does not hide tools, relax `requiresApproval`, change `safety.mode`, alter
 `mutationClasses`, or reduce proof obligations.
 
-Naming policy for #434: `loo_` remains the canonical, backward-compatible tool
-prefix. `LCO` is the product abbreviation and may be used in prose, package
-names, issues, and docs. This facade work does not create a broad `lco_*`
-rename or alias layer; any compatibility alias plan belongs with
+Naming policy for #434: `LCO` is the product abbreviation and `lco_*` is the
+forward public alias target for new user-facing tool names. The currently
+callable plugin and MCP declarations still use the historical `loo_*` runtime
+prefix, so runnable examples must keep `loo_*` until a tested alias layer
+exists. Future alias work should keep `loo_*` backward compatible instead of
+silently renaming or deleting existing tools. This docs/manifest pass does not
+create a broad `lco_*` alias layer; that compatibility work belongs with
 [#434](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/434).
 
 Safety details:
@@ -88,7 +91,8 @@ Safety details:
 - `loo_desktop_act` remains dry-run-only until backend-specific approval and permission proof exist. Live-mode requests return structured blockers for missing backend, target app/window, action text, action hash, approval ref, permission state, focus before/after, public-safe observation fields, or a mismatched action hash.
 - `loo_desktop_live_proof_harness` prepares a public-safe live/no-focus proof packet and fails closed until backend, target app/window, action, approval ref, backend availability, and no-focus status-probe fields are present. It does not perform the GUI action or capture screenshots.
 - `loo_desktop_proof_report` validates a supplied public-safe desktop GUI action observation and may return release-compatible approval proof. The tool does not perform the GUI action itself and does not prove backend behavior without a real observation.
-- CUA Driver is the preferred desktop fallback and its default launch shape is MCP stdio via `cua-driver mcp`; binary availability is reported separately from launch readiness, and agents must not claim no-focus behavior unless the returned focus proof says it was measured.
+- CUA Driver is the preferred/default desktop fallback when fallback is needed, and its default launch shape is MCP stdio via `cua-driver mcp`. It is externally installed rather than bundled by LCO; missing CUA is a desktop-fallback readiness blocker, not a blocker for ordinary read/search/describe workflows. Verify launchability with `cua-driver mcp --help`; `loo doctor` and `loo_desktop_see` report LCO readiness/blockers but do not prove the MCP launch path unless the code grows an explicit launch probe. Binary availability is reported separately from launch readiness, CUA daemon permissions must be checked separately from Terminal permissions, and agents must not claim no-focus behavior unless the returned focus proof says it was measured.
+- CUA Codex composer-write proof needs a separately documented read-back before any send claim. The current LCO proof report and live-proof harness do not validate a composer read-back field, so a `type_text` success payload or ready proof packet is not proof that the inserted Codex composer value was verified.
 - Peekaboo snapshot observation must be explicit (`include_snapshot=true` or CLI `--snapshot`), must use local `--no-remote` commands, and must block sensitive frontmost apps before capture.
 - Visible Codex macro metadata is read-only planning guidance; generic prompt typing, send, approve, and click actions remain live-disabled in this beta.
 - `visibleCodex.threadMap` is a bounded, redacted visible-thread candidate inventory derived from the guarded snapshot. Treat it as GUI evidence only, not as a raw transcript join or approval to mutate the Codex UI.

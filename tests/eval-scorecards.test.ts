@@ -120,6 +120,10 @@ test("tool facade scorecard proves compact path selection without hiding expert 
   assert.match(serialized, /metadata\.tier/);
   assert.match(serialized, /requiresApproval/);
   assert.match(serialized, /mutationClasses/);
+  assert.match(serialized, /lco_\*.*forward public alias target/i);
+  assert.match(serialized, /currently callable loo_\* runtime prefix/i);
+  assert.match(serialized, /backward compatible/i);
+  assert.doesNotMatch(serialized, /loo_\* as the canonical tool prefix/i);
   assert.match(serialized, /#434/);
   assert.match(serialized, /does not remove tools/i);
   assert.match(serialized, /broad lco_\* aliases/i);

@@ -95,10 +95,22 @@ export type LooToolSurfaceSummary = {
   tiers: LooToolTier[];
   publicFacadeTools: string[];
   namingPolicy: {
-    canonicalPrefix: "loo_";
+    publicProductAbbreviation: "LCO";
+    forwardPublicAliasTarget: "lco_*";
+    currentRuntimePrefix: "loo_";
+    legacyCompatiblePrefix: "loo_";
     packageName: "lossless-openclaw-orchestrator";
     compatibilityIssue: "#434";
     aliasPolicy: string;
+  };
+  desktopFallback: {
+    normalFirstPath: "direct Codex protocol";
+    preferredBackend: "cua-driver";
+    preferredLaunch: "cua-driver mcp";
+    bundledByLco: false;
+    secondaryBackend: "peekaboo";
+    missingPreferredBackendBehavior: string;
+    proofBoundary: string;
   };
   proofBoundary: string;
 };
@@ -206,10 +218,22 @@ export function createLooToolSurfaceSummary(): LooToolSurfaceSummary {
     tiers: LOO_TOOL_TIERS,
     publicFacadeTools: publicFacadeToolNames(),
     namingPolicy: {
-      canonicalPrefix: "loo_",
+      publicProductAbbreviation: "LCO",
+      forwardPublicAliasTarget: "lco_*",
+      currentRuntimePrefix: "loo_",
+      legacyCompatiblePrefix: "loo_",
       packageName: "lossless-openclaw-orchestrator",
       compatibilityIssue: "#434",
-      aliasPolicy: "The historical `loo_` tool prefix remains canonical and backward compatible. `lco` may be used in prose as the product abbreviation, but this issue does not rename or duplicate tools to `lco_*`; any alias work belongs with #434."
+      aliasPolicy: "`lco_*` is the forward public alias target for new user-facing tool names. The current callable OpenClaw/MCP declarations still use the historical `loo_*` runtime prefix. Keep `loo_*` backward compatible when tested `lco_*` aliases are added; this docs/manifest cleanup does not rename, delete, or duplicate tools."
+    },
+    desktopFallback: {
+      normalFirstPath: "direct Codex protocol",
+      preferredBackend: "cua-driver",
+      preferredLaunch: "cua-driver mcp",
+      bundledByLco: false,
+      secondaryBackend: "peekaboo",
+      missingPreferredBackendBehavior: "normal read/search/describe workflows continue; desktop fallback readiness reports an actionable CUA blocker",
+      proofBoundary: "CUA fallback readiness reports daemon and blocker state; MCP launchability still requires an explicit `cua-driver mcp --help` check unless LCO adds a launch probe. Codex composer-write proof needs a separately documented read-back before any send claim, and the current LCO proof report/live-proof harness do not validate a composer read-back field. No generic GUI mutation, unattended control, no-focus behavior, composer send approval, or release readiness is claimed without action-bound proof."
     },
     proofBoundary: "This metadata defines recommended operator tiers only. It does not remove tools, hide expert/debug surfaces, loosen approvals, run live Codex control, mutate a GUI, publish npm, or create GitHub releases."
   };

@@ -338,7 +338,21 @@ would be noisy:
 
 ## 9. Desktop Fallback Readiness
 
-Desktop fallback is optional and proof-bound.
+Desktop fallback is optional and proof-bound. Direct Codex protocol remains the
+normal first path for thread control, but CUA Driver is the preferred/default
+desktop fallback backend when fallback is needed. CUA Driver is an external
+operator dependency, not bundled by LCO; missing CUA must not break normal
+read/search/describe workflows, but it is a desktop-fallback readiness blocker.
+Peekaboo remains a secondary visible fallback for explicit read-only
+observation.
+
+Install or update CUA Driver through its own distribution channel, then verify
+that the daemon entrypoint launches and inspect LCO's readiness view separately:
+
+```bash
+cua-driver mcp --help
+loo doctor --json
+```
 
 Read-only checks:
 
@@ -347,9 +361,14 @@ loo desktop see cua-driver
 loo desktop see peekaboo --snapshot --max-nodes 50
 ```
 
-The desktop fallback surface reports readiness and blockers. It does not grant
-generic GUI mutation, Codex GUI mutation, unattended control, prompt typing, or
-clicking.
+The desktop fallback surface reports readiness and blockers. For CUA readiness,
+check the CUA daemon permissions rather than assuming Terminal permissions are
+enough. The current LCO proof report and live-proof harness do not validate a
+Codex composer read-back field, so do not treat a CUA `type_text` success
+payload or ready desktop proof packet as proof that the inserted composer value
+was verified. The fallback surface does not grant generic GUI mutation,
+unattended control, prompt typing, clicking, no-focus behavior, composer send
+approval, or release readiness without an explicit action-bound proof packet.
 
 ## 10. Troubleshooting
 

@@ -45,9 +45,10 @@ Codex sessions through the installed `loo_*` tools.
   Use `nextControlDryRun` only as a non-executed dry-run handoff; treat
   low-confidence or conflicting states as inspect-first, never as approval to
   send or steer.
-- `loo_` is the canonical backward-compatible tool prefix. Use `LCO` as the
-  product abbreviation in prose only; do not invent `lco_*` tools unless the
-  #434 alias policy explicitly approves them.
+- `LCO` is the public product abbreviation and `lco_*` is the forward public
+  alias target for new user-facing tool names. The installed OpenClaw/MCP tools
+  currently use `loo_*`; keep those calls for runnable examples until #434 ships
+  a tested alias layer, then keep `loo_*` as backward-compatible aliases.
 
 ## Compact Public Facade
 

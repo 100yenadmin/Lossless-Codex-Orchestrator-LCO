@@ -84,7 +84,9 @@ test("OpenClaw agent usage skill starts normal operators from the compact public
     /internal_low_level/,
     /expert\s+tools remain explicit/i,
     /#434/,
-    /canonical backward-compatible tool prefix/i
+    /forward public\s+alias target/i,
+    /currently use `loo_\*`/i,
+    /backward-compatible aliases/i
   ]) {
     assert.match(skill, required);
   }
