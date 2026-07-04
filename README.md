@@ -113,6 +113,10 @@ loo doctor
 loo onboard status --strict
 ```
 
+If agents will author PRs, issue comments, or closeouts in the repo, also copy
+the provenance snippets from [docs/SETUP.md](docs/SETUP.md#agent-provenance-setup)
+into the repo's `AGENTS.md` and `CLAUDE.md` files.
+
 ## First Workflow
 
 Search for a session:
