@@ -851,6 +851,41 @@ test("release preflight ignores symlinked evidence directories and catches SQLit
   ]);
 });
 
+test("release preflight reports a deterministic blocker for too-deep evidence trees", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-depth-"));
+  let cursor = evidenceDir;
+  for (let index = 0; index < 42; index += 1) {
+    cursor = join(cursor, `d${index}`);
+    mkdirSync(cursor);
+  }
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "preflight",
+    "--claim-scope",
+    "codex-read-search-expand-dry-run",
+    "--evidence-dir",
+    evidenceDir,
+    "--strict"
+  ], { cwd: process.cwd(), encoding: "utf8" });
+
+  assert.notEqual(result.status, 0);
+  assert.doesNotMatch(result.stderr, /Maximum call stack|RangeError/i);
+  const payload = JSON.parse(result.stdout) as {
+    blockers: string[];
+    rawSessionArtifacts: Array<{ name: string; reason: string }>;
+    evidenceScanDepthExceeded: string[];
+  };
+  assert.deepEqual(payload.blockers, ["evidence_scan_depth_exceeded"]);
+  assert.deepEqual(payload.rawSessionArtifacts, []);
+  assert.deepEqual(payload.evidenceScanDepthExceeded, [
+    "d0/d1/d2/d3/d4/d5/d6/d7/d8/d9/d10/d11/d12/d13/d14/d15/d16/d17/d18/d19/d20/d21/d22/d23/d24/d25/d26/d27/d28/d29/d30/d31/d32/d33/d34/d35/d36/d37/d38/d39/d40"
+  ]);
+});
+
 function writeProjectSkeleton(rootDir: string, overrides: { readme?: string; runtimeArtifact?: boolean; packageFiles?: string[]; runtimeExtensions?: string[] } = {}): void {
   mkdirSync(join(rootDir, "docs"), { recursive: true });
   mkdirSync(join(rootDir, "packages/openclaw-plugin"), { recursive: true });

@@ -8,6 +8,8 @@ This release is focused on local Codex sessions. Prepared state remains an advis
 
 - Fixes `loo release preflight` raw-artifact detection so it scans nested evidence folders instead of only immediate files in `--evidence-dir`.
 - Adds recursive detection for SQLite sidecars such as `.sqlite-wal`, `.sqlite-shm`, `.sqlite3-wal`, `.sqlite3-shm`, `.db-wal`, and `.db-shm`.
+- Skips symlinked evidence entries and reports `evidence_scan_depth_exceeded`
+  when an evidence tree is too deep to scan deterministically.
 - Keeps raw artifact findings public-safe by reporting relative evidence names and blocker reasons, not raw artifact contents.
 - Sanitizes the M11 final evidence packet by removing generated clean-profile runtime HOME/prefix artifacts while preserving public-safe summary reports.
 - Carries forward the 1.2.2 readiness-smoke semantics clarification: `ok` / `packagePathOk` are package-path claims, while `publishedSmokeReady` is the clean-profile gateway-ready claim.
