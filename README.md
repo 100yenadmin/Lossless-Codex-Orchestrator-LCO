@@ -176,12 +176,12 @@ before claiming the turn or thread completed, persisted, or is safe to build on.
 The packaged agent playbook is
 [skills/lossless-openclaw-orchestrator/SKILL.md](skills/lossless-openclaw-orchestrator/SKILL.md).
 
-Naming policy: `loo_` is the historical and canonical tool prefix for backward
-compatibility. `LCO` is the product abbreviation and may appear in prose,
-package names, issues, and docs. Do not broadly rename or duplicate tools to
-`lco_*` unless the compatibility work in
-[#434](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/434)
-explicitly approves an alias plan.
+Naming policy: `LCO` is the public product abbreviation and `lco_*` is the
+forward public alias target for new user-facing tool names. The currently
+callable OpenClaw/MCP tools still use the historical `loo_*` runtime prefix, so
+examples that must run today continue to show `loo_*` until #434 lands a tested
+alias layer. Do not delete or silently rename the `loo_*` tools; keep them as
+backward-compatible aliases when `lco_*` aliases are added.
 
 ## OpenClaw And MCP
 
@@ -234,6 +234,9 @@ Default behavior:
 - bounded expansion profiles
 - read-only OpenClaw LCM peer DB access
 - direct Codex protocol before desktop fallback
+- CUA Driver as the preferred/default desktop fallback backend when desktop
+  fallback is needed; CUA is externally installed, not bundled by LCO, and
+  Peekaboo remains a secondary visible fallback
 - dry-run plus matching `approval_audit_id` before live Codex control,
   including new-thread creation
 - explicit mutation classes: pure reads use empty `mutationClasses`, and
@@ -255,6 +258,12 @@ Claude Code support is an adapter stub and redacted fixture inventory until its
 storage and control paths are proven. Desktop fallback surfaces report
 readiness, blockers, and proof states; they do not authorize prompt typing,
 clicking, refresh/restart automation, or arbitrary app control.
+
+Desktop fallback readiness is optional for normal read/search/describe
+workflows. Operators who need fallback control should install CUA Driver
+separately, verify `cua-driver mcp` availability through `loo doctor --json` or
+`loo desktop see cua-driver`, and treat missing CUA as a desktop-fallback
+readiness blocker rather than a package install failure.
 
 Claude adapter proof boundaries live in
 [docs/CLAUDE_ADAPTER_BOUNDARY.md](docs/CLAUDE_ADAPTER_BOUNDARY.md). Public

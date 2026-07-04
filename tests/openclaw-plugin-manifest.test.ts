@@ -88,20 +88,46 @@ test("OpenClaw plugin contracts classify every tool into an operator surface tie
   }
 
   for (const manifestContracts of [contracts, sourceContracts]) {
+    const toolSurface = manifestContracts?.toolSurface as
+      | {
+          publicFacadeTools?: unknown;
+          tiers?: unknown;
+          namingPolicy?: {
+            publicProductAbbreviation?: unknown;
+            forwardPublicAliasTarget?: unknown;
+            currentRuntimePrefix?: unknown;
+            legacyCompatiblePrefix?: unknown;
+            compatibilityIssue?: unknown;
+            aliasPolicy?: unknown;
+          };
+          desktopFallback?: {
+            normalFirstPath?: unknown;
+            preferredBackend?: unknown;
+            preferredLaunch?: unknown;
+            bundledByLco?: unknown;
+            secondaryBackend?: unknown;
+            missingPreferredBackendBehavior?: unknown;
+            proofBoundary?: unknown;
+          };
+        }
+      | undefined;
+
     assert.deepEqual(manifestContracts?.toolDeclarations, declarations);
     assert.deepEqual(manifestContracts?.toolSurface, generatedToolSurface);
-    assert.match(
-      JSON.stringify((manifestContracts?.toolSurface as { namingPolicy?: unknown } | undefined)?.namingPolicy),
-      /#434/
-    );
-    assert.match(
-      JSON.stringify((manifestContracts?.toolSurface as { namingPolicy?: unknown } | undefined)?.namingPolicy),
-      /loo_/
-    );
-    assert.match(
-      JSON.stringify((manifestContracts?.toolSurface as { namingPolicy?: unknown } | undefined)?.namingPolicy),
-      /lco/i
-    );
+    assert.equal(toolSurface?.namingPolicy?.publicProductAbbreviation, "LCO");
+    assert.equal(toolSurface?.namingPolicy?.forwardPublicAliasTarget, "lco_*");
+    assert.equal(toolSurface?.namingPolicy?.currentRuntimePrefix, "loo_");
+    assert.equal(toolSurface?.namingPolicy?.legacyCompatiblePrefix, "loo_");
+    assert.equal(toolSurface?.namingPolicy?.compatibilityIssue, "#434");
+    assert.match(String(toolSurface?.namingPolicy?.aliasPolicy), /backward compatible/);
+    assert.equal(toolSurface?.desktopFallback?.normalFirstPath, "direct Codex protocol");
+    assert.equal(toolSurface?.desktopFallback?.preferredBackend, "cua-driver");
+    assert.equal(toolSurface?.desktopFallback?.preferredLaunch, "cua-driver mcp");
+    assert.equal(toolSurface?.desktopFallback?.bundledByLco, false);
+    assert.equal(toolSurface?.desktopFallback?.secondaryBackend, "peekaboo");
+    assert.match(String(toolSurface?.desktopFallback?.missingPreferredBackendBehavior), /read\/search\/describe/);
+    assert.match(String(toolSurface?.desktopFallback?.proofBoundary), /re-read the Codex composer value before send/);
+    assert.match(String(toolSurface?.desktopFallback?.proofBoundary), /No generic GUI mutation/);
   }
 });
 
