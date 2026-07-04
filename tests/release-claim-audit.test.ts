@@ -177,8 +177,10 @@ test("npm dist-tag policy is explicit for stable, beta, and rc channels", () => 
     assert.match(content, /npm dist-tag policy/i, surface);
     assert.match(content, /latest/i, surface);
     assert.match(content, /beta/i, surface);
-    assert.match(content, new RegExp("stable channel\\s+currently points at\\s+`" + escapedPackageVersion + "`", "i"), surface);
+    assert.match(content, new RegExp("stable channel\\s+target for this package version is\\s+`" + escapedPackageVersion + "`", "i"), surface);
+    assert.match(content, /npm `latest` must move only after/i, surface);
     assert.match(content, /Do not publish\s+a\s+fake stable/i, surface);
+    assert.doesNotMatch(content, new RegExp("stable channel\\s+currently points at\\s+`" + escapedPackageVersion + "`", "i"), `${surface} must not claim unpublished candidates are already on latest`);
     assert.doesNotMatch(content, /latest[\s\S]{0,80}1\.0\.0/i, `${surface} must not say latest currently moves to 1.0.0`);
     assert.doesNotMatch(content, /latest[\s\S]{0,200}(?:follows|point at|resolves to)[\s\S]{0,120}newest public beta/i, `${surface} must not imply latest follows the newest beta`);
   }
@@ -189,7 +191,7 @@ test("npm dist-tag policy is explicit for stable, beta, and rc channels", () => 
   assert.match(readme, /`beta` is the active prerelease train/i);
   assert.match(setup, /npm install -g lossless-openclaw-orchestrator@latest/i);
   assert.match(runbook, /npm dist-tag ls lossless-openclaw-orchestrator/i);
-  assert.match(runbook, /future stable releases move `latest` only after/i);
+  assert.match(runbook, /npm `latest` must move only after/i);
 });
 
 test("stable and prerelease package metadata pins the intended npm dist-tag", () => {
@@ -217,7 +219,7 @@ test("stable and prerelease package metadata pins the intended npm dist-tag", ()
 
   assert.equal(packageJson.publishConfig?.tag, "latest");
   assert.match(runbook, /npm publish --tag latest/i);
-  assert.match(runbook, /future stable releases move `latest` only after/i);
+  assert.match(runbook, /npm `latest` must move only after/i);
 });
 
 test("release workflows use non-deprecated action majors", () => {

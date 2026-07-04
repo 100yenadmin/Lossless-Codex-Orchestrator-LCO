@@ -2,23 +2,23 @@ Thread: Build redacted extraction evals
 
 ID: 019f-eval-thread
 
-CWD: /Volumes/LEXAR/repos/acme
+CWD: <redacted-path>
 
 Branch: feature/extraction-evals
 
 Git SHA: abc123eval
 
-Summary: Title: Build redacted extraction evals Model: gpt-5 Branch: feature/extraction-evals@abc123eval CWD: /Volumes/LEXAR/repos/acme Final: Final: extraction eval complete. Next action: open PR with safe summary docs. Plan: 1. Add an extractor eval fixture for packages/core/src/index.ts. 2. Assert tests/extraction/orchestrator.test.ts coverage for plans, finals, touched files, tools, and safe text. 3. Keep expansion snapshots bounded and redacted. Files: ./docs/SAFE_SUMMARIES.md, /Volumes/LEXAR/repos/acme/packages/ui/Button.tsx, packages/core/src/index.ts +3 more Tools: functions.exec_command, functions.apply_patch
+Summary: Title: Build redacted extraction evals Model: gpt-5 Branch: feature/extraction-evals@abc123eval CWD: <redacted-path> Final: Final: extraction eval complete. Next action: open PR with safe summary docs. Plan: 1. Add an extractor eval fixture for packages/core/src/index.ts. 2. Assert tests/extraction/orchestrator.test.ts coverage for plans, finals, touched files, tools, and safe text. 3. Keep expansion snapshots bounded and redacted. Files: ./docs/SAFE_SUMMARIES.md, <redacted-path> packages/core/src/index.ts +3 more Tools: functions.exec_command, functions.apply_patch
 
 Final message: Final: extraction eval complete. Next action: open PR with safe summary docs.
 
 Touched files:
 - ./docs/SAFE_SUMMARIES.md
-- /Volumes/LEXAR/repos/acme/packages/ui/Button.tsx
+- <redacted-path>
 - packages/core/src/index.ts
 - src/worker.ts
 - tests/extraction/orchestrator.test.ts
-- ~/private
+- <redacted-path>
 
 Plans:
 1. Add an extractor eval fixture for packages/core/src/index.ts. 2. Assert tests/extraction/orchestrator.test.ts coverage for plans, finals, touched files, tools, and safe text. 3. Keep expansion snapshots bounded and redacted.
@@ -27,4 +27,4 @@ alpha-detail-001 verifies bounded recall evidence alpha-detail-002 verifies boun
 
 bravo-detail-001 verifies bounded recall evidence bravo-detail-002 verifies bounded recall evidence bravo-detail-003 verifies bounded recall evidence bravo-detail-004 verifies bounded recall evidence bravo-detail-005 verifies bounded recall evidence bravo-detail-006 verifies bounded recall evidence bravo-detail-007 verifies bounded recall evidence bravo-detail-008 verifies bounded recall evidence bravo-detail-009 verifies bounded recall evidence bravo-detail-010 verifies bounded recall evidence bravo-detail-011 verifies bounded recall evidence bravo-detail-012 verifies bounded recall evidence bravo-detail-013 verifies bounded recall evidence bravo-detail-014 verifies bounded recall evidence bravo-detail-015 verifies bounded recall evidence bravo-detail-016 verifies bounded recall evidence bravo-detail-017 verifies bounded recall evidence bravo-detail-018 verifies bounded recall evidence bravo-detail-019 verifies bounded recall evidence bravo-detail-020 verifies bounded recall evidence bravo-detail-021 verifies bounded recall evidence bravo-detail-022 verifies bounded recall evidence bravo-detail-023 verifies bounded recall evidence bravo-detail-024 verifies bounded recall evidence…
 
-charlie-detail-001 verifies bounded recall evidence charlie-detail-002 verifies bounded recall evidence charlie-detail-003 verifies bounded recall evidence charlie-detail-004 verifies bounded recall evidence charlie-detail-005 verifies bounded recall evidence charlie-detail-006 verifies bounded r…
+charlie-detail-001 verifies bounded recall evidence charlie-detail-002 verifies bounded recall evidence charlie-detail-003 verifies bounded recall evidence charlie-detail-004 verifies bounded recall evidence charlie-detail-005 verifies bounded recall evidence charlie-detail-006 verifies bounded recall evidence charlie-detail-007 verifies bounded recall evidence charlie-detail…

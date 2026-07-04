@@ -24,8 +24,9 @@ test("redacted Claude metadata fixtures join recall without raw transcript text"
           project: "Lossless OpenClaw Orchestrator",
           workspaceHint: "lossless-openclaw-orchestrator",
           status: "fixture-only",
-          safeSummary: "Metadata-only Claude fixture for read-only adapter inventory.",
-          updatedAt: "2026-06-30T17:20:00Z"
+          safeSummary: "Metadata-only Claude fixture for read-only adapter inventory. See ~/private/notes and /tmp/claude.sqlite.",
+          updatedAt: "2026-06-30T17:20:00Z",
+          sourcePath: "/Users/lume/private/claude.sqlite"
         }
       ]
     });
@@ -43,20 +44,27 @@ test("redacted Claude metadata fixtures join recall without raw transcript text"
     const description = describeRecallRef(db, { sourceRef: "claude_session:claude-redacted-1" });
     assert.equal(description?.sourceKind, "claude_session");
     assert.equal(description?.sourceRef, "claude_session:claude-redacted-1");
-    assert.equal(description?.summary, "Metadata-only Claude fixture for read-only adapter inventory.");
-    assert.equal(description?.sourcePath, "fixture:claude-redacted-1");
+    assert.equal(description?.summary?.includes("<redacted-path>"), true);
+    assert.equal(description?.sourcePath, "<redacted-path>");
 
     const metadata = expandRecallRef(db, { sourceRef: "claude_session:claude-redacted-1", profile: "metadata" });
     assert.equal(metadata.sourceKind, "claude_session");
     assert.equal(metadata.tokenBudget, 0);
     assert.equal(metadata.text.includes("Claude session ID: claude-redacted-1"), true);
     assert.equal(metadata.text.includes("Project: Lossless OpenClaw Orchestrator"), true);
+    assert.equal(metadata.text.includes("Source path:"), false);
+    assert.equal(metadata.text.includes("/Users/lume"), false);
+    assert.equal(metadata.text.includes("claude.sqlite"), false);
     assert.equal(metadata.text.includes("Safe summary:"), false);
 
     const brief = expandRecallRef(db, { sourceRef: "claude_session:claude-redacted-1", profile: "brief" });
     assert.equal(brief.text.includes("Safe summary:"), true);
     assert.equal(brief.text.includes("raw transcript"), false);
     assert.equal(brief.text.includes("tool payload"), false);
+    assert.equal(brief.text.includes("<redacted-path>"), true);
+    assert.equal(brief.text.includes("~/private"), false);
+    assert.equal(brief.text.includes("/tmp/claude.sqlite"), false);
+    assert.equal(brief.text.includes("claude.sqlite"), false);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
