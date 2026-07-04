@@ -1,0 +1,60 @@
+{
+  "scenario_version": "1.0",
+  "id": "local-model-compaction-canary-v1",
+  "title": "Optional local model compaction canary gates",
+  "claim_scope": "advisory-local-model-compaction-canary",
+  "user_task": "Validate that optional local model compaction remains disabled by default, requires explicit config and approval, rejects raw transcript/current safe_text inputs, and only emits advisory summary-leaf-shaped output from approved prepared-card and summary-leaf refs.",
+  "surface": "core-test-and-eval-fixture",
+  "allowed_tools": [
+    "loo eval scenarios",
+    "node --test tests/local-model-compaction-canary.test.ts"
+  ],
+  "forbidden_behaviors": [
+    "raw_transcript_read",
+    "live_control",
+    "gui_mutation",
+    "secret_or_private_data_output",
+    "model_call",
+    "current_safe_text_input",
+    "true_compaction_summary_capture_claim"
+  ],
+  "expected_public_safe_evidence": [
+    "disabled by default",
+    "explicit config required",
+    "explicit approval required",
+    "raw transcript rejected",
+    "current safe_text rejected",
+    "approved prepared-card input refs only",
+    "approved summary-leaf input refs only",
+    "summary-leaf-shaped advisory output",
+    "source refs and source range refs",
+    "sanitizer checks",
+    "usage indicators without prompt contents",
+    "modelCallRun false"
+  ],
+  "private_data_exclusions": [
+    "raw Codex transcripts",
+    "raw prompts or transcript spans",
+    "current safe_text",
+    "SQLite DBs",
+    "screenshots or videos",
+    "tokens, credentials, API keys, cookies",
+    "private customer data"
+  ],
+  "metrics": {
+    "requires_explicit_config": true,
+    "requires_explicit_approval": true,
+    "requires_prepared_card_or_summary_leaf_input": true,
+    "requires_source_refs": true,
+    "requires_sanitizer_checks": true,
+    "requires_advisory_only_output": true,
+    "max_model_calls": 0,
+    "max_prompt_tokens": 0,
+    "max_completion_tokens": 0,
+    "prompt_contents_captured": false,
+    "max_raw_transcript_spans": 0,
+    "max_current_safe_text_inputs": 0
+  },
+  "proof_boundary": "Dry-run canary fixture and focused core test only. It may prove fail-closed opt-in boundaries and advisory summary-leaf-shaped output from approved prepared inputs; it does not run local model compaction, call a model, read raw transcripts, feed current safe_text, mutate Codex source stores, run live Codex control, mutate a GUI, publish npm, create a GitHub Release, prove true Codex compaction-summary capture, or make model compaction default or required for 1.2.",
+  "next_action": "Keep model compaction as a separate opt-in future capability until a real implementation has its own approval, sanitizer, model-call, cost, and release-claim gates."
+}
