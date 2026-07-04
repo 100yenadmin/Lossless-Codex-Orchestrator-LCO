@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { basename, dirname, extname, join, resolve, sep } from "node:path";
+import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import {
   excludedClaimsForScope,
   liveControlExcludedDetail,
@@ -39,6 +39,7 @@ export type ReleasePreflightReport = {
   blockers: string[];
   forbiddenClaims: string[];
   rawSessionArtifacts: RawSessionArtifact[];
+  evidenceScanDepthExceeded: string[];
 };
 
 type ApprovedLiveControlSmokeProof = {
@@ -57,10 +58,17 @@ type RawSessionArtifact = {
   reason: "raw_codex_jsonl" | "sqlite_database" | "screenshot_or_image" | "video_capture";
 };
 
+type EvidenceScanResult = {
+  rawSessionArtifacts: RawSessionArtifact[];
+  depthLimitExceeded: string[];
+};
+
 type JsonReadResult = {
   value: unknown | null;
   error: string | null;
 };
+
+const EVIDENCE_SCAN_MAX_DEPTH = 40;
 
 const forbiddenClaims = [
   "Full Claude Code parity",
@@ -148,14 +156,21 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
   const workingAppRuntimeProof = workingAppRuntimeProofRequired
     ? validateWorkingAppRuntimeProof(options.runtimeProofDir)
     : null;
-  const rawSessionArtifacts = scanRawSessionArtifacts(options.evidenceDir);
+  const evidenceScan = scanEvidenceArtifacts(options.evidenceDir);
+  const rawSessionArtifacts = evidenceScan.rawSessionArtifacts;
+  const evidenceScanDepthExceeded = evidenceScan.depthLimitExceeded;
   const checks: Record<string, ReleasePreflightCheck> = {
     packageJson: check(Boolean(!packageJsonRead.error && packageJson?.name && packageJson.version && packageJson.description?.match(/local Codex sessions/i)), packageJsonRead.error ?? "package metadata keeps Codex-first beta positioning"),
     readme: check(Boolean(readme && readmePublicDocsRequiredPatterns.every((pattern) => pattern.test(readme))), "README includes public setup path, OpenClaw/MCP entrypoints, safety boundaries, and forbidden claims"),
     openclawManifest: check(Boolean(!openclawManifestRead.error && openclawPackageMetadataOk && openclawManifest?.id === "lossless-openclaw-orchestrator" && openclawManifest.mcp?.command === "loo-mcp-server" && openclawManifest.mcp.transport === "stdio" && openclawManifest.tools?.prefix === "loo_" && openclawManifest.safety?.localOnlyByDefault === true), openclawManifestRead.error ?? "root OpenClaw manifest and package runtime entry are packageable and local-only by default"),
     claimAudit: check(Boolean(claimAudit?.match(/Forbidden Beta Claims/i) && claimAudit.match(/approved_live_control_smoke_missing/i)), "claim audit records forbidden claims and the live-control blocker code"),
     betaDemo: check(Boolean(betaDemo?.match(/100\+ local Codex sessions/i) && betaDemo.match(/does not run live control/i)), "demo workflow covers 100+ Codex sessions and dry-run-only control boundary"),
-    rawArtifacts: check(rawSessionArtifacts.length === 0, rawSessionArtifacts.length === 0 ? "no raw session/private DB/screenshot artifacts found" : "raw session/private DB/screenshot artifacts are present"),
+    rawArtifacts: check(
+      rawSessionArtifacts.length === 0 && evidenceScanDepthExceeded.length === 0,
+      rawSessionArtifacts.length === 0 && evidenceScanDepthExceeded.length === 0
+        ? "no raw session/private DB/screenshot artifacts found"
+        : "raw artifacts or unsafe evidence tree shape are present"
+    ),
     liveControlSmoke: liveControlProof,
     workingAppRuntimeProof: workingAppRuntimeProof
       ? check(
@@ -171,6 +186,7 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
     .filter(([key, value]) => !value.ok && key !== "liveControlSmoke" && key !== "rawArtifacts" && key !== "workingAppRuntimeProof")
     .map(([key]) => `${key}_failed`);
   if (rawSessionArtifacts.length > 0) blockers.push("raw_session_artifacts_present");
+  if (evidenceScanDepthExceeded.length > 0) blockers.push("evidence_scan_depth_exceeded");
   if (liveControlRequired && !checks.liveControlSmoke?.ok) blockers.push("approved_live_control_smoke_missing");
   if (workingAppRuntimeProofRequired && workingAppRuntimeProof && !workingAppRuntimeProof.ok) {
     blockers.push(...workingAppRuntimeProof.blockers);
@@ -188,7 +204,8 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
     checks,
     blockers,
     forbiddenClaims,
-    rawSessionArtifacts
+    rawSessionArtifacts,
+    evidenceScanDepthExceeded
   };
 
   if (report.artifactManifestPath) {
@@ -272,22 +289,54 @@ function findPackageRoot(start: string): string | null {
   }
 }
 
-function scanRawSessionArtifacts(evidenceDir: string | undefined): RawSessionArtifact[] {
-  if (!evidenceDir || !existsSync(evidenceDir)) return [];
-  return readdirSync(evidenceDir, { withFileTypes: true })
-    .filter((entry) => entry.isFile())
-    .map((entry) => rawArtifactForName(entry.name))
-    .filter((entry): entry is RawSessionArtifact => entry !== null)
-    .sort((left, right) => left.name.localeCompare(right.name));
+function scanEvidenceArtifacts(evidenceDir: string | undefined): EvidenceScanResult {
+  if (!evidenceDir || !existsSync(evidenceDir)) {
+    return { rawSessionArtifacts: [], depthLimitExceeded: [] };
+  }
+  const root = resolve(evidenceDir);
+  const rawSessionArtifacts: RawSessionArtifact[] = [];
+  const depthLimitExceeded: string[] = [];
+  const visit = (dir: string, depth: number): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const absolutePath = join(dir, entry.name);
+      const relativePath = normalizePackagePath(relative(root, absolutePath));
+      if (entry.isSymbolicLink()) continue;
+      if (entry.isDirectory()) {
+        if (depth >= EVIDENCE_SCAN_MAX_DEPTH) {
+          depthLimitExceeded.push(relativePath);
+          continue;
+        }
+        visit(absolutePath, depth + 1);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const artifact = rawArtifactForName(relativePath);
+      if (artifact) rawSessionArtifacts.push(artifact);
+    }
+  };
+  visit(root, 0);
+  return {
+    rawSessionArtifacts: rawSessionArtifacts
+      .filter((entry) => entry !== null)
+      .sort((left, right) => left.name.localeCompare(right.name)),
+    depthLimitExceeded: depthLimitExceeded.sort((left, right) => left.localeCompare(right))
+  };
 }
 
 function rawArtifactForName(name: string): RawSessionArtifact | null {
   if (name === "release-preflight.json") return null;
-  const extension = extname(name).toLowerCase();
-  if (extension === ".jsonl") return { name: basename(name), reason: "raw_codex_jsonl" };
-  if (extension === ".sqlite" || extension === ".sqlite3" || extension === ".db") return { name: basename(name), reason: "sqlite_database" };
-  if (extension === ".png" || extension === ".jpg" || extension === ".jpeg" || extension === ".heic" || extension === ".webp") return { name: basename(name), reason: "screenshot_or_image" };
-  if (extension === ".mov" || extension === ".mp4" || extension === ".webm") return { name: basename(name), reason: "video_capture" };
+  const normalizedName = normalizePackagePath(name);
+  const extension = extname(normalizedName).toLowerCase();
+  const lowerName = normalizedName.toLowerCase();
+  if (extension === ".jsonl") return { name: normalizedName, reason: "raw_codex_jsonl" };
+  if (extension === ".sqlite" || extension === ".sqlite3" || extension === ".db"
+    || lowerName.endsWith(".sqlite-wal") || lowerName.endsWith(".sqlite-shm")
+    || lowerName.endsWith(".sqlite3-wal") || lowerName.endsWith(".sqlite3-shm")
+    || lowerName.endsWith(".db-wal") || lowerName.endsWith(".db-shm")) {
+    return { name: normalizedName, reason: "sqlite_database" };
+  }
+  if (extension === ".png" || extension === ".jpg" || extension === ".jpeg" || extension === ".heic" || extension === ".webp") return { name: normalizedName, reason: "screenshot_or_image" };
+  if (extension === ".mov" || extension === ".mp4" || extension === ".webm") return { name: normalizedName, reason: "video_capture" };
   return null;
 }
 

@@ -1,10 +1,18 @@
 {
   "name": "lossless-openclaw-orchestrator",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "Index, search, and prepare local Codex sessions for OpenClaw with approval-gated dry-run/control boundaries.",
   "type": "module",
   "license": "PolyForm-Noncommercial-1.0.0",
   "private": false,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO.git"
+  },
+  "homepage": "https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO#readme",
+  "bugs": {
+    "url": "https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues"
+  },
   "publishConfig": {
     "tag": "latest"
   },

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -762,8 +762,12 @@ test("release preflight checks package files from the package root regardless of
 
 test("release preflight reports raw artifacts already present in the evidence directory", () => {
   const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-raw-"));
+  mkdirSync(join(evidenceDir, "nested", "state"), { recursive: true });
   writeFileSync(join(evidenceDir, "session.jsonl"), "{}\n");
   writeFileSync(join(evidenceDir, "private.sqlite"), "");
+  writeFileSync(join(evidenceDir, "nested", "state", "openclaw.sqlite-wal"), "");
+  writeFileSync(join(evidenceDir, "nested", "state", "openclaw.sqlite-shm"), "");
+  writeFileSync(join(evidenceDir, "nested", "config-audit.jsonl"), "{}\n");
   const result = spawnSync(process.execPath, [
     "--import",
     tsxImport,
@@ -785,8 +789,100 @@ test("release preflight reports raw artifacts already present in the evidence di
   assert.equal(payload.releaseReady, false);
   assert.deepEqual(payload.blockers, ["raw_session_artifacts_present", "approved_live_control_smoke_missing"]);
   assert.deepEqual(payload.rawSessionArtifacts, [
+    { name: "nested/config-audit.jsonl", reason: "raw_codex_jsonl" },
+    { name: "nested/state/openclaw.sqlite-shm", reason: "sqlite_database" },
+    { name: "nested/state/openclaw.sqlite-wal", reason: "sqlite_database" },
     { name: "private.sqlite", reason: "sqlite_database" },
     { name: "session.jsonl", reason: "raw_codex_jsonl" }
+  ]);
+});
+
+test("release preflight ignores symlinked evidence directories and catches SQLite sidecar variants", (t) => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-symlinks-"));
+  const externalDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-external-"));
+  mkdirSync(join(evidenceDir, "nested", "state"), { recursive: true });
+  mkdirSync(join(evidenceDir, ".hidden"), { recursive: true });
+  writeFileSync(join(evidenceDir, "nested", "state", "cache.sqlite-wal"), "");
+  writeFileSync(join(evidenceDir, "nested", "state", "cache.sqlite-shm"), "");
+  writeFileSync(join(evidenceDir, "nested", "state", "cache.sqlite3-wal"), "");
+  writeFileSync(join(evidenceDir, "nested", "state", "cache.sqlite3-shm"), "");
+  writeFileSync(join(evidenceDir, "nested", "state", "cache.db-wal"), "");
+  writeFileSync(join(evidenceDir, "nested", "state", "cache.db-shm"), "");
+  writeFileSync(join(evidenceDir, ".hidden", "hidden.sqlite3"), "");
+  writeFileSync(join(externalDir, "external.sqlite"), "");
+  writeFileSync(join(externalDir, "external.jsonl"), "{}\n");
+
+  try {
+    symlinkSync(evidenceDir, join(evidenceDir, "loop"), "dir");
+    symlinkSync(externalDir, join(evidenceDir, "external-link"), "dir");
+  } catch {
+    t.skip("filesystem does not allow directory symlinks in this environment");
+    return;
+  }
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "preflight",
+    "--claim-scope",
+    "codex-working-app-proof",
+    "--evidence-dir",
+    evidenceDir,
+    "--strict"
+  ], { cwd: process.cwd(), encoding: "utf8" });
+
+  assert.notEqual(result.status, 0);
+  assert.doesNotMatch(result.stderr, /Maximum call stack|ELOOP|external\.sqlite|external\.jsonl/i);
+  const payload = JSON.parse(result.stdout) as {
+    blockers: string[];
+    rawSessionArtifacts: Array<{ name: string; reason: string }>;
+  };
+  assert.equal(payload.blockers.includes("raw_session_artifacts_present"), true);
+  assert.deepEqual(payload.rawSessionArtifacts, [
+    { name: ".hidden/hidden.sqlite3", reason: "sqlite_database" },
+    { name: "nested/state/cache.db-shm", reason: "sqlite_database" },
+    { name: "nested/state/cache.db-wal", reason: "sqlite_database" },
+    { name: "nested/state/cache.sqlite-shm", reason: "sqlite_database" },
+    { name: "nested/state/cache.sqlite-wal", reason: "sqlite_database" },
+    { name: "nested/state/cache.sqlite3-shm", reason: "sqlite_database" },
+    { name: "nested/state/cache.sqlite3-wal", reason: "sqlite_database" }
+  ]);
+});
+
+test("release preflight reports a deterministic blocker for too-deep evidence trees", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-depth-"));
+  let cursor = evidenceDir;
+  for (let index = 0; index < 42; index += 1) {
+    cursor = join(cursor, `d${index}`);
+    mkdirSync(cursor);
+  }
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "preflight",
+    "--claim-scope",
+    "codex-read-search-expand-dry-run",
+    "--evidence-dir",
+    evidenceDir,
+    "--strict"
+  ], { cwd: process.cwd(), encoding: "utf8" });
+
+  assert.notEqual(result.status, 0);
+  assert.doesNotMatch(result.stderr, /Maximum call stack|RangeError/i);
+  const payload = JSON.parse(result.stdout) as {
+    blockers: string[];
+    rawSessionArtifacts: Array<{ name: string; reason: string }>;
+    evidenceScanDepthExceeded: string[];
+  };
+  assert.deepEqual(payload.blockers, ["evidence_scan_depth_exceeded"]);
+  assert.deepEqual(payload.rawSessionArtifacts, []);
+  assert.deepEqual(payload.evidenceScanDepthExceeded, [
+    "d0/d1/d2/d3/d4/d5/d6/d7/d8/d9/d10/d11/d12/d13/d14/d15/d16/d17/d18/d19/d20/d21/d22/d23/d24/d25/d26/d27/d28/d29/d30/d31/d32/d33/d34/d35/d36/d37/d38/d39/d40"
   ]);
 });
 
