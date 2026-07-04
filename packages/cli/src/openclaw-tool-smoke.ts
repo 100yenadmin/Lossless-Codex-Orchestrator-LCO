@@ -245,7 +245,7 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
         confirm: false,
         idempotencyKey: `loo-tool-smoke-${runId}-${toolName}`
       }, gatewayCallOptions);
-      const summary = summarizeInvocation(toolName, call);
+      const summary = summarizeInvocation(toolName, call, args ?? {});
       annotateRequestedExpansionProfile(summary, args);
       invocations.push(summary);
       blockers.push(...summary.blockers);
@@ -917,7 +917,11 @@ function smokeCodexDesktopCollaborationProofReport(threadId?: string): Record<st
   };
 }
 
-function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenClawToolInvocationSummary {
+function summarizeInvocation(
+  toolName: string,
+  call: GatewayJsonResult,
+  requestArgs: Record<string, unknown> = {}
+): OpenClawToolInvocationSummary {
   const payload = call.parsed ? unwrapGatewayPayload(call.parsed) : undefined;
   const blockers = [
     ...gatewayFailureBlockers(call, `openclaw_tool_invoke_failed:${toolName}`, toolName),
@@ -1266,6 +1270,10 @@ function summarizeInvocation(toolName: string, call: GatewayJsonResult): OpenCla
       blockers.push("prepared_state_status_public_safe_read_only_missing");
     }
     if (!isRecord(statusOutput) || !isRecord(statusOutput.sourceCoverage)) blockers.push("prepared_state_status_coverage_missing");
+    const targetedThreadId = stringPath(requestArgs, ["thread_id"]);
+    if (targetedThreadId && (!isRecord(statusOutput) || statusOutput.targetCoverage === undefined)) {
+      blockers.push("prepared_state_status_target_coverage_missing");
+    }
     if (isRecord(statusOutput) && statusOutput.targetCoverage !== undefined) {
       const targetCoverage = statusOutput.targetCoverage;
       if (!isRecord(targetCoverage)) blockers.push("prepared_state_status_target_coverage_invalid");

@@ -460,6 +460,62 @@ test("prepared targeted coverage reports indexed active threads missing prepared
   }
 });
 
+test("prepared targeted coverage downgrades stale cards and orphaned inbox rows", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-target-stale-orphan-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const staleThreadId = "019f-prepared-target-stale";
+  const orphanThreadId = "019f-prepared-target-orphan";
+  writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-01-00-019f-prepared-target-stale.jsonl"), staleThreadId, "Stale prepared target");
+  writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-01-01-019f-prepared-target-orphan.jsonl"), orphanThreadId, "Orphan inbox target");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+
+    db.prepare(`
+      UPDATE prepared_cards
+      SET stale = 1,
+          state = 'stale',
+          reason_codes_json = ?
+      WHERE target_ref = ?
+    `).run(JSON.stringify(["summary_leaves_ready", "stale_cache"]), `codex_thread:${staleThreadId}`);
+    const staleStatus = getPreparedStateStatus(db, { threadId: staleThreadId }) as ReturnType<typeof getPreparedStateStatus> & {
+      targetCoverage?: {
+        status: string;
+        sourceCoverage: Record<string, string>;
+        counts: Record<string, number>;
+        freshness: { stale?: boolean };
+        reasonCodes: string[];
+      } | null;
+    };
+    assert.equal(staleStatus.targetCoverage?.sourceCoverage.preparedCards, "ok");
+    assert.equal(staleStatus.targetCoverage?.sourceCoverage.preparedInboxItems, "ok");
+    assert.equal(staleStatus.targetCoverage?.status, "partial");
+    assert.equal(staleStatus.targetCoverage?.freshness.stale, true);
+    assert.equal(staleStatus.targetCoverage?.reasonCodes.includes("prepared_cache_stale_or_missing"), true);
+    assert.equal(staleStatus.targetCoverage?.counts.preparedInboxItems, 1);
+
+    const orphanTargetRef = `codex_thread:${orphanThreadId}`;
+    db.prepare("DELETE FROM prepared_inbox_items WHERE target_ref = ?").run(orphanTargetRef);
+    insertPreparedInboxRow(db, {
+      id: "ffffffffffffffffffffffffffffffff",
+      cardRef: "prepared_card:ffffffffffffffffffffffffffffffff",
+      threadId: orphanThreadId,
+      urgencyScore: 80
+    });
+    const orphanStatus = getPreparedStateStatus(db, { threadId: orphanThreadId }) as typeof staleStatus;
+    assert.equal(orphanStatus.targetCoverage?.sourceCoverage.preparedCards, "ok");
+    assert.equal(orphanStatus.targetCoverage?.sourceCoverage.preparedInboxItems, "partial");
+    assert.equal(orphanStatus.targetCoverage?.status, "partial");
+    assert.equal(orphanStatus.targetCoverage?.counts.preparedInboxItems, 0);
+    assert.equal(orphanStatus.targetCoverage?.reasonCodes.includes("prepared_inbox_missing"), true);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("prepared cards fall back for path-like titles before public reads", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-prepared-card-title-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));

@@ -4522,14 +4522,18 @@ function getPreparedTargetCoverage(db: LooDatabase, threadId?: string): Prepared
       AND extractor_version = ?
       AND privacy_class = 'public_safe_metadata'
   `, targetRef, PREPARED_CARD_EXTRACTOR_VERSION);
-  const preparedInboxItems = countPreparedTargetRows(db, `
-    SELECT COUNT(*) AS count
-    FROM prepared_inbox_items
-    WHERE target_ref = ?
-      AND execute_false = 1
-  `, targetRef);
   const cardRow = getPreparedCardRowByTargetRef(db, targetRef);
   const publicCard = cardRow ? publicPreparedCardFromRow(cardRow) : null;
+  const preparedInboxItems = countPreparedTargetInboxItems(db, targetRef);
+  const staleSummaryLeaves = countPreparedTargetRows(db, `
+    SELECT COUNT(*) AS count
+    FROM summary_leaves
+    WHERE thread_id = ?
+      AND extractor_version = ?
+      AND privacy_class = 'public_safe_metadata'
+      AND omission_status = 'metadata_only'
+      AND stale = 1
+  `, threadId, SUMMARY_LEAF_EXTRACTOR_VERSION);
   const coverage = {
     indexedSession: session ? "ok" : "not_configured",
     sourceFile: session ? sourceFile ? "ok" : "partial" : "not_configured",
@@ -4537,7 +4541,7 @@ function getPreparedTargetCoverage(db: LooDatabase, threadId?: string): Prepared
     preparedSourceRanges: preparedSourceRanges > 0 ? "ok" : "not_configured",
     summaryLeaves: summaryLeaves > 0 ? "ok" : "not_configured",
     preparedCards: publicCard ? "ok" : preparedCards > 0 ? "partial" : "not_configured",
-    preparedInboxItems: publicCard && preparedInboxItems > 0 ? "ok" : preparedInboxItems > 0 ? "partial" : "not_configured",
+    preparedInboxItems: publicCard && preparedInboxItems.publicCount > 0 ? "ok" : preparedInboxItems.rawCount > 0 ? "partial" : "not_configured",
     watcherObservations: watcherObservationCoverageForTarget(db, targetRef)
   } satisfies PreparedTargetCoverage["sourceCoverage"];
   const preparedFreshnessAt = latestSafeTimestamp([
@@ -4558,8 +4562,14 @@ function getPreparedTargetCoverage(db: LooDatabase, threadId?: string): Prepared
   ];
   const missingDerivedCache = requiredCoverage.some((state) => state !== "ok");
   const partialDerivedCache = requiredCoverage.some((state) => state === "partial");
-  const stale = Boolean(session && (missingDerivedCache || (sourceUpdatedAt && preparedFreshnessAt && sourceUpdatedAt > preparedFreshnessAt)));
-  const anyDerivedRows = preparedSourceEvents + preparedSourceRanges + summaryLeaves + preparedCards + preparedInboxItems > 0;
+  const stale = Boolean(session && (
+    missingDerivedCache
+    || publicCard?.stale
+    || publicCard?.state === "stale"
+    || staleSummaryLeaves > 0
+    || (sourceUpdatedAt && preparedFreshnessAt && sourceUpdatedAt > preparedFreshnessAt)
+  ));
+  const anyDerivedRows = preparedSourceEvents + preparedSourceRanges + summaryLeaves + preparedCards + preparedInboxItems.rawCount > 0;
   const status: PreparedTargetCoverageStatus = !session
     ? anyDerivedRows ? "partial" : "not_found"
     : missingDerivedCache
@@ -4582,7 +4592,7 @@ function getPreparedTargetCoverage(db: LooDatabase, threadId?: string): Prepared
       preparedSourceRanges,
       summaryLeaves,
       preparedCards: publicCard ? 1 : 0,
-      preparedInboxItems
+      preparedInboxItems: preparedInboxItems.publicCount
     },
     freshness: {
       sourceUpdatedAt,
@@ -4597,6 +4607,30 @@ function getPreparedTargetCoverage(db: LooDatabase, threadId?: string): Prepared
 
 function countPreparedTargetRows(db: LooDatabase, sql: string, ...params: Array<string | number>): number {
   return Number((db.prepare(sql).get(...params) as { count: number } | undefined)?.count ?? 0);
+}
+
+function countPreparedTargetInboxItems(db: LooDatabase, targetRef: string): { rawCount: number; publicCount: number } {
+  if (!isPublicPreparedSourceRef(targetRef)) return { rawCount: 0, publicCount: 0 };
+  const rows = db.prepare(`
+    SELECT
+      item_id AS itemRef,
+      card_ref AS cardRef,
+      target_ref AS targetRef,
+      urgency_score AS urgencyScore,
+      state,
+      reason_codes_json AS reasonCodesJson,
+      source_refs_json AS sourceRefsJson,
+      execute_false AS executeFalse
+    FROM prepared_inbox_items
+    WHERE target_ref = ?
+      AND execute_false = 1
+  `).all(targetRef) as PreparedInboxRow[];
+  const candidateItems = rows.map(publicPreparedInboxItemFromRow).filter((item): item is PreparedInboxItem => Boolean(item));
+  const cardByRef = getPublicPreparedCardsByCardRef(db, candidateItems.map((item) => item.cardRef));
+  return {
+    rawCount: rows.length,
+    publicCount: candidateItems.filter((item) => cardByRef.has(item.cardRef)).length
+  };
 }
 
 function maxPreparedTargetTimestamp(db: LooDatabase, table: string, column: string, targetColumn: string, target: string): string | null {
