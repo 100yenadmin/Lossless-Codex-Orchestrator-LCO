@@ -466,8 +466,10 @@ test("prepared targeted coverage downgrades stale cards and orphaned inbox rows"
   mkdirSync(sessions, { recursive: true });
   const staleThreadId = "019f-prepared-target-stale";
   const orphanThreadId = "019f-prepared-target-orphan";
+  const noInboxThreadId = "019f-prepared-target-no-inbox";
   writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-01-00-019f-prepared-target-stale.jsonl"), staleThreadId, "Stale prepared target");
   writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-01-01-019f-prepared-target-orphan.jsonl"), orphanThreadId, "Orphan inbox target");
+  writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-01-02-019f-prepared-target-no-inbox.jsonl"), noInboxThreadId, "No inbox target");
 
   const db = createDatabase(join(root, "orchestrator.sqlite"));
   try {
@@ -510,6 +512,17 @@ test("prepared targeted coverage downgrades stale cards and orphaned inbox rows"
     assert.equal(orphanStatus.targetCoverage?.status, "partial");
     assert.equal(orphanStatus.targetCoverage?.counts.preparedInboxItems, 0);
     assert.equal(orphanStatus.targetCoverage?.reasonCodes.includes("prepared_inbox_missing"), true);
+
+    db.prepare("DELETE FROM prepared_inbox_items WHERE target_ref = ?").run(`codex_thread:${noInboxThreadId}`);
+    const noInboxStatus = getPreparedStateStatus(db, { threadId: noInboxThreadId }) as typeof staleStatus;
+    assert.equal(noInboxStatus.targetCoverage?.sourceCoverage.preparedSourceEvents, "ok");
+    assert.equal(noInboxStatus.targetCoverage?.sourceCoverage.preparedSourceRanges, "ok");
+    assert.equal(noInboxStatus.targetCoverage?.sourceCoverage.summaryLeaves, "ok");
+    assert.equal(noInboxStatus.targetCoverage?.sourceCoverage.preparedCards, "ok");
+    assert.equal(noInboxStatus.targetCoverage?.sourceCoverage.preparedInboxItems, "not_configured");
+    assert.equal(noInboxStatus.targetCoverage?.status, "partial");
+    assert.equal(noInboxStatus.targetCoverage?.reasonCodes.includes("source_present_not_indexed"), false);
+    assert.equal(noInboxStatus.targetCoverage?.reasonCodes.includes("prepared_inbox_missing"), true);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -523,9 +536,11 @@ test("prepared targeted coverage downgrades partial cards and unsafe source laye
   const partialCardThreadId = "019f-prepared-target-partial-card";
   const unsafeLayerThreadId = "019f-prepared-target-unsafe-layer";
   const staleLayerThreadId = "019f-prepared-target-stale-layer";
+  const rawTimestampThreadId = "019f-prepared-target-raw-timestamp";
   writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-02-00-019f-prepared-target-partial-card.jsonl"), partialCardThreadId, "Partial prepared card target");
   writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-02-01-019f-prepared-target-unsafe-layer.jsonl"), unsafeLayerThreadId, "Unsafe prepared layer target");
   writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-02-02-019f-prepared-target-stale-layer.jsonl"), staleLayerThreadId, "Stale prepared layer target");
+  writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-02-03-019f-prepared-target-raw-timestamp.jsonl"), rawTimestampThreadId, "Raw timestamp target");
 
   const db = createDatabase(join(root, "orchestrator.sqlite"));
   try {
@@ -582,6 +597,71 @@ test("prepared targeted coverage downgrades partial cards and unsafe source laye
     assert.equal(staleLayerStatus.targetCoverage?.freshness.stale, true);
     assert.equal(staleLayerStatus.targetCoverage?.freshness.sourceUpdatedAt, newerSourceTime);
     assert.equal(staleLayerStatus.targetCoverage?.reasonCodes.includes("prepared_cache_stale_or_missing"), true);
+
+    const oldPublicTime = "2026-07-03T00:00:00.000Z";
+    const newerRawTime = "2026-07-04T00:11:00.000Z";
+    db.prepare("UPDATE codex_sessions SET updated_at = ? WHERE thread_id = ?").run(newerSourceTime, rawTimestampThreadId);
+    db.prepare("UPDATE prepared_source_events SET created_at = ? WHERE thread_id = ?").run(oldPublicTime, rawTimestampThreadId);
+    db.prepare("UPDATE prepared_source_ranges SET created_at = ? WHERE thread_id = ?").run(newerRawTime, rawTimestampThreadId);
+    db.prepare("UPDATE summary_leaves SET created_at = ? WHERE thread_id = ?").run(newerRawTime, rawTimestampThreadId);
+    db.prepare("UPDATE prepared_cards SET updated_at = ? WHERE target_ref = ?").run(oldPublicTime, `codex_thread:${rawTimestampThreadId}`);
+    db.prepare("UPDATE prepared_inbox_items SET updated_at = ? WHERE target_ref = ?").run(newerRawTime, `codex_thread:${rawTimestampThreadId}`);
+    db.prepare(`
+      INSERT INTO prepared_source_events (
+        event_id, event_ref, thread_id, source_ref, source_path_ref, source_hash, content_hash,
+        event_kind, line_start, line_end, byte_start, byte_end, ordinal, observed_at,
+        extractor_version, privacy_class, omission_status, confidence, metadata_json, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "codex_event:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      rawTimestampThreadId,
+      `codex_thread:${rawTimestampThreadId}`,
+      "codex_source:eeeeeeeeeeeeeeee",
+      "sha256:eeee",
+      "sha256:ffff",
+      "user_prompt",
+      1,
+      1,
+      0,
+      32,
+      999,
+      newerRawTime,
+      "wrong-extractor",
+      "private",
+      "raw_text",
+      0.9,
+      "{}",
+      newerRawTime
+    );
+    db.prepare(`
+      INSERT INTO prepared_cards (
+        card_id, card_ref, target_ref, card_kind, title, summary_text, next_action,
+        source_refs_json, source_range_refs_json, source_range_refs_omitted,
+        authority_coverage_json, input_hash, extractor_version, privacy_class,
+        confidence, freshness_at, stale, state, reason_codes_json, created_at, updated_at
+      )
+      SELECT
+        ?, ?, target_ref, card_kind, title, summary_text, next_action,
+        source_refs_json, source_range_refs_json, source_range_refs_omitted,
+        authority_coverage_json, input_hash, extractor_version, 'private',
+        confidence, freshness_at, stale, state, reason_codes_json, created_at, ?
+      FROM prepared_cards
+      WHERE target_ref = ?
+      LIMIT 1
+    `).run(
+      "dddddddddddddddddddddddddddddddd",
+      "prepared_card:dddddddddddddddddddddddddddddddd",
+      newerRawTime,
+      `codex_thread:${rawTimestampThreadId}`
+    );
+    const rawTimestampStatus = getPreparedStateStatus(db, { threadId: rawTimestampThreadId }) as typeof partialCardStatus;
+    assert.equal(rawTimestampStatus.targetCoverage?.sourceCoverage.preparedSourceEvents, "ok");
+    assert.equal(rawTimestampStatus.targetCoverage?.sourceCoverage.preparedCards, "ok");
+    assert.equal(rawTimestampStatus.targetCoverage?.status, "partial");
+    assert.equal(rawTimestampStatus.targetCoverage?.freshness.preparedFreshnessAt, oldPublicTime);
+    assert.equal(rawTimestampStatus.targetCoverage?.freshness.stale, true);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });

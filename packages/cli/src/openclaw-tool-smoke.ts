@@ -1279,7 +1279,29 @@ function summarizeInvocation(
       if (!isRecord(targetCoverage)) blockers.push("prepared_state_status_target_coverage_invalid");
       else {
         if (stringPath(targetCoverage, ["schema"]) !== "lco.prepared.targetCoverage.v1") blockers.push("prepared_state_status_target_coverage_schema_invalid");
-        if (!isRecord(targetCoverage.sourceCoverage)) blockers.push("prepared_state_status_target_source_coverage_missing");
+        const targetSourceCoverage = isRecord(targetCoverage.sourceCoverage) ? targetCoverage.sourceCoverage : null;
+        const targetCounts = isRecord(targetCoverage.counts) ? targetCoverage.counts : null;
+        const targetFreshness = isRecord(targetCoverage.freshness) ? targetCoverage.freshness : null;
+        const reasonCodes = arrayPath(targetCoverage, ["reasonCodes"]);
+        const validLayerStatuses = new Set(["ok", "partial", "not_configured", "unknown"]);
+        const requiredCoverageKeys = ["indexedSession", "sourceFile", "preparedSourceEvents", "preparedSourceRanges", "summaryLeaves", "preparedCards", "preparedInboxItems", "watcherObservations"];
+        const requiredCountKeys = ["preparedSourceEvents", "preparedSourceRanges", "summaryLeaves", "preparedCards", "preparedInboxItems"];
+        if (!targetSourceCoverage) blockers.push("prepared_state_status_target_source_coverage_missing");
+        else if (requiredCoverageKeys.some((key) => !validLayerStatuses.has(String(targetSourceCoverage[key] ?? "")))) {
+          blockers.push("prepared_state_status_target_source_coverage_invalid");
+        }
+        if (!targetCounts || requiredCountKeys.some((key) => {
+          const value = targetCounts[key];
+          return typeof value !== "number" || !Number.isFinite(value) || value < 0;
+        })) blockers.push("prepared_state_status_target_coverage_details_missing");
+        if (!targetFreshness || booleanPath(targetCoverage, ["freshness", "stale"]) === undefined) {
+          blockers.push("prepared_state_status_target_coverage_details_missing");
+        }
+        if (!reasonCodes.length || reasonCodes.some((code) => typeof code !== "string" || !code)) {
+          blockers.push("prepared_state_status_target_coverage_details_missing");
+        }
+        if (!stringPath(targetCoverage, ["nextAction"])) blockers.push("prepared_state_status_target_coverage_details_missing");
+        if (!arrayPath(targetCoverage, ["sourceRefs"]).length) blockers.push("prepared_state_status_target_coverage_details_missing");
         if (targetedThreadId) {
           const targetThreadId = stringPath(targetCoverage, ["threadId"]) || stringPath(targetCoverage, ["thread_id"]);
           const targetRef = stringPath(targetCoverage, ["targetRef"]) || stringPath(targetCoverage, ["target_ref"]);
