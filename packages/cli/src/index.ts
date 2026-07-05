@@ -3193,11 +3193,11 @@ function parseQaLabCliMcpSmokeArgs(input: string[]): {
       continue;
     }
     if (arg === "--required-tool") {
-      requiredTools.push(readReleaseStatusValue(input, ++index, "--required-tool"));
+      requiredTools.push(parseLooToolName(readReleaseStatusValue(input, ++index, "--required-tool"), "--required-tool"));
       continue;
     }
     if (arg === "--tool-call") {
-      toolCallName = readReleaseStatusValue(input, ++index, "--tool-call");
+      toolCallName = parseLooToolName(readReleaseStatusValue(input, ++index, "--tool-call"), "--tool-call");
       continue;
     }
     if (arg === "--timeout-ms") {
@@ -3228,6 +3228,11 @@ function parseQaLabCliMcpSmokeArgs(input: string[]): {
     now,
     strict
   };
+}
+
+function parseLooToolName(value: string, flag: string): string {
+  if (/^loo_[a-z0-9_]+$/.test(value)) return value;
+  throw new Error(`${flag} requires a loo_* tool name`);
 }
 
 function parseQaLabCoveragePolicy(input: string[], index: number, flag: string): QaLabCoveragePolicy {

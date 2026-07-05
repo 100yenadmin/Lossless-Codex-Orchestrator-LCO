@@ -559,3 +559,56 @@ test("loo qa-lab cli-mcp-smoke rejects excessive per-probe timeout values before
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("loo qa-lab cli-mcp-smoke rejects non-loo tool names before running probes", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-cli-mcp-smoke-invalid-tool-"));
+  try {
+    const requiredToolResult = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "qa-lab",
+      "cli-mcp-smoke",
+      "--evidence-dir",
+      join(dir, "required-evidence"),
+      "--package-version",
+      "1.2.5",
+      "--required-tool",
+      "doctor",
+      "--strict"
+    ], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      timeout: 15_000
+    });
+
+    assert.equal(requiredToolResult.status, 1, requiredToolResult.stderr || requiredToolResult.stdout);
+    assert.match(requiredToolResult.stderr, /--required-tool requires a loo_\* tool name/);
+    assert.equal(existsSync(join(dir, "required-evidence", "cli-mcp-product-smoke.json")), false);
+
+    const toolCallResult = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "qa-lab",
+      "cli-mcp-smoke",
+      "--evidence-dir",
+      join(dir, "tool-call-evidence"),
+      "--package-version",
+      "1.2.5",
+      "--tool-call",
+      "doctor",
+      "--strict"
+    ], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      timeout: 15_000
+    });
+
+    assert.equal(toolCallResult.status, 1, toolCallResult.stderr || toolCallResult.stdout);
+    assert.match(toolCallResult.stderr, /--tool-call requires a loo_\* tool name/);
+    assert.equal(existsSync(join(dir, "tool-call-evidence", "cli-mcp-product-smoke.json")), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

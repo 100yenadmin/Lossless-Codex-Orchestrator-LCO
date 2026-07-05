@@ -136,7 +136,7 @@ export async function createCliMcpProductSmokeReport(options: CliMcpProductSmoke
       screenshotsCaptured: false
     },
     privateDataExclusions: PRIVATE_DATA_EXCLUSIONS,
-    proofBoundary: "This public-safe QA Lab product smoke proves CLI --help, MCP tools/list, and MCP tools/call for one safe representative tool from the selected published/fresh-install candidate binaries. The CLI and MCP probes run sequentially with the configured timeout applied per probe. It does not run live Codex control, mutate a desktop GUI, capture screenshots, publish npm, create a GitHub Release, store raw CLI output, or store raw MCP output.",
+    proofBoundary: "This public-safe QA Lab product smoke proves CLI --help, MCP tools/list, and MCP tools/call for one safe representative tool from the selected published/fresh-install candidate binaries. The default representative call is loo_doctor with empty arguments, so deeper tools should be covered by workflow-specific QA Lab lanes. The CLI and MCP probes run sequentially with the configured timeout applied per probe. JSON-RPC id pairing is the primary request/response binding; name-mismatch detection applies only when a non-standard server echoes result.name or result.toolName. It does not run live Codex control, mutate a desktop GUI, capture screenshots, publish npm, create a GitHub Release, store raw CLI output, or store raw MCP output.",
     nextSafeCommands: [
       `loo qa-lab cli-mcp-smoke --evidence-dir <dir> --package-version ${options.packageVersion} --strict`,
       "loo --help",
@@ -200,6 +200,18 @@ function probeMcpToolsListAndCall(mcpBin: string, toolCallName: string, timeoutM
     };
 
     timer = setTimeout(() => finish({ ...packageDefect("mcp_probe_timeout"), tools: [], toolCall: failedToolCall(toolCallName, "mcp_probe_timeout") }), timeoutMs);
+    timer.unref?.();
+
+    const writeMessage = (payload: Record<string, unknown>, failureCode: string): boolean => {
+      try {
+        if (!child.stdin || child.stdin.destroyed || child.stdin.writableEnded) throw new Error("stdin closed");
+        child.stdin.write(`${JSON.stringify(payload)}\n`);
+        return true;
+      } catch {
+        finish({ ...packageDefect(failureCode), tools: listedTools, toolCall: failedToolCall(toolCallName, failureCode) });
+        return false;
+      }
+    };
 
     child.on("error", (error) => {
       if (isMissingExecutableError(error)) {
@@ -229,8 +241,8 @@ function probeMcpToolsListAndCall(mcpBin: string, toolCallName: string, timeoutM
           return;
         }
         if (parsed.id === 1 && isRecord(parsed.result)) {
-          child.stdin?.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} })}\n`);
-          child.stdin?.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} })}\n`);
+          if (!writeMessage({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }, "mcp_initialized_notification_failed")) return;
+          if (!writeMessage({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }, "mcp_tools_list_write_failed")) return;
           continue;
         }
         if (parsed.id === 2 && parsed.error) {
@@ -255,12 +267,12 @@ function probeMcpToolsListAndCall(mcpBin: string, toolCallName: string, timeoutM
             });
             return;
           }
-          child.stdin?.write(`${JSON.stringify({
+          if (!writeMessage({
             jsonrpc: "2.0",
             id: 3,
             method: "tools/call",
             params: { name: toolCallName, arguments: {} }
-          })}\n`);
+          }, "mcp_tools_call_write_failed")) return;
           continue;
         }
         if (parsed.id === 3 && parsed.error) {
@@ -289,7 +301,7 @@ function probeMcpToolsListAndCall(mcpBin: string, toolCallName: string, timeoutM
       }
     });
 
-    child.stdin?.write(`${JSON.stringify({
+    writeMessage({
       jsonrpc: "2.0",
       id: 1,
       method: "initialize",
@@ -298,7 +310,7 @@ function probeMcpToolsListAndCall(mcpBin: string, toolCallName: string, timeoutM
         capabilities: {},
         clientInfo: { name: "lco-cli-mcp-product-smoke", version: "1.0.0" }
       }
-    })}\n`);
+    }, "mcp_initialize_write_failed");
   });
 }
 
