@@ -14,19 +14,24 @@ function writeExecutable(path: string, source: string): void {
   chmodSync(path, 0o755);
 }
 
-function writeFakeCli(path: string): void {
+function writeFakeCli(path: string, options: { helpStatus?: number } = {}): void {
+  const helpStatus = options.helpStatus ?? 0;
   writeExecutable(path, [
     "#!/usr/bin/env node",
     "if (process.argv.includes('--help')) {",
     "  console.log('Usage: loo --help');",
     "  console.log('raw canary /Users/lume/.codex/state_5.sqlite Bearer test-token-secret');",
-    "  process.exit(0);",
+    `  process.exit(${helpStatus});`,
     "}",
     "process.exit(2);"
   ].join("\n"));
 }
 
-function writeFakeMcpServer(path: string, toolNames: string[]): void {
+function writeFakeMcpServer(path: string, toolNames: string[], options: {
+  initializeError?: boolean;
+  toolsCallError?: boolean;
+  exitAfterToolsCall?: boolean;
+} = {}): void {
   writeExecutable(path, [
     "#!/usr/bin/env node",
     "import { createInterface } from 'node:readline';",
@@ -35,11 +40,15 @@ function writeFakeMcpServer(path: string, toolNames: string[]): void {
       description: "public tool with raw canary /Volumes/LEXAR/private/session.jsonl npm_aaaaaaaaaaaaaaaaaaaaaaaa",
       inputSchema: { type: "object" }
     }))) + ";",
+    `const initializeError = ${JSON.stringify(options.initializeError === true)};`,
+    `const toolsCallError = ${JSON.stringify(options.toolsCallError === true)};`,
+    `const exitAfterToolsCall = ${JSON.stringify(options.exitAfterToolsCall === true)};`,
     "const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });",
     "function send(payload) { process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...payload }) + '\\n'); }",
     "rl.on('line', (line) => {",
     "  const message = JSON.parse(line);",
     "  if (message.method === 'initialize') {",
+    "    if (initializeError) { send({ id: message.id, error: { code: -32000, message: 'init failed' } }); return; }",
     "    send({ id: message.id, result: { protocolVersion: '2024-11-05', serverInfo: { name: 'fake-lco', version: '1.2.5' }, capabilities: { tools: {} } } });",
     "    return;",
     "  }",
@@ -52,7 +61,9 @@ function writeFakeMcpServer(path: string, toolNames: string[]): void {
     "      send({ id: message.id, error: { code: -32602, message: 'missing tool' } });",
     "      return;",
     "    }",
+    "    if (toolsCallError) { send({ id: message.id, error: { code: -32001, message: 'tool call failed' } }); return; }",
     "    send({ id: message.id, result: { content: [{ type: 'text', text: 'ok but raw /Users/lume/.codex/state_5.sqlite Bearer hidden-token' }], structuredContent: { ok: true } } });",
+    "    if (exitAfterToolsCall) setImmediate(() => process.exit(0));",
     "    return;",
     "  }",
     "  send({ id: message.id, error: { code: -32601, message: 'unsupported' } });",
@@ -270,6 +281,166 @@ test("loo qa-lab cli-mcp-smoke treats missing required MCP tools as package defe
     assert.deepEqual(report.requiredToolsPresent, ["loo_doctor"]);
     assert.deepEqual(report.blockers, ["required_mcp_tools_missing"]);
     assert.deepEqual(report.setupBlockers, []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loo qa-lab cli-mcp-smoke treats CLI help failure as package defect", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-cli-mcp-smoke-cli-failed-"));
+  try {
+    const evidenceDir = join(dir, "evidence");
+    const cliBin = join(dir, "loo");
+    const mcpBin = join(dir, "loo-mcp-server");
+    writeFakeCli(cliBin, { helpStatus: 2 });
+    writeFakeMcpServer(mcpBin, ["loo_doctor"]);
+
+    const result = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "qa-lab",
+      "cli-mcp-smoke",
+      "--evidence-dir",
+      evidenceDir,
+      "--package-version",
+      "1.2.5",
+      "--cli-bin",
+      cliBin,
+      "--mcp-bin",
+      mcpBin,
+      "--required-tool",
+      "loo_doctor",
+      "--strict"
+    ], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      timeout: 15_000
+    });
+
+    assert.equal(result.status, 1, result.stderr || result.stdout);
+    const report = JSON.parse(result.stdout) as { cliReady: boolean; mcpReady: boolean; blockers: string[]; setupBlockers: string[] };
+    assert.equal(report.cliReady, false);
+    assert.equal(report.mcpReady, true);
+    assert.deepEqual(report.blockers, ["cli_help_failed"]);
+    assert.deepEqual(report.setupBlockers, []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loo qa-lab cli-mcp-smoke reports MCP initialize and tools/call errors as package defects", () => {
+  const initDir = mkdtempSync(join(tmpdir(), "loo-cli-mcp-smoke-init-error-"));
+  const callDir = mkdtempSync(join(tmpdir(), "loo-cli-mcp-smoke-call-error-"));
+  try {
+    const initCli = join(initDir, "loo");
+    const initMcp = join(initDir, "loo-mcp-server");
+    writeFakeCli(initCli);
+    writeFakeMcpServer(initMcp, ["loo_doctor"], { initializeError: true });
+    const initResult = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "qa-lab",
+      "cli-mcp-smoke",
+      "--evidence-dir",
+      join(initDir, "evidence"),
+      "--package-version",
+      "1.2.5",
+      "--cli-bin",
+      initCli,
+      "--mcp-bin",
+      initMcp,
+      "--required-tool",
+      "loo_doctor",
+      "--strict"
+    ], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      timeout: 15_000
+    });
+    assert.equal(initResult.status, 1, initResult.stderr || initResult.stdout);
+    const initReport = JSON.parse(initResult.stdout) as { mcpReady: boolean; blockers: string[]; toolCallProbe: { errorCode: string | null } };
+    assert.equal(initReport.mcpReady, false);
+    assert.deepEqual(initReport.blockers, ["mcp_initialize_failed"]);
+    assert.equal(initReport.toolCallProbe.errorCode, "mcp_initialize_failed");
+
+    const callCli = join(callDir, "loo");
+    const callMcp = join(callDir, "loo-mcp-server");
+    writeFakeCli(callCli);
+    writeFakeMcpServer(callMcp, ["loo_doctor"], { toolsCallError: true });
+    const callResult = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "qa-lab",
+      "cli-mcp-smoke",
+      "--evidence-dir",
+      join(callDir, "evidence"),
+      "--package-version",
+      "1.2.5",
+      "--cli-bin",
+      callCli,
+      "--mcp-bin",
+      callMcp,
+      "--required-tool",
+      "loo_doctor",
+      "--strict"
+    ], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      timeout: 15_000
+    });
+    assert.equal(callResult.status, 1, callResult.stderr || callResult.stdout);
+    const callReport = JSON.parse(callResult.stdout) as { mcpReady: boolean; mcpToolsCallReady: boolean; blockers: string[]; toolCallProbe: { errorCode: string | null } };
+    assert.equal(callReport.mcpReady, true);
+    assert.equal(callReport.mcpToolsCallReady, false);
+    assert.deepEqual(callReport.blockers, ["mcp_tools_call_failed"]);
+    assert.equal(callReport.toolCallProbe.errorCode, "mcp_tools_call_failed");
+  } finally {
+    rmSync(initDir, { recursive: true, force: true });
+    rmSync(callDir, { recursive: true, force: true });
+  }
+});
+
+test("loo qa-lab cli-mcp-smoke accepts fast-exit server after successful tools/call", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-cli-mcp-smoke-fast-exit-"));
+  try {
+    const evidenceDir = join(dir, "evidence");
+    const cliBin = join(dir, "loo");
+    const mcpBin = join(dir, "loo-mcp-server");
+    writeFakeCli(cliBin);
+    writeFakeMcpServer(mcpBin, ["loo_doctor"], { exitAfterToolsCall: true });
+
+    const result = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "qa-lab",
+      "cli-mcp-smoke",
+      "--evidence-dir",
+      evidenceDir,
+      "--package-version",
+      "1.2.5",
+      "--cli-bin",
+      cliBin,
+      "--mcp-bin",
+      mcpBin,
+      "--required-tool",
+      "loo_doctor",
+      "--strict"
+    ], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      timeout: 15_000
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const report = JSON.parse(result.stdout) as { ok: boolean; mcpReady: boolean; mcpToolsCallReady: boolean; blockers: string[] };
+    assert.equal(report.ok, true);
+    assert.equal(report.mcpReady, true);
+    assert.equal(report.mcpToolsCallReady, true);
+    assert.deepEqual(report.blockers, []);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -178,14 +178,23 @@ function probeMcpToolsListAndCall(mcpBin: string, toolCallName: string, timeoutM
     let stdoutBuffer = "";
     let listedTools: string[] = [];
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let killTimer: ReturnType<typeof setTimeout> | null = null;
     const child = spawn(mcpBin, [], {
       stdio: ["pipe", "pipe", "pipe"]
     });
+    const terminateChild = () => {
+      if (child.exitCode !== null || child.signalCode !== null) return;
+      child.kill("SIGTERM");
+      killTimer = setTimeout(() => {
+        if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+      }, 250);
+      killTimer.unref?.();
+    };
     const finish = (result: McpProbeResult) => {
       if (resolved) return;
       resolved = true;
       if (timer) clearTimeout(timer);
-      child.kill();
+      terminateChild();
       resolve(result);
     };
 
@@ -198,7 +207,13 @@ function probeMcpToolsListAndCall(mcpBin: string, toolCallName: string, timeoutM
       }
       finish({ ...packageDefect("mcp_spawn_failed"), tools: [], toolCall: failedToolCall(toolCallName, "mcp_spawn_failed") });
     });
-    child.on("exit", () => {
+    child.on("close", () => {
+      if (killTimer) clearTimeout(killTimer);
+      if (resolved) return;
+      if (listedTools.length > 0) {
+        finish({ ...packageDefect("mcp_tools_call_failed"), tools: listedTools, toolCall: failedToolCall(toolCallName, "mcp_tools_call_failed") });
+        return;
+      }
       finish({ ...packageDefect("mcp_tools_list_failed"), tools: [], toolCall: failedToolCall(toolCallName, "mcp_tools_list_failed") });
     });
     child.stdout?.on("data", (chunk: Buffer) => {
