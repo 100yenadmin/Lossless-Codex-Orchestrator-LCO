@@ -237,6 +237,56 @@ test("index pruning removes deleted Codex source rows from drift status", () => 
     assert.equal(aliasReport.aliasInserted, true);
     assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM codex_thread_title_aliases WHERE thread_id = ?").get("019f-prune-delete") as { count: number }).count), 1);
     assert.equal(searchSessions(db, { query: "pruned source alias", limit: 5 }).some((result) => result.threadId === "019f-prune-delete"), true);
+    db.prepare(`
+      INSERT INTO prepared_cards (
+        card_id, card_ref, target_ref, card_kind, title, objective, summary_text,
+        source_refs_json, source_range_refs_json, authority_coverage_json,
+        input_hash, extractor_version, privacy_class, confidence, freshness_at,
+        stale, state, reason_codes_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "prepared-card-prune-delete",
+      "prepared_card:019f-prune-delete:test",
+      "codex_thread:019f-prune-delete",
+      "session",
+      "Delete source row",
+      "Prune stale prepared state",
+      "Prepared state must disappear with the deleted JSONL source.",
+      JSON.stringify(["codex_thread:019f-prune-delete"]),
+      JSON.stringify([]),
+      JSON.stringify({ lco: "ok" }),
+      "hash-prune-delete",
+      "test",
+      "public_safe",
+      0.9,
+      "2026-07-06T00:00:02.000Z",
+      0,
+      "ready",
+      JSON.stringify([]),
+      "2026-07-06T00:00:02.000Z",
+      "2026-07-06T00:00:02.000Z"
+    );
+    db.prepare(`
+      INSERT INTO prepared_inbox_items (
+        item_id, card_ref, target_ref, urgency_score, state, reason_codes_json,
+        source_refs_json, execute_false, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "prepared-inbox-prune-delete",
+      "prepared_card:019f-prune-delete:test",
+      "codex_thread:019f-prune-delete",
+      0.5,
+      "ready",
+      JSON.stringify([]),
+      JSON.stringify(["codex_thread:019f-prune-delete"]),
+      1,
+      "2026-07-06T00:00:02.000Z",
+      "2026-07-06T00:00:02.000Z"
+    );
+    assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM prepared_cards WHERE card_id = ?").get("prepared-card-prune-delete") as { count: number }).count), 1);
+    assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM prepared_inbox_items WHERE item_id = ?").get("prepared-inbox-prune-delete") as { count: number }).count), 1);
+    assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM prepared_cards WHERE target_ref = ?").get("codex_thread:019f-prune-delete") as { count: number }).count) > 0, true);
+    assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM prepared_inbox_items WHERE target_ref = ?").get("codex_thread:019f-prune-delete") as { count: number }).count) > 0, true);
 
     rmSync(deletePath, { force: true });
     const pruned = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
@@ -245,6 +295,8 @@ test("index pruning removes deleted Codex source rows from drift status", () => 
     assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM codex_source_files").get() as { count: number }).count), 1);
     assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM codex_sessions").get() as { count: number }).count), 1);
     assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM codex_thread_title_aliases WHERE thread_id = ?").get("019f-prune-delete") as { count: number }).count), 0);
+    assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM prepared_cards WHERE target_ref = ?").get("codex_thread:019f-prune-delete") as { count: number }).count), 0);
+    assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM prepared_inbox_items WHERE target_ref = ?").get("codex_thread:019f-prune-delete") as { count: number }).count), 0);
     assert.equal(searchSessions(db, { query: "019f-prune-delete", limit: 5 }).length, 0);
     assert.equal(searchSessions(db, { query: "pruned source alias", limit: 5 }).some((result) => result.threadId === "019f-prune-delete"), false);
     assert.equal(getCodexJsonlDriftStatus(db).filesIndexed, 1);
