@@ -1,7 +1,7 @@
 # Lossless Codex Orchestrator
 
 **LCO turns local Codex sessions into searchable, bounded, approval-aware
-work objects for OpenClaw+Hermes (Hermes coming soon).**
+work objects for OpenClaw.**
 
 ![Enchanted open-claw conductor guiding bounded session cards and an abstract code beast in a dark technical workshop](assets/readme/hero.png)
 
