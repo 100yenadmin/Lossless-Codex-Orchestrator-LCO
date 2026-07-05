@@ -65,14 +65,21 @@ manifest snapshot test. The tier metadata is advisory routing metadata only: it
 does not hide tools, relax `requiresApproval`, change `safety.mode`, alter
 `mutationClasses`, or reduce proof obligations.
 
+Set `LOO_TOOL_PROFILE=facade|standard|all` to filter what tools are listed by
+the MCP server and declared through OpenClaw. `all` is the default and preserves
+the full catalog, `standard` exposes the facade plus workflow-detail tools, and
+`facade` exposes only the compact operator path and its public aliases. Exact
+tool invocation by name remains governed by the underlying client capability
+and the tool's safety contract.
+
 Naming policy for #434: `LCO` is the product abbreviation and `lco_*` is the
-forward public alias target for new user-facing tool names. The currently
-callable plugin and MCP declarations still use the historical `loo_*` runtime
-prefix, so runnable examples must keep `loo_*` until a tested alias layer
-exists. Future alias work should keep `loo_*` backward compatible instead of
-silently renaming or deleting existing tools. This docs/manifest pass does not
-create a broad `lco_*` alias layer; that compatibility work belongs with
-[#434](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/434).
+forward public alias target for new user-facing tool names. The public facade
+now exposes tested `lco_*` aliases for the eight normal operator tools, and each
+alias points at its `loo_*` target with `metadata.aliasOf`. The historical
+`loo_*` names remain backward compatible and the wider runtime catalog still
+uses `loo_*`; future alias work must not silently rename or delete existing
+tools. Broad alias expansion beyond the public facade remains separate from
+this release candidate.
 
 Safety details:
 

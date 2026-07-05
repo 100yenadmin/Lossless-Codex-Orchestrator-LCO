@@ -51,7 +51,7 @@ function writeFakeMcpServer(path: string, toolNames: string[], options: {
     "  const message = JSON.parse(line);",
     "  if (message.method === 'initialize') {",
     "    if (initializeError) { send({ id: message.id, error: { code: -32000, message: 'init failed' } }); return; }",
-    "    send({ id: message.id, result: { protocolVersion: '2024-11-05', serverInfo: { name: 'fake-lco', version: '1.2.5' }, capabilities: { tools: {} } } });",
+    "    send({ id: message.id, result: { protocolVersion: '2024-11-05', serverInfo: { name: 'fake-lco', version: '1.3.0' }, capabilities: { tools: {} } } });",
     "    return;",
     "  }",
     "  if (message.method === 'tools/list') {",
@@ -96,7 +96,7 @@ test("loo qa-lab cli-mcp-smoke proves CLI help plus MCP tools/list and tools/cal
       "--evidence-dir",
       evidenceDir,
       "--package-version",
-      "1.2.5",
+      "1.3.0",
       "--candidate-sha",
       "d0062715fecbfe6277c3611ead8fea32300927a2",
       "--cli-bin",
@@ -143,7 +143,7 @@ test("loo qa-lab cli-mcp-smoke proves CLI help plus MCP tools/list and tools/cal
 
     assert.equal(report.schema, "lco.qaLab.cliMcpProductSmoke.v1");
     assert.equal(report.ok, true);
-    assert.equal(report.packageVersion, "1.2.5");
+    assert.equal(report.packageVersion, "1.3.0");
     assert.equal(report.candidateSha, "d0062715fecbfe6277c3611ead8fea32300927a2");
     assert.equal(report.cliReady, true);
     assert.equal(report.mcpReady, true);
@@ -197,7 +197,7 @@ test("loo qa-lab cli-mcp-smoke separates setup-required binaries from package de
       "--evidence-dir",
       evidenceDir,
       "--package-version",
-      "1.2.5",
+      "1.3.0",
       "--cli-bin",
       join(dir, "missing-loo"),
       "--mcp-bin",
@@ -251,7 +251,7 @@ test("loo qa-lab cli-mcp-smoke treats missing required MCP tools as package defe
       "--evidence-dir",
       evidenceDir,
       "--package-version",
-      "1.2.5",
+      "1.3.0",
       "--cli-bin",
       cliBin,
       "--mcp-bin",
@@ -307,7 +307,7 @@ test("loo qa-lab cli-mcp-smoke treats CLI help failure as package defect", () =>
       "--evidence-dir",
       evidenceDir,
       "--package-version",
-      "1.2.5",
+      "1.3.0",
       "--cli-bin",
       cliBin,
       "--mcp-bin",
@@ -349,7 +349,7 @@ test("loo qa-lab cli-mcp-smoke reports MCP initialize and tools/call errors as p
       "--evidence-dir",
       join(initDir, "evidence"),
       "--package-version",
-      "1.2.5",
+      "1.3.0",
       "--cli-bin",
       initCli,
       "--mcp-bin",
@@ -381,7 +381,7 @@ test("loo qa-lab cli-mcp-smoke reports MCP initialize and tools/call errors as p
       "--evidence-dir",
       join(callDir, "evidence"),
       "--package-version",
-      "1.2.5",
+      "1.3.0",
       "--cli-bin",
       callCli,
       "--mcp-bin",
@@ -424,7 +424,7 @@ test("loo qa-lab cli-mcp-smoke fails closed when MCP lists no loo tools", () => 
       "--evidence-dir",
       evidenceDir,
       "--package-version",
-      "1.2.5",
+      "1.3.0",
       "--cli-bin",
       cliBin,
       "--mcp-bin",
@@ -464,7 +464,7 @@ test("loo qa-lab cli-mcp-smoke rejects mismatched tools/call response names", ()
       "--evidence-dir",
       evidenceDir,
       "--package-version",
-      "1.2.5",
+      "1.3.0",
       "--cli-bin",
       cliBin,
       "--mcp-bin",
@@ -507,7 +507,7 @@ test("loo qa-lab cli-mcp-smoke accepts fast-exit server after successful tools/c
       "--evidence-dir",
       evidenceDir,
       "--package-version",
-      "1.2.5",
+      "1.3.0",
       "--cli-bin",
       cliBin,
       "--mcp-bin",
@@ -544,7 +544,7 @@ test("loo qa-lab cli-mcp-smoke rejects excessive per-probe timeout values before
       "--evidence-dir",
       join(dir, "evidence"),
       "--package-version",
-      "1.2.5",
+      "1.3.0",
       "--timeout-ms",
       "10001",
       "--strict"
@@ -573,7 +573,7 @@ test("loo qa-lab cli-mcp-smoke rejects non-loo tool names before running probes"
       "--evidence-dir",
       join(dir, "required-evidence"),
       "--package-version",
-      "1.2.5",
+      "1.3.0",
       "--required-tool",
       "doctor",
       "--strict"
@@ -596,7 +596,7 @@ test("loo qa-lab cli-mcp-smoke rejects non-loo tool names before running probes"
       "--evidence-dir",
       join(dir, "tool-call-evidence"),
       "--package-version",
-      "1.2.5",
+      "1.3.0",
       "--tool-call",
       "doctor",
       "--strict"

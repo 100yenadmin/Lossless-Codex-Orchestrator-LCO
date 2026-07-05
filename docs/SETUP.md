@@ -189,6 +189,17 @@ MCP client config:
 
 The MCP server exposes the same `loo_*` surface used by OpenClaw.
 
+Optional tool exposure profiles:
+
+```bash
+export LOO_TOOL_PROFILE=facade  # facade, standard, or all
+```
+
+`all` is the default and preserves the full catalog. `facade` lists the compact
+operator path plus tested public `lco_*` aliases for those facade tools;
+`standard` adds workflow-detail tools. The full runtime catalog remains
+available under the backward-compatible `loo_*` names.
+
 ## 8. Install In OpenClaw
 
 Install the plugin from npm:
