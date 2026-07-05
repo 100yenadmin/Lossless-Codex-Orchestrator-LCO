@@ -170,6 +170,7 @@ test("loo qa-lab cli-mcp-smoke proves CLI help plus MCP tools/list and tools/cal
     });
     assert.ok(report.privateDataExclusions.includes("raw MCP stdout/stderr"));
     assert.match(report.proofBoundary, /CLI --help, MCP tools\/list, and MCP tools\/call/i);
+    assert.match(report.proofBoundary, /MCP with protocolVersion 2024-11-05/i);
     assert.match(report.proofBoundary, /does not run live Codex control/i);
     assert.ok(report.nextSafeCommands.some((command) => command.includes("loo qa-lab cli-mcp-smoke")));
     assert.equal(existsSync(join(evidenceDir, "cli-mcp-product-smoke.json")), true);
