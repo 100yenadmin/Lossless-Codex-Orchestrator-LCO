@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 
 export type QaLabRubricVersion = "real-product-v1";
@@ -136,7 +136,7 @@ const RESTRICTED_ACTION_KEYS = new Set([
   "screenshotsCaptured"
 ]);
 const SECRET_LIKE_PATTERN = /(npm_[A-Za-z0-9]{20,}|bearer\s+[A-Za-z0-9._-]{20,}|sk-[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i;
-const RAW_ARTIFACT_VALUE_PATTERN = /(?:\/Users\/[^"'\s]+|\/Volumes\/[^"'\s]+|~\/[^"'\s]+|\/tmp\/[^"'\s]+|\/home\/[^"'\s]+|[A-Za-z]:\\Users\\[^"'\s]+).*\.(?:jsonl|sqlite|sqlite-wal|sqlite-shm|db|png|jpg|jpeg|gif|webp|mp4|mov|webm|log)(?:["'\s]|$)/i;
+const RAW_ARTIFACT_VALUE_PATTERN = /(?:\/(?:[^"'\s/]+\/)+[^"'\s]*|~\/[^"'\s]+|[A-Za-z]:\\(?:[^"'\s\\]+\\)+[^"'\s]*).*\.(?:jsonl|sqlite|sqlite-wal|sqlite-shm|db|png|jpg|jpeg|gif|webp|mp4|mov|webm|log)(?:["'\s]|$)/i;
 
 export function createQaLabJudgeReviewReport(options: QaLabJudgeReviewOptions): QaLabJudgeReviewReport {
   const evidenceDir = resolve(options.evidenceDir);
@@ -243,8 +243,18 @@ function loadQaRun(runPath: string, evidenceDir: string): LoadedRun {
     addBlocker(blockers, "P1", "run_missing", "run", "QA Lab run JSON is missing.");
     return { value: null, runRef, blockers, warnings };
   }
+  if (lstatSync(resolved).isSymbolicLink()) {
+    addBlocker(blockers, "P0", "run_symlink_disallowed", "run", "QA Lab run must be a regular file inside the evidence directory, not a symlink.");
+    return { value: null, runRef, blockers, warnings };
+  }
+  const realEvidenceDir = realpathSync(evidenceDir);
+  const realResolved = realpathSync(resolved);
+  if (!isPathInside(realResolved, realEvidenceDir)) {
+    addBlocker(blockers, "P0", "run_outside_evidence_dir", "run", "QA Lab run must stay inside the evidence directory after resolving symlinks.");
+    return { value: null, runRef, blockers, warnings };
+  }
   try {
-    const parsed = JSON.parse(readFileSync(resolved, "utf8")) as unknown;
+    const parsed = JSON.parse(readFileSync(realResolved, "utf8")) as unknown;
     if (!isRecord(parsed)) {
       addBlocker(blockers, "P1", "run_invalid_json_object", "run", "QA Lab run must be a JSON object.");
       return { value: null, runRef, blockers, warnings };
@@ -319,14 +329,16 @@ function normalizeFinding(finding: JsonRecord): QaLabAdversarialFinding {
 }
 
 function runSummary(run: JsonRecord | null): QaLabJudgeReviewReport["summary"] {
+  const passedScenarios = numberOrNull(readPath(run, ["summary", "passedScenarios"]));
+  const failedScenarios = numberOrNull(readPath(run, ["summary", "failedScenarios"]));
   return {
     packageVersion: stringOrNull(readPath(run, ["packageVersion"])),
     candidateSha: stringOrNull(readPath(run, ["candidateSha"])),
     claimScope: stringOrNull(readPath(run, ["summary", "claimScope"])),
-    scenarioCount: numberOrNull(readPath(run, ["summary", "passedScenarios"])) !== null || numberOrNull(readPath(run, ["summary", "failedScenarios"])) !== null
-      ? (numberOrNull(readPath(run, ["summary", "passedScenarios"])) ?? 0) + (numberOrNull(readPath(run, ["summary", "failedScenarios"])) ?? 0)
+    scenarioCount: passedScenarios !== null || failedScenarios !== null
+      ? (passedScenarios ?? 0) + (failedScenarios ?? 0)
       : null,
-    failedScenarioCount: numberOrNull(readPath(run, ["summary", "failedScenarios"]))
+    failedScenarioCount: failedScenarios
   };
 }
 

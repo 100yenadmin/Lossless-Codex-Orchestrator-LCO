@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -206,6 +206,67 @@ test("qa-lab adversarial review emits selected lens findings without raw evidenc
   const written = JSON.parse(readFileSync(join(dir, "adversarial-review.json"), "utf8")) as QaLabAdversarialReviewReport;
   assert.equal(written.schema, "lco.qaLab.adversarialReview.v1");
   assert.equal(written.ok, false);
+});
+
+test("qa-lab review rejects symlinked run files before reading outside evidence", (t) => {
+  const dir = makeTempDir(t, "loo-qa-lab-symlink-run-");
+  const outside = makeTempDir(t, "loo-qa-lab-symlink-outside-");
+  const outsideRun = writePassingRun(outside);
+  const symlinkPath = join(dir, "qa-lab-run.json");
+  symlinkSync(outsideRun, symlinkPath);
+
+  const report = createQaLabJudgeReviewReport({
+    runPath: symlinkPath,
+    evidenceDir: dir,
+    rubricVersion: "real-product-v1"
+  });
+
+  assert.equal(report.gaReady, false);
+  assert.ok(report.blockers.some((blocker) => blocker.severity === "P0" && blocker.code === "run_symlink_disallowed"));
+});
+
+test("qa-lab review rejects broad absolute raw-artifact paths", (t) => {
+  const dir = makeTempDir(t, "loo-qa-lab-raw-absolute-path-");
+  const runPath = writePassingRun(dir);
+  mutateRun<{
+    dimensions: { claims: { notes: string[] } };
+  }>(runPath, (run) => {
+    run.dimensions.claims.notes.push("/private/var/folders/session/private-thread.jsonl");
+  });
+
+  const report = createQaLabJudgeReviewReport({
+    runPath,
+    evidenceDir: dir,
+    rubricVersion: "real-product-v1"
+  });
+
+  assert.equal(report.gaReady, false);
+  assert.ok(report.blockers.some((blocker) => blocker.severity === "P0" && blocker.code === "unsafe_evidence_value"));
+});
+
+test("qa-lab adversarial review fails lens when pass true carries a blocking finding", (t) => {
+  const dir = makeTempDir(t, "loo-qa-lab-adversarial-pass-with-blocker-");
+  const runPath = writePassingRun(dir);
+  mutateRun<{
+    adversarial: { safety: { pass: boolean; findings: Array<{ severity: string; code: string; detail: string }> } };
+  }>(runPath, (run) => {
+    run.adversarial.safety.pass = true;
+    run.adversarial.safety.findings.push({
+      severity: "P0",
+      code: "hidden_approval_bypass",
+      detail: "Blocking finding must override a pass flag."
+    });
+  });
+
+  const report = createQaLabAdversarialReviewReport({
+    runPath,
+    evidenceDir: dir,
+    lenses: ["safety"]
+  });
+
+  assert.equal(report.ok, false);
+  assert.equal(report.lensResults.safety?.pass, false);
+  assert.ok(report.blockers.some((blocker) => blocker.severity === "P0" && blocker.code === "hidden_approval_bypass"));
 });
 
 test("loo qa-lab adversarial-review --strict exits nonzero for blocking lens findings", (t) => {
