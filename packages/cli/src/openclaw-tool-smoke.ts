@@ -411,8 +411,9 @@ function productEvidenceClaimedForDisposition(disposition: OpenClawToolSmokeDisp
   return disposition === "successful_invocation" || disposition === "successful_dry_run";
 }
 
-function dispositionReason(disposition: OpenClawToolSmokeDisposition): string {
+function dispositionReason(disposition: OpenClawToolSmokeDisposition, toolName: string): string {
   if (disposition === "successful_invocation") return "Tool is safe to invoke with public-safe fixture arguments.";
+  if (disposition === "successful_dry_run" && toolName === "loo_codex_start_thread") return "Tool is control-capable and must prove dry_run:true plus params hash only; this does not claim thread-bound control semantics.";
   if (disposition === "successful_dry_run") return "Tool is control-capable and must be invoked only with dry_run:true or equivalent dry-run proof.";
   if (disposition === "expected_fail_closed") return "Tool is included only to prove a public-safe blocked/no-action boundary, not product success.";
   return "Tool is explicitly excluded from product-evidence claims for this smoke because it writes derived cache or may expose peer paths before redaction.";
@@ -432,7 +433,7 @@ function buildSmokeDispositionPlan(
       disposition,
       invoked: Boolean(invocation),
       productEvidenceClaimed: Boolean(evidenceEligible && invocation?.ok),
-      reason: dispositionReason(disposition)
+      reason: dispositionReason(disposition, toolName)
     };
   });
   return {
@@ -875,25 +876,25 @@ function buildToolArgs(params: {
     } : null;
   }
   if (params.toolName === "loo_codex_send_message") {
-    return {
-      ...(params.threadId ? { thread_id: params.threadId } : {}),
+    return params.threadId ? {
+      thread_id: params.threadId,
       message: CONTROL_DRY_RUN_MESSAGE,
       dry_run: true
-    };
+    } : null;
   }
   if (params.toolName === "loo_codex_steer_thread") {
-    return {
-      ...(params.threadId ? { thread_id: params.threadId } : {}),
+    return params.threadId ? {
+      thread_id: params.threadId,
       message: CONTROL_DRY_RUN_MESSAGE,
       expected_turn_id: "tool-smoke-turn",
       dry_run: true
-    };
+    } : null;
   }
   if (params.toolName === "loo_codex_interrupt_thread") {
-    return {
-      ...(params.threadId ? { thread_id: params.threadId } : {}),
+    return params.threadId ? {
+      thread_id: params.threadId,
       dry_run: true
-    };
+    } : null;
   }
   if (params.toolName === "loo_codex_start_thread_post_create_proof") {
     return params.threadId ? {

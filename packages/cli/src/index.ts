@@ -2284,6 +2284,9 @@ function parseOpenClawToolSmokeArgs(input: string[]): {
       throw new Error(`Unknown openclaw tool-smoke option: ${arg}`);
     }
   }
+  if (parsed.coverage === "full" && requiredTools.length > 0) {
+    throw new Error("--coverage full cannot be combined with --required-tool; run full coverage or explicit tools as separate smokes");
+  }
   if (requiredTools.length > 0) parsed.requiredTools = requiredTools;
   else if (parsed.coverage === "full") parsed.requiredTools = FULL_GATEWAY_SMOKE_TOOL_CALLS;
   const effectiveRequiredTools = parsed.requiredTools ?? DEFAULT_REQUIRED_TOOL_CALLS;

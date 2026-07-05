@@ -971,6 +971,64 @@ test("OpenClaw tool smoke CLI --coverage full selects the disposition matrix", (
   assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /super-secret-transcript-span|Harmless beta smoke|npm_/);
 });
 
+test("OpenClaw tool smoke rejects --coverage full with explicit --required-tool", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-full-required-conflict-"));
+  const evidencePath = join(dir, "tool-smoke.json");
+  const { bin } = createFakeOpenClaw(dir, FULL_GATEWAY_SMOKE_TOOL_CALLS);
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "openclaw",
+    "tool-smoke",
+    "--openclaw-bin",
+    bin,
+    "--coverage",
+    "full",
+    "--required-tool",
+    "loo_doctor",
+    "--evidence-path",
+    evidencePath,
+    "--strict"
+  ], {
+    cwd: process.cwd(),
+    encoding: "utf8"
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(`${result.stdout}\n${result.stderr}`, /--coverage full cannot be combined with --required-tool/);
+});
+
+test("OpenClaw tool smoke full coverage blocks thread-bound control tools without thread id", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-no-thread-control-"));
+  const { bin, callsPath } = createFakeOpenClaw(dir, [
+    "loo_codex_send_message",
+    "loo_codex_steer_thread",
+    "loo_codex_interrupt_thread"
+  ]);
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      requiredTools: [
+        "loo_codex_send_message",
+        "loo_codex_steer_thread",
+        "loo_codex_interrupt_thread"
+      ]
+    });
+
+    assert.equal(report.toolSmokeReady, false);
+    assert.equal(report.blockers.includes("openclaw_tool_smoke_missing_thread_ref"), true);
+    assert.equal(report.invocations.length, 0);
+    const calls = readFileSync(callsPath, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as { method: string });
+    assert.equal(calls.filter((call) => call.method === "tools.invoke").length, 0);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
 test("OpenClaw facade tool smoke supplies safe args for describe-ref and resume dry-run", () => {
   const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-facade-tool-smoke-"));
   const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_describe_ref", "loo_codex_resume_thread"]);
@@ -2194,6 +2252,7 @@ test("OpenClaw tool smoke preserves public-safe validation reasons from tools.in
   try {
     const report = runOpenClawToolSmoke({
       openclawBin: bin,
+      threadId: "thread-1",
       requiredTools: ["loo_codex_steer_thread"]
     });
 
