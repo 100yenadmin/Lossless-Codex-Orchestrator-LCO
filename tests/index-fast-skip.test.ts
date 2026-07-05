@@ -89,6 +89,8 @@ test("fast-skip documents same-size same-mtime limitation and verify catches it"
       assert.equal(statSync(file).size, before.size);
       const indexedMtime = new Date(Math.trunc(before.mtimeMs));
       utimesSync(file, indexedMtime, indexedMtime);
+      const forcedMtimeMs = Math.trunc(statSync(file).mtimeMs);
+      db.prepare("UPDATE codex_source_files SET mtime_ms = ? WHERE source_path = ?").run(forcedMtimeMs, file);
 
       const fast = indexCodexSessions(db, { roots: [sessionsDir], maxFiles: 10 });
       assert.equal(fast.indexedFiles, 0);
