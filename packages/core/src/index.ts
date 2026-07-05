@@ -5809,6 +5809,7 @@ function buildPreparedCardWorkStateLookupCache(db: LooDatabase, threadIds: strin
   const safeThreadIds = unique(threadIds.filter(isPublicSummaryThreadId));
   const threadRenameCapturedByThreadId = new Map<string, boolean>(safeThreadIds.map((threadId) => [threadId, false]));
   const latestPlanByThreadId = new Map<string, PreparedCardPlan | null>(safeThreadIds.map((threadId) => [threadId, null]));
+  const latestPlanRowSeenByThreadId = new Set<string>();
   const attentionByTargetRef = new Map<string, PreparedCardAttentionSignal>(safeThreadIds.map((threadId) => [codexThreadRef(threadId), emptyPreparedCardAttentionSignal()]));
   const touchedFilesByThreadId = new Map<string, string[]>(safeThreadIds.map((threadId) => [threadId, []]));
   if (safeThreadIds.length === 0) {
@@ -5842,7 +5843,8 @@ function buildPreparedCardWorkStateLookupCache(db: LooDatabase, threadIds: strin
     `).all(...chunk) as Array<{ threadId: string | null; text: string | null; ordinal: number | null }>;
     for (const row of planRows) {
       const threadId = String(row.threadId ?? "");
-      if (!latestPlanByThreadId.has(threadId) || latestPlanByThreadId.get(threadId)) continue;
+      if (!latestPlanByThreadId.has(threadId) || latestPlanRowSeenByThreadId.has(threadId)) continue;
+      latestPlanRowSeenByThreadId.add(threadId);
       const text = row.text?.trim();
       if (text) latestPlanByThreadId.set(threadId, { text, ordinal: Number(row.ordinal ?? 0) });
     }

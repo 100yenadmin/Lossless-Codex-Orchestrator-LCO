@@ -1463,6 +1463,14 @@ test("prepared-card all-thread refresh batches work-state lookup families", () =
         `<proposed_plan>\n1. Verify batched prepared card ${index}.\n2. Ship prepared-card batching.\n</proposed_plan>`,
         index + 1
       );
+      if (index === 0) {
+        db.prepare("INSERT INTO codex_plans (plan_id, thread_id, text, ordinal) VALUES (?, ?, ?, ?)").run(
+          `plan-whitespace-${threadId}`,
+          threadId,
+          " \n\t ",
+          999
+        );
+      }
       db.prepare("INSERT INTO codex_touched_files (touched_file_id, thread_id, path, source_kind) VALUES (?, ?, ?, ?)").run(
         `file-${threadId}`,
         threadId,
@@ -1496,6 +1504,11 @@ test("prepared-card all-thread refresh batches work-state lookup families", () =
       .filter((card) => card.reasonCodes.includes("from_attention_queue"));
     assert.equal(attentionCards.length, threadCount);
     assert.equal(attentionCards.every((card) => card.reasonCodes.includes("from_thread_rename")), true);
+    const whitespaceLatestPlanCard = getPreparedCards(db, { limit: threadCount }).cards
+      .find((card) => card.targetRef === "codex_thread:019f-prepared-batch-00");
+    assert.ok(whitespaceLatestPlanCard);
+    assert.equal(whitespaceLatestPlanCard.reasonCodes.includes("from_latest_plan"), false);
+    assert.equal(whitespaceLatestPlanCard.objective, null);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
