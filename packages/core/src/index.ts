@@ -112,9 +112,10 @@ export type CodexJsonlDriftStatus = {
   schema: "lco.codexJsonlDrift.status.v1";
   publicSafe: true;
   readOnly: true;
-  state: "clean" | "drift_detected" | "unavailable";
-  availability: "ready" | "database_missing" | "schema_missing" | "read_error";
+  state: "clean" | "drift_detected" | "not_indexed_yet" | "unavailable";
+  availability: "ready" | "database_missing" | "requires_index_run" | "read_error";
   docsRef: "docs/CODEX_JSONL_DRIFT.md";
+  nextAction: string | null;
   filesIndexed: number;
   filesWithDrift: number;
   unknownEventKinds: number;
@@ -2521,6 +2522,7 @@ const PREPARED_CARD_EXTRACTOR_VERSION = "prepared-cards-v1" as const;
 const SUMMARY_LEAF_EDGE_DELETE_BATCH_SIZE = 400;
 const SUMMARY_LEAF_SOURCE_RANGE_REF_LIMIT = 50;
 const PREPARED_CARD_SOURCE_RANGE_REF_LIMIT = 50;
+const CODEX_JSONL_DRIFT_INDEX_NEXT_ACTION = "loo index codex --max-files 500 \"$HOME/.codex/sessions\" \"$HOME/.codex/archived_sessions\"";
 
 export function createDatabase(dbPath?: string): LooDatabase {
   const resolved = dbPath ?? defaultDatabasePath();
@@ -4019,7 +4021,7 @@ function appendSessionDelta(
 }
 
 export function getCodexJsonlDriftStatus(db: LooDatabase): CodexJsonlDriftStatus {
-  if (!codexJsonlDriftSchemaReady(db)) return emptyCodexJsonlDriftStatus("schema_missing");
+  if (!codexJsonlDriftSchemaReady(db)) return emptyCodexJsonlDriftStatus("requires_index_run");
   const rows = db.prepare(`
     SELECT
       last_indexed_at AS lastIndexedAt,
@@ -4065,6 +4067,7 @@ export function getCodexJsonlDriftStatus(db: LooDatabase): CodexJsonlDriftStatus
     state,
     availability: "ready",
     docsRef: "docs/CODEX_JSONL_DRIFT.md",
+    nextAction: null,
     filesIndexed: rows.length,
     filesWithDrift,
     unknownEventKinds,
@@ -4093,13 +4096,15 @@ export function readCodexJsonlDriftStatusFromPath(dbPath = defaultDatabasePath()
 }
 
 function emptyCodexJsonlDriftStatus(availability: CodexJsonlDriftStatus["availability"]): CodexJsonlDriftStatus {
+  const requiresIndexRun = availability === "requires_index_run";
   return {
     schema: "lco.codexJsonlDrift.status.v1",
     publicSafe: true,
     readOnly: true,
-    state: "unavailable",
+    state: requiresIndexRun ? "not_indexed_yet" : "unavailable",
     availability,
     docsRef: "docs/CODEX_JSONL_DRIFT.md",
+    nextAction: requiresIndexRun ? CODEX_JSONL_DRIFT_INDEX_NEXT_ACTION : null,
     filesIndexed: 0,
     filesWithDrift: 0,
     unknownEventKinds: 0,
@@ -4107,7 +4112,7 @@ function emptyCodexJsonlDriftStatus(availability: CodexJsonlDriftStatus["availab
     missingExpectedFields: 0,
     topUnknownEventKinds: [],
     topMissingExpectedFields: [],
-    reasonCodes: [],
+    reasonCodes: requiresIndexRun ? ["codex_jsonl_drift_projection_requires_index_run"] : [],
     lastIndexedAt: null
   };
 }
