@@ -261,6 +261,183 @@ test("session id missing-field drift is decided per file instead of per record",
   }
 });
 
+test("unknown Codex JSONL kind drift keeps readable public-safe labels", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-drift-readable-kind-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  writeFileSync(
+    join(sessions, "readable-kind.jsonl"),
+    [
+      {
+        timestamp: "2026-07-06T10:00:00.000Z",
+        type: "session_meta",
+        payload: { id: "019f-drift-readable-kind", cwd: "/Volumes/LEXAR/repos/example", model: "gpt-5.5" }
+      },
+      {
+        timestamp: "2026-07-06T10:00:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: "assistant packet/v2",
+          renamed_payload: { content: "Novel unknown payload remains advisory drift." }
+        }
+      }
+    ].map((line) => JSON.stringify(line)).join("\n") + "\n"
+  );
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const indexed = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    assert.equal(indexed.errors.length, 0);
+    const kind = indexed.driftReport[0]?.unknownEventKinds[0]?.kind ?? "";
+    assert.match(kind, /^assistant_packet_v2_[a-f0-9]{6}$/);
+    assert.deepEqual(indexed.driftReport[0]?.unknownEventKinds, [
+      { kind, count: 1 }
+    ]);
+    assert.ok(indexed.driftReport[0]?.reasonCodes.includes(`unknown_event_kind:${kind}`));
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("unknown Codex JSONL kind drift keeps sanitized readable labels distinct", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-drift-kind-sanitized-collision-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  writeFileSync(
+    join(sessions, "sanitized-kind-collision.jsonl"),
+    [
+      {
+        timestamp: "2026-07-06T10:15:00.000Z",
+        type: "session_meta",
+        payload: { id: "019f-drift-readable-kind-sanitized-collision", cwd: "/Volumes/LEXAR/repos/example", model: "gpt-5.5" }
+      },
+      {
+        timestamp: "2026-07-06T10:15:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: "foo bar",
+          renamed_payload: { content: "First sanitized unknown payload remains advisory drift." }
+        }
+      },
+      {
+        timestamp: "2026-07-06T10:15:02.000Z",
+        type: "event_msg",
+        payload: {
+          type: "foo/bar",
+          renamed_payload: { content: "Second sanitized unknown payload remains advisory drift." }
+        }
+      }
+    ].map((line) => JSON.stringify(line)).join("\n") + "\n"
+  );
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const indexed = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    assert.equal(indexed.errors.length, 0);
+    const kinds = indexed.driftReport[0]?.unknownEventKinds.map((item) => item.kind) ?? [];
+    assert.equal(kinds.length, 2);
+    assert.equal(new Set(kinds).size, 2);
+    for (const kind of kinds) assert.match(kind, /^foo_bar_[a-f0-9]{6}$/);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("unknown Codex JSONL kind drift keeps truncated readable labels distinct", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-drift-kind-collision-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const longKindA = `${"a".repeat(100)} first/name`;
+  const longKindB = `${"a".repeat(100)} second/name`;
+  writeFileSync(
+    join(sessions, "long-kind-collision.jsonl"),
+    [
+      {
+        timestamp: "2026-07-06T10:30:00.000Z",
+        type: "session_meta",
+        payload: { id: "019f-drift-readable-kind-collision", cwd: "/Volumes/LEXAR/repos/example", model: "gpt-5.5" }
+      },
+      {
+        timestamp: "2026-07-06T10:30:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: longKindA,
+          renamed_payload: { content: "First long unknown payload remains advisory drift." }
+        }
+      },
+      {
+        timestamp: "2026-07-06T10:30:02.000Z",
+        type: "event_msg",
+        payload: {
+          type: longKindB,
+          renamed_payload: { content: "Second long unknown payload remains advisory drift." }
+        }
+      }
+    ].map((line) => JSON.stringify(line)).join("\n") + "\n"
+  );
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const indexed = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    assert.equal(indexed.errors.length, 0);
+    const kinds = indexed.driftReport[0]?.unknownEventKinds.map((item) => item.kind) ?? [];
+    assert.equal(kinds.length, 2);
+    assert.equal(new Set(kinds).size, 2);
+    for (const kind of kinds) assert.match(kind, /^a{95}_[a-f0-9]{6}$/);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("unknown Codex JSONL kind content scan is depth bounded", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-drift-bounded-content-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  writeFileSync(
+    join(sessions, "deep-unknown.jsonl"),
+    [
+      {
+        timestamp: "2026-07-06T11:00:00.000Z",
+        type: "session_meta",
+        payload: { id: "019f-drift-bounded-content", cwd: "/Volumes/LEXAR/repos/example", model: "gpt-5.5" }
+      },
+      {
+        timestamp: "2026-07-06T11:00:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: "assistant_packet_v3",
+          content: deeplyNested("Deep unknown payload beyond scan cap.", 40)
+        }
+      }
+    ].map((line) => JSON.stringify(line)).join("\n") + "\n"
+  );
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const indexed = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    assert.equal(indexed.errors.length, 0);
+    assert.deepEqual(indexed.driftReport, []);
+    assert.deepEqual(indexed.driftSummary, {
+      files: 0,
+      unknownEventKinds: 0,
+      unparsedLines: 0,
+      missingExpectedFields: 0
+    });
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function deeplyNested(value: string, depth: number): unknown {
+  let current: unknown = value;
+  for (let index = 0; index < depth; index += 1) current = { child: current };
+  return current;
+}
+
 function observedKindRecord(kind: (typeof observedNonFlaggingInnerKinds)[number], index: number): Record<string, unknown> {
   const timestamp = `2026-07-02T10:00:${String(index + 2).padStart(2, "0")}.000Z`;
   if (kind === "agent_message" || kind === "user_message") {

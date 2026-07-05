@@ -12992,8 +12992,22 @@ function recordCodexJsonlEventKindDrift(drift: CodexJsonlDriftAccumulator, item:
   const kind = codexJsonlEventKind(item);
   if (!kind || KNOWN_CODEX_JSONL_EVENT_KINDS.has(kind)) return;
   if (!codexJsonlHasUnextractedContentfulPayload(item)) return;
-  const safeKind = publicSafeIdentifier(kind) ?? `unknown_${stableId(kind).slice(0, 12)}`;
+  const safeKind = publicSafeCodexJsonlKind(kind);
   drift.unknownEventKinds.set(safeKind, (drift.unknownEventKinds.get(safeKind) ?? 0) + 1);
+}
+
+function publicSafeCodexJsonlKind(kind: string): string {
+  const identifier = publicSafeIdentifier(kind);
+  if (identifier) return identifier;
+  const publicText = publicSafeText(kind, 96);
+  const readable = publicText
+    .trim()
+    .replace(/\s+/g, "_")
+    .replace(/[^A-Za-z0-9._:-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 96);
+  if (!readable) return `unknown_${stableId(kind).slice(0, 12)}`;
+  return readable === kind ? readable : `${readable}_${stableId(kind).slice(0, 6)}`;
 }
 
 function recordCodexJsonlMissingFieldDrift(drift: CodexJsonlDriftAccumulator, item: any): void {
