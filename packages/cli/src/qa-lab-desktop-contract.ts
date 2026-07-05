@@ -166,6 +166,11 @@ export function createQaLabDesktopContractReport(options: QaLabDesktopContractOp
   refreshEvidenceIndexStatuses(evidenceIndex, dedupedBlockers);
   const desktopContractReady = dedupedBlockers.filter((blocker) => blocker.severity !== "P3").length === 0;
   const readinessCandidateSha = readString(readiness.value, "candidateSha");
+  const reportCandidateSha = options.candidateSha && SHA_PATTERN.test(options.candidateSha)
+    ? options.candidateSha
+    : readinessCandidateSha && SHA_PATTERN.test(readinessCandidateSha)
+      ? readinessCandidateSha
+      : null;
   return {
     schema: "lco.qaLab.desktopContract.v1",
     ok: desktopContractReady,
@@ -173,7 +178,7 @@ export function createQaLabDesktopContractReport(options: QaLabDesktopContractOp
     generatedAt: options.now ?? new Date().toISOString(),
     packageName: PACKAGE_NAME,
     packageVersion: options.packageVersion ?? readString(readiness.value, "packageVersion") ?? null,
-    candidateSha: options.candidateSha ?? (readinessCandidateSha && SHA_PATTERN.test(readinessCandidateSha) ? readinessCandidateSha : null),
+    candidateSha: reportCandidateSha,
     publicSafe: true,
     evidenceIndex,
     metadataProof,

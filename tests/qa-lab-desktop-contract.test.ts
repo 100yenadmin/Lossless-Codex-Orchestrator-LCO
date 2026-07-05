@@ -215,7 +215,7 @@ test("qa-lab desktop contract fails closed and redacts unsafe raw evidence", (t)
   const scratchPath = join(dir, "scratch-proof.json");
   writeJson(readinessPath, readinessReport({
     rawPath: "/Users/lume/.codex/sessions/private.jsonl",
-    token: "ghp_notarealtokenbutshouldberemoved1234567890",
+    token: "example-token-redacted-placeholder",
     desktopVisibility: {
       desktopVisible: true,
       fallbackBackendReady: true,
@@ -473,6 +473,8 @@ test("qa-lab desktop contract blocks stale and malformed candidate sha evidence"
     readinessReport: readinessReport()
   });
   assert.equal(invalid.ok, false);
+  assert.equal(invalid.candidateSha, candidateSha);
+  assert.doesNotMatch(JSON.stringify(invalid), /not-a-sha/);
   assert.ok(invalid.blockers.some((blocker) => blocker.code === "candidate_sha_invalid"));
 
   const malformedUpstream = createQaLabDesktopContractReport({
