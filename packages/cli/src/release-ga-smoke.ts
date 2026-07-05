@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { normalizeReleaseClaimScope, type ReleaseClaimScope } from "./release-claim-scope.js";
@@ -474,19 +475,43 @@ function applyQaLabFindings(
   blockers: ReleaseGaSmokeBlocker[],
   warnings: ReleaseGaSmokeWarning[]
 ): void {
+  addAggregateQaLabBlockers(value, source, blockers);
   const findings = [
     ...readStructuredFindings(value.blockers),
     ...readStructuredFindings(value.warnings),
-    ...readStringFindings(value.blockers),
-    ...readStringFindings(value.warnings)
+    ...readStringFindings(value.blockers, "P1"),
+    ...readStringFindings(value.warnings, "P3")
   ];
+  const rawCodeBySanitizedCode = new Map<string, string>();
   for (const finding of findings) {
-    const code = safeFindingCode(finding.code);
+    const code = collisionSafeFindingCode(finding.code, rawCodeBySanitizedCode);
     if (!code) continue;
     if (finding.severity === "P3") {
       addWarning(warnings, code, source, `QA Lab reported non-blocking P3 finding ${code}.`);
     } else {
       addBlocker(blockers, finding.severity, code, source, `QA Lab reported blocking finding ${code}.`);
+    }
+  }
+}
+
+function addAggregateQaLabBlockers(
+  value: JsonRecord,
+  source: ReleaseGaSmokeSourceId,
+  blockers: ReleaseGaSmokeBlocker[]
+): void {
+  if (source === "qaLabRun") {
+    const failedScenarioCount = numberValue(value.failedScenarioCount);
+    if (failedScenarioCount !== null && failedScenarioCount > 0) {
+      addBlocker(blockers, "P1", "qa_lab_run_failed_scenarios", source, `QA Lab run reports ${failedScenarioCount} failed scenario(s).`);
+    }
+  }
+  if (source === "qaLabAdversarialReview") {
+    const bySeverity = isRecord(value.blockersBySeverity) ? value.blockersBySeverity : null;
+    for (const severity of ["P0", "P1", "P2"] as const) {
+      const count = bySeverity ? numberValue(bySeverity[severity]) : null;
+      if (count !== null && count > 0) {
+        addBlocker(blockers, severity, `qa_lab_adversarial_review_aggregate_${severity.toLowerCase()}`, source, `QA Lab adversarial review reports ${count} aggregate ${severity} blocker(s).`);
+      }
     }
   }
 }
@@ -503,8 +528,8 @@ function readStructuredFindings(value: unknown): Array<{ severity: ReleaseGaSmok
     .filter((item): item is { severity: ReleaseGaSmokeFindingSeverity; code: string } => Boolean(item));
 }
 
-function readStringFindings(value: unknown): Array<{ severity: ReleaseGaSmokeFindingSeverity; code: string }> {
-  return readStringArray(value).map((code) => ({ severity: "P1", code }));
+function readStringFindings(value: unknown, severity: ReleaseGaSmokeFindingSeverity): Array<{ severity: ReleaseGaSmokeFindingSeverity; code: string }> {
+  return readStringArray(value).map((code) => ({ severity, code }));
 }
 
 function normalizeFindingSeverity(value: unknown): ReleaseGaSmokeFindingSeverity | null {
@@ -513,6 +538,19 @@ function normalizeFindingSeverity(value: unknown): ReleaseGaSmokeFindingSeverity
 
 function safeFindingCode(code: string): string {
   return code.trim().replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 80);
+}
+
+function collisionSafeFindingCode(code: string, rawCodeBySanitizedCode: Map<string, string>): string {
+  const sanitized = safeFindingCode(code);
+  if (!sanitized) return "";
+  const existingRawCode = rawCodeBySanitizedCode.get(sanitized);
+  if (!existingRawCode) {
+    rawCodeBySanitizedCode.set(sanitized, code);
+    return sanitized;
+  }
+  if (existingRawCode === code) return sanitized;
+  const suffix = createHash("sha256").update(code).digest("hex").slice(0, 8);
+  return `${sanitized.slice(0, Math.max(1, 71))}_${suffix}`;
 }
 
 function validateFinalizationActions(value: JsonRecord, blockers: ReleaseGaSmokeBlocker[]): void {
@@ -802,6 +840,10 @@ function readNestedBoolean(record: JsonRecord, path: string[]): boolean | null {
 function readNestedString(record: JsonRecord, path: string[]): string | null {
   const value = readNestedValue(record, path);
   return typeof value === "string" ? value : null;
+}
+
+function numberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function readNestedValue(record: JsonRecord, path: string[]): unknown {
