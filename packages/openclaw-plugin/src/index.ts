@@ -12,6 +12,7 @@ import {
   createLooToolDeclarations,
   executeLooToolForOpenClaw,
   createLooTools,
+  parseLooToolProfile,
   type LooTool
 } from "../../mcp-server/src/tools.js";
 
@@ -59,7 +60,10 @@ export default defineToolPlugin({
   name: pluginMetadata.name,
   description: pluginMetadata.description,
   configSchema: pluginMetadata.configSchema,
-  tools: (tool: NativeToolFactory) => createLooToolDeclarations().map((declaration) => tool({
+  tools: (tool: NativeToolFactory) => createLooToolDeclarations({
+    profile: parseLooToolProfile(process.env.LOO_TOOL_PROFILE),
+    includeAliases: true
+  }).map((declaration) => tool({
     name: declaration.name,
     description: declaration.description,
     metadata: declaration.metadata,
@@ -91,7 +95,7 @@ function getNativeRuntime(): NativeRuntime {
     audit,
     codexClient,
     codexReadClient,
-    tools: createLooTools({ db, audit, codexClient, codexReadClient })
+    tools: createLooTools({ db, audit, codexClient, codexReadClient, includeAliases: true })
   };
   return nativeRuntime;
 }

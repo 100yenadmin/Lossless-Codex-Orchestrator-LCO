@@ -22,7 +22,7 @@ function writeJson(path: string, value: unknown): void {
 }
 
 function allDeclaredToolNames(): string[] {
-  return createLooToolDeclarations().map((tool) => tool.name);
+  return createLooToolDeclarations({ includeAliases: false }).map((tool) => tool.name);
 }
 
 function noActions(): Record<string, false> {
@@ -169,6 +169,68 @@ test("qa-lab tool coverage attributes invocations to their source report", (t) =
   assert.equal(report.ok, true);
   assert.equal(row?.invocationOk, true);
   assert.deepEqual(row?.evidenceRefs, ["openclaw-dogfood.json"]);
+});
+
+test("qa-lab tool coverage excludes lco aliases from declared-tool accounting", (t) => {
+  const dir = makeTempDir(t, "loo-qa-tool-coverage-aliases-");
+  const baseTools = createLooToolDeclarations({ includeAliases: false });
+  const allTools = createLooToolDeclarations({ includeAliases: true });
+  const aliases = allTools.filter((tool) => tool.metadata.aliasOf);
+  const toolSmokeReport = writeToolSmokeReport(dir, allTools.map((tool) => tool.name));
+  const manifestPath = join(dir, "openclaw.plugin.json");
+  writeJson(manifestPath, {
+    contracts: {
+      tools: allTools.map((tool) => tool.name),
+      toolDeclarations: allTools
+    }
+  });
+
+  const report = createQaLabToolCoverageReport({
+    evidenceDir: dir,
+    packageVersion,
+    candidateSha,
+    toolSmokeReport,
+    manifestPath,
+    coveragePolicy: "full",
+    claimScope: "codex-working-app-proof",
+    now: "2026-07-05T00:00:00.000Z"
+  });
+
+  assert.equal(aliases.length, 8);
+  assert.equal(report.ok, true);
+  assert.equal(report.declaredToolCount, baseTools.length);
+  assert.equal(report.catalogCoverage.runtimeDeclaredTools, baseTools.length);
+  assert.equal(report.catalogCoverage.manifestTools, baseTools.length);
+  assert.equal(report.invocationCoverage.totalDeclaredTools, baseTools.length);
+  assert.equal(report.invocationCoverage.invokedDeclaredTools, baseTools.length);
+  assert.equal(report.toolRows.some((row) => row.name.startsWith("lco_")), false);
+  assert.equal(report.catalogCoverage.extraInManifest.some((name) => name.startsWith("lco_")), false);
+});
+
+test("qa-lab tool coverage flags unknown lco_* names instead of silently canonicalizing them", (t) => {
+  const dir = makeTempDir(t, "loo-qa-tool-coverage-unknown-alias-");
+  const baseTools = createLooToolDeclarations({ includeAliases: false });
+  const toolSmokeReport = writeToolSmokeReport(dir, baseTools.map((tool) => tool.name));
+  const manifestPath = join(dir, "openclaw.plugin.json");
+  writeJson(manifestPath, {
+    contracts: {
+      tools: [...baseTools.map((tool) => tool.name), "lco_bogus_tool"]
+    }
+  });
+
+  const report = createQaLabToolCoverageReport({
+    evidenceDir: dir,
+    packageVersion,
+    candidateSha,
+    toolSmokeReport,
+    manifestPath,
+    coveragePolicy: "full",
+    claimScope: "codex-working-app-proof",
+    now: "2026-07-05T00:00:00.000Z"
+  });
+
+  assert.ok(report.blockers.some((blocker) => blocker.code === "unknown_lco_alias:lco_bogus_tool"));
+  assert.equal(report.blockers.find((blocker) => blocker.code === "unknown_lco_alias:lco_bogus_tool")?.severity, "P3");
 });
 
 test("qa-lab tool coverage redacts unsafe evidence values instead of echoing canaries", (t) => {
