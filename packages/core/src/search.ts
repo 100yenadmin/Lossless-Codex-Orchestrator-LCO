@@ -195,13 +195,26 @@ export function rebuildCodexSearchFts(db: LooDatabase): void {
 }
 
 export function upsertCodexSearchFtsForThread(db: LooDatabase, threadId: string): void {
-  db.prepare("DELETE FROM codex_search_fts WHERE thread_id = ?").run(threadId);
   const row = codexSearchFtsDocumentRow(db, threadId);
-  if (row) insertCodexSearchFtsDocument(db, row);
+  if (!row) return;
+  const sessionRowid = codexSearchFtsDocumentSessionRowid(row);
+  deleteCodexSearchFtsForSessionRowid(db, sessionRowid);
+  insertCodexSearchFtsDocument(db, row);
 }
 
 export function deleteCodexSearchFtsForThread(db: LooDatabase, threadId: string): void {
-  db.prepare("DELETE FROM codex_search_fts WHERE thread_id = ?").run(threadId);
+  const row = db.prepare("SELECT rowid AS sessionRowid FROM codex_sessions WHERE thread_id = ?").get(threadId) as CodexSearchRow | undefined;
+  if (!row) return;
+  deleteCodexSearchFtsForSessionRowid(db, codexSearchFtsDocumentSessionRowid(row));
+}
+
+export function deleteCodexSearchFtsForSessionRowid(db: LooDatabase, sessionRowid: number): void {
+  db.prepare("DELETE FROM codex_search_fts WHERE rowid = ?").run(sessionRowid);
+}
+
+export function insertCodexSearchFtsForThreadRowid(db: LooDatabase, threadId: string, sessionRowid: number): void {
+  const row = codexSearchFtsDocumentRow(db, threadId);
+  if (row) insertCodexSearchFtsDocument(db, { ...row, sessionRowid });
 }
 
 export function codexSearchFtsNeedsBackfill(db: LooDatabase): boolean {
@@ -430,6 +443,7 @@ function codexSearchFtsDocumentRow(db: LooDatabase, threadId: string): CodexSear
 function codexSearchFtsDocumentSql(): string {
   return `
     SELECT
+      s.rowid AS sessionRowid,
       s.thread_id AS threadId,
       COALESCE(s.title, '') AS title,
       COALESCE(s.summary, '') AS summary,
@@ -457,10 +471,12 @@ function codexSearchFtsDocumentSql(): string {
 }
 
 function insertCodexSearchFtsDocument(db: LooDatabase, row: CodexSearchRow): void {
+  const sessionRowid = codexSearchFtsDocumentSessionRowid(row);
   db.prepare(`
-    INSERT INTO codex_search_fts (thread_id, title, summary, plans, finals, touched_files, tool_meta, body)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO codex_search_fts (rowid, thread_id, title, summary, plans, finals, touched_files, tool_meta, body)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
+    sessionRowid,
     String(row.threadId),
     String(row.title ?? ""),
     String(row.summary ?? ""),
@@ -470,6 +486,14 @@ function insertCodexSearchFtsDocument(db: LooDatabase, row: CodexSearchRow): voi
     String(row.toolMeta ?? ""),
     String(row.body ?? "")
   );
+}
+
+function codexSearchFtsDocumentSessionRowid(row: CodexSearchRow): number {
+  const sessionRowid = Number(row.sessionRowid);
+  if (!Number.isSafeInteger(sessionRowid) || sessionRowid < 1) {
+    throw new Error("codex_search_fts document requires a positive codex_sessions rowid");
+  }
+  return sessionRowid;
 }
 
 function threadTitleAliasSearchResults(db: LooDatabase, query: string, nowMs: number): SessionSearchResult[] {
