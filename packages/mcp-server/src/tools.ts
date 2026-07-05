@@ -38,6 +38,7 @@ import {
   getCodexThreadMap,
   getCodexTouchedFiles,
   getCodexToolCalls,
+  getCodexJsonlDriftStatus,
   getRecentSessions,
   getSummaryLeaves,
   grepRecall,
@@ -999,6 +1000,7 @@ export function createLooTools(options: {
       ok: true,
       localOnly: true,
       toolPrefix: "loo_*",
+      codexJsonlDrift: getCodexJsonlDriftStatus(options.db),
       codex: codexTransportStatus({ command: process.env.LOO_CODEX_BIN || "codex" }),
       lcmPeers: probeLcmPeerDbs(configuredLcmPeerDbPaths()),
       desktopFallbacks: desktopFallbackDiagnostics({ probe: options.desktopProbe })

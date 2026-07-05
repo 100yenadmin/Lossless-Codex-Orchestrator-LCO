@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import {
+  createDatabase,
+  indexCodexSessions
+} from "../packages/core/src/index.js";
 import { runLoo } from "./helpers/run-loo.js";
 
 test("loo --help exits zero with top-level usage", () => {
@@ -135,6 +139,101 @@ test("loo doctor omits local database paths from public-safe output", () => {
     assert.doesNotMatch(result.stdout, new RegExp(dbPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     assert.doesNotMatch(result.stdout, /orchestrator\.sqlite/);
     assert.equal(result.stderr.trim(), "");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("loo doctor reports clean Codex JSONL drift status without local paths", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-doctor-drift-clean-"));
+  try {
+    const dbPath = join(root, "orchestrator.sqlite");
+    const sessions = join(root, "sessions");
+    mkdirSync(sessions, { recursive: true });
+    writeFileSync(
+      join(sessions, "clean.jsonl"),
+      [
+        { timestamp: "2026-07-06T13:00:00.000Z", type: "session_meta", payload: { id: "019f-doctor-drift-clean", cwd: "/Volumes/LEXAR/repos/example", model: "gpt-5.5" } },
+        { timestamp: "2026-07-06T13:00:01.000Z", type: "event_msg", payload: { type: "agent_message", message: "Clean doctor drift fixture." } }
+      ].map((line) => JSON.stringify(line)).join("\n") + "\n"
+    );
+    const db = createDatabase(dbPath);
+    try {
+      indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    } finally {
+      db.close();
+    }
+
+    const result = runLoo(["doctor"], {
+      ...process.env,
+      LOO_DB_PATH: dbPath
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const report = JSON.parse(result.stdout) as {
+      codexJsonlDrift?: { state?: unknown; filesWithDrift?: unknown; topUnknownEventKinds?: unknown; docsRef?: unknown };
+    };
+    assert.equal(report.codexJsonlDrift?.state, "clean");
+    assert.equal(report.codexJsonlDrift?.filesWithDrift, 0);
+    assert.deepEqual(report.codexJsonlDrift?.topUnknownEventKinds, []);
+    assert.equal(report.codexJsonlDrift?.docsRef, "docs/CODEX_JSONL_DRIFT.md");
+    assert.doesNotMatch(result.stdout, /clean\.jsonl|orchestrator\.sqlite|\/Volumes\/LEXAR|\/Users\//);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("loo doctor reports Codex JSONL drift summary without raw drift paths", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-doctor-drift-summary-"));
+  try {
+    const dbPath = join(root, "orchestrator.sqlite");
+    const sessions = join(root, "sessions");
+    mkdirSync(sessions, { recursive: true });
+    writeFileSync(
+      join(sessions, "future-drift.jsonl"),
+      [
+        { timestamp: "2026-07-06T13:10:00.000Z", type: "session_meta", payload: { id: "019f-doctor-drift-summary", cwd: "/Volumes/LEXAR/repos/example", model: "gpt-5.5" } },
+        {
+          timestamp: "2026-07-06T13:10:01.000Z",
+          type: "event_msg",
+          payload: {
+            type: "assistant packet/v2",
+            renamed_payload: { content: "Doctor drift summary should count this kind without leaking text." }
+          }
+        },
+        "{not valid json"
+      ].map((line) => typeof line === "string" ? line : JSON.stringify(line)).join("\n") + "\n"
+    );
+    const db = createDatabase(dbPath);
+    try {
+      indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    } finally {
+      db.close();
+    }
+
+    const result = runLoo(["doctor"], {
+      ...process.env,
+      LOO_DB_PATH: dbPath
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const report = JSON.parse(result.stdout) as {
+      codexJsonlDrift?: {
+        state?: unknown;
+        filesWithDrift?: unknown;
+        unknownEventKinds?: unknown;
+        unparsedLines?: unknown;
+        topUnknownEventKinds?: Array<{ kind: string; count: number }>;
+        docsRef?: unknown;
+      };
+    };
+    assert.equal(report.codexJsonlDrift?.state, "drift_detected");
+    assert.equal(report.codexJsonlDrift?.filesWithDrift, 1);
+    assert.equal(report.codexJsonlDrift?.unknownEventKinds, 1);
+    assert.equal(report.codexJsonlDrift?.unparsedLines, 1);
+    assert.match(report.codexJsonlDrift?.topUnknownEventKinds?.[0]?.kind ?? "", /^assistant_packet_v2_[a-f0-9]{6}$/);
+    assert.equal(report.codexJsonlDrift?.docsRef, "docs/CODEX_JSONL_DRIFT.md");
+    assert.doesNotMatch(result.stdout, /future-drift\.jsonl|orchestrator\.sqlite|\/Volumes\/LEXAR|\/Users\/|Doctor drift summary should count/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

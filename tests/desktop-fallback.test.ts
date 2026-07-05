@@ -442,6 +442,12 @@ test("MCP doctor and desktop tools expose CUA diagnostics while desktop act stay
     const doctor = tools.find((tool) => tool.name === "loo_doctor");
     assert.ok(doctor);
     const doctorResult = await doctor.execute({}) as {
+      codexJsonlDrift: {
+        publicSafe: boolean;
+        readOnly: boolean;
+        state: string;
+        availability: string;
+      };
       desktopFallbacks: {
         preferred: string;
         backends: Array<{
@@ -452,6 +458,17 @@ test("MCP doctor and desktop tools expose CUA diagnostics while desktop act stay
         }>;
       };
     };
+    assert.deepEqual({
+      publicSafe: doctorResult.codexJsonlDrift.publicSafe,
+      readOnly: doctorResult.codexJsonlDrift.readOnly,
+      state: doctorResult.codexJsonlDrift.state,
+      availability: doctorResult.codexJsonlDrift.availability
+    }, {
+      publicSafe: true,
+      readOnly: true,
+      state: "clean",
+      availability: "ready"
+    });
     assert.equal(doctorResult.desktopFallbacks.preferred, "cua-driver");
     const cuaBackend = doctorResult.desktopFallbacks.backends.find((backend) => backend.backend === "cua-driver");
     assert.ok(cuaBackend);

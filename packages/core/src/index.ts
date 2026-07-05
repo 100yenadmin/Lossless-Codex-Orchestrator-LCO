@@ -108,6 +108,24 @@ export type CodexJsonlDriftSummary = {
   missingExpectedFields: number;
 };
 
+export type CodexJsonlDriftStatus = {
+  schema: "lco.codexJsonlDrift.status.v1";
+  publicSafe: true;
+  readOnly: true;
+  state: "clean" | "drift_detected" | "unavailable";
+  availability: "ready" | "database_missing" | "schema_missing" | "read_error";
+  docsRef: "docs/CODEX_JSONL_DRIFT.md";
+  filesIndexed: number;
+  filesWithDrift: number;
+  unknownEventKinds: number;
+  unparsedLines: number;
+  missingExpectedFields: number;
+  topUnknownEventKinds: CodexJsonlDriftNamedCount[];
+  topMissingExpectedFields: CodexJsonlDriftFieldCount[];
+  reasonCodes: string[];
+  lastIndexedAt: string | null;
+};
+
 export type IndexCodexResult = {
   // Fixed safety stamp: indexing writes only LCO-owned derived cache, while
   // limited/error rows can contain local paths and are not public evidence.
@@ -2547,7 +2565,11 @@ export function migrate(db: LooDatabase): void {
       metadata_extractor_version TEXT,
       prepared_range_extractor_version TEXT,
       summary_leaf_extractor_version TEXT,
-      prepared_card_extractor_version TEXT
+      prepared_card_extractor_version TEXT,
+      jsonl_drift_unknown_event_kinds_json TEXT NOT NULL DEFAULT '[]',
+      jsonl_drift_unparsed_lines INTEGER NOT NULL DEFAULT 0,
+      jsonl_drift_missing_expected_fields_json TEXT NOT NULL DEFAULT '[]',
+      jsonl_drift_reason_codes_json TEXT NOT NULL DEFAULT '[]'
     );
 
     CREATE TABLE IF NOT EXISTS codex_plans (
@@ -2959,6 +2981,10 @@ export function migrate(db: LooDatabase): void {
   ensureColumn(db, "codex_source_files", "prepared_range_extractor_version", "TEXT");
   ensureColumn(db, "codex_source_files", "summary_leaf_extractor_version", "TEXT");
   ensureColumn(db, "codex_source_files", "prepared_card_extractor_version", "TEXT");
+  ensureColumn(db, "codex_source_files", "jsonl_drift_unknown_event_kinds_json", "TEXT NOT NULL DEFAULT '[]'");
+  ensureColumn(db, "codex_source_files", "jsonl_drift_unparsed_lines", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "codex_source_files", "jsonl_drift_missing_expected_fields_json", "TEXT NOT NULL DEFAULT '[]'");
+  ensureColumn(db, "codex_source_files", "jsonl_drift_reason_codes_json", "TEXT NOT NULL DEFAULT '[]'");
   // Gate the relational backfill on "migration row missing OR count drift" so a
   // crash between the rebuild and the ledger insert leaves the migration
   // unrecorded and re-runnable. Record the ledger row only AFTER a successful
@@ -3321,6 +3347,170 @@ function sourceFileExtractorStateIsCurrent(watermark: SourceFileWatermark): bool
     && watermark.preparedRangeExtractorVersion === PREPARED_SOURCE_EXTRACTOR_VERSION
     && watermark.summaryLeafExtractorVersion === SUMMARY_LEAF_EXTRACTOR_VERSION
     && watermark.preparedCardExtractorVersion === PREPARED_CARD_EXTRACTOR_VERSION;
+}
+
+export function getCodexJsonlDriftStatus(db: LooDatabase): CodexJsonlDriftStatus {
+  if (!codexJsonlDriftSchemaReady(db)) return emptyCodexJsonlDriftStatus("schema_missing");
+  const rows = db.prepare(`
+    SELECT
+      last_indexed_at AS lastIndexedAt,
+      jsonl_drift_unknown_event_kinds_json AS unknownEventKindsJson,
+      jsonl_drift_unparsed_lines AS unparsedLines,
+      jsonl_drift_missing_expected_fields_json AS missingExpectedFieldsJson,
+      jsonl_drift_reason_codes_json AS reasonCodesJson
+    FROM codex_source_files
+  `).all() as Array<Record<string, unknown>>;
+  const unknownEventKindCounts = new Map<string, number>();
+  const missingExpectedFieldCounts = new Map<string, number>();
+  const reasonCodes = new Set<string>();
+  let filesWithDrift = 0;
+  let unknownEventKinds = 0;
+  let unparsedLines = 0;
+  let missingExpectedFields = 0;
+  let lastIndexedAt: string | null = null;
+  for (const row of rows) {
+    const rowUnknown = parseCodexJsonlDriftNamedCounts(row.unknownEventKindsJson);
+    const rowMissing = parseCodexJsonlDriftFieldCounts(row.missingExpectedFieldsJson);
+    const rowUnparsed = Math.max(0, Math.floor(Number(row.unparsedLines ?? 0) || 0));
+    for (const item of rowUnknown) {
+      unknownEventKindCounts.set(item.kind, (unknownEventKindCounts.get(item.kind) ?? 0) + item.count);
+      unknownEventKinds += item.count;
+    }
+    for (const item of rowMissing) {
+      missingExpectedFieldCounts.set(item.field, (missingExpectedFieldCounts.get(item.field) ?? 0) + item.count);
+      missingExpectedFields += item.count;
+    }
+    unparsedLines += rowUnparsed;
+    for (const code of parseCodexJsonlDriftReasonCodes(row.reasonCodesJson)) reasonCodes.add(code);
+    if (rowUnknown.length > 0 || rowMissing.length > 0 || rowUnparsed > 0) filesWithDrift += 1;
+    const indexedAt = nullableString(row.lastIndexedAt);
+    if (indexedAt && (!lastIndexedAt || indexedAt > lastIndexedAt)) lastIndexedAt = indexedAt;
+  }
+  const state = filesWithDrift > 0 || unknownEventKinds > 0 || unparsedLines > 0 || missingExpectedFields > 0
+    ? "drift_detected"
+    : "clean";
+  return {
+    schema: "lco.codexJsonlDrift.status.v1",
+    publicSafe: true,
+    readOnly: true,
+    state,
+    availability: "ready",
+    docsRef: "docs/CODEX_JSONL_DRIFT.md",
+    filesIndexed: rows.length,
+    filesWithDrift,
+    unknownEventKinds,
+    unparsedLines,
+    missingExpectedFields,
+    topUnknownEventKinds: topCodexJsonlDriftCounts(unknownEventKindCounts),
+    topMissingExpectedFields: topCodexJsonlDriftCounts(missingExpectedFieldCounts).map((item) => ({ field: item.kind, count: item.count })),
+    reasonCodes: [...reasonCodes].sort().slice(0, 20),
+    lastIndexedAt
+  };
+}
+
+export function readCodexJsonlDriftStatusFromPath(dbPath = defaultDatabasePath()): CodexJsonlDriftStatus {
+  if (!existsSync(dbPath)) return emptyCodexJsonlDriftStatus("database_missing");
+  const DatabaseSync = getDatabaseSync();
+  let db: LooDatabase | null = null;
+  try {
+    db = new DatabaseSync(dbPath, { readOnly: true });
+    db.exec("PRAGMA query_only = ON");
+    return getCodexJsonlDriftStatus(db);
+  } catch {
+    return emptyCodexJsonlDriftStatus("read_error");
+  } finally {
+    db?.close();
+  }
+}
+
+function emptyCodexJsonlDriftStatus(availability: CodexJsonlDriftStatus["availability"]): CodexJsonlDriftStatus {
+  return {
+    schema: "lco.codexJsonlDrift.status.v1",
+    publicSafe: true,
+    readOnly: true,
+    state: "unavailable",
+    availability,
+    docsRef: "docs/CODEX_JSONL_DRIFT.md",
+    filesIndexed: 0,
+    filesWithDrift: 0,
+    unknownEventKinds: 0,
+    unparsedLines: 0,
+    missingExpectedFields: 0,
+    topUnknownEventKinds: [],
+    topMissingExpectedFields: [],
+    reasonCodes: [],
+    lastIndexedAt: null
+  };
+}
+
+function codexJsonlDriftSchemaReady(db: LooDatabase): boolean {
+  try {
+    const rows = db.prepare("PRAGMA table_info(codex_source_files)").all() as Array<{ name?: string }>;
+    const columns = new Set(rows.map((row) => row.name).filter((value): value is string => typeof value === "string"));
+    return columns.has("jsonl_drift_unknown_event_kinds_json")
+      && columns.has("jsonl_drift_unparsed_lines")
+      && columns.has("jsonl_drift_missing_expected_fields_json")
+      && columns.has("jsonl_drift_reason_codes_json");
+  } catch {
+    return false;
+  }
+}
+
+function parseCodexJsonlDriftNamedCounts(value: unknown): CodexJsonlDriftNamedCount[] {
+  const parsed = parseJsonArray(value);
+  return parsed.flatMap((item) => {
+    if (!isObjectRecord(item)) return [];
+    const rawKind = stringOrNull(item.kind);
+    const count = Math.max(0, Math.floor(Number(item.count ?? 0) || 0));
+    if (!rawKind || count <= 0) return [];
+    const kind = publicSafeIdentifier(rawKind) ?? publicSafeCodexJsonlKind(rawKind);
+    return [{ kind, count }];
+  });
+}
+
+function parseCodexJsonlDriftFieldCounts(value: unknown): CodexJsonlDriftFieldCount[] {
+  const parsed = parseJsonArray(value);
+  return parsed.flatMap((item) => {
+    if (!isObjectRecord(item)) return [];
+    const rawField = stringOrNull(item.field);
+    const count = Math.max(0, Math.floor(Number(item.count ?? 0) || 0));
+    if (!rawField || count <= 0) return [];
+    const field = publicSafeText(rawField, 120)
+      .trim()
+      .replace(/[^A-Za-z0-9._:-]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    return field ? [{ field, count }] : [];
+  });
+}
+
+function parseCodexJsonlDriftReasonCodes(value: unknown): string[] {
+  return parseJsonArray(value)
+    .flatMap((item) => {
+      const raw = stringOrNull(item);
+      if (!raw) return [];
+      const safe = publicSafeText(raw, 160)
+        .trim()
+        .replace(/[^A-Za-z0-9._:-]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+      return safe ? [safe] : [];
+    });
+}
+
+function parseJsonArray(value: unknown): unknown[] {
+  try {
+    const parsed = JSON.parse(typeof value === "string" ? value : "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function topCodexJsonlDriftCounts(counts: Map<string, number>): CodexJsonlDriftNamedCount[] {
+  return [...counts.entries()]
+    .map(([kind, count]) => ({ kind, count }))
+    .filter((item) => item.count > 0)
+    .sort((left, right) => right.count - left.count || left.kind.localeCompare(right.kind))
+    .slice(0, 8);
 }
 
 function markSourceFilesSummaryLeafCurrent(db: LooDatabase, threadId: string): void {
@@ -12791,6 +12981,7 @@ const KNOWN_CODEX_JSONL_EVENT_KINDS = new Set([
   "context_compacted",
   "custom_tool_call",
   "custom_tool_call_output",
+  "dynamic_tool_call_response",
   "event_metadata",
   "exec_command_begin",
   "exec_command_end",
@@ -13402,6 +13593,11 @@ function upsertSession(
   const sourcePathRef = publicSourcePathRef(sourcePath);
   const preparedSourceRef = options.sourceRef ?? codexThreadRef(session.threadId);
   const rangeReasonCodes = unique(options.rangeReasonCodes ?? []);
+  const driftReport = session.driftReport;
+  const driftUnknownEventKindsJson = JSON.stringify(driftReport?.unknownEventKinds ?? []);
+  const driftUnparsedLines = driftReport?.unparsedLines ?? 0;
+  const driftMissingExpectedFieldsJson = JSON.stringify(driftReport?.missingExpectedFields ?? []);
+  const driftReasonCodesJson = JSON.stringify(driftReport?.reasonCodes ?? []);
   db.exec("BEGIN");
   try {
     db.prepare(`
@@ -13414,8 +13610,12 @@ function upsertSession(
         metadata_extractor_version,
         prepared_range_extractor_version,
         summary_leaf_extractor_version,
-        prepared_card_extractor_version
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+        prepared_card_extractor_version,
+        jsonl_drift_unknown_event_kinds_json,
+        jsonl_drift_unparsed_lines,
+        jsonl_drift_missing_expected_fields_json,
+        jsonl_drift_reason_codes_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)
       ON CONFLICT(source_path) DO UPDATE SET
         path_hash = excluded.path_hash,
         size = excluded.size,
@@ -13424,8 +13624,24 @@ function upsertSession(
         metadata_extractor_version = excluded.metadata_extractor_version,
         prepared_range_extractor_version = excluded.prepared_range_extractor_version,
         summary_leaf_extractor_version = NULL,
-        prepared_card_extractor_version = NULL
-    `).run(sourcePath, sourceHash, stat.size, stat.mtimeMs, now, SESSION_METADATA_EXTRACTOR_VERSION, PREPARED_SOURCE_EXTRACTOR_VERSION);
+        prepared_card_extractor_version = NULL,
+        jsonl_drift_unknown_event_kinds_json = excluded.jsonl_drift_unknown_event_kinds_json,
+        jsonl_drift_unparsed_lines = excluded.jsonl_drift_unparsed_lines,
+        jsonl_drift_missing_expected_fields_json = excluded.jsonl_drift_missing_expected_fields_json,
+        jsonl_drift_reason_codes_json = excluded.jsonl_drift_reason_codes_json
+    `).run(
+      sourcePath,
+      sourceHash,
+      stat.size,
+      stat.mtimeMs,
+      now,
+      SESSION_METADATA_EXTRACTOR_VERSION,
+      PREPARED_SOURCE_EXTRACTOR_VERSION,
+      driftUnknownEventKindsJson,
+      driftUnparsedLines,
+      driftMissingExpectedFieldsJson,
+      driftReasonCodesJson
+    );
     db.prepare(`
       INSERT INTO codex_sessions (
         thread_id, title, cwd, model, branch, git_sha, source_path, created_at, updated_at,
@@ -13870,9 +14086,11 @@ function extractTextPayloads(item: any): string[] {
     item.event_msg?.text,
     item.response_item?.text,
     item.response_item?.content,
+    item.response_item?.output,
     item.message?.content,
     item.payload?.message,
-    item.payload?.text
+    item.payload?.text,
+    item.payload?.output
   ];
   for (const candidate of candidates) {
     if (typeof candidate === "string") out.push(candidate);
