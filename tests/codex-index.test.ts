@@ -318,6 +318,50 @@ test("search uses field-weighted FTS scores and matched-field attribution", () =
   }
 });
 
+test("ranked search follows pinned codex_search_fts rowids when stored thread ids drift", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-rowid-ranked-search-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+
+  writeFileSync(join(sessions, "rollout-2026-07-06T00-00-00-019f-rowid-ranked.jsonl"), [
+    { timestamp: "2026-07-06T00:00:00.000Z", session_meta: { payload: { id: "019f-rowid-ranked" } } },
+    { timestamp: "2026-07-06T00:00:01.000Z", event_msg: { type: "thread_name", name: "Pinned rowid ranked search canary" } },
+    { timestamp: "2026-07-06T00:00:02.000Z", event_msg: { type: "agent_message", message: "Final: pinned rowid ranked search canary completed." } }
+  ].map((line) => JSON.stringify(line)).join("\n") + "\n");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    const sessionRow = db.prepare(`
+      SELECT rowid AS sessionRowid, thread_id AS threadId
+      FROM codex_sessions
+      WHERE thread_id = ?
+    `).get("019f-rowid-ranked") as { sessionRowid: number; threadId: string } | undefined;
+    assert.ok(sessionRow);
+
+    db.prepare("UPDATE codex_search_fts SET thread_id = ? WHERE rowid = ?").run("019f-drifted-fts-thread-id", sessionRow.sessionRowid);
+    const drifted = db.prepare("SELECT rowid AS searchRowid, thread_id AS searchThreadId FROM codex_search_fts WHERE rowid = ?").get(sessionRow.sessionRowid) as {
+      searchRowid: number;
+      searchThreadId: string;
+    };
+    assert.equal(drifted.searchRowid, sessionRow.sessionRowid);
+    assert.equal(drifted.searchThreadId, "019f-drifted-fts-thread-id");
+
+    const matches = searchSessions(db, {
+      query: "pinned rowid ranked search canary",
+      limit: 5,
+      now: "2026-07-06T00:00:03.000Z"
+    });
+
+    assert.equal(matches[0]?.threadId, "019f-rowid-ranked");
+    assert.equal(matches[0]?.matchKind, "full_text");
+    assert.equal(matches[0]?.reasonCodes.includes("matched_field:title"), true);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("field-weight beats recency: older strong-title outranks newer weak-body", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-codex-recency-inv-"));
   const sessions = join(root, "sessions");
