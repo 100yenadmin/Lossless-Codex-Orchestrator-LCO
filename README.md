@@ -213,6 +213,14 @@ Typical MCP client entry:
 }
 ```
 
+Optional web search tool:
+
+```bash
+export YDC_API_KEY="your-key-here"
+```
+
+When set, `loo_web_search` can query You.com Search for external context.
+
 Install the OpenClaw plugin from npm:
 
 ```bash

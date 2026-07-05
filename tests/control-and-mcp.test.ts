@@ -803,6 +803,7 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.equal(toolNames.includes("loo_index_sessions"), true);
     assert.equal(toolNames.includes("loo_grep"), true);
     assert.equal(toolNames.includes("loo_search_sessions"), true);
+    assert.equal(toolNames.includes("loo_web_search"), true);
     assert.equal(toolNames.includes("loo_describe_ref"), true);
     assert.equal(toolNames.includes("loo_closeout_dry_run"), true);
     assert.equal(toolNames.includes("loo_codex_start_thread"), true);
@@ -1013,6 +1014,36 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.equal(auditTail.records.some((record) => record.paramsHash === genericDryRun.params_hash), true);
     assert.equal(JSON.stringify(auditTail).includes("continue"), false);
     assertNoRawLocalPaths(auditTail);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("loo_web_search reports setup guidance without YDC_API_KEY", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-web-search-missing-key-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const tools = createLooTools({
+    db,
+    audit,
+    codexClient: { request: async () => ({ ok: true }) }
+  });
+
+  try {
+    const tool = tools.find((candidate) => candidate.name === "loo_web_search");
+    assert.ok(tool);
+    const previousKey = process.env.YDC_API_KEY;
+    delete process.env.YDC_API_KEY;
+    const result = await tool.execute({ query: "playwright locator best practices" }) as {
+      ok: boolean;
+      error: { code: string; message: string };
+      setup: { env_var: string };
+    };
+    if (previousKey !== undefined) process.env.YDC_API_KEY = previousKey;
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, "missing_api_key");
+    assert.equal(result.setup.env_var, "YDC_API_KEY");
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });

@@ -306,6 +306,26 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
   const control = createCodexControl({ audit: options.audit, client: options.codexClient });
   const codexReadClient = options.codexReadClient ?? options.codexClient;
   return [
+    tool("loo_web_search", "Search the public web with the optional You.com Search API integration.", {
+      query: { type: "string" },
+      limit: { type: "integer", minimum: 1, maximum: 50 },
+      freshness: { type: "string" },
+      country: { type: "string" },
+      language: { type: "string" },
+      safesearch: { type: "string", enum: ["off", "moderate", "strict"] },
+      livecrawl: { type: "string", enum: ["web", "news", "all"] },
+      livecrawl_formats: { type: "string", enum: ["html", "markdown"] },
+      crawl_timeout: { type: "integer", minimum: 1, maximum: 60 }
+    }, async (input) => searchYouDotCom(requiredString(input.query, "query"), {
+      limit: optionalNumber(input.limit),
+      freshness: optionalString(input.freshness),
+      country: optionalString(input.country),
+      language: optionalString(input.language),
+      safesearch: optionalString(input.safesearch),
+      livecrawl: optionalString(input.livecrawl),
+      livecrawlFormats: optionalString(input.livecrawl_formats),
+      crawlTimeout: optionalNumber(input.crawl_timeout)
+    })),
     tool("loo_index_sessions", "Index local Codex session JSONL files into the local orchestrator database.", {
       roots: { type: "array", items: { type: "string" } },
       max_files: { type: "integer", minimum: 1, maximum: 100000 },
@@ -1559,6 +1579,75 @@ function optionalRisk(value: unknown): "low" | "medium" | "high" | undefined {
   if (value === undefined) return undefined;
   if (value === "low" || value === "medium" || value === "high") return value;
   throw new Error("risk must be low, medium, or high");
+}
+
+type YouDotComSearchOptions = {
+  limit?: number;
+  freshness?: string;
+  country?: string;
+  language?: string;
+  safesearch?: string;
+  livecrawl?: string;
+  livecrawlFormats?: string;
+  crawlTimeout?: number;
+};
+
+async function searchYouDotCom(query: string, options: YouDotComSearchOptions): Promise<unknown> {
+  const apiKey = process.env.YDC_API_KEY;
+  if (!apiKey) {
+    return {
+      public_safe: true,
+      read_only: true,
+      ok: false,
+      error: {
+        code: "missing_api_key",
+        message: "YDC_API_KEY is required for loo_web_search"
+      },
+      setup: {
+        env_var: "YDC_API_KEY",
+        docs: "https://you.com/platform"
+      },
+      actions_performed: { external_write: false, live_control: false }
+    };
+  }
+
+  const url = new URL("https://ydc-index.io/v1/search");
+  url.searchParams.set("query", query);
+  if (options.limit) url.searchParams.set("count", String(options.limit));
+  if (options.freshness) url.searchParams.set("freshness", options.freshness);
+  if (options.country) url.searchParams.set("country", options.country);
+  if (options.language) url.searchParams.set("language", options.language);
+  if (options.safesearch) url.searchParams.set("safesearch", options.safesearch);
+  if (options.livecrawl) url.searchParams.set("livecrawl", options.livecrawl);
+  if (options.livecrawlFormats) url.searchParams.set("livecrawl_formats", options.livecrawlFormats);
+  if (options.crawlTimeout) url.searchParams.set("crawl_timeout", String(options.crawlTimeout));
+
+  const response = await fetch(url, { headers: { "X-API-Key": apiKey } });
+  const text = await response.text();
+  let parsed: unknown = text;
+  try { parsed = JSON.parse(text); } catch { /* keep raw text */ }
+  if (!response.ok) {
+    return {
+      public_safe: true,
+      read_only: true,
+      ok: false,
+      error: {
+        code: "upstream_error",
+        status: response.status,
+        message: typeof parsed === "string" ? parsed : "You.com search request failed"
+      },
+      actions_performed: { external_write: false, live_control: false }
+    };
+  }
+
+  return {
+    public_safe: true,
+    read_only: true,
+    ok: true,
+    query,
+    result: parsed,
+    actions_performed: { external_write: false, live_control: false }
+  };
 }
 
 function optionalDigestWindow(value: unknown): "today" | "24h" | "7d" | "custom" | undefined {
