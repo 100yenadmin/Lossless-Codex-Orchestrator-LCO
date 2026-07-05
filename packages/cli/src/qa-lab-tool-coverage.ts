@@ -139,8 +139,10 @@ type ToolInvocation = {
 
 const PACKAGE_NAME = "lossless-openclaw-orchestrator";
 const SHA_PATTERN = /^[a-f0-9]{40}$/i;
+const LOO_TOOL_NAME_PATTERN = /^loo_[a-z0-9_]+$/;
 const SECRET_LIKE_PATTERN = /(npm_[A-Za-z0-9]{20,}|bearer\s+[A-Za-z0-9._-]{20,}|sk-[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i;
 const RAW_ARTIFACT_VALUE_PATTERN = /(?:\/Users\/[^"'\s]+|\/Volumes\/[^"'\s]+|~\/[^"'\s]+).*\.(?:jsonl|sqlite|sqlite-wal|sqlite-shm|db|png|jpg|jpeg|gif|webp|mp4|mov|webm)(?:["'\s]|$)/i;
+const RAW_ARTIFACT_REF_PATTERN = /\.(?:jsonl|sqlite|sqlite-wal|sqlite-shm|db|png|jpg|jpeg|gif|webp|mp4|mov|webm|log)(?:$|[?#])/i;
 const RESTRICTED_ACTION_KEYS = new Set([
   "npmPublished",
   "githubReleaseCreated",
@@ -443,8 +445,8 @@ function extractManifestToolNames(value: JsonRecord | null): Set<string> | null 
   if (!Array.isArray(tools)) return null;
   const names = new Set<string>();
   for (const item of tools) {
-    if (typeof item === "string") names.add(item);
-    else if (isRecord(item) && typeof item.name === "string") names.add(item.name);
+    if (typeof item === "string" && isValidLooToolName(item)) names.add(item);
+    else if (isRecord(item) && typeof item.name === "string" && isValidLooToolName(item.name)) names.add(item.name);
   }
   return names.size > 0 ? names : null;
 }
@@ -453,13 +455,13 @@ function collectCatalogTools(catalogTools: Set<string>, value: JsonRecord | null
   if (!value) return;
   const requiredTools = readPath(value, ["catalog", "requiredTools"]);
   if (Array.isArray(requiredTools)) {
-    for (const tool of requiredTools) if (typeof tool === "string") catalogTools.add(tool);
+    for (const tool of requiredTools) if (typeof tool === "string" && isValidLooToolName(tool)) catalogTools.add(tool);
   }
   const catalogToolsList = readPath(value, ["catalog", "tools"]);
   if (Array.isArray(catalogToolsList)) {
     for (const tool of catalogToolsList) {
-      if (typeof tool === "string") catalogTools.add(tool);
-      else if (isRecord(tool) && typeof tool.name === "string") catalogTools.add(tool.name);
+      if (typeof tool === "string" && isValidLooToolName(tool)) catalogTools.add(tool);
+      else if (isRecord(tool) && typeof tool.name === "string" && isValidLooToolName(tool.name)) catalogTools.add(tool.name);
     }
   }
 }
@@ -467,7 +469,7 @@ function collectCatalogTools(catalogTools: Set<string>, value: JsonRecord | null
 function collectPublishedSmokeTools(catalogTools: Set<string>, value: JsonRecord | null): void {
   if (!value) return;
   const invoked = readPath(value, ["configuredGateway", "invokedTools"]);
-  if (Array.isArray(invoked)) for (const tool of invoked) if (typeof tool === "string") catalogTools.add(tool);
+  if (Array.isArray(invoked)) for (const tool of invoked) if (typeof tool === "string" && isValidLooToolName(tool)) catalogTools.add(tool);
 }
 
 function collectInvocations(...reports: Array<JsonRecord | null>): ToolInvocation[] {
@@ -477,17 +479,21 @@ function collectInvocations(...reports: Array<JsonRecord | null>): ToolInvocatio
     const reportInvocations = report.invocations;
     if (Array.isArray(reportInvocations)) {
       for (const invocation of reportInvocations) {
-        if (isRecord(invocation) && typeof invocation.toolName === "string") {
+        if (isRecord(invocation) && typeof invocation.toolName === "string" && isValidLooToolName(invocation.toolName)) {
           invocations.push({ name: invocation.toolName, ok: invocation.ok === true, evidenceRef: "openclaw-tool-smoke.json" });
         }
       }
     }
     const configuredInvoked = readPath(report, ["configuredGateway", "invokedTools"]);
     if (Array.isArray(configuredInvoked)) {
-      for (const tool of configuredInvoked) if (typeof tool === "string") invocations.push({ name: tool, ok: true, evidenceRef: "published-package-smoke.json" });
+      for (const tool of configuredInvoked) if (typeof tool === "string" && isValidLooToolName(tool)) invocations.push({ name: tool, ok: true, evidenceRef: "published-package-smoke.json" });
     }
   }
   return invocations;
+}
+
+function isValidLooToolName(value: string): boolean {
+  return LOO_TOOL_NAME_PATTERN.test(value);
 }
 
 function containsUnsafeValue(value: unknown): boolean {
@@ -549,23 +555,45 @@ function evidenceStatus(evidence: LoadedEvidence, blockerCodes: string[]): QaLab
 }
 
 function defaultManifestPath(): string | undefined {
-  const starts = [process.cwd(), dirname(fileURLToPath(import.meta.url))];
-  for (const start of starts) {
-    let cursor = start;
-    while (true) {
-      const candidate = join(cursor, "openclaw.plugin.json");
-      if (existsSync(candidate)) return candidate;
-      const parent = dirname(cursor);
-      if (parent === cursor) break;
-      cursor = parent;
-    }
+  const roots = uniqueStrings([
+    packageRootFor(process.cwd()),
+    packageRootFor(dirname(fileURLToPath(import.meta.url)))
+  ].filter((root): root is string => Boolean(root)));
+  for (const root of roots) {
+    const candidate = join(root, "openclaw.plugin.json");
+    if (existsSync(candidate)) return candidate;
   }
   return undefined;
 }
 
+function packageRootFor(start: string): string | undefined {
+  let cursor = resolve(start);
+  while (true) {
+    const packageJsonPath = join(cursor, "package.json");
+    if (existsSync(packageJsonPath)) {
+      try {
+        const parsed = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { name?: unknown };
+        if (parsed.name === PACKAGE_NAME) return cursor;
+      } catch {
+        return undefined;
+      }
+    }
+    const parent = dirname(cursor);
+    if (parent === cursor) return undefined;
+    cursor = parent;
+  }
+}
+
 function evidenceRef(path: string, evidenceDir: string): string {
-  if (isPathInside(path, evidenceDir)) return relative(evidenceDir, path) || basename(path);
-  return basename(path);
+  const ref = isPathInside(path, evidenceDir) ? relative(evidenceDir, path) || basename(path) : basename(path);
+  return safeEvidenceRef(ref);
+}
+
+function safeEvidenceRef(value: string): string {
+  if (SECRET_LIKE_PATTERN.test(value) || RAW_ARTIFACT_REF_PATTERN.test(value) || RAW_ARTIFACT_VALUE_PATTERN.test(value)) {
+    return "redacted-evidence-ref";
+  }
+  return value;
 }
 
 function isPathInside(path: string, parent: string): boolean {
@@ -594,11 +622,16 @@ function titleForSource(source: LoadedEvidence["source"]): string {
 }
 
 function nextSafeCommands(options: QaLabToolCoverageOptions, missingDeclaredTools: string[]): string[] {
-  const evidenceDir = options.evidenceDir || "<evidence-dir>";
+  const evidenceDir = "<evidence-dir>";
   const commands = [
     `loo openclaw tool-smoke --evidence-path ${join(evidenceDir, "openclaw-tool-smoke.json")} --required-tool <tool> --strict`,
     `loo qa-lab tool-coverage --evidence-dir ${evidenceDir} --tool-smoke-report ${join(evidenceDir, "openclaw-tool-smoke.json")} --coverage-policy full --strict`
   ];
-  if (missingDeclaredTools.length > 0) commands.unshift(`Add product-safe evidence for ${missingDeclaredTools.slice(0, 5).join(", ")}${missingDeclaredTools.length > 5 ? ", ..." : ""}.`);
+  const safeMissingTools = missingDeclaredTools.filter(isValidLooToolName);
+  if (safeMissingTools.length > 0) commands.unshift(`Add product-safe evidence for ${safeMissingTools.slice(0, 5).join(", ")}${safeMissingTools.length > 5 ? ", ..." : ""}.`);
   return commands;
+}
+
+function uniqueStrings(values: Array<string | undefined>): string[] {
+  return [...new Set(values.filter((value): value is string => Boolean(value)))];
 }

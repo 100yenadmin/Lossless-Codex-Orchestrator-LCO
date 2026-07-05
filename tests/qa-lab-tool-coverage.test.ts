@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -132,7 +132,7 @@ test("qa-lab tool coverage fails strict for the 1.2.5-style 36 of 60 gateway evi
 
 test("qa-lab tool coverage redacts unsafe evidence values instead of echoing canaries", (t) => {
   const dir = makeTempDir(t, "loo-qa-tool-coverage-unsafe-");
-  const toolSmokeReport = join(dir, "openclaw-tool-smoke.json");
+  const toolSmokeReport = join(dir, "private-session-source.jsonl");
   writeJson(toolSmokeReport, {
     ok: true,
     toolSmokeReady: true,
@@ -169,9 +169,55 @@ test("qa-lab tool coverage redacts unsafe evidence values instead of echoing can
   const serialized = JSON.stringify(report);
   assert.equal(report.ok, false);
   assert.ok(report.blockers.some((blocker) => blocker.code === "unsafe_evidence_value"));
+  assert.equal(report.evidenceIndex.toolSmokeReport.status, "unsafe");
+  assert.equal(report.evidenceIndex.toolSmokeReport.evidenceRef, "redacted-evidence-ref");
+  assert.ok(report.evidenceIndex.toolSmokeReport.blockerCodes.includes("unsafe_evidence_value"));
   assert.doesNotMatch(serialized, /private\\.jsonl/);
+  assert.doesNotMatch(serialized, /private-session-source\\.jsonl/);
   assert.doesNotMatch(serialized, /raw\\.sqlite/);
   assert.doesNotMatch(serialized, /npm_abcdefghijklmnopqrstuvwxyz123456/);
+});
+
+test("qa-lab tool coverage keeps next-safe commands public-safe and validates evidence tool names", (t) => {
+  const dir = makeTempDir(t, "loo-qa-tool-coverage-next-safe-");
+  const evidenceDir = join(dir, "unsafe dir; echo bad");
+  const toolSmokeReport = join(evidenceDir, "openclaw-tool-smoke.json");
+  mkdirSync(evidenceDir, { recursive: true });
+  writeJson(toolSmokeReport, {
+    ok: true,
+    toolSmokeReady: true,
+    publicSafe: true,
+    catalog: {
+      requiredTools: ["loo_doctor", "loo_bad; echo /Users/lume/private.jsonl"],
+      requiredToolsPresent: true,
+      missingRequiredTools: [],
+      toolCount: 2
+    },
+    invocations: [{
+      toolName: "loo_bad; echo /Users/lume/private.jsonl",
+      ok: true,
+      exitStatus: 0,
+      summary: { outputKind: "object" },
+      blockers: []
+    }],
+    blockers: [],
+    setupBlockers: [],
+    actionsPerformed: noActions()
+  });
+
+  const report = createQaLabToolCoverageReport({
+    evidenceDir,
+    toolSmokeReport,
+    coveragePolicy: "facade",
+    now: "2026-07-05T00:00:00.000Z"
+  });
+
+  const serialized = JSON.stringify(report);
+  assert.ok(report.nextSafeCommands.every((command) => !command.includes(evidenceDir)));
+  assert.ok(report.nextSafeCommands.some((command) => command.includes("<evidence-dir>")));
+  assert.doesNotMatch(serialized, /echo bad/);
+  assert.doesNotMatch(serialized, /loo_bad/);
+  assert.doesNotMatch(serialized, /private\\.jsonl/);
 });
 
 test("qa-lab tool coverage rejects explicit manifest override paths outside evidence dir", (t) => {
