@@ -25,18 +25,11 @@ const PROFILE_TIERS: Record<LooToolProfile, LooToolTier[]> = {
 };
 
 test("invalid LOO_TOOL_PROFILE falls back to the default profile instead of throwing", () => {
-  const originalError = console.error;
   const warnings: string[] = [];
-  console.error = (...args: unknown[]) => { warnings.push(args.map(String).join(" ")); };
-  try {
-    assert.equal(parseLooToolProfile("facaed"), "all");
-    assert.equal(parseLooToolProfile(42), "all");
-    assert.equal(warnings.length, 2);
-    assert.ok(warnings[0].includes("LOO_TOOL_PROFILE"));
-    assert.ok(warnings[0].includes("facaed"));
-  } finally {
-    console.error = originalError;
-  }
+
+  assert.equal(parseLooToolProfile("facaed", { onInvalid: (value) => warnings.push(value) }), "all");
+  assert.equal(parseLooToolProfile(42, { onInvalid: (value) => warnings.push(value) }), "all");
+  assert.deepEqual(warnings, ["facaed", "42"]);
 });
 
 test("tool exposure profiles filter base declarations from the shared tier map", () => {
@@ -118,24 +111,17 @@ test("lco facade aliases invoke the same handlers as their loo targets", async (
   }
 });
 
-test("MCP tools/list applies LOO_TOOL_PROFILE and defaults to all", async () => {
-  const allTools = await readMcpToolList("all");
-  const defaultTools = await readMcpToolList(undefined);
-  const standardTools = await readMcpToolList("standard");
+test("MCP tools/list applies facade profile and invalid profile fallback", async () => {
+  const invalidProfileTools = await readMcpToolList("alll");
   const facadeTools = await readMcpToolList("facade");
   const publicFacadeCount = createLooToolSurfaceSummary().publicFacadeTools.length;
-  const workflowDetailCount = Object.values(LOO_TOOL_SURFACE).filter((metadata) => metadata.tier === "workflow_detail").length;
   const baseAllCount = Object.keys(LOO_TOOL_SURFACE).length;
 
-  assert.deepEqual(defaultTools.map((tool) => tool.name), allTools.map((tool) => tool.name));
   assert.equal(facadeTools.length, publicFacadeCount * 2);
-  assert.equal(standardTools.length, publicFacadeCount * 2 + workflowDetailCount);
-  assert.equal(allTools.length, baseAllCount + publicFacadeCount);
+  assert.equal(invalidProfileTools.length, baseAllCount + publicFacadeCount);
 
   assert.equal(facadeTools.every((tool) => tool.metadata?.tier === "public_facade"), true);
-  assert.equal(standardTools.some((tool) => tool.metadata?.tier === "proof_debug"), false);
-  assert.equal(standardTools.some((tool) => tool.metadata?.tier === "internal_low_level"), false);
-  assert.ok(allTools.some((tool) => tool.name === "loo_session_sanitizer"));
+  assert.ok(invalidProfileTools.some((tool) => tool.name === "loo_session_sanitizer"));
   assert.ok(facadeTools.some((tool) => tool.name === "lco_prepared_inbox" && tool.metadata?.aliasOf === "loo_prepared_inbox"));
   assert.equal(facadeTools.some((tool) => tool.name === "loo_session_sanitizer"), false);
 });

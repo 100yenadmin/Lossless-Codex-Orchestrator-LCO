@@ -207,14 +207,24 @@ test("qa-lab tool coverage excludes lco aliases from declared-tool accounting", 
   assert.equal(report.catalogCoverage.extraInManifest.some((name) => name.startsWith("lco_")), false);
 });
 
-test("qa-lab tool coverage flags unknown lco_* names instead of silently canonicalizing them", (t) => {
+test("qa-lab tool coverage blocks unknown lco aliases in manifest declarations", (t) => {
   const dir = makeTempDir(t, "loo-qa-tool-coverage-unknown-alias-");
   const baseTools = createLooToolDeclarations({ includeAliases: false });
   const toolSmokeReport = writeToolSmokeReport(dir, baseTools.map((tool) => tool.name));
   const manifestPath = join(dir, "openclaw.plugin.json");
   writeJson(manifestPath, {
     contracts: {
-      tools: [...baseTools.map((tool) => tool.name), "lco_bogus_tool"]
+      tools: baseTools.map((tool) => tool.name),
+      toolDeclarations: [
+        ...baseTools,
+        {
+          name: "lco_bogus_tool",
+          metadata: {
+            tier: "public_facade",
+            aliasOf: "loo_bogus_tool"
+          }
+        }
+      ]
     }
   });
 
@@ -229,8 +239,28 @@ test("qa-lab tool coverage flags unknown lco_* names instead of silently canonic
     now: "2026-07-05T00:00:00.000Z"
   });
 
-  assert.ok(report.blockers.some((blocker) => blocker.code === "unknown_lco_alias:lco_bogus_tool"));
-  assert.equal(report.blockers.find((blocker) => blocker.code === "unknown_lco_alias:lco_bogus_tool")?.severity, "P3");
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.some((blocker) => blocker.code === "invalid_lco_alias_reference"));
+  assert.equal(report.toolRows.some((row) => row.name === "lco_bogus_tool"), false);
+});
+
+test("qa-lab tool coverage blocks non-facade lco aliases in invocation evidence", (t) => {
+  const dir = makeTempDir(t, "loo-qa-tool-coverage-invalid-alias-");
+  const toolSmokeReport = writeToolSmokeReport(dir, [...allDeclaredToolNames(), "lco_session_sanitizer"]);
+
+  const report = createQaLabToolCoverageReport({
+    evidenceDir: dir,
+    packageVersion,
+    candidateSha,
+    toolSmokeReport,
+    coveragePolicy: "full",
+    claimScope: "codex-working-app-proof",
+    now: "2026-07-05T00:00:00.000Z"
+  });
+
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.some((blocker) => blocker.code === "invalid_lco_alias_reference"));
+  assert.equal(report.toolRows.some((row) => row.name === "lco_session_sanitizer"), false);
 });
 
 test("qa-lab tool coverage redacts unsafe evidence values instead of echoing canaries", (t) => {
