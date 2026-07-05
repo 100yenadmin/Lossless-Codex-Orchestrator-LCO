@@ -2244,6 +2244,9 @@ export type RetrievalEvalScenario = {
   expectedSourceRefs: string[];
   expansionQueries?: string[];
   limit?: number;
+  k?: number;
+  family?: string;
+  rationale?: string;
 };
 
 export type RetrievalEvalStageResult = {
@@ -2282,6 +2285,54 @@ export type RetrievalEvalReport = {
     hybridMrr: number;
   };
   scenarios: RetrievalEvalScenarioResult[];
+  blockers: string[];
+  privateDataExclusions: string[];
+  proofBoundary: string;
+  nextAction: string;
+};
+
+export type RetrievalBaselineMetricSet = {
+  hitAt1: number;
+  hitAt5: number;
+  mrr: number;
+};
+
+export type RetrievalBaselineFloors = {
+  schema?: string;
+  engine?: string;
+  scenarioSet?: string;
+  scenarioCount?: number;
+  overall: RetrievalBaselineMetricSet;
+  families: Record<string, RetrievalBaselineMetricSet & { scenarioCount?: number }>;
+};
+
+export type RetrievalBaselineScenarioResult = {
+  id: string;
+  family: string;
+  rationale: string | null;
+  query: string;
+  expectedSourceRefs: string[];
+  k: number;
+  hitAt1: boolean;
+  hitAt5: boolean;
+  hitAtK: boolean;
+  firstExpectedRank: number | null;
+  reciprocalRank: number;
+  topRefs: string[];
+  reasonCodes: string[];
+};
+
+export type RetrievalBaselineReport = {
+  ok: boolean;
+  publicSafe: true;
+  generatedAt: string;
+  strategy: "single-column-fts-baseline";
+  metrics: {
+    scenarioCount: number;
+    overall: RetrievalBaselineMetricSet;
+    families: Record<string, RetrievalBaselineMetricSet & { scenarioCount: number }>;
+  };
+  scenarios: RetrievalBaselineScenarioResult[];
   blockers: string[];
   privateDataExclusions: string[];
   proofBoundary: string;
@@ -12135,6 +12186,137 @@ export function evaluateRetrievalScenarios(db: LooDatabase, options: {
       ? "Add more redacted scenarios before enabling any hybrid retrieval path by default."
       : "Inspect missed scenario refs and improve expansion/reranking before claiming retrieval-quality movement."
   };
+}
+
+export function evaluateRetrievalBaselineScenarios(db: LooDatabase, options: {
+  scenarios: RetrievalEvalScenario[];
+  floors?: RetrievalBaselineFloors | null;
+  now?: string;
+}): RetrievalBaselineReport {
+  const scenarios = options.scenarios.map((scenario) => evaluateRetrievalBaselineScenario(db, scenario));
+  const overall = retrievalBaselineMetrics(scenarios);
+  const families = retrievalBaselineFamilyMetrics(scenarios);
+  const blockers = retrievalBaselineFloorBlockers(scenarios, overall, families, options.floors ?? null);
+  return {
+    ok: blockers.length === 0,
+    publicSafe: true,
+    generatedAt: options.now ?? new Date().toISOString(),
+    strategy: "single-column-fts-baseline",
+    metrics: {
+      scenarioCount: scenarios.length,
+      overall,
+      families
+    },
+    scenarios,
+    blockers,
+    privateDataExclusions: [
+      "raw Codex transcripts",
+      "raw prompts or transcript spans",
+      "SQLite DBs",
+      "screenshots or videos",
+      "tokens, credentials, API keys, cookies",
+      "private customer data"
+    ],
+    proofBoundary: "This public-safe eval measures source-ref retrieval metrics for the current single-column FTS engine only; it does not prove ranking quality improvement, vector retrieval, live control, GUI mutation, or private-store retrieval quality.",
+    nextAction: blockers.length === 0
+      ? "Use this gate as the baseline ratchet before changing retrieval ranking."
+      : "Inspect the floor blockers and update ranking or the explicitly versioned baseline floors before claiming retrieval readiness."
+  };
+}
+
+function evaluateRetrievalBaselineScenario(db: LooDatabase, scenario: RetrievalEvalScenario): RetrievalBaselineScenarioResult {
+  const k = clamp(scenario.k ?? scenario.limit ?? 5, 1, 20);
+  const limit = Math.max(5, k);
+  const expectedSourceRefs = unique(scenario.expectedSourceRefs.filter(Boolean));
+  const matches = grepRecall(db, { query: scenario.query, limit }).matches;
+  const topRefs = matches.map((match) => match.sourceRef);
+  const firstExpectedIndex = topRefs.findIndex((ref) => expectedSourceRefs.includes(ref));
+  const firstExpectedRank = firstExpectedIndex >= 0 ? firstExpectedIndex + 1 : null;
+  const queryTermCount = rawQueryTermCount(scenario.query);
+  const reasonCodes = unique([
+    firstExpectedRank === null ? "expected_ref_missed" : `expected_ref_rank:${firstExpectedRank}`,
+    firstExpectedRank !== null && firstExpectedRank <= 1 ? "hit_at_1" : "",
+    firstExpectedRank !== null && firstExpectedRank <= 5 ? "hit_at_5" : "",
+    firstExpectedRank !== null && firstExpectedRank <= k ? `hit_at_k:${k}` : "",
+    queryTermCount > 12 ? "query_terms_truncated_to_12" : "",
+    matches.length === 0 ? "no_matches" : ""
+  ].filter(Boolean));
+  return {
+    id: scenario.id,
+    family: scenario.family?.trim() || "uncategorized",
+    rationale: scenario.rationale?.trim() || null,
+    query: scenario.query,
+    expectedSourceRefs,
+    k,
+    hitAt1: firstExpectedRank !== null && firstExpectedRank <= 1,
+    hitAt5: firstExpectedRank !== null && firstExpectedRank <= 5,
+    hitAtK: firstExpectedRank !== null && firstExpectedRank <= k,
+    firstExpectedRank,
+    reciprocalRank: firstExpectedRank === null ? 0 : 1 / firstExpectedRank,
+    topRefs,
+    reasonCodes
+  };
+}
+
+function retrievalBaselineMetrics(scenarios: RetrievalBaselineScenarioResult[]): RetrievalBaselineMetricSet {
+  return {
+    hitAt1: roundedMetric(rate(scenarios.filter((scenario) => scenario.hitAt1).length, scenarios.length)),
+    hitAt5: roundedMetric(rate(scenarios.filter((scenario) => scenario.hitAt5).length, scenarios.length)),
+    mrr: roundedMetric(average(scenarios.map((scenario) => scenario.reciprocalRank)))
+  };
+}
+
+function retrievalBaselineFamilyMetrics(scenarios: RetrievalBaselineScenarioResult[]): Record<string, RetrievalBaselineMetricSet & { scenarioCount: number }> {
+  const byFamily = new Map<string, RetrievalBaselineScenarioResult[]>();
+  for (const scenario of scenarios) {
+    byFamily.set(scenario.family, [...(byFamily.get(scenario.family) ?? []), scenario]);
+  }
+  return Object.fromEntries([...byFamily.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([family, familyScenarios]) => [
+    family,
+    {
+      scenarioCount: familyScenarios.length,
+      ...retrievalBaselineMetrics(familyScenarios)
+    }
+  ]));
+}
+
+function retrievalBaselineFloorBlockers(
+  scenarios: RetrievalBaselineScenarioResult[],
+  overall: RetrievalBaselineMetricSet,
+  families: Record<string, RetrievalBaselineMetricSet & { scenarioCount: number }>,
+  floors: RetrievalBaselineFloors | null
+): string[] {
+  const blockers: string[] = [];
+  if (scenarios.length === 0) blockers.push("no_scenarios");
+  if (!floors) return blockers;
+  if (floors.scenarioCount !== undefined && floors.scenarioCount !== scenarios.length) {
+    blockers.push(`floor_scenario_count_mismatch:${scenarios.length}:expected_${floors.scenarioCount}`);
+  }
+  for (const metric of ["hitAt1", "hitAt5", "mrr"] as const) {
+    if (overall[metric] < floors.overall[metric]) blockers.push(`overall_${metric}_regressed:${overall[metric]}<${floors.overall[metric]}`);
+  }
+  for (const [family, familyFloors] of Object.entries(floors.families ?? {})) {
+    const actual = families[family];
+    if (!actual) {
+      blockers.push(`family_missing:${family}`);
+      continue;
+    }
+    if (familyFloors.scenarioCount !== undefined && familyFloors.scenarioCount !== actual.scenarioCount) {
+      blockers.push(`family_scenario_count_mismatch:${family}:${actual.scenarioCount}:expected_${familyFloors.scenarioCount}`);
+    }
+    for (const metric of ["hitAt1", "hitAt5", "mrr"] as const) {
+      if (actual[metric] < familyFloors[metric]) blockers.push(`family_${family}_${metric}_regressed:${actual[metric]}<${familyFloors[metric]}`);
+    }
+  }
+  return blockers;
+}
+
+function roundedMetric(value: number): number {
+  return Number(value.toFixed(6));
+}
+
+function rawQueryTermCount(query: string): number {
+  return query.match(/[\p{L}\p{N}_-]+/gu)?.length ?? 0;
 }
 
 function searchLcmPeers(paths: string[], query: string, limit: number): RecallSearchResult[] {

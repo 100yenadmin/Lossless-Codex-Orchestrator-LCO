@@ -24,6 +24,7 @@ import {
   defaultDatabasePath,
   describeRecallRef,
   describeSession,
+  evaluateRetrievalBaselineScenarios,
   evaluateRetrievalScenarios,
   expandQuery,
   expandRecallRef,
@@ -38,6 +39,7 @@ import {
   type CloseoutHookCaptureInput,
   type CompactionMarkerHookInput,
   type RecallProfileName,
+  type RetrievalBaselineFloors,
   type StatePrepHookInput,
   type ThreadTitleFinalizerInput
 } from "../../core/src/index.js";
@@ -552,7 +554,12 @@ async function main() {
           maxEventsPerFile: payload.maxEventsPerFile
         });
       }
-      const report = evaluateRetrievalScenarios(db, { scenarios: payload.scenarios });
+      const report = parsed.floorFile
+        ? evaluateRetrievalBaselineScenarios(db, {
+          scenarios: payload.scenarios,
+          floors: readRetrievalFloorFile(parsed.floorFile)
+        })
+        : evaluateRetrievalScenarios(db, { scenarios: payload.scenarios });
       if (parsed.evidencePath) {
         mkdirSync(dirname(parsed.evidencePath), { recursive: true });
         writeFileSync(parsed.evidencePath, `${JSON.stringify(report, null, 2)}\n`);
@@ -1016,7 +1023,7 @@ function mainUsageText(): string {
     "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--runtime-proof-dir path] [--package-version version] [--candidate-sha sha] [--strict]",
     "  loo runtime sweep-summary --evidence-dir path --dry-run-scenarios path --runtime-scenarios path --scorecard-sweep path --published-smoke path [--runtime-proof-dir path] [--now iso] [--strict]",
     "  loo ui local-mac-search --evidence-dir path [--sample] [--strict]",
-    "  loo eval retrieval --scenario-file path [--evidence-path path] [--strict]",
+    "  loo eval retrieval --scenario-file path [--floor-file path] [--evidence-path path] [--strict]",
     "  loo eval scenarios --evidence-dir path [--scenario-dir path] [--runtime-proof-dir path] [--package-version version] [--candidate-sha sha] [--strict]",
     "  loo runtime issue-packet --evidence-dir path --failure-report path [--parent-issue #n] [--operating-loop #n] [--milestone name] [--now iso] [--strict]",
     "  loo release preflight [--evidence-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--strict]",
@@ -2377,14 +2384,17 @@ function parseRecallArgs(input: string[]): { rest: string[]; lcmDbPaths: string[
   return { rest, lcmDbPaths: [...new Set(lcmDbPaths)], profile, tokenBudget };
 }
 
-function parseRetrievalEvalArgs(input: string[]): { scenarioFile: string; evidencePath?: string; strict: boolean } {
+function parseRetrievalEvalArgs(input: string[]): { scenarioFile: string; floorFile?: string; evidencePath?: string; strict: boolean } {
   let scenarioFile = "";
+  let floorFile: string | undefined;
   let evidencePath: string | undefined;
   let strict = false;
   for (let index = 0; index < input.length; index += 1) {
     const arg = input[index]!;
     if (arg === "--scenario-file") {
       scenarioFile = requireOptionValue(input[++index], arg);
+    } else if (arg === "--floor-file") {
+      floorFile = requireOptionValue(input[++index], arg);
     } else if (arg === "--evidence-path") {
       evidencePath = requireOptionValue(input[++index], arg);
     } else if (arg === "--strict") {
@@ -2394,7 +2404,7 @@ function parseRetrievalEvalArgs(input: string[]): { scenarioFile: string; eviden
     }
   }
   if (!scenarioFile) throw new Error("eval retrieval requires --scenario-file");
-  return { scenarioFile, evidencePath, strict };
+  return { scenarioFile, floorFile, evidencePath, strict };
 }
 
 function parseScenarioSweepArgs(input: string[]): { evidenceDir: string; scenarioDir?: string; runtimeProofDir?: string; scenarioIds?: string[]; packageVersion?: string; candidateSha?: string; strict: boolean } {
@@ -2497,6 +2507,18 @@ function readRetrievalScenarioFile(path: string): {
   };
 }
 
+function readRetrievalFloorFile(path: string): RetrievalBaselineFloors {
+  const floorPath = resolve(path);
+  if (!existsSync(floorPath)) throw new Error(`Retrieval floor file does not exist: ${path}`);
+  const payload = JSON.parse(readFileSync(floorPath, "utf8")) as RetrievalBaselineFloors;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("Retrieval floor file must be an object");
+  if (!payload.overall || typeof payload.overall !== "object" || Array.isArray(payload.overall)) throw new Error("Retrieval floor file requires overall floors");
+  return {
+    ...payload,
+    families: payload.families ?? {}
+  };
+}
+
 function normalizeRetrievalScenario(value: unknown): Parameters<typeof evaluateRetrievalScenarios>[1]["scenarios"][number] {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Each retrieval scenario must be an object");
   const record = value as Record<string, unknown>;
@@ -2511,7 +2533,10 @@ function normalizeRetrievalScenario(value: unknown): Parameters<typeof evaluateR
     query: requiredJsonString(record.query, "query"),
     expectedSourceRefs,
     expansionQueries,
-    limit: optionalJsonPositiveInteger(record.limit, "limit", 100)
+    limit: optionalJsonPositiveInteger(record.limit, "limit", 100),
+    k: optionalJsonPositiveInteger(record.k, "k", 100),
+    family: typeof record.family === "string" ? record.family.trim() : undefined,
+    rationale: typeof record.rationale === "string" ? record.rationale.trim() : undefined
   };
 }
 

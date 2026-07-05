@@ -1,0 +1,5 @@
+{"timestamp":"2026-07-06T00:30:00.000Z","session_meta":{"payload":{"id":"019f-golden-error-01","cwd":"/workspace/lco-goldens","model":"gpt-5.5","git":{"branch":"issue-545-retrieval-goldens","commit_hash":"goldenfixture"}}}}
+{"timestamp":"2026-07-06T00:30:00.000Z","event_msg":{"type":"thread_name","name":"Golden error alpha"}}
+{"timestamp":"2026-07-06T00:30:00.000Z","response_item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"<proposed_plan>\nDiagnose synthetic ERR_GOLDEN_ALPHA_TIMEOUT retry envelope without touching runtime state.\n\n</proposed_plan>"}]}}
+{"timestamp":"2026-07-06T00:30:00.000Z","response_item":{"type":"function_call","call_id":"019f-golden-error-01-tool","name":"functions.exec_command","arguments":"{\"cmd\":\"sed -n '1,80p' packages/core/src/goldens/alpha-error.ts\"}"}}
+{"timestamp":"2026-07-06T00:30:00.000Z","event_msg":{"type":"agent_message","message":"Final: Synthetic error evidence captured: ERR_GOLDEN_ALPHA_TIMEOUT retry envelope."}}
