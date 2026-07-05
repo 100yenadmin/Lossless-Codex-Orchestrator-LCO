@@ -1,8 +1,8 @@
-{"timestamp":"2026-08-01T10:00:00.000Z","session_meta":{"payload":{"id":"019f-drift-future","cwd":"/Volumes/LEXAR/repos/example","model":"gpt-6-preview"}}}
-{"timestamp":"2026-08-01T10:00:01.000Z","event_msg":{"type":"thread_name","name":"Future Codex JSONL drift contract"}}
-{"timestamp":"2026-08-01T10:00:02.000Z","event_msg":{"type":"future_delta","message":"Synthetic future event kind should be reported without aborting."}}
+{"timestamp":"2026-08-01T10:00:00.000Z","type":"session_meta","payload":{"id":"019f-drift-future","cwd":"/Volumes/LEXAR/repos/example","model":"gpt-6-preview"}}
+{"timestamp":"2026-08-01T10:00:01.000Z","type":"event_msg","payload":{"type":"thread_name","name":"Future Codex JSONL drift contract"}}
+{"timestamp":"2026-08-01T10:00:02.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"<proposed_plan>\nFuture drift packet remains parseable.\n</proposed_plan>"}]}}
+{"timestamp":"2026-08-01T10:00:03.000Z","type":"response_item","payload":{"type":"assistant_packet_v2","role":"assistant","display_text":"Synthetic assistant packet content was not extracted."}}
 this is not valid json
-{"timestamp":"2026-08-01T10:00:03.000Z","response_item":{"type":"message","role":"assistant","segments":[{"kind":"text","value":"Renamed payload field should not leak raw line content."}]}}
-{"timestamp":"2026-08-01T10:00:04.000Z","event_msg":{"type":"agent_message"}}
-{"timestamp":"2026-08-01T10:00:05.000Z","response_item":{"type":"assistant_packet_v2","role":"assistant","content":[{"type":"output_text","text":"Future drift packet remains parseable."}]}}
-{"timestamp":"2026-08-01T10:00:06.000Z","event_msg":{"type":"agent_message","message":"Final: future drift fixture still indexed."}}
+{"timestamp":"2026-08-01T10:00:04.000Z","type":"response_item","payload":{"type":"message","role":"assistant","segments":[{"kind":"text","value":"Renamed payload field should not leak raw line content."}]}}
+{"timestamp":"2026-08-01T10:00:05.000Z","type":"event_msg","payload":{"type":"agent_message"}}
+{"timestamp":"2026-08-01T10:00:06.000Z","type":"event_msg","payload":{"type":"agent_message","message":"Final: future drift fixture still indexed."}}

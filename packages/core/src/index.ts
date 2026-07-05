@@ -12633,16 +12633,39 @@ function countJsonlEvents(text: string): number {
 
 const KNOWN_CODEX_JSONL_EVENT_KINDS = new Set([
   "agent_message",
+  "context_compacted",
+  "custom_tool_call",
+  "custom_tool_call_output",
   "event_metadata",
   "function_call",
+  "function_call_output",
+  "item_completed",
   "message",
+  "mcp_tool_call_end",
   "native_subagent_result_metadata",
   "noop",
+  "patch_apply_end",
+  "reasoning",
   "session_metadata",
+  "task_complete",
+  "task_started",
   "thread_name",
+  "token_count",
   "tool_call",
+  "tool_search_call",
+  "tool_search_output",
   "tool_use",
+  "turn_aborted",
   "user_message"
+]);
+
+const CODEX_JSONL_TRANSPARENT_ENVELOPES = new Set([
+  "compacted",
+  "event_msg",
+  "item",
+  "response_item",
+  "session_meta",
+  "turn_context"
 ]);
 
 function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: number): ImportedSession {
@@ -12685,11 +12708,13 @@ function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: num
       recordCodexJsonlUnparsedLine(drift);
       continue;
     }
+    const rawItem = item;
+    item = normalizeCodexJsonlItem(rawItem);
     if (session.eventCount >= maxEventsPerFile) break;
     session.eventCount += 1;
     const rangeKinds = new Set<PreparedSourceRangeKind>();
     const timestamp = findTimestamp(item);
-    recordCodexJsonlEventKindDrift(drift, item);
+    recordCodexJsonlEventKindDrift(drift, rawItem);
     recordCodexJsonlMissingFieldDrift(drift, item);
     if (timestamp) {
       session.createdAt ??= timestamp;
@@ -12796,6 +12821,7 @@ function recordCodexJsonlUnparsedLine(drift: CodexJsonlDriftAccumulator): void {
 function recordCodexJsonlEventKindDrift(drift: CodexJsonlDriftAccumulator, item: any): void {
   const kind = codexJsonlEventKind(item);
   if (!kind || KNOWN_CODEX_JSONL_EVENT_KINDS.has(kind)) return;
+  if (!codexJsonlHasUnextractedContentfulPayload(item)) return;
   const safeKind = publicSafeIdentifier(kind) ?? `unknown_${stableId(kind).slice(0, 12)}`;
   drift.unknownEventKinds.set(safeKind, (drift.unknownEventKinds.get(safeKind) ?? 0) + 1);
 }
@@ -12869,8 +12895,93 @@ function codexJsonlArrayHasText(value: unknown): boolean {
   });
 }
 
+function normalizeCodexJsonlItem(item: any): any {
+  if (!isObjectRecord(item)) return item;
+  const envelope = stringOrNull(item.type)?.toLowerCase() ?? "";
+  const payload = isObjectRecord(item.payload) ? item.payload : null;
+  if (!payload || !CODEX_JSONL_TRANSPARENT_ENVELOPES.has(envelope)) return item;
+  if (envelope === "event_msg") return { ...item, event_msg: payload };
+  if (envelope === "response_item" || envelope === "item") return { ...item, response_item: payload };
+  if (envelope === "session_meta") return { ...item, session_meta: { payload } };
+  if (envelope === "turn_context") return { ...item, turn_context: { payload } };
+  return item;
+}
+
 function codexJsonlEventKind(item: any): string | null {
-  return stringOrNull(item.event_msg?.type ?? item.response_item?.type ?? item.item?.type ?? item.type ?? item.payload?.type)?.toLowerCase() ?? null;
+  const inlineKind = stringOrNull(
+    item.event_msg?.type
+    ?? item.response_item?.type
+    ?? item.item?.payload?.type
+    ?? item.item?.type
+  )?.toLowerCase();
+  if (inlineKind) return inlineKind;
+
+  const envelope = stringOrNull(item.type)?.toLowerCase() ?? null;
+  if (envelope && CODEX_JSONL_TRANSPARENT_ENVELOPES.has(envelope)) {
+    return stringOrNull(item.payload?.type)?.toLowerCase() ?? null;
+  }
+  return stringOrNull(item.type ?? item.payload?.type)?.toLowerCase() ?? null;
+}
+
+function codexJsonlHasUnextractedContentfulPayload(item: any): boolean {
+  const payload = codexJsonlInnerPayload(item);
+  const contentfulStrings = collectCodexJsonlContentfulStrings(payload);
+  if (contentfulStrings.length === 0) return false;
+
+  const normalized = normalizeCodexJsonlItem(item);
+  const extractedStrings = collectCodexJsonlExtractedStrings(normalized);
+  return contentfulStrings.some((value) => {
+    const normalizedValue = normalizeComparableCodexText(value);
+    return normalizedValue.length > 0 && !extractedStrings.some((extracted) => extracted.includes(normalizedValue));
+  });
+}
+
+function codexJsonlInnerPayload(item: any): unknown {
+  if (isObjectRecord(item.event_msg)) return item.event_msg;
+  if (isObjectRecord(item.response_item)) return item.response_item;
+  if (isObjectRecord(item.item?.payload)) return item.item.payload;
+  if (isObjectRecord(item.item)) return item.item;
+  if (isObjectRecord(item.payload)) return item.payload;
+  return item;
+}
+
+function collectCodexJsonlExtractedStrings(item: any): string[] {
+  const values = [
+    item.event_msg?.name,
+    item.thread_name,
+    item.payload?.title,
+    ...extractTextPayloads(item)
+  ];
+  return values
+    .filter((value): value is string => typeof value === "string")
+    .map(normalizeComparableCodexText)
+    .filter(Boolean);
+}
+
+function collectCodexJsonlContentfulStrings(value: unknown, keyHint = "", contentAncestor = false): string[] {
+  const out: string[] = [];
+  const contentLike = contentAncestor || codexJsonlContentFieldName(keyHint);
+  if (typeof value === "string") {
+    if (contentLike && value.trim()) out.push(value);
+    return out;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) out.push(...collectCodexJsonlContentfulStrings(item, keyHint, contentLike));
+    return out;
+  }
+  if (!isObjectRecord(value)) return out;
+  for (const [key, child] of Object.entries(value)) {
+    out.push(...collectCodexJsonlContentfulStrings(child, key, contentLike || codexJsonlContentFieldName(key)));
+  }
+  return out;
+}
+
+function codexJsonlContentFieldName(value: string): boolean {
+  return /(?:^|[_-])(content|message|name|summary|text|title)(?:$|[_-])/i.test(value);
+}
+
+function normalizeComparableCodexText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
 }
 
 function codexJsonlDriftReport(sourcePath: string, drift: CodexJsonlDriftAccumulator): CodexJsonlDriftReport | null {
@@ -13046,14 +13157,14 @@ function createPreparedSourceEventDraft(input: {
 }
 
 function preparedEventKind(item: any, rangeKinds: PreparedSourceRangeKind[]): string {
-  const eventType = stringOrNull(item.event_msg?.type ?? item.type ?? item.response_item?.type ?? item.payload?.type);
+  const eventType = codexJsonlEventKind(item);
   if (eventType && /^[A-Za-z0-9_.:-]{1,64}$/.test(eventType)) return eventType;
   return rangeKinds[0] ?? "event_metadata";
 }
 
 function textRangeKind(item: any): PreparedSourceRangeKind {
   const role = stringOrNull(item.response_item?.role ?? item.message?.role ?? item.event_msg?.role ?? item.payload?.role)?.toLowerCase();
-  const eventType = stringOrNull(item.event_msg?.type ?? item.type ?? item.payload?.type)?.toLowerCase();
+  const eventType = codexJsonlEventKind(item);
   if (role === "user" || eventType?.includes("user")) return "user_prompt";
   if (role === "assistant" || eventType?.includes("agent") || eventType?.includes("assistant")) return "assistant_message";
   return "event_metadata";
