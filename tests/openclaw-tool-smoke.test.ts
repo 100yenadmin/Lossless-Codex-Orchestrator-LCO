@@ -245,7 +245,10 @@ function createFakeOpenClaw(
     incompletePreparedTargetCoverage?: boolean;
     omitDryRunMessageHash?: boolean;
     weakDesktopActProof?: boolean;
+    bareDesktopActStatus?: boolean;
     deepDesktopActProof?: boolean;
+    gatewayRefusedToolName?: string;
+    pluginDetailsRefusedToolName?: string;
   } = {}
 ): { bin: string; callsPath: string } {
   const callsPath = join(dir, "calls.jsonl");
@@ -258,6 +261,8 @@ function createFakeOpenClaw(
   const preparedThreadId = options.preparedThreadId ?? "thread-1";
   const queryExpansionTokenBudget = options.queryExpansionTokenBudget;
   const summaryExpansionTokenBudget = options.summaryExpansionTokenBudget;
+  const gatewayRefusedToolName = options.gatewayRefusedToolName ?? "loo_gateway_refused";
+  const pluginDetailsRefusedToolName = options.pluginDetailsRefusedToolName ?? "loo_plugin_details_refused";
   const dryRunMessageHashCode = options.omitDryRunMessageHash
     ? ""
     : `, messageHash: "message-hash", message_hash: "message-hash"`;
@@ -272,6 +277,8 @@ function createFakeOpenClaw(
         : dryRunDetailsCode;
   const desktopActOutputCode = options.weakDesktopActProof
     ? `{ publicSafe: true, readOnly: true, reasonCodes: ["blocked"], actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false } }`
+    : options.bareDesktopActStatus
+      ? `{ publicSafe: true, readOnly: true, status: "blocked", actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false } }`
     : options.deepDesktopActProof
       ? `(() => { const output = { publicSafe: true, readOnly: true, status: "blocked", actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false } }; let cursor = output; for (let index = 0; index < 80; index += 1) { cursor.nested = {}; cursor = cursor.nested; } return output; })()`
       : `{ publicSafe: true, readOnly: true, status: "blocked", blockers: ["desktop_live_action_disallowed"], action: toolArgs.action, actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false } }`;
@@ -307,11 +314,11 @@ if (method === "tools.catalog") {
 if (method === "tools.invoke") {
   const name = params.name;
   const toolArgs = params.args || {};
-  if (name === "loo_gateway_refused") {
+  if (name === ${JSON.stringify(gatewayRefusedToolName)}) {
     console.log(JSON.stringify({ ok: false, toolName: name, source: "plugin", error: { code: "forbidden", message: "super-secret-transcript-span" } }));
     process.exit(0);
   }
-  if (name === "loo_plugin_details_refused") {
+  if (name === ${JSON.stringify(pluginDetailsRefusedToolName)}) {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { content: [{ type: "text", text: JSON.stringify({ ok: false, blockers: ["execute_flag_missing"], private: "super-secret-transcript-span" }) }], details: { ok: false, blockers: ["execute_flag_missing"], private: "super-secret-transcript-span" } } }));
     process.exit(0);
   }
@@ -644,14 +651,14 @@ const paramsIndex = args.indexOf("--params");
 const params = paramsIndex >= 0 ? JSON.parse(args[paramsIndex + 1] || "{}") : {};
 appendFileSync(process.env.OPENCLAW_FAKE_CALLS, JSON.stringify({ method, params, args, envTokenPresent: Boolean(process.env.OPENCLAW_GATEWAY_TOKEN) }) + "\\n");
 if (method === "tools.catalog") {
-  console.log(JSON.stringify({ tools: [{ name: "loo_gateway_refused" }, { name: "loo_needs_credentials" }] }));
+  console.log(JSON.stringify({ tools: [{ name: "loo_doctor" }, { name: "loo_search_sessions" }] }));
   process.exit(0);
 }
-if (method === "tools.invoke" && params.name === "loo_gateway_refused") {
+if (method === "tools.invoke" && params.name === "loo_doctor") {
   console.log(JSON.stringify({ ok: false, toolName: params.name, source: "plugin", error: { code: "forbidden", message: "super-secret-transcript-span" } }));
   process.exit(0);
 }
-if (method === "tools.invoke" && params.name === "loo_needs_credentials") {
+if (method === "tools.invoke" && params.name === "loo_search_sessions") {
   console.error("gateway tools.invoke requires credentials before opening a websocket");
   process.exit(1);
 }
@@ -891,7 +898,8 @@ test("OpenClaw tool smoke emits safe full-gateway disposition plan for missing t
       successful_invocation: successfulInvocationTools.length,
       successful_dry_run: successfulDryRunTools.length,
       expected_fail_closed: expectedFailClosedTools.length,
-      excluded_non_claim: excludedNonClaimTools.length
+      excluded_non_claim: excludedNonClaimTools.length,
+      unknown_non_claim: 0
     });
     assert.deepEqual(
       Object.fromEntries(report.smokeDispositionPlan?.entries.map((entry) => [entry.toolName, entry.disposition]) ?? []),
@@ -1037,10 +1045,55 @@ test("OpenClaw tool smoke full coverage blocks thread-bound control tools withou
   }
 });
 
+test("OpenClaw tool smoke blocks unknown tool disposition instead of claiming product evidence", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-unknown-disposition-"));
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_future_control_tool"]);
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      requiredTools: ["loo_future_control_tool"]
+    });
+
+    assert.equal(report.toolSmokeReady, false);
+    assert.ok(report.blockers.includes("openclaw_tool_smoke_unknown_disposition"), JSON.stringify(report, null, 2));
+    assert.equal(report.invocations.length, 0);
+    assert.equal(report.smokeDispositionPlan.entries[0]?.productEvidenceClaimed, false);
+    const calls = readFileSync(callsPath, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as { method: string });
+    assert.equal(calls.filter((call) => call.method === "tools.invoke").length, 0);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
 test("OpenClaw tool smoke rejects vague reason-code-only desktop action proof", () => {
   const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-weak-desktop-act-"));
   const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_desktop_act"], "flat", {
     weakDesktopActProof: true
+  });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      requiredTools: ["loo_desktop_act"]
+    });
+
+    assert.equal(report.toolSmokeReady, false);
+    assert.ok(report.blockers.includes("expected_fail_closed_not_proven:loo_desktop_act"), JSON.stringify(report, null, 2));
+    assert.equal(report.invocations.find((call) => call.toolName === "loo_desktop_act")?.ok, false);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke rejects bare blocked desktop action status without no-action proof", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-bare-desktop-act-"));
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_desktop_act"], "flat", {
+    bareDesktopActStatus: true
   });
   const previous = process.env.OPENCLAW_FAKE_CALLS;
   process.env.OPENCLAW_FAKE_CALLS = callsPath;
@@ -2273,12 +2326,12 @@ test("OpenClaw tool smoke does not mask mixed setup and tool-defect blockers as 
       profile: "lco-issue-216",
       sessionKey: "agent:main:lco-issue-216",
       evidencePath,
-      requiredTools: ["loo_gateway_refused", "loo_needs_credentials"]
+      requiredTools: ["loo_doctor", "loo_search_sessions"]
     });
 
     assert.equal(report.toolSmokeReady, false);
-    assert.match(report.blockers.join("\n"), /openclaw_tool_result_not_ok:loo_gateway_refused:forbidden/);
-    assert.match(report.blockers.join("\n"), /openclaw_gateway_credentials_required:loo_needs_credentials/);
+    assert.match(report.blockers.join("\n"), /openclaw_tool_result_not_ok:loo_doctor:forbidden/);
+    assert.match(report.blockers.join("\n"), /openclaw_gateway_credentials_required:loo_search_sessions/);
     assert.deepEqual(report.setupBlockers, ["fresh_profile_gateway_credentials_required"]);
     assert.deepEqual(report.setupStatus, {
       classification: "gateway_blocked",
@@ -2327,7 +2380,9 @@ test("OpenClaw tool smoke preserves public-safe validation reasons from tools.in
 test("OpenClaw tool smoke fails closed when tools.invoke returns ok false in a successful envelope", () => {
   const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-ok-false-"));
   const evidencePath = join(dir, "tool-smoke.json");
-  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_gateway_refused"]);
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_permissions"], "flat", {
+    gatewayRefusedToolName: "loo_permissions"
+  });
   const previous = process.env.OPENCLAW_FAKE_CALLS;
   process.env.OPENCLAW_FAKE_CALLS = callsPath;
   try {
@@ -2336,11 +2391,11 @@ test("OpenClaw tool smoke fails closed when tools.invoke returns ok false in a s
       profile: "lco-issue-80",
       sessionKey: "agent:main:lco-issue-80",
       evidencePath,
-      requiredTools: ["loo_gateway_refused"]
+      requiredTools: ["loo_permissions"]
     });
 
     assert.equal(report.toolSmokeReady, false);
-    assert.deepEqual(report.blockers, ["openclaw_tool_result_not_ok:loo_gateway_refused:forbidden"]);
+    assert.deepEqual(report.blockers, ["openclaw_tool_result_not_ok:loo_permissions:forbidden"]);
     assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /super-secret-transcript-span|forbidden message|Harmless beta smoke/);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
@@ -2351,7 +2406,9 @@ test("OpenClaw tool smoke fails closed when tools.invoke returns ok false in a s
 test("OpenClaw tool smoke fails closed when plugin output details return ok false", () => {
   const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-details-ok-false-"));
   const evidencePath = join(dir, "tool-smoke.json");
-  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_plugin_details_refused"]);
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_audit_tail"], "flat", {
+    pluginDetailsRefusedToolName: "loo_audit_tail"
+  });
   const previous = process.env.OPENCLAW_FAKE_CALLS;
   process.env.OPENCLAW_FAKE_CALLS = callsPath;
   try {
@@ -2360,11 +2417,11 @@ test("OpenClaw tool smoke fails closed when plugin output details return ok fals
       profile: "lco-issue-160",
       sessionKey: "agent:main:lco-issue-160",
       evidencePath,
-      requiredTools: ["loo_plugin_details_refused"]
+      requiredTools: ["loo_audit_tail"]
     });
 
     assert.equal(report.toolSmokeReady, false);
-    assert.deepEqual(report.blockers, ["openclaw_tool_result_not_ok:loo_plugin_details_refused"]);
+    assert.deepEqual(report.blockers, ["openclaw_tool_result_not_ok:loo_audit_tail"]);
     assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /super-secret-transcript-span|Harmless beta smoke/);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;

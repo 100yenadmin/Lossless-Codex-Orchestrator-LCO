@@ -83,6 +83,14 @@ const SUCCESSFUL_INVOCATION_TOOL_SET = new Set(SUCCESSFUL_INVOCATION_TOOL_CALLS)
 const SUCCESSFUL_DRY_RUN_TOOL_SET = new Set(SUCCESSFUL_DRY_RUN_TOOL_CALLS);
 const EXPECTED_FAIL_CLOSED_TOOL_SET = new Set(EXPECTED_FAIL_CLOSED_TOOL_CALLS);
 const EXCLUDED_NON_CLAIM_TOOL_SET = new Set(EXCLUDED_NON_CLAIM_TOOL_CALLS);
+const KNOWN_TOOL_DISPOSITION_SET = new Set([
+  ...BASE_GATEWAY_SMOKE_TOOL_CALLS,
+  ...SUCCESSFUL_INVOCATION_TOOL_CALLS,
+  ...SUCCESSFUL_DRY_RUN_TOOL_CALLS,
+  ...EXPECTED_FAIL_CLOSED_TOOL_CALLS,
+  ...EXCLUDED_NON_CLAIM_TOOL_CALLS,
+  "loo_codex_control_dry_run"
+]);
 const THREAD_BOUND_TOOL_ARG_SET = new Set([
   "loo_describe_ref",
   "loo_describe_session",
@@ -154,7 +162,8 @@ export type OpenClawToolSmokeDisposition =
   | "successful_invocation"
   | "successful_dry_run"
   | "expected_fail_closed"
-  | "excluded_non_claim";
+  | "excluded_non_claim"
+  | "unknown_non_claim";
 
 export type OpenClawToolSmokeDispositionPlanEntry = {
   toolName: string;
@@ -318,10 +327,12 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
   const catalogComparable = catalogCall.status === 0 && catalogParsed;
   const catalogToolNames = catalogComparable ? extractCatalogToolNames(unwrapGatewayPayload(catalogCall.parsed)) : [];
   const missingRequiredTools = catalogComparable ? requiredTools.filter((name) => !catalogToolNames.includes(name)) : [];
+  const unknownDispositionTools = requiredTools.filter((name) => !KNOWN_TOOL_DISPOSITION_SET.has(name));
   const blockers = [
     ...gatewayFailureBlockers(catalogCall, "openclaw_catalog_failed"),
     ...(catalogCall.status === 0 && !catalogParsed ? ["openclaw_catalog_invalid_json"] : []),
-    ...(missingRequiredTools.length > 0 ? ["openclaw_catalog_missing_required_tools"] : [])
+    ...(missingRequiredTools.length > 0 ? ["openclaw_catalog_missing_required_tools"] : []),
+    ...(unknownDispositionTools.length > 0 ? ["openclaw_tool_smoke_unknown_disposition"] : [])
   ];
 
   const invocations: OpenClawToolInvocationSummary[] = [];
@@ -412,7 +423,8 @@ function dispositionForTool(toolName: string): OpenClawToolSmokeDisposition {
   if (EXCLUDED_NON_CLAIM_TOOL_SET.has(toolName)) return "excluded_non_claim";
   if (EXPECTED_FAIL_CLOSED_TOOL_SET.has(toolName)) return "expected_fail_closed";
   if (SUCCESSFUL_DRY_RUN_TOOL_SET.has(toolName) || toolName === "loo_codex_control_dry_run") return "successful_dry_run";
-  return "successful_invocation";
+  if (SUCCESSFUL_INVOCATION_TOOL_SET.has(toolName)) return "successful_invocation";
+  return "unknown_non_claim";
 }
 
 function productEvidenceClaimedForDisposition(disposition: OpenClawToolSmokeDisposition): boolean {
@@ -424,6 +436,7 @@ function dispositionReason(disposition: OpenClawToolSmokeDisposition, toolName: 
   if (disposition === "successful_dry_run" && toolName === "loo_codex_start_thread") return "Tool is control-capable and must prove dry_run:true plus params hash only; this does not claim thread-bound control semantics.";
   if (disposition === "successful_dry_run") return "Tool is control-capable and must be invoked only with dry_run:true or equivalent dry-run proof.";
   if (disposition === "expected_fail_closed") return "Tool is included only to prove a public-safe blocked/no-action boundary, not product success.";
+  if (disposition === "unknown_non_claim") return "Tool has no explicit QA Lab smoke disposition and must not be invoked or counted as product evidence.";
   return "Tool is explicitly excluded from product-evidence claims for this smoke because it writes derived cache or may expose peer paths before redaction.";
 }
 
@@ -450,10 +463,11 @@ function buildSmokeDispositionPlan(
       successful_invocation: entries.filter((entry) => entry.disposition === "successful_invocation").length,
       successful_dry_run: entries.filter((entry) => entry.disposition === "successful_dry_run").length,
       expected_fail_closed: entries.filter((entry) => entry.disposition === "expected_fail_closed").length,
-      excluded_non_claim: entries.filter((entry) => entry.disposition === "excluded_non_claim").length
+      excluded_non_claim: entries.filter((entry) => entry.disposition === "excluded_non_claim").length,
+      unknown_non_claim: entries.filter((entry) => entry.disposition === "unknown_non_claim").length
     },
     entries,
-    proofBoundary: "Successful invocation and successful dry-run entries may count as product gateway evidence; dry-run entries trust explicit dry_run/live:false plus audit/hash markers from the tool response and do not independently prove live action absence. Expected fail-closed entries prove only safe refusal/no-action behavior. Excluded non-claim entries are catalog/disposition records only and must not be counted as product invocation proof."
+    proofBoundary: "Successful invocation and successful dry-run entries may count as product gateway evidence; dry-run entries trust explicit dry_run/live:false plus audit/hash markers from the tool response and do not independently prove live action absence. Expected fail-closed entries prove only safe refusal/no-action behavior. Excluded and unknown non-claim entries are catalog/disposition records only and must not be counted as product invocation proof."
   };
 }
 
@@ -1656,9 +1670,11 @@ function expectedFailClosedProven(
   const reasonCodes = arrayPath(value, ["reasonCodes"]).filter((item): item is string => typeof item === "string");
   const proofMarkers = isRecord(value.proofMarkers) ? value.proofMarkers : null;
   if (toolName === "loo_desktop_act") {
-    return status === "blocked"
-      || status === "not_observed"
-      || (proofMarkers?.noActionObserved === true);
+    const hasBlockedStatus = status === "blocked" || status === "not_observed";
+    const hasSupportingNoActionProof = (summary.toolBlockers?.length ?? 0) > 0
+      || reasonCodes.some((code) => safeFailClosedReasonCodes(toolName).has(code))
+      || proofMarkers?.noActionObserved === true;
+    return hasBlockedStatus && hasSupportingNoActionProof;
   }
   if ((summary.toolBlockers?.length ?? 0) > 0) return true;
   if (toolName === "loo_codex_desktop_fallback_status" && summary.fallbackReason) return true;
