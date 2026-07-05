@@ -12,12 +12,13 @@ export type OpenClawGatewayLiveControlSmokeOptions = {
   threadId: string;
   action?: OpenClawGatewayLiveControlAction;
   message?: string;
+  expectedTurnId?: string;
   evidenceDir: string;
   gatewayTimeoutMs?: number;
   now?: string;
 };
 
-export type OpenClawGatewayLiveControlAction = "send" | "resume";
+export type OpenClawGatewayLiveControlAction = "send" | "resume" | "steer" | "interrupt";
 
 export type OpenClawGatewayLiveControlSmokeReport = {
   ok: boolean;
@@ -33,6 +34,7 @@ export type OpenClawGatewayLiveControlSmokeReport = {
     paramsHash: string | null;
     messageHash: string | null;
     live: boolean | null;
+    expectedTurnId: string | null;
   };
   live: {
     approvalAuditId: string | null;
@@ -42,6 +44,7 @@ export type OpenClawGatewayLiveControlSmokeReport = {
     method: string | null;
     turnStatus: string | null;
     responseOk: boolean | null;
+    expectedTurnId: string | null;
   };
   audit: {
     tailRead: boolean;
@@ -83,11 +86,13 @@ type ControlSummary = {
   method: string | null;
   turnStatus: string | null;
   responseOk: boolean | null;
+  expectedTurnId: string | null;
 };
 
 const SCENARIO_ID = "openclaw-gateway-live-codex-v1-1";
-const ACCEPTED_LIVE_TURN_STATUSES = new Set(["accepted", "completed", "in_progress", "pending", "queued", "running"]);
+export const ACCEPTED_LIVE_TURN_STATUSES = new Set(["accepted", "completed", "in_progress", "pending", "queued", "running"]);
 const DEFAULT_MESSAGE = "LCO OpenClaw gateway live-control smoke. Reply with exactly: LCO gateway live smoke acknowledged. Do not run commands, edit files, or use tools.";
+const DEFAULT_STEER_MESSAGE = "LCO OpenClaw gateway steer smoke. Keep this sacrificial QA turn bounded; do not run commands, edit files, or use tools.";
 const PRIVATE_DATA_EXCLUSIONS = [
   "raw OpenClaw gateway stdout/stderr",
   "raw tool output",
@@ -117,9 +122,11 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
   const callOptions = { timeoutMs: gatewayTimeoutMs, env: options.token ? { OPENCLAW_GATEWAY_TOKEN: options.token } : undefined };
   const sessionKey = options.sessionKey || "agent:main:lco-live-control-smoke";
   const action = normalizeAction(options.action);
+  const expectedTurnId = action === "steer" ? requiredExpectedTurnId(options.expectedTurnId) : null;
   const liveToolName = liveToolForAction(action);
   const requiredTools = ["loo_codex_control_dry_run", liveToolName, "loo_audit_tail"];
   const message = options.message ?? DEFAULT_MESSAGE;
+  const controlMessage = actionMessage(action, message);
   const targetRef = `codex_thread:${options.threadId}`;
   const blockers: string[] = [];
 
@@ -131,7 +138,7 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
   const dryRun = blockers.length === 0
     ? callGatewayJson(openclawBin, baseArgs, gatewayOptions, "tools.invoke", {
       name: "loo_codex_control_dry_run",
-      args: liveDryRunArgs(action, options.threadId, message),
+      args: liveDryRunArgs(action, options.threadId, controlMessage, expectedTurnId),
       sessionKey,
       confirm: false,
       idempotencyKey: `loo-live-smoke-dry-run-${action}-${options.threadId}`
@@ -139,12 +146,12 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
     : null;
   blockers.push(...(dryRun ? gatewayCallBlockers(dryRun, "openclaw_live_dry_run_failed") : []));
   const dryRunSummary = summarizeControl(dryRun);
-  if (dryRun && !validDryRun(action, dryRunSummary)) blockers.push("openclaw_live_dry_run_not_proven");
+  if (dryRun && !validDryRun(action, dryRunSummary, expectedTurnId)) blockers.push("openclaw_live_dry_run_not_proven");
 
   const live = blockers.length === 0
     ? callGatewayJson(openclawBin, baseArgs, gatewayOptions, "tools.invoke", {
       name: liveToolName,
-      args: liveArgs(action, options.threadId, message, dryRunSummary.approvalAuditId),
+      args: liveArgs(action, options.threadId, controlMessage, dryRunSummary.approvalAuditId, expectedTurnId),
       sessionKey,
       confirm: false,
       idempotencyKey: `loo-live-smoke-${action}-${options.threadId}-${dryRunSummary.approvalAuditId}`
@@ -152,7 +159,7 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
     : null;
   blockers.push(...(live ? gatewayCallBlockers(live, "openclaw_live_control_failed") : []));
   const liveSummary = summarizeControl(live);
-  if (live && !validLive(action, liveSummary)) blockers.push(action === "resume" ? "openclaw_live_resume_not_proven" : "openclaw_live_send_not_proven");
+  if (live && !validLive(action, liveSummary, expectedTurnId)) blockers.push(`openclaw_live_${action}_not_proven`);
   if (live && dryRunSummary.paramsHash && liveSummary.paramsHash && liveSummary.paramsHash !== dryRunSummary.paramsHash) blockers.push("openclaw_live_params_hash_mismatch");
   if (live && dryRunSummary.messageHash && liveSummary.messageHash && liveSummary.messageHash !== dryRunSummary.messageHash) blockers.push("openclaw_live_message_hash_mismatch");
   const approvalAuditIdUsed = live ? dryRunSummary.approvalAuditId : null;
@@ -200,7 +207,8 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
       approvalAuditId: dryRunSummary.approvalAuditId,
       paramsHash: dryRunSummary.paramsHash,
       messageHash: dryRunSummary.messageHash,
-      live: dryRunSummary.live
+      live: dryRunSummary.live,
+      expectedTurnId: dryRunSummary.expectedTurnId
     },
     live: liveSummary,
     audit: {
@@ -223,7 +231,7 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
       rawTranscriptRead: false
     },
     privateDataExclusions: PRIVATE_DATA_EXCLUSIONS,
-    proofBoundary: "This proves one approved harmless live Codex send/resume through the installed OpenClaw gateway path only; it does not prove unattended live control, broad gateway scope approval, GUI mutation, Claude parity, or bypassed Codex approvals.",
+    proofBoundary: "This proves one approved harmless live Codex send/resume/steer/interrupt action through the installed OpenClaw gateway path only. Interrupt smoke is thread-scoped unless a separate future proof binds a specific turn. It does not prove unattended live control, broad gateway scope approval, GUI mutation, Claude parity, or bypassed Codex approvals.",
     nextAction: uniqueBlockers.length === 0
       ? "Run the v1.1 runtime scenario sweep against this runtime-proof directory, then continue #159 post-action refresh proof."
       : "Resolve the listed gateway live-control blockers before claiming #158 runtime proof."
@@ -257,55 +265,78 @@ function runtimeProofForReport(report: OpenClawGatewayLiveControlSmokeReport): R
   };
 }
 
-function liveDryRunArgs(action: OpenClawGatewayLiveControlAction, threadId: string, message: string): Record<string, unknown> {
-  return action === "send"
-    ? {
-        action,
-        thread_id: threadId,
-        message
-      }
-    : {
-        action,
-        thread_id: threadId
-      };
+function liveDryRunArgs(action: OpenClawGatewayLiveControlAction, threadId: string, message: string, expectedTurnId: string | null): Record<string, unknown> {
+  if (action === "send") {
+    return { action, thread_id: threadId, message };
+  }
+  if (action === "steer") {
+    return { action, thread_id: threadId, message, expected_turn_id: expectedTurnId };
+  }
+  return { action, thread_id: threadId };
 }
 
-function liveArgs(action: OpenClawGatewayLiveControlAction, threadId: string, message: string, approvalAuditId: string | null): Record<string, unknown> {
+function liveArgs(action: OpenClawGatewayLiveControlAction, threadId: string, message: string, approvalAuditId: string | null, expectedTurnId: string | null): Record<string, unknown> {
   const common = {
     thread_id: threadId,
     dry_run: false,
     approval_audit_id: approvalAuditId
   };
-  return action === "send" ? { ...common, message } : common;
+  if (action === "send") return { ...common, message };
+  if (action === "steer") return { ...common, message, expected_turn_id: expectedTurnId };
+  return common;
 }
 
 function liveToolForAction(action: OpenClawGatewayLiveControlAction): string {
-  return action === "send" ? "loo_codex_send_message" : "loo_codex_resume_thread";
+  if (action === "send") return "loo_codex_send_message";
+  if (action === "resume") return "loo_codex_resume_thread";
+  if (action === "steer") return "loo_codex_steer_thread";
+  return "loo_codex_interrupt_thread";
 }
 
 function normalizeAction(action: unknown): OpenClawGatewayLiveControlAction {
-  if (action === undefined || action === "send") return "send";
+  if (action === undefined) throw new Error("openclaw live-control-smoke requires explicit action");
+  if (action === "send") return "send";
   if (action === "resume") return "resume";
-  throw new Error("action must be send or resume");
+  if (action === "steer") return "steer";
+  if (action === "interrupt") return "interrupt";
+  throw new Error("action must be send, resume, steer, or interrupt");
 }
 
-function validDryRun(action: OpenClawGatewayLiveControlAction, summary: ControlSummary): boolean {
+function validDryRun(action: OpenClawGatewayLiveControlAction, summary: ControlSummary, expectedTurnId: string | null): boolean {
   return summary.live === false
     && safeAuditId(summary.approvalAuditId)
     && safeHash(summary.paramsHash)
-    && (action !== "send" || safeHash(summary.messageHash));
+    && (requiresMessageHash(action) ? safeHash(summary.messageHash) : true)
+    && (action !== "steer" || summary.expectedTurnId === expectedTurnId);
 }
 
-function validLive(action: OpenClawGatewayLiveControlAction, summary: ControlSummary): boolean {
+function validLive(action: OpenClawGatewayLiveControlAction, summary: ControlSummary, expectedTurnId: string | null): boolean {
   const actionAccepted = action === "resume"
     ? summary.method === "thread/resume"
-    : liveTurnStatusProvesSendAccepted(summary.turnStatus);
+    : action === "send"
+      ? liveTurnStatusProvesSendAccepted(summary.turnStatus)
+      : action === "steer"
+        ? summary.method === "turn/steer" && summary.expectedTurnId === expectedTurnId
+        : summary.method === "turn/interrupt";
   return summary.live === true
     && safeAuditId(summary.approvalAuditId)
     && safeHash(summary.paramsHash)
-    && (action !== "send" || safeHash(summary.messageHash))
+    && (requiresMessageHash(action) ? safeHash(summary.messageHash) : true)
     && summary.responseOk === true
     && actionAccepted;
+}
+
+function actionMessage(action: OpenClawGatewayLiveControlAction, message: string): string {
+  return action === "steer" && message === DEFAULT_MESSAGE ? DEFAULT_STEER_MESSAGE : message;
+}
+
+function requiredExpectedTurnId(value: string | undefined): string {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  throw new Error("openclaw live-control-smoke requires --expected-turn-id for steer");
+}
+
+function requiresMessageHash(action: OpenClawGatewayLiveControlAction): boolean {
+  return action === "send" || action === "steer";
 }
 
 function liveTurnStatusProvesSendAccepted(value: string | null): boolean {
@@ -332,7 +363,8 @@ function summarizeControl(call: GatewayCallResult | null): ControlSummary {
     live: booleanPath(details, ["live"]),
     method: stringPath(details, ["method"]),
     turnStatus: stringPath(details, ["response", "turn", "status"]) || stringPath(details, ["response", "status"]) || stringPath(details, ["status"]),
-    responseOk: booleanPath(details, ["response", "ok"]) ?? booleanPath(details, ["ok"])
+    responseOk: booleanPath(details, ["response", "ok"]) ?? booleanPath(details, ["ok"]),
+    expectedTurnId: stringPath(details, ["expected_turn_id"]) || stringPath(details, ["expectedTurnId"])
   };
 }
 

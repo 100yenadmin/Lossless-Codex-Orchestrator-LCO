@@ -55,6 +55,7 @@ import { DEFAULT_REQUIRED_TOOL_CALLS, FULL_GATEWAY_SMOKE_TOOL_CALLS, runOpenClaw
 import { createPublishedPackageSmokeReport } from "./published-package-smoke.js";
 import { createCliMcpProductSmokeReport, MAX_CLI_MCP_PRODUCT_SMOKE_TIMEOUT_MS } from "./cli-mcp-product-smoke.js";
 import { createQaLabToolCoverageReport, type QaLabCoveragePolicy } from "./qa-lab-tool-coverage.js";
+import { createQaLabLiveControlMatrixReport } from "./qa-lab-live-control-matrix.js";
 import {
   createQaLabAdversarialReviewReport,
   createQaLabJudgeReviewReport,
@@ -711,6 +712,17 @@ async function main() {
     if (parsed.strict && !report.qaLabToolCoverageReady) process.exitCode = 1;
     return;
   }
+  if (command === "qa-lab" && args[0] === "live-control-matrix") {
+    if (hasHelpFlag(args.slice(1))) {
+      printQaLabLiveControlMatrixHelp();
+      return;
+    }
+    const parsed = parseQaLabLiveControlMatrixArgs(args.slice(1));
+    const report = createQaLabLiveControlMatrixReport(parsed);
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.liveControlMatrixReady) process.exitCode = 1;
+    return;
+  }
   if (command === "qa-lab" && args[0] === "cli-mcp-smoke") {
     if (hasHelpFlag(args.slice(1))) {
       printQaLabCliMcpSmokeHelp();
@@ -961,7 +973,7 @@ function mainUsageText(): string {
     "  loo openclaw dogfood [--dev] [--profile name] [--install-source path] [--link] [--force-install] [--evidence-path path] [--strict]",
     "  loo openclaw tool-smoke [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--thread-id id] [--expand-profile metadata|brief|evidence] [--token-budget n] [--coverage default|full] [--required-tool name] [--evidence-path path] [--strict]",
     "  loo openclaw published-smoke --evidence-dir path --dogfood-report path --tool-smoke-report path [--configured-tool-smoke-report path] [--npm-install-diagnostic-report path] [--registry-version version] [--registry-beta-version version] [--root path] [--now iso] [--strict]",
-    "  loo openclaw live-control-smoke --evidence-dir path --thread-id id [--action send|resume] [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--message text] [--strict]",
+    "  loo openclaw live-control-smoke --evidence-dir path --thread-id id --action send|resume|steer|interrupt [--expected-turn-id id] [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--message text] [--strict]",
     "  loo openclaw post-action-refresh-smoke --evidence-dir path --thread-id id --live-proof-report path [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--expand-profile metadata|brief|evidence] [--token-budget n] [--strict]",
     "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--runtime-proof-dir path] [--strict]",
     "  loo runtime sweep-summary --evidence-dir path --dry-run-scenarios path --runtime-scenarios path --scorecard-sweep path --published-smoke path [--runtime-proof-dir path] [--now iso] [--strict]",
@@ -974,10 +986,11 @@ function mainUsageText(): string {
     "  loo release status --evidence-dir path --candidate-sha sha [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--github-ci-evidence path] [--codeql-evidence path] [--desktop-gui-required --desktop-gui-approval-evidence path] [--now iso] [--strict]",
     "  loo release finalization-status --evidence-dir path --candidate-sha sha --npm-publish-evidence path --git-tag-evidence path --github-release-evidence path [--package-name name] [--package-version version] [--expected-dist-tag beta|next|latest] [--expected-github-prerelease true|false] [--now iso] [--strict]",
     "  loo release general-readiness --evidence-dir path [--fresh-npm-evidence path] [--agent-dogfood-evidence path] [--now iso] [--strict]",
-    "  loo release ga-smoke --evidence-dir path --package-version version --candidate-sha sha [--release-status path] [--release-finalization-status path] [--published-smoke path] [--dogfood-report path] [--tool-smoke-report path] [--scenario-sweep path] [--scorecard-sweep path] [--release-preflight path] [--release-bundle path] [--privacy-scan path] [--qa-lab-run path] [--tool-coverage path] [--judge-review path] [--adversarial-review path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--allow-setup-required] [--now iso] [--strict]",
+    "  loo release ga-smoke --evidence-dir path --package-version version --candidate-sha sha [--release-status path] [--release-finalization-status path] [--published-smoke path] [--dogfood-report path] [--tool-smoke-report path] [--scenario-sweep path] [--scorecard-sweep path] [--release-preflight path] [--release-bundle path] [--privacy-scan path] [--qa-lab-run path] [--tool-coverage path] [--live-control-matrix path] [--judge-review path] [--adversarial-review path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--allow-setup-required] [--now iso] [--strict]",
     "  loo release demo-status --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--min-sessions n] [--strict]",
     "  loo qa-lab cli-mcp-smoke --evidence-dir path --package-version version [--candidate-sha sha] [--cli-bin path] [--mcp-bin path] [--required-tool name] [--tool-call name] [--timeout-ms ms] [--now iso] [--strict]",
     "  loo qa-lab tool-coverage --evidence-dir path [--tool-smoke-report path] [--dogfood-report path] [--published-smoke path] [--manifest path] [--package-version version] [--candidate-sha sha] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--coverage-policy full|facade] [--now iso] [--strict]",
+    "  loo qa-lab live-control-matrix --evidence-dir path [--package-version version] [--candidate-sha sha] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--sacrificial-thread-id id] [--send-report path] [--resume-report path] [--steer-report path] [--interrupt-report path] [--now iso] [--strict]",
     "  loo qa-lab judge --run path --rubric-version real-product-v1 --evidence-dir path [--now iso] [--strict]",
     "  loo qa-lab adversarial-review --run path --lenses safety,retrieval,packaging,claims,agent-usability --evidence-dir path [--now iso] [--strict]",
     "  loo qa-lab workflow --scenario-id id --surface openclaw-gateway --mode dry-run --evidence-dir path [--openclaw-bin path] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--now iso] [--strict]"
@@ -1347,12 +1360,12 @@ function printGeneralReleaseReadinessHelp(): void {
 function printReleaseGaSmokeHelp(): void {
   console.log([
     "Usage:",
-    "  loo release ga-smoke --evidence-dir path --package-version version --candidate-sha sha [--release-status path] [--release-finalization-status path] [--published-smoke path] [--dogfood-report path] [--tool-smoke-report path] [--scenario-sweep path] [--scorecard-sweep path] [--release-preflight path] [--release-bundle path] [--privacy-scan path] [--qa-lab-run path] [--tool-coverage path] [--judge-review path] [--adversarial-review path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--allow-setup-required] [--now iso] [--strict]",
+    "  loo release ga-smoke --evidence-dir path --package-version version --candidate-sha sha [--release-status path] [--release-finalization-status path] [--published-smoke path] [--dogfood-report path] [--tool-smoke-report path] [--scenario-sweep path] [--scorecard-sweep path] [--release-preflight path] [--release-bundle path] [--privacy-scan path] [--qa-lab-run path] [--tool-coverage path] [--live-control-matrix path] [--judge-review path] [--adversarial-review path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--allow-setup-required] [--now iso] [--strict]",
     "",
     "Aggregates public-safe release evidence into one GA smoke readiness packet.",
     "",
     "Default evidence names:",
-    "  release-status.json, release-finalization-status.json, published-package-smoke.json, openclaw-dogfood.json, openclaw-tool-smoke.json, scenario-sweep.json, scorecard-sweep.json, release-preflight.json, release-bundle.json, privacy-scan.json, qa-lab-run.json, tool-coverage.json, judge-review.json, and adversarial-review.json.",
+    "  release-status.json, release-finalization-status.json, published-package-smoke.json, openclaw-dogfood.json, openclaw-tool-smoke.json, scenario-sweep.json, scorecard-sweep.json, release-preflight.json, release-bundle.json, privacy-scan.json, qa-lab-run.json, tool-coverage.json, live-control-matrix.json, judge-review.json, and adversarial-review.json.",
     "",
     "Strict mode:",
     "  --strict exits non-zero for P0-P2 package, release, safety, setup, or evidence blockers. P3 warnings remain non-blocking.",
@@ -1380,6 +1393,23 @@ function printQaLabToolCoverageHelp(): void {
     "Safety boundary:",
     "  This command is aggregate-only. It does not invoke tools, authorize gateways, run live Codex control, perform desktop GUI mutation, or read raw transcripts.",
     "  It does not publish npm, create tags, create GitHub Releases, or store raw gateway output."
+  ].join("\n"));
+}
+
+function printQaLabLiveControlMatrixHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo qa-lab live-control-matrix --evidence-dir path [--package-version version] [--candidate-sha sha] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--sacrificial-thread-id id] [--send-report path] [--resume-report path] [--steer-report path] [--interrupt-report path] [--now iso] [--strict]",
+    "",
+    "Aggregates per-action OpenClaw gateway live-control proof reports into `live-control-matrix.json`.",
+    "",
+    "Strict mode:",
+    "  --strict exits non-zero when a live-control claim lacks ready send, resume, steer, and interrupt rows.",
+    "",
+    "Safety boundary:",
+    "  This command is aggregate-only. It reads sanitized proof reports and does not run live Codex control.",
+    "  Required live rows must target explicit --sacrificial-thread-id allowlist entries.",
+    "  It does not mutate a desktop GUI, read raw transcripts, capture screenshots, publish npm, or create GitHub Releases."
   ].join("\n"));
 }
 
@@ -1560,9 +1590,9 @@ function printLiveControlSmokeHelp(): void {
 function printOpenClawLiveControlSmokeHelp(): void {
   console.log([
     "Usage:",
-    "  loo openclaw live-control-smoke --evidence-dir path --thread-id id [--action send|resume] [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--message text] [--strict]",
+    "  loo openclaw live-control-smoke --evidence-dir path --thread-id id --action send|resume|steer|interrupt [--expected-turn-id id] [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--message text] [--strict]",
     "",
-    "Runs one approval-gated live Codex send or resume through the installed OpenClaw gateway tools.invoke path.",
+    "Runs one approval-gated live Codex send, resume, steer, or interrupt through the installed OpenClaw gateway tools.invoke path.",
     "",
     "Outputs:",
     "  openclaw-gateway-live-codex-v1-1.runtime-proof.json",
@@ -1570,6 +1600,8 @@ function printOpenClawLiveControlSmokeHelp(): void {
     "",
     "Safety boundary:",
     "  The command requires an explicit --thread-id target.",
+    "  The command requires an explicit --action so no live action is selected by default.",
+    "  Steer requires --expected-turn-id so the live action is bound to one known sacrificial turn.",
     "  It invokes loo_codex_control_dry_run first, then uses the matching approval_audit_id for the selected live tool with dry_run:false.",
     "  It reads loo_audit_tail to prove matching dry-run/live audit metadata.",
     "  Evidence contains refs, audit ids, hashes, tool names, and status only.",
@@ -2589,6 +2621,7 @@ function parseOpenClawLiveControlSmokeArgs(input: string[]): {
   threadId: string;
   action?: OpenClawGatewayLiveControlAction;
   message?: string;
+  expectedTurnId?: string;
   evidenceDir: string;
   gatewayTimeoutMs?: number;
   strict?: boolean;
@@ -2616,6 +2649,8 @@ function parseOpenClawLiveControlSmokeArgs(input: string[]): {
       parsed.action = parseOpenClawLiveControlAction(requireOptionValue(input[++index], arg));
     } else if (arg === "--message") {
       parsed.message = requireOptionValue(input[++index], arg);
+    } else if (arg === "--expected-turn-id") {
+      parsed.expectedTurnId = requireOptionValue(input[++index], arg);
     } else if (arg === "--evidence-dir") {
       parsed.evidenceDir = requireOptionValue(input[++index], arg);
     } else if (arg === "--strict") {
@@ -2626,12 +2661,13 @@ function parseOpenClawLiveControlSmokeArgs(input: string[]): {
   }
   if (!parsed.evidenceDir) throw new Error("openclaw live-control-smoke requires --evidence-dir");
   if (!parsed.threadId) throw new Error("openclaw live-control-smoke requires --thread-id");
+  if (!parsed.action) throw new Error("openclaw live-control-smoke requires explicit --action");
   return parsed as ReturnType<typeof parseOpenClawLiveControlSmokeArgs>;
 }
 
 function parseOpenClawLiveControlAction(value: string): OpenClawGatewayLiveControlAction {
-  if (value === "send" || value === "resume") return value;
-  throw new Error("--action must be send or resume");
+  if (value === "send" || value === "resume" || value === "steer" || value === "interrupt") return value;
+  throw new Error("--action must be send, resume, steer, or interrupt");
 }
 
 function parseOpenClawPostActionRefreshSmokeArgs(input: string[]): {
@@ -3146,6 +3182,7 @@ function parseReleaseGaSmokeArgs(input: string[]): {
   privacyScan?: string;
   qaLabRun?: string;
   qaLabToolCoverage?: string;
+  qaLabLiveControlMatrix?: string;
   qaLabJudgeReview?: string;
   qaLabAdversarialReview?: string;
   allowSetupRequired: boolean;
@@ -3168,6 +3205,7 @@ function parseReleaseGaSmokeArgs(input: string[]): {
   let privacyScan: string | undefined;
   let qaLabRun: string | undefined;
   let qaLabToolCoverage: string | undefined;
+  let qaLabLiveControlMatrix: string | undefined;
   let qaLabJudgeReview: string | undefined;
   let qaLabAdversarialReview: string | undefined;
   let allowSetupRequired = false;
@@ -3239,6 +3277,10 @@ function parseReleaseGaSmokeArgs(input: string[]): {
       qaLabToolCoverage = readReleaseStatusPath(input, ++index, "--tool-coverage");
       continue;
     }
+    if (arg === "--live-control-matrix") {
+      qaLabLiveControlMatrix = readReleaseStatusPath(input, ++index, "--live-control-matrix");
+      continue;
+    }
     if (arg === "--judge-review") {
       qaLabJudgeReview = readReleaseStatusPath(input, ++index, "--judge-review");
       continue;
@@ -3281,6 +3323,7 @@ function parseReleaseGaSmokeArgs(input: string[]): {
     privacyScan,
     qaLabRun,
     qaLabToolCoverage,
+    qaLabLiveControlMatrix,
     qaLabJudgeReview,
     qaLabAdversarialReview,
     allowSetupRequired,
@@ -3363,6 +3406,82 @@ function parseQaLabToolCoverageArgs(input: string[]): {
   }
   if (!evidenceDir) throw new Error("qa-lab tool-coverage requires --evidence-dir");
   return { evidenceDir, packageVersion, candidateSha, claimScope, coveragePolicy, toolSmokeReport, dogfoodReport, publishedSmoke, manifestPath, now, strict };
+}
+
+function parseQaLabLiveControlMatrixArgs(input: string[]): {
+  evidenceDir: string;
+  packageVersion?: string;
+  candidateSha?: string;
+  claimScope?: ReleaseClaimScope;
+  sendReport?: string;
+  resumeReport?: string;
+  steerReport?: string;
+  interruptReport?: string;
+  sacrificialThreadIds: string[];
+  now?: string;
+  strict: boolean;
+} {
+  let evidenceDir: string | undefined;
+  let packageVersion: string | undefined;
+  let candidateSha: string | undefined;
+  let claimScope: ReleaseClaimScope | undefined;
+  let sendReport: string | undefined;
+  let resumeReport: string | undefined;
+  let steerReport: string | undefined;
+  let interruptReport: string | undefined;
+  const sacrificialThreadIds: string[] = [];
+  let now: string | undefined;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--evidence-dir") {
+      evidenceDir = readReleaseStatusPath(input, ++index, "--evidence-dir");
+      continue;
+    }
+    if (arg === "--package-version") {
+      packageVersion = readReleaseStatusValue(input, ++index, "--package-version");
+      continue;
+    }
+    if (arg === "--candidate-sha") {
+      candidateSha = readReleaseStatusValue(input, ++index, "--candidate-sha");
+      continue;
+    }
+    if (arg === "--claim-scope") {
+      claimScope = parseReleaseClaimScope(input, ++index, "--claim-scope");
+      continue;
+    }
+    if (arg === "--send-report") {
+      sendReport = readReleaseStatusPath(input, ++index, "--send-report");
+      continue;
+    }
+    if (arg === "--resume-report") {
+      resumeReport = readReleaseStatusPath(input, ++index, "--resume-report");
+      continue;
+    }
+    if (arg === "--steer-report") {
+      steerReport = readReleaseStatusPath(input, ++index, "--steer-report");
+      continue;
+    }
+    if (arg === "--interrupt-report") {
+      interruptReport = readReleaseStatusPath(input, ++index, "--interrupt-report");
+      continue;
+    }
+    if (arg === "--sacrificial-thread-id") {
+      sacrificialThreadIds.push(readReleaseStatusValue(input, ++index, "--sacrificial-thread-id"));
+      continue;
+    }
+    if (arg === "--now") {
+      now = readReleaseStatusValue(input, ++index, "--now");
+      continue;
+    }
+    if (arg === "--strict") {
+      strict = true;
+      continue;
+    }
+    throw new Error(`Unknown qa-lab live-control-matrix option: ${arg}`);
+  }
+  if (!evidenceDir) throw new Error("qa-lab live-control-matrix requires --evidence-dir");
+  return { evidenceDir, packageVersion, candidateSha, claimScope, sendReport, resumeReport, steerReport, interruptReport, sacrificialThreadIds, now, strict };
 }
 
 function parseQaLabCliMcpSmokeArgs(input: string[]): {

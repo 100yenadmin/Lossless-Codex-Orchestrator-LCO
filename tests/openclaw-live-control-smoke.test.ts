@@ -24,6 +24,9 @@ function createFakeOpenClaw(dir: string, options: {
   resumeResponseMissingStatus?: boolean;
   resumeResponseOkFalse?: boolean;
   resumeMethod?: string;
+  steerMethod?: string;
+  interruptMethod?: string;
+  mismatchedExpectedTurnId?: boolean;
 } = {}): { bin: string; callsPath: string } {
   const callsPath = join(dir, "calls.jsonl");
   const bin = join(dir, "openclaw-live-fake.mjs");
@@ -41,6 +44,9 @@ function createFakeOpenClaw(dir: string, options: {
       ? `{ ok: true }`
       : `{ ok: true, status: "completed" }`;
   const resumeMethod = options.resumeMethod ?? "thread/resume";
+  const steerMethod = options.steerMethod ?? "turn/steer";
+  const interruptMethod = options.interruptMethod ?? "turn/interrupt";
+  const liveExpectedTurnIdExpression = options.mismatchedExpectedTurnId ? `"turn_unexpected"` : "toolArgs.expected_turn_id";
   const auditTailPayload = `{
       auditPath: "metadata-only",
       records: [
@@ -64,6 +70,8 @@ appendFileSync(process.env.OPENCLAW_FAKE_CALLS, JSON.stringify({ method, params,
     { id: "loo_codex_control_dry_run" },
     { id: "loo_codex_send_message" },
     { id: "loo_codex_resume_thread" },
+    { id: "loo_codex_steer_thread" },
+    { id: "loo_codex_interrupt_thread" },
     { id: "loo_audit_tail" }
   ] }] }));
   process.exit(0);
@@ -72,18 +80,22 @@ if (method === "tools.invoke") {
   const name = params.name;
   const toolArgs = params.args || {};
   if (name === "loo_codex_control_dry_run") {
-    const action = toolArgs.action === "resume" ? "codex_resume_thread" : "codex_send_message";
+    const action = toolArgs.action === "resume" ? "codex_resume_thread" : toolArgs.action === "steer" ? "codex_steer_thread" : toolArgs.action === "interrupt" ? "codex_interrupt_thread" : "codex_send_message";
     const output = {
       action,
       threadId: toolArgs.thread_id,
       live: false,
       approvalAuditId: "${DRY_RUN_AUDIT_ID}",
       paramsHash: "${PARAMS_HASH}",
-      method: toolArgs.action === "resume" ? "thread/resume" : "turn/start",
+      method: toolArgs.action === "resume" ? "thread/resume" : toolArgs.action === "steer" ? "turn/steer" : toolArgs.action === "interrupt" ? "turn/interrupt" : "turn/start",
       approval_audit_id: "${DRY_RUN_AUDIT_ID}",
       params_hash: "${PARAMS_HASH}"
     };
-    if (toolArgs.action !== "resume") {
+    if (toolArgs.action === "steer") {
+      output.expectedTurnId = toolArgs.expected_turn_id;
+      output.expected_turn_id = toolArgs.expected_turn_id;
+    }
+    if (toolArgs.action === "send" || toolArgs.action === "steer") {
       output.messageHash = "${MESSAGE_HASH}";
       output.message_hash = "${MESSAGE_HASH}";
     }
@@ -128,6 +140,46 @@ if (method === "tools.invoke") {
     } }));
     process.exit(0);
   }
+  if (name === "loo_codex_steer_thread") {
+    if (toolArgs.approval_audit_id !== "${DRY_RUN_AUDIT_ID}" || toolArgs.dry_run !== false || !toolArgs.expected_turn_id) {
+      console.log(JSON.stringify({ ok: false, error: { code: "approval_or_turn_mismatch" } }));
+      process.exit(0);
+    }
+    console.log(JSON.stringify({ ok: true, output: {
+      action: "codex_steer_thread",
+      threadId: toolArgs.thread_id,
+      live: true,
+      approvalAuditId: "${LIVE_AUDIT_ID}",
+      paramsHash: "${PARAMS_HASH}",
+      messageHash: "${liveMessageHash}",
+      method: "${steerMethod}",
+      expectedTurnId: ${liveExpectedTurnIdExpression},
+      expected_turn_id: ${liveExpectedTurnIdExpression},
+      approval_audit_id: "${LIVE_AUDIT_ID}",
+      params_hash: "${PARAMS_HASH}",
+      message_hash: "${liveMessageHash}",
+      response: { ok: true, status: "accepted" }
+    } }));
+    process.exit(0);
+  }
+  if (name === "loo_codex_interrupt_thread") {
+    if (toolArgs.approval_audit_id !== "${DRY_RUN_AUDIT_ID}" || toolArgs.dry_run !== false) {
+      console.log(JSON.stringify({ ok: false, error: { code: "approval_mismatch" } }));
+      process.exit(0);
+    }
+    console.log(JSON.stringify({ ok: true, output: {
+      action: "codex_interrupt_thread",
+      threadId: toolArgs.thread_id,
+      live: true,
+      approvalAuditId: "${LIVE_AUDIT_ID}",
+      paramsHash: "${PARAMS_HASH}",
+      method: "${interruptMethod}",
+      approval_audit_id: "${LIVE_AUDIT_ID}",
+      params_hash: "${PARAMS_HASH}",
+      response: { ok: true, status: "accepted" }
+    } }));
+    process.exit(0);
+  }
   if (name === "loo_audit_tail") {
     console.log(JSON.stringify(${auditTailResponse}));
     process.exit(0);
@@ -155,6 +207,7 @@ test("OpenClaw live-control smoke proves dry-run live send and audit tail throug
       openclawBin: bin,
       evidenceDir,
       threadId: "thr_gateway_live",
+      action: "send",
       message,
       now: "2026-07-01T00:00:00.000Z"
     });
@@ -280,6 +333,139 @@ test("OpenClaw live-control smoke accepts status-less ok response for resume act
   }
 });
 
+test("OpenClaw live-control smoke proves a steer action bound to an expected turn", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-smoke-steer-"));
+  const evidenceDir = join(root, "evidence");
+  const { bin, callsPath } = createFakeOpenClaw(root);
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+
+  try {
+    const report = runOpenClawGatewayLiveControlSmoke({
+      openclawBin: bin,
+      evidenceDir,
+      threadId: "thr_gateway_steer",
+      action: "steer",
+      expectedTurnId: "turn_sacrificial_1",
+      now: "2026-07-01T00:00:00.000Z"
+    });
+
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.equal(report.action, "steer");
+    assert.equal(report.dryRun.messageHash, MESSAGE_HASH);
+    assert.equal(report.live.live, true);
+    assert.equal(report.live.method, "turn/steer");
+    assert.equal(report.live.expectedTurnId, "turn_sacrificial_1");
+    assert.equal(report.audit.matchingDryRunRecord, true);
+    assert.equal(report.audit.matchingLiveRecord, true);
+    assert.deepEqual(report.blockers, []);
+
+    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { method: string; params: { name?: string; args?: Record<string, unknown> } });
+    assert.equal(calls[1]?.params.name, "loo_codex_control_dry_run");
+    assert.equal(calls[1]?.params.args?.action, "steer");
+    assert.equal(calls[1]?.params.args?.expected_turn_id, "turn_sacrificial_1");
+    assert.equal(calls[2]?.params.name, "loo_codex_steer_thread");
+    assert.equal(calls[2]?.params.args?.approval_audit_id, DRY_RUN_AUDIT_ID);
+    assert.equal(calls[2]?.params.args?.dry_run, false);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw live-control smoke proves an interrupt action through tools.invoke", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-smoke-interrupt-"));
+  const evidenceDir = join(root, "evidence");
+  const { bin, callsPath } = createFakeOpenClaw(root);
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+
+  try {
+    const report = runOpenClawGatewayLiveControlSmoke({
+      openclawBin: bin,
+      evidenceDir,
+      threadId: "thr_gateway_interrupt",
+      action: "interrupt",
+      now: "2026-07-01T00:00:00.000Z"
+    });
+
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.equal(report.action, "interrupt");
+    assert.equal(report.dryRun.messageHash, null);
+    assert.equal(report.live.live, true);
+    assert.equal(report.live.method, "turn/interrupt");
+    assert.equal(report.live.messageHash, null);
+    assert.equal(report.audit.matchingDryRunRecord, true);
+    assert.equal(report.audit.matchingLiveRecord, true);
+    assert.deepEqual(report.blockers, []);
+
+    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { method: string; params: { name?: string; args?: Record<string, unknown> } });
+    assert.equal(calls[1]?.params.name, "loo_codex_control_dry_run");
+    assert.equal(calls[1]?.params.args?.action, "interrupt");
+    assert.equal(calls[2]?.params.name, "loo_codex_interrupt_thread");
+    assert.equal(calls[2]?.params.args?.approval_audit_id, DRY_RUN_AUDIT_ID);
+    assert.equal(calls[2]?.params.args?.dry_run, false);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw live-control smoke fails closed when steer returns a different expected turn id", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-smoke-steer-mismatch-"));
+  const evidenceDir = join(root, "evidence");
+  const { bin, callsPath } = createFakeOpenClaw(root, { mismatchedExpectedTurnId: true });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+
+  try {
+    const report = runOpenClawGatewayLiveControlSmoke({
+      openclawBin: bin,
+      evidenceDir,
+      threadId: "thr_gateway_steer_mismatch",
+      action: "steer",
+      expectedTurnId: "turn_requested",
+      now: "2026-07-01T00:00:00.000Z"
+    });
+
+    assert.equal(report.ok, false);
+    assert.equal(report.live.expectedTurnId, "turn_unexpected");
+    assert.match(report.blockers.join("\n"), /openclaw_live_steer_not_proven/);
+    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { method: string; params: { name?: string; args?: Record<string, unknown> } });
+    assert.equal(calls[1]?.params.args?.expected_turn_id, "turn_requested");
+    assert.equal(calls[2]?.params.args?.expected_turn_id, "turn_requested");
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw live-control smoke requires expected turn id for steer before gateway calls", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-smoke-steer-no-turn-"));
+  const evidenceDir = join(root, "evidence");
+  const { bin, callsPath } = createFakeOpenClaw(root);
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+
+  try {
+    assert.throws(() => runOpenClawGatewayLiveControlSmoke({
+      openclawBin: bin,
+      evidenceDir,
+      threadId: "thr_gateway_steer_no_turn",
+      action: "steer",
+      now: "2026-07-01T00:00:00.000Z"
+    }), /requires --expected-turn-id/);
+    assert.equal(existsSync(callsPath), false);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("OpenClaw live-control smoke fails closed when resume response is not ok", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-smoke-resume-not-ok-"));
   const evidenceDir = join(root, "evidence");
@@ -355,7 +541,29 @@ test("OpenClaw live-control smoke rejects unknown action values before gateway c
       threadId: "thr_gateway_bad_action",
       action: "Resume" as "resume",
       now: "2026-07-01T00:00:00.000Z"
-    }), /action must be send or resume/);
+    }), /action must be send, resume, steer, or interrupt/);
+    assert.equal(existsSync(callsPath), false);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw live-control smoke requires explicit action before gateway calls", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-smoke-missing-action-"));
+  const evidenceDir = join(root, "evidence");
+  const { bin, callsPath } = createFakeOpenClaw(root);
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+
+  try {
+    assert.throws(() => runOpenClawGatewayLiveControlSmoke({
+      openclawBin: bin,
+      evidenceDir,
+      threadId: "thr_gateway_missing_action",
+      now: "2026-07-01T00:00:00.000Z"
+    }), /requires explicit action/);
     assert.equal(existsSync(callsPath), false);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
@@ -374,7 +582,8 @@ test("OpenClaw live-control smoke accepts documented in-flight turn statuses", (
     const report = runOpenClawGatewayLiveControlSmoke({
       openclawBin: bin,
       evidenceDir: join(root, "evidence"),
-      threadId: "thr_gateway_live"
+      threadId: "thr_gateway_live",
+      action: "send"
     });
 
     assert.equal(report.ok, true, JSON.stringify(report, null, 2));
@@ -399,6 +608,7 @@ test("OpenClaw live-control smoke accepts audit tail records from tool details e
       openclawBin: bin,
       evidenceDir,
       threadId: "thr_gateway_live",
+      action: "send",
       now: "2026-07-01T00:00:00.000Z"
     });
 
@@ -423,7 +633,8 @@ test("OpenClaw live-control smoke fails closed when live output does not match d
     const report = runOpenClawGatewayLiveControlSmoke({
       openclawBin: bin,
       evidenceDir: join(root, "evidence"),
-      threadId: "thr_gateway_live"
+      threadId: "thr_gateway_live",
+      action: "send"
     });
 
     assert.equal(report.ok, false);
@@ -451,7 +662,8 @@ test("OpenClaw live-control smoke fails closed when live output lacks accepted t
     const report = runOpenClawGatewayLiveControlSmoke({
       openclawBin: bin,
       evidenceDir: join(root, "evidence"),
-      threadId: "thr_gateway_live"
+      threadId: "thr_gateway_live",
+      action: "send"
     });
 
     assert.equal(report.ok, false);
@@ -480,7 +692,8 @@ test("OpenClaw live-control smoke fails closed when live response is not ok", ()
     const report = runOpenClawGatewayLiveControlSmoke({
       openclawBin: bin,
       evidenceDir: join(root, "evidence"),
-      threadId: "thr_gateway_live"
+      threadId: "thr_gateway_live",
+      action: "send"
     });
 
     assert.equal(report.ok, false);
@@ -509,7 +722,8 @@ test("OpenClaw live-control smoke fails closed when live response omits ok proof
     const report = runOpenClawGatewayLiveControlSmoke({
       openclawBin: bin,
       evidenceDir: join(root, "evidence"),
-      threadId: "thr_gateway_live"
+      threadId: "thr_gateway_live",
+      action: "send"
     });
 
     assert.equal(report.ok, false);
@@ -534,6 +748,9 @@ test("CLI exposes OpenClaw live-control smoke help without running live control"
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /loo openclaw live-control-smoke/i);
+  assert.match(result.stdout, /send\|resume\|steer\|interrupt/i);
+  assert.match(result.stdout, /--expected-turn-id/i);
   assert.match(result.stdout, /openclaw-gateway-live-codex-v1-1\.runtime-proof\.json/i);
   assert.match(result.stdout, /requires an explicit --thread-id/i);
+  assert.match(result.stdout, /requires an explicit --action/i);
 });
