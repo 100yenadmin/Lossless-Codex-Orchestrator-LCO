@@ -12632,31 +12632,42 @@ function countJsonlEvents(text: string): number {
 }
 
 const KNOWN_CODEX_JSONL_EVENT_KINDS = new Set([
+  "agent_reasoning",
+  "agent_reasoning_delta",
   "agent_message",
   "context_compacted",
   "custom_tool_call",
   "custom_tool_call_output",
   "event_metadata",
+  "exec_command_begin",
+  "exec_command_end",
+  "exec_command_output_delta",
   "function_call",
   "function_call_output",
   "item_completed",
   "message",
+  "mcp_tool_call_begin",
   "mcp_tool_call_end",
   "native_subagent_result_metadata",
   "noop",
   "patch_apply_end",
+  "plan_update",
   "reasoning",
   "session_metadata",
   "task_complete",
   "task_started",
   "thread_name",
+  "thread_name_updated",
   "token_count",
   "tool_call",
   "tool_search_call",
   "tool_search_output",
   "tool_use",
+  "turn_diff",
   "turn_aborted",
-  "user_message"
+  "user_message",
+  "web_search_begin",
+  "web_search_end"
 ]);
 
 const CODEX_JSONL_TRANSPARENT_ENVELOPES = new Set([
@@ -12699,6 +12710,7 @@ function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: num
   const records = jsonlLineRecords(text);
   const sourceHash = stableId(text);
   const sourcePathRef = publicSourcePathRef(sourcePath);
+  let sawThreadIdInFile = false;
   for (let i = 0; i < records.length; i += 1) {
     const record = records[i]!;
     let item: any;
@@ -12722,7 +12734,11 @@ function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: num
     }
     const meta = item.session_meta?.payload ?? item.session_meta ?? item.turn_context?.payload ?? null;
     if (meta) {
-      session.threadId = safeThreadId(String(meta.id ?? meta.thread_id ?? session.threadId));
+      const metaThreadId = stringOrNull(meta.id ?? meta.thread_id);
+      if (metaThreadId) {
+        sawThreadIdInFile = true;
+        session.threadId = safeThreadId(metaThreadId);
+      }
       const cwd = stringOrNull(meta.cwd ?? meta.workdir ?? session.cwd);
       session.cwd = cwd ? redactSafeString(cwd) : null;
       session.model = stringOrNull(meta.model ?? session.model);
@@ -12785,6 +12801,7 @@ function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: num
   session.title ??= session.finalMessage ? truncate(session.finalMessage, 80) : session.threadId;
   session.updatedAt ??= new Date().toISOString();
   session.createdAt ??= session.updatedAt;
+  if (!sawThreadIdInFile) recordCodexJsonlMissingField(drift, "session_meta.payload.id");
   session.driftReport = codexJsonlDriftReport(sourcePath, drift);
   return session;
 }
@@ -12852,16 +12869,6 @@ function recordCodexJsonlMissingFieldDrift(drift: CodexJsonlDriftAccumulator, it
     }
   }
 
-  const sessionMeta = isObjectRecord(item.session_meta?.payload)
-    ? item.session_meta.payload
-    : isObjectRecord(item.session_meta)
-      ? item.session_meta
-      : isObjectRecord(item.turn_context?.payload)
-        ? item.turn_context.payload
-        : null;
-  if (sessionMeta && !stringOrNull(sessionMeta.id) && !stringOrNull(sessionMeta.thread_id)) {
-    recordCodexJsonlMissingField(drift, "session_meta.payload.id");
-  }
 }
 
 function recordCodexJsonlMissingField(drift: CodexJsonlDriftAccumulator, field: string): void {
