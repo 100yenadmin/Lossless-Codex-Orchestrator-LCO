@@ -86,12 +86,21 @@ if (method === "tools.invoke") {
     process.exit(0);
   }
   if (name === "loo_describe_ref") {
-    console.log(JSON.stringify(wrap({
+    const output = process.env.OPENCLAW_FAKE_MANY_SOURCE_REFS === "1"
+      ? {
+        sourceRefs: Array.from({ length: 12 }, (_, index) => "codex_event:event-" + String(index).padStart(2, "0")),
+        sourceRef: toolArgs.source_ref,
+        threadId: toolArgs.source_ref?.replace("codex_thread:", "") || "agent-thread-1",
+        title: "Public-safe session card",
+        summary: "PRIVATE RAW TRANSCRIPT CANARY"
+      }
+      : {
       sourceRef: toolArgs.source_ref,
       threadId: toolArgs.source_ref?.replace("codex_thread:", "") || "agent-thread-1",
       title: "Public-safe session card",
       summary: "PRIVATE RAW TRANSCRIPT CANARY"
-    })));
+    };
+    console.log(JSON.stringify(wrap(output)));
     process.exit(0);
   }
   if (name === "loo_expand_session") {
@@ -131,6 +140,7 @@ if (method === "tools.invoke") {
       paramsHash: process.env.OPENCLAW_FAKE_UNSAFE_DRY_RUN_AUDIT === "1" ? "Bearer secret" : "params-hash"
     };
     if (process.env.OPENCLAW_FAKE_DRY_RUN_LIVE_TRUE === "1") output.live = true;
+    else if (process.env.OPENCLAW_FAKE_DRY_RUN_LIVE_STRING === "1") output.live = "false";
     else if (process.env.OPENCLAW_FAKE_OMIT_DRY_RUN_LIVE !== "1") output.live = false;
     console.log(JSON.stringify(wrap(output)));
     process.exit(0);
@@ -380,6 +390,19 @@ test("qa-lab workflow requires dry-run control to explicitly report live false",
   });
   assert.equal(trueReport.ok, false);
   assert.ok(trueReport.blockers.some((blocker) => blocker.code === "workflow_dry_run_control_not_false"));
+
+  const stringDir = makeTempDir(t, "loo-qa-workflow-live-string-");
+  const liveString = createFakeOpenClaw(stringDir);
+  const stringReport = createQaLabWorkflowReport({
+    scenarioId: "issue-517-agent-workflow",
+    surface: "openclaw-gateway",
+    mode: "dry-run",
+    evidenceDir: stringDir,
+    openclawBin: liveString.bin,
+    env: { ...process.env, OPENCLAW_FAKE_CALLS: liveString.callsPath, OPENCLAW_FAKE_DRY_RUN_LIVE_STRING: "1" }
+  });
+  assert.equal(stringReport.ok, false);
+  assert.ok(stringReport.blockers.some((blocker) => blocker.code === "workflow_dry_run_control_live_missing"));
 });
 
 test("qa-lab workflow selects source ref and thread id from the same session card", (t) => {
@@ -400,6 +423,24 @@ test("qa-lab workflow selects source ref and thread id from the same session car
   assert.equal(report.workflow.selectedThreadId, "z-thread");
   const invokedSteps = report.workflow.steps.filter((step) => step.toolName.startsWith("loo_"));
   assert.ok(invokedSteps.every((step) => step.outputSummary.sourceRefs?.includes("codex_thread:z-thread")), JSON.stringify(invokedSteps, null, 2));
+});
+
+test("qa-lab workflow keeps the selected source ref in each published step summary", (t) => {
+  const dir = makeTempDir(t, "loo-qa-workflow-selected-ref-summary-");
+  const { bin, callsPath } = createFakeOpenClaw(dir);
+
+  const report = createQaLabWorkflowReport({
+    scenarioId: "issue-517-agent-workflow",
+    surface: "openclaw-gateway",
+    mode: "dry-run",
+    evidenceDir: dir,
+    openclawBin: bin,
+    env: { ...process.env, OPENCLAW_FAKE_CALLS: callsPath, OPENCLAW_FAKE_MANY_SOURCE_REFS: "1" }
+  });
+
+  assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+  const describeStep = report.workflow.steps.find((step) => step.step === "describe");
+  assert.ok(describeStep?.outputSummary.sourceRefs?.includes("codex_thread:agent-thread-1"));
 });
 
 test("qa-lab workflow fails closed when selectable session is beyond scan depth", (t) => {
