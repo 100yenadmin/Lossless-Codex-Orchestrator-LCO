@@ -1495,10 +1495,18 @@ test("prepared-card all-thread refresh batches work-state lookup families", () =
     const report = materializePreparedCards(db);
     assert.equal(report.summary.cards, threadCount);
     assert.equal(getPreparedCards(db, { limit: threadCount }).summary.total, threadCount);
-    assert.ok(
-      trackedStatements.length <= 12,
-      `expected batched work-state lookups, saw ${trackedStatements.length} tracked SELECT statements`
-    );
+    const trackedLookupCounts = trackedStatements.reduce<Record<string, number>>((counts, sql) => {
+      const table = sql.match(/\bFROM\s+(prepared_source_events|codex_plans|attention_queue|codex_touched_files)\b/i)?.[1]?.toLowerCase();
+      if (table) counts[table] = (counts[table] ?? 0) + 1;
+      return counts;
+    }, {});
+    assert.deepEqual(trackedLookupCounts, {
+      attention_queue: 1,
+      codex_plans: 1,
+      codex_touched_files: 1,
+      prepared_source_events: 1
+    });
+    assert.equal(trackedStatements.length, 4, "expected one batched SELECT per work-state lookup family");
 
     const attentionCards = getPreparedCards(db, { limit: threadCount }).cards
       .filter((card) => card.reasonCodes.includes("from_attention_queue"));
