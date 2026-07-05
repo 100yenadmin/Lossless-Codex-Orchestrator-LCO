@@ -305,6 +305,28 @@ test("QA Lab live-control matrix blocks one sacrificial thread from satisfying m
     assert.equal(duplicateRows.length, 4);
     assert.deepEqual(duplicateRows.map((row) => row.status), ["blocked", "blocked", "blocked", "blocked"]);
     assert.equal(new Set(duplicateRows.map((row) => row.target.ref)).size, 1);
+    assert.ok(report.blockers.some((blocker) =>
+      blocker.code === "live_control_target_not_action_isolated" && blocker.severity === "P1"
+    ));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("QA Lab live-control matrix requires candidate SHA even when live-control rows are excluded", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-live-control-matrix-missing-sha-"));
+  const evidenceDir = join(root, "evidence");
+  try {
+    const report = createQaLabLiveControlMatrixReport({
+      evidenceDir,
+      packageVersion: "1.2.6",
+      claimScope: "codex-read-search-expand-dry-run",
+      now: "2026-07-05T00:00:00.000Z"
+    });
+
+    assert.equal(report.liveControlMatrixReady, false);
+    assert.equal(report.summary.requiredRows, 0);
+    assert.ok(report.blockers.some((blocker) => blocker.code === "candidate_sha_missing"));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -489,5 +511,6 @@ test("CLI exposes QA Lab live-control matrix help without running live control",
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /loo qa-lab live-control-matrix/i);
   assert.match(result.stdout, /--sacrificial-thread-id/i);
+  assert.match(result.stdout, /distinct approved sacrificial thread ids for send, resume, steer, and interrupt/i);
   assert.match(result.stdout, /aggregate-only/i);
 });

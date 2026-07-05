@@ -495,7 +495,8 @@ function liveControlMatrixRowHasRequiredProof(row: JsonRecord): boolean {
   if (action !== "steer" && action !== "interrupt") return true;
   const liveProof = isRecord(row.liveProof) ? row.liveProof : {};
   return liveProof.expectedTurnIdMatchesDryRun === true
-    && (liveProof.bindingScope === "turn_bound" || liveProof.expectedTurnIdPresent === true);
+    && liveProof.bindingScope === "turn_bound"
+    && liveProof.expectedTurnIdPresent === true;
 }
 
 function validateQaLabJudgeReview(
@@ -858,7 +859,7 @@ function nextSafeCommands(options: ReleaseGaSmokeOptions): string[] {
   const candidateSha = options.candidateSha || "<sha>";
   const claimScope = normalizeReleaseClaimScope(options.claimScope);
   const liveControlMatrixCommand = releaseClaimScopeRequiresLiveControl(claimScope)
-    ? `loo qa-lab live-control-matrix --evidence-dir ${evidenceDir} --package-version ${packageVersion} --candidate-sha ${candidateSha} --claim-scope ${claimScope} --sacrificial-thread-id <approved-sacrificial-thread-id> --send-report <send-report.json> --resume-report <resume-report.json> --steer-report <steer-report.json> --interrupt-report <interrupt-report.json> --strict`
+    ? `loo qa-lab live-control-matrix --evidence-dir ${evidenceDir} --package-version ${packageVersion} --candidate-sha ${candidateSha} --claim-scope ${claimScope} --sacrificial-thread-id <send-sacrificial-thread-id> --sacrificial-thread-id <resume-sacrificial-thread-id> --sacrificial-thread-id <steer-sacrificial-thread-id> --sacrificial-thread-id <interrupt-sacrificial-thread-id> --send-report <send-report.json> --resume-report <resume-report.json> --steer-report <steer-report.json> --interrupt-report <interrupt-report.json> --strict`
     : `loo qa-lab live-control-matrix --evidence-dir ${evidenceDir} --package-version ${packageVersion} --candidate-sha ${candidateSha} --claim-scope ${claimScope} --strict`;
   return [
     `loo release status --evidence-dir ${evidenceDir} --candidate-sha ${candidateSha} --strict`,

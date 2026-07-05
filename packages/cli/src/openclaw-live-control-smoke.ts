@@ -122,7 +122,7 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
   const callOptions = { timeoutMs: gatewayTimeoutMs, env: options.token ? { OPENCLAW_GATEWAY_TOKEN: options.token } : undefined };
   const sessionKey = options.sessionKey || "agent:main:lco-live-control-smoke";
   const action = normalizeAction(options.action);
-  const expectedTurnId = action === "steer" ? requiredExpectedTurnId(options.expectedTurnId) : null;
+  const expectedTurnId = requiresTurnBinding(action) ? requiredExpectedTurnId(options.expectedTurnId, action) : null;
   const liveToolName = liveToolForAction(action);
   const requiredTools = ["loo_codex_control_dry_run", liveToolName, "loo_audit_tail"];
   const message = options.message ?? DEFAULT_MESSAGE;
@@ -231,7 +231,7 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
       rawTranscriptRead: false
     },
     privateDataExclusions: PRIVATE_DATA_EXCLUSIONS,
-    proofBoundary: "This proves one approved harmless live Codex send/resume/steer/interrupt action through the installed OpenClaw gateway path only. Interrupt smoke is thread-scoped unless a separate future proof binds a specific turn. It does not prove unattended live control, broad gateway scope approval, GUI mutation, Claude parity, or bypassed Codex approvals.",
+    proofBoundary: "This proves one approved harmless live Codex send/resume/steer/interrupt action through the installed OpenClaw gateway path only. Steer and interrupt proof are turn-bound when --expected-turn-id is supplied. It does not prove unattended live control, broad gateway scope approval, GUI mutation, Claude parity, or bypassed Codex approvals.",
     nextAction: uniqueBlockers.length === 0
       ? "Run the v1.1 runtime scenario sweep against this runtime-proof directory, then continue #159 post-action refresh proof."
       : "Resolve the listed gateway live-control blockers before claiming #158 runtime proof."
@@ -269,7 +269,7 @@ function liveDryRunArgs(action: OpenClawGatewayLiveControlAction, threadId: stri
   if (action === "send") {
     return { action, thread_id: threadId, message };
   }
-  if (action === "steer") {
+  if (requiresTurnBinding(action)) {
     return { action, thread_id: threadId, message, expected_turn_id: expectedTurnId };
   }
   return { action, thread_id: threadId };
@@ -283,6 +283,7 @@ function liveArgs(action: OpenClawGatewayLiveControlAction, threadId: string, me
   };
   if (action === "send") return { ...common, message };
   if (action === "steer") return { ...common, message, expected_turn_id: expectedTurnId };
+  if (action === "interrupt") return { ...common, expected_turn_id: expectedTurnId };
   return common;
 }
 
@@ -307,7 +308,7 @@ function validDryRun(action: OpenClawGatewayLiveControlAction, summary: ControlS
     && safeAuditId(summary.approvalAuditId)
     && safeHash(summary.paramsHash)
     && (requiresMessageHash(action) ? safeHash(summary.messageHash) : true)
-    && (action !== "steer" || summary.expectedTurnId === expectedTurnId);
+    && (!requiresTurnBinding(action) || summary.expectedTurnId === expectedTurnId);
 }
 
 function validLive(action: OpenClawGatewayLiveControlAction, summary: ControlSummary, expectedTurnId: string | null): boolean {
@@ -317,7 +318,7 @@ function validLive(action: OpenClawGatewayLiveControlAction, summary: ControlSum
       ? liveTurnStatusProvesSendAccepted(summary.turnStatus)
       : action === "steer"
         ? summary.method === "turn/steer" && summary.expectedTurnId === expectedTurnId
-        : summary.method === "turn/interrupt";
+        : summary.method === "turn/interrupt" && summary.expectedTurnId === expectedTurnId;
   return summary.live === true
     && safeAuditId(summary.approvalAuditId)
     && safeHash(summary.paramsHash)
@@ -330,13 +331,17 @@ function actionMessage(action: OpenClawGatewayLiveControlAction, message: string
   return action === "steer" && message === DEFAULT_MESSAGE ? DEFAULT_STEER_MESSAGE : message;
 }
 
-function requiredExpectedTurnId(value: string | undefined): string {
+function requiredExpectedTurnId(value: string | undefined, action: OpenClawGatewayLiveControlAction): string {
   if (typeof value === "string" && value.trim()) return value.trim();
-  throw new Error("openclaw live-control-smoke requires --expected-turn-id for steer");
+  throw new Error(`openclaw live-control-smoke requires --expected-turn-id for ${action}`);
 }
 
 function requiresMessageHash(action: OpenClawGatewayLiveControlAction): boolean {
   return action === "send" || action === "steer";
+}
+
+function requiresTurnBinding(action: OpenClawGatewayLiveControlAction): boolean {
+  return action === "steer" || action === "interrupt";
 }
 
 function liveTurnStatusProvesSendAccepted(value: string | null): boolean {

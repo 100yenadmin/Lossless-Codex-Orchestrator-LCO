@@ -343,7 +343,10 @@ test("release ga-smoke writes one public-safe ready packet from existing evidenc
   const matrixCommand = report.nextSafeCommands.find((command) => command.includes("loo qa-lab live-control-matrix"));
   assert.ok(matrixCommand);
   assert.match(matrixCommand, /--claim-scope codex-live-control/);
-  assert.match(matrixCommand, /--sacrificial-thread-id <approved-sacrificial-thread-id>/);
+  assert.match(matrixCommand, /--sacrificial-thread-id <send-sacrificial-thread-id>/);
+  assert.match(matrixCommand, /--sacrificial-thread-id <resume-sacrificial-thread-id>/);
+  assert.match(matrixCommand, /--sacrificial-thread-id <steer-sacrificial-thread-id>/);
+  assert.match(matrixCommand, /--sacrificial-thread-id <interrupt-sacrificial-thread-id>/);
   assert.match(matrixCommand, /--send-report <send-report\.json>/);
   assert.match(matrixCommand, /--interrupt-report <interrupt-report\.json>/);
   assert.match(report.proofBoundary, /does not publish npm/i);
@@ -490,7 +493,8 @@ test("release ga-smoke blocks thread-scoped interrupt rows from satisfying live-
   assert.ok(interrupt);
   interrupt.liveProof = {
     ...interrupt.liveProof as Record<string, unknown>,
-    expectedTurnIdPresent: false,
+    expectedTurnIdPresent: true,
+    expectedTurnIdMatchesDryRun: true,
     bindingScope: "thread_scoped"
   };
   writeJson(paths.liveControlMatrix, matrix);

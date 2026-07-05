@@ -91,7 +91,7 @@ if (method === "tools.invoke") {
       approval_audit_id: "${DRY_RUN_AUDIT_ID}",
       params_hash: "${PARAMS_HASH}"
     };
-    if (toolArgs.action === "steer") {
+    if (toolArgs.action === "steer" || toolArgs.action === "interrupt") {
       output.expectedTurnId = toolArgs.expected_turn_id;
       output.expected_turn_id = toolArgs.expected_turn_id;
     }
@@ -163,8 +163,8 @@ if (method === "tools.invoke") {
     process.exit(0);
   }
   if (name === "loo_codex_interrupt_thread") {
-    if (toolArgs.approval_audit_id !== "${DRY_RUN_AUDIT_ID}" || toolArgs.dry_run !== false) {
-      console.log(JSON.stringify({ ok: false, error: { code: "approval_mismatch" } }));
+    if (toolArgs.approval_audit_id !== "${DRY_RUN_AUDIT_ID}" || toolArgs.dry_run !== false || !toolArgs.expected_turn_id) {
+      console.log(JSON.stringify({ ok: false, error: { code: "approval_or_turn_mismatch" } }));
       process.exit(0);
     }
     console.log(JSON.stringify({ ok: true, output: {
@@ -174,6 +174,8 @@ if (method === "tools.invoke") {
       approvalAuditId: "${LIVE_AUDIT_ID}",
       paramsHash: "${PARAMS_HASH}",
       method: "${interruptMethod}",
+      expectedTurnId: toolArgs.expected_turn_id,
+      expected_turn_id: toolArgs.expected_turn_id,
       approval_audit_id: "${LIVE_AUDIT_ID}",
       params_hash: "${PARAMS_HASH}",
       response: { ok: true, status: "accepted" }
@@ -387,6 +389,7 @@ test("OpenClaw live-control smoke proves an interrupt action through tools.invok
       evidenceDir,
       threadId: "thr_gateway_interrupt",
       action: "interrupt",
+      expectedTurnId: "turn_sacrificial_interrupt",
       now: "2026-07-01T00:00:00.000Z"
     });
 
@@ -396,6 +399,7 @@ test("OpenClaw live-control smoke proves an interrupt action through tools.invok
     assert.equal(report.live.live, true);
     assert.equal(report.live.method, "turn/interrupt");
     assert.equal(report.live.messageHash, null);
+    assert.equal(report.live.expectedTurnId, "turn_sacrificial_interrupt");
     assert.equal(report.audit.matchingDryRunRecord, true);
     assert.equal(report.audit.matchingLiveRecord, true);
     assert.deepEqual(report.blockers, []);
@@ -403,9 +407,11 @@ test("OpenClaw live-control smoke proves an interrupt action through tools.invok
     const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { method: string; params: { name?: string; args?: Record<string, unknown> } });
     assert.equal(calls[1]?.params.name, "loo_codex_control_dry_run");
     assert.equal(calls[1]?.params.args?.action, "interrupt");
+    assert.equal(calls[1]?.params.args?.expected_turn_id, "turn_sacrificial_interrupt");
     assert.equal(calls[2]?.params.name, "loo_codex_interrupt_thread");
     assert.equal(calls[2]?.params.args?.approval_audit_id, DRY_RUN_AUDIT_ID);
     assert.equal(calls[2]?.params.args?.dry_run, false);
+    assert.equal(calls[2]?.params.args?.expected_turn_id, "turn_sacrificial_interrupt");
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;
@@ -458,6 +464,29 @@ test("OpenClaw live-control smoke requires expected turn id for steer before gat
       action: "steer",
       now: "2026-07-01T00:00:00.000Z"
     }), /requires --expected-turn-id/);
+    assert.equal(existsSync(callsPath), false);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw live-control smoke requires expected turn id for interrupt before gateway calls", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-smoke-interrupt-no-turn-"));
+  const evidenceDir = join(root, "evidence");
+  const { bin, callsPath } = createFakeOpenClaw(root);
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+
+  try {
+    assert.throws(() => runOpenClawGatewayLiveControlSmoke({
+      openclawBin: bin,
+      evidenceDir,
+      threadId: "thr_gateway_interrupt_no_turn",
+      action: "interrupt",
+      now: "2026-07-01T00:00:00.000Z"
+    }), /requires --expected-turn-id for interrupt/);
     assert.equal(existsSync(callsPath), false);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;

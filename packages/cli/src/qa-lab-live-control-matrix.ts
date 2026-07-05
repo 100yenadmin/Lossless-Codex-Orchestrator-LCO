@@ -142,7 +142,14 @@ export function createQaLabLiveControlMatrixReport(options: QaLabLiveControlMatr
     skippedRequiredRows: rows.filter((row) => row.requiredForClaim && row.status === "skipped").length,
     excludedRows: rows.filter((row) => row.status === "excluded_by_claim_scope").length
   };
-  if (options.candidateSha && !SHA_PATTERN.test(options.candidateSha)) {
+  if (!options.candidateSha) {
+    blockers.push({
+      severity: "P1",
+      code: "candidate_sha_missing",
+      source: "liveControlMatrix",
+      detail: "Candidate SHA is required for live-control matrix release evidence."
+    });
+  } else if (!SHA_PATTERN.test(options.candidateSha)) {
     blockers.push({
       severity: "P1",
       code: "candidate_sha_invalid",
@@ -404,7 +411,7 @@ function requiresMessageHash(action: OpenClawGatewayLiveControlAction): boolean 
 
 function severityForCode(code: string): "P0" | "P1" | "P2" {
   if (code.includes("private_data") || code.includes("raw_transcript") || code.includes("outside_evidence_dir")) return "P0";
-  if (code.includes("missing") || code.includes("not_ready") || code.includes("not_sacrificial") || code.includes("not_proven")) return "P1";
+  if (code.includes("missing") || code.includes("not_ready") || code.includes("not_sacrificial") || code.includes("not_action_isolated") || code.includes("not_proven")) return "P1";
   return "P2";
 }
 

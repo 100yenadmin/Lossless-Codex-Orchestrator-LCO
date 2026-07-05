@@ -990,7 +990,7 @@ function mainUsageText(): string {
     "  loo release demo-status --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--min-sessions n] [--strict]",
     "  loo qa-lab cli-mcp-smoke --evidence-dir path --package-version version [--candidate-sha sha] [--cli-bin path] [--mcp-bin path] [--required-tool name] [--tool-call name] [--timeout-ms ms] [--now iso] [--strict]",
     "  loo qa-lab tool-coverage --evidence-dir path [--tool-smoke-report path] [--dogfood-report path] [--published-smoke path] [--manifest path] [--package-version version] [--candidate-sha sha] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--coverage-policy full|facade] [--now iso] [--strict]",
-    "  loo qa-lab live-control-matrix --evidence-dir path [--package-version version] [--candidate-sha sha] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--sacrificial-thread-id id] [--send-report path] [--resume-report path] [--steer-report path] [--interrupt-report path] [--now iso] [--strict]",
+    "  loo qa-lab live-control-matrix --evidence-dir path [--package-version version] [--candidate-sha sha] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--sacrificial-thread-id id ...] [--send-report path] [--resume-report path] [--steer-report path] [--interrupt-report path] [--now iso] [--strict]",
     "  loo qa-lab judge --run path --rubric-version real-product-v1 --evidence-dir path [--now iso] [--strict]",
     "  loo qa-lab adversarial-review --run path --lenses safety,retrieval,packaging,claims,agent-usability --evidence-dir path [--now iso] [--strict]",
     "  loo qa-lab workflow --scenario-id id --surface openclaw-gateway --mode dry-run --evidence-dir path [--openclaw-bin path] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--now iso] [--strict]"
@@ -1409,6 +1409,7 @@ function printQaLabLiveControlMatrixHelp(): void {
     "Safety boundary:",
     "  This command is aggregate-only. It reads sanitized proof reports and does not run live Codex control.",
     "  Required live rows must target explicit --sacrificial-thread-id allowlist entries.",
+    "  Full live-control claims require distinct approved sacrificial thread ids for send, resume, steer, and interrupt.",
     "  It does not mutate a desktop GUI, read raw transcripts, capture screenshots, publish npm, or create GitHub Releases."
   ].join("\n"));
 }
@@ -1601,7 +1602,7 @@ function printOpenClawLiveControlSmokeHelp(): void {
     "Safety boundary:",
     "  The command requires an explicit --thread-id target.",
     "  The command requires an explicit --action so no live action is selected by default.",
-    "  Steer requires --expected-turn-id so the live action is bound to one known sacrificial turn.",
+    "  Steer and interrupt require --expected-turn-id so the live action is bound to one known sacrificial turn.",
     "  It invokes loo_codex_control_dry_run first, then uses the matching approval_audit_id for the selected live tool with dry_run:false.",
     "  It reads loo_audit_tail to prove matching dry-run/live audit metadata.",
     "  Evidence contains refs, audit ids, hashes, tool names, and status only.",
