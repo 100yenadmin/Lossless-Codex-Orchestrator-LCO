@@ -505,13 +505,7 @@ test("prepared cards choose the first pending plan action when no explicit final
         role: "assistant",
         content: [{
           type: "output_text",
-          text: [
-            "<proposed_plan>",
-            "1. The product goal is ready for card proof.",
-            "2. Build the earliest pending prepared-card proof.",
-            "3. Verify the later release proof.",
-            "</proposed_plan>"
-          ].join("\n")
+          text: "<proposed_plan>1. The product goal is ready for card proof. 2. Build the earliest pending prepared-card proof. 3. Verify the later release proof.</proposed_plan>"
         }]
       }
     },
@@ -604,6 +598,8 @@ test("prepared cards do not promote unlabeled completed finals into next action"
     assert.equal(card.state, "completed");
     assert.equal(card.nextAction, null);
     assert.match(card.summaryText, /^Finished: All prepared-card canaries passed\./);
+    assert.equal(card.reasonCodes.includes("completed_from_final_message"), true);
+    assert.equal(card.reasonCodes.includes("from_final_message"), false);
     assert.doesNotMatch(card.summaryText, /next All prepared-card canaries passed/i);
   } finally {
     db.close();

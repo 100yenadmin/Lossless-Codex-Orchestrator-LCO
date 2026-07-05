@@ -4907,7 +4907,7 @@ function derivePreparedCardWorkState(db: LooDatabase, input: PreparedCardWorkSta
     threadRenameCaptured ? "from_thread_rename" : "from_thread_title",
     objectiveText ? objectiveSource ? "from_latest_plan" : "from_thread_title" : "",
     nextActionText && nextActionSource ? nextActionSource : "",
-    finalMessage && input.state === "completed" ? "from_final_message" : "",
+    finalMessage && input.state === "completed" ? "completed_from_final_message" : "",
     attention.blocker ? "from_attention_queue" : metadataBlocker ? "from_session_metadata" : "",
     ...attention.reasonCodes,
     title.cleaned || objective.cleaned || nextActionCleaned || blocker.cleaned ? "presentation_cleaned" : "",
@@ -4950,7 +4950,7 @@ function firstUncheckedPreparedPlanStep(planText: string, distinctFrom: Array<st
 }
 
 function preparedPlanStepCandidates(planText: string): Array<{ text: string; checked: boolean; heading: boolean }> {
-  const lineable = stripPlanEnvelopeTokens(planText).replace(/\s+((?:[-*+]|\d+[.)]|\[(?: |x|X)\])\s+)/g, "\n$1");
+  const lineable = stripPlanEnvelopeTokens(planText).replace(/(?:^|\s+)((?:[-*+]|\d+[.)]|\[(?: |x|X)\])\s+)/g, "\n$1");
   return lineable
     .split(/\r?\n/)
     .map((line) => {
