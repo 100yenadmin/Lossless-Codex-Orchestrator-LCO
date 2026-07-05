@@ -53,6 +53,13 @@ import { DEFAULT_REQUIRED_TOOL_CALLS, runOpenClawToolSmoke } from "./openclaw-to
 import { createPublishedPackageSmokeReport } from "./published-package-smoke.js";
 import { createCliMcpProductSmokeReport, MAX_CLI_MCP_PRODUCT_SMOKE_TIMEOUT_MS } from "./cli-mcp-product-smoke.js";
 import { createQaLabToolCoverageReport, type QaLabCoveragePolicy } from "./qa-lab-tool-coverage.js";
+import {
+  createQaLabAdversarialReviewReport,
+  createQaLabJudgeReviewReport,
+  DEFAULT_QA_LAB_ADVERSARIAL_LENSES,
+  type QaLabAdversarialLens,
+  type QaLabRubricVersion
+} from "./qa-lab-review.js";
 import { runOpenClawGatewayLiveControlSmoke, type OpenClawGatewayLiveControlAction } from "./openclaw-live-control-smoke.js";
 import { runOpenClawPostActionRefreshSmoke } from "./openclaw-post-action-refresh-smoke.js";
 import { createScorecardSweep } from "./scorecard-sweep.js";
@@ -695,6 +702,28 @@ async function main() {
     if (parsed.strict && !report.ok) process.exitCode = 1;
     return;
   }
+  if (command === "qa-lab" && args[0] === "judge") {
+    if (hasHelpFlag(args.slice(1))) {
+      printQaLabJudgeHelp();
+      return;
+    }
+    const parsed = parseQaLabJudgeArgs(args.slice(1));
+    const report = createQaLabJudgeReviewReport(parsed);
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.gaReady) process.exitCode = 1;
+    return;
+  }
+  if (command === "qa-lab" && args[0] === "adversarial-review") {
+    if (hasHelpFlag(args.slice(1))) {
+      printQaLabAdversarialReviewHelp();
+      return;
+    }
+    const parsed = parseQaLabAdversarialReviewArgs(args.slice(1));
+    const report = createQaLabAdversarialReviewReport(parsed);
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.ok) process.exitCode = 1;
+    return;
+  }
   printMainUsage("error");
   process.exitCode = 2;
 }
@@ -916,7 +945,9 @@ function mainUsageText(): string {
     "  loo release ga-smoke --evidence-dir path --package-version version --candidate-sha sha [--release-status path] [--release-finalization-status path] [--published-smoke path] [--dogfood-report path] [--tool-smoke-report path] [--scenario-sweep path] [--scorecard-sweep path] [--release-preflight path] [--release-bundle path] [--privacy-scan path] [--qa-lab-run path] [--tool-coverage path] [--judge-review path] [--adversarial-review path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--allow-setup-required] [--now iso] [--strict]",
     "  loo release demo-status --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--min-sessions n] [--strict]",
     "  loo qa-lab cli-mcp-smoke --evidence-dir path --package-version version [--candidate-sha sha] [--cli-bin path] [--mcp-bin path] [--required-tool name] [--tool-call name] [--timeout-ms ms] [--now iso] [--strict]",
-    "  loo qa-lab tool-coverage --evidence-dir path [--tool-smoke-report path] [--dogfood-report path] [--published-smoke path] [--manifest path] [--package-version version] [--candidate-sha sha] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--coverage-policy full|facade] [--now iso] [--strict]"
+    "  loo qa-lab tool-coverage --evidence-dir path [--tool-smoke-report path] [--dogfood-report path] [--published-smoke path] [--manifest path] [--package-version version] [--candidate-sha sha] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--coverage-policy full|facade] [--now iso] [--strict]",
+    "  loo qa-lab judge --run path --rubric-version real-product-v1 --evidence-dir path [--now iso] [--strict]",
+    "  loo qa-lab adversarial-review --run path --lenses safety,retrieval,packaging,claims,agent-usability --evidence-dir path [--now iso] [--strict]"
   ].join("\n");
 }
 
@@ -1317,6 +1348,36 @@ function printQaLabCliMcpSmokeHelp(): void {
     "Safety boundary:",
     "  This command writes public-safe evidence only.",
     "  It does not run live Codex control, mutate a desktop GUI, capture screenshots, publish npm, or create a GitHub Release."
+  ].join("\n"));
+}
+
+function printQaLabJudgeHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo qa-lab judge --run path --rubric-version real-product-v1 --evidence-dir path [--now iso] [--strict]",
+    "",
+    "Emits a deterministic `lco.qaLab.judgeReview.v1` report from a sanitized QA Lab run.",
+    "",
+    "Strict mode:",
+    "  --strict exits non-zero unless privacy and safety are 5/5, every other dimension is at least 4/5, and the average score is at least 4.5.",
+    "",
+    "Safety boundary:",
+    "  This command is rule-based and does not call a model, read raw transcripts, echo raw prompts, inspect SQLite/JSONL, capture screenshots, run live control, mutate GUI state, publish npm, or create GitHub Releases."
+  ].join("\n"));
+}
+
+function printQaLabAdversarialReviewHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo qa-lab adversarial-review --run path --lenses safety,retrieval,packaging,claims,agent-usability --evidence-dir path [--now iso] [--strict]",
+    "",
+    "Emits a deterministic `lco.qaLab.adversarialReview.v1` report for selected adversarial lenses.",
+    "",
+    "Strict mode:",
+    "  --strict exits non-zero when any selected lens fails or any P0-P2 finding is present.",
+    "",
+    "Safety boundary:",
+    "  Findings are normalized from sanitized QA Lab report fields only. Raw evidence fields, local paths, prompts, logs, screenshots, SQLite/JSONL, tokens, cookies, and customer data are not echoed."
   ].join("\n"));
 }
 
@@ -3261,6 +3322,108 @@ function parseQaLabCliMcpSmokeArgs(input: string[]): {
 function parseLooToolName(value: string, flag: string): string {
   if (/^loo_[a-z0-9_]+$/.test(value)) return value;
   throw new Error(`${flag} requires a loo_* tool name`);
+}
+
+function parseQaLabJudgeArgs(input: string[]): {
+  runPath: string;
+  evidenceDir: string;
+  rubricVersion: QaLabRubricVersion;
+  now?: string;
+  strict: boolean;
+} {
+  let runPath: string | undefined;
+  let evidenceDir: string | undefined;
+  let rubricVersion: QaLabRubricVersion | undefined;
+  let now: string | undefined;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--run") {
+      runPath = readReleaseStatusPath(input, ++index, "--run");
+      continue;
+    }
+    if (arg === "--evidence-dir") {
+      evidenceDir = readReleaseStatusPath(input, ++index, "--evidence-dir");
+      continue;
+    }
+    if (arg === "--rubric-version") {
+      rubricVersion = parseQaLabRubricVersion(input, ++index, "--rubric-version");
+      continue;
+    }
+    if (arg === "--now") {
+      now = readReleaseStatusValue(input, ++index, "--now");
+      continue;
+    }
+    if (arg === "--strict") {
+      strict = true;
+      continue;
+    }
+    throw new Error(`Unknown qa-lab judge option: ${arg}`);
+  }
+  if (!runPath) throw new Error("qa-lab judge requires --run");
+  if (!evidenceDir) throw new Error("qa-lab judge requires --evidence-dir");
+  if (!rubricVersion) throw new Error("qa-lab judge requires --rubric-version");
+  return { runPath, evidenceDir, rubricVersion, now, strict };
+}
+
+function parseQaLabAdversarialReviewArgs(input: string[]): {
+  runPath: string;
+  evidenceDir: string;
+  lenses: QaLabAdversarialLens[];
+  now?: string;
+  strict: boolean;
+} {
+  let runPath: string | undefined;
+  let evidenceDir: string | undefined;
+  let lenses: QaLabAdversarialLens[] | undefined;
+  let now: string | undefined;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--run") {
+      runPath = readReleaseStatusPath(input, ++index, "--run");
+      continue;
+    }
+    if (arg === "--evidence-dir") {
+      evidenceDir = readReleaseStatusPath(input, ++index, "--evidence-dir");
+      continue;
+    }
+    if (arg === "--lenses") {
+      lenses = parseQaLabAdversarialLenses(input, ++index, "--lenses");
+      continue;
+    }
+    if (arg === "--now") {
+      now = readReleaseStatusValue(input, ++index, "--now");
+      continue;
+    }
+    if (arg === "--strict") {
+      strict = true;
+      continue;
+    }
+    throw new Error(`Unknown qa-lab adversarial-review option: ${arg}`);
+  }
+  if (!runPath) throw new Error("qa-lab adversarial-review requires --run");
+  if (!evidenceDir) throw new Error("qa-lab adversarial-review requires --evidence-dir");
+  return { runPath, evidenceDir, lenses: lenses ?? DEFAULT_QA_LAB_ADVERSARIAL_LENSES, now, strict };
+}
+
+function parseQaLabRubricVersion(input: string[], index: number, flag: string): QaLabRubricVersion {
+  const value = readReleaseStatusValue(input, index, flag);
+  if (value === "real-product-v1") return value;
+  throw new Error(`${flag} requires real-product-v1`);
+}
+
+function parseQaLabAdversarialLenses(input: string[], index: number, flag: string): QaLabAdversarialLens[] {
+  const value = readReleaseStatusValue(input, index, flag);
+  const lenses = value.split(",").map((item) => item.trim()).filter(Boolean).map((item) => normalizeQaLabLens(item));
+  if (lenses.length === 0) throw new Error(`${flag} requires at least one lens`);
+  return [...new Set(lenses)];
+}
+
+function normalizeQaLabLens(value: string): QaLabAdversarialLens {
+  if (value === "safety" || value === "retrieval" || value === "packaging" || value === "claims") return value;
+  if (value === "agent-usability" || value === "agentUsability") return "agentUsability";
+  throw new Error(`Unknown qa-lab adversarial-review lens: ${value}`);
 }
 
 function parseQaLabCoveragePolicy(input: string[], index: number, flag: string): QaLabCoveragePolicy {
