@@ -239,6 +239,10 @@ function probeMcpToolsListAndCall(mcpBin: string, toolCallName: string, timeoutM
         if (parsed.id === 2 && isRecord(parsed.result)) {
           const tools = extractToolNames(parsed.result.tools);
           listedTools = tools;
+          if (tools.length === 0) {
+            finish({ ...packageDefect("mcp_no_loo_tools_listed"), tools, toolCall: failedToolCall(toolCallName, "mcp_no_loo_tools_listed") });
+            return;
+          }
           if (!tools.includes(toolCallName)) {
             finish({
               ready: true,
@@ -270,13 +274,14 @@ function probeMcpToolsListAndCall(mcpBin: string, toolCallName: string, timeoutM
           return;
         }
         if (parsed.id === 3 && isRecord(parsed.result)) {
+          const toolCall = successfulToolCall(toolCallName, parsed.result);
           finish({
             ready: true,
             tools: listedTools,
             setupBlockers: [],
-            blockers: [],
+            blockers: toolCall.ok ? [] : [toolCall.errorCode ?? "mcp_tools_call_failed"],
             warnings: [],
-            toolCall: successfulToolCall(toolCallName, parsed.result)
+            toolCall
           });
           return;
         }
@@ -309,14 +314,25 @@ function failedToolCall(toolName: string, errorCode: string): ToolCallProbe {
 
 function successfulToolCall(toolName: string, result: Record<string, unknown>): ToolCallProbe {
   const content = Array.isArray(result.content) ? result.content : [];
+  const responseToolName = typeof result.toolName === "string"
+    ? result.toolName
+    : typeof result.name === "string"
+      ? result.name
+      : null;
+  const nameMatches = responseToolName === null || responseToolName === toolName;
   return {
     toolName,
-    ok: true,
+    ok: nameMatches,
     contentItemCount: content.length,
-    contentKinds: uniqueStrings(content.map((item) => isRecord(item) && typeof item.type === "string" ? item.type : "unknown")),
+    contentKinds: uniqueStrings(content.map((item) => safeContentKind(item))).slice(0, 8),
     structuredContentPresent: Object.prototype.hasOwnProperty.call(result, "structuredContent"),
-    errorCode: null
+    errorCode: nameMatches ? null : "mcp_tools_call_name_mismatch"
   };
+}
+
+function safeContentKind(item: unknown): string {
+  const kind = isRecord(item) && typeof item.type === "string" ? item.type : "unknown";
+  return ["text", "image", "resource", "audio", "unknown"].includes(kind) ? kind : "unknown";
 }
 
 function readyProbe(): ProbeResult {

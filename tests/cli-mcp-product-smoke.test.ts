@@ -31,6 +31,7 @@ function writeFakeMcpServer(path: string, toolNames: string[], options: {
   initializeError?: boolean;
   toolsCallError?: boolean;
   exitAfterToolsCall?: boolean;
+  responseToolName?: string;
 } = {}): void {
   writeExecutable(path, [
     "#!/usr/bin/env node",
@@ -43,6 +44,7 @@ function writeFakeMcpServer(path: string, toolNames: string[], options: {
     `const initializeError = ${JSON.stringify(options.initializeError === true)};`,
     `const toolsCallError = ${JSON.stringify(options.toolsCallError === true)};`,
     `const exitAfterToolsCall = ${JSON.stringify(options.exitAfterToolsCall === true)};`,
+    `const responseToolName = ${JSON.stringify(options.responseToolName ?? null)};`,
     "const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });",
     "function send(payload) { process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...payload }) + '\\n'); }",
     "rl.on('line', (line) => {",
@@ -62,7 +64,7 @@ function writeFakeMcpServer(path: string, toolNames: string[], options: {
     "      return;",
     "    }",
     "    if (toolsCallError) { send({ id: message.id, error: { code: -32001, message: 'tool call failed' } }); return; }",
-    "    send({ id: message.id, result: { content: [{ type: 'text', text: 'ok but raw /Users/lume/.codex/state_5.sqlite Bearer hidden-token' }], structuredContent: { ok: true } } });",
+    "    send({ id: message.id, result: { ...(responseToolName ? { toolName: responseToolName } : {}), content: [{ type: 'text', text: 'ok but raw /Users/lume/.codex/state_5.sqlite Bearer hidden-token' }], structuredContent: { ok: true } } });",
     "    if (exitAfterToolsCall) setImmediate(() => process.exit(0));",
     "    return;",
     "  }",
@@ -400,6 +402,89 @@ test("loo qa-lab cli-mcp-smoke reports MCP initialize and tools/call errors as p
   } finally {
     rmSync(initDir, { recursive: true, force: true });
     rmSync(callDir, { recursive: true, force: true });
+  }
+});
+
+test("loo qa-lab cli-mcp-smoke fails closed when MCP lists no loo tools", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-cli-mcp-smoke-empty-tools-"));
+  try {
+    const evidenceDir = join(dir, "evidence");
+    const cliBin = join(dir, "loo");
+    const mcpBin = join(dir, "loo-mcp-server");
+    writeFakeCli(cliBin);
+    writeFakeMcpServer(mcpBin, []);
+
+    const result = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "qa-lab",
+      "cli-mcp-smoke",
+      "--evidence-dir",
+      evidenceDir,
+      "--package-version",
+      "1.2.5",
+      "--cli-bin",
+      cliBin,
+      "--mcp-bin",
+      mcpBin,
+      "--strict"
+    ], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      timeout: 15_000
+    });
+
+    assert.equal(result.status, 1, result.stderr || result.stdout);
+    const report = JSON.parse(result.stdout) as { mcpReady: boolean; toolsListed: number; blockers: string[] };
+    assert.equal(report.mcpReady, false);
+    assert.equal(report.toolsListed, 0);
+    assert.ok(report.blockers.includes("mcp_no_loo_tools_listed"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loo qa-lab cli-mcp-smoke rejects mismatched tools/call response names", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-cli-mcp-smoke-name-mismatch-"));
+  try {
+    const evidenceDir = join(dir, "evidence");
+    const cliBin = join(dir, "loo");
+    const mcpBin = join(dir, "loo-mcp-server");
+    writeFakeCli(cliBin);
+    writeFakeMcpServer(mcpBin, ["loo_doctor"], { responseToolName: "loo_other_tool" });
+
+    const result = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "qa-lab",
+      "cli-mcp-smoke",
+      "--evidence-dir",
+      evidenceDir,
+      "--package-version",
+      "1.2.5",
+      "--cli-bin",
+      cliBin,
+      "--mcp-bin",
+      mcpBin,
+      "--required-tool",
+      "loo_doctor",
+      "--strict"
+    ], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      timeout: 15_000
+    });
+
+    assert.equal(result.status, 1, result.stderr || result.stdout);
+    const report = JSON.parse(result.stdout) as { mcpReady: boolean; mcpToolsCallReady: boolean; blockers: string[]; toolCallProbe: { errorCode: string | null } };
+    assert.equal(report.mcpReady, true);
+    assert.equal(report.mcpToolsCallReady, false);
+    assert.ok(report.blockers.includes("mcp_tools_call_name_mismatch"));
+    assert.equal(report.toolCallProbe.errorCode, "mcp_tools_call_name_mismatch");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
