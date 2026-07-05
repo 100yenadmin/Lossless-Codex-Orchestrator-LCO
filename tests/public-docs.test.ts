@@ -9,7 +9,7 @@ function read(path: string): string {
 test("GA README is a public landing page with first-run setup path", () => {
   const readme = read("README.md");
 
-  assert.match(readme, /^# Lossless OpenClaw Orchestrator/m);
+  assert.match(readme, /^# Lossless Codex Orchestrator/m);
   assert.doesNotMatch(readme, /^# Orchestrator CCC\+L/m);
 
   for (const required of [

@@ -1,4 +1,4 @@
-# Lossless OpenClaw Orchestrator
+# Lossless Codex Orchestrator
 
 **LCO turns local Codex sessions into searchable, bounded, approval-aware
 work objects for OpenClaw.**
