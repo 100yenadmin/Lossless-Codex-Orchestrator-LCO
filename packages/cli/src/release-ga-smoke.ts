@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { normalizeReleaseClaimScope, type ReleaseClaimScope } from "./release-claim-scope.js";
@@ -17,11 +18,16 @@ export type ReleaseGaSmokeOptions = {
   releasePreflight?: string;
   releaseBundle?: string;
   privacyScan?: string;
+  qaLabRun?: string;
+  qaLabToolCoverage?: string;
+  qaLabJudgeReview?: string;
+  qaLabAdversarialReview?: string;
   allowSetupRequired?: boolean;
   now?: string;
 };
 
 export type ReleaseGaSmokeSeverity = "P0" | "P1" | "P2";
+type ReleaseGaSmokeFindingSeverity = ReleaseGaSmokeSeverity | "P3";
 
 export type ReleaseGaSmokeBlocker = {
   severity: ReleaseGaSmokeSeverity;
@@ -75,6 +81,10 @@ export type ReleaseGaSmokeReport = {
     releasePreflightReady: boolean;
     releaseBundleReady: boolean;
     privacyScanReady: boolean;
+    qaLabRunReady: boolean;
+    qaLabToolCoverageReady: boolean;
+    qaLabJudgeReviewReady: boolean;
+    qaLabAdversarialReviewReady: boolean;
   };
   actionsPerformed: {
     npmPublished: false;
@@ -98,7 +108,11 @@ type ReleaseGaSmokeSourceId =
   | "scorecardSweep"
   | "releasePreflight"
   | "releaseBundle"
-  | "privacyScan";
+  | "privacyScan"
+  | "qaLabRun"
+  | "qaLabToolCoverage"
+  | "qaLabJudgeReview"
+  | "qaLabAdversarialReview";
 
 type EvidenceSpec = {
   id: ReleaseGaSmokeSourceId;
@@ -124,6 +138,7 @@ const SECRET_LIKE_PATTERN = /(npm_[A-Za-z0-9]{20,}|bearer\s+[A-Za-z0-9._-]{20,}|
 const SECRET_LIKE_KEY_PATTERN = /^(authorization|cookie|set-cookie|x-api-key|api[_-]?key|token)$/i;
 const RAW_ARTIFACT_PATTERN = /\.(?:jsonl|jsonl\.gz|sqlite|sqlite-wal|sqlite-shm|db|db-journal|db-wal|db-shm|png|jpg|jpeg|gif|webp|mp4|mov|webm)$/i;
 const RAW_OUTPUT_ARTIFACT_PATTERN = /(?:^|[/._-])(?:raw[-_]?.*|npm[-_]?output|npm[-_]?(?:stdout|stderr)|gateway[-_]?output|gateway[-_]?(?:stdout|stderr)|openclaw[-_]?output|openclaw[-_]?(?:stdout|stderr))(?:[/._-].*)?\.(?:txt|log|json)$/i;
+const PRIVATE_FINDING_DETAIL_PATTERN = /\/Users\/|\/Volumes\/|\.jsonl\b|\.sqlite\b|Bearer\s+|npm_[A-Za-z0-9]{20,}|cookie/i;
 const RESTRICTED_ACTION_KEYS = new Set([
   "npmPublished",
   "githubReleaseCreated",
@@ -144,6 +159,10 @@ const EVIDENCE_SPECS: Array<Omit<EvidenceSpec, "optionPath"> & { optionKey: keyo
   | "releasePreflight"
   | "releaseBundle"
   | "privacyScan"
+  | "qaLabRun"
+  | "qaLabToolCoverage"
+  | "qaLabJudgeReview"
+  | "qaLabAdversarialReview"
 > }> = [
   { id: "releaseStatus", defaultFile: "release-status.json", optionKey: "releaseStatus" },
   { id: "releaseFinalizationStatus", defaultFile: "release-finalization-status.json", optionKey: "releaseFinalizationStatus" },
@@ -154,7 +173,11 @@ const EVIDENCE_SPECS: Array<Omit<EvidenceSpec, "optionPath"> & { optionKey: keyo
   { id: "scorecardSweep", defaultFile: "scorecard-sweep.json", optionKey: "scorecardSweep" },
   { id: "releasePreflight", defaultFile: "release-preflight.json", optionKey: "releasePreflight" },
   { id: "releaseBundle", defaultFile: "release-bundle.json", optionKey: "releaseBundle" },
-  { id: "privacyScan", defaultFile: "privacy-scan.json", optionKey: "privacyScan" }
+  { id: "privacyScan", defaultFile: "privacy-scan.json", optionKey: "privacyScan" },
+  { id: "qaLabRun", defaultFile: "qa-lab-run.json", optionKey: "qaLabRun" },
+  { id: "qaLabToolCoverage", defaultFile: "tool-coverage.json", optionKey: "qaLabToolCoverage" },
+  { id: "qaLabJudgeReview", defaultFile: "judge-review.json", optionKey: "qaLabJudgeReview" },
+  { id: "qaLabAdversarialReview", defaultFile: "adversarial-review.json", optionKey: "qaLabAdversarialReview" }
 ];
 
 export function createReleaseGaSmokeReport(options: ReleaseGaSmokeOptions): ReleaseGaSmokeReport {
@@ -358,7 +381,200 @@ function validateEvidenceBySource(
     case "privacyScan":
       requireBoolean(value, "ok", true, blockers, "P1", "privacy_scan_not_ready", evidence.spec.id, "Privacy scan is not ready.");
       break;
+    case "qaLabRun":
+      validateQaLabRun(value, options, blockers, warnings);
+      break;
+    case "qaLabToolCoverage":
+      validateQaLabToolCoverage(value, options, blockers, warnings);
+      break;
+    case "qaLabJudgeReview":
+      validateQaLabJudgeReview(value, blockers, warnings);
+      break;
+    case "qaLabAdversarialReview":
+      validateQaLabAdversarialReview(value, blockers, warnings);
+      break;
   }
+}
+
+function validateQaLabRun(
+  value: JsonRecord,
+  options: ReleaseGaSmokeOptions,
+  blockers: ReleaseGaSmokeBlocker[],
+  warnings: ReleaseGaSmokeWarning[]
+): void {
+  validateSchema(value, ["lco.qaLab.run.v1", "lco.qaLab.workflowRun.v1"], blockers, "qa_lab_run_schema_invalid", "qaLabRun");
+  requireOneBoolean(value, ["qaLabReady", "workflowRunReady"], true, blockers, "P1", "qa_lab_run_not_ready", "qaLabRun", "QA Lab run evidence is not ready.");
+  requireString(value, "packageVersion", options.packageVersion, blockers, "qa_lab_run_version_mismatch", "qaLabRun", "QA Lab run package version does not match.");
+  requireString(value, "candidateSha", options.candidateSha, blockers, "qa_lab_run_sha_mismatch", "qaLabRun", "QA Lab run candidate SHA does not match.");
+  applyQaLabFindings(value, "qaLabRun", blockers, warnings);
+}
+
+function validateQaLabToolCoverage(
+  value: JsonRecord,
+  options: ReleaseGaSmokeOptions,
+  blockers: ReleaseGaSmokeBlocker[],
+  warnings: ReleaseGaSmokeWarning[]
+): void {
+  validateSchema(value, ["lco.qaLab.toolCoverage.v1"], blockers, "qa_lab_tool_coverage_schema_invalid", "qaLabToolCoverage");
+  requireBoolean(value, "qaLabToolCoverageReady", true, blockers, "P2", "qa_lab_tool_coverage_not_ready", "qaLabToolCoverage", "QA Lab tool coverage evidence is not ready.");
+  requireString(value, "packageVersion", options.packageVersion, blockers, "qa_lab_tool_coverage_version_mismatch", "qaLabToolCoverage", "QA Lab tool coverage package version does not match.");
+  requireString(value, "candidateSha", options.candidateSha, blockers, "qa_lab_tool_coverage_sha_mismatch", "qaLabToolCoverage", "QA Lab tool coverage candidate SHA does not match.");
+  if (value.coveragePolicy !== "full") {
+    addBlocker(blockers, "P2", "qa_lab_tool_coverage_not_full", "qaLabToolCoverage", "GA smoke requires full declared-tool coverage, not facade-only coverage.");
+  }
+  applyQaLabFindings(value, "qaLabToolCoverage", blockers, warnings);
+}
+
+function validateQaLabJudgeReview(
+  value: JsonRecord,
+  blockers: ReleaseGaSmokeBlocker[],
+  warnings: ReleaseGaSmokeWarning[]
+): void {
+  validateSchema(value, ["lco.qaLab.judgeReview.v1"], blockers, "qa_lab_judge_review_schema_invalid", "qaLabJudgeReview");
+  requireBoolean(value, "gaReady", true, blockers, "P1", "qa_lab_judge_review_not_ready", "qaLabJudgeReview", "QA Lab judge review is not GA-ready.");
+  applyQaLabFindings(value, "qaLabJudgeReview", blockers, warnings);
+}
+
+function validateQaLabAdversarialReview(
+  value: JsonRecord,
+  blockers: ReleaseGaSmokeBlocker[],
+  warnings: ReleaseGaSmokeWarning[]
+): void {
+  validateSchema(value, ["lco.qaLab.adversarialReview.v1"], blockers, "qa_lab_adversarial_review_schema_invalid", "qaLabAdversarialReview");
+  requireBoolean(value, "ok", true, blockers, "P1", "qa_lab_adversarial_review_not_ready", "qaLabAdversarialReview", "QA Lab adversarial review is not ready.");
+  applyQaLabFindings(value, "qaLabAdversarialReview", blockers, warnings);
+}
+
+function validateSchema(
+  value: JsonRecord,
+  allowedSchemas: string[],
+  blockers: ReleaseGaSmokeBlocker[],
+  code: string,
+  source: ReleaseGaSmokeSourceId
+): void {
+  if (typeof value.schema !== "string" || !allowedSchemas.includes(value.schema)) {
+    addBlocker(blockers, "P1", code, source, `${titleForSource(source)} schema does not match the expected QA Lab schema.`);
+  }
+}
+
+function requireOneBoolean(
+  value: JsonRecord,
+  fields: string[],
+  expected: boolean,
+  blockers: ReleaseGaSmokeBlocker[],
+  severity: ReleaseGaSmokeSeverity,
+  code: string,
+  source: ReleaseGaSmokeSourceId,
+  detail: string
+): void {
+  if (!fields.some((field) => value[field] === expected)) addBlocker(blockers, severity, code, source, detail);
+}
+
+function applyQaLabFindings(
+  value: JsonRecord,
+  source: ReleaseGaSmokeSourceId,
+  blockers: ReleaseGaSmokeBlocker[],
+  warnings: ReleaseGaSmokeWarning[]
+): void {
+  addAggregateQaLabBlockers(value, source, blockers, warnings);
+  const findings = [
+    ...readStructuredFindings(value.blockers),
+    ...readStructuredFindings(value.warnings),
+    ...readStringFindings(value.blockers, "P1"),
+    ...readStringFindings(value.warnings, "P3")
+  ];
+  const rawCodeBySanitizedCode = new Map<string, string>();
+  for (const finding of findings) {
+    const code = collisionSafeFindingCode(finding.code, rawCodeBySanitizedCode);
+    if (!code) continue;
+    const upstreamSource = finding.source ? safeFindingCode(finding.source) : "";
+    const upstreamDetail = safeFindingDetail(finding.detail);
+    const detailSuffix = [
+      upstreamSource ? `source=${upstreamSource}` : "",
+      upstreamDetail ? `detail=${upstreamDetail}` : ""
+    ].filter(Boolean).join("; ");
+    if (finding.severity === "P3") {
+      addWarning(warnings, code, source, `QA Lab reported non-blocking P3 finding ${code}${detailSuffix ? ` (${detailSuffix})` : ""}.`);
+    } else {
+      addBlocker(blockers, finding.severity, code, source, `QA Lab reported blocking finding ${code}${detailSuffix ? ` (${detailSuffix})` : ""}.`);
+    }
+  }
+}
+
+function addAggregateQaLabBlockers(
+  value: JsonRecord,
+  source: ReleaseGaSmokeSourceId,
+  blockers: ReleaseGaSmokeBlocker[],
+  warnings: ReleaseGaSmokeWarning[]
+): void {
+  if (source === "qaLabRun") {
+    const failedScenarioCount = numberValue(value.failedScenarioCount);
+    if (failedScenarioCount !== null && failedScenarioCount > 0) {
+      addBlocker(blockers, "P1", "qa_lab_run_failed_scenarios", source, `QA Lab run reports ${failedScenarioCount} failed scenario(s).`);
+    }
+  }
+  if (source === "qaLabAdversarialReview") {
+    const bySeverity = isRecord(value.blockersBySeverity) ? value.blockersBySeverity : null;
+    for (const severity of ["P0", "P1", "P2"] as const) {
+      const count = bySeverity ? numberValue(bySeverity[severity]) : null;
+      if (count !== null && count > 0) {
+        addBlocker(blockers, severity, `qa_lab_adversarial_review_aggregate_${severity.toLowerCase()}`, source, `QA Lab adversarial review reports ${count} aggregate ${severity} blocker(s).`);
+      }
+    }
+    const p3Count = bySeverity ? numberValue(bySeverity.P3) : null;
+    if (p3Count !== null && p3Count > 0) {
+      addWarning(warnings, "qa_lab_adversarial_review_aggregate_p3", source, `QA Lab adversarial review reports ${p3Count} aggregate P3 warning(s).`);
+    }
+  }
+}
+
+function readStructuredFindings(value: unknown): Array<{ severity: ReleaseGaSmokeFindingSeverity; code: string; source?: string; detail?: string }> {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(isRecord)
+    .map((item) => {
+      const severity = normalizeFindingSeverity(item.severity);
+      const code = typeof item.code === "string" ? item.code : "";
+      const source = typeof item.source === "string" ? item.source : undefined;
+      const detail = typeof item.detail === "string" ? item.detail : undefined;
+      if (!severity || !code) return null;
+      const finding: { severity: ReleaseGaSmokeFindingSeverity; code: string; source?: string; detail?: string } = { severity, code };
+      if (source) finding.source = source;
+      if (detail) finding.detail = detail;
+      return finding;
+    })
+    .filter((item): item is { severity: ReleaseGaSmokeFindingSeverity; code: string; source?: string; detail?: string } => Boolean(item));
+}
+
+function readStringFindings(value: unknown, severity: ReleaseGaSmokeFindingSeverity): Array<{ severity: ReleaseGaSmokeFindingSeverity; code: string; source?: string; detail?: string }> {
+  return readStringArray(value).map((code) => ({ severity, code }));
+}
+
+function normalizeFindingSeverity(value: unknown): ReleaseGaSmokeFindingSeverity | null {
+  return value === "P0" || value === "P1" || value === "P2" || value === "P3" ? value : null;
+}
+
+function safeFindingCode(code: string): string {
+  return code.trim().replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 80);
+}
+
+function collisionSafeFindingCode(code: string, rawCodeBySanitizedCode: Map<string, string>): string {
+  const sanitized = safeFindingCode(code);
+  if (!sanitized) return "";
+  const existingRawCode = rawCodeBySanitizedCode.get(sanitized);
+  if (!existingRawCode) {
+    rawCodeBySanitizedCode.set(sanitized, code);
+    return sanitized;
+  }
+  if (existingRawCode === code) return sanitized;
+  const suffix = createHash("sha256").update(code).digest("hex").slice(0, 8);
+  return `${sanitized.slice(0, Math.max(1, 71))}_${suffix}`;
+}
+
+function safeFindingDetail(value: string | undefined): string {
+  if (!value) return "";
+  if (PRIVATE_FINDING_DETAIL_PATTERN.test(value) || SECRET_LIKE_PATTERN.test(value)) return "";
+  return value.trim().replace(/\s+/g, " ").slice(0, 160);
 }
 
 function validateFinalizationActions(value: JsonRecord, blockers: ReleaseGaSmokeBlocker[]): void {
@@ -489,7 +705,11 @@ function buildActionsVerified(evidenceIndex: Record<ReleaseGaSmokeSourceId, Rele
     scorecardSweepReady: evidenceIndex.scorecardSweep?.status === "ready",
     releasePreflightReady: evidenceIndex.releasePreflight?.status === "ready",
     releaseBundleReady: evidenceIndex.releaseBundle?.status === "ready",
-    privacyScanReady: evidenceIndex.privacyScan?.status === "ready"
+    privacyScanReady: evidenceIndex.privacyScan?.status === "ready",
+    qaLabRunReady: evidenceIndex.qaLabRun?.status === "ready",
+    qaLabToolCoverageReady: evidenceIndex.qaLabToolCoverage?.status === "ready",
+    qaLabJudgeReviewReady: evidenceIndex.qaLabJudgeReview?.status === "ready",
+    qaLabAdversarialReviewReady: evidenceIndex.qaLabAdversarialReview?.status === "ready"
   };
 }
 
@@ -527,7 +747,11 @@ function sourceCodePrefix(source: ReleaseGaSmokeSourceId): string {
     scorecardSweep: "scorecard_sweep",
     releasePreflight: "release_preflight",
     releaseBundle: "release_bundle",
-    privacyScan: "privacy_scan"
+    privacyScan: "privacy_scan",
+    qaLabRun: "qa_lab_run",
+    qaLabToolCoverage: "qa_lab_tool_coverage",
+    qaLabJudgeReview: "qa_lab_judge_review",
+    qaLabAdversarialReview: "qa_lab_adversarial_review"
   };
   return prefixes[source];
 }
@@ -543,7 +767,11 @@ function titleForSource(source: ReleaseGaSmokeSourceId): string {
     scorecardSweep: "Scorecard sweep",
     releasePreflight: "Release preflight",
     releaseBundle: "Release bundle",
-    privacyScan: "Privacy scan"
+    privacyScan: "Privacy scan",
+    qaLabRun: "QA Lab run",
+    qaLabToolCoverage: "QA Lab tool coverage",
+    qaLabJudgeReview: "QA Lab judge review",
+    qaLabAdversarialReview: "QA Lab adversarial review"
   };
   return titles[source];
 }
@@ -556,6 +784,10 @@ function nextSafeCommands(options: ReleaseGaSmokeOptions): string[] {
     `loo release status --evidence-dir ${evidenceDir} --candidate-sha ${candidateSha} --strict`,
     `loo release finalization-status --evidence-dir ${evidenceDir} --candidate-sha ${candidateSha} --package-version ${packageVersion} --npm-publish-evidence npm-publish.json --git-tag-evidence git-tag.json --github-release-evidence github-release.json --strict`,
     `loo openclaw published-smoke --evidence-dir ${evidenceDir} --dogfood-report openclaw-dogfood.json --tool-smoke-report openclaw-tool-smoke.json --registry-version ${packageVersion} --gateway-ready-strict`,
+    `loo qa-lab run --suite ga --artifact published --package-version ${packageVersion} --candidate-sha ${candidateSha} --evidence-dir ${evidenceDir} --strict`,
+    `loo qa-lab tool-coverage --evidence-dir ${evidenceDir} --package-version ${packageVersion} --candidate-sha ${candidateSha} --coverage-policy full --strict`,
+    `loo qa-lab judge --run ${evidenceDir}/qa-lab-run.json --evidence-dir ${evidenceDir} --rubric-version real-product-v1 --strict`,
+    `loo qa-lab adversarial-review --run ${evidenceDir}/qa-lab-run.json --evidence-dir ${evidenceDir} --lenses safety,retrieval,packaging,claims,agent-usability --strict`,
     `loo eval scenarios --evidence-dir ${evidenceDir} --strict`,
     `loo scorecards sweep --evidence-dir ${evidenceDir} --strict`,
     `loo release ga-smoke --evidence-dir ${evidenceDir} --package-version ${packageVersion} --candidate-sha ${candidateSha} --strict`
@@ -632,6 +864,10 @@ function readNestedBoolean(record: JsonRecord, path: string[]): boolean | null {
 function readNestedString(record: JsonRecord, path: string[]): string | null {
   const value = readNestedValue(record, path);
   return typeof value === "string" ? value : null;
+}
+
+function numberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function readNestedValue(record: JsonRecord, path: string[]): unknown {

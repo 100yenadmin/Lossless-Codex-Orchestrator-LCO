@@ -901,7 +901,7 @@ function mainUsageText(): string {
     "  loo release status --evidence-dir path --candidate-sha sha [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--github-ci-evidence path] [--codeql-evidence path] [--desktop-gui-required --desktop-gui-approval-evidence path] [--now iso] [--strict]",
     "  loo release finalization-status --evidence-dir path --candidate-sha sha --npm-publish-evidence path --git-tag-evidence path --github-release-evidence path [--package-name name] [--package-version version] [--expected-dist-tag beta|next|latest] [--expected-github-prerelease true|false] [--now iso] [--strict]",
     "  loo release general-readiness --evidence-dir path [--fresh-npm-evidence path] [--agent-dogfood-evidence path] [--now iso] [--strict]",
-    "  loo release ga-smoke --evidence-dir path --package-version version --candidate-sha sha [--release-status path] [--release-finalization-status path] [--published-smoke path] [--dogfood-report path] [--tool-smoke-report path] [--scenario-sweep path] [--scorecard-sweep path] [--release-preflight path] [--release-bundle path] [--privacy-scan path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--allow-setup-required] [--now iso] [--strict]",
+    "  loo release ga-smoke --evidence-dir path --package-version version --candidate-sha sha [--release-status path] [--release-finalization-status path] [--published-smoke path] [--dogfood-report path] [--tool-smoke-report path] [--scenario-sweep path] [--scorecard-sweep path] [--release-preflight path] [--release-bundle path] [--privacy-scan path] [--qa-lab-run path] [--tool-coverage path] [--judge-review path] [--adversarial-review path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--allow-setup-required] [--now iso] [--strict]",
     "  loo release demo-status --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--min-sessions n] [--strict]",
     "  loo qa-lab tool-coverage --evidence-dir path [--tool-smoke-report path] [--dogfood-report path] [--published-smoke path] [--manifest path] [--package-version version] [--candidate-sha sha] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--coverage-policy full|facade] [--now iso] [--strict]"
   ].join("\n");
@@ -1250,12 +1250,12 @@ function printGeneralReleaseReadinessHelp(): void {
 function printReleaseGaSmokeHelp(): void {
   console.log([
     "Usage:",
-    "  loo release ga-smoke --evidence-dir path --package-version version --candidate-sha sha [--release-status path] [--release-finalization-status path] [--published-smoke path] [--dogfood-report path] [--tool-smoke-report path] [--scenario-sweep path] [--scorecard-sweep path] [--release-preflight path] [--release-bundle path] [--privacy-scan path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--allow-setup-required] [--now iso] [--strict]",
+    "  loo release ga-smoke --evidence-dir path --package-version version --candidate-sha sha [--release-status path] [--release-finalization-status path] [--published-smoke path] [--dogfood-report path] [--tool-smoke-report path] [--scenario-sweep path] [--scorecard-sweep path] [--release-preflight path] [--release-bundle path] [--privacy-scan path] [--qa-lab-run path] [--tool-coverage path] [--judge-review path] [--adversarial-review path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--allow-setup-required] [--now iso] [--strict]",
     "",
     "Aggregates public-safe release evidence into one GA smoke readiness packet.",
     "",
     "Default evidence names:",
-    "  release-status.json, release-finalization-status.json, published-package-smoke.json, openclaw-dogfood.json, openclaw-tool-smoke.json, scenario-sweep.json, scorecard-sweep.json, release-preflight.json, release-bundle.json, and privacy-scan.json.",
+    "  release-status.json, release-finalization-status.json, published-package-smoke.json, openclaw-dogfood.json, openclaw-tool-smoke.json, scenario-sweep.json, scorecard-sweep.json, release-preflight.json, release-bundle.json, privacy-scan.json, qa-lab-run.json, tool-coverage.json, judge-review.json, and adversarial-review.json.",
     "",
     "Strict mode:",
     "  --strict exits non-zero for P0-P2 package, release, safety, setup, or evidence blockers. P3 warnings remain non-blocking.",
@@ -2921,6 +2921,10 @@ function parseReleaseGaSmokeArgs(input: string[]): {
   releasePreflight?: string;
   releaseBundle?: string;
   privacyScan?: string;
+  qaLabRun?: string;
+  qaLabToolCoverage?: string;
+  qaLabJudgeReview?: string;
+  qaLabAdversarialReview?: string;
   allowSetupRequired: boolean;
   now?: string;
   strict: boolean;
@@ -2939,6 +2943,10 @@ function parseReleaseGaSmokeArgs(input: string[]): {
   let releasePreflight: string | undefined;
   let releaseBundle: string | undefined;
   let privacyScan: string | undefined;
+  let qaLabRun: string | undefined;
+  let qaLabToolCoverage: string | undefined;
+  let qaLabJudgeReview: string | undefined;
+  let qaLabAdversarialReview: string | undefined;
   let allowSetupRequired = false;
   let now: string | undefined;
   let strict = false;
@@ -3000,6 +3008,22 @@ function parseReleaseGaSmokeArgs(input: string[]): {
       privacyScan = readReleaseStatusPath(input, ++index, "--privacy-scan");
       continue;
     }
+    if (arg === "--qa-lab-run") {
+      qaLabRun = readReleaseStatusPath(input, ++index, "--qa-lab-run");
+      continue;
+    }
+    if (arg === "--tool-coverage") {
+      qaLabToolCoverage = readReleaseStatusPath(input, ++index, "--tool-coverage");
+      continue;
+    }
+    if (arg === "--judge-review") {
+      qaLabJudgeReview = readReleaseStatusPath(input, ++index, "--judge-review");
+      continue;
+    }
+    if (arg === "--adversarial-review") {
+      qaLabAdversarialReview = readReleaseStatusPath(input, ++index, "--adversarial-review");
+      continue;
+    }
     if (arg === "--allow-setup-required") {
       allowSetupRequired = true;
       continue;
@@ -3032,6 +3056,10 @@ function parseReleaseGaSmokeArgs(input: string[]): {
     releasePreflight,
     releaseBundle,
     privacyScan,
+    qaLabRun,
+    qaLabToolCoverage,
+    qaLabJudgeReview,
+    qaLabAdversarialReview,
     allowSetupRequired,
     now,
     strict
