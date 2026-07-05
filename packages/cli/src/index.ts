@@ -52,6 +52,7 @@ import { runOpenClawDogfood } from "./openclaw-dogfood.js";
 import { DEFAULT_REQUIRED_TOOL_CALLS, runOpenClawToolSmoke } from "./openclaw-tool-smoke.js";
 import { createPublishedPackageSmokeReport } from "./published-package-smoke.js";
 import { createQaLabToolCoverageReport, type QaLabCoveragePolicy } from "./qa-lab-tool-coverage.js";
+import { createQaLabWorkflowReport, type QaLabWorkflowMode, type QaLabWorkflowSurface } from "./qa-lab-workflow.js";
 import { runOpenClawGatewayLiveControlSmoke, type OpenClawGatewayLiveControlAction } from "./openclaw-live-control-smoke.js";
 import { runOpenClawPostActionRefreshSmoke } from "./openclaw-post-action-refresh-smoke.js";
 import { createScorecardSweep } from "./scorecard-sweep.js";
@@ -683,6 +684,17 @@ async function main() {
     if (parsed.strict && !report.qaLabToolCoverageReady) process.exitCode = 1;
     return;
   }
+  if (command === "qa-lab" && args[0] === "workflow") {
+    if (hasHelpFlag(args.slice(1))) {
+      printQaLabWorkflowHelp();
+      return;
+    }
+    const parsed = parseQaLabWorkflowArgs(args.slice(1));
+    const report = createQaLabWorkflowReport(parsed);
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.workflowRunReady) process.exitCode = 1;
+    return;
+  }
   printMainUsage("error");
   process.exitCode = 2;
 }
@@ -903,7 +915,8 @@ function mainUsageText(): string {
     "  loo release general-readiness --evidence-dir path [--fresh-npm-evidence path] [--agent-dogfood-evidence path] [--now iso] [--strict]",
     "  loo release ga-smoke --evidence-dir path --package-version version --candidate-sha sha [--release-status path] [--release-finalization-status path] [--published-smoke path] [--dogfood-report path] [--tool-smoke-report path] [--scenario-sweep path] [--scorecard-sweep path] [--release-preflight path] [--release-bundle path] [--privacy-scan path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--allow-setup-required] [--now iso] [--strict]",
     "  loo release demo-status --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--min-sessions n] [--strict]",
-    "  loo qa-lab tool-coverage --evidence-dir path [--tool-smoke-report path] [--dogfood-report path] [--published-smoke path] [--manifest path] [--package-version version] [--candidate-sha sha] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--coverage-policy full|facade] [--now iso] [--strict]"
+    "  loo qa-lab tool-coverage --evidence-dir path [--tool-smoke-report path] [--dogfood-report path] [--published-smoke path] [--manifest path] [--package-version version] [--candidate-sha sha] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--coverage-policy full|facade] [--now iso] [--strict]",
+    "  loo qa-lab workflow --scenario-id id --surface openclaw-gateway --mode dry-run --evidence-dir path [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--now iso] [--strict]"
   ].join("\n");
 }
 
@@ -1283,6 +1296,24 @@ function printQaLabToolCoverageHelp(): void {
     "Safety boundary:",
     "  This command is aggregate-only. It does not invoke tools, authorize gateways, run live Codex control, perform desktop GUI mutation, or read raw transcripts.",
     "  It does not publish npm, create tags, create GitHub Releases, or store raw gateway output."
+  ].join("\n"));
+}
+
+function printQaLabWorkflowHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo qa-lab workflow --scenario-id id --surface cli|mcp|openclaw-gateway|desktop-contract --mode dry-run|live-approved --evidence-dir path [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--now iso] [--strict]",
+    "",
+    "Runs the public-safe QA Lab agent workflow and writes `workflow-run.json`.",
+    "",
+    "Supported in this release:",
+    "  --surface openclaw-gateway",
+    "  --mode dry-run",
+    "",
+    "Unsupported surfaces and live-approved mode fail closed with blockers.",
+    "",
+    "Safety boundary:",
+    "  This command uses public-safe gateway tool summaries only. It does not read raw transcripts, raw prompts, SQLite/JSONL stores, screenshots, raw gateway logs, tokens, cookies, customer data, run live Codex control, mutate a GUI, approve gateway scope, publish npm, or create GitHub Releases."
   ].join("\n"));
 }
 
@@ -3118,6 +3149,91 @@ function parseQaLabCoveragePolicy(input: string[], index: number, flag: string):
   const value = readReleaseStatusValue(input, index, flag);
   if (value === "full" || value === "facade") return value;
   throw new Error(`${flag} requires full or facade`);
+}
+
+function parseQaLabWorkflowArgs(input: string[]): {
+  scenarioId: string;
+  surface: QaLabWorkflowSurface;
+  mode: QaLabWorkflowMode;
+  evidenceDir: string;
+  gatewayUrl?: string;
+  token?: string;
+  gatewayTimeoutMs?: number;
+  sessionKey?: string;
+  now?: string;
+  strict: boolean;
+} {
+  let scenarioId: string | undefined;
+  let surface: QaLabWorkflowSurface | undefined;
+  let mode: QaLabWorkflowMode | undefined;
+  let evidenceDir: string | undefined;
+  let gatewayUrl: string | undefined;
+  let token: string | undefined;
+  let gatewayTimeoutMs: number | undefined;
+  let sessionKey: string | undefined;
+  let now: string | undefined;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--scenario-id") {
+      scenarioId = readReleaseStatusValue(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--surface") {
+      surface = parseQaLabWorkflowSurface(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--mode") {
+      mode = parseQaLabWorkflowMode(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--evidence-dir") {
+      evidenceDir = readReleaseStatusPath(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--gateway-url") {
+      gatewayUrl = readReleaseStatusValue(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--token") {
+      token = readReleaseStatusValue(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--gateway-timeout-ms") {
+      gatewayTimeoutMs = parsePositiveInteger(input[++index], arg, 600_000);
+      continue;
+    }
+    if (arg === "--session-key") {
+      sessionKey = readReleaseStatusValue(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--now") {
+      now = readReleaseStatusValue(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--strict") {
+      strict = true;
+      continue;
+    }
+    throw new Error(`Unknown qa-lab workflow option: ${arg}`);
+  }
+  if (!scenarioId) throw new Error("qa-lab workflow requires --scenario-id");
+  if (!surface) throw new Error("qa-lab workflow requires --surface");
+  if (!mode) throw new Error("qa-lab workflow requires --mode");
+  if (!evidenceDir) throw new Error("qa-lab workflow requires --evidence-dir");
+  return { scenarioId, surface, mode, evidenceDir, gatewayUrl, token, gatewayTimeoutMs, sessionKey, now, strict };
+}
+
+function parseQaLabWorkflowSurface(input: string[], index: number, flag: string): QaLabWorkflowSurface {
+  const value = readReleaseStatusValue(input, index, flag);
+  if (value === "cli" || value === "mcp" || value === "openclaw-gateway" || value === "desktop-contract") return value;
+  throw new Error(`${flag} requires cli, mcp, openclaw-gateway, or desktop-contract`);
+}
+
+function parseQaLabWorkflowMode(input: string[], index: number, flag: string): QaLabWorkflowMode {
+  const value = readReleaseStatusValue(input, index, flag);
+  if (value === "dry-run" || value === "live-approved") return value;
+  throw new Error(`${flag} requires dry-run or live-approved`);
 }
 
 function readReleaseStatusPath(input: string[], index: number, flag: string): string {
