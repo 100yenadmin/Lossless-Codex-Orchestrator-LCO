@@ -653,6 +653,23 @@ test("loo qa-lab workflow rejects invalid gateway timeout values at the CLI boun
 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /--gateway-timeout-ms requires an integer between 1 and 600000/);
+
+  const missing = runLoo([
+    "qa-lab",
+    "workflow",
+    "--scenario-id",
+    "issue-517-agent-workflow",
+    "--surface",
+    "openclaw-gateway",
+    "--mode",
+    "dry-run",
+    "--evidence-dir",
+    dir,
+    "--gateway-timeout-ms"
+  ]);
+
+  assert.notEqual(missing.status, 0);
+  assert.match(missing.stderr, /--gateway-timeout-ms requires a value/);
 });
 
 test("loo qa-lab workflow writes a strict public-safe report through fake OpenClaw", (t) => {
