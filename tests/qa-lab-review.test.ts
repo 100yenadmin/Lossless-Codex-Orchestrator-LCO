@@ -244,6 +244,117 @@ test("qa-lab review rejects broad absolute raw-artifact paths", (t) => {
   assert.ok(report.blockers.some((blocker) => blocker.severity === "P0" && blocker.code === "unsafe_evidence_value"));
 });
 
+test("qa-lab review rejects bare raw-artifact filenames without echoing them", (t) => {
+  const dir = makeTempDir(t, "loo-qa-lab-raw-bare-filename-");
+  const runPath = writePassingRun(dir);
+  mutateRun<{
+    dimensions: { claims: { notes: string[] } };
+  }>(runPath, (run) => {
+    run.dimensions.claims.notes.push("private-thread.jsonl");
+  });
+
+  const report = createQaLabJudgeReviewReport({
+    runPath,
+    evidenceDir: dir,
+    rubricVersion: "real-product-v1"
+  });
+
+  assert.equal(report.gaReady, false);
+  assert.ok(report.blockers.some((blocker) => blocker.severity === "P0" && blocker.code === "unsafe_evidence_value"));
+  assert.doesNotMatch(JSON.stringify(report), /private-thread\.jsonl/);
+}
+);
+
+test("qa-lab adversarial review redacts secret-like finding codes", (t) => {
+  const dir = makeTempDir(t, "loo-qa-lab-secret-finding-code-");
+  const runPath = writePassingRun(dir);
+  const secretCode = "ghp_aaaaaaaaaaaaaaaaaaaaaaaa";
+  mutateRun<{
+    adversarial: { safety: { pass: boolean; findings: Array<{ severity: string; code: string; detail: string }> } };
+  }>(runPath, (run) => {
+    run.adversarial.safety.pass = false;
+    run.adversarial.safety.findings.push({
+      severity: "P1",
+      code: secretCode,
+      detail: "Unsafe code must not be echoed."
+    });
+  });
+
+  const report = createQaLabAdversarialReviewReport({
+    runPath,
+    evidenceDir: dir,
+    lenses: ["safety"]
+  });
+
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.some((blocker) => blocker.code === "unsafe_evidence_value"));
+  assert.ok(report.blockers.some((blocker) => blocker.source === "safety" && blocker.code === "adversarial_finding"));
+  assert.doesNotMatch(JSON.stringify(report), /ghp_aaaaaaaaaaaaaaaaaaaaaaaa/);
+});
+
+test("qa-lab judge fail-closes public-safety, restricted-action, missing, invalid-json, and score gates", (t) => {
+  const publicUnsafeDir = makeTempDir(t, "loo-qa-lab-public-unsafe-");
+  const publicUnsafeRun = writePassingRun(publicUnsafeDir);
+  mutateRun<{ publicSafe: boolean }>(publicUnsafeRun, (run) => {
+    run.publicSafe = false;
+  });
+  const publicUnsafe = createQaLabJudgeReviewReport({
+    runPath: publicUnsafeRun,
+    evidenceDir: publicUnsafeDir,
+    rubricVersion: "real-product-v1"
+  });
+  assert.ok(publicUnsafe.blockers.some((blocker) => blocker.code === "run_not_public_safe"));
+
+  const restrictedDir = makeTempDir(t, "loo-qa-lab-restricted-action-");
+  const restrictedRun = writePassingRun(restrictedDir);
+  mutateRun<{ actionsPerformed: { screenshotCaptured: boolean } }>(restrictedRun, (run) => {
+    run.actionsPerformed.screenshotCaptured = true;
+  });
+  const restricted = createQaLabJudgeReviewReport({
+    runPath: restrictedRun,
+    evidenceDir: restrictedDir,
+    rubricVersion: "real-product-v1"
+  });
+  assert.ok(restricted.blockers.some((blocker) => blocker.code === "restricted_action_performed"));
+
+  const missingDir = makeTempDir(t, "loo-qa-lab-missing-run-");
+  const missing = createQaLabJudgeReviewReport({
+    runPath: join(missingDir, "missing-qa-run.json"),
+    evidenceDir: missingDir,
+    rubricVersion: "real-product-v1"
+  });
+  assert.ok(missing.blockers.some((blocker) => blocker.code === "run_missing"));
+
+  const invalidDir = makeTempDir(t, "loo-qa-lab-invalid-json-");
+  const invalidRun = join(invalidDir, "qa-lab-run.json");
+  writeFileSync(invalidRun, "{not json");
+  const invalid = createQaLabJudgeReviewReport({
+    runPath: invalidRun,
+    evidenceDir: invalidDir,
+    rubricVersion: "real-product-v1"
+  });
+  assert.ok(invalid.blockers.some((blocker) => blocker.code === "run_invalid_json"));
+
+  const scoreDir = makeTempDir(t, "loo-qa-lab-score-gates-");
+  const scoreRun = writePassingRun(scoreDir);
+  mutateRun<{
+    dimensions: {
+      retrieval: { score?: number };
+      packaging: { score: number };
+    };
+  }>(scoreRun, (run) => {
+    delete run.dimensions.retrieval.score;
+    run.dimensions.packaging.score = 6;
+  });
+  const scoreReport = createQaLabJudgeReviewReport({
+    runPath: scoreRun,
+    evidenceDir: scoreDir,
+    rubricVersion: "real-product-v1"
+  });
+  assert.ok(scoreReport.blockers.some((blocker) => blocker.code === "retrieval_score_missing"));
+  assert.ok(scoreReport.blockers.some((blocker) => blocker.code === "packaging_score_invalid"));
+});
+
 test("qa-lab adversarial review fails lens when pass true carries a blocking finding", (t) => {
   const dir = makeTempDir(t, "loo-qa-lab-adversarial-pass-with-blocker-");
   const runPath = writePassingRun(dir);

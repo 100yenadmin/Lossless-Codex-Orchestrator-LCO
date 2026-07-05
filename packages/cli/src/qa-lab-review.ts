@@ -136,7 +136,7 @@ const RESTRICTED_ACTION_KEYS = new Set([
   "screenshotsCaptured"
 ]);
 const SECRET_LIKE_PATTERN = /(npm_[A-Za-z0-9]{20,}|bearer\s+[A-Za-z0-9._-]{20,}|sk-[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i;
-const RAW_ARTIFACT_VALUE_PATTERN = /(?:\/(?:[^"'\s/]+\/)+[^"'\s]*|~\/[^"'\s]+|[A-Za-z]:\\(?:[^"'\s\\]+\\)+[^"'\s]*).*\.(?:jsonl|sqlite|sqlite-wal|sqlite-shm|db|png|jpg|jpeg|gif|webp|mp4|mov|webm|log)(?:["'\s]|$)/i;
+const RAW_ARTIFACT_VALUE_PATTERN = /(?:(?:\/(?:[^"'\s/]+\/)+[^"'\s]*|~\/[^"'\s]+|[A-Za-z]:\\(?:[^"'\s\\]+\\)+[^"'\s]*).*|(?:^|["'\s])[^"'\s/\\]+)\.(?:jsonl|sqlite|sqlite-wal|sqlite-shm|db|png|jpg|jpeg|gif|webp|mp4|mov|webm|log)(?:["'\s]|$)/i;
 
 export function createQaLabJudgeReviewReport(options: QaLabJudgeReviewOptions): QaLabJudgeReviewReport {
   const evidenceDir = resolve(options.evidenceDir);
@@ -243,12 +243,19 @@ function loadQaRun(runPath: string, evidenceDir: string): LoadedRun {
     addBlocker(blockers, "P1", "run_missing", "run", "QA Lab run JSON is missing.");
     return { value: null, runRef, blockers, warnings };
   }
-  if (lstatSync(resolved).isSymbolicLink()) {
-    addBlocker(blockers, "P0", "run_symlink_disallowed", "run", "QA Lab run must be a regular file inside the evidence directory, not a symlink.");
+  let realEvidenceDir: string;
+  let realResolved: string;
+  try {
+    if (lstatSync(resolved).isSymbolicLink()) {
+      addBlocker(blockers, "P0", "run_symlink_disallowed", "run", "QA Lab run must be a regular file inside the evidence directory, not a symlink.");
+      return { value: null, runRef, blockers, warnings };
+    }
+    realEvidenceDir = realpathSync(evidenceDir);
+    realResolved = realpathSync(resolved);
+  } catch {
+    addBlocker(blockers, "P1", "run_unresolvable", "run", "QA Lab run path could not be resolved safely.");
     return { value: null, runRef, blockers, warnings };
   }
-  const realEvidenceDir = realpathSync(evidenceDir);
-  const realResolved = realpathSync(resolved);
   if (!isPathInside(realResolved, realEvidenceDir)) {
     addBlocker(blockers, "P0", "run_outside_evidence_dir", "run", "QA Lab run must stay inside the evidence directory after resolving symlinks.");
     return { value: null, runRef, blockers, warnings };
@@ -376,7 +383,9 @@ function safeDetail(detail: string): string {
 }
 
 function safeCode(code: string): string {
-  return code.trim().replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 80) || "adversarial_finding";
+  const trimmed = code.trim();
+  if (SECRET_LIKE_PATTERN.test(trimmed) || RAW_ARTIFACT_VALUE_PATTERN.test(trimmed)) return "adversarial_finding";
+  return trimmed.replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 80) || "adversarial_finding";
 }
 
 function countBySeverity(blockers: QaLabReviewBlocker[]): Record<QaLabReviewSeverity, number> {
