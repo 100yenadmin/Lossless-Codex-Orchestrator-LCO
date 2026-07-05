@@ -7,7 +7,8 @@ import test from "node:test";
 
 import {
   createDatabase,
-  evaluateRetrievalScenarios
+  evaluateRetrievalScenarios,
+  indexCodexSessions
 } from "../packages/core/src/index.js";
 
 test("retrieval eval proves hybrid expansion beats lexical baseline on redacted fixture", () => {
@@ -144,6 +145,45 @@ test("retrieval eval proves hybrid expansion beats lexical baseline on redacted 
     assert.match(report.privateDataExclusions.join("\n"), /raw Codex transcripts/i);
     assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /<proposed_plan>|Final:/);
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("hybrid reranker compares unquoted query terms against plain result text", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-hybrid-rerank-terms-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+
+  writeJsonl(join(sessions, "rollout-2026-07-06T00-00-00-019f-rerank-target.jsonl"), [
+    { timestamp: "2026-07-06T00:00:00.000Z", session_meta: { payload: { id: "019f-rerank-target" } } },
+    { timestamp: "2026-07-06T00:00:01.000Z", event_msg: { type: "thread_name", name: "Alpha beta gamma retrieval target" } },
+    { timestamp: "2026-07-06T00:00:02.000Z", event_msg: { type: "agent_message", message: "Final: target result for the quoted-term rerank regression." } }
+  ]);
+  writeJsonl(join(sessions, "rollout-2026-07-06T00-00-00-019f-rerank-distractor.jsonl"), [
+    { timestamp: "2026-07-06T00:00:00.000Z", session_meta: { payload: { id: "019f-rerank-distractor" } } },
+    { timestamp: "2026-07-06T00:00:01.000Z", event_msg: { type: "thread_name", name: "Delta expansion distractor" } },
+    { timestamp: "2026-07-06T00:00:02.000Z", event_msg: { type: "agent_message", message: "Final: delta-only expansion result." } }
+  ]);
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    const report = evaluateRetrievalScenarios(db, {
+      scenarios: [{
+        id: "quoted-term-rerank",
+        query: "alpha beta gamma",
+        expectedSourceRefs: ["codex_thread:019f-rerank-target"],
+        expansionQueries: ["delta"],
+        limit: 1
+      }]
+    });
+
+    assert.equal(report.ok, true, report.blockers.join("\n"));
+    assert.equal(report.metrics.baselineHitRate, 1);
+    assert.equal(report.metrics.hybridHitRate, 1);
+    assert.equal(report.scenarios[0]?.hybrid.topRefs[0], "codex_thread:019f-rerank-target");
+  } finally {
+    db.close();
     rmSync(root, { recursive: true, force: true });
   }
 });

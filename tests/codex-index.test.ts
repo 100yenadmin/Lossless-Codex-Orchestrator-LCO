@@ -18,6 +18,7 @@ import {
   getCodexTouchedFiles,
   getRecentSessions,
   indexCodexSessions,
+  migrate,
   searchSessions
 } from "../packages/core/src/index.js";
 import { createLooTools } from "../packages/mcp-server/src/tools.js";
@@ -70,6 +71,11 @@ function makeFixture() {
   return { root, sessions, threadPath };
 }
 
+function sqliteTableExists(db: ReturnType<typeof createDatabase>, tableName: string): boolean {
+  const row = db.prepare("SELECT name FROM sqlite_master WHERE type IN ('table', 'virtual table') AND name = ?").get(tableName);
+  return row !== undefined;
+}
+
 test("indexes Codex sessions with plans, finals, touched files, and search text", () => {
   const fixture = makeFixture();
   const dbPath = join(fixture.root, "orchestrator.sqlite");
@@ -108,6 +114,101 @@ test("indexes Codex sessions with plans, finals, touched files, and search text"
   } finally {
     db.close();
     rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("search uses field-weighted FTS scores and matched-field attribution", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-field-fts-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+
+  writeFileSync(join(sessions, "rollout-2026-07-06T00-00-00-019f-title-ranked.jsonl"), [
+    { timestamp: "2026-07-06T00:00:00.000Z", session_meta: { payload: { id: "019f-title-ranked" } } },
+    { timestamp: "2026-07-06T00:00:01.000Z", event_msg: { type: "thread_name", name: "Needle ranking calibration" } },
+    { timestamp: "2026-07-06T00:00:02.000Z", event_msg: { type: "agent_message", message: "Final: unrelated closeout with no extra signal." } }
+  ].map((line) => JSON.stringify(line)).join("\n") + "\n");
+
+  writeFileSync(join(sessions, "rollout-2026-07-06T00-00-00-019f-body-ranked.jsonl"), [
+    { timestamp: "2026-07-06T00:00:00.000Z", session_meta: { payload: { id: "019f-body-ranked" } } },
+    { timestamp: "2026-07-06T00:00:01.000Z", event_msg: { type: "thread_name", name: "General retrieval note" } },
+    { timestamp: "2026-07-06T00:00:02.000Z", event_msg: { type: "agent_message", message: "Final: body-only note about needle ranking calibration for a broad recall path." } }
+  ].map((line) => JSON.stringify(line)).join("\n") + "\n");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+
+    assert.equal(sqliteTableExists(db, "codex_search_fts"), true);
+    assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM codex_safe_text_fts").get() as { count: number }).count), 2);
+    assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM codex_search_fts").get() as { count: number }).count), 2);
+
+    const matches = searchSessions(db, {
+      query: "needle ranking calibration",
+      limit: 2,
+      now: "2026-07-06T00:00:02.000Z"
+    });
+
+    assert.equal(matches.length, 2);
+    assert.equal(matches[0]?.threadId, "019f-title-ranked");
+    assert.equal(matches[0]?.matchKind, "full_text");
+    assert.equal(matches[0]?.score > (matches[1]?.score ?? 0), true);
+    assert.equal(Number.isFinite(matches[0]?.matchFeatures?.bm25), true);
+    assert.equal(Number.isFinite(matches[0]?.matchFeatures?.sText), true);
+    assert.equal(Number.isFinite(matches[0]?.matchFeatures?.sRec), true);
+    assert.equal(matches[0]?.matchFeatures?.matchedFields.includes("title"), true);
+    assert.equal(matches[0]?.reasonCodes.includes("matched_field:title"), true);
+    assert.equal(matches[1]?.matchFeatures?.matchedFields.includes("body"), true);
+    assert.equal(matches[1]?.reasonCodes.includes("matched_field:body"), true);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("codex_search_fts migration backfills from existing relational rows", () => {
+  const db = createDatabase(":memory:");
+  try {
+    db.prepare(`
+      INSERT INTO codex_sessions (thread_id, title, source_path, created_at, updated_at, summary, final_message, safe_text, event_count, tool_call_count, indexed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "019f-backfill-search",
+      "Backfill title lane",
+      "backfill.jsonl",
+      "2026-07-06T00:00:00.000Z",
+      "2026-07-06T00:00:02.000Z",
+      "Backfill summary lane",
+      "Final: backfill final lane",
+      "Backfill body lane",
+      3,
+      1,
+      "2026-07-06T00:00:03.000Z"
+    );
+    db.prepare("INSERT INTO codex_plans (plan_id, thread_id, text, ordinal) VALUES (?, ?, ?, ?)").run("plan-backfill", "019f-backfill-search", "Backfill plan lane", 0);
+    db.prepare("INSERT INTO codex_touched_files (touched_file_id, thread_id, path, source_kind) VALUES (?, ?, ?, ?)").run("file-backfill", "019f-backfill-search", "packages/core/src/search.ts", "codex_text");
+    db.prepare("INSERT INTO codex_tool_calls (call_id, thread_id, tool_name, arguments_text, reason_code) VALUES (?, ?, ?, ?, ?)").run("tool-backfill", "019f-backfill-search", "functions.exec_command", "rg Backfill", null);
+
+    assert.equal(sqliteTableExists(db, "codex_search_fts"), true);
+    db.prepare("DELETE FROM codex_search_fts").run();
+    db.prepare("DELETE FROM loo_schema_migrations WHERE migration_id = ?").run("2026-07-06-codex-search-fts");
+
+    migrate(db);
+
+    const row = db.prepare(`
+      SELECT title, summary, plans, finals, touched_files AS touchedFiles, tool_meta AS toolMeta, body
+      FROM codex_search_fts
+      WHERE thread_id = ?
+    `).get("019f-backfill-search") as Record<string, string> | undefined;
+    assert.ok(row);
+    assert.match(row.title, /Backfill title lane/);
+    assert.match(row.summary, /Backfill summary lane/);
+    assert.match(row.plans, /Backfill plan lane/);
+    assert.match(row.finals, /backfill final lane/);
+    assert.match(row.touchedFiles, /packages\/core\/src\/search\.ts/);
+    assert.match(row.toolMeta, /functions\.exec_command rg Backfill/);
+    assert.match(row.body, /Backfill body lane/);
+  } finally {
+    db.close();
   }
 });
 
