@@ -2395,7 +2395,7 @@
           "mutationClasses": []
         },
         "metadata": {
-          "tier": "proof_debug"
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
