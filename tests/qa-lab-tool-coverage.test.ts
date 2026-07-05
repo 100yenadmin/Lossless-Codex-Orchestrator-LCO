@@ -207,6 +207,25 @@ test("qa-lab tool coverage excludes lco aliases from declared-tool accounting", 
   assert.equal(report.catalogCoverage.extraInManifest.some((name) => name.startsWith("lco_")), false);
 });
 
+test("qa-lab tool coverage blocks non-facade lco aliases in evidence", (t) => {
+  const dir = makeTempDir(t, "loo-qa-tool-coverage-invalid-alias-");
+  const toolSmokeReport = writeToolSmokeReport(dir, [...allDeclaredToolNames(), "lco_session_sanitizer"]);
+
+  const report = createQaLabToolCoverageReport({
+    evidenceDir: dir,
+    packageVersion,
+    candidateSha,
+    toolSmokeReport,
+    coveragePolicy: "full",
+    claimScope: "codex-working-app-proof",
+    now: "2026-07-05T00:00:00.000Z"
+  });
+
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.some((blocker) => blocker.code === "invalid_lco_alias_reference"));
+  assert.equal(report.toolRows.some((row) => row.name === "lco_session_sanitizer"), false);
+});
+
 test("qa-lab tool coverage redacts unsafe evidence values instead of echoing canaries", (t) => {
   const dir = makeTempDir(t, "loo-qa-tool-coverage-unsafe-");
   const toolSmokeReport = join(dir, "private-session-source.jsonl");

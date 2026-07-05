@@ -1019,10 +1019,11 @@ export function createLooTools(options: {
   return options.includeAliases ? withPublicFacadeAliases(tools) : tools;
 }
 
-export function parseLooToolProfile(value: unknown): LooToolProfile {
+export function parseLooToolProfile(value: unknown, options?: { onInvalid?: (value: string) => void }): LooToolProfile {
   if (value === undefined || value === null || value === "") return "all";
   if (value === "facade" || value === "standard" || value === "all") return value;
-  throw new Error("LOO_TOOL_PROFILE must be facade, standard, or all");
+  options?.onInvalid?.(String(value));
+  return "all";
 }
 
 export function filterLooToolsByProfile<T extends { metadata: LooToolSurfaceMetadata }>(tools: T[], profile: LooToolProfile): T[] {
@@ -1043,6 +1044,10 @@ export function looAliasTargetName(name: string): string | null {
   if (!name.startsWith("lco_")) return null;
   const target = `loo_${name.slice("lco_".length)}`;
   return LOO_TOOL_SURFACE[target]?.tier === "public_facade" ? target : null;
+}
+
+export function isUnknownLcoAliasName(name: string): boolean {
+  return name.startsWith("lco_") && looAliasTargetName(name) === null;
 }
 
 export function canonicalLooToolName(name: string): string {

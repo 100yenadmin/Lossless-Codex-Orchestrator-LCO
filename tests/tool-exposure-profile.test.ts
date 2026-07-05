@@ -105,6 +105,7 @@ test("lco facade aliases invoke the same handlers as their loo targets", async (
 test("MCP tools/list applies LOO_TOOL_PROFILE and defaults to all", async () => {
   const allTools = await readMcpToolList("all");
   const defaultTools = await readMcpToolList(undefined);
+  const invalidProfileTools = await readMcpToolList("alll");
   const standardTools = await readMcpToolList("standard");
   const facadeTools = await readMcpToolList("facade");
   const publicFacadeCount = createLooToolSurfaceSummary().publicFacadeTools.length;
@@ -112,6 +113,7 @@ test("MCP tools/list applies LOO_TOOL_PROFILE and defaults to all", async () => 
   const baseAllCount = Object.keys(LOO_TOOL_SURFACE).length;
 
   assert.deepEqual(defaultTools.map((tool) => tool.name), allTools.map((tool) => tool.name));
+  assert.deepEqual(invalidProfileTools.map((tool) => tool.name), allTools.map((tool) => tool.name));
   assert.equal(facadeTools.length, publicFacadeCount * 2);
   assert.equal(standardTools.length, publicFacadeCount * 2 + workflowDetailCount);
   assert.equal(allTools.length, baseAllCount + publicFacadeCount);
@@ -144,7 +146,7 @@ function toLcoAliasName(name: string): string {
   return name.replace(/^loo_/, "lco_");
 }
 
-async function readMcpToolList(profile: LooToolProfile | undefined): Promise<Array<Pick<LooToolDeclaration, "name" | "metadata">>> {
+async function readMcpToolList(profile: string | undefined): Promise<Array<Pick<LooToolDeclaration, "name" | "metadata">>> {
   const root = mkdtempSync(join(tmpdir(), "loo-mcp-profile-"));
   const server = spawn(process.execPath, ["--import", "tsx", "packages/mcp-server/src/server.ts"], {
     cwd: process.cwd(),
