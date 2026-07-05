@@ -138,6 +138,7 @@ const SECRET_LIKE_PATTERN = /(npm_[A-Za-z0-9]{20,}|bearer\s+[A-Za-z0-9._-]{20,}|
 const SECRET_LIKE_KEY_PATTERN = /^(authorization|cookie|set-cookie|x-api-key|api[_-]?key|token)$/i;
 const RAW_ARTIFACT_PATTERN = /\.(?:jsonl|jsonl\.gz|sqlite|sqlite-wal|sqlite-shm|db|db-journal|db-wal|db-shm|png|jpg|jpeg|gif|webp|mp4|mov|webm)$/i;
 const RAW_OUTPUT_ARTIFACT_PATTERN = /(?:^|[/._-])(?:raw[-_]?.*|npm[-_]?output|npm[-_]?(?:stdout|stderr)|gateway[-_]?output|gateway[-_]?(?:stdout|stderr)|openclaw[-_]?output|openclaw[-_]?(?:stdout|stderr))(?:[/._-].*)?\.(?:txt|log|json)$/i;
+const PRIVATE_FINDING_DETAIL_PATTERN = /\/Users\/|\/Volumes\/|\.jsonl\b|\.sqlite\b|Bearer\s+|npm_[A-Za-z0-9]{20,}|cookie/i;
 const RESTRICTED_ACTION_KEYS = new Set([
   "npmPublished",
   "githubReleaseCreated",
@@ -475,7 +476,7 @@ function applyQaLabFindings(
   blockers: ReleaseGaSmokeBlocker[],
   warnings: ReleaseGaSmokeWarning[]
 ): void {
-  addAggregateQaLabBlockers(value, source, blockers);
+  addAggregateQaLabBlockers(value, source, blockers, warnings);
   const findings = [
     ...readStructuredFindings(value.blockers),
     ...readStructuredFindings(value.warnings),
@@ -486,10 +487,16 @@ function applyQaLabFindings(
   for (const finding of findings) {
     const code = collisionSafeFindingCode(finding.code, rawCodeBySanitizedCode);
     if (!code) continue;
+    const upstreamSource = finding.source ? safeFindingCode(finding.source) : "";
+    const upstreamDetail = safeFindingDetail(finding.detail);
+    const detailSuffix = [
+      upstreamSource ? `source=${upstreamSource}` : "",
+      upstreamDetail ? `detail=${upstreamDetail}` : ""
+    ].filter(Boolean).join("; ");
     if (finding.severity === "P3") {
-      addWarning(warnings, code, source, `QA Lab reported non-blocking P3 finding ${code}.`);
+      addWarning(warnings, code, source, `QA Lab reported non-blocking P3 finding ${code}${detailSuffix ? ` (${detailSuffix})` : ""}.`);
     } else {
-      addBlocker(blockers, finding.severity, code, source, `QA Lab reported blocking finding ${code}.`);
+      addBlocker(blockers, finding.severity, code, source, `QA Lab reported blocking finding ${code}${detailSuffix ? ` (${detailSuffix})` : ""}.`);
     }
   }
 }
@@ -497,7 +504,8 @@ function applyQaLabFindings(
 function addAggregateQaLabBlockers(
   value: JsonRecord,
   source: ReleaseGaSmokeSourceId,
-  blockers: ReleaseGaSmokeBlocker[]
+  blockers: ReleaseGaSmokeBlocker[],
+  warnings: ReleaseGaSmokeWarning[]
 ): void {
   if (source === "qaLabRun") {
     const failedScenarioCount = numberValue(value.failedScenarioCount);
@@ -513,22 +521,32 @@ function addAggregateQaLabBlockers(
         addBlocker(blockers, severity, `qa_lab_adversarial_review_aggregate_${severity.toLowerCase()}`, source, `QA Lab adversarial review reports ${count} aggregate ${severity} blocker(s).`);
       }
     }
+    const p3Count = bySeverity ? numberValue(bySeverity.P3) : null;
+    if (p3Count !== null && p3Count > 0) {
+      addWarning(warnings, "qa_lab_adversarial_review_aggregate_p3", source, `QA Lab adversarial review reports ${p3Count} aggregate P3 warning(s).`);
+    }
   }
 }
 
-function readStructuredFindings(value: unknown): Array<{ severity: ReleaseGaSmokeFindingSeverity; code: string }> {
+function readStructuredFindings(value: unknown): Array<{ severity: ReleaseGaSmokeFindingSeverity; code: string; source?: string; detail?: string }> {
   if (!Array.isArray(value)) return [];
   return value
     .filter(isRecord)
     .map((item) => {
       const severity = normalizeFindingSeverity(item.severity);
       const code = typeof item.code === "string" ? item.code : "";
-      return severity && code ? { severity, code } : null;
+      const source = typeof item.source === "string" ? item.source : undefined;
+      const detail = typeof item.detail === "string" ? item.detail : undefined;
+      if (!severity || !code) return null;
+      const finding: { severity: ReleaseGaSmokeFindingSeverity; code: string; source?: string; detail?: string } = { severity, code };
+      if (source) finding.source = source;
+      if (detail) finding.detail = detail;
+      return finding;
     })
-    .filter((item): item is { severity: ReleaseGaSmokeFindingSeverity; code: string } => Boolean(item));
+    .filter((item): item is { severity: ReleaseGaSmokeFindingSeverity; code: string; source?: string; detail?: string } => Boolean(item));
 }
 
-function readStringFindings(value: unknown, severity: ReleaseGaSmokeFindingSeverity): Array<{ severity: ReleaseGaSmokeFindingSeverity; code: string }> {
+function readStringFindings(value: unknown, severity: ReleaseGaSmokeFindingSeverity): Array<{ severity: ReleaseGaSmokeFindingSeverity; code: string; source?: string; detail?: string }> {
   return readStringArray(value).map((code) => ({ severity, code }));
 }
 
@@ -551,6 +569,12 @@ function collisionSafeFindingCode(code: string, rawCodeBySanitizedCode: Map<stri
   if (existingRawCode === code) return sanitized;
   const suffix = createHash("sha256").update(code).digest("hex").slice(0, 8);
   return `${sanitized.slice(0, Math.max(1, 71))}_${suffix}`;
+}
+
+function safeFindingDetail(value: string | undefined): string {
+  if (!value) return "";
+  if (PRIVATE_FINDING_DETAIL_PATTERN.test(value) || SECRET_LIKE_PATTERN.test(value)) return "";
+  return value.trim().replace(/\s+/g, " ").slice(0, 160);
 }
 
 function validateFinalizationActions(value: JsonRecord, blockers: ReleaseGaSmokeBlocker[]): void {
