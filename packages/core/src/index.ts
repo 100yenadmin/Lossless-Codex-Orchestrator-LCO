@@ -65,6 +65,31 @@ export type LimitedCodexFile = {
   actual: number;
 };
 
+export type CodexJsonlDriftNamedCount = {
+  kind: string;
+  count: number;
+};
+
+export type CodexJsonlDriftFieldCount = {
+  field: string;
+  count: number;
+};
+
+export type CodexJsonlDriftReport = {
+  path: string;
+  unknownEventKinds: CodexJsonlDriftNamedCount[];
+  unparsedLines: number;
+  missingExpectedFields: CodexJsonlDriftFieldCount[];
+  reasonCodes: string[];
+};
+
+export type CodexJsonlDriftSummary = {
+  files: number;
+  unknownEventKinds: number;
+  unparsedLines: number;
+  missingExpectedFields: number;
+};
+
 export type IndexCodexResult = {
   // Fixed safety stamp: indexing writes only LCO-owned derived cache, while
   // limited/error rows can contain local paths and are not public evidence.
@@ -77,6 +102,8 @@ export type IndexCodexResult = {
   indexedEvents: number;
   limitedFiles: LimitedCodexFile[];
   errors: Array<{ path: string; message: string }>;
+  driftReport: CodexJsonlDriftReport[];
+  driftSummary: CodexJsonlDriftSummary;
 };
 
 export type SourceFileWatermark = {
@@ -2334,6 +2361,7 @@ type ImportedSession = {
   safeText: string;
   eventCount: number;
   sourceEvents: PreparedSourceEventDraft[];
+  driftReport: CodexJsonlDriftReport | null;
 };
 
 type JsonlLineRecord = {
@@ -2360,6 +2388,12 @@ type PreparedSourceEventDraft = {
   ordinal: number;
   observedAt: string | null;
   ranges: PreparedSourceRangeDraft[];
+};
+
+type CodexJsonlDriftAccumulator = {
+  unknownEventKinds: Map<string, number>;
+  unparsedLines: number;
+  missingExpectedFields: Map<string, number>;
 };
 
 type PreparedSourceRangeDraft = {
@@ -2798,7 +2832,9 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
     indexedThreads: 0,
     indexedEvents: 0,
     limitedFiles: [],
-    errors: []
+    errors: [],
+    driftReport: [],
+    driftSummary: emptyCodexJsonlDriftSummary()
   };
   const seenThreads = new Set<string>();
   const summaryThreadsToMaterialize = new Set<string>();
@@ -2835,6 +2871,7 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
       upsertSession(db, path, text, session, { size: stat.size, mtimeMs });
       result.indexedFiles += 1;
       result.indexedEvents += session.eventCount;
+      if (session.driftReport) recordCodexJsonlDriftReport(result, session.driftReport);
       seenThreads.add(session.threadId);
       summaryThreadsToMaterialize.add(session.threadId);
       preparedThreadsToMaterialize.add(session.threadId);
@@ -12594,6 +12631,20 @@ function countJsonlEvents(text: string): number {
   return text.split(/\r?\n/).filter((line) => line.trim().length > 0).length;
 }
 
+const KNOWN_CODEX_JSONL_EVENT_KINDS = new Set([
+  "agent_message",
+  "event_metadata",
+  "function_call",
+  "message",
+  "native_subagent_result_metadata",
+  "noop",
+  "session_metadata",
+  "thread_name",
+  "tool_call",
+  "tool_use",
+  "user_message"
+]);
+
 function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: number): ImportedSession {
   const fallbackId = fallbackThreadId(sourcePath);
   const session: ImportedSession = {
@@ -12615,9 +12666,11 @@ function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: num
     closeoutEnvelopeCloseCount: 0,
     safeText: "",
     eventCount: 0,
-    sourceEvents: []
+    sourceEvents: [],
+    driftReport: null
   };
 
+  const drift = emptyCodexJsonlDriftAccumulator();
   const safeParts: string[] = [];
   const touched = new Set<string>();
   const records = jsonlLineRecords(text);
@@ -12629,12 +12682,15 @@ function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: num
     try {
       item = JSON.parse(record.text);
     } catch {
+      recordCodexJsonlUnparsedLine(drift);
       continue;
     }
     if (session.eventCount >= maxEventsPerFile) break;
     session.eventCount += 1;
     const rangeKinds = new Set<PreparedSourceRangeKind>();
     const timestamp = findTimestamp(item);
+    recordCodexJsonlEventKindDrift(drift, item);
+    recordCodexJsonlMissingFieldDrift(drift, item);
     if (timestamp) {
       session.createdAt ??= timestamp;
       session.updatedAt = timestamp;
@@ -12704,7 +12760,140 @@ function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: num
   session.title ??= session.finalMessage ? truncate(session.finalMessage, 80) : session.threadId;
   session.updatedAt ??= new Date().toISOString();
   session.createdAt ??= session.updatedAt;
+  session.driftReport = codexJsonlDriftReport(sourcePath, drift);
   return session;
+}
+
+function emptyCodexJsonlDriftAccumulator(): CodexJsonlDriftAccumulator {
+  return {
+    unknownEventKinds: new Map(),
+    unparsedLines: 0,
+    missingExpectedFields: new Map()
+  };
+}
+
+function emptyCodexJsonlDriftSummary(): CodexJsonlDriftSummary {
+  return {
+    files: 0,
+    unknownEventKinds: 0,
+    unparsedLines: 0,
+    missingExpectedFields: 0
+  };
+}
+
+function recordCodexJsonlDriftReport(result: IndexCodexResult, report: CodexJsonlDriftReport): void {
+  result.driftReport.push(report);
+  result.driftSummary.files += 1;
+  result.driftSummary.unknownEventKinds += report.unknownEventKinds.reduce((sum, item) => sum + item.count, 0);
+  result.driftSummary.unparsedLines += report.unparsedLines;
+  result.driftSummary.missingExpectedFields += report.missingExpectedFields.reduce((sum, item) => sum + item.count, 0);
+}
+
+function recordCodexJsonlUnparsedLine(drift: CodexJsonlDriftAccumulator): void {
+  drift.unparsedLines += 1;
+}
+
+function recordCodexJsonlEventKindDrift(drift: CodexJsonlDriftAccumulator, item: any): void {
+  const kind = codexJsonlEventKind(item);
+  if (!kind || KNOWN_CODEX_JSONL_EVENT_KINDS.has(kind)) return;
+  const safeKind = publicSafeIdentifier(kind) ?? `unknown_${stableId(kind).slice(0, 12)}`;
+  drift.unknownEventKinds.set(safeKind, (drift.unknownEventKinds.get(safeKind) ?? 0) + 1);
+}
+
+function recordCodexJsonlMissingFieldDrift(drift: CodexJsonlDriftAccumulator, item: any): void {
+  const eventMsg = isObjectRecord(item.event_msg) ? item.event_msg : null;
+  if (eventMsg) {
+    const eventType = stringOrNull(eventMsg.type)?.toLowerCase() ?? "";
+    if (eventType === "thread_name" && !stringOrNull(eventMsg.name)) {
+      recordCodexJsonlMissingField(drift, "event_msg.name");
+    }
+    if (eventType === "agent_message" && !stringOrNull(eventMsg.message) && !stringOrNull(eventMsg.text)) {
+      recordCodexJsonlMissingField(drift, "event_msg.message");
+    }
+  }
+
+  const responseItem = isObjectRecord(item.response_item) ? item.response_item : null;
+  if (responseItem) {
+    const responseType = stringOrNull(responseItem.type)?.toLowerCase() ?? "";
+    if (responseType === "message" && !responseItemHasText(responseItem)) {
+      recordCodexJsonlMissingField(drift, "response_item.content");
+    }
+    if (
+      (responseType === "function_call" || responseType === "tool_call" || responseType === "tool_use")
+      && !responseItemHasToolName(responseItem)
+    ) {
+      recordCodexJsonlMissingField(drift, "response_item.name");
+    }
+  }
+
+  const sessionMeta = isObjectRecord(item.session_meta?.payload)
+    ? item.session_meta.payload
+    : isObjectRecord(item.session_meta)
+      ? item.session_meta
+      : isObjectRecord(item.turn_context?.payload)
+        ? item.turn_context.payload
+        : null;
+  if (sessionMeta && !stringOrNull(sessionMeta.id) && !stringOrNull(sessionMeta.thread_id)) {
+    recordCodexJsonlMissingField(drift, "session_meta.payload.id");
+  }
+}
+
+function recordCodexJsonlMissingField(drift: CodexJsonlDriftAccumulator, field: string): void {
+  drift.missingExpectedFields.set(field, (drift.missingExpectedFields.get(field) ?? 0) + 1);
+}
+
+function responseItemHasText(responseItem: Record<string, unknown>): boolean {
+  if (stringOrNull(responseItem.text)) return true;
+  return codexJsonlArrayHasText(responseItem.content);
+}
+
+function responseItemHasToolName(responseItem: Record<string, unknown>): boolean {
+  const functionRecord = isObjectRecord(responseItem.function) ? responseItem.function : {};
+  const toolRecord = isObjectRecord(responseItem.tool) ? responseItem.tool : {};
+  return Boolean(
+    stringOrNull(responseItem.name)
+    ?? stringOrNull(responseItem.tool_name)
+    ?? stringOrNull(responseItem.toolName)
+    ?? stringOrNull(responseItem.recipient_name)
+    ?? stringOrNull(functionRecord.name)
+    ?? stringOrNull(toolRecord.name)
+  );
+}
+
+function codexJsonlArrayHasText(value: unknown): boolean {
+  if (typeof value === "string" && value.trim()) return true;
+  if (!Array.isArray(value)) return false;
+  return value.some((part) => {
+    if (typeof part === "string" && part.trim()) return true;
+    return isObjectRecord(part) && typeof part.text === "string" && part.text.trim().length > 0;
+  });
+}
+
+function codexJsonlEventKind(item: any): string | null {
+  return stringOrNull(item.event_msg?.type ?? item.response_item?.type ?? item.item?.type ?? item.type ?? item.payload?.type)?.toLowerCase() ?? null;
+}
+
+function codexJsonlDriftReport(sourcePath: string, drift: CodexJsonlDriftAccumulator): CodexJsonlDriftReport | null {
+  if (drift.unparsedLines === 0 && drift.unknownEventKinds.size === 0 && drift.missingExpectedFields.size === 0) return null;
+  const unknownEventKinds = [...drift.unknownEventKinds.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .slice(0, 12)
+    .map(([kind, count]) => ({ kind, count }));
+  const missingExpectedFields = [...drift.missingExpectedFields.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([field, count]) => ({ field, count }));
+  const reasonCodes = [
+    ...missingExpectedFields.map((item) => `missing_field:${item.field}`),
+    ...unknownEventKinds.map((item) => `unknown_event_kind:${item.kind}`),
+    drift.unparsedLines > 0 ? "unparsed_line" : ""
+  ].filter(Boolean);
+  return {
+    path: sourcePath,
+    unknownEventKinds,
+    unparsedLines: drift.unparsedLines,
+    missingExpectedFields,
+    reasonCodes
+  };
 }
 
 function extractCodexToolCalls(item: any, sourcePath: string, ordinal: number): CodexToolCallDraft[] {

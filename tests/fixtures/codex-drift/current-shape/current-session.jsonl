@@ -1,0 +1,5 @@
+{"timestamp":"2026-07-01T10:00:00.000Z","session_meta":{"payload":{"id":"019f-drift-current","cwd":"/Volumes/LEXAR/repos/example","model":"gpt-5.5","git":{"branch":"main","commit_hash":"abccurrent"}}}}
+{"timestamp":"2026-07-01T10:00:01.000Z","event_msg":{"type":"thread_name","name":"Current Codex JSONL drift contract"}}
+{"timestamp":"2026-07-01T10:00:02.000Z","response_item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"<proposed_plan>\nCurrent Codex JSONL shape remains parseable.\n</proposed_plan>"}]}}
+{"timestamp":"2026-07-01T10:00:03.000Z","response_item":{"type":"function_call","call_id":"call_current_read","name":"functions.exec_command","arguments":"{\"cmd\":\"sed -n '1,40p' packages/core/src/index.ts\"}"}}
+{"timestamp":"2026-07-01T10:00:04.000Z","event_msg":{"type":"agent_message","message":"Final: current fixture indexed cleanly."}}

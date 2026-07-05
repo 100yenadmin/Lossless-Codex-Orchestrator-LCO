@@ -1,0 +1,8 @@
+{"timestamp":"2026-08-01T10:00:00.000Z","session_meta":{"payload":{"id":"019f-drift-future","cwd":"/Volumes/LEXAR/repos/example","model":"gpt-6-preview"}}}
+{"timestamp":"2026-08-01T10:00:01.000Z","event_msg":{"type":"thread_name","name":"Future Codex JSONL drift contract"}}
+{"timestamp":"2026-08-01T10:00:02.000Z","event_msg":{"type":"future_delta","message":"Synthetic future event kind should be reported without aborting."}}
+this is not valid json
+{"timestamp":"2026-08-01T10:00:03.000Z","response_item":{"type":"message","role":"assistant","segments":[{"kind":"text","value":"Renamed payload field should not leak raw line content."}]}}
+{"timestamp":"2026-08-01T10:00:04.000Z","event_msg":{"type":"agent_message"}}
+{"timestamp":"2026-08-01T10:00:05.000Z","response_item":{"type":"assistant_packet_v2","role":"assistant","content":[{"type":"output_text","text":"Future drift packet remains parseable."}]}}
+{"timestamp":"2026-08-01T10:00:06.000Z","event_msg":{"type":"agent_message","message":"Final: future drift fixture still indexed."}}
