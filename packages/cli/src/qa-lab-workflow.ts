@@ -356,7 +356,7 @@ function callGatewayJson(
     encoding: "utf8",
     env,
     maxBuffer: 10 * 1024 * 1024,
-    timeout: gatewayTimeoutMs + Math.min(1000, Math.max(250, Math.ceil(gatewayTimeoutMs * 0.2)))
+    timeout: gatewayTimeoutMs
   });
   const result: GatewayJsonResult = { status: call.status };
   try {
@@ -463,25 +463,32 @@ function extractCatalogToolNames(value: unknown): string[] {
   }))];
 }
 
-function firstSourceRef(value: unknown): string | null {
-  return collectSourceRefs(value)[0] ?? null;
+function directSourceRef(value: Record<string, unknown>): string | null {
+  if (typeof value.sourceRef === "string") return value.sourceRef;
+  if (typeof value.source_ref === "string") return value.source_ref;
+  if (Array.isArray(value.sourceRefs)) {
+    const ref = value.sourceRefs.find((item) => typeof item === "string" && SAFE_SOURCE_REF_PATTERN.test(item));
+    if (typeof ref === "string") return ref;
+  }
+  if (Array.isArray(value.source_refs)) {
+    const ref = value.source_refs.find((item) => typeof item === "string" && SAFE_SOURCE_REF_PATTERN.test(item));
+    if (typeof ref === "string") return ref;
+  }
+  return null;
 }
 
-function firstSessionSelection(value: unknown): { sourceRef: string | null; threadId: string | null } {
+function firstSessionSelection(value: unknown, depth = 0): { sourceRef: string | null; threadId: string | null } {
+  if (depth > MAX_OUTPUT_SCAN_DEPTH) return { sourceRef: null, threadId: null };
   if (Array.isArray(value)) {
     for (const item of value) {
-      const found = firstSessionSelection(item);
+      const found = firstSessionSelection(item, depth + 1);
       if (found.sourceRef && found.threadId) return found;
     }
     return { sourceRef: null, threadId: null };
   }
   if (!isRecord(value)) return { sourceRef: null, threadId: null };
 
-  const sourceRef = typeof value.sourceRef === "string"
-    ? value.sourceRef
-    : typeof value.source_ref === "string"
-      ? value.source_ref
-      : firstSourceRef(value);
+  const sourceRef = directSourceRef(value);
   const threadId = typeof value.threadId === "string"
     ? value.threadId
     : typeof value.thread_id === "string"
@@ -490,7 +497,7 @@ function firstSessionSelection(value: unknown): { sourceRef: string | null; thre
   if (sourceRef && threadId) return { sourceRef, threadId };
 
   for (const child of Object.values(value)) {
-    const found = firstSessionSelection(child);
+    const found = firstSessionSelection(child, depth + 1);
     if (found.sourceRef && found.threadId) return found;
   }
   return { sourceRef: null, threadId: null };
@@ -620,6 +627,9 @@ function sanitizeOutputSummary(summary: QaLabWorkflowStep["outputSummary"]): voi
 function workflowIdempotencyKey(options: QaLabWorkflowOptions, call: WorkflowCall): string {
   const stablePayload = JSON.stringify({
     scenarioId: options.scenarioId,
+    surface: options.surface,
+    mode: options.mode,
+    gatewayUrl: options.gatewayUrl ?? null,
     sessionKey: options.sessionKey || "agent:main:lco-qa-lab-workflow",
     toolName: call.toolName,
     args: call.args

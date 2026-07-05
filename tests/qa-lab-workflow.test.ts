@@ -23,7 +23,11 @@ const callIndex = args.indexOf("call");
 const method = callIndex >= 0 ? args[callIndex + 1] : "";
 const paramsIndex = args.indexOf("--params");
 const params = paramsIndex >= 0 ? JSON.parse(args[paramsIndex + 1] || "{}") : {};
-appendFileSync(process.env.OPENCLAW_FAKE_CALLS, JSON.stringify({ method, params }) + "\\n");
+appendFileSync(process.env.OPENCLAW_FAKE_CALLS, JSON.stringify({
+  method,
+  params,
+  envSecretPresent: Boolean(process.env.NPM_TOKEN || process.env.SECRET_TOKEN || process.env.GITHUB_TOKEN)
+}) + "\\n");
 
 if (method === "tools.catalog") {
   if (process.env.OPENCLAW_FAKE_DEEP_CATALOG === "1") {
@@ -58,8 +62,8 @@ if (method === "tools.invoke") {
     return { ok: true, toolName: name, source: "plugin", output };
   };
   if (name === "loo_search_sessions") {
-    const output = process.env.OPENCLAW_FAKE_MISMATCH_SELECTION === "1"
-      ? [
+    let output = process.env.OPENCLAW_FAKE_MISMATCH_SELECTION === "1"
+    ? [
         { sourceRef: "codex_thread:z-thread", threadId: "z-thread", score: 10, snippet: "PRIVATE RAW PROMPT CANARY" },
         { sourceRef: "codex_thread:a-thread", threadId: "a-thread", score: 9, snippet: "PRIVATE RAW PROMPT CANARY" }
       ]
@@ -74,6 +78,10 @@ if (method === "tools.invoke") {
       : [
         { sourceRef: "codex_thread:agent-thread-1", threadId: "agent-thread-1", score: 10, snippet: "PRIVATE RAW PROMPT CANARY" }
       ];
+    if (process.env.OPENCLAW_FAKE_DEEP_SEARCH === "1") {
+      output = { sourceRef: "codex_thread:deep-thread", threadId: "deep-thread", score: 10 };
+      for (let index = 0; index < 96; index += 1) output = { nested: output };
+    }
     console.log(JSON.stringify(wrap(output)));
     process.exit(0);
   }
@@ -193,6 +201,7 @@ test("qa-lab workflow creates a public-safe dry-run OpenClaw gateway report", (t
   const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
   assert.equal(calls.filter((call) => call.method === "tools.catalog").length, 1);
   assert.equal(calls.filter((call) => call.method === "tools.invoke").length, 7);
+  assert.equal(calls.some((call) => call.envSecretPresent), false);
   assert.ok(calls
     .filter((call) => call.method === "tools.invoke")
     .every((call) => /^loo-qa-workflow-[a-f0-9]{24}-loo_/.test(call.params.idempotencyKey)));
@@ -393,6 +402,25 @@ test("qa-lab workflow selects source ref and thread id from the same session car
   assert.ok(invokedSteps.every((step) => step.outputSummary.sourceRefs?.includes("codex_thread:z-thread")), JSON.stringify(invokedSteps, null, 2));
 });
 
+test("qa-lab workflow fails closed when selectable session is beyond scan depth", (t) => {
+  const dir = makeTempDir(t, "loo-qa-workflow-deep-search-");
+  const { bin, callsPath } = createFakeOpenClaw(dir);
+
+  const report = createQaLabWorkflowReport({
+    scenarioId: "issue-517-agent-workflow",
+    surface: "openclaw-gateway",
+    mode: "dry-run",
+    evidenceDir: dir,
+    openclawBin: bin,
+    env: { ...process.env, OPENCLAW_FAKE_CALLS: callsPath, OPENCLAW_FAKE_DEEP_SEARCH: "1" }
+  });
+
+  assert.equal(report.ok, false);
+  assert.equal(report.workflow.selectedSourceRef, null);
+  assert.equal(report.workflow.selectedThreadId, null);
+  assert.ok(report.blockers.some((blocker) => blocker.code === "workflow_selected_session_missing"));
+});
+
 test("qa-lab workflow uses deterministic idempotency keys for retry-safe gateway calls", (t) => {
   const dir = makeTempDir(t, "loo-qa-workflow-idempotency-");
   const { bin, callsPath } = createFakeOpenClaw(dir);
@@ -408,6 +436,7 @@ test("qa-lab workflow uses deterministic idempotency keys for retry-safe gateway
 
   const first = createQaLabWorkflowReport(options);
   const second = createQaLabWorkflowReport(options);
+  const third = createQaLabWorkflowReport({ ...options, gatewayUrl: "ws://127.0.0.1:65535" });
 
   assert.equal(first.ok, true, JSON.stringify(first, null, 2));
   assert.equal(second.ok, true, JSON.stringify(second, null, 2));
@@ -416,6 +445,7 @@ test("qa-lab workflow uses deterministic idempotency keys for retry-safe gateway
     .filter((call) => call.method === "tools.invoke")
     .map((call) => call.params.idempotencyKey);
   assert.deepEqual(invokeKeys.slice(0, 7), invokeKeys.slice(7, 14));
+  assert.notDeepEqual(invokeKeys.slice(0, 7), invokeKeys.slice(14, 21));
 });
 
 test("qa-lab workflow fails closed without spawning more calls after deadline exhaustion", (t) => {
@@ -497,6 +527,28 @@ test("loo qa-lab workflow --strict exits nonzero when the workflow is blocked", 
   const report = JSON.parse(result.stdout) as QaLabWorkflowReport;
   assert.equal(report.schema, "lco.qaLab.workflowRun.v1");
   assert.ok(report.blockers.some((blocker) => blocker.code === "workflow_surface_not_supported"));
+});
+
+test("loo qa-lab workflow rejects invalid gateway timeout values at the CLI boundary", (t) => {
+  const dir = makeTempDir(t, "loo-qa-workflow-timeout-cli-");
+
+  const result = runLoo([
+    "qa-lab",
+    "workflow",
+    "--scenario-id",
+    "issue-517-agent-workflow",
+    "--surface",
+    "openclaw-gateway",
+    "--mode",
+    "dry-run",
+    "--evidence-dir",
+    dir,
+    "--gateway-timeout-ms",
+    "0"
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /--gateway-timeout-ms requires an integer between 1 and 600000/);
 });
 
 test("loo qa-lab workflow writes a strict public-safe report through fake OpenClaw", (t) => {
