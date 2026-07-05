@@ -1678,7 +1678,7 @@ function summarizeInvocation(
   if (disposition === "expected_fail_closed") {
     const failClosedProven = expectedFailClosedProven(toolName, details ?? output, summary, requestArgs);
     if (failClosedProven) {
-      blockers = blockers.filter((blocker) => !blocker.startsWith(`openclaw_tool_result_not_ok:${toolName}`));
+      blockers = blockers.filter((blocker) => blocker !== `openclaw_tool_result_not_ok:${toolName}`);
     } else if (blockers.length === 0) {
       blockers.push(`expected_fail_closed_not_proven:${toolName}`);
     }
@@ -1747,7 +1747,8 @@ function expectedFailClosedProven(
       && booleanPath(value, ["live"]) === false
       && booleanPath(value, ["dryRunOnly"]) === true
       && booleanPath(value, ["approvalRequired"]) === true
-      && (booleanPath(value, ["requestedLive"]) === false || booleanPath(value, ["requestedLive"]) === undefined);
+      && (booleanPath(value, ["requestedLive"]) === false || booleanPath(value, ["requestedLive"]) === undefined)
+      && hasExplicitNoDesktopAction(value);
     if (requestArgs.dry_run !== true) return false;
     if (hasCurrentDryRunBoundary) return true;
     return hasBlockedStatus && hasSupportingNoActionProof;
@@ -1817,9 +1818,9 @@ function hasRestrictedActionPerformed(value: unknown, depth = 0): boolean {
 function hasPublicSafeLcmPeerPath(peer: Record<string, unknown>): boolean {
   const path = stringPath(peer, ["path"]);
   if (!path) return false;
-  if (path.startsWith("<redacted-local-path>/")) return true;
+  if (path.startsWith("<redacted-local-path>/")) return /^<redacted-local-path>\/lcm-peer(?:-[a-f0-9]{12})?\.sqlite$/i.test(path);
   if (path.startsWith("lcm_peer_db:")) return /^[A-Za-z0-9._-]{1,64}$/.test(path.slice("lcm_peer_db:".length));
-  return !/(?:^\/|^~\/|^[A-Za-z]:[\\/]|\.sqlite(?:\b|[-_.])|\.db(?:\b|[-_.])|\/Users\/|\/Volumes\/|\/home\/|\/root\/|\/tmp\/|\/private\/var\/)/i.test(path);
+  return false;
 }
 
 function hasForbiddenIndexMutationClass(value: unknown): boolean {

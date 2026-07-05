@@ -247,6 +247,8 @@ function createFakeOpenClaw(
     weakDesktopActProof?: boolean;
     bareDesktopActStatus?: boolean;
     markerOnlyDesktopActProof?: boolean;
+    missingDesktopActActions?: boolean;
+    desktopActValidationError?: boolean;
     arbitraryProofReportBlocker?: boolean;
     deepDesktopActProof?: boolean;
     wideDesktopActProof?: boolean;
@@ -257,6 +259,7 @@ function createFakeOpenClaw(
     unsafeIndexRestrictedAction?: boolean;
     unsafeLcmPeerPath?: boolean;
     unsafeLcmPeerRef?: boolean;
+    unsafeLcmPeerRelativePath?: boolean;
     weakHarnessReadyProof?: boolean;
     snakeCaseHarnessReadyProof?: boolean;
     gatewayRefusedToolName?: string;
@@ -288,7 +291,7 @@ function createFakeOpenClaw(
         ? `{ details: ${dryRunDetailsCode} }`
         : dryRunDetailsCode;
   const desktopActOutputCode = options.currentProductFailClosedShapes
-    ? `{ backend: "cua-driver", action: toolArgs.action, live: false, dryRunOnly: true, approvalRequired: true, requestedLive: false, blockers: [], actionsPerformed: { desktopGuiActionRun: false, screenshotCaptured: false } }`
+    ? `{ backend: "cua-driver", action: toolArgs.action, live: false, dryRunOnly: true, approvalRequired: true, requestedLive: false, blockers: []${options.missingDesktopActActions ? "" : ", actionsPerformed: { desktopGuiActionRun: false, screenshotCaptured: false }"} }`
     : options.weakDesktopActProof
     ? `{ publicSafe: true, readOnly: true, reasonCodes: ["blocked"], actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false } }`
     : options.bareDesktopActStatus
@@ -508,6 +511,10 @@ if (method === "tools.invoke") {
     process.exit(0);
   }
   if (name === "loo_desktop_act") {
+    if (${options.desktopActValidationError ? "true" : "false"}) {
+      console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { ok: false, error: { code: "validation_failed", message: "action is required" }, publicSafe: true, readOnly: true, status: "blocked", blockers: ["desktop_live_action_disallowed"], proofMarkers: { noActionObserved: true }, actionsPerformed: { desktopGuiActionRun: false, screenshotCaptured: false } } }));
+      process.exit(0);
+    }
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: ${desktopActOutputCode} }));
     process.exit(0);
   }
@@ -624,7 +631,7 @@ if (method === "tools.invoke") {
     process.exit(0);
   }
   if (name === "loo_lcm_peer_dbs") {
-    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { peers: [{ path: ${options.unsafeLcmPeerPath ? "\"/Users/lume/.openclaw/lco-private-peer.sqlite\"" : options.unsafeLcmPeerRef ? "\"lcm_peer_db:/Users/lume/.openclaw/lco-private-peer.sqlite\"" : "\"<redacted-local-path>/lco-tool-smoke-no-such-lcm.sqlite\""}, readable: false, readOnly: true, queryOnly: false, supported: false, tables: [], summaryCount: null, ftsAvailable: false, reason: "not found" }] } }));
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { peers: [{ path: ${options.unsafeLcmPeerPath ? "\"/Users/lume/.openclaw/lco-private-peer.sqlite\"" : options.unsafeLcmPeerRef ? "\"lcm_peer_db:/Users/lume/.openclaw/lco-private-peer.sqlite\"" : options.unsafeLcmPeerRelativePath ? "\"relative/../../etc/secret\"" : "\"<redacted-local-path>/lcm-peer-000000000000.sqlite\""}, readable: false, readOnly: true, queryOnly: false, supported: false, tables: [], summaryCount: null, ftsAvailable: false, reason: "not found" }] } }));
     process.exit(0);
   }
   if (name === "loo_desktop_see") {
@@ -1258,6 +1265,51 @@ test("OpenClaw tool smoke accepts current product fail-closed envelopes for boun
   }
 });
 
+test("OpenClaw tool smoke rejects desktop act dry-run metadata without action markers", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-missing-desktop-action-markers-"));
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_desktop_act"], "flat", {
+    currentProductFailClosedShapes: true,
+    missingDesktopActActions: true
+  });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      requiredTools: ["loo_desktop_act"]
+    });
+
+    assert.equal(report.toolSmokeReady, false);
+    assert.equal(report.invocations.find((call) => call.toolName === "loo_desktop_act")?.ok, false);
+    assert.equal(report.blockers.includes("expected_fail_closed_not_proven:loo_desktop_act"), true);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke preserves coded not-ok blockers for fail-closed tools", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-coded-not-ok-"));
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_desktop_act"], "flat", {
+    desktopActValidationError: true
+  });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      requiredTools: ["loo_desktop_act"]
+    });
+
+    assert.equal(report.toolSmokeReady, false);
+    assert.equal(report.invocations.find((call) => call.toolName === "loo_desktop_act")?.ok, false);
+    assert.equal(report.blockers.includes("openclaw_tool_result_not_ok:loo_desktop_act:validation_failed"), true);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
 test("OpenClaw tool smoke rejects bare harness-ready desktop proof without no-action evidence", () => {
   const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-weak-harness-proof-"));
   const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_desktop_live_proof_harness"], "flat", {
@@ -1436,6 +1488,30 @@ test("OpenClaw tool smoke rejects lcm_peer_db refs with embedded local paths", (
     assert.equal(report.blockers.includes("lcm_peer_dbs_path_not_redacted"), true);
     assert.equal(JSON.stringify(report).includes("lco-private-peer"), false);
     assert.equal(JSON.stringify(report).includes("/Users/lume"), false);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke rejects relative LCM peer paths as product evidence", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-relative-lcm-peer-"));
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_lcm_peer_dbs"], "flat", {
+    unsafeLcmPeerRelativePath: true
+  });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      requiredTools: ["loo_lcm_peer_dbs"]
+    });
+
+    assert.equal(report.toolSmokeReady, false);
+    assert.equal(report.invocations.find((call) => call.toolName === "loo_lcm_peer_dbs")?.ok, false);
+    assert.equal(report.blockers.includes("lcm_peer_dbs_path_not_redacted"), true);
+    assert.equal(JSON.stringify(report).includes("../"), false);
+    assert.equal(JSON.stringify(report).includes("secret"), false);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;

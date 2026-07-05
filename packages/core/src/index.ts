@@ -12390,8 +12390,8 @@ function probeLcmPeerDb(path: string): LcmPeerProbe {
   }
 }
 
-function publicSafeLcmPeerPath(_path: string): string {
-  return "<redacted-local-path>/lcm-peer.sqlite";
+function publicSafeLcmPeerPath(path: string): string {
+  return `<redacted-local-path>/lcm-peer-${stableId(path).slice(0, 12)}.sqlite`;
 }
 
 function openLcmPeerDb(path: string): LooDatabase {

@@ -135,7 +135,7 @@ test("grep -> describe -> expand_query preserves Codex and read-only LCM source 
     assert.equal(peers.peers[0]?.readOnly, true);
     assert.equal(peers.peers[0]?.queryOnly, true);
     assert.equal(peers.peers[0]?.summaryCount, 1);
-    assert.equal(peers.peers[0]?.path, "<redacted-local-path>/lcm-peer.sqlite");
+    assert.match(peers.peers[0]?.path ?? "", /^<redacted-local-path>\/lcm-peer-[a-f0-9]{12}\.sqlite$/);
     assert.notEqual(peers.peers[0]?.path, fixture.lcmPath);
 
     const grep = grepRecall(db, { query: "recall", lcmDbPaths: [fixture.lcmPath], limit: 10 });
