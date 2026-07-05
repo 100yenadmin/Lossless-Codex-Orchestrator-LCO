@@ -318,6 +318,38 @@ test("search uses field-weighted FTS scores and matched-field attribution", () =
   }
 });
 
+test("ranked search joins FTS rows by pinned rowid instead of mutable thread id text", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-search-rowid-join-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+
+  writeFileSync(join(sessions, "rollout-2026-07-06T00-00-00-019f-rowid-search-target.jsonl"), [
+    { timestamp: "2026-07-06T00:00:00.000Z", session_meta: { payload: { id: "019f-rowid-search-target" } } },
+    { timestamp: "2026-07-06T00:00:01.000Z", event_msg: { type: "thread_name", name: "Rowid invariant ranked search" } },
+    { timestamp: "2026-07-06T00:00:02.000Z", event_msg: { type: "agent_message", message: "Final: rowid invariant ranked search completed. Next action: benchmark." } }
+  ].map((line) => JSON.stringify(line)).join("\n") + "\n");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    const target = db.prepare("SELECT rowid AS rowid FROM codex_sessions WHERE thread_id = ?").get("019f-rowid-search-target") as { rowid: number };
+    db.prepare("UPDATE codex_search_fts SET thread_id = ? WHERE rowid = ?").run("019f-rowid-search-drifted", target.rowid);
+
+    const matches = searchSessions(db, {
+      query: "rowid invariant ranked search",
+      limit: 5,
+      now: "2026-07-06T00:00:02.000Z"
+    });
+
+    assert.equal(matches[0]?.threadId, "019f-rowid-search-target");
+    assert.equal(matches[0]?.matchKind, "full_text");
+    assert.equal(matches[0]?.reasonCodes.includes("fts_match"), true);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("field-weight beats recency: older strong-title outranks newer weak-body", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-codex-recency-inv-"));
   const sessions = join(root, "sessions");

@@ -303,7 +303,7 @@ function codexFtsRowsSql(includeBodyColumns: boolean): string {
       ${includeBodyColumns ? CODEX_FTS_BODY_COLUMNS : ""}
       bm25(codex_search_fts, ${CODEX_SEARCH_BM25_WEIGHTS}) AS bm25
     FROM codex_search_fts
-    JOIN codex_sessions s ON s.thread_id = codex_search_fts.thread_id
+    JOIN codex_sessions s ON s.rowid = codex_search_fts.rowid
     WHERE codex_search_fts MATCH ?
     ORDER BY bm25(codex_search_fts, ${CODEX_SEARCH_BM25_WEIGHTS}) ASC
     LIMIT ?
