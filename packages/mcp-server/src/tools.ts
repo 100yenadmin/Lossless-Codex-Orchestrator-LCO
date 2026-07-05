@@ -229,7 +229,7 @@ export const LOO_TOOL_SURFACE: Record<string, LooToolSurfaceMetadata> = {
   loo_desktop_proof_report: { tier: "proof_debug" },
   loo_desktop_live_proof_harness: { tier: "proof_debug" },
   loo_desktop_proof_action: { tier: "proof_debug" },
-  loo_doctor: { tier: "proof_debug" },
+  loo_doctor: { tier: "workflow_detail" },
   loo_permissions: { tier: "proof_debug" },
   loo_audit_tail: { tier: "proof_debug" }
 };

@@ -92,8 +92,8 @@ test("qa-lab tool coverage passes strict full coverage only when every declared 
   assert.equal(report.declaredToolCount, 60);
   assert.deepEqual(report.tierCounts, {
     public_facade: 8,
-    workflow_detail: 34,
-    proof_debug: 15,
+    workflow_detail: 35,
+    proof_debug: 14,
     internal_low_level: 3
   });
   assert.equal(report.invocationCoverage.invokedDeclaredTools, 60);

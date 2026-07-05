@@ -51,6 +51,14 @@ test("tool exposure profiles filter base declarations from the shared tier map",
   }
 });
 
+test("standard profile exposes doctor as workflow health detail", () => {
+  const facadeNames = createLooToolDeclarations({ profile: "facade", includeAliases: false }).map((tool) => tool.name);
+  const standardByName = new Map(createLooToolDeclarations({ profile: "standard", includeAliases: false }).map((tool) => [tool.name, tool]));
+
+  assert.equal(facadeNames.includes("loo_doctor"), false);
+  assert.equal(standardByName.get("loo_doctor")?.metadata.tier, "workflow_detail");
+});
+
 test("facade lco aliases are derived exactly from public facade tools", () => {
   const withAliases = createLooToolDeclarations({ profile: "all", includeAliases: true });
   const byName = new Map(withAliases.map((tool) => [tool.name, tool]));
