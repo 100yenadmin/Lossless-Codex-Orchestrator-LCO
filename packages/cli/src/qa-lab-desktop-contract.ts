@@ -82,8 +82,9 @@ type LoadedEvidence = {
 
 const PACKAGE_NAME = "lossless-openclaw-orchestrator";
 const SHA_PATTERN = /^[a-f0-9]{40}$/i;
-const SECRET_LIKE_PATTERN = /(npm_[A-Za-z0-9]{20,}|bearer\s+[A-Za-z0-9._-]{20,}|sk-[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i;
-const RAW_ARTIFACT_VALUE_PATTERN = /(?:\/Users\/[^"'\s]+|\/Volumes\/[^"'\s]+|~\/[^"'\s]+).*\.(?:jsonl|sqlite|sqlite-wal|sqlite-shm|db|png|jpg|jpeg|gif|webp|mp4|mov|webm)(?:["'\s]|$)/i;
+const MAX_EVIDENCE_SCAN_DEPTH = 64;
+const SECRET_LIKE_PATTERN = /(npm_[A-Za-z0-9]{20,}|bearer[:\s]+[A-Za-z0-9._-]{20,}|sk-[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|glpat-[A-Za-z0-9_-]{20,}|AIza[0-9A-Za-z_-]{20,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|-----BEGIN\s+[A-Z ]*PRIVATE KEY-----)/i;
+const RAW_ARTIFACT_VALUE_PATTERN = /(?:(?:\/(?:[^"'\s/]+\/)+[^"'\s]*|~\/[^"'\s]+|[A-Za-z]:\\(?:[^"'\s\\]+\\)+[^"'\s]*|(?:\.\.[/\\])+(?:[^"'\s/\\]+[/\\])*[^"'\s/\\]+).*)\.(?:jsonl|sqlite|sqlite-wal|sqlite-shm|db|png|jpg|jpeg|gif|webp|mp4|mov|webm)(?:["'\s]|$)/i;
 const RESTRICTED_ACTION_KEYS = new Set([
   "desktopGuiActionRun",
   "genericGuiMutationRun",
@@ -170,6 +171,7 @@ export function createQaLabDesktopContractReport(options: QaLabDesktopContractOp
   const dedupedBlockers = uniqueBlockers(blockers);
   refreshEvidenceIndexStatuses(evidenceIndex, dedupedBlockers);
   const desktopContractReady = dedupedBlockers.filter((blocker) => blocker.severity !== "P3").length === 0;
+  const readinessCandidateSha = readString(readiness.value, "candidateSha");
   return {
     schema: "lco.qaLab.desktopContract.v1",
     ok: desktopContractReady,
@@ -177,7 +179,7 @@ export function createQaLabDesktopContractReport(options: QaLabDesktopContractOp
     generatedAt: options.now ?? new Date().toISOString(),
     packageName: PACKAGE_NAME,
     packageVersion: options.packageVersion ?? readString(readiness.value, "packageVersion") ?? null,
-    candidateSha: options.candidateSha ?? readString(readiness.value, "candidateSha") ?? null,
+    candidateSha: options.candidateSha ?? (readinessCandidateSha && SHA_PATTERN.test(readinessCandidateSha) ? readinessCandidateSha : null),
     publicSafe: true,
     evidenceIndex,
     metadataProof,
@@ -259,6 +261,9 @@ function validateLoadedEvidence(
   if (options.candidateSha && typeof evidence.value.candidateSha === "string" && evidence.value.candidateSha !== options.candidateSha) {
     addBlocker(blockers, "P1", "candidate_sha_mismatch", evidence.source, `${titleForSource(evidence.source)} targets a different candidate SHA.`);
   }
+  if (typeof evidence.value.candidateSha === "string" && !SHA_PATTERN.test(evidence.value.candidateSha)) {
+    addBlocker(blockers, "P1", "candidate_sha_invalid", evidence.source, `${titleForSource(evidence.source)} candidate SHA is not a 40-character hexadecimal commit SHA.`);
+  }
   if (Array.isArray(evidence.value.blockers) && evidence.value.blockers.length > 0) {
     addBlocker(blockers, "P1", `${evidence.source}_has_blockers`, evidence.source, `${titleForSource(evidence.source)} contains upstream blockers.`);
   }
@@ -305,23 +310,25 @@ function validateScratchProof(evidence: LoadedEvidence, blockers: QaLabDesktopCo
   return blockers.length === start;
 }
 
-function containsUnsafeValue(value: unknown, key = ""): boolean {
+function containsUnsafeValue(value: unknown, key = "", depth = 0): boolean {
+  if (depth > MAX_EVIDENCE_SCAN_DEPTH) return true;
   if (typeof value === "string") {
     return RAW_PRIVATE_KEYS.has(key)
       || SECRET_LIKE_PATTERN.test(value)
       || RAW_ARTIFACT_VALUE_PATTERN.test(value);
   }
-  if (Array.isArray(value)) return value.some((item) => containsUnsafeValue(item, key));
-  if (isRecord(value)) return Object.entries(value).some(([childKey, childValue]) => containsUnsafeValue(childValue, childKey));
+  if (Array.isArray(value)) return value.some((item) => containsUnsafeValue(item, key, depth + 1));
+  if (isRecord(value)) return Object.entries(value).some(([childKey, childValue]) => containsUnsafeValue(childValue, childKey, depth + 1));
   return false;
 }
 
-function hasRestrictedAction(value: unknown, key = ""): boolean {
-  if (Array.isArray(value)) return value.some((item) => hasRestrictedAction(item, key));
+function hasRestrictedAction(value: unknown, key = "", depth = 0): boolean {
+  if (depth > MAX_EVIDENCE_SCAN_DEPTH) return true;
+  if (Array.isArray(value)) return value.some((item) => hasRestrictedAction(item, key, depth + 1));
   if (!isRecord(value)) return false;
   return Object.entries(value).some(([childKey, childValue]) => {
     if (RESTRICTED_ACTION_KEYS.has(childKey) && childValue === true) return true;
-    return hasRestrictedAction(childValue, childKey);
+    return hasRestrictedAction(childValue, childKey, depth + 1);
   });
 }
 
@@ -339,13 +346,26 @@ function claimsCodexGuiMutation(value: JsonRecord | null): boolean {
     || truthyPath(value, ["actionsPerformed", "liveCodexControlRun"]);
 }
 
-function containsFlag(value: unknown, keys: string[]): boolean {
-  if (Array.isArray(value)) return value.some((item) => containsFlag(item, keys));
+function containsFlag(value: unknown, keys: string[], depth = 0): boolean {
+  if (depth > MAX_EVIDENCE_SCAN_DEPTH) return true;
+  if (Array.isArray(value)) return value.some((item) => containsFlag(item, keys, depth + 1));
   if (!isRecord(value)) return false;
   return Object.entries(value).some(([key, item]) => {
-    if (keys.includes(key)) return item === true || (typeof item === "string" && ["true", "1", "yes"].includes(item.toLowerCase()));
-    return containsFlag(item, keys);
+    if (keys.includes(key)) return flagValueProvided(item);
+    return containsFlag(item, keys, depth + 1);
   });
+}
+
+function flagValueProvided(value: unknown): boolean {
+  if (value === false || value === null || value === undefined) return false;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    return !["", "false", "0", "no", "none", "null", "undefined"].includes(normalized);
+  }
+  if (typeof value === "number") return value !== 0;
+  if (Array.isArray(value)) return value.length > 0;
+  if (isRecord(value)) return Object.keys(value).length > 0;
+  return value === true;
 }
 
 function refreshEvidenceIndexStatuses(

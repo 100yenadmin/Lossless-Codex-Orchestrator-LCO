@@ -183,6 +183,63 @@ test("qa-lab desktop contract fails closed and redacts unsafe raw evidence", (t)
   assert.doesNotMatch(serialized, /private customer note/);
 });
 
+test("qa-lab desktop contract blocks non-Users raw artifact paths and common token shapes", () => {
+  const report = createQaLabDesktopContractReport({
+    packageVersion,
+    candidateSha,
+    readinessReport: readinessReport({
+      rawArtifacts: [
+        "/tmp/session.sqlite",
+        "/private/var/folders/screenshot.png",
+        "C:\\Users\\lume\\AppData\\Local\\codex\\transcript.jsonl",
+        "../../sessions/x.sqlite"
+      ],
+      leakedTokens: [
+        "AKIA1234567890ABCDEF",
+        "eyJhbGciOiJIUzI1NiJ9.payload.signature"
+      ]
+    })
+  });
+  const serialized = JSON.stringify(report);
+
+  assert.equal(report.ok, false);
+  assert.equal(report.evidenceIndex.readinessReport.status, "unsafe");
+  assert.ok(report.blockers.some((blocker) => blocker.code === "unsafe_evidence_value"));
+  assert.doesNotMatch(serialized, /session\.sqlite|screenshot\.png|transcript\.jsonl|x\.sqlite/);
+  assert.doesNotMatch(serialized, /AKIA1234567890ABCDEF|eyJhbGciOiJIUzI1NiJ9/);
+});
+
+test("qa-lab desktop contract fails closed on deeply nested hostile evidence", () => {
+  let nested: Record<string, unknown> = { marker: "safe" };
+  for (let index = 0; index < 96; index += 1) nested = { child: nested };
+
+  const report = createQaLabDesktopContractReport({
+    packageVersion,
+    candidateSha,
+    readinessReport: readinessReport({
+      nested
+    })
+  });
+
+  assert.equal(report.ok, false);
+  assert.equal(report.evidenceIndex.readinessReport.status, "unsafe");
+  assert.ok(report.blockers.some((blocker) => blocker.code === "unsafe_evidence_value"));
+});
+
+test("qa-lab desktop contract treats array/object screenshot claims as provided proof", () => {
+  const report = createQaLabDesktopContractReport({
+    packageVersion,
+    candidateSha,
+    readinessReport: readinessReport({
+      screenshotCaptured: [{ ref: "redacted-screenshot-evidence" }]
+    })
+  });
+
+  assert.equal(report.ok, false);
+  assert.equal(report.screenshotVideoProof.screenshotProvided, true);
+  assert.ok(report.blockers.some((blocker) => blocker.code === "screenshot_or_video_not_contract_proof"));
+});
+
 test("qa-lab desktop contract honors explicit false readiness over generic ok fallbacks", () => {
   const cliReport = createQaLabDesktopContractReport({
     packageVersion,
