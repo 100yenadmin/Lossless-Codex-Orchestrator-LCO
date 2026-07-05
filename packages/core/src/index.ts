@@ -78,7 +78,7 @@ export type IndexCodexOptions = {
 
 export type LimitedCodexFile = {
   path: string;
-  reason: "max_bytes_per_file" | "max_events_per_file";
+  reason: "max_bytes_per_file" | "max_events_per_file" | "max_files_dropped_oldest";
   limit: number;
   actual: number;
 };
@@ -3007,7 +3007,8 @@ function ensureColumn(db: LooDatabase, table: string, column: string, definition
 }
 
 export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions): IndexCodexResult {
-  const files = collectJsonlFiles(options.roots, options.maxFiles ?? 10_000);
+  const fileSelection = collectJsonlFiles(options.roots, options.maxFiles ?? 10_000);
+  const files = fileSelection.files;
   const maxBytesPerFile = positiveLimit(options.maxBytesPerFile, DEFAULT_CODEX_MAX_BYTES_PER_FILE, "maxBytesPerFile");
   const maxEventsPerFile = positiveLimit(options.maxEventsPerFile, DEFAULT_CODEX_MAX_EVENTS_PER_FILE, "maxEventsPerFile");
   const verify = options.verify === true;
@@ -3024,6 +3025,10 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
     driftReport: [],
     driftSummary: emptyCodexJsonlDriftSummary()
   };
+  if (fileSelection.droppedOldest) {
+    result.skippedFiles += Math.max(0, fileSelection.droppedOldest.actual - fileSelection.droppedOldest.limit);
+    result.limitedFiles.push(fileSelection.droppedOldest);
+  }
   const seenThreads = new Set<string>();
   const summaryThreadsToMaterialize = new Set<string>();
   const preparedThreadsToMaterialize = new Set<string>();
@@ -12946,26 +12951,46 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function collectJsonlFiles(roots: string[], maxFiles: number): string[] {
-  const files: string[] = [];
+type JsonlFileCandidate = {
+  path: string;
+  mtimeMs: number;
+};
+
+type JsonlFileSelection = {
+  files: string[];
+  droppedOldest: LimitedCodexFile | null;
+};
+
+function collectJsonlFiles(roots: string[], maxFiles: number): JsonlFileSelection {
+  const candidates: JsonlFileCandidate[] = [];
   for (const root of roots) {
-    if (!existsSync(root) || files.length >= maxFiles) continue;
-    walk(root, files, maxFiles);
+    if (!existsSync(root)) continue;
+    walk(root, candidates);
   }
-  return files;
+  candidates.sort((left, right) => right.mtimeMs - left.mtimeMs || left.path.localeCompare(right.path));
+  const files = candidates.slice(0, maxFiles).map((candidate) => candidate.path);
+  return {
+    files,
+    droppedOldest: candidates.length > maxFiles
+      ? {
+          path: roots.length === 1 ? roots[0] : roots.join(delimiter),
+          reason: "max_files_dropped_oldest",
+          limit: maxFiles,
+          actual: candidates.length
+        }
+      : null
+  };
 }
 
-function walk(path: string, files: string[], maxFiles: number): void {
-  if (files.length >= maxFiles) return;
+function walk(path: string, files: JsonlFileCandidate[]): void {
   const entries = readdirSync(path, { withFileTypes: true });
   for (const entry of entries) {
-    if (files.length >= maxFiles) return;
     const child = join(path, entry.name);
     if (entry.isDirectory()) {
       if (entry.name === "node_modules" || entry.name === ".git") continue;
-      walk(child, files, maxFiles);
+      walk(child, files);
     } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
-      files.push(child);
+      files.push({ path: child, mtimeMs: statSync(child).mtimeMs });
     }
   }
 }

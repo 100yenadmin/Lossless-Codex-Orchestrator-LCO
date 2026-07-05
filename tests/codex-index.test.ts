@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, utimesSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -77,6 +77,14 @@ function sqliteTableExists(db: ReturnType<typeof createDatabase>, tableName: str
   return row !== undefined;
 }
 
+function writeMinimalCodexSession(path: string, threadId: string, title: string): void {
+  writeFileSync(path, [
+    { timestamp: "2026-07-06T00:00:00.000Z", session_meta: { payload: { id: threadId } } },
+    { timestamp: "2026-07-06T00:00:01.000Z", event_msg: { type: "thread_name", name: title } },
+    { timestamp: "2026-07-06T00:00:02.000Z", event_msg: { type: "agent_message", message: `Final: ${title}` } }
+  ].map((line) => JSON.stringify(line)).join("\n") + "\n");
+}
+
 test("indexes Codex sessions with plans, finals, touched files, and search text", () => {
   const fixture = makeFixture();
   const dbPath = join(fixture.root, "orchestrator.sqlite");
@@ -115,6 +123,44 @@ test("indexes Codex sessions with plans, finals, touched files, and search text"
   } finally {
     db.close();
     rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("maxFiles selects newest JSONL files first and reports dropped oldest candidates", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-max-files-recency-"));
+  const sessions = join(root, "sessions");
+  const oldDir = join(sessions, "2026", "01", "01");
+  const newDir = join(sessions, "2026", "07", "05");
+  mkdirSync(oldDir, { recursive: true });
+  mkdirSync(newDir, { recursive: true });
+
+  const oldPath = join(oldDir, "rollout-2026-01-01T00-00-00-019f-oldest.jsonl");
+  const newAPath = join(newDir, "rollout-2026-07-05T10-00-00-019f-new-a.jsonl");
+  const newBPath = join(newDir, "rollout-2026-07-05T11-00-00-019f-new-b.jsonl");
+  writeMinimalCodexSession(oldPath, "019f-oldest", "Oldest capped candidate");
+  writeMinimalCodexSession(newAPath, "019f-new-a", "New capped candidate A");
+  writeMinimalCodexSession(newBPath, "019f-new-b", "New capped candidate B");
+  utimesSync(oldPath, new Date("2026-01-01T00:00:00.000Z"), new Date("2026-01-01T00:00:00.000Z"));
+  utimesSync(newAPath, new Date("2026-07-05T10:00:00.000Z"), new Date("2026-07-05T10:00:00.000Z"));
+  utimesSync(newBPath, new Date("2026-07-05T11:00:00.000Z"), new Date("2026-07-05T11:00:00.000Z"));
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const result = indexCodexSessions(db, { roots: [sessions], maxFiles: 2 });
+    const rows = db.prepare("SELECT thread_id AS threadId FROM codex_sessions ORDER BY thread_id").all() as Array<{ threadId: string }>;
+
+    assert.equal(result.indexedFiles, 2);
+    assert.equal(result.skippedFiles, 1);
+    assert.deepEqual(rows.map((row) => row.threadId), ["019f-new-a", "019f-new-b"]);
+    assert.deepEqual(result.limitedFiles, [{
+      path: sessions,
+      reason: "max_files_dropped_oldest",
+      limit: 2,
+      actual: 3
+    }]);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
