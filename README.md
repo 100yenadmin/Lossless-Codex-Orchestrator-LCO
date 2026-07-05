@@ -23,7 +23,7 @@ safe action without rereading raw transcripts.
 | Approval-gated boundaries | Dry-run Codex actions and verify matching audit ids before any live control. |
 | OpenClaw/MCP tools | Use the same local-first recall and approval-bounded surfaces from agent workflows. |
 
-[Setup](docs/SETUP.md) · [Contributing](CONTRIBUTING.md) · [Agent Instructions](AGENTS.md) · [Agent Skill](skills/lossless-openclaw-orchestrator/SKILL.md) · [OpenClaw Plugin](docs/OPENCLAW_PLUGIN.md) · [Security](SECURITY.md) · [Code of Conduct](CODE_OF_CONDUCT.md) · [Vision](VISION.md) · [Privacy](docs/PRIVACY.md) · [Claude Boundary](docs/CLAUDE_ADAPTER_BOUNDARY.md) · [Claim Audit](docs/CLAIM_AUDIT.md) · [QA Lab](docs/QA_LAB.md) · [Release Notes](docs/RELEASE_NOTES_1.2.5.md) · [1.2.4 Notes](docs/RELEASE_NOTES_1.2.4.md) · [1.2.3 Notes](docs/RELEASE_NOTES_1.2.3.md) · [1.2.2 Notes](docs/RELEASE_NOTES_1.2.2.md) · [1.2.1 Notes](docs/RELEASE_NOTES_1.2.1.md) · [1.2.0 Notes](docs/RELEASE_NOTES_1.2.0.md) · [1.1.4 Notes](docs/RELEASE_NOTES_1.1.4.md) · [1.0 Notes](docs/RELEASE_NOTES_1.0.0.md) · [License](LICENSE)
+[Setup](docs/SETUP.md) · [Contributing](CONTRIBUTING.md) · [Agent Instructions](AGENTS.md) · [Agent Skill](skills/lossless-openclaw-orchestrator/SKILL.md) · [OpenClaw Plugin](docs/OPENCLAW_PLUGIN.md) · [Security](SECURITY.md) · [Code of Conduct](CODE_OF_CONDUCT.md) · [Vision](VISION.md) · [Privacy](docs/PRIVACY.md) · [Claude Boundary](docs/CLAUDE_ADAPTER_BOUNDARY.md) · [Claim Audit](docs/CLAIM_AUDIT.md) · [QA Lab](docs/QA_LAB.md) · [Release Notes](docs/releases/CHANGELOG.md) · [License](LICENSE)
 
 ## Why It Matters
 
@@ -37,6 +37,8 @@ If you are an agent working in this repository, read [AGENTS.md](AGENTS.md)
 before editing files.
 
 ## What It Does
+
+LCO's wedge is approval-gated orchestration over bounded, public-safe recall: an agent can safely operate a Codex fleet, not just remember it.
 
 LCO is a local-first orchestration layer for Codex-heavy work:
 

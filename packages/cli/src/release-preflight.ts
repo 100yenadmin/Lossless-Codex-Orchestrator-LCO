@@ -91,7 +91,7 @@ const readmePublicDocsRequiredPatterns = [
   /docs\/OPENCLAW_PLUGIN\.md/i,
   /docs\/PRIVACY\.md/i,
   /docs\/CLAIM_AUDIT\.md/i,
-  /docs\/RELEASE_NOTES_1\.0\.0\.md/i,
+  /docs\/releases\/CHANGELOG\.md/i,
   /License/i,
   /## Safety Boundaries/i,
   /Core proof commands/i,

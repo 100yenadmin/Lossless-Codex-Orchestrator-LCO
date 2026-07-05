@@ -10,7 +10,7 @@ import { createReleaseBundle } from "../packages/cli/src/release-bundle.js";
 const tsxImport = createRequire(import.meta.url).resolve("tsx");
 const packageVersion = JSON.parse(readFileSync("package.json", "utf8")).version as string;
 const releaseNotesFile = `RELEASE_NOTES_${packageVersion}.md`;
-const releaseNotesPath = `docs/${releaseNotesFile}`;
+const releaseNotesPath = `docs/releases/${releaseNotesFile}`;
 
 function read(path: string): string {
   return readFileSync(path, "utf8");
@@ -148,6 +148,6 @@ test("release bundle requires version-specific release notes", () => {
 
   assert.throws(
     () => createReleaseBundle({ evidenceDir: join(rootDir, "evidence"), rootDir }),
-    /docs\/RELEASE_NOTES_9\.9\.9-test\.0\.md/
+    /docs\/releases\/RELEASE_NOTES_9\.9\.9-test\.0\.md/
   );
 });
