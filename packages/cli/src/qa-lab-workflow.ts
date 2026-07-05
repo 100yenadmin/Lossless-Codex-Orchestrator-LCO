@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -131,6 +131,7 @@ const DEFAULT_GATEWAY_TIMEOUT_MS = 60_000;
 const MAX_UNWRAP_DEPTH = 8;
 const MAX_OUTPUT_SCAN_DEPTH = 64;
 const SAFE_IDENTIFIER_PATTERN = /^[A-Za-z0-9_.:-]{1,160}$/;
+const SAFE_SOURCE_REF_PATTERN = /^(codex_thread|codex_event|codex_range|codex_source|summary_leaf|prepared_card|prepared_inbox|lcm_summary):[A-Za-z0-9_.:-]{1,180}$/;
 
 export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabWorkflowReport {
   const evidenceDir = resolve(options.evidenceDir);
@@ -147,7 +148,7 @@ export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabW
   const openclawBin = openclawBinValidation.ok ? requestedOpenClawBin : "openclaw";
   const gatewayTimeoutMs = options.gatewayTimeoutMs ?? DEFAULT_GATEWAY_TIMEOUT_MS;
   const deadline = Date.now() + gatewayTimeoutMs;
-  const command = `${sanitizeCommandBinary(openclawBin)} gateway call tools.invoke --json --params <redacted>`;
+  const command = `${sanitizeCommandBinary(openclawBin)} gateway call tools.catalog/tools.invoke --json --params <redacted>`;
 
   if (options.surface !== "openclaw-gateway") {
     addBlocker(blockers, "P1", "workflow_surface_not_supported", "qaLabWorkflow", "Only --surface openclaw-gateway is supported for this QA Lab runner.");
@@ -188,6 +189,11 @@ export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabW
       const selectedSession = firstSessionSelection(search.rawOutput);
       selectedSourceRef = selectedSession.sourceRef;
       selectedThreadId = selectedSession.threadId;
+      if (selectedSourceRef && !SAFE_SOURCE_REF_PATTERN.test(selectedSourceRef)) {
+        selectedSourceRef = null;
+        sanitizeOutputSummary(search.outputSummary);
+        addBlocker(blockers, "P1", "workflow_selected_source_ref_not_public_safe", "loo_search_sessions", "Selected source ref was omitted because it was not public-safe.");
+      }
       ensureStepSourceRef(search, selectedSourceRef);
       if (selectedThreadId && !SAFE_IDENTIFIER_PATTERN.test(selectedThreadId)) {
         selectedThreadId = null;
@@ -212,8 +218,8 @@ export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabW
         ensureStepSourceRef(step, selectedSourceRef);
         steps.push(step);
         if (call.step === "control_dry_run") {
-          dryRunApprovalAuditId = readStringPath(step.rawOutput, ["approvalAuditId"]) ?? readStringPath(step.rawOutput, ["approval_audit_id"]) ?? null;
-          dryRunParamsHash = readStringPath(step.rawOutput, ["paramsHash"]) ?? readStringPath(step.rawOutput, ["params_hash"]) ?? null;
+          dryRunApprovalAuditId = step.outputSummary.approvalAuditId ?? null;
+          dryRunParamsHash = step.outputSummary.paramsHash ?? null;
           if (step.outputSummary.live === undefined) {
             addBlocker(blockers, "P0", "workflow_dry_run_control_live_missing", call.toolName, "Dry-run control must explicitly report live: false.");
           } else if (step.outputSummary.live !== false) {
@@ -290,7 +296,7 @@ function invokeWorkflowTool(
     args: call.args,
     sessionKey: options.sessionKey || "agent:main:lco-qa-lab-workflow",
     confirm: false,
-    idempotencyKey: `loo-qa-workflow-${randomUUID()}-${call.toolName}`
+    idempotencyKey: workflowIdempotencyKey(options, call)
   }, options, remainingGatewayTimeoutMs(deadline));
   const payload = unwrapGatewayPayload(result.parsed);
   const output = unwrapToolOutput(payload);
@@ -327,6 +333,9 @@ function callGatewayJson(
   options: QaLabWorkflowOptions,
   gatewayTimeoutMs: number
 ): GatewayJsonResult {
+  if (gatewayTimeoutMs <= 0) {
+    return { status: 124, parseError: "gateway deadline exceeded" };
+  }
   const gatewayOptions = [
     ...(options.gatewayUrl ? ["--url", options.gatewayUrl] : []),
     ...gatewayTokenArgs(options.token),
@@ -347,7 +356,7 @@ function callGatewayJson(
     encoding: "utf8",
     env,
     maxBuffer: 10 * 1024 * 1024,
-    timeout: Math.max(1000, gatewayTimeoutMs) + 1000
+    timeout: gatewayTimeoutMs + Math.min(1000, Math.max(250, Math.ceil(gatewayTimeoutMs * 0.2)))
   });
   const result: GatewayJsonResult = { status: call.status };
   try {
@@ -568,7 +577,7 @@ function childEnv(options: QaLabWorkflowOptions): NodeJS.ProcessEnv {
 }
 
 function remainingGatewayTimeoutMs(deadline: number): number {
-  return Math.max(1000, deadline - Date.now());
+  return Math.max(0, deadline - Date.now());
 }
 
 function ensureStepSourceRef(step: InternalWorkflowStep, selectedSourceRef: string | null): void {
@@ -584,14 +593,14 @@ function summaryIsPublicSafe(summary: QaLabWorkflowStep["outputSummary"]): boole
   if (summary.threadId && !SAFE_IDENTIFIER_PATTERN.test(summary.threadId)) return false;
   if (summary.approvalAuditId && !SAFE_IDENTIFIER_PATTERN.test(summary.approvalAuditId)) return false;
   if (summary.paramsHash && !SAFE_IDENTIFIER_PATTERN.test(summary.paramsHash)) return false;
-  if (summary.sourceRefs?.some((ref) => !/^(codex_thread|codex_event|codex_range|codex_source|summary_leaf|prepared_card|prepared_inbox|lcm_summary):[A-Za-z0-9_.:-]{1,180}$/.test(ref))) return false;
+  if (summary.sourceRefs?.some((ref) => !SAFE_SOURCE_REF_PATTERN.test(ref))) return false;
   return true;
 }
 
 function containsUnsafeSummaryValue(value: unknown, depth = 0): boolean {
   if (depth > MAX_OUTPUT_SCAN_DEPTH) return true;
   if (typeof value === "string") {
-    return /\/Users\/|\/Volumes\/|\.jsonl\b|\.sqlite\b|Bearer\s+|npm_[A-Za-z0-9]{20,}|token|cookie/i.test(value);
+    return /\/Users\/|\/Volumes\/|\.jsonl\b|\.sqlite\b|Bearer\s+|npm_[A-Za-z0-9]{20,}|api[_-]?key|secret[_-]?key|cookie/i.test(value);
   }
   if (Array.isArray(value)) return value.some((item) => containsUnsafeSummaryValue(item, depth + 1));
   if (isRecord(value)) return Object.values(value).some((item) => containsUnsafeSummaryValue(item, depth + 1));
@@ -603,9 +612,20 @@ function sanitizeOutputSummary(summary: QaLabWorkflowStep["outputSummary"]): voi
   if (summary.approvalAuditId && !SAFE_IDENTIFIER_PATTERN.test(summary.approvalAuditId)) delete summary.approvalAuditId;
   if (summary.paramsHash && !SAFE_IDENTIFIER_PATTERN.test(summary.paramsHash)) delete summary.paramsHash;
   if (summary.sourceRefs) {
-    summary.sourceRefs = summary.sourceRefs.filter((ref) => /^(codex_thread|codex_event|codex_range|codex_source|summary_leaf|prepared_card|prepared_inbox|lcm_summary):[A-Za-z0-9_.:-]{1,180}$/.test(ref));
+    summary.sourceRefs = summary.sourceRefs.filter((ref) => SAFE_SOURCE_REF_PATTERN.test(ref));
     if (summary.sourceRefs.length === 0) delete summary.sourceRefs;
   }
+}
+
+function workflowIdempotencyKey(options: QaLabWorkflowOptions, call: WorkflowCall): string {
+  const stablePayload = JSON.stringify({
+    scenarioId: options.scenarioId,
+    sessionKey: options.sessionKey || "agent:main:lco-qa-lab-workflow",
+    toolName: call.toolName,
+    args: call.args
+  });
+  const hash = createHash("sha256").update(stablePayload).digest("hex").slice(0, 24);
+  return `loo-qa-workflow-${hash}-${call.toolName}`;
 }
 
 function addBlocker(blockers: QaLabWorkflowBlocker[], severity: QaLabWorkflowBlocker["severity"], code: string, source: string, detail: string): void {

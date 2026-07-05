@@ -63,6 +63,10 @@ if (method === "tools.invoke") {
         { sourceRef: "codex_thread:z-thread", threadId: "z-thread", score: 10, snippet: "PRIVATE RAW PROMPT CANARY" },
         { sourceRef: "codex_thread:a-thread", threadId: "a-thread", score: 9, snippet: "PRIVATE RAW PROMPT CANARY" }
       ]
+      : process.env.OPENCLAW_FAKE_UNSAFE_SOURCE_REF === "1"
+        ? [
+          { sourceRef: "/Users/lume/private/session.jsonl", threadId: "agent-thread-1", score: 10, snippet: "PRIVATE RAW PROMPT CANARY" }
+        ]
       : process.env.OPENCLAW_FAKE_UNSAFE_THREAD_ID === "1"
         ? [
           { sourceRef: "codex_thread:agent-thread-1", threadId: "/Users/lume/private/session.jsonl", score: 10, snippet: "PRIVATE RAW PROMPT CANARY" }
@@ -115,8 +119,8 @@ if (method === "tools.invoke") {
     const output = {
       action: "resume",
       threadId: toolArgs.thread_id,
-      approvalAuditId: "loo_audit_agent_workflow",
-      paramsHash: "params-hash"
+      approvalAuditId: process.env.OPENCLAW_FAKE_UNSAFE_DRY_RUN_AUDIT === "1" ? "/Users/lume/private/audit.jsonl" : "loo_audit_agent_workflow",
+      paramsHash: process.env.OPENCLAW_FAKE_UNSAFE_DRY_RUN_AUDIT === "1" ? "Bearer secret" : "params-hash"
     };
     if (process.env.OPENCLAW_FAKE_DRY_RUN_LIVE_TRUE === "1") output.live = true;
     else if (process.env.OPENCLAW_FAKE_OMIT_DRY_RUN_LIVE !== "1") output.live = false;
@@ -160,6 +164,7 @@ test("qa-lab workflow creates a public-safe dry-run OpenClaw gateway report", (t
     "loo_codex_control_dry_run"
   ]);
   assert.equal(report.workflow.selectedSourceRef, "codex_thread:agent-thread-1");
+  assert.match(report.command, /tools\.catalog\/tools\.invoke/);
   assert.equal(report.workflow.rawTranscriptReadRequired, false);
   assert.equal(report.workflow.recommendedNextAction.kind, "dry_run_resume");
   assert.equal(report.workflow.dryRunControl.live, false);
@@ -188,6 +193,9 @@ test("qa-lab workflow creates a public-safe dry-run OpenClaw gateway report", (t
   const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
   assert.equal(calls.filter((call) => call.method === "tools.catalog").length, 1);
   assert.equal(calls.filter((call) => call.method === "tools.invoke").length, 7);
+  assert.ok(calls
+    .filter((call) => call.method === "tools.invoke")
+    .every((call) => /^loo-qa-workflow-[a-f0-9]{24}-loo_/.test(call.params.idempotencyKey)));
 });
 
 test("qa-lab workflow fails closed when a required gateway tool is missing", (t) => {
@@ -290,8 +298,51 @@ test("qa-lab workflow rejects unsafe public summary identifiers", (t) => {
 
   assert.equal(report.ok, false);
   assert.ok(report.blockers.some((blocker) => blocker.code === "openclaw_workflow_output_summary_not_public_safe:loo_search_sessions"));
+  assert.equal(report.workflow.steps.find((step) => step.step === "search")?.outputSummary.threadId, undefined);
   assert.doesNotMatch(JSON.stringify(report), /\/Users\/lume|session\.jsonl/);
   assert.doesNotMatch(readFileSync(join(dir, "workflow-run.json"), "utf8"), /\/Users\/lume|session\.jsonl/);
+});
+
+test("qa-lab workflow rejects unsafe selected source refs while keeping the artifact public-safe", (t) => {
+  const dir = makeTempDir(t, "loo-qa-workflow-unsafe-source-ref-");
+  const { bin, callsPath } = createFakeOpenClaw(dir);
+
+  const report = createQaLabWorkflowReport({
+    scenarioId: "issue-517-agent-workflow",
+    surface: "openclaw-gateway",
+    mode: "dry-run",
+    evidenceDir: dir,
+    openclawBin: bin,
+    env: { ...process.env, OPENCLAW_FAKE_CALLS: callsPath, OPENCLAW_FAKE_UNSAFE_SOURCE_REF: "1" }
+  });
+
+  assert.equal(report.ok, false);
+  assert.equal(report.workflow.selectedSourceRef, null);
+  assert.equal(report.workflow.selectedThreadId, "agent-thread-1");
+  assert.ok(report.blockers.some((blocker) => blocker.code === "workflow_selected_source_ref_not_public_safe"));
+  assert.doesNotMatch(JSON.stringify(report), /\/Users\/lume|session\.jsonl/);
+  assert.doesNotMatch(readFileSync(join(dir, "workflow-run.json"), "utf8"), /\/Users\/lume|session\.jsonl/);
+});
+
+test("qa-lab workflow writes dry-run audit fields only after summary sanitization", (t) => {
+  const dir = makeTempDir(t, "loo-qa-workflow-unsafe-dry-run-audit-");
+  const { bin, callsPath } = createFakeOpenClaw(dir);
+
+  const report = createQaLabWorkflowReport({
+    scenarioId: "issue-517-agent-workflow",
+    surface: "openclaw-gateway",
+    mode: "dry-run",
+    evidenceDir: dir,
+    openclawBin: bin,
+    env: { ...process.env, OPENCLAW_FAKE_CALLS: callsPath, OPENCLAW_FAKE_UNSAFE_DRY_RUN_AUDIT: "1" }
+  });
+
+  assert.equal(report.ok, false);
+  assert.equal(report.workflow.dryRunControl.approvalAuditId, null);
+  assert.equal(report.workflow.dryRunControl.paramsHash, null);
+  assert.ok(report.blockers.some((blocker) => blocker.code === "openclaw_workflow_output_summary_not_public_safe:loo_codex_control_dry_run"));
+  assert.doesNotMatch(JSON.stringify(report), /\/Users\/lume|Bearer secret/);
+  assert.doesNotMatch(readFileSync(join(dir, "workflow-run.json"), "utf8"), /\/Users\/lume|Bearer secret/);
 });
 
 test("qa-lab workflow requires dry-run control to explicitly report live false", (t) => {
@@ -340,6 +391,50 @@ test("qa-lab workflow selects source ref and thread id from the same session car
   assert.equal(report.workflow.selectedThreadId, "z-thread");
   const invokedSteps = report.workflow.steps.filter((step) => step.toolName.startsWith("loo_"));
   assert.ok(invokedSteps.every((step) => step.outputSummary.sourceRefs?.includes("codex_thread:z-thread")), JSON.stringify(invokedSteps, null, 2));
+});
+
+test("qa-lab workflow uses deterministic idempotency keys for retry-safe gateway calls", (t) => {
+  const dir = makeTempDir(t, "loo-qa-workflow-idempotency-");
+  const { bin, callsPath } = createFakeOpenClaw(dir);
+  const options = {
+    scenarioId: "issue-517-agent-workflow",
+    surface: "openclaw-gateway" as const,
+    mode: "dry-run" as const,
+    evidenceDir: dir,
+    openclawBin: bin,
+    sessionKey: "agent:test:workflow",
+    env: { ...process.env, OPENCLAW_FAKE_CALLS: callsPath }
+  };
+
+  const first = createQaLabWorkflowReport(options);
+  const second = createQaLabWorkflowReport(options);
+
+  assert.equal(first.ok, true, JSON.stringify(first, null, 2));
+  assert.equal(second.ok, true, JSON.stringify(second, null, 2));
+  const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  const invokeKeys = calls
+    .filter((call) => call.method === "tools.invoke")
+    .map((call) => call.params.idempotencyKey);
+  assert.deepEqual(invokeKeys.slice(0, 7), invokeKeys.slice(7, 14));
+});
+
+test("qa-lab workflow fails closed without spawning more calls after deadline exhaustion", (t) => {
+  const dir = makeTempDir(t, "loo-qa-workflow-deadline-");
+  const { bin, callsPath } = createFakeOpenClaw(dir);
+
+  const report = createQaLabWorkflowReport({
+    scenarioId: "issue-517-agent-workflow",
+    surface: "openclaw-gateway",
+    mode: "dry-run",
+    evidenceDir: dir,
+    openclawBin: bin,
+    gatewayTimeoutMs: 0,
+    env: { ...process.env, OPENCLAW_FAKE_CALLS: callsPath }
+  });
+
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.some((blocker) => blocker.code === "openclaw_workflow_catalog_failed"));
+  assert.throws(() => readFileSync(callsPath, "utf8"), /ENOENT/);
 });
 
 test("qa-lab workflow rejects untrusted OpenClaw binary names before spawning", (t) => {

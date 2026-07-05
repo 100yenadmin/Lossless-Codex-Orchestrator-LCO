@@ -1403,6 +1403,7 @@ function printQaLabWorkflowHelp(): void {
     "  loo qa-lab workflow --scenario-id id --surface cli|mcp|openclaw-gateway|desktop-contract --mode dry-run|live-approved --evidence-dir path [--openclaw-bin path] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--now iso] [--strict]",
     "",
     "Runs the public-safe QA Lab agent workflow and writes `workflow-run.json`.",
+    "--gateway-timeout-ms defaults to 60000 ms and is capped at 600000 ms across the whole workflow.",
     "",
     "Supported in this release:",
     "  --surface openclaw-gateway",
