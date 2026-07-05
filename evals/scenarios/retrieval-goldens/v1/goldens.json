@@ -3,7 +3,7 @@
   "scenarioVersion": "1.0",
   "scenarioSet": "retrieval-goldens/v1",
   "codexRoots": [
-    "../../../../tests/fixtures/retrieval-goldens/sessions"
+    "./sessions"
   ],
   "maxFiles": 100,
   "scenarios": [

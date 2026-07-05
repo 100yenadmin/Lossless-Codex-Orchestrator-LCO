@@ -1,0 +1,5 @@
+{"timestamp":"2026-07-06T00:02:00.000Z","session_meta":{"payload":{"id":"019f-golden-plan-03","cwd":"/workspace/lco-goldens","model":"gpt-5.5","git":{"branch":"issue-545-retrieval-goldens","commit_hash":"goldenfixture"}}}}
+{"timestamp":"2026-07-06T00:02:00.000Z","event_msg":{"type":"thread_name","name":"Golden plan charlie"}}
+{"timestamp":"2026-07-06T00:02:00.000Z","response_item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"<proposed_plan>\nCobalt adapter manifest plan audits drift with public-safe refs. Operator outcome: cobalt adapter manifest drift audit.\n\n</proposed_plan>"}]}}
+{"timestamp":"2026-07-06T00:02:00.000Z","response_item":{"type":"function_call","call_id":"019f-golden-plan-03-tool","name":"functions.exec_command","arguments":"{\"cmd\":\"sed -n '1,80p' packages/core/src/goldens/charlie-plan.ts\"}"}}
+{"timestamp":"2026-07-06T00:02:00.000Z","event_msg":{"type":"agent_message","message":"Final: Plan charlie fixture indexed for retrieval baseline only."}}

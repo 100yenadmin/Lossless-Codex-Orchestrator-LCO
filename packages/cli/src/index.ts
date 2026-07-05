@@ -44,7 +44,7 @@ import {
   type StatePrepHookInput,
   type ThreadTitleFinalizerInput
 } from "../../core/src/index.js";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { performance } from "node:perf_hooks";
 import { dirname, join, resolve } from "node:path";
@@ -554,6 +554,19 @@ async function main() {
   if (command === "eval" && args[0] === "retrieval") {
     const parsed = parseRetrievalEvalArgs(args.slice(1));
     const payload = readRetrievalScenarioFile(parsed.scenarioFile);
+    const corpusReport = createRetrievalCorpusReadinessReport(payload.codexRootRefs, {
+      floorFile: parsed.floorFile,
+      now: new Date().toISOString()
+    });
+    if (!corpusReport.ok) {
+      if (parsed.evidencePath) {
+        mkdirSync(dirname(parsed.evidencePath), { recursive: true });
+        writeFileSync(parsed.evidencePath, `${JSON.stringify(corpusReport, null, 2)}\n`);
+      }
+      console.log(JSON.stringify(corpusReport, null, 2));
+      if (parsed.strict) process.exitCode = 1;
+      return;
+    }
     const db = createDatabase(payload.codexRoots.length > 0 ? ":memory:" : undefined);
     try {
       if (payload.codexRoots.length > 0) {
@@ -2493,6 +2506,7 @@ function parseRuntimeIssuePacketArgs(input: string[]): {
 
 function readRetrievalScenarioFile(path: string): {
   codexRoots: string[];
+  codexRootRefs: RetrievalCorpusRootRef[];
   maxFiles?: number;
   maxBytesPerFile?: number;
   maxEventsPerFile?: number;
@@ -2503,19 +2517,143 @@ function readRetrievalScenarioFile(path: string): {
   const payload = JSON.parse(readFileSync(scenarioPath, "utf8")) as Record<string, unknown>;
   const scenarioDir = dirname(scenarioPath);
   const scenarios = Array.isArray(payload.scenarios) ? payload.scenarios : [];
+  const codexRootRefs = Array.isArray(payload.codexRoots)
+    ? payload.codexRoots
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0)
+      .map((item, index) => ({
+        root: resolve(scenarioDir, item),
+        displayRef: publicRetrievalCorpusRootRef(item, index)
+      }))
+    : [];
   return {
-    codexRoots: Array.isArray(payload.codexRoots)
-      ? payload.codexRoots
-        .filter((item): item is string => typeof item === "string")
-        .map((item) => item.trim())
-        .filter((item) => item.length > 0)
-        .map((item) => resolve(scenarioDir, item))
-      : [],
+    codexRoots: codexRootRefs.map((item) => item.root),
+    codexRootRefs,
     maxFiles: optionalJsonPositiveInteger(payload.maxFiles, "maxFiles", 100000),
     maxBytesPerFile: optionalJsonPositiveInteger(payload.maxBytesPerFile, "maxBytesPerFile", 1073741824),
     maxEventsPerFile: optionalJsonPositiveInteger(payload.maxEventsPerFile, "maxEventsPerFile", 1000000),
     scenarios: scenarios.map((scenario) => normalizeRetrievalScenario(scenario))
   };
+}
+
+type RetrievalCorpusRootRef = {
+  root: string;
+  displayRef: string;
+};
+
+type RetrievalCorpusReadinessReport = {
+  schema: "lco.retrievalEval.corpusReadiness.v1";
+  ok: boolean;
+  publicSafe: true;
+  generatedAt: string;
+  strategy: "field-weighted-fts-ranking" | "hybrid-expansion-rerank";
+  blockers: string[];
+  corpusRoots: Array<{
+    rootRef: string;
+    status: "ready" | "missing" | "not_directory" | "empty";
+    jsonlFileCount: number;
+  }>;
+  actionsVerified: {
+    checkedCorpusRoots: true;
+    scoringSkippedWhenNotReady: boolean;
+    publicSafeOutput: true;
+  };
+  actionsPerformed: {
+    indexing: false;
+    scoring: false;
+    liveControl: false;
+    guiMutation: false;
+    npmPublish: false;
+    githubRelease: false;
+  };
+  privateDataExclusions: string[];
+  proofBoundary: string;
+  nextSafeCommands: string[];
+};
+
+function createRetrievalCorpusReadinessReport(
+  roots: RetrievalCorpusRootRef[],
+  options: { floorFile?: string; now: string }
+): RetrievalCorpusReadinessReport {
+  const corpusRoots = roots.map((item) => retrievalCorpusRootStatus(item));
+  const blockers = corpusRoots.flatMap((root) => {
+    if (root.status === "ready") return [];
+    if (root.status === "empty") return [`corpus_empty:${root.rootRef}`];
+    return [`corpus_missing:${root.rootRef}`];
+  });
+  return {
+    schema: "lco.retrievalEval.corpusReadiness.v1",
+    ok: blockers.length === 0,
+    publicSafe: true,
+    generatedAt: options.now,
+    strategy: options.floorFile ? "field-weighted-fts-ranking" : "hybrid-expansion-rerank",
+    blockers,
+    corpusRoots,
+    actionsVerified: {
+      checkedCorpusRoots: true,
+      scoringSkippedWhenNotReady: blockers.length > 0,
+      publicSafeOutput: true
+    },
+    actionsPerformed: {
+      indexing: false,
+      scoring: false,
+      liveControl: false,
+      guiMutation: false,
+      npmPublish: false,
+      githubRelease: false
+    },
+    privateDataExclusions: [
+      "raw Codex transcripts",
+      "raw prompts or transcript spans",
+      "SQLite DBs",
+      "JSONL corpus contents",
+      "screenshots or videos",
+      "tokens, credentials, API keys, cookies",
+      "private customer data",
+      "absolute local paths"
+    ],
+    proofBoundary: "This readiness report only proves whether the referenced redacted retrieval corpus is available before scoring. It does not score retrieval quality, read private transcripts, mutate source stores, run live control, mutate a GUI, publish npm, or create GitHub Releases.",
+    nextSafeCommands: blockers.length === 0
+      ? ["Run the same loo eval retrieval command with --strict to score the ready corpus."]
+      : [...new Set(corpusRoots
+        .filter((root) => root.status !== "ready")
+        .map((root) => `mkdir -p ${root.rootRef}`))]
+  };
+}
+
+function retrievalCorpusRootStatus(item: RetrievalCorpusRootRef): RetrievalCorpusReadinessReport["corpusRoots"][number] {
+  if (!existsSync(item.root)) {
+    return { rootRef: item.displayRef, status: "missing", jsonlFileCount: 0 };
+  }
+  let stats;
+  try {
+    stats = statSync(item.root);
+  } catch {
+    return { rootRef: item.displayRef, status: "missing", jsonlFileCount: 0 };
+  }
+  if (!stats.isDirectory()) {
+    return { rootRef: item.displayRef, status: "not_directory", jsonlFileCount: 0 };
+  }
+  const jsonlFileCount = readdirSync(item.root, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
+    .length;
+  return {
+    rootRef: item.displayRef,
+    status: jsonlFileCount > 0 ? "ready" : "empty",
+    jsonlFileCount
+  };
+}
+
+function publicRetrievalCorpusRootRef(value: string, index: number): string {
+  const normalized = value.trim().replace(/\\/g, "/");
+  if (normalized.length === 0) return `corpus-root-${index + 1}`;
+  if (/^(?:[A-Za-z]:)?\//.test(normalized) || normalized.startsWith("~")) return `corpus-root-${index + 1}`;
+  const segments = normalized
+    .split("/")
+    .filter((segment) => segment.length > 0 && segment !== "." && segment !== "..");
+  const ref = segments.join("/");
+  return ref || `corpus-root-${index + 1}`;
 }
 
 function readRetrievalFloorFile(path: string): RetrievalBaselineFloors {
