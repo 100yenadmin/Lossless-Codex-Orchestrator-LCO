@@ -51,6 +51,7 @@ import { createGeneralReleaseReadiness } from "./general-release-readiness.js";
 import { runOpenClawDogfood } from "./openclaw-dogfood.js";
 import { DEFAULT_REQUIRED_TOOL_CALLS, runOpenClawToolSmoke } from "./openclaw-tool-smoke.js";
 import { createPublishedPackageSmokeReport } from "./published-package-smoke.js";
+import { createQaLabToolCoverageReport, type QaLabCoveragePolicy } from "./qa-lab-tool-coverage.js";
 import { runOpenClawGatewayLiveControlSmoke, type OpenClawGatewayLiveControlAction } from "./openclaw-live-control-smoke.js";
 import { runOpenClawPostActionRefreshSmoke } from "./openclaw-post-action-refresh-smoke.js";
 import { createScorecardSweep } from "./scorecard-sweep.js";
@@ -671,6 +672,17 @@ async function main() {
     if (parsed.strict && !report.demoReady) process.exitCode = 1;
     return;
   }
+  if (command === "qa-lab" && args[0] === "tool-coverage") {
+    if (hasHelpFlag(args.slice(1))) {
+      printQaLabToolCoverageHelp();
+      return;
+    }
+    const parsed = parseQaLabToolCoverageArgs(args.slice(1));
+    const report = createQaLabToolCoverageReport(parsed);
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.qaLabToolCoverageReady) process.exitCode = 1;
+    return;
+  }
   printMainUsage("error");
   process.exitCode = 2;
 }
@@ -890,7 +902,8 @@ function mainUsageText(): string {
     "  loo release finalization-status --evidence-dir path --candidate-sha sha --npm-publish-evidence path --git-tag-evidence path --github-release-evidence path [--package-name name] [--package-version version] [--expected-dist-tag beta|next|latest] [--expected-github-prerelease true|false] [--now iso] [--strict]",
     "  loo release general-readiness --evidence-dir path [--fresh-npm-evidence path] [--agent-dogfood-evidence path] [--now iso] [--strict]",
     "  loo release ga-smoke --evidence-dir path --package-version version --candidate-sha sha [--release-status path] [--release-finalization-status path] [--published-smoke path] [--dogfood-report path] [--tool-smoke-report path] [--scenario-sweep path] [--scorecard-sweep path] [--release-preflight path] [--release-bundle path] [--privacy-scan path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--allow-setup-required] [--now iso] [--strict]",
-    "  loo release demo-status --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--min-sessions n] [--strict]"
+    "  loo release demo-status --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--min-sessions n] [--strict]",
+    "  loo qa-lab tool-coverage --evidence-dir path [--tool-smoke-report path] [--dogfood-report path] [--published-smoke path] [--manifest path] [--package-version version] [--candidate-sha sha] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--coverage-policy full|facade] [--now iso] [--strict]"
   ].join("\n");
 }
 
@@ -1250,6 +1263,26 @@ function printReleaseGaSmokeHelp(): void {
     "",
     "Safety boundary:",
     "  This command is aggregate-only. It consumes existing sanitized evidence and does not publish npm, create tags, create GitHub Releases, run live Codex control, mutate a GUI, read raw transcripts, or store raw npm/gateway output."
+  ].join("\n"));
+}
+
+function printQaLabToolCoverageHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo qa-lab tool-coverage --evidence-dir path [--tool-smoke-report path] [--dogfood-report path] [--published-smoke path] [--manifest path] [--package-version version] [--candidate-sha sha] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--coverage-policy full|facade] [--now iso] [--strict]",
+    "",
+    "Aggregates public-safe QA Lab tool evidence and writes `tool-coverage.json`.",
+    "",
+    "Coverage policies:",
+    "  full requires tier-appropriate evidence for every declared `loo_*` tool.",
+    "  facade requires product evidence for public facade tools and records the rest as non-blocking gaps.",
+    "",
+    "Strict mode:",
+    "  --strict exits non-zero for P0-P2 missing evidence, manifest/runtime mismatch, unsafe evidence, setup blockers, or version/SHA mismatch.",
+    "",
+    "Safety boundary:",
+    "  This command is aggregate-only. It does not invoke tools, authorize gateways, run live Codex control, perform desktop GUI mutation, or read raw transcripts.",
+    "  It does not publish npm, create tags, create GitHub Releases, or store raw gateway output."
   ].join("\n"));
 }
 
@@ -3003,6 +3036,88 @@ function parseReleaseGaSmokeArgs(input: string[]): {
     now,
     strict
   };
+}
+
+function parseQaLabToolCoverageArgs(input: string[]): {
+  evidenceDir: string;
+  packageVersion?: string;
+  candidateSha?: string;
+  claimScope?: ReleaseClaimScope;
+  coveragePolicy?: QaLabCoveragePolicy;
+  toolSmokeReport?: string;
+  dogfoodReport?: string;
+  publishedSmoke?: string;
+  manifestPath?: string;
+  now?: string;
+  strict: boolean;
+} {
+  let evidenceDir: string | undefined;
+  let packageVersion: string | undefined;
+  let candidateSha: string | undefined;
+  let claimScope: ReleaseClaimScope | undefined;
+  let coveragePolicy: QaLabCoveragePolicy | undefined;
+  let toolSmokeReport: string | undefined;
+  let dogfoodReport: string | undefined;
+  let publishedSmoke: string | undefined;
+  let manifestPath: string | undefined;
+  let now: string | undefined;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--evidence-dir") {
+      evidenceDir = readReleaseStatusPath(input, ++index, "--evidence-dir");
+      continue;
+    }
+    if (arg === "--package-version") {
+      packageVersion = readReleaseStatusValue(input, ++index, "--package-version");
+      continue;
+    }
+    if (arg === "--candidate-sha") {
+      candidateSha = readReleaseStatusValue(input, ++index, "--candidate-sha");
+      continue;
+    }
+    if (arg === "--claim-scope") {
+      claimScope = parseReleaseClaimScope(input, ++index, "--claim-scope");
+      continue;
+    }
+    if (arg === "--coverage-policy") {
+      coveragePolicy = parseQaLabCoveragePolicy(input, ++index, "--coverage-policy");
+      continue;
+    }
+    if (arg === "--tool-smoke-report") {
+      toolSmokeReport = readReleaseStatusPath(input, ++index, "--tool-smoke-report");
+      continue;
+    }
+    if (arg === "--dogfood-report") {
+      dogfoodReport = readReleaseStatusPath(input, ++index, "--dogfood-report");
+      continue;
+    }
+    if (arg === "--published-smoke") {
+      publishedSmoke = readReleaseStatusPath(input, ++index, "--published-smoke");
+      continue;
+    }
+    if (arg === "--manifest") {
+      manifestPath = readReleaseStatusPath(input, ++index, "--manifest");
+      continue;
+    }
+    if (arg === "--now") {
+      now = readReleaseStatusValue(input, ++index, "--now");
+      continue;
+    }
+    if (arg === "--strict") {
+      strict = true;
+      continue;
+    }
+    throw new Error(`Unknown qa-lab tool-coverage option: ${arg}`);
+  }
+  if (!evidenceDir) throw new Error("qa-lab tool-coverage requires --evidence-dir");
+  return { evidenceDir, packageVersion, candidateSha, claimScope, coveragePolicy, toolSmokeReport, dogfoodReport, publishedSmoke, manifestPath, now, strict };
+}
+
+function parseQaLabCoveragePolicy(input: string[], index: number, flag: string): QaLabCoveragePolicy {
+  const value = readReleaseStatusValue(input, index, flag);
+  if (value === "full" || value === "facade") return value;
+  throw new Error(`${flag} requires full or facade`);
 }
 
 function readReleaseStatusPath(input: string[], index: number, flag: string): string {
