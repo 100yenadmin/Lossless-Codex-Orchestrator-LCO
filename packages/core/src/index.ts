@@ -4915,8 +4915,9 @@ function materializePreparedCardsForAllThreads(db: LooDatabase): PreparedCardMat
   const threadIds = unique(rows.map((row) => String(row.threadId ?? "")).filter(isPublicSummaryThreadId));
   db.exec("BEGIN");
   try {
+    const lookupCache = buildPreparedCardWorkStateLookupCache(db, threadIds);
     for (const threadId of threadIds) {
-      const threadSummary = materializePreparedCardsForThread(db, threadId, generatedAt);
+      const threadSummary = materializePreparedCardsForThread(db, threadId, generatedAt, lookupCache);
       summary.summaryLeaves += threadSummary.summaryLeaves;
       summary.cards += threadSummary.cards;
       summary.inboxItems += threadSummary.inboxItems;
@@ -4945,12 +4946,13 @@ function materializePreparedCardsForAllThreads(db: LooDatabase): PreparedCardMat
 function materializePreparedCardsForThread(
   db: LooDatabase,
   threadId: string,
-  generatedAt: string
+  generatedAt: string,
+  lookupCache?: PreparedCardWorkStateLookupCache
 ): PreparedCardMaterializationReport["summary"] {
   const targetRef = codexThreadRef(threadId);
   const leavesReport = getSummaryLeaves(db, { threadId, limit: 1000 });
   const card = leavesReport.leaves.length > 0
-    ? buildPreparedCardDraft(db, threadId, leavesReport.leaves, leavesReport.omitted.filteredUnsafeRows)
+    ? buildPreparedCardDraft(db, threadId, leavesReport.leaves, leavesReport.omitted.filteredUnsafeRows, lookupCache)
     : null;
   deletePreparedCardsForTargetRefs(db, [targetRef]);
   if (card) {
@@ -5562,7 +5564,13 @@ type PreparedInboxRow = {
   executeFalse: number;
 };
 
-function buildPreparedCardDraft(db: LooDatabase, threadId: string, leaves: SummaryLeaf[], filteredUnsafeRows: number): PreparedCardDraft {
+function buildPreparedCardDraft(
+  db: LooDatabase,
+  threadId: string,
+  leaves: SummaryLeaf[],
+  filteredUnsafeRows: number,
+  lookupCache?: PreparedCardWorkStateLookupCache
+): PreparedCardDraft {
   const targetRef = codexThreadRef(threadId);
   const session = db.prepare(`
     SELECT title, summary, final_message AS finalMessage, updated_at AS updatedAt
@@ -5599,7 +5607,8 @@ function buildPreparedCardDraft(db: LooDatabase, threadId: string, leaves: Summa
     targetRef,
     session,
     metadata,
-    state
+    state,
+    lookupCache
   });
   const reasonCodes = unique([
     leaves.length > 0 ? "summary_leaves_ready" : "summary_leaves_missing",
@@ -5702,12 +5711,22 @@ type PreparedCardWorkState = {
   lowConfidence: boolean;
 };
 
+type PreparedCardPlan = { text: string; ordinal: number };
+type PreparedCardAttentionSignal = { blocker: string | null; reasonCodes: string[]; sourceRefs: string[] };
+type PreparedCardWorkStateLookupCache = {
+  threadRenameCapturedByThreadId: Map<string, boolean>;
+  latestPlanByThreadId: Map<string, PreparedCardPlan | null>;
+  attentionByTargetRef: Map<string, PreparedCardAttentionSignal>;
+  touchedFilesByThreadId: Map<string, string[]>;
+};
+
 type PreparedCardWorkStateInput = {
   threadId: string;
   targetRef: string;
   session: { title: string | null; summary: string | null; finalMessage: string | null; updatedAt: string | null } | undefined;
   metadata: SessionMetadata;
   state: PreparedCardState;
+  lookupCache?: PreparedCardWorkStateLookupCache;
 };
 
 type OptionalCardPresentationCleanResult = Omit<CardPresentationCleanResult, "text"> & {
@@ -5715,14 +5734,18 @@ type OptionalCardPresentationCleanResult = Omit<CardPresentationCleanResult, "te
 };
 
 function derivePreparedCardWorkState(db: LooDatabase, input: PreparedCardWorkStateInput): PreparedCardWorkState {
-  const threadRenameCaptured = preparedThreadRenameCaptured(db, input.threadId);
+  const threadRenameCaptured = input.lookupCache?.threadRenameCapturedByThreadId.has(input.threadId)
+    ? input.lookupCache.threadRenameCapturedByThreadId.get(input.threadId) === true
+    : preparedThreadRenameCaptured(db, input.threadId);
   const title = cleanPreparedCardField(input.session?.title ?? input.threadId, {
     fallback: safeThreadId(input.threadId),
     maxChars: 160,
     role: "title"
   });
   const safeTitle = looksSensitiveRefLike(title.text) ? publicSafeText(safeThreadId(input.threadId), 160) : title.text;
-  const latestPlan = getLatestPreparedCardPlan(db, input.threadId);
+  const latestPlan = input.lookupCache?.latestPlanByThreadId.has(input.threadId)
+    ? input.lookupCache.latestPlanByThreadId.get(input.threadId) ?? null
+    : getLatestPreparedCardPlan(db, input.threadId);
   const objectiveSource = latestPlan ? firstPreparedPlanLine(latestPlan.text) : null;
   const objective = cleanPreparedCardField(objectiveSource ?? input.session?.title ?? input.threadId, {
     fallback: safeTitle,
@@ -5741,13 +5764,17 @@ function derivePreparedCardWorkState(db: LooDatabase, input: PreparedCardWorkSta
   const nextActionText = preparedCardActionOrNull(nextAction.text, [safeTitle, objectiveText]);
   const nextActionLowConfidence = nextAction.lowConfidence || (nextAction.text !== null && nextActionText === null);
   const nextActionCleaned = nextAction.cleaned || (nextAction.text !== null && nextActionText === null);
-  const attention = getPreparedCardAttentionSignal(db, input.targetRef);
+  const attention = input.lookupCache?.attentionByTargetRef.has(input.targetRef)
+    ? input.lookupCache.attentionByTargetRef.get(input.targetRef)!
+    : getPreparedCardAttentionSignal(db, input.targetRef);
   const metadataBlocker = hasRealBlocker(input.metadata.blocker) ? input.metadata.blocker : null;
   const blocker = cleanOptionalPreparedCardField(attention.blocker ?? metadataBlocker, {
     maxChars: 240,
     role: "summary"
   });
-  const touchedFiles = getCodexTouchedFiles(db, { threadId: input.threadId });
+  const touchedFiles = input.lookupCache?.touchedFilesByThreadId.has(input.threadId)
+    ? input.lookupCache.touchedFilesByThreadId.get(input.threadId)!
+    : getCodexTouchedFiles(db, { threadId: input.threadId });
   const summaryText = preparedCardWorkSummary({
     state: input.state,
     objective: objectiveText,
@@ -5776,6 +5803,107 @@ function derivePreparedCardWorkState(db: LooDatabase, input: PreparedCardWorkSta
     reasonCodes,
     lowConfidence: title.lowConfidence || objective.lowConfidence || nextActionLowConfidence || blocker.lowConfidence
   };
+}
+
+function buildPreparedCardWorkStateLookupCache(db: LooDatabase, threadIds: string[]): PreparedCardWorkStateLookupCache {
+  const safeThreadIds = unique(threadIds.filter(isPublicSummaryThreadId));
+  const threadRenameCapturedByThreadId = new Map<string, boolean>(safeThreadIds.map((threadId) => [threadId, false]));
+  const latestPlanByThreadId = new Map<string, PreparedCardPlan | null>(safeThreadIds.map((threadId) => [threadId, null]));
+  const attentionByTargetRef = new Map<string, PreparedCardAttentionSignal>(safeThreadIds.map((threadId) => [codexThreadRef(threadId), emptyPreparedCardAttentionSignal()]));
+  const touchedFilesByThreadId = new Map<string, string[]>(safeThreadIds.map((threadId) => [threadId, []]));
+  if (safeThreadIds.length === 0) {
+    return {
+      threadRenameCapturedByThreadId,
+      latestPlanByThreadId,
+      attentionByTargetRef,
+      touchedFilesByThreadId
+    };
+  }
+
+  for (const chunk of chunkForSqlIn(safeThreadIds)) {
+    const placeholders = sqlPlaceholders(chunk.length);
+    const renameRows = db.prepare(`
+      SELECT DISTINCT thread_id AS threadId
+      FROM prepared_source_events
+      WHERE thread_id IN (${placeholders})
+        AND event_kind = 'thread_name_updated'
+        AND privacy_class = 'public_safe_metadata'
+    `).all(...chunk) as Array<{ threadId: string | null }>;
+    for (const row of renameRows) {
+      const threadId = String(row.threadId ?? "");
+      if (threadRenameCapturedByThreadId.has(threadId)) threadRenameCapturedByThreadId.set(threadId, true);
+    }
+
+    const planRows = db.prepare(`
+      SELECT thread_id AS threadId, text, ordinal
+      FROM codex_plans
+      WHERE thread_id IN (${placeholders})
+      ORDER BY thread_id ASC, ordinal DESC
+    `).all(...chunk) as Array<{ threadId: string | null; text: string | null; ordinal: number | null }>;
+    for (const row of planRows) {
+      const threadId = String(row.threadId ?? "");
+      if (!latestPlanByThreadId.has(threadId) || latestPlanByThreadId.get(threadId)) continue;
+      const text = row.text?.trim();
+      if (text) latestPlanByThreadId.set(threadId, { text, ordinal: Number(row.ordinal ?? 0) });
+    }
+
+    const touchedRows = db.prepare(`
+      SELECT thread_id AS threadId, path
+      FROM codex_touched_files
+      WHERE thread_id IN (${placeholders})
+      ORDER BY thread_id ASC, path ASC
+    `).all(...chunk) as Array<{ threadId: string | null; path: string | null }>;
+    for (const row of touchedRows) {
+      const threadId = String(row.threadId ?? "");
+      const files = touchedFilesByThreadId.get(threadId);
+      if (files && row.path) files.push(row.path);
+    }
+  }
+
+  const targetRefs = safeThreadIds.map(codexThreadRef);
+  for (const chunk of chunkForSqlIn(targetRefs)) {
+    const placeholders = sqlPlaceholders(chunk.length);
+    const rows = db.prepare(`
+      SELECT target_ref AS targetRef, reason_codes_json AS reasonCodesJson, source_refs_json AS sourceRefsJson
+      FROM attention_queue
+      WHERE target_ref IN (${placeholders})
+        AND execute_false = 1
+        AND status NOT IN ('closed', 'resolved', 'dismissed')
+      ORDER BY target_ref ASC, confidence DESC, updated_at DESC, queue_id ASC
+    `).all(...chunk) as Array<{ targetRef: string | null; reasonCodesJson: string; sourceRefsJson: string }>;
+    const grouped = new Map<string, Array<{ reasonCodesJson: string; sourceRefsJson: string }>>();
+    for (const row of rows) {
+      const targetRef = String(row.targetRef ?? "");
+      if (!attentionByTargetRef.has(targetRef)) continue;
+      const group = grouped.get(targetRef) ?? [];
+      if (group.length < 3) {
+        group.push({ reasonCodesJson: row.reasonCodesJson, sourceRefsJson: row.sourceRefsJson });
+        grouped.set(targetRef, group);
+      }
+    }
+    for (const [targetRef, group] of grouped) {
+      attentionByTargetRef.set(targetRef, preparedCardAttentionSignalFromRows(group));
+    }
+  }
+
+  return {
+    threadRenameCapturedByThreadId,
+    latestPlanByThreadId,
+    attentionByTargetRef,
+    touchedFilesByThreadId
+  };
+}
+
+function sqlPlaceholders(count: number): string {
+  return Array.from({ length: count }, () => "?").join(", ");
+}
+
+function chunkForSqlIn<T>(values: T[], size = 400): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
 }
 
 function getLatestPreparedCardPlan(db: LooDatabase, threadId: string): { text: string; ordinal: number } | null {
@@ -5838,8 +5966,8 @@ function firstFinalMessageClause(value: string): string | null {
   return cleaned.match(/[^.!?]+[.!?]?/)?.[0]?.trim() ?? cleaned;
 }
 
-function getPreparedCardAttentionSignal(db: LooDatabase, targetRef: string): { blocker: string | null; reasonCodes: string[]; sourceRefs: string[] } {
-  if (!isPublicPreparedSourceRef(targetRef)) return { blocker: null, reasonCodes: [], sourceRefs: [] };
+function getPreparedCardAttentionSignal(db: LooDatabase, targetRef: string): PreparedCardAttentionSignal {
+  if (!isPublicPreparedSourceRef(targetRef)) return emptyPreparedCardAttentionSignal();
   const rows = db.prepare(`
     SELECT reason_codes_json AS reasonCodesJson, source_refs_json AS sourceRefsJson
     FROM attention_queue
@@ -5849,6 +5977,10 @@ function getPreparedCardAttentionSignal(db: LooDatabase, targetRef: string): { b
     ORDER BY confidence DESC, updated_at DESC, queue_id ASC
     LIMIT 3
   `).all(targetRef) as Array<{ reasonCodesJson: string; sourceRefsJson: string }>;
+  return preparedCardAttentionSignalFromRows(rows);
+}
+
+function preparedCardAttentionSignalFromRows(rows: Array<{ reasonCodesJson: string; sourceRefsJson: string }>): PreparedCardAttentionSignal {
   const reasonCodes = unique(rows.flatMap((row) => parseSourceRefsJson(row.reasonCodesJson))
     .map(publicSafePreparedAttentionReasonCode)
     .filter((code): code is string => Boolean(code)));
@@ -5856,6 +5988,10 @@ function getPreparedCardAttentionSignal(db: LooDatabase, targetRef: string): { b
   const blocker = blockerCodes.length ? blockerCodes.slice(0, 3).map(humanPreparedReasonCode).join("; ") : null;
   const sourceRefs = unique(rows.flatMap((row) => parseSourceRefsJson(row.sourceRefsJson))).filter(isPublicPreparedSourceRef).slice(0, 12);
   return { blocker, reasonCodes, sourceRefs };
+}
+
+function emptyPreparedCardAttentionSignal(): PreparedCardAttentionSignal {
+  return { blocker: null, reasonCodes: [], sourceRefs: [] };
 }
 
 const PREPARED_ATTENTION_BLOCKER_REASON_CODES = new Set([

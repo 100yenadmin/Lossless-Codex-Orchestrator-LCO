@@ -1414,6 +1414,94 @@ test("prepared-card all-thread refresh rolls back earlier thread writes when a l
   }
 });
 
+test("prepared-card all-thread refresh batches work-state lookup families", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-card-batch-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const threadCount = 24;
+    for (let index = 0; index < threadCount; index += 1) {
+      const suffix = index.toString(16).padStart(2, "0");
+      const minute = index.toString().padStart(2, "0");
+      const threadId = `019f-prepared-batch-${suffix}`;
+      const leafId = `${(9000 + index).toString(16).padStart(32, "0")}`;
+      insertSummaryLeafRow(db, {
+        id: leafId,
+        threadId,
+        freshnessAt: `2026-07-05T12:${minute}:00.000Z`
+      });
+      db.prepare(`
+        INSERT INTO prepared_source_events (
+          event_id, event_ref, thread_id, source_ref, source_path_ref, source_hash, content_hash,
+          event_kind, line_start, line_end, byte_start, byte_end, ordinal, observed_at,
+          extractor_version, privacy_class, omission_status, confidence, metadata_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        `rename-${threadId}`,
+        `codex_event:rename-${threadId}`,
+        threadId,
+        `codex_thread:${threadId}`,
+        `codex_source:${leafId.slice(0, 16)}`,
+        leafId,
+        leafId.split("").reverse().join(""),
+        "thread_name_updated",
+        2,
+        2,
+        20,
+        40,
+        2,
+        `2026-07-05T12:${minute}:00.000Z`,
+        "prepared-source-ranges-v1",
+        "public_safe_metadata",
+        "metadata_only",
+        0.96,
+        "{}",
+        `2026-07-05T12:${minute}:00.000Z`
+      );
+      db.prepare("INSERT INTO codex_plans (plan_id, thread_id, text, ordinal) VALUES (?, ?, ?, ?)").run(
+        `plan-${threadId}`,
+        threadId,
+        `<proposed_plan>\n1. Verify batched prepared card ${index}.\n2. Ship prepared-card batching.\n</proposed_plan>`,
+        index + 1
+      );
+      db.prepare("INSERT INTO codex_touched_files (touched_file_id, thread_id, path, source_kind) VALUES (?, ?, ?, ?)").run(
+        `file-${threadId}`,
+        threadId,
+        `packages/core/src/prepared-card-${suffix}.ts`,
+        "codex_text"
+      );
+      insertAttentionQueueRow(db, threadId, ["review_blocked"]);
+    }
+
+    const originalPrepare = db.prepare.bind(db);
+    const trackedStatements: string[] = [];
+    db.prepare = ((sql: string) => {
+      if (
+        /^\s*SELECT\b/i.test(sql)
+        && /\bFROM\s+(?:prepared_source_events|codex_plans|attention_queue|codex_touched_files)\b/i.test(sql)
+      ) {
+        trackedStatements.push(sql);
+      }
+      return originalPrepare(sql);
+    }) as typeof db.prepare;
+
+    const report = materializePreparedCards(db);
+    assert.equal(report.summary.cards, threadCount);
+    assert.equal(getPreparedCards(db, { limit: threadCount }).summary.total, threadCount);
+    assert.ok(
+      trackedStatements.length <= 12,
+      `expected batched work-state lookups, saw ${trackedStatements.length} tracked SELECT statements`
+    );
+
+    const attentionCards = getPreparedCards(db, { limit: threadCount }).cards
+      .filter((card) => card.reasonCodes.includes("from_attention_queue"));
+    assert.equal(attentionCards.length, threadCount);
+    assert.equal(attentionCards.every((card) => card.reasonCodes.includes("from_thread_rename")), true);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("prepared inbox ordering is deterministic and attention-first", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-prepared-inbox-order-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
