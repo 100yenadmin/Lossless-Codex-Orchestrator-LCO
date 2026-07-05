@@ -322,7 +322,7 @@ function validateEvidenceBySource(
     case "releaseStatus":
       requireBoolean(value, "releaseReady", true, blockers, "P1", "release_status_not_ready", evidence.spec.id, "Release status is not ready.");
       requirePackageVersion(value, "packageVersion", options.packageVersion, blockers, "release_status_version_mismatch", evidence.spec.id);
-      requireString(value, "candidateSha", options.candidateSha, blockers, "release_status_sha_mismatch", evidence.spec.id, "Release status candidate SHA does not match.");
+      validateReleaseStatusCandidateSha(value, options, blockers, warnings);
       break;
     case "releaseFinalizationStatus":
       requireBoolean(value, "finalized", true, blockers, "P1", "release_finalization_not_ready", evidence.spec.id, "Release finalization status is not ready.");
@@ -384,19 +384,29 @@ function validatePublishedSmoke(
   requireBoolean(value, "packagePathOk", true, blockers, "P1", "published_package_path_not_ok", "publishedPackageSmoke", "Published package path is not ready.");
   const packagePathOk = value.packagePathOk === true;
   const publishedSmokeReady = value.publishedSmokeReady === true;
+  const publishedSmokeBlockers = readStringArray(value.blockers);
+  const explicitSetupCodes = uniqueStrings([
+    ...readStringArray(value.setupBlockers),
+    ...publishedSmokeBlockers.filter(isPublishedSmokeSetupBlocker)
+  ]);
+  const nonSetupPublishedSmokeBlockers = publishedSmokeBlockers.filter((blocker) => !isPublishedSmokeSetupBlocker(blocker));
   const setupRequired = value.setupRequired === true
+    || explicitSetupCodes.length > 0
     || readNestedString(value, ["toolSmoke", "gatewaySetupClassification"]) === "gateway_setup_required";
   const configuredGatewayReady = readNestedBoolean(value, ["configuredGateway", "provided"]) === true
     && readNestedBoolean(value, ["configuredGateway", "toolSmokeReady"]) === true
     && readNestedString(value, ["configuredGateway", "gatewaySetupClassification"]) === "ready"
     && readNestedBoolean(value, ["configuredGateway", "packageInstallLikelyOk"]) === true;
   if (setupRequired) {
-    const setupCodes = uniqueStrings([
-      ...readStringArray(value.setupBlockers),
-      ...readStringArray(value.blockers).filter(isPublishedSmokeSetupBlocker)
-    ]);
-    const allowed = options.allowSetupRequired === true && packagePathOk && configuredGatewayReady;
-    for (const code of setupCodes.length ? setupCodes : ["fresh_profile_gateway_setup_required"]) {
+    if (explicitSetupCodes.length === 0) {
+      addBlocker(blockers, "P2", "published_smoke_setup_required_unclassified", "publishedPackageSmoke", "Setup-required published-smoke evidence must include an explicit setup blocker code.");
+    }
+    const allowed = options.allowSetupRequired === true
+      && packagePathOk
+      && configuredGatewayReady
+      && explicitSetupCodes.length > 0
+      && nonSetupPublishedSmokeBlockers.length === 0;
+    for (const code of explicitSetupCodes.length ? explicitSetupCodes : ["fresh_profile_gateway_setup_required"]) {
       setupBlockers.push({
         code,
         source: "publishedPackageSmoke",
@@ -415,6 +425,19 @@ function validatePublishedSmoke(
   if (options.allowSetupRequired === true && setupRequired && !configuredGatewayReady) {
     addBlocker(blockers, "P2", "configured_gateway_proof_missing", "publishedPackageSmoke", "Setup-required release needs clean configured-gateway proof.");
   }
+}
+
+function validateReleaseStatusCandidateSha(
+  value: JsonRecord,
+  options: ReleaseGaSmokeOptions,
+  blockers: ReleaseGaSmokeBlocker[],
+  warnings: ReleaseGaSmokeWarning[]
+): void {
+  if (value.candidateSha === undefined || value.candidateSha === null) {
+    addWarning(warnings, "release_status_candidate_sha_not_embedded", "releaseStatus", "Release status evidence predates embedded candidateSha; candidate binding is enforced by GA smoke input and finalization evidence.");
+    return;
+  }
+  requireString(value, "candidateSha", options.candidateSha, blockers, "release_status_sha_mismatch", "releaseStatus", "Release status candidate SHA does not match.");
 }
 
 function requirePackageVersion(
@@ -473,9 +496,16 @@ function buildActionsVerified(evidenceIndex: Record<ReleaseGaSmokeSourceId, Rele
 function evidenceStatus(evidence: LoadedEvidence, sourceBlockers: string[]): ReleaseGaSmokeEvidenceStatus {
   if (evidence.missing) return "missing";
   if (evidence.invalid) return "invalid";
-  if (sourceBlockers.some((blocker) => blocker.endsWith("_not_public_safe") || blocker.endsWith("_contains_secret_like_value"))) return "unsafe";
+  if (sourceBlockers.some(isUnsafeBlockerCode)) return "unsafe";
   if (sourceBlockers.length > 0) return "blocked";
   return "ready";
+}
+
+function isUnsafeBlockerCode(code: string): boolean {
+  return code.endsWith("_not_public_safe")
+    || code.endsWith("_contains_secret_like_value")
+    || code.endsWith("_restricted_action_performed")
+    || code === "unsafe_evidence_artifact_present";
 }
 
 function missingCode(source: ReleaseGaSmokeSourceId): string {

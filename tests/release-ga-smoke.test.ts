@@ -290,6 +290,30 @@ test("release ga-smoke rejects version, SHA, and finalization mismatches", (t) =
   assert.ok(report.blockers.some((blocker) => blocker.code === "release_finalization_sha_mismatch"));
 });
 
+test("release ga-smoke accepts legacy release-status evidence without embedded candidate SHA with a warning", (t) => {
+  const dir = makeTempDir(t, "loo-ga-smoke-legacy-status-");
+  const paths = writeHappyEvidence(dir);
+  const releaseStatus = readJson(paths.releaseStatus) as Record<string, unknown>;
+  delete releaseStatus.candidateSha;
+  writeJson(paths.releaseStatus, releaseStatus);
+
+  const result = runGaSmoke([
+    "--evidence-dir",
+    dir,
+    "--package-version",
+    packageVersion,
+    "--candidate-sha",
+    candidateSha,
+    "--strict"
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout) as GaSmokeReport;
+  assert.equal(report.gaSmokeReady, true);
+  assert.ok(report.warnings.some((warning) => warning.code === "release_status_candidate_sha_not_embedded"));
+  assert.equal(report.evidenceIndex.releaseStatus?.status, "ready");
+});
+
 test("release ga-smoke allows large public-safe JSON evidence sidecars", (t) => {
   const dir = makeTempDir(t, "loo-ga-smoke-large-json-");
   writeHappyEvidence(dir);
@@ -484,6 +508,7 @@ test("release ga-smoke rejects top-level restricted action flags in evidence", (
   assert.equal(result.status, 1, result.stderr || result.stdout);
   const report = JSON.parse(result.stdout) as GaSmokeReport;
   assert.ok(report.blockers.some((blocker) => blocker.severity === "P0" && blocker.code === "release_bundle_restricted_action_performed"));
+  assert.equal(report.evidenceIndex.releaseBundle?.status, "unsafe");
   assert.equal(report.actionsPerformed.npmPublished, false);
   assert.equal(report.actionsPerformed.githubReleaseCreated, false);
 });
@@ -548,4 +573,80 @@ test("release ga-smoke classifies setup-required fresh profiles separately from 
   assert.deepEqual(allowedReport.blockers, []);
   assert.equal(allowedReport.setupBlockers[0]?.allowed, true);
   assert.ok(allowedReport.warnings.some((warning) => warning.code === "published_smoke_setup_required_allowed"));
+});
+
+test("release ga-smoke does not allow setup-required without explicit setup blocker evidence", (t) => {
+  const dir = makeTempDir(t, "loo-ga-smoke-unclassified-setup-");
+  const paths = writeHappyEvidence(dir);
+  writeJson(paths.publishedSmoke, {
+    ...readJson(paths.publishedSmoke) as Record<string, unknown>,
+    ok: true,
+    packagePathOk: true,
+    publishedSmokeReady: false,
+    setupRequired: true,
+    setupBlockers: [],
+    blockers: [],
+    configuredGateway: {
+      provided: true,
+      toolSmokeReady: true,
+      gatewaySetupClassification: "ready",
+      packageInstallLikelyOk: true
+    }
+  });
+
+  const result = runGaSmoke([
+    "--evidence-dir",
+    dir,
+    "--package-version",
+    packageVersion,
+    "--candidate-sha",
+    candidateSha,
+    "--allow-setup-required",
+    "--strict"
+  ]);
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout) as GaSmokeReport;
+  assert.ok(report.blockers.some((blocker) => blocker.severity === "P2" && blocker.code === "published_smoke_setup_required_unclassified"));
+  assert.equal(report.setupBlockers[0]?.allowed, false);
+});
+
+test("release ga-smoke classifies setup blockers from published-smoke blockers even without setupRequired flag", (t) => {
+  const dir = makeTempDir(t, "loo-ga-smoke-setup-blocker-field-");
+  const paths = writeHappyEvidence(dir);
+  writeJson(paths.publishedSmoke, {
+    ...readJson(paths.publishedSmoke) as Record<string, unknown>,
+    ok: true,
+    packagePathOk: true,
+    publishedSmokeReady: false,
+    setupRequired: false,
+    blockers: ["fresh_profile_gateway_setup_required"],
+    configuredGateway: {
+      provided: true,
+      toolSmokeReady: true,
+      gatewaySetupClassification: "ready",
+      packageInstallLikelyOk: true
+    }
+  });
+
+  const result = runGaSmoke([
+    "--evidence-dir",
+    dir,
+    "--package-version",
+    packageVersion,
+    "--candidate-sha",
+    candidateSha,
+    "--allow-setup-required",
+    "--strict"
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout) as GaSmokeReport;
+  assert.equal(report.gaSmokeReady, true);
+  assert.deepEqual(report.setupBlockers, [{
+    code: "fresh_profile_gateway_setup_required",
+    source: "publishedPackageSmoke",
+    detail: "Fresh-profile OpenClaw gateway setup is required before clean-profile gateway-ready proof.",
+    allowed: true
+  }]);
 });
