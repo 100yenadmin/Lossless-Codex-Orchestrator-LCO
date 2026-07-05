@@ -6,7 +6,11 @@ import { createLooTools, filterLooToolsByProfile, parseLooToolProfile } from "./
 
 const db = createDatabase();
 const audit = createAuditStore(process.env.LOO_AUDIT_PATH || `${process.env.HOME || "."}/.openclaw/lossless-openclaw-orchestrator/audit.jsonl`);
-const toolProfile = parseLooToolProfile(process.env.LOO_TOOL_PROFILE);
+const toolProfile = parseLooToolProfile(process.env.LOO_TOOL_PROFILE, {
+  onInvalid: (value) => {
+    process.stderr.write(`Invalid LOO_TOOL_PROFILE=${JSON.stringify(value)}; falling back to all.\n`);
+  }
+});
 const tools = createLooTools({
   db,
   audit,

@@ -1019,11 +1019,10 @@ export function createLooTools(options: {
   return options.includeAliases ? withPublicFacadeAliases(tools) : tools;
 }
 
-export function parseLooToolProfile(value: unknown): LooToolProfile {
+export function parseLooToolProfile(value: unknown, options?: { onInvalid?: (value: string) => void }): LooToolProfile {
   if (value === undefined || value === null || value === "") return "all";
   if (value === "facade" || value === "standard" || value === "all") return value;
-  // Exposure knob, not a safety gate: a typo must not crash the MCP server at module load.
-  console.error(`[loo] Ignoring invalid LOO_TOOL_PROFILE ${JSON.stringify(String(value))}; expected "facade", "standard", or "all". Using "all".`);
+  options?.onInvalid?.(String(value));
   return "all";
 }
 
@@ -1045,6 +1044,10 @@ export function looAliasTargetName(name: string): string | null {
   if (!name.startsWith("lco_")) return null;
   const target = `loo_${name.slice("lco_".length)}`;
   return LOO_TOOL_SURFACE[target]?.tier === "public_facade" ? target : null;
+}
+
+export function isUnknownLcoAliasName(name: string): boolean {
+  return name.startsWith("lco_") && looAliasTargetName(name) === null;
 }
 
 export function canonicalLooToolName(name: string): string {
