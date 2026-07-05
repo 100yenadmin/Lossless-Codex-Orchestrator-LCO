@@ -1087,6 +1087,7 @@ function publicSafeIndexCodexResult(result: ReturnType<typeof indexCodexSessions
     readOnly: false,
     mutationClasses: result.mutationClasses,
     indexedFiles: result.indexedFiles,
+    appendDeltaIndexedFiles: result.appendDeltaIndexedFiles,
     skippedFiles: result.skippedFiles,
     indexedThreads: result.indexedThreads,
     indexedEvents: result.indexedEvents,

@@ -2681,6 +2681,7 @@ function elapsedMs(start: number): number {
 function indexBenchCounts(result: ReturnType<typeof indexCodexSessions>) {
   return {
     indexedFiles: result.indexedFiles,
+    appendDeltaIndexedFiles: result.appendDeltaIndexedFiles,
     skippedFiles: result.skippedFiles,
     indexedThreads: result.indexedThreads,
     indexedEvents: result.indexedEvents,

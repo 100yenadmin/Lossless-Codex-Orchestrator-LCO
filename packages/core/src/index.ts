@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, readSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { basename, delimiter, dirname, join, resolve } from "node:path";
@@ -133,6 +133,7 @@ export type IndexCodexResult = {
   readOnly: false;
   mutationClasses: ["derived_cache"];
   indexedFiles: number;
+  appendDeltaIndexedFiles: number;
   skippedFiles: number;
   indexedThreads: number;
   indexedEvents: number;
@@ -2440,6 +2441,7 @@ type LcmSummaryRecord = {
 type ImportedSession = {
   threadId: string;
   title: string | null;
+  titleExplicit: boolean;
   cwd: string | null;
   model: string | null;
   branch: string | null;
@@ -2447,10 +2449,13 @@ type ImportedSession = {
   createdAt: string | null;
   updatedAt: string | null;
   finalMessage: string | null;
+  finalMessageExplicit: boolean;
   plans: string[];
   touchedFiles: string[];
   toolCalls: CodexToolCallDraft[];
   metadata: SessionMetadata;
+  metadataPresentTextFields: Set<SessionMetadataTextField>;
+  metadataPresentRefFields: Set<SessionMetadataRefField>;
   closeoutEnvelopeText: string | null;
   closeoutEnvelopeOpenCount: number;
   closeoutEnvelopeCloseCount: number;
@@ -2484,6 +2489,14 @@ type PreparedSourceEventDraft = {
   ordinal: number;
   observedAt: string | null;
   ranges: PreparedSourceRangeDraft[];
+};
+
+type CodexJsonlParseOptions = {
+  threadId?: string;
+  sourceHash?: string;
+  lineNumberOffset?: number;
+  byteOffset?: number;
+  ordinalOffset?: number;
 };
 
 type CodexJsonlDriftAccumulator = {
@@ -3023,6 +3036,7 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
     readOnly: false,
     mutationClasses: ["derived_cache"],
     indexedFiles: 0,
+    appendDeltaIndexedFiles: 0,
     skippedFiles: 0,
     indexedThreads: 0,
     indexedEvents: 0,
@@ -3054,6 +3068,19 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
       if (sameWatermark && extractorStateCurrent && !verify) {
         result.skippedFiles += 1;
         continue;
+      }
+      if (watermark && extractorStateCurrent && !verify && stat.size > watermark.size) {
+        const appendDelta = tryIndexCodexAppendDelta(db, path, stat, watermark, maxEventsPerFile);
+        if (appendDelta) {
+          result.indexedFiles += 1;
+          result.appendDeltaIndexedFiles += 1;
+          result.indexedEvents += appendDelta.eventCount;
+          if (appendDelta.driftReport) recordCodexJsonlDriftReport(result, appendDelta.driftReport);
+          seenThreads.add(appendDelta.threadId);
+          summaryThreadsToMaterialize.add(appendDelta.threadId);
+          preparedThreadsToMaterialize.add(appendDelta.threadId);
+          continue;
+        }
       }
       const text = readFileSync(path, "utf8");
       const eventCount = countJsonlEvents(text);
@@ -3443,6 +3470,552 @@ function sourceFileExtractorStateIsCurrent(watermark: SourceFileWatermark): bool
     && watermark.preparedRangeExtractorVersion === PREPARED_SOURCE_EXTRACTOR_VERSION
     && watermark.summaryLeafExtractorVersion === SUMMARY_LEAF_EXTRACTOR_VERSION
     && watermark.preparedCardExtractorVersion === PREPARED_CARD_EXTRACTOR_VERSION;
+}
+
+function sourceFileHasRecordedJsonlDrift(db: LooDatabase, sourcePath: string): boolean {
+  const row = db.prepare(`
+    SELECT
+      jsonl_drift_unknown_event_kinds_json AS unknownEventKindsJson,
+      jsonl_drift_unparsed_lines AS unparsedLines,
+      jsonl_drift_missing_expected_fields_json AS missingExpectedFieldsJson,
+      jsonl_drift_reason_codes_json AS reasonCodesJson
+    FROM codex_source_files
+    WHERE source_path = ?
+  `).get(sourcePath) as Record<string, unknown> | undefined;
+  if (!row) return false;
+  return Number(row.unparsedLines ?? 0) > 0
+    || parseCodexJsonlDriftNamedCounts(row.unknownEventKindsJson).length > 0
+    || parseCodexJsonlDriftFieldCounts(row.missingExpectedFieldsJson).length > 0
+    || parseCodexJsonlDriftReasonCodes(row.reasonCodesJson).length > 0;
+}
+
+type AppendDeltaCandidate = {
+  appendText: string;
+  fullHash: string;
+  prefixHash: string;
+  prefixLastByte: number | null;
+  prefixLineCount: number;
+};
+
+type ExistingCodexSessionSeed = ImportedSession & {
+  storedToolCallCount: number;
+};
+
+const APPEND_DELTA_READ_CHUNK_BYTES = 64 * 1024;
+const CODEX_SAFE_TEXT_CHAR_LIMIT = 250_000;
+
+function tryIndexCodexAppendDelta(
+  db: LooDatabase,
+  sourcePath: string,
+  stat: { size: number; mtimeMs: number },
+  watermark: SourceFileWatermark,
+  maxEventsPerFile: number
+): ImportedSession | null {
+  if (watermark.size <= 0 || stat.size <= watermark.size) return null;
+  if (sourceFileHasRecordedJsonlDrift(db, sourcePath)) return null;
+  const seed = existingCodexSessionSeedForSourcePath(db, sourcePath);
+  if (!seed) return null;
+  if (seed.safeText.length >= CODEX_SAFE_TEXT_CHAR_LIMIT) return null;
+  const candidate = readAppendDeltaCandidate(sourcePath, watermark.size, stat.size);
+  if (!candidate || candidate.prefixHash !== watermark.pathHash || candidate.prefixLastByte !== 10) return null;
+  const appendEventCount = countJsonlEvents(candidate.appendText);
+  if (appendEventCount <= 0 || seed.eventCount + appendEventCount > maxEventsPerFile) return null;
+  const preparedSourceStats = preparedSourceStatsForAppend(db, seed.threadId);
+  if (
+    preparedSourceStats.eventCount !== seed.eventCount
+    || preparedSourceStats.ordinalOffset !== seed.eventCount
+  ) return null;
+  const ordinalOffset = preparedSourceStats.ordinalOffset;
+  const delta = parseCodexJsonl(sourcePath, candidate.appendText, maxEventsPerFile, {
+    threadId: seed.threadId,
+    sourceHash: candidate.fullHash,
+    lineNumberOffset: candidate.prefixLineCount,
+    byteOffset: watermark.size,
+    ordinalOffset
+  });
+  if (delta.threadId !== seed.threadId || delta.eventCount !== appendEventCount) return null;
+  const merged = mergeAppendDeltaSession(seed, delta);
+  appendSessionDelta(db, sourcePath, candidate.fullHash, merged, seed, delta, stat);
+  return delta;
+}
+
+function readAppendDeltaCandidate(sourcePath: string, prefixSize: number, totalSize: number): AppendDeltaCandidate | null {
+  const appendSize = totalSize - prefixSize;
+  if (!Number.isSafeInteger(prefixSize) || !Number.isSafeInteger(appendSize) || prefixSize <= 0 || appendSize <= 0) return null;
+  const fd = openSync(sourcePath, "r");
+  try {
+    const prefixHash = createHash("sha256");
+    const fullHash = createHash("sha256");
+    // These raw-byte hashes match the existing string-derived stableId() watermark for valid UTF-8
+    // Codex JSONL; invalid UTF-8 safely misses the prefix hash and falls back to full reparse.
+    const buffer = Buffer.alloc(Math.min(APPEND_DELTA_READ_CHUNK_BYTES, Math.max(prefixSize, 1)));
+    let position = 0;
+    let remaining = prefixSize;
+    let prefixLastByte: number | null = null;
+    let prefixLineCount = 0;
+    while (remaining > 0) {
+      const bytesToRead = Math.min(buffer.length, remaining);
+      const bytesRead = readSync(fd, buffer, 0, bytesToRead, position);
+      if (bytesRead <= 0) return null;
+      const chunk = buffer.subarray(0, bytesRead);
+      prefixHash.update(chunk);
+      fullHash.update(chunk);
+      prefixLastByte = chunk[bytesRead - 1] ?? prefixLastByte;
+      for (const byte of chunk) {
+        if (byte === 10) prefixLineCount += 1;
+      }
+      position += bytesRead;
+      remaining -= bytesRead;
+    }
+
+    const appendBuffer = Buffer.alloc(appendSize);
+    let appendOffset = 0;
+    while (appendOffset < appendSize) {
+      const bytesRead = readSync(fd, appendBuffer, appendOffset, appendSize - appendOffset, prefixSize + appendOffset);
+      if (bytesRead <= 0) return null;
+      appendOffset += bytesRead;
+    }
+    fullHash.update(appendBuffer);
+    return {
+      appendText: appendBuffer.toString("utf8"),
+      fullHash: fullHash.digest("hex").slice(0, 32),
+      prefixHash: prefixHash.digest("hex").slice(0, 32),
+      prefixLastByte,
+      prefixLineCount
+    };
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function existingCodexSessionSeedForSourcePath(db: LooDatabase, sourcePath: string): ExistingCodexSessionSeed | null {
+  const rows = db.prepare(`
+    SELECT
+      thread_id AS threadId,
+      title,
+      cwd,
+      model,
+      branch,
+      git_sha AS gitSha,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      final_message AS finalMessage,
+      safe_text AS safeText,
+      event_count AS eventCount,
+      tool_call_count AS toolCallCount
+    FROM codex_sessions
+    WHERE source_path = ?
+  `).all(sourcePath) as Array<Record<string, unknown>>;
+  if (rows.length !== 1) return null;
+  const row = rows[0]!;
+  const threadId = String(row.threadId);
+  const plans = (db.prepare("SELECT text FROM codex_plans WHERE thread_id = ? ORDER BY ordinal ASC, rowid ASC").all(threadId) as Array<{ text: string }>).map((plan) => String(plan.text));
+  const toolCalls = (db.prepare(`
+    SELECT call_id AS callId, tool_name AS toolName, arguments_text AS argumentsText, reason_code AS reasonCode
+    FROM codex_tool_calls
+    WHERE thread_id = ?
+    ORDER BY rowid ASC
+  `).all(threadId) as Array<Record<string, unknown>>).map((call) => ({
+    callId: String(call.callId),
+    toolName: String(call.toolName ?? "unknown"),
+    argumentsText: String(call.argumentsText ?? ""),
+    rawArgumentsText: String(call.argumentsText ?? ""),
+    reasonCode: call.reasonCode === null || call.reasonCode === undefined ? null : call.reasonCode as CodexToolCallDraft["reasonCode"]
+  }));
+  const closeout = db.prepare(`
+    SELECT
+      closeout_envelope_text AS closeoutEnvelopeText,
+      closeout_envelope_open_count AS closeoutEnvelopeOpenCount,
+      closeout_envelope_close_count AS closeoutEnvelopeCloseCount
+    FROM codex_session_metadata
+    WHERE thread_id = ?
+  `).get(threadId) as Record<string, unknown> | undefined;
+  return {
+    threadId,
+    title: nullableString(row.title),
+    titleExplicit: existingCodexSessionHasRangeKind(db, threadId, "thread_title"),
+    cwd: nullableString(row.cwd),
+    model: nullableString(row.model),
+    branch: nullableString(row.branch),
+    gitSha: nullableString(row.gitSha),
+    createdAt: nullableString(row.createdAt),
+    updatedAt: nullableString(row.updatedAt),
+    finalMessage: nullableString(row.finalMessage),
+    finalMessageExplicit: existingCodexSessionHasRangeKind(db, threadId, "final_message"),
+    plans,
+    touchedFiles: getCodexTouchedFiles(db, { threadId }),
+    toolCalls,
+    storedToolCallCount: Number(row.toolCallCount ?? toolCalls.length),
+    metadata: getSessionMetadata(db, threadId),
+    metadataPresentTextFields: new Set(),
+    metadataPresentRefFields: new Set(),
+    closeoutEnvelopeText: nullableString(closeout?.closeoutEnvelopeText),
+    closeoutEnvelopeOpenCount: Number(closeout?.closeoutEnvelopeOpenCount ?? 0),
+    closeoutEnvelopeCloseCount: Number(closeout?.closeoutEnvelopeCloseCount ?? 0),
+    safeText: String(row.safeText ?? ""),
+    eventCount: Number(row.eventCount ?? 0),
+    sourceEvents: [],
+    driftReport: null
+  };
+}
+
+function existingCodexSessionHasRangeKind(db: LooDatabase, threadId: string, rangeKind: PreparedSourceRangeKind): boolean {
+  const row = db.prepare(`
+    SELECT 1 AS found
+    FROM prepared_source_ranges
+    WHERE thread_id = ? AND range_kind = ?
+    LIMIT 1
+  `).get(threadId, rangeKind) as { found: number } | undefined;
+  return Boolean(row);
+}
+
+function preparedSourceStatsForAppend(db: LooDatabase, threadId: string): { eventCount: number; ordinalOffset: number } {
+  const row = db.prepare(`
+    SELECT
+      COUNT(*) AS eventCount,
+      COALESCE(MAX(ordinal), -1) + 1 AS ordinalOffset
+    FROM prepared_source_events
+    WHERE thread_id = ?
+  `).get(threadId) as { eventCount: number; ordinalOffset: number } | undefined;
+  return {
+    eventCount: Number(row?.eventCount ?? 0),
+    ordinalOffset: Number(row?.ordinalOffset ?? 0)
+  };
+}
+
+function rekeyPreparedSourceRefsForAppend(db: LooDatabase, threadId: string, sourcePathRef: string, sourceHash: string): void {
+  const rows = db.prepare(`
+    SELECT
+      event_id AS eventId,
+      event_ref AS eventRef,
+      event_kind AS eventKind,
+      line_start AS lineStart,
+      ordinal,
+      content_hash AS contentHash
+    FROM prepared_source_events
+    WHERE thread_id = ? AND source_path_ref = ?
+    ORDER BY ordinal ASC, event_ref ASC
+  `).all(threadId, sourcePathRef) as Array<{ eventId: string; eventRef: string; eventKind: string; lineStart: number; ordinal: number; contentHash: string }>;
+  for (const row of rows) {
+    const oldEventId = String(row.eventId);
+    const oldEventRef = String(row.eventRef);
+    const eventKind = String(row.eventKind);
+    const lineStart = Number(row.lineStart);
+    const ordinal = Number(row.ordinal);
+    const contentHash = String(row.contentHash);
+    const newEventId = stableId(`${sourcePathRef}:${sourceHash}:${ordinal}:${lineStart}:${eventKind}:${contentHash}`);
+    const newEventRef = `codex_event:${newEventId}`;
+    db.prepare(`
+      INSERT INTO prepared_source_events (
+        event_id, event_ref, thread_id, source_ref, source_path_ref, source_hash, content_hash,
+        event_kind, line_start, line_end, byte_start, byte_end, ordinal, observed_at,
+        extractor_version, privacy_class, omission_status, confidence, metadata_json, created_at
+      )
+      SELECT
+        ?, ?, thread_id, source_ref, source_path_ref, ?, content_hash,
+        event_kind, line_start, line_end, byte_start, byte_end, ordinal, observed_at,
+        extractor_version, privacy_class, omission_status, confidence, metadata_json, created_at
+      FROM prepared_source_events
+      WHERE event_id = ?
+    `).run(newEventId, newEventRef, sourceHash, oldEventId);
+    const rangeRows = db.prepare(`
+      SELECT range_id AS rangeId, range_ref AS rangeRef, range_kind AS rangeKind
+      FROM prepared_source_ranges
+      WHERE event_ref = ?
+      ORDER BY ordinal ASC, range_ref ASC
+    `).all(oldEventRef) as Array<{ rangeId: string; rangeRef: string; rangeKind: string }>;
+    for (const range of rangeRows) {
+      const rangeKind = String(range.rangeKind);
+      const newRangeId = stableId(`${newEventRef}:${rangeKind}`);
+      const newRangeRef = `codex_range:${newRangeId}`;
+      db.prepare(`
+        INSERT INTO prepared_source_ranges (
+          range_id, range_ref, event_id, event_ref, thread_id, source_ref, source_path_ref, source_hash,
+          content_hash, range_kind, line_start, line_end, byte_start, byte_end, ordinal, observed_at,
+          extractor_version, privacy_class, omission_status, confidence, reason_codes_json, metadata_json, created_at
+        )
+        SELECT
+          ?, ?, ?, ?, thread_id, source_ref, source_path_ref, ?,
+          content_hash, range_kind, line_start, line_end, byte_start, byte_end, ordinal, observed_at,
+          extractor_version, privacy_class, omission_status, confidence, reason_codes_json, metadata_json, created_at
+        FROM prepared_source_ranges
+        WHERE range_id = ?
+      `).run(newRangeId, newRangeRef, newEventId, newEventRef, sourceHash, String(range.rangeId));
+    }
+    db.prepare("DELETE FROM prepared_source_ranges WHERE event_ref = ?").run(oldEventRef);
+    db.prepare("DELETE FROM prepared_source_events WHERE event_id = ?").run(oldEventId);
+  }
+}
+
+function mergeAppendDeltaSession(seed: ExistingCodexSessionSeed, delta: ImportedSession): ImportedSession {
+  const finalMessage = mergeAppendDeltaFinalMessage(seed, delta);
+  return {
+    threadId: seed.threadId,
+    title: mergeAppendDeltaTitle(seed, delta, finalMessage),
+    titleExplicit: seed.titleExplicit || delta.titleExplicit,
+    cwd: delta.cwd ?? seed.cwd,
+    model: delta.model ?? seed.model,
+    branch: delta.branch ?? seed.branch,
+    gitSha: delta.gitSha ?? seed.gitSha,
+    createdAt: seed.createdAt ?? delta.createdAt,
+    updatedAt: delta.updatedAt ?? seed.updatedAt,
+    finalMessage,
+    finalMessageExplicit: seed.finalMessageExplicit || delta.finalMessageExplicit,
+    plans: [...seed.plans, ...delta.plans],
+    touchedFiles: unique([...seed.touchedFiles, ...delta.touchedFiles]).sort(),
+    toolCalls: [...seed.toolCalls, ...delta.toolCalls],
+    metadata: mergeSessionMetadataSnapshot(seed.metadata, delta.metadata, delta.metadataPresentTextFields, delta.metadataPresentRefFields),
+    metadataPresentTextFields: new Set([...seed.metadataPresentTextFields, ...delta.metadataPresentTextFields]),
+    metadataPresentRefFields: new Set([...seed.metadataPresentRefFields, ...delta.metadataPresentRefFields]),
+    closeoutEnvelopeText: delta.closeoutEnvelopeText ?? seed.closeoutEnvelopeText,
+    closeoutEnvelopeOpenCount: seed.closeoutEnvelopeOpenCount + delta.closeoutEnvelopeOpenCount,
+    closeoutEnvelopeCloseCount: seed.closeoutEnvelopeCloseCount + delta.closeoutEnvelopeCloseCount,
+    safeText: [seed.safeText, delta.safeText].filter(Boolean).join("\n").slice(0, CODEX_SAFE_TEXT_CHAR_LIMIT),
+    eventCount: seed.eventCount + delta.eventCount,
+    sourceEvents: delta.sourceEvents,
+    driftReport: delta.driftReport
+  };
+}
+
+function mergeAppendDeltaFinalMessage(seed: ExistingCodexSessionSeed, delta: ImportedSession): string | null {
+  if (delta.finalMessageExplicit) return delta.finalMessage;
+  if (seed.finalMessageExplicit) return seed.finalMessage;
+  return delta.finalMessage ?? seed.finalMessage;
+}
+
+function mergeAppendDeltaTitle(seed: ExistingCodexSessionSeed, delta: ImportedSession, finalMessage: string | null): string | null {
+  if (delta.titleExplicit) return delta.title;
+  if (seed.titleExplicit) return seed.title;
+  return finalMessage ? truncate(finalMessage, 80) : seed.title ?? delta.title;
+}
+
+function mergeSessionMetadataSnapshot(
+  base: SessionMetadata,
+  delta: SessionMetadata,
+  presentTextFields: Set<SessionMetadataTextField>,
+  presentRefFields: Set<SessionMetadataRefField>
+): SessionMetadata {
+  return {
+    project: presentTextFields.has("project") ? delta.project : base.project,
+    status: presentTextFields.has("status") ? delta.status : base.status,
+    priority: presentTextFields.has("priority") ? delta.priority : base.priority,
+    owner: presentTextFields.has("owner") ? delta.owner : base.owner,
+    blocker: presentTextFields.has("blocker") ? delta.blocker : base.blocker,
+    nextAction: presentTextFields.has("nextAction") ? delta.nextAction : base.nextAction,
+    closeoutState: presentTextFields.has("closeoutState") ? delta.closeoutState : base.closeoutState,
+    planCompletionState: presentTextFields.has("planCompletionState") ? delta.planCompletionState : base.planCompletionState,
+    proposedPlanRefs: presentRefFields.has("proposedPlanRefs") ? delta.proposedPlanRefs : base.proposedPlanRefs,
+    finalMessageRefs: presentRefFields.has("finalMessageRefs") ? delta.finalMessageRefs : base.finalMessageRefs,
+    touchedFileRefs: presentRefFields.has("touchedFileRefs") ? delta.touchedFileRefs : base.touchedFileRefs,
+    sourceRefs: presentRefFields.has("sourceRefs") ? delta.sourceRefs : base.sourceRefs
+  };
+}
+
+function appendSessionDelta(
+  db: LooDatabase,
+  sourcePath: string,
+  sourceHash: string,
+  merged: ImportedSession,
+  seed: ExistingCodexSessionSeed,
+  delta: ImportedSession,
+  stat: { size: number; mtimeMs: number }
+): void {
+  const now = new Date().toISOString();
+  const sourcePathRef = publicSourcePathRef(sourcePath);
+  const sessionRowid = requireCodexSessionRowid(db, seed.threadId);
+  db.exec("BEGIN");
+  try {
+    db.prepare(`
+      UPDATE codex_source_files
+      SET
+        path_hash = ?,
+        size = ?,
+        mtime_ms = ?,
+        last_indexed_at = ?,
+        metadata_extractor_version = ?,
+        prepared_range_extractor_version = ?,
+        summary_leaf_extractor_version = NULL,
+        prepared_card_extractor_version = NULL,
+        jsonl_drift_unknown_event_kinds_json = ?,
+        jsonl_drift_unparsed_lines = ?,
+        jsonl_drift_missing_expected_fields_json = ?,
+        jsonl_drift_reason_codes_json = ?
+      WHERE source_path = ?
+    `).run(
+      sourceHash,
+      stat.size,
+      Math.trunc(stat.mtimeMs),
+      now,
+      SESSION_METADATA_EXTRACTOR_VERSION,
+      PREPARED_SOURCE_EXTRACTOR_VERSION,
+      JSON.stringify(delta.driftReport?.unknownEventKinds ?? []),
+      delta.driftReport?.unparsedLines ?? 0,
+      JSON.stringify(delta.driftReport?.missingExpectedFields ?? []),
+      JSON.stringify(delta.driftReport?.reasonCodes ?? []),
+      sourcePath
+    );
+    db.prepare(`
+      UPDATE codex_sessions
+      SET
+        title = ?,
+        cwd = ?,
+        model = ?,
+        branch = ?,
+        git_sha = ?,
+        updated_at = ?,
+        summary = ?,
+        final_message = ?,
+        safe_text = ?,
+        event_count = ?,
+        tool_call_count = ?,
+        indexed_at = ?
+      WHERE thread_id = ?
+    `).run(
+      merged.title,
+      merged.cwd,
+      merged.model,
+      merged.branch,
+      merged.gitSha,
+      merged.updatedAt,
+      buildSummary(merged),
+      merged.finalMessage,
+      merged.safeText,
+      merged.eventCount,
+      seed.storedToolCallCount + delta.toolCalls.length,
+      now,
+      seed.threadId
+    );
+    rekeyPreparedSourceRefsForAppend(db, seed.threadId, sourcePathRef, sourceHash);
+    db.prepare(`
+      INSERT INTO codex_session_metadata (
+        thread_id, project, status, priority, owner, blocker, next_action, closeout_state, plan_completion_state,
+        proposed_plan_refs_json, final_message_refs_json, touched_file_refs_json,
+        closeout_envelope_text, closeout_envelope_open_count, closeout_envelope_close_count,
+        source_refs_json, metadata_schema_version
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(thread_id) DO UPDATE SET
+        project = excluded.project,
+        status = excluded.status,
+        priority = excluded.priority,
+        owner = excluded.owner,
+        blocker = excluded.blocker,
+        next_action = excluded.next_action,
+        closeout_state = excluded.closeout_state,
+        plan_completion_state = excluded.plan_completion_state,
+        proposed_plan_refs_json = excluded.proposed_plan_refs_json,
+        final_message_refs_json = excluded.final_message_refs_json,
+        touched_file_refs_json = excluded.touched_file_refs_json,
+        closeout_envelope_text = excluded.closeout_envelope_text,
+        closeout_envelope_open_count = excluded.closeout_envelope_open_count,
+        closeout_envelope_close_count = excluded.closeout_envelope_close_count,
+        source_refs_json = excluded.source_refs_json,
+        metadata_schema_version = excluded.metadata_schema_version
+    `).run(
+      seed.threadId,
+      merged.metadata.project,
+      merged.metadata.status,
+      merged.metadata.priority,
+      merged.metadata.owner,
+      merged.metadata.blocker,
+      merged.metadata.nextAction,
+      merged.metadata.closeoutState,
+      merged.metadata.planCompletionState,
+      JSON.stringify(merged.metadata.proposedPlanRefs),
+      JSON.stringify(merged.metadata.finalMessageRefs),
+      JSON.stringify(merged.metadata.touchedFileRefs),
+      merged.closeoutEnvelopeText,
+      merged.closeoutEnvelopeOpenCount,
+      merged.closeoutEnvelopeCloseCount,
+      JSON.stringify(merged.metadata.sourceRefs),
+      SESSION_METADATA_SCHEMA_VERSION
+    );
+
+    const planOffset = seed.plans.length;
+    delta.plans.forEach((plan, index) => {
+      const ordinal = planOffset + index;
+      db.prepare("INSERT OR REPLACE INTO codex_plans (plan_id, thread_id, text, ordinal) VALUES (?, ?, ?, ?)").run(stableId(`${seed.threadId}:plan:${ordinal}:${plan}`), seed.threadId, plan, ordinal);
+    });
+    delta.touchedFiles.forEach((file) => {
+      db.prepare("INSERT OR IGNORE INTO codex_touched_files (touched_file_id, thread_id, path, source_kind) VALUES (?, ?, ?, ?)").run(stableId(`${seed.threadId}:file:${file}`), seed.threadId, file, "codex_text");
+    });
+    delta.toolCalls.forEach((call) => {
+      db.prepare("INSERT OR REPLACE INTO codex_tool_calls (call_id, thread_id, tool_name, arguments_text, reason_code) VALUES (?, ?, ?, ?, ?)").run(call.callId, seed.threadId, call.toolName, call.argumentsText, call.reasonCode);
+    });
+    const insertPreparedEvent = db.prepare(`
+      INSERT OR REPLACE INTO prepared_source_events (
+        event_id, event_ref, thread_id, source_ref, source_path_ref, source_hash, content_hash,
+        event_kind, line_start, line_end, byte_start, byte_end, ordinal, observed_at,
+        extractor_version, privacy_class, omission_status, confidence, metadata_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const insertPreparedRange = db.prepare(`
+      INSERT OR REPLACE INTO prepared_source_ranges (
+        range_id, range_ref, event_id, event_ref, thread_id, source_ref, source_path_ref, source_hash,
+        content_hash, range_kind, line_start, line_end, byte_start, byte_end, ordinal, observed_at,
+        extractor_version, privacy_class, omission_status, confidence, reason_codes_json, metadata_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const event of delta.sourceEvents) {
+      const eventId = event.eventRef.slice("codex_event:".length);
+      insertPreparedEvent.run(
+        eventId,
+        event.eventRef,
+        seed.threadId,
+        codexThreadRef(seed.threadId),
+        sourcePathRef,
+        sourceHash,
+        event.contentHash,
+        event.eventKind,
+        event.lineStart,
+        event.lineEnd,
+        event.byteStart,
+        event.byteEnd,
+        event.ordinal,
+        event.observedAt,
+        PREPARED_SOURCE_EXTRACTOR_VERSION,
+        "public_safe_metadata",
+        "metadata_only",
+        preparedEventConfidence(event),
+        JSON.stringify({ rangeCount: event.ranges.length }),
+        now
+      );
+      for (const range of event.ranges) {
+        insertPreparedRange.run(
+          range.rangeRef.slice("codex_range:".length),
+          range.rangeRef,
+          eventId,
+          event.eventRef,
+          seed.threadId,
+          codexThreadRef(seed.threadId),
+          sourcePathRef,
+          sourceHash,
+          range.contentHash,
+          range.rangeKind,
+          event.lineStart,
+          event.lineEnd,
+          event.byteStart,
+          event.byteEnd,
+          range.ordinal,
+          event.observedAt,
+          PREPARED_SOURCE_EXTRACTOR_VERSION,
+          "public_safe_metadata",
+          "metadata_only",
+          preparedRangeConfidence(range.rangeKind),
+          JSON.stringify(range.reasonCodes),
+          JSON.stringify({ eventKind: event.eventKind }),
+          now
+        );
+      }
+    }
+    deleteCodexSafeTextFtsForSessionRowid(db, sessionRowid);
+    deleteCodexSearchFtsForSessionRowid(db, sessionRowid);
+    insertCodexSafeTextFtsForSessionRowid(db, sessionRowid, seed.threadId, merged.safeText);
+    insertCodexSearchFtsForThreadRowid(db, seed.threadId, sessionRowid);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
 }
 
 export function getCodexJsonlDriftStatus(db: LooDatabase): CodexJsonlDriftStatus {
@@ -13512,11 +14085,12 @@ const CODEX_JSONL_TRANSPARENT_ENVELOPES = new Set([
   "turn_context"
 ]);
 
-function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: number): ImportedSession {
+function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: number, options: CodexJsonlParseOptions = {}): ImportedSession {
   const fallbackId = fallbackThreadId(sourcePath);
   const session: ImportedSession = {
-    threadId: fallbackId.replace(/^rollout-[^-]+-/, ""),
+    threadId: options.threadId ? safeThreadId(options.threadId) : fallbackId.replace(/^rollout-[^-]+-/, ""),
     title: null,
+    titleExplicit: false,
     cwd: null,
     model: null,
     branch: null,
@@ -13524,10 +14098,13 @@ function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: num
     createdAt: null,
     updatedAt: null,
     finalMessage: null,
+    finalMessageExplicit: false,
     plans: [],
     touchedFiles: [],
     toolCalls: [],
     metadata: emptySessionMetadata(),
+    metadataPresentTextFields: new Set(),
+    metadataPresentRefFields: new Set(),
     closeoutEnvelopeText: null,
     closeoutEnvelopeOpenCount: 0,
     closeoutEnvelopeCloseCount: 0,
@@ -13540,12 +14117,14 @@ function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: num
   const drift = emptyCodexJsonlDriftAccumulator();
   const safeParts: string[] = [];
   const touched = new Set<string>();
-  const records = jsonlLineRecords(text);
-  const sourceHash = stableId(text);
+  const records = jsonlLineRecords(text, options.lineNumberOffset ?? 0, options.byteOffset ?? 0);
+  const sourceHash = options.sourceHash ?? stableId(text);
   const sourcePathRef = publicSourcePathRef(sourcePath);
+  const ordinalOffset = options.ordinalOffset ?? 0;
   let sawThreadIdInFile = false;
   for (let i = 0; i < records.length; i += 1) {
     const record = records[i]!;
+    const ordinal = ordinalOffset + i;
     let item: any;
     try {
       item = JSON.parse(record.text);
@@ -13583,6 +14162,7 @@ function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: num
     const title = codexThreadTitleFromItem(item);
     if (title) {
       session.title = redactSafeString(title);
+      session.titleExplicit = true;
       safeParts.push(session.title);
       rangeKinds.add("thread_title");
     }
@@ -13591,7 +14171,10 @@ function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: num
     for (const payload of textPayloads) {
       const metadataText = redactSafeString(payload.trim());
       if (metadataText) {
-        mergeSessionMetadata(session.metadata, extractSessionMetadata(metadataText));
+        const extractedMetadata = extractSessionMetadata(metadataText);
+        mergeSessionMetadata(session.metadata, extractedMetadata);
+        for (const field of extractedMetadata.presentTextFields) session.metadataPresentTextFields.add(field);
+        for (const field of extractedMetadata.presentRefFields) session.metadataPresentRefFields.add(field);
         recordCloseoutEnvelopeEvidence(session, metadataText);
       }
       const clean = redactSafeString(normalizeText(payload));
@@ -13602,13 +14185,16 @@ function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: num
       for (const plan of plans) session.plans.push(plan);
       if (plans.length > 0) rangeKinds.add("proposed_plan");
       const finalMessage = isLikelyFinal(clean);
-      if (finalMessage) session.finalMessage = clean;
-      if (finalMessage) rangeKinds.add("final_message");
+      if (finalMessage) {
+        session.finalMessage = clean;
+        session.finalMessageExplicit = true;
+        rangeKinds.add("final_message");
+      }
       if (containsCloseoutEnvelope(clean)) rangeKinds.add("closeout");
       for (const file of extractTouchedFiles(clean)) touched.add(file);
     }
 
-    const toolCalls = extractCodexToolCalls(item, sourcePath, i);
+    const toolCalls = extractCodexToolCalls(item, sourcePath, ordinal);
     for (const call of toolCalls) {
       session.toolCalls.push(call);
       for (const file of extractTouchedFiles(redactSafeString(call.rawArgumentsText))) touched.add(file);
@@ -13619,7 +14205,7 @@ function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: num
     session.sourceEvents.push(createPreparedSourceEventDraft({
       record,
       item,
-      ordinal: i,
+      ordinal,
       sourceHash,
       sourcePathRef,
       threadId: session.threadId,
@@ -13629,12 +14215,12 @@ function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: num
   }
 
   session.touchedFiles = [...touched].sort();
-  session.safeText = safeParts.join("\n").slice(0, 250_000);
+  session.safeText = safeParts.join("\n").slice(0, CODEX_SAFE_TEXT_CHAR_LIMIT);
   session.finalMessage ??= lastAssistantText(safeParts);
   session.title ??= session.finalMessage ? truncate(session.finalMessage, 80) : session.threadId;
   session.updatedAt ??= new Date().toISOString();
   session.createdAt ??= session.updatedAt;
-  if (!sawThreadIdInFile) recordCodexJsonlMissingField(drift, "session_meta.payload.id");
+  if (!sawThreadIdInFile && !options.threadId) recordCodexJsonlMissingField(drift, "session_meta.payload.id");
   session.driftReport = codexJsonlDriftReport(sourcePath, drift);
   return session;
 }
@@ -13963,11 +14549,11 @@ function publicSafeToolName(value: string): string {
   return publicSafeText(value.replace(/[^A-Za-z0-9._:-]+/g, "_"), 120) || "unknown";
 }
 
-function jsonlLineRecords(text: string): JsonlLineRecord[] {
+function jsonlLineRecords(text: string, lineNumberOffset = 0, byteOffset = 0): JsonlLineRecord[] {
   const records: JsonlLineRecord[] = [];
   let cursor = 0;
-  let byteCursor = 0;
-  let lineNumber = 1;
+  let byteCursor = byteOffset;
+  let lineNumber = lineNumberOffset + 1;
   while (cursor < text.length) {
     const newlineIndex = text.indexOf("\n", cursor);
     const lineEnd = newlineIndex === -1 ? text.length : newlineIndex;

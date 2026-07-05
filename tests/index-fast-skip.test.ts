@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, statSync, utimesSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -42,6 +42,40 @@ function indexSnapshot(db: LooDatabase): IndexSnapshot {
 
 function countRows(db: LooDatabase, table: string): number {
   return Number((db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number }).count);
+}
+
+function preparedCounts(db: LooDatabase, threadId: string): { events: number; ranges: number; leaves: number; cards: number; inbox: number } {
+  return {
+    events: Number((db.prepare("SELECT COUNT(*) AS count FROM prepared_source_events WHERE thread_id = ?").get(threadId) as { count: number }).count),
+    ranges: Number((db.prepare("SELECT COUNT(*) AS count FROM prepared_source_ranges WHERE thread_id = ?").get(threadId) as { count: number }).count),
+    leaves: Number((db.prepare("SELECT COUNT(*) AS count FROM summary_leaves WHERE thread_id = ?").get(threadId) as { count: number }).count),
+    cards: Number((db.prepare("SELECT COUNT(*) AS count FROM prepared_cards WHERE target_ref = ?").get(`codex_thread:${threadId}`) as { count: number }).count),
+    inbox: Number((db.prepare("SELECT COUNT(*) AS count FROM prepared_inbox_items WHERE target_ref = ?").get(`codex_thread:${threadId}`) as { count: number }).count)
+  };
+}
+
+function preparedRangeSnapshot(db: LooDatabase, threadId: string): Array<{ rangeRef: string; eventRef: string; sourceHash: string; rangeKind: string; lineStart: number; byteStart: number; ordinal: number }> {
+  return db.prepare(`
+    SELECT
+      range_ref AS rangeRef,
+      event_ref AS eventRef,
+      source_hash AS sourceHash,
+      range_kind AS rangeKind,
+      line_start AS lineStart,
+      byte_start AS byteStart,
+      ordinal
+    FROM prepared_source_ranges
+    WHERE thread_id = ?
+    ORDER BY ordinal ASC, range_ref ASC
+  `).all(threadId) as Array<{ rangeRef: string; eventRef: string; sourceHash: string; rangeKind: string; lineStart: number; byteStart: number; ordinal: number }>;
+}
+
+function sessionEventCount(db: LooDatabase, threadId: string): number {
+  return Number((db.prepare("SELECT event_count AS eventCount FROM codex_sessions WHERE thread_id = ?").get(threadId) as { eventCount: number } | undefined)?.eventCount ?? 0);
+}
+
+function toolCallIds(db: LooDatabase, threadId: string): string[] {
+  return (db.prepare("SELECT call_id AS callId FROM codex_tool_calls WHERE thread_id = ? ORDER BY rowid ASC").all(threadId) as Array<{ callId: string }>).map((row) => row.callId);
 }
 
 function countOrphanFtsRows(db: LooDatabase, table: "codex_safe_text_fts" | "codex_search_fts"): number {
@@ -213,6 +247,427 @@ test("thread-id remap on the same source path removes stale rowid-pinned FTS row
       assert.equal(after.searchRowid, after.sessionRowid);
       assert.equal(searchSessions(db, { query: "old remap marker", limit: 5 }).some((row) => row.threadId === "019f-rowid-remap-old"), false);
       assert.equal(searchSessions(db, { query: "new remap marker", limit: 5 })[0]?.threadId, "019f-rowid-remap-new");
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("append-only session updates use delta indexing and match full reparse public state", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-append-delta-index-"));
+  try {
+    const sessionsDir = join(root, "sessions");
+    const file = join(sessionsDir, "rollout-2026-07-06T00-00-00-019f-append-delta.jsonl");
+    const threadId = "019f-append-delta";
+    writeSyntheticCodexSession(file, {
+      threadId,
+      title: "Append delta initial title",
+      finalMessage: "Final: append delta initial marker complete. Next action: append."
+    });
+    appendFileSync(file, "\n");
+    const deltaDb = createDatabase(join(root, "delta.sqlite"));
+    const fullDb = createDatabase(join(root, "full.sqlite"));
+    try {
+      assert.equal(indexCodexSessions(deltaDb, { roots: [sessionsDir], maxFiles: 10 }).indexedFiles, 1);
+      appendFileSync(file, [
+        JSON.stringify({
+          timestamp: "2026-07-06T00:00:10.000Z",
+          event_msg: { type: "thread_name", name: "Append delta updated title" }
+        }),
+        JSON.stringify({
+          timestamp: "2026-07-06T00:00:11.000Z",
+          response_item: {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "Final: appended delta marker complete. Next action: keep indexing fast." }]
+          }
+        }),
+        ""
+      ].join("\n"));
+
+      const delta = indexCodexSessions(deltaDb, { roots: [sessionsDir], maxFiles: 10 }) as ReturnType<typeof indexCodexSessions> & { appendDeltaIndexedFiles?: number };
+      const full = indexCodexSessions(fullDb, { roots: [sessionsDir], maxFiles: 10 });
+      assert.equal(delta.indexedFiles, 1);
+      assert.equal(delta.appendDeltaIndexedFiles, 1);
+      assert.equal(delta.indexedEvents, 2);
+      assert.equal(full.indexedFiles, 1);
+      assert.equal(full.indexedEvents, 7);
+
+      const deltaDescription = describeSession(deltaDb, threadId);
+      const fullDescription = describeSession(fullDb, threadId);
+      assert.ok(deltaDescription);
+      assert.ok(fullDescription);
+      assert.equal(deltaDescription.title, fullDescription.title);
+      assert.equal(deltaDescription.finalMessage, fullDescription.finalMessage);
+      assert.equal(sessionEventCount(deltaDb, threadId), sessionEventCount(fullDb, threadId));
+      assert.equal(deltaDescription.toolCallCount, fullDescription.toolCallCount);
+      assert.deepEqual(preparedCounts(deltaDb, threadId), preparedCounts(fullDb, threadId));
+      assert.deepEqual(preparedRangeSnapshot(deltaDb, threadId), preparedRangeSnapshot(fullDb, threadId));
+      assert.equal(searchSessions(deltaDb, { query: "appended delta marker", limit: 5 })[0]?.threadId, threadId);
+      assert.equal(searchSessions(fullDb, { query: "appended delta marker", limit: 5 })[0]?.threadId, threadId);
+    } finally {
+      deltaDb.close();
+      fullDb.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("append-delta falls back to full reparse when the indexed prefix changes", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-append-delta-prefix-rewrite-"));
+  try {
+    const sessionsDir = join(root, "sessions");
+    const file = join(sessionsDir, "rollout-2026-07-06T00-00-00-019f-prefix-rewrite.jsonl");
+    const threadId = "019f-prefix-rewrite";
+    writeSyntheticCodexSession(file, {
+      threadId,
+      title: "Prefix rewrite original",
+      finalMessage: "Final: prefix rewrite original complete. Next action: rewrite."
+    });
+
+    const db = createDatabase(join(root, "orchestrator.sqlite"));
+    try {
+      assert.equal(indexCodexSessions(db, { roots: [sessionsDir], maxFiles: 10 }).indexedFiles, 1);
+      writeSyntheticCodexSession(file, {
+        threadId,
+        title: "Prefix rewrite changed",
+        finalMessage: "Final: prefix rewrite changed complete. Next action: full reparse."
+      });
+      appendFileSync(file, `${JSON.stringify({
+        timestamp: "2026-07-06T00:00:20.000Z",
+        response_item: {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: "Final: prefix mismatch append complete. Next action: keep correctness." }]
+        }
+      })}\n`);
+
+      const result = indexCodexSessions(db, { roots: [sessionsDir], maxFiles: 10 });
+      assert.equal(result.indexedFiles, 1);
+      assert.equal(result.appendDeltaIndexedFiles, 0);
+      assert.equal(describeSession(db, threadId)?.title, "Prefix rewrite changed");
+      assert.equal(searchSessions(db, { query: "prefix mismatch append", limit: 5 })[0]?.threadId, threadId);
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("append-delta falls back to full reparse when the indexed prefix has drift", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-append-delta-drift-fallback-"));
+  try {
+    const sessionsDir = join(root, "sessions");
+    const file = join(sessionsDir, "rollout-2026-07-06T00-00-00-019f-drift-fallback.jsonl");
+    const threadId = "019f-drift-fallback";
+    mkdirSync(sessionsDir, { recursive: true });
+    writeFileSync(file, `not-json\n${JSON.stringify({
+      timestamp: "2026-07-06T00:00:00.000Z",
+      session_meta: { payload: { id: threadId, cwd: "/Volumes/LEXAR/repos/example", model: "gpt-5.5" } }
+    })}\n${JSON.stringify({
+      timestamp: "2026-07-06T00:00:01.000Z",
+      event_msg: { type: "thread_name", name: "Drift fallback title" }
+    })}\n`);
+
+    const db = createDatabase(join(root, "orchestrator.sqlite"));
+    try {
+      const first = indexCodexSessions(db, { roots: [sessionsDir], maxFiles: 10 });
+      assert.equal(first.indexedFiles, 1);
+      assert.equal(first.driftSummary.unparsedLines, 1);
+      appendFileSync(file, `${JSON.stringify({
+        timestamp: "2026-07-06T00:00:02.000Z",
+        response_item: {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: "Final: drift fallback append complete. Next action: full reparse." }]
+        }
+      })}\n`);
+
+      const result = indexCodexSessions(db, { roots: [sessionsDir], maxFiles: 10 });
+      assert.equal(result.indexedFiles, 1);
+      assert.equal(result.appendDeltaIndexedFiles, 0);
+      assert.equal(result.driftSummary.unparsedLines, 1);
+      assert.equal(searchSessions(db, { query: "drift fallback append", limit: 5 })[0]?.threadId, threadId);
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("append-delta uses global ordinals for fallback tool-call ids", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-append-delta-tool-ordinal-"));
+  try {
+    const sessionsDir = join(root, "sessions");
+    const file = join(sessionsDir, "rollout-2026-07-06T00-00-00-019f-tool-ordinal.jsonl");
+    const threadId = "019f-tool-ordinal";
+    mkdirSync(sessionsDir, { recursive: true });
+    writeFileSync(file, [
+      JSON.stringify({
+        timestamp: "2026-07-06T00:00:00.000Z",
+        session_meta: { payload: { id: threadId, cwd: "/Volumes/LEXAR/repos/example", model: "gpt-5.5" } }
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-06T00:00:01.000Z",
+        response_item: { type: "function_call", name: "functions.exec_command", arguments: "{\"cmd\":\"date\"}" }
+      }),
+      ""
+    ].join("\n"));
+
+    const db = createDatabase(join(root, "orchestrator.sqlite"));
+    try {
+      assert.equal(indexCodexSessions(db, { roots: [sessionsDir], maxFiles: 10 }).indexedFiles, 1);
+      appendFileSync(file, `${JSON.stringify({
+        timestamp: "2026-07-06T00:00:02.000Z",
+        response_item: { type: "function_call", name: "functions.exec_command", arguments: "{\"cmd\":\"pwd\"}" }
+      })}\n`);
+
+      const result = indexCodexSessions(db, { roots: [sessionsDir], maxFiles: 10 });
+      assert.equal(result.indexedFiles, 1);
+      assert.equal(result.appendDeltaIndexedFiles, 1);
+      const callIds = toolCallIds(db, threadId);
+      assert.equal(callIds.length, 2);
+      assert.equal(new Set(callIds).size, 2);
+      assert.equal(describeSession(db, threadId)?.toolCallCount, 2);
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("append-delta falls back to full reparse when prepared source event count drifts", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-append-delta-prepared-count-drift-"));
+  try {
+    const sessionsDir = join(root, "sessions");
+    const file = join(sessionsDir, "rollout-2026-07-06T00-00-00-019f-prepared-count-drift.jsonl");
+    const threadId = "019f-prepared-count-drift";
+    writeSyntheticCodexSession(file, {
+      threadId,
+      title: "Prepared count drift title",
+      finalMessage: "Final: prepared count drift initial complete. Next action: repair."
+    });
+
+    const db = createDatabase(join(root, "orchestrator.sqlite"));
+    try {
+      assert.equal(indexCodexSessions(db, { roots: [sessionsDir], maxFiles: 10 }).indexedFiles, 1);
+      const before = preparedCounts(db, threadId);
+      assert.ok(before.events > 1);
+      const orphaned = db.prepare(`
+        SELECT event_ref AS eventRef
+        FROM prepared_source_events
+        WHERE thread_id = ?
+        ORDER BY ordinal ASC
+        LIMIT 1
+      `).get(threadId) as { eventRef: string };
+      db.prepare("DELETE FROM prepared_source_ranges WHERE event_ref = ?").run(orphaned.eventRef);
+      db.prepare("DELETE FROM prepared_source_events WHERE event_ref = ?").run(orphaned.eventRef);
+      assert.equal(preparedCounts(db, threadId).events, before.events - 1);
+
+      appendFileSync(file, `${JSON.stringify({
+        timestamp: "2026-07-06T00:00:03.000Z",
+        response_item: {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: "Final: prepared count drift append complete. Next action: full reparse." }]
+        }
+      })}\n`);
+
+      const result = indexCodexSessions(db, { roots: [sessionsDir], maxFiles: 10 });
+      assert.equal(result.indexedFiles, 1);
+      assert.equal(result.appendDeltaIndexedFiles, 0);
+      assert.equal(preparedCounts(db, threadId).events, sessionEventCount(db, threadId));
+      assert.equal(searchSessions(db, { query: "prepared count drift append", limit: 5 })[0]?.threadId, threadId);
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("append-delta falls back to full reparse when appended tail contains malformed JSONL", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-append-delta-malformed-tail-"));
+  try {
+    const sessionsDir = join(root, "sessions");
+    const file = join(sessionsDir, "rollout-2026-07-06T00-00-00-019f-malformed-tail.jsonl");
+    const threadId = "019f-malformed-tail";
+    writeSyntheticCodexSession(file, {
+      threadId,
+      title: "Malformed tail fallback title",
+      finalMessage: "Final: malformed tail fallback initial complete. Next action: append."
+    });
+
+    const db = createDatabase(join(root, "orchestrator.sqlite"));
+    try {
+      assert.equal(indexCodexSessions(db, { roots: [sessionsDir], maxFiles: 10 }).indexedFiles, 1);
+      appendFileSync(file, [
+        "not-json",
+        JSON.stringify({
+          timestamp: "2026-07-06T00:00:03.000Z",
+          response_item: {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "Final: malformed tail append marker complete. Next action: full reparse." }]
+          }
+        }),
+        ""
+      ].join("\n"));
+
+      const result = indexCodexSessions(db, { roots: [sessionsDir], maxFiles: 10 });
+      assert.equal(result.indexedFiles, 1);
+      assert.equal(result.appendDeltaIndexedFiles, 0);
+      assert.equal(result.driftSummary.unparsedLines, 1);
+      assert.equal(searchSessions(db, { query: "malformed tail append marker", limit: 5 })[0]?.threadId, threadId);
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("append-delta preserves stable explicit title and final when appended tail has no explicit replacements", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-append-delta-stable-title-final-"));
+  try {
+    const sessionsDir = join(root, "sessions");
+    const file = join(sessionsDir, "rollout-2026-07-06T00-00-00-019f-stable-title-final.jsonl");
+    const threadId = "019f-stable-title-final";
+    writeSyntheticCodexSession(file, {
+      threadId,
+      title: "Stable explicit thread title",
+      finalMessage: "Final: stable explicit final marker complete. Next action: preserve."
+    });
+    const deltaDb = createDatabase(join(root, "delta.sqlite"));
+    const fullDb = createDatabase(join(root, "full.sqlite"));
+    try {
+      assert.equal(indexCodexSessions(deltaDb, { roots: [sessionsDir], maxFiles: 10 }).indexedFiles, 1);
+      appendFileSync(file, `${JSON.stringify({
+        timestamp: "2026-07-06T00:00:20.000Z",
+        response_item: {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: "Intermediate progress note only." }]
+        }
+      })}\n`);
+
+      const delta = indexCodexSessions(deltaDb, { roots: [sessionsDir], maxFiles: 10 });
+      const full = indexCodexSessions(fullDb, { roots: [sessionsDir], maxFiles: 10 });
+      assert.equal(delta.appendDeltaIndexedFiles, 1);
+      assert.equal(full.appendDeltaIndexedFiles, 0);
+      assert.equal(describeSession(deltaDb, threadId)?.title, describeSession(fullDb, threadId)?.title);
+      assert.equal(describeSession(deltaDb, threadId)?.finalMessage, describeSession(fullDb, threadId)?.finalMessage);
+      assert.equal(describeSession(deltaDb, threadId)?.title, "Stable explicit thread title");
+      assert.equal(describeSession(deltaDb, threadId)?.finalMessage, "Final: stable explicit final marker complete. Next action: preserve.");
+    } finally {
+      deltaDb.close();
+      fullDb.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("append-delta applies explicit metadata clears such as Blocker none", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-append-delta-metadata-clear-"));
+  try {
+    const sessionsDir = join(root, "sessions");
+    const file = join(sessionsDir, "rollout-2026-07-06T00-00-00-019f-metadata-clear.jsonl");
+    const threadId = "019f-metadata-clear";
+    mkdirSync(sessionsDir, { recursive: true });
+    writeFileSync(file, [
+      JSON.stringify({
+        timestamp: "2026-07-06T00:00:00.000Z",
+        session_meta: { payload: { id: threadId, cwd: "/Volumes/LEXAR/repos/example", model: "gpt-5.5" } }
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-06T00:00:01.000Z",
+        event_msg: { type: "thread_name", name: "Metadata clear title" }
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-06T00:00:02.000Z",
+        event_msg: {
+          type: "agent_message",
+          message: [
+            "Project: lossless-openclaw-orchestrator",
+            "Status: in-progress",
+            "Blocker: CodeRabbit review pending",
+            "Next action: patch implementation"
+          ].join("\n")
+        }
+      }),
+      ""
+    ].join("\n"));
+    const deltaDb = createDatabase(join(root, "delta.sqlite"));
+    const fullDb = createDatabase(join(root, "full.sqlite"));
+    try {
+      assert.equal(indexCodexSessions(deltaDb, { roots: [sessionsDir], maxFiles: 10 }).indexedFiles, 1);
+      appendFileSync(file, `${JSON.stringify({
+        timestamp: "2026-07-06T00:00:03.000Z",
+        event_msg: {
+          type: "agent_message",
+          message: [
+            "Project: lossless-openclaw-orchestrator",
+            "Status: complete",
+            "Blocker: none",
+            "Next action: merge after review",
+            "Closeout state: ready"
+          ].join("\n")
+        }
+      })}\n`);
+
+      const delta = indexCodexSessions(deltaDb, { roots: [sessionsDir], maxFiles: 10 });
+      const full = indexCodexSessions(fullDb, { roots: [sessionsDir], maxFiles: 10 });
+      assert.equal(delta.appendDeltaIndexedFiles, 1);
+      assert.equal(full.appendDeltaIndexedFiles, 0);
+      assert.deepEqual(describeSession(deltaDb, threadId)?.metadata, describeSession(fullDb, threadId)?.metadata);
+      assert.equal(describeSession(deltaDb, threadId)?.metadata?.blocker, null);
+      assert.equal(describeSession(deltaDb, threadId)?.metadata?.status, "complete");
+      assert.equal(describeSession(deltaDb, threadId)?.metadata?.closeoutState, "ready");
+    } finally {
+      deltaDb.close();
+      fullDb.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("append-delta falls back to full reparse when cached safe text is already capped", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-append-delta-safe-text-cap-"));
+  try {
+    const sessionsDir = join(root, "sessions");
+    const file = join(sessionsDir, "rollout-2026-07-06T00-00-00-019f-safe-text-cap.jsonl");
+    const threadId = "019f-safe-text-cap";
+    mkdirSync(sessionsDir, { recursive: true });
+    writeSyntheticCodexSession(file, {
+      threadId,
+      title: "Safe text cap fallback title",
+      finalMessage: "Final: safe text cap fallback initial complete."
+    });
+    const db = createDatabase(join(root, "orchestrator.sqlite"));
+    try {
+      assert.equal(indexCodexSessions(db, { roots: [sessionsDir], maxFiles: 10 }).indexedFiles, 1);
+      db.prepare("UPDATE codex_sessions SET safe_text = ? WHERE thread_id = ?").run("x".repeat(250_000), threadId);
+      appendFileSync(file, `${JSON.stringify({
+        timestamp: "2026-07-06T00:00:02.000Z",
+        response_item: {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: "Final: safe text cap append marker complete." }]
+        }
+      })}\n`);
+
+      const result = indexCodexSessions(db, { roots: [sessionsDir], maxFiles: 10 });
+      assert.equal(result.indexedFiles, 1);
+      assert.equal(result.appendDeltaIndexedFiles, 0);
+      assert.equal(searchSessions(db, { query: "safe text cap append marker", limit: 5 })[0]?.threadId, threadId);
     } finally {
       db.close();
     }
