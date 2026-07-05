@@ -376,6 +376,7 @@ loo release preflight --claim-scope codex-read-search-expand-dry-run --evidence-
 loo release demo-status --claim-scope codex-read-search-expand-dry-run --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/demo --strict
 loo release status --claim-scope codex-read-search-expand-dry-run --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --candidate-sha <release-candidate-sha> --npm-publish-approval-evidence npm-publish-approval.json --github-release-approval-evidence github-release-approval.json --github-ci-evidence github-ci.json --codeql-evidence codeql.json --strict
 loo release general-readiness --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/general-readiness --fresh-npm-evidence published-package-smoke.json --agent-dogfood-evidence openclaw-tool-smoke.json --strict
+loo release ga-smoke --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-ga-smoke --package-version <version> --candidate-sha <release-candidate-sha> --strict
 ```
 
 ## Development

@@ -44,6 +44,7 @@ import { dirname, join, resolve } from "node:path";
 import { createReleaseBundle } from "./release-bundle.js";
 import { createReleaseDemoStatus } from "./release-demo-status.js";
 import { createReleaseFinalizationStatus } from "./release-finalization-status.js";
+import { createReleaseGaSmokeReport } from "./release-ga-smoke.js";
 import { runReleasePreflight } from "./release-preflight.js";
 import { createReleaseStatus } from "./release-status.js";
 import { createGeneralReleaseReadiness } from "./general-release-readiness.js";
@@ -642,6 +643,17 @@ async function main() {
     if (parsed.strict && !report.stableReady) process.exitCode = 1;
     return;
   }
+  if (command === "release" && args[0] === "ga-smoke") {
+    if (hasHelpFlag(args.slice(1))) {
+      printReleaseGaSmokeHelp();
+      return;
+    }
+    const parsed = parseReleaseGaSmokeArgs(args.slice(1));
+    const report = createReleaseGaSmokeReport(parsed);
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.gaSmokeReady) process.exitCode = 1;
+    return;
+  }
   if (command === "release" && args[0] === "demo-status") {
     if (hasHelpFlag(args.slice(1))) {
       printReleaseDemoStatusHelp();
@@ -877,6 +889,7 @@ function mainUsageText(): string {
     "  loo release status --evidence-dir path --candidate-sha sha [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--github-ci-evidence path] [--codeql-evidence path] [--desktop-gui-required --desktop-gui-approval-evidence path] [--now iso] [--strict]",
     "  loo release finalization-status --evidence-dir path --candidate-sha sha --npm-publish-evidence path --git-tag-evidence path --github-release-evidence path [--package-name name] [--package-version version] [--expected-dist-tag beta|next|latest] [--expected-github-prerelease true|false] [--now iso] [--strict]",
     "  loo release general-readiness --evidence-dir path [--fresh-npm-evidence path] [--agent-dogfood-evidence path] [--now iso] [--strict]",
+    "  loo release ga-smoke --evidence-dir path --package-version version --candidate-sha sha [--release-status path] [--release-finalization-status path] [--published-smoke path] [--dogfood-report path] [--tool-smoke-report path] [--scenario-sweep path] [--scorecard-sweep path] [--release-preflight path] [--release-bundle path] [--privacy-scan path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--allow-setup-required] [--now iso] [--strict]",
     "  loo release demo-status --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--min-sessions n] [--strict]"
   ].join("\n");
 }
@@ -1218,6 +1231,25 @@ function printGeneralReleaseReadinessHelp(): void {
     "",
     "Safety boundary:",
     "  The command does not publish npm, does not move npm dist-tags, does not create a GitHub Release, does not run live Codex control, and does not perform desktop GUI mutation."
+  ].join("\n"));
+}
+
+function printReleaseGaSmokeHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo release ga-smoke --evidence-dir path --package-version version --candidate-sha sha [--release-status path] [--release-finalization-status path] [--published-smoke path] [--dogfood-report path] [--tool-smoke-report path] [--scenario-sweep path] [--scorecard-sweep path] [--release-preflight path] [--release-bundle path] [--privacy-scan path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--allow-setup-required] [--now iso] [--strict]",
+    "",
+    "Aggregates public-safe release evidence into one GA smoke readiness packet.",
+    "",
+    "Default evidence names:",
+    "  release-status.json, release-finalization-status.json, published-package-smoke.json, openclaw-dogfood.json, openclaw-tool-smoke.json, scenario-sweep.json, scorecard-sweep.json, release-preflight.json, release-bundle.json, and privacy-scan.json.",
+    "",
+    "Strict mode:",
+    "  --strict exits non-zero for P0-P2 package, release, safety, setup, or evidence blockers. P3 warnings remain non-blocking.",
+    "  --allow-setup-required permits a classified fresh-profile setup blocker only when package-path, configured-gateway, and finalization proof are clean.",
+    "",
+    "Safety boundary:",
+    "  This command is aggregate-only. It consumes existing sanitized evidence and does not publish npm, create tags, create GitHub Releases, run live Codex control, mutate a GUI, read raw transcripts, or store raw npm/gateway output."
   ].join("\n"));
 }
 
@@ -2839,6 +2871,138 @@ function parseGeneralReleaseReadinessArgs(input: string[]): {
   }
   if (!evidenceDir) throw new Error("release general-readiness requires --evidence-dir");
   return { evidenceDir, freshNpmEvidence, agentDogfoodEvidence, now, strict };
+}
+
+function parseReleaseGaSmokeArgs(input: string[]): {
+  evidenceDir: string;
+  packageVersion: string;
+  candidateSha: string;
+  claimScope?: ReleaseClaimScope;
+  releaseStatus?: string;
+  releaseFinalizationStatus?: string;
+  publishedSmoke?: string;
+  dogfoodReport?: string;
+  toolSmokeReport?: string;
+  scenarioSweep?: string;
+  scorecardSweep?: string;
+  releasePreflight?: string;
+  releaseBundle?: string;
+  privacyScan?: string;
+  allowSetupRequired: boolean;
+  now?: string;
+  strict: boolean;
+} {
+  let evidenceDir: string | undefined;
+  let packageVersion: string | undefined;
+  let candidateSha: string | undefined;
+  let claimScope: ReleaseClaimScope | undefined;
+  let releaseStatus: string | undefined;
+  let releaseFinalizationStatus: string | undefined;
+  let publishedSmoke: string | undefined;
+  let dogfoodReport: string | undefined;
+  let toolSmokeReport: string | undefined;
+  let scenarioSweep: string | undefined;
+  let scorecardSweep: string | undefined;
+  let releasePreflight: string | undefined;
+  let releaseBundle: string | undefined;
+  let privacyScan: string | undefined;
+  let allowSetupRequired = false;
+  let now: string | undefined;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--evidence-dir") {
+      evidenceDir = readReleaseStatusPath(input, ++index, "--evidence-dir");
+      continue;
+    }
+    if (arg === "--package-version") {
+      packageVersion = readReleaseStatusValue(input, ++index, "--package-version");
+      continue;
+    }
+    if (arg === "--candidate-sha") {
+      candidateSha = readReleaseStatusValue(input, ++index, "--candidate-sha");
+      continue;
+    }
+    if (arg === "--claim-scope") {
+      claimScope = parseReleaseClaimScope(input, ++index, "--claim-scope");
+      continue;
+    }
+    if (arg === "--release-status") {
+      releaseStatus = readReleaseStatusPath(input, ++index, "--release-status");
+      continue;
+    }
+    if (arg === "--release-finalization-status") {
+      releaseFinalizationStatus = readReleaseStatusPath(input, ++index, "--release-finalization-status");
+      continue;
+    }
+    if (arg === "--published-smoke") {
+      publishedSmoke = readReleaseStatusPath(input, ++index, "--published-smoke");
+      continue;
+    }
+    if (arg === "--dogfood-report") {
+      dogfoodReport = readReleaseStatusPath(input, ++index, "--dogfood-report");
+      continue;
+    }
+    if (arg === "--tool-smoke-report") {
+      toolSmokeReport = readReleaseStatusPath(input, ++index, "--tool-smoke-report");
+      continue;
+    }
+    if (arg === "--scenario-sweep") {
+      scenarioSweep = readReleaseStatusPath(input, ++index, "--scenario-sweep");
+      continue;
+    }
+    if (arg === "--scorecard-sweep") {
+      scorecardSweep = readReleaseStatusPath(input, ++index, "--scorecard-sweep");
+      continue;
+    }
+    if (arg === "--release-preflight") {
+      releasePreflight = readReleaseStatusPath(input, ++index, "--release-preflight");
+      continue;
+    }
+    if (arg === "--release-bundle") {
+      releaseBundle = readReleaseStatusPath(input, ++index, "--release-bundle");
+      continue;
+    }
+    if (arg === "--privacy-scan") {
+      privacyScan = readReleaseStatusPath(input, ++index, "--privacy-scan");
+      continue;
+    }
+    if (arg === "--allow-setup-required") {
+      allowSetupRequired = true;
+      continue;
+    }
+    if (arg === "--now") {
+      now = readReleaseStatusValue(input, ++index, "--now");
+      continue;
+    }
+    if (arg === "--strict") {
+      strict = true;
+      continue;
+    }
+    throw new Error(`Unknown release ga-smoke option: ${arg}`);
+  }
+  if (!evidenceDir) throw new Error("release ga-smoke requires --evidence-dir");
+  if (!packageVersion) throw new Error("release ga-smoke requires --package-version");
+  if (!candidateSha) throw new Error("release ga-smoke requires --candidate-sha");
+  return {
+    evidenceDir,
+    packageVersion,
+    candidateSha,
+    claimScope,
+    releaseStatus,
+    releaseFinalizationStatus,
+    publishedSmoke,
+    dogfoodReport,
+    toolSmokeReport,
+    scenarioSweep,
+    scorecardSweep,
+    releasePreflight,
+    releaseBundle,
+    privacyScan,
+    allowSetupRequired,
+    now,
+    strict
+  };
 }
 
 function readReleaseStatusPath(input: string[], index: number, flag: string): string {

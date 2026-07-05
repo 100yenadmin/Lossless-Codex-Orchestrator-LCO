@@ -31,6 +31,9 @@ test("loo --help exits zero with top-level usage", () => {
   assert.match(result.stdout, /loo hook closeout-capture/);
   assert.match(result.stdout, /loo hook state-prep/);
   assert.match(result.stdout, /loo hook compaction-capture --mode marker/);
+  assert.match(result.stdout, /loo release ga-smoke .*--release-status path/);
+  assert.match(result.stdout, /loo release ga-smoke .*--privacy-scan path/);
+  assert.match(result.stdout, /loo release ga-smoke .*--now iso/);
   assert.equal(result.stderr.trim(), "");
 });
 
@@ -236,6 +239,19 @@ test("loo release general-readiness --help uses version-neutral stable wording",
   assert.match(result.stdout, /does not move npm dist-tags/i);
   assert.doesNotMatch(result.stdout, /1\.0 general-release readiness/i);
   assert.doesNotMatch(result.stdout, /move npm latest/i);
+  assert.equal(result.stderr.trim(), "");
+});
+
+test("loo release ga-smoke --help exposes aggregate-only GA evidence contract", () => {
+  const result = runLoo(["release", "ga-smoke", "--help"]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Usage:\n  loo release ga-smoke/);
+  assert.match(result.stdout, /--package-version version/);
+  assert.match(result.stdout, /--candidate-sha sha/);
+  assert.match(result.stdout, /--allow-setup-required/);
+  assert.match(result.stdout, /aggregate/i);
+  assert.match(result.stdout, /does not publish npm/i);
   assert.equal(result.stderr.trim(), "");
 });
 
