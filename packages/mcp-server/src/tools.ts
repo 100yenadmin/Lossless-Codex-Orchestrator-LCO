@@ -311,12 +311,12 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       max_files: { type: "integer", minimum: 1, maximum: 100000 },
       max_bytes_per_file: { type: "integer", minimum: 1, maximum: 1073741824 },
       max_events_per_file: { type: "integer", minimum: 1, maximum: 1000000 }
-    }, (input) => indexCodexSessions(options.db, {
+    }, (input) => publicSafeIndexCodexResult(indexCodexSessions(options.db, {
       roots: optionalRoots(input.roots, defaultCodexRoots()),
       maxFiles: optionalNumber(input.max_files),
       maxBytesPerFile: optionalNumber(input.max_bytes_per_file),
       maxEventsPerFile: optionalNumber(input.max_events_per_file)
-    })),
+    }))),
     tool("loo_search_sessions", "Search indexed Codex sessions with bounded safe text.", {
       query: { type: "string" },
       limit: { type: "integer", minimum: 1, maximum: 100 },
@@ -971,6 +971,37 @@ function publicSafeCodexSqliteProbe(report: ReturnType<typeof probeCodexSqliteSt
       sourceRef: publicSafeLocalRef("codex_sqlite_store", store.path, "store.sqlite"),
       reason: store.reason ? publicSafeDiagnosticText(store.reason, store.path) : store.reason
     }))
+  };
+}
+
+function publicSafeIndexCodexResult(result: ReturnType<typeof indexCodexSessions>) {
+  return {
+    publicSafe: true,
+    readOnly: false,
+    mutationClasses: result.mutationClasses,
+    indexedFiles: result.indexedFiles,
+    skippedFiles: result.skippedFiles,
+    indexedThreads: result.indexedThreads,
+    indexedEvents: result.indexedEvents,
+    limitedFiles: result.limitedFiles.map((file, index) => ({
+      fileRef: `codex_index_limited_file:${index + 1}`,
+      reason: file.reason,
+      limit: file.limit,
+      actual: file.actual
+    })),
+    errors: result.errors.map((error, index) => ({
+      errorRef: `codex_index_error:${index + 1}`,
+      message: publicSafeDiagnosticText(error.message, error.path)
+    })),
+    actionsPerformed: {
+      derivedCacheWrite: true,
+      sourceStoreMutation: false,
+      externalWrite: false,
+      liveControl: false,
+      guiMutation: false,
+      rawTranscriptRead: false
+    },
+    proofBoundary: "Indexing writes only LCO-owned derived-cache rows. MCP/OpenClaw output omits raw source paths and does not mutate Codex source stores, run live Codex control, mutate desktop GUI state, write external systems, publish npm, or create GitHub releases."
   };
 }
 

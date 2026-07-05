@@ -1263,8 +1263,11 @@ function summarizeInvocation(
   if (toolName === "loo_index_sessions") {
     const indexOutput = details ?? output;
     const mutationClasses = arrayPath(indexOutput, ["mutationClasses"]);
+    if (booleanPath(indexOutput, ["publicSafe"]) !== true) blockers.push("index_sessions_public_safe_marker_missing");
     if (!mutationClasses.includes("derived_cache")) blockers.push("index_sessions_derived_cache_marker_missing");
     if (booleanPath(indexOutput, ["readOnly"]) !== false) blockers.push("index_sessions_read_only_boundary_invalid");
+    if (!hasDerivedCacheWriteActionMarkers(indexOutput)) blockers.push("index_sessions_action_markers_invalid");
+    if (hasRestrictedActionPerformed(indexOutput)) blockers.push("index_sessions_restricted_action_performed");
     for (const key of ["indexedFiles", "skippedFiles", "indexedThreads", "indexedEvents"]) {
       if (numberPath(indexOutput, [key]) === undefined) blockers.push("index_sessions_counts_missing");
     }
@@ -1887,6 +1890,17 @@ function hasPreparedReadOnlyActionMarkers(value: unknown): boolean {
   if (!isRecord(value) || !isRecord(value.actionsPerformed)) return false;
   const actions = value.actionsPerformed;
   return actions.derivedCacheWrite === false
+    && actions.sourceStoreMutation === false
+    && actions.externalWrite === false
+    && actions.liveControl === false
+    && actions.guiMutation === false
+    && actions.rawTranscriptRead === false;
+}
+
+function hasDerivedCacheWriteActionMarkers(value: unknown): boolean {
+  if (!isRecord(value) || !isRecord(value.actionsPerformed)) return false;
+  const actions = value.actionsPerformed;
+  return actions.derivedCacheWrite === true
     && actions.sourceStoreMutation === false
     && actions.externalWrite === false
     && actions.liveControl === false

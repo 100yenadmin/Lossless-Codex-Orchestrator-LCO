@@ -253,6 +253,8 @@ function createFakeOpenClaw(
     currentProductFailClosedShapes?: boolean;
     unsafeIndexErrorPath?: boolean;
     unsafeIndexMutationClass?: boolean;
+    unsafeIndexPublicSafe?: boolean;
+    unsafeIndexRestrictedAction?: boolean;
     unsafeLcmPeerPath?: boolean;
     unsafeLcmPeerRef?: boolean;
     weakHarnessReadyProof?: boolean;
@@ -343,7 +345,7 @@ if (method === "tools.invoke") {
     process.exit(0);
   }
   if (name === "loo_index_sessions") {
-    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: false, readOnly: false, mutationClasses: ${options.unsafeIndexMutationClass ? "[\"derived_cache\", \"sourceStoreMutation\"]" : "[\"derived_cache\"]"}, indexedFiles: 0, skippedFiles: 0, indexedThreads: 0, indexedEvents: 0, limitedFiles: ${options.unsafeIndexErrorPath ? "[{ path: \"./repos/private/session.jsonl\", reason: \"too_large\" }]" : "[]"}, errors: ${options.unsafeIndexErrorPath ? "[{ path: \"./repos/private/session.jsonl\", message: \"failed\" }]" : "[]"}, actionsPerformed: { derivedCacheWrite: true, sourceStoreMutation: false, externalWrite: false, liveControl: false, guiMutation: false, rawTranscriptRead: false } } }));
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: ${options.unsafeIndexPublicSafe ? "false" : "true"}, readOnly: false, mutationClasses: ${options.unsafeIndexMutationClass ? "[\"derived_cache\", \"sourceStoreMutation\"]" : "[\"derived_cache\"]"}, indexedFiles: 0, skippedFiles: 0, indexedThreads: 0, indexedEvents: 0, limitedFiles: ${options.unsafeIndexErrorPath ? "[{ path: \"./repos/private/session.jsonl\", reason: \"too_large\" }]" : "[]"}, errors: ${options.unsafeIndexErrorPath ? "[{ path: \"./repos/private/session.jsonl\", message: \"failed\" }]" : "[]"}, actionsPerformed: { derivedCacheWrite: true, sourceStoreMutation: ${options.unsafeIndexRestrictedAction ? "true" : "false"}, externalWrite: false, liveControl: false, guiMutation: false, rawTranscriptRead: false } } }));
     process.exit(0);
   }
 	  if (name === "loo_search_sessions") {
@@ -1342,6 +1344,50 @@ test("OpenClaw tool smoke rejects camelCase forbidden index mutation classes", (
     assert.equal(report.toolSmokeReady, false);
     assert.equal(report.invocations.find((call) => call.toolName === "loo_index_sessions")?.ok, false);
     assert.equal(report.blockers.includes("index_sessions_forbidden_mutation_class"), true);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke rejects index sessions without a public-safe marker", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-index-public-safe-"));
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_index_sessions"], "flat", {
+    unsafeIndexPublicSafe: true
+  });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      requiredTools: ["loo_index_sessions"]
+    });
+
+    assert.equal(report.toolSmokeReady, false);
+    assert.equal(report.invocations.find((call) => call.toolName === "loo_index_sessions")?.ok, false);
+    assert.equal(report.blockers.includes("index_sessions_public_safe_marker_missing"), true);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke rejects index sessions with restricted action markers", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-index-restricted-action-"));
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_index_sessions"], "flat", {
+    unsafeIndexRestrictedAction: true
+  });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      requiredTools: ["loo_index_sessions"]
+    });
+
+    assert.equal(report.toolSmokeReady, false);
+    assert.equal(report.invocations.find((call) => call.toolName === "loo_index_sessions")?.ok, false);
+    assert.equal(report.blockers.includes("index_sessions_restricted_action_performed"), true);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;
