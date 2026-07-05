@@ -1,0 +1,5 @@
+{"timestamp":"2026-07-06T01:12:00.000Z","session_meta":{"payload":{"id":"019f-golden-long-distractor-03","cwd":"/workspace/lco-goldens","model":"gpt-5.5","git":{"branch":"issue-545-retrieval-goldens","commit_hash":"goldenfixture"}}}}
+{"timestamp":"2026-07-06T01:12:00.000Z","event_msg":{"type":"thread_name","name":"Golden long cap distractor charlie"}}
+{"timestamp":"2026-07-06T01:12:00.000Z","response_item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"<proposed_plan>\nThe first twelve cap terms live here: charlie atlas beacon cipher drift ember flux grove harbor ion juniper kelp lumen.\n\n</proposed_plan>"}]}}
+{"timestamp":"2026-07-06T01:12:00.000Z","response_item":{"type":"function_call","call_id":"019f-golden-long-distractor-03-tool","name":"functions.exec_command","arguments":"{\"cmd\":\"sed -n '1,80p' packages/core/src/goldens/charlie-long-cap-distractor.ts\"}"}}
+{"timestamp":"2026-07-06T01:12:00.000Z","event_msg":{"type":"agent_message","message":"Final: Long query cap distractor for charlie keeps first twelve terms without the target tail token."}}

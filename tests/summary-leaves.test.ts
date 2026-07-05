@@ -186,7 +186,8 @@ test("summary leaves backfill unchanged watermarked sources after prepared-range
   const sessions = join(root, "sessions");
   mkdirSync(sessions, { recursive: true });
   const threadId = "019f-summary-backfill-path";
-  writeSummaryJsonl(join(sessions, "rollout-2026-07-03T00-00-00-019f-summary-backfill-path.jsonl"), threadId);
+  const sourcePath = join(sessions, "rollout-2026-07-03T00-00-00-019f-summary-backfill-path.jsonl");
+  writeSummaryJsonl(sourcePath, threadId);
 
   const db = createDatabase(join(root, "orchestrator.sqlite"));
   try {
@@ -196,6 +197,7 @@ test("summary leaves backfill unchanged watermarked sources after prepared-range
 
     db.prepare("DELETE FROM summary_edges").run();
     db.prepare("DELETE FROM summary_leaves").run();
+    db.prepare("UPDATE codex_source_files SET summary_leaf_extractor_version = NULL WHERE source_path = ?").run(sourcePath);
     assert.equal(getSummaryLeaves(db, { threadId, limit: 50 }).summary.total, 0);
 
     const backfilled = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
@@ -266,7 +268,8 @@ test("summary leaves backfill partial caches with missing leaf kinds and range c
   const sessions = join(root, "sessions");
   mkdirSync(sessions, { recursive: true });
   const threadId = "019f-summary-partial-backfill";
-  writeSummaryJsonl(join(sessions, "rollout-2026-07-03T00-00-00-019f-summary-partial-backfill.jsonl"), threadId);
+  const sourcePath = join(sessions, "rollout-2026-07-03T00-00-00-019f-summary-partial-backfill.jsonl");
+  writeSummaryJsonl(sourcePath, threadId);
 
   const db = createDatabase(join(root, "orchestrator.sqlite"));
   try {
@@ -274,6 +277,7 @@ test("summary leaves backfill partial caches with missing leaf kinds and range c
     const partial = materializeSummaryLeaves(db, { threadId, limit: 1 });
     assert.equal(partial.summary.created, 1);
     assert.equal(getSummaryLeaves(db, { threadId, limit: 50 }).leaves.some((leaf) => leaf.leafKind === "final_message"), false);
+    db.prepare("UPDATE codex_source_files SET summary_leaf_extractor_version = NULL WHERE source_path = ?").run(sourcePath);
 
     const backfilled = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
     assert.equal(backfilled.indexedFiles, 1);

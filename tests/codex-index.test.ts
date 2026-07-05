@@ -481,6 +481,7 @@ test("backfills session metadata when unchanged source files were already indexe
   try {
     indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
     db.prepare("DELETE FROM codex_session_metadata WHERE thread_id = ?").run("019f-backfill-thread");
+    db.prepare("UPDATE codex_source_files SET metadata_extractor_version = NULL WHERE source_path = ?").run(threadPath);
 
     const result = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
     assert.equal(result.errors.length, 0);
