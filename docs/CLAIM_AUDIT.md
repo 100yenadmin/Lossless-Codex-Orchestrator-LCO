@@ -1,6 +1,6 @@
 # Public Claim Audit
 
-## Allowed Stable 1.2.5 Claim
+## Allowed Stable 1.2.6 Claim
 
 Collaborate with local Codex sessions through OpenClaw using local indexing, prepared-state recall, bounded expansion, and approval-gated dry-run/control boundaries.
 
@@ -75,7 +75,7 @@ blockers instead of allowing a working-app claim.
 
 Install stable releases through the `latest` dist-tag, public betas through the
 `beta` dist-tag, and release candidates through `next`. The stable channel
-target for this package version is `1.2.5`; npm `latest` must move only after
+target for this package version is `1.2.6`; npm `latest` must move only after
 the separate stable-promotion gate proves the exact candidate. Keep beta and
 other prereleases on prerelease tags. Do not publish a fake stable package just
 to move a dist-tag.

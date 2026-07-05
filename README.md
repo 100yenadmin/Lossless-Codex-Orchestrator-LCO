@@ -330,7 +330,7 @@ The stable public product is Codex-first local orchestration: index, search,
 describe, expand, prepared-state recall, OpenClaw/MCP tools, and
 approval-gated dry-run/control boundaries.
 
-The 1.2 prepared-state and summary-leaves lane is shipped in stable `1.2.5`.
+The 1.2 prepared-state and summary-leaves lane is shipped in stable `1.2.6`.
 Current launch-hardening proof is summarized in [VISION.md](VISION.md) and
 [docs/QA_LAB.md](docs/QA_LAB.md). Keep sprint and agent-operator details there,
 in [AGENTS.md](AGENTS.md), and in the packaged
