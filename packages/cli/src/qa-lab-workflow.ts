@@ -159,14 +159,21 @@ export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabW
   if (!openclawBinValidation.ok) {
     addBlocker(blockers, "P1", openclawBinValidation.code, "qaLabWorkflow", openclawBinValidation.detail);
   }
+  const gatewayUrlValidation = validateGatewayUrl(options.gatewayUrl);
+  if (!gatewayUrlValidation.ok) {
+    addBlocker(blockers, "P1", gatewayUrlValidation.code, "qaLabWorkflow", gatewayUrlValidation.detail);
+  }
 
   if (blockers.length === 0) {
     const catalog = callGatewayJson(openclawBin, "tools.catalog", {}, options, remainingGatewayTimeoutMs(deadline));
-    const catalogToolNames = catalog.status === 0 && catalog.parsed !== undefined ? extractCatalogToolNames(unwrapGatewayPayload(catalog.parsed)) : [];
+    const catalogPayload = unwrapGatewayPayload(catalog.parsed);
+    const catalogOk = !hasErrorShape(catalogPayload) && okStatus(catalogPayload) !== false;
+    const catalogToolNames = catalog.status === 0 && catalog.parsed !== undefined && catalogOk ? extractCatalogToolNames(catalogPayload) : [];
     const missingTools = REQUIRED_WORKFLOW_TOOLS.filter((tool) => !catalogToolNames.includes(tool));
     const catalogBlockers = [
       ...gatewayFailureBlockers(catalog, "openclaw_workflow_catalog_failed"),
       ...(catalog.status === 0 && catalog.parsed === undefined ? ["openclaw_workflow_catalog_invalid_json"] : []),
+      ...(catalog.status === 0 && catalog.parsed !== undefined && !catalogOk ? ["openclaw_workflow_catalog_not_ok"] : []),
       ...(missingTools.length > 0 ? ["openclaw_workflow_catalog_missing_required_tools"] : [])
     ];
     steps.push({
@@ -186,6 +193,7 @@ export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabW
         args: { query: DEFAULT_QUERY, limit: 5 }
       });
       steps.push(search);
+      addStepBlockers(blockers, search);
       const selectedSession = firstSessionSelection(search.rawOutput);
       selectedSourceRef = selectedSession.sourceRef;
       selectedThreadId = selectedSession.threadId;
@@ -217,6 +225,7 @@ export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabW
         const step = invokeWorkflowTool(openclawBin, options, deadline, call);
         ensureStepSourceRef(step, selectedSourceRef);
         steps.push(step);
+        addStepBlockers(blockers, step);
         if (call.step === "control_dry_run") {
           dryRunApprovalAuditId = step.outputSummary.approvalAuditId ?? null;
           dryRunParamsHash = step.outputSummary.paramsHash ?? null;
@@ -226,11 +235,8 @@ export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabW
             addBlocker(blockers, "P0", "workflow_dry_run_control_not_false", call.toolName, "Dry-run control must report live: false.");
           }
         }
+        if (blockers.length > 0) break;
       }
-    }
-
-    for (const step of steps) {
-      for (const code of step.blockerCodes) addBlocker(blockers, "P1", code, step.toolName, "Workflow tool invocation did not complete cleanly.");
     }
   }
 
@@ -382,7 +388,12 @@ function summarizeOutput(toolName: string, output: unknown, args: Record<string,
   }
   const sourceRefs = collectSourceRefs(output).slice(0, 5);
   if (sourceRefs.length > 0) summary.sourceRefs = sourceRefs;
-  const threadId = firstThreadId(output) ?? (typeof args.thread_id === "string" ? args.thread_id : undefined);
+  const requestThreadId = typeof args.thread_id === "string"
+    ? args.thread_id
+    : typeof args.source_ref === "string"
+      ? threadIdFromSourceRef(args.source_ref)
+      : null;
+  const threadId = requestThreadId ?? firstThreadId(output) ?? undefined;
   if (threadId) summary.threadId = threadId;
   if (toolName === "loo_expand_session" && typeof args.token_budget === "number") summary.expansionBudget = args.token_budget;
   if (toolName === "loo_codex_control_dry_run") {
@@ -420,6 +431,12 @@ function gatewayTokenArgs(token: string | undefined): string[] {
 function gatewayFailureBlockers(call: GatewayJsonResult, fallback: string): string[] {
   if (call.status === 0) return [];
   return [fallback];
+}
+
+function addStepBlockers(blockers: QaLabWorkflowBlocker[], step: InternalWorkflowStep): void {
+  for (const code of step.blockerCodes) {
+    addBlocker(blockers, "P1", code, step.toolName, "Workflow tool invocation did not complete cleanly.");
+  }
 }
 
 function unwrapGatewayPayload(value: unknown): unknown {
@@ -607,7 +624,7 @@ function summaryIsPublicSafe(summary: QaLabWorkflowStep["outputSummary"]): boole
 function containsUnsafeSummaryValue(value: unknown, depth = 0): boolean {
   if (depth > MAX_OUTPUT_SCAN_DEPTH) return true;
   if (typeof value === "string") {
-    return /\/Users\/|\/Volumes\/|\.jsonl\b|\.sqlite\b|Bearer\s+|npm_[A-Za-z0-9]{20,}|api[_-]?key|secret[_-]?key|cookie/i.test(value);
+    return /\/Users\/|\/Volumes\/|\/home\/|\/etc\/|[A-Za-z]:\\|\.jsonl\b|\.sqlite\b|Bearer\s+|Authorization:|password|npm_[A-Za-z0-9]{20,}|api[_-]?key|secret[_-]?key|cookie|eyJ[A-Za-z0-9_-]{10,}|AKIA[A-Z0-9]{12,}|BEGIN [A-Z ]*PRIVATE KEY/i.test(value);
   }
   if (Array.isArray(value)) return value.some((item) => containsUnsafeSummaryValue(item, depth + 1));
   if (isRecord(value)) return Object.values(value).some((item) => containsUnsafeSummaryValue(item, depth + 1));
@@ -630,6 +647,7 @@ function workflowIdempotencyKey(options: QaLabWorkflowOptions, call: WorkflowCal
     surface: options.surface,
     mode: options.mode,
     gatewayUrl: options.gatewayUrl ?? null,
+    openclawBin: options.openclawBin ? sanitizeCommandBinary(options.openclawBin) : null,
     sessionKey: options.sessionKey || "agent:main:lco-qa-lab-workflow",
     toolName: call.toolName,
     args: call.args
@@ -668,6 +686,23 @@ function validateOpenClawBin(openclawBin: string): { ok: true } | { ok: false; c
   }
   if (!/^openclaw[A-Za-z0-9_.-]*$/.test(binaryName)) {
     return { ok: false, code: "workflow_openclaw_bin_untrusted_name", detail: "OpenClaw binary name must be openclaw or an explicit openclaw-* test wrapper." };
+  }
+  return { ok: true };
+}
+
+function validateGatewayUrl(gatewayUrl: string | undefined): { ok: true } | { ok: false; code: string; detail: string } {
+  if (!gatewayUrl) return { ok: true };
+  let parsed: URL;
+  try {
+    parsed = new URL(gatewayUrl);
+  } catch {
+    return { ok: false, code: "workflow_gateway_url_invalid", detail: "Gateway URL must be a valid ws:// or wss:// URL." };
+  }
+  if (parsed.protocol !== "ws:" && parsed.protocol !== "wss:") {
+    return { ok: false, code: "workflow_gateway_url_unsupported_scheme", detail: "Gateway URL must use ws:// or wss://." };
+  }
+  if (!["127.0.0.1", "localhost", "::1", "[::1]"].includes(parsed.hostname)) {
+    return { ok: false, code: "workflow_gateway_url_not_loopback", detail: "QA Lab workflow gateway URL must point at a loopback host." };
   }
   return { ok: true };
 }

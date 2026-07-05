@@ -30,12 +30,6 @@ appendFileSync(process.env.OPENCLAW_FAKE_CALLS, JSON.stringify({
 }) + "\\n");
 
 if (method === "tools.catalog") {
-  if (process.env.OPENCLAW_FAKE_DEEP_CATALOG === "1") {
-    let output = { tools: [] };
-    for (let index = 0; index < 20; index += 1) output = { payload: output };
-    console.log(JSON.stringify(output));
-    process.exit(0);
-  }
   const tools = [
     { name: "loo_search_sessions" },
     { name: "loo_describe_ref" },
@@ -45,6 +39,16 @@ if (method === "tools.catalog") {
     { name: "loo_codex_touched_files" },
     { name: "loo_codex_control_dry_run" }
   ].filter((tool) => tool.name !== process.env.OPENCLAW_FAKE_MISSING_TOOL);
+  if (process.env.OPENCLAW_FAKE_CATALOG_ERROR === "1") {
+    console.log(JSON.stringify({ ok: false, status: "error", tools }));
+    process.exit(0);
+  }
+  if (process.env.OPENCLAW_FAKE_DEEP_CATALOG === "1") {
+    let output = { tools: [] };
+    for (let index = 0; index < 20; index += 1) output = { payload: output };
+    console.log(JSON.stringify(output));
+    process.exit(0);
+  }
   console.log(JSON.stringify({ tools }));
   process.exit(0);
 }
@@ -90,13 +94,13 @@ if (method === "tools.invoke") {
       ? {
         sourceRefs: Array.from({ length: 12 }, (_, index) => "codex_event:event-" + String(index).padStart(2, "0")),
         sourceRef: toolArgs.source_ref,
-        threadId: toolArgs.source_ref?.replace("codex_thread:", "") || "agent-thread-1",
+        threadId: process.env.OPENCLAW_FAKE_DESCRIBE_OTHER_THREAD === "1" ? "other-thread" : toolArgs.source_ref?.replace("codex_thread:", "") || "agent-thread-1",
         title: "Public-safe session card",
         summary: "PRIVATE RAW TRANSCRIPT CANARY"
       }
       : {
       sourceRef: toolArgs.source_ref,
-      threadId: toolArgs.source_ref?.replace("codex_thread:", "") || "agent-thread-1",
+      threadId: process.env.OPENCLAW_FAKE_DESCRIBE_OTHER_THREAD === "1" ? "other-thread" : toolArgs.source_ref?.replace("codex_thread:", "") || "agent-thread-1",
       title: "Public-safe session card",
       summary: "PRIVATE RAW TRANSCRIPT CANARY"
     };
@@ -234,6 +238,24 @@ test("qa-lab workflow fails closed when a required gateway tool is missing", (t)
   assert.ok(report.blockers.some((blocker) => blocker.code === "openclaw_workflow_catalog_missing_required_tools"));
 });
 
+test("qa-lab workflow fails closed when catalog reports an error shape", (t) => {
+  const dir = makeTempDir(t, "loo-qa-workflow-catalog-error-");
+  const { bin, callsPath } = createFakeOpenClaw(dir);
+
+  const report = createQaLabWorkflowReport({
+    scenarioId: "issue-517-agent-workflow",
+    surface: "openclaw-gateway",
+    mode: "dry-run",
+    evidenceDir: dir,
+    openclawBin: bin,
+    env: { ...process.env, OPENCLAW_FAKE_CALLS: callsPath, OPENCLAW_FAKE_CATALOG_ERROR: "1" }
+  });
+
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.some((blocker) => blocker.code === "openclaw_workflow_catalog_not_ok"));
+  assert.equal(report.workflow.toolsInvoked.length, 0);
+});
+
 test("qa-lab workflow fails closed when a tool reports ok false", (t) => {
   const dir = makeTempDir(t, "loo-qa-workflow-ok-false-");
   const { bin, callsPath } = createFakeOpenClaw(dir);
@@ -249,6 +271,8 @@ test("qa-lab workflow fails closed when a tool reports ok false", (t) => {
 
   assert.equal(report.ok, false);
   assert.ok(report.blockers.some((blocker) => blocker.code === "openclaw_workflow_tool_not_ok:loo_describe_ref"));
+  const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  assert.equal(calls.filter((call) => call.method === "tools.invoke").length, 2);
 });
 
 test("qa-lab workflow fails closed when a tool omits affirmative ok", (t) => {
@@ -443,6 +467,26 @@ test("qa-lab workflow keeps the selected source ref in each published step summa
   assert.ok(describeStep?.outputSummary.sourceRefs?.includes("codex_thread:agent-thread-1"));
 });
 
+test("qa-lab workflow binds request-scoped step thread ids to the selected session", (t) => {
+  const dir = makeTempDir(t, "loo-qa-workflow-step-thread-binding-");
+  const { bin, callsPath } = createFakeOpenClaw(dir);
+
+  const report = createQaLabWorkflowReport({
+    scenarioId: "issue-517-agent-workflow",
+    surface: "openclaw-gateway",
+    mode: "dry-run",
+    evidenceDir: dir,
+    openclawBin: bin,
+    env: { ...process.env, OPENCLAW_FAKE_CALLS: callsPath, OPENCLAW_FAKE_DESCRIBE_OTHER_THREAD: "1" }
+  });
+
+  assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+  const describeStep = report.workflow.steps.find((step) => step.step === "describe");
+  const expandStep = report.workflow.steps.find((step) => step.step === "expand");
+  assert.equal(describeStep?.outputSummary.threadId, "agent-thread-1");
+  assert.equal(expandStep?.outputSummary.threadId, "agent-thread-1");
+});
+
 test("qa-lab workflow fails closed when selectable session is beyond scan depth", (t) => {
   const dir = makeTempDir(t, "loo-qa-workflow-deep-search-");
   const { bin, callsPath } = createFakeOpenClaw(dir);
@@ -522,6 +566,25 @@ test("qa-lab workflow rejects untrusted OpenClaw binary names before spawning", 
   assert.equal(report.ok, false);
   assert.ok(report.blockers.some((blocker) => blocker.code === "workflow_openclaw_bin_untrusted_name"));
   assert.equal(report.workflow.steps.length, 0);
+});
+
+test("qa-lab workflow rejects non-loopback gateway URLs before spawning", (t) => {
+  const dir = makeTempDir(t, "loo-qa-workflow-gateway-url-");
+  const { bin, callsPath } = createFakeOpenClaw(dir);
+
+  const report = createQaLabWorkflowReport({
+    scenarioId: "issue-517-agent-workflow",
+    surface: "openclaw-gateway",
+    mode: "dry-run",
+    evidenceDir: dir,
+    openclawBin: bin,
+    gatewayUrl: "ws://example.com:1234",
+    env: { ...process.env, OPENCLAW_FAKE_CALLS: callsPath }
+  });
+
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.some((blocker) => blocker.code === "workflow_gateway_url_not_loopback"));
+  assert.throws(() => readFileSync(callsPath, "utf8"), /ENOENT/);
 });
 
 test("qa-lab workflow fails closed for unsupported surfaces and live mode", (t) => {
