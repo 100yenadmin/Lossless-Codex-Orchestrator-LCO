@@ -30,6 +30,8 @@ are reported only when their payload appears to contain content-like strings the
 importer did not extract.
 
 The report is evidence of importer drift, not proof that a Codex version is
-unsupported. It intentionally omits raw line text, payload bodies, local paths,
-tokens, and transcript content. Use the reason codes to decide whether a new
-fixture or parser compatibility patch is needed.
+unsupported. It intentionally omits raw line text, payload bodies, tokens, and
+transcript content. `driftReport[].path` follows the local `IndexCodexResult`
+path convention; redact or replace it with source refs before sharing. Use the
+reason codes to decide whether a new fixture or parser compatibility patch is
+needed.
