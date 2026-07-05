@@ -26,7 +26,7 @@ const params = paramsIndex >= 0 ? JSON.parse(args[paramsIndex + 1] || "{}") : {}
 appendFileSync(process.env.OPENCLAW_FAKE_CALLS, JSON.stringify({ method, params }) + "\\n");
 
 if (method === "tools.catalog") {
-  console.log(JSON.stringify({ tools: [
+  const tools = [
     { name: "loo_search_sessions" },
     { name: "loo_describe_ref" },
     { name: "loo_expand_session" },
@@ -34,65 +34,79 @@ if (method === "tools.catalog") {
     { name: "loo_codex_final_messages" },
     { name: "loo_codex_touched_files" },
     { name: "loo_codex_control_dry_run" }
-  ] }));
+  ].filter((tool) => tool.name !== process.env.OPENCLAW_FAKE_MISSING_TOOL);
+  console.log(JSON.stringify({ tools }));
   process.exit(0);
 }
 
 if (method === "tools.invoke") {
   const name = params.name;
   const toolArgs = params.args || {};
+  const wrap = (output) => {
+    if (process.env.OPENCLAW_FAKE_OMIT_TOOL_OK === name) return { toolName: name, source: "plugin", output };
+    if (process.env.OPENCLAW_FAKE_TOOL_OK_FALSE === name) return { ok: false, toolName: name, source: "plugin", output };
+    return { ok: true, toolName: name, source: "plugin", output };
+  };
   if (name === "loo_search_sessions") {
-    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: [
-      { sourceRef: "codex_thread:agent-thread-1", threadId: "agent-thread-1", score: 10, snippet: "PRIVATE RAW PROMPT CANARY" }
-    ] }));
+    const output = process.env.OPENCLAW_FAKE_MISMATCH_SELECTION === "1"
+      ? [
+        { sourceRef: "codex_thread:z-thread", threadId: "z-thread", score: 10, snippet: "PRIVATE RAW PROMPT CANARY" },
+        { sourceRef: "codex_thread:a-thread", threadId: "a-thread", score: 9, snippet: "PRIVATE RAW PROMPT CANARY" }
+      ]
+      : [
+        { sourceRef: "codex_thread:agent-thread-1", threadId: "agent-thread-1", score: 10, snippet: "PRIVATE RAW PROMPT CANARY" }
+      ];
+    console.log(JSON.stringify(wrap(output)));
     process.exit(0);
   }
   if (name === "loo_describe_ref") {
-    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: {
+    console.log(JSON.stringify(wrap({
       sourceRef: toolArgs.source_ref,
-      threadId: "agent-thread-1",
+      threadId: toolArgs.source_ref?.replace("codex_thread:", "") || "agent-thread-1",
       title: "Public-safe session card",
       summary: "PRIVATE RAW TRANSCRIPT CANARY"
-    } }));
+    })));
     process.exit(0);
   }
   if (name === "loo_expand_session") {
-    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: {
-      sourceRef: "codex_thread:agent-thread-1",
-      threadId: "agent-thread-1",
+    console.log(JSON.stringify(wrap({
+      sourceRef: "codex_thread:" + toolArgs.thread_id,
+      threadId: toolArgs.thread_id,
       profile: "brief",
       tokenBudget: toolArgs.token_budget,
       text: "PRIVATE RAW EXPANSION CANARY"
-    } }));
+    })));
     process.exit(0);
   }
   if (name === "loo_codex_plans") {
-    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: [
-      { sourceRef: "codex_thread:agent-thread-1", text: "PRIVATE RAW PLAN CANARY" }
-    ] }));
+    console.log(JSON.stringify(wrap([
+      { sourceRef: "codex_thread:" + toolArgs.thread_id, text: "PRIVATE RAW PLAN CANARY" }
+    ])));
     process.exit(0);
   }
   if (name === "loo_codex_final_messages") {
-    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: [
-      { sourceRef: "codex_thread:agent-thread-1", text: "PRIVATE RAW FINAL CANARY" }
-    ] }));
+    console.log(JSON.stringify(wrap([
+      { sourceRef: "codex_thread:" + toolArgs.thread_id, text: "PRIVATE RAW FINAL CANARY" }
+    ])));
     process.exit(0);
   }
   if (name === "loo_codex_touched_files") {
-    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: {
+    console.log(JSON.stringify(wrap({
       files: ["/Users/lume/private/project/secret.ts"],
       count: 1
-    } }));
+    })));
     process.exit(0);
   }
   if (name === "loo_codex_control_dry_run") {
-    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: {
+    const output = {
       action: "resume",
       threadId: toolArgs.thread_id,
-      live: false,
       approvalAuditId: "loo_audit_agent_workflow",
       paramsHash: "params-hash"
-    } }));
+    };
+    if (process.env.OPENCLAW_FAKE_DRY_RUN_LIVE_TRUE === "1") output.live = true;
+    else if (process.env.OPENCLAW_FAKE_OMIT_DRY_RUN_LIVE !== "1") output.live = false;
+    console.log(JSON.stringify(wrap(output)));
     process.exit(0);
   }
 }
@@ -158,6 +172,103 @@ test("qa-lab workflow creates a public-safe dry-run OpenClaw gateway report", (t
   const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
   assert.equal(calls.filter((call) => call.method === "tools.catalog").length, 1);
   assert.equal(calls.filter((call) => call.method === "tools.invoke").length, 7);
+});
+
+test("qa-lab workflow fails closed when a required gateway tool is missing", (t) => {
+  const dir = makeTempDir(t, "loo-qa-workflow-missing-tool-");
+  const { bin, callsPath } = createFakeOpenClaw(dir);
+
+  const report = createQaLabWorkflowReport({
+    scenarioId: "issue-517-agent-workflow",
+    surface: "openclaw-gateway",
+    mode: "dry-run",
+    evidenceDir: dir,
+    openclawBin: bin,
+    env: { ...process.env, OPENCLAW_FAKE_CALLS: callsPath, OPENCLAW_FAKE_MISSING_TOOL: "loo_expand_session" }
+  });
+
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.some((blocker) => blocker.code === "openclaw_workflow_catalog_missing_required_tools"));
+});
+
+test("qa-lab workflow fails closed when a tool reports ok false", (t) => {
+  const dir = makeTempDir(t, "loo-qa-workflow-ok-false-");
+  const { bin, callsPath } = createFakeOpenClaw(dir);
+
+  const report = createQaLabWorkflowReport({
+    scenarioId: "issue-517-agent-workflow",
+    surface: "openclaw-gateway",
+    mode: "dry-run",
+    evidenceDir: dir,
+    openclawBin: bin,
+    env: { ...process.env, OPENCLAW_FAKE_CALLS: callsPath, OPENCLAW_FAKE_TOOL_OK_FALSE: "loo_describe_ref" }
+  });
+
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.some((blocker) => blocker.code === "openclaw_workflow_tool_not_ok:loo_describe_ref"));
+});
+
+test("qa-lab workflow fails closed when a tool omits affirmative ok", (t) => {
+  const dir = makeTempDir(t, "loo-qa-workflow-missing-ok-");
+  const { bin, callsPath } = createFakeOpenClaw(dir);
+
+  const report = createQaLabWorkflowReport({
+    scenarioId: "issue-517-agent-workflow",
+    surface: "openclaw-gateway",
+    mode: "dry-run",
+    evidenceDir: dir,
+    openclawBin: bin,
+    env: { ...process.env, OPENCLAW_FAKE_CALLS: callsPath, OPENCLAW_FAKE_OMIT_TOOL_OK: "loo_describe_ref" }
+  });
+
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.some((blocker) => blocker.code === "openclaw_workflow_tool_not_ok:loo_describe_ref"));
+});
+
+test("qa-lab workflow requires dry-run control to explicitly report live false", (t) => {
+  const missingDir = makeTempDir(t, "loo-qa-workflow-live-missing-");
+  const missing = createFakeOpenClaw(missingDir);
+  const missingReport = createQaLabWorkflowReport({
+    scenarioId: "issue-517-agent-workflow",
+    surface: "openclaw-gateway",
+    mode: "dry-run",
+    evidenceDir: missingDir,
+    openclawBin: missing.bin,
+    env: { ...process.env, OPENCLAW_FAKE_CALLS: missing.callsPath, OPENCLAW_FAKE_OMIT_DRY_RUN_LIVE: "1" }
+  });
+  assert.equal(missingReport.ok, false);
+  assert.ok(missingReport.blockers.some((blocker) => blocker.code === "workflow_dry_run_control_live_missing"));
+
+  const trueDir = makeTempDir(t, "loo-qa-workflow-live-true-");
+  const liveTrue = createFakeOpenClaw(trueDir);
+  const trueReport = createQaLabWorkflowReport({
+    scenarioId: "issue-517-agent-workflow",
+    surface: "openclaw-gateway",
+    mode: "dry-run",
+    evidenceDir: trueDir,
+    openclawBin: liveTrue.bin,
+    env: { ...process.env, OPENCLAW_FAKE_CALLS: liveTrue.callsPath, OPENCLAW_FAKE_DRY_RUN_LIVE_TRUE: "1" }
+  });
+  assert.equal(trueReport.ok, false);
+  assert.ok(trueReport.blockers.some((blocker) => blocker.code === "workflow_dry_run_control_not_false"));
+});
+
+test("qa-lab workflow selects source ref and thread id from the same session card", (t) => {
+  const dir = makeTempDir(t, "loo-qa-workflow-selection-");
+  const { bin, callsPath } = createFakeOpenClaw(dir);
+
+  const report = createQaLabWorkflowReport({
+    scenarioId: "issue-517-agent-workflow",
+    surface: "openclaw-gateway",
+    mode: "dry-run",
+    evidenceDir: dir,
+    openclawBin: bin,
+    env: { ...process.env, OPENCLAW_FAKE_CALLS: callsPath, OPENCLAW_FAKE_MISMATCH_SELECTION: "1" }
+  });
+
+  assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+  assert.equal(report.workflow.selectedSourceRef, "codex_thread:z-thread");
+  assert.equal(report.workflow.selectedThreadId, "z-thread");
 });
 
 test("qa-lab workflow fails closed for unsupported surfaces and live mode", (t) => {

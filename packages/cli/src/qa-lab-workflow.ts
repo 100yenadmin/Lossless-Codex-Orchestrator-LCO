@@ -175,9 +175,9 @@ export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabW
         args: { query: DEFAULT_QUERY, limit: 5 }
       });
       steps.push(search);
-      selectedSourceRef = firstSourceRef(search.rawOutput);
-      selectedThreadId = firstThreadId(search.rawOutput) ?? threadIdFromSourceRef(selectedSourceRef);
-      if (!selectedSourceRef && selectedThreadId) selectedSourceRef = `codex_thread:${selectedThreadId}`;
+      const selectedSession = firstSessionSelection(search.rawOutput);
+      selectedSourceRef = selectedSession.sourceRef;
+      selectedThreadId = selectedSession.threadId;
       if (!selectedSourceRef || !selectedThreadId) {
         addBlocker(blockers, "P1", "workflow_selected_session_missing", "loo_search_sessions", "Search did not return a selectable public-safe Codex source ref.");
       }
@@ -198,7 +198,9 @@ export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabW
         if (call.step === "control_dry_run") {
           dryRunApprovalAuditId = readStringPath(step.rawOutput, ["approvalAuditId"]) ?? readStringPath(step.rawOutput, ["approval_audit_id"]) ?? null;
           dryRunParamsHash = readStringPath(step.rawOutput, ["paramsHash"]) ?? readStringPath(step.rawOutput, ["params_hash"]) ?? null;
-          if (step.outputSummary.live !== false) {
+          if (step.outputSummary.live === undefined) {
+            addBlocker(blockers, "P0", "workflow_dry_run_control_live_missing", call.toolName, "Dry-run control must explicitly report live: false.");
+          } else if (step.outputSummary.live !== false) {
             addBlocker(blockers, "P0", "workflow_dry_run_control_not_false", call.toolName, "Dry-run control must report live: false.");
           }
         }
@@ -276,7 +278,11 @@ function invokeWorkflowTool(
   }, options, gatewayTimeoutMs);
   const payload = unwrapGatewayPayload(result.parsed);
   const output = unwrapToolOutput(payload);
-  const pluginOk = result.status === 0 && result.parsed !== undefined && (!isRecord(payload) || payload.ok !== false) && (!isRecord(output) || output.ok !== false);
+  const pluginOk = result.status === 0
+    && result.parsed !== undefined
+    && !hasErrorShape(payload)
+    && !hasErrorShape(output)
+    && (okStatus(payload) === true || okStatus(output) === true);
   const blockerCodes = [
     ...gatewayFailureBlockers(result, `openclaw_workflow_tool_failed:${call.toolName}`),
     ...(result.status === 0 && result.parsed === undefined ? [`openclaw_workflow_tool_invalid_json:${call.toolName}`] : []),
@@ -350,7 +356,8 @@ function summarizeOutput(toolName: string, output: unknown, args: Record<string,
   if (threadId) summary.threadId = threadId;
   if (toolName === "loo_expand_session" && typeof args.token_budget === "number") summary.expansionBudget = args.token_budget;
   if (toolName === "loo_codex_control_dry_run") {
-    summary.live = readBooleanPath(output, ["live"]) === true ? true : false;
+    const live = readBooleanPath(output, ["live"]);
+    if (live !== undefined) summary.live = live;
     summary.approvalAuditId = readStringPath(output, ["approvalAuditId"]) ?? readStringPath(output, ["approval_audit_id"]);
     summary.paramsHash = readStringPath(output, ["paramsHash"]) ?? readStringPath(output, ["params_hash"]);
   }
@@ -420,6 +427,35 @@ function firstSourceRef(value: unknown): string | null {
   return collectSourceRefs(value)[0] ?? null;
 }
 
+function firstSessionSelection(value: unknown): { sourceRef: string | null; threadId: string | null } {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = firstSessionSelection(item);
+      if (found.sourceRef && found.threadId) return found;
+    }
+    return { sourceRef: null, threadId: null };
+  }
+  if (!isRecord(value)) return { sourceRef: null, threadId: null };
+
+  const sourceRef = typeof value.sourceRef === "string"
+    ? value.sourceRef
+    : typeof value.source_ref === "string"
+      ? value.source_ref
+      : firstSourceRef(value);
+  const threadId = typeof value.threadId === "string"
+    ? value.threadId
+    : typeof value.thread_id === "string"
+      ? value.thread_id
+      : threadIdFromSourceRef(sourceRef);
+  if (sourceRef && threadId) return { sourceRef, threadId };
+
+  for (const child of Object.values(value)) {
+    const found = firstSessionSelection(child);
+    if (found.sourceRef && found.threadId) return found;
+  }
+  return { sourceRef: null, threadId: null };
+}
+
 function collectSourceRefs(value: unknown): string[] {
   const refs = new Set<string>();
   const visit = (item: unknown) => {
@@ -472,6 +508,18 @@ function readPath(value: unknown, path: string[]): unknown {
     cursor = cursor[part];
   }
   return cursor;
+}
+
+function okStatus(value: unknown): boolean | undefined {
+  if (!isRecord(value)) return undefined;
+  return typeof value.ok === "boolean" ? value.ok : undefined;
+}
+
+function hasErrorShape(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (typeof value.error === "string" || isRecord(value.error)) return true;
+  if (typeof value.status === "string" && ["error", "failed", "failure"].includes(value.status.toLowerCase())) return true;
+  return false;
 }
 
 function addBlocker(blockers: QaLabWorkflowBlocker[], severity: QaLabWorkflowBlocker["severity"], code: string, source: string, detail: string): void {
