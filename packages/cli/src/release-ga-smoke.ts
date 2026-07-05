@@ -177,7 +177,7 @@ export function createReleaseGaSmokeReport(options: ReleaseGaSmokeOptions): Rele
       addBlocker(blockers, "P1", invalidCode(evidence.spec.id), evidence.spec.id, `${titleForSource(evidence.spec.id)} evidence is not valid JSON.`);
     } else if (evidence.value) {
       validateCommonEvidence(evidence, blockers);
-      validateEvidenceBySource(evidence, options, blockers, setupBlockers);
+      validateEvidenceBySource(evidence, options, blockers, setupBlockers, warnings);
     }
     const sourceBlockers = blockers.slice(sourceBlockerStart).map((blocker) => blocker.code);
     evidenceIndex[evidence.spec.id] = {
@@ -189,7 +189,7 @@ export function createReleaseGaSmokeReport(options: ReleaseGaSmokeOptions): Rele
 
   const unsafeArtifacts = scanUnsafeEvidenceArtifacts(evidenceDir);
   if (unsafeArtifacts > 0) {
-    addBlocker(blockers, "P0", "unsafe_evidence_artifact_present", "evidenceDir", "Evidence directory contains raw transcript, SQLite, screenshot, image, or video artifacts.");
+    addBlocker(blockers, "P0", "unsafe_evidence_artifact_present", "evidenceDir", "Evidence directory contains raw transcript, SQLite, screenshot, image, video, or oversized non-JSON artifacts.");
   }
 
   if (!SHA_PATTERN.test(options.candidateSha)) {
@@ -300,7 +300,8 @@ function validateEvidenceBySource(
   evidence: LoadedEvidence,
   options: ReleaseGaSmokeOptions,
   blockers: ReleaseGaSmokeBlocker[],
-  setupBlockers: ReleaseGaSmokeSetupBlocker[]
+  setupBlockers: ReleaseGaSmokeSetupBlocker[],
+  warnings: ReleaseGaSmokeWarning[]
 ): void {
   const value = evidence.value;
   if (!value) return;
@@ -308,6 +309,7 @@ function validateEvidenceBySource(
     case "releaseStatus":
       requireBoolean(value, "releaseReady", true, blockers, "P1", "release_status_not_ready", evidence.spec.id, "Release status is not ready.");
       requirePackageVersion(value, "packageVersion", options.packageVersion, blockers, "release_status_version_mismatch", evidence.spec.id);
+      requireString(value, "candidateSha", options.candidateSha, blockers, "release_status_sha_mismatch", evidence.spec.id, "Release status candidate SHA does not match.");
       break;
     case "releaseFinalizationStatus":
       requireBoolean(value, "finalized", true, blockers, "P1", "release_finalization_not_ready", evidence.spec.id, "Release finalization status is not ready.");
@@ -316,7 +318,7 @@ function validateEvidenceBySource(
       validateFinalizationActions(value, blockers);
       break;
     case "publishedPackageSmoke":
-      validatePublishedSmoke(value, options, blockers, setupBlockers);
+      validatePublishedSmoke(value, options, blockers, setupBlockers, warnings);
       break;
     case "openclawDogfood":
       requireBoolean(value, "dogfoodReady", true, blockers, "P1", "openclaw_dogfood_not_ready", evidence.spec.id, "OpenClaw dogfood evidence is not ready.");
@@ -362,7 +364,8 @@ function validatePublishedSmoke(
   value: JsonRecord,
   options: ReleaseGaSmokeOptions,
   blockers: ReleaseGaSmokeBlocker[],
-  setupBlockers: ReleaseGaSmokeSetupBlocker[]
+  setupBlockers: ReleaseGaSmokeSetupBlocker[],
+  warnings: ReleaseGaSmokeWarning[]
 ): void {
   requirePackageVersion(value, "localVersion", options.packageVersion, blockers, "published_smoke_version_mismatch", "publishedPackageSmoke");
   requireBoolean(value, "packagePathOk", true, blockers, "P1", "published_package_path_not_ok", "publishedPackageSmoke", "Published package path is not ready.");
@@ -387,6 +390,8 @@ function validatePublishedSmoke(
     }
     if (!allowed) {
       addBlocker(blockers, "P2", "fresh_profile_gateway_setup_required", "publishedPackageSmoke", "Fresh-profile OpenClaw gateway setup is required and was not explicitly allowed with clean configured-gateway proof.");
+    } else {
+      addWarning(warnings, "published_smoke_setup_required_allowed", "publishedPackageSmoke", "Fresh-profile gateway setup was explicitly allowed because configured-gateway proof is clean.");
     }
   } else if (!publishedSmokeReady) {
     addBlocker(blockers, "P1", "published_smoke_not_ready", "publishedPackageSmoke", "Published package smoke is not ready.");
@@ -527,7 +532,7 @@ function scanUnsafeEvidenceArtifacts(evidenceDir: string): number {
       const rel = relative(evidenceDir, path);
       if (RAW_ARTIFACT_PATTERN.test(rel)) count += 1;
       try {
-        if (statSync(path).size > 1_000_000) count += 1;
+        if (!/\.json$/i.test(rel) && statSync(path).size > 1_000_000) count += 1;
       } catch {
         count += 1;
       }
@@ -592,6 +597,15 @@ function addBlocker(
   detail: string
 ): void {
   blockers.push({ severity, code, source, detail });
+}
+
+function addWarning(
+  warnings: ReleaseGaSmokeWarning[],
+  code: string,
+  source: string,
+  detail: string
+): void {
+  warnings.push({ code, source, detail });
 }
 
 function uniqueBlockers(blockers: ReleaseGaSmokeBlocker[]): ReleaseGaSmokeBlocker[] {

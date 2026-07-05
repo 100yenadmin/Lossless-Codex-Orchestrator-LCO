@@ -68,6 +68,7 @@ function writeHappyEvidence(dir: string): Record<string, string> {
     releaseReady: true,
     packageName,
     packageVersion,
+    candidateSha,
     claimScope: "codex-working-app-proof",
     blockers: [],
     releaseChecks: [
@@ -256,6 +257,10 @@ test("release ga-smoke --strict fails closed with missing evidence and recovery 
 test("release ga-smoke rejects version, SHA, and finalization mismatches", () => {
   const dir = mkdtempSync(join(tmpdir(), "loo-ga-smoke-mismatch-"));
   const paths = writeHappyEvidence(dir);
+  writeJson(paths.releaseStatus, {
+    ...readJson(paths.releaseStatus) as Record<string, unknown>,
+    candidateSha: "e".repeat(40)
+  });
   writeJson(paths.finalization, {
     ...readJson(paths.finalization) as Record<string, unknown>,
     packageVersion: "1.2.3",
@@ -274,8 +279,33 @@ test("release ga-smoke rejects version, SHA, and finalization mismatches", () =>
 
   assert.equal(result.status, 1, result.stderr || result.stdout);
   const report = JSON.parse(result.stdout) as GaSmokeReport;
+  assert.ok(report.blockers.some((blocker) => blocker.code === "release_status_sha_mismatch"));
   assert.ok(report.blockers.some((blocker) => blocker.code === "release_finalization_version_mismatch"));
   assert.ok(report.blockers.some((blocker) => blocker.code === "release_finalization_sha_mismatch"));
+});
+
+test("release ga-smoke allows large public-safe JSON evidence sidecars", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-ga-smoke-large-json-"));
+  writeHappyEvidence(dir);
+  writeJson(join(dir, "large-public-safe-scorecard.json"), {
+    publicSafe: true,
+    payload: "a".repeat(1_100_000)
+  });
+
+  const result = runGaSmoke([
+    "--evidence-dir",
+    dir,
+    "--package-version",
+    packageVersion,
+    "--candidate-sha",
+    candidateSha,
+    "--strict"
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout) as GaSmokeReport;
+  assert.equal(report.gaSmokeReady, true);
+  assert.ok(!report.blockers.some((blocker) => blocker.code === "unsafe_evidence_artifact_present"));
 });
 
 test("release ga-smoke fails closed for non-public-safe evidence without leaking canaries", () => {
@@ -391,4 +421,5 @@ test("release ga-smoke classifies setup-required fresh profiles separately from 
   assert.equal(allowedReport.gaSmokeReady, true);
   assert.deepEqual(allowedReport.blockers, []);
   assert.equal(allowedReport.setupBlockers[0]?.allowed, true);
+  assert.ok(allowedReport.warnings.some((warning) => warning.code === "published_smoke_setup_required_allowed"));
 });

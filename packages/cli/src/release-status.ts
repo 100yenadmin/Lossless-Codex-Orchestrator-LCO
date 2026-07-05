@@ -88,6 +88,7 @@ export type ReleaseStatusReport = {
   releaseReady: boolean;
   generatedAt: string;
   claimScope: ReleaseClaimScope;
+  candidateSha: string | null;
   excludedClaims: ReleaseExcludedClaim[];
   packageName: string | null;
   packageVersion: string | null;
@@ -167,6 +168,7 @@ export function createReleaseStatus(options: ReleaseStatusOptions): ReleaseStatu
     releaseReady: blockers.length === 0,
     generatedAt,
     claimScope: releasePreflight.claimScope,
+    candidateSha: candidateSha ?? null,
     excludedClaims: releasePreflight.excludedClaims,
     packageName: releasePreflight.packageName,
     packageVersion: releasePreflight.packageVersion,
