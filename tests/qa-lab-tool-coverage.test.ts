@@ -226,6 +226,33 @@ test("qa-lab tool coverage blocks non-facade lco aliases in evidence", (t) => {
   assert.equal(report.toolRows.some((row) => row.name === "lco_session_sanitizer"), false);
 });
 
+test("qa-lab tool coverage blocks unknown lco aliases in manifest evidence", (t) => {
+  const dir = makeTempDir(t, "loo-qa-tool-coverage-unknown-alias-");
+  const baseTools = createLooToolDeclarations({ includeAliases: false });
+  const toolSmokeReport = writeToolSmokeReport(dir, baseTools.map((tool) => tool.name));
+  const manifestPath = join(dir, "openclaw.plugin.json");
+  writeJson(manifestPath, {
+    contracts: {
+      tools: [...baseTools.map((tool) => tool.name), "lco_bogus_tool"]
+    }
+  });
+
+  const report = createQaLabToolCoverageReport({
+    evidenceDir: dir,
+    packageVersion,
+    candidateSha,
+    toolSmokeReport,
+    manifestPath,
+    coveragePolicy: "full",
+    claimScope: "codex-working-app-proof",
+    now: "2026-07-05T00:00:00.000Z"
+  });
+
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.some((blocker) => blocker.code === "invalid_lco_alias_reference"));
+  assert.equal(report.toolRows.some((row) => row.name === "lco_bogus_tool"), false);
+});
+
 test("qa-lab tool coverage redacts unsafe evidence values instead of echoing canaries", (t) => {
   const dir = makeTempDir(t, "loo-qa-tool-coverage-unsafe-");
   const toolSmokeReport = join(dir, "private-session-source.jsonl");
