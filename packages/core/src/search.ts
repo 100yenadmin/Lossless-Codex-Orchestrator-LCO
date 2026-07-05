@@ -194,14 +194,6 @@ export function rebuildCodexSearchFts(db: LooDatabase): void {
   }
 }
 
-export function upsertCodexSearchFtsForThread(db: LooDatabase, threadId: string): void {
-  const row = codexSearchFtsDocumentRow(db, threadId);
-  if (!row) return;
-  const sessionRowid = codexSearchFtsDocumentSessionRowid(row);
-  deleteCodexSearchFtsForSessionRowid(db, sessionRowid);
-  insertCodexSearchFtsDocument(db, row);
-}
-
 export function deleteCodexSearchFtsForSessionRowid(db: LooDatabase, sessionRowid: number): void {
   db.prepare("DELETE FROM codex_search_fts WHERE rowid = ?").run(sessionRowid);
 }
@@ -209,15 +201,6 @@ export function deleteCodexSearchFtsForSessionRowid(db: LooDatabase, sessionRowi
 export function insertCodexSearchFtsForThreadRowid(db: LooDatabase, threadId: string, sessionRowid: number): void {
   const row = codexSearchFtsDocumentRow(db, threadId);
   if (row) insertCodexSearchFtsDocument(db, { ...row, sessionRowid });
-}
-
-export function codexSearchFtsNeedsBackfill(db: LooDatabase): boolean {
-  const sessionCount = Number((db.prepare("SELECT COUNT(*) AS count FROM codex_sessions").get() as { count: number }).count);
-  const ftsCount = Number((db.prepare("SELECT COUNT(*) AS count FROM codex_search_fts").get() as { count: number }).count);
-  // Backfill on any count drift in either direction (missing rows OR stale
-  // leftovers), not just an underfilled table. Dual-write (upsert/delete per
-  // thread) keeps row identity in sync once counts match.
-  return ftsCount !== sessionCount;
 }
 
 export function safeFtsTerms(query: string): string[] {
