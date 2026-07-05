@@ -6,6 +6,7 @@ import test from "node:test";
 
 import {
   createDatabase,
+  getCodexJsonlDriftStatus,
   getCodexFinalMessages,
   indexCodexSessions,
   searchSessions
@@ -74,6 +75,7 @@ test("legacy and current Codex JSONL fixtures index with no drift report", () =>
         unparsedLines: 0,
         missingExpectedFields: 0
       });
+      assert.equal(getCodexJsonlDriftStatus(db).state, "clean");
     });
   }
 });
@@ -112,8 +114,66 @@ test("future Codex JSONL drift fixture reports reason-coded drift and still inde
       unparsedLines: 1,
       missingExpectedFields: 2
     });
+    const status = getCodexJsonlDriftStatus(db);
+    assert.equal(status.state, "drift_detected");
+    assert.equal(status.filesWithDrift, 1);
+    assert.equal(status.unparsedLines, 1);
+    assert.equal(status.unknownEventKinds, 1);
+    assert.equal(status.missingExpectedFields, 2);
+    assert.deepEqual(status.topUnknownEventKinds, [
+      { kind: "assistant_packet_v2", count: 1 }
+    ]);
+    assert.equal(status.docsRef, "docs/CODEX_JSONL_DRIFT.md");
+    assert.doesNotMatch(JSON.stringify(status), /future-session\.jsonl|\/Volumes\/LEXAR|\/Users\//);
     assert.doesNotMatch(JSON.stringify(driftReport), /Renamed payload field|this is not valid json/);
   });
+});
+
+test("dynamic_tool_call_response indexes public-safe output text without drift", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-drift-dynamic-tool-response-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  writeFileSync(
+    join(sessions, "dynamic-tool-response.jsonl"),
+    [
+      {
+        timestamp: "2026-07-06T12:00:00.000Z",
+        type: "session_meta",
+        payload: { id: "019f-drift-dynamic-tool-response", cwd: "/Volumes/LEXAR/repos/example", model: "gpt-5.5" }
+      },
+      {
+        timestamp: "2026-07-06T12:00:01.000Z",
+        type: "response_item",
+        payload: {
+          type: "dynamic_tool_call_response",
+          call_id: "call_dynamic_response",
+          output: "Dynamic tool response safe searchable text."
+        }
+      },
+      {
+        timestamp: "2026-07-06T12:00:02.000Z",
+        type: "event_msg",
+        payload: { type: "agent_message", message: "Final: dynamic tool response indexed." }
+      }
+    ].map((line) => JSON.stringify(line)).join("\n") + "\n"
+  );
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const indexed = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    assert.equal(indexed.errors.length, 0);
+    assert.deepEqual(indexed.driftReport, []);
+    assert.deepEqual(indexed.driftSummary, {
+      files: 0,
+      unknownEventKinds: 0,
+      unparsedLines: 0,
+      missingExpectedFields: 0
+    });
+    assert.equal(searchSessions(db, { query: "Dynamic tool response safe searchable text", limit: 5 }).length, 1);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("observed modern Codex JSONL inner kinds pass the unknown-kind noise gate", () => {

@@ -34,6 +34,7 @@ import {
   indexCodexSessions,
   probeCodexSqliteStores,
   probeLcmPeerDbs,
+  readCodexJsonlDriftStatusFromPath,
   runStatePrepHook,
   searchSessions,
   type CloseoutHookCaptureInput,
@@ -136,6 +137,7 @@ async function main() {
         location: "local"
       },
       localOnly: true,
+      codexJsonlDrift: readCodexJsonlDriftStatusFromPath(defaultDatabasePath()),
       codex: codexTransportStatus({ command: process.env.LOO_CODEX_BIN || "codex" }),
       lcmPeers: probeLcmPeerDbs(configuredLcmPeerDbPaths()),
       desktopFallbacks: desktopFallbackDiagnostics()
