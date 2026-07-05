@@ -6,6 +6,9 @@ import test, { type TestContext } from "node:test";
 import { createQaLabWorkflowReport, type QaLabWorkflowReport } from "../packages/cli/src/qa-lab-workflow.js";
 import { runLoo } from "./helpers/run-loo.js";
 
+const packageVersion = "1.2.5";
+const candidateSha = "20d913822d82cad0b5c565b3c9fd3cd527ac0e57";
+
 function makeTempDir(t: TestContext, prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -168,11 +171,15 @@ test("qa-lab workflow creates a public-safe dry-run OpenClaw gateway report", (t
     mode: "dry-run",
     evidenceDir: dir,
     openclawBin: bin,
+    packageVersion,
+    candidateSha,
     env: { ...process.env, OPENCLAW_FAKE_CALLS: callsPath },
     now: "2026-07-05T00:00:00.000Z"
   });
 
   assert.equal(report.schema, "lco.qaLab.workflowRun.v1");
+  assert.equal(report.packageVersion, packageVersion);
+  assert.equal(report.candidateSha, candidateSha);
   assert.equal(report.ok, true, JSON.stringify(report, null, 2));
   assert.equal(report.workflowRunReady, true);
   assert.deepEqual(report.blockers, []);
@@ -211,6 +218,8 @@ test("qa-lab workflow creates a public-safe dry-run OpenClaw gateway report", (t
   assert.doesNotMatch(savedArtifact, /PRIVATE RAW|\/Users\/lume|\.jsonl|\.sqlite|screenshot|token|cookie/i);
   const saved = JSON.parse(savedArtifact) as QaLabWorkflowReport;
   assert.equal(saved.schema, "lco.qaLab.workflowRun.v1");
+  assert.equal(saved.packageVersion, packageVersion);
+  assert.equal(saved.candidateSha, candidateSha);
 
   const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
   assert.equal(calls.filter((call) => call.method === "tools.catalog").length, 1);
@@ -633,6 +642,33 @@ test("loo qa-lab workflow --strict exits nonzero when the workflow is blocked", 
   assert.ok(report.blockers.some((blocker) => blocker.code === "workflow_surface_not_supported"));
 });
 
+test("loo qa-lab workflow fails closed on bad candidate sha without echoing it", (t) => {
+  const dir = makeTempDir(t, "loo-qa-workflow-cli-bad-sha-");
+
+  const result = runLoo([
+    "qa-lab",
+    "workflow",
+    "--scenario-id",
+    "issue-517-agent-workflow",
+    "--surface",
+    "desktop-contract",
+    "--mode",
+    "dry-run",
+    "--evidence-dir",
+    dir,
+    "--candidate-sha",
+    "/tmp/private-candidate.jsonl",
+    "--strict"
+  ]);
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout) as QaLabWorkflowReport;
+  assert.equal(report.candidateSha, null);
+  assert.ok(report.blockers.some((blocker) => blocker.code === "candidate_sha_invalid"));
+  assert.doesNotMatch(result.stdout, /private-candidate\.jsonl/);
+  assert.doesNotMatch(result.stdout, /\/tmp\//);
+});
+
 test("loo qa-lab workflow rejects invalid gateway timeout values at the CLI boundary", (t) => {
   const dir = makeTempDir(t, "loo-qa-workflow-timeout-cli-");
 
@@ -689,12 +725,18 @@ test("loo qa-lab workflow writes a strict public-safe report through fake OpenCl
     bin,
     "--evidence-dir",
     dir,
+    "--package-version",
+    packageVersion,
+    "--candidate-sha",
+    candidateSha,
     "--strict"
   ], { ...process.env, OPENCLAW_FAKE_CALLS: callsPath });
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const report = JSON.parse(result.stdout) as QaLabWorkflowReport;
   assert.equal(report.schema, "lco.qaLab.workflowRun.v1");
+  assert.equal(report.packageVersion, packageVersion);
+  assert.equal(report.candidateSha, candidateSha);
   assert.equal(report.workflowRunReady, true);
   assert.equal(report.workflow.toolsInvoked.length, 7);
   assert.equal(report.actionsPerformed.liveCodexControlRun, false);

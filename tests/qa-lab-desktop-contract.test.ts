@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -8,6 +8,7 @@ import {
   createQaLabDesktopContractReport,
   type QaLabDesktopContractReport
 } from "../packages/cli/src/qa-lab-desktop-contract.js";
+import { runLoo } from "./helpers/run-loo.js";
 
 const candidateSha = "20d913822d82cad0b5c565b3c9fd3cd527ac0e57";
 const packageVersion = "1.2.5";
@@ -487,4 +488,68 @@ test("qa-lab desktop contract blocks stale and malformed candidate sha evidence"
   assert.equal(malformedUpstream.candidateSha, null);
   assert.ok(malformedUpstream.blockers.some((blocker) => blocker.code === "candidate_sha_invalid"));
   assert.doesNotMatch(JSON.stringify(malformedUpstream), /private-candidate\.jsonl/);
+});
+
+test("loo qa-lab desktop-contract writes public-safe evidence from sanitized readiness inputs", (t) => {
+  const dir = makeTempDir(t, "loo-qa-desktop-contract-cli-");
+  const readinessPath = join(dir, "desktop-readiness.json");
+  writeJson(readinessPath, readinessReport());
+
+  const result = runLoo([
+    "qa-lab",
+    "desktop-contract",
+    "--evidence-dir",
+    dir,
+    "--readiness-report",
+    readinessPath,
+    "--package-version",
+    packageVersion,
+    "--candidate-sha",
+    candidateSha,
+    "--now",
+    "2026-07-05T09:00:00.000Z",
+    "--strict"
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout) as QaLabDesktopContractReport;
+  const persisted = JSON.parse(readFileSync(join(dir, "desktop-contract.json"), "utf8")) as QaLabDesktopContractReport;
+
+  assert.equal(report.schema, "lco.qaLab.desktopContract.v1");
+  assert.equal(report.desktopContractReady, true);
+  assert.equal(report.generatedAt, "2026-07-05T09:00:00.000Z");
+  assert.equal(persisted.desktopContractReady, true);
+  assert.equal(persisted.evidenceIndex.readinessReport.evidenceRef, "readinessReport:file");
+  assert.deepEqual(persisted.actionsPerformed, {
+    textEditScratchActionRun: false,
+    genericGuiMutationRun: false,
+    codexGuiMutationRun: false,
+    liveCodexControlRun: false
+  });
+  assert.doesNotMatch(result.stdout, new RegExp(readinessPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.equal(result.stderr.trim(), "");
+});
+
+test("loo qa-lab desktop-contract strict mode fails closed when readiness metadata is missing", (t) => {
+  const dir = makeTempDir(t, "loo-qa-desktop-contract-cli-missing-");
+
+  const result = runLoo([
+    "qa-lab",
+    "desktop-contract",
+    "--evidence-dir",
+    dir,
+    "--package-version",
+    packageVersion,
+    "--candidate-sha",
+    candidateSha,
+    "--strict"
+  ]);
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout) as QaLabDesktopContractReport;
+  assert.equal(report.desktopContractReady, false);
+  assert.equal(report.evidenceIndex.readinessReport.status, "missing");
+  assert.ok(report.blockers.some((blocker) => blocker.code === "readinessReport_missing"));
+  assert.equal(existsSync(join(dir, "desktop-contract.json")), true);
+  assert.equal(result.stderr.trim(), "");
 });

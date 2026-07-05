@@ -11,6 +11,8 @@ export type QaLabWorkflowOptions = {
   surface: QaLabWorkflowSurface;
   mode: QaLabWorkflowMode;
   evidenceDir: string;
+  packageVersion?: string;
+  candidateSha?: string;
   openclawBin?: string;
   gatewayUrl?: string;
   token?: string;
@@ -52,6 +54,9 @@ export type QaLabWorkflowReport = {
   workflowRunReady: boolean;
   publicSafe: true;
   generatedAt: string;
+  packageName: "lossless-openclaw-orchestrator";
+  packageVersion: string | null;
+  candidateSha: string | null;
   scenarioId: string;
   surface: QaLabWorkflowSurface;
   mode: QaLabWorkflowMode;
@@ -132,6 +137,7 @@ const MAX_UNWRAP_DEPTH = 8;
 const MAX_OUTPUT_SCAN_DEPTH = 64;
 const SAFE_IDENTIFIER_PATTERN = /^[A-Za-z0-9_.:-]{1,160}$/;
 const SAFE_SOURCE_REF_PATTERN = /^(codex_thread|codex_event|codex_range|codex_source|summary_leaf|prepared_card|prepared_inbox|lcm_summary):[A-Za-z0-9_.:-]{1,180}$/;
+const SHA_PATTERN = /^[a-f0-9]{40}$/i;
 
 export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabWorkflowReport {
   const evidenceDir = resolve(options.evidenceDir);
@@ -149,6 +155,7 @@ export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabW
   const gatewayTimeoutMs = options.gatewayTimeoutMs ?? DEFAULT_GATEWAY_TIMEOUT_MS;
   const deadline = Date.now() + gatewayTimeoutMs;
   const command = `${sanitizeCommandBinary(openclawBin)} gateway call tools.catalog/tools.invoke --json --params <redacted>`;
+  const candidateShaValid = options.candidateSha === undefined || SHA_PATTERN.test(options.candidateSha);
 
   if (options.surface !== "openclaw-gateway") {
     addBlocker(blockers, "P1", "workflow_surface_not_supported", "qaLabWorkflow", "Only --surface openclaw-gateway is supported for this QA Lab runner.");
@@ -162,6 +169,9 @@ export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabW
   const gatewayUrlValidation = validateGatewayUrl(options.gatewayUrl);
   if (!gatewayUrlValidation.ok) {
     addBlocker(blockers, "P1", gatewayUrlValidation.code, "qaLabWorkflow", gatewayUrlValidation.detail);
+  }
+  if (!candidateShaValid) {
+    addBlocker(blockers, "P1", "candidate_sha_invalid", "qaLabWorkflow", "Candidate SHA must be a 40-character hexadecimal commit SHA.");
   }
 
   if (blockers.length === 0) {
@@ -247,6 +257,9 @@ export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabW
     workflowRunReady,
     publicSafe: true,
     generatedAt: options.now ?? new Date().toISOString(),
+    packageName: "lossless-openclaw-orchestrator",
+    packageVersion: options.packageVersion ?? null,
+    candidateSha: candidateShaValid ? options.candidateSha ?? null : null,
     scenarioId: options.scenarioId,
     surface: options.surface,
     mode: options.mode,
