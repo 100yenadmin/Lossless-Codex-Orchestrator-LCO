@@ -297,3 +297,25 @@ test("loo qa-lab adversarial-review without --strict exits zero while reporting 
   assert.equal(report.ok, false);
   assert.equal(report.lensResults.retrieval?.pass, false);
 });
+
+test("loo qa-lab adversarial-review ignores empty comma-separated lens tokens", (t) => {
+  const dir = makeTempDir(t, "loo-qa-lab-adversarial-lens-empty-tokens-");
+  const runPath = writePassingRun(dir);
+
+  const result = runLoo([
+    "qa-lab",
+    "adversarial-review",
+    "--run",
+    runPath,
+    "--lenses",
+    "safety,,claims,",
+    "--evidence-dir",
+    dir
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout) as QaLabAdversarialReviewReport;
+  assert.deepEqual(report.requestedLenses, ["safety", "claims"]);
+  assert.equal(report.lensResults.safety?.pass, true);
+  assert.equal(report.lensResults.claims?.pass, true);
+});
