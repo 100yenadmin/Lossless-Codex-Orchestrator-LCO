@@ -67,7 +67,11 @@ function writeHappyEvidence(dir: string): Record<string, string> {
     scorecardSweep: join(dir, "scorecard-sweep.json"),
     releasePreflight: join(dir, "release-preflight.json"),
     releaseBundle: join(dir, "release-bundle.json"),
-    privacyScan: join(dir, "privacy-scan.json")
+    privacyScan: join(dir, "privacy-scan.json"),
+    qaLabRun: join(dir, "qa-lab-run.json"),
+    toolCoverage: join(dir, "tool-coverage.json"),
+    judgeReview: join(dir, "judge-review.json"),
+    adversarialReview: join(dir, "adversarial-review.json")
   };
   writeJson(paths.releaseStatus, {
     ok: true,
@@ -189,6 +193,59 @@ function writeHappyEvidence(dir: string): Record<string, string> {
     secretLikeEvidenceFindings: [],
     actionsPerformed: noActions()
   });
+  writeJson(paths.qaLabRun, {
+    schema: "lco.qaLab.run.v1",
+    ok: true,
+    qaLabReady: true,
+    publicSafe: true,
+    packageVersion,
+    candidateSha,
+    claimScope: "codex-working-app-proof",
+    scenarioCount: 12,
+    failedScenarioCount: 0,
+    blockers: [],
+    actionsPerformed: noActions()
+  });
+  writeJson(paths.toolCoverage, {
+    schema: "lco.qaLab.toolCoverage.v1",
+    ok: true,
+    qaLabToolCoverageReady: true,
+    publicSafe: true,
+    packageVersion,
+    candidateSha,
+    coveragePolicy: "full",
+    declaredToolCount: 60,
+    invocationCoverage: {
+      totalDeclaredTools: 60,
+      invokedDeclaredTools: 60,
+      missingDeclaredTools: [],
+      publicFacadeTotal: 8,
+      publicFacadeInvoked: 8,
+      publicFacadeMissing: []
+    },
+    blockers: [],
+    actionsPerformed: noActions()
+  });
+  writeJson(paths.judgeReview, {
+    schema: "lco.qaLab.judgeReview.v1",
+    ok: true,
+    gaReady: true,
+    publicSafe: true,
+    summary: { packageVersion, candidateSha, claimScope: "codex-working-app-proof" },
+    scores: { privacy: 5, safety: 5, retrieval: 5, packaging: 5, claims: 5, agentUsability: 5 },
+    averageScore: 5,
+    blockers: [],
+    actionsPerformed: noActions()
+  });
+  writeJson(paths.adversarialReview, {
+    schema: "lco.qaLab.adversarialReview.v1",
+    ok: true,
+    publicSafe: true,
+    blockersBySeverity: { P0: 0, P1: 0, P2: 0, P3: 1 },
+    blockers: [],
+    warnings: [{ severity: "P3", code: "docs_followup", source: "claims", detail: "Filed non-blocking docs follow-up." }],
+    actionsPerformed: noActions()
+  });
   return paths;
 }
 
@@ -226,6 +283,10 @@ test("release ga-smoke writes one public-safe ready packet from existing evidenc
   assert.deepEqual(report.setupBlockers, []);
   assert.equal(report.actionsVerified.releaseFinalized, true);
   assert.equal(report.actionsVerified.publishedPackageSmokeReady, true);
+  assert.equal(report.actionsVerified.qaLabRunReady, true);
+  assert.equal(report.actionsVerified.qaLabToolCoverageReady, true);
+  assert.equal(report.actionsVerified.qaLabJudgeReviewReady, true);
+  assert.equal(report.actionsVerified.qaLabAdversarialReviewReady, true);
   assert.deepEqual(report.actionsPerformed, {
     npmPublished: false,
     githubReleaseCreated: false,
@@ -234,8 +295,73 @@ test("release ga-smoke writes one public-safe ready packet from existing evidenc
   });
   assert.equal(report.evidenceIndex.releaseFinalizationStatus?.status, "ready");
   assert.equal(report.evidenceIndex.releaseFinalizationStatus?.evidenceRef, "release-finalization-status.json");
+  assert.equal(report.evidenceIndex.qaLabRun?.status, "ready");
+  assert.equal(report.evidenceIndex.qaLabToolCoverage?.status, "ready");
+  assert.equal(report.evidenceIndex.qaLabJudgeReview?.status, "ready");
+  assert.equal(report.evidenceIndex.qaLabAdversarialReview?.status, "ready");
   assert.match(report.proofBoundary, /does not publish npm/i);
   assert.equal(existsSync(join(dir, "release-ga-smoke.json")), true);
+});
+
+test("release ga-smoke requires QA Lab evidence for a GA-ready claim", (t) => {
+  const dir = makeTempDir(t, "loo-ga-smoke-missing-qa-lab-");
+  const paths = writeHappyEvidence(dir);
+  rmSync(paths.qaLabRun, { force: true });
+  rmSync(paths.toolCoverage, { force: true });
+  rmSync(paths.judgeReview, { force: true });
+  rmSync(paths.adversarialReview, { force: true });
+
+  const result = runGaSmoke([
+    "--evidence-dir",
+    dir,
+    "--package-version",
+    packageVersion,
+    "--candidate-sha",
+    candidateSha,
+    "--strict"
+  ]);
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout) as GaSmokeReport;
+  assert.ok(report.blockers.some((blocker) => blocker.code === "qa_lab_run_evidence_missing"));
+  assert.ok(report.blockers.some((blocker) => blocker.code === "qa_lab_tool_coverage_evidence_missing"));
+  assert.ok(report.blockers.some((blocker) => blocker.code === "qa_lab_judge_review_evidence_missing"));
+  assert.ok(report.blockers.some((blocker) => blocker.code === "qa_lab_adversarial_review_evidence_missing"));
+  assert.ok(report.nextSafeCommands.some((command) => command.includes("loo qa-lab run")));
+  assert.ok(report.nextSafeCommands.some((command) => command.includes("loo qa-lab tool-coverage")));
+});
+
+test("release ga-smoke blocks non-ready QA Lab reports but allows P3 adversarial warnings", (t) => {
+  const dir = makeTempDir(t, "loo-ga-smoke-qa-lab-blocked-");
+  const paths = writeHappyEvidence(dir);
+  writeJson(paths.toolCoverage, {
+    ...readJson(paths.toolCoverage) as Record<string, unknown>,
+    ok: false,
+    qaLabToolCoverageReady: false,
+    blockers: [{ severity: "P2", code: "declared_tool_product_evidence_missing", source: "toolCoverage", detail: "One declared tool lacks product evidence." }]
+  });
+  writeJson(paths.adversarialReview, {
+    ...readJson(paths.adversarialReview) as Record<string, unknown>,
+    ok: true,
+    blockers: [],
+    warnings: [{ severity: "P3", code: "copy_tweak", source: "claims", detail: "Non-blocking launch copy follow-up." }]
+  });
+
+  const result = runGaSmoke([
+    "--evidence-dir",
+    dir,
+    "--package-version",
+    packageVersion,
+    "--candidate-sha",
+    candidateSha,
+    "--strict"
+  ]);
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout) as GaSmokeReport;
+  assert.ok(report.blockers.some((blocker) => blocker.severity === "P2" && blocker.code === "qa_lab_tool_coverage_not_ready"));
+  assert.ok(report.warnings.some((warning) => warning.code === "copy_tweak"));
+  assert.ok(!report.blockers.some((blocker) => blocker.code === "copy_tweak"));
 });
 
 test("release ga-smoke --strict fails closed with missing evidence and recovery commands", (t) => {
