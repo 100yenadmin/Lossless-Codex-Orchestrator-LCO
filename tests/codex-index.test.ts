@@ -23,6 +23,10 @@ import {
   searchSessions
 } from "../packages/core/src/index.js";
 import { createLooTools } from "../packages/mcp-server/src/tools.js";
+import {
+  writeSyntheticCodexCorpus,
+  writeSyntheticCodexSession
+} from "./helpers/synthetic-codex.js";
 
 function makeFixture() {
   const root = mkdtempSync(join(tmpdir(), "loo-codex-"));
@@ -83,6 +87,41 @@ function writeMinimalCodexSession(path: string, threadId: string, title: string)
     { timestamp: "2026-07-06T00:00:01.000Z", event_msg: { type: "thread_name", name: title } },
     { timestamp: "2026-07-06T00:00:02.000Z", event_msg: { type: "agent_message", message: `Final: ${title}` } }
   ].map((line) => JSON.stringify(line)).join("\n") + "\n");
+}
+
+function codexFtsRowidSnapshot(db: ReturnType<typeof createDatabase>): Array<{
+  threadId: string;
+  sessionRowid: number;
+  safeTextFtsRowid: number | null;
+  searchFtsRowid: number | null;
+}> {
+  return db.prepare(`
+    SELECT
+      s.thread_id AS threadId,
+      s.rowid AS sessionRowid,
+      safe.rowid AS safeTextFtsRowid,
+      search.rowid AS searchFtsRowid
+    FROM codex_sessions s
+    LEFT JOIN codex_safe_text_fts safe ON safe.thread_id = s.thread_id
+    LEFT JOIN codex_search_fts search ON search.thread_id = s.thread_id
+    ORDER BY s.thread_id
+  `).all() as Array<{
+    threadId: string;
+    sessionRowid: number;
+    safeTextFtsRowid: number | null;
+    searchFtsRowid: number | null;
+  }>;
+}
+
+function assertCodexFtsPinnedToSessionRowids(db: ReturnType<typeof createDatabase>): void {
+  const snapshot = codexFtsRowidSnapshot(db);
+  assert.equal(snapshot.length, Number((db.prepare("SELECT COUNT(*) AS count FROM codex_sessions").get() as { count: number }).count));
+  assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM codex_safe_text_fts").get() as { count: number }).count), snapshot.length);
+  assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM codex_search_fts").get() as { count: number }).count), snapshot.length);
+  for (const row of snapshot) {
+    assert.equal(row.safeTextFtsRowid, row.sessionRowid, `${row.threadId} codex_safe_text_fts rowid must match codex_sessions rowid`);
+    assert.equal(row.searchFtsRowid, row.sessionRowid, `${row.threadId} codex_search_fts rowid must match codex_sessions rowid`);
+  }
 }
 
 test("indexes Codex sessions with plans, finals, touched files, and search text", () => {
@@ -160,6 +199,73 @@ test("maxFiles selects newest JSONL files first and reports dropped oldest candi
     }]);
   } finally {
     db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Codex FTS documents stay pinned to session rowids across cold index, reindex, and mutation", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-fts-rowids-"));
+  try {
+    const corpus = writeSyntheticCodexCorpus(root, 3);
+    const db = createDatabase(join(root, "orchestrator.sqlite"));
+    try {
+      const cold = indexCodexSessions(db, { roots: [corpus.sessionsDir], maxFiles: 10 });
+      assert.equal(cold.indexedFiles, 3);
+      assertCodexFtsPinnedToSessionRowids(db);
+
+      db.prepare("UPDATE codex_source_files SET metadata_extractor_version = NULL").run();
+      const reindex = indexCodexSessions(db, { roots: [corpus.sessionsDir], maxFiles: 10 });
+      assert.equal(reindex.indexedFiles, 3);
+      assertCodexFtsPinnedToSessionRowids(db);
+
+      writeSyntheticCodexSession(corpus.files[1]!, {
+        threadId: "019f-bench-000001",
+        title: "Synthetic issue 571 mutated rowid pinning session",
+        finalMessage: "Final: synthetic issue 571 mutation completed with rowid-pinned FTS documents. Next action: benchmark."
+      });
+      const mutation = indexCodexSessions(db, { roots: [corpus.sessionsDir], maxFiles: 10 });
+      assert.equal(mutation.indexedFiles, 1);
+      assertCodexFtsPinnedToSessionRowids(db);
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Codex indexing repairs legacy FTS rowid drift before mutating a session", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-fts-rowid-repair-"));
+  try {
+    const corpus = writeSyntheticCodexCorpus(root, 3);
+    const db = createDatabase(join(root, "orchestrator.sqlite"));
+    try {
+      indexCodexSessions(db, { roots: [corpus.sessionsDir], maxFiles: 10 });
+      const driftThreadId = "019f-bench-000001";
+      const driftRow = db.prepare("SELECT rowid AS sessionRowid FROM codex_sessions WHERE thread_id = ?").get(driftThreadId) as { sessionRowid: number };
+      db.prepare("DELETE FROM codex_safe_text_fts WHERE rowid = ?").run(driftRow.sessionRowid);
+      db.prepare("INSERT INTO codex_safe_text_fts (thread_id, content) VALUES (?, ?)").run(driftThreadId, "legacy drifted safe text row");
+      db.prepare("DELETE FROM codex_search_fts WHERE rowid = ?").run(driftRow.sessionRowid);
+      db.prepare(`
+        INSERT INTO codex_search_fts (thread_id, title, summary, plans, finals, touched_files, tool_meta, body)
+        VALUES (?, ?, '', '', '', '', '', ?)
+      `).run(driftThreadId, "legacy drifted search row", "legacy drifted body row");
+
+      assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM codex_safe_text_fts").get() as { count: number }).count), 3);
+      assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM codex_search_fts").get() as { count: number }).count), 3);
+
+      writeSyntheticCodexSession(corpus.files[1]!, {
+        threadId: driftThreadId,
+        title: "Synthetic issue 571 repaired rowid drift session",
+        finalMessage: "Final: synthetic issue 571 repaired pre-existing FTS rowid drift. Next action: benchmark."
+      });
+      const mutation = indexCodexSessions(db, { roots: [corpus.sessionsDir], maxFiles: 10 });
+      assert.equal(mutation.indexedFiles, 1);
+      assertCodexFtsPinnedToSessionRowids(db);
+    } finally {
+      db.close();
+    }
+  } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });

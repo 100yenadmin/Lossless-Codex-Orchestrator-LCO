@@ -17,13 +17,13 @@ import {
   CODEX_SEARCH_FTS_WEIGHTS,
   codexSearchFtsNeedsBackfill,
   createSnippet,
-  deleteCodexSearchFtsForThread,
+  deleteCodexSearchFtsForSessionRowid,
   escapeLike,
+  insertCodexSearchFtsForThreadRowid,
   lexicalQueryTerms,
   rebuildCodexSearchFts,
   safeFtsTerms,
-  searchCodexSessions,
-  upsertCodexSearchFtsForThread
+  searchCodexSessions
 } from "./search.js";
 import type { CodexSearchMatchFeatures } from "./search.js";
 
@@ -3035,6 +3035,7 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
     result.skippedFiles += Math.max(0, fileSelection.droppedOldest.actual - fileSelection.droppedOldest.limit);
     result.limitedFiles.push(fileSelection.droppedOldest);
   }
+  repairCodexFtsRowidPinning(db);
   const seenThreads = new Set<string>();
   const summaryThreadsToMaterialize = new Set<string>();
   const preparedThreadsToMaterialize = new Set<string>();
@@ -3293,6 +3294,70 @@ function positiveLimit(value: number | undefined, fallback: number, name: string
   return limit;
 }
 
+function codexSessionRowid(db: LooDatabase, threadId: string): number | null {
+  const row = db.prepare("SELECT rowid AS sessionRowid FROM codex_sessions WHERE thread_id = ?").get(threadId) as { sessionRowid: number } | undefined;
+  if (!row) return null;
+  return positiveSessionRowid(row.sessionRowid);
+}
+
+function requireCodexSessionRowid(db: LooDatabase, threadId: string): number {
+  const sessionRowid = codexSessionRowid(db, threadId);
+  if (sessionRowid === null) throw new Error(`Missing codex_sessions row for thread ${threadId}`);
+  return sessionRowid;
+}
+
+function positiveSessionRowid(value: unknown): number {
+  const sessionRowid = Number(value);
+  if (!Number.isSafeInteger(sessionRowid) || sessionRowid < 1) {
+    throw new Error("codex_sessions rowid must be a positive integer");
+  }
+  return sessionRowid;
+}
+
+function deleteCodexSafeTextFtsForSessionRowid(db: LooDatabase, sessionRowid: number): void {
+  db.prepare("DELETE FROM codex_safe_text_fts WHERE rowid = ?").run(sessionRowid);
+}
+
+function insertCodexSafeTextFtsForSessionRowid(db: LooDatabase, sessionRowid: number, threadId: string, safeText: string): void {
+  db.prepare("INSERT INTO codex_safe_text_fts (rowid, thread_id, content) VALUES (?, ?, ?)").run(sessionRowid, threadId, safeText);
+}
+
+function repairCodexFtsRowidPinning(db: LooDatabase): void {
+  const repairSafeText = codexFtsRowidPinningNeedsRepair(db, "codex_safe_text_fts");
+  const repairSearch = codexFtsRowidPinningNeedsRepair(db, "codex_search_fts");
+  if (!repairSafeText && !repairSearch) return;
+  db.exec("BEGIN");
+  try {
+    if (repairSafeText) rebuildCodexSafeTextFts(db);
+    if (repairSearch) rebuildCodexSearchFts(db);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+function codexFtsRowidPinningNeedsRepair(db: LooDatabase, table: "codex_safe_text_fts" | "codex_search_fts"): boolean {
+  const sessionCount = Number((db.prepare("SELECT COUNT(*) AS count FROM codex_sessions").get() as { count: number }).count);
+  const ftsCount = Number((db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number }).count);
+  if (ftsCount !== sessionCount) return true;
+  const pinnedCount = Number((db.prepare(`
+    SELECT COUNT(*) AS count
+    FROM codex_sessions s
+    JOIN ${table} f ON f.rowid = s.rowid AND f.thread_id = s.thread_id
+  `).get() as { count: number }).count);
+  return pinnedCount !== sessionCount;
+}
+
+function rebuildCodexSafeTextFts(db: LooDatabase): void {
+  db.prepare("DELETE FROM codex_safe_text_fts").run();
+  db.prepare(`
+    INSERT INTO codex_safe_text_fts (rowid, thread_id, content)
+    SELECT rowid, thread_id, COALESCE(safe_text, '')
+    FROM codex_sessions
+  `).run();
+}
+
 function recordLimitedFile(db: LooDatabase, result: IndexCodexResult, path: string, reason: LimitedCodexFile["reason"], limit: number, actual: number): void {
   clearSourceFileIndex(db, path);
   result.skippedFiles += 1;
@@ -3300,18 +3365,18 @@ function recordLimitedFile(db: LooDatabase, result: IndexCodexResult, path: stri
 }
 
 function clearSourceFileIndex(db: LooDatabase, sourcePath: string): void {
-  const rows = db.prepare("SELECT thread_id AS threadId FROM codex_sessions WHERE source_path = ?").all(sourcePath) as Array<{ threadId: string }>;
+  const rows = db.prepare("SELECT rowid AS sessionRowid, thread_id AS threadId FROM codex_sessions WHERE source_path = ?").all(sourcePath) as Array<{ sessionRowid: number; threadId: string }>;
   db.exec("BEGIN");
   try {
     const threadIds = rows.map((row) => String(row.threadId)).filter(Boolean);
     deleteSummaryLeavesForThreadIds(db, threadIds);
-    const deleteFts = db.prepare("DELETE FROM codex_safe_text_fts WHERE thread_id = ?");
     const deletePreparedRanges = db.prepare("DELETE FROM prepared_source_ranges WHERE thread_id = ?");
     const deletePreparedEvents = db.prepare("DELETE FROM prepared_source_events WHERE thread_id = ?");
     for (const row of rows) {
       const threadId = String(row.threadId);
-      deleteFts.run(threadId);
-      deleteCodexSearchFtsForThread(db, threadId);
+      const sessionRowid = positiveSessionRowid(row.sessionRowid);
+      deleteCodexSafeTextFtsForSessionRowid(db, sessionRowid);
+      deleteCodexSearchFtsForSessionRowid(db, sessionRowid);
       deletePreparedRanges.run(threadId);
       deletePreparedEvents.run(threadId);
     }
@@ -14055,6 +14120,11 @@ function upsertSession(
       driftMissingExpectedFieldsJson,
       driftReasonCodesJson
     );
+    const oldSessionRowid = codexSessionRowid(db, session.threadId);
+    if (oldSessionRowid !== null) {
+      deleteCodexSafeTextFtsForSessionRowid(db, oldSessionRowid);
+      deleteCodexSearchFtsForSessionRowid(db, oldSessionRowid);
+    }
     db.prepare(`
       INSERT INTO codex_sessions (
         thread_id, title, cwd, model, branch, git_sha, source_path, created_at, updated_at,
@@ -14091,11 +14161,10 @@ function upsertSession(
       session.toolCalls.length,
       now
     );
+    const newSessionRowid = requireCodexSessionRowid(db, session.threadId);
     db.prepare("DELETE FROM codex_plans WHERE thread_id = ?").run(session.threadId);
     db.prepare("DELETE FROM codex_touched_files WHERE thread_id = ?").run(session.threadId);
     db.prepare("DELETE FROM codex_tool_calls WHERE thread_id = ?").run(session.threadId);
-    db.prepare("DELETE FROM codex_safe_text_fts WHERE thread_id = ?").run(session.threadId);
-    deleteCodexSearchFtsForThread(db, session.threadId);
     // Prepared rows are an LCO-owned derived cache for the current codex_sessions row.
     // Clear both remap directions: same source -> new thread and same thread -> new source.
     const affectedSummaryRows = db.prepare(`
@@ -14224,8 +14293,8 @@ function upsertSession(
         );
       }
     }
-    db.prepare("INSERT INTO codex_safe_text_fts (thread_id, content) VALUES (?, ?)").run(session.threadId, session.safeText);
-    upsertCodexSearchFtsForThread(db, session.threadId);
+    insertCodexSafeTextFtsForSessionRowid(db, newSessionRowid, session.threadId, session.safeText);
+    insertCodexSearchFtsForThreadRowid(db, session.threadId, newSessionRowid);
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
