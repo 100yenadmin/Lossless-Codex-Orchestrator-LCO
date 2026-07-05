@@ -67,8 +67,8 @@ test("legacy and current Codex JSONL fixtures index with no drift report", () =>
       assert.equal(indexed.indexedFiles, 1);
       assert.equal(indexed.indexedThreads, 1);
       assert.equal(searchSessions(db, { query, limit: 5 }).length, 1);
-      assert.deepEqual((indexed as any).driftReport, []);
-      assert.deepEqual((indexed as any).driftSummary, {
+      assert.deepEqual(indexed.driftReport, []);
+      assert.deepEqual(indexed.driftSummary, {
         files: 0,
         unknownEventKinds: 0,
         unparsedLines: 0,
@@ -89,7 +89,7 @@ test("future Codex JSONL drift fixture reports reason-coded drift and still inde
     assert.equal(searchSessions(db, { query: "Future drift packet remains parseable", limit: 5 }).length, 1);
     assert.equal(getCodexFinalMessages(db, { threadId: "019f-drift-future" })[0]?.text, "Final: future drift fixture still indexed.");
 
-    const driftReport = (indexed as any).driftReport;
+    const driftReport = indexed.driftReport;
     assert.equal(driftReport.length, 1);
     assert.equal(driftReport[0].path.endsWith("future-session.jsonl"), true);
     assert.deepEqual(driftReport[0].unknownEventKinds, [
@@ -106,7 +106,7 @@ test("future Codex JSONL drift fixture reports reason-coded drift and still inde
       "unknown_event_kind:assistant_packet_v2",
       "unparsed_line"
     ]);
-    assert.deepEqual((indexed as any).driftSummary, {
+    assert.deepEqual(indexed.driftSummary, {
       files: 1,
       unknownEventKinds: 1,
       unparsedLines: 1,
@@ -138,8 +138,48 @@ test("observed modern Codex JSONL inner kinds pass the unknown-kind noise gate",
     assert.equal(indexed.errors.length, 0);
     assert.equal(indexed.indexedFiles, 1);
     assert.equal(indexed.indexedThreads, 1);
-    assert.deepEqual((indexed as any).driftReport, []);
-    assert.deepEqual((indexed as any).driftSummary, {
+    assert.deepEqual(indexed.driftReport, []);
+    assert.deepEqual(indexed.driftSummary, {
+      files: 0,
+      unknownEventKinds: 0,
+      unparsedLines: 0,
+      missingExpectedFields: 0
+    });
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("transparent envelope payload type wins over stale inline wrapper fields for drift classification", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-drift-envelope-priority-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  writeFileSync(
+    join(sessions, "envelope-priority.jsonl"),
+    [
+      {
+        timestamp: "2026-07-04T10:00:00.000Z",
+        type: "session_meta",
+        payload: { id: "019f-drift-envelope-priority", cwd: "/Volumes/LEXAR/repos/example", model: "gpt-5.5" }
+      },
+      {
+        timestamp: "2026-07-04T10:00:01.000Z",
+        type: "response_item",
+        payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "Envelope payload type is authoritative." }] },
+        event_msg: { type: "assistant_packet_v2", display_text: "Stale inline wrapper must not decide kind." }
+      }
+    ].map((line) => JSON.stringify(line)).join("\n") + "\n"
+  );
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const indexed = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    assert.equal(indexed.errors.length, 0);
+    assert.equal(indexed.indexedFiles, 1);
+    assert.equal(indexed.indexedThreads, 1);
+    assert.deepEqual(indexed.driftReport, []);
+    assert.deepEqual(indexed.driftSummary, {
       files: 0,
       unknownEventKinds: 0,
       unparsedLines: 0,
@@ -200,7 +240,7 @@ test("session id missing-field drift is decided per file instead of per record",
     assert.equal(indexed.indexedFiles, 2);
     assert.equal(indexed.indexedThreads, 2);
 
-    const driftReport = (indexed as any).driftReport;
+    const driftReport = indexed.driftReport;
     assert.equal(driftReport.length, 1);
     assert.equal(driftReport[0].path.endsWith("missing-session-id.jsonl"), true);
     assert.deepEqual(driftReport[0].missingExpectedFields, [
@@ -209,7 +249,7 @@ test("session id missing-field drift is decided per file instead of per record",
     assert.deepEqual(driftReport[0].reasonCodes, [
       "missing_field:session_meta.payload.id"
     ]);
-    assert.deepEqual((indexed as any).driftSummary, {
+    assert.deepEqual(indexed.driftSummary, {
       files: 1,
       unknownEventKinds: 0,
       unparsedLines: 0,

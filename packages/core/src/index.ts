@@ -12915,6 +12915,12 @@ function normalizeCodexJsonlItem(item: any): any {
 }
 
 function codexJsonlEventKind(item: any): string | null {
+  const envelope = stringOrNull(item.type)?.toLowerCase() ?? null;
+  if (envelope && CODEX_JSONL_TRANSPARENT_ENVELOPES.has(envelope)) {
+    const payloadKind = stringOrNull(item.payload?.type ?? item.item?.payload?.type)?.toLowerCase();
+    if (payloadKind) return payloadKind;
+  }
+
   const inlineKind = stringOrNull(
     item.event_msg?.type
     ?? item.response_item?.type
@@ -12923,9 +12929,8 @@ function codexJsonlEventKind(item: any): string | null {
   )?.toLowerCase();
   if (inlineKind) return inlineKind;
 
-  const envelope = stringOrNull(item.type)?.toLowerCase() ?? null;
   if (envelope && CODEX_JSONL_TRANSPARENT_ENVELOPES.has(envelope)) {
-    return stringOrNull(item.payload?.type)?.toLowerCase() ?? null;
+    return null;
   }
   return stringOrNull(item.type ?? item.payload?.type)?.toLowerCase() ?? null;
 }
