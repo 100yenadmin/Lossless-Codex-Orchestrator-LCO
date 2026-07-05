@@ -11,7 +11,6 @@ import {
   defaultCodexRoots,
   getSourceFileWatermark,
   indexCodexSessions,
-  type IndexCodexResult,
   probeCodexSqliteStores,
   searchSessions
 } from "../packages/core/src/index.js";
@@ -287,20 +286,37 @@ test("MCP index tool forwards byte and event ceilings", async () => {
       max_files: 10,
       max_bytes_per_file: 100_000,
       max_events_per_file: 2
-    }) as IndexCodexResult;
+    }) as {
+      publicSafe: boolean;
+      readOnly: boolean;
+      mutationClasses: string[];
+      indexedFiles: number;
+      skippedFiles: number;
+      limitedFiles: Array<{ fileRef: string; path?: string; reason: string; limit: number; actual: number }>;
+      actionsPerformed: Record<string, unknown>;
+    };
 
-    assert.equal(indexed.publicSafe, false);
+    assert.equal(indexed.publicSafe, true);
     assert.equal(indexed.readOnly, false);
     assert.deepEqual(indexed.mutationClasses, ["derived_cache"]);
     assert.equal(indexed.mutationClasses.length, 1);
     assert.equal(indexed.indexedFiles, 0);
     assert.equal(indexed.skippedFiles, 1);
     assert.deepEqual(indexed.limitedFiles, [{
-      path: join(active, "rollout-2026-06-28T00-00-00-019f-mcp-ceiling.jsonl"),
+      fileRef: "codex_index_limited_file:1",
       reason: "max_events_per_file",
       limit: 2,
       actual: 3
     }]);
+    assert.equal("path" in (indexed.limitedFiles[0] ?? {}), false);
+    assert.deepEqual(indexed.actionsPerformed, {
+      derivedCacheWrite: true,
+      sourceStoreMutation: false,
+      externalWrite: false,
+      liveControl: false,
+      guiMutation: false,
+      rawTranscriptRead: false
+    });
   } finally {
     db?.close();
     if (root) {
@@ -339,8 +355,14 @@ test("MCP tools expose default Codex roots and read-only SQLite probes", async (
     });
     const indexTool = tools.find((tool) => tool.name === "loo_index_sessions");
     assert.ok(indexTool);
-    const indexed = await indexTool.execute({ roots: [] }) as IndexCodexResult;
-    assert.equal(indexed.publicSafe, false);
+    const indexed = await indexTool.execute({ roots: [] }) as {
+      publicSafe: boolean;
+      readOnly: boolean;
+      mutationClasses: string[];
+      indexedFiles: number;
+      indexedThreads: number;
+    };
+    assert.equal(indexed.publicSafe, true);
     assert.equal(indexed.readOnly, false);
     assert.deepEqual(indexed.mutationClasses, ["derived_cache"]);
     assert.equal(indexed.mutationClasses.length, 1);

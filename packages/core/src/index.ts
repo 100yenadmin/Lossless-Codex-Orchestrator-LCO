@@ -12528,7 +12528,7 @@ function probeLcmPeerDb(path: string): LcmPeerProbe {
       const supported = tables.includes("summaries");
       const summaryCount = supported ? Number((db.prepare("SELECT COUNT(*) AS count FROM summaries").get() as { count: number }).count) : null;
       return {
-        path: normalizedPath,
+        path: publicSafeLcmPeerPath(normalizedPath),
         readable: true,
         readOnly: true,
         queryOnly: queryOnlyEnabled(db),
@@ -12543,7 +12543,7 @@ function probeLcmPeerDb(path: string): LcmPeerProbe {
     }
   } catch (error) {
     return {
-      path: normalizedPath,
+      path: publicSafeLcmPeerPath(normalizedPath),
       readable: false,
       readOnly: true,
       queryOnly: false,
@@ -12551,9 +12551,13 @@ function probeLcmPeerDb(path: string): LcmPeerProbe {
       tables: [],
       summaryCount: null,
       ftsAvailable: false,
-      reason: error instanceof Error ? error.message : String(error)
+      reason: publicSafeText(error instanceof Error ? error.message : String(error), 300)
     };
   }
+}
+
+function publicSafeLcmPeerPath(path: string): string {
+  return `<redacted-local-path>/lcm-peer-${stableId(path).slice(0, 12)}.sqlite`;
 }
 
 function openLcmPeerDb(path: string): LooDatabase {
