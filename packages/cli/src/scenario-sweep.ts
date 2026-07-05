@@ -7,6 +7,8 @@ export type ScenarioSweepOptions = {
   scenarioDir?: string;
   runtimeProofDir?: string;
   scenarioIds?: string[];
+  packageVersion?: string;
+  candidateSha?: string;
   now?: string;
   rootDir?: string;
 };
@@ -45,13 +47,20 @@ export type ScenarioSweepEntry = {
 };
 
 export type ScenarioSweepReport = {
+  schema: "lco.scenarioSweep.v1";
   ok: boolean;
   scenarioReady: boolean;
   publicSafe: boolean;
+  packageName: "lossless-openclaw-orchestrator";
+  packageVersion: string | null;
+  candidateSha: string | null;
   generatedAt: string;
   scenarioVersion: string;
   scenarioSourceDir: string;
   sweepPath: string;
+  scenarioCount: number;
+  passedScenarioCount: number;
+  failedScenarioCount: number;
   actionsPerformed: {
     liveCodexControlRun: false;
     desktopGuiActionRun: false;
@@ -195,14 +204,22 @@ export function createScenarioSweep(options: ScenarioSweepOptions): ScenarioSwee
   const runtimeProofUnsafeBlockers = scenarios.flatMap((scenario) => scenario.blockers).filter((blocker) =>
     /^runtime_proof_(?:not_public_safe|raw_private|secret_like):/.test(blocker)
   );
+  const failedScenarioCount = scenarios.filter((scenario) => scenario.blockers.length > 0).length;
   const report: ScenarioSweepReport = {
+    schema: "lco.scenarioSweep.v1",
     ok: blockers.length === 0,
     scenarioReady: blockers.length === 0,
     publicSafe: rawEvidenceArtifacts.length === 0 && secretLikeEvidenceFindings.length === 0 && runtimeProofUnsafeBlockers.length === 0,
+    packageName: "lossless-openclaw-orchestrator",
+    packageVersion: options.packageVersion ?? null,
+    candidateSha: options.candidateSha ?? null,
     generatedAt: options.now ?? new Date().toISOString(),
     scenarioVersion: scenarioVersionForReport(scenarios),
     scenarioSourceDir: sourceDirForReport,
     sweepPath,
+    scenarioCount: scenarios.length,
+    passedScenarioCount: Math.max(0, scenarios.length - failedScenarioCount),
+    failedScenarioCount,
     actionsPerformed: {
       liveCodexControlRun: false,
       desktopGuiActionRun: false,

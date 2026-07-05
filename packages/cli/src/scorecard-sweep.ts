@@ -13,6 +13,8 @@ export type ScorecardSweepOptions = {
   scorecardDir?: string;
   claimScope?: ReleaseClaimScope;
   runtimeProofDir?: string;
+  packageVersion?: string;
+  candidateSha?: string;
   now?: string;
   rootDir?: string;
 };
@@ -34,10 +36,14 @@ export type ScorecardSweepEntry = {
 };
 
 export type ScorecardSweepReport = {
+  schema: "lco.scorecardSweep.v1";
   ok: boolean;
   sweepReady: boolean;
   publicSafe: boolean;
   scorecardDeclarationReady: boolean;
+  packageName: "lossless-openclaw-orchestrator";
+  packageVersion: string | null;
+  candidateSha: string | null;
   generatedAt: string;
   claimScope: ReleaseClaimScope;
   scorecardVersion: string;
@@ -154,10 +160,14 @@ export function createScorecardSweep(options: ScorecardSweepOptions): ScorecardS
   const blockers = [...scorecardDeclarationBlockers, ...rawArtifactBlockers, ...runtimeEvidenceValidation.blockers];
   const sweepPath = join(evidenceDir, "scorecard-sweep.json");
   const report: ScorecardSweepReport = {
+    schema: "lco.scorecardSweep.v1",
     ok: blockers.length === 0,
     sweepReady: blockers.length === 0,
     publicSafe: rawEvidenceArtifacts.length === 0,
     scorecardDeclarationReady: scorecardDeclarationBlockers.length === 0,
+    packageName: "lossless-openclaw-orchestrator",
+    packageVersion: options.packageVersion ?? null,
+    candidateSha: options.candidateSha ?? null,
     generatedAt: options.now ?? new Date().toISOString(),
     claimScope,
     scorecardVersion: SCORECARD_VERSION,

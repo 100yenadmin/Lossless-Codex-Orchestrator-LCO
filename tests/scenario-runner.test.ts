@@ -26,6 +26,9 @@ test("scenario sweep writes dry-run-ready public-safe scenario scorecards", () =
   assert.equal(report.publicSafe, true);
   assert.equal(report.scenarioVersion, "1.0");
   assert.equal(report.generatedAt, "2026-06-30T09:00:00.000Z");
+  assert.equal(report.scenarioCount, 1);
+  assert.equal(report.passedScenarioCount, 1);
+  assert.equal(report.failedScenarioCount, 0);
   assert.deepEqual(report.actionsPerformed, {
     liveCodexControlRun: false,
     desktopGuiActionRun: false,
@@ -87,6 +90,9 @@ test("scenario sweep fails closed for malformed scenarios and raw artifacts", ()
   assert.equal(report.ok, false);
   assert.equal(report.scenarioReady, false);
   assert.equal(report.publicSafe, false);
+  assert.equal(report.scenarioCount, 1);
+  assert.equal(report.passedScenarioCount, 0);
+  assert.equal(report.failedScenarioCount, 1);
   assert.match(report.blockers.join("\n"), /scenario_missing_field:plan-retrieval-release-scorecard-v1:allowedTools/);
   assert.match(report.blockers.join("\n"), /scenario_missing_required_forbidden_behavior:plan-retrieval-release-scorecard-v1:raw_transcript_read/);
   assert.match(report.blockers.join("\n"), /raw_artifact:sqlite_database:private\.sqlite/);
