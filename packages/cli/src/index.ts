@@ -14,6 +14,7 @@ import {
 import {
   captureCloseoutHookPacket,
   captureCompactionMarkerHookPacket,
+  captureThreadTitleFinalizerHookPacket,
   configuredLcmPeerDbPaths,
   createCloseoutEnvelopeReport,
   createDatabase,
@@ -37,7 +38,8 @@ import {
   type CloseoutHookCaptureInput,
   type CompactionMarkerHookInput,
   type RecallProfileName,
-  type StatePrepHookInput
+  type StatePrepHookInput,
+  type ThreadTitleFinalizerInput
 } from "../../core/src/index.js";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -340,6 +342,23 @@ async function main() {
     const db = createDatabase();
     try {
       const report = captureCompactionMarkerHookPacket(db, parsed.payload);
+      writeHookEvidence(parsed.evidencePath, report);
+      console.log(JSON.stringify(report, null, 2));
+      if (parsed.strict && report.blockers.length > 0) process.exitCode = 1;
+    } finally {
+      db.close();
+    }
+    return;
+  }
+  if (command === "hook" && args[0] === "thread-title-finalize") {
+    if (hasHelpFlag(args.slice(1))) {
+      printHookThreadTitleFinalizeHelp();
+      return;
+    }
+    const parsed = parseHookThreadTitleFinalizeArgs(args.slice(1));
+    const db = createDatabase();
+    try {
+      const report = captureThreadTitleFinalizerHookPacket(db, parsed.payload);
       writeHookEvidence(parsed.evidencePath, report);
       console.log(JSON.stringify(report, null, 2));
       if (parsed.strict && report.blockers.length > 0) process.exitCode = 1;
@@ -934,6 +953,7 @@ function mainUsageText(): string {
     "  loo hook closeout-capture --payload-file path|--payload-json json [--evidence-path path] [--strict]",
     "  loo hook state-prep [--thread-id id] [--target-ref ref] [--limit n] [--payload-file path|--payload-json json] [--evidence-path path] [--strict]",
     "  loo hook compaction-capture --mode marker --lifecycle pre_compact|post_compact [--payload-file path|--payload-json json] [--thread-id id] [--target-ref ref] [--summary text] [--evidence-path path] [--strict]",
+    "  loo hook thread-title-finalize [--payload-stdin|--payload-file path|--payload-json json] [--thread-id id] [--target-ref ref] [--evidence-path path] [--strict]",
     "  loo sanitize sessions [--thread-id id] [--limit n] [--evidence-dir path] [--strict]",
     "  loo serve",
     "  loo audit-path",
@@ -1241,6 +1261,23 @@ function printHookCompactionCaptureHelp(): void {
     "  Marker mode never claims true compaction-summary capture and ignores summary-shaped payload text except for a local hash.",
     "  True compaction-summary capture requires Codex-native sanitized event support or a separately proven adapter.",
     "  The command writes only LCO-owned derived cache and does not mutate Codex source stores, run live control, mutate a GUI, run model compaction, publish npm, or create a GitHub Release."
+  ].join("\n"));
+}
+
+function printHookThreadTitleFinalizeHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo hook thread-title-finalize [--payload-stdin|--payload-file path|--payload-json json] [--thread-id id] [--target-ref ref] [--evidence-path path] [--strict]",
+    "",
+    "Writes a one-shot public-safe Codex thread title alias into LCO-owned derived cache for search/indexing.",
+    "",
+    "Payload fields:",
+    "  thread_id/threadId/session_id/sessionId, turn_id/turnId, event_id/eventId, transcript_path/transcriptPath, cwd, project, repo, current_title/currentTitle, task_summary/taskSummary, user_message/userMessage, last_assistant_message/lastAssistantMessage.",
+    "",
+    "Safety boundary:",
+    "  transcript_path is hashed/redacted and never opened.",
+    "  The command preserves the canonical Codex title and writes only hook_capture_packets plus codex_thread_title_aliases in the local LCO DB.",
+    "  It does not mutate Codex source stores, run live control, mutate a GUI, write external systems, publish npm, create a GitHub Release, or add an agent-facing naming tool."
   ].join("\n"));
 }
 
@@ -2013,8 +2050,53 @@ function parseHookCompactionCaptureArgs(input: string[]): { payload: CompactionM
   return { payload, evidencePath, strict };
 }
 
+function parseHookThreadTitleFinalizeArgs(input: string[]): { payload: ThreadTitleFinalizerInput; evidencePath?: string; strict: boolean } {
+  let payload: ThreadTitleFinalizerInput = {};
+  let evidencePath: string | undefined;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--payload-stdin") {
+      payload = { ...payload, ...readHookPayloadStdin() };
+    } else if (arg === "--payload-file") {
+      payload = { ...payload, ...readHookPayloadFile(requireOptionValue(input[++index], arg)) };
+    } else if (arg === "--payload-json") {
+      payload = { ...payload, ...parseHookPayloadJson(requireOptionValue(input[++index], arg)) };
+    } else if (arg === "--thread-id") {
+      payload.threadId = requireOptionValue(input[++index], arg);
+    } else if (arg === "--target-ref") {
+      payload.targetRef = requireOptionValue(input[++index], arg);
+    } else if (arg === "--turn-id") {
+      payload.turnId = requireOptionValue(input[++index], arg);
+    } else if (arg === "--event-id") {
+      payload.eventId = requireOptionValue(input[++index], arg);
+    } else if (arg === "--transcript-path") {
+      payload.transcriptPath = requireOptionValue(input[++index], arg);
+    } else if (arg === "--cwd") {
+      payload.cwd = requireOptionValue(input[++index], arg);
+    } else if (arg === "--current-title") {
+      payload.currentTitle = requireOptionValue(input[++index], arg);
+    } else if (arg === "--task-summary") {
+      payload.taskSummary = requireOptionValue(input[++index], arg);
+    } else if (arg === "--last-assistant-message") {
+      payload.lastAssistantMessage = requireOptionValue(input[++index], arg);
+    } else if (arg === "--evidence-path") {
+      evidencePath = requireOptionValue(input[++index], arg);
+    } else if (arg === "--strict") {
+      strict = true;
+    } else {
+      throw new Error(`Unknown hook thread-title-finalize option: ${arg}`);
+    }
+  }
+  return { payload, evidencePath, strict };
+}
+
 function readHookPayloadFile(path: string): Record<string, unknown> {
   return objectPayload(readJsonFile(path, "hook payload file"), "hook payload file");
+}
+
+function readHookPayloadStdin(): Record<string, unknown> {
+  return parseHookPayloadJson(readFileSync(0, "utf8"));
 }
 
 function parseHookPayloadJson(value: string): Record<string, unknown> {

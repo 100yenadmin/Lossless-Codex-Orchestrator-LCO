@@ -6,6 +6,7 @@ import test from "node:test";
 
 import { createAuditStore } from "../packages/adapters/src/index.js";
 import {
+  captureThreadTitleFinalizerHookPacket,
   createDatabase,
   describeSession,
   describeRecallRef,
@@ -198,6 +199,94 @@ test("search resolves exact thread ids and app-server display aliases without ra
     assert.equal(byAlias[0]?.snippet, "App-server alias: EVA-LCO");
     assert.deepEqual(readRequests.map((request) => request.method), ["thread/list"]);
     assert.doesNotMatch(JSON.stringify(byAlias), /private-thread|sk-test_1234567890|\/Volumes\/LEXAR/);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("search resolves one-shot thread title finalizer aliases without raw transcript reads", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-title-finalizer-search-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const rawPathCanary = join(sessions, "private-title-thread.jsonl");
+  const threadPath = join(sessions, "rollout-2026-07-05T00-00-00-019f-title-finalizer-search.jsonl");
+  const lines = [
+    {
+      timestamp: "2026-07-05T00:00:00.000Z",
+      session_meta: {
+        payload: {
+          id: "019f-title-finalizer-search",
+          cwd: "/Volumes/LEXAR/repos/lossless-openclaw-orchestrator",
+          model: "gpt-5.5"
+        }
+      }
+    },
+    { timestamp: "2026-07-05T00:00:01.000Z", event_msg: { type: "thread_name", name: "how do you name threads when you create a new thread under..." } },
+    {
+      timestamp: "2026-07-05T00:00:02.000Z",
+      event_msg: {
+        type: "agent_message",
+        message: `Final: implemented the Codex thread title finalizer hook for LCO indexing. Private source ${rawPathCanary} must stay hidden.`
+      }
+    }
+  ];
+  writeFileSync(threadPath, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+
+    const report = captureThreadTitleFinalizerHookPacket(db, {
+      thread_id: "019f-title-finalizer-search",
+      cwd: "/Volumes/LEXAR/repos/lossless-openclaw-orchestrator",
+      current_title: "how do you name threads when you create a new thread under...",
+      last_assistant_message: "Implemented the Codex thread title finalizer hook for LCO indexing."
+    });
+    const matches = searchSessions(db, {
+      query: "Codex thread title finalizer",
+      limit: 5,
+      now: "2026-07-05T00:00:05.000Z"
+    });
+
+    assert.equal(report.aliasInserted, true);
+    assert.equal(matches[0]?.threadId, "019f-title-finalizer-search");
+    assert.equal(matches[0]?.matchKind, "full_text");
+    assert.equal(matches[0]?.reasonCodes.includes("thread_title_finalizer_alias"), true);
+    assert.notEqual(matches[0]?.snippet, "Thread title alias: lossless-openclaw-orchestrator: Codex thread title finalizer");
+    assert.equal(matches[0]?.title, "how do you name threads when you create a new thread under...");
+    assert.doesNotMatch(JSON.stringify(matches), /private-title-thread|\/Volumes\/LEXAR/);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("thread title aliases do not crowd out precise FTS matches for broad one-token queries", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-title-alias-broad-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    captureThreadTitleFinalizerHookPacket(db, {
+      thread_id: "019f-alias-only",
+      cwd: "/Volumes/LEXAR/repos/lossless-openclaw-orchestrator",
+      current_title: "ambiguous title",
+      last_assistant_message: "Implemented the Codex thread title finalizer hook for LCO indexing."
+    });
+
+    const broad = searchSessions(db, {
+      query: "codex",
+      limit: 5,
+      now: "2026-07-05T00:00:05.000Z"
+    });
+    const specific = searchSessions(db, {
+      query: "thread finalizer",
+      limit: 5,
+      now: "2026-07-05T00:00:05.000Z"
+    });
+
+    assert.deepEqual(broad, []);
+    assert.equal(specific[0]?.threadId, "019f-alias-only");
+    assert.equal(specific[0]?.matchKind, "thread_title_alias");
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });

@@ -489,8 +489,9 @@ export type PreparedStateStatusReport = {
   proofBoundary: string;
 };
 
-export type HookCaptureKind = "closeout_capture" | "compaction_marker";
+export type HookCaptureKind = "closeout_capture" | "compaction_marker" | "thread_title_finalizer";
 export type HookCompactionLifecycle = "pre_compact" | "post_compact";
+export type ThreadTitleFinalizerState = "ready" | "already_finalized" | "insufficient_signal";
 
 export type HookSidecarActions = {
   derivedCacheWrite: true;
@@ -532,6 +533,15 @@ export type HookCapturePacket = {
     lifecycle?: HookCompactionLifecycle;
     markerNote?: string | null;
     summaryCaptured?: false;
+    titleFinalizer?: {
+      suggestedTitle: string | null;
+      suggestedTitleHash: string | null;
+      repoOrProject: string | null;
+      summary: string | null;
+      state: ThreadTitleFinalizerState;
+      aliasKind: "thread_title_finalizer";
+      sourceSignals: string[];
+    };
     omissions: string[];
   };
   sourceRefs: string[];
@@ -567,6 +577,57 @@ export type CloseoutHookCaptureInput = {
   transcript_path?: string;
   lastAssistantMessage?: string;
   last_assistant_message?: string;
+};
+
+export type ThreadTitleFinalizerInput = {
+  threadId?: string;
+  thread_id?: string;
+  sessionId?: string;
+  session_id?: string;
+  targetRef?: string;
+  target_ref?: string;
+  turnId?: string;
+  turn_id?: string;
+  eventId?: string;
+  event_id?: string;
+  transcriptPath?: string;
+  transcript_path?: string;
+  cwd?: string;
+  project?: string;
+  repo?: string;
+  repoName?: string;
+  repo_name?: string;
+  currentTitle?: string;
+  current_title?: string;
+  taskSummary?: string;
+  task_summary?: string;
+  userMessage?: string;
+  user_message?: string;
+  userMessages?: string[];
+  user_messages?: string[];
+  lastAssistantMessage?: string;
+  last_assistant_message?: string;
+};
+
+export type ThreadTitleFinalizerReport = {
+  schema: "lco.threadTitleFinalizer.v1";
+  publicSafe: true;
+  readOnly: false;
+  mutationClasses: ["derived_cache"];
+  generatedAt: string;
+  inserted: boolean;
+  aliasInserted: boolean;
+  title: {
+    suggestedTitle: string | null;
+    state: ThreadTitleFinalizerState;
+    repoOrProject: string | null;
+    summary: string | null;
+    existingTitle: string | null;
+  };
+  packet: HookCapturePacket;
+  blockers: string[];
+  actionsPerformed: HookSidecarActions;
+  proofBoundary: string;
 };
 
 export type CompactionMarkerHookInput = {
@@ -698,7 +759,7 @@ export type SessionSearchResult = {
   updatedAt: string | null;
   score: number;
   snippet: string;
-  matchKind: "thread_id" | "full_text" | "safe_text" | "app_server_alias";
+  matchKind: "thread_id" | "full_text" | "safe_text" | "thread_title_alias" | "app_server_alias";
   freshness: {
     lastEventAt: string | null;
     ageSeconds: number | null;
@@ -2468,6 +2529,11 @@ export function migrate(db: LooDatabase): void {
         '2026-07-04-prepared-card-source-range-omissions',
         datetime('now'),
         'Persist prepared-card source range omission counts'
+      ),
+      (
+        '2026-07-05-thread-title-aliases',
+        datetime('now'),
+        'Additive Codex thread title finalizer alias table'
       );
 
     CREATE TABLE IF NOT EXISTS prepared_source_events (
@@ -2663,6 +2729,24 @@ export function migrate(db: LooDatabase): void {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS codex_thread_title_aliases (
+      alias_id TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL,
+      target_ref TEXT NOT NULL,
+      alias_kind TEXT NOT NULL,
+      alias_text TEXT NOT NULL,
+      alias_norm TEXT NOT NULL,
+      source_packet_id TEXT NOT NULL,
+      reason_codes_json TEXT NOT NULL DEFAULT '[]',
+      confidence REAL NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(thread_id, alias_kind)
+    );
+
+    CREATE INDEX IF NOT EXISTS codex_thread_title_aliases_norm_idx ON codex_thread_title_aliases(alias_norm);
+    CREATE INDEX IF NOT EXISTS codex_thread_title_aliases_thread_idx ON codex_thread_title_aliases(thread_id);
 
     CREATE TABLE IF NOT EXISTS claude_sessions (
       session_id TEXT PRIMARY KEY,
@@ -4158,6 +4242,111 @@ export function captureCompactionMarkerHookPacket(db: LooDatabase, input: Compac
   return hookCaptureReport(packet, inserted, generatedAt, hookPublicSafetyBlockers(packet), "Compaction hook capture records PreCompact/PostCompact lifecycle markers only. True compaction-summary capture is not claimed; it requires Codex-native sanitized event support or a separately proven adapter. This packet writes only LCO-owned derived cache and never reads raw transcripts, runs model compaction, mutates source stores, performs live control, mutates a GUI, or writes external systems.");
 }
 
+export function captureThreadTitleFinalizerHookPacket(db: LooDatabase, input: ThreadTitleFinalizerInput): ThreadTitleFinalizerReport {
+  const generatedAt = new Date().toISOString();
+  const resolved = resolveHookTarget(input);
+  const transcriptPath = hookStringInput(input.transcriptPath ?? input.transcript_path);
+  const existingAlias = resolved.threadId ? getThreadTitleAlias(db, resolved.threadId, "thread_title_finalizer") : null;
+  const indexedSignal = resolved.threadId ? getThreadTitleIndexedSignal(db, resolved.threadId) : null;
+  const currentTitle = hookStringInput(input.currentTitle ?? input.current_title) ?? indexedSignal?.title ?? null;
+  const titleDraft = existingAlias
+    ? {
+      suggestedTitle: existingAlias.aliasText,
+      repoOrProject: repoOrProjectFromTitle(existingAlias.aliasText),
+      summary: summaryFromSuggestedTitle(existingAlias.aliasText),
+      state: "already_finalized" as ThreadTitleFinalizerState,
+      sourceSignals: ["existing_title_alias"]
+    }
+    : deriveThreadTitleDraft(input, indexedSignal);
+  const payloadHash = hookPayloadHash({
+    hookKind: "thread_title_finalizer",
+    targetRef: resolved.targetRef,
+    transcriptPathHash: transcriptPath ? stableId(transcriptPath) : null,
+    existingTitleHash: currentTitle ? stableId(currentTitle) : null,
+    suggestedTitleHash: titleDraft.suggestedTitle ? stableId(titleDraft.suggestedTitle) : null,
+    state: titleDraft.state
+  });
+  const packetId = stableId(`hook:thread-title-finalizer:${resolved.targetRef}:v1`);
+  const omissions = unique([
+    transcriptPath ? "transcript_path_hash_only" : "",
+    currentTitle ? "current_title_hash_only" : "",
+    input.lastAssistantMessage || input.last_assistant_message ? "assistant_message_hash_only" : "",
+    input.userMessage || input.user_message || input.userMessages || input.user_messages ? "user_message_hash_only" : "",
+    titleDraft.suggestedTitle ? "" : "title_signal_insufficient"
+  ].filter(Boolean));
+  const packet: HookCapturePacket = {
+    schema: "lco.hookCapturePacket.v1",
+    packetId,
+    hookKind: "thread_title_finalizer",
+    targetRef: resolved.targetRef,
+    threadId: resolved.threadId,
+    turnId: resolved.turnId,
+    eventId: resolved.eventId,
+    payloadHash,
+    payload: {
+      transcriptPathHash: transcriptPath ? stableId(transcriptPath) : null,
+      transcriptPathRedacted: Boolean(transcriptPath),
+      titleFinalizer: {
+        suggestedTitle: titleDraft.suggestedTitle,
+        suggestedTitleHash: titleDraft.suggestedTitle ? stableId(titleDraft.suggestedTitle) : null,
+        repoOrProject: titleDraft.repoOrProject,
+        summary: titleDraft.summary,
+        state: titleDraft.state,
+        aliasKind: "thread_title_finalizer",
+        sourceSignals: titleDraft.sourceSignals
+      },
+      omissions
+    },
+    sourceRefs: hookSourceRefs(resolved.targetRef, titleDraft.suggestedTitle ?? ""),
+    privacyClass: "public_safe_metadata",
+    confidence: titleDraft.suggestedTitle ? 0.76 : 0.28,
+    createdAt: generatedAt,
+    reasonCodes: unique([
+      "hook_sidecar_capture",
+      "derived_cache_only",
+      "thread_title_finalizer",
+      "canonical_title_preserved",
+      titleDraft.state,
+      transcriptPath ? "transcript_path_hash_only" : "transcript_path_absent"
+    ].filter(Boolean))
+  };
+  const inserted = titleDraft.suggestedTitle && !existingAlias ? insertHookCapturePacket(db, packet) : false;
+  const aliasInserted = Boolean(inserted && resolved.threadId && titleDraft.suggestedTitle && insertThreadTitleAlias(db, {
+    threadId: resolved.threadId,
+    targetRef: resolved.targetRef,
+    aliasText: titleDraft.suggestedTitle,
+    sourcePacketId: packet.packetId,
+    reasonCodes: packet.reasonCodes,
+    confidence: packet.confidence,
+    generatedAt
+  }));
+  const blockers = [
+    ...hookPublicSafetyBlockers(packet),
+    titleDraft.suggestedTitle ? null : "title_signal_insufficient",
+    resolved.threadId ? null : "thread_id_missing"
+  ].filter((item): item is string => Boolean(item));
+  return {
+    schema: "lco.threadTitleFinalizer.v1",
+    publicSafe: true,
+    readOnly: false,
+    mutationClasses: ["derived_cache"],
+    generatedAt,
+    inserted: Boolean(inserted),
+    aliasInserted,
+    title: {
+      suggestedTitle: titleDraft.suggestedTitle,
+      state: titleDraft.state,
+      repoOrProject: titleDraft.repoOrProject,
+      summary: titleDraft.summary,
+      existingTitle: null
+    },
+    packet,
+    blockers: unique(blockers),
+    actionsPerformed: hookSidecarActions(),
+    proofBoundary: "Thread title finalizer hooks write only a one-shot public-safe LCO title alias for local indexing/search. They preserve the canonical Codex title, hash/redact transcript paths, do not open transcript paths, do not mutate Codex source stores, do not run live control, do not mutate a GUI, do not write external systems, and do not add an agent-facing naming tool."
+  };
+}
+
 export function runStatePrepHook(db: LooDatabase, input: StatePrepHookInput = {}): StatePrepHookReport {
   const generatedAt = new Date().toISOString();
   const resolved = resolveHookTarget(input);
@@ -5228,6 +5417,8 @@ function hookCaptureReport(
 function resolveHookTarget(input: {
   threadId?: string;
   thread_id?: string;
+  sessionId?: string;
+  session_id?: string;
   targetRef?: string;
   target_ref?: string;
   turnId?: string;
@@ -5235,7 +5426,7 @@ function resolveHookTarget(input: {
   eventId?: string;
   event_id?: string;
 }): { targetRef: string; threadId: string | null; turnId: string | null; eventId: string | null } {
-  const rawThreadId = hookStringInput(input.threadId ?? input.thread_id);
+  const rawThreadId = hookStringInput(input.threadId ?? input.thread_id ?? input.sessionId ?? input.session_id);
   const safeId = rawThreadId ? safeThreadId(rawThreadId) : null;
   const targetCandidate = hookStringInput(input.targetRef ?? input.target_ref);
   const normalizedTarget = targetCandidate
@@ -5320,6 +5511,217 @@ function insertStatePrepJob(
     input.generatedAt
   );
   return !existing;
+}
+
+type ThreadTitleAliasRow = {
+  aliasText: string;
+  updatedAt: string;
+};
+
+type ThreadTitleIndexedSignal = {
+  title: string | null;
+  cwd: string | null;
+  summary: string | null;
+  finalMessage: string | null;
+  safeText: string | null;
+};
+
+function getThreadTitleAlias(db: LooDatabase, threadId: string, aliasKind: "thread_title_finalizer"): ThreadTitleAliasRow | null {
+  const row = db.prepare(`
+    SELECT alias_text AS aliasText, updated_at AS updatedAt
+    FROM codex_thread_title_aliases
+    WHERE thread_id = ? AND alias_kind = ?
+  `).get(threadId, aliasKind) as ThreadTitleAliasRow | undefined;
+  return row ?? null;
+}
+
+function getThreadTitleIndexedSignal(db: LooDatabase, threadId: string): ThreadTitleIndexedSignal | null {
+  const row = db.prepare(`
+    SELECT title, cwd, summary, final_message AS finalMessage, safe_text AS safeText
+    FROM codex_sessions
+    WHERE thread_id = ?
+  `).get(threadId) as ThreadTitleIndexedSignal | undefined;
+  return row ?? null;
+}
+
+function insertThreadTitleAlias(
+  db: LooDatabase,
+  input: {
+    threadId: string;
+    targetRef: string;
+    aliasText: string;
+    sourcePacketId: string;
+    reasonCodes: string[];
+    confidence: number;
+    generatedAt: string;
+  }
+): boolean {
+  const result = db.prepare(`
+    INSERT OR IGNORE INTO codex_thread_title_aliases (
+      alias_id, thread_id, target_ref, alias_kind, alias_text, alias_norm,
+      source_packet_id, reason_codes_json, confidence, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    stableId(`thread-title-alias:${input.threadId}:thread_title_finalizer`),
+    input.threadId,
+    input.targetRef,
+    "thread_title_finalizer",
+    input.aliasText,
+    normalizedTitle(input.aliasText),
+    input.sourcePacketId,
+    JSON.stringify(input.reasonCodes),
+    input.confidence,
+    input.generatedAt,
+    input.generatedAt
+  );
+  return result.changes > 0;
+}
+
+function deriveThreadTitleDraft(
+  input: ThreadTitleFinalizerInput,
+  indexedSignal: ThreadTitleIndexedSignal | null
+): {
+  suggestedTitle: string | null;
+  repoOrProject: string | null;
+  summary: string | null;
+  state: ThreadTitleFinalizerState;
+  sourceSignals: string[];
+} {
+  const repoOrProject = deriveRepoOrProject(input, indexedSignal);
+  const closeout = extractHookCloseout(hookStringInput(input.lastAssistantMessage ?? input.last_assistant_message));
+  const candidates: Array<{ signal: string; value: string | null }> = [
+    { signal: "task_summary", value: hookStringInput(input.taskSummary ?? input.task_summary) },
+    { signal: "closeout_title", value: closeout.fields.title ?? null },
+    { signal: "closeout_summary", value: closeout.fields.summary ?? null },
+    { signal: "indexed_summary", value: indexedSignal?.summary ?? null },
+    { signal: "indexed_final_message", value: indexedSignal?.finalMessage ?? null },
+    { signal: "assistant_message", value: hookStringInput(input.lastAssistantMessage ?? input.last_assistant_message) },
+    { signal: "user_message", value: latestThreadTitleUserMessage(input) },
+    { signal: "indexed_safe_text", value: indexedSignal?.safeText ?? null },
+    { signal: "current_title", value: hookStringInput(input.currentTitle ?? input.current_title) ?? indexedSignal?.title ?? null }
+  ];
+  for (const candidate of candidates) {
+    const summary = deriveThreadTitleSummary(candidate.value);
+    if (!summary) continue;
+    const suggestedTitle = repoOrProject ? `${repoOrProject}: ${summary}` : summary;
+    return {
+      suggestedTitle: publicSafeThreadTitle(suggestedTitle),
+      repoOrProject,
+      summary,
+      state: "ready",
+      sourceSignals: [candidate.signal, repoOrProject ? "repo_or_project" : "summary_only"]
+    };
+  }
+  return {
+    suggestedTitle: null,
+    repoOrProject,
+    summary: null,
+    state: "insufficient_signal",
+    sourceSignals: repoOrProject ? ["repo_or_project"] : []
+  };
+}
+
+function deriveRepoOrProject(input: ThreadTitleFinalizerInput, indexedSignal: ThreadTitleIndexedSignal | null): string | null {
+  const direct = hookStringInput(input.project ?? input.repo ?? input.repoName ?? input.repo_name);
+  const cwd = hookStringInput(input.cwd) ?? indexedSignal?.cwd ?? null;
+  const raw = direct ?? (cwd ? basename(cwd) : null);
+  if (!raw) return null;
+  return publicSafeTitleToken(raw.replace(/\.git$/i, ""), 64);
+}
+
+function latestThreadTitleUserMessage(input: ThreadTitleFinalizerInput): string | null {
+  const direct = hookStringInput(input.userMessage ?? input.user_message);
+  if (direct) return direct;
+  const messages = input.userMessages ?? input.user_messages;
+  if (!Array.isArray(messages)) return null;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = hookStringInput(messages[index]);
+    if (message) return message;
+  }
+  return null;
+}
+
+function deriveThreadTitleSummary(value: string | null): string | null {
+  if (!value) return null;
+  const redacted = redactHookStringUnbounded(value);
+  const lowered = redacted.toLowerCase();
+  if (
+    /thread-title-finalize|title finalizer|title-finalizer/i.test(redacted)
+    || /finaliz(?:e|es|ed|ing).{0,40}thread.{0,20}title/i.test(redacted)
+    || /thread.{0,20}title.{0,40}finaliz/i.test(redacted)
+  ) {
+    return "Codex thread title finalizer";
+  }
+  if (/hook/.test(lowered) && /lco/.test(lowered) && /(index|search|title|name)/.test(lowered)) {
+    return "LCO hook indexing";
+  }
+  const line = redacted
+    .split(/\r?\n/)
+    .map((part) => part.trim())
+    .find((part) => part.length >= 12 && !/^[-*]?\s*(status|blocker|owner|priority|source refs?)\s*:/i.test(part));
+  if (!line) return null;
+  const withoutLabels = line
+    .replace(/^[-*]?\s*(final|summary|task|next action|implemented|complete|done)\s*:?\s*/i, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const sentence = withoutLabels.split(/[.!?]/, 1)[0]?.trim() ?? "";
+  const words = sentence
+    .split(/\s+/)
+    .map((word) => word.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9/-]+$/g, ""))
+    .filter((word) => word.length > 1 && !THREAD_TITLE_STOP_WORDS.has(word.toLowerCase()));
+  if (words.length < 2) return null;
+  return publicSafeThreadTitle(words.slice(0, 7).join(" "));
+}
+
+const THREAD_TITLE_STOP_WORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "that",
+  "this",
+  "with",
+  "from",
+  "into",
+  "under",
+  "create",
+  "when",
+  "what",
+  "where",
+  "please",
+  "implemented",
+  "complete",
+  "final",
+  "hook"
+]);
+
+function publicSafeThreadTitle(value: string): string | null {
+  const normalized = publicSafeText(redactHookString(value, 120), 120)
+    .replace(/\s+/g, " ")
+    .replace(/\s+([:/-])\s+/g, "$1 ")
+    .trim();
+  if (!normalized || normalized.length < 4 || hookPublicSafetyBlockers(normalized).length > 0) return null;
+  return normalized;
+}
+
+function publicSafeTitleToken(value: string, maxChars: number): string | null {
+  const token = publicSafeText(redactHookString(value, maxChars), maxChars)
+    .replace(/[^A-Za-z0-9._ -]+/g, " ")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .trim();
+  return token.length >= 2 ? token : null;
+}
+
+function repoOrProjectFromTitle(title: string): string | null {
+  const index = title.indexOf(":");
+  return index > 0 ? publicSafeTitleToken(title.slice(0, index), 64) : null;
+}
+
+function summaryFromSuggestedTitle(title: string): string | null {
+  const index = title.indexOf(":");
+  return publicSafeThreadTitle(index >= 0 ? title.slice(index + 1).trim() : title);
 }
 
 function extractHookCloseout(message: string | null): NonNullable<HookCapturePacket["payload"]["closeout"]> {
@@ -6293,6 +6695,9 @@ export function searchSessions(db: LooDatabase, options: {
     }
   }
 
+  const results: SessionSearchResult[] = [];
+  const seenRefs = new Set<string>();
+
   const rows = safeFtsTerms(query).length > 0
     ? db.prepare(`
         SELECT s.thread_id AS threadId, s.title, s.summary, s.updated_at AS updatedAt, snippet(codex_safe_text_fts, 1, '[', ']', '...', 18) AS snippet, rank AS rank
@@ -6304,7 +6709,24 @@ export function searchSessions(db: LooDatabase, options: {
       `).all(safeFtsTerms(query).join(" "), limit) as Array<Record<string, unknown>>
     : [];
 
-  const results = rows.map((row, index) => sessionSearchResultFromRow(row, index + 1, String(row.snippet ?? ""), "full_text", ["fts_match"], nowMs));
+  for (const row of rows) {
+    const result = sessionSearchResultFromRow(row, results.length + 1, String(row.snippet ?? ""), "full_text", ["fts_match"], nowMs);
+    if (seenRefs.has(result.sourceRef)) continue;
+    seenRefs.add(result.sourceRef);
+    results.push(result);
+    if (results.length >= limit) break;
+  }
+
+  for (const aliasResult of threadTitleAliasSearchResults(db, query, nowMs)) {
+    const existing = results.find((result) => result.sourceRef === aliasResult.sourceRef);
+    if (existing) {
+      existing.reasonCodes = unique([...existing.reasonCodes, ...aliasResult.reasonCodes]);
+      continue;
+    }
+    if (results.length >= limit) break;
+    seenRefs.add(aliasResult.sourceRef);
+    results.push(aliasResult);
+  }
 
   if (results.length === 0) {
     const like = `%${escapeLike(query)}%`;
@@ -6318,7 +6740,6 @@ export function searchSessions(db: LooDatabase, options: {
       .map((row, index) => sessionSearchResultFromRow(row, index + 1, createSnippet(String(row.safeText ?? ""), query), "safe_text", ["safe_text_match"], nowMs)));
   }
 
-  const seenRefs = new Set(results.map((result) => result.sourceRef));
   for (const aliasResult of appServerAliasSearchResults(db, options.appServerThreads ?? null, query, nowMs)) {
     if (seenRefs.has(aliasResult.sourceRef)) continue;
     seenRefs.add(aliasResult.sourceRef);
@@ -6326,6 +6747,56 @@ export function searchSessions(db: LooDatabase, options: {
     if (results.length >= limit) break;
   }
   return results.slice(0, limit).map((result, index) => ({ ...result, score: index + 1 }));
+}
+
+function threadTitleAliasSearchResults(db: LooDatabase, query: string, nowMs: number): SessionSearchResult[] {
+  const queryKey = normalizedTitle(query);
+  if (!queryKey) return [];
+  const rows = db.prepare(`
+    SELECT
+      a.thread_id AS threadId,
+      a.alias_text AS aliasText,
+      a.alias_norm AS aliasNorm,
+      a.updated_at AS updatedAt,
+      s.title AS title,
+      s.summary AS summary,
+      s.updated_at AS sessionUpdatedAt
+    FROM codex_thread_title_aliases a
+    LEFT JOIN codex_sessions s ON s.thread_id = a.thread_id
+    WHERE a.alias_kind = 'thread_title_finalizer'
+    ORDER BY COALESCE(s.updated_at, a.updated_at) DESC
+    LIMIT 250
+  `).all() as Array<Record<string, unknown>>;
+  return rows.filter((row) => titleAliasMatchesQuery(String(row.aliasNorm ?? ""), queryKey)).slice(0, 25).map((row, index) => {
+    const threadId = String(row.threadId);
+    const updatedAt = nullableString(row.sessionUpdatedAt) ?? nullableString(row.updatedAt);
+    const aliasText = publicSafeSearchText(String(row.aliasText ?? ""), 160);
+    return {
+      sourceKind: "codex_thread",
+      sourceRef: codexThreadRef(threadId),
+      threadId,
+      title: nullablePublicSafeSearchString(row.title, 160) ?? aliasText,
+      summary: nullablePublicSafeSearchString(row.summary, 900),
+      updatedAt,
+      score: index + 1,
+      snippet: publicSafeSearchText(`Thread title alias: ${aliasText}`, 260),
+      matchKind: "thread_title_alias",
+      freshness: sessionFreshness(updatedAt, nowMs),
+      reasonCodes: unique([
+        "thread_title_finalizer_alias",
+        "derived_cache_alias",
+        row.title ? "" : "index_refresh_recommended"
+      ].filter(Boolean))
+    };
+  });
+}
+
+function titleAliasMatchesQuery(aliasNorm: string, queryKey: string): boolean {
+  if (aliasNorm === queryKey) return true;
+  const queryTokens = queryKey.split(" ").filter((token) => token.length >= 3);
+  if (queryTokens.length < 2) return false;
+  const aliasTokens = new Set(aliasNorm.split(" ").filter(Boolean));
+  return queryTokens.every((token) => aliasTokens.has(token));
 }
 
 function codexSearchRowByThreadId(db: LooDatabase, threadId: string): Record<string, unknown> | null {
