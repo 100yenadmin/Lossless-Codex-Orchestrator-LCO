@@ -1,25 +1,9 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
 import test from "node:test";
-
-const tsxImport = createRequire(import.meta.url).resolve("tsx");
-
-function runLoo(args: string[], env: NodeJS.ProcessEnv = process.env) {
-  return spawnSync(process.execPath, [
-    "--import",
-    tsxImport,
-    "packages/cli/src/index.ts",
-    ...args
-  ], {
-    cwd: process.cwd(),
-    encoding: "utf8",
-    env
-  });
-}
+import { runLoo } from "./helpers/run-loo.js";
 
 test("loo --help exits zero with top-level usage", () => {
   const result = runLoo(["--help"]);
@@ -251,6 +235,19 @@ test("loo release ga-smoke --help exposes aggregate-only GA evidence contract", 
   assert.match(result.stdout, /--candidate-sha sha/);
   assert.match(result.stdout, /--allow-setup-required/);
   assert.match(result.stdout, /aggregate/i);
+  assert.match(result.stdout, /does not publish npm/i);
+  assert.equal(result.stderr.trim(), "");
+});
+
+test("loo qa-lab tool-coverage --help exposes strict real-product coverage gate", () => {
+  const result = runLoo(["qa-lab", "tool-coverage", "--help"]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Usage:\n  loo qa-lab tool-coverage/);
+  assert.match(result.stdout, /--coverage-policy full\|facade/);
+  assert.match(result.stdout, /every declared `loo_\*` tool/);
+  assert.match(result.stdout, /writes `tool-coverage\.json`/);
+  assert.match(result.stdout, /does not invoke tools/i);
   assert.match(result.stdout, /does not publish npm/i);
   assert.equal(result.stderr.trim(), "");
 });
