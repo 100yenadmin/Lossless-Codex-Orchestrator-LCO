@@ -195,6 +195,8 @@ test("qa-lab desktop contract honors explicit false readiness over generic ok fa
   });
   assert.equal(cliReport.ok, false);
   assert.equal(cliReport.metadataProof.cliReady, false);
+  assert.equal(cliReport.evidenceIndex.readinessReport.status, "blocked");
+  assert.ok(cliReport.evidenceIndex.readinessReport.blockerCodes.includes("cli_readiness_missing"));
   assert.ok(cliReport.blockers.some((blocker) => blocker.code === "cli_readiness_missing"));
 
   const appServerReport = createQaLabDesktopContractReport({
@@ -208,7 +210,37 @@ test("qa-lab desktop contract honors explicit false readiness over generic ok fa
   });
   assert.equal(appServerReport.ok, false);
   assert.equal(appServerReport.metadataProof.appServerReady, false);
+  assert.equal(appServerReport.evidenceIndex.readinessReport.status, "blocked");
+  assert.ok(appServerReport.evidenceIndex.readinessReport.blockerCodes.includes("app_server_readiness_missing"));
   assert.ok(appServerReport.blockers.some((blocker) => blocker.code === "app_server_readiness_missing"));
+});
+
+test("qa-lab desktop contract does not treat string false flags as screenshot or video proof", () => {
+  const report = createQaLabDesktopContractReport({
+    packageVersion,
+    candidateSha,
+    readinessReport: readinessReport({
+      screenshotIncluded: "false",
+      videoIncluded: "0",
+      desktopVisibility: {
+        desktopVisible: true,
+        fallbackBackendReady: true,
+        codexDesktopReady: true,
+        screenshotIncluded: "false",
+        videoIncluded: "no"
+      }
+    }),
+    actionBoundScratchProof: scratchProof({
+      rawWindowTextIncluded: "false",
+      rawTranscriptIncluded: "0"
+    })
+  });
+
+  assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+  assert.equal(report.screenshotVideoProof.screenshotProvided, false);
+  assert.equal(report.screenshotVideoProof.videoProvided, false);
+  assert.equal(report.evidenceIndex.readinessReport.status, "ready");
+  assert.equal(report.evidenceIndex.actionBoundScratchProof.status, "ready");
 });
 
 test("qa-lab desktop contract blocks stale and malformed candidate sha evidence", () => {

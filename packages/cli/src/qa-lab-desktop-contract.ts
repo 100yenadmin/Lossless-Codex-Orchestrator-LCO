@@ -168,6 +168,7 @@ export function createQaLabDesktopContractReport(options: QaLabDesktopContractOp
   }
 
   const dedupedBlockers = uniqueBlockers(blockers);
+  refreshEvidenceIndexStatuses(evidenceIndex, dedupedBlockers);
   const desktopContractReady = dedupedBlockers.filter((blocker) => blocker.severity !== "P3").length === 0;
   return {
     schema: "lco.qaLab.desktopContract.v1",
@@ -342,9 +343,26 @@ function containsFlag(value: unknown, keys: string[]): boolean {
   if (Array.isArray(value)) return value.some((item) => containsFlag(item, keys));
   if (!isRecord(value)) return false;
   return Object.entries(value).some(([key, item]) => {
-    if (keys.includes(key)) return item === true || (typeof item === "string" && item.length > 0);
+    if (keys.includes(key)) return item === true || (typeof item === "string" && ["true", "1", "yes"].includes(item.toLowerCase()));
     return containsFlag(item, keys);
   });
+}
+
+function refreshEvidenceIndexStatuses(
+  evidenceIndex: QaLabDesktopContractReport["evidenceIndex"],
+  blockers: QaLabDesktopContractBlocker[]
+): void {
+  for (const source of ["readinessReport", "actionBoundScratchProof"] as const) {
+    const entry = evidenceIndex[source];
+    const sourceCodes = blockers.filter((blocker) => blocker.source === source).map((blocker) => blocker.code);
+    if (sourceCodes.length === 0) continue;
+    entry.blockerCodes = [...new Set([...entry.blockerCodes, ...sourceCodes])];
+    if (entry.status !== "unsafe") {
+      entry.status = entry.blockerCodes.some((code) => code === "unsafe_evidence_value" || code.endsWith("_not_public_safe"))
+        ? "unsafe"
+        : "blocked";
+    }
+  }
 }
 
 function evidenceStatus(evidence: LoadedEvidence, blockerCodes: string[]): QaLabDesktopContractEvidenceEntry["status"] {
