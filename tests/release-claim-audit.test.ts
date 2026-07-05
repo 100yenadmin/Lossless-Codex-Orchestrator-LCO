@@ -377,7 +377,8 @@ test("OpenClaw plugin manifest is packageable and matches the beta safety bounda
     mcp?: { command?: string; transport?: string };
     contracts?: { tools?: unknown[]; toolDeclarations?: unknown[] };
   };
-  const expectedTools = createLooToolDeclarations();
+  const expectedTools = createLooToolDeclarations({ includeAliases: true });
+  const expectedBaseTools = createLooToolDeclarations({ includeAliases: false });
   const expectedToolNames = expectedTools.map((tool) => tool.name);
 
   assert.equal(packageJson.name, "lossless-openclaw-orchestrator");
@@ -392,7 +393,7 @@ test("OpenClaw plugin manifest is packageable and matches the beta safety bounda
   assert.equal(manifest.version, packageJson.version);
   assert.equal(sourceManifest.version, packageJson.version);
   assert.equal(sourceManifest.mcp?.command, manifest.mcp?.command);
-  assert.deepEqual([...expectedToolNames].sort(), Object.keys(LOO_COMMAND_POLICY).sort());
+  assert.deepEqual([...expectedBaseTools.map((tool) => tool.name)].sort(), Object.keys(LOO_COMMAND_POLICY).sort());
   assert.equal(manifest.name, "Lossless OpenClaw Orchestrator");
   assert.match(manifest.description ?? "", /local Codex sessions/i);
   assert.match(manifest.description ?? "", /approval-gated dry-run\/control boundaries/i);
@@ -895,7 +896,7 @@ function writeProjectSkeleton(rootDir: string, overrides: { readme?: string; run
     mkdirSync(join(rootDir, "dist/packages/openclaw-plugin/src"), { recursive: true });
     writeFileSync(join(rootDir, "dist/packages/openclaw-plugin/src/index.js"), "export default {};\n");
   }
-  const tools = createLooToolDeclarations();
+  const tools = createLooToolDeclarations({ includeAliases: true });
   writeFileSync(join(rootDir, "package.json"), JSON.stringify({
     name: "lossless-openclaw-orchestrator",
     version: "0.1.0-beta.0",

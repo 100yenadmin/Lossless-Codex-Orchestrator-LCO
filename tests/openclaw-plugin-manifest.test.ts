@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { LOO_COMMAND_POLICY } from "../packages/adapters/src/index.js";
-import { createLooToolDeclarations, createLooToolSurfaceSummary } from "../packages/mcp-server/src/tools.js";
+import {
+  canonicalLooToolName,
+  createLooToolDeclarations,
+  createLooToolSurfaceSummary,
+  isLooToolAlias
+} from "../packages/mcp-server/src/tools.js";
 
 const PLUGIN_ENTRY = "./dist/packages/openclaw-plugin/src/index.js";
 const PACKAGE_BINS = {
@@ -57,13 +62,13 @@ test("OpenClaw plugin contracts match the exported loo tool declarations", () =>
   const sourceManifest = readJson("packages/openclaw-plugin/openclaw.plugin.json");
   const contracts = manifest.contracts as { tools?: unknown; toolDeclarations?: unknown } | undefined;
   const sourceContracts = sourceManifest.contracts as { tools?: unknown; toolDeclarations?: unknown } | undefined;
-  const expectedTools = createLooToolDeclarations();
+  const expectedTools = createLooToolDeclarations({ includeAliases: true });
 
   assert.deepEqual(contracts?.tools, expectedTools.map((tool) => tool.name));
   assert.deepEqual(contracts?.toolDeclarations, expectedTools);
   assert.deepEqual(sourceContracts?.toolDeclarations, expectedTools);
   for (const declaration of [...(contracts?.toolDeclarations as typeof expectedTools), ...(sourceContracts?.toolDeclarations as typeof expectedTools)]) {
-    assert.deepEqual(declaration.safety, LOO_COMMAND_POLICY[declaration.name]);
+    assert.deepEqual(declaration.safety, LOO_COMMAND_POLICY[canonicalLooToolName(declaration.name)]);
   }
   assert.deepEqual(manifest.activation, { onStartup: true });
   assert.deepEqual(manifest.configSchema, {
@@ -79,16 +84,18 @@ test("OpenClaw plugin contracts classify every tool into an operator surface tie
   const contracts = manifest.contracts as { toolDeclarations?: unknown; toolSurface?: unknown } | undefined;
   const sourceContracts = sourceManifest.contracts as { toolDeclarations?: unknown; toolSurface?: unknown } | undefined;
   const generatedToolSurface = createLooToolSurfaceSummary();
-  const declarations = createLooToolDeclarations() as Array<{
+  const declarations = createLooToolDeclarations({ includeAliases: true }) as Array<{
     name: string;
     metadata?: {
       tier?: unknown;
       operatorPathRank?: unknown;
       operatorPathRole?: unknown;
+      aliasOf?: unknown;
     };
   }>;
+  const baseDeclarations = declarations.filter((declaration) => !isLooToolAlias(declaration));
 
-  assert.equal(declarations.length > generatedToolSurface.publicFacadeTools.length, true, "expert/debug tools must remain declared");
+  assert.equal(baseDeclarations.length > generatedToolSurface.publicFacadeTools.length, true, "expert/debug tools must remain declared");
   for (const declaration of declarations) {
     assert.equal(
       (generatedToolSurface.tiers as string[]).includes(String(declaration.metadata?.tier)),
@@ -97,7 +104,7 @@ test("OpenClaw plugin contracts classify every tool into an operator surface tie
     );
   }
 
-  const publicFacade = declarations
+  const publicFacade = baseDeclarations
     .filter((declaration) => declaration.metadata?.tier === "public_facade")
     .sort((left, right) => Number(left.metadata?.operatorPathRank) - Number(right.metadata?.operatorPathRank));
   assert.equal(publicFacade.length >= 6 && publicFacade.length <= 8, true, "public facade must stay compact");
@@ -105,6 +112,14 @@ test("OpenClaw plugin contracts classify every tool into an operator surface tie
   assert.deepEqual(publicFacade.map((declaration) => declaration.metadata?.operatorPathRank), [1, 2, 3, 4, 5, 6, 7, 8]);
   for (const declaration of publicFacade) {
     assert.equal(typeof declaration.metadata?.operatorPathRole, "string", `${declaration.name} must describe its facade role`);
+  }
+  const aliases = declarations.filter((declaration) => isLooToolAlias(declaration));
+  assert.deepEqual(
+    aliases.map((declaration) => declaration.name).sort(),
+    generatedToolSurface.publicFacadeTools.map((name) => name.replace(/^loo_/, "lco_")).sort()
+  );
+  for (const alias of aliases) {
+    assert.equal(generatedToolSurface.publicFacadeTools.includes(String(alias.metadata?.aliasOf)), true);
   }
 
   for (const manifestContracts of [contracts, sourceContracts]) {
@@ -129,6 +144,16 @@ test("OpenClaw plugin contracts classify every tool into an operator surface tie
             missingPreferredBackendBehavior?: unknown;
             proofBoundary?: unknown;
           };
+          exposureProfile?: {
+            environmentVariable?: unknown;
+            defaultProfile?: unknown;
+            profiles?: {
+              facade?: {
+                tiers?: unknown;
+              };
+            };
+            callPolicy?: unknown;
+          };
         }
       | undefined;
 
@@ -140,6 +165,10 @@ test("OpenClaw plugin contracts classify every tool into an operator surface tie
     assert.equal(toolSurface?.namingPolicy?.legacyCompatiblePrefix, "loo_");
     assert.equal(toolSurface?.namingPolicy?.compatibilityIssue, "#434");
     assert.match(String(toolSurface?.namingPolicy?.aliasPolicy), /backward compatible/);
+    assert.equal(toolSurface?.exposureProfile?.environmentVariable, "LOO_TOOL_PROFILE");
+    assert.equal(toolSurface?.exposureProfile?.defaultProfile, "all");
+    assert.deepEqual(toolSurface?.exposureProfile?.profiles?.facade?.tiers, ["public_facade"]);
+    assert.match(String(toolSurface?.exposureProfile?.callPolicy), /hidden.*callable/i);
     assert.equal(toolSurface?.desktopFallback?.normalFirstPath, "direct Codex protocol");
     assert.equal(toolSurface?.desktopFallback?.preferredBackend, "cua-driver");
     assert.equal(toolSurface?.desktopFallback?.preferredLaunch, "cua-driver mcp");
