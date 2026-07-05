@@ -49,7 +49,7 @@ import { runReleasePreflight } from "./release-preflight.js";
 import { createReleaseStatus } from "./release-status.js";
 import { createGeneralReleaseReadiness } from "./general-release-readiness.js";
 import { runOpenClawDogfood } from "./openclaw-dogfood.js";
-import { DEFAULT_REQUIRED_TOOL_CALLS, runOpenClawToolSmoke } from "./openclaw-tool-smoke.js";
+import { DEFAULT_REQUIRED_TOOL_CALLS, FULL_GATEWAY_SMOKE_TOOL_CALLS, runOpenClawToolSmoke } from "./openclaw-tool-smoke.js";
 import { createPublishedPackageSmokeReport } from "./published-package-smoke.js";
 import { createQaLabToolCoverageReport, type QaLabCoveragePolicy } from "./qa-lab-tool-coverage.js";
 import { runOpenClawGatewayLiveControlSmoke, type OpenClawGatewayLiveControlAction } from "./openclaw-live-control-smoke.js";
@@ -886,7 +886,7 @@ function mainUsageText(): string {
     "  loo audit-path",
     "  loo codex live-control-smoke --evidence-dir path [--thread-id id] [--message text] [--cwd path] [--timeout-ms ms] [--audit-path path] [--codex-bin path] [--app-server-args \"app-server --stdio\"]",
     "  loo openclaw dogfood [--dev] [--profile name] [--install-source path] [--link] [--force-install] [--evidence-path path] [--strict]",
-    "  loo openclaw tool-smoke [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--thread-id id] [--expand-profile metadata|brief|evidence] [--token-budget n] [--required-tool name] [--evidence-path path] [--strict]",
+    "  loo openclaw tool-smoke [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--thread-id id] [--expand-profile metadata|brief|evidence] [--token-budget n] [--coverage default|full] [--required-tool name] [--evidence-path path] [--strict]",
     "  loo openclaw published-smoke --evidence-dir path --dogfood-report path --tool-smoke-report path [--configured-tool-smoke-report path] [--npm-install-diagnostic-report path] [--registry-version version] [--registry-beta-version version] [--root path] [--now iso] [--strict]",
     "  loo openclaw live-control-smoke --evidence-dir path --thread-id id [--action send|resume] [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--message text] [--strict]",
     "  loo openclaw post-action-refresh-smoke --evidence-dir path --thread-id id --live-proof-report path [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--expand-profile metadata|brief|evidence] [--token-budget n] [--strict]",
@@ -990,7 +990,7 @@ function printOpenClawDogfoodHelp(): void {
 function printOpenClawToolSmokeHelp(): void {
   console.log([
     "Usage:",
-    "  loo openclaw tool-smoke [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--thread-id id] [--expand-profile metadata|brief|evidence] [--token-budget n] [--desktop-fallback-coherence fixture|omit] [--required-tool name] [--evidence-path path] [--strict]",
+    "  loo openclaw tool-smoke [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--thread-id id] [--expand-profile metadata|brief|evidence] [--token-budget n] [--coverage default|full] [--desktop-fallback-coherence fixture|omit] [--required-tool name] [--evidence-path path] [--strict]",
     "",
     "Runs a public-safe OpenClaw gateway smoke for selected loo_* tools.",
     "",
@@ -998,6 +998,8 @@ function printOpenClawToolSmokeHelp(): void {
     `  ${DEFAULT_REQUIRED_TOOL_CALLS.join(", ")}`,
     "",
     "Options:",
+    "  --coverage default|full",
+    "                          Use the default facade/workflow smoke set or the full declared-tool disposition matrix.",
     "  --required-tool name    Replace the default required loo_* tool set with explicit entries; may be repeated.",
     "  --desktop-fallback-coherence fixture|omit",
     "                          For loo_codex_desktop_fallback_status, send the default public-safe coherence fixture or omit coherence to prove the coherence_input_missing handoff.",
@@ -2231,6 +2233,7 @@ function parseOpenClawToolSmokeArgs(input: string[]): {
   tokenBudget?: number;
   evidencePath?: string;
   requiredTools?: string[];
+  coverage?: "default" | "full";
   gatewayTimeoutMs?: number;
   desktopFallbackCoherence?: "fixture" | "omit";
   strict?: boolean;
@@ -2263,6 +2266,10 @@ function parseOpenClawToolSmokeArgs(input: string[]): {
       parsed.expandProfile = value;
     } else if (arg === "--token-budget") {
       parsed.tokenBudget = parsePositiveInteger(input[++index], arg, 8000);
+    } else if (arg === "--coverage") {
+      const value = requireOptionValue(input[++index], arg);
+      if (value !== "default" && value !== "full") throw new Error("--coverage must be default or full");
+      parsed.coverage = value;
     } else if (arg === "--required-tool") {
       requiredTools.push(requireOptionValue(input[++index], arg));
     } else if (arg === "--desktop-fallback-coherence") {
@@ -2278,7 +2285,8 @@ function parseOpenClawToolSmokeArgs(input: string[]): {
     }
   }
   if (requiredTools.length > 0) parsed.requiredTools = requiredTools;
-  const effectiveRequiredTools = requiredTools.length > 0 ? requiredTools : DEFAULT_REQUIRED_TOOL_CALLS;
+  else if (parsed.coverage === "full") parsed.requiredTools = FULL_GATEWAY_SMOKE_TOOL_CALLS;
+  const effectiveRequiredTools = parsed.requiredTools ?? DEFAULT_REQUIRED_TOOL_CALLS;
   if (parsed.desktopFallbackCoherence === "omit" && !effectiveRequiredTools.includes("loo_codex_desktop_fallback_status")) {
     throw new Error("--desktop-fallback-coherence omit requires --required-tool loo_codex_desktop_fallback_status");
   }
