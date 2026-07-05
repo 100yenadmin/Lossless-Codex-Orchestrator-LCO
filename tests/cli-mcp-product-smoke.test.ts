@@ -530,3 +530,32 @@ test("loo qa-lab cli-mcp-smoke accepts fast-exit server after successful tools/c
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("loo qa-lab cli-mcp-smoke rejects excessive per-probe timeout values before running probes", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-cli-mcp-smoke-timeout-cap-"));
+  try {
+    const result = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "qa-lab",
+      "cli-mcp-smoke",
+      "--evidence-dir",
+      join(dir, "evidence"),
+      "--package-version",
+      "1.2.5",
+      "--timeout-ms",
+      "10001",
+      "--strict"
+    ], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      timeout: 15_000
+    });
+
+    assert.equal(result.status, 2, result.stderr || result.stdout);
+    assert.match(result.stderr, /--timeout-ms requires an integer between 1 and 10000/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

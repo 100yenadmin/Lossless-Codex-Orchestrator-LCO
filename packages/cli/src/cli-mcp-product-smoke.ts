@@ -75,6 +75,7 @@ const DEFAULT_REQUIRED_TOOLS = [
   "loo_expand_query"
 ];
 const DEFAULT_TIMEOUT_MS = 5_000;
+export const MAX_CLI_MCP_PRODUCT_SMOKE_TIMEOUT_MS = 10_000;
 const PRIVATE_DATA_EXCLUSIONS = [
   "raw CLI stdout/stderr",
   "raw MCP stdout/stderr",
@@ -135,7 +136,7 @@ export async function createCliMcpProductSmokeReport(options: CliMcpProductSmoke
       screenshotsCaptured: false
     },
     privateDataExclusions: PRIVATE_DATA_EXCLUSIONS,
-    proofBoundary: "This public-safe QA Lab product smoke proves CLI --help, MCP tools/list, and MCP tools/call for one safe representative tool from the selected published/fresh-install candidate binaries. It does not run live Codex control, mutate a desktop GUI, capture screenshots, publish npm, create a GitHub Release, store raw CLI output, or store raw MCP output.",
+    proofBoundary: "This public-safe QA Lab product smoke proves CLI --help, MCP tools/list, and MCP tools/call for one safe representative tool from the selected published/fresh-install candidate binaries. The CLI and MCP probes run sequentially with the configured timeout applied per probe. It does not run live Codex control, mutate a desktop GUI, capture screenshots, publish npm, create a GitHub Release, store raw CLI output, or store raw MCP output.",
     nextSafeCommands: [
       `loo qa-lab cli-mcp-smoke --evidence-dir <dir> --package-version ${options.packageVersion} --strict`,
       "loo --help",

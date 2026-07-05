@@ -51,7 +51,7 @@ import { createGeneralReleaseReadiness } from "./general-release-readiness.js";
 import { runOpenClawDogfood } from "./openclaw-dogfood.js";
 import { DEFAULT_REQUIRED_TOOL_CALLS, runOpenClawToolSmoke } from "./openclaw-tool-smoke.js";
 import { createPublishedPackageSmokeReport } from "./published-package-smoke.js";
-import { createCliMcpProductSmokeReport } from "./cli-mcp-product-smoke.js";
+import { createCliMcpProductSmokeReport, MAX_CLI_MCP_PRODUCT_SMOKE_TIMEOUT_MS } from "./cli-mcp-product-smoke.js";
 import { createQaLabToolCoverageReport, type QaLabCoveragePolicy } from "./qa-lab-tool-coverage.js";
 import { runOpenClawGatewayLiveControlSmoke, type OpenClawGatewayLiveControlAction } from "./openclaw-live-control-smoke.js";
 import { runOpenClawPostActionRefreshSmoke } from "./openclaw-post-action-refresh-smoke.js";
@@ -1311,7 +1311,7 @@ function printQaLabCliMcpSmokeHelp(): void {
     "  --mcp-bin path        MCP server binary to probe with initialize + tools/list; defaults to loo-mcp-server.",
     "  --required-tool name  Require a listed MCP tool; may be repeated.",
     "  --tool-call name      Safe representative MCP tool to call with empty arguments; defaults to loo_doctor.",
-    "  --timeout-ms ms       Per-probe timeout.",
+    `  --timeout-ms ms       Per-probe timeout; max ${MAX_CLI_MCP_PRODUCT_SMOKE_TIMEOUT_MS}ms. CLI and MCP probes run sequentially.`,
     "  --strict              Exit non-zero unless CLI and MCP readiness are both proved.",
     "",
     "Safety boundary:",
@@ -3201,7 +3201,7 @@ function parseQaLabCliMcpSmokeArgs(input: string[]): {
       continue;
     }
     if (arg === "--timeout-ms") {
-      timeoutMs = parsePositiveInteger(input[++index], "--timeout-ms", 60_000);
+      timeoutMs = parsePositiveInteger(input[++index], "--timeout-ms", MAX_CLI_MCP_PRODUCT_SMOKE_TIMEOUT_MS);
       continue;
     }
     if (arg === "--now") {
