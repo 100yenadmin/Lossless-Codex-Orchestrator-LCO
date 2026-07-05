@@ -1022,7 +1022,9 @@ export function createLooTools(options: {
 export function parseLooToolProfile(value: unknown): LooToolProfile {
   if (value === undefined || value === null || value === "") return "all";
   if (value === "facade" || value === "standard" || value === "all") return value;
-  throw new Error("LOO_TOOL_PROFILE must be facade, standard, or all");
+  // Exposure knob, not a safety gate: a typo must not crash the MCP server at module load.
+  console.error(`[loo] Ignoring invalid LOO_TOOL_PROFILE ${JSON.stringify(String(value))}; expected "facade", "standard", or "all". Using "all".`);
+  return "all";
 }
 
 export function filterLooToolsByProfile<T extends { metadata: LooToolSurfaceMetadata }>(tools: T[], profile: LooToolProfile): T[] {

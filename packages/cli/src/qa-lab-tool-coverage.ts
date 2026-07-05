@@ -222,6 +222,8 @@ export function createQaLabToolCoverageReport(options: QaLabToolCoverageOptions)
   const catalogTools = new Set<string>();
   collectCatalogTools(catalogTools, loadedToolSmoke.value);
   collectPublishedSmokeTools(catalogTools, loadedPublishedSmoke.value);
+  addUnknownLcoAliasBlockers(blockers, manifestTools, "manifest");
+  addUnknownLcoAliasBlockers(blockers, catalogTools, "catalog");
 
   const invocations = collectInvocations(loadedToolSmoke, loadedPublishedSmoke, loadedDogfood);
   const invocationMap = new Map<string, ToolInvocation>();
@@ -558,6 +560,17 @@ function buildTierCounts(tools: Array<{ tier: QaLabToolTier }>): Record<QaLabToo
 
 function addBlocker(blockers: QaLabToolCoverageBlocker[], severity: QaLabBlockerSeverity, code: string, source: string, detail: string): void {
   blockers.push({ severity, code, source, detail });
+}
+
+// Known lco_* aliases always canonicalize to their loo_* target, so any lco_-prefixed name that
+// survives canonicalization has no public-facade alias mapping and must not count as coverage.
+function addUnknownLcoAliasBlockers(blockers: QaLabToolCoverageBlocker[], names: Iterable<string> | null, source: string): void {
+  if (!names) return;
+  for (const name of names) {
+    if (name.startsWith("lco_")) {
+      addBlocker(blockers, "P3", `unknown_lco_alias:${name}`, source, "lco_-prefixed name has no public-facade alias mapping; declare the loo_* canonical name or fix the alias registry.");
+    }
+  }
 }
 
 function uniqueBlockers(blockers: QaLabToolCoverageBlocker[]): QaLabToolCoverageBlocker[] {

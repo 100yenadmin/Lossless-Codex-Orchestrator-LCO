@@ -207,6 +207,32 @@ test("qa-lab tool coverage excludes lco aliases from declared-tool accounting", 
   assert.equal(report.catalogCoverage.extraInManifest.some((name) => name.startsWith("lco_")), false);
 });
 
+test("qa-lab tool coverage flags unknown lco_* names instead of silently canonicalizing them", (t) => {
+  const dir = makeTempDir(t, "loo-qa-tool-coverage-unknown-alias-");
+  const baseTools = createLooToolDeclarations({ includeAliases: false });
+  const toolSmokeReport = writeToolSmokeReport(dir, baseTools.map((tool) => tool.name));
+  const manifestPath = join(dir, "openclaw.plugin.json");
+  writeJson(manifestPath, {
+    contracts: {
+      tools: [...baseTools.map((tool) => tool.name), "lco_bogus_tool"]
+    }
+  });
+
+  const report = createQaLabToolCoverageReport({
+    evidenceDir: dir,
+    packageVersion,
+    candidateSha,
+    toolSmokeReport,
+    manifestPath,
+    coveragePolicy: "full",
+    claimScope: "codex-working-app-proof",
+    now: "2026-07-05T00:00:00.000Z"
+  });
+
+  assert.ok(report.blockers.some((blocker) => blocker.code === "unknown_lco_alias:lco_bogus_tool"));
+  assert.equal(report.blockers.find((blocker) => blocker.code === "unknown_lco_alias:lco_bogus_tool")?.severity, "P3");
+});
+
 test("qa-lab tool coverage redacts unsafe evidence values instead of echoing canaries", (t) => {
   const dir = makeTempDir(t, "loo-qa-tool-coverage-unsafe-");
   const toolSmokeReport = join(dir, "private-session-source.jsonl");

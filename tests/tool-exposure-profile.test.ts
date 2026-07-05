@@ -12,6 +12,7 @@ import {
   createLooTools,
   createLooToolSurfaceSummary,
   LOO_TOOL_SURFACE,
+  parseLooToolProfile,
   type LooToolDeclaration,
   type LooToolProfile,
   type LooToolTier
@@ -22,6 +23,21 @@ const PROFILE_TIERS: Record<LooToolProfile, LooToolTier[]> = {
   standard: ["public_facade", "workflow_detail"],
   all: ["public_facade", "workflow_detail", "proof_debug", "internal_low_level"]
 };
+
+test("invalid LOO_TOOL_PROFILE falls back to the default profile instead of throwing", () => {
+  const originalError = console.error;
+  const warnings: string[] = [];
+  console.error = (...args: unknown[]) => { warnings.push(args.map(String).join(" ")); };
+  try {
+    assert.equal(parseLooToolProfile("facaed"), "all");
+    assert.equal(parseLooToolProfile(42), "all");
+    assert.equal(warnings.length, 2);
+    assert.ok(warnings[0].includes("LOO_TOOL_PROFILE"));
+    assert.ok(warnings[0].includes("facaed"));
+  } finally {
+    console.error = originalError;
+  }
+});
 
 test("tool exposure profiles filter base declarations from the shared tier map", () => {
   const baseAll = createLooToolDeclarations({ profile: "all", includeAliases: false });
