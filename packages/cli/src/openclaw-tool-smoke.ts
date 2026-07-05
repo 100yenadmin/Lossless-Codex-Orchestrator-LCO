@@ -4,7 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute } from "node:path";
 import { PREPARED_CARD_STATES } from "../../core/src/index.js";
 
-export const DEFAULT_REQUIRED_TOOL_CALLS = [
+const BASE_GATEWAY_SMOKE_TOOL_CALLS = [
   "loo_doctor",
   "loo_search_sessions",
   "loo_codex_thread_map",
@@ -43,7 +43,95 @@ export const DEFAULT_REQUIRED_TOOL_CALLS = [
   "loo_prepared_inbox"
 ];
 
+const SUCCESSFUL_INVOCATION_TOOL_CALLS = [
+  "loo_describe_ref",
+  "loo_expand_session",
+  "loo_grep",
+  "loo_codex_session_management_map",
+  "loo_codex_tool_calls",
+  "loo_closeout_dry_run",
+  "loo_session_sanitizer",
+  "loo_permissions",
+  "loo_audit_tail",
+  "loo_codex_sqlite_stores",
+  "loo_desktop_see"
+];
+
+const SUCCESSFUL_DRY_RUN_TOOL_CALLS = [
+  "loo_codex_start_thread",
+  "loo_codex_resume_thread",
+  "loo_codex_send_message",
+  "loo_codex_steer_thread",
+  "loo_codex_interrupt_thread"
+];
+
+const EXPECTED_FAIL_CLOSED_TOOL_CALLS = [
+  "loo_codex_start_thread_post_create_proof",
+  "loo_codex_desktop_fallback_status",
+  "loo_desktop_act",
+  "loo_desktop_proof_report",
+  "loo_desktop_live_proof_harness",
+  "loo_desktop_proof_action"
+];
+
+const EXCLUDED_NON_CLAIM_TOOL_CALLS = [
+  "loo_index_sessions",
+  "loo_lcm_peer_dbs"
+];
+
+const SUCCESSFUL_INVOCATION_TOOL_SET = new Set(SUCCESSFUL_INVOCATION_TOOL_CALLS);
+const SUCCESSFUL_DRY_RUN_TOOL_SET = new Set(SUCCESSFUL_DRY_RUN_TOOL_CALLS);
+const EXPECTED_FAIL_CLOSED_TOOL_SET = new Set(EXPECTED_FAIL_CLOSED_TOOL_CALLS);
+const EXCLUDED_NON_CLAIM_TOOL_SET = new Set(EXCLUDED_NON_CLAIM_TOOL_CALLS);
+const BASE_GATEWAY_SMOKE_TOOL_SET = new Set(BASE_GATEWAY_SMOKE_TOOL_CALLS);
+const KNOWN_TOOL_DISPOSITION_SET = new Set([
+  ...BASE_GATEWAY_SMOKE_TOOL_CALLS,
+  ...SUCCESSFUL_INVOCATION_TOOL_CALLS,
+  ...SUCCESSFUL_DRY_RUN_TOOL_CALLS,
+  ...EXPECTED_FAIL_CLOSED_TOOL_CALLS,
+  ...EXCLUDED_NON_CLAIM_TOOL_CALLS,
+  "loo_codex_control_dry_run"
+]);
+const THREAD_BOUND_TOOL_ARG_SET = new Set([
+  "loo_describe_ref",
+  "loo_describe_session",
+  "loo_expand_session",
+  "loo_codex_control_dry_run",
+  "loo_codex_resume_thread",
+  "loo_codex_send_message",
+  "loo_codex_steer_thread",
+  "loo_codex_interrupt_thread",
+  "loo_codex_desktop_coherence",
+  "loo_codex_desktop_fallback_status",
+  "loo_codex_tool_calls",
+  "loo_closeout_dry_run",
+  "loo_session_sanitizer",
+  "loo_codex_start_thread_post_create_proof"
+]);
+
+export const DEFAULT_REQUIRED_TOOL_CALLS = BASE_GATEWAY_SMOKE_TOOL_CALLS;
+
+export const FULL_GATEWAY_SMOKE_TOOL_CALLS = [
+  ...new Set([
+    ...BASE_GATEWAY_SMOKE_TOOL_CALLS,
+    ...SUCCESSFUL_INVOCATION_TOOL_CALLS,
+    ...SUCCESSFUL_DRY_RUN_TOOL_CALLS,
+    ...EXPECTED_FAIL_CLOSED_TOOL_CALLS,
+    ...EXCLUDED_NON_CLAIM_TOOL_CALLS
+  ])
+];
+
 const PREPARED_CARD_STATE_SET = new Set<string>(PREPARED_CARD_STATES);
+const MAX_RESTRICTED_ACTION_SCAN_DEPTH = 64;
+const MAX_RESTRICTED_ACTION_SCAN_ENTRIES = 512;
+const SAFE_FAIL_CLOSED_REASON_CODES_BY_TOOL = new Map<string, Set<string>>([
+  ["loo_codex_start_thread_post_create_proof", new Set(["post_create_proof_missing_persisted_evidence", "created_thread_not_persisted"])],
+  ["loo_codex_desktop_fallback_status", new Set(["coherence_input_missing", "desktop_visibility_not_proven"])],
+  ["loo_desktop_act", new Set(["desktop_live_action_disallowed"])],
+  ["loo_desktop_proof_report", new Set(["live_action_not_observed"])],
+  ["loo_desktop_live_proof_harness", new Set(["desktop_live_action_not_run"])],
+  ["loo_desktop_proof_action", new Set(["execute_false_no_action"])]
+]);
 
 const AUTONOMY_TICK_SUMMARY_KEYS = [
   "totalLanes",
@@ -73,8 +161,32 @@ export type OpenClawToolSmokeOptions = {
   strict?: boolean;
 };
 
+export type OpenClawToolSmokeDisposition =
+  | "successful_invocation"
+  | "successful_dry_run"
+  | "expected_fail_closed"
+  | "excluded_non_claim"
+  | "unknown_non_claim";
+
+export type OpenClawToolSmokeDispositionPlanEntry = {
+  toolName: string;
+  disposition: OpenClawToolSmokeDisposition;
+  invoked: boolean;
+  productEvidenceClaimed: boolean;
+  reason: string;
+};
+
+export type OpenClawToolSmokeDispositionPlan = {
+  schema: "lco.openclawToolSmoke.dispositionPlan.v1";
+  counts: Record<OpenClawToolSmokeDisposition, number>;
+  entries: OpenClawToolSmokeDispositionPlanEntry[];
+  proofBoundary: string;
+};
+
 export type OpenClawToolInvocationSummary = {
   toolName: string;
+  disposition: OpenClawToolSmokeDisposition;
+  productEvidenceClaimed: boolean;
   exitStatus: number | null;
   ok: boolean;
   gatewayMethod: "tools.invoke";
@@ -125,6 +237,7 @@ export type OpenClawToolSmokeReport = {
     toolCount: number;
   };
   invocations: OpenClawToolInvocationSummary[];
+  smokeDispositionPlan: OpenClawToolSmokeDispositionPlan;
   agentReasoning?: {
     safeRecommendation: string;
     selectedThreadId?: string;
@@ -217,16 +330,20 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
   const catalogComparable = catalogCall.status === 0 && catalogParsed;
   const catalogToolNames = catalogComparable ? extractCatalogToolNames(unwrapGatewayPayload(catalogCall.parsed)) : [];
   const missingRequiredTools = catalogComparable ? requiredTools.filter((name) => !catalogToolNames.includes(name)) : [];
+  const unknownDispositionTools = requiredTools.filter((name) => !KNOWN_TOOL_DISPOSITION_SET.has(name));
   const blockers = [
     ...gatewayFailureBlockers(catalogCall, "openclaw_catalog_failed"),
     ...(catalogCall.status === 0 && !catalogParsed ? ["openclaw_catalog_invalid_json"] : []),
-    ...(missingRequiredTools.length > 0 ? ["openclaw_catalog_missing_required_tools"] : [])
+    ...(missingRequiredTools.length > 0 ? ["openclaw_catalog_missing_required_tools"] : []),
+    ...(unknownDispositionTools.length > 0 ? ["openclaw_tool_smoke_unknown_disposition"] : [])
   ];
 
   const invocations: OpenClawToolInvocationSummary[] = [];
   let selectedThreadId = options.threadId;
   if (blockers.length === 0) {
     for (const toolName of requiredTools) {
+      const disposition = dispositionForTool(toolName);
+      if (disposition === "excluded_non_claim") continue;
       const args = buildToolArgs({
         toolName,
         query,
@@ -235,15 +352,7 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
         tokenBudget,
         desktopFallbackCoherence: options.desktopFallbackCoherence
       });
-      if (
-        toolName === "loo_describe_ref"
-        || toolName === "loo_describe_session"
-        || toolName === "loo_expand_session"
-        || toolName === "loo_codex_control_dry_run"
-        || toolName === "loo_codex_resume_thread"
-        || toolName === "loo_codex_desktop_coherence"
-        || toolName === "loo_codex_desktop_fallback_status"
-      ) {
+      if (THREAD_BOUND_TOOL_ARG_SET.has(toolName)) {
         if (!args) {
           blockers.push("openclaw_tool_smoke_missing_thread_ref");
           continue;
@@ -256,7 +365,7 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
         confirm: false,
         idempotencyKey: `loo-tool-smoke-${runId}-${toolName}`
       }, gatewayCallOptions);
-      const summary = summarizeInvocation(toolName, call, args ?? {});
+      const summary = summarizeInvocation(toolName, call, args ?? {}, disposition);
       annotateRequestedExpansionProfile(summary, args);
       invocations.push(summary);
       blockers.push(...summary.blockers);
@@ -269,6 +378,7 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
   const uniqueBlockers = [...new Set(blockers)];
   const setupBlockers = setupBlockersFor(uniqueBlockers);
   const setupStatus = setupStatusFor(uniqueBlockers, setupBlockers);
+  const smokeDispositionPlan = buildSmokeDispositionPlan(requiredTools, invocations);
   const agentReasoning = buildAgentReasoning(invocations, uniqueBlockers);
   const report: OpenClawToolSmokeReport = {
     ok: uniqueBlockers.length === 0,
@@ -285,6 +395,7 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
       toolCount: catalogToolNames.length
     },
     invocations,
+    smokeDispositionPlan,
     ...(agentReasoning ? { agentReasoning } : {}),
     blockers: uniqueBlockers,
     setupBlockers,
@@ -300,7 +411,7 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
       broadGatewayScopeApproval: false
     },
     privateDataExclusions: PRIVATE_DATA_EXCLUSIONS,
-    proofBoundary: "This OpenClaw tool-call smoke proves public-safe gateway invocation of selected loo_* tools only. It does not approve live Codex control, GUI mutation, npm publish, GitHub Release creation, channel delivery, broad gateway scope approval, Claude parity, or release-grade customer readiness.",
+    proofBoundary: "This OpenClaw tool-call smoke proves public-safe gateway invocation of selected loo_* tools only. Dry-run proof trusts the plugin/server dry_run response plus audit/hash markers and is not an independent live-action disproof. Desktop fail-closed proof is bound to request-side dry_run:true where applicable plus allowlisted blocker/reason/proof-marker response evidence. It does not approve live Codex control, GUI mutation, npm publish, GitHub Release creation, channel delivery, broad gateway scope approval, Claude parity, or release-grade customer readiness.",
     nextAction: nextActionForBlockers(uniqueBlockers)
   };
 
@@ -309,6 +420,59 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
     writeFileSync(options.evidencePath, `${JSON.stringify(report, null, 2)}\n`);
   }
   return report;
+}
+
+function dispositionForTool(toolName: string): OpenClawToolSmokeDisposition {
+  if (EXCLUDED_NON_CLAIM_TOOL_SET.has(toolName)) return "excluded_non_claim";
+  if (EXPECTED_FAIL_CLOSED_TOOL_SET.has(toolName)) return "expected_fail_closed";
+  if (SUCCESSFUL_DRY_RUN_TOOL_SET.has(toolName) || toolName === "loo_codex_control_dry_run") return "successful_dry_run";
+  if (SUCCESSFUL_INVOCATION_TOOL_SET.has(toolName)) return "successful_invocation";
+  if (BASE_GATEWAY_SMOKE_TOOL_SET.has(toolName)) return "successful_invocation";
+  return "unknown_non_claim";
+}
+
+function productEvidenceClaimedForDisposition(disposition: OpenClawToolSmokeDisposition): boolean {
+  return disposition === "successful_invocation" || disposition === "successful_dry_run";
+}
+
+function dispositionReason(disposition: OpenClawToolSmokeDisposition, toolName: string): string {
+  if (disposition === "successful_invocation") return "Tool is safe to invoke with public-safe fixture arguments.";
+  if (disposition === "successful_dry_run" && toolName === "loo_codex_start_thread") return "Tool is control-capable and must be requested with dry_run:true, then prove live:false plus approval audit and params hash from the response; this does not claim thread-bound control semantics.";
+  if (disposition === "successful_dry_run") return "Tool is control-capable and must be invoked only with dry_run:true or equivalent dry-run proof.";
+  if (disposition === "expected_fail_closed") return "Tool is included only to prove a public-safe blocked/no-action boundary, not product success.";
+  if (disposition === "unknown_non_claim") return "Tool has no explicit QA Lab smoke disposition and must not be invoked or counted as product evidence.";
+  return "Tool is explicitly excluded from product-evidence claims for this smoke because it writes derived cache or may expose peer paths before redaction.";
+}
+
+function buildSmokeDispositionPlan(
+  requiredTools: string[],
+  invocations: OpenClawToolInvocationSummary[]
+): OpenClawToolSmokeDispositionPlan {
+  const invocationsByTool = new Map(invocations.map((invocation) => [invocation.toolName, invocation]));
+  const entries = requiredTools.map((toolName): OpenClawToolSmokeDispositionPlanEntry => {
+    const disposition = dispositionForTool(toolName);
+    const invocation = invocationsByTool.get(toolName);
+    const evidenceEligible = productEvidenceClaimedForDisposition(disposition);
+    return {
+      toolName,
+      disposition,
+      invoked: Boolean(invocation),
+      productEvidenceClaimed: Boolean(evidenceEligible && invocation?.ok),
+      reason: dispositionReason(disposition, toolName)
+    };
+  });
+  return {
+    schema: "lco.openclawToolSmoke.dispositionPlan.v1",
+    counts: {
+      successful_invocation: entries.filter((entry) => entry.disposition === "successful_invocation").length,
+      successful_dry_run: entries.filter((entry) => entry.disposition === "successful_dry_run").length,
+      expected_fail_closed: entries.filter((entry) => entry.disposition === "expected_fail_closed").length,
+      excluded_non_claim: entries.filter((entry) => entry.disposition === "excluded_non_claim").length,
+      unknown_non_claim: entries.filter((entry) => entry.disposition === "unknown_non_claim").length
+    },
+    entries,
+    proofBoundary: "Successful invocation and successful dry-run entries may count as product gateway evidence; dry-run entries trust explicit dry_run/live:false plus audit/hash markers from the tool response and do not independently prove live action absence. Expected fail-closed entries prove only safe refusal/no-action behavior using allowlisted blocker/reason/proof-marker evidence, and desktop action proof is additionally bound to request-side dry_run:true. Excluded and unknown non-claim entries are catalog/disposition records only and must not be counted as product invocation proof."
+  };
 }
 
 function buildAgentReasoning(
@@ -580,6 +744,7 @@ function buildToolArgs(params: {
   if (params.toolName === "loo_search_sessions") return { query: params.query, limit: 3 };
   if (params.toolName === "loo_describe_ref") return params.threadId ? { source_ref: `codex_thread:${params.threadId}` } : null;
   if (params.toolName === "loo_describe_session") return params.threadId ? { thread_id: params.threadId } : null;
+  if (params.toolName === "loo_grep") return { query: params.query, limit: 3, profile: "metadata", token_budget: 200 };
   if (params.toolName === "loo_expand_session") {
     return params.threadId ? { thread_id: params.threadId, profile: params.expandProfile, token_budget: params.tokenBudget } : null;
   }
@@ -591,6 +756,18 @@ function buildToolArgs(params: {
     };
   }
   if (params.toolName === "loo_codex_thread_map") return { limit: 20 };
+  if (params.toolName === "loo_codex_session_management_map") {
+    return { limit: 10, priority_order: ["urgent", "high", "medium", "low"] };
+  }
+  if (params.toolName === "loo_codex_tool_calls") {
+    return params.threadId ? { thread_id: params.threadId, limit: 3 } : null;
+  }
+  if (params.toolName === "loo_closeout_dry_run") {
+    return params.threadId ? { thread_id: params.threadId, limit: 5, include_unavailable: true } : null;
+  }
+  if (params.toolName === "loo_session_sanitizer") {
+    return params.threadId ? { thread_id: params.threadId, limit: 5, repair_plan: false } : null;
+  }
   if (params.toolName === "loo_cockpit_inbox") {
     return params.threadId ? { limit: 5, watcher_specs: smokeWatcherSpecs(params.threadId), now: TOOL_SMOKE_NOW } : { limit: 5 };
   }
@@ -717,11 +894,76 @@ function buildToolArgs(params: {
       message: CONTROL_DRY_RUN_MESSAGE
     } : null;
   }
+  if (params.toolName === "loo_codex_start_thread") return { dry_run: true };
   if (params.toolName === "loo_codex_resume_thread") {
     return params.threadId ? {
       thread_id: params.threadId,
       dry_run: true
     } : null;
+  }
+  if (params.toolName === "loo_codex_send_message") {
+    return params.threadId ? {
+      thread_id: params.threadId,
+      message: CONTROL_DRY_RUN_MESSAGE,
+      dry_run: true
+    } : null;
+  }
+  if (params.toolName === "loo_codex_steer_thread") {
+    return params.threadId ? {
+      thread_id: params.threadId,
+      message: CONTROL_DRY_RUN_MESSAGE,
+      expected_turn_id: "tool-smoke-turn",
+      dry_run: true
+    } : null;
+  }
+  if (params.toolName === "loo_codex_interrupt_thread") {
+    return params.threadId ? {
+      thread_id: params.threadId,
+      dry_run: true
+    } : null;
+  }
+  if (params.toolName === "loo_codex_start_thread_post_create_proof") {
+    return params.threadId ? {
+      created_thread_id: params.threadId,
+      created_thread_ref: `codex_thread:${params.threadId}`,
+      limit: 5
+    } : null;
+  }
+  if (params.toolName === "loo_desktop_act") {
+    return { backend: "cua-driver", action: "focus-safe noop", dry_run: true };
+  }
+  if (params.toolName === "loo_desktop_proof_report") {
+    return {
+      observation: {
+        liveActionObserved: false,
+        rawScreenshotIncluded: false,
+        rawSecretIncluded: false
+      }
+    };
+  }
+  if (params.toolName === "loo_desktop_live_proof_harness") {
+    return {
+      backend: "cua-driver",
+      target_app: "Codex",
+      target_window: "Lossless OpenClaw Orchestrator",
+      action: "focus-safe noop",
+      approval_ref: "tool-smoke-action-bound-proof"
+    };
+  }
+  if (params.toolName === "loo_desktop_proof_action") {
+    return {
+      backend: "cua-driver",
+      target_app: "TextEdit",
+      target_window: "lco-desktop-proof.txt",
+      action: "launch_app TextEdit scratch window",
+      execute: false
+    };
+  }
+  if (params.toolName === "loo_permissions") return {};
+  if (params.toolName === "loo_audit_tail") return { limit: 5 };
+  if (params.toolName === "loo_codex_sqlite_stores") return { max_files: 5 };
+  if (params.toolName === "loo_desktop_see") {
+    return { backend: "cua-driver", include_snapshot: false, max_nodes: 20, max_chars: 2000 };
   }
   return {};
 }
@@ -938,7 +1180,8 @@ function smokeCodexDesktopCollaborationProofReport(threadId?: string): Record<st
 function summarizeInvocation(
   toolName: string,
   call: GatewayJsonResult,
-  requestArgs: Record<string, unknown> = {}
+  requestArgs: Record<string, unknown> = {},
+  disposition: OpenClawToolSmokeDisposition = dispositionForTool(toolName)
 ): OpenClawToolInvocationSummary {
   const payload = call.parsed ? unwrapGatewayPayload(call.parsed) : undefined;
   const blockers = [
@@ -969,7 +1212,7 @@ function summarizeInvocation(
     const tokenBudget = numberPath(summarySource, ["limits", "tokenBudget"]) ?? numberPath(summarySource, ["tokenBudget"]) ?? numberPath(summarySource, ["token_budget"]);
     if (tokenBudget !== undefined) summary.tokenBudget = tokenBudget;
   }
-  if (toolName === "loo_codex_control_dry_run" || toolName === "loo_codex_resume_thread") {
+  if (disposition === "successful_dry_run") {
     const upstreamBlocked = blockers.length > 0;
     const dryRunOutput = details ?? output;
     summary.live = booleanPath(dryRunOutput, ["live"]);
@@ -991,6 +1234,12 @@ function summarizeInvocation(
     if (!upstreamBlocked && (summary.live !== false || !approvalAuditId || !paramsHash || (messageHashRequired && !messageHash))) {
       blockers.push("openclaw_control_dry_run_not_proven");
     }
+  }
+  if (toolName === "loo_desktop_act") {
+    collectSafeToolBlockers(toolName, summary, details ?? output);
+  }
+  if (toolName === "loo_desktop_proof_report" || toolName === "loo_desktop_live_proof_harness" || toolName === "loo_desktop_proof_action") {
+    collectSafeToolBlockers(toolName, summary, details ?? output);
   }
   if (toolName === "loo_codex_desktop_fallback_status") {
     const fallbackOutput = details ?? output;
@@ -1377,9 +1626,14 @@ function summarizeInvocation(
         || item.execute !== false;
     })) blockers.push("prepared_inbox_public_refs_invalid");
   }
+  if (disposition === "expected_fail_closed" && blockers.length === 0 && !expectedFailClosedProven(toolName, details ?? output, summary, requestArgs)) {
+    blockers.push(`expected_fail_closed_not_proven:${toolName}`);
+  }
 
   return {
     toolName,
+    disposition,
+    productEvidenceClaimed: productEvidenceClaimedForDisposition(disposition) && blockers.length === 0,
     exitStatus: call.status,
     ok: blockers.length === 0,
     gatewayMethod: "tools.invoke",
@@ -1399,6 +1653,77 @@ function toolPayloadBlockers(toolName: string, payload: unknown): string[] {
     `openclaw_tool_result_not_ok:${toolName}${safeCode}`,
     ...toolValidationBlockers(toolName, failedPayload)
   ];
+}
+
+function collectSafeToolBlockers(toolName: string, summary: OpenClawToolInvocationSummary["summary"], value: unknown): void {
+  const allowlist = safeFailClosedReasonCodes(toolName);
+  const toolBlockers = arrayPath(value, ["blockers"])
+    .filter((item): item is string => typeof item === "string" && allowlist.has(item))
+    .slice(0, 8);
+  if (toolBlockers.length) summary.toolBlockers = [...new Set([...(summary.toolBlockers ?? []), ...toolBlockers])];
+}
+
+function expectedFailClosedProven(
+  toolName: string,
+  value: unknown,
+  summary: OpenClawToolInvocationSummary["summary"],
+  requestArgs: Record<string, unknown> = {}
+): boolean {
+  if (!isRecord(value)) return false;
+  if (hasRestrictedActionPerformed(value)) return false;
+  collectSafeToolBlockers(toolName, summary, value);
+  const status = stringPath(value, ["status"]);
+  const reasonCodes = arrayPath(value, ["reasonCodes"]).filter((item): item is string => typeof item === "string");
+  const proofMarkers = isRecord(value.proofMarkers) ? value.proofMarkers : null;
+  const hasAllowedBlocker = (summary.toolBlockers?.length ?? 0) > 0;
+  const hasSafeReasonCode = reasonCodes.some((code) => safeFailClosedReasonCodes(toolName).has(code));
+  const hasNoActionProofMarker = proofMarkers?.noActionObserved === true || proofMarkers?.liveActionObserved === false;
+  if (toolName === "loo_desktop_act") {
+    const hasBlockedStatus = status === "blocked" || status === "not_observed";
+    const hasSupportingNoActionProof = hasAllowedBlocker || hasSafeReasonCode || proofMarkers?.noActionObserved === true;
+    if (requestArgs.dry_run !== true) return false;
+    return hasBlockedStatus && hasSupportingNoActionProof;
+  }
+  if (toolName === "loo_codex_desktop_fallback_status" && summary.fallbackReason) return true;
+  if (hasAllowedBlocker || hasSafeReasonCode || hasNoActionProofMarker) return true;
+  if (value.execute === false && toolName === "loo_desktop_proof_action") return true;
+  return false;
+}
+
+function safeFailClosedReasonCodes(toolName: string): Set<string> {
+  return SAFE_FAIL_CLOSED_REASON_CODES_BY_TOOL.get(toolName) ?? new Set<string>();
+}
+
+function hasRestrictedActionPerformed(value: unknown, depth = 0): boolean {
+  if (depth > MAX_RESTRICTED_ACTION_SCAN_DEPTH) return true;
+  if (Array.isArray(value)) {
+    if (value.length > MAX_RESTRICTED_ACTION_SCAN_ENTRIES) return true;
+    return value.some((item) => hasRestrictedActionPerformed(item, depth + 1));
+  }
+  if (!isRecord(value)) return false;
+  const entries = Object.entries(value);
+  if (entries.length > MAX_RESTRICTED_ACTION_SCAN_ENTRIES) return true;
+  for (const [key, item] of entries) {
+    if (key === "liveActionObserved" && item === true) return true;
+    if (key === "rawScreenshotIncluded" && item === true) return true;
+    if (key === "rawSecretIncluded" && item === true) return true;
+    if (
+      [
+        "liveCodexControlRun",
+        "desktopGuiActionRun",
+        "rawTranscriptRead",
+        "screenshotCaptured",
+        "screenshotsCaptured",
+        "npmPublished",
+        "githubReleaseCreated",
+        "broadGatewayScopeApproval"
+      ].includes(key) && item === true
+    ) {
+      return true;
+    }
+    if (hasRestrictedActionPerformed(item, depth + 1)) return true;
+  }
+  return false;
 }
 
 function toolValidationBlockers(toolName: string, failedPayload: Record<string, unknown>): string[] {
