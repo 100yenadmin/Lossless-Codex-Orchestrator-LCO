@@ -298,6 +298,53 @@ test("unknown Codex JSONL kind drift keeps readable public-safe labels", () => {
   }
 });
 
+test("unknown Codex JSONL kind drift keeps truncated readable labels distinct", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-drift-kind-collision-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const longKindA = `${"a".repeat(100)} first/name`;
+  const longKindB = `${"a".repeat(100)} second/name`;
+  writeFileSync(
+    join(sessions, "long-kind-collision.jsonl"),
+    [
+      {
+        timestamp: "2026-07-06T10:30:00.000Z",
+        type: "session_meta",
+        payload: { id: "019f-drift-readable-kind-collision", cwd: "/Volumes/LEXAR/repos/example", model: "gpt-5.5" }
+      },
+      {
+        timestamp: "2026-07-06T10:30:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: longKindA,
+          renamed_payload: { content: "First long unknown payload remains advisory drift." }
+        }
+      },
+      {
+        timestamp: "2026-07-06T10:30:02.000Z",
+        type: "event_msg",
+        payload: {
+          type: longKindB,
+          renamed_payload: { content: "Second long unknown payload remains advisory drift." }
+        }
+      }
+    ].map((line) => JSON.stringify(line)).join("\n") + "\n"
+  );
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const indexed = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    assert.equal(indexed.errors.length, 0);
+    const kinds = indexed.driftReport[0]?.unknownEventKinds.map((item) => item.kind) ?? [];
+    assert.equal(kinds.length, 2);
+    assert.equal(new Set(kinds).size, 2);
+    for (const kind of kinds) assert.match(kind, /^a{95}_[a-f0-9]{6}$/);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("unknown Codex JSONL kind content scan is depth bounded", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-codex-drift-bounded-content-"));
   const sessions = join(root, "sessions");

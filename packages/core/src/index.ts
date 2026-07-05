@@ -13016,13 +13016,15 @@ function recordCodexJsonlEventKindDrift(drift: CodexJsonlDriftAccumulator, item:
 function publicSafeCodexJsonlKind(kind: string): string {
   const identifier = publicSafeIdentifier(kind);
   if (identifier) return identifier;
-  const readable = publicSafeText(kind, 96)
+  const publicText = publicSafeText(kind, 96);
+  const readable = publicText
     .trim()
     .replace(/\s+/g, "_")
     .replace(/[^A-Za-z0-9._:-]+/g, "_")
     .replace(/^_+|_+$/g, "")
     .slice(0, 96);
-  return readable || `unknown_${stableId(kind).slice(0, 12)}`;
+  if (!readable) return `unknown_${stableId(kind).slice(0, 12)}`;
+  return publicText === kind ? readable : `${readable}_${stableId(kind).slice(0, 6)}`;
 }
 
 function recordCodexJsonlMissingFieldDrift(drift: CodexJsonlDriftAccumulator, item: any): void {
