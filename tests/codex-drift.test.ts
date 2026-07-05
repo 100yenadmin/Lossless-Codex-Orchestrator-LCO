@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
 import {
@@ -77,6 +78,34 @@ test("legacy and current Codex JSONL fixtures index with no drift report", () =>
       });
       assert.equal(getCodexJsonlDriftStatus(db).state, "clean");
     });
+  }
+});
+
+test("legacy DB without drift projection reports first-run recovery instead of schema missing", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-drift-legacy-db-"));
+  const dbPath = join(root, "orchestrator.sqlite");
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.exec(`
+      CREATE TABLE codex_source_files (
+        source_path TEXT PRIMARY KEY,
+        path_hash TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        mtime_ms INTEGER NOT NULL,
+        last_indexed_at TEXT NOT NULL
+      );
+    `);
+
+    const status = getCodexJsonlDriftStatus(db);
+
+    assert.equal(status.state, "not_indexed_yet");
+    assert.equal(status.availability, "requires_index_run");
+    assert.deepEqual(status.reasonCodes, ["codex_jsonl_drift_projection_requires_index_run"]);
+    assert.equal(status.nextAction, "loo index codex --max-files 500 \"$HOME/.codex/sessions\" \"$HOME/.codex/archived_sessions\"");
+    assert.doesNotMatch(JSON.stringify(status), /schema_missing|orchestrator\.sqlite|\/Volumes\/LEXAR|\/Users\//);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

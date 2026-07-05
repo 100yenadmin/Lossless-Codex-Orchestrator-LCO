@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import {
   createDatabase,
@@ -178,6 +179,82 @@ test("loo doctor reports clean Codex JSONL drift status without local paths", ()
     assert.deepEqual(report.codexJsonlDrift?.topUnknownEventKinds, []);
     assert.equal(report.codexJsonlDrift?.docsRef, "docs/CODEX_JSONL_DRIFT.md");
     assert.doesNotMatch(result.stdout, /clean\.jsonl|orchestrator\.sqlite|\/Volumes\/LEXAR|\/Users\//);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("loo doctor reports never-indexed Codex JSONL drift as first-run guidance until index runs", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-doctor-drift-first-run-"));
+  const dbPath = join(root, "orchestrator.sqlite");
+  const sessions = join(root, "sessions");
+  try {
+    mkdirSync(sessions, { recursive: true });
+    writeFileSync(
+      join(sessions, "first-run.jsonl"),
+      [
+        { timestamp: "2026-07-06T13:05:00.000Z", type: "session_meta", payload: { id: "019f-doctor-first-run", cwd: "/Volumes/LEXAR/repos/example", model: "gpt-5.5" } },
+        { timestamp: "2026-07-06T13:05:01.000Z", type: "event_msg", payload: { type: "agent_message", message: "First-run doctor canary indexed." } }
+      ].map((line) => JSON.stringify(line)).join("\n") + "\n"
+    );
+    const freshDb = new DatabaseSync(dbPath);
+    try {
+      assert.deepEqual(freshDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all(), []);
+    } finally {
+      freshDb.close();
+    }
+
+    const firstDoctor = runLoo(["doctor"], {
+      ...process.env,
+      LOO_DB_PATH: dbPath
+    });
+
+    assert.equal(firstDoctor.status, 0, firstDoctor.stderr || firstDoctor.stdout);
+    const firstReport = JSON.parse(firstDoctor.stdout) as {
+      codexJsonlDrift?: {
+        state?: unknown;
+        availability?: unknown;
+        nextAction?: unknown;
+        readOnly?: unknown;
+      };
+    };
+    assert.equal(firstReport.codexJsonlDrift?.state, "not_indexed_yet");
+    assert.equal(firstReport.codexJsonlDrift?.availability, "requires_index_run");
+    assert.equal(firstReport.codexJsonlDrift?.nextAction, "loo index codex --max-files 500 \"$HOME/.codex/sessions\" \"$HOME/.codex/archived_sessions\"");
+    assert.equal(firstReport.codexJsonlDrift?.readOnly, true);
+    assert.doesNotMatch(firstDoctor.stdout, /schema_missing|first-run\.jsonl|orchestrator\.sqlite|\/Volumes\/LEXAR|\/Users\//);
+    const afterDoctorDb = new DatabaseSync(dbPath);
+    try {
+      assert.deepEqual(afterDoctorDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all(), []);
+    } finally {
+      afterDoctorDb.close();
+    }
+
+    const indexed = runLoo(["index", "codex", "--max-files", "10", sessions], {
+      ...process.env,
+      LOO_DB_PATH: dbPath
+    });
+    assert.equal(indexed.status, 0, indexed.stderr || indexed.stdout);
+
+    const postIndexDoctor = runLoo(["doctor"], {
+      ...process.env,
+      LOO_DB_PATH: dbPath
+    });
+
+    assert.equal(postIndexDoctor.status, 0, postIndexDoctor.stderr || postIndexDoctor.stdout);
+    const postIndexReport = JSON.parse(postIndexDoctor.stdout) as {
+      codexJsonlDrift?: {
+        state?: unknown;
+        availability?: unknown;
+        filesIndexed?: unknown;
+        nextAction?: unknown;
+      };
+    };
+    assert.equal(postIndexReport.codexJsonlDrift?.state, "clean");
+    assert.equal(postIndexReport.codexJsonlDrift?.availability, "ready");
+    assert.equal(postIndexReport.codexJsonlDrift?.filesIndexed, 1);
+    assert.equal(postIndexReport.codexJsonlDrift?.nextAction, null);
+    assert.doesNotMatch(postIndexDoctor.stdout, /not_indexed_yet|requires_index_run|first-run\.jsonl|orchestrator\.sqlite|\/Volumes\/LEXAR|\/Users\//);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
