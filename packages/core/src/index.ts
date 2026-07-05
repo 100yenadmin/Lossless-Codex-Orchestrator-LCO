@@ -2526,14 +2526,14 @@ export function migrate(db: LooDatabase): void {
         'Additive prepared-state prep job table'
       ),
       (
-        '2026-07-05-thread-title-aliases',
-        datetime('now'),
-        'Additive Codex thread title finalizer alias table'
-      ),
-      (
         '2026-07-04-prepared-card-source-range-omissions',
         datetime('now'),
         'Persist prepared-card source range omission counts'
+      ),
+      (
+        '2026-07-05-thread-title-aliases',
+        datetime('now'),
+        'Additive Codex thread title finalizer alias table'
       );
 
     CREATE TABLE IF NOT EXISTS prepared_source_events (
