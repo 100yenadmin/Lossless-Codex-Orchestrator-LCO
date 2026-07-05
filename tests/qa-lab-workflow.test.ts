@@ -642,6 +642,33 @@ test("loo qa-lab workflow --strict exits nonzero when the workflow is blocked", 
   assert.ok(report.blockers.some((blocker) => blocker.code === "workflow_surface_not_supported"));
 });
 
+test("loo qa-lab workflow fails closed on bad candidate sha without echoing it", (t) => {
+  const dir = makeTempDir(t, "loo-qa-workflow-cli-bad-sha-");
+
+  const result = runLoo([
+    "qa-lab",
+    "workflow",
+    "--scenario-id",
+    "issue-517-agent-workflow",
+    "--surface",
+    "desktop-contract",
+    "--mode",
+    "dry-run",
+    "--evidence-dir",
+    dir,
+    "--candidate-sha",
+    "/tmp/private-candidate.jsonl",
+    "--strict"
+  ]);
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout) as QaLabWorkflowReport;
+  assert.equal(report.candidateSha, null);
+  assert.ok(report.blockers.some((blocker) => blocker.code === "candidate_sha_invalid"));
+  assert.doesNotMatch(result.stdout, /private-candidate\.jsonl/);
+  assert.doesNotMatch(result.stdout, /\/tmp\//);
+});
+
 test("loo qa-lab workflow rejects invalid gateway timeout values at the CLI boundary", (t) => {
   const dir = makeTempDir(t, "loo-qa-workflow-timeout-cli-");
 

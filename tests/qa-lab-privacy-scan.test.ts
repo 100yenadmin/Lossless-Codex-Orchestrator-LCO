@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -13,7 +13,7 @@ type PrivacyScanReport = {
   ok: boolean;
   publicSafe: boolean;
   packageVersion: string;
-  candidateSha: string;
+  candidateSha: string | null;
   rawSessionArtifacts: Array<{ ref: string; reason: string }>;
   secretLikeEvidenceFindings: Array<{ ref: string; reason: string }>;
   blockers: Array<{ severity: string; code: string; source: string; detail: string }>;
@@ -139,4 +139,118 @@ test("loo qa-lab privacy-scan fails closed on bad candidate sha without leaking 
   assert.ok(report.blockers.some((blocker) => blocker.code === "candidate_sha_invalid"));
   assert.doesNotMatch(result.stdout, /private-candidate\.jsonl/);
   assert.doesNotMatch(result.stdout, /\/tmp\//);
+});
+
+test("loo qa-lab privacy-scan refuses scan dirs outside the evidence directory without reading them", (t) => {
+  const evidenceDir = makeTempDir(t, "loo-qa-privacy-contained-");
+  const outsideDir = makeTempDir(t, "loo-qa-privacy-outside-");
+  writeJson(join(outsideDir, "outside-private.json"), {
+    localPath: "/Users/lume/private/session.jsonl",
+    token: `npm_${"a".repeat(32)}`
+  });
+
+  const result = runLoo([
+    "qa-lab",
+    "privacy-scan",
+    "--evidence-dir",
+    evidenceDir,
+    "--scan-dir",
+    outsideDir,
+    "--package-version",
+    packageVersion,
+    "--candidate-sha",
+    candidateSha,
+    "--strict"
+  ]);
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout) as PrivacyScanReport;
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.some((blocker) => blocker.code === "scan_dir_outside_evidence_dir"));
+  assert.deepEqual(report.rawSessionArtifacts, []);
+  assert.deepEqual(report.secretLikeEvidenceFindings, []);
+  assert.doesNotMatch(result.stdout, /outside-private\.json/);
+  assert.doesNotMatch(result.stdout, /\/Users\/lume/);
+  assert.doesNotMatch(result.stdout, /npm_a+/);
+  assert.doesNotMatch(result.stdout, new RegExp(outsideDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+});
+
+test("loo qa-lab privacy-scan fails closed on unscanned evidence file types", (t) => {
+  const dir = makeTempDir(t, "loo-qa-privacy-unknown-type-");
+  writeFileSync(join(dir, "release.env"), "LCO_PUBLIC_SAFE=true\n");
+
+  const result = runLoo([
+    "qa-lab",
+    "privacy-scan",
+    "--evidence-dir",
+    dir,
+    "--package-version",
+    packageVersion,
+    "--candidate-sha",
+    candidateSha,
+    "--strict"
+  ]);
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout) as PrivacyScanReport;
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.some((blocker) => blocker.code === "unscanned_file_type"));
+  assert.ok(report.evidenceIndex.some((entry) => entry.status === "unsafe" && entry.reasonCodes.includes("unscanned_file_type")));
+  assert.doesNotMatch(result.stdout, /release\.env/);
+  assert.doesNotMatch(result.stdout, /LCO_PUBLIC_SAFE/);
+});
+
+test("loo qa-lab privacy-scan scans large benign text evidence instead of size-failing it", (t) => {
+  const dir = makeTempDir(t, "loo-qa-privacy-large-");
+  writeJson(join(dir, "large-public.json"), {
+    schema: "lco.largePublicFixture.v1",
+    publicSafe: true,
+    payload: "a".repeat(2_200_000)
+  });
+
+  const result = runLoo([
+    "qa-lab",
+    "privacy-scan",
+    "--evidence-dir",
+    dir,
+    "--package-version",
+    packageVersion,
+    "--candidate-sha",
+    candidateSha,
+    "--strict"
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout) as PrivacyScanReport;
+  assert.equal(report.ok, true);
+  assert.equal(report.publicSafe, true);
+  assert.ok(!report.blockers.some((blocker) => blocker.code === "text_scan_size_limit_exceeded"));
+  assert.ok(report.evidenceIndex.every((entry) => !entry.reasonCodes.includes("text_scan_size_limit_exceeded")));
+  assert.doesNotMatch(result.stdout, /large-public\.json/);
+});
+
+test("loo qa-lab privacy-scan reports symlinks as skipped public-safe warnings", (t) => {
+  const dir = makeTempDir(t, "loo-qa-privacy-symlink-");
+  const outsideDir = makeTempDir(t, "loo-qa-privacy-symlink-target-");
+  writeJson(join(outsideDir, "safe.json"), { publicSafe: true });
+  symlinkSync(join(outsideDir, "safe.json"), join(dir, "linked.json"));
+
+  const result = runLoo([
+    "qa-lab",
+    "privacy-scan",
+    "--evidence-dir",
+    dir,
+    "--package-version",
+    packageVersion,
+    "--candidate-sha",
+    candidateSha,
+    "--strict"
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout) as PrivacyScanReport;
+  assert.equal(report.ok, true);
+  assert.ok(report.evidenceIndex.some((entry) => entry.status === "unsafe" && entry.reasonCodes.includes("symlink_not_scanned")));
+  assert.doesNotMatch(result.stdout, /linked\.json|safe\.json/);
+  assert.doesNotMatch(result.stdout, new RegExp(outsideDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 });

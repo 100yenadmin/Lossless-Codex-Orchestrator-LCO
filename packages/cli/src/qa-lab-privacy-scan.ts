@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { extname, join, resolve } from "node:path";
+import { closeSync, existsSync, mkdirSync, openSync, readSync, readdirSync, writeFileSync } from "node:fs";
+import { extname, isAbsolute, join, relative, resolve } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 
 export type QaLabPrivacyScanOptions = {
   evidenceDir: string;
@@ -67,7 +68,8 @@ type ScanEntry = {
 const PACKAGE_NAME = "lossless-openclaw-orchestrator";
 const SHA_PATTERN = /^[a-f0-9]{40}$/i;
 const MAX_SCAN_ENTRIES = 4096;
-const MAX_SCAN_BYTES_PER_FILE = 2 * 1024 * 1024;
+const TEXT_SCAN_CHUNK_BYTES = 64 * 1024;
+const TEXT_SCAN_TAIL_CHARS = 512;
 const SECRET_LIKE_PATTERN = /(npm_[A-Za-z0-9]{20,}|bearer\s+[A-Za-z0-9._-]{20,}|sk-[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|glpat-[A-Za-z0-9_-]{20,}|AIza[0-9A-Za-z_-]{20,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|-----BEGIN\s+[A-Z ]*PRIVATE KEY-----)/i;
 const PRIVATE_VALUE_PATTERN = /(?:\/Users\/|\/Volumes\/|\/private\/var\/|\/tmp\/|~\/|[A-Za-z]:\\Users\\|\.jsonl\b|\.sqlite\b|\.sqlite-wal\b|\.sqlite-shm\b|\bcookie\b|set-cookie|authorization\s*:|api[_-]?key\s*[=:]|token\s*[=:]|secret\s*[=:]|password\s*[=:])/i;
 const PRIVATE_DATA_EXCLUSIONS = [
@@ -96,7 +98,12 @@ export function createQaLabPrivacyScanReport(options: QaLabPrivacyScanOptions): 
     addBlocker(blockers, "P1", "candidate_sha_invalid", "privacyScan", "Candidate SHA must be a 40-character hexadecimal commit SHA.");
   }
 
-  const entries = collectEntries(scanDir, blockers, warnings);
+  const scanDirOutsideEvidenceDir = !isInsideOrEqual(evidenceDir, scanDir);
+  if (scanDirOutsideEvidenceDir) {
+    addBlocker(blockers, "P0", "scan_dir_outside_evidence_dir", "privacyScan", "Scan directory must be the evidence directory or a child of it.");
+  }
+
+  const entries = scanDirOutsideEvidenceDir ? [] : collectEntries(scanDir, blockers, warnings);
   const rawSessionArtifacts: QaLabPrivacyScanFinding[] = [];
   const secretLikeEvidenceFindings: QaLabPrivacyScanFinding[] = [];
   for (const entry of entries) {
@@ -106,7 +113,11 @@ export function createQaLabPrivacyScanReport(options: QaLabPrivacyScanOptions): 
       rawSessionArtifacts.push({ ref: entry.ref, reason: rawReason });
       continue;
     }
-    if (!isTextEvidenceFile(entry.absolutePath)) continue;
+    if (!isTextEvidenceFile(entry.absolutePath)) {
+      entry.reasonCodes.push("unscanned_file_type");
+      addBlocker(blockers, "P1", "unscanned_file_type", "privacyScan", "Evidence contains a file type that this scanner does not inspect.");
+      continue;
+    }
     const privateReason = scanPrivateTextReason(entry.absolutePath, entry, blockers);
     if (privateReason) {
       entry.reasonCodes.push(privateReason);
@@ -201,21 +212,43 @@ function isTextEvidenceFile(path: string): boolean {
 }
 
 function scanPrivateTextReason(path: string, entry: ScanEntry, blockers: QaLabPrivacyScanBlocker[]): string | null {
+  let fd: number | undefined;
   try {
-    const size = statSync(path).size;
-    if (size > MAX_SCAN_BYTES_PER_FILE) {
-      entry.reasonCodes.push("text_scan_size_limit_exceeded");
-      addBlocker(blockers, "P2", "text_scan_size_limit_exceeded", "privacyScan", "A text evidence file exceeded the bounded scan size limit.");
-      return null;
+    fd = openSync(path, "r");
+    const decoder = new StringDecoder("utf8");
+    const buffer = Buffer.alloc(TEXT_SCAN_CHUNK_BYTES);
+    let tail = "";
+    while (true) {
+      const bytesRead = readSync(fd, buffer, 0, buffer.length, null);
+      if (bytesRead <= 0) break;
+      const text = tail + decoder.write(buffer.subarray(0, bytesRead));
+      if (textHasPrivateValue(text)) return "secret_like_value";
+      tail = text.slice(-TEXT_SCAN_TAIL_CHARS);
     }
-    const text = readFileSync(path, "utf8");
-    if (SECRET_LIKE_PATTERN.test(text)) return "secret_like_value";
-    if (PRIVATE_VALUE_PATTERN.test(text)) return "secret_like_value";
+    const finalText = tail + decoder.end();
+    if (finalText && textHasPrivateValue(finalText)) return "secret_like_value";
   } catch {
     entry.reasonCodes.push("text_scan_failed");
     addBlocker(blockers, "P2", "text_scan_failed", "privacyScan", "A text evidence file could not be scanned.");
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd);
+      } catch {
+        // Ignore close failures after the scan already produced its result.
+      }
+    }
   }
   return null;
+}
+
+function textHasPrivateValue(text: string): boolean {
+  return SECRET_LIKE_PATTERN.test(text) || PRIVATE_VALUE_PATTERN.test(text);
+}
+
+function isInsideOrEqual(root: string, candidate: string): boolean {
+  const rel = relative(root, candidate);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
 function evidenceRef(root: string, absolutePath: string): string {
