@@ -288,10 +288,57 @@ test("unknown Codex JSONL kind drift keeps readable public-safe labels", () => {
   try {
     const indexed = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
     assert.equal(indexed.errors.length, 0);
+    const kind = indexed.driftReport[0]?.unknownEventKinds[0]?.kind ?? "";
+    assert.match(kind, /^assistant_packet_v2_[a-f0-9]{6}$/);
     assert.deepEqual(indexed.driftReport[0]?.unknownEventKinds, [
-      { kind: "assistant_packet_v2", count: 1 }
+      { kind, count: 1 }
     ]);
-    assert.ok(indexed.driftReport[0]?.reasonCodes.includes("unknown_event_kind:assistant_packet_v2"));
+    assert.ok(indexed.driftReport[0]?.reasonCodes.includes(`unknown_event_kind:${kind}`));
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("unknown Codex JSONL kind drift keeps sanitized readable labels distinct", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-drift-kind-sanitized-collision-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  writeFileSync(
+    join(sessions, "sanitized-kind-collision.jsonl"),
+    [
+      {
+        timestamp: "2026-07-06T10:15:00.000Z",
+        type: "session_meta",
+        payload: { id: "019f-drift-readable-kind-sanitized-collision", cwd: "/Volumes/LEXAR/repos/example", model: "gpt-5.5" }
+      },
+      {
+        timestamp: "2026-07-06T10:15:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: "foo bar",
+          renamed_payload: { content: "First sanitized unknown payload remains advisory drift." }
+        }
+      },
+      {
+        timestamp: "2026-07-06T10:15:02.000Z",
+        type: "event_msg",
+        payload: {
+          type: "foo/bar",
+          renamed_payload: { content: "Second sanitized unknown payload remains advisory drift." }
+        }
+      }
+    ].map((line) => JSON.stringify(line)).join("\n") + "\n"
+  );
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const indexed = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    assert.equal(indexed.errors.length, 0);
+    const kinds = indexed.driftReport[0]?.unknownEventKinds.map((item) => item.kind) ?? [];
+    assert.equal(kinds.length, 2);
+    assert.equal(new Set(kinds).size, 2);
+    for (const kind of kinds) assert.match(kind, /^foo_bar_[a-f0-9]{6}$/);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });

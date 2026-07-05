@@ -13024,7 +13024,7 @@ function publicSafeCodexJsonlKind(kind: string): string {
     .replace(/^_+|_+$/g, "")
     .slice(0, 96);
   if (!readable) return `unknown_${stableId(kind).slice(0, 12)}`;
-  return publicText === kind ? readable : `${readable}_${stableId(kind).slice(0, 6)}`;
+  return readable === kind ? readable : `${readable}_${stableId(kind).slice(0, 6)}`;
 }
 
 function recordCodexJsonlMissingFieldDrift(drift: CodexJsonlDriftAccumulator, item: any): void {
