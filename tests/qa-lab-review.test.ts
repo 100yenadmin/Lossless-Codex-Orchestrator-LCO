@@ -325,6 +325,16 @@ test("qa-lab judge fail-closes public-safety, restricted-action, missing, invali
   });
   assert.ok(missing.blockers.some((blocker) => blocker.code === "run_missing"));
 
+  const outsideEvidenceDir = makeTempDir(t, "loo-qa-lab-outside-evidence-");
+  const outsideRunDir = makeTempDir(t, "loo-qa-lab-outside-run-");
+  const outsideRun = writePassingRun(outsideRunDir);
+  const outside = createQaLabJudgeReviewReport({
+    runPath: outsideRun,
+    evidenceDir: outsideEvidenceDir,
+    rubricVersion: "real-product-v1"
+  });
+  assert.ok(outside.blockers.some((blocker) => blocker.code === "run_outside_evidence_dir"));
+
   const invalidDir = makeTempDir(t, "loo-qa-lab-invalid-json-");
   const invalidRun = join(invalidDir, "qa-lab-run.json");
   writeFileSync(invalidRun, "{not json");
@@ -334,6 +344,16 @@ test("qa-lab judge fail-closes public-safety, restricted-action, missing, invali
     rubricVersion: "real-product-v1"
   });
   assert.ok(invalid.blockers.some((blocker) => blocker.code === "run_invalid_json"));
+
+  const invalidObjectDir = makeTempDir(t, "loo-qa-lab-invalid-json-object-");
+  const invalidObjectRun = join(invalidObjectDir, "qa-lab-run.json");
+  writeJson(invalidObjectRun, ["not", "an", "object"]);
+  const invalidObject = createQaLabJudgeReviewReport({
+    runPath: invalidObjectRun,
+    evidenceDir: invalidObjectDir,
+    rubricVersion: "real-product-v1"
+  });
+  assert.ok(invalidObject.blockers.some((blocker) => blocker.code === "run_invalid_json_object"));
 
   const scoreDir = makeTempDir(t, "loo-qa-lab-score-gates-");
   const scoreRun = writePassingRun(scoreDir);
