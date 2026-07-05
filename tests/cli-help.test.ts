@@ -31,6 +31,9 @@ test("loo --help exits zero with top-level usage", () => {
   assert.match(result.stdout, /loo hook closeout-capture/);
   assert.match(result.stdout, /loo hook state-prep/);
   assert.match(result.stdout, /loo hook compaction-capture --mode marker/);
+  assert.match(result.stdout, /loo release ga-smoke .*--release-status path/);
+  assert.match(result.stdout, /loo release ga-smoke .*--privacy-scan path/);
+  assert.match(result.stdout, /loo release ga-smoke .*--now iso/);
   assert.equal(result.stderr.trim(), "");
 });
 

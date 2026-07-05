@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 
 const tsxImport = createRequire(import.meta.url).resolve("tsx");
 const packageName = "lossless-openclaw-orchestrator";
@@ -48,6 +48,12 @@ function runGaSmoke(args: string[]) {
     encoding: "utf8",
     timeout: 20_000
   });
+}
+
+function makeTempDir(t: TestContext, prefix: string): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  return dir;
 }
 
 function writeHappyEvidence(dir: string): Record<string, string> {
@@ -195,8 +201,8 @@ function noActions(): Record<string, false> {
   };
 }
 
-test("release ga-smoke writes one public-safe ready packet from existing evidence", () => {
-  const dir = mkdtempSync(join(tmpdir(), "loo-ga-smoke-pass-"));
+test("release ga-smoke writes one public-safe ready packet from existing evidence", (t) => {
+  const dir = makeTempDir(t, "loo-ga-smoke-pass-");
   writeHappyEvidence(dir);
 
   const result = runGaSmoke([
@@ -232,8 +238,8 @@ test("release ga-smoke writes one public-safe ready packet from existing evidenc
   assert.equal(existsSync(join(dir, "release-ga-smoke.json")), true);
 });
 
-test("release ga-smoke --strict fails closed with missing evidence and recovery commands", () => {
-  const dir = mkdtempSync(join(tmpdir(), "loo-ga-smoke-missing-"));
+test("release ga-smoke --strict fails closed with missing evidence and recovery commands", (t) => {
+  const dir = makeTempDir(t, "loo-ga-smoke-missing-");
 
   const result = runGaSmoke([
     "--evidence-dir",
@@ -254,8 +260,8 @@ test("release ga-smoke --strict fails closed with missing evidence and recovery 
   assert.ok(report.nextSafeCommands.some((command) => command.includes("loo release finalization-status")));
 });
 
-test("release ga-smoke rejects version, SHA, and finalization mismatches", () => {
-  const dir = mkdtempSync(join(tmpdir(), "loo-ga-smoke-mismatch-"));
+test("release ga-smoke rejects version, SHA, and finalization mismatches", (t) => {
+  const dir = makeTempDir(t, "loo-ga-smoke-mismatch-");
   const paths = writeHappyEvidence(dir);
   writeJson(paths.releaseStatus, {
     ...readJson(paths.releaseStatus) as Record<string, unknown>,
@@ -284,8 +290,8 @@ test("release ga-smoke rejects version, SHA, and finalization mismatches", () =>
   assert.ok(report.blockers.some((blocker) => blocker.code === "release_finalization_sha_mismatch"));
 });
 
-test("release ga-smoke allows large public-safe JSON evidence sidecars", () => {
-  const dir = mkdtempSync(join(tmpdir(), "loo-ga-smoke-large-json-"));
+test("release ga-smoke allows large public-safe JSON evidence sidecars", (t) => {
+  const dir = makeTempDir(t, "loo-ga-smoke-large-json-");
   writeHappyEvidence(dir);
   writeJson(join(dir, "large-public-safe-scorecard.json"), {
     publicSafe: true,
@@ -308,8 +314,128 @@ test("release ga-smoke allows large public-safe JSON evidence sidecars", () => {
   assert.ok(!report.blockers.some((blocker) => blocker.code === "unsafe_evidence_artifact_present"));
 });
 
-test("release ga-smoke fails closed for non-public-safe evidence without leaking canaries", () => {
-  const dir = mkdtempSync(join(tmpdir(), "loo-ga-smoke-private-"));
+test("release ga-smoke rejects evidence override paths outside the evidence directory", (t) => {
+  const dir = makeTempDir(t, "loo-ga-smoke-outside-");
+  const outside = makeTempDir(t, "loo-ga-smoke-outside-src-");
+  const paths = writeHappyEvidence(dir);
+  writeJson(join(outside, "release-status.json"), readJson(paths.releaseStatus));
+
+  const result = runGaSmoke([
+    "--evidence-dir",
+    dir,
+    "--release-status",
+    join(outside, "release-status.json"),
+    "--package-version",
+    packageVersion,
+    "--candidate-sha",
+    candidateSha,
+    "--strict"
+  ]);
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout) as GaSmokeReport;
+  assert.ok(report.blockers.some((blocker) => blocker.severity === "P0" && blocker.code === "release_status_outside_evidence_dir"));
+  assert.equal(report.evidenceIndex.releaseStatus?.status, "blocked");
+});
+
+test("release ga-smoke rejects lowercase bearer tokens and sensitive evidence keys", (t) => {
+  const dir = makeTempDir(t, "loo-ga-smoke-secret-");
+  const paths = writeHappyEvidence(dir);
+  writeJson(paths.toolSmoke, {
+    ...readJson(paths.toolSmoke) as Record<string, unknown>,
+    authorization: `bearer ${"a".repeat(24)}`,
+    nested: {
+      cookie: "session=public-looking-but-still-cookie"
+    }
+  });
+
+  const result = runGaSmoke([
+    "--evidence-dir",
+    dir,
+    "--package-version",
+    packageVersion,
+    "--candidate-sha",
+    candidateSha,
+    "--strict"
+  ]);
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout) as GaSmokeReport;
+  assert.ok(report.blockers.some((blocker) => blocker.severity === "P0" && blocker.code === "openclaw_tool_smoke_contains_secret_like_value"));
+});
+
+test("release ga-smoke rejects nested publicSafe false reports", (t) => {
+  const dir = makeTempDir(t, "loo-ga-smoke-nested-unsafe-");
+  const paths = writeHappyEvidence(dir);
+  writeJson(paths.publishedSmoke, {
+    ...readJson(paths.publishedSmoke) as Record<string, unknown>,
+    configuredGateway: {
+      publicSafe: false,
+      toolSmokeReady: true
+    }
+  });
+
+  const result = runGaSmoke([
+    "--evidence-dir",
+    dir,
+    "--package-version",
+    packageVersion,
+    "--candidate-sha",
+    candidateSha,
+    "--strict"
+  ]);
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout) as GaSmokeReport;
+  assert.ok(report.blockers.some((blocker) => blocker.severity === "P0" && blocker.code === "published_smoke_not_public_safe"));
+});
+
+test("release ga-smoke reports non-setup published-smoke blockers", (t) => {
+  const dir = makeTempDir(t, "loo-ga-smoke-published-blocker-");
+  const paths = writeHappyEvidence(dir);
+  writeJson(paths.publishedSmoke, {
+    ...readJson(paths.publishedSmoke) as Record<string, unknown>,
+    blockers: ["package_install_failed"]
+  });
+
+  const result = runGaSmoke([
+    "--evidence-dir",
+    dir,
+    "--package-version",
+    packageVersion,
+    "--candidate-sha",
+    candidateSha,
+    "--strict"
+  ]);
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout) as GaSmokeReport;
+  assert.ok(report.blockers.some((blocker) => blocker.severity === "P1" && blocker.code === "published_smoke_reports_blockers"));
+});
+
+test("release ga-smoke rejects raw npm and gateway output artifact names", (t) => {
+  const dir = makeTempDir(t, "loo-ga-smoke-raw-output-");
+  writeHappyEvidence(dir);
+  writeFileSync(join(dir, "npm-output.log"), "public-looking raw command output\n");
+  writeJson(join(dir, "gateway-output.json"), { ok: true });
+
+  const result = runGaSmoke([
+    "--evidence-dir",
+    dir,
+    "--package-version",
+    packageVersion,
+    "--candidate-sha",
+    candidateSha,
+    "--strict"
+  ]);
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout) as GaSmokeReport;
+  assert.ok(report.blockers.some((blocker) => blocker.severity === "P0" && blocker.code === "unsafe_evidence_artifact_present"));
+});
+
+test("release ga-smoke fails closed for non-public-safe evidence without leaking canaries", (t) => {
+  const dir = makeTempDir(t, "loo-ga-smoke-private-");
   const paths = writeHappyEvidence(dir);
   writeJson(paths.publishedSmoke, {
     ...readJson(paths.publishedSmoke) as Record<string, unknown>,
@@ -336,8 +462,8 @@ test("release ga-smoke fails closed for non-public-safe evidence without leaking
   assert.doesNotMatch(serialized, /\/Users\/lume|privateDiagnostic|npm_123456789012345678901234|secret-session\.sqlite/);
 });
 
-test("release ga-smoke rejects top-level restricted action flags in evidence", () => {
-  const dir = mkdtempSync(join(tmpdir(), "loo-ga-smoke-top-action-"));
+test("release ga-smoke rejects top-level restricted action flags in evidence", (t) => {
+  const dir = makeTempDir(t, "loo-ga-smoke-top-action-");
   const paths = writeHappyEvidence(dir);
   writeJson(paths.releaseBundle, {
     ...readJson(paths.releaseBundle) as Record<string, unknown>,
@@ -362,8 +488,8 @@ test("release ga-smoke rejects top-level restricted action flags in evidence", (
   assert.equal(report.actionsPerformed.githubReleaseCreated, false);
 });
 
-test("release ga-smoke classifies setup-required fresh profiles separately from package defects", () => {
-  const dir = mkdtempSync(join(tmpdir(), "loo-ga-smoke-setup-"));
+test("release ga-smoke classifies setup-required fresh profiles separately from package defects", (t) => {
+  const dir = makeTempDir(t, "loo-ga-smoke-setup-");
   const paths = writeHappyEvidence(dir);
   writeJson(paths.publishedSmoke, {
     ...readJson(paths.publishedSmoke) as Record<string, unknown>,

@@ -109,18 +109,21 @@ type EvidenceSpec = {
 type LoadedEvidence = {
   spec: EvidenceSpec;
   path: string;
-  evidenceRef: string;
+  evidenceRef: string | null;
   value: JsonRecord | null;
   missing: boolean;
   invalid: boolean;
+  outsideEvidenceDir: boolean;
 };
 
 type JsonRecord = Record<string, unknown>;
 
 const PACKAGE_NAME = "lossless-openclaw-orchestrator";
 const SHA_PATTERN = /^[a-f0-9]{40}$/i;
-const SECRET_LIKE_PATTERN = /(npm_[A-Za-z0-9]{20,}|Bearer\s+[A-Za-z0-9._-]{20,}|sk-[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/;
+const SECRET_LIKE_PATTERN = /(npm_[A-Za-z0-9]{20,}|bearer\s+[A-Za-z0-9._-]{20,}|sk-[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i;
+const SECRET_LIKE_KEY_PATTERN = /^(authorization|cookie|set-cookie|x-api-key|api[_-]?key|token)$/i;
 const RAW_ARTIFACT_PATTERN = /\.(?:jsonl|jsonl\.gz|sqlite|sqlite-wal|sqlite-shm|db|db-journal|db-wal|db-shm|png|jpg|jpeg|gif|webp|mp4|mov|webm)$/i;
+const RAW_OUTPUT_ARTIFACT_PATTERN = /(?:^|[/._-])(?:raw[-_]?.*|npm[-_]?output|npm[-_]?(?:stdout|stderr)|gateway[-_]?output|gateway[-_]?(?:stdout|stderr)|openclaw[-_]?output|openclaw[-_]?(?:stdout|stderr))(?:[/._-].*)?\.(?:txt|log|json)$/i;
 const RESTRICTED_ACTION_KEYS = new Set([
   "npmPublished",
   "githubReleaseCreated",
@@ -171,7 +174,9 @@ export function createReleaseGaSmokeReport(options: ReleaseGaSmokeOptions): Rele
 
   for (const evidence of loaded) {
     const sourceBlockerStart = blockers.length;
-    if (evidence.missing) {
+    if (evidence.outsideEvidenceDir) {
+      addBlocker(blockers, "P0", `${sourceCodePrefix(evidence.spec.id)}_outside_evidence_dir`, evidence.spec.id, `${titleForSource(evidence.spec.id)} evidence path must stay inside the evidence directory.`);
+    } else if (evidence.missing) {
       addBlocker(blockers, "P1", missingCode(evidence.spec.id), evidence.spec.id, `${titleForSource(evidence.spec.id)} evidence is missing.`);
     } else if (evidence.invalid) {
       addBlocker(blockers, "P1", invalidCode(evidence.spec.id), evidence.spec.id, `${titleForSource(evidence.spec.id)} evidence is not valid JSON.`);
@@ -249,8 +254,10 @@ export function createReleaseGaSmokeReport(options: ReleaseGaSmokeOptions): Rele
 
 function loadEvidence(spec: EvidenceSpec, evidenceDir: string): LoadedEvidence {
   const path = resolveEvidencePath(evidenceDir, spec.optionPath ?? spec.defaultFile);
-  const evidenceRef = safeEvidenceRef(path, evidenceDir, spec.defaultFile);
-  if (!existsSync(path)) return { spec, path, evidenceRef, value: null, missing: true, invalid: false };
+  const outsideEvidenceDir = isOutsideEvidenceDir(path, evidenceDir);
+  const evidenceRef = outsideEvidenceDir ? null : safeEvidenceRef(path, evidenceDir, spec.defaultFile);
+  if (outsideEvidenceDir) return { spec, path, evidenceRef, value: null, missing: false, invalid: false, outsideEvidenceDir };
+  if (!existsSync(path)) return { spec, path, evidenceRef, value: null, missing: true, invalid: false, outsideEvidenceDir };
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8"));
     return {
@@ -259,10 +266,11 @@ function loadEvidence(spec: EvidenceSpec, evidenceDir: string): LoadedEvidence {
       evidenceRef,
       value: isRecord(parsed) ? parsed : null,
       missing: false,
-      invalid: !isRecord(parsed)
+      invalid: !isRecord(parsed),
+      outsideEvidenceDir
     };
   } catch {
-    return { spec, path, evidenceRef, value: null, missing: false, invalid: true };
+    return { spec, path, evidenceRef, value: null, missing: false, invalid: true, outsideEvidenceDir };
   }
 }
 
@@ -278,6 +286,11 @@ function safeEvidenceRef(path: string, evidenceDir: string, defaultFile: string)
   return defaultFile;
 }
 
+function isOutsideEvidenceDir(path: string, evidenceDir: string): boolean {
+  const rel = relative(evidenceDir, path);
+  return rel.startsWith("..") || isAbsolute(rel);
+}
+
 function validateCommonEvidence(evidence: LoadedEvidence, blockers: ReleaseGaSmokeBlocker[]): void {
   const value = evidence.value;
   if (!value) return;
@@ -287,11 +300,11 @@ function validateCommonEvidence(evidence: LoadedEvidence, blockers: ReleaseGaSmo
   if (hasRestrictedActionPerformed(value)) {
     addBlocker(blockers, "P0", `${sourceCodePrefix(evidence.spec.id)}_restricted_action_performed`, evidence.spec.id, `${titleForSource(evidence.spec.id)} evidence reports a restricted action was performed.`);
   }
-  if (value.publicSafe === false) {
+  if (containsPublicUnsafeFlag(value)) {
     addBlocker(blockers, "P0", `${sourceCodePrefix(evidence.spec.id)}_not_public_safe`, evidence.spec.id, `${titleForSource(evidence.spec.id)} evidence is not marked public-safe.`);
   }
-  const nestedBlockers = readStringArray(value.blockers);
-  if (nestedBlockers.length > 0 && evidence.spec.id !== "publishedPackageSmoke") {
+  const nestedBlockers = reportableNestedBlockers(evidence.spec.id, readStringArray(value.blockers));
+  if (nestedBlockers.length > 0) {
     addBlocker(blockers, "P1", `${sourceCodePrefix(evidence.spec.id)}_reports_blockers`, evidence.spec.id, `${titleForSource(evidence.spec.id)} evidence reports blockers.`);
   }
 }
@@ -378,7 +391,10 @@ function validatePublishedSmoke(
     && readNestedString(value, ["configuredGateway", "gatewaySetupClassification"]) === "ready"
     && readNestedBoolean(value, ["configuredGateway", "packageInstallLikelyOk"]) === true;
   if (setupRequired) {
-    const setupCodes = readStringArray(value.setupBlockers);
+    const setupCodes = uniqueStrings([
+      ...readStringArray(value.setupBlockers),
+      ...readStringArray(value.blockers).filter(isPublishedSmokeSetupBlocker)
+    ]);
     const allowed = options.allowSetupRequired === true && packagePathOk && configuredGatewayReady;
     for (const code of setupCodes.length ? setupCodes : ["fresh_profile_gateway_setup_required"]) {
       setupBlockers.push({
@@ -530,7 +546,7 @@ function scanUnsafeEvidenceArtifacts(evidenceDir: string): number {
       if (!entry.isFile()) continue;
       if (entry.name === "release-ga-smoke.json") continue;
       const rel = relative(evidenceDir, path);
-      if (RAW_ARTIFACT_PATTERN.test(rel)) count += 1;
+      if (RAW_ARTIFACT_PATTERN.test(rel) || RAW_OUTPUT_ARTIFACT_PATTERN.test(rel)) count += 1;
       try {
         if (!/\.json$/i.test(rel) && statSync(path).size > 1_000_000) count += 1;
       } catch {
@@ -562,8 +578,20 @@ function hasRestrictedActionPerformed(value: unknown): boolean {
 function containsSecretLikeValue(value: unknown): boolean {
   if (typeof value === "string") return SECRET_LIKE_PATTERN.test(value);
   if (Array.isArray(value)) return value.some((item) => containsSecretLikeValue(item));
-  if (isRecord(value)) return Object.values(value).some((item) => containsSecretLikeValue(item));
+  if (isRecord(value)) {
+    return Object.entries(value).some(([key, item]) => {
+      if (SECRET_LIKE_KEY_PATTERN.test(key) && typeof item === "string" && item.trim()) return true;
+      return containsSecretLikeValue(item);
+    });
+  }
   return false;
+}
+
+function containsPublicUnsafeFlag(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some((item) => containsPublicUnsafeFlag(item));
+  if (!isRecord(value)) return false;
+  if (value.publicSafe === false) return true;
+  return Object.values(value).some((item) => containsPublicUnsafeFlag(item));
 }
 
 function readNestedBoolean(record: JsonRecord, path: string[]): boolean | null {
@@ -587,6 +615,22 @@ function readNestedValue(record: JsonRecord, path: string[]): unknown {
 
 function readStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function reportableNestedBlockers(source: ReleaseGaSmokeSourceId, blockers: string[]): string[] {
+  if (source !== "publishedPackageSmoke") return blockers;
+  return blockers.filter((blocker) => !isPublishedSmokeSetupBlocker(blocker));
+}
+
+function isPublishedSmokeSetupBlocker(blocker: string): boolean {
+  return blocker === "fresh_profile_gateway_setup_required"
+    || blocker.startsWith("fresh_profile_gateway_")
+    || blocker === "gateway_setup_required"
+    || blocker === "openclaw_gateway_setup_required";
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values));
 }
 
 function addBlocker(
