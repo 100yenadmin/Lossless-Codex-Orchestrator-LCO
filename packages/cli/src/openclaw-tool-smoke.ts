@@ -113,6 +113,14 @@ export const FULL_GATEWAY_SMOKE_TOOL_CALLS = [
 ];
 
 const PREPARED_CARD_STATE_SET = new Set<string>(PREPARED_CARD_STATES);
+const MAX_RESTRICTED_ACTION_SCAN_DEPTH = 64;
+const SAFE_FAIL_CLOSED_REASON_CODES_BY_TOOL = new Map<string, Set<string>>([
+  ["loo_codex_start_thread_post_create_proof", new Set(["post_create_proof_missing_persisted_evidence", "created_thread_not_persisted"])],
+  ["loo_codex_desktop_fallback_status", new Set(["coherence_input_missing", "desktop_visibility_not_proven"])],
+  ["loo_desktop_proof_report", new Set(["live_action_not_observed"])],
+  ["loo_desktop_live_proof_harness", new Set(["desktop_live_action_not_run"])],
+  ["loo_desktop_proof_action", new Set(["execute_false_no_action"])]
+]);
 
 const AUTONOMY_TICK_SUMMARY_KEYS = [
   "totalLanes",
@@ -389,7 +397,7 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
       broadGatewayScopeApproval: false
     },
     privateDataExclusions: PRIVATE_DATA_EXCLUSIONS,
-    proofBoundary: "This OpenClaw tool-call smoke proves public-safe gateway invocation of selected loo_* tools only. It does not approve live Codex control, GUI mutation, npm publish, GitHub Release creation, channel delivery, broad gateway scope approval, Claude parity, or release-grade customer readiness.",
+    proofBoundary: "This OpenClaw tool-call smoke proves public-safe gateway invocation of selected loo_* tools only. Dry-run proof trusts the plugin/server dry_run response plus audit/hash markers and is not an independent live-action disproof. It does not approve live Codex control, GUI mutation, npm publish, GitHub Release creation, channel delivery, broad gateway scope approval, Claude parity, or release-grade customer readiness.",
     nextAction: nextActionForBlockers(uniqueBlockers)
   };
 
@@ -445,7 +453,7 @@ function buildSmokeDispositionPlan(
       excluded_non_claim: entries.filter((entry) => entry.disposition === "excluded_non_claim").length
     },
     entries,
-    proofBoundary: "Successful invocation and successful dry-run entries may count as product gateway evidence. Expected fail-closed entries prove only safe refusal/no-action behavior. Excluded non-claim entries are catalog/disposition records only and must not be counted as product invocation proof."
+    proofBoundary: "Successful invocation and successful dry-run entries may count as product gateway evidence; dry-run entries trust explicit dry_run/live:false plus audit/hash markers from the tool response and do not independently prove live action absence. Expected fail-closed entries prove only safe refusal/no-action behavior. Excluded non-claim entries are catalog/disposition records only and must not be counted as product invocation proof."
   };
 }
 
@@ -1647,17 +1655,27 @@ function expectedFailClosedProven(
   const status = stringPath(value, ["status"]);
   const reasonCodes = arrayPath(value, ["reasonCodes"]).filter((item): item is string => typeof item === "string");
   const proofMarkers = isRecord(value.proofMarkers) ? value.proofMarkers : null;
+  if (toolName === "loo_desktop_act") {
+    return status === "blocked"
+      || status === "not_observed"
+      || (proofMarkers?.noActionObserved === true);
+  }
   if ((summary.toolBlockers?.length ?? 0) > 0) return true;
   if (toolName === "loo_codex_desktop_fallback_status" && summary.fallbackReason) return true;
   if (status === "blocked" || status === "unresolved_unknown" || status === "not_observed") return true;
-  if (reasonCodes.some((code) => /missing|blocked|not_.*observed|not_.*run|fail.*closed/i.test(code))) return true;
+  if (reasonCodes.some((code) => safeFailClosedReasonCodes(toolName).has(code))) return true;
   if (proofMarkers && (proofMarkers.noActionObserved === true || proofMarkers.liveActionObserved === false)) return true;
   if (value.execute === false && toolName === "loo_desktop_proof_action") return true;
   return false;
 }
 
-function hasRestrictedActionPerformed(value: unknown): boolean {
-  if (Array.isArray(value)) return value.some((item) => hasRestrictedActionPerformed(item));
+function safeFailClosedReasonCodes(toolName: string): Set<string> {
+  return SAFE_FAIL_CLOSED_REASON_CODES_BY_TOOL.get(toolName) ?? new Set<string>();
+}
+
+function hasRestrictedActionPerformed(value: unknown, depth = 0): boolean {
+  if (depth > MAX_RESTRICTED_ACTION_SCAN_DEPTH) return true;
+  if (Array.isArray(value)) return value.some((item) => hasRestrictedActionPerformed(item, depth + 1));
   if (!isRecord(value)) return false;
   for (const [key, item] of Object.entries(value)) {
     if (key === "liveActionObserved" && item === true) return true;
@@ -1677,7 +1695,7 @@ function hasRestrictedActionPerformed(value: unknown): boolean {
     ) {
       return true;
     }
-    if (hasRestrictedActionPerformed(item)) return true;
+    if (hasRestrictedActionPerformed(item, depth + 1)) return true;
   }
   return false;
 }

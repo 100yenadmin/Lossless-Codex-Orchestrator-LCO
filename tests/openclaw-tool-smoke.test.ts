@@ -244,6 +244,8 @@ function createFakeOpenClaw(
     mismatchedPreparedTargetCoverage?: boolean;
     incompletePreparedTargetCoverage?: boolean;
     omitDryRunMessageHash?: boolean;
+    weakDesktopActProof?: boolean;
+    deepDesktopActProof?: boolean;
   } = {}
 ): { bin: string; callsPath: string } {
   const callsPath = join(dir, "calls.jsonl");
@@ -268,6 +270,11 @@ function createFakeOpenClaw(
       : dryRunOutputShape === "details"
         ? `{ details: ${dryRunDetailsCode} }`
         : dryRunDetailsCode;
+  const desktopActOutputCode = options.weakDesktopActProof
+    ? `{ publicSafe: true, readOnly: true, reasonCodes: ["blocked"], actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false } }`
+    : options.deepDesktopActProof
+      ? `(() => { const output = { publicSafe: true, readOnly: true, status: "blocked", actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false } }; let cursor = output; for (let index = 0; index < 80; index += 1) { cursor.nested = {}; cursor = cursor.nested; } return output; })()`
+      : `{ publicSafe: true, readOnly: true, status: "blocked", blockers: ["desktop_live_action_disallowed"], action: toolArgs.action, actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false } }`;
   const fallbackNextToolCallCode = options.omitFallbackNextToolCall
     ? "null"
     : `missingCoherence ? { tool: "loo_codex_desktop_coherence", args: { thread_id: toolArgs.thread_id, source_ref: toolArgs.source_ref } } : null`;
@@ -472,7 +479,7 @@ if (method === "tools.invoke") {
     process.exit(0);
   }
   if (name === "loo_desktop_act") {
-    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, readOnly: true, status: "blocked", blockers: ["desktop_live_action_disallowed"], action: toolArgs.action, actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false } } }));
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: ${desktopActOutputCode} }));
     process.exit(0);
   }
   if (name === "loo_desktop_proof_report") {
@@ -898,6 +905,7 @@ test("OpenClaw tool smoke emits safe full-gateway disposition plan for missing t
     assert.equal(report.invocations.find((call) => call.toolName === "loo_codex_start_thread")?.summary.live, false);
     assert.equal(report.invocations.find((call) => call.toolName === "loo_desktop_act")?.ok, true);
     assert.equal(report.invocations.find((call) => call.toolName === "loo_desktop_act")?.summary.toolBlockers?.includes("desktop_live_action_disallowed"), true);
+    assert.match(report.smokeDispositionPlan?.proofBoundary ?? "", /trust explicit dry_run\/live:false plus audit\/hash markers/);
     assert.equal(report.smokeDispositionPlan?.entries.find((entry) => entry.toolName === "loo_index_sessions")?.productEvidenceClaimed, false);
     assert.equal(report.smokeDispositionPlan?.entries.find((entry) => entry.toolName === "loo_lcm_peer_dbs")?.productEvidenceClaimed, false);
 
@@ -1023,6 +1031,49 @@ test("OpenClaw tool smoke full coverage blocks thread-bound control tools withou
     assert.equal(report.invocations.length, 0);
     const calls = readFileSync(callsPath, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as { method: string });
     assert.equal(calls.filter((call) => call.method === "tools.invoke").length, 0);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke rejects vague reason-code-only desktop action proof", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-weak-desktop-act-"));
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_desktop_act"], "flat", {
+    weakDesktopActProof: true
+  });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      requiredTools: ["loo_desktop_act"]
+    });
+
+    assert.equal(report.toolSmokeReady, false);
+    assert.ok(report.blockers.includes("expected_fail_closed_not_proven:loo_desktop_act"), JSON.stringify(report, null, 2));
+    assert.equal(report.invocations.find((call) => call.toolName === "loo_desktop_act")?.ok, false);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke fails closed on over-deep desktop action output instead of recursing forever", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-deep-desktop-act-"));
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_desktop_act"], "flat", {
+    deepDesktopActProof: true
+  });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      requiredTools: ["loo_desktop_act"]
+    });
+
+    assert.equal(report.toolSmokeReady, false);
+    assert.ok(report.blockers.includes("expected_fail_closed_not_proven:loo_desktop_act"), JSON.stringify(report, null, 2));
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;
