@@ -12,7 +12,7 @@ import { createLooToolDeclarations } from "../packages/mcp-server/src/tools.js";
 const tsxImport = createRequire(import.meta.url).resolve("tsx");
 const packageVersion = JSON.parse(readFileSync("package.json", "utf8")).version as string;
 const escapedPackageVersion = packageVersion.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const releaseNotesPath = `docs/RELEASE_NOTES_${packageVersion}.md`;
+const releaseNotesPath = `docs/releases/RELEASE_NOTES_${packageVersion}.md`;
 
 function read(path: string): string {
   return readFileSync(path, "utf8");
@@ -923,7 +923,7 @@ function writeProjectSkeleton(rootDir: string, overrides: { readme?: string; run
     "docs/OPENCLAW_PLUGIN.md",
     "docs/PRIVACY.md",
     "docs/CLAIM_AUDIT.md",
-    "docs/RELEASE_NOTES_1.0.0.md",
+    "docs/releases/CHANGELOG.md",
     "License",
     "## Safety Boundaries",
     "Core proof commands",

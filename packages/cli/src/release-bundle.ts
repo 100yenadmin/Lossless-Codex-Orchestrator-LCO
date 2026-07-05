@@ -53,9 +53,9 @@ export function createReleaseBundle(options: ReleaseBundleOptions): ReleaseBundl
     throw new Error("Release bundle requires package.json version");
   }
   const releaseNotesFile = `RELEASE_NOTES_${preflight.packageVersion}.md`;
-  const releaseNotesSource = join(packageRoot, "docs", releaseNotesFile);
+  const releaseNotesSource = join(packageRoot, "docs", "releases", releaseNotesFile);
   if (!existsSync(releaseNotesSource)) {
-    throw new Error(`Release notes are missing: docs/${releaseNotesFile}`);
+    throw new Error(`Release notes are missing: docs/releases/${releaseNotesFile}`);
   }
   const releaseNotesPath = join(evidenceDir, releaseNotesFile);
   const bundleManifestPath = join(evidenceDir, "release-bundle.json");
