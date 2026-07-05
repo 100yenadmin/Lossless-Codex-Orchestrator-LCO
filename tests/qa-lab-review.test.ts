@@ -21,6 +21,13 @@ function writeJson(path: string, value: unknown): void {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
 }
 
+function mutateRun<T extends object>(path: string, mutate: (run: T) => void): T {
+  const run = JSON.parse(readFileSync(path, "utf8")) as T;
+  mutate(run);
+  writeJson(path, run);
+  return run;
+}
+
 function writePassingRun(dir: string): string {
   const path = join(dir, "qa-lab-run.json");
   writeJson(path, {
@@ -100,11 +107,11 @@ test("qa-lab judge emits deterministic GA review from sanitized QA run", (t) => 
 test("qa-lab judge fails strict when privacy or safety is below 5", (t) => {
   const dir = makeTempDir(t, "loo-qa-lab-judge-privacy-fail-");
   const runPath = writePassingRun(dir);
-  const run = JSON.parse(readFileSync(runPath, "utf8")) as {
+  mutateRun<{
     dimensions: { privacy: { score: number }; safety: { score: number } };
-  };
-  run.dimensions.privacy.score = 4;
-  writeJson(runPath, run);
+  }>(runPath, (run) => {
+    run.dimensions.privacy.score = 4;
+  });
 
   const result = runLoo([
     "qa-lab",
@@ -128,19 +135,19 @@ test("qa-lab judge fails strict when privacy or safety is below 5", (t) => {
 test("qa-lab judge fails GA when average score is below threshold", (t) => {
   const dir = makeTempDir(t, "loo-qa-lab-judge-average-fail-");
   const runPath = writePassingRun(dir);
-  const run = JSON.parse(readFileSync(runPath, "utf8")) as {
+  mutateRun<{
     dimensions: {
       retrieval: { score: number };
       packaging: { score: number };
       claims: { score: number };
       agentUsability: { score: number };
     };
-  };
-  run.dimensions.retrieval.score = 4;
-  run.dimensions.packaging.score = 4;
-  run.dimensions.claims.score = 4;
-  run.dimensions.agentUsability.score = 4;
-  writeJson(runPath, run);
+  }>(runPath, (run) => {
+    run.dimensions.retrieval.score = 4;
+    run.dimensions.packaging.score = 4;
+    run.dimensions.claims.score = 4;
+    run.dimensions.agentUsability.score = 4;
+  });
 
   const report = createQaLabJudgeReviewReport({
     runPath,
@@ -157,26 +164,26 @@ test("qa-lab judge fails GA when average score is below threshold", (t) => {
 test("qa-lab adversarial review emits selected lens findings without raw evidence echo", (t) => {
   const dir = makeTempDir(t, "loo-qa-lab-adversarial-");
   const runPath = writePassingRun(dir);
-  const run = JSON.parse(readFileSync(runPath, "utf8")) as {
+  mutateRun<{
     adversarial: {
       safety: { pass: boolean; findings: Array<{ severity: string; code: string; detail: string; rawEvidence?: string }> };
       claims: { pass: boolean; findings: Array<{ severity: string; code: string; detail: string; rawPrompt?: string }> };
     };
-  };
-  run.adversarial.safety.pass = false;
-  run.adversarial.safety.findings.push({
-    severity: "P1",
-    code: "restricted_action_ambiguous",
-    detail: "Restricted action boundary was ambiguous.",
-    rawEvidence: "/Users/lume/.codex/sessions/private.jsonl"
+  }>(runPath, (run) => {
+    run.adversarial.safety.pass = false;
+    run.adversarial.safety.findings.push({
+      severity: "P1",
+      code: "restricted_action_ambiguous",
+      detail: "Restricted action boundary was ambiguous.",
+      rawEvidence: "/Users/lume/.codex/sessions/private.jsonl"
+    });
+    run.adversarial.claims.findings.push({
+      severity: "P2",
+      code: "claim_scope_overreach",
+      detail: "Claim wording exceeded packaged proof.",
+      rawPrompt: "customer secret prompt"
+    });
   });
-  run.adversarial.claims.findings.push({
-    severity: "P2",
-    code: "claim_scope_overreach",
-    detail: "Claim wording exceeded packaged proof.",
-    rawPrompt: "customer secret prompt"
-  });
-  writeJson(runPath, run);
 
   const report = createQaLabAdversarialReviewReport({
     runPath,
@@ -188,8 +195,8 @@ test("qa-lab adversarial review emits selected lens findings without raw evidenc
   assert.equal(report.schema, "lco.qaLab.adversarialReview.v1");
   assert.equal(report.ok, false);
   assert.deepEqual(report.requestedLenses, ["safety", "claims"]);
-  assert.equal(report.lensResults.safety.pass, false);
-  assert.equal(report.lensResults.claims.pass, false);
+  assert.equal(report.lensResults.safety?.pass, false);
+  assert.equal(report.lensResults.claims?.pass, false);
   assert.ok(report.blockers.some((blocker) => blocker.severity === "P1" && blocker.code === "restricted_action_ambiguous"));
   assert.ok(report.blockers.some((blocker) => blocker.severity === "P2" && blocker.code === "claim_scope_overreach"));
   const serialized = JSON.stringify(report);
@@ -204,16 +211,16 @@ test("qa-lab adversarial review emits selected lens findings without raw evidenc
 test("loo qa-lab adversarial-review --strict exits nonzero for blocking lens findings", (t) => {
   const dir = makeTempDir(t, "loo-qa-lab-adversarial-cli-");
   const runPath = writePassingRun(dir);
-  const run = JSON.parse(readFileSync(runPath, "utf8")) as {
+  mutateRun<{
     adversarial: { packaging: { pass: boolean; findings: Array<{ severity: string; code: string; detail: string }> } };
-  };
-  run.adversarial.packaging.pass = false;
-  run.adversarial.packaging.findings.push({
-    severity: "P1",
-    code: "package_artifact_missing",
-    detail: "Package artifact evidence is missing."
+  }>(runPath, (run) => {
+    run.adversarial.packaging.pass = false;
+    run.adversarial.packaging.findings.push({
+      severity: "P1",
+      code: "package_artifact_missing",
+      detail: "Package artifact evidence is missing."
+    });
   });
-  writeJson(runPath, run);
 
   const result = runLoo([
     "qa-lab",
@@ -230,5 +237,63 @@ test("loo qa-lab adversarial-review --strict exits nonzero for blocking lens fin
   assert.equal(result.status, 1, result.stderr || result.stdout);
   const report = JSON.parse(result.stdout) as QaLabAdversarialReviewReport;
   assert.equal(report.schema, "lco.qaLab.adversarialReview.v1");
-  assert.equal(report.lensResults.packaging.pass, false);
+  assert.equal(report.lensResults.packaging?.pass, false);
+});
+
+test("loo qa-lab judge without --strict exits zero while reporting not GA-ready", (t) => {
+  const dir = makeTempDir(t, "loo-qa-lab-judge-nonstrict-");
+  const runPath = writePassingRun(dir);
+  mutateRun<{
+    dimensions: { safety: { score: number } };
+  }>(runPath, (run) => {
+    run.dimensions.safety.score = 4;
+  });
+
+  const result = runLoo([
+    "qa-lab",
+    "judge",
+    "--run",
+    runPath,
+    "--rubric-version",
+    "real-product-v1",
+    "--evidence-dir",
+    dir
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout) as QaLabJudgeReviewReport;
+  assert.equal(report.schema, "lco.qaLab.judgeReview.v1");
+  assert.equal(report.gaReady, false);
+});
+
+test("loo qa-lab adversarial-review without --strict exits zero while reporting blockers", (t) => {
+  const dir = makeTempDir(t, "loo-qa-lab-adversarial-nonstrict-");
+  const runPath = writePassingRun(dir);
+  mutateRun<{
+    adversarial: { retrieval: { pass: boolean; findings: Array<{ severity: string; code: string; detail: string }> } };
+  }>(runPath, (run) => {
+    run.adversarial.retrieval.pass = false;
+    run.adversarial.retrieval.findings.push({
+      severity: "P2",
+      code: "retrieval_coverage_gap",
+      detail: "Retrieval scenario proof is incomplete."
+    });
+  });
+
+  const result = runLoo([
+    "qa-lab",
+    "adversarial-review",
+    "--run",
+    runPath,
+    "--lenses",
+    "retrieval",
+    "--evidence-dir",
+    dir
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout) as QaLabAdversarialReviewReport;
+  assert.equal(report.schema, "lco.qaLab.adversarialReview.v1");
+  assert.equal(report.ok, false);
+  assert.equal(report.lensResults.retrieval?.pass, false);
 });

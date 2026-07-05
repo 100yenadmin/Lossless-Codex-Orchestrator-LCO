@@ -83,7 +83,7 @@ export type QaLabAdversarialReviewReport = {
   generatedAt: string;
   runRef: string | null;
   requestedLenses: QaLabAdversarialLens[];
-  lensResults: Record<QaLabAdversarialLens, QaLabAdversarialLensResult>;
+  lensResults: Partial<Record<QaLabAdversarialLens, QaLabAdversarialLensResult>>;
   blockersBySeverity: Record<QaLabReviewSeverity, number>;
   blockers: QaLabReviewBlocker[];
   warnings: QaLabReviewBlocker[];
@@ -190,7 +190,7 @@ export function createQaLabAdversarialReviewReport(options: QaLabAdversarialRevi
   const loaded = loadQaRun(options.runPath, evidenceDir);
   const blockers = [...loaded.blockers];
   const warnings = [...loaded.warnings];
-  const lensResults = {} as Record<QaLabAdversarialLens, QaLabAdversarialLensResult>;
+  const lensResults: Partial<Record<QaLabAdversarialLens, QaLabAdversarialLensResult>> = {};
   for (const lens of options.lenses) {
     const result = buildLensResult(lens, loaded.value);
     lensResults[lens] = result;
