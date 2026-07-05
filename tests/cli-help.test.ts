@@ -18,6 +18,8 @@ test("loo --help exits zero with top-level usage", () => {
   assert.match(result.stdout, /loo release ga-smoke .*--release-status path/);
   assert.match(result.stdout, /loo release ga-smoke .*--privacy-scan path/);
   assert.match(result.stdout, /loo release ga-smoke .*--now iso/);
+  assert.match(result.stdout, /loo qa-lab judge --run path --rubric-version real-product-v1/);
+  assert.match(result.stdout, /loo qa-lab adversarial-review --run path --lenses safety,retrieval,packaging,claims,agent-usability/);
   assert.equal(result.stderr.trim(), "");
 });
 
@@ -310,5 +312,27 @@ test("loo runtime issue-packet --help exits zero with no-external-write boundary
   assert.match(result.stdout, /issue-ready handoff packet/i);
   assert.match(result.stdout, /never runs gh issue create/i);
   assert.match(result.stdout, /never writes to GitHub/i);
+  assert.equal(result.stderr.trim(), "");
+});
+
+test("loo qa-lab judge --help exits zero with deterministic review boundary", () => {
+  const result = runLoo(["qa-lab", "judge", "--help"]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Usage:\n  loo qa-lab judge/);
+  assert.match(result.stdout, /lco\.qaLab\.judgeReview\.v1/);
+  assert.match(result.stdout, /does not call a model/i);
+  assert.match(result.stdout, /raw prompts/i);
+  assert.equal(result.stderr.trim(), "");
+});
+
+test("loo qa-lab adversarial-review --help exits zero with no-raw-evidence boundary", () => {
+  const result = runLoo(["qa-lab", "adversarial-review", "--help"]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Usage:\n  loo qa-lab adversarial-review/);
+  assert.match(result.stdout, /lco\.qaLab\.adversarialReview\.v1/);
+  assert.match(result.stdout, /Raw evidence fields/i);
+  assert.match(result.stdout, /tokens, cookies, and customer data are not echoed/i);
   assert.equal(result.stderr.trim(), "");
 });
