@@ -13,10 +13,19 @@ loo release general-readiness \
   --fresh-npm-evidence published-package-smoke.json \
   --agent-dogfood-evidence openclaw-tool-smoke.json \
   --strict
+
+loo release ga-smoke \
+  --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-ga-smoke \
+  --package-version <version> \
+  --candidate-sha <release-candidate-sha> \
+  --strict
 ```
 
-The command writes `general-release-readiness.json` and does not publish npm,
-move `latest`, create a GitHub Release, run live Codex control, or mutate a GUI.
+These commands write public-safe readiness packets. `ga-smoke` aggregates the
+separate release-status, finalization, published-smoke, dogfood, tool-smoke,
+scenario, scorecard, preflight, bundle, and privacy reports into one blocker
+taxonomy. They do not publish npm, move `latest`, create a GitHub Release, run
+live Codex control, or mutate a GUI.
 
 ## Claim Tiers
 
@@ -46,6 +55,8 @@ Every beta, RC, and stable release must have public-safe evidence for:
 - release preflight, bundle, demo-status, release-status, and scorecard sweep
 - post-publish `loo release finalization-status --strict` evidence showing npm
   package/dist-tag, git tag, and GitHub Release all match the candidate SHA
+- `loo release ga-smoke --strict` evidence aggregating the individual release
+  reports into one public-safe P0-P3 blocker taxonomy
 - README, VISION, release notes, claim audit, runbook, and skills truth scan
 - privacy scan showing no raw transcripts, raw prompts, SQLite DBs, screenshots,
   tokens, cookies, credentials, or private customer data in public evidence
@@ -98,8 +109,9 @@ pre-publish candidate gates pass and the release-status approval markers
 explicitly cover npm publication and GitHub Release creation. After publication,
 run `loo release finalization-status --expected-dist-tag latest
 --expected-github-prerelease false --strict`, fresh npm `@latest`
-published-smoke, and `loo release general-readiness --strict`; the stable issue
-is not complete until those post-publish gates pass.
+published-smoke, `loo release general-readiness --strict`, and
+`loo release ga-smoke --strict`; the stable issue is not complete until those
+post-publish gates pass.
 
 ## Blocking Signals
 

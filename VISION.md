@@ -83,6 +83,7 @@ What a local OpenClaw agent can do today:
 - Classify package and gateway readiness with `loo onboard status`, `loo openclaw dogfood`, `loo openclaw tool-smoke`, and `loo openclaw published-smoke`.
 - Follow the packaged agent skill and M9 dogfood scenario to produce a public-safe recommendation from source refs, bounded expansion, detail lookups, and dry-run audit hashes.
 - Use `loo release general-readiness --strict` to decide whether fresh npm install, clean-profile OpenClaw load, clean-profile gateway readiness, and agent dogfood evidence are enough for a stable/general release claim.
+- Use `loo release ga-smoke --strict` after the individual release reports exist to aggregate the release-status, finalization, published-smoke, OpenClaw dogfood/tool-smoke, scenario, scorecard, bundle, preflight, and privacy packets into one public-safe blocker taxonomy. It is a report aggregator only; it must not publish npm, create tags, create GitHub Releases, run live control, mutate a GUI, or read raw transcripts.
 
 ## Completed Proof: Working App Runtime
 

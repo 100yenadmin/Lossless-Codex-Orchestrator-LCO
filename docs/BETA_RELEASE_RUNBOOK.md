@@ -337,16 +337,27 @@ node ./dist/packages/cli/src/index.js release general-readiness \
   --fresh-npm-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/fresh-npm/published-package-smoke.json \
   --agent-dogfood-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/agent-dogfood/openclaw-tool-smoke.json \
   --strict
+
+node ./dist/packages/cli/src/index.js release ga-smoke \
+  --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-ga-smoke \
+  --package-version <version> \
+  --candidate-sha "$release_candidate_sha" \
+  --strict
 ```
 
-This post-publish gate is intentionally stricter than a beta first-run
-classifier: `gateway_setup_required` can be acceptable beta onboarding evidence,
-but it is not enough for a stable/general readiness claim. The stable gate
-requires a fresh npm install, clean-profile OpenClaw load, clean-profile gateway
-tool-smoke readiness, agent dogfood through gateway tools, and docs truth. If
-resume, steer, or interrupt have not passed live proof on disposable threads,
-the release copy must exclude broad live control and name only the proven live
-send path.
+`ga-smoke` is the release-captain summary after the individual packets exist. It
+aggregates the release-status, finalization, published-smoke, OpenClaw dogfood
+and tool-smoke, scenario sweep, scorecard sweep, preflight, bundle, and privacy
+reports into one P0-P3 blocker taxonomy without running hidden gates. This
+post-publish gate is intentionally stricter than a beta first-run classifier:
+`gateway_setup_required` can be acceptable beta onboarding evidence, but it is
+not enough for a stable/general readiness claim unless the release explicitly
+allows setup-required profiles and configured-gateway proof is clean. The stable
+gate requires a fresh npm install, clean-profile OpenClaw load, clean-profile
+gateway tool-smoke readiness, agent dogfood through gateway tools, and docs
+truth. If resume, steer, or interrupt have not passed live proof on disposable
+threads, the release copy must exclude broad live control and name only the
+proven live send path.
 
 ## Publication Approval Gates
 

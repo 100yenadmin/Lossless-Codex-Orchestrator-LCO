@@ -239,6 +239,19 @@ test("loo release general-readiness --help uses version-neutral stable wording",
   assert.equal(result.stderr.trim(), "");
 });
 
+test("loo release ga-smoke --help exposes aggregate-only GA evidence contract", () => {
+  const result = runLoo(["release", "ga-smoke", "--help"]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Usage:\n  loo release ga-smoke/);
+  assert.match(result.stdout, /--package-version version/);
+  assert.match(result.stdout, /--candidate-sha sha/);
+  assert.match(result.stdout, /--allow-setup-required/);
+  assert.match(result.stdout, /aggregate/i);
+  assert.match(result.stdout, /does not publish npm/i);
+  assert.equal(result.stderr.trim(), "");
+});
+
 test("loo openclaw tool-smoke --help exits zero with proof-boundary usage", () => {
   const result = runLoo(["openclaw", "tool-smoke", "--help"]);
 

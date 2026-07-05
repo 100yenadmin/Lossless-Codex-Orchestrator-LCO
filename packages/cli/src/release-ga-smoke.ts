@@ -1,0 +1,611 @@
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
+import { normalizeReleaseClaimScope, type ReleaseClaimScope } from "./release-claim-scope.js";
+
+export type ReleaseGaSmokeOptions = {
+  evidenceDir: string;
+  packageVersion: string;
+  candidateSha: string;
+  claimScope?: ReleaseClaimScope;
+  releaseStatus?: string;
+  releaseFinalizationStatus?: string;
+  publishedSmoke?: string;
+  dogfoodReport?: string;
+  toolSmokeReport?: string;
+  scenarioSweep?: string;
+  scorecardSweep?: string;
+  releasePreflight?: string;
+  releaseBundle?: string;
+  privacyScan?: string;
+  allowSetupRequired?: boolean;
+  now?: string;
+};
+
+export type ReleaseGaSmokeSeverity = "P0" | "P1" | "P2";
+
+export type ReleaseGaSmokeBlocker = {
+  severity: ReleaseGaSmokeSeverity;
+  code: string;
+  source: string;
+  detail: string;
+};
+
+export type ReleaseGaSmokeSetupBlocker = {
+  code: string;
+  source: string;
+  detail: string;
+  allowed: boolean;
+};
+
+export type ReleaseGaSmokeWarning = {
+  code: string;
+  source: string;
+  detail: string;
+};
+
+export type ReleaseGaSmokeEvidenceStatus = "missing" | "invalid" | "unsafe" | "blocked" | "ready";
+
+export type ReleaseGaSmokeEvidenceIndexEntry = {
+  status: ReleaseGaSmokeEvidenceStatus;
+  evidenceRef: string | null;
+  blockerCodes: string[];
+};
+
+export type ReleaseGaSmokeReport = {
+  schema: "lco.release.gaSmoke.v1";
+  ok: boolean;
+  gaSmokeReady: boolean;
+  generatedAt: string;
+  packageName: "lossless-openclaw-orchestrator";
+  packageVersion: string;
+  candidateSha: string;
+  claimScope: ReleaseClaimScope;
+  blockers: ReleaseGaSmokeBlocker[];
+  setupBlockers: ReleaseGaSmokeSetupBlocker[];
+  warnings: ReleaseGaSmokeWarning[];
+  deferred: string[];
+  actionsVerified: {
+    releaseStatusReady: boolean;
+    releaseFinalized: boolean;
+    publishedPackageSmokeReady: boolean;
+    dogfoodReady: boolean;
+    toolSmokeReady: boolean;
+    scenarioSweepReady: boolean;
+    scorecardSweepReady: boolean;
+    releasePreflightReady: boolean;
+    releaseBundleReady: boolean;
+    privacyScanReady: boolean;
+  };
+  actionsPerformed: {
+    npmPublished: false;
+    githubReleaseCreated: false;
+    liveCodexControlRun: false;
+    desktopGuiActionRun: false;
+  };
+  evidenceIndex: Record<ReleaseGaSmokeSourceId, ReleaseGaSmokeEvidenceIndexEntry>;
+  nextSafeCommands: string[];
+  privateDataExclusions: string[];
+  proofBoundary: string;
+};
+
+type ReleaseGaSmokeSourceId =
+  | "releaseStatus"
+  | "releaseFinalizationStatus"
+  | "publishedPackageSmoke"
+  | "openclawDogfood"
+  | "openclawToolSmoke"
+  | "scenarioSweep"
+  | "scorecardSweep"
+  | "releasePreflight"
+  | "releaseBundle"
+  | "privacyScan";
+
+type EvidenceSpec = {
+  id: ReleaseGaSmokeSourceId;
+  defaultFile: string;
+  optionPath?: string;
+};
+
+type LoadedEvidence = {
+  spec: EvidenceSpec;
+  path: string;
+  evidenceRef: string;
+  value: JsonRecord | null;
+  missing: boolean;
+  invalid: boolean;
+};
+
+type JsonRecord = Record<string, unknown>;
+
+const PACKAGE_NAME = "lossless-openclaw-orchestrator";
+const SHA_PATTERN = /^[a-f0-9]{40}$/i;
+const SECRET_LIKE_PATTERN = /(npm_[A-Za-z0-9]{20,}|Bearer\s+[A-Za-z0-9._-]{20,}|sk-[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/;
+const RAW_ARTIFACT_PATTERN = /\.(?:jsonl|jsonl\.gz|sqlite|sqlite-wal|sqlite-shm|db|db-journal|db-wal|db-shm|png|jpg|jpeg|gif|webp|mp4|mov|webm)$/i;
+const RESTRICTED_ACTION_KEYS = new Set([
+  "npmPublished",
+  "githubReleaseCreated",
+  "liveCodexControlRun",
+  "desktopGuiActionRun",
+  "rawTranscriptRead"
+]);
+
+const EVIDENCE_SPECS: Array<Omit<EvidenceSpec, "optionPath"> & { optionKey: keyof Pick<
+  ReleaseGaSmokeOptions,
+  | "releaseStatus"
+  | "releaseFinalizationStatus"
+  | "publishedSmoke"
+  | "dogfoodReport"
+  | "toolSmokeReport"
+  | "scenarioSweep"
+  | "scorecardSweep"
+  | "releasePreflight"
+  | "releaseBundle"
+  | "privacyScan"
+> }> = [
+  { id: "releaseStatus", defaultFile: "release-status.json", optionKey: "releaseStatus" },
+  { id: "releaseFinalizationStatus", defaultFile: "release-finalization-status.json", optionKey: "releaseFinalizationStatus" },
+  { id: "publishedPackageSmoke", defaultFile: "published-package-smoke.json", optionKey: "publishedSmoke" },
+  { id: "openclawDogfood", defaultFile: "openclaw-dogfood.json", optionKey: "dogfoodReport" },
+  { id: "openclawToolSmoke", defaultFile: "openclaw-tool-smoke.json", optionKey: "toolSmokeReport" },
+  { id: "scenarioSweep", defaultFile: "scenario-sweep.json", optionKey: "scenarioSweep" },
+  { id: "scorecardSweep", defaultFile: "scorecard-sweep.json", optionKey: "scorecardSweep" },
+  { id: "releasePreflight", defaultFile: "release-preflight.json", optionKey: "releasePreflight" },
+  { id: "releaseBundle", defaultFile: "release-bundle.json", optionKey: "releaseBundle" },
+  { id: "privacyScan", defaultFile: "privacy-scan.json", optionKey: "privacyScan" }
+];
+
+export function createReleaseGaSmokeReport(options: ReleaseGaSmokeOptions): ReleaseGaSmokeReport {
+  const evidenceDir = resolve(options.evidenceDir);
+  mkdirSync(evidenceDir, { recursive: true });
+
+  const claimScope = normalizeReleaseClaimScope(options.claimScope);
+  const blockers: ReleaseGaSmokeBlocker[] = [];
+  const setupBlockers: ReleaseGaSmokeSetupBlocker[] = [];
+  const warnings: ReleaseGaSmokeWarning[] = [];
+  const evidenceIndex = {} as Record<ReleaseGaSmokeSourceId, ReleaseGaSmokeEvidenceIndexEntry>;
+  const loaded = EVIDENCE_SPECS.map((spec) => loadEvidence({
+    id: spec.id,
+    defaultFile: spec.defaultFile,
+    optionPath: options[spec.optionKey] as string | undefined
+  }, evidenceDir));
+
+  for (const evidence of loaded) {
+    const sourceBlockerStart = blockers.length;
+    if (evidence.missing) {
+      addBlocker(blockers, "P1", missingCode(evidence.spec.id), evidence.spec.id, `${titleForSource(evidence.spec.id)} evidence is missing.`);
+    } else if (evidence.invalid) {
+      addBlocker(blockers, "P1", invalidCode(evidence.spec.id), evidence.spec.id, `${titleForSource(evidence.spec.id)} evidence is not valid JSON.`);
+    } else if (evidence.value) {
+      validateCommonEvidence(evidence, blockers);
+      validateEvidenceBySource(evidence, options, blockers, setupBlockers);
+    }
+    const sourceBlockers = blockers.slice(sourceBlockerStart).map((blocker) => blocker.code);
+    evidenceIndex[evidence.spec.id] = {
+      status: evidenceStatus(evidence, sourceBlockers),
+      evidenceRef: evidence.evidenceRef,
+      blockerCodes: sourceBlockers
+    };
+  }
+
+  const unsafeArtifacts = scanUnsafeEvidenceArtifacts(evidenceDir);
+  if (unsafeArtifacts > 0) {
+    addBlocker(blockers, "P0", "unsafe_evidence_artifact_present", "evidenceDir", "Evidence directory contains raw transcript, SQLite, screenshot, image, or video artifacts.");
+  }
+
+  if (!SHA_PATTERN.test(options.candidateSha)) {
+    addBlocker(blockers, "P1", "candidate_sha_invalid", "gaSmoke", "Candidate SHA must be a 40-character hexadecimal commit SHA.");
+  }
+  if (!options.packageVersion.trim()) {
+    addBlocker(blockers, "P1", "package_version_missing", "gaSmoke", "Package version is required.");
+  }
+
+  const dedupedBlockers = uniqueBlockers(blockers);
+  const actionsVerified = buildActionsVerified(evidenceIndex);
+  const gaSmokeReady = dedupedBlockers.length === 0;
+  const report: ReleaseGaSmokeReport = {
+    schema: "lco.release.gaSmoke.v1",
+    ok: gaSmokeReady,
+    gaSmokeReady,
+    generatedAt: options.now ?? new Date().toISOString(),
+    packageName: PACKAGE_NAME,
+    packageVersion: options.packageVersion,
+    candidateSha: options.candidateSha,
+    claimScope,
+    blockers: dedupedBlockers,
+    setupBlockers,
+    warnings,
+    deferred: [
+      "No npm publish was attempted by this command.",
+      "No GitHub Release or tag creation was attempted by this command.",
+      "No live Codex control or desktop GUI mutation was attempted by this command."
+    ],
+    actionsVerified,
+    actionsPerformed: {
+      npmPublished: false,
+      githubReleaseCreated: false,
+      liveCodexControlRun: false,
+      desktopGuiActionRun: false
+    },
+    evidenceIndex,
+    nextSafeCommands: nextSafeCommands(options),
+    privateDataExclusions: [
+      "raw Codex transcripts",
+      "raw prompts or message text",
+      "SQLite DBs",
+      "JSONL transcripts",
+      "screenshots, images, or videos",
+      "npm tokens",
+      "GitHub tokens",
+      "API keys, cookies, or bearer tokens",
+      "raw npm or OpenClaw gateway output",
+      "absolute private local paths"
+    ],
+    proofBoundary: "This GA smoke report aggregates already-created public-safe release evidence only. It does not publish npm, create tags, create GitHub Releases, promote dist-tags, run live Codex control, mutate a desktop GUI, read raw transcripts, or claim Claude parity, unattended autonomy, enterprise security, or customer readiness."
+  };
+
+  writeFileSync(join(evidenceDir, "release-ga-smoke.json"), `${JSON.stringify(report, null, 2)}\n`);
+  return report;
+}
+
+function loadEvidence(spec: EvidenceSpec, evidenceDir: string): LoadedEvidence {
+  const path = resolveEvidencePath(evidenceDir, spec.optionPath ?? spec.defaultFile);
+  const evidenceRef = safeEvidenceRef(path, evidenceDir, spec.defaultFile);
+  if (!existsSync(path)) return { spec, path, evidenceRef, value: null, missing: true, invalid: false };
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8"));
+    return {
+      spec,
+      path,
+      evidenceRef,
+      value: isRecord(parsed) ? parsed : null,
+      missing: false,
+      invalid: !isRecord(parsed)
+    };
+  } catch {
+    return { spec, path, evidenceRef, value: null, missing: false, invalid: true };
+  }
+}
+
+function resolveEvidencePath(evidenceDir: string, path: string): string {
+  return isAbsolute(path) ? path : join(evidenceDir, path);
+}
+
+function safeEvidenceRef(path: string, evidenceDir: string, defaultFile: string): string {
+  const rel = relative(evidenceDir, path);
+  if (rel && !rel.startsWith("..") && !isAbsolute(rel) && !RAW_ARTIFACT_PATTERN.test(rel)) return rel;
+  const base = basename(path);
+  if (base && !RAW_ARTIFACT_PATTERN.test(base)) return base;
+  return defaultFile;
+}
+
+function validateCommonEvidence(evidence: LoadedEvidence, blockers: ReleaseGaSmokeBlocker[]): void {
+  const value = evidence.value;
+  if (!value) return;
+  if (containsSecretLikeValue(value)) {
+    addBlocker(blockers, "P0", `${sourceCodePrefix(evidence.spec.id)}_contains_secret_like_value`, evidence.spec.id, `${titleForSource(evidence.spec.id)} evidence contains a secret-like value.`);
+  }
+  if (hasRestrictedActionPerformed(value)) {
+    addBlocker(blockers, "P0", `${sourceCodePrefix(evidence.spec.id)}_restricted_action_performed`, evidence.spec.id, `${titleForSource(evidence.spec.id)} evidence reports a restricted action was performed.`);
+  }
+  if (value.publicSafe === false) {
+    addBlocker(blockers, "P0", `${sourceCodePrefix(evidence.spec.id)}_not_public_safe`, evidence.spec.id, `${titleForSource(evidence.spec.id)} evidence is not marked public-safe.`);
+  }
+  const nestedBlockers = readStringArray(value.blockers);
+  if (nestedBlockers.length > 0 && evidence.spec.id !== "publishedPackageSmoke") {
+    addBlocker(blockers, "P1", `${sourceCodePrefix(evidence.spec.id)}_reports_blockers`, evidence.spec.id, `${titleForSource(evidence.spec.id)} evidence reports blockers.`);
+  }
+}
+
+function validateEvidenceBySource(
+  evidence: LoadedEvidence,
+  options: ReleaseGaSmokeOptions,
+  blockers: ReleaseGaSmokeBlocker[],
+  setupBlockers: ReleaseGaSmokeSetupBlocker[]
+): void {
+  const value = evidence.value;
+  if (!value) return;
+  switch (evidence.spec.id) {
+    case "releaseStatus":
+      requireBoolean(value, "releaseReady", true, blockers, "P1", "release_status_not_ready", evidence.spec.id, "Release status is not ready.");
+      requirePackageVersion(value, "packageVersion", options.packageVersion, blockers, "release_status_version_mismatch", evidence.spec.id);
+      break;
+    case "releaseFinalizationStatus":
+      requireBoolean(value, "finalized", true, blockers, "P1", "release_finalization_not_ready", evidence.spec.id, "Release finalization status is not ready.");
+      requirePackageVersion(value, "packageVersion", options.packageVersion, blockers, "release_finalization_version_mismatch", evidence.spec.id);
+      requireString(value, "candidateSha", options.candidateSha, blockers, "release_finalization_sha_mismatch", evidence.spec.id, "Release finalization candidate SHA does not match.");
+      validateFinalizationActions(value, blockers);
+      break;
+    case "publishedPackageSmoke":
+      validatePublishedSmoke(value, options, blockers, setupBlockers);
+      break;
+    case "openclawDogfood":
+      requireBoolean(value, "dogfoodReady", true, blockers, "P1", "openclaw_dogfood_not_ready", evidence.spec.id, "OpenClaw dogfood evidence is not ready.");
+      requireBoolean(value, "requiredToolsPresent", true, blockers, "P1", "openclaw_dogfood_required_tools_missing", evidence.spec.id, "OpenClaw dogfood required tools are missing.");
+      break;
+    case "openclawToolSmoke":
+      requireBoolean(value, "toolSmokeReady", true, blockers, "P1", "openclaw_tool_smoke_not_ready", evidence.spec.id, "OpenClaw tool-smoke evidence is not ready.");
+      if (readNestedBoolean(value, ["catalog", "requiredToolsPresent"]) === false) {
+        addBlocker(blockers, "P1", "openclaw_tool_smoke_required_tools_missing", evidence.spec.id, "OpenClaw tool-smoke required tools are missing.");
+      }
+      break;
+    case "scenarioSweep":
+      requireBoolean(value, "scenarioReady", true, blockers, "P1", "scenario_sweep_not_ready", evidence.spec.id, "Scenario sweep is not ready.");
+      break;
+    case "scorecardSweep":
+      requireBoolean(value, "sweepReady", true, blockers, "P1", "scorecard_sweep_not_ready", evidence.spec.id, "Scorecard sweep is not ready.");
+      break;
+    case "releasePreflight":
+      requireBoolean(value, "releaseReady", true, blockers, "P1", "release_preflight_not_ready", evidence.spec.id, "Release preflight is not ready.");
+      break;
+    case "releaseBundle":
+      requireBoolean(value, "publishReady", true, blockers, "P1", "release_bundle_not_ready", evidence.spec.id, "Release bundle is not ready.");
+      break;
+    case "privacyScan":
+      requireBoolean(value, "ok", true, blockers, "P1", "privacy_scan_not_ready", evidence.spec.id, "Privacy scan is not ready.");
+      break;
+  }
+}
+
+function validateFinalizationActions(value: JsonRecord, blockers: ReleaseGaSmokeBlocker[]): void {
+  if (readNestedBoolean(value, ["actionsVerified", "npmPublished"]) !== true) {
+    addBlocker(blockers, "P1", "release_finalization_npm_publish_unverified", "releaseFinalizationStatus", "npm publication evidence was not verified.");
+  }
+  if (readNestedBoolean(value, ["actionsVerified", "gitTagPushed"]) !== true) {
+    addBlocker(blockers, "P1", "release_finalization_git_tag_unverified", "releaseFinalizationStatus", "git tag evidence was not verified.");
+  }
+  if (readNestedBoolean(value, ["actionsVerified", "githubReleaseCreated"]) !== true) {
+    addBlocker(blockers, "P1", "release_finalization_github_release_unverified", "releaseFinalizationStatus", "GitHub Release evidence was not verified.");
+  }
+}
+
+function validatePublishedSmoke(
+  value: JsonRecord,
+  options: ReleaseGaSmokeOptions,
+  blockers: ReleaseGaSmokeBlocker[],
+  setupBlockers: ReleaseGaSmokeSetupBlocker[]
+): void {
+  requirePackageVersion(value, "localVersion", options.packageVersion, blockers, "published_smoke_version_mismatch", "publishedPackageSmoke");
+  requireBoolean(value, "packagePathOk", true, blockers, "P1", "published_package_path_not_ok", "publishedPackageSmoke", "Published package path is not ready.");
+  const packagePathOk = value.packagePathOk === true;
+  const publishedSmokeReady = value.publishedSmokeReady === true;
+  const setupRequired = value.setupRequired === true
+    || readNestedString(value, ["toolSmoke", "gatewaySetupClassification"]) === "gateway_setup_required";
+  const configuredGatewayReady = readNestedBoolean(value, ["configuredGateway", "provided"]) === true
+    && readNestedBoolean(value, ["configuredGateway", "toolSmokeReady"]) === true
+    && readNestedString(value, ["configuredGateway", "gatewaySetupClassification"]) === "ready"
+    && readNestedBoolean(value, ["configuredGateway", "packageInstallLikelyOk"]) === true;
+  if (setupRequired) {
+    const setupCodes = readStringArray(value.setupBlockers);
+    const allowed = options.allowSetupRequired === true && packagePathOk && configuredGatewayReady;
+    for (const code of setupCodes.length ? setupCodes : ["fresh_profile_gateway_setup_required"]) {
+      setupBlockers.push({
+        code,
+        source: "publishedPackageSmoke",
+        detail: "Fresh-profile OpenClaw gateway setup is required before clean-profile gateway-ready proof.",
+        allowed
+      });
+    }
+    if (!allowed) {
+      addBlocker(blockers, "P2", "fresh_profile_gateway_setup_required", "publishedPackageSmoke", "Fresh-profile OpenClaw gateway setup is required and was not explicitly allowed with clean configured-gateway proof.");
+    }
+  } else if (!publishedSmokeReady) {
+    addBlocker(blockers, "P1", "published_smoke_not_ready", "publishedPackageSmoke", "Published package smoke is not ready.");
+  }
+  if (options.allowSetupRequired === true && setupRequired && !configuredGatewayReady) {
+    addBlocker(blockers, "P2", "configured_gateway_proof_missing", "publishedPackageSmoke", "Setup-required release needs clean configured-gateway proof.");
+  }
+}
+
+function requirePackageVersion(
+  value: JsonRecord,
+  field: string,
+  expected: string,
+  blockers: ReleaseGaSmokeBlocker[],
+  code: string,
+  source: ReleaseGaSmokeSourceId
+): void {
+  requireString(value, field, expected, blockers, code, source, `${titleForSource(source)} package version does not match.`);
+}
+
+function requireString(
+  value: JsonRecord,
+  field: string,
+  expected: string,
+  blockers: ReleaseGaSmokeBlocker[],
+  code: string,
+  source: ReleaseGaSmokeSourceId,
+  detail: string
+): void {
+  if (typeof value[field] !== "string" || value[field] !== expected) {
+    addBlocker(blockers, "P1", code, source, detail);
+  }
+}
+
+function requireBoolean(
+  value: JsonRecord,
+  field: string,
+  expected: boolean,
+  blockers: ReleaseGaSmokeBlocker[],
+  severity: ReleaseGaSmokeSeverity,
+  code: string,
+  source: ReleaseGaSmokeSourceId,
+  detail: string
+): void {
+  if (value[field] !== expected) addBlocker(blockers, severity, code, source, detail);
+}
+
+function buildActionsVerified(evidenceIndex: Record<ReleaseGaSmokeSourceId, ReleaseGaSmokeEvidenceIndexEntry>): ReleaseGaSmokeReport["actionsVerified"] {
+  return {
+    releaseStatusReady: evidenceIndex.releaseStatus?.status === "ready",
+    releaseFinalized: evidenceIndex.releaseFinalizationStatus?.status === "ready",
+    publishedPackageSmokeReady: evidenceIndex.publishedPackageSmoke?.status === "ready",
+    dogfoodReady: evidenceIndex.openclawDogfood?.status === "ready",
+    toolSmokeReady: evidenceIndex.openclawToolSmoke?.status === "ready",
+    scenarioSweepReady: evidenceIndex.scenarioSweep?.status === "ready",
+    scorecardSweepReady: evidenceIndex.scorecardSweep?.status === "ready",
+    releasePreflightReady: evidenceIndex.releasePreflight?.status === "ready",
+    releaseBundleReady: evidenceIndex.releaseBundle?.status === "ready",
+    privacyScanReady: evidenceIndex.privacyScan?.status === "ready"
+  };
+}
+
+function evidenceStatus(evidence: LoadedEvidence, sourceBlockers: string[]): ReleaseGaSmokeEvidenceStatus {
+  if (evidence.missing) return "missing";
+  if (evidence.invalid) return "invalid";
+  if (sourceBlockers.some((blocker) => blocker.endsWith("_not_public_safe") || blocker.endsWith("_contains_secret_like_value"))) return "unsafe";
+  if (sourceBlockers.length > 0) return "blocked";
+  return "ready";
+}
+
+function missingCode(source: ReleaseGaSmokeSourceId): string {
+  return `${sourceCodePrefix(source)}_evidence_missing`;
+}
+
+function invalidCode(source: ReleaseGaSmokeSourceId): string {
+  return `${sourceCodePrefix(source)}_evidence_invalid_json`;
+}
+
+function sourceCodePrefix(source: ReleaseGaSmokeSourceId): string {
+  const prefixes: Record<ReleaseGaSmokeSourceId, string> = {
+    releaseStatus: "release_status",
+    releaseFinalizationStatus: "release_finalization_status",
+    publishedPackageSmoke: "published_smoke",
+    openclawDogfood: "openclaw_dogfood",
+    openclawToolSmoke: "openclaw_tool_smoke",
+    scenarioSweep: "scenario_sweep",
+    scorecardSweep: "scorecard_sweep",
+    releasePreflight: "release_preflight",
+    releaseBundle: "release_bundle",
+    privacyScan: "privacy_scan"
+  };
+  return prefixes[source];
+}
+
+function titleForSource(source: ReleaseGaSmokeSourceId): string {
+  const titles: Record<ReleaseGaSmokeSourceId, string> = {
+    releaseStatus: "Release status",
+    releaseFinalizationStatus: "Release finalization status",
+    publishedPackageSmoke: "Published package smoke",
+    openclawDogfood: "OpenClaw dogfood",
+    openclawToolSmoke: "OpenClaw tool-smoke",
+    scenarioSweep: "Scenario sweep",
+    scorecardSweep: "Scorecard sweep",
+    releasePreflight: "Release preflight",
+    releaseBundle: "Release bundle",
+    privacyScan: "Privacy scan"
+  };
+  return titles[source];
+}
+
+function nextSafeCommands(options: ReleaseGaSmokeOptions): string[] {
+  const evidenceDir = "<evidence-dir>";
+  const packageVersion = options.packageVersion || "<version>";
+  const candidateSha = options.candidateSha || "<sha>";
+  return [
+    `loo release status --evidence-dir ${evidenceDir} --candidate-sha ${candidateSha} --strict`,
+    `loo release finalization-status --evidence-dir ${evidenceDir} --candidate-sha ${candidateSha} --package-version ${packageVersion} --npm-publish-evidence npm-publish.json --git-tag-evidence git-tag.json --github-release-evidence github-release.json --strict`,
+    `loo openclaw published-smoke --evidence-dir ${evidenceDir} --dogfood-report openclaw-dogfood.json --tool-smoke-report openclaw-tool-smoke.json --registry-version ${packageVersion} --gateway-ready-strict`,
+    `loo eval scenarios --evidence-dir ${evidenceDir} --strict`,
+    `loo scorecards sweep --evidence-dir ${evidenceDir} --strict`,
+    `loo release ga-smoke --evidence-dir ${evidenceDir} --package-version ${packageVersion} --candidate-sha ${candidateSha} --strict`
+  ];
+}
+
+function scanUnsafeEvidenceArtifacts(evidenceDir: string): number {
+  if (!existsSync(evidenceDir)) return 0;
+  let count = 0;
+  const visit = (dir: string, depth: number) => {
+    if (depth > 8) return;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        visit(path, depth + 1);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      if (entry.name === "release-ga-smoke.json") continue;
+      const rel = relative(evidenceDir, path);
+      if (RAW_ARTIFACT_PATTERN.test(rel)) count += 1;
+      try {
+        if (statSync(path).size > 1_000_000) count += 1;
+      } catch {
+        count += 1;
+      }
+    }
+  };
+  visit(evidenceDir, 0);
+  return count;
+}
+
+function hasRestrictedActionPerformed(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some((item) => hasRestrictedActionPerformed(item));
+  const record = isRecord(value) ? value : null;
+  if (!record) return false;
+  for (const [key, actionValue] of Object.entries(record)) {
+    if (RESTRICTED_ACTION_KEYS.has(key) && actionValue === true) return true;
+  }
+  if (isRecord(record.actionsPerformed)) {
+    for (const [key, actionValue] of Object.entries(record.actionsPerformed)) {
+      if (RESTRICTED_ACTION_KEYS.has(key) && actionValue === true) return true;
+    }
+  }
+  return Object.entries(record)
+    .filter(([key]) => key !== "actionsVerified")
+    .some(([, item]) => hasRestrictedActionPerformed(item));
+}
+
+function containsSecretLikeValue(value: unknown): boolean {
+  if (typeof value === "string") return SECRET_LIKE_PATTERN.test(value);
+  if (Array.isArray(value)) return value.some((item) => containsSecretLikeValue(item));
+  if (isRecord(value)) return Object.values(value).some((item) => containsSecretLikeValue(item));
+  return false;
+}
+
+function readNestedBoolean(record: JsonRecord, path: string[]): boolean | null {
+  const value = readNestedValue(record, path);
+  return typeof value === "boolean" ? value : null;
+}
+
+function readNestedString(record: JsonRecord, path: string[]): string | null {
+  const value = readNestedValue(record, path);
+  return typeof value === "string" ? value : null;
+}
+
+function readNestedValue(record: JsonRecord, path: string[]): unknown {
+  let cursor: unknown = record;
+  for (const key of path) {
+    if (!isRecord(cursor)) return null;
+    cursor = cursor[key];
+  }
+  return cursor;
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function addBlocker(
+  blockers: ReleaseGaSmokeBlocker[],
+  severity: ReleaseGaSmokeSeverity,
+  code: string,
+  source: string,
+  detail: string
+): void {
+  blockers.push({ severity, code, source, detail });
+}
+
+function uniqueBlockers(blockers: ReleaseGaSmokeBlocker[]): ReleaseGaSmokeBlocker[] {
+  const seen = new Set<string>();
+  const unique: ReleaseGaSmokeBlocker[] = [];
+  for (const blocker of blockers) {
+    const key = `${blocker.severity}:${blocker.code}:${blocker.source}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(blocker);
+  }
+  return unique;
+}
+
+function isRecord(value: unknown): value is JsonRecord {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
