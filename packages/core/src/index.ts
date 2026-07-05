@@ -12970,20 +12970,27 @@ function collectCodexJsonlExtractedStrings(item: any): string[] {
     .filter(Boolean);
 }
 
-function collectCodexJsonlContentfulStrings(value: unknown, keyHint = "", contentAncestor = false): string[] {
+// Depth/node budgets keep pathological or hostile JSONL payloads from blowing the stack; real
+// Codex records nest a handful of levels, so hitting a budget just means "treat as non-contentful".
+const CODEX_JSONL_CONTENTFUL_MAX_DEPTH = 8;
+const CODEX_JSONL_CONTENTFUL_MAX_NODES = 400;
+
+function collectCodexJsonlContentfulStrings(value: unknown, keyHint = "", contentAncestor = false, depth = 0, budget = { nodes: CODEX_JSONL_CONTENTFUL_MAX_NODES }): string[] {
   const out: string[] = [];
+  if (depth > CODEX_JSONL_CONTENTFUL_MAX_DEPTH || budget.nodes <= 0) return out;
+  budget.nodes -= 1;
   const contentLike = contentAncestor || codexJsonlContentFieldName(keyHint);
   if (typeof value === "string") {
     if (contentLike && value.trim()) out.push(value);
     return out;
   }
   if (Array.isArray(value)) {
-    for (const item of value) out.push(...collectCodexJsonlContentfulStrings(item, keyHint, contentLike));
+    for (const item of value) out.push(...collectCodexJsonlContentfulStrings(item, keyHint, contentLike, depth + 1, budget));
     return out;
   }
   if (!isObjectRecord(value)) return out;
   for (const [key, child] of Object.entries(value)) {
-    out.push(...collectCodexJsonlContentfulStrings(child, key, contentLike || codexJsonlContentFieldName(key)));
+    out.push(...collectCodexJsonlContentfulStrings(child, key, contentLike || codexJsonlContentFieldName(key), depth + 1, budget));
   }
   return out;
 }
