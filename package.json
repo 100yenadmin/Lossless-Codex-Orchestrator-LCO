@@ -44,8 +44,10 @@
     "node": ">=22.0.0"
   },
   "files": [
+    ".codex-plugin",
     "assets",
     "dist",
+    "hooks",
     "packages",
     "docs",
     "evals",

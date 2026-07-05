@@ -42,6 +42,7 @@ LCO is a local-first orchestration layer for Codex-heavy work:
 
 - indexes local Codex session stores into a local SQLite database
 - searches sessions by safe summaries, plans, finals, touched files, and refs
+- adds one-shot Codex thread title aliases for easier name/ID recall
 - describes one session without exposing the whole transcript
 - expands only the evidence an agent needs, with token-budgeted profiles
 - exposes `loo_*` tools through MCP and the OpenClaw plugin
@@ -310,6 +311,8 @@ connector URLs, or customer data into public issues or PRs. Use
   extraction, search, and expansion
 - `packages/mcp-server`: stdio MCP server exposing `loo_*` tools
 - `packages/openclaw-plugin`: OpenClaw plugin entry and manifest surface
+- `.codex-plugin/` and `hooks/`: Codex plugin manifest, Stop hook config, and
+  wrapper for local thread title aliases
 - `packages/cli`: `loo` CLI for setup, indexing, recall, smoke, eval, and
   release gates
 - `packages/adapters`: Codex transport, audit, redaction, CUA/Peekaboo
@@ -345,9 +348,9 @@ thread-level `targetCoverage` with opaque source refs, freshness, coverage, and
 reason codes such as `source_present_not_indexed` instead of hiding a miss
 behind healthy global cache counts.
 The hook sidecar CLI lives under `loo hook closeout-capture`,
-`loo hook state-prep`, and `loo hook compaction-capture --mode marker`; those
-commands write only LCO-owned derived cache and treat transcript paths as
-hash/redact-only inputs.
+`loo hook state-prep`, `loo hook compaction-capture --mode marker`, and
+`loo hook thread-title-finalize`; those commands write only LCO-owned derived
+cache and treat transcript paths as hash/redact-only inputs.
 
 ## Maintainer Proof
 

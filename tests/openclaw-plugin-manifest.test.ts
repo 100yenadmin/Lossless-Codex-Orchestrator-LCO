@@ -32,6 +32,26 @@ test("npm bin metadata is publish-normalized for the beta CLI entrypoints", () =
   }
 });
 
+test("Codex plugin bundle installs the thread title finalizer hook without adding an agent tool", () => {
+  const pkg = readJson("package.json");
+  const files = pkg.files as unknown[] | undefined;
+  const plugin = readJson(".codex-plugin/plugin.json");
+  const hookConfig = readJson("hooks/hooks.json");
+  const hooksRoot = hookConfig.hooks as { Stop?: Array<{ hooks?: Array<{ type?: unknown; command?: unknown; async?: unknown }> }> } | undefined;
+  const declarations = createLooToolDeclarations();
+
+  assert.equal(files?.includes(".codex-plugin"), true);
+  assert.equal(files?.includes("hooks"), true);
+  assert.equal(plugin.name, "lossless-openclaw-orchestrator");
+  assert.equal(plugin.hooks, undefined);
+  assert.equal(plugin.skills, undefined);
+  assert.equal(hooksRoot?.Stop?.[0]?.hooks?.[0]?.type, "command");
+  assert.equal(hooksRoot?.Stop?.[0]?.hooks?.[0]?.command, "node \"${CLAUDE_PLUGIN_ROOT}/.codex-plugin/scripts/thread-title-finalize.mjs\"");
+  assert.equal(hooksRoot?.Stop?.[0]?.hooks?.[0]?.async, false);
+  assert.equal(declarations.some((declaration) => /title|thread-title|rename/i.test(declaration.name)), false);
+  assert.doesNotMatch(JSON.stringify({ plugin, hookConfig }), /AGENTS\.md|thread\/name\/set|gui mutation/i);
+});
+
 test("OpenClaw plugin contracts match the exported loo tool declarations", () => {
   const manifest = readJson("openclaw.plugin.json");
   const sourceManifest = readJson("packages/openclaw-plugin/openclaw.plugin.json");

@@ -132,7 +132,36 @@ Look up detail fields through MCP/OpenClaw tools when available:
 - `loo_codex_touched_files`
 - `loo_codex_tool_calls`
 
-## 6. Connect MCP
+## 6. Enable Codex Thread Title Aliases
+
+The published LCO package includes a Codex plugin manifest at
+`.codex-plugin/plugin.json` and hook config at `hooks/hooks.json`. When
+installed as a Codex plugin, its Stop hook runs `loo hook thread-title-finalize`
+after assistant turns. The hook writes one public-safe local title alias per
+thread, such as:
+
+```text
+lossless-openclaw-orchestrator: Codex thread title finalizer
+```
+
+That alias is indexed in `codex_thread_title_aliases`, so LCO search can find
+the thread by generated name or by `codex_thread:<thread-id>` without reading
+raw transcripts.
+
+Manual smoke:
+
+```bash
+printf '%s\n' '{"thread_id":"019f-example","cwd":"'$PWD'","task_summary":"Codex thread title finalizer"}' \
+  | loo hook thread-title-finalize --payload-stdin --strict
+loo search "Codex thread title finalizer"
+```
+
+Safety boundary: this hook preserves the canonical Codex title, hashes/redacts
+transcript paths, never opens transcript paths, and writes only LCO-owned
+derived cache. It does not mutate the Codex GUI or add an agent-facing naming
+tool.
+
+## 7. Connect MCP
 
 Start the MCP server:
 
@@ -160,7 +189,7 @@ MCP client config:
 
 The MCP server exposes the same `loo_*` surface used by OpenClaw.
 
-## 7. Install In OpenClaw
+## 8. Install In OpenClaw
 
 Install the plugin from npm:
 
@@ -196,7 +225,7 @@ OPENCLAW_GATEWAY_TOKEN='<scoped-token>' loo openclaw tool-smoke --profile lco-do
 
 Do not paste real tokens into issues, PRs, screenshots, or public evidence.
 
-## 8. Agent Playbook
+## 9. Agent Playbook
 
 For an OpenClaw agent, use the packaged skill:
 
@@ -336,7 +365,7 @@ would be noisy:
 ```
 ````
 
-## 9. Desktop Fallback Readiness
+## 10. Desktop Fallback Readiness
 
 Desktop fallback is optional and proof-bound. Direct Codex protocol remains the
 normal first path for thread control, but CUA Driver is the preferred/default
@@ -370,7 +399,7 @@ was verified. The fallback surface does not grant generic GUI mutation,
 unattended control, prompt typing, clicking, no-focus behavior, composer send
 approval, or release readiness without an explicit action-bound proof packet.
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 `loo: command not found`
 
@@ -418,7 +447,7 @@ Live control is blocked
 - Inspect the target, `params_hash`, and optional `message_hash`.
 - Use the returned `approval_audit_id` only for the matching live action.
 
-## 11. What Setup Does Not Prove
+## 12. What Setup Does Not Prove
 
 Setup proves local install, local index, and optional MCP/OpenClaw tool
 exposure. It does not prove:

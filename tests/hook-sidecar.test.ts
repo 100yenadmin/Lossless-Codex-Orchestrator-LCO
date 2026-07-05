@@ -9,6 +9,7 @@ import test from "node:test";
 import {
   captureCloseoutHookPacket,
   captureCompactionMarkerHookPacket,
+  captureThreadTitleFinalizerHookPacket,
   createDatabase,
   runStatePrepHook
 } from "../packages/core/src/index.js";
@@ -67,7 +68,7 @@ test("closeout hook sidecar writes idempotent public-safe derived-cache packets"
       assert.equal(first.packet.hookKind, "closeout_capture");
       assert.equal(first.packet.targetRef, "codex_thread:019f-hook-sidecar");
       assert.equal(first.packet.payload.transcriptPathRedacted, true);
-      assert.match(first.packet.payload.transcriptPathHash, /^[0-9a-f]{32}$/);
+      assert.match(first.packet.payload.transcriptPathHash ?? "", /^[0-9a-f]{32}$/);
       assert.equal(first.packet.payload.messagePreview, null);
       assert.equal(first.packet.payload.messageRedacted, true);
       assert.match(first.packet.payload.messageHash ?? "", /^[0-9a-f]{32}$/);
@@ -139,6 +140,60 @@ test("compaction hook rejects non-marker modes", () => {
         mode: "sanitized_summary" as "marker",
         lifecycle: "pre_compact"
       }), /supports --mode marker only/);
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("thread title finalizer hook writes a one-shot public-safe alias packet", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-hook-title-finalizer-"));
+  try {
+    const db = createDatabase(join(root, "orchestrator.sqlite"));
+    try {
+      const first = captureThreadTitleFinalizerHookPacket(db, {
+        thread_id: "019f-title-finalizer",
+        turn_id: "turn-title",
+        event_id: "event-title",
+        cwd: "/Volumes/LEXAR/repos/lossless-openclaw-orchestrator",
+        transcript_path: rawTranscriptPath,
+        current_title: "how do you name threads when you create a new thread under...",
+        last_assistant_message: [
+          "Implemented the Codex plugin hook that finalizes thread titles for LCO indexing.",
+          `Do not leak ${rawTranscriptPath} or ${rawToken}.`
+        ].join("\n")
+      });
+      const second = captureThreadTitleFinalizerHookPacket(db, {
+        thread_id: "019f-title-finalizer",
+        turn_id: "turn-title-2",
+        event_id: "event-title-2",
+        cwd: "/Volumes/LEXAR/repos/lossless-openclaw-orchestrator",
+        transcript_path: rawTranscriptPath,
+        current_title: "A later turn should not churn the alias",
+        last_assistant_message: "Implemented a different later closeout."
+      });
+      const aliasRows = db.prepare("SELECT alias_text AS aliasText FROM codex_thread_title_aliases").all() as Array<{ aliasText: string }>;
+      const serialized = JSON.stringify(first);
+
+      assert.equal(first.publicSafe, true);
+      assert.equal(first.inserted, true);
+      assert.equal(first.aliasInserted, true);
+      assert.equal(first.title.suggestedTitle, "lossless-openclaw-orchestrator: Codex thread title finalizer");
+      assert.equal(first.title.state, "ready");
+      assert.equal(first.packet.hookKind, "thread_title_finalizer");
+      assert.equal(first.packet.payload.titleFinalizer?.suggestedTitle, "lossless-openclaw-orchestrator: Codex thread title finalizer");
+      assert.equal(first.actionsPerformed.derivedCacheWrite, true);
+      assert.equal(first.actionsPerformed.codexMutation, false);
+      assert.equal(first.actionsPerformed.guiMutation, false);
+      assert.equal(first.actionsPerformed.rawTranscriptRead, false);
+      assert.equal(second.inserted, false);
+      assert.equal(second.aliasInserted, false);
+      assert.equal(second.title.state, "already_finalized");
+      assert.deepEqual(aliasRows.map((row) => row.aliasText), ["lossless-openclaw-orchestrator: Codex thread title finalizer"]);
+      assert.doesNotMatch(serialized, /\/Users\/lume|raw-thread\.jsonl|npm_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456/);
+      assert.doesNotMatch(serialized, /how do you name threads|different later closeout/);
     } finally {
       db.close();
     }
@@ -315,9 +370,11 @@ test("CLI hook commands write sanitized evidence for closeout state prep and com
     const dbPath = join(root, "orchestrator.sqlite");
     const payloadPath = join(root, "payload.json");
     const compactionPayloadPath = join(root, "compaction-payload.json");
+    const titlePayloadPath = join(root, "title-payload.json");
     const closeoutEvidencePath = join(root, "hook-closeout.json");
     const statePrepEvidencePath = join(root, "hook-state-prep.json");
     const compactionEvidencePath = join(root, "hook-compaction.json");
+    const titleEvidencePath = join(root, "hook-title.json");
     writeFileSync(payloadPath, `${JSON.stringify({
       thread_id: "019f-hook-sidecar-cli",
       turn_id: "turn-cli",
@@ -334,6 +391,15 @@ test("CLI hook commands write sanitized evidence for closeout state prep and com
       lifecycle: "pre_compact",
       marker_note: `PreCompact marker before ${rawTranscriptPath}`,
       summary: `Do not capture this summary-shaped payload ${rawToken}.`
+    })}\n`);
+    writeFileSync(titlePayloadPath, `${JSON.stringify({
+      thread_id: "019f-hook-sidecar-cli",
+      turn_id: "turn-cli-title",
+      event_id: "event-cli-title",
+      cwd: "/Volumes/LEXAR/repos/lossless-openclaw-orchestrator",
+      transcript_path: rawTranscriptPath,
+      current_title: "how do you name threads when you create a new thread under...",
+      last_assistant_message: `Implemented the Codex thread title finalizer hook for LCO indexing. ${rawToken}`
     })}\n`);
 
     const closeoutResult = spawnSync(process.execPath, [
@@ -395,26 +461,51 @@ test("CLI hook commands write sanitized evidence for closeout state prep and com
         LOO_DB_PATH: dbPath
       }
     });
+    const titleResult = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "hook",
+      "thread-title-finalize",
+      "--payload-file",
+      titlePayloadPath,
+      "--evidence-path",
+      titleEvidencePath,
+      "--strict"
+    ], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        LOO_DB_PATH: dbPath
+      }
+    });
 
     assert.equal(closeoutResult.status, 0, closeoutResult.stderr);
     assert.equal(statePrepResult.status, 0, statePrepResult.stderr);
     assert.equal(compactionResult.status, 0, compactionResult.stderr);
+    assert.equal(titleResult.status, 0, titleResult.stderr);
     assert.equal(existsSync(closeoutEvidencePath), true);
     assert.equal(existsSync(statePrepEvidencePath), true);
     assert.equal(existsSync(compactionEvidencePath), true);
+    assert.equal(existsSync(titleEvidencePath), true);
     const stdoutReport = JSON.parse(closeoutResult.stdout) as ReturnType<typeof captureCloseoutHookPacket>;
     const closeoutEvidence = readFileSync(closeoutEvidencePath, "utf8");
     const statePrepEvidence = readFileSync(statePrepEvidencePath, "utf8");
     const compactionEvidence = readFileSync(compactionEvidencePath, "utf8");
+    const titleEvidence = readFileSync(titleEvidencePath, "utf8");
     const statePrepReport = JSON.parse(statePrepResult.stdout) as ReturnType<typeof runStatePrepHook>;
     const compactionReport = JSON.parse(compactionResult.stdout) as ReturnType<typeof captureCompactionMarkerHookPacket>;
+    const titleReport = JSON.parse(titleResult.stdout) as ReturnType<typeof captureThreadTitleFinalizerHookPacket>;
     assert.equal(stdoutReport.publicSafe, true);
     assert.equal(stdoutReport.packet.targetRef, "codex_thread:019f-hook-sidecar-cli");
     assert.equal(statePrepReport.job.targetRef, "codex_thread:019f-hook-sidecar-cli");
     assert.equal(statePrepReport.packet.targetRef, "codex_thread:019f-hook-sidecar-cli");
     assert.equal(compactionReport.packet.payload.summaryCaptured, false);
+    assert.equal(titleReport.title.suggestedTitle, "lossless-openclaw-orchestrator: Codex thread title finalizer");
+    assert.equal(titleReport.aliasInserted, true);
     assert.match(compactionReport.packet.payload.omissions.join(","), /summary_payload_not_captured_marker_mode/);
-    for (const output of [closeoutResult.stdout, statePrepResult.stdout, compactionResult.stdout, closeoutEvidence, statePrepEvidence, compactionEvidence]) {
+    for (const output of [closeoutResult.stdout, statePrepResult.stdout, compactionResult.stdout, titleResult.stdout, closeoutEvidence, statePrepEvidence, compactionEvidence, titleEvidence]) {
       assert.doesNotMatch(output, /\/Users\/lume|raw-thread\.jsonl|npm_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456|summary-shaped payload|CLI summary-shaped/);
     }
   } finally {
