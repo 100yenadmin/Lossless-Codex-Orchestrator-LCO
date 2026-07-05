@@ -318,4 +318,15 @@ test("qa-lab desktop contract blocks stale and malformed candidate sha evidence"
   });
   assert.equal(invalid.ok, false);
   assert.ok(invalid.blockers.some((blocker) => blocker.code === "candidate_sha_invalid"));
+
+  const malformedUpstream = createQaLabDesktopContractReport({
+    packageVersion,
+    readinessReport: readinessReport({
+      candidateSha: "/tmp/private-candidate.jsonl"
+    })
+  });
+  assert.equal(malformedUpstream.ok, false);
+  assert.equal(malformedUpstream.candidateSha, null);
+  assert.ok(malformedUpstream.blockers.some((blocker) => blocker.code === "candidate_sha_invalid"));
+  assert.doesNotMatch(JSON.stringify(malformedUpstream), /private-candidate\.jsonl/);
 });
