@@ -18,6 +18,8 @@ test("loo --help exits zero with top-level usage", () => {
   assert.match(result.stdout, /loo release ga-smoke .*--release-status path/);
   assert.match(result.stdout, /loo release ga-smoke .*--privacy-scan path/);
   assert.match(result.stdout, /loo release ga-smoke .*--now iso/);
+  assert.match(result.stdout, /loo qa-lab desktop-contract --evidence-dir path/);
+  assert.match(result.stdout, /loo qa-lab privacy-scan --evidence-dir path/);
   assert.match(result.stdout, /loo qa-lab judge --run path --rubric-version real-product-v1/);
   assert.match(result.stdout, /loo qa-lab adversarial-review --run path --lenses safety,retrieval,packaging,claims,agent-usability/);
   assert.equal(result.stderr.trim(), "");
@@ -251,6 +253,32 @@ test("loo qa-lab tool-coverage --help exposes strict real-product coverage gate"
   assert.match(result.stdout, /writes `tool-coverage\.json`/);
   assert.match(result.stdout, /does not invoke tools/i);
   assert.match(result.stdout, /does not publish npm/i);
+  assert.equal(result.stderr.trim(), "");
+});
+
+test("loo qa-lab desktop-contract --help exposes metadata-only desktop proof boundary", () => {
+  const result = runLoo(["qa-lab", "desktop-contract", "--help"]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Usage:\n  loo qa-lab desktop-contract/);
+  assert.match(result.stdout, /--readiness-report path/);
+  assert.match(result.stdout, /--action-bound-scratch-proof path/);
+  assert.match(result.stdout, /writes `desktop-contract\.json`/);
+  assert.match(result.stdout, /metadata/i);
+  assert.match(result.stdout, /does not run GUI mutation/i);
+  assert.equal(result.stderr.trim(), "");
+});
+
+test("loo qa-lab privacy-scan --help exposes public-safe evidence scan boundary", () => {
+  const result = runLoo(["qa-lab", "privacy-scan", "--help"]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Usage:\n  loo qa-lab privacy-scan/);
+  assert.match(result.stdout, /--scan-dir path/);
+  assert.match(result.stdout, /writes `privacy-scan\.json`/);
+  assert.match(result.stdout, /raw transcripts/i);
+  assert.match(result.stdout, /secret-like/i);
+  assert.match(result.stdout, /does not read raw Codex stores/i);
   assert.equal(result.stderr.trim(), "");
 });
 

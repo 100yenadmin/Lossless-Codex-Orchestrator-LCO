@@ -11,6 +11,8 @@ export type QaLabWorkflowOptions = {
   surface: QaLabWorkflowSurface;
   mode: QaLabWorkflowMode;
   evidenceDir: string;
+  packageVersion?: string;
+  candidateSha?: string;
   openclawBin?: string;
   gatewayUrl?: string;
   token?: string;
@@ -52,6 +54,9 @@ export type QaLabWorkflowReport = {
   workflowRunReady: boolean;
   publicSafe: true;
   generatedAt: string;
+  packageName: "lossless-openclaw-orchestrator";
+  packageVersion: string | null;
+  candidateSha: string | null;
   scenarioId: string;
   surface: QaLabWorkflowSurface;
   mode: QaLabWorkflowMode;
@@ -247,6 +252,9 @@ export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabW
     workflowRunReady,
     publicSafe: true,
     generatedAt: options.now ?? new Date().toISOString(),
+    packageName: "lossless-openclaw-orchestrator",
+    packageVersion: options.packageVersion ?? null,
+    candidateSha: options.candidateSha ?? null,
     scenarioId: options.scenarioId,
     surface: options.surface,
     mode: options.mode,

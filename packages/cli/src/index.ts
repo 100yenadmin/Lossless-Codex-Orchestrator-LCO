@@ -57,6 +57,8 @@ import { createCliMcpProductSmokeReport, MAX_CLI_MCP_PRODUCT_SMOKE_TIMEOUT_MS } 
 import { createQaLabRunReport, type QaLabRunArtifact, type QaLabRunSuite } from "./qa-lab-run.js";
 import { createQaLabToolCoverageReport, type QaLabCoveragePolicy } from "./qa-lab-tool-coverage.js";
 import { createQaLabLiveControlMatrixReport } from "./qa-lab-live-control-matrix.js";
+import { createQaLabDesktopContractReport } from "./qa-lab-desktop-contract.js";
+import { createQaLabPrivacyScanReport } from "./qa-lab-privacy-scan.js";
 import {
   createQaLabAdversarialReviewReport,
   createQaLabJudgeReviewReport,
@@ -713,6 +715,30 @@ async function main() {
     if (parsed.strict && !report.qaLabToolCoverageReady) process.exitCode = 1;
     return;
   }
+  if (command === "qa-lab" && args[0] === "desktop-contract") {
+    if (hasHelpFlag(args.slice(1))) {
+      printQaLabDesktopContractHelp();
+      return;
+    }
+    const parsed = parseQaLabDesktopContractArgs(args.slice(1));
+    const report = createQaLabDesktopContractReport(parsed);
+    mkdirSync(parsed.evidenceDir, { recursive: true });
+    writeFileSync(join(parsed.evidenceDir, "desktop-contract.json"), `${JSON.stringify(report, null, 2)}\n`);
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.desktopContractReady) process.exitCode = 1;
+    return;
+  }
+  if (command === "qa-lab" && args[0] === "privacy-scan") {
+    if (hasHelpFlag(args.slice(1))) {
+      printQaLabPrivacyScanHelp();
+      return;
+    }
+    const parsed = parseQaLabPrivacyScanArgs(args.slice(1));
+    const report = createQaLabPrivacyScanReport(parsed);
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.ok) process.exitCode = 1;
+    return;
+  }
   if (command === "qa-lab" && args[0] === "run") {
     if (hasHelpFlag(args.slice(1))) {
       printQaLabRunHelp();
@@ -1003,10 +1029,12 @@ function mainUsageText(): string {
     "  loo qa-lab cli-mcp-smoke --evidence-dir path --package-version version [--candidate-sha sha] [--cli-bin path] [--mcp-bin path] [--required-tool name] [--tool-call name] [--timeout-ms ms] [--now iso] [--strict]",
     "  loo qa-lab run --suite ga --artifact published|candidate --evidence-dir path --package-version version --candidate-sha sha [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--tool-coverage path] [--workflow-run path] [--cli-mcp-smoke path] [--desktop-contract path] [--live-control-matrix path] [--scenario-sweep path] [--scorecard-sweep path] [--privacy-scan path] [--now iso] [--strict]",
     "  loo qa-lab tool-coverage --evidence-dir path [--tool-smoke-report path] [--dogfood-report path] [--published-smoke path] [--manifest path] [--package-version version] [--candidate-sha sha] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--coverage-policy full|facade] [--now iso] [--strict]",
+    "  loo qa-lab desktop-contract --evidence-dir path --readiness-report path [--action-bound-scratch-proof path] [--package-version version] [--candidate-sha sha] [--now iso] [--strict]",
+    "  loo qa-lab privacy-scan --evidence-dir path --package-version version --candidate-sha sha [--scan-dir path] [--now iso] [--strict]",
     "  loo qa-lab live-control-matrix --evidence-dir path [--package-version version] [--candidate-sha sha] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--sacrificial-thread-id id ...] [--send-report path] [--resume-report path] [--steer-report path] [--interrupt-report path] [--now iso] [--strict]",
     "  loo qa-lab judge --run path --rubric-version real-product-v1 --evidence-dir path [--now iso] [--strict]",
     "  loo qa-lab adversarial-review --run path --lenses safety,retrieval,packaging,claims,agent-usability --evidence-dir path [--now iso] [--strict]",
-    "  loo qa-lab workflow --scenario-id id --surface openclaw-gateway --mode dry-run --evidence-dir path [--openclaw-bin path] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--now iso] [--strict]"
+    "  loo qa-lab workflow --scenario-id id --surface openclaw-gateway --mode dry-run --evidence-dir path [--package-version version] [--candidate-sha sha] [--openclaw-bin path] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--now iso] [--strict]"
   ].join("\n");
 }
 
@@ -1409,6 +1437,43 @@ function printQaLabToolCoverageHelp(): void {
   ].join("\n"));
 }
 
+function printQaLabDesktopContractHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo qa-lab desktop-contract --evidence-dir path --readiness-report path [--action-bound-scratch-proof path] [--package-version version] [--candidate-sha sha] [--now iso] [--strict]",
+    "",
+    "Aggregates sanitized desktop readiness metadata and writes `desktop-contract.json`.",
+    "",
+    "Inputs:",
+    "  --readiness-report path              Public-safe metadata readiness report for CLI, app-server, visible desktop, fallback backend, and Codex Desktop.",
+    "  --action-bound-scratch-proof path    Optional public-safe TextEdit scratch proof; it never proves generic GUI mutation.",
+    "",
+    "Strict mode:",
+    "  --strict exits non-zero when required readiness metadata is missing, unsafe, stale, or overclaims GUI/live behavior.",
+    "",
+    "Safety boundary:",
+    "  This command is metadata-only. It writes public-safe evidence and does not run GUI mutation, Codex GUI mutation, live Codex control, screenshots, video capture, npm publish, or GitHub Release creation."
+  ].join("\n"));
+}
+
+function printQaLabPrivacyScanHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo qa-lab privacy-scan --evidence-dir path --package-version version --candidate-sha sha [--scan-dir path] [--now iso] [--strict]",
+    "",
+    "Scans bounded release evidence and writes `privacy-scan.json`.",
+    "",
+    "Checks:",
+    "  raw transcripts, JSONL/SQLite stores, screenshots, videos, raw logs, local paths, cookies, and secret-like values.",
+    "",
+    "Strict mode:",
+    "  --strict exits non-zero for raw artifacts, secret-like findings, malformed candidate SHA, or incomplete bounded scan coverage.",
+    "",
+    "Safety boundary:",
+    "  This command emits opaque evidence refs only. It does not read raw Codex stores by default, echo raw paths or filenames, run live Codex control, mutate a GUI, publish npm, or create a GitHub Release."
+  ].join("\n"));
+}
+
 function printQaLabLiveControlMatrixHelp(): void {
   console.log([
     "Usage:",
@@ -1497,7 +1562,7 @@ function printQaLabAdversarialReviewHelp(): void {
 function printQaLabWorkflowHelp(): void {
   console.log([
     "Usage:",
-    "  loo qa-lab workflow --scenario-id id --surface cli|mcp|openclaw-gateway|desktop-contract --mode dry-run|live-approved --evidence-dir path [--openclaw-bin path] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--now iso] [--strict]",
+    "  loo qa-lab workflow --scenario-id id --surface cli|mcp|openclaw-gateway|desktop-contract --mode dry-run|live-approved --evidence-dir path [--package-version version] [--candidate-sha sha] [--openclaw-bin path] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--now iso] [--strict]",
     "",
     "Runs the public-safe QA Lab agent workflow and writes `workflow-run.json`.",
     "--gateway-timeout-ms defaults to 60000 ms and is capped at 600000 ms across the whole workflow.",
@@ -3589,6 +3654,106 @@ function parseQaLabToolCoverageArgs(input: string[]): {
   return { evidenceDir, packageVersion, candidateSha, claimScope, coveragePolicy, toolSmokeReport, dogfoodReport, publishedSmoke, manifestPath, now, strict };
 }
 
+function parseQaLabDesktopContractArgs(input: string[]): {
+  evidenceDir: string;
+  readinessReport?: string;
+  actionBoundScratchProof?: string;
+  packageVersion?: string;
+  candidateSha?: string;
+  now?: string;
+  strict: boolean;
+} {
+  let evidenceDir: string | undefined;
+  let readinessReport: string | undefined;
+  let actionBoundScratchProof: string | undefined;
+  let packageVersion: string | undefined;
+  let candidateSha: string | undefined;
+  let now: string | undefined;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--evidence-dir") {
+      evidenceDir = readReleaseStatusPath(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--readiness-report") {
+      readinessReport = readReleaseStatusPath(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--action-bound-scratch-proof") {
+      actionBoundScratchProof = readReleaseStatusPath(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--package-version") {
+      packageVersion = readReleaseStatusValue(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--candidate-sha") {
+      candidateSha = readReleaseStatusValue(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--now") {
+      now = readReleaseStatusValue(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--strict") {
+      strict = true;
+      continue;
+    }
+    throw new Error(`Unknown qa-lab desktop-contract option: ${arg}`);
+  }
+  if (!evidenceDir) throw new Error("qa-lab desktop-contract requires --evidence-dir");
+  return { evidenceDir, readinessReport, actionBoundScratchProof, packageVersion, candidateSha, now, strict };
+}
+
+function parseQaLabPrivacyScanArgs(input: string[]): {
+  evidenceDir: string;
+  packageVersion: string;
+  candidateSha: string;
+  scanDir?: string;
+  now?: string;
+  strict: boolean;
+} {
+  let evidenceDir: string | undefined;
+  let packageVersion: string | undefined;
+  let candidateSha: string | undefined;
+  let scanDir: string | undefined;
+  let now: string | undefined;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--evidence-dir") {
+      evidenceDir = readReleaseStatusPath(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--package-version") {
+      packageVersion = readReleaseStatusValue(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--candidate-sha") {
+      candidateSha = readReleaseStatusValue(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--scan-dir") {
+      scanDir = readReleaseStatusPath(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--now") {
+      now = readReleaseStatusValue(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--strict") {
+      strict = true;
+      continue;
+    }
+    throw new Error(`Unknown qa-lab privacy-scan option: ${arg}`);
+  }
+  if (!evidenceDir) throw new Error("qa-lab privacy-scan requires --evidence-dir");
+  if (!packageVersion) throw new Error("qa-lab privacy-scan requires --package-version");
+  if (!candidateSha) throw new Error("qa-lab privacy-scan requires --candidate-sha");
+  return { evidenceDir, packageVersion, candidateSha, scanDir, now, strict };
+}
+
 function parseQaLabLiveControlMatrixArgs(input: string[]): {
   evidenceDir: string;
   packageVersion?: string;
@@ -3865,6 +4030,8 @@ function parseQaLabWorkflowArgs(input: string[]): {
   surface: QaLabWorkflowSurface;
   mode: QaLabWorkflowMode;
   evidenceDir: string;
+  packageVersion?: string;
+  candidateSha?: string;
   openclawBin?: string;
   gatewayUrl?: string;
   token?: string;
@@ -3877,6 +4044,8 @@ function parseQaLabWorkflowArgs(input: string[]): {
   let surface: QaLabWorkflowSurface | undefined;
   let mode: QaLabWorkflowMode | undefined;
   let evidenceDir: string | undefined;
+  let packageVersion: string | undefined;
+  let candidateSha: string | undefined;
   let openclawBin: string | undefined;
   let gatewayUrl: string | undefined;
   let token: string | undefined;
@@ -3900,6 +4069,14 @@ function parseQaLabWorkflowArgs(input: string[]): {
     }
     if (arg === "--evidence-dir") {
       evidenceDir = readReleaseStatusPath(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--package-version") {
+      packageVersion = readReleaseStatusValue(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--candidate-sha") {
+      candidateSha = readReleaseStatusValue(input, ++index, arg);
       continue;
     }
     if (arg === "--openclaw-bin") {
@@ -3936,7 +4113,7 @@ function parseQaLabWorkflowArgs(input: string[]): {
   if (!surface) throw new Error("qa-lab workflow requires --surface");
   if (!mode) throw new Error("qa-lab workflow requires --mode");
   if (!evidenceDir) throw new Error("qa-lab workflow requires --evidence-dir");
-  return { scenarioId, surface, mode, evidenceDir, openclawBin, gatewayUrl, token, gatewayTimeoutMs: gatewayTimeoutMs ?? 60_000, sessionKey, now, strict };
+  return { scenarioId, surface, mode, evidenceDir, packageVersion, candidateSha, openclawBin, gatewayUrl, token, gatewayTimeoutMs: gatewayTimeoutMs ?? 60_000, sessionKey, now, strict };
 }
 
 function parseQaLabWorkflowSurface(input: string[], index: number, flag: string): QaLabWorkflowSurface {
