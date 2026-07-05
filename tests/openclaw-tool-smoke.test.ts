@@ -787,6 +787,9 @@ test("OpenClaw tool smoke invokes required loo tools through gateway call and wr
     assert.equal((report.invocations.find((call) => call.toolName === "loo_watcher_events")?.summary.watcherEvents as Record<string, number> | undefined)?.queueItems, 1);
     assert.equal(report.invocations.find((call) => call.toolName === "loo_codex_control_dry_run")?.summary.live, false);
     assert.equal(report.invocations.find((call) => call.toolName === "loo_codex_control_dry_run")?.summary.approvalAuditId, "loo_audit_test");
+    assert.equal(report.smokeDispositionPlan.counts.unknown_non_claim, 0);
+    assert.equal(report.smokeDispositionPlan.entries.find((entry) => entry.toolName === "loo_doctor")?.disposition, "successful_invocation");
+    assert.equal(report.smokeDispositionPlan.entries.find((entry) => entry.toolName === "loo_codex_control_dry_run")?.disposition, "successful_dry_run");
     assert.equal(report.agentReasoning?.safeRecommendation, "Review the selected Codex session from source refs, then ask the user before any live Codex control.");
     assert.equal(report.agentReasoning?.selectedThreadId, "thread-1");
     assert.equal(report.agentReasoning?.sourceRefs.includes("codex_thread:thread-1"), true);

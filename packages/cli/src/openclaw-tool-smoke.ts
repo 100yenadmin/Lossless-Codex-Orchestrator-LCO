@@ -83,6 +83,7 @@ const SUCCESSFUL_INVOCATION_TOOL_SET = new Set(SUCCESSFUL_INVOCATION_TOOL_CALLS)
 const SUCCESSFUL_DRY_RUN_TOOL_SET = new Set(SUCCESSFUL_DRY_RUN_TOOL_CALLS);
 const EXPECTED_FAIL_CLOSED_TOOL_SET = new Set(EXPECTED_FAIL_CLOSED_TOOL_CALLS);
 const EXCLUDED_NON_CLAIM_TOOL_SET = new Set(EXCLUDED_NON_CLAIM_TOOL_CALLS);
+const BASE_GATEWAY_SMOKE_TOOL_SET = new Set(BASE_GATEWAY_SMOKE_TOOL_CALLS);
 const KNOWN_TOOL_DISPOSITION_SET = new Set([
   ...BASE_GATEWAY_SMOKE_TOOL_CALLS,
   ...SUCCESSFUL_INVOCATION_TOOL_CALLS,
@@ -425,6 +426,7 @@ function dispositionForTool(toolName: string): OpenClawToolSmokeDisposition {
   if (EXPECTED_FAIL_CLOSED_TOOL_SET.has(toolName)) return "expected_fail_closed";
   if (SUCCESSFUL_DRY_RUN_TOOL_SET.has(toolName) || toolName === "loo_codex_control_dry_run") return "successful_dry_run";
   if (SUCCESSFUL_INVOCATION_TOOL_SET.has(toolName)) return "successful_invocation";
+  if (BASE_GATEWAY_SMOKE_TOOL_SET.has(toolName)) return "successful_invocation";
   return "unknown_non_claim";
 }
 
