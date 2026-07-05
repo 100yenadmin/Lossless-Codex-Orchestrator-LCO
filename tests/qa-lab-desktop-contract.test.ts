@@ -174,10 +174,59 @@ test("qa-lab desktop contract fails closed and redacts unsafe raw evidence", (t)
   assert.equal(report.ok, false);
   assert.equal(report.screenshotVideoProof.screenshotProvided, true);
   assert.equal(report.screenshotVideoProof.screenshotOrVideoProofAccepted, false);
+  assert.equal(report.evidenceIndex.actionBoundScratchProof.status, "unsafe");
   assert.ok(report.blockers.some((blocker) => blocker.code === "unsafe_evidence_value"));
   assert.ok(report.blockers.some((blocker) => blocker.code === "screenshot_or_video_not_contract_proof"));
   assert.ok(report.blockers.some((blocker) => blocker.code === "raw_window_text_not_public_safe"));
   assert.doesNotMatch(serialized, /private\.jsonl/);
   assert.doesNotMatch(serialized, /ghp_notarealtoken/);
   assert.doesNotMatch(serialized, /private customer note/);
+});
+
+test("qa-lab desktop contract honors explicit false readiness over generic ok fallbacks", () => {
+  const cliReport = createQaLabDesktopContractReport({
+    packageVersion,
+    candidateSha,
+    readinessReport: readinessReport({
+      ok: true,
+      qaLabToolCoverageReady: true,
+      cliReady: false
+    })
+  });
+  assert.equal(cliReport.ok, false);
+  assert.equal(cliReport.metadataProof.cliReady, false);
+  assert.ok(cliReport.blockers.some((blocker) => blocker.code === "cli_readiness_missing"));
+
+  const appServerReport = createQaLabDesktopContractReport({
+    packageVersion,
+    candidateSha,
+    readinessReport: readinessReport({
+      gatewayReady: true,
+      configuredGateway: { gatewaySetupClassification: "ready" },
+      appServerReady: false
+    })
+  });
+  assert.equal(appServerReport.ok, false);
+  assert.equal(appServerReport.metadataProof.appServerReady, false);
+  assert.ok(appServerReport.blockers.some((blocker) => blocker.code === "app_server_readiness_missing"));
+});
+
+test("qa-lab desktop contract blocks stale and malformed candidate sha evidence", () => {
+  const mismatch = createQaLabDesktopContractReport({
+    packageVersion,
+    candidateSha,
+    readinessReport: readinessReport({
+      candidateSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    })
+  });
+  assert.equal(mismatch.ok, false);
+  assert.ok(mismatch.blockers.some((blocker) => blocker.code === "candidate_sha_mismatch"));
+
+  const invalid = createQaLabDesktopContractReport({
+    packageVersion,
+    candidateSha: "not-a-sha",
+    readinessReport: readinessReport()
+  });
+  assert.equal(invalid.ok, false);
+  assert.ok(invalid.blockers.some((blocker) => blocker.code === "candidate_sha_invalid"));
 });

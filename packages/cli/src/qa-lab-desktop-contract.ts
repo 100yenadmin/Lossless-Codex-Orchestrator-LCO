@@ -163,7 +163,9 @@ export function createQaLabDesktopContractReport(options: QaLabDesktopContractOp
   const scratchOk = validateScratchProof(scratch, blockers);
   const scratchBlockerCodes = blockers.slice(scratchBlockerStart).map((blocker) => blocker.code);
   evidenceIndex.actionBoundScratchProof.blockerCodes.push(...scratchBlockerCodes);
-  if (scratchBlockerCodes.length > 0) evidenceIndex.actionBoundScratchProof.status = "blocked";
+  if (scratchBlockerCodes.length > 0 && evidenceIndex.actionBoundScratchProof.status !== "unsafe") {
+    evidenceIndex.actionBoundScratchProof.status = "blocked";
+  }
 
   const dedupedBlockers = uniqueBlockers(blockers);
   const desktopContractReady = dedupedBlockers.filter((blocker) => blocker.severity !== "P3").length === 0;
@@ -263,8 +265,14 @@ function validateLoadedEvidence(
 
 function extractMetadataProof(value: JsonRecord | null): QaLabDesktopContractReport["metadataProof"] {
   return {
-    cliReady: truthyPath(value, ["cliReady"]) || truthyPath(value, ["qaLabToolCoverageReady"]) || truthyPath(value, ["ok"]),
-    appServerReady: truthyPath(value, ["appServerReady"]) || truthyPath(value, ["gatewayReady"]) || readPath(value, ["configuredGateway", "gatewaySetupClassification"]) === "ready",
+    cliReady: booleanWithAbsentFallback(value, ["cliReady"], [
+      () => truthyPath(value, ["qaLabToolCoverageReady"]),
+      () => truthyPath(value, ["ok"])
+    ]),
+    appServerReady: booleanWithAbsentFallback(value, ["appServerReady"], [
+      () => truthyPath(value, ["gatewayReady"]),
+      () => readPath(value, ["configuredGateway", "gatewaySetupClassification"]) === "ready"
+    ]),
     desktopVisible: truthyPath(value, ["desktopVisible"]) || truthyPath(value, ["desktopVisibility", "desktopVisible"]),
     fallbackBackendReady: truthyPath(value, ["fallbackBackendReady"]) || truthyPath(value, ["desktopVisibility", "fallbackBackendReady"]),
     codexDesktopReady: truthyPath(value, ["codexDesktopReady"]) || truthyPath(value, ["desktopVisibility", "codexDesktopReady"])
@@ -371,6 +379,12 @@ function readString(record: JsonRecord | null, key: string): string | undefined 
 
 function truthyPath(record: JsonRecord | null, path: string[]): boolean {
   return readPath(record, path) === true;
+}
+
+function booleanWithAbsentFallback(record: JsonRecord | null, primaryPath: string[], fallbacks: Array<() => boolean>): boolean {
+  const primary = readPath(record, primaryPath);
+  if (typeof primary === "boolean") return primary;
+  return fallbacks.some((fallback) => fallback());
 }
 
 function readPath(record: JsonRecord | null, path: string[]): unknown {
