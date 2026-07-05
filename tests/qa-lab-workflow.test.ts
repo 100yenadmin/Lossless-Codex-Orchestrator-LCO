@@ -26,6 +26,12 @@ const params = paramsIndex >= 0 ? JSON.parse(args[paramsIndex + 1] || "{}") : {}
 appendFileSync(process.env.OPENCLAW_FAKE_CALLS, JSON.stringify({ method, params }) + "\\n");
 
 if (method === "tools.catalog") {
+  if (process.env.OPENCLAW_FAKE_DEEP_CATALOG === "1") {
+    let output = { tools: [] };
+    for (let index = 0; index < 20; index += 1) output = { payload: output };
+    console.log(JSON.stringify(output));
+    process.exit(0);
+  }
   const tools = [
     { name: "loo_search_sessions" },
     { name: "loo_describe_ref" },
@@ -42,6 +48,10 @@ if (method === "tools.catalog") {
 if (method === "tools.invoke") {
   const name = params.name;
   const toolArgs = params.args || {};
+  if (process.env.OPENCLAW_FAKE_EXIT_NONZERO === name) {
+    console.error("fake gateway invocation failed");
+    process.exit(9);
+  }
   const wrap = (output) => {
     if (process.env.OPENCLAW_FAKE_OMIT_TOOL_OK === name) return { toolName: name, source: "plugin", output };
     if (process.env.OPENCLAW_FAKE_TOOL_OK_FALSE === name) return { ok: false, toolName: name, source: "plugin", output };
@@ -53,6 +63,10 @@ if (method === "tools.invoke") {
         { sourceRef: "codex_thread:z-thread", threadId: "z-thread", score: 10, snippet: "PRIVATE RAW PROMPT CANARY" },
         { sourceRef: "codex_thread:a-thread", threadId: "a-thread", score: 9, snippet: "PRIVATE RAW PROMPT CANARY" }
       ]
+      : process.env.OPENCLAW_FAKE_UNSAFE_THREAD_ID === "1"
+        ? [
+          { sourceRef: "codex_thread:agent-thread-1", threadId: "/Users/lume/private/session.jsonl", score: 10, snippet: "PRIVATE RAW PROMPT CANARY" }
+        ]
       : [
         { sourceRef: "codex_thread:agent-thread-1", threadId: "agent-thread-1", score: 10, snippet: "PRIVATE RAW PROMPT CANARY" }
       ];
@@ -164,9 +178,11 @@ test("qa-lab workflow creates a public-safe dry-run OpenClaw gateway report", (t
   const serialized = JSON.stringify(report);
   assert.doesNotMatch(serialized, /PRIVATE RAW/);
   assert.doesNotMatch(serialized, /\/Users\/lume/);
-  assert.doesNotMatch(serialized, /\\.jsonl|\\.sqlite|screenshot|token|cookie/i);
+  assert.doesNotMatch(serialized, /\.jsonl|\.sqlite|screenshot|token|cookie/i);
 
-  const saved = JSON.parse(readFileSync(join(dir, "workflow-run.json"), "utf8")) as QaLabWorkflowReport;
+  const savedArtifact = readFileSync(join(dir, "workflow-run.json"), "utf8");
+  assert.doesNotMatch(savedArtifact, /PRIVATE RAW|\/Users\/lume|\.jsonl|\.sqlite|screenshot|token|cookie/i);
+  const saved = JSON.parse(savedArtifact) as QaLabWorkflowReport;
   assert.equal(saved.schema, "lco.qaLab.workflowRun.v1");
 
   const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
@@ -223,6 +239,58 @@ test("qa-lab workflow fails closed when a tool omits affirmative ok", (t) => {
 
   assert.equal(report.ok, false);
   assert.ok(report.blockers.some((blocker) => blocker.code === "openclaw_workflow_tool_not_ok:loo_describe_ref"));
+});
+
+test("qa-lab workflow fails closed when a tool exits nonzero", (t) => {
+  const dir = makeTempDir(t, "loo-qa-workflow-nonzero-");
+  const { bin, callsPath } = createFakeOpenClaw(dir);
+
+  const report = createQaLabWorkflowReport({
+    scenarioId: "issue-517-agent-workflow",
+    surface: "openclaw-gateway",
+    mode: "dry-run",
+    evidenceDir: dir,
+    openclawBin: bin,
+    env: { ...process.env, OPENCLAW_FAKE_CALLS: callsPath, OPENCLAW_FAKE_EXIT_NONZERO: "loo_describe_ref" }
+  });
+
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.some((blocker) => blocker.code === "openclaw_workflow_tool_failed:loo_describe_ref"));
+});
+
+test("qa-lab workflow fails closed on malformed deep gateway wrappers", (t) => {
+  const dir = makeTempDir(t, "loo-qa-workflow-deep-wrapper-");
+  const { bin, callsPath } = createFakeOpenClaw(dir);
+
+  const report = createQaLabWorkflowReport({
+    scenarioId: "issue-517-agent-workflow",
+    surface: "openclaw-gateway",
+    mode: "dry-run",
+    evidenceDir: dir,
+    openclawBin: bin,
+    env: { ...process.env, OPENCLAW_FAKE_CALLS: callsPath, OPENCLAW_FAKE_DEEP_CATALOG: "1" }
+  });
+
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.some((blocker) => blocker.code === "openclaw_workflow_catalog_missing_required_tools"));
+});
+
+test("qa-lab workflow rejects unsafe public summary identifiers", (t) => {
+  const dir = makeTempDir(t, "loo-qa-workflow-unsafe-summary-");
+  const { bin, callsPath } = createFakeOpenClaw(dir);
+
+  const report = createQaLabWorkflowReport({
+    scenarioId: "issue-517-agent-workflow",
+    surface: "openclaw-gateway",
+    mode: "dry-run",
+    evidenceDir: dir,
+    openclawBin: bin,
+    env: { ...process.env, OPENCLAW_FAKE_CALLS: callsPath, OPENCLAW_FAKE_UNSAFE_THREAD_ID: "1" }
+  });
+
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.some((blocker) => blocker.code === "openclaw_workflow_output_summary_not_public_safe:loo_search_sessions"));
+  assert.doesNotMatch(JSON.stringify(report), /\/Users\/lume|session\.jsonl/);
 });
 
 test("qa-lab workflow requires dry-run control to explicitly report live false", (t) => {
@@ -330,10 +398,12 @@ test("loo qa-lab workflow writes a strict public-safe report through fake OpenCl
     "openclaw-gateway",
     "--mode",
     "dry-run",
+    "--openclaw-bin",
+    bin,
     "--evidence-dir",
     dir,
     "--strict"
-  ], { ...process.env, LOO_OPENCLAW_BIN: bin, OPENCLAW_FAKE_CALLS: callsPath });
+  ], { ...process.env, OPENCLAW_FAKE_CALLS: callsPath });
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const report = JSON.parse(result.stdout) as QaLabWorkflowReport;
@@ -341,5 +411,6 @@ test("loo qa-lab workflow writes a strict public-safe report through fake OpenCl
   assert.equal(report.workflowRunReady, true);
   assert.equal(report.workflow.toolsInvoked.length, 7);
   assert.equal(report.actionsPerformed.liveCodexControlRun, false);
-  assert.doesNotMatch(JSON.stringify(report), /PRIVATE RAW|\/Users\/lume|\\.jsonl|\\.sqlite|screenshot|token|cookie/i);
+  assert.doesNotMatch(JSON.stringify(report), /PRIVATE RAW|\/Users\/lume|\.jsonl|\.sqlite|screenshot|token|cookie/i);
+  assert.doesNotMatch(readFileSync(join(dir, "workflow-run.json"), "utf8"), /PRIVATE RAW|\/Users\/lume|\.jsonl|\.sqlite|screenshot|token|cookie/i);
 });
