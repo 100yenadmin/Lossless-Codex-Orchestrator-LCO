@@ -70,6 +70,7 @@ function writeHappyEvidence(dir: string): Record<string, string> {
     privacyScan: join(dir, "privacy-scan.json"),
     qaLabRun: join(dir, "qa-lab-run.json"),
     toolCoverage: join(dir, "tool-coverage.json"),
+    liveControlMatrix: join(dir, "live-control-matrix.json"),
     judgeReview: join(dir, "judge-review.json"),
     adversarialReview: join(dir, "adversarial-review.json")
   };
@@ -226,6 +227,44 @@ function writeHappyEvidence(dir: string): Record<string, string> {
     blockers: [],
     actionsPerformed: noActions()
   });
+  writeJson(paths.liveControlMatrix, {
+    schema: "lco.qaLab.liveControlMatrix.v1",
+    ok: true,
+    liveControlMatrixReady: true,
+    publicSafe: true,
+    packageVersion,
+    candidateSha,
+    claimScope: "codex-working-app-proof",
+    mode: "aggregate-only",
+    rows: ["send", "resume", "steer", "interrupt"].map((action) => ({
+      id: `openclaw-gateway-${action}`,
+      surface: "openclaw-gateway",
+      action,
+      requiredForClaim: true,
+      status: "ready",
+      evidenceRef: `${action}-report.json`,
+      target: { kind: "approved_sacrificial_thread", refClass: "codex_thread", ref: `codex_thread:thr_${action}` },
+      dryRun: { present: true, live: false, approvalAuditId: "loo_audit_abcd1234", paramsHash: "a".repeat(64), messageHash: action === "send" || action === "steer" ? "b".repeat(64) : null },
+      liveProof: {
+        present: true,
+        matchesDryRun: true,
+        method: action === "send" ? "turn/start" : action === "resume" ? "thread/resume" : action === "steer" ? "turn/steer" : "turn/interrupt",
+        responseOk: true,
+        turnStatus: action === "send" ? "completed" : null,
+        expectedTurnIdPresent: action === "steer" || action === "interrupt",
+        expectedTurnIdMatchesDryRun: action === "steer" || action === "interrupt" ? true : null,
+        bindingScope: action === "steer" || action === "interrupt" ? "turn_bound" : "not_applicable",
+        rawPromptIncluded: null
+      },
+      audit: { matchingDryRunRecord: true, matchingLiveRecord: true },
+      blockerCodes: []
+    })),
+    summary: { requiredRows: 4, readyRows: 4, blockedRows: 0, skippedRequiredRows: 0, excludedRows: 0 },
+    blockers: [],
+    actionsPerformed: { ...noActions(), rawTranscriptRead: false },
+    privateDataExclusions: ["raw prompts"],
+    proofBoundary: "Aggregate-only test fixture."
+  });
   writeJson(paths.judgeReview, {
     schema: "lco.qaLab.judgeReview.v1",
     ok: true,
@@ -285,6 +324,7 @@ test("release ga-smoke writes one public-safe ready packet from existing evidenc
   assert.equal(report.actionsVerified.publishedPackageSmokeReady, true);
   assert.equal(report.actionsVerified.qaLabRunReady, true);
   assert.equal(report.actionsVerified.qaLabToolCoverageReady, true);
+  assert.equal(report.actionsVerified.qaLabLiveControlMatrixReady, true);
   assert.equal(report.actionsVerified.qaLabJudgeReviewReady, true);
   assert.equal(report.actionsVerified.qaLabAdversarialReviewReady, true);
   assert.deepEqual(report.actionsPerformed, {
@@ -297,8 +337,18 @@ test("release ga-smoke writes one public-safe ready packet from existing evidenc
   assert.equal(report.evidenceIndex.releaseFinalizationStatus?.evidenceRef, "release-finalization-status.json");
   assert.equal(report.evidenceIndex.qaLabRun?.status, "ready");
   assert.equal(report.evidenceIndex.qaLabToolCoverage?.status, "ready");
+  assert.equal(report.evidenceIndex.qaLabLiveControlMatrix?.status, "ready");
   assert.equal(report.evidenceIndex.qaLabJudgeReview?.status, "ready");
   assert.equal(report.evidenceIndex.qaLabAdversarialReview?.status, "ready");
+  const matrixCommand = report.nextSafeCommands.find((command) => command.includes("loo qa-lab live-control-matrix"));
+  assert.ok(matrixCommand);
+  assert.match(matrixCommand, /--claim-scope codex-live-control/);
+  assert.match(matrixCommand, /--sacrificial-thread-id <send-sacrificial-thread-id>/);
+  assert.match(matrixCommand, /--sacrificial-thread-id <resume-sacrificial-thread-id>/);
+  assert.match(matrixCommand, /--sacrificial-thread-id <steer-sacrificial-thread-id>/);
+  assert.match(matrixCommand, /--sacrificial-thread-id <interrupt-sacrificial-thread-id>/);
+  assert.match(matrixCommand, /--send-report <send-report\.json>/);
+  assert.match(matrixCommand, /--interrupt-report <interrupt-report\.json>/);
   assert.match(report.proofBoundary, /does not publish npm/i);
   assert.equal(existsSync(join(dir, "release-ga-smoke.json")), true);
 });
@@ -308,6 +358,7 @@ test("release ga-smoke requires QA Lab evidence for a GA-ready claim", (t) => {
   const paths = writeHappyEvidence(dir);
   rmSync(paths.qaLabRun, { force: true });
   rmSync(paths.toolCoverage, { force: true });
+  rmSync(paths.liveControlMatrix, { force: true });
   rmSync(paths.judgeReview, { force: true });
   rmSync(paths.adversarialReview, { force: true });
 
@@ -318,6 +369,8 @@ test("release ga-smoke requires QA Lab evidence for a GA-ready claim", (t) => {
     packageVersion,
     "--candidate-sha",
     candidateSha,
+    "--claim-scope",
+    "codex-working-app-proof",
     "--strict"
   ]);
 
@@ -325,10 +378,12 @@ test("release ga-smoke requires QA Lab evidence for a GA-ready claim", (t) => {
   const report = JSON.parse(result.stdout) as GaSmokeReport;
   assert.ok(report.blockers.some((blocker) => blocker.code === "qa_lab_run_evidence_missing"));
   assert.ok(report.blockers.some((blocker) => blocker.code === "qa_lab_tool_coverage_evidence_missing"));
+  assert.ok(report.blockers.some((blocker) => blocker.code === "qa_lab_live_control_matrix_evidence_missing"));
   assert.ok(report.blockers.some((blocker) => blocker.code === "qa_lab_judge_review_evidence_missing"));
   assert.ok(report.blockers.some((blocker) => blocker.code === "qa_lab_adversarial_review_evidence_missing"));
   assert.ok(report.nextSafeCommands.some((command) => command.includes("loo qa-lab run")));
   assert.ok(report.nextSafeCommands.some((command) => command.includes("loo qa-lab tool-coverage")));
+  assert.ok(report.nextSafeCommands.some((command) => command.includes("loo qa-lab live-control-matrix")));
 });
 
 test("release ga-smoke blocks non-ready QA Lab reports but allows P3 adversarial warnings", (t) => {
@@ -401,6 +456,103 @@ test("release ga-smoke requires QA Lab run and coverage evidence to bind package
   assert.ok(report.blockers.some((blocker) => blocker.code === "qa_lab_run_sha_mismatch"));
   assert.ok(report.blockers.some((blocker) => blocker.code === "qa_lab_tool_coverage_version_mismatch"));
   assert.ok(report.blockers.some((blocker) => blocker.code === "qa_lab_tool_coverage_sha_mismatch"));
+});
+
+test("release ga-smoke requires live-control matrix evidence to bind package version and candidate SHA", (t) => {
+  const dir = makeTempDir(t, "loo-ga-smoke-live-matrix-binding-");
+  const paths = writeHappyEvidence(dir);
+  const matrix = readJson(paths.liveControlMatrix) as Record<string, unknown>;
+  delete matrix.packageVersion;
+  delete matrix.candidateSha;
+  writeJson(paths.liveControlMatrix, matrix);
+
+  const result = runGaSmoke([
+    "--evidence-dir",
+    dir,
+    "--package-version",
+    packageVersion,
+    "--candidate-sha",
+    candidateSha,
+    "--claim-scope",
+    "codex-working-app-proof",
+    "--strict"
+  ]);
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout) as GaSmokeReport;
+  assert.ok(report.blockers.some((blocker) => blocker.code === "qa_lab_live_control_matrix_version_mismatch"));
+  assert.ok(report.blockers.some((blocker) => blocker.code === "qa_lab_live_control_matrix_sha_mismatch"));
+});
+
+test("release ga-smoke blocks thread-scoped interrupt rows from satisfying live-control matrix readiness", (t) => {
+  const dir = makeTempDir(t, "loo-ga-smoke-live-matrix-interrupt-scope-");
+  const paths = writeHappyEvidence(dir);
+  const matrix = readJson(paths.liveControlMatrix) as Record<string, unknown>;
+  const rows = matrix.rows as Array<Record<string, unknown>>;
+  const interrupt = rows.find((row) => row.action === "interrupt");
+  assert.ok(interrupt);
+  interrupt.liveProof = {
+    ...interrupt.liveProof as Record<string, unknown>,
+    expectedTurnIdPresent: true,
+    expectedTurnIdMatchesDryRun: true,
+    bindingScope: "thread_scoped"
+  };
+  writeJson(paths.liveControlMatrix, matrix);
+
+  const result = runGaSmoke([
+    "--evidence-dir",
+    dir,
+    "--package-version",
+    packageVersion,
+    "--candidate-sha",
+    candidateSha,
+    "--claim-scope",
+    "codex-working-app-proof",
+    "--strict"
+  ]);
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout) as GaSmokeReport;
+  assert.ok(report.blockers.some((blocker) => blocker.code === "qa_lab_live_control_matrix_required_rows_missing"));
+  assert.ok(report.blockers.some((blocker) => blocker.code === "qa_lab_live_control_matrix_action_rows_not_ready"));
+});
+
+test("release ga-smoke derives live-control matrix readiness from per-action rows", (t) => {
+  const dir = makeTempDir(t, "loo-ga-smoke-live-matrix-row-gap-");
+  const paths = writeHappyEvidence(dir);
+  writeJson(paths.liveControlMatrix, {
+    schema: "lco.qaLab.liveControlMatrix.v1",
+    ok: true,
+    liveControlMatrixReady: true,
+    publicSafe: true,
+    packageVersion,
+    candidateSha,
+    claimScope: "codex-working-app-proof",
+    summary: { requiredRows: 4, readyRows: 4, blockedRows: 0, skippedRequiredRows: 0, excludedRows: 0 },
+    rows: [
+      { action: "send", requiredForClaim: true, status: "ready", blockerCodes: [] },
+      { action: "resume", requiredForClaim: true, status: "ready", blockerCodes: [] },
+      { action: "steer", requiredForClaim: true, status: "blocked", blockerCodes: ["live_control_steer_runtime_marker_missing"] },
+      { action: "interrupt", requiredForClaim: true, status: "ready", liveProof: { expectedTurnIdPresent: true, expectedTurnIdMatchesDryRun: true, bindingScope: "turn_bound" }, blockerCodes: [] }
+    ],
+    blockers: [],
+    actionsPerformed: { ...noActions(), rawTranscriptRead: false }
+  });
+
+  const result = runGaSmoke([
+    "--evidence-dir",
+    dir,
+    "--package-version",
+    packageVersion,
+    "--candidate-sha",
+    candidateSha,
+    "--strict"
+  ]);
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout) as GaSmokeReport;
+  assert.ok(report.blockers.some((blocker) => blocker.code === "qa_lab_live_control_matrix_required_rows_missing"));
+  assert.ok(report.blockers.some((blocker) => blocker.code === "qa_lab_live_control_matrix_action_rows_not_ready"));
 });
 
 test("release ga-smoke propagates structured QA Lab judge and adversarial findings", (t) => {

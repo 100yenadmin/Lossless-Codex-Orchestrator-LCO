@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
-import { normalizeReleaseClaimScope, type ReleaseClaimScope } from "./release-claim-scope.js";
+import { normalizeReleaseClaimScope, releaseClaimScopeRequiresLiveControl, type ReleaseClaimScope } from "./release-claim-scope.js";
+
+const REQUIRED_LIVE_CONTROL_ACTIONS = ["send", "resume", "steer", "interrupt"] as const;
 
 export type ReleaseGaSmokeOptions = {
   evidenceDir: string;
@@ -20,6 +22,7 @@ export type ReleaseGaSmokeOptions = {
   privacyScan?: string;
   qaLabRun?: string;
   qaLabToolCoverage?: string;
+  qaLabLiveControlMatrix?: string;
   qaLabJudgeReview?: string;
   qaLabAdversarialReview?: string;
   allowSetupRequired?: boolean;
@@ -83,6 +86,7 @@ export type ReleaseGaSmokeReport = {
     privacyScanReady: boolean;
     qaLabRunReady: boolean;
     qaLabToolCoverageReady: boolean;
+    qaLabLiveControlMatrixReady: boolean;
     qaLabJudgeReviewReady: boolean;
     qaLabAdversarialReviewReady: boolean;
   };
@@ -111,6 +115,7 @@ type ReleaseGaSmokeSourceId =
   | "privacyScan"
   | "qaLabRun"
   | "qaLabToolCoverage"
+  | "qaLabLiveControlMatrix"
   | "qaLabJudgeReview"
   | "qaLabAdversarialReview";
 
@@ -161,6 +166,7 @@ const EVIDENCE_SPECS: Array<Omit<EvidenceSpec, "optionPath"> & { optionKey: keyo
   | "privacyScan"
   | "qaLabRun"
   | "qaLabToolCoverage"
+  | "qaLabLiveControlMatrix"
   | "qaLabJudgeReview"
   | "qaLabAdversarialReview"
 > }> = [
@@ -176,6 +182,7 @@ const EVIDENCE_SPECS: Array<Omit<EvidenceSpec, "optionPath"> & { optionKey: keyo
   { id: "privacyScan", defaultFile: "privacy-scan.json", optionKey: "privacyScan" },
   { id: "qaLabRun", defaultFile: "qa-lab-run.json", optionKey: "qaLabRun" },
   { id: "qaLabToolCoverage", defaultFile: "tool-coverage.json", optionKey: "qaLabToolCoverage" },
+  { id: "qaLabLiveControlMatrix", defaultFile: "live-control-matrix.json", optionKey: "qaLabLiveControlMatrix" },
   { id: "qaLabJudgeReview", defaultFile: "judge-review.json", optionKey: "qaLabJudgeReview" },
   { id: "qaLabAdversarialReview", defaultFile: "adversarial-review.json", optionKey: "qaLabAdversarialReview" }
 ];
@@ -387,6 +394,9 @@ function validateEvidenceBySource(
     case "qaLabToolCoverage":
       validateQaLabToolCoverage(value, options, blockers, warnings);
       break;
+    case "qaLabLiveControlMatrix":
+      validateQaLabLiveControlMatrix(value, options, blockers, warnings);
+      break;
     case "qaLabJudgeReview":
       validateQaLabJudgeReview(value, blockers, warnings);
       break;
@@ -423,6 +433,70 @@ function validateQaLabToolCoverage(
     addBlocker(blockers, "P2", "qa_lab_tool_coverage_not_full", "qaLabToolCoverage", "GA smoke requires full declared-tool coverage, not facade-only coverage.");
   }
   applyQaLabFindings(value, "qaLabToolCoverage", blockers, warnings);
+}
+
+function validateQaLabLiveControlMatrix(
+  value: JsonRecord,
+  options: ReleaseGaSmokeOptions,
+  blockers: ReleaseGaSmokeBlocker[],
+  warnings: ReleaseGaSmokeWarning[]
+): void {
+  validateSchema(value, ["lco.qaLab.liveControlMatrix.v1"], blockers, "qa_lab_live_control_matrix_schema_invalid", "qaLabLiveControlMatrix");
+  requireBoolean(value, "liveControlMatrixReady", true, blockers, "P1", "qa_lab_live_control_matrix_not_ready", "qaLabLiveControlMatrix", "QA Lab live-control matrix evidence is not ready.");
+  const requiresLiveControl = releaseClaimScopeRequiresLiveControl(normalizeReleaseClaimScope(options.claimScope));
+  requireString(value, "packageVersion", options.packageVersion, blockers, "qa_lab_live_control_matrix_version_mismatch", "qaLabLiveControlMatrix", "QA Lab live-control matrix package version does not match.");
+  requireString(value, "candidateSha", options.candidateSha, blockers, "qa_lab_live_control_matrix_sha_mismatch", "qaLabLiveControlMatrix", "QA Lab live-control matrix candidate SHA does not match.");
+  if (requiresLiveControl) {
+    const summary = isRecord(value.summary) ? value.summary : {};
+    const rows = liveControlMatrixActionReadiness(value);
+    if (
+      summary.requiredRows !== REQUIRED_LIVE_CONTROL_ACTIONS.length
+      || summary.readyRows !== REQUIRED_LIVE_CONTROL_ACTIONS.length
+      || summary.blockedRows !== 0
+      || summary.skippedRequiredRows !== 0
+      || rows.requiredActions.size !== REQUIRED_LIVE_CONTROL_ACTIONS.length
+      || rows.readyActions.size !== REQUIRED_LIVE_CONTROL_ACTIONS.length
+    ) {
+      addBlocker(blockers, "P1", "qa_lab_live_control_matrix_required_rows_missing", "qaLabLiveControlMatrix", "Live-control release claims require ready send, resume, steer, and interrupt matrix rows.");
+    }
+    if (REQUIRED_LIVE_CONTROL_ACTIONS.some((action) => !rows.readyActions.has(action)) || rows.blockedRequiredRows > 0) {
+      addBlocker(blockers, "P1", "qa_lab_live_control_matrix_action_rows_not_ready", "qaLabLiveControlMatrix", "Live-control release claims require one ready required row each for send, resume, steer, and interrupt.");
+    }
+  }
+  applyQaLabFindings(value, "qaLabLiveControlMatrix", blockers, warnings);
+}
+
+function liveControlMatrixActionReadiness(value: JsonRecord): {
+  requiredActions: Set<string>;
+  readyActions: Set<string>;
+  blockedRequiredRows: number;
+} {
+  const requiredActions = new Set<string>();
+  const readyActions = new Set<string>();
+  let blockedRequiredRows = 0;
+  const rows = Array.isArray(value.rows) ? value.rows : [];
+  for (const row of rows) {
+    if (!isRecord(row)) continue;
+    const action = typeof row.action === "string" ? row.action : "";
+    if (row.requiredForClaim !== true) continue;
+    requiredActions.add(action);
+    const blockers = Array.isArray(row.blockerCodes) ? row.blockerCodes : [];
+    if (row.status === "ready" && blockers.length === 0 && liveControlMatrixRowHasRequiredProof(row)) {
+      readyActions.add(action);
+    } else {
+      blockedRequiredRows += 1;
+    }
+  }
+  return { requiredActions, readyActions, blockedRequiredRows };
+}
+
+function liveControlMatrixRowHasRequiredProof(row: JsonRecord): boolean {
+  const action = typeof row.action === "string" ? row.action : "";
+  if (action !== "steer" && action !== "interrupt") return true;
+  const liveProof = isRecord(row.liveProof) ? row.liveProof : {};
+  return liveProof.expectedTurnIdMatchesDryRun === true
+    && liveProof.bindingScope === "turn_bound"
+    && liveProof.expectedTurnIdPresent === true;
 }
 
 function validateQaLabJudgeReview(
@@ -708,6 +782,7 @@ function buildActionsVerified(evidenceIndex: Record<ReleaseGaSmokeSourceId, Rele
     privacyScanReady: evidenceIndex.privacyScan?.status === "ready",
     qaLabRunReady: evidenceIndex.qaLabRun?.status === "ready",
     qaLabToolCoverageReady: evidenceIndex.qaLabToolCoverage?.status === "ready",
+    qaLabLiveControlMatrixReady: evidenceIndex.qaLabLiveControlMatrix?.status === "ready",
     qaLabJudgeReviewReady: evidenceIndex.qaLabJudgeReview?.status === "ready",
     qaLabAdversarialReviewReady: evidenceIndex.qaLabAdversarialReview?.status === "ready"
   };
@@ -750,6 +825,7 @@ function sourceCodePrefix(source: ReleaseGaSmokeSourceId): string {
     privacyScan: "privacy_scan",
     qaLabRun: "qa_lab_run",
     qaLabToolCoverage: "qa_lab_tool_coverage",
+    qaLabLiveControlMatrix: "qa_lab_live_control_matrix",
     qaLabJudgeReview: "qa_lab_judge_review",
     qaLabAdversarialReview: "qa_lab_adversarial_review"
   };
@@ -770,6 +846,7 @@ function titleForSource(source: ReleaseGaSmokeSourceId): string {
     privacyScan: "Privacy scan",
     qaLabRun: "QA Lab run",
     qaLabToolCoverage: "QA Lab tool coverage",
+    qaLabLiveControlMatrix: "QA Lab live-control matrix",
     qaLabJudgeReview: "QA Lab judge review",
     qaLabAdversarialReview: "QA Lab adversarial review"
   };
@@ -780,12 +857,17 @@ function nextSafeCommands(options: ReleaseGaSmokeOptions): string[] {
   const evidenceDir = "<evidence-dir>";
   const packageVersion = options.packageVersion || "<version>";
   const candidateSha = options.candidateSha || "<sha>";
+  const claimScope = normalizeReleaseClaimScope(options.claimScope);
+  const liveControlMatrixCommand = releaseClaimScopeRequiresLiveControl(claimScope)
+    ? `loo qa-lab live-control-matrix --evidence-dir ${evidenceDir} --package-version ${packageVersion} --candidate-sha ${candidateSha} --claim-scope ${claimScope} --sacrificial-thread-id <send-sacrificial-thread-id> --sacrificial-thread-id <resume-sacrificial-thread-id> --sacrificial-thread-id <steer-sacrificial-thread-id> --sacrificial-thread-id <interrupt-sacrificial-thread-id> --send-report <send-report.json> --resume-report <resume-report.json> --steer-report <steer-report.json> --interrupt-report <interrupt-report.json> --strict`
+    : `loo qa-lab live-control-matrix --evidence-dir ${evidenceDir} --package-version ${packageVersion} --candidate-sha ${candidateSha} --claim-scope ${claimScope} --strict`;
   return [
     `loo release status --evidence-dir ${evidenceDir} --candidate-sha ${candidateSha} --strict`,
     `loo release finalization-status --evidence-dir ${evidenceDir} --candidate-sha ${candidateSha} --package-version ${packageVersion} --npm-publish-evidence npm-publish.json --git-tag-evidence git-tag.json --github-release-evidence github-release.json --strict`,
     `loo openclaw published-smoke --evidence-dir ${evidenceDir} --dogfood-report openclaw-dogfood.json --tool-smoke-report openclaw-tool-smoke.json --registry-version ${packageVersion} --gateway-ready-strict`,
     `loo qa-lab run --suite ga --artifact published --package-version ${packageVersion} --candidate-sha ${candidateSha} --evidence-dir ${evidenceDir} --strict`,
     `loo qa-lab tool-coverage --evidence-dir ${evidenceDir} --package-version ${packageVersion} --candidate-sha ${candidateSha} --coverage-policy full --strict`,
+    liveControlMatrixCommand,
     `loo qa-lab judge --run ${evidenceDir}/qa-lab-run.json --evidence-dir ${evidenceDir} --rubric-version real-product-v1 --strict`,
     `loo qa-lab adversarial-review --run ${evidenceDir}/qa-lab-run.json --evidence-dir ${evidenceDir} --lenses safety,retrieval,packaging,claims,agent-usability --strict`,
     `loo eval scenarios --evidence-dir ${evidenceDir} --strict`,
