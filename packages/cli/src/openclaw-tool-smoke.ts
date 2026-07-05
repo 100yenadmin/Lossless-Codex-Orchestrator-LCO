@@ -44,6 +44,7 @@ const BASE_GATEWAY_SMOKE_TOOL_CALLS = [
 ];
 
 const SUCCESSFUL_INVOCATION_TOOL_CALLS = [
+  "loo_index_sessions",
   "loo_describe_ref",
   "loo_expand_session",
   "loo_grep",
@@ -54,6 +55,7 @@ const SUCCESSFUL_INVOCATION_TOOL_CALLS = [
   "loo_permissions",
   "loo_audit_tail",
   "loo_codex_sqlite_stores",
+  "loo_lcm_peer_dbs",
   "loo_desktop_see"
 ];
 
@@ -74,10 +76,7 @@ const EXPECTED_FAIL_CLOSED_TOOL_CALLS = [
   "loo_desktop_proof_action"
 ];
 
-const EXCLUDED_NON_CLAIM_TOOL_CALLS = [
-  "loo_index_sessions",
-  "loo_lcm_peer_dbs"
-];
+const EXCLUDED_NON_CLAIM_TOOL_CALLS: string[] = [];
 
 const SUCCESSFUL_INVOCATION_TOOL_SET = new Set(SUCCESSFUL_INVOCATION_TOOL_CALLS);
 const SUCCESSFUL_DRY_RUN_TOOL_SET = new Set(SUCCESSFUL_DRY_RUN_TOOL_CALLS);
@@ -125,12 +124,29 @@ const PREPARED_CARD_STATE_SET = new Set<string>(PREPARED_CARD_STATES);
 const MAX_RESTRICTED_ACTION_SCAN_DEPTH = 64;
 const MAX_RESTRICTED_ACTION_SCAN_ENTRIES = 512;
 const SAFE_FAIL_CLOSED_REASON_CODES_BY_TOOL = new Map<string, Set<string>>([
-  ["loo_codex_start_thread_post_create_proof", new Set(["post_create_proof_missing_persisted_evidence", "created_thread_not_persisted"])],
+  ["loo_codex_start_thread_post_create_proof", new Set([
+    "post_create_proof_missing_persisted_evidence",
+    "created_thread_not_persisted",
+    "app_server_thread_missing",
+    "read_probe_missing_or_failed",
+    "created_but_unindexed",
+    "indexed_description_missing",
+    "prepared_card_missing",
+    "unresolved_unknown"
+  ])],
   ["loo_codex_desktop_fallback_status", new Set(["coherence_input_missing", "desktop_visibility_not_proven"])],
   ["loo_desktop_act", new Set(["desktop_live_action_disallowed"])],
-  ["loo_desktop_proof_report", new Set(["live_action_not_observed"])],
+  ["loo_desktop_proof_report", new Set(["live_action_not_observed", "desktop_live_action_not_observed"])],
   ["loo_desktop_live_proof_harness", new Set(["desktop_live_action_not_run"])],
-  ["loo_desktop_proof_action", new Set(["execute_false_no_action"])]
+  ["loo_desktop_proof_action", new Set([
+    "execute_false_no_action",
+    "execute_flag_missing",
+    "approval_ref_missing",
+    "permission_state_missing",
+    "scratch_file_missing",
+    "action_hash_missing",
+    "approval_artifact_missing"
+  ])]
 ]);
 
 const AUTONOMY_TICK_SUMMARY_KEYS = [
@@ -742,6 +758,14 @@ function buildToolArgs(params: {
   desktopFallbackCoherence?: "fixture" | "omit";
 }): Record<string, unknown> | null {
   if (params.toolName === "loo_search_sessions") return { query: params.query, limit: 3 };
+  if (params.toolName === "loo_index_sessions") {
+    return {
+      roots: ["./lco-tool-smoke-no-such-codex-root"],
+      max_files: 1,
+      max_bytes_per_file: 1024,
+      max_events_per_file: 1
+    };
+  }
   if (params.toolName === "loo_describe_ref") return params.threadId ? { source_ref: `codex_thread:${params.threadId}` } : null;
   if (params.toolName === "loo_describe_session") return params.threadId ? { thread_id: params.threadId } : null;
   if (params.toolName === "loo_grep") return { query: params.query, limit: 3, profile: "metadata", token_budget: 200 };
@@ -962,6 +986,7 @@ function buildToolArgs(params: {
   if (params.toolName === "loo_permissions") return {};
   if (params.toolName === "loo_audit_tail") return { limit: 5 };
   if (params.toolName === "loo_codex_sqlite_stores") return { max_files: 5 };
+  if (params.toolName === "loo_lcm_peer_dbs") return { lcm_db_paths: ["./lco-tool-smoke-no-such-lcm.sqlite"] };
   if (params.toolName === "loo_desktop_see") {
     return { backend: "cua-driver", include_snapshot: false, max_nodes: 20, max_chars: 2000 };
   }
@@ -1184,7 +1209,7 @@ function summarizeInvocation(
   disposition: OpenClawToolSmokeDisposition = dispositionForTool(toolName)
 ): OpenClawToolInvocationSummary {
   const payload = call.parsed ? unwrapGatewayPayload(call.parsed) : undefined;
-  const blockers = [
+  let blockers = [
     ...gatewayFailureBlockers(call, `openclaw_tool_invoke_failed:${toolName}`, toolName),
     ...(call.status === 0 && !call.parsed ? [`openclaw_tool_result_invalid_json:${toolName}`] : []),
     ...toolPayloadBlockers(toolName, payload)
@@ -1234,6 +1259,27 @@ function summarizeInvocation(
     if (!upstreamBlocked && (summary.live !== false || !approvalAuditId || !paramsHash || (messageHashRequired && !messageHash))) {
       blockers.push("openclaw_control_dry_run_not_proven");
     }
+  }
+  if (toolName === "loo_index_sessions") {
+    const indexOutput = details ?? output;
+    const mutationClasses = arrayPath(indexOutput, ["mutationClasses"]);
+    if (!mutationClasses.includes("derived_cache")) blockers.push("index_sessions_derived_cache_marker_missing");
+    if (booleanPath(indexOutput, ["readOnly"]) !== false) blockers.push("index_sessions_read_only_boundary_invalid");
+    for (const key of ["indexedFiles", "skippedFiles", "indexedThreads", "indexedEvents"]) {
+      if (numberPath(indexOutput, [key]) === undefined) blockers.push("index_sessions_counts_missing");
+    }
+    if (arrayPath(indexOutput, ["errors"]).length > 0) blockers.push("index_sessions_errors_not_public_evidence");
+    if (arrayPath(indexOutput, ["limitedFiles"]).length > 0) blockers.push("index_sessions_limited_files_not_public_evidence");
+    if (mutationClasses.some((item) => hasForbiddenIndexMutationClass(item))) {
+      blockers.push("index_sessions_forbidden_mutation_class");
+    }
+  }
+  if (toolName === "loo_lcm_peer_dbs") {
+    const peerOutput = details ?? output;
+    const peers = arrayPath(peerOutput, ["peers"]).filter(isRecord);
+    if (peers.length === 0) blockers.push("lcm_peer_dbs_probe_missing");
+    if (peers.some((peer) => booleanPath(peer, ["readOnly"]) !== true)) blockers.push("lcm_peer_dbs_read_only_missing");
+    if (peers.some((peer) => !hasPublicSafeLcmPeerPath(peer))) blockers.push("lcm_peer_dbs_path_not_redacted");
   }
   if (toolName === "loo_desktop_act") {
     collectSafeToolBlockers(toolName, summary, details ?? output);
@@ -1626,8 +1672,13 @@ function summarizeInvocation(
         || item.execute !== false;
     })) blockers.push("prepared_inbox_public_refs_invalid");
   }
-  if (disposition === "expected_fail_closed" && blockers.length === 0 && !expectedFailClosedProven(toolName, details ?? output, summary, requestArgs)) {
-    blockers.push(`expected_fail_closed_not_proven:${toolName}`);
+  if (disposition === "expected_fail_closed") {
+    const failClosedProven = expectedFailClosedProven(toolName, details ?? output, summary, requestArgs);
+    if (failClosedProven) {
+      blockers = blockers.filter((blocker) => !blocker.startsWith(`openclaw_tool_result_not_ok:${toolName}`));
+    } else if (blockers.length === 0) {
+      blockers.push(`expected_fail_closed_not_proven:${toolName}`);
+    }
   }
 
   return {
@@ -1673,16 +1724,38 @@ function expectedFailClosedProven(
   if (hasRestrictedActionPerformed(value)) return false;
   collectSafeToolBlockers(toolName, summary, value);
   const status = stringPath(value, ["status"]);
-  const reasonCodes = arrayPath(value, ["reasonCodes"]).filter((item): item is string => typeof item === "string");
-  const proofMarkers = isRecord(value.proofMarkers) ? value.proofMarkers : null;
+  const reasonCodes = [
+    ...arrayPath(value, ["reasonCodes"]),
+    ...arrayPath(value, ["reason_codes"])
+  ].filter((item): item is string => typeof item === "string");
+  const proofMarkers = isRecord(value.proofMarkers)
+    ? value.proofMarkers
+    : isRecord(value.proof_markers)
+      ? value.proof_markers
+      : null;
   const hasAllowedBlocker = (summary.toolBlockers?.length ?? 0) > 0;
   const hasSafeReasonCode = reasonCodes.some((code) => safeFailClosedReasonCodes(toolName).has(code));
   const hasNoActionProofMarker = proofMarkers?.noActionObserved === true || proofMarkers?.liveActionObserved === false;
   if (toolName === "loo_desktop_act") {
     const hasBlockedStatus = status === "blocked" || status === "not_observed";
     const hasSupportingNoActionProof = hasAllowedBlocker || hasSafeReasonCode || proofMarkers?.noActionObserved === true;
+    const hasCurrentDryRunBoundary =
+      requestArgs.dry_run === true
+      && booleanPath(value, ["live"]) === false
+      && booleanPath(value, ["dryRunOnly"]) === true
+      && booleanPath(value, ["approvalRequired"]) === true
+      && (booleanPath(value, ["requestedLive"]) === false || booleanPath(value, ["requestedLive"]) === undefined);
     if (requestArgs.dry_run !== true) return false;
+    if (hasCurrentDryRunBoundary) return true;
     return hasBlockedStatus && hasSupportingNoActionProof;
+  }
+  if (toolName === "loo_desktop_live_proof_harness" && booleanPath(value, ["proofHarnessReady"]) === true) {
+    // A ready harness is acceptable only as a no-action approval-packet proof:
+    // it prepares a bounded action tuple but has not run desktop automation.
+    return hasExplicitNoDesktopAction(value)
+      && hasNoActionProofMarker
+      && Boolean(stringPath(value, ["actionHash"]) || stringPath(value, ["action_hash"]))
+      && Boolean(stringPath(value, ["approvalRef"]) || stringPath(value, ["approval_ref"]));
   }
   if (toolName === "loo_codex_desktop_fallback_status" && summary.fallbackReason) return true;
   if (hasAllowedBlocker || hasSafeReasonCode || hasNoActionProofMarker) return true;
@@ -1710,13 +1783,25 @@ function hasRestrictedActionPerformed(value: unknown, depth = 0): boolean {
     if (
       [
         "liveCodexControlRun",
+        "live_codex_control_run",
         "desktopGuiActionRun",
+        "desktop_gui_action_run",
         "rawTranscriptRead",
+        "raw_transcript_read",
         "screenshotCaptured",
+        "screenshot_captured",
         "screenshotsCaptured",
+        "screenshots_captured",
         "npmPublished",
+        "npm_published",
+        "npm_publish",
         "githubReleaseCreated",
-        "broadGatewayScopeApproval"
+        "github_release_created",
+        "github_release",
+        "broadGatewayScopeApproval",
+        "broad_gateway_scope_approval",
+        "sourceStoreMutation",
+        "source_store_mutation"
       ].includes(key) && item === true
     ) {
       return true;
@@ -1724,6 +1809,55 @@ function hasRestrictedActionPerformed(value: unknown, depth = 0): boolean {
     if (hasRestrictedActionPerformed(item, depth + 1)) return true;
   }
   return false;
+}
+
+function hasPublicSafeLcmPeerPath(peer: Record<string, unknown>): boolean {
+  const path = stringPath(peer, ["path"]);
+  if (!path) return false;
+  if (path.startsWith("<redacted-local-path>/")) return true;
+  if (path.startsWith("lcm_peer_db:")) return /^[A-Za-z0-9._-]{1,64}$/.test(path.slice("lcm_peer_db:".length));
+  return !/(?:^\/|^~\/|^[A-Za-z]:[\\/]|\.sqlite(?:\b|[-_.])|\.db(?:\b|[-_.])|\/Users\/|\/Volumes\/|\/home\/|\/root\/|\/tmp\/|\/private\/var\/)/i.test(path);
+}
+
+function hasForbiddenIndexMutationClass(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  return new Set([
+    "source_store",
+    "sourceStore",
+    "source_store_mutation",
+    "sourceStoreMutation",
+    "external_system",
+    "external_write",
+    "externalWrite",
+    "live_control",
+    "liveControl",
+    "live_control_run",
+    "liveCodexControlRun",
+    "gui_mutation",
+    "guiMutation",
+    "desktop_gui_action_run",
+    "desktopGuiActionRun",
+    "publish_release",
+    "npm_publish",
+    "npmPublished",
+    "github_release",
+    "githubReleaseCreated"
+  ]).has(value);
+}
+
+function hasExplicitNoDesktopAction(value: Record<string, unknown>): boolean {
+  const actions = isRecord(value.actionsPerformed)
+    ? value.actionsPerformed
+    : isRecord(value.actions_performed)
+      ? value.actions_performed
+      : null;
+  if (!actions) return false;
+  const desktopAction = booleanPath(actions, ["desktopGuiActionRun"]) ?? booleanPath(actions, ["desktop_gui_action_run"]);
+  const screenshotCaptured = booleanPath(actions, ["screenshotCaptured"]) ?? booleanPath(actions, ["screenshot_captured"]);
+  const screenshotsCaptured = booleanPath(actions, ["screenshotsCaptured"]) ?? booleanPath(actions, ["screenshots_captured"]);
+  return desktopAction === false
+    && (screenshotCaptured === false || screenshotCaptured === undefined)
+    && (screenshotsCaptured === false || screenshotsCaptured === undefined);
 }
 
 function toolValidationBlockers(toolName: string, failedPayload: Record<string, unknown>): string[] {
