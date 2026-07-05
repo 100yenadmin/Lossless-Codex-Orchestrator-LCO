@@ -354,8 +354,10 @@ export type PreparedCard = {
   targetRef: string;
   cardKind: PreparedCardKind;
   title: string;
+  objective: string | null;
   summaryText: string;
-  nextAction: string;
+  blocker: string | null;
+  nextAction: string | null;
   sourceRefs: string[];
   sourceRangeRefs: string[];
   sourceRangeRefsOmitted: number;
@@ -2784,7 +2786,9 @@ export function migrate(db: LooDatabase): void {
       target_ref TEXT NOT NULL,
       card_kind TEXT NOT NULL,
       title TEXT NOT NULL DEFAULT '',
+      objective TEXT NOT NULL DEFAULT '',
       summary_text TEXT NOT NULL DEFAULT '',
+      blocker TEXT,
       next_action TEXT,
       source_refs_json TEXT NOT NULL DEFAULT '[]',
       source_range_refs_json TEXT NOT NULL DEFAULT '[]',
@@ -2975,6 +2979,8 @@ export function migrate(db: LooDatabase): void {
   ensureColumn(db, "codex_session_metadata", "closeout_envelope_text", "TEXT");
   ensureColumn(db, "codex_session_metadata", "closeout_envelope_open_count", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "codex_session_metadata", "closeout_envelope_close_count", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "prepared_cards", "objective", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "prepared_cards", "blocker", "TEXT");
   ensureColumn(db, "prepared_cards", "source_range_refs_omitted", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "codex_tool_calls", "reason_code", "TEXT");
   ensureColumn(db, "codex_source_files", "metadata_extractor_version", "TEXT");
@@ -4292,18 +4298,20 @@ function materializePreparedCardsForThread(
   if (card) {
     db.prepare(`
       INSERT INTO prepared_cards (
-        card_id, card_ref, target_ref, card_kind, title, summary_text, next_action,
+        card_id, card_ref, target_ref, card_kind, title, objective, summary_text, blocker, next_action,
         source_refs_json, source_range_refs_json, source_range_refs_omitted, authority_coverage_json,
         input_hash, extractor_version, privacy_class, confidence, freshness_at,
         stale, state, reason_codes_json, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       card.cardId,
       card.cardRef,
       card.targetRef,
       card.cardKind,
       card.title,
+      card.objective ?? "",
       card.summaryText,
+      card.blocker,
       card.nextAction,
       JSON.stringify(card.sourceRefs),
       JSON.stringify(card.sourceRangeRefs),
@@ -4407,7 +4415,9 @@ export function getPreparedCards(db: LooDatabase, options: PreparedCardsOptions 
       target_ref AS targetRef,
       card_kind AS cardKind,
       title,
+      objective,
       summary_text AS summaryText,
+      blocker,
       next_action AS nextAction,
       source_refs_json AS sourceRefsJson,
       source_range_refs_json AS sourceRangeRefsJson,
@@ -4865,7 +4875,9 @@ type PreparedCardRow = {
   targetRef: string;
   cardKind: string;
   title: string;
+  objective: string | null;
   summaryText: string;
+  blocker: string | null;
   nextAction: string | null;
   sourceRefsJson: string;
   sourceRangeRefsJson: string;
@@ -4895,10 +4907,10 @@ type PreparedInboxRow = {
 function buildPreparedCardDraft(db: LooDatabase, threadId: string, leaves: SummaryLeaf[], filteredUnsafeRows: number): PreparedCardDraft {
   const targetRef = codexThreadRef(threadId);
   const session = db.prepare(`
-    SELECT title, summary, updated_at AS updatedAt
+    SELECT title, summary, final_message AS finalMessage, updated_at AS updatedAt
     FROM codex_sessions
     WHERE thread_id = ?
-  `).get(threadId) as { title: string | null; summary: string | null; updatedAt: string | null } | undefined;
+  `).get(threadId) as { title: string | null; summary: string | null; finalMessage: string | null; updatedAt: string | null } | undefined;
   const metadata = getSessionMetadata(db, threadId);
   const sessionMetadataStatus: PreparedStateCoverage = session
     ? sessionMetadataHasAnyValue(metadata) ? "ok" : "partial"
@@ -4924,9 +4936,17 @@ function buildPreparedCardDraft(db: LooDatabase, threadId: string, leaves: Summa
         : "ready";
   const lifecycle = preparedLifecycleFromMetadata(metadata, evidenceState);
   const state = lifecycle.state;
+  const workState = derivePreparedCardWorkState(db, {
+    threadId,
+    targetRef,
+    session,
+    metadata,
+    state
+  });
   const reasonCodes = unique([
     leaves.length > 0 ? "summary_leaves_ready" : "summary_leaves_missing",
     "metadata_only",
+    ...workState.reasonCodes,
     ...lifecycle.reasonCodes,
     watcherObservationsStatus === "not_configured" ? "watcher_not_configured" : "watcher_observations_available",
     stale ? "stale_cache" : "",
@@ -4940,25 +4960,16 @@ function buildPreparedCardDraft(db: LooDatabase, threadId: string, leaves: Summa
   const averageLeafConfidence = leaves.length
     ? leaves.reduce((sum, leaf) => sum + leaf.confidence, 0) / leaves.length
     : 0.3;
-  const confidence = preparedCardConfidence(averageLeafConfidence, state, evidenceState);
+  const confidence = workState.lowConfidence
+    ? Math.min(preparedCardConfidence(averageLeafConfidence, state, evidenceState), 0.49)
+    : preparedCardConfidence(averageLeafConfidence, state, evidenceState);
   const sourceRangeRefsFull = unique(leaves.flatMap((leaf) => leaf.sourceRangeRefs));
   const sourceRangeRefs = sourceRangeRefsFull.slice(0, PREPARED_CARD_SOURCE_RANGE_REF_LIMIT);
   const sourceRangeRefsOmitted = Math.max(0, sourceRangeRefsFull.length - sourceRangeRefs.length)
     + leaves.reduce((count, leaf) => count + leaf.sourceRangeRefsOmitted, 0);
-  const sourceRefs = unique([targetRef, ...leaves.map((leaf) => leaf.leafRef), ...leaves.flatMap((leaf) => leaf.sourceRefs)])
+  const sourceRefs = unique([targetRef, ...workState.sourceRefs, ...leaves.map((leaf) => leaf.leafRef), ...leaves.flatMap((leaf) => leaf.sourceRefs)])
     .filter(isPublicPreparedSourceRef)
     .slice(0, 40);
-  const cleanedTitle = cleanCardPresentationText(session?.title ?? threadId, {
-    fallback: threadId,
-    maxChars: 160,
-    role: "title"
-  });
-  const title = looksSensitiveRefLike(cleanedTitle.text) ? publicSafeText(safeThreadId(threadId), 160) : cleanedTitle.text;
-  const summaryText = publicSafeText(
-    `Prepared state: ${leaves.length} summary leaf${leaves.length === 1 ? "" : "s"} across ${Math.max(0, leafRangeCount)} prepared source range${leafRangeCount === 1 ? "" : "s"}. Lifecycle: ${preparedCardStateLabel(state)}.`,
-    320
-  );
-  const nextAction = preparedCardNextAction(state);
   const authorityCoverage: PreparedCard["authorityCoverage"] = {
     summaryLeaves: {
       status: summaryLeavesStatus,
@@ -4980,6 +4991,12 @@ function buildPreparedCardDraft(db: LooDatabase, threadId: string, leaves: Summa
     metadataSignalHash: lifecycle.metadataSignalHash,
     lifecycleState: state,
     lifecycleReasonCodes: lifecycle.reasonCodes,
+    title: workState.title,
+    objective: workState.objective,
+    blocker: workState.blocker,
+    nextAction: workState.nextAction,
+    summaryText: workState.summaryText,
+    presentationReasonCodes: workState.reasonCodes,
     evidenceState,
     freshnessAt,
     stale,
@@ -4995,9 +5012,11 @@ function buildPreparedCardDraft(db: LooDatabase, threadId: string, leaves: Summa
     cardRef: `prepared_card:${cardId}`,
     targetRef,
     cardKind: "codex_session",
-    title,
-    summaryText,
-    nextAction,
+    title: workState.title,
+    objective: workState.objective,
+    summaryText: workState.summaryText,
+    blocker: workState.blocker,
+    nextAction: workState.nextAction,
     sourceRefs,
     sourceRangeRefs,
     sourceRangeRefsOmitted,
@@ -5012,6 +5031,354 @@ function buildPreparedCardDraft(db: LooDatabase, threadId: string, leaves: Summa
     state,
     reasonCodes: confidence < 0.5 ? unique([...reasonCodes, "low_confidence"]) : reasonCodes
   };
+}
+
+type PreparedCardWorkState = {
+  title: string;
+  objective: string | null;
+  summaryText: string;
+  blocker: string | null;
+  nextAction: string | null;
+  sourceRefs: string[];
+  reasonCodes: string[];
+  lowConfidence: boolean;
+};
+
+type PreparedCardWorkStateInput = {
+  threadId: string;
+  targetRef: string;
+  session: { title: string | null; summary: string | null; finalMessage: string | null; updatedAt: string | null } | undefined;
+  metadata: SessionMetadata;
+  state: PreparedCardState;
+};
+
+type OptionalCardPresentationCleanResult = Omit<CardPresentationCleanResult, "text"> & {
+  text: string | null;
+};
+
+function derivePreparedCardWorkState(db: LooDatabase, input: PreparedCardWorkStateInput): PreparedCardWorkState {
+  const threadRenameCaptured = preparedThreadRenameCaptured(db, input.threadId);
+  const title = cleanPreparedCardField(input.session?.title ?? input.threadId, {
+    fallback: safeThreadId(input.threadId),
+    maxChars: 160,
+    role: "title"
+  });
+  const safeTitle = looksSensitiveRefLike(title.text) ? publicSafeText(safeThreadId(input.threadId), 160) : title.text;
+  const latestPlan = getLatestPreparedCardPlan(db, input.threadId);
+  const objectiveSource = latestPlan ? firstPreparedPlanLine(latestPlan.text) : null;
+  const objective = cleanPreparedCardField(objectiveSource ?? input.session?.title ?? input.threadId, {
+    fallback: safeTitle,
+    maxChars: 260,
+    role: "summary"
+  });
+  const objectiveText = presentationTextEquivalent(objective.text, safeTitle) ? null : objective.text;
+  const finalMessage = input.session?.finalMessage && isLikelyFinal(input.session.finalMessage) ? input.session.finalMessage : null;
+  const finalNextAction = finalMessage ? nextActionFromFinalMessage(finalMessage) : null;
+  const planNextAction = latestPlan ? firstUncheckedPreparedPlanStep(latestPlan.text, [safeTitle, objectiveText]) : null;
+  const nextActionSource = finalNextAction ? "from_final_message" : planNextAction ? "from_latest_plan" : null;
+  const nextAction = cleanOptionalPreparedCardField(finalNextAction ?? planNextAction, {
+    maxChars: 240,
+    role: "nextAction"
+  });
+  const nextActionText = preparedCardActionOrNull(nextAction.text, [safeTitle, objectiveText]);
+  const nextActionLowConfidence = nextAction.lowConfidence || (nextAction.text !== null && nextActionText === null);
+  const nextActionCleaned = nextAction.cleaned || (nextAction.text !== null && nextActionText === null);
+  const attention = getPreparedCardAttentionSignal(db, input.targetRef);
+  const metadataBlocker = hasRealBlocker(input.metadata.blocker) ? input.metadata.blocker : null;
+  const blocker = cleanOptionalPreparedCardField(attention.blocker ?? metadataBlocker, {
+    maxChars: 240,
+    role: "summary"
+  });
+  const touchedFiles = getCodexTouchedFiles(db, { threadId: input.threadId });
+  const summaryText = preparedCardWorkSummary({
+    state: input.state,
+    objective: objectiveText,
+    blocker: blocker.text,
+    nextAction: nextActionText,
+    finalMessage,
+    touchedFiles
+  });
+  const reasonCodes = unique([
+    threadRenameCaptured ? "from_thread_rename" : "from_thread_title",
+    objectiveText ? objectiveSource ? "from_latest_plan" : "from_thread_title" : "",
+    nextActionText && nextActionSource ? nextActionSource : "",
+    finalMessage && input.state === "completed" ? "completed_from_final_message" : "",
+    attention.blocker ? "from_attention_queue" : metadataBlocker ? "from_session_metadata" : "",
+    ...attention.reasonCodes,
+    title.cleaned || objective.cleaned || nextActionCleaned || blocker.cleaned ? "presentation_cleaned" : "",
+    title.lowConfidence || objective.lowConfidence || nextActionLowConfidence || blocker.lowConfidence ? "presentation_low_confidence" : ""
+  ].filter(Boolean));
+  return {
+    title: safeTitle,
+    objective: objectiveText,
+    summaryText,
+    blocker: blocker.text,
+    nextAction: nextActionText,
+    sourceRefs: attention.sourceRefs,
+    reasonCodes,
+    lowConfidence: title.lowConfidence || objective.lowConfidence || nextActionLowConfidence || blocker.lowConfidence
+  };
+}
+
+function getLatestPreparedCardPlan(db: LooDatabase, threadId: string): { text: string; ordinal: number } | null {
+  const row = db.prepare(`
+    SELECT text, ordinal
+    FROM codex_plans
+    WHERE thread_id = ?
+    ORDER BY ordinal DESC
+    LIMIT 1
+  `).get(threadId) as { text: string | null; ordinal: number | null } | undefined;
+  const text = row?.text?.trim();
+  return text ? { text, ordinal: Number(row?.ordinal ?? 0) } : null;
+}
+
+function firstPreparedPlanLine(planText: string): string | null {
+  return preparedPlanStepCandidates(planText)[0]?.text ?? null;
+}
+
+function firstUncheckedPreparedPlanStep(planText: string, distinctFrom: Array<string | null>): string | null {
+  const candidates = preparedPlanStepCandidates(planText).filter((candidate) => !candidate.checked && !candidate.heading);
+  return candidates.find((candidate) =>
+    isPreparedCardActionText(candidate.text)
+    && !distinctFrom.some((existing) => presentationTextEquivalent(candidate.text, existing))
+  )?.text ?? null;
+}
+
+function preparedPlanStepCandidates(planText: string): Array<{ text: string; checked: boolean; heading: boolean }> {
+  const lineable = stripPlanEnvelopeTokens(planText).replace(/(?:^|\s+)((?:[-*+]|\d+[.)]|\[(?: |x|X)\])\s+)/g, "\n$1");
+  return lineable
+    .split(/\r?\n/)
+    .map((line) => {
+      const raw = line.trim();
+      const heading = /^#{1,6}\s+/.test(raw);
+      const checked = /^\s*(?:[-*+]\s*)?(?:\d+[.)]\s*)?\[[xX]\]/.test(raw);
+      const text = raw
+        .replace(/^#{1,6}\s+/, "")
+        .replace(/^\s*(?:[-*+]\s*)?(?:\d+[.)]\s*)?\[(?: |x|X)\]\s*/, "")
+        .replace(/^\s*(?:[-*+]\s*)?(?:\d+[.)]\s*)/, "")
+        .replace(/^\s*[-*+]\s*/, "")
+        .replace(/\s+#{1,6}\s+[A-Za-z0-9][\w\s:/.-]{0,100}$/i, "")
+        .trim();
+      return { text: cutEmbeddedHeadingMarker(text), checked, heading };
+    })
+    .filter((candidate) => candidate.text.length > 0 && !isMarkdownTableLine(candidate.text));
+}
+
+function nextActionFromFinalMessage(finalMessage: string): string | null {
+  const labeled = extractRawLabeledValue(finalMessage, ["next action", "next"]);
+  if (labeled) return firstFinalMessageClause(labeled);
+  return null;
+}
+
+function firstFinalMessageClause(value: string): string | null {
+  const cleaned = value
+    .replace(/^(?:final|summary|closeout)\s*:\s*/i, "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean);
+  if (!cleaned) return null;
+  return cleaned.match(/[^.!?]+[.!?]?/)?.[0]?.trim() ?? cleaned;
+}
+
+function getPreparedCardAttentionSignal(db: LooDatabase, targetRef: string): { blocker: string | null; reasonCodes: string[]; sourceRefs: string[] } {
+  if (!isPublicPreparedSourceRef(targetRef)) return { blocker: null, reasonCodes: [], sourceRefs: [] };
+  const rows = db.prepare(`
+    SELECT reason_codes_json AS reasonCodesJson, source_refs_json AS sourceRefsJson
+    FROM attention_queue
+    WHERE target_ref = ?
+      AND execute_false = 1
+      AND status NOT IN ('closed', 'resolved', 'dismissed')
+    ORDER BY confidence DESC, updated_at DESC, queue_id ASC
+    LIMIT 3
+  `).all(targetRef) as Array<{ reasonCodesJson: string; sourceRefsJson: string }>;
+  const reasonCodes = unique(rows.flatMap((row) => parseSourceRefsJson(row.reasonCodesJson))
+    .map(publicSafePreparedAttentionReasonCode)
+    .filter((code): code is string => Boolean(code)));
+  const blockerCodes = reasonCodes.filter(isPreparedAttentionBlockerReasonCode);
+  const blocker = blockerCodes.length ? blockerCodes.slice(0, 3).map(humanPreparedReasonCode).join("; ") : null;
+  const sourceRefs = unique(rows.flatMap((row) => parseSourceRefsJson(row.sourceRefsJson))).filter(isPublicPreparedSourceRef).slice(0, 12);
+  return { blocker, reasonCodes, sourceRefs };
+}
+
+const PREPARED_ATTENTION_BLOCKER_REASON_CODES = new Set([
+  "approval_required",
+  "blocked",
+  "build_failed",
+  "changes_requested",
+  "checks_failed",
+  "ci_failed",
+  "codeql_failed",
+  "merge_blocked",
+  "missing_info",
+  "missing_operator_input",
+  "missing_user_input",
+  "package_install_failed",
+  "publish_blocked",
+  "release_blocked",
+  "review_blocked",
+  "security_blocked",
+  "setup_required",
+  "test_failed"
+]);
+
+function publicSafePreparedAttentionReasonCode(value: string): string | null {
+  const trimmed = value.trim();
+  if (!/^[a-z][a-z0-9]*(?:[_:-][a-z0-9]+)*$/.test(trimmed)) return null;
+  return publicSafeIdentifier(trimmed);
+}
+
+function isPreparedAttentionBlockerReasonCode(code: string): boolean {
+  return PREPARED_ATTENTION_BLOCKER_REASON_CODES.has(code);
+}
+
+function humanPreparedReasonCode(code: string): string {
+  return code.replace(/^(?:attention|blocker|watcher|lifecycle)[_-]+/, "").replace(/[_-]+/g, " ").trim();
+}
+
+function preparedThreadRenameCaptured(db: LooDatabase, threadId: string): boolean {
+  const row = db.prepare(`
+    SELECT 1
+    FROM prepared_source_events
+    WHERE thread_id = ?
+      AND event_kind = 'thread_name_updated'
+      AND privacy_class = 'public_safe_metadata'
+    LIMIT 1
+  `).get(threadId);
+  return Boolean(row);
+}
+
+function cleanPreparedCardField(value: string | null | undefined, options: { fallback: string; maxChars: number; role: "title" | "summary" | "nextAction" }): CardPresentationCleanResult {
+  const cleaned = cleanCardPresentationText(value, options);
+  return looksSensitiveRefLike(cleaned.text)
+    ? { text: publicSafeText(options.fallback, options.maxChars), cleaned: true, lowConfidence: true }
+    : cleaned;
+}
+
+function cleanOptionalPreparedCardField(value: string | null | undefined, options: { maxChars: number; role: "summary" | "nextAction" }): OptionalCardPresentationCleanResult {
+  if (!value?.trim()) return { text: null, cleaned: false, lowConfidence: options.role === "nextAction" };
+  const cleaned = cleanCardPresentationText(value, { fallback: "", maxChars: options.maxChars, role: options.role });
+  if (!cleaned.text || looksSensitiveRefLike(cleaned.text)) return { text: null, cleaned: true, lowConfidence: true };
+  return cleaned;
+}
+
+function preparedCardActionOrNull(value: string | null, distinctFrom: Array<string | null>): string | null {
+  if (!value || !isPreparedCardActionText(value)) return null;
+  return distinctFrom.some((candidate) => presentationTextEquivalent(value, candidate)) ? null : value;
+}
+
+const PREPARED_CARD_ACTION_VERBS = new Set([
+  "add",
+  "address",
+  "apply",
+  "approve",
+  "archive",
+  "audit",
+  "build",
+  "check",
+  "clean",
+  "close",
+  "commit",
+  "continue",
+  "create",
+  "debug",
+  "deploy",
+  "document",
+  "expand",
+  "fix",
+  "follow",
+  "gather",
+  "implement",
+  "inspect",
+  "investigate",
+  "keep",
+  "land",
+  "merge",
+  "monitor",
+  "open",
+  "patch",
+  "publish",
+  "push",
+  "re-check",
+  "refresh",
+  "release",
+  "remove",
+  "rerun",
+  "resolve",
+  "resume",
+  "review",
+  "run",
+  "ship",
+  "smoke",
+  "strip",
+  "summarize",
+  "sync",
+  "update",
+  "use",
+  "validate",
+  "verify",
+  "wait",
+  "watch",
+  "write"
+]);
+
+function isPreparedCardActionText(value: string | null | undefined): boolean {
+  const text = trimTerminalPunctuation(value ?? "").toLowerCase();
+  const firstWord = text.match(/^[a-z]+(?:-[a-z]+)?/)?.[0] ?? "";
+  return PREPARED_CARD_ACTION_VERBS.has(firstWord);
+}
+
+function presentationTextEquivalent(left: string | null | undefined, right: string | null | undefined): boolean {
+  const leftNorm = normalizedPresentationText(left);
+  const rightNorm = normalizedPresentationText(right);
+  return Boolean(leftNorm && rightNorm && (leftNorm === rightNorm || leftNorm.startsWith(`${rightNorm} `) || rightNorm.startsWith(`${leftNorm} `)));
+}
+
+function normalizedPresentationText(value: string | null | undefined): string {
+  const withoutMarkup = stripPlanEnvelopeTokens(value ?? "")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\s+#{1,6}\s+[A-Za-z0-9][\w\s:/.-]{0,100}$/gim, "")
+    .replace(/^(?:title|final|summary|objective|next action|next|action)\s*:\s*/i, "")
+    .replace(/[.!?;:]+$/g, "");
+  return cutEmbeddedHeadingMarker(withoutMarkup)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function preparedCardWorkSummary(input: {
+  state: PreparedCardState;
+  objective: string | null;
+  blocker: string | null;
+  nextAction: string | null;
+  finalMessage: string | null;
+  touchedFiles: string[];
+}): string {
+  const topFile = input.touchedFiles.map(publicPreparedTouchedFileLabel).find((file): file is string => Boolean(file)) ?? null;
+  const next = input.nextAction ? trimTerminalPunctuation(input.nextAction) : null;
+  const objective = input.objective ? trimTerminalPunctuation(input.objective) : "";
+  if (input.blocker) {
+    const blocker = trimTerminalPunctuation(input.blocker);
+    return publicSafeText(`Blocked: ${blocker}${next ? `; next ${next}` : ""}${topFile ? `; last touched ${topFile}` : ""}.`, 320);
+  }
+  if (input.state === "completed" && input.finalMessage) {
+    const finalClause = trimTerminalPunctuation(firstFinalMessageClause(input.finalMessage) ?? input.finalMessage);
+    return publicSafeText(`Finished: ${finalClause}${next ? `; next ${next}` : ""}.`, 320);
+  }
+  if (next) {
+    return publicSafeText(`Working on: ${next}${topFile ? `; last touched ${topFile}` : ""}.`, 320);
+  }
+  return publicSafeText(`Working on: ${objective || preparedCardStateLabel(input.state)}${topFile ? `; last touched ${topFile}` : ""}.`, 320);
+}
+
+function trimTerminalPunctuation(value: string): string {
+  return value.trim().replace(/[.!?;:]+$/g, "").trim();
+}
+
+function publicPreparedTouchedFileLabel(value: string): string | null {
+  const trimmed = value.trim();
+  if (!/^(?:assets|docs|evals|packages|skills|src|tests)\//.test(trimmed)) return null;
+  const label = publicSafeText(basename(trimmed), 120);
+  return label && !looksSensitiveRefLike(label) ? label : null;
 }
 
 function preparedInboxItemFromCard(card: PreparedCard): PreparedInboxItem {
@@ -5045,8 +5412,10 @@ function publicPreparedCardFromRow(row: PreparedCardRow): PreparedCard | null {
     targetRef: row.targetRef,
     cardKind: "codex_session",
     title: publicSafeText(row.title, 160),
+    objective: row.objective?.trim() ? publicSafeText(row.objective, 260) : null,
     summaryText: publicSafeText(row.summaryText, 320),
-    nextAction: publicSafeText(row.nextAction ?? "", 240),
+    blocker: row.blocker === null ? null : publicSafeText(row.blocker, 240),
+    nextAction: row.nextAction === null ? null : publicSafeText(row.nextAction, 240),
     sourceRefs,
     sourceRangeRefs,
     sourceRangeRefsOmitted: boundedNonNegativeInteger(row.sourceRangeRefsOmitted, 1_000_000),
@@ -5071,7 +5440,9 @@ function getPreparedCardRowByTargetRef(db: LooDatabase, targetRef: string): Prep
       target_ref AS targetRef,
       card_kind AS cardKind,
       title,
+      objective,
       summary_text AS summaryText,
+      blocker,
       next_action AS nextAction,
       source_refs_json AS sourceRefsJson,
       source_range_refs_json AS sourceRangeRefsJson,
@@ -5108,7 +5479,9 @@ function getPublicPreparedCardsByCardRef(db: LooDatabase, cardRefs: string[]): M
         target_ref AS targetRef,
         card_kind AS cardKind,
         title,
+        objective,
         summary_text AS summaryText,
+        blocker,
         next_action AS nextAction,
         source_refs_json AS sourceRefsJson,
         source_range_refs_json AS sourceRangeRefsJson,
@@ -5184,10 +5557,14 @@ function isPublicPreparedCardRow(
     && sourceRefs.length > 0
     && sourceRangeRefs.every((ref) => /^codex_range:[0-9a-f]{32}$/.test(ref))
     && row.title === publicSafeText(row.title, 160)
+    && (row.objective === null || row.objective === "" || row.objective === publicSafeText(row.objective, 260))
     && row.summaryText === publicSafeText(row.summaryText, 320)
-    && (row.nextAction ?? "") === publicSafeText(row.nextAction ?? "", 240)
+    && (row.blocker === null || row.blocker === publicSafeText(row.blocker, 240))
+    && (row.nextAction === null || row.nextAction === publicSafeText(row.nextAction, 240))
     && !looksSensitiveRefLike(row.title)
+    && !looksSensitiveRefLike(row.objective ?? "")
     && !looksSensitiveRefLike(row.summaryText)
+    && !looksSensitiveRefLike(row.blocker ?? "")
     && !looksSensitiveRefLike(row.nextAction ?? "")
     && reasonCodes.length > 0
     && ["ok", "partial", "not_configured", "unknown"].includes(authorityCoverage.summaryLeaves.status)
@@ -5506,7 +5883,9 @@ function maxPublicPreparedTargetCardUpdatedAt(db: LooDatabase, targetRef: string
       target_ref AS targetRef,
       card_kind AS cardKind,
       title,
+      objective,
       summary_text AS summaryText,
+      blocker,
       next_action AS nextAction,
       source_refs_json AS sourceRefsJson,
       source_range_refs_json AS sourceRangeRefsJson,
@@ -5733,22 +6112,6 @@ function preparedCardConfidence(averageLeafConfidence: number, state: PreparedCa
   if (evidenceState === "partial" || evidenceState === "stale" || evidenceState === "stale_or_partial") confidence = Math.min(confidence, 0.49);
   if (evidenceState === "unknown" || evidenceState === "unknown_lifecycle") confidence = Math.min(confidence, 0.44);
   return Math.max(0.2, Math.min(0.99, Number(confidence.toFixed(2))));
-}
-
-function preparedCardNextAction(state: PreparedCardState): string {
-  if (state === "ready") return "Use loo_summary_expand for bounded evidence before deciding whether broader session expansion is needed.";
-  if (state === "stale") return "Refresh the local prepared-state cache before treating this card as current.";
-  if (state === "partial") return "Inspect source coverage and summary leaves before relying on this prepared card.";
-  if (state === "completed") return "No action is needed unless bounded evidence contradicts the completed lifecycle state.";
-  if (state === "blocked_missing_info") return "Inspect bounded evidence and resolve the missing input or blocker before resuming.";
-  if (state === "waiting_approval") return "Inspect the bounded approval context; do not execute without explicit approval.";
-  if (state === "watching_external_check") return "Refresh external check or watcher evidence before deciding the next action.";
-  if (state === "needs_resume") return "Inspect bounded evidence and resume only through the approval-gated control path.";
-  if (state === "dirty_worktree_handoff") return "Inspect handoff evidence and clean or transfer the dirty worktree deliberately.";
-  if (state === "stale_or_partial") return "Refresh or inspect partial prepared-state evidence before relying on this lifecycle card.";
-  if (state === "ready_for_review") return "Review bounded evidence and source refs before marking the lane complete.";
-  if (state === "unknown_lifecycle") return "Inspect summary leaves and session metadata; lifecycle signals are missing or conflicting.";
-  return "Inspect summary leaves and source coverage; missing or conflicting authority prevents a ready claim.";
 }
 
 function preparedInboxUrgencyScore(card: PreparedCard, reasonCodes: string[]): number {
@@ -9926,7 +10289,7 @@ function codexSessionPresentation(entry: CodexThreadMapEntry): CardPresentation 
 function cleanCardPresentationText(value: string | null | undefined, options: { fallback: string; maxChars: number; role: "title" | "summary" | "nextAction" }): CardPresentationCleanResult {
   const fallback = publicSafeText(options.fallback, options.maxChars);
   const raw = publicSafeText(value ?? "", Math.max(options.maxChars * 3, 500));
-  const withoutDirectives = raw.replace(/(?:::)?[A-Za-z0-9_-]+\{[\s\S]*?\}/g, " ");
+  const withoutDirectives = stripPlanEnvelopeTokens(raw).replace(/(?:::)?[A-Za-z0-9_-]+\{[\s\S]*?\}/g, " ");
   const fragments = withoutDirectives
     .split(/\r?\n/)
     .map((line) => cleanCardPresentationFragment(line, options.role))
@@ -9945,6 +10308,10 @@ function cleanCardPresentationText(value: string | null | undefined, options: { 
     cleaned: text !== publicSafeText(value ?? "", options.maxChars),
     lowConfidence: false
   };
+}
+
+function stripPlanEnvelopeTokens(value: string): string {
+  return value.replace(/<\/?proposed_plan>/gi, " ");
 }
 
 function presentationDirectiveFields(value: string | null | undefined): Record<string, string> {
@@ -9976,8 +10343,11 @@ function cleanCardPresentationFragment(value: string, role: "title" | "summary" 
   let text = value
     .trim()
     .replace(/^[-*]\s+/, "")
+    .replace(/^#{1,6}\s+/, "")
     .replace(/^["'`]+|["'`]+$/g, "")
+    .replace(/\s+#{1,6}\s+[A-Za-z0-9][\w\s:/.-]{0,100}$/i, "")
     .trim();
+  text = cutEmbeddedHeadingMarker(text);
   let previous = "";
   while (text !== previous) {
     previous = text;
@@ -9986,7 +10356,14 @@ function cleanCardPresentationFragment(value: string, role: "title" | "summary" 
   const embeddedLabel = text.match(/\s(?:title|final|summary|objective|next action|next|status|priority|owner|blocker|source refs?|proposed plan refs?|final-message refs?|touched-file refs?)\s*:/i);
   if (embeddedLabel?.index && embeddedLabel.index > 0) text = text.slice(0, embeddedLabel.index).trim();
   if (role === "title") text = text.replace(/\s+(?:final|summary|next action|next)\s*:.*$/i, "").trim();
-  return text;
+  text = text.replace(/\s+#{1,6}\s+[A-Za-z0-9][\w\s:/.-]{0,100}$/i, "").trim();
+  return cutEmbeddedHeadingMarker(text);
+}
+
+function cutEmbeddedHeadingMarker(value: string): string {
+  const embeddedHeading = value.match(/\s#{1,3}\s+/);
+  if (embeddedHeading?.index && embeddedHeading.index > 0) return value.slice(0, embeddedHeading.index).trim();
+  return value.replace(/\s#{1,3}\s+/g, " ").trim();
 }
 
 function isMarkdownTableLine(value: string): boolean {
@@ -10005,6 +10382,8 @@ function dedupePresentationSentences(value: string): string {
 function usableCardPresentationText(value: string): boolean {
   const text = value.trim();
   if (!text) return false;
+  if (/<\/?proposed_plan>/i.test(text)) return false;
+  if (/^#{1,6}\s+/.test(text)) return false;
   if (/(?:::)?[A-Za-z0-9_-]+\{/.test(text)) return false;
   if (isMarkdownTableLine(text)) return false;
   if ((text.match(/\|/g)?.length ?? 0) >= 2) return false;
@@ -13116,9 +13495,9 @@ function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: num
       rangeKinds.add("session_metadata");
     }
 
-    const title = item.event_msg?.name ?? item.thread_name ?? item.payload?.title;
-    if (typeof title === "string" && title.trim()) {
-      session.title = redactSafeString(title.trim());
+    const title = codexThreadTitleFromItem(item);
+    if (title) {
+      session.title = redactSafeString(title);
       safeParts.push(session.title);
       rangeKinds.add("thread_title");
     }
@@ -13256,6 +13635,15 @@ function recordCodexJsonlMissingFieldDrift(drift: CodexJsonlDriftAccumulator, it
 
 function recordCodexJsonlMissingField(drift: CodexJsonlDriftAccumulator, field: string): void {
   drift.missingExpectedFields.set(field, (drift.missingExpectedFields.get(field) ?? 0) + 1);
+}
+
+function codexThreadTitleFromItem(item: any): string | null {
+  const eventMsg = isObjectRecord(item.event_msg) ? item.event_msg : null;
+  const eventType = stringOrNull(eventMsg?.type)?.toLowerCase() ?? "";
+  const value = eventType === "thread_name" || eventType === "thread_name_updated"
+    ? stringOrNull(eventMsg?.name ?? eventMsg?.title ?? eventMsg?.display_text ?? item.thread_name ?? item.payload?.name ?? item.payload?.title)
+    : stringOrNull(item.thread_name ?? item.payload?.title);
+  return value?.trim() || null;
 }
 
 function responseItemHasText(responseItem: Record<string, unknown>): boolean {

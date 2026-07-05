@@ -47,6 +47,126 @@ function writePreparedCardJsonl(path: string, threadId: string, title: string): 
   writeFileSync(path, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
 }
 
+function writePreparedWorkStateJsonl(path: string): string {
+  const threadId = "019f-prepared-work-state";
+  const lines = [
+    { timestamp: "2026-07-05T10:00:00.000Z", session_meta: { payload: { id: threadId, model: "gpt-5.5" } } },
+    { timestamp: "2026-07-05T10:00:01.000Z", event_msg: { type: "thread_name", name: "Stale starter title" } },
+    { timestamp: "2026-07-05T10:00:02.000Z", event_msg: { type: "thread_name_updated", display_text: "Fresh prepared cards lane" } },
+    {
+      timestamp: "2026-07-05T10:00:03.000Z",
+      response_item: {
+        type: "message",
+        role: "assistant",
+        content: [{ type: "output_text", text: "<proposed_plan>\n1. Old generic prep.\n2. Ignore older plan.\n</proposed_plan>" }]
+      }
+    },
+    {
+      timestamp: "2026-07-05T10:00:04.000Z",
+      response_item: {
+        type: "message",
+        role: "assistant",
+        content: [{
+          type: "output_text",
+          text: [
+            "<proposed_plan>",
+            "1. Deliver prepared card objective fields.",
+            "2. Carry blocker details into the card.",
+            "3. Verify prepared-card canaries.",
+            "</proposed_plan>",
+            "Touched packages/core/src/index.ts while keeping raw spans hidden."
+          ].join("\n")
+        }]
+      }
+    },
+    {
+      timestamp: "2026-07-05T10:00:05.000Z",
+      event_msg: {
+        type: "agent_message",
+        message: "Final: prepared card derivation is ready for review. Next action: Verify prepared-card canaries."
+      }
+    }
+  ];
+  writeFileSync(path, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+  return threadId;
+}
+
+function writePreparedFinalOnlyJsonl(path: string): string {
+  const threadId = "019f-prepared-final-only";
+  const lines = [
+    { timestamp: "2026-07-05T11:00:00.000Z", session_meta: { payload: { id: threadId, model: "gpt-5.5" } } },
+    { timestamp: "2026-07-05T11:00:01.000Z", event_msg: { type: "thread_name", name: "Final-only card lane" } },
+    {
+      timestamp: "2026-07-05T11:00:02.000Z",
+      event_msg: {
+        type: "agent_message",
+        message: "Final: deterministic final-only card proof is ready. Next action: Publish the review handoff."
+      }
+    }
+  ];
+  writeFileSync(path, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+  return threadId;
+}
+
+function writePreparedMarkedPlanJsonl(path: string): string {
+  const threadId = "019f-prepared-marked-plan";
+  const lines = [
+    { timestamp: "2026-07-05T12:00:00.000Z", session_meta: { payload: { id: threadId, model: "gpt-5.5" } } },
+    {
+      timestamp: "2026-07-05T12:00:01.000Z",
+      event_msg: {
+        type: "thread_name",
+        name: "<proposed_plan>\n## Debug Plan For Prepared Cards ### Summary Using only public-safe rows to reproduce flattened plan heading bleed after newlines are collapsed into one card field candidate with enough detail to exceed the old suffix-only cleanup limit."
+      }
+    },
+    {
+      timestamp: "2026-07-05T12:00:02.000Z",
+      response_item: {
+        type: "message",
+        role: "assistant",
+        content: [{
+          type: "output_text",
+          text: [
+            "<proposed_plan>",
+            "## Debug Plan For Prepared Cards ## Summary Using only public-safe rows to reproduce flattened plan heading bleed after newlines are collapsed into one card field candidate with enough detail to exceed the old suffix-only cleanup limit.",
+            "## Summary",
+            "1. Strip plan envelope from presentation fields. ### Summary",
+            "2. Verify clean card fields.",
+            "### Summary",
+            "</proposed_plan>"
+          ].join("\n")
+        }]
+      }
+    },
+    {
+      timestamp: "2026-07-05T12:00:03.000Z",
+      event_msg: {
+        type: "agent_message",
+        message: "Final: marked plan card cleanup is ready for review."
+      }
+    }
+  ];
+  writeFileSync(path, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+  return threadId;
+}
+
+function writePreparedDuplicateFinalOnlyJsonl(path: string): string {
+  const threadId = "019f-prepared-duplicate-final";
+  const lines = [
+    { timestamp: "2026-07-05T13:00:00.000Z", session_meta: { payload: { id: threadId, model: "gpt-5.5" } } },
+    { timestamp: "2026-07-05T13:00:01.000Z", event_msg: { type: "thread_name", name: "Ship final-only duplicate lane." } },
+    {
+      timestamp: "2026-07-05T13:00:02.000Z",
+      event_msg: {
+        type: "agent_message",
+        message: "Final: Ship final-only duplicate lane."
+      }
+    }
+  ];
+  writeFileSync(path, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+  return threadId;
+}
+
 function summaryLeafText(leafKind: string, rangeCount: number): string {
   const label: Record<string, string> = {
     user_prompt: "User prompt evidence",
@@ -156,6 +276,27 @@ function insertSessionMetadataRow(
     JSON.stringify([`codex_thread:${input.threadId}`]),
     JSON.stringify([`codex_thread:${input.threadId}`]),
     1
+  );
+}
+
+function insertAttentionQueueRow(db: ReturnType<typeof createDatabase>, threadId: string, reasonCodes: string[] = ["ci_failed", "review_blocked"]): void {
+  db.prepare(`
+    INSERT INTO attention_queue (
+      queue_id, target_ref, item_kind, status, tool_call_json, execute_false,
+      source_refs_json, reason_codes_json, confidence, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    `attention-${threadId}-${reasonCodes.join("-").replace(/[^a-z0-9_-]+/gi, "_").slice(0, 64)}`,
+    `codex_thread:${threadId}`,
+    "watcher_trigger",
+    "open",
+    null,
+    1,
+    JSON.stringify([`codex_thread:${threadId}`]),
+    JSON.stringify(reasonCodes),
+    0.91,
+    "2026-07-05T10:00:06.000Z",
+    "2026-07-05T10:00:06.000Z"
   );
 }
 
@@ -300,6 +441,275 @@ test("prepared cards materialize public-safe advisory cards and inbox entries", 
     assert.equal(inbox.items[0]!.targetRef, card.targetRef);
     assert.equal(inbox.items[0]!.sourceRefs.some((ref) => /^summary_leaf:[0-9a-f]{32}$/.test(ref)), true);
     assert.equal(inbox.items[0]!.execute, false);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared cards carry real objective blocker next action and fresh renamed title", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-work-state-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const threadId = writePreparedWorkStateJsonl(join(sessions, "rollout-2026-07-05T10-00-00-019f-prepared-work-state.jsonl"));
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    insertAttentionQueueRow(db, threadId);
+    materializeSummaryLeaves(db, { threadId });
+    db.prepare(`
+      UPDATE prepared_source_events
+      SET extractor_version = ?
+      WHERE thread_id = ?
+        AND event_kind = 'thread_name_updated'
+    `).run("prepared-source-events-v0", threadId);
+    materializePreparedCards(db, { threadId });
+
+    const cards = getPreparedCards(db, { threadId, limit: 10 });
+    assert.equal(cards.cards.length, 1);
+    const card = cards.cards[0]! as typeof cards.cards[number] & { objective?: string; blocker?: string | null };
+
+    assert.equal(card.title, "Fresh prepared cards lane");
+    assert.equal(card.objective, "Deliver prepared card objective fields.");
+    assert.equal(card.nextAction, "Verify prepared-card canaries.");
+    assert.equal(card.blocker, "ci failed; review blocked");
+    assert.match(card.summaryText, /Blocked: ci failed; review blocked; next Verify prepared-card canaries/);
+    assert.match(card.summaryText, /last touched index\.ts/);
+    assert.doesNotMatch(card.summaryText, /summary leaf|prepared source range|Lifecycle:/i);
+    assert.doesNotMatch(card.summaryText, /\b(?:Title|Final|Objective|Next action):/i);
+    assert.equal(card.reasonCodes.includes("from_latest_plan"), true);
+    assert.equal(card.reasonCodes.includes("from_final_message"), true);
+    assert.equal(card.reasonCodes.includes("from_thread_rename"), true);
+    assert.equal(card.reasonCodes.includes("from_attention_queue"), true);
+    assert.equal(card.reasonCodes.includes("ci_failed"), true);
+    assert.equal(JSON.stringify(card).includes("Touched packages/core/src/index.ts while keeping raw spans hidden"), false);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared cards choose the first pending plan action when no explicit final next action exists", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-plan-first-action-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const threadId = "019f-prepared-plan-first-action";
+  const lines = [
+    { timestamp: "2026-07-05T11:15:00.000Z", session_meta: { payload: { id: threadId, model: "gpt-5.5" } } },
+    { timestamp: "2026-07-05T11:15:01.000Z", event_msg: { type: "thread_name", name: "Plan first action lane" } },
+    {
+      timestamp: "2026-07-05T11:15:02.000Z",
+      response_item: {
+        type: "message",
+        role: "assistant",
+        content: [{
+          type: "output_text",
+          text: "<proposed_plan>1. The product goal is ready for card proof. 2. Build the earliest pending prepared-card proof. 3. Verify the later release proof.</proposed_plan>"
+        }]
+      }
+    },
+    {
+      timestamp: "2026-07-05T11:15:03.000Z",
+      event_msg: {
+        type: "agent_message",
+        message: "Final: Plan-only card proof remains in progress."
+      }
+    }
+  ];
+  writeFileSync(
+    join(sessions, "rollout-2026-07-05T11-15-00-019f-prepared-plan-first-action.jsonl"),
+    lines.map((line) => JSON.stringify(line)).join("\n") + "\n"
+  );
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    materializeSummaryLeaves(db, { threadId });
+    materializePreparedCards(db, { threadId });
+
+    const card = getPreparedCards(db, { threadId, limit: 10 }).cards[0]!;
+    assert.equal(card.objective, "The product goal is ready for card proof.");
+    assert.equal(card.nextAction, "Build the earliest pending prepared-card proof.");
+    assert.doesNotMatch(card.summaryText, /Verify the later release proof/);
+    assert.equal(card.reasonCodes.includes("from_latest_plan"), true);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared cards derive next action from likely final messages without plan rows", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-final-only-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const threadId = writePreparedFinalOnlyJsonl(join(sessions, "rollout-2026-07-05T11-00-00-019f-prepared-final-only.jsonl"));
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    materializeSummaryLeaves(db, { threadId });
+    materializePreparedCards(db, { threadId });
+
+    const card = getPreparedCards(db, { threadId, limit: 10 }).cards[0]!;
+    assert.equal(card.title, "Final-only card lane");
+    assert.equal(card.objective, null);
+    assert.equal(card.nextAction, "Publish the review handoff.");
+    assert.equal(card.blocker, null);
+    assert.match(card.summaryText, /Working on: Publish the review handoff/);
+    assert.equal(card.reasonCodes.includes("from_final_message"), true);
+    assert.equal(card.reasonCodes.includes("from_latest_plan"), false);
+    assert.doesNotMatch(card.summaryText, /summary leaf|prepared source range|Final:/i);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared cards do not promote unlabeled completed finals into next action", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-completed-final-no-next-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const threadId = "019f-prepared-completed-final-no-next";
+  const lines = [
+    { timestamp: "2026-07-05T11:30:00.000Z", session_meta: { payload: { id: threadId, model: "gpt-5.5" } } },
+    { timestamp: "2026-07-05T11:30:01.000Z", event_msg: { type: "thread_name", name: "Completed final without next action" } },
+    {
+      timestamp: "2026-07-05T11:30:02.000Z",
+      event_msg: {
+        type: "agent_message",
+        message: "Final: All prepared-card canaries passed. Evidence packet is complete."
+      }
+    }
+  ];
+  writeFileSync(
+    join(sessions, "rollout-2026-07-05T11-30-00-019f-prepared-completed-final-no-next.jsonl"),
+    lines.map((line) => JSON.stringify(line)).join("\n") + "\n"
+  );
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    insertSessionMetadataRow(db, { threadId, status: "completed", closeoutState: "done", planCompletionState: "complete" });
+    materializeSummaryLeaves(db, { threadId });
+    materializePreparedCards(db, { threadId });
+
+    const card = getPreparedCards(db, { threadId, limit: 10 }).cards[0]!;
+    assert.equal(card.state, "completed");
+    assert.equal(card.nextAction, null);
+    assert.match(card.summaryText, /^Finished: All prepared-card canaries passed\./);
+    assert.equal(card.reasonCodes.includes("completed_from_final_message"), true);
+    assert.equal(card.reasonCodes.includes("from_final_message"), false);
+    assert.doesNotMatch(card.summaryText, /next All prepared-card canaries passed/i);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared card attention drops unsafe reason codes before public output", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-attention-unsafe-reasons-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const threadId = "019f-attention-unsafe-reasons";
+    insertSummaryLeafRow(db, {
+      id: "b1000000000000000000000000000001",
+      threadId,
+      leafKind: "closeout",
+      confidence: 0.95
+    });
+    insertAttentionQueueRow(db, threadId, ["ci_failed", "/Users/lume/private/session.jsonl", "admin@example.com"]);
+
+    materializePreparedCards(db, { threadId });
+
+    const card = getPreparedCards(db, { threadId, limit: 10 }).cards[0]!;
+    const serialized = JSON.stringify(card);
+    assert.equal(card.reasonCodes.includes("ci_failed"), true);
+    assert.equal(card.blocker, "ci failed");
+    assert.equal(serialized.includes("/Users/lume"), false);
+    assert.equal(serialized.includes("session.jsonl"), false);
+    assert.equal(serialized.includes("admin@example.com"), false);
+    assert.equal(card.reasonCodes.some((code) => code.includes("private") || code.includes("example")), false);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared card attention advisory codes do not synthesize blockers", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-attention-advisory-reasons-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const threadId = "019f-attention-advisory-reasons";
+    insertSummaryLeafRow(db, {
+      id: "b2000000000000000000000000000002",
+      threadId,
+      leafKind: "closeout",
+      confidence: 0.95
+    });
+    insertAttentionQueueRow(db, threadId, ["stale_cache", "watcher_not_configured", "summary_leaves_missing"]);
+
+    materializePreparedCards(db, { threadId });
+
+    const card = getPreparedCards(db, { threadId, limit: 10 }).cards[0]!;
+    assert.equal(card.blocker, null);
+    assert.equal(card.reasonCodes.includes("stale_cache"), true);
+    assert.equal(card.reasonCodes.includes("watcher_not_configured"), true);
+    assert.equal(card.reasonCodes.includes("summary_leaves_missing"), true);
+    assert.doesNotMatch(card.summaryText, /^Blocked:/);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared cards strip plan envelope and heading markup from presentation fields", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-marked-plan-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const threadId = writePreparedMarkedPlanJsonl(join(sessions, "rollout-2026-07-05T12-00-00-019f-prepared-marked-plan.jsonl"));
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    materializeSummaryLeaves(db, { threadId });
+    materializePreparedCards(db, { threadId });
+
+    const card = getPreparedCards(db, { threadId, limit: 10 }).cards[0]!;
+    assert.equal(card.title, "Debug Plan For Prepared Cards");
+    assert.equal(card.objective, null);
+    assert.equal(card.nextAction, "Strip plan envelope from presentation fields.");
+    assert.equal(card.reasonCodes.includes("presentation_cleaned"), true);
+
+    for (const value of [card.title, card.objective, card.nextAction, card.summaryText]) {
+      assert.doesNotMatch(value ?? "", /<\/?proposed_plan>/i);
+      assert.doesNotMatch(value ?? "", /(^|\s)#{1,6}\s/);
+    }
+    assert.doesNotMatch(card.objective ?? "", /Summary/i);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared cards collapse duplicate weak final-only fields", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-duplicate-final-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const threadId = writePreparedDuplicateFinalOnlyJsonl(join(sessions, "rollout-2026-07-05T13-00-00-019f-prepared-duplicate-final.jsonl"));
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    materializeSummaryLeaves(db, { threadId });
+    materializePreparedCards(db, { threadId });
+
+    const card = getPreparedCards(db, { threadId, limit: 10 }).cards[0]!;
+    assert.equal(card.title, "Ship final-only duplicate lane.");
+    assert.equal(card.objective, null);
+    assert.equal(card.nextAction, null);
+    assert.equal(card.reasonCodes.includes("presentation_low_confidence"), true);
+    assert.doesNotMatch(card.summaryText, /Ship final-only duplicate lane/i);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -1148,7 +1558,8 @@ test("prepared cards promote semantic lifecycle states into card and inbox ranki
         assert.equal(card.reasonCodes.includes(`lifecycle:${fixture.expectedState}`), true);
       }
       assert.equal(card.reasonCodes.includes("summary_leaves_ready"), true);
-      assert.equal(card.summaryText.includes("Lifecycle:"), true);
+      assert.equal(card.summaryText.includes("Lifecycle:"), false);
+      assert.doesNotMatch(card.summaryText, /summary leaf|prepared source range/i);
     }
 
     const inbox = getPreparedInbox(db, { limit: 20 });
