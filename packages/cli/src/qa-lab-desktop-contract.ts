@@ -1,5 +1,4 @@
 import { existsSync, readFileSync } from "node:fs";
-import { basename } from "node:path";
 
 export type QaLabDesktopContractOptions = {
   readinessReport?: string | JsonRecord;
@@ -48,6 +47,7 @@ export type QaLabDesktopContractReport = {
     liveCodexControlRun: false;
   };
   allowedActionBoundScratchProof: boolean;
+  scratchProofState: "not_provided" | "provided_rejected" | "accepted";
   genericGuiMutationClaimAccepted: false;
   codexGuiMutationClaimAccepted: false;
   blockers: QaLabDesktopContractBlocker[];
@@ -83,8 +83,9 @@ type LoadedEvidence = {
 const PACKAGE_NAME = "lossless-openclaw-orchestrator";
 const SHA_PATTERN = /^[a-f0-9]{40}$/i;
 const MAX_EVIDENCE_SCAN_DEPTH = 64;
+const MAX_EVIDENCE_SCAN_ENTRIES = 2048;
 const SECRET_LIKE_PATTERN = /(npm_[A-Za-z0-9]{20,}|bearer[:\s]+[A-Za-z0-9._-]{20,}|sk-[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|glpat-[A-Za-z0-9_-]{20,}|AIza[0-9A-Za-z_-]{20,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|-----BEGIN\s+[A-Z ]*PRIVATE KEY-----)/i;
-const RAW_ARTIFACT_VALUE_PATTERN = /(?:(?:\/(?:[^"'\s/]+\/)+[^"'\s]*|~\/[^"'\s]+|[A-Za-z]:\\(?:[^"'\s\\]+\\)+[^"'\s]*|(?:\.\.[/\\])+(?:[^"'\s/\\]+[/\\])*[^"'\s/\\]+).*)\.(?:jsonl|sqlite|sqlite-wal|sqlite-shm|db|png|jpg|jpeg|gif|webp|mp4|mov|webm)(?:["'\s]|$)/i;
+const RAW_ARTIFACT_VALUE_PATTERN = /(?:(?:\/(?:[^"'\s/]+\/)+[^"'\s]*|~\/[^"'\s]+|[A-Za-z]:\\(?:[^"'\s\\]+\\)+[^"'\s]*|(?:\.\.[/\\])+(?:[^"'\s/\\]+[/\\])*[^"'\s/\\]+).*)\.(?:jsonl|sqlite|sqlite-wal|sqlite-shm|db|png|jpg|jpeg|gif|webp|mp4|mov|webm)(?:["'\s,;:.)\]}]|$)/i;
 const RESTRICTED_ACTION_KEYS = new Set([
   "desktopGuiActionRun",
   "genericGuiMutationRun",
@@ -159,6 +160,7 @@ export function createQaLabDesktopContractReport(options: QaLabDesktopContractOp
   }
 
   const scratchOk = validateScratchProof(scratch, blockers);
+  const scratchProofState = scratchOk ? "accepted" : (scratch.optional && scratch.missing ? "not_provided" : "provided_rejected");
 
   const dedupedBlockers = uniqueBlockers(blockers);
   refreshEvidenceIndexStatuses(evidenceIndex, dedupedBlockers);
@@ -187,12 +189,13 @@ export function createQaLabDesktopContractReport(options: QaLabDesktopContractOp
       liveCodexControlRun: false
     },
     allowedActionBoundScratchProof: scratchOk,
+    scratchProofState,
     genericGuiMutationClaimAccepted: false,
     codexGuiMutationClaimAccepted: false,
     blockers: dedupedBlockers,
     warnings,
     privateDataExclusions: PRIVATE_DATA_EXCLUSIONS,
-    proofBoundary: "Aggregates sanitized desktop contract evidence only. Desktop visibility/readiness is metadata proof, not screenshot/video proof. Secret and private-artifact scans are best-effort structural guards; over-depth evidence fails closed as unsafe rather than being semantically interpreted. An explicit action-bound TextEdit scratch proof may show that one approved scratch action executed, but it does not prove generic GUI mutation, Codex GUI mutation, live Codex control, customer account mutation, or release readiness.",
+    proofBoundary: "Aggregates sanitized desktop contract evidence only. Desktop visibility/readiness is metadata proof, not screenshot/video proof. Secret and private-artifact scans are best-effort structural guards; over-depth or over-wide evidence fails closed as unsafe rather than being semantically interpreted. An explicit action-bound TextEdit scratch proof may show that one approved scratch action executed, but it does not prove generic GUI mutation, Codex GUI mutation, live Codex control, customer account mutation, or release readiness.",
     nextSafeActions: nextSafeActions(dedupedBlockers)
   };
 }
@@ -208,7 +211,7 @@ function loadEvidence(
   if (typeof input !== "string") {
     return { source, evidenceRef: "inline", value: isRecord(input) ? input : null, missing: false, invalid: !isRecord(input), optional };
   }
-  const evidenceRef = basename(input);
+  const evidenceRef = `${source}:file`;
   if (!existsSync(input)) {
     return { source, evidenceRef, value: null, missing: true, invalid: false, optional };
   }
@@ -309,16 +312,28 @@ function containsUnsafeValue(value: unknown, key = "", depth = 0): boolean {
       || SECRET_LIKE_PATTERN.test(value)
       || RAW_ARTIFACT_VALUE_PATTERN.test(value);
   }
-  if (Array.isArray(value)) return value.some((item) => containsUnsafeValue(item, key, depth + 1));
-  if (isRecord(value)) return Object.entries(value).some(([childKey, childValue]) => containsUnsafeValue(childValue, childKey, depth + 1));
+  if (Array.isArray(value)) {
+    if (value.length > MAX_EVIDENCE_SCAN_ENTRIES) return true;
+    return value.some((item) => containsUnsafeValue(item, key, depth + 1));
+  }
+  if (isRecord(value)) {
+    const entries = Object.entries(value);
+    if (entries.length > MAX_EVIDENCE_SCAN_ENTRIES) return true;
+    return entries.some(([childKey, childValue]) => containsUnsafeValue(childValue, childKey, depth + 1));
+  }
   return false;
 }
 
 function hasRestrictedAction(value: unknown, key = "", depth = 0): boolean {
   if (depth > MAX_EVIDENCE_SCAN_DEPTH) return true;
-  if (Array.isArray(value)) return value.some((item) => hasRestrictedAction(item, key, depth + 1));
+  if (Array.isArray(value)) {
+    if (value.length > MAX_EVIDENCE_SCAN_ENTRIES) return true;
+    return value.some((item) => hasRestrictedAction(item, key, depth + 1));
+  }
   if (!isRecord(value)) return false;
-  return Object.entries(value).some(([childKey, childValue]) => {
+  const entries = Object.entries(value);
+  if (entries.length > MAX_EVIDENCE_SCAN_ENTRIES) return true;
+  return entries.some(([childKey, childValue]) => {
     if (RESTRICTED_ACTION_KEYS.has(childKey) && childValue === true) return true;
     return hasRestrictedAction(childValue, childKey, depth + 1);
   });
@@ -340,9 +355,14 @@ function claimsCodexGuiMutation(value: JsonRecord | null): boolean {
 
 function containsFlag(value: unknown, keys: string[], depth = 0): boolean {
   if (depth > MAX_EVIDENCE_SCAN_DEPTH) return true;
-  if (Array.isArray(value)) return value.some((item) => containsFlag(item, keys, depth + 1));
+  if (Array.isArray(value)) {
+    if (value.length > MAX_EVIDENCE_SCAN_ENTRIES) return true;
+    return value.some((item) => containsFlag(item, keys, depth + 1));
+  }
   if (!isRecord(value)) return false;
-  return Object.entries(value).some(([key, item]) => {
+  const entries = Object.entries(value);
+  if (entries.length > MAX_EVIDENCE_SCAN_ENTRIES) return true;
+  return entries.some(([key, item]) => {
     if (keys.includes(key)) return flagValueProvided(item);
     return containsFlag(item, keys, depth + 1);
   });

@@ -93,6 +93,7 @@ test("qa-lab desktop contract accepts metadata readiness without overclaiming sc
     codexGuiMutationRun: false,
     liveCodexControlRun: false
   });
+  assert.equal(report.scratchProofState, "not_provided");
   assert.equal(report.allowedActionBoundScratchProof, false);
   assert.equal(report.genericGuiMutationClaimAccepted, false);
   assert.equal(report.codexGuiMutationClaimAccepted, false);
@@ -110,6 +111,7 @@ test("qa-lab desktop contract treats missing optional scratch proof as non-block
   assert.equal(report.ok, true);
   assert.equal(report.allowedActionBoundScratchProof, false);
   assert.equal(report.actionsPerformed.textEditScratchActionRun, false);
+  assert.equal(report.scratchProofState, "not_provided");
   assert.equal(report.evidenceIndex.actionBoundScratchProof.status, "not_provided");
   assert.deepEqual(report.evidenceIndex.actionBoundScratchProof.blockerCodes, []);
 });
@@ -152,6 +154,7 @@ test("qa-lab desktop contract allows only explicit action-bound TextEdit scratch
 
   assert.equal(report.ok, true);
   assert.equal(report.actionsPerformed.textEditScratchActionRun, true);
+  assert.equal(report.scratchProofState, "accepted");
   assert.equal(report.actionsPerformed.genericGuiMutationRun, false);
   assert.equal(report.actionsPerformed.codexGuiMutationRun, false);
   assert.equal(report.allowedActionBoundScratchProof, true);
@@ -176,6 +179,7 @@ test("qa-lab desktop contract rejects provided scratch proof that is not action-
 
     assert.equal(report.ok, false, name);
     assert.equal(report.actionsPerformed.textEditScratchActionRun, false, name);
+    assert.equal(report.scratchProofState, "provided_rejected", name);
     assert.equal(report.allowedActionBoundScratchProof, false, name);
     assert.equal(report.evidenceIndex.actionBoundScratchProof.status, "blocked", name);
     assert.ok(report.blockers.some((blocker) => blocker.code === expectedCode), name);
@@ -198,6 +202,7 @@ test("qa-lab desktop contract rejects provided scratch proof with invalid JSON",
 
   assert.equal(report.ok, false);
   assert.equal(report.actionsPerformed.textEditScratchActionRun, false);
+  assert.equal(report.scratchProofState, "provided_rejected");
   assert.equal(report.allowedActionBoundScratchProof, false);
   assert.equal(report.evidenceIndex.actionBoundScratchProof.status, "invalid");
   assert.ok(report.blockers.some((blocker) => blocker.code === "actionBoundScratchProof_invalid_json"));
@@ -242,6 +247,27 @@ test("qa-lab desktop contract fails closed and redacts unsafe raw evidence", (t)
   assert.doesNotMatch(serialized, /private customer note/);
 });
 
+test("qa-lab desktop contract redacts sensitive evidence file basenames from evidence refs", (t) => {
+  const dir = makeTempDir(t, "loo-qa-desktop-contract-");
+  const readinessPath = join(dir, "leaked-token.jsonl");
+  const scratchPath = join(dir, "private-thread.sqlite");
+  writeJson(readinessPath, readinessReport());
+  writeJson(scratchPath, scratchProof());
+
+  const report = createQaLabDesktopContractReport({
+    packageVersion,
+    candidateSha,
+    readinessReport: readinessPath,
+    actionBoundScratchProof: scratchPath
+  });
+  const serialized = JSON.stringify(report);
+
+  assert.equal(report.ok, true);
+  assert.equal(report.evidenceIndex.readinessReport.evidenceRef, "readinessReport:file");
+  assert.equal(report.evidenceIndex.actionBoundScratchProof.evidenceRef, "actionBoundScratchProof:file");
+  assert.doesNotMatch(serialized, /leaked-token\.jsonl|private-thread\.sqlite/);
+});
+
 test("qa-lab desktop contract blocks non-Users raw artifact paths and common token shapes", () => {
   const report = createQaLabDesktopContractReport({
     packageVersion,
@@ -251,7 +277,9 @@ test("qa-lab desktop contract blocks non-Users raw artifact paths and common tok
         "/tmp/session.sqlite",
         "/private/var/folders/screenshot.png",
         "C:\\Users\\lume\\AppData\\Local\\codex\\transcript.jsonl",
-        "../../sessions/x.sqlite"
+        "../../sessions/x.sqlite",
+        "/tmp/private.sqlite,more",
+        "/tmp/private.jsonl)"
       ],
       leakedTokens: [
         "AKIA1234567890ABCDEF",
@@ -266,6 +294,19 @@ test("qa-lab desktop contract blocks non-Users raw artifact paths and common tok
   assert.ok(report.blockers.some((blocker) => blocker.code === "unsafe_evidence_value"));
   assert.doesNotMatch(serialized, /session\.sqlite|screenshot\.png|transcript\.jsonl|x\.sqlite/);
   assert.doesNotMatch(serialized, /AKIA1234567890ABCDEF|eyJhbGciOiJIUzI1NiJ9/);
+});
+
+test("qa-lab desktop contract does not block benign artifact-like labels without path context", () => {
+  const report = createQaLabDesktopContractReport({
+    packageVersion,
+    candidateSha,
+    readinessReport: readinessReport({
+      labels: ["my-app.db", "screenshot.png", "fixture.jsonl"]
+    })
+  });
+
+  assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+  assert.equal(report.evidenceIndex.readinessReport.status, "ready");
 });
 
 test("qa-lab desktop contract allows benign token labels but blocks secret token values", () => {
@@ -312,6 +353,20 @@ test("qa-lab desktop contract fails closed on deeply nested hostile evidence", (
   assert.ok(report.blockers.some((blocker) => blocker.code === "unsafe_evidence_value"));
   assert.match(report.proofBoundary, /best-effort/i);
   assert.match(report.proofBoundary, /depth/i);
+});
+
+test("qa-lab desktop contract fails closed on over-wide evidence arrays", () => {
+  const report = createQaLabDesktopContractReport({
+    packageVersion,
+    candidateSha,
+    readinessReport: readinessReport({
+      wide: Array.from({ length: 3000 }, (_, index) => `safe-${index}`)
+    })
+  });
+
+  assert.equal(report.ok, false);
+  assert.equal(report.evidenceIndex.readinessReport.status, "unsafe");
+  assert.ok(report.blockers.some((blocker) => blocker.code === "unsafe_evidence_value"));
 });
 
 test("qa-lab desktop contract treats array/object screenshot claims as provided proof", () => {
@@ -398,6 +453,8 @@ test("qa-lab desktop contract blocks stale and malformed candidate sha evidence"
   });
   assert.equal(mismatch.ok, false);
   assert.ok(mismatch.blockers.some((blocker) => blocker.code === "candidate_sha_mismatch"));
+  assert.ok(mismatch.blockers.some((blocker) => blocker.code === "candidate_sha_mismatch" && blocker.source === "readinessReport"));
+  assert.ok(mismatch.evidenceIndex.readinessReport.blockerCodes.includes("candidate_sha_mismatch"));
 
   const packageMismatch = createQaLabDesktopContractReport({
     packageVersion,
