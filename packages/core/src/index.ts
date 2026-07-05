@@ -11,8 +11,25 @@ import {
   type SessionSanitizerReport,
   type SessionSanitizerSource
 } from "./session-sanitizer.js";
+import {
+  CODEX_SEARCH_FTS_MIGRATION_ID,
+  CODEX_SEARCH_FTS_TERM_CAP,
+  CODEX_SEARCH_FTS_WEIGHTS,
+  codexSearchFtsNeedsBackfill,
+  createSnippet,
+  deleteCodexSearchFtsForThread,
+  escapeLike,
+  lexicalQueryTerms,
+  rebuildCodexSearchFts,
+  safeFtsTerms,
+  searchCodexSessions,
+  upsertCodexSearchFtsForThread
+} from "./search.js";
+import type { CodexSearchMatchFeatures } from "./search.js";
 
 export { createSessionSanitizerRepairPlan, createSessionSanitizerReport } from "./session-sanitizer.js";
+export { CODEX_SEARCH_FTS_WEIGHTS, normalizeBm25TextScores } from "./search.js";
+export type { CodexSearchMatchFeatures } from "./search.js";
 export {
   AGENT_PROVENANCE_PARSE_SCHEMA,
   AGENT_PROVENANCE_SCHEMA,
@@ -798,6 +815,7 @@ export type SessionSearchResult = {
     stale: boolean;
   };
   reasonCodes: string[];
+  matchFeatures?: CodexSearchMatchFeatures;
 };
 
 export type SessionMetadata = {
@@ -2228,6 +2246,7 @@ export type RecallSearchResult = {
   summaryId?: string;
   conversationId?: number;
   sourcePath?: string;
+  matchFeatures?: CodexSearchMatchFeatures;
 };
 
 export type RecallDescription = {
@@ -2359,7 +2378,7 @@ export type RetrievalBaselineReport = {
   ok: boolean;
   publicSafe: true;
   generatedAt: string;
-  strategy: "single-column-fts-baseline";
+  strategy: "field-weighted-fts-ranking";
   metrics: {
     scenarioCount: number;
     overall: RetrievalBaselineMetricSet;
@@ -2577,6 +2596,18 @@ export function migrate(db: LooDatabase): void {
     CREATE VIRTUAL TABLE IF NOT EXISTS codex_safe_text_fts USING fts5(
       thread_id UNINDEXED,
       content,
+      tokenize = 'unicode61'
+    );
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS codex_search_fts USING fts5(
+      thread_id UNINDEXED,
+      title,
+      summary,
+      plans,
+      finals,
+      touched_files,
+      tool_meta,
+      body,
       tokenize = 'unicode61'
     );
 
@@ -2928,6 +2959,20 @@ export function migrate(db: LooDatabase): void {
   ensureColumn(db, "codex_source_files", "prepared_range_extractor_version", "TEXT");
   ensureColumn(db, "codex_source_files", "summary_leaf_extractor_version", "TEXT");
   ensureColumn(db, "codex_source_files", "prepared_card_extractor_version", "TEXT");
+  // Gate the relational backfill on "migration row missing OR count drift" so a
+  // crash between the rebuild and the ledger insert leaves the migration
+  // unrecorded and re-runnable. Record the ledger row only AFTER a successful
+  // rebuild, so the audit ledger never claims a backfill that did not complete.
+  const codexSearchFtsMigrationRecorded = db
+    .prepare("SELECT 1 FROM loo_schema_migrations WHERE migration_id = ?")
+    .get(CODEX_SEARCH_FTS_MIGRATION_ID) !== undefined;
+  if (!codexSearchFtsMigrationRecorded || codexSearchFtsNeedsBackfill(db)) {
+    rebuildCodexSearchFts(db);
+    db.prepare("INSERT OR IGNORE INTO loo_schema_migrations (migration_id, applied_at, description) VALUES (?, datetime('now'), ?)").run(
+      CODEX_SEARCH_FTS_MIGRATION_ID,
+      "Additive field-weighted Codex search FTS table with relational backfill"
+    );
+  }
 }
 
 function ensureColumn(db: LooDatabase, table: string, column: string, definition: string): void {
@@ -3229,6 +3274,7 @@ function clearSourceFileIndex(db: LooDatabase, sourcePath: string): void {
     for (const row of rows) {
       const threadId = String(row.threadId);
       deleteFts.run(threadId);
+      deleteCodexSearchFtsForThread(db, threadId);
       deletePreparedRanges.run(threadId);
       deletePreparedEvents.run(threadId);
     }
@@ -6755,70 +6801,7 @@ export function searchSessions(db: LooDatabase, options: {
   appServerThreads?: AppServerThreadsInput | null;
   now?: string;
 }): SessionSearchResult[] {
-  const query = options.query.trim();
-  if (!query) return [];
-  const limit = clamp(options.limit ?? 10, 1, 100);
-  const nowMs = timestampMillis(options.now ?? null) ?? Date.now();
-  const exactThreadId = searchThreadIdCandidate(query);
-  if (exactThreadId) {
-    const exactRow = codexSearchRowByThreadId(db, exactThreadId);
-    if (exactRow) {
-      return [sessionSearchResultFromRow(exactRow, 1, `Thread id: ${codexThreadRef(String(exactRow.threadId))}`, "thread_id", ["exact_thread_id"], nowMs)];
-    }
-  }
-
-  const results: SessionSearchResult[] = [];
-  const seenRefs = new Set<string>();
-
-  const rows = safeFtsTerms(query).length > 0
-    ? db.prepare(`
-        SELECT s.thread_id AS threadId, s.title, s.summary, s.updated_at AS updatedAt, snippet(codex_safe_text_fts, 1, '[', ']', '...', 18) AS snippet, rank AS rank
-        FROM codex_safe_text_fts
-        JOIN codex_sessions s ON s.thread_id = codex_safe_text_fts.thread_id
-        WHERE codex_safe_text_fts MATCH ?
-        ORDER BY rank
-        LIMIT ?
-      `).all(safeFtsTerms(query).join(" "), limit) as Array<Record<string, unknown>>
-    : [];
-
-  for (const row of rows) {
-    const result = sessionSearchResultFromRow(row, results.length + 1, String(row.snippet ?? ""), "full_text", ["fts_match"], nowMs);
-    if (seenRefs.has(result.sourceRef)) continue;
-    seenRefs.add(result.sourceRef);
-    results.push(result);
-    if (results.length >= limit) break;
-  }
-
-  for (const aliasResult of threadTitleAliasSearchResults(db, query, nowMs)) {
-    const existing = results.find((result) => result.sourceRef === aliasResult.sourceRef);
-    if (existing) {
-      existing.reasonCodes = unique([...existing.reasonCodes, ...aliasResult.reasonCodes]);
-      continue;
-    }
-    if (results.length >= limit) break;
-    seenRefs.add(aliasResult.sourceRef);
-    results.push(aliasResult);
-  }
-
-  if (results.length === 0) {
-    const like = `%${escapeLike(query)}%`;
-    results.push(...(db.prepare(`
-      SELECT thread_id AS threadId, title, summary, updated_at AS updatedAt, safe_text AS safeText
-      FROM codex_sessions
-      WHERE title LIKE ? ESCAPE '\\' OR summary LIKE ? ESCAPE '\\' OR safe_text LIKE ? ESCAPE '\\'
-      ORDER BY COALESCE(updated_at, indexed_at) DESC
-      LIMIT ?
-    `).all(like, like, like, limit) as Array<Record<string, unknown>>)
-      .map((row, index) => sessionSearchResultFromRow(row, index + 1, createSnippet(String(row.safeText ?? ""), query), "safe_text", ["safe_text_match"], nowMs)));
-  }
-
-  for (const aliasResult of appServerAliasSearchResults(db, options.appServerThreads ?? null, query, nowMs)) {
-    if (seenRefs.has(aliasResult.sourceRef)) continue;
-    seenRefs.add(aliasResult.sourceRef);
-    results.push(aliasResult);
-    if (results.length >= limit) break;
-  }
-  return results.slice(0, limit).map((result, index) => ({ ...result, score: index + 1 }));
+  return searchCodexSessions(db, options);
 }
 
 function threadTitleAliasSearchResults(db: LooDatabase, query: string, nowMs: number): SessionSearchResult[] {
@@ -12222,7 +12205,7 @@ export function evaluateRetrievalBaselineScenarios(db: LooDatabase, options: {
     ok: blockers.length === 0,
     publicSafe: true,
     generatedAt: options.now ?? new Date().toISOString(),
-    strategy: "single-column-fts-baseline",
+    strategy: "field-weighted-fts-ranking",
     metrics: {
       scenarioCount: scenarios.length,
       overall,
@@ -12238,7 +12221,7 @@ export function evaluateRetrievalBaselineScenarios(db: LooDatabase, options: {
       "tokens, credentials, API keys, cookies",
       "private customer data"
     ],
-    proofBoundary: "This public-safe eval measures source-ref retrieval metrics for the current single-column FTS engine only; it does not prove ranking quality improvement, vector retrieval, live control, GUI mutation, or private-store retrieval quality.",
+    proofBoundary: "This public-safe eval measures source-ref retrieval metrics for the current field-weighted FTS engine only; it does not prove vector retrieval, live control, GUI mutation, or private-store retrieval quality.",
     nextAction: blockers.length === 0
       ? "Use this gate as the baseline ratchet before changing retrieval ranking."
       : "Inspect the floor blockers and update ranking or the explicitly versioned baseline floors before claiming retrieval readiness."
@@ -12259,7 +12242,7 @@ function evaluateRetrievalBaselineScenario(db: LooDatabase, scenario: RetrievalE
     firstExpectedRank !== null && firstExpectedRank <= 1 ? "hit_at_1" : "",
     firstExpectedRank !== null && firstExpectedRank <= 5 ? "hit_at_5" : "",
     firstExpectedRank !== null && firstExpectedRank <= k ? `hit_at_k:${k}` : "",
-    queryTermCount > 12 ? "query_terms_truncated_to_12" : "",
+    queryTermCount > CODEX_SEARCH_FTS_TERM_CAP ? "query_terms_truncated" : "",
     matches.length === 0 ? "no_matches" : ""
   ].filter(Boolean));
   return {
@@ -12402,7 +12385,7 @@ function rerankHybridMatches(db: LooDatabase, query: string, expansionQueries: s
 
 function retrievalTermScore(match: RecallSearchResult, query: string): number {
   const haystack = [match.title, match.summary, match.snippet, match.sourceRef].filter(Boolean).join(" ").toLowerCase();
-  return safeFtsTerms(query).reduce((score, term) => score + (haystack.includes(term.toLowerCase()) ? 1 : 0), 0);
+  return lexicalQueryTerms(query).reduce((score, term) => score + (haystack.includes(term.toLowerCase()) ? 1 : 0), 0);
 }
 
 function stageResult(matches: RecallSearchResult[], expectedSourceRefs: string[], limit: number): RetrievalEvalStageResult {
@@ -12754,7 +12737,7 @@ function normalizePeerPaths(paths: string[]): string[] {
 }
 
 function queryTerms(query: string): string[] {
-  return query.match(/[\p{L}\p{N}_-]+/gu)?.slice(0, 12) ?? [];
+  return lexicalQueryTerms(query);
 }
 
 function normalizePeerPath(path: string): string {
@@ -13469,6 +13452,7 @@ function upsertSession(
     db.prepare("DELETE FROM codex_touched_files WHERE thread_id = ?").run(session.threadId);
     db.prepare("DELETE FROM codex_tool_calls WHERE thread_id = ?").run(session.threadId);
     db.prepare("DELETE FROM codex_safe_text_fts WHERE thread_id = ?").run(session.threadId);
+    deleteCodexSearchFtsForThread(db, session.threadId);
     // Prepared rows are an LCO-owned derived cache for the current codex_sessions row.
     // Clear both remap directions: same source -> new thread and same thread -> new source.
     const affectedSummaryRows = db.prepare(`
@@ -13598,6 +13582,7 @@ function upsertSession(
       }
     }
     db.prepare("INSERT INTO codex_safe_text_fts (thread_id, content) VALUES (?, ?)").run(session.threadId, session.safeText);
+    upsertCodexSearchFtsForThread(db, session.threadId);
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
@@ -13896,10 +13881,6 @@ function extractTouchedFiles(text: string): string[] {
   return matches.map((match) => match.replace(/[).,"'`;:]+$/, "")).filter((match) => match.includes("/") && !match.endsWith("/"));
 }
 
-function safeFtsTerms(query: string): string[] {
-  return query.match(/[\p{L}\p{N}_-]+/gu)?.slice(0, 12).map((term) => `"${term.replaceAll('"', '""')}"`) ?? [];
-}
-
 function isLikelyFinal(text: string): boolean {
   return /(^|\b)(final|next action|complete|summary|closeout)\b/i.test(text);
 }
@@ -14097,15 +14078,4 @@ function safeNullableFixtureString(value: unknown): string | null {
 
 function stringOrNull(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, (match) => `\\${match}`);
-}
-
-function createSnippet(text: string, query: string): string {
-  const lower = text.toLowerCase();
-  const index = lower.indexOf(query.toLowerCase());
-  if (index < 0) return truncate(text, 240);
-  return truncate(text.slice(Math.max(0, index - 80), index + query.length + 160), 260);
 }

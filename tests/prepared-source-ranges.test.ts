@@ -91,7 +91,8 @@ test("prepared-state migration adds additive shadow tables to an existing 1.1-st
       "attention_queue",
       "hook_capture_packets",
       "state_prep_jobs",
-      "codex_thread_title_aliases"
+      "codex_thread_title_aliases",
+      "codex_search_fts"
     ]) {
       assert.equal(tables.has(table), true, `${table} exists`);
     }
@@ -104,7 +105,8 @@ test("prepared-state migration adds additive shadow tables to an existing 1.1-st
       "2026-07-03-state-prep-jobs",
       "2026-07-04-prepared-card-source-range-omissions",
       "2026-07-05-thread-title-aliases",
-      "2026-07-06-index-fast-skip-and-hot-path-indexes"
+      "2026-07-06-index-fast-skip-and-hot-path-indexes",
+      "2026-07-06-codex-search-fts"
     ];
     const migrationIds = new Set((db.prepare("SELECT migration_id AS migrationId FROM loo_schema_migrations").all() as Array<{ migrationId: string }>).map((row) => row.migrationId));
     for (const migrationId of expectedMigrationOrder) {

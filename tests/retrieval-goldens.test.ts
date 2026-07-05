@@ -10,13 +10,14 @@ import {
   evaluateRetrievalBaselineScenarios,
   indexCodexSessions
 } from "../packages/core/src/index.js";
+import type { RetrievalBaselineFloors } from "../packages/core/src/index.js";
 
 const scenarioFile = "evals/scenarios/retrieval-goldens/v1/goldens.json";
 const floorFile = "evals/scenarios/retrieval-goldens/v1/baseline-floors.json";
 
-test("retrieval goldens preserve the recorded single-column FTS baseline floors", () => {
+test("retrieval goldens preserve the recorded field-weighted FTS floors", () => {
   const payload = readJson(scenarioFile) as RetrievalGoldenPayload;
-  const floors = readJson(floorFile);
+  const floors = readJson(floorFile) as RetrievalBaselineFloors;
   const scenarioDir = dirname(resolve(scenarioFile));
   const fixtureRoots = payload.codexRoots.map((root) => resolve(scenarioDir, root));
 
@@ -49,7 +50,7 @@ test("retrieval goldens preserve the recorded single-column FTS baseline floors"
     });
 
     assert.equal(report.ok, true, report.blockers.join("\n"));
-    assert.equal(report.strategy, "single-column-fts-baseline");
+    assert.equal(report.strategy, "field-weighted-fts-ranking");
     assert.equal(report.metrics.scenarioCount, payload.scenarios.length);
     assert.equal(report.metrics.overall.hitAt1 >= floors.overall.hitAt1, true);
     assert.equal(report.metrics.overall.hitAt5 >= floors.overall.hitAt5, true);
@@ -59,10 +60,19 @@ test("retrieval goldens preserve the recorded single-column FTS baseline floors"
       assert.equal(report.metrics.families[family]?.hitAt5 >= familyFloors.hitAt5, true, family);
       assert.equal(report.metrics.families[family]?.mrr >= familyFloors.mrr, true, family);
     }
-    assert.equal(report.metrics.families.multi_term_cap?.hitAt1, 0);
+    assert.equal(report.metrics.families.multi_term_cap?.hitAt1, 1);
+    assert.equal(report.metrics.families.multi_term_cap?.hitAt5, 1);
+    assert.equal(report.metrics.families.multi_term_cap?.mrr, 1);
+    assert.equal(report.metrics.overall.hitAt1, 1);
+    assert.equal(report.metrics.overall.hitAt5, 1);
+    assert.equal(report.metrics.overall.mrr, 1);
+    // multi_term_cap queries sit under CODEX_SEARCH_FTS_TERM_CAP, so none should
+    // carry the actual truncation reason code (query_terms_truncated) emitted by
+    // search.ts/index.ts — the prior "_to_12" suffix never existed, making the
+    // assertion vacuous.
     assert.equal(report.scenarios
       .filter((scenario) => scenario.family === "multi_term_cap")
-      .every((scenario) => scenario.reasonCodes.includes("query_terms_truncated_to_12")), true);
+      .every((scenario) => !scenario.reasonCodes.includes("query_terms_truncated")), true);
     assert.equal(report.scenarios.every((scenario) => scenario.topRefs.every((ref) => ref.startsWith("codex_thread:"))), true);
     assert.doesNotMatch(JSON.stringify(report), /<proposed_plan>|Final:/);
   } finally {
@@ -104,7 +114,7 @@ test("loo eval retrieval strict mode writes a public-safe baseline regression re
     };
     assert.equal(report.ok, true);
     assert.equal(report.publicSafe, true);
-    assert.equal(report.strategy, "single-column-fts-baseline");
+    assert.equal(report.strategy, "field-weighted-fts-ranking");
     assert.equal(report.metrics.scenarioCount >= 30, true);
     assert.equal(report.scenarios.every((scenario) => scenario.reasonCodes.length > 0), true);
     assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /<proposed_plan>|Final:/);
@@ -129,3 +139,4 @@ type RetrievalGoldenPayload = {
     k: number;
   }>;
 };
+
