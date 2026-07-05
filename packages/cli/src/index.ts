@@ -51,6 +51,7 @@ import { createGeneralReleaseReadiness } from "./general-release-readiness.js";
 import { runOpenClawDogfood } from "./openclaw-dogfood.js";
 import { DEFAULT_REQUIRED_TOOL_CALLS, runOpenClawToolSmoke } from "./openclaw-tool-smoke.js";
 import { createPublishedPackageSmokeReport } from "./published-package-smoke.js";
+import { createCliMcpProductSmokeReport } from "./cli-mcp-product-smoke.js";
 import { createQaLabToolCoverageReport, type QaLabCoveragePolicy } from "./qa-lab-tool-coverage.js";
 import { runOpenClawGatewayLiveControlSmoke, type OpenClawGatewayLiveControlAction } from "./openclaw-live-control-smoke.js";
 import { runOpenClawPostActionRefreshSmoke } from "./openclaw-post-action-refresh-smoke.js";
@@ -683,6 +684,17 @@ async function main() {
     if (parsed.strict && !report.qaLabToolCoverageReady) process.exitCode = 1;
     return;
   }
+  if (command === "qa-lab" && args[0] === "cli-mcp-smoke") {
+    if (hasHelpFlag(args.slice(1))) {
+      printQaLabCliMcpSmokeHelp();
+      return;
+    }
+    const parsed = parseQaLabCliMcpSmokeArgs(args.slice(1));
+    const report = await createCliMcpProductSmokeReport(parsed);
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.ok) process.exitCode = 1;
+    return;
+  }
   printMainUsage("error");
   process.exitCode = 2;
 }
@@ -903,6 +915,7 @@ function mainUsageText(): string {
     "  loo release general-readiness --evidence-dir path [--fresh-npm-evidence path] [--agent-dogfood-evidence path] [--now iso] [--strict]",
     "  loo release ga-smoke --evidence-dir path --package-version version --candidate-sha sha [--release-status path] [--release-finalization-status path] [--published-smoke path] [--dogfood-report path] [--tool-smoke-report path] [--scenario-sweep path] [--scorecard-sweep path] [--release-preflight path] [--release-bundle path] [--privacy-scan path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--allow-setup-required] [--now iso] [--strict]",
     "  loo release demo-status --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--min-sessions n] [--strict]",
+    "  loo qa-lab cli-mcp-smoke --evidence-dir path --package-version version [--candidate-sha sha] [--cli-bin path] [--mcp-bin path] [--required-tool name] [--tool-call name] [--timeout-ms ms] [--now iso] [--strict]",
     "  loo qa-lab tool-coverage --evidence-dir path [--tool-smoke-report path] [--dogfood-report path] [--published-smoke path] [--manifest path] [--package-version version] [--candidate-sha sha] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--coverage-policy full|facade] [--now iso] [--strict]"
   ].join("\n");
 }
@@ -1283,6 +1296,27 @@ function printQaLabToolCoverageHelp(): void {
     "Safety boundary:",
     "  This command is aggregate-only. It does not invoke tools, authorize gateways, run live Codex control, perform desktop GUI mutation, or read raw transcripts.",
     "  It does not publish npm, create tags, create GitHub Releases, or store raw gateway output."
+  ].join("\n"));
+}
+
+function printQaLabCliMcpSmokeHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo qa-lab cli-mcp-smoke --evidence-dir path --package-version version [--candidate-sha sha] [--cli-bin path] [--mcp-bin path] [--required-tool name] [--tool-call name] [--timeout-ms ms] [--now iso] [--strict]",
+    "",
+    "Checks public package-facing CLI and MCP surfaces from a published or fresh-install candidate.",
+    "",
+    "Options:",
+    "  --cli-bin path        CLI binary to probe with --help; defaults to loo.",
+    "  --mcp-bin path        MCP server binary to probe with initialize + tools/list; defaults to loo-mcp-server.",
+    "  --required-tool name  Require a listed MCP tool; may be repeated.",
+    "  --tool-call name      Safe representative MCP tool to call with empty arguments; defaults to loo_doctor.",
+    "  --timeout-ms ms       Per-probe timeout.",
+    "  --strict              Exit non-zero unless CLI and MCP readiness are both proved.",
+    "",
+    "Safety boundary:",
+    "  This command writes public-safe evidence only.",
+    "  It does not run live Codex control, mutate a desktop GUI, capture screenshots, publish npm, or create a GitHub Release."
   ].join("\n"));
 }
 
@@ -3112,6 +3146,88 @@ function parseQaLabToolCoverageArgs(input: string[]): {
   }
   if (!evidenceDir) throw new Error("qa-lab tool-coverage requires --evidence-dir");
   return { evidenceDir, packageVersion, candidateSha, claimScope, coveragePolicy, toolSmokeReport, dogfoodReport, publishedSmoke, manifestPath, now, strict };
+}
+
+function parseQaLabCliMcpSmokeArgs(input: string[]): {
+  evidenceDir: string;
+  packageVersion: string;
+  candidateSha?: string;
+  cliBin?: string;
+  mcpBin?: string;
+  toolCallName?: string;
+  requiredTools?: string[];
+  timeoutMs?: number;
+  now?: string;
+  strict: boolean;
+} {
+  let evidenceDir: string | undefined;
+  let packageVersion: string | undefined;
+  let candidateSha: string | undefined;
+  let cliBin: string | undefined;
+  let mcpBin: string | undefined;
+  let toolCallName: string | undefined;
+  const requiredTools: string[] = [];
+  let timeoutMs: number | undefined;
+  let now: string | undefined;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--evidence-dir") {
+      evidenceDir = readReleaseStatusPath(input, ++index, "--evidence-dir");
+      continue;
+    }
+    if (arg === "--package-version") {
+      packageVersion = readReleaseStatusValue(input, ++index, "--package-version");
+      continue;
+    }
+    if (arg === "--candidate-sha") {
+      candidateSha = readReleaseStatusValue(input, ++index, "--candidate-sha");
+      continue;
+    }
+    if (arg === "--cli-bin") {
+      cliBin = readReleaseStatusPath(input, ++index, "--cli-bin");
+      continue;
+    }
+    if (arg === "--mcp-bin") {
+      mcpBin = readReleaseStatusPath(input, ++index, "--mcp-bin");
+      continue;
+    }
+    if (arg === "--required-tool") {
+      requiredTools.push(readReleaseStatusValue(input, ++index, "--required-tool"));
+      continue;
+    }
+    if (arg === "--tool-call") {
+      toolCallName = readReleaseStatusValue(input, ++index, "--tool-call");
+      continue;
+    }
+    if (arg === "--timeout-ms") {
+      timeoutMs = parsePositiveInteger(input[++index], "--timeout-ms", 60_000);
+      continue;
+    }
+    if (arg === "--now") {
+      now = readReleaseStatusValue(input, ++index, "--now");
+      continue;
+    }
+    if (arg === "--strict") {
+      strict = true;
+      continue;
+    }
+    throw new Error(`Unknown qa-lab cli-mcp-smoke option: ${arg}`);
+  }
+  if (!evidenceDir) throw new Error("qa-lab cli-mcp-smoke requires --evidence-dir");
+  if (!packageVersion) throw new Error("qa-lab cli-mcp-smoke requires --package-version");
+  return {
+    evidenceDir,
+    packageVersion,
+    candidateSha,
+    cliBin,
+    mcpBin,
+    toolCallName,
+    ...(requiredTools.length ? { requiredTools } : {}),
+    timeoutMs,
+    now,
+    strict
+  };
 }
 
 function parseQaLabCoveragePolicy(input: string[], index: number, flag: string): QaLabCoveragePolicy {
