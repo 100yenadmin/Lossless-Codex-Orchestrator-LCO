@@ -122,6 +122,7 @@ export const FULL_GATEWAY_SMOKE_TOOL_CALLS = [
 
 const PREPARED_CARD_STATE_SET = new Set<string>(PREPARED_CARD_STATES);
 const MAX_RESTRICTED_ACTION_SCAN_DEPTH = 64;
+const MAX_RESTRICTED_ACTION_SCAN_ENTRIES = 512;
 const SAFE_FAIL_CLOSED_REASON_CODES_BY_TOOL = new Map<string, Set<string>>([
   ["loo_codex_start_thread_post_create_proof", new Set(["post_create_proof_missing_persisted_evidence", "created_thread_not_persisted"])],
   ["loo_codex_desktop_fallback_status", new Set(["coherence_input_missing", "desktop_visibility_not_proven"])],
@@ -926,7 +927,7 @@ function buildToolArgs(params: {
     } : null;
   }
   if (params.toolName === "loo_desktop_act") {
-    return { backend: "cua-driver", action: "focus-safe noop", dry_run: false };
+    return { backend: "cua-driver", action: "focus-safe noop", dry_run: true };
   }
   if (params.toolName === "loo_desktop_proof_report") {
     return {
@@ -1691,9 +1692,14 @@ function safeFailClosedReasonCodes(toolName: string): Set<string> {
 
 function hasRestrictedActionPerformed(value: unknown, depth = 0): boolean {
   if (depth > MAX_RESTRICTED_ACTION_SCAN_DEPTH) return true;
-  if (Array.isArray(value)) return value.some((item) => hasRestrictedActionPerformed(item, depth + 1));
+  if (Array.isArray(value)) {
+    if (value.length > MAX_RESTRICTED_ACTION_SCAN_ENTRIES) return true;
+    return value.some((item) => hasRestrictedActionPerformed(item, depth + 1));
+  }
   if (!isRecord(value)) return false;
-  for (const [key, item] of Object.entries(value)) {
+  const entries = Object.entries(value);
+  if (entries.length > MAX_RESTRICTED_ACTION_SCAN_ENTRIES) return true;
+  for (const [key, item] of entries) {
     if (key === "liveActionObserved" && item === true) return true;
     if (key === "rawScreenshotIncluded" && item === true) return true;
     if (key === "rawSecretIncluded" && item === true) return true;

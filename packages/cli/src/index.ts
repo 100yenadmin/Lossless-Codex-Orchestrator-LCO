@@ -1000,6 +1000,7 @@ function printOpenClawToolSmokeHelp(): void {
     "Options:",
     "  --coverage default|full",
     "                          Use the default facade/workflow smoke set or the full declared-tool disposition matrix.",
+    "                          Full coverage cannot combine with --required-tool and needs an explicit or discovered thread target for thread-bound tools.",
     "  --required-tool name    Replace the default required loo_* tool set with explicit entries; may be repeated.",
     "  --desktop-fallback-coherence fixture|omit",
     "                          For loo_codex_desktop_fallback_status, send the default public-safe coherence fixture or omit coherence to prove the coherence_input_missing handoff.",
