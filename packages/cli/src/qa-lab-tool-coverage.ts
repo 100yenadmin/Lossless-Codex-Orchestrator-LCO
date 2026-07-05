@@ -1,7 +1,12 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createLooToolDeclarations } from "../../mcp-server/src/tools.js";
+import {
+  canonicalLooToolName,
+  createLooToolDeclarations,
+  isLooToolAlias,
+  isUnknownLcoAliasName
+} from "../../mcp-server/src/tools.js";
 import { normalizeReleaseClaimScope, type ReleaseClaimScope } from "./release-claim-scope.js";
 
 export type QaLabCoveragePolicy = "full" | "facade";
@@ -139,7 +144,7 @@ type ToolInvocation = {
 
 const PACKAGE_NAME = "lossless-openclaw-orchestrator";
 const SHA_PATTERN = /^[a-f0-9]{40}$/i;
-const LOO_TOOL_NAME_PATTERN = /^loo_[a-z0-9_]+$/;
+const LOO_TOOL_NAME_PATTERN = /^(?:loo|lco)_[a-z0-9_]+$/;
 const SECRET_LIKE_PATTERN = /(npm_[A-Za-z0-9]{20,}|bearer\s+[A-Za-z0-9._-]{20,}|sk-[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i;
 const RAW_ARTIFACT_VALUE_PATTERN = /(?:\/Users\/[^"'\s]+|\/Volumes\/[^"'\s]+|~\/[^"'\s]+).*\.(?:jsonl|sqlite|sqlite-wal|sqlite-shm|db|png|jpg|jpeg|gif|webp|mp4|mov|webm)(?:["'\s]|$)/i;
 const RAW_ARTIFACT_REF_PATTERN = /\.(?:jsonl|sqlite|sqlite-wal|sqlite-shm|db|png|jpg|jpeg|gif|webp|mp4|mov|webm|log)(?:$|[?#])/i;
@@ -175,8 +180,11 @@ export function createQaLabToolCoverageReport(options: QaLabToolCoverageOptions)
   const setupBlockers: QaLabToolCoverageSetupBlocker[] = [];
   const warnings: QaLabToolCoverageWarning[] = [];
   const evidenceIndex = {} as QaLabToolCoverageReport["evidenceIndex"];
+  const invalidAliasNames = new Set<string>();
 
-  const declaredTools = createLooToolDeclarations().map((tool) => ({
+  const declaredTools = createLooToolDeclarations({ includeAliases: true })
+    .filter((tool) => !isLooToolAlias(tool))
+    .map((tool) => ({
     name: tool.name,
     tier: normalizeTier(tool.metadata?.tier)
   }));
@@ -204,7 +212,7 @@ export function createQaLabToolCoverageReport(options: QaLabToolCoverageOptions)
     addBlocker(blockers, "P1", "candidate_sha_invalid", "qaLabToolCoverage", "Candidate SHA must be a 40-character hexadecimal commit SHA.");
   }
 
-  const manifestTools = extractManifestToolNames(loadedManifest.value);
+  const manifestTools = extractManifestToolNames(loadedManifest.value, invalidAliasNames);
   const missingFromManifest = manifestTools ? declaredToolNames.filter((name) => !manifestTools.has(name)) : declaredToolNames;
   const extraInManifest = manifestTools ? [...manifestTools].filter((name) => !declaredToolNameSet.has(name)).sort() : [];
   if (!manifestTools) {
@@ -214,10 +222,10 @@ export function createQaLabToolCoverageReport(options: QaLabToolCoverageOptions)
   }
 
   const catalogTools = new Set<string>();
-  collectCatalogTools(catalogTools, loadedToolSmoke.value);
-  collectPublishedSmokeTools(catalogTools, loadedPublishedSmoke.value);
+  collectCatalogTools(catalogTools, loadedToolSmoke.value, invalidAliasNames);
+  collectPublishedSmokeTools(catalogTools, loadedPublishedSmoke.value, invalidAliasNames);
 
-  const invocations = collectInvocations(loadedToolSmoke, loadedPublishedSmoke, loadedDogfood);
+  const invocations = collectInvocations(invalidAliasNames, loadedToolSmoke, loadedPublishedSmoke, loadedDogfood);
   const invocationMap = new Map<string, ToolInvocation>();
   for (const invocation of invocations) {
     if (!invocationMap.has(invocation.name) || invocation.ok) invocationMap.set(invocation.name, invocation);
@@ -253,6 +261,9 @@ export function createQaLabToolCoverageReport(options: QaLabToolCoverageOptions)
   const nonFacadeMissing = missingDeclaredTools.filter((name) => !publicFacadeMissing.includes(name));
   if (coveragePolicy === "full" && nonFacadeMissing.length > 0) {
     addBlocker(blockers, "P2", "declared_tool_product_evidence_missing", "toolCoverage", `${nonFacadeMissing.length} declared non-facade tool(s) lack tier-appropriate product evidence.`);
+  }
+  if (invalidAliasNames.size > 0) {
+    addBlocker(blockers, "P1", "invalid_lco_alias_reference", "toolCoverage", "Evidence or manifest references lco_* aliases that are not public facade aliases.");
   }
 
   const unsafeReports = loadedReports.filter((evidence) => evidence.value && containsUnsafeValue(evidence.value));
@@ -441,41 +452,68 @@ function collectSetupBlockers(
   }
 }
 
-function extractManifestToolNames(value: JsonRecord | null): Set<string> | null {
+function extractManifestToolNames(value: JsonRecord | null, invalidAliasNames: Set<string>): Set<string> | null {
   if (!value) return null;
+  const contractsDeclarations = readPath(value, ["contracts", "toolDeclarations"]);
+  if (Array.isArray(contractsDeclarations)) {
+    const names = new Set<string>();
+    for (const item of contractsDeclarations) {
+      if (!isRecord(item)) continue;
+      const aliasName = canonicalQaLabToolName(item.name, invalidAliasNames);
+      if (isLooToolAlias(item)) continue;
+      if (aliasName) names.add(aliasName);
+    }
+    if (names.size > 0) return names;
+  }
   const contractsTools = readPath(value, ["contracts", "tools"]);
   const tools = Array.isArray(contractsTools) ? contractsTools : value.tools;
   if (!Array.isArray(tools)) return null;
   const names = new Set<string>();
   for (const item of tools) {
-    if (typeof item === "string" && isValidLooToolName(item)) names.add(item);
-    else if (isRecord(item) && typeof item.name === "string" && isValidLooToolName(item.name)) names.add(item.name);
+    const name = typeof item === "string"
+      ? canonicalQaLabToolName(item, invalidAliasNames)
+      : isRecord(item)
+        ? canonicalQaLabToolName(item.name, invalidAliasNames)
+        : null;
+    if (name) names.add(name);
   }
   return names.size > 0 ? names : null;
 }
 
-function collectCatalogTools(catalogTools: Set<string>, value: JsonRecord | null): void {
+function collectCatalogTools(catalogTools: Set<string>, value: JsonRecord | null, invalidAliasNames: Set<string>): void {
   if (!value) return;
   const requiredTools = readPath(value, ["catalog", "requiredTools"]);
   if (Array.isArray(requiredTools)) {
-    for (const tool of requiredTools) if (typeof tool === "string" && isValidLooToolName(tool)) catalogTools.add(tool);
+    for (const tool of requiredTools) {
+      const name = canonicalQaLabToolName(tool, invalidAliasNames);
+      if (name) catalogTools.add(name);
+    }
   }
   const catalogToolsList = readPath(value, ["catalog", "tools"]);
   if (Array.isArray(catalogToolsList)) {
     for (const tool of catalogToolsList) {
-      if (typeof tool === "string" && isValidLooToolName(tool)) catalogTools.add(tool);
-      else if (isRecord(tool) && typeof tool.name === "string" && isValidLooToolName(tool.name)) catalogTools.add(tool.name);
+      const name = typeof tool === "string"
+        ? canonicalQaLabToolName(tool, invalidAliasNames)
+        : isRecord(tool)
+          ? canonicalQaLabToolName(tool.name, invalidAliasNames)
+          : null;
+      if (name) catalogTools.add(name);
     }
   }
 }
 
-function collectPublishedSmokeTools(catalogTools: Set<string>, value: JsonRecord | null): void {
+function collectPublishedSmokeTools(catalogTools: Set<string>, value: JsonRecord | null, invalidAliasNames: Set<string>): void {
   if (!value) return;
   const invoked = readPath(value, ["configuredGateway", "invokedTools"]);
-  if (Array.isArray(invoked)) for (const tool of invoked) if (typeof tool === "string" && isValidLooToolName(tool)) catalogTools.add(tool);
+  if (Array.isArray(invoked)) {
+    for (const tool of invoked) {
+      const name = canonicalQaLabToolName(tool, invalidAliasNames);
+      if (name) catalogTools.add(name);
+    }
+  }
 }
 
-function collectInvocations(...evidenceItems: LoadedEvidence[]): ToolInvocation[] {
+function collectInvocations(invalidAliasNames: Set<string>, ...evidenceItems: LoadedEvidence[]): ToolInvocation[] {
   const invocations: ToolInvocation[] = [];
   for (const evidence of evidenceItems) {
     const report = evidence.value;
@@ -484,17 +522,30 @@ function collectInvocations(...evidenceItems: LoadedEvidence[]): ToolInvocation[
     const reportInvocations = report.invocations;
     if (Array.isArray(reportInvocations)) {
       for (const invocation of reportInvocations) {
-        if (isRecord(invocation) && typeof invocation.toolName === "string" && isValidLooToolName(invocation.toolName)) {
-          invocations.push({ name: invocation.toolName, ok: invocation.ok === true, evidenceRef: ref });
+        if (isRecord(invocation)) {
+          const name = canonicalQaLabToolName(invocation.toolName, invalidAliasNames);
+          if (name) invocations.push({ name, ok: invocation.ok === true, evidenceRef: ref });
         }
       }
     }
     const configuredInvoked = readPath(report, ["configuredGateway", "invokedTools"]);
     if (Array.isArray(configuredInvoked)) {
-      for (const tool of configuredInvoked) if (typeof tool === "string" && isValidLooToolName(tool)) invocations.push({ name: tool, ok: true, evidenceRef: ref });
+      for (const tool of configuredInvoked) {
+        const name = canonicalQaLabToolName(tool, invalidAliasNames);
+        if (name) invocations.push({ name, ok: true, evidenceRef: ref });
+      }
     }
   }
   return invocations;
+}
+
+function canonicalQaLabToolName(value: unknown, invalidAliasNames: Set<string>): string | null {
+  if (typeof value !== "string" || !isValidLooToolName(value)) return null;
+  if (isUnknownLcoAliasName(value)) {
+    invalidAliasNames.add(value);
+    return null;
+  }
+  return canonicalLooToolName(value);
 }
 
 function invocationEvidenceRef(evidence: LoadedEvidence): string {

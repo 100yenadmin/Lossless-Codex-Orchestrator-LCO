@@ -86,11 +86,13 @@ export type LooTool = {
 };
 
 export type LooToolTier = "public_facade" | "workflow_detail" | "proof_debug" | "internal_low_level";
+export type LooToolProfile = "facade" | "standard" | "all";
 
 export type LooToolSurfaceMetadata = {
   tier: LooToolTier;
   operatorPathRank?: number;
   operatorPathRole?: string;
+  aliasOf?: string;
 };
 
 export type LooToolSurfaceSummary = {
@@ -114,12 +116,27 @@ export type LooToolSurfaceSummary = {
     missingPreferredBackendBehavior: string;
     proofBoundary: string;
   };
+  exposureProfile: {
+    environmentVariable: "LOO_TOOL_PROFILE";
+    defaultProfile: "all";
+    profiles: Record<LooToolProfile, {
+      tiers: LooToolTier[];
+      includesFacadeAliases: boolean;
+      description: string;
+    }>;
+    callPolicy: string;
+  };
   proofBoundary: string;
 };
 
 export type LooToolDeclaration = Pick<LooTool, "name" | "description" | "safety" | "metadata" | "inputSchema">;
 
 export const LOO_TOOL_TIERS: LooToolTier[] = ["public_facade", "workflow_detail", "proof_debug", "internal_low_level"];
+export const LOO_TOOL_PROFILE_TIERS: Record<LooToolProfile, LooToolTier[]> = {
+  facade: ["public_facade"],
+  standard: ["public_facade", "workflow_detail"],
+  all: ["public_facade", "workflow_detail", "proof_debug", "internal_low_level"]
+};
 
 export const LOO_TOOL_SURFACE: Record<string, LooToolSurfaceMetadata> = {
   loo_index_sessions: { tier: "workflow_detail" },
@@ -227,7 +244,7 @@ export function createLooToolSurfaceSummary(): LooToolSurfaceSummary {
       legacyCompatiblePrefix: "loo_",
       packageName: "lossless-openclaw-orchestrator",
       compatibilityIssue: "#434",
-      aliasPolicy: "`lco_*` is the forward public alias target for new user-facing tool names. The current callable OpenClaw/MCP declarations still use the historical `loo_*` runtime prefix. Keep `loo_*` backward compatible when tested `lco_*` aliases are added; this docs/manifest cleanup does not rename, delete, or duplicate tools."
+      aliasPolicy: "`lco_*` is the forward public alias target for new user-facing tool names. Public-facade tools expose tested `lco_*` aliases while historical `loo_*` names stay backward compatible. Alias declarations point at their `loo_*` target with `metadata.aliasOf` and do not create separate coverage obligations."
     },
     desktopFallback: {
       normalFirstPath: "direct Codex protocol",
@@ -237,6 +254,28 @@ export function createLooToolSurfaceSummary(): LooToolSurfaceSummary {
       secondaryBackend: "peekaboo",
       missingPreferredBackendBehavior: "normal read/search/describe workflows continue; desktop fallback readiness reports an actionable CUA blocker",
       proofBoundary: "CUA fallback readiness reports daemon and blocker state; MCP launchability still requires an explicit `cua-driver mcp --help` check unless LCO adds a launch probe. Codex composer-write proof needs a separately documented read-back before any send claim, and the current LCO proof report/live-proof harness do not validate a composer read-back field. No generic GUI mutation, unattended control, no-focus behavior, composer send approval, or release readiness is claimed without action-bound proof."
+    },
+    exposureProfile: {
+      environmentVariable: "LOO_TOOL_PROFILE",
+      defaultProfile: "all",
+      profiles: {
+        facade: {
+          tiers: LOO_TOOL_PROFILE_TIERS.facade,
+          includesFacadeAliases: true,
+          description: "Expose only public-facade tools and their lco_* aliases."
+        },
+        standard: {
+          tiers: LOO_TOOL_PROFILE_TIERS.standard,
+          includesFacadeAliases: true,
+          description: "Expose public-facade and workflow-detail tools, plus public-facade lco_* aliases."
+        },
+        all: {
+          tiers: LOO_TOOL_PROFILE_TIERS.all,
+          includesFacadeAliases: true,
+          description: "Expose the full LCO catalog, plus public-facade lco_* aliases."
+        }
+      },
+      callPolicy: "LOO_TOOL_PROFILE filters tools/list and OpenClaw declarations only; hidden tools remain callable by exact name when invoked by a capable client."
     },
     proofBoundary: "This metadata defines recommended operator tiers only. It does not remove tools, hide expert/debug surfaces, loosen approvals, run live Codex control, mutate a GUI, publish npm, or create GitHub releases."
   };
@@ -257,6 +296,11 @@ export type PublicSafeToolValidationFailure = {
     code: "validation_failed";
     message: string;
   };
+};
+
+export type LooToolExposureOptions = {
+  profile?: LooToolProfile;
+  includeAliases?: boolean;
 };
 
 const metadataOnlyAudit: AuditStore = {
@@ -284,12 +328,16 @@ const metadataOnlyCodexClient: CodexClient = {
   }
 };
 
-export function createLooToolDeclarations(): LooToolDeclaration[] {
-  return createLooTools({
+export function createLooToolDeclarations(options: LooToolExposureOptions = {}): LooToolDeclaration[] {
+  const declarations = createLooTools({
     db: {} as LooDatabase,
     audit: metadataOnlyAudit,
     codexClient: metadataOnlyCodexClient
   }).map(({ name, description, safety, metadata, inputSchema }) => ({ name, description, safety, metadata, inputSchema }));
+  return filterLooToolsByProfile(
+    options.includeAliases ? withPublicFacadeAliases(declarations) : declarations,
+    options.profile ?? "all"
+  );
 }
 
 export async function executeLooToolForOpenClaw(tool: LooTool, input: Record<string, unknown>): Promise<unknown> {
@@ -302,21 +350,28 @@ export async function executeLooToolForOpenClaw(tool: LooTool, input: Record<str
   }
 }
 
-export function createLooTools(options: { db: LooDatabase; audit: AuditStore; codexClient: CodexClient; codexReadClient?: CodexClient; desktopProbe?: DesktopProbe }): LooTool[] {
+export function createLooTools(options: {
+  db: LooDatabase;
+  audit: AuditStore;
+  codexClient: CodexClient;
+  codexReadClient?: CodexClient;
+  desktopProbe?: DesktopProbe;
+  includeAliases?: boolean;
+}): LooTool[] {
   const control = createCodexControl({ audit: options.audit, client: options.codexClient });
   const codexReadClient = options.codexReadClient ?? options.codexClient;
-  return [
+  const tools: LooTool[] = [
     tool("loo_index_sessions", "Index local Codex session JSONL files into the local orchestrator database.", {
       roots: { type: "array", items: { type: "string" } },
       max_files: { type: "integer", minimum: 1, maximum: 100000 },
       max_bytes_per_file: { type: "integer", minimum: 1, maximum: 1073741824 },
       max_events_per_file: { type: "integer", minimum: 1, maximum: 1000000 }
-    }, (input) => indexCodexSessions(options.db, {
+    }, (input) => publicSafeIndexCodexResult(indexCodexSessions(options.db, {
       roots: optionalRoots(input.roots, defaultCodexRoots()),
       maxFiles: optionalNumber(input.max_files),
       maxBytesPerFile: optionalNumber(input.max_bytes_per_file),
       maxEventsPerFile: optionalNumber(input.max_events_per_file)
-    })),
+    }))),
     tool("loo_search_sessions", "Search indexed Codex sessions with bounded safe text.", {
       query: { type: "string" },
       limit: { type: "integer", minimum: 1, maximum: 100 },
@@ -961,6 +1016,56 @@ export function createLooTools(options: { db: LooDatabase; audit: AuditStore; co
       records: options.audit.tail(optionalNumber(input.limit) ?? 20)
     }))
   ];
+  return options.includeAliases ? withPublicFacadeAliases(tools) : tools;
+}
+
+export function parseLooToolProfile(value: unknown, options?: { onInvalid?: (value: string) => void }): LooToolProfile {
+  if (value === undefined || value === null || value === "") return "all";
+  if (value === "facade" || value === "standard" || value === "all") return value;
+  options?.onInvalid?.(String(value));
+  return "all";
+}
+
+export function filterLooToolsByProfile<T extends { metadata: LooToolSurfaceMetadata }>(tools: T[], profile: LooToolProfile): T[] {
+  const tiers = LOO_TOOL_PROFILE_TIERS[profile];
+  return tools.filter((tool) => tiers.includes(tool.metadata.tier));
+}
+
+export function isLooToolAlias(tool: { metadata?: { aliasOf?: unknown } }): boolean {
+  return typeof tool.metadata?.aliasOf === "string" && tool.metadata.aliasOf.length > 0;
+}
+
+export function lcoAliasNameForLooTool(name: string): string {
+  if (!name.startsWith("loo_")) throw new Error(`Cannot derive lco_* alias for non-loo tool: ${name}`);
+  return `lco_${name.slice("loo_".length)}`;
+}
+
+export function looAliasTargetName(name: string): string | null {
+  if (!name.startsWith("lco_")) return null;
+  const target = `loo_${name.slice("lco_".length)}`;
+  return LOO_TOOL_SURFACE[target]?.tier === "public_facade" ? target : null;
+}
+
+export function isUnknownLcoAliasName(name: string): boolean {
+  return name.startsWith("lco_") && looAliasTargetName(name) === null;
+}
+
+export function canonicalLooToolName(name: string): string {
+  return looAliasTargetName(name) ?? name;
+}
+
+function withPublicFacadeAliases<T extends LooTool | LooToolDeclaration>(tools: T[]): T[] {
+  const aliases = tools
+    .filter((tool) => !tool.metadata.aliasOf && tool.metadata.tier === "public_facade")
+    .map((tool) => ({
+      ...tool,
+      name: lcoAliasNameForLooTool(tool.name),
+      metadata: {
+        ...tool.metadata,
+        aliasOf: tool.name
+      }
+    }) as T);
+  return [...tools, ...aliases];
 }
 
 function publicSafeCodexSqliteProbe(report: ReturnType<typeof probeCodexSqliteStores>) {
@@ -971,6 +1076,37 @@ function publicSafeCodexSqliteProbe(report: ReturnType<typeof probeCodexSqliteSt
       sourceRef: publicSafeLocalRef("codex_sqlite_store", store.path, "store.sqlite"),
       reason: store.reason ? publicSafeDiagnosticText(store.reason, store.path) : store.reason
     }))
+  };
+}
+
+function publicSafeIndexCodexResult(result: ReturnType<typeof indexCodexSessions>) {
+  return {
+    publicSafe: true,
+    readOnly: false,
+    mutationClasses: result.mutationClasses,
+    indexedFiles: result.indexedFiles,
+    skippedFiles: result.skippedFiles,
+    indexedThreads: result.indexedThreads,
+    indexedEvents: result.indexedEvents,
+    limitedFiles: result.limitedFiles.map((file, index) => ({
+      fileRef: `codex_index_limited_file:${index + 1}`,
+      reason: file.reason,
+      limit: file.limit,
+      actual: file.actual
+    })),
+    errors: result.errors.map((error, index) => ({
+      errorRef: `codex_index_error:${index + 1}`,
+      message: publicSafeDiagnosticText(error.message, error.path)
+    })),
+    actionsPerformed: {
+      derivedCacheWrite: true,
+      sourceStoreMutation: false,
+      externalWrite: false,
+      liveControl: false,
+      guiMutation: false,
+      rawTranscriptRead: false
+    },
+    proofBoundary: "Indexing writes only LCO-owned derived-cache rows. MCP/OpenClaw output omits raw source paths and does not mutate Codex source stores, run live Codex control, mutate desktop GUI state, write external systems, publish npm, or create GitHub releases."
   };
 }
 

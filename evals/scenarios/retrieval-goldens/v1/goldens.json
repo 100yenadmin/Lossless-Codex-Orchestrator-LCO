@@ -1,0 +1,361 @@
+{
+  "schema": "lco.retrievalGoldens.v1",
+  "scenarioVersion": "1.0",
+  "scenarioSet": "retrieval-goldens/v1",
+  "codexRoots": [
+    "../../../../tests/fixtures/retrieval-goldens/sessions"
+  ],
+  "maxFiles": 100,
+  "scenarios": [
+    {
+      "id": "plan-alpha",
+      "family": "plan_shaped",
+      "query": "aurora ledger checkpoint handoff guard",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-plan-01"
+      ],
+      "k": 5,
+      "rationale": "Plan-shaped query should retrieve the synthetic alpha proposed-plan session."
+    },
+    {
+      "id": "plan-bravo",
+      "family": "plan_shaped",
+      "query": "borealis queue sentinel replay policy",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-plan-02"
+      ],
+      "k": 5,
+      "rationale": "Plan-shaped query should retrieve the synthetic bravo proposed-plan session."
+    },
+    {
+      "id": "plan-charlie",
+      "family": "plan_shaped",
+      "query": "cobalt adapter manifest drift audit",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-plan-03"
+      ],
+      "k": 5,
+      "rationale": "Plan-shaped query should retrieve the synthetic charlie proposed-plan session."
+    },
+    {
+      "id": "plan-delta",
+      "family": "plan_shaped",
+      "query": "delta packet scrubber privacy lane",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-plan-04"
+      ],
+      "k": 5,
+      "rationale": "Plan-shaped query should retrieve the synthetic delta proposed-plan session."
+    },
+    {
+      "id": "plan-echo",
+      "family": "plan_shaped",
+      "query": "ember routing cache proof packet",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-plan-05"
+      ],
+      "k": 5,
+      "rationale": "Plan-shaped query should retrieve the synthetic echo proposed-plan session."
+    },
+    {
+      "id": "final-alpha",
+      "family": "final_shaped",
+      "query": "atlas closeout smoke passed review handoff",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-final-01"
+      ],
+      "k": 5,
+      "rationale": "Final-message query should retrieve the synthetic alpha closeout session."
+    },
+    {
+      "id": "final-bravo",
+      "family": "final_shaped",
+      "query": "binary gate final verifier complete",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-final-02"
+      ],
+      "k": 5,
+      "rationale": "Final-message query should retrieve the synthetic bravo closeout session."
+    },
+    {
+      "id": "final-charlie",
+      "family": "final_shaped",
+      "query": "canyon operator packet ready next action",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-final-03"
+      ],
+      "k": 5,
+      "rationale": "Final-message query should retrieve the synthetic charlie closeout session."
+    },
+    {
+      "id": "final-delta",
+      "family": "final_shaped",
+      "query": "dynamo cleanup final evidence archived",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-final-04"
+      ],
+      "k": 5,
+      "rationale": "Final-message query should retrieve the synthetic delta closeout session."
+    },
+    {
+      "id": "final-echo",
+      "family": "final_shaped",
+      "query": "equinox regression watch final green",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-final-05"
+      ],
+      "k": 5,
+      "rationale": "Final-message query should retrieve the synthetic echo closeout session."
+    },
+    {
+      "id": "file-alpha",
+      "family": "file_path",
+      "query": "packages/core/src/goldens/needle-alpha-router.ts",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-file-01"
+      ],
+      "k": 5,
+      "rationale": "File-path query should retrieve the session with touched path packages/core/src/goldens/needle-alpha-router.ts."
+    },
+    {
+      "id": "file-bravo",
+      "family": "file_path",
+      "query": "packages/cli/src/goldens/needle-bravo-command.ts",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-file-02"
+      ],
+      "k": 5,
+      "rationale": "File-path query should retrieve the session with touched path packages/cli/src/goldens/needle-bravo-command.ts."
+    },
+    {
+      "id": "file-charlie",
+      "family": "file_path",
+      "query": "tests/goldens/needle-charlie-regression.test.ts",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-file-03"
+      ],
+      "k": 5,
+      "rationale": "File-path query should retrieve the session with touched path tests/goldens/needle-charlie-regression.test.ts."
+    },
+    {
+      "id": "file-delta",
+      "family": "file_path",
+      "query": "src/adapters/goldens/needle-delta-bridge.ts",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-file-04"
+      ],
+      "k": 5,
+      "rationale": "File-path query should retrieve the session with touched path src/adapters/goldens/needle-delta-bridge.ts."
+    },
+    {
+      "id": "file-echo",
+      "family": "file_path",
+      "query": "packages/mcp-server/src/goldens/needle-echo-tool.ts",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-file-05"
+      ],
+      "k": 5,
+      "rationale": "File-path query should retrieve the session with touched path packages/mcp-server/src/goldens/needle-echo-tool.ts."
+    },
+    {
+      "id": "error-alpha",
+      "family": "error_string",
+      "query": "ERR_GOLDEN_ALPHA_TIMEOUT retry envelope",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-error-01"
+      ],
+      "k": 5,
+      "rationale": "Error-string query should retrieve the session carrying ERR_GOLDEN_ALPHA_TIMEOUT retry envelope."
+    },
+    {
+      "id": "error-bravo",
+      "family": "error_string",
+      "query": "ERR_GOLDEN_BRAVO_SCHEMA_MISMATCH parser guard",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-error-02"
+      ],
+      "k": 5,
+      "rationale": "Error-string query should retrieve the session carrying ERR_GOLDEN_BRAVO_SCHEMA_MISMATCH parser guard."
+    },
+    {
+      "id": "error-charlie",
+      "family": "error_string",
+      "query": "ERR_GOLDEN_CHARLIE_RATE_LIMIT backoff lane",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-error-03"
+      ],
+      "k": 5,
+      "rationale": "Error-string query should retrieve the session carrying ERR_GOLDEN_CHARLIE_RATE_LIMIT backoff lane."
+    },
+    {
+      "id": "error-delta",
+      "family": "error_string",
+      "query": "ERR_GOLDEN_DELTA_CHECKSUM repair packet",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-error-04"
+      ],
+      "k": 5,
+      "rationale": "Error-string query should retrieve the session carrying ERR_GOLDEN_DELTA_CHECKSUM repair packet."
+    },
+    {
+      "id": "error-echo",
+      "family": "error_string",
+      "query": "ERR_GOLDEN_ECHO_LOCK_STALE cleanup watch",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-error-05"
+      ],
+      "k": 5,
+      "rationale": "Error-string query should retrieve the session carrying ERR_GOLDEN_ECHO_LOCK_STALE cleanup watch."
+    },
+    {
+      "id": "identifier-alpha",
+      "family": "identifier",
+      "query": "019f-golden-identifier-01",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-identifier-01"
+      ],
+      "k": 1,
+      "rationale": "Exact thread-id query should retrieve the synthetic alpha identifier session."
+    },
+    {
+      "id": "identifier-bravo",
+      "family": "identifier",
+      "query": "019f-golden-identifier-02",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-identifier-02"
+      ],
+      "k": 1,
+      "rationale": "Exact thread-id query should retrieve the synthetic bravo identifier session."
+    },
+    {
+      "id": "identifier-charlie",
+      "family": "identifier",
+      "query": "019f-golden-identifier-03",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-identifier-03"
+      ],
+      "k": 1,
+      "rationale": "Exact thread-id query should retrieve the synthetic charlie identifier session."
+    },
+    {
+      "id": "identifier-delta",
+      "family": "identifier",
+      "query": "019f-golden-identifier-04",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-identifier-04"
+      ],
+      "k": 1,
+      "rationale": "Exact thread-id query should retrieve the synthetic delta identifier session."
+    },
+    {
+      "id": "identifier-echo",
+      "family": "identifier",
+      "query": "019f-golden-identifier-05",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-identifier-05"
+      ],
+      "k": 1,
+      "rationale": "Exact thread-id query should retrieve the synthetic echo identifier session."
+    },
+    {
+      "id": "near-alpha",
+      "family": "near_duplicate",
+      "query": "near duplicate cedar checksum archive reconciliation",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-near-01"
+      ],
+      "k": 5,
+      "rationale": "Near-duplicate query should prefer the cedar target over the paired distractor."
+    },
+    {
+      "id": "near-bravo",
+      "family": "near_duplicate",
+      "query": "near duplicate harbor checksum archive reconciliation",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-near-02"
+      ],
+      "k": 5,
+      "rationale": "Near-duplicate query should prefer the harbor target over the paired distractor."
+    },
+    {
+      "id": "near-charlie",
+      "family": "near_duplicate",
+      "query": "near duplicate juniper checksum archive reconciliation",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-near-03"
+      ],
+      "k": 5,
+      "rationale": "Near-duplicate query should prefer the juniper target over the paired distractor."
+    },
+    {
+      "id": "near-delta",
+      "family": "near_duplicate",
+      "query": "near duplicate keystone checksum archive reconciliation",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-near-04"
+      ],
+      "k": 5,
+      "rationale": "Near-duplicate query should prefer the keystone target over the paired distractor."
+    },
+    {
+      "id": "near-echo",
+      "family": "near_duplicate",
+      "query": "near duplicate meridian checksum archive reconciliation",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-near-05"
+      ],
+      "k": 5,
+      "rationale": "Near-duplicate query should prefer the meridian target over the paired distractor."
+    },
+    {
+      "id": "long-cap-alpha",
+      "family": "multi_term_cap",
+      "query": "alpha atlas beacon cipher drift ember flux grove harbor ion juniper kelp lumen tail-gemstone-anchor",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-identifier-01"
+      ],
+      "k": 5,
+      "rationale": "The target identifier only appears after the twelfth term, documenting the current term-cap miss."
+    },
+    {
+      "id": "long-cap-bravo",
+      "family": "multi_term_cap",
+      "query": "bravo atlas beacon cipher drift ember flux grove harbor ion juniper kelp lumen tail-harbor-anchor",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-identifier-02"
+      ],
+      "k": 5,
+      "rationale": "The target identifier only appears after the twelfth term, documenting the current term-cap miss."
+    },
+    {
+      "id": "long-cap-charlie",
+      "family": "multi_term_cap",
+      "query": "charlie atlas beacon cipher drift ember flux grove harbor ion juniper kelp lumen tail-iris-anchor",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-identifier-03"
+      ],
+      "k": 5,
+      "rationale": "The target identifier only appears after the twelfth term, documenting the current term-cap miss."
+    },
+    {
+      "id": "long-cap-delta",
+      "family": "multi_term_cap",
+      "query": "delta atlas beacon cipher drift ember flux grove harbor ion juniper kelp lumen tail-jade-anchor",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-identifier-04"
+      ],
+      "k": 5,
+      "rationale": "The target identifier only appears after the twelfth term, documenting the current term-cap miss."
+    },
+    {
+      "id": "long-cap-echo",
+      "family": "multi_term_cap",
+      "query": "echo atlas beacon cipher drift ember flux grove harbor ion juniper kelp lumen tail-keystone-anchor",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-identifier-05"
+      ],
+      "k": 5,
+      "rationale": "The target identifier only appears after the twelfth term, documenting the current term-cap miss."
+    }
+  ]
+}

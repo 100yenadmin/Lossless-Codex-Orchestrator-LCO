@@ -392,6 +392,9 @@ export type DesktopLiveProofHarnessReport = {
   backendStatus?: DesktopStatus;
   blockers: string[];
   evidencePath?: string;
+  proofMarkers: {
+    noActionObserved: true;
+  };
   actionsPerformed: {
     desktopGuiActionRun: false;
     screenshotCaptured: false;
@@ -1600,6 +1603,9 @@ export function createDesktopLiveProofHarness(input: {
     approvalArtifact,
     backendStatus: publicBackendStatus,
     blockers,
+    proofMarkers: {
+      noActionObserved: true
+    },
     actionsPerformed: {
       desktopGuiActionRun: false,
       screenshotCaptured: false
