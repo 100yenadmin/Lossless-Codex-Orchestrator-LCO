@@ -616,7 +616,8 @@ test("prepared targeted coverage reports indexed active threads missing prepared
   mkdirSync(sessions, { recursive: true });
   const activeThreadId = "019f-active-prepared-miss";
   const healthyThreadId = "019f-prepared-global-ok";
-  writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-00-00-019f-active-prepared-miss.jsonl"), activeThreadId, "Active sprint thread");
+  const activePath = join(sessions, "rollout-2026-07-04T00-00-00-019f-active-prepared-miss.jsonl");
+  writePreparedCardJsonl(activePath, activeThreadId, "Active sprint thread");
   writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-00-01-019f-prepared-global-ok.jsonl"), healthyThreadId, "Healthy global thread");
 
   const db = createDatabase(join(root, "orchestrator.sqlite"));
@@ -635,6 +636,14 @@ test("prepared targeted coverage reports indexed active threads missing prepared
     db.prepare("DELETE FROM prepared_cards WHERE target_ref = ?").run(targetRef);
     db.prepare("DELETE FROM prepared_source_ranges WHERE thread_id = ?").run(activeThreadId);
     db.prepare("DELETE FROM prepared_source_events WHERE thread_id = ?").run(activeThreadId);
+    db.prepare(`
+      UPDATE codex_source_files
+      SET
+        prepared_range_extractor_version = NULL,
+        summary_leaf_extractor_version = NULL,
+        prepared_card_extractor_version = NULL
+      WHERE source_path = ?
+    `).run(activePath);
 
     const globalStatus = getPreparedStateStatus(db);
     assert.equal(globalStatus.sourceCoverage.preparedCards, "ok");

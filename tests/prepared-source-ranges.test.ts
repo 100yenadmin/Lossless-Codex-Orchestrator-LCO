@@ -103,7 +103,8 @@ test("prepared-state migration adds additive shadow tables to an existing 1.1-st
       "2026-07-03-hook-capture-packets",
       "2026-07-03-state-prep-jobs",
       "2026-07-04-prepared-card-source-range-omissions",
-      "2026-07-05-thread-title-aliases"
+      "2026-07-05-thread-title-aliases",
+      "2026-07-06-index-fast-skip-and-hot-path-indexes"
     ];
     const migrationIds = new Set((db.prepare("SELECT migration_id AS migrationId FROM loo_schema_migrations").all() as Array<{ migrationId: string }>).map((row) => row.migrationId));
     for (const migrationId of expectedMigrationOrder) {
@@ -500,6 +501,7 @@ test("prepared source ranges backfill unchanged watermarked sources after migrat
     assert.equal(first.indexedFiles, 1);
     db.prepare("DELETE FROM prepared_source_ranges").run();
     db.prepare("DELETE FROM prepared_source_events").run();
+    db.prepare("UPDATE codex_source_files SET prepared_range_extractor_version = NULL WHERE source_path = ?").run(sourcePath);
 
     const backfill = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
     assert.equal(backfill.skippedFiles, 0);
