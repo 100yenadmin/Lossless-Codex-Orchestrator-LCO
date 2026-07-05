@@ -130,6 +130,47 @@ test("qa-lab tool coverage fails strict for the 1.2.5-style 36 of 60 gateway evi
   assert.ok(report.toolRows.some((row) => row.name === "loo_describe_ref" && row.coverageStatus === "missing_invocation"));
 });
 
+test("qa-lab tool coverage attributes invocations to their source report", (t) => {
+  const dir = makeTempDir(t, "loo-qa-tool-coverage-source-ref-");
+  const dogfoodOnlyTool = "loo_describe_ref";
+  const declaredTools = allDeclaredToolNames();
+  assert.ok(declaredTools.includes(dogfoodOnlyTool));
+  const toolSmokeReport = writeToolSmokeReport(dir, declaredTools.filter((tool) => tool !== dogfoodOnlyTool));
+  const dogfoodReport = join(dir, "openclaw-dogfood.json");
+  writeJson(dogfoodReport, {
+    ok: true,
+    dogfoodReady: true,
+    publicSafe: true,
+    invocations: [{
+      toolName: dogfoodOnlyTool,
+      exitStatus: 0,
+      ok: true,
+      gatewayMethod: "tools.invoke",
+      summary: { outputKind: "object" },
+      blockers: []
+    }],
+    blockers: [],
+    setupBlockers: [],
+    actionsPerformed: noActions()
+  });
+
+  const report = createQaLabToolCoverageReport({
+    evidenceDir: dir,
+    packageVersion,
+    candidateSha,
+    toolSmokeReport,
+    dogfoodReport,
+    coveragePolicy: "full",
+    claimScope: "codex-working-app-proof",
+    now: "2026-07-05T00:00:00.000Z"
+  });
+
+  const row = report.toolRows.find((item) => item.name === dogfoodOnlyTool);
+  assert.equal(report.ok, true);
+  assert.equal(row?.invocationOk, true);
+  assert.deepEqual(row?.evidenceRefs, ["openclaw-dogfood.json"]);
+});
+
 test("qa-lab tool coverage redacts unsafe evidence values instead of echoing canaries", (t) => {
   const dir = makeTempDir(t, "loo-qa-tool-coverage-unsafe-");
   const toolSmokeReport = join(dir, "private-session-source.jsonl");

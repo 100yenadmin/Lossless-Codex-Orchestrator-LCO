@@ -217,7 +217,7 @@ export function createQaLabToolCoverageReport(options: QaLabToolCoverageOptions)
   collectCatalogTools(catalogTools, loadedToolSmoke.value);
   collectPublishedSmokeTools(catalogTools, loadedPublishedSmoke.value);
 
-  const invocations = collectInvocations(loadedToolSmoke.value, loadedPublishedSmoke.value, loadedDogfood.value);
+  const invocations = collectInvocations(loadedToolSmoke, loadedPublishedSmoke, loadedDogfood);
   const invocationMap = new Map<string, ToolInvocation>();
   for (const invocation of invocations) {
     if (!invocationMap.has(invocation.name) || invocation.ok) invocationMap.set(invocation.name, invocation);
@@ -233,6 +233,7 @@ export function createQaLabToolCoverageReport(options: QaLabToolCoverageOptions)
 
   for (const row of toolRows) {
     if (!row.manifestPresent) {
+      // Row-level detail only; the aggregate manifest mismatch blocker above owns strict-mode failure.
       row.blockerCodes.push("declared_tool_missing_from_manifest");
       continue;
     }
@@ -247,6 +248,8 @@ export function createQaLabToolCoverageReport(options: QaLabToolCoverageOptions)
   if (publicFacadeMissing.length > 0) {
     addBlocker(blockers, "P1", "public_facade_product_evidence_missing", "toolCoverage", `${publicFacadeMissing.length} public facade tool(s) lack product invocation evidence.`);
   }
+  // Under facade policy, missingDeclaredTools intentionally contains only public facade tools.
+  // Non-facade evidence gaps become strict blockers only when the full-surface gate is requested.
   const nonFacadeMissing = missingDeclaredTools.filter((name) => !publicFacadeMissing.includes(name));
   if (coveragePolicy === "full" && nonFacadeMissing.length > 0) {
     addBlocker(blockers, "P2", "declared_tool_product_evidence_missing", "toolCoverage", `${nonFacadeMissing.length} declared non-facade tool(s) lack tier-appropriate product evidence.`);
@@ -472,24 +475,33 @@ function collectPublishedSmokeTools(catalogTools: Set<string>, value: JsonRecord
   if (Array.isArray(invoked)) for (const tool of invoked) if (typeof tool === "string" && isValidLooToolName(tool)) catalogTools.add(tool);
 }
 
-function collectInvocations(...reports: Array<JsonRecord | null>): ToolInvocation[] {
+function collectInvocations(...evidenceItems: LoadedEvidence[]): ToolInvocation[] {
   const invocations: ToolInvocation[] = [];
-  for (const report of reports) {
+  for (const evidence of evidenceItems) {
+    const report = evidence.value;
     if (!report) continue;
+    const ref = invocationEvidenceRef(evidence);
     const reportInvocations = report.invocations;
     if (Array.isArray(reportInvocations)) {
       for (const invocation of reportInvocations) {
         if (isRecord(invocation) && typeof invocation.toolName === "string" && isValidLooToolName(invocation.toolName)) {
-          invocations.push({ name: invocation.toolName, ok: invocation.ok === true, evidenceRef: "openclaw-tool-smoke.json" });
+          invocations.push({ name: invocation.toolName, ok: invocation.ok === true, evidenceRef: ref });
         }
       }
     }
     const configuredInvoked = readPath(report, ["configuredGateway", "invokedTools"]);
     if (Array.isArray(configuredInvoked)) {
-      for (const tool of configuredInvoked) if (typeof tool === "string" && isValidLooToolName(tool)) invocations.push({ name: tool, ok: true, evidenceRef: "published-package-smoke.json" });
+      for (const tool of configuredInvoked) if (typeof tool === "string" && isValidLooToolName(tool)) invocations.push({ name: tool, ok: true, evidenceRef: ref });
     }
   }
   return invocations;
+}
+
+function invocationEvidenceRef(evidence: LoadedEvidence): string {
+  if (evidence.evidenceRef) return evidence.evidenceRef;
+  if (evidence.source === "dogfoodReport") return "dogfood-report.json";
+  if (evidence.source === "publishedSmoke") return "published-package-smoke.json";
+  return "openclaw-tool-smoke.json";
 }
 
 function isValidLooToolName(value: string): boolean {

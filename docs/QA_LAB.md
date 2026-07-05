@@ -11,8 +11,8 @@ Milestone 12 starts with tool coverage:
 
 ```bash
 loo qa-lab tool-coverage \
-  --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/m12-ga-qa-lab/tool-coverage \
-  --tool-smoke-report /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/m12-ga-qa-lab/tool-coverage/openclaw-tool-smoke.json \
+  --evidence-dir <evidence-dir>/<date>/m12-ga-qa-lab/tool-coverage \
+  --tool-smoke-report <evidence-dir>/<date>/m12-ga-qa-lab/tool-coverage/openclaw-tool-smoke.json \
   --coverage-policy full \
   --strict
 ```
