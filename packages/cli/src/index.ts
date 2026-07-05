@@ -3415,12 +3415,12 @@ function parseQaLabRubricVersion(input: string[], index: number, flag: string): 
 
 function parseQaLabAdversarialLenses(input: string[], index: number, flag: string): QaLabAdversarialLens[] {
   const value = readReleaseStatusValue(input, index, flag);
-  const lenses = value.split(",").map((item) => normalizeQaLabLens(item.trim())).filter((item): item is QaLabAdversarialLens => Boolean(item));
+  const lenses = value.split(",").map((item) => item.trim()).filter(Boolean).map((item) => normalizeQaLabLens(item));
   if (lenses.length === 0) throw new Error(`${flag} requires at least one lens`);
   return [...new Set(lenses)];
 }
 
-function normalizeQaLabLens(value: string): QaLabAdversarialLens | null {
+function normalizeQaLabLens(value: string): QaLabAdversarialLens {
   if (value === "safety" || value === "retrieval" || value === "packaging" || value === "claims") return value;
   if (value === "agent-usability" || value === "agentUsability") return "agentUsability";
   throw new Error(`Unknown qa-lab adversarial-review lens: ${value}`);
