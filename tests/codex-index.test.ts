@@ -455,11 +455,22 @@ test("codex_search_fts migration backfills from existing relational rows", () =>
     migrate(db);
 
     const row = db.prepare(`
-      SELECT title, summary, plans, finals, touched_files AS touchedFiles, tool_meta AS toolMeta, body
-      FROM codex_search_fts
-      WHERE thread_id = ?
+      SELECT
+        s.rowid AS sessionRowid,
+        search.rowid AS searchRowid,
+        search.title,
+        search.summary,
+        search.plans,
+        search.finals,
+        search.touched_files AS touchedFiles,
+        search.tool_meta AS toolMeta,
+        search.body
+      FROM codex_sessions s
+      LEFT JOIN codex_search_fts search ON search.thread_id = s.thread_id
+      WHERE s.thread_id = ?
     `).get("019f-backfill-search") as Record<string, string> | undefined;
     assert.ok(row);
+    assert.equal(row.searchRowid, row.sessionRowid);
     assert.match(row.title, /Backfill title lane/);
     assert.match(row.summary, /Backfill summary lane/);
     assert.match(row.plans, /Backfill plan lane/);

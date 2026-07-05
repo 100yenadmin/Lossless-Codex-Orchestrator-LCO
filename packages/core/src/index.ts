@@ -3322,6 +3322,26 @@ function insertCodexSafeTextFtsForSessionRowid(db: LooDatabase, sessionRowid: nu
   db.prepare("INSERT INTO codex_safe_text_fts (rowid, thread_id, content) VALUES (?, ?, ?)").run(sessionRowid, threadId, safeText);
 }
 
+function clearRemappedSourcePathSessions(db: LooDatabase, sourcePath: string, threadId: string): void {
+  const rows = db.prepare("SELECT rowid AS sessionRowid, thread_id AS threadId FROM codex_sessions WHERE source_path = ? AND thread_id <> ?").all(sourcePath, threadId) as Array<{ sessionRowid: number; threadId: string }>;
+  if (rows.length === 0) return;
+  const threadIds = rows.map((row) => String(row.threadId)).filter(Boolean);
+  deleteSummaryLeavesForThreadIds(db, threadIds);
+  const deletePreparedRanges = db.prepare("DELETE FROM prepared_source_ranges WHERE thread_id = ?");
+  const deletePreparedEvents = db.prepare("DELETE FROM prepared_source_events WHERE thread_id = ?");
+  const deleteThreadTitleAliases = db.prepare("DELETE FROM codex_thread_title_aliases WHERE thread_id = ?");
+  for (const row of rows) {
+    const staleThreadId = String(row.threadId);
+    const sessionRowid = positiveSessionRowid(row.sessionRowid);
+    deleteCodexSafeTextFtsForSessionRowid(db, sessionRowid);
+    deleteCodexSearchFtsForSessionRowid(db, sessionRowid);
+    deletePreparedRanges.run(staleThreadId);
+    deletePreparedEvents.run(staleThreadId);
+    deleteThreadTitleAliases.run(staleThreadId);
+  }
+  db.prepare("DELETE FROM codex_sessions WHERE source_path = ? AND thread_id <> ?").run(sourcePath, threadId);
+}
+
 function repairCodexFtsRowidPinning(db: LooDatabase): void {
   const repairSafeText = codexFtsRowidPinningNeedsRepair(db, "codex_safe_text_fts");
   const repairSearch = codexFtsRowidPinningNeedsRepair(db, "codex_search_fts");
@@ -14120,6 +14140,7 @@ function upsertSession(
       driftMissingExpectedFieldsJson,
       driftReasonCodesJson
     );
+    clearRemappedSourcePathSessions(db, sourcePath, session.threadId);
     const oldSessionRowid = codexSessionRowid(db, session.threadId);
     if (oldSessionRowid !== null) {
       deleteCodexSafeTextFtsForSessionRowid(db, oldSessionRowid);
