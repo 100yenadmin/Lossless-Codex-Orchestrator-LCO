@@ -402,8 +402,8 @@ function validateQaLabRun(
 ): void {
   validateSchema(value, ["lco.qaLab.run.v1", "lco.qaLab.workflowRun.v1"], blockers, "qa_lab_run_schema_invalid", "qaLabRun");
   requireOneBoolean(value, ["qaLabReady", "workflowRunReady"], true, blockers, "P1", "qa_lab_run_not_ready", "qaLabRun", "QA Lab run evidence is not ready.");
-  requireOptionalString(value, "packageVersion", options.packageVersion, blockers, "qa_lab_run_version_mismatch", "qaLabRun", "QA Lab run package version does not match.");
-  requireOptionalString(value, "candidateSha", options.candidateSha, blockers, "qa_lab_run_sha_mismatch", "qaLabRun", "QA Lab run candidate SHA does not match.");
+  requireString(value, "packageVersion", options.packageVersion, blockers, "qa_lab_run_version_mismatch", "qaLabRun", "QA Lab run package version does not match.");
+  requireString(value, "candidateSha", options.candidateSha, blockers, "qa_lab_run_sha_mismatch", "qaLabRun", "QA Lab run candidate SHA does not match.");
   applyQaLabFindings(value, "qaLabRun", blockers, warnings);
 }
 
@@ -415,8 +415,8 @@ function validateQaLabToolCoverage(
 ): void {
   validateSchema(value, ["lco.qaLab.toolCoverage.v1"], blockers, "qa_lab_tool_coverage_schema_invalid", "qaLabToolCoverage");
   requireBoolean(value, "qaLabToolCoverageReady", true, blockers, "P2", "qa_lab_tool_coverage_not_ready", "qaLabToolCoverage", "QA Lab tool coverage evidence is not ready.");
-  requireOptionalString(value, "packageVersion", options.packageVersion, blockers, "qa_lab_tool_coverage_version_mismatch", "qaLabToolCoverage", "QA Lab tool coverage package version does not match.");
-  requireOptionalString(value, "candidateSha", options.candidateSha, blockers, "qa_lab_tool_coverage_sha_mismatch", "qaLabToolCoverage", "QA Lab tool coverage candidate SHA does not match.");
+  requireString(value, "packageVersion", options.packageVersion, blockers, "qa_lab_tool_coverage_version_mismatch", "qaLabToolCoverage", "QA Lab tool coverage package version does not match.");
+  requireString(value, "candidateSha", options.candidateSha, blockers, "qa_lab_tool_coverage_sha_mismatch", "qaLabToolCoverage", "QA Lab tool coverage candidate SHA does not match.");
   if (value.coveragePolicy !== "full") {
     addBlocker(blockers, "P2", "qa_lab_tool_coverage_not_full", "qaLabToolCoverage", "GA smoke requires full declared-tool coverage, not facade-only coverage.");
   }
@@ -466,19 +466,6 @@ function requireOneBoolean(
   detail: string
 ): void {
   if (!fields.some((field) => value[field] === expected)) addBlocker(blockers, severity, code, source, detail);
-}
-
-function requireOptionalString(
-  value: JsonRecord,
-  field: string,
-  expected: string,
-  blockers: ReleaseGaSmokeBlocker[],
-  code: string,
-  source: ReleaseGaSmokeSourceId,
-  detail: string
-): void {
-  if (value[field] === undefined || value[field] === null) return;
-  requireString(value, field, expected, blockers, code, source, detail);
 }
 
 function applyQaLabFindings(
