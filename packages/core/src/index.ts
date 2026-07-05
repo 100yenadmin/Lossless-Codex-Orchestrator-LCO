@@ -336,7 +336,7 @@ export type PreparedCard = {
   targetRef: string;
   cardKind: PreparedCardKind;
   title: string;
-  objective: string;
+  objective: string | null;
   summaryText: string;
   blocker: string | null;
   nextAction: string | null;
@@ -4114,7 +4114,7 @@ function materializePreparedCardsForThread(
       card.targetRef,
       card.cardKind,
       card.title,
-      card.objective,
+      card.objective ?? "",
       card.summaryText,
       card.blocker,
       card.nextAction,
@@ -4680,7 +4680,7 @@ type PreparedCardRow = {
   targetRef: string;
   cardKind: string;
   title: string;
-  objective: string;
+  objective: string | null;
   summaryText: string;
   blocker: string | null;
   nextAction: string | null;
@@ -4840,7 +4840,7 @@ function buildPreparedCardDraft(db: LooDatabase, threadId: string, leaves: Summa
 
 type PreparedCardWorkState = {
   title: string;
-  objective: string;
+  objective: string | null;
   summaryText: string;
   blocker: string | null;
   nextAction: string | null;
@@ -4876,6 +4876,7 @@ function derivePreparedCardWorkState(db: LooDatabase, input: PreparedCardWorkSta
     maxChars: 260,
     role: "summary"
   });
+  const objectiveText = presentationTextEquivalent(objective.text, safeTitle) ? null : objective.text;
   const finalMessage = input.session?.finalMessage && isLikelyFinal(input.session.finalMessage) ? input.session.finalMessage : null;
   const finalNextAction = finalMessage ? nextActionFromFinalMessage(finalMessage) : null;
   const planNextAction = latestPlan ? lastUncheckedPreparedPlanStep(latestPlan.text) : null;
@@ -4883,6 +4884,9 @@ function derivePreparedCardWorkState(db: LooDatabase, input: PreparedCardWorkSta
     maxChars: 240,
     role: "nextAction"
   });
+  const nextActionText = preparedCardActionOrNull(nextAction.text, [safeTitle, objectiveText]);
+  const nextActionLowConfidence = nextAction.lowConfidence || (nextAction.text !== null && nextActionText === null);
+  const nextActionCleaned = nextAction.cleaned || (nextAction.text !== null && nextActionText === null);
   const attention = getPreparedCardAttentionSignal(db, input.targetRef);
   const metadataBlocker = hasRealBlocker(input.metadata.blocker) ? input.metadata.blocker : null;
   const blocker = cleanOptionalPreparedCardField(attention.blocker ?? metadataBlocker, {
@@ -4892,31 +4896,31 @@ function derivePreparedCardWorkState(db: LooDatabase, input: PreparedCardWorkSta
   const touchedFiles = getCodexTouchedFiles(db, { threadId: input.threadId });
   const summaryText = preparedCardWorkSummary({
     state: input.state,
-    objective: objective.text,
+    objective: objectiveText,
     blocker: blocker.text,
-    nextAction: nextAction.text,
+    nextAction: nextActionText,
     finalMessage,
     touchedFiles
   });
   const reasonCodes = unique([
     threadRenameCaptured ? "from_thread_rename" : "from_thread_title",
-    objectiveSource ? "from_latest_plan" : "from_thread_title",
-    planNextAction ? "from_latest_plan" : finalNextAction ? "from_final_message" : "",
+    objectiveText ? objectiveSource ? "from_latest_plan" : "from_thread_title" : "",
+    nextActionText ? planNextAction ? "from_latest_plan" : finalNextAction ? "from_final_message" : "" : "",
     finalMessage && input.state === "completed" ? "from_final_message" : "",
     attention.blocker ? "from_attention_queue" : metadataBlocker ? "from_session_metadata" : "",
     ...attention.reasonCodes,
-    title.cleaned || objective.cleaned || nextAction.cleaned || blocker.cleaned ? "presentation_cleaned" : "",
-    title.lowConfidence || objective.lowConfidence || nextAction.lowConfidence || blocker.lowConfidence ? "presentation_low_confidence" : ""
+    title.cleaned || objective.cleaned || nextActionCleaned || blocker.cleaned ? "presentation_cleaned" : "",
+    title.lowConfidence || objective.lowConfidence || nextActionLowConfidence || blocker.lowConfidence ? "presentation_low_confidence" : ""
   ].filter(Boolean));
   return {
     title: safeTitle,
-    objective: objective.text,
+    objective: objectiveText,
     summaryText,
     blocker: blocker.text,
-    nextAction: nextAction.text,
+    nextAction: nextActionText,
     sourceRefs: attention.sourceRefs,
     reasonCodes,
-    lowConfidence: title.lowConfidence || objective.lowConfidence || nextAction.lowConfidence || blocker.lowConfidence
+    lowConfidence: title.lowConfidence || objective.lowConfidence || nextActionLowConfidence || blocker.lowConfidence
   };
 }
 
@@ -4937,24 +4941,26 @@ function firstPreparedPlanLine(planText: string): string | null {
 }
 
 function lastUncheckedPreparedPlanStep(planText: string): string | null {
-  const candidates = preparedPlanStepCandidates(planText).filter((candidate) => !candidate.checked);
+  const candidates = preparedPlanStepCandidates(planText).filter((candidate) => !candidate.checked && !candidate.heading);
   return candidates.at(-1)?.text ?? null;
 }
 
-function preparedPlanStepCandidates(planText: string): Array<{ text: string; checked: boolean }> {
-  const lineable = planText.replace(/\s+((?:[-*+]|\d+[.)]|\[(?: |x|X)\])\s+)/g, "\n$1");
+function preparedPlanStepCandidates(planText: string): Array<{ text: string; checked: boolean; heading: boolean }> {
+  const lineable = stripPlanEnvelopeTokens(planText).replace(/\s+((?:[-*+]|\d+[.)]|\[(?: |x|X)\])\s+)/g, "\n$1");
   return lineable
     .split(/\r?\n/)
     .map((line) => {
       const raw = line.trim();
+      const heading = /^#{1,6}\s+/.test(raw);
       const checked = /^\s*(?:[-*+]\s*)?(?:\d+[.)]\s*)?\[[xX]\]/.test(raw);
       const text = raw
         .replace(/^#{1,6}\s+/, "")
         .replace(/^\s*(?:[-*+]\s*)?(?:\d+[.)]\s*)?\[(?: |x|X)\]\s*/, "")
         .replace(/^\s*(?:[-*+]\s*)?(?:\d+[.)]\s*)/, "")
         .replace(/^\s*[-*+]\s*/, "")
+        .replace(/\s+#{1,6}\s+[A-Za-z0-9][\w\s:/.-]{0,100}$/i, "")
         .trim();
-      return { text, checked };
+      return { text, checked, heading };
     })
     .filter((candidate) => candidate.text.length > 0 && !isMarkdownTableLine(candidate.text));
 }
@@ -5057,9 +5063,92 @@ function cleanOptionalPreparedCardField(value: string | null | undefined, option
   return cleaned;
 }
 
+function preparedCardActionOrNull(value: string | null, distinctFrom: Array<string | null>): string | null {
+  if (!value || !isPreparedCardActionText(value)) return null;
+  return distinctFrom.some((candidate) => presentationTextEquivalent(value, candidate)) ? null : value;
+}
+
+const PREPARED_CARD_ACTION_VERBS = new Set([
+  "add",
+  "address",
+  "apply",
+  "approve",
+  "archive",
+  "audit",
+  "build",
+  "check",
+  "clean",
+  "close",
+  "commit",
+  "continue",
+  "create",
+  "debug",
+  "deploy",
+  "document",
+  "expand",
+  "fix",
+  "follow",
+  "gather",
+  "implement",
+  "inspect",
+  "investigate",
+  "keep",
+  "land",
+  "merge",
+  "monitor",
+  "open",
+  "patch",
+  "publish",
+  "push",
+  "re-check",
+  "refresh",
+  "release",
+  "remove",
+  "rerun",
+  "resolve",
+  "resume",
+  "review",
+  "run",
+  "ship",
+  "smoke",
+  "strip",
+  "summarize",
+  "sync",
+  "update",
+  "use",
+  "validate",
+  "verify",
+  "wait",
+  "watch",
+  "write"
+]);
+
+function isPreparedCardActionText(value: string | null | undefined): boolean {
+  const text = trimTerminalPunctuation(value ?? "").toLowerCase();
+  const firstWord = text.match(/^[a-z]+(?:-[a-z]+)?/)?.[0] ?? "";
+  return PREPARED_CARD_ACTION_VERBS.has(firstWord);
+}
+
+function presentationTextEquivalent(left: string | null | undefined, right: string | null | undefined): boolean {
+  const leftNorm = normalizedPresentationText(left);
+  const rightNorm = normalizedPresentationText(right);
+  return Boolean(leftNorm && rightNorm && (leftNorm === rightNorm || leftNorm.startsWith(`${rightNorm} `) || rightNorm.startsWith(`${leftNorm} `)));
+}
+
+function normalizedPresentationText(value: string | null | undefined): string {
+  return stripPlanEnvelopeTokens(value ?? "")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\s+#{1,6}\s+[A-Za-z0-9][\w\s:/.-]{0,100}$/gim, "")
+    .replace(/^(?:title|final|summary|objective|next action|next|action)\s*:\s*/i, "")
+    .replace(/[.!?;:]+$/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
 function preparedCardWorkSummary(input: {
   state: PreparedCardState;
-  objective: string;
+  objective: string | null;
   blocker: string | null;
   nextAction: string | null;
   finalMessage: string | null;
@@ -5067,7 +5156,7 @@ function preparedCardWorkSummary(input: {
 }): string {
   const topFile = input.touchedFiles.map(publicPreparedTouchedFileLabel).find((file): file is string => Boolean(file)) ?? null;
   const next = input.nextAction ? trimTerminalPunctuation(input.nextAction) : null;
-  const objective = trimTerminalPunctuation(input.objective);
+  const objective = input.objective ? trimTerminalPunctuation(input.objective) : "";
   if (input.blocker) {
     const blocker = trimTerminalPunctuation(input.blocker);
     return publicSafeText(`Blocked: ${blocker}${next ? `; next ${next}` : ""}${topFile ? `; last touched ${topFile}` : ""}.`, 320);
@@ -5124,7 +5213,7 @@ function publicPreparedCardFromRow(row: PreparedCardRow): PreparedCard | null {
     targetRef: row.targetRef,
     cardKind: "codex_session",
     title: publicSafeText(row.title, 160),
-    objective: publicSafeText(row.objective, 260),
+    objective: row.objective?.trim() ? publicSafeText(row.objective, 260) : null,
     summaryText: publicSafeText(row.summaryText, 320),
     blocker: row.blocker === null ? null : publicSafeText(row.blocker, 240),
     nextAction: row.nextAction === null ? null : publicSafeText(row.nextAction, 240),
@@ -5269,12 +5358,12 @@ function isPublicPreparedCardRow(
     && sourceRefs.length > 0
     && sourceRangeRefs.every((ref) => /^codex_range:[0-9a-f]{32}$/.test(ref))
     && row.title === publicSafeText(row.title, 160)
-    && row.objective === publicSafeText(row.objective, 260)
+    && (row.objective === null || row.objective === "" || row.objective === publicSafeText(row.objective, 260))
     && row.summaryText === publicSafeText(row.summaryText, 320)
     && (row.blocker === null || row.blocker === publicSafeText(row.blocker, 240))
     && (row.nextAction === null || row.nextAction === publicSafeText(row.nextAction, 240))
     && !looksSensitiveRefLike(row.title)
-    && !looksSensitiveRefLike(row.objective)
+    && !looksSensitiveRefLike(row.objective ?? "")
     && !looksSensitiveRefLike(row.summaryText)
     && !looksSensitiveRefLike(row.blocker ?? "")
     && !looksSensitiveRefLike(row.nextAction ?? "")
@@ -10001,7 +10090,7 @@ function codexSessionPresentation(entry: CodexThreadMapEntry): CardPresentation 
 function cleanCardPresentationText(value: string | null | undefined, options: { fallback: string; maxChars: number; role: "title" | "summary" | "nextAction" }): CardPresentationCleanResult {
   const fallback = publicSafeText(options.fallback, options.maxChars);
   const raw = publicSafeText(value ?? "", Math.max(options.maxChars * 3, 500));
-  const withoutDirectives = raw.replace(/(?:::)?[A-Za-z0-9_-]+\{[\s\S]*?\}/g, " ");
+  const withoutDirectives = stripPlanEnvelopeTokens(raw).replace(/(?:::)?[A-Za-z0-9_-]+\{[\s\S]*?\}/g, " ");
   const fragments = withoutDirectives
     .split(/\r?\n/)
     .map((line) => cleanCardPresentationFragment(line, options.role))
@@ -10020,6 +10109,10 @@ function cleanCardPresentationText(value: string | null | undefined, options: { 
     cleaned: text !== publicSafeText(value ?? "", options.maxChars),
     lowConfidence: false
   };
+}
+
+function stripPlanEnvelopeTokens(value: string): string {
+  return value.replace(/<\/?proposed_plan>/gi, " ");
 }
 
 function presentationDirectiveFields(value: string | null | undefined): Record<string, string> {
@@ -10051,7 +10144,9 @@ function cleanCardPresentationFragment(value: string, role: "title" | "summary" 
   let text = value
     .trim()
     .replace(/^[-*]\s+/, "")
+    .replace(/^#{1,6}\s+/, "")
     .replace(/^["'`]+|["'`]+$/g, "")
+    .replace(/\s+#{1,6}\s+[A-Za-z0-9][\w\s:/.-]{0,100}$/i, "")
     .trim();
   let previous = "";
   while (text !== previous) {
@@ -10061,6 +10156,7 @@ function cleanCardPresentationFragment(value: string, role: "title" | "summary" 
   const embeddedLabel = text.match(/\s(?:title|final|summary|objective|next action|next|status|priority|owner|blocker|source refs?|proposed plan refs?|final-message refs?|touched-file refs?)\s*:/i);
   if (embeddedLabel?.index && embeddedLabel.index > 0) text = text.slice(0, embeddedLabel.index).trim();
   if (role === "title") text = text.replace(/\s+(?:final|summary|next action|next)\s*:.*$/i, "").trim();
+  text = text.replace(/\s+#{1,6}\s+[A-Za-z0-9][\w\s:/.-]{0,100}$/i, "").trim();
   return text;
 }
 
@@ -10080,6 +10176,8 @@ function dedupePresentationSentences(value: string): string {
 function usableCardPresentationText(value: string): boolean {
   const text = value.trim();
   if (!text) return false;
+  if (/<\/?proposed_plan>/i.test(text)) return false;
+  if (/^#{1,6}\s+/.test(text)) return false;
   if (/(?:::)?[A-Za-z0-9_-]+\{/.test(text)) return false;
   if (isMarkdownTableLine(text)) return false;
   if ((text.match(/\|/g)?.length ?? 0) >= 2) return false;

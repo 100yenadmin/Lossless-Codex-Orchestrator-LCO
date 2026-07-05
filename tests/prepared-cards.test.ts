@@ -108,6 +108,64 @@ function writePreparedFinalOnlyJsonl(path: string): string {
   return threadId;
 }
 
+function writePreparedMarkedPlanJsonl(path: string): string {
+  const threadId = "019f-prepared-marked-plan";
+  const lines = [
+    { timestamp: "2026-07-05T12:00:00.000Z", session_meta: { payload: { id: threadId, model: "gpt-5.5" } } },
+    {
+      timestamp: "2026-07-05T12:00:01.000Z",
+      event_msg: {
+        type: "thread_name",
+        name: "<proposed_plan>\n## Debug Plan For Prepared Cards"
+      }
+    },
+    {
+      timestamp: "2026-07-05T12:00:02.000Z",
+      response_item: {
+        type: "message",
+        role: "assistant",
+        content: [{
+          type: "output_text",
+          text: [
+            "<proposed_plan>",
+            "## Debug Plan For Prepared Cards",
+            "1. Strip plan envelope from presentation fields. ### Summary",
+            "2. Verify clean card fields.",
+            "### Summary",
+            "</proposed_plan>"
+          ].join("\n")
+        }]
+      }
+    },
+    {
+      timestamp: "2026-07-05T12:00:03.000Z",
+      event_msg: {
+        type: "agent_message",
+        message: "Final: marked plan card cleanup is ready for review."
+      }
+    }
+  ];
+  writeFileSync(path, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+  return threadId;
+}
+
+function writePreparedDuplicateFinalOnlyJsonl(path: string): string {
+  const threadId = "019f-prepared-duplicate-final";
+  const lines = [
+    { timestamp: "2026-07-05T13:00:00.000Z", session_meta: { payload: { id: threadId, model: "gpt-5.5" } } },
+    { timestamp: "2026-07-05T13:00:01.000Z", event_msg: { type: "thread_name", name: "Ship final-only duplicate lane." } },
+    {
+      timestamp: "2026-07-05T13:00:02.000Z",
+      event_msg: {
+        type: "agent_message",
+        message: "Final: Ship final-only duplicate lane."
+      }
+    }
+  ];
+  writeFileSync(path, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+  return threadId;
+}
+
 function summaryLeafText(leafKind: string, rangeCount: number): string {
   const label: Record<string, string> = {
     user_prompt: "User prompt evidence",
@@ -438,7 +496,7 @@ test("prepared cards derive next action from likely final messages without plan 
 
     const card = getPreparedCards(db, { threadId, limit: 10 }).cards[0]!;
     assert.equal(card.title, "Final-only card lane");
-    assert.equal(card.objective, "Final-only card lane");
+    assert.equal(card.objective, null);
     assert.equal(card.nextAction, "Publish the review handoff.");
     assert.equal(card.blocker, null);
     assert.match(card.summaryText, /Working on: Publish the review handoff/);
@@ -540,6 +598,59 @@ test("prepared card attention advisory codes do not synthesize blockers", () => 
     assert.equal(card.reasonCodes.includes("watcher_not_configured"), true);
     assert.equal(card.reasonCodes.includes("summary_leaves_missing"), true);
     assert.doesNotMatch(card.summaryText, /^Blocked:/);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared cards strip plan envelope and heading markup from presentation fields", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-marked-plan-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const threadId = writePreparedMarkedPlanJsonl(join(sessions, "rollout-2026-07-05T12-00-00-019f-prepared-marked-plan.jsonl"));
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    materializeSummaryLeaves(db, { threadId });
+    materializePreparedCards(db, { threadId });
+
+    const card = getPreparedCards(db, { threadId, limit: 10 }).cards[0]!;
+    assert.equal(card.title, "Debug Plan For Prepared Cards");
+    assert.equal(card.objective, null);
+    assert.equal(card.nextAction, "Verify clean card fields.");
+    assert.equal(card.reasonCodes.includes("presentation_cleaned"), true);
+
+    for (const value of [card.title, card.objective, card.nextAction, card.summaryText]) {
+      assert.doesNotMatch(value ?? "", /<\/?proposed_plan>/i);
+      assert.doesNotMatch(value ?? "", /(^|\s)#{1,6}\s/);
+    }
+    assert.doesNotMatch(card.objective ?? "", /Summary/i);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared cards collapse duplicate weak final-only fields", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-duplicate-final-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const threadId = writePreparedDuplicateFinalOnlyJsonl(join(sessions, "rollout-2026-07-05T13-00-00-019f-prepared-duplicate-final.jsonl"));
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    materializeSummaryLeaves(db, { threadId });
+    materializePreparedCards(db, { threadId });
+
+    const card = getPreparedCards(db, { threadId, limit: 10 }).cards[0]!;
+    assert.equal(card.title, "Ship final-only duplicate lane.");
+    assert.equal(card.objective, null);
+    assert.equal(card.nextAction, null);
+    assert.equal(card.reasonCodes.includes("presentation_low_confidence"), true);
+    assert.doesNotMatch(card.summaryText, /Ship final-only duplicate lane/i);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
