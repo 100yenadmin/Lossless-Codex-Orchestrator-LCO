@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
@@ -23,7 +23,9 @@ test("retrieval goldens preserve the recorded field-weighted FTS floors", () => 
 
   assert.equal(payload.schema, "lco.retrievalGoldens.v1");
   assert.equal(payload.scenarios.length >= 30 && payload.scenarios.length <= 50, true);
+  assert.deepEqual(payload.codexRoots, ["./sessions"]);
   assert.equal(fixtureRoots.length, 1);
+  assert.match(fixtureRoots[0]!, /evals\/scenarios\/retrieval-goldens\/v1\/sessions$/);
   assert.equal(existsSync(fixtureRoots[0]!), true);
   assert.equal(readdirSync(fixtureRoots[0]!).filter((name) => name.endsWith(".jsonl")).length >= 25, true);
   for (const scenario of payload.scenarios) {
@@ -123,6 +125,58 @@ test("loo eval retrieval strict mode writes a public-safe baseline regression re
   }
 });
 
+test("loo eval retrieval strict mode fails closed when the referenced corpus is missing", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-retrieval-missing-corpus-"));
+  const missingScenarioFile = join(root, "missing-corpus-goldens.json");
+  const evidencePath = join(root, "retrieval-missing-corpus-report.json");
+  const payload = readJson(scenarioFile) as RetrievalGoldenPayload;
+  writeFileSync(missingScenarioFile, `${JSON.stringify({
+    ...payload,
+    codexRoots: ["./missing-sessions"],
+    scenarios: payload.scenarios.slice(0, 1)
+  }, null, 2)}\n`);
+  try {
+    const result = spawnSync(process.execPath, [
+      "--import",
+      "tsx",
+      "packages/cli/src/index.ts",
+      "eval",
+      "retrieval",
+      "--scenario-file",
+      missingScenarioFile,
+      "--evidence-path",
+      evidencePath,
+      "--strict"
+    ], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      maxBuffer: 20 * 1024 * 1024
+    });
+
+    assert.notEqual(result.status, 0, result.stderr || result.stdout);
+    const reportText = readFileSync(evidencePath, "utf8");
+    const report = JSON.parse(reportText) as {
+      ok: boolean;
+      publicSafe: boolean;
+      blockers: string[];
+      metrics?: unknown;
+      scenarios?: unknown;
+      nextSafeCommands: string[];
+      actionsPerformed: Record<string, false>;
+    };
+    assert.equal(report.ok, false);
+    assert.equal(report.publicSafe, true);
+    assert.equal(report.blockers.some((blocker) => blocker.startsWith("corpus_missing:")), true);
+    assert.equal("metrics" in report, false);
+    assert.equal("scenarios" in report, false);
+    assert.equal(report.nextSafeCommands.some((command) => command.includes("mkdir -p")), true);
+    assert.equal(Object.values(report.actionsPerformed).every((value) => value === false), true);
+    assert.doesNotMatch(reportText, /\/Users\/|\/Volumes\/|\.jsonl|\.sqlite|PRIVATE_CANARY_TOKEN/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 function readJson(path: string): any {
   return JSON.parse(readFileSync(path, "utf8"));
 }
@@ -139,4 +193,3 @@ type RetrievalGoldenPayload = {
     k: number;
   }>;
 };
-

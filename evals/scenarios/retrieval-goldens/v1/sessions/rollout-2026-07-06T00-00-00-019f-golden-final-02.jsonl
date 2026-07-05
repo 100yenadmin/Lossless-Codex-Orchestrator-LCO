@@ -1,0 +1,5 @@
+{"timestamp":"2026-07-06T00:11:00.000Z","session_meta":{"payload":{"id":"019f-golden-final-02","cwd":"/workspace/lco-goldens","model":"gpt-5.5","git":{"branch":"issue-545-retrieval-goldens","commit_hash":"goldenfixture"}}}}
+{"timestamp":"2026-07-06T00:11:00.000Z","event_msg":{"type":"thread_name","name":"Golden final bravo"}}
+{"timestamp":"2026-07-06T00:11:00.000Z","response_item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"<proposed_plan>\nPrepare final-shaped retrieval fixture for bravo.\n\n</proposed_plan>"}]}}
+{"timestamp":"2026-07-06T00:11:00.000Z","response_item":{"type":"function_call","call_id":"019f-golden-final-02-tool","name":"functions.exec_command","arguments":"{\"cmd\":\"sed -n '1,80p' packages/cli/src/goldens/bravo-final.ts\"}"}}
+{"timestamp":"2026-07-06T00:11:00.000Z","event_msg":{"type":"agent_message","message":"Final: binary gate final verifier complete with no release claim"}}
