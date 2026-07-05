@@ -116,7 +116,7 @@ function writePreparedMarkedPlanJsonl(path: string): string {
       timestamp: "2026-07-05T12:00:01.000Z",
       event_msg: {
         type: "thread_name",
-        name: "<proposed_plan>\n## Debug Plan For Prepared Cards"
+        name: "<proposed_plan>\n## Debug Plan For Prepared Cards ### Summary Using only public-safe rows to reproduce flattened plan heading bleed after newlines are collapsed into one card field candidate with enough detail to exceed the old suffix-only cleanup limit."
       }
     },
     {
@@ -128,7 +128,8 @@ function writePreparedMarkedPlanJsonl(path: string): string {
           type: "output_text",
           text: [
             "<proposed_plan>",
-            "## Debug Plan For Prepared Cards",
+            "## Debug Plan For Prepared Cards ## Summary Using only public-safe rows to reproduce flattened plan heading bleed after newlines are collapsed into one card field candidate with enough detail to exceed the old suffix-only cleanup limit.",
+            "## Summary",
             "1. Strip plan envelope from presentation fields. ### Summary",
             "2. Verify clean card fields.",
             "### Summary",

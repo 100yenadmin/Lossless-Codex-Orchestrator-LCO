@@ -4964,7 +4964,7 @@ function preparedPlanStepCandidates(planText: string): Array<{ text: string; che
         .replace(/^\s*[-*+]\s*/, "")
         .replace(/\s+#{1,6}\s+[A-Za-z0-9][\w\s:/.-]{0,100}$/i, "")
         .trim();
-      return { text, checked, heading };
+      return { text: cutEmbeddedHeadingMarker(text), checked, heading };
     })
     .filter((candidate) => candidate.text.length > 0 && !isMarkdownTableLine(candidate.text));
 }
@@ -5139,11 +5139,12 @@ function presentationTextEquivalent(left: string | null | undefined, right: stri
 }
 
 function normalizedPresentationText(value: string | null | undefined): string {
-  return stripPlanEnvelopeTokens(value ?? "")
+  const withoutMarkup = stripPlanEnvelopeTokens(value ?? "")
     .replace(/^#{1,6}\s+/gm, "")
     .replace(/\s+#{1,6}\s+[A-Za-z0-9][\w\s:/.-]{0,100}$/gim, "")
     .replace(/^(?:title|final|summary|objective|next action|next|action)\s*:\s*/i, "")
-    .replace(/[.!?;:]+$/g, "")
+    .replace(/[.!?;:]+$/g, "");
+  return cutEmbeddedHeadingMarker(withoutMarkup)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
@@ -10151,6 +10152,7 @@ function cleanCardPresentationFragment(value: string, role: "title" | "summary" 
     .replace(/^["'`]+|["'`]+$/g, "")
     .replace(/\s+#{1,6}\s+[A-Za-z0-9][\w\s:/.-]{0,100}$/i, "")
     .trim();
+  text = cutEmbeddedHeadingMarker(text);
   let previous = "";
   while (text !== previous) {
     previous = text;
@@ -10160,7 +10162,13 @@ function cleanCardPresentationFragment(value: string, role: "title" | "summary" 
   if (embeddedLabel?.index && embeddedLabel.index > 0) text = text.slice(0, embeddedLabel.index).trim();
   if (role === "title") text = text.replace(/\s+(?:final|summary|next action|next)\s*:.*$/i, "").trim();
   text = text.replace(/\s+#{1,6}\s+[A-Za-z0-9][\w\s:/.-]{0,100}$/i, "").trim();
-  return text;
+  return cutEmbeddedHeadingMarker(text);
+}
+
+function cutEmbeddedHeadingMarker(value: string): string {
+  const embeddedHeading = value.match(/\s#{1,3}\s+/);
+  if (embeddedHeading?.index && embeddedHeading.index > 0) return value.slice(0, embeddedHeading.index).trim();
+  return value.replace(/\s#{1,3}\s+/g, " ").trim();
 }
 
 function isMarkdownTableLine(value: string): boolean {
