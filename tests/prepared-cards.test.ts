@@ -457,6 +457,12 @@ test("prepared cards carry real objective blocker next action and fresh renamed 
     indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
     insertAttentionQueueRow(db, threadId);
     materializeSummaryLeaves(db, { threadId });
+    db.prepare(`
+      UPDATE prepared_source_events
+      SET extractor_version = ?
+      WHERE thread_id = ?
+        AND event_kind = 'thread_name_updated'
+    `).run("prepared-source-events-v0", threadId);
     materializePreparedCards(db, { threadId });
 
     const cards = getPreparedCards(db, { threadId, limit: 10 });
@@ -472,10 +478,66 @@ test("prepared cards carry real objective blocker next action and fresh renamed 
     assert.doesNotMatch(card.summaryText, /summary leaf|prepared source range|Lifecycle:/i);
     assert.doesNotMatch(card.summaryText, /\b(?:Title|Final|Objective|Next action):/i);
     assert.equal(card.reasonCodes.includes("from_latest_plan"), true);
+    assert.equal(card.reasonCodes.includes("from_final_message"), true);
     assert.equal(card.reasonCodes.includes("from_thread_rename"), true);
     assert.equal(card.reasonCodes.includes("from_attention_queue"), true);
     assert.equal(card.reasonCodes.includes("ci_failed"), true);
     assert.equal(JSON.stringify(card).includes("Touched packages/core/src/index.ts while keeping raw spans hidden"), false);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared cards choose the first pending plan action when no explicit final next action exists", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-plan-first-action-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const threadId = "019f-prepared-plan-first-action";
+  const lines = [
+    { timestamp: "2026-07-05T11:15:00.000Z", session_meta: { payload: { id: threadId, model: "gpt-5.5" } } },
+    { timestamp: "2026-07-05T11:15:01.000Z", event_msg: { type: "thread_name", name: "Plan first action lane" } },
+    {
+      timestamp: "2026-07-05T11:15:02.000Z",
+      response_item: {
+        type: "message",
+        role: "assistant",
+        content: [{
+          type: "output_text",
+          text: [
+            "<proposed_plan>",
+            "1. The product goal is ready for card proof.",
+            "2. Build the earliest pending prepared-card proof.",
+            "3. Verify the later release proof.",
+            "</proposed_plan>"
+          ].join("\n")
+        }]
+      }
+    },
+    {
+      timestamp: "2026-07-05T11:15:03.000Z",
+      event_msg: {
+        type: "agent_message",
+        message: "Final: Plan-only card proof remains in progress."
+      }
+    }
+  ];
+  writeFileSync(
+    join(sessions, "rollout-2026-07-05T11-15-00-019f-prepared-plan-first-action.jsonl"),
+    lines.map((line) => JSON.stringify(line)).join("\n") + "\n"
+  );
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    materializeSummaryLeaves(db, { threadId });
+    materializePreparedCards(db, { threadId });
+
+    const card = getPreparedCards(db, { threadId, limit: 10 }).cards[0]!;
+    assert.equal(card.objective, "The product goal is ready for card proof.");
+    assert.equal(card.nextAction, "Build the earliest pending prepared-card proof.");
+    assert.doesNotMatch(card.summaryText, /Verify the later release proof/);
+    assert.equal(card.reasonCodes.includes("from_latest_plan"), true);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -619,7 +681,7 @@ test("prepared cards strip plan envelope and heading markup from presentation fi
     const card = getPreparedCards(db, { threadId, limit: 10 }).cards[0]!;
     assert.equal(card.title, "Debug Plan For Prepared Cards");
     assert.equal(card.objective, null);
-    assert.equal(card.nextAction, "Verify clean card fields.");
+    assert.equal(card.nextAction, "Strip plan envelope from presentation fields.");
     assert.equal(card.reasonCodes.includes("presentation_cleaned"), true);
 
     for (const value of [card.title, card.objective, card.nextAction, card.summaryText]) {

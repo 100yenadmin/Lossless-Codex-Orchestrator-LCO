@@ -4879,8 +4879,9 @@ function derivePreparedCardWorkState(db: LooDatabase, input: PreparedCardWorkSta
   const objectiveText = presentationTextEquivalent(objective.text, safeTitle) ? null : objective.text;
   const finalMessage = input.session?.finalMessage && isLikelyFinal(input.session.finalMessage) ? input.session.finalMessage : null;
   const finalNextAction = finalMessage ? nextActionFromFinalMessage(finalMessage) : null;
-  const planNextAction = latestPlan ? lastUncheckedPreparedPlanStep(latestPlan.text) : null;
-  const nextAction = cleanOptionalPreparedCardField(planNextAction ?? finalNextAction, {
+  const planNextAction = latestPlan ? firstUncheckedPreparedPlanStep(latestPlan.text, [safeTitle, objectiveText]) : null;
+  const nextActionSource = finalNextAction ? "from_final_message" : planNextAction ? "from_latest_plan" : null;
+  const nextAction = cleanOptionalPreparedCardField(finalNextAction ?? planNextAction, {
     maxChars: 240,
     role: "nextAction"
   });
@@ -4905,7 +4906,7 @@ function derivePreparedCardWorkState(db: LooDatabase, input: PreparedCardWorkSta
   const reasonCodes = unique([
     threadRenameCaptured ? "from_thread_rename" : "from_thread_title",
     objectiveText ? objectiveSource ? "from_latest_plan" : "from_thread_title" : "",
-    nextActionText ? planNextAction ? "from_latest_plan" : finalNextAction ? "from_final_message" : "" : "",
+    nextActionText && nextActionSource ? nextActionSource : "",
     finalMessage && input.state === "completed" ? "from_final_message" : "",
     attention.blocker ? "from_attention_queue" : metadataBlocker ? "from_session_metadata" : "",
     ...attention.reasonCodes,
@@ -4940,9 +4941,12 @@ function firstPreparedPlanLine(planText: string): string | null {
   return preparedPlanStepCandidates(planText)[0]?.text ?? null;
 }
 
-function lastUncheckedPreparedPlanStep(planText: string): string | null {
+function firstUncheckedPreparedPlanStep(planText: string, distinctFrom: Array<string | null>): string | null {
   const candidates = preparedPlanStepCandidates(planText).filter((candidate) => !candidate.checked && !candidate.heading);
-  return candidates.at(-1)?.text ?? null;
+  return candidates.find((candidate) =>
+    isPreparedCardActionText(candidate.text)
+    && !distinctFrom.some((existing) => presentationTextEquivalent(candidate.text, existing))
+  )?.text ?? null;
 }
 
 function preparedPlanStepCandidates(planText: string): Array<{ text: string; checked: boolean; heading: boolean }> {
@@ -5042,10 +5046,9 @@ function preparedThreadRenameCaptured(db: LooDatabase, threadId: string): boolea
     FROM prepared_source_events
     WHERE thread_id = ?
       AND event_kind = 'thread_name_updated'
-      AND extractor_version = ?
       AND privacy_class = 'public_safe_metadata'
     LIMIT 1
-  `).get(threadId, PREPARED_SOURCE_EXTRACTOR_VERSION);
+  `).get(threadId);
   return Boolean(row);
 }
 
