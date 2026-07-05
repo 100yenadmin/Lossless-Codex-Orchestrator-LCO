@@ -246,6 +246,8 @@ function createFakeOpenClaw(
     omitDryRunMessageHash?: boolean;
     weakDesktopActProof?: boolean;
     bareDesktopActStatus?: boolean;
+    markerOnlyDesktopActProof?: boolean;
+    arbitraryProofReportBlocker?: boolean;
     deepDesktopActProof?: boolean;
     wideDesktopActProof?: boolean;
     gatewayRefusedToolName?: string;
@@ -280,6 +282,8 @@ function createFakeOpenClaw(
     ? `{ publicSafe: true, readOnly: true, reasonCodes: ["blocked"], actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false } }`
     : options.bareDesktopActStatus
       ? `{ publicSafe: true, readOnly: true, status: "blocked", actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false } }`
+    : options.markerOnlyDesktopActProof
+      ? `{ publicSafe: true, readOnly: true, status: "blocked", proofMarkers: { noActionObserved: true }, actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false } }`
     : options.deepDesktopActProof
       ? `(() => { const output = { publicSafe: true, readOnly: true, status: "blocked", actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false } }; let cursor = output; for (let index = 0; index < 80; index += 1) { cursor.nested = {}; cursor = cursor.nested; } return output; })()`
       : options.wideDesktopActProof
@@ -493,7 +497,7 @@ if (method === "tools.invoke") {
     process.exit(0);
   }
   if (name === "loo_desktop_proof_report") {
-    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, readOnly: true, status: "not_observed", blockers: ["live_action_not_observed"], proofMarkers: { liveActionObserved: false, rawScreenshotIncluded: false, rawSecretIncluded: false }, actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false } } }));
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, readOnly: true, status: "not_observed", blockers: ${options.arbitraryProofReportBlocker ? "[\"any-reason\"]" : "[\"live_action_not_observed\"]"}, proofMarkers: ${options.arbitraryProofReportBlocker ? "{}" : "{ liveActionObserved: false, rawScreenshotIncluded: false, rawSecretIncluded: false }"}, actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false } } }));
     process.exit(0);
   }
   if (name === "loo_desktop_live_proof_harness") {
@@ -1137,6 +1141,49 @@ test("OpenClaw tool smoke rejects bare blocked desktop action status without no-
     assert.equal(report.toolSmokeReady, false);
     assert.ok(report.blockers.includes("expected_fail_closed_not_proven:loo_desktop_act"), JSON.stringify(report, null, 2));
     assert.equal(report.invocations.find((call) => call.toolName === "loo_desktop_act")?.ok, false);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke accepts explicit no-action marker for desktop action proof without blockers", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-marker-desktop-act-"));
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_desktop_act"], "flat", {
+    markerOnlyDesktopActProof: true
+  });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      requiredTools: ["loo_desktop_act"]
+    });
+
+    assert.equal(report.toolSmokeReady, true, JSON.stringify(report, null, 2));
+    assert.equal(report.invocations.find((call) => call.toolName === "loo_desktop_act")?.ok, true);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke rejects arbitrary blocker strings as fail-closed proof", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-arbitrary-blocker-"));
+  const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_desktop_proof_report"], "flat", {
+    arbitraryProofReportBlocker: true
+  });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      requiredTools: ["loo_desktop_proof_report"]
+    });
+
+    assert.equal(report.toolSmokeReady, false);
+    assert.ok(report.blockers.includes("expected_fail_closed_not_proven:loo_desktop_proof_report"), JSON.stringify(report, null, 2));
+    assert.equal(report.invocations.find((call) => call.toolName === "loo_desktop_proof_report")?.summary.toolBlockers, undefined);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;

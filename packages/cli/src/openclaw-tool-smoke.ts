@@ -127,6 +127,7 @@ const MAX_RESTRICTED_ACTION_SCAN_ENTRIES = 512;
 const SAFE_FAIL_CLOSED_REASON_CODES_BY_TOOL = new Map<string, Set<string>>([
   ["loo_codex_start_thread_post_create_proof", new Set(["post_create_proof_missing_persisted_evidence", "created_thread_not_persisted"])],
   ["loo_codex_desktop_fallback_status", new Set(["coherence_input_missing", "desktop_visibility_not_proven"])],
+  ["loo_desktop_act", new Set(["desktop_live_action_disallowed"])],
   ["loo_desktop_proof_report", new Set(["live_action_not_observed"])],
   ["loo_desktop_live_proof_harness", new Set(["desktop_live_action_not_run"])],
   ["loo_desktop_proof_action", new Set(["execute_false_no_action"])]
@@ -410,7 +411,7 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
       broadGatewayScopeApproval: false
     },
     privateDataExclusions: PRIVATE_DATA_EXCLUSIONS,
-    proofBoundary: "This OpenClaw tool-call smoke proves public-safe gateway invocation of selected loo_* tools only. Dry-run proof trusts the plugin/server dry_run response plus audit/hash markers and is not an independent live-action disproof. It does not approve live Codex control, GUI mutation, npm publish, GitHub Release creation, channel delivery, broad gateway scope approval, Claude parity, or release-grade customer readiness.",
+    proofBoundary: "This OpenClaw tool-call smoke proves public-safe gateway invocation of selected loo_* tools only. Dry-run proof trusts the plugin/server dry_run response plus audit/hash markers and is not an independent live-action disproof. Desktop fail-closed proof is bound to request-side dry_run:true where applicable plus allowlisted blocker/reason/proof-marker response evidence. It does not approve live Codex control, GUI mutation, npm publish, GitHub Release creation, channel delivery, broad gateway scope approval, Claude parity, or release-grade customer readiness.",
     nextAction: nextActionForBlockers(uniqueBlockers)
   };
 
@@ -436,7 +437,7 @@ function productEvidenceClaimedForDisposition(disposition: OpenClawToolSmokeDisp
 
 function dispositionReason(disposition: OpenClawToolSmokeDisposition, toolName: string): string {
   if (disposition === "successful_invocation") return "Tool is safe to invoke with public-safe fixture arguments.";
-  if (disposition === "successful_dry_run" && toolName === "loo_codex_start_thread") return "Tool is control-capable and must prove dry_run:true plus params hash only; this does not claim thread-bound control semantics.";
+  if (disposition === "successful_dry_run" && toolName === "loo_codex_start_thread") return "Tool is control-capable and must be requested with dry_run:true, then prove live:false plus approval audit and params hash from the response; this does not claim thread-bound control semantics.";
   if (disposition === "successful_dry_run") return "Tool is control-capable and must be invoked only with dry_run:true or equivalent dry-run proof.";
   if (disposition === "expected_fail_closed") return "Tool is included only to prove a public-safe blocked/no-action boundary, not product success.";
   if (disposition === "unknown_non_claim") return "Tool has no explicit QA Lab smoke disposition and must not be invoked or counted as product evidence.";
@@ -470,7 +471,7 @@ function buildSmokeDispositionPlan(
       unknown_non_claim: entries.filter((entry) => entry.disposition === "unknown_non_claim").length
     },
     entries,
-    proofBoundary: "Successful invocation and successful dry-run entries may count as product gateway evidence; dry-run entries trust explicit dry_run/live:false plus audit/hash markers from the tool response and do not independently prove live action absence. Expected fail-closed entries prove only safe refusal/no-action behavior. Excluded and unknown non-claim entries are catalog/disposition records only and must not be counted as product invocation proof."
+    proofBoundary: "Successful invocation and successful dry-run entries may count as product gateway evidence; dry-run entries trust explicit dry_run/live:false plus audit/hash markers from the tool response and do not independently prove live action absence. Expected fail-closed entries prove only safe refusal/no-action behavior using allowlisted blocker/reason/proof-marker evidence, and desktop action proof is additionally bound to request-side dry_run:true. Excluded and unknown non-claim entries are catalog/disposition records only and must not be counted as product invocation proof."
   };
 }
 
@@ -1235,10 +1236,10 @@ function summarizeInvocation(
     }
   }
   if (toolName === "loo_desktop_act") {
-    collectSafeToolBlockers(summary, details ?? output);
+    collectSafeToolBlockers(toolName, summary, details ?? output);
   }
   if (toolName === "loo_desktop_proof_report" || toolName === "loo_desktop_live_proof_harness" || toolName === "loo_desktop_proof_action") {
-    collectSafeToolBlockers(summary, details ?? output);
+    collectSafeToolBlockers(toolName, summary, details ?? output);
   }
   if (toolName === "loo_codex_desktop_fallback_status") {
     const fallbackOutput = details ?? output;
@@ -1625,7 +1626,7 @@ function summarizeInvocation(
         || item.execute !== false;
     })) blockers.push("prepared_inbox_public_refs_invalid");
   }
-  if (disposition === "expected_fail_closed" && blockers.length === 0 && !expectedFailClosedProven(toolName, details ?? output, summary)) {
+  if (disposition === "expected_fail_closed" && blockers.length === 0 && !expectedFailClosedProven(toolName, details ?? output, summary, requestArgs)) {
     blockers.push(`expected_fail_closed_not_proven:${toolName}`);
   }
 
@@ -1654,9 +1655,10 @@ function toolPayloadBlockers(toolName: string, payload: unknown): string[] {
   ];
 }
 
-function collectSafeToolBlockers(summary: OpenClawToolInvocationSummary["summary"], value: unknown): void {
+function collectSafeToolBlockers(toolName: string, summary: OpenClawToolInvocationSummary["summary"], value: unknown): void {
+  const allowlist = safeFailClosedReasonCodes(toolName);
   const toolBlockers = arrayPath(value, ["blockers"])
-    .filter((item): item is string => typeof item === "string" && /^[a-z0-9_.:-]+$/i.test(item))
+    .filter((item): item is string => typeof item === "string" && allowlist.has(item))
     .slice(0, 8);
   if (toolBlockers.length) summary.toolBlockers = [...new Set([...(summary.toolBlockers ?? []), ...toolBlockers])];
 }
@@ -1664,26 +1666,26 @@ function collectSafeToolBlockers(summary: OpenClawToolInvocationSummary["summary
 function expectedFailClosedProven(
   toolName: string,
   value: unknown,
-  summary: OpenClawToolInvocationSummary["summary"]
+  summary: OpenClawToolInvocationSummary["summary"],
+  requestArgs: Record<string, unknown> = {}
 ): boolean {
   if (!isRecord(value)) return false;
   if (hasRestrictedActionPerformed(value)) return false;
-  collectSafeToolBlockers(summary, value);
+  collectSafeToolBlockers(toolName, summary, value);
   const status = stringPath(value, ["status"]);
   const reasonCodes = arrayPath(value, ["reasonCodes"]).filter((item): item is string => typeof item === "string");
   const proofMarkers = isRecord(value.proofMarkers) ? value.proofMarkers : null;
+  const hasAllowedBlocker = (summary.toolBlockers?.length ?? 0) > 0;
+  const hasSafeReasonCode = reasonCodes.some((code) => safeFailClosedReasonCodes(toolName).has(code));
+  const hasNoActionProofMarker = proofMarkers?.noActionObserved === true || proofMarkers?.liveActionObserved === false;
   if (toolName === "loo_desktop_act") {
     const hasBlockedStatus = status === "blocked" || status === "not_observed";
-    const hasSupportingNoActionProof = (summary.toolBlockers?.length ?? 0) > 0
-      || reasonCodes.some((code) => safeFailClosedReasonCodes(toolName).has(code))
-      || proofMarkers?.noActionObserved === true;
+    const hasSupportingNoActionProof = hasAllowedBlocker || hasSafeReasonCode || proofMarkers?.noActionObserved === true;
+    if (requestArgs.dry_run !== true) return false;
     return hasBlockedStatus && hasSupportingNoActionProof;
   }
-  if ((summary.toolBlockers?.length ?? 0) > 0) return true;
   if (toolName === "loo_codex_desktop_fallback_status" && summary.fallbackReason) return true;
-  if (status === "blocked" || status === "unresolved_unknown" || status === "not_observed") return true;
-  if (reasonCodes.some((code) => safeFailClosedReasonCodes(toolName).has(code))) return true;
-  if (proofMarkers && (proofMarkers.noActionObserved === true || proofMarkers.liveActionObserved === false)) return true;
+  if (hasAllowedBlocker || hasSafeReasonCode || hasNoActionProofMarker) return true;
   if (value.execute === false && toolName === "loo_desktop_proof_action") return true;
   return false;
 }
