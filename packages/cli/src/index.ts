@@ -41,7 +41,9 @@ import {
   type StatePrepHookInput,
   type ThreadTitleFinalizerInput
 } from "../../core/src/index.js";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { performance } from "node:perf_hooks";
 import { dirname, join, resolve } from "node:path";
 import { createReleaseBundle } from "./release-bundle.js";
 import { createReleaseDemoStatus } from "./release-demo-status.js";
@@ -197,11 +199,17 @@ async function main() {
         roots: parsed.roots.length ? parsed.roots : defaultCodexRoots(),
         maxFiles: parsed.maxFiles,
         maxBytesPerFile: parsed.maxBytesPerFile,
-        maxEventsPerFile: parsed.maxEventsPerFile
+        maxEventsPerFile: parsed.maxEventsPerFile,
+        verify: parsed.verify
       }), null, 2));
     } finally {
       db.close();
     }
+    return;
+  }
+  if (command === "index" && args[0] === "bench") {
+    const parsed = parseIndexBenchArgs(args.slice(1));
+    console.log(JSON.stringify(runIndexBench(parsed), null, 2));
     return;
   }
   if (command === "probe" && args[0] === "codex-sqlite") {
@@ -991,7 +999,8 @@ function mainUsageText(): string {
     "  loo desktop proof-report --evidence-dir path --observation-file path [--strict]",
     "  loo desktop live-proof-harness --evidence-dir path [--backend direct|cua-driver|peekaboo] [--target-app app] [--target-window title] [--action text] [--approval-ref ref] [--scratch-file path] [--strict]",
     "  loo desktop proof-action --evidence-dir path --backend cua-driver --target-app TextEdit --target-window lco-desktop-proof.txt --action \"launch_app TextEdit scratch window\" --action-hash hash --approval-ref ref --approval-file path --permission-state state --scratch-file path --execute [--strict]",
-    "  loo index codex [--max-files n] [--max-bytes-per-file n] [--max-events-per-file n] [roots...]",
+    "  loo index codex [--verify] [--max-files n] [--max-bytes-per-file n] [--max-events-per-file n] [roots...]",
+    "  loo index bench --sessions n [--verify] (internal)",
     "  loo probe codex-sqlite [roots...]",
     "  loo search <query>",
     "  loo session-map [--project name] [--status value] [--priority value] [--blocker value] [--priority-order urgent,high,medium,low] [--limit n]",
@@ -2534,13 +2543,18 @@ function requireQuery(command: string, parts: string[]): string {
   return query;
 }
 
-function parseIndexCodexArgs(input: string[]): { roots: string[]; maxFiles?: number; maxBytesPerFile?: number; maxEventsPerFile?: number } {
+function parseIndexCodexArgs(input: string[]): { roots: string[]; maxFiles?: number; maxBytesPerFile?: number; maxEventsPerFile?: number; verify?: boolean } {
   const roots: string[] = [];
   let maxFiles: number | undefined;
   let maxBytesPerFile: number | undefined;
   let maxEventsPerFile: number | undefined;
+  let verify = false;
   for (let index = 0; index < input.length; index += 1) {
     const arg = input[index]!;
+    if (arg === "--verify") {
+      verify = true;
+      continue;
+    }
     if (arg === "--max-files") {
       maxFiles = parsePositiveInteger(input[++index], "--max-files", 100000);
       continue;
@@ -2556,7 +2570,158 @@ function parseIndexCodexArgs(input: string[]): { roots: string[]; maxFiles?: num
     if (arg.startsWith("--")) throw new Error(`Unknown index codex option: ${arg}`);
     roots.push(arg);
   }
-  return { roots, maxFiles, maxBytesPerFile, maxEventsPerFile };
+  return { roots, maxFiles, maxBytesPerFile, maxEventsPerFile, verify };
+}
+
+function parseIndexBenchArgs(input: string[]): { sessions: number; verify?: boolean } {
+  let sessions = 1000;
+  let verify = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--sessions") {
+      sessions = parsePositiveInteger(input[++index], "--sessions", 100000);
+      continue;
+    }
+    if (arg === "--verify") {
+      verify = true;
+      continue;
+    }
+    if (arg.startsWith("--")) throw new Error(`Unknown index bench option: ${arg}`);
+    throw new Error(`Unexpected index bench argument: ${arg}`);
+  }
+  return { sessions, verify };
+}
+
+function runIndexBench(options: { sessions: number; verify?: boolean }) {
+  const root = mkdtempSync(join(tmpdir(), "loo-index-bench-"));
+  try {
+    const sessionsDir = join(root, "sessions");
+    writeIndexBenchCorpus(sessionsDir, options.sessions);
+    const db = createDatabase(join(root, "orchestrator.sqlite"));
+    try {
+      const coldStart = performance.now();
+      const coldIndex = indexCodexSessions(db, {
+        roots: [sessionsDir],
+        maxFiles: options.sessions,
+        verify: options.verify
+      });
+      const coldIndexMs = elapsedMs(coldStart);
+
+      const noChangeStart = performance.now();
+      const noChangeReindex = indexCodexSessions(db, {
+        roots: [sessionsDir],
+        maxFiles: options.sessions,
+        verify: options.verify
+      });
+      const noChangeReindexMs = elapsedMs(noChangeStart);
+
+      return {
+        schema: "lco.index.bench.v1",
+        publicSafe: true,
+        generatedAt: new Date().toISOString(),
+        sessions: options.sessions,
+        verify: options.verify === true,
+        timingsMs: {
+          coldIndex: coldIndexMs,
+          noChangeReindex: noChangeReindexMs
+        },
+        counts: {
+          coldIndex: indexBenchCounts(coldIndex),
+          noChangeReindex: indexBenchCounts(noChangeReindex)
+        },
+        actionsPerformed: {
+          derivedCacheWrite: true,
+          sourceStoreMutation: false,
+          externalWrite: false,
+          liveControl: false,
+          guiMutation: false,
+          rawTranscriptRead: options.verify === true
+        },
+        proofBoundary: "Synthetic benchmark output is public-safe counts and timings only. It uses generated redacted JSONL, writes a temporary local LCO derived-cache database, and does not read user transcripts, mutate source stores, run live control, mutate GUI state, publish npm, or create GitHub releases."
+      };
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function elapsedMs(start: number): number {
+  return Number((performance.now() - start).toFixed(3));
+}
+
+function indexBenchCounts(result: ReturnType<typeof indexCodexSessions>) {
+  return {
+    indexedFiles: result.indexedFiles,
+    skippedFiles: result.skippedFiles,
+    indexedThreads: result.indexedThreads,
+    indexedEvents: result.indexedEvents,
+    limitedFiles: result.limitedFiles.length,
+    errors: result.errors.length
+  };
+}
+
+function writeIndexBenchCorpus(sessionsDir: string, sessions: number): void {
+  mkdirSync(sessionsDir, { recursive: true });
+  for (let index = 0; index < sessions; index += 1) {
+    const threadId = `019f-bench-${String(index).padStart(6, "0")}`;
+    const timestamp = new Date(Date.UTC(2026, 6, 6, 0, 0, index % 60)).toISOString();
+    const title = `Synthetic issue 549 session ${index}`;
+    const lines = [
+      {
+        timestamp,
+        session_meta: {
+          payload: {
+            id: threadId,
+            cwd: "/workspace/synthetic-lco",
+            model: "gpt-5.5",
+            git: { branch: "bench", commit_hash: "0000000" }
+          }
+        }
+      },
+      {
+        timestamp,
+        event_msg: {
+          type: "thread_name",
+          name: title
+        }
+      },
+      {
+        timestamp,
+        response_item: {
+          type: "message",
+          role: "assistant",
+          content: [
+            {
+              type: "output_text",
+              text: `<proposed_plan>\n# ${title}\nRun the deterministic issue 549 indexing benchmark.\n</proposed_plan>`
+            }
+          ]
+        }
+      },
+      {
+        timestamp,
+        response_item: {
+          type: "function_call",
+          call_id: `call_${index}`,
+          name: "functions.exec_command",
+          arguments: "{\"cmd\":\"sed -n '1,20p' packages/core/src/index.ts\"}"
+        }
+      },
+      {
+        timestamp,
+        event_msg: {
+          type: "agent_message",
+          message: `Final: synthetic issue 549 session ${index} completed. Next action: benchmark no-change reindex.`
+        }
+      }
+    ];
+    writeFileSync(
+      join(sessionsDir, `rollout-2026-07-06T00-00-00-${threadId}.jsonl`),
+      `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`
+    );
+  }
 }
 
 function parseDesktopBackend(value: string | undefined): DesktopBackend | undefined {

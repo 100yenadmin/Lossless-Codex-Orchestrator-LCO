@@ -56,6 +56,7 @@ export type IndexCodexOptions = {
   maxFiles?: number;
   maxBytesPerFile?: number;
   maxEventsPerFile?: number;
+  verify?: boolean;
 };
 
 export type LimitedCodexFile = {
@@ -85,6 +86,10 @@ export type SourceFileWatermark = {
   size: number;
   mtimeMs: number;
   lastIndexedAt: string;
+  metadataExtractorVersion: string | null;
+  preparedRangeExtractorVersion: string | null;
+  summaryLeafExtractorVersion: string | null;
+  preparedCardExtractorVersion: string | null;
 };
 
 export type PreparedSourceRangeKind =
@@ -2179,6 +2184,7 @@ export type RecallProfile = {
 };
 
 const SESSION_METADATA_SCHEMA_VERSION = 4;
+const SESSION_METADATA_EXTRACTOR_VERSION = `session-metadata-v${SESSION_METADATA_SCHEMA_VERSION}` as const;
 
 export type RecallSourceKind = "codex_thread" | "lcm_summary" | "claude_session";
 
@@ -2433,7 +2439,11 @@ export function migrate(db: LooDatabase): void {
       path_hash TEXT NOT NULL,
       size INTEGER NOT NULL,
       mtime_ms INTEGER NOT NULL,
-      last_indexed_at TEXT NOT NULL
+      last_indexed_at TEXT NOT NULL,
+      metadata_extractor_version TEXT,
+      prepared_range_extractor_version TEXT,
+      summary_leaf_extractor_version TEXT,
+      prepared_card_extractor_version TEXT
     );
 
     CREATE TABLE IF NOT EXISTS codex_plans (
@@ -2534,6 +2544,11 @@ export function migrate(db: LooDatabase): void {
         '2026-07-05-thread-title-aliases',
         datetime('now'),
         'Additive Codex thread title finalizer alias table'
+      ),
+      (
+        '2026-07-06-index-fast-skip-and-hot-path-indexes',
+        datetime('now'),
+        'Additive Codex source extractor-state columns and hot read-path indexes'
       );
 
     CREATE TABLE IF NOT EXISTS prepared_source_events (
@@ -2748,6 +2763,52 @@ export function migrate(db: LooDatabase): void {
     CREATE INDEX IF NOT EXISTS codex_thread_title_aliases_norm_idx ON codex_thread_title_aliases(alias_norm);
     CREATE INDEX IF NOT EXISTS codex_thread_title_aliases_thread_idx ON codex_thread_title_aliases(thread_id);
 
+    CREATE INDEX IF NOT EXISTS codex_sessions_recent_coalesce_idx ON codex_sessions(COALESCE(updated_at, indexed_at) DESC, thread_id);
+    CREATE INDEX IF NOT EXISTS codex_session_metadata_filters_idx ON codex_session_metadata(
+      LOWER(COALESCE(project, '')),
+      LOWER(COALESCE(status, '')),
+      LOWER(COALESCE(priority, '')),
+      thread_id
+    );
+    CREATE INDEX IF NOT EXISTS prepared_cards_extractor_order_idx ON prepared_cards(
+      extractor_version,
+      privacy_class,
+      stale DESC,
+      confidence ASC,
+      freshness_at DESC,
+      target_ref ASC,
+      card_ref ASC
+    );
+    CREATE INDEX IF NOT EXISTS prepared_inbox_execute_score_idx ON prepared_inbox_items(
+      execute_false,
+      urgency_score DESC,
+      state ASC,
+      target_ref ASC,
+      card_ref ASC
+    );
+    CREATE INDEX IF NOT EXISTS prepared_inbox_execute_target_score_idx ON prepared_inbox_items(
+      execute_false,
+      target_ref,
+      urgency_score DESC,
+      state ASC,
+      card_ref ASC
+    );
+    CREATE INDEX IF NOT EXISTS attention_queue_execute_kind_confidence_idx ON attention_queue(
+      execute_false,
+      item_kind,
+      confidence DESC,
+      updated_at DESC,
+      queue_id ASC
+    );
+    CREATE INDEX IF NOT EXISTS attention_queue_execute_target_kind_confidence_idx ON attention_queue(
+      execute_false,
+      target_ref,
+      item_kind,
+      confidence DESC,
+      updated_at DESC,
+      queue_id ASC
+    );
+
     CREATE TABLE IF NOT EXISTS claude_sessions (
       session_id TEXT PRIMARY KEY,
       title TEXT,
@@ -2778,6 +2839,10 @@ export function migrate(db: LooDatabase): void {
   ensureColumn(db, "codex_session_metadata", "closeout_envelope_close_count", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "prepared_cards", "source_range_refs_omitted", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "codex_tool_calls", "reason_code", "TEXT");
+  ensureColumn(db, "codex_source_files", "metadata_extractor_version", "TEXT");
+  ensureColumn(db, "codex_source_files", "prepared_range_extractor_version", "TEXT");
+  ensureColumn(db, "codex_source_files", "summary_leaf_extractor_version", "TEXT");
+  ensureColumn(db, "codex_source_files", "prepared_card_extractor_version", "TEXT");
 }
 
 function ensureColumn(db: LooDatabase, table: string, column: string, definition: string): void {
@@ -2789,6 +2854,7 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
   const files = collectJsonlFiles(options.roots, options.maxFiles ?? 10_000);
   const maxBytesPerFile = positiveLimit(options.maxBytesPerFile, DEFAULT_CODEX_MAX_BYTES_PER_FILE, "maxBytesPerFile");
   const maxEventsPerFile = positiveLimit(options.maxEventsPerFile, DEFAULT_CODEX_MAX_EVENTS_PER_FILE, "maxEventsPerFile");
+  const verify = options.verify === true;
   const result: IndexCodexResult = {
     publicSafe: false,
     readOnly: false,
@@ -2813,23 +2879,21 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
       }
       const watermark = getSourceFileWatermark(db, path);
       const mtimeMs = Math.trunc(stat.mtimeMs);
+      const sameWatermark = Boolean(watermark && watermark.size === stat.size && watermark.mtimeMs === mtimeMs);
+      const extractorStateCurrent = watermark ? sourceFileExtractorStateIsCurrent(watermark) : false;
+      if (sameWatermark && extractorStateCurrent && !verify) {
+        result.skippedFiles += 1;
+        continue;
+      }
       const text = readFileSync(path, "utf8");
       const eventCount = countJsonlEvents(text);
       if (eventCount > maxEventsPerFile) {
         recordLimitedFile(db, result, path, "max_events_per_file", maxEventsPerFile, eventCount);
         continue;
       }
-      if (watermark && watermark.size === stat.size && watermark.mtimeMs === mtimeMs) {
-        if (
-          watermark.pathHash === stableId(text)
-          && !sourceNeedsMetadataBackfill(db, path)
-          && !sourceNeedsPreparedSourceRangeBackfill(db, path)
-          && !sourceNeedsSummaryLeafBackfill(db, path)
-          && !sourceNeedsPreparedCardBackfill(db, path)
-        ) {
-          result.skippedFiles += 1;
-          continue;
-        }
+      if (sameWatermark && extractorStateCurrent && watermark?.pathHash === stableId(text)) {
+        result.skippedFiles += 1;
+        continue;
       }
       const session = parseCodexJsonl(path, text, maxEventsPerFile);
       upsertSession(db, path, text, session, { size: stat.size, mtimeMs });
@@ -2845,6 +2909,7 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
   for (const threadId of summaryThreadsToMaterialize) {
     try {
       materializeSummaryLeaves(db, { threadId });
+      markSourceFilesSummaryLeafCurrent(db, threadId);
     } catch (error) {
       result.errors.push({ path: codexThreadRef(threadId), message: error instanceof Error ? error.message : String(error) });
     }
@@ -2852,6 +2917,7 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
   for (const threadId of preparedThreadsToMaterialize) {
     try {
       materializePreparedCards(db, { threadId });
+      markSourceFilesPreparedCardCurrent(db, threadId);
     } catch (error) {
       result.errors.push({ path: codexThreadRef(threadId), message: error instanceof Error ? error.message : String(error) });
     }
@@ -3089,7 +3155,16 @@ function clearSourceFileIndex(db: LooDatabase, sourcePath: string): void {
 
 export function getSourceFileWatermark(db: LooDatabase, sourcePath: string): SourceFileWatermark | null {
   const row = db.prepare(`
-    SELECT source_path AS sourcePath, path_hash AS pathHash, size, mtime_ms AS mtimeMs, last_indexed_at AS lastIndexedAt
+    SELECT
+      source_path AS sourcePath,
+      path_hash AS pathHash,
+      size,
+      mtime_ms AS mtimeMs,
+      last_indexed_at AS lastIndexedAt,
+      metadata_extractor_version AS metadataExtractorVersion,
+      prepared_range_extractor_version AS preparedRangeExtractorVersion,
+      summary_leaf_extractor_version AS summaryLeafExtractorVersion,
+      prepared_card_extractor_version AS preparedCardExtractorVersion
     FROM codex_source_files
     WHERE source_path = ?
   `).get(sourcePath) as Record<string, unknown> | undefined;
@@ -3099,8 +3174,43 @@ export function getSourceFileWatermark(db: LooDatabase, sourcePath: string): Sou
     pathHash: String(row.pathHash),
     size: Number(row.size ?? 0),
     mtimeMs: Number(row.mtimeMs ?? 0),
-    lastIndexedAt: String(row.lastIndexedAt)
+    lastIndexedAt: String(row.lastIndexedAt),
+    metadataExtractorVersion: nullableString(row.metadataExtractorVersion),
+    preparedRangeExtractorVersion: nullableString(row.preparedRangeExtractorVersion),
+    summaryLeafExtractorVersion: nullableString(row.summaryLeafExtractorVersion),
+    preparedCardExtractorVersion: nullableString(row.preparedCardExtractorVersion)
   };
+}
+
+function sourceFileExtractorStateIsCurrent(watermark: SourceFileWatermark): boolean {
+  return watermark.metadataExtractorVersion === SESSION_METADATA_EXTRACTOR_VERSION
+    && watermark.preparedRangeExtractorVersion === PREPARED_SOURCE_EXTRACTOR_VERSION
+    && watermark.summaryLeafExtractorVersion === SUMMARY_LEAF_EXTRACTOR_VERSION
+    && watermark.preparedCardExtractorVersion === PREPARED_CARD_EXTRACTOR_VERSION;
+}
+
+function markSourceFilesSummaryLeafCurrent(db: LooDatabase, threadId: string): void {
+  db.prepare(`
+    UPDATE codex_source_files
+    SET summary_leaf_extractor_version = ?
+    WHERE source_path IN (
+      SELECT source_path
+      FROM codex_sessions
+      WHERE thread_id = ?
+    )
+  `).run(SUMMARY_LEAF_EXTRACTOR_VERSION, threadId);
+}
+
+function markSourceFilesPreparedCardCurrent(db: LooDatabase, threadId: string): void {
+  db.prepare(`
+    UPDATE codex_source_files
+    SET prepared_card_extractor_version = ?
+    WHERE source_path IN (
+      SELECT source_path
+      FROM codex_sessions
+      WHERE thread_id = ?
+    )
+  `).run(PREPARED_CARD_EXTRACTOR_VERSION, threadId);
 }
 
 export function getPreparedSourceRanges(db: LooDatabase, options: PreparedSourceRangesOptions = {}): PreparedSourceRangesReport {
@@ -6544,132 +6654,6 @@ function latestIso(values: Array<string | null>): string | null {
 
 function approximateTokens(text: string): number {
   return Math.max(1, Math.ceil(text.length / 4));
-}
-
-function sourceNeedsMetadataBackfill(db: LooDatabase, sourcePath: string): boolean {
-  const rows = db.prepare(`
-    SELECT s.thread_id AS threadId, m.thread_id AS metadataThreadId, m.metadata_schema_version AS metadataSchemaVersion
-    FROM codex_sessions s
-    LEFT JOIN codex_session_metadata m ON m.thread_id = s.thread_id
-    WHERE s.source_path = ?
-  `).all(sourcePath) as Array<{ threadId: string; metadataThreadId: string | null; metadataSchemaVersion: number | null }>;
-  return rows.length === 0 || rows.some((row) => !row.metadataThreadId || Number(row.metadataSchemaVersion ?? 0) < SESSION_METADATA_SCHEMA_VERSION);
-}
-
-function sourceNeedsPreparedSourceRangeBackfill(db: LooDatabase, sourcePath: string): boolean {
-  const sourcePathRef = publicSourcePathRef(sourcePath);
-  const row = db.prepare(`
-    SELECT 1 AS found
-    FROM prepared_source_ranges
-    WHERE source_path_ref = ?
-      AND extractor_version = ?
-      AND privacy_class = 'public_safe_metadata'
-      AND omission_status = 'metadata_only'
-    LIMIT 1
-  `).get(sourcePathRef, PREPARED_SOURCE_EXTRACTOR_VERSION) as { found: number } | undefined;
-  return row?.found !== 1;
-}
-
-function sourceNeedsSummaryLeafBackfill(db: LooDatabase, sourcePath: string): boolean {
-  const rows = db.prepare(`
-    SELECT DISTINCT r.thread_id AS threadId
-    FROM prepared_source_ranges r
-    JOIN codex_sessions s ON s.thread_id = r.thread_id
-    WHERE s.source_path = ?
-      AND r.extractor_version = ?
-      AND r.privacy_class = 'public_safe_metadata'
-      AND r.omission_status = 'metadata_only'
-  `).all(sourcePath, PREPARED_SOURCE_EXTRACTOR_VERSION) as Array<{ threadId: string }>;
-  if (rows.length === 0) return false;
-  return rows.some((row) => {
-    const threadId = String(row.threadId);
-    const expected = expectedSummaryLeafKindCounts(db, threadId);
-    if (expected.size === 0) return false;
-    const leaves = getValidatedSummaryLeavesForThread(db, threadId);
-    const byKind = new Map(leaves.map((leaf) => [leaf.leafKind, leaf]));
-    for (const [kind, rangeCount] of expected.entries()) {
-      const leaf = byKind.get(kind);
-      if (!leaf) return true;
-      if (Number(leaf.authorityCoverage.rangeCount ?? -1) !== rangeCount) return true;
-    }
-    if (leaves.length > 1) {
-      const leafRefs = leaves.map((leaf) => leaf.leafRef);
-      const placeholders = leafRefs.map(() => "?").join(",");
-      const edgeRow = db.prepare(`
-        SELECT COUNT(*) AS count
-        FROM summary_edges
-        WHERE parent_leaf_ref IN (${placeholders})
-          AND child_leaf_ref IN (${placeholders})
-      `).get(...leafRefs, ...leafRefs) as { count: number };
-      if (Number(edgeRow.count ?? 0) < leaves.length - 1) return true;
-    }
-    return false;
-  });
-}
-
-function sourceNeedsPreparedCardBackfill(db: LooDatabase, sourcePath: string): boolean {
-  const rows = db.prepare(`
-    SELECT thread_id AS threadId
-    FROM codex_sessions
-    WHERE source_path = ?
-  `).all(sourcePath) as Array<{ threadId: string }>;
-  if (rows.length === 0) return false;
-  return rows.some((row) => {
-    const threadId = String(row.threadId);
-    const leaves = getValidatedSummaryLeavesForThread(db, threadId);
-    if (leaves.length === 0) return false;
-    const cardRow = getPreparedCardRowByTargetRef(db, codexThreadRef(threadId));
-    return !cardRow || !publicPreparedCardFromRow(cardRow);
-  });
-}
-
-function expectedSummaryLeafKindCounts(db: LooDatabase, threadId: string): Map<SummaryLeafKind, number> {
-  const rows = db.prepare(`
-    SELECT range_kind AS rangeKind, COUNT(*) AS count
-    FROM prepared_source_ranges
-    WHERE thread_id = ?
-      AND extractor_version = ?
-      AND privacy_class = 'public_safe_metadata'
-      AND omission_status = 'metadata_only'
-    GROUP BY range_kind
-  `).all(threadId, PREPARED_SOURCE_EXTRACTOR_VERSION) as Array<{ rangeKind: PreparedSourceRangeKind; count: number }>;
-  const counts = new Map<SummaryLeafKind, number>();
-  for (const row of rows) {
-    const kind = summaryLeafKindFromRangeKind(row.rangeKind);
-    counts.set(kind, (counts.get(kind) ?? 0) + Number(row.count ?? 0));
-  }
-  return counts;
-}
-
-function getValidatedSummaryLeavesForThread(db: LooDatabase, threadId: string): SummaryLeaf[] {
-  const rows = db.prepare(`
-    SELECT
-      leaf_ref AS leafRef,
-      thread_id AS threadId,
-      leaf_kind AS leafKind,
-      summary_text AS summaryText,
-      source_refs_json AS sourceRefsJson,
-      source_range_refs_json AS sourceRangeRefsJson,
-      input_hash AS inputHash,
-      output_hash AS outputHash,
-      extractor_version AS extractorVersion,
-      privacy_class AS privacyClass,
-      authority_coverage_json AS authorityCoverageJson,
-      confidence,
-      freshness_at AS freshnessAt,
-      stale,
-      omission_status AS omissionStatus
-    FROM summary_leaves
-    WHERE thread_id = ?
-      AND extractor_version = ?
-      AND privacy_class = 'public_safe_metadata'
-      AND omission_status = 'metadata_only'
-    ORDER BY leaf_kind ASC, leaf_ref ASC
-  `).all(threadId, SUMMARY_LEAF_EXTRACTOR_VERSION) as SummaryLeafRow[];
-  return rows.flatMap((row) => {
-    const leaf = publicSummaryLeafFromRow(row);
-    return leaf ? [leaf] : [];
-  });
 }
 
 export function probeCodexSqliteStores(roots: string[], maxFiles = 100): { stores: CodexSqliteProbe[] } {
@@ -12919,10 +12903,27 @@ function upsertSession(
   db.exec("BEGIN");
   try {
     db.prepare(`
-      INSERT INTO codex_source_files (source_path, path_hash, size, mtime_ms, last_indexed_at)
-      VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(source_path) DO UPDATE SET path_hash = excluded.path_hash, size = excluded.size, mtime_ms = excluded.mtime_ms, last_indexed_at = excluded.last_indexed_at
-    `).run(sourcePath, sourceHash, stat.size, stat.mtimeMs, now);
+      INSERT INTO codex_source_files (
+        source_path,
+        path_hash,
+        size,
+        mtime_ms,
+        last_indexed_at,
+        metadata_extractor_version,
+        prepared_range_extractor_version,
+        summary_leaf_extractor_version,
+        prepared_card_extractor_version
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+      ON CONFLICT(source_path) DO UPDATE SET
+        path_hash = excluded.path_hash,
+        size = excluded.size,
+        mtime_ms = excluded.mtime_ms,
+        last_indexed_at = excluded.last_indexed_at,
+        metadata_extractor_version = excluded.metadata_extractor_version,
+        prepared_range_extractor_version = excluded.prepared_range_extractor_version,
+        summary_leaf_extractor_version = NULL,
+        prepared_card_extractor_version = NULL
+    `).run(sourcePath, sourceHash, stat.size, stat.mtimeMs, now, SESSION_METADATA_EXTRACTOR_VERSION, PREPARED_SOURCE_EXTRACTOR_VERSION);
     db.prepare(`
       INSERT INTO codex_sessions (
         thread_id, title, cwd, model, branch, git_sha, source_path, created_at, updated_at,

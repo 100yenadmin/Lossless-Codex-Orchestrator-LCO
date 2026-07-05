@@ -97,8 +97,14 @@ test("reindexes same-size files when content hash changes despite matching mtime
     assert.equal(statSync(activePath).size, firstSize);
 
     const second = indexCodexSessions(db, { roots: [active], maxFiles: 10 });
-    assert.equal(second.indexedFiles, 1);
-    assert.equal(second.skippedFiles, 0);
+    assert.equal(second.indexedFiles, 0);
+    assert.equal(second.skippedFiles, 1);
+    assert.equal(getSourceFileWatermark(db, activePath)?.pathHash, before.pathHash);
+    assert.equal(searchSessions(db, { query: "Bravo", limit: 5 }).length, 0);
+
+    const verified = indexCodexSessions(db, { roots: [active], maxFiles: 10, verify: true });
+    assert.equal(verified.indexedFiles, 1);
+    assert.equal(verified.skippedFiles, 0);
     assert.notEqual(getSourceFileWatermark(db, activePath)?.pathHash, before.pathHash);
     assert.equal(searchSessions(db, { query: "Bravo", limit: 5 })[0]?.threadId, "019f-hash");
   } finally {
@@ -194,7 +200,7 @@ test("clears previously indexed Codex evidence when a source file exceeds a late
     assert.equal(searchSessions(db, { query: "Stale ceiling marker", limit: 5 }).length, 1);
     assert.ok(getSourceFileWatermark(db, sourcePath));
 
-    const limited = indexCodexSessions(db, { roots: [sessions], maxFiles: 10, maxEventsPerFile: 2 });
+    const limited = indexCodexSessions(db, { roots: [sessions], maxFiles: 10, maxEventsPerFile: 2, verify: true });
     assert.equal(limited.indexedFiles, 0);
     assert.equal(limited.skippedFiles, 1);
     assert.deepEqual(limited.limitedFiles, [{

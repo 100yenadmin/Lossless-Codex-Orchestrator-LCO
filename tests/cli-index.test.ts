@@ -98,6 +98,95 @@ test("CLI index codex forwards byte and event ceilings", () => {
   }
 });
 
+test("CLI index codex accepts --verify for full-content unchanged checks", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-cli-index-verify-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  writeJsonl(join(sessions, "rollout-2026-06-28T00-00-00-019f-cli-verify.jsonl"), "019f-cli-verify", "CLI verify");
+  const env = {
+    ...process.env,
+    LOO_DB_PATH: join(root, "orchestrator.sqlite")
+  };
+
+  try {
+    const first = spawnSync(process.execPath, [
+      "--import",
+      "tsx",
+      "packages/cli/src/index.ts",
+      "index",
+      "codex",
+      sessions
+    ], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env
+    });
+    assert.equal(first.status, 0, first.stderr);
+
+    const second = spawnSync(process.execPath, [
+      "--import",
+      "tsx",
+      "packages/cli/src/index.ts",
+      "index",
+      "codex",
+      "--verify",
+      sessions
+    ], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env
+    });
+
+    assert.equal(second.status, 0, second.stderr);
+    const payload = JSON.parse(second.stdout) as { indexedFiles: number; skippedFiles: number; errors: unknown[] };
+    assert.equal(payload.indexedFiles, 0);
+    assert.equal(payload.skippedFiles, 1);
+    assert.deepEqual(payload.errors, []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("CLI index bench reports public-safe cold and no-change timings", () => {
+  const result = spawnSync(process.execPath, [
+    "--import",
+    "tsx",
+    "packages/cli/src/index.ts",
+    "index",
+    "bench",
+    "--sessions",
+    "5"
+  ], {
+    cwd: process.cwd(),
+    encoding: "utf8"
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.doesNotMatch(result.stdout, /\/Users\/|\/Volumes\/|\/var\/|\/tmp\//);
+  const payload = JSON.parse(result.stdout) as {
+    schema: string;
+    publicSafe: boolean;
+    sessions: number;
+    verify: boolean;
+    timingsMs: { coldIndex: number; noChangeReindex: number };
+    counts: {
+      coldIndex: { indexedFiles: number; skippedFiles: number; errors: number };
+      noChangeReindex: { indexedFiles: number; skippedFiles: number; errors: number };
+    };
+  };
+  assert.equal(payload.schema, "lco.index.bench.v1");
+  assert.equal(payload.publicSafe, true);
+  assert.equal(payload.sessions, 5);
+  assert.equal(payload.verify, false);
+  assert.equal(payload.counts.coldIndex.indexedFiles, 5);
+  assert.equal(payload.counts.noChangeReindex.indexedFiles, 0);
+  assert.equal(payload.counts.noChangeReindex.skippedFiles, 5);
+  assert.equal(payload.counts.coldIndex.errors, 0);
+  assert.equal(payload.counts.noChangeReindex.errors, 0);
+  assert.equal(Number.isFinite(payload.timingsMs.coldIndex), true);
+  assert.equal(Number.isFinite(payload.timingsMs.noChangeReindex), true);
+});
+
 test("CLI index codex rejects invalid --max-files values before indexing", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-cli-index-invalid-"));
   const sessions = join(root, "sessions");
