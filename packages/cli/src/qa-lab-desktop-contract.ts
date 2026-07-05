@@ -102,9 +102,7 @@ const RAW_PRIVATE_KEYS = new Set([
   "windowText",
   "rawTranscript",
   "rawTranscriptText",
-  "customerData",
-  "token",
-  "cookie"
+  "customerData"
 ]);
 const PRIVATE_DATA_EXCLUSIONS = [
   "raw local paths",

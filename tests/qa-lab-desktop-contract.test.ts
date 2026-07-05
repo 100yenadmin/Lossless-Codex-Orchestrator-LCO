@@ -99,6 +99,21 @@ test("qa-lab desktop contract accepts metadata readiness without overclaiming sc
   assert.deepEqual(report.blockers, []);
 });
 
+test("qa-lab desktop contract treats missing optional scratch proof as non-blocking", () => {
+  const report = createQaLabDesktopContractReport({
+    packageVersion,
+    candidateSha,
+    now: "2026-07-05T08:00:00.000Z",
+    readinessReport: readinessReport()
+  });
+
+  assert.equal(report.ok, true);
+  assert.equal(report.allowedActionBoundScratchProof, false);
+  assert.equal(report.actionsPerformed.textEditScratchActionRun, false);
+  assert.equal(report.evidenceIndex.actionBoundScratchProof.status, "not_provided");
+  assert.deepEqual(report.evidenceIndex.actionBoundScratchProof.blockerCodes, []);
+});
+
 test("qa-lab desktop contract blocks generic and Codex GUI mutation claims without explicit matching evidence", () => {
   const report = createQaLabDesktopContractReport({
     now: "2026-07-05T08:00:00.000Z",
@@ -209,6 +224,33 @@ test("qa-lab desktop contract blocks non-Users raw artifact paths and common tok
   assert.doesNotMatch(serialized, /AKIA1234567890ABCDEF|eyJhbGciOiJIUzI1NiJ9/);
 });
 
+test("qa-lab desktop contract allows benign token labels but blocks secret token values", () => {
+  const benign = createQaLabDesktopContractReport({
+    packageVersion,
+    candidateSha,
+    readinessReport: readinessReport({
+      token: "csrf",
+      cookie: "session-label"
+    })
+  });
+
+  assert.equal(benign.ok, true, JSON.stringify(benign, null, 2));
+  assert.equal(benign.evidenceIndex.readinessReport.status, "ready");
+
+  const secret = createQaLabDesktopContractReport({
+    packageVersion,
+    candidateSha,
+    readinessReport: readinessReport({
+      token: "npm_aaaaaaaaaaaaaaaaaaaaaaaa"
+    })
+  });
+
+  assert.equal(secret.ok, false);
+  assert.equal(secret.evidenceIndex.readinessReport.status, "unsafe");
+  assert.ok(secret.blockers.some((blocker) => blocker.code === "unsafe_evidence_value"));
+  assert.doesNotMatch(JSON.stringify(secret), /npm_aaaaaaaaaaaaaaaaaaaaaaaa/);
+});
+
 test("qa-lab desktop contract fails closed on deeply nested hostile evidence", () => {
   let nested: Record<string, unknown> = { marker: "safe" };
   for (let index = 0; index < 96; index += 1) nested = { child: nested };
@@ -310,6 +352,17 @@ test("qa-lab desktop contract blocks stale and malformed candidate sha evidence"
   });
   assert.equal(mismatch.ok, false);
   assert.ok(mismatch.blockers.some((blocker) => blocker.code === "candidate_sha_mismatch"));
+
+  const packageMismatch = createQaLabDesktopContractReport({
+    packageVersion,
+    candidateSha,
+    readinessReport: readinessReport({
+      packageVersion: "9.9.9"
+    })
+  });
+  assert.equal(packageMismatch.ok, false);
+  assert.equal(packageMismatch.evidenceIndex.readinessReport.status, "blocked");
+  assert.ok(packageMismatch.blockers.some((blocker) => blocker.code === "package_version_mismatch"));
 
   const invalid = createQaLabDesktopContractReport({
     packageVersion,
