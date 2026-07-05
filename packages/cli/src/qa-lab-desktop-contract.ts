@@ -158,13 +158,7 @@ export function createQaLabDesktopContractReport(options: QaLabDesktopContractOp
     addBlocker(blockers, "P0", "codex_gui_mutation_claim_unproved", "desktopContract", "Codex GUI mutation claims require matching explicit evidence and are not accepted by this first slice.");
   }
 
-  const scratchBlockerStart = blockers.length;
   const scratchOk = validateScratchProof(scratch, blockers);
-  const scratchBlockerCodes = blockers.slice(scratchBlockerStart).map((blocker) => blocker.code);
-  evidenceIndex.actionBoundScratchProof.blockerCodes.push(...scratchBlockerCodes);
-  if (scratchBlockerCodes.length > 0 && evidenceIndex.actionBoundScratchProof.status !== "unsafe") {
-    evidenceIndex.actionBoundScratchProof.status = "blocked";
-  }
 
   const dedupedBlockers = uniqueBlockers(blockers);
   refreshEvidenceIndexStatuses(evidenceIndex, dedupedBlockers);
@@ -198,7 +192,7 @@ export function createQaLabDesktopContractReport(options: QaLabDesktopContractOp
     blockers: dedupedBlockers,
     warnings,
     privateDataExclusions: PRIVATE_DATA_EXCLUSIONS,
-    proofBoundary: "Aggregates sanitized desktop contract evidence only. Desktop visibility/readiness is metadata proof, not screenshot/video proof. An explicit action-bound TextEdit scratch proof may show that one approved scratch action executed, but it does not prove generic GUI mutation, Codex GUI mutation, live Codex control, customer account mutation, or release readiness.",
+    proofBoundary: "Aggregates sanitized desktop contract evidence only. Desktop visibility/readiness is metadata proof, not screenshot/video proof. Secret and private-artifact scans are best-effort structural guards; over-depth evidence fails closed as unsafe rather than being semantically interpreted. An explicit action-bound TextEdit scratch proof may show that one approved scratch action executed, but it does not prove generic GUI mutation, Codex GUI mutation, live Codex control, customer account mutation, or release readiness.",
     nextSafeActions: nextSafeActions(dedupedBlockers)
   };
 }
@@ -375,10 +369,10 @@ function refreshEvidenceIndexStatuses(
     const sourceCodes = blockers.filter((blocker) => blocker.source === source).map((blocker) => blocker.code);
     if (sourceCodes.length === 0) continue;
     entry.blockerCodes = [...new Set([...entry.blockerCodes, ...sourceCodes])];
-    if (entry.status !== "unsafe") {
-      entry.status = entry.blockerCodes.some((code) => code === "unsafe_evidence_value" || code.endsWith("_not_public_safe"))
-        ? "unsafe"
-        : "blocked";
+    if (entry.blockerCodes.some((code) => code === "unsafe_evidence_value" || code.endsWith("_not_public_safe"))) {
+      entry.status = "unsafe";
+    } else if (!["missing", "invalid", "not_provided"].includes(entry.status)) {
+      entry.status = "blocked";
     }
   }
 }

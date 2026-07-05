@@ -160,6 +160,50 @@ test("qa-lab desktop contract allows only explicit action-bound TextEdit scratch
   assert.equal(report.proofBoundary.includes("does not prove generic GUI mutation"), true);
 });
 
+test("qa-lab desktop contract rejects provided scratch proof that is not action-bound TextEdit execution", () => {
+  for (const [name, overrides, expectedCode] of [
+    ["wrong target", { targetApp: "Codex" }, "scratch_proof_target_not_textedit"],
+    ["not executed", { executed: false }, "scratch_proof_not_executed"],
+    ["not action-bound", { actionBound: false }, "scratch_proof_not_action_bound"]
+  ] as const) {
+    const report = createQaLabDesktopContractReport({
+      packageVersion,
+      candidateSha,
+      now: "2026-07-05T08:00:00.000Z",
+      readinessReport: readinessReport(),
+      actionBoundScratchProof: scratchProof(overrides)
+    });
+
+    assert.equal(report.ok, false, name);
+    assert.equal(report.actionsPerformed.textEditScratchActionRun, false, name);
+    assert.equal(report.allowedActionBoundScratchProof, false, name);
+    assert.equal(report.evidenceIndex.actionBoundScratchProof.status, "blocked", name);
+    assert.ok(report.blockers.some((blocker) => blocker.code === expectedCode), name);
+    assert.ok(report.evidenceIndex.actionBoundScratchProof.blockerCodes.includes(expectedCode), name);
+  }
+});
+
+test("qa-lab desktop contract rejects provided scratch proof with invalid JSON", (t) => {
+  const dir = makeTempDir(t, "loo-qa-desktop-contract-");
+  const scratchPath = join(dir, "scratch-proof.json");
+  writeFileSync(scratchPath, "{not json");
+
+  const report = createQaLabDesktopContractReport({
+    packageVersion,
+    candidateSha,
+    now: "2026-07-05T08:00:00.000Z",
+    readinessReport: readinessReport(),
+    actionBoundScratchProof: scratchPath
+  });
+
+  assert.equal(report.ok, false);
+  assert.equal(report.actionsPerformed.textEditScratchActionRun, false);
+  assert.equal(report.allowedActionBoundScratchProof, false);
+  assert.equal(report.evidenceIndex.actionBoundScratchProof.status, "invalid");
+  assert.ok(report.blockers.some((blocker) => blocker.code === "actionBoundScratchProof_invalid_json"));
+  assert.ok(report.evidenceIndex.actionBoundScratchProof.blockerCodes.includes("actionBoundScratchProof_invalid_json"));
+});
+
 test("qa-lab desktop contract fails closed and redacts unsafe raw evidence", (t) => {
   const dir = makeTempDir(t, "loo-qa-desktop-contract-");
   const readinessPath = join(dir, "desktop-readiness.json");
@@ -266,6 +310,8 @@ test("qa-lab desktop contract fails closed on deeply nested hostile evidence", (
   assert.equal(report.ok, false);
   assert.equal(report.evidenceIndex.readinessReport.status, "unsafe");
   assert.ok(report.blockers.some((blocker) => blocker.code === "unsafe_evidence_value"));
+  assert.match(report.proofBoundary, /best-effort/i);
+  assert.match(report.proofBoundary, /depth/i);
 });
 
 test("qa-lab desktop contract treats array/object screenshot claims as provided proof", () => {
