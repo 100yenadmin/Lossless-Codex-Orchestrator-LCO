@@ -38,6 +38,8 @@ before editing files.
 
 ## What It Does
 
+LCO's wedge is approval-gated orchestration over bounded, public-safe recall: an agent can safely operate a Codex fleet, not just remember it.
+
 LCO is a local-first orchestration layer for Codex-heavy work:
 
 - indexes local Codex session stores into a local SQLite database
