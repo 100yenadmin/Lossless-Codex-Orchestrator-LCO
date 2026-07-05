@@ -704,7 +704,9 @@ function publicSafeText(value: string, maxChars = 500): string {
   return truncate(redactPublicSafeString(value), maxChars);
 }
 
-function redactPublicSafeString(value: string): string {
+// Compiled once at module load: this runs for every field of every rendered row, and the pattern
+// is static. Safe to share because it is only used via String.replace (no lastIndex state leaks).
+const LOCAL_PATH_PATTERN = (() => {
   const localPathRootPattern =
     "(?:\\/Volumes\\/|\\/(?:Users|home|root)\\/|\\/(?:private\\/)?(?:tmp|var)\\/|~\\/|(?<![A-Za-z])[A-Za-z]:[\\\\/])";
   const structuredLabelPattern = "[A-Za-z][A-Za-z0-9 _-]{0,32}:";
@@ -713,9 +715,12 @@ function redactPublicSafeString(value: string): string {
   const localPathTerminatorPattern =
     "(?=$|[\\r\\n\"'`)\\]}]|\\s+(?:" +
     `${localPathRootPattern}|${relativePathStartPattern}|${omissionMarkerPattern}|${structuredLabelPattern}))`;
-  const localPathPattern = new RegExp(`${localPathRootPattern}(?:(?!${localPathTerminatorPattern}).)+`, "g");
-  const pathRedacted = value.replace(localPathPattern, "<redacted-path>");
-  return redactSafeString(pathRedacted).replace(localPathPattern, "<redacted-path>");
+  return new RegExp(`${localPathRootPattern}(?:(?!${localPathTerminatorPattern}).)+`, "g");
+})();
+
+function redactPublicSafeString(value: string): string {
+  const pathRedacted = value.replace(LOCAL_PATH_PATTERN, "<redacted-path>");
+  return redactSafeString(pathRedacted).replace(LOCAL_PATH_PATTERN, "<redacted-path>");
 }
 
 function redactSafeString(value: string): string {
