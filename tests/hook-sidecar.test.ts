@@ -202,6 +202,30 @@ test("thread title finalizer hook writes a one-shot public-safe alias packet", (
   }
 });
 
+test("thread title finalizer does not collapse benign thread-name requests to the finalizer title", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-hook-title-finalizer-benign-"));
+  try {
+    const db = createDatabase(join(root, "orchestrator.sqlite"));
+    try {
+      const report = captureThreadTitleFinalizerHookPacket(db, {
+        thread_id: "019f-title-finalizer-benign",
+        cwd: "/Volumes/LEXAR/repos/lossless-openclaw-orchestrator",
+        current_title: "rename the thread about payments",
+        last_assistant_message: "Please rename the thread about payments after the invoices are checked."
+      });
+
+      assert.equal(report.publicSafe, true);
+      assert.equal(report.title.state, "ready");
+      assert.notEqual(report.title.summary, "Codex thread title finalizer");
+      assert.match(report.title.suggestedTitle ?? "", /payments/i);
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("closeout hook flags truncated closeout payloads where fields may be incomplete", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-hook-closeout-truncated-"));
   try {

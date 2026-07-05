@@ -5646,9 +5646,9 @@ function deriveThreadTitleSummary(value: string | null): string | null {
   const redacted = redactHookStringUnbounded(value);
   const lowered = redacted.toLowerCase();
   if (
-    /(thread|session).{0,40}(title|name|namer|naming|rename)/i.test(redacted)
-    || /(title|name).{0,40}(thread|session)/i.test(redacted)
-    || /thread-title-finalize|title finalizer|title-finalizer/i.test(redacted)
+    /thread-title-finalize|title finalizer|title-finalizer/i.test(redacted)
+    || /finaliz(?:e|es|ed|ing).{0,40}thread.{0,20}title/i.test(redacted)
+    || /thread.{0,20}title.{0,40}finaliz/i.test(redacted)
   ) {
     return "Codex thread title finalizer";
   }
@@ -6695,8 +6695,8 @@ export function searchSessions(db: LooDatabase, options: {
     }
   }
 
-  const results = threadTitleAliasSearchResults(db, query, nowMs).slice(0, limit);
-  const seenRefs = new Set(results.map((result) => result.sourceRef));
+  const results: SessionSearchResult[] = [];
+  const seenRefs = new Set<string>();
 
   const rows = safeFtsTerms(query).length > 0
     ? db.prepare(`
@@ -6715,6 +6715,17 @@ export function searchSessions(db: LooDatabase, options: {
     seenRefs.add(result.sourceRef);
     results.push(result);
     if (results.length >= limit) break;
+  }
+
+  for (const aliasResult of threadTitleAliasSearchResults(db, query, nowMs)) {
+    const existing = results.find((result) => result.sourceRef === aliasResult.sourceRef);
+    if (existing) {
+      existing.reasonCodes = unique([...existing.reasonCodes, ...aliasResult.reasonCodes]);
+      continue;
+    }
+    if (results.length >= limit) break;
+    seenRefs.add(aliasResult.sourceRef);
+    results.push(aliasResult);
   }
 
   if (results.length === 0) {
@@ -6741,11 +6752,11 @@ export function searchSessions(db: LooDatabase, options: {
 function threadTitleAliasSearchResults(db: LooDatabase, query: string, nowMs: number): SessionSearchResult[] {
   const queryKey = normalizedTitle(query);
   if (!queryKey) return [];
-  const like = `%${escapeLike(queryKey)}%`;
   const rows = db.prepare(`
     SELECT
       a.thread_id AS threadId,
       a.alias_text AS aliasText,
+      a.alias_norm AS aliasNorm,
       a.updated_at AS updatedAt,
       s.title AS title,
       s.summary AS summary,
@@ -6753,11 +6764,10 @@ function threadTitleAliasSearchResults(db: LooDatabase, query: string, nowMs: nu
     FROM codex_thread_title_aliases a
     LEFT JOIN codex_sessions s ON s.thread_id = a.thread_id
     WHERE a.alias_kind = 'thread_title_finalizer'
-      AND (a.alias_norm = ? OR a.alias_norm LIKE ? ESCAPE '\\')
     ORDER BY COALESCE(s.updated_at, a.updated_at) DESC
-    LIMIT 25
-  `).all(queryKey, like) as Array<Record<string, unknown>>;
-  return rows.map((row, index) => {
+    LIMIT 250
+  `).all() as Array<Record<string, unknown>>;
+  return rows.filter((row) => titleAliasMatchesQuery(String(row.aliasNorm ?? ""), queryKey)).slice(0, 25).map((row, index) => {
     const threadId = String(row.threadId);
     const updatedAt = nullableString(row.sessionUpdatedAt) ?? nullableString(row.updatedAt);
     const aliasText = publicSafeSearchText(String(row.aliasText ?? ""), 160);
@@ -6779,6 +6789,14 @@ function threadTitleAliasSearchResults(db: LooDatabase, query: string, nowMs: nu
       ].filter(Boolean))
     };
   });
+}
+
+function titleAliasMatchesQuery(aliasNorm: string, queryKey: string): boolean {
+  if (aliasNorm === queryKey) return true;
+  const queryTokens = queryKey.split(" ").filter((token) => token.length >= 3);
+  if (queryTokens.length < 2) return false;
+  const aliasTokens = new Set(aliasNorm.split(" ").filter(Boolean));
+  return queryTokens.every((token) => aliasTokens.has(token));
 }
 
 function codexSearchRowByThreadId(db: LooDatabase, threadId: string): Record<string, unknown> | null {

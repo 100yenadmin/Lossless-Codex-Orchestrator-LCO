@@ -251,11 +251,42 @@ test("search resolves one-shot thread title finalizer aliases without raw transc
 
     assert.equal(report.aliasInserted, true);
     assert.equal(matches[0]?.threadId, "019f-title-finalizer-search");
-    assert.equal(matches[0]?.matchKind, "thread_title_alias");
+    assert.equal(matches[0]?.matchKind, "full_text");
     assert.equal(matches[0]?.reasonCodes.includes("thread_title_finalizer_alias"), true);
-    assert.equal(matches[0]?.snippet, "Thread title alias: lossless-openclaw-orchestrator: Codex thread title finalizer");
+    assert.notEqual(matches[0]?.snippet, "Thread title alias: lossless-openclaw-orchestrator: Codex thread title finalizer");
     assert.equal(matches[0]?.title, "how do you name threads when you create a new thread under...");
     assert.doesNotMatch(JSON.stringify(matches), /private-title-thread|\/Volumes\/LEXAR/);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("thread title aliases do not crowd out precise FTS matches for broad one-token queries", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-title-alias-broad-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    captureThreadTitleFinalizerHookPacket(db, {
+      thread_id: "019f-alias-only",
+      cwd: "/Volumes/LEXAR/repos/lossless-openclaw-orchestrator",
+      current_title: "ambiguous title",
+      last_assistant_message: "Implemented the Codex thread title finalizer hook for LCO indexing."
+    });
+
+    const broad = searchSessions(db, {
+      query: "codex",
+      limit: 5,
+      now: "2026-07-05T00:00:05.000Z"
+    });
+    const specific = searchSessions(db, {
+      query: "thread finalizer",
+      limit: 5,
+      now: "2026-07-05T00:00:05.000Z"
+    });
+
+    assert.deepEqual(broad, []);
+    assert.equal(specific[0]?.threadId, "019f-alias-only");
+    assert.equal(specific[0]?.matchKind, "thread_title_alias");
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
