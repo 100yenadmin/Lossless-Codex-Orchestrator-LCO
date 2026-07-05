@@ -54,6 +54,7 @@ import { runOpenClawDogfood } from "./openclaw-dogfood.js";
 import { DEFAULT_REQUIRED_TOOL_CALLS, FULL_GATEWAY_SMOKE_TOOL_CALLS, runOpenClawToolSmoke } from "./openclaw-tool-smoke.js";
 import { createPublishedPackageSmokeReport } from "./published-package-smoke.js";
 import { createCliMcpProductSmokeReport, MAX_CLI_MCP_PRODUCT_SMOKE_TIMEOUT_MS } from "./cli-mcp-product-smoke.js";
+import { createQaLabRunReport, type QaLabRunArtifact, type QaLabRunSuite } from "./qa-lab-run.js";
 import { createQaLabToolCoverageReport, type QaLabCoveragePolicy } from "./qa-lab-tool-coverage.js";
 import { createQaLabLiveControlMatrixReport } from "./qa-lab-live-control-matrix.js";
 import {
@@ -712,6 +713,17 @@ async function main() {
     if (parsed.strict && !report.qaLabToolCoverageReady) process.exitCode = 1;
     return;
   }
+  if (command === "qa-lab" && args[0] === "run") {
+    if (hasHelpFlag(args.slice(1))) {
+      printQaLabRunHelp();
+      return;
+    }
+    const parsed = parseQaLabRunArgs(args.slice(1));
+    const report = createQaLabRunReport(parsed);
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.qaLabReady) process.exitCode = 1;
+    return;
+  }
   if (command === "qa-lab" && args[0] === "live-control-matrix") {
     if (hasHelpFlag(args.slice(1))) {
       printQaLabLiveControlMatrixHelp();
@@ -975,11 +987,11 @@ function mainUsageText(): string {
     "  loo openclaw published-smoke --evidence-dir path --dogfood-report path --tool-smoke-report path [--configured-tool-smoke-report path] [--npm-install-diagnostic-report path] [--registry-version version] [--registry-beta-version version] [--root path] [--now iso] [--strict]",
     "  loo openclaw live-control-smoke --evidence-dir path --thread-id id --action send|resume|steer|interrupt [--expected-turn-id id] [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--message text] [--strict]",
     "  loo openclaw post-action-refresh-smoke --evidence-dir path --thread-id id --live-proof-report path [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--expand-profile metadata|brief|evidence] [--token-budget n] [--strict]",
-    "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--runtime-proof-dir path] [--strict]",
+    "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--runtime-proof-dir path] [--package-version version] [--candidate-sha sha] [--strict]",
     "  loo runtime sweep-summary --evidence-dir path --dry-run-scenarios path --runtime-scenarios path --scorecard-sweep path --published-smoke path [--runtime-proof-dir path] [--now iso] [--strict]",
     "  loo ui local-mac-search --evidence-dir path [--sample] [--strict]",
     "  loo eval retrieval --scenario-file path [--evidence-path path] [--strict]",
-    "  loo eval scenarios --evidence-dir path [--scenario-dir path] [--runtime-proof-dir path] [--strict]",
+    "  loo eval scenarios --evidence-dir path [--scenario-dir path] [--runtime-proof-dir path] [--package-version version] [--candidate-sha sha] [--strict]",
     "  loo runtime issue-packet --evidence-dir path --failure-report path [--parent-issue #n] [--operating-loop #n] [--milestone name] [--now iso] [--strict]",
     "  loo release preflight [--evidence-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--strict]",
     "  loo release bundle --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--strict]",
@@ -989,6 +1001,7 @@ function mainUsageText(): string {
     "  loo release ga-smoke --evidence-dir path --package-version version --candidate-sha sha [--release-status path] [--release-finalization-status path] [--published-smoke path] [--dogfood-report path] [--tool-smoke-report path] [--scenario-sweep path] [--scorecard-sweep path] [--release-preflight path] [--release-bundle path] [--privacy-scan path] [--qa-lab-run path] [--tool-coverage path] [--live-control-matrix path] [--judge-review path] [--adversarial-review path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--allow-setup-required] [--now iso] [--strict]",
     "  loo release demo-status --evidence-dir path [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--min-sessions n] [--strict]",
     "  loo qa-lab cli-mcp-smoke --evidence-dir path --package-version version [--candidate-sha sha] [--cli-bin path] [--mcp-bin path] [--required-tool name] [--tool-call name] [--timeout-ms ms] [--now iso] [--strict]",
+    "  loo qa-lab run --suite ga --artifact published|candidate --evidence-dir path --package-version version --candidate-sha sha [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--tool-coverage path] [--workflow-run path] [--cli-mcp-smoke path] [--desktop-contract path] [--live-control-matrix path] [--scenario-sweep path] [--scorecard-sweep path] [--privacy-scan path] [--now iso] [--strict]",
     "  loo qa-lab tool-coverage --evidence-dir path [--tool-smoke-report path] [--dogfood-report path] [--published-smoke path] [--manifest path] [--package-version version] [--candidate-sha sha] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--coverage-policy full|facade] [--now iso] [--strict]",
     "  loo qa-lab live-control-matrix --evidence-dir path [--package-version version] [--candidate-sha sha] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--sacrificial-thread-id id ...] [--send-report path] [--resume-report path] [--steer-report path] [--interrupt-report path] [--now iso] [--strict]",
     "  loo qa-lab judge --run path --rubric-version real-product-v1 --evidence-dir path [--now iso] [--strict]",
@@ -1107,7 +1120,7 @@ function printOpenClawToolSmokeHelp(): void {
 function printScorecardSweepHelp(): void {
   console.log([
     "Usage:",
-    "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--runtime-proof-dir path] [--strict]",
+    "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--runtime-proof-dir path] [--package-version version] [--candidate-sha sha] [--strict]",
     "",
     "Writes a public-safe scorecard sweep packet for the beta acceptance scorecards.",
     "",
@@ -1128,7 +1141,7 @@ function printScorecardSweepHelp(): void {
 function printScenarioSweepHelp(): void {
   console.log([
     "Usage:",
-    "  loo eval scenarios --evidence-dir path [--scenario-dir path] [--runtime-proof-dir path] [--scenario-id id ...] [--strict]",
+    "  loo eval scenarios --evidence-dir path [--scenario-dir path] [--runtime-proof-dir path] [--scenario-id id ...] [--package-version version] [--candidate-sha sha] [--strict]",
     "",
     "Writes public-safe QA Lab scenario scorecards for orchestrator eval tasks.",
     "",
@@ -1432,6 +1445,22 @@ function printQaLabCliMcpSmokeHelp(): void {
     "Safety boundary:",
     "  This command writes public-safe evidence only.",
     "  It does not run live Codex control, mutate a desktop GUI, capture screenshots, publish npm, or create a GitHub Release."
+  ].join("\n"));
+}
+
+function printQaLabRunHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo qa-lab run --suite ga --artifact published|candidate --evidence-dir path --package-version version --candidate-sha sha [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--tool-coverage path] [--workflow-run path] [--cli-mcp-smoke path] [--desktop-contract path] [--live-control-matrix path] [--scenario-sweep path] [--scorecard-sweep path] [--privacy-scan path] [--now iso] [--strict]",
+    "",
+    "Aggregates existing QA Lab evidence into `qa-lab-run.json` for release ga-smoke.",
+    "",
+    "Strict mode:",
+    "  --strict exits non-zero when any P0-P2 QA Lab blocker remains.",
+    "",
+    "Safety boundary:",
+    "  This command is aggregate-only. It consumes sanitized evidence reports and writes a public-safe QA Lab run packet.",
+    "  It does not run live Codex control, mutate a desktop GUI, read raw transcripts or raw prompts, approve gateway scopes, publish npm, create tags, or create a GitHub Release."
   ].join("\n"));
 }
 
@@ -2303,10 +2332,12 @@ function parseRetrievalEvalArgs(input: string[]): { scenarioFile: string; eviden
   return { scenarioFile, evidencePath, strict };
 }
 
-function parseScenarioSweepArgs(input: string[]): { evidenceDir: string; scenarioDir?: string; runtimeProofDir?: string; scenarioIds?: string[]; strict: boolean } {
+function parseScenarioSweepArgs(input: string[]): { evidenceDir: string; scenarioDir?: string; runtimeProofDir?: string; scenarioIds?: string[]; packageVersion?: string; candidateSha?: string; strict: boolean } {
   let evidenceDir = "";
   let scenarioDir: string | undefined;
   let runtimeProofDir: string | undefined;
+  let packageVersion: string | undefined;
+  let candidateSha: string | undefined;
   const scenarioIds: string[] = [];
   let strict = false;
   for (let index = 0; index < input.length; index += 1) {
@@ -2319,6 +2350,10 @@ function parseScenarioSweepArgs(input: string[]): { evidenceDir: string; scenari
       runtimeProofDir = requireOptionValue(input[++index], arg);
     } else if (arg === "--scenario-id") {
       scenarioIds.push(requireOptionValue(input[++index], arg));
+    } else if (arg === "--package-version") {
+      packageVersion = requireOptionValue(input[++index], arg);
+    } else if (arg === "--candidate-sha") {
+      candidateSha = requireOptionValue(input[++index], arg);
     } else if (arg === "--strict") {
       strict = true;
     } else {
@@ -2326,7 +2361,7 @@ function parseScenarioSweepArgs(input: string[]): { evidenceDir: string; scenari
     }
   }
   if (!evidenceDir) throw new Error("eval scenarios requires --evidence-dir");
-  return { evidenceDir, scenarioDir, runtimeProofDir, scenarioIds: scenarioIds.length ? scenarioIds : undefined, strict };
+  return { evidenceDir, scenarioDir, runtimeProofDir, scenarioIds: scenarioIds.length ? scenarioIds : undefined, packageVersion, candidateSha, strict };
 }
 
 function parseRuntimeIssuePacketArgs(input: string[]): {
@@ -2808,11 +2843,13 @@ function requireOptionValue(value: string | undefined, option: string): string {
   return value;
 }
 
-function parseScorecardSweepArgs(input: string[]): { evidenceDir: string; scorecardDir?: string; claimScope?: ReleaseClaimScope; runtimeProofDir?: string; strict: boolean } {
+function parseScorecardSweepArgs(input: string[]): { evidenceDir: string; scorecardDir?: string; claimScope?: ReleaseClaimScope; runtimeProofDir?: string; packageVersion?: string; candidateSha?: string; strict: boolean } {
   let evidenceDir: string | undefined;
   let scorecardDir: string | undefined;
   let claimScope: ReleaseClaimScope | undefined;
   let runtimeProofDir: string | undefined;
+  let packageVersion: string | undefined;
+  let candidateSha: string | undefined;
   let strict = false;
   for (let index = 0; index < input.length; index += 1) {
     const arg = input[index]!;
@@ -2824,6 +2861,10 @@ function parseScorecardSweepArgs(input: string[]): { evidenceDir: string; scorec
       claimScope = parseReleaseClaimScope(input, ++index, arg);
     } else if (arg === "--runtime-proof-dir") {
       runtimeProofDir = requireOptionValue(input[++index], arg);
+    } else if (arg === "--package-version") {
+      packageVersion = requireOptionValue(input[++index], arg);
+    } else if (arg === "--candidate-sha") {
+      candidateSha = requireOptionValue(input[++index], arg);
     } else if (arg === "--strict") {
       strict = true;
     } else {
@@ -2831,7 +2872,7 @@ function parseScorecardSweepArgs(input: string[]): { evidenceDir: string; scorec
     }
   }
   if (!evidenceDir) throw new Error("scorecards sweep requires --evidence-dir");
-  return { evidenceDir, scorecardDir, claimScope, runtimeProofDir, strict };
+  return { evidenceDir, scorecardDir, claimScope, runtimeProofDir, packageVersion, candidateSha, strict };
 }
 
 function parseRuntimeSweepSummaryArgs(input: string[]): {
@@ -3331,6 +3372,145 @@ function parseReleaseGaSmokeArgs(input: string[]): {
     now,
     strict
   };
+}
+
+function parseQaLabRunArgs(input: string[]): {
+  suite: QaLabRunSuite;
+  artifact: QaLabRunArtifact;
+  evidenceDir: string;
+  packageVersion: string;
+  candidateSha: string;
+  claimScope?: ReleaseClaimScope;
+  toolCoverage?: string;
+  workflowRun?: string;
+  cliMcpProductSmoke?: string;
+  desktopContract?: string;
+  liveControlMatrix?: string;
+  scenarioSweep?: string;
+  scorecardSweep?: string;
+  privacyScan?: string;
+  now?: string;
+  strict: boolean;
+} {
+  let suite: QaLabRunSuite | undefined;
+  let artifact: QaLabRunArtifact | undefined;
+  let evidenceDir: string | undefined;
+  let packageVersion: string | undefined;
+  let candidateSha: string | undefined;
+  let claimScope: ReleaseClaimScope | undefined;
+  let toolCoverage: string | undefined;
+  let workflowRun: string | undefined;
+  let cliMcpProductSmoke: string | undefined;
+  let desktopContract: string | undefined;
+  let liveControlMatrix: string | undefined;
+  let scenarioSweep: string | undefined;
+  let scorecardSweep: string | undefined;
+  let privacyScan: string | undefined;
+  let now: string | undefined;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--suite") {
+      suite = parseQaLabRunSuite(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--artifact") {
+      artifact = parseQaLabRunArtifact(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--evidence-dir") {
+      evidenceDir = readReleaseStatusPath(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--package-version") {
+      packageVersion = readReleaseStatusValue(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--candidate-sha") {
+      candidateSha = readReleaseStatusValue(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--claim-scope") {
+      claimScope = parseReleaseClaimScope(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--tool-coverage") {
+      toolCoverage = readReleaseStatusPath(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--workflow-run") {
+      workflowRun = readReleaseStatusPath(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--cli-mcp-smoke") {
+      cliMcpProductSmoke = readReleaseStatusPath(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--desktop-contract") {
+      desktopContract = readReleaseStatusPath(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--live-control-matrix") {
+      liveControlMatrix = readReleaseStatusPath(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--scenario-sweep") {
+      scenarioSweep = readReleaseStatusPath(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--scorecard-sweep") {
+      scorecardSweep = readReleaseStatusPath(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--privacy-scan") {
+      privacyScan = readReleaseStatusPath(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--now") {
+      now = readReleaseStatusValue(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--strict") {
+      strict = true;
+      continue;
+    }
+    throw new Error(`Unknown qa-lab run option: ${arg}`);
+  }
+  if (!suite) throw new Error("qa-lab run requires --suite");
+  if (!artifact) throw new Error("qa-lab run requires --artifact");
+  if (!evidenceDir) throw new Error("qa-lab run requires --evidence-dir");
+  if (!packageVersion) throw new Error("qa-lab run requires --package-version");
+  if (!candidateSha) throw new Error("qa-lab run requires --candidate-sha");
+  return {
+    suite,
+    artifact,
+    evidenceDir,
+    packageVersion,
+    candidateSha,
+    claimScope,
+    toolCoverage,
+    workflowRun,
+    cliMcpProductSmoke,
+    desktopContract,
+    liveControlMatrix,
+    scenarioSweep,
+    scorecardSweep,
+    privacyScan,
+    now,
+    strict
+  };
+}
+
+function parseQaLabRunSuite(input: string[], index: number, flag: string): QaLabRunSuite {
+  const value = readReleaseStatusValue(input, index, flag);
+  if (value === "ga") return value;
+  throw new Error(`${flag} requires ga`);
+}
+
+function parseQaLabRunArtifact(input: string[], index: number, flag: string): QaLabRunArtifact {
+  const value = readReleaseStatusValue(input, index, flag);
+  if (value === "published" || value === "candidate") return value;
+  throw new Error(`${flag} requires published or candidate`);
 }
 
 function parseQaLabToolCoverageArgs(input: string[]): {
