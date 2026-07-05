@@ -12848,6 +12848,8 @@ const CODEX_JSONL_TRANSPARENT_ENVELOPES = new Set([
   "session_meta",
   "turn_context"
 ]);
+const CODEX_JSONL_CONTENTFUL_SCAN_MAX_DEPTH = 16;
+const CODEX_JSONL_CONTENTFUL_SCAN_MAX_NODES = 500;
 
 function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: number): ImportedSession {
   const fallbackId = fallbackThreadId(sourcePath);
@@ -13009,8 +13011,20 @@ function recordCodexJsonlEventKindDrift(drift: CodexJsonlDriftAccumulator, item:
   const kind = codexJsonlEventKind(item);
   if (!kind || KNOWN_CODEX_JSONL_EVENT_KINDS.has(kind)) return;
   if (!codexJsonlHasUnextractedContentfulPayload(item)) return;
-  const safeKind = publicSafeIdentifier(kind) ?? `unknown_${stableId(kind).slice(0, 12)}`;
+  const safeKind = publicSafeCodexJsonlKind(kind);
   drift.unknownEventKinds.set(safeKind, (drift.unknownEventKinds.get(safeKind) ?? 0) + 1);
+}
+
+function publicSafeCodexJsonlKind(kind: string): string {
+  const identifier = publicSafeIdentifier(kind);
+  if (identifier) return identifier;
+  const readable = publicSafeText(kind, 96)
+    .trim()
+    .replace(/\s+/g, "_")
+    .replace(/[^A-Za-z0-9._:-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 96);
+  return readable || `unknown_${stableId(kind).slice(0, 12)}`;
 }
 
 function recordCodexJsonlMissingFieldDrift(drift: CodexJsonlDriftAccumulator, item: any): void {
@@ -13140,20 +13154,28 @@ function collectCodexJsonlExtractedStrings(item: any): string[] {
     .filter(Boolean);
 }
 
-function collectCodexJsonlContentfulStrings(value: unknown, keyHint = "", contentAncestor = false): string[] {
+function collectCodexJsonlContentfulStrings(
+  value: unknown,
+  keyHint = "",
+  contentAncestor = false,
+  depth = 0,
+  state: { visited: number } = { visited: 0 }
+): string[] {
   const out: string[] = [];
+  if (depth > CODEX_JSONL_CONTENTFUL_SCAN_MAX_DEPTH || state.visited >= CODEX_JSONL_CONTENTFUL_SCAN_MAX_NODES) return out;
+  state.visited += 1;
   const contentLike = contentAncestor || codexJsonlContentFieldName(keyHint);
   if (typeof value === "string") {
     if (contentLike && value.trim()) out.push(value);
     return out;
   }
   if (Array.isArray(value)) {
-    for (const item of value) out.push(...collectCodexJsonlContentfulStrings(item, keyHint, contentLike));
+    for (const item of value) out.push(...collectCodexJsonlContentfulStrings(item, keyHint, contentLike, depth + 1, state));
     return out;
   }
   if (!isObjectRecord(value)) return out;
   for (const [key, child] of Object.entries(value)) {
-    out.push(...collectCodexJsonlContentfulStrings(child, key, contentLike || codexJsonlContentFieldName(key)));
+    out.push(...collectCodexJsonlContentfulStrings(child, key, contentLike || codexJsonlContentFieldName(key), depth + 1, state));
   }
   return out;
 }
