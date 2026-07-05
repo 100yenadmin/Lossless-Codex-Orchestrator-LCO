@@ -77,6 +77,12 @@ const CODEX_SEARCH_BM25_WEIGHTS = [
 
 const MATCH_START = "[";
 const MATCH_END = "]";
+// Unicode private-use sentinels for FTS snippet() match markers. Using
+// non-content code points avoids false match attribution when real snippet
+// text already contains public brackets (e.g. "[TODO]"). Detection runs on the
+// sentinels; rendered snippets translate them back to public brackets.
+const SNIPPET_MATCH_START = "";
+const SNIPPET_MATCH_END = "";
 
 export function searchCodexSessions(db: LooDatabase, options: {
   query: string;
@@ -109,11 +115,12 @@ export function searchCodexSessions(db: LooDatabase, options: {
   const results: SessionSearchResult[] = [];
   const seenRefs = new Set<string>();
   const plan = codexFtsQueryPlan(query);
-  const candidateLimit = clamp(Math.max(limit * 4, limit), 1, 100);
+  const includeBodyColumns = plan.prefixTerms.length > 0;
+  const candidateLimit = clamp(limit * 4, limit, 400);
   let ftsRowCount = 0;
 
   if (plan.andQuery) {
-    const andRows = selectCodexFtsRows(db, plan.andQuery, candidateLimit);
+    const andRows = selectCodexFtsRows(db, plan.andQuery, candidateLimit, includeBodyColumns);
     ftsRowCount += andRows.length;
     for (const ranked of rankCodexFtsRows(andRows, nowMs, plan)) {
       const result = codexFtsResultFromRankedRow(ranked, plan, [], nowMs);
@@ -125,7 +132,7 @@ export function searchCodexSessions(db: LooDatabase, options: {
   }
 
   if (results.length < limit && plan.orQuery && plan.orQuery !== plan.andQuery) {
-    const orRows = selectCodexFtsRows(db, plan.orQuery, candidateLimit);
+    const orRows = selectCodexFtsRows(db, plan.orQuery, candidateLimit, includeBodyColumns);
     ftsRowCount += orRows.length;
     for (const ranked of rankCodexFtsRows(orRows, nowMs, plan)) {
       const prefixMatched = ranked.identifierScore > 0;
@@ -200,7 +207,10 @@ export function deleteCodexSearchFtsForThread(db: LooDatabase, threadId: string)
 export function codexSearchFtsNeedsBackfill(db: LooDatabase): boolean {
   const sessionCount = Number((db.prepare("SELECT COUNT(*) AS count FROM codex_sessions").get() as { count: number }).count);
   const ftsCount = Number((db.prepare("SELECT COUNT(*) AS count FROM codex_search_fts").get() as { count: number }).count);
-  return ftsCount < sessionCount;
+  // Backfill on any count drift in either direction (missing rows OR stale
+  // leftovers), not just an underfilled table. Dual-write (upsert/delete per
+  // thread) keeps row identity in sync once counts match.
+  return ftsCount !== sessionCount;
 }
 
 export function safeFtsTerms(query: string): string[] {
@@ -246,54 +256,65 @@ function quoteFtsTerm(term: string): string {
 }
 
 function isIdentifierShapedTerm(term: string): boolean {
-  return /[0-9_-]/.test(term) || term.length > 12;
+  // Digits/underscores/hyphens or an internal camelCase boundary signal an
+  // identifier (thread id, file path, symbol). A bare length threshold would
+  // misclassify ordinary long words ("authorization") and over-broaden prefix
+  // expansion, degrading precision.
+  return /[0-9_-]/.test(term) || /[a-z][A-Z]/.test(term);
 }
 
-function selectCodexFtsRows(db: LooDatabase, matchQuery: string, limit: number): CodexSearchRow[] {
-  if (!matchQuery) return [];
-  return db.prepare(`
-    SELECT
-      s.thread_id AS threadId,
-      s.title,
-      s.summary,
-      s.updated_at AS updatedAt,
-      snippet(codex_search_fts, -1, '${MATCH_START}', '${MATCH_END}', '...', 18) AS snippet,
-      snippet(codex_search_fts, 1, '${MATCH_START}', '${MATCH_END}', '...', 18) AS titleSnippet,
-      snippet(codex_search_fts, 2, '${MATCH_START}', '${MATCH_END}', '...', 18) AS summarySnippet,
-      snippet(codex_search_fts, 3, '${MATCH_START}', '${MATCH_END}', '...', 18) AS plansSnippet,
-      snippet(codex_search_fts, 4, '${MATCH_START}', '${MATCH_END}', '...', 18) AS finalsSnippet,
-      snippet(codex_search_fts, 5, '${MATCH_START}', '${MATCH_END}', '...', 18) AS touchedFilesSnippet,
-      snippet(codex_search_fts, 6, '${MATCH_START}', '${MATCH_END}', '...', 18) AS toolMetaSnippet,
-      snippet(codex_search_fts, 7, '${MATCH_START}', '${MATCH_END}', '...', 18) AS bodySnippet,
+// Body columns (codex_search_fts.body etc.) are only needed for identifier
+// prefix scoring; searchBody can be the full session text, so we avoid selecting
+// it on the common bm25-only path. Two prepared variants keep non-prefix
+// searches lean while still supplying prefix candidates the columns they need.
+const CODEX_FTS_SNIPPET_COLUMNS = `
+      snippet(codex_search_fts, -1, '${SNIPPET_MATCH_START}', '${SNIPPET_MATCH_END}', '...', 18) AS snippet,
+      snippet(codex_search_fts, 1, '${SNIPPET_MATCH_START}', '${SNIPPET_MATCH_END}', '...', 18) AS titleSnippet,
+      snippet(codex_search_fts, 2, '${SNIPPET_MATCH_START}', '${SNIPPET_MATCH_END}', '...', 18) AS summarySnippet,
+      snippet(codex_search_fts, 3, '${SNIPPET_MATCH_START}', '${SNIPPET_MATCH_END}', '...', 18) AS plansSnippet,
+      snippet(codex_search_fts, 4, '${SNIPPET_MATCH_START}', '${SNIPPET_MATCH_END}', '...', 18) AS finalsSnippet,
+      snippet(codex_search_fts, 5, '${SNIPPET_MATCH_START}', '${SNIPPET_MATCH_END}', '...', 18) AS touchedFilesSnippet,
+      snippet(codex_search_fts, 6, '${SNIPPET_MATCH_START}', '${SNIPPET_MATCH_END}', '...', 18) AS toolMetaSnippet,
+      snippet(codex_search_fts, 7, '${SNIPPET_MATCH_START}', '${SNIPPET_MATCH_END}', '...', 18) AS bodySnippet`;
+
+const CODEX_FTS_BODY_COLUMNS = `
       codex_search_fts.title AS searchTitle,
       codex_search_fts.summary AS searchSummary,
       codex_search_fts.plans AS searchPlans,
       codex_search_fts.finals AS searchFinals,
       codex_search_fts.touched_files AS searchTouchedFiles,
       codex_search_fts.tool_meta AS searchToolMeta,
-      codex_search_fts.body AS searchBody,
+      codex_search_fts.body AS searchBody,`;
+
+function codexFtsRowsSql(includeBodyColumns: boolean): string {
+  return `
+    SELECT
+      s.thread_id AS threadId,
+      s.title,
+      s.summary,
+      s.updated_at AS updatedAt,${CODEX_FTS_SNIPPET_COLUMNS},
+      ${includeBodyColumns ? CODEX_FTS_BODY_COLUMNS : ""}
       bm25(codex_search_fts, ${CODEX_SEARCH_BM25_WEIGHTS}) AS bm25
     FROM codex_search_fts
     JOIN codex_sessions s ON s.thread_id = codex_search_fts.thread_id
     WHERE codex_search_fts MATCH ?
     ORDER BY bm25(codex_search_fts, ${CODEX_SEARCH_BM25_WEIGHTS}) ASC
     LIMIT ?
-  `).all(matchQuery, limit) as CodexSearchRow[];
+  `;
+}
+
+function selectCodexFtsRows(db: LooDatabase, matchQuery: string, limit: number, includeBodyColumns: boolean): CodexSearchRow[] {
+  if (!matchQuery) return [];
+  return db.prepare(codexFtsRowsSql(includeBodyColumns)).all(matchQuery, limit) as CodexSearchRow[];
 }
 
 function rankCodexFtsRows(rows: CodexSearchRow[], nowMs: number, plan: CodexFtsQueryPlan): RankedCodexFtsRow[] {
   if (rows.length === 0) return [];
   const bm25Values = rows.map((row) => finiteNumber(row.bm25, 0));
-  const sqliteNegativeBm25 = bm25Values.some((value) => value < 0);
-  const rawTextScores = sqliteNegativeBm25 ? bm25Values.map((value) => Math.max(0, -value)) : [];
-  const maxRawTextScore = rawTextScores.length ? Math.max(...rawTextScores) : 0;
+  const bm25TextScores = normalizeBm25TextScores(bm25Values);
   return rows.map((row, index) => {
     const bm25 = bm25Values[index] ?? 0;
-    const bm25TextScore = sqliteNegativeBm25
-      ? maxRawTextScore > 0
-        ? rawTextScores[index]! / maxRawTextScore
-        : 1
-      : 1 / (1 + Math.max(0, bm25));
+    const bm25TextScore = bm25TextScores[index] ?? 0;
     const sRec = sessionRecencyScore(nullableString(row.updatedAt), nowMs);
     const identifierScore = rowIdentifierTermScore(row, plan.prefixTerms);
     const identifierTextScore = plan.prefixTerms.length > 0
@@ -312,6 +333,23 @@ function rankCodexFtsRows(rows: CodexSearchRow[], nowMs: number, plan: CodexFtsQ
   }).sort((left, right) => right.score - left.score || right.identifierScore - left.identifierScore || left.bm25 - right.bm25 || String(left.row.threadId).localeCompare(String(right.row.threadId)));
 }
 
+// FTS5 bm25() is always negative-is-better in modern SQLite (more relevant rows
+// score more negative). Convert to relevance = max(0, -bm25) and min-max scale
+// across the candidate set so the strongest match maps to 1.0 and field-weight
+// spread stays visible against the recency term. This is deterministic and
+// monotonic in match quality: it replaces the prior global sign heuristic
+// (`bm25Values.some(v < 0)`), which could invert relative order on mixed-sign
+// candidate sets. Exported for regression coverage.
+export function normalizeBm25TextScores(bm25Values: number[]): number[] {
+  const relevances = bm25Values.map((value) => Math.max(0, -finiteNumber(value, 0)));
+  const maxRelevance = relevances.length ? Math.max(...relevances) : 0;
+  // No positive relevance signal (e.g. all bm25 >= 0): treat every candidate as
+  // equally (un)ranked so the recency term becomes the tie-break, matching the
+  // prior behavior.
+  if (maxRelevance <= 0) return relevances.map(() => 1);
+  return relevances.map((relevance) => relevance / maxRelevance);
+}
+
 function codexFtsResultFromRankedRow(
   ranked: RankedCodexFtsRow,
   plan: CodexFtsQueryPlan,
@@ -327,7 +365,7 @@ function codexFtsResultFromRankedRow(
   return sessionSearchResultFromRow(
     ranked.row,
     ranked.score,
-    String(ranked.row.snippet ?? ""),
+    renderSnippetMarkers(String(ranked.row.snippet ?? "")),
     "full_text",
     reasonCodes,
     nowMs,
@@ -354,7 +392,11 @@ function matchedFieldsFromRow(row: CodexSearchRow): CodexSearchFtsField[] {
 }
 
 function snippetHasMatch(value: unknown): boolean {
-  return typeof value === "string" && value.includes(MATCH_START) && value.includes(MATCH_END);
+  return typeof value === "string" && value.includes(SNIPPET_MATCH_START) && value.includes(SNIPPET_MATCH_END);
+}
+
+function renderSnippetMarkers(value: string): string {
+  return value.split(SNIPPET_MATCH_START).join(MATCH_START).split(SNIPPET_MATCH_END).join(MATCH_END);
 }
 
 function rowIdentifierTermScore(row: CodexSearchRow, prefixTerms: string[]): number {

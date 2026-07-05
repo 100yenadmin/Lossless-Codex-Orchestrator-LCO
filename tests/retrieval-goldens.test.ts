@@ -10,6 +10,7 @@ import {
   evaluateRetrievalBaselineScenarios,
   indexCodexSessions
 } from "../packages/core/src/index.js";
+import type { RetrievalBaselineFloors } from "../packages/core/src/index.js";
 
 const scenarioFile = "evals/scenarios/retrieval-goldens/v1/goldens.json";
 const floorFile = "evals/scenarios/retrieval-goldens/v1/baseline-floors.json";
@@ -65,9 +66,13 @@ test("retrieval goldens preserve the recorded field-weighted FTS floors", () => 
     assert.equal(report.metrics.overall.hitAt1, 1);
     assert.equal(report.metrics.overall.hitAt5, 1);
     assert.equal(report.metrics.overall.mrr, 1);
+    // multi_term_cap queries sit under CODEX_SEARCH_FTS_TERM_CAP, so none should
+    // carry the actual truncation reason code (query_terms_truncated) emitted by
+    // search.ts/index.ts — the prior "_to_12" suffix never existed, making the
+    // assertion vacuous.
     assert.equal(report.scenarios
       .filter((scenario) => scenario.family === "multi_term_cap")
-      .every((scenario) => !scenario.reasonCodes.includes("query_terms_truncated_to_12")), true);
+      .every((scenario) => !scenario.reasonCodes.includes("query_terms_truncated")), true);
     assert.equal(report.scenarios.every((scenario) => scenario.topRefs.every((ref) => ref.startsWith("codex_thread:"))), true);
     assert.doesNotMatch(JSON.stringify(report), /<proposed_plan>|Final:/);
   } finally {
@@ -135,16 +140,3 @@ type RetrievalGoldenPayload = {
   }>;
 };
 
-type RetrievalBaselineFloors = {
-  overall: {
-    hitAt1: number;
-    hitAt5: number;
-    mrr: number;
-  };
-  families: Record<string, {
-    scenarioCount?: number;
-    hitAt1: number;
-    hitAt5: number;
-    mrr: number;
-  }>;
-};

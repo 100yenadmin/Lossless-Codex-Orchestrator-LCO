@@ -28,7 +28,7 @@ import {
 import type { CodexSearchMatchFeatures } from "./search.js";
 
 export { createSessionSanitizerRepairPlan, createSessionSanitizerReport } from "./session-sanitizer.js";
-export { CODEX_SEARCH_FTS_WEIGHTS } from "./search.js";
+export { CODEX_SEARCH_FTS_WEIGHTS, normalizeBm25TextScores } from "./search.js";
 export type { CodexSearchMatchFeatures } from "./search.js";
 export {
   AGENT_PROVENANCE_PARSE_SCHEMA,
@@ -2631,11 +2631,6 @@ export function migrate(db: LooDatabase): void {
         '2026-07-06-index-fast-skip-and-hot-path-indexes',
         datetime('now'),
         'Additive Codex source extractor-state columns and hot read-path indexes'
-      ),
-      (
-        '${CODEX_SEARCH_FTS_MIGRATION_ID}',
-        datetime('now'),
-        'Additive field-weighted Codex search FTS table with relational backfill'
       );
 
     CREATE TABLE IF NOT EXISTS prepared_source_events (
@@ -2930,7 +2925,14 @@ export function migrate(db: LooDatabase): void {
   ensureColumn(db, "codex_source_files", "prepared_range_extractor_version", "TEXT");
   ensureColumn(db, "codex_source_files", "summary_leaf_extractor_version", "TEXT");
   ensureColumn(db, "codex_source_files", "prepared_card_extractor_version", "TEXT");
-  if (codexSearchFtsNeedsBackfill(db)) {
+  // Gate the relational backfill on "migration row missing OR count drift" so a
+  // crash between the rebuild and the ledger insert leaves the migration
+  // unrecorded and re-runnable. Record the ledger row only AFTER a successful
+  // rebuild, so the audit ledger never claims a backfill that did not complete.
+  const codexSearchFtsMigrationRecorded = db
+    .prepare("SELECT 1 FROM loo_schema_migrations WHERE migration_id = ?")
+    .get(CODEX_SEARCH_FTS_MIGRATION_ID) !== undefined;
+  if (!codexSearchFtsMigrationRecorded || codexSearchFtsNeedsBackfill(db)) {
     rebuildCodexSearchFts(db);
     db.prepare("INSERT OR IGNORE INTO loo_schema_migrations (migration_id, applied_at, description) VALUES (?, datetime('now'), ?)").run(
       CODEX_SEARCH_FTS_MIGRATION_ID,

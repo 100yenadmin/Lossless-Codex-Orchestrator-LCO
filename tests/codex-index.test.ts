@@ -19,6 +19,7 @@ import {
   getRecentSessions,
   indexCodexSessions,
   migrate,
+  normalizeBm25TextScores,
   searchSessions
 } from "../packages/core/src/index.js";
 import { createLooTools } from "../packages/mcp-server/src/tools.js";
@@ -163,6 +164,113 @@ test("search uses field-weighted FTS scores and matched-field attribution", () =
     db.close();
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("field-weight beats recency: older strong-title outranks newer weak-body", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-recency-inv-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+
+  // Older thread, strong TITLE match (all query terms, field weight 8).
+  writeFileSync(join(sessions, "rollout-2026-06-01T00-00-00-019f-old-title.jsonl"), [
+    { timestamp: "2026-06-01T00:00:00.000Z", session_meta: { payload: { id: "019f-old-title" } } },
+    { timestamp: "2026-06-01T00:00:01.000Z", event_msg: { type: "thread_name", name: "Needle ranking calibration" } },
+    { timestamp: "2026-06-01T00:00:02.000Z", event_msg: { type: "agent_message", message: "Final: closeout notes about deployment and unrelated tooling chores." } }
+  ].map((line) => JSON.stringify(line)).join("\n") + "\n");
+
+  // Much newer thread, weak BODY-only match (one query term, diluted, weight 1).
+  writeFileSync(join(sessions, "rollout-2026-07-05T00-00-00-019f-new-body.jsonl"), [
+    { timestamp: "2026-07-05T00:00:00.000Z", session_meta: { payload: { id: "019f-new-body" } } },
+    { timestamp: "2026-07-05T00:00:01.000Z", event_msg: { type: "thread_name", name: "General retrieval note" } },
+    { timestamp: "2026-07-05T00:00:02.000Z", event_msg: { type: "agent_message", message: "Final: broad recall path body mentioning needle once among many other unrelated words about deployment, tooling, refactors, and assorted chores that dilute the term frequency substantially here." } }
+  ].map((line) => JSON.stringify(line)).join("\n") + "\n");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+
+    const matches = searchSessions(db, {
+      query: "needle ranking calibration",
+      limit: 2,
+      now: "2026-07-06T00:00:00.000Z"
+    });
+
+    assert.equal(matches.length, 2);
+    // The 0.8 text + 0.2 recency blend must not let a much-newer weak body match
+    // overtake an older strong title match: the older thread is ~34 days older
+    // (recency favors the newer one) yet must still rank first on field weight.
+    assert.equal(matches[0]?.threadId, "019f-old-title");
+    assert.equal(matches[0]?.matchFeatures?.matchedFields.includes("title"), true);
+    assert.equal((matches[0]?.matchFeatures?.sRec ?? 1) < (matches[1]?.matchFeatures?.sRec ?? 0), true);
+    assert.equal(matches[1]?.threadId, "019f-new-body");
+    assert.equal(matches[0]?.score > (matches[1]?.score ?? 0), true);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("recency breaks ties: equal text scores rank the newer thread first", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-recency-tie-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+
+  // Two threads with identical title matches (equal text score) but different
+  // recency; the newer one must win on the 0.2 recency term.
+  writeFileSync(join(sessions, "rollout-2026-06-01T00-00-00-019f-tie-older.jsonl"), [
+    { timestamp: "2026-06-01T00:00:00.000Z", session_meta: { payload: { id: "019f-tie-older" } } },
+    { timestamp: "2026-06-01T00:00:01.000Z", event_msg: { type: "thread_name", name: "Needle ranking calibration" } },
+    { timestamp: "2026-06-01T00:00:02.000Z", event_msg: { type: "agent_message", message: "Final: shared closeout body." } }
+  ].map((line) => JSON.stringify(line)).join("\n") + "\n");
+
+  writeFileSync(join(sessions, "rollout-2026-07-05T00-00-00-019f-tie-newer.jsonl"), [
+    { timestamp: "2026-07-05T00:00:00.000Z", session_meta: { payload: { id: "019f-tie-newer" } } },
+    { timestamp: "2026-07-05T00:00:01.000Z", event_msg: { type: "thread_name", name: "Needle ranking calibration" } },
+    { timestamp: "2026-07-05T00:00:02.000Z", event_msg: { type: "agent_message", message: "Final: shared closeout body." } }
+  ].map((line) => JSON.stringify(line)).join("\n") + "\n");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+
+    const matches = searchSessions(db, {
+      query: "needle ranking calibration",
+      limit: 2,
+      now: "2026-07-06T00:00:00.000Z"
+    });
+
+    assert.equal(matches.length, 2);
+    assert.equal(matches[0]?.matchFeatures?.sText, matches[1]?.matchFeatures?.sText);
+    assert.equal(matches[0]?.threadId, "019f-tie-newer");
+    assert.equal((matches[0]?.matchFeatures?.sRec ?? 0) > (matches[1]?.matchFeatures?.sRec ?? 0), true);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("normalizeBm25TextScores preserves order deterministically on mixed-sign sets", () => {
+  // FTS5 bm25() is negative-is-better; the normalizer must map a mixed-sign
+  // candidate set into [0, 1] with the strongest (most-negative) match at 1.0
+  // and preserve relative order regardless of any anomalous non-negative value,
+  // replacing the old global sign heuristic that could invert the whole set.
+  const bm25Values = [-9, -3, -0.5, 0, 2.5];
+  const normalized = normalizeBm25TextScores(bm25Values);
+
+  for (const value of normalized) {
+    assert.equal(Number.isFinite(value), true);
+    assert.equal(value >= 0 && value <= 1, true);
+  }
+  // Strongest match (most negative bm25) scales to 1.0.
+  assert.equal(normalized[0], 1);
+  // Strictly decreasing with weaker relevance; non-positive bm25 => 0.
+  assert.equal(normalized[0]! > normalized[1]!, true);
+  assert.equal(normalized[1]! > normalized[2]!, true);
+  assert.equal(normalized[2]! > normalized[3]!, true);
+  assert.equal(normalized[3], 0);
+  assert.equal(normalized[4], 0);
+  // Deterministic: same input => same output, no dependence on sign mix.
+  assert.deepEqual(normalizeBm25TextScores(bm25Values), normalized);
 });
 
 test("codex_search_fts migration backfills from existing relational rows", () => {
