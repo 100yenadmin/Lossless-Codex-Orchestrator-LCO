@@ -202,12 +202,6 @@ export function upsertCodexSearchFtsForThread(db: LooDatabase, threadId: string)
   insertCodexSearchFtsDocument(db, row);
 }
 
-export function deleteCodexSearchFtsForThread(db: LooDatabase, threadId: string): void {
-  const row = db.prepare("SELECT rowid AS sessionRowid FROM codex_sessions WHERE thread_id = ?").get(threadId) as CodexSearchRow | undefined;
-  if (!row) return;
-  deleteCodexSearchFtsForSessionRowid(db, codexSearchFtsDocumentSessionRowid(row));
-}
-
 export function deleteCodexSearchFtsForSessionRowid(db: LooDatabase, sessionRowid: number): void {
   db.prepare("DELETE FROM codex_search_fts WHERE rowid = ?").run(sessionRowid);
 }
