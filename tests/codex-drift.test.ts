@@ -261,6 +261,89 @@ test("session id missing-field drift is decided per file instead of per record",
   }
 });
 
+test("unknown Codex JSONL kind drift keeps readable public-safe labels", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-drift-readable-kind-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  writeFileSync(
+    join(sessions, "readable-kind.jsonl"),
+    [
+      {
+        timestamp: "2026-07-06T10:00:00.000Z",
+        type: "session_meta",
+        payload: { id: "019f-drift-readable-kind", cwd: "/Volumes/LEXAR/repos/example", model: "gpt-5.5" }
+      },
+      {
+        timestamp: "2026-07-06T10:00:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: "assistant packet/v2",
+          renamed_payload: { content: "Novel unknown payload remains advisory drift." }
+        }
+      }
+    ].map((line) => JSON.stringify(line)).join("\n") + "\n"
+  );
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const indexed = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    assert.equal(indexed.errors.length, 0);
+    assert.deepEqual(indexed.driftReport[0]?.unknownEventKinds, [
+      { kind: "assistant_packet_v2", count: 1 }
+    ]);
+    assert.ok(indexed.driftReport[0]?.reasonCodes.includes("unknown_event_kind:assistant_packet_v2"));
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("unknown Codex JSONL kind content scan is depth bounded", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-drift-bounded-content-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  writeFileSync(
+    join(sessions, "deep-unknown.jsonl"),
+    [
+      {
+        timestamp: "2026-07-06T11:00:00.000Z",
+        type: "session_meta",
+        payload: { id: "019f-drift-bounded-content", cwd: "/Volumes/LEXAR/repos/example", model: "gpt-5.5" }
+      },
+      {
+        timestamp: "2026-07-06T11:00:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: "assistant_packet_v3",
+          content: deeplyNested("Deep unknown payload beyond scan cap.", 40)
+        }
+      }
+    ].map((line) => JSON.stringify(line)).join("\n") + "\n"
+  );
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const indexed = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    assert.equal(indexed.errors.length, 0);
+    assert.deepEqual(indexed.driftReport, []);
+    assert.deepEqual(indexed.driftSummary, {
+      files: 0,
+      unknownEventKinds: 0,
+      unparsedLines: 0,
+      missingExpectedFields: 0
+    });
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function deeplyNested(value: string, depth: number): unknown {
+  let current: unknown = value;
+  for (let index = 0; index < depth; index += 1) current = { child: current };
+  return current;
+}
+
 function observedKindRecord(kind: (typeof observedNonFlaggingInnerKinds)[number], index: number): Record<string, unknown> {
   const timestamp = `2026-07-02T10:00:${String(index + 2).padStart(2, "0")}.000Z`;
   if (kind === "agent_message" || kind === "user_message") {
