@@ -1,0 +1,4 @@
+{"timestamp":"2026-06-01T10:00:00.000Z","session_meta":{"thread_id":"019f-drift-legacy","workdir":"/Volumes/LEXAR/repos/example","model":"gpt-5","git_branch":"legacy/drift-contract","git_sha":"abclegacy"}}
+{"timestamp":"2026-06-01T10:00:01.000Z","thread_name":"Legacy Codex JSONL drift contract"}
+{"timestamp":"2026-06-01T10:00:02.000Z","message":{"role":"assistant","content":[{"text":"<proposed_plan>\nLegacy Codex JSONL shape remains parseable.\n</proposed_plan>"}]}}
+{"timestamp":"2026-06-01T10:00:03.000Z","event_msg":{"type":"agent_message","message":"Final: legacy fixture indexed cleanly."}}

@@ -66,6 +66,31 @@ export type LimitedCodexFile = {
   actual: number;
 };
 
+export type CodexJsonlDriftNamedCount = {
+  kind: string;
+  count: number;
+};
+
+export type CodexJsonlDriftFieldCount = {
+  field: string;
+  count: number;
+};
+
+export type CodexJsonlDriftReport = {
+  path: string;
+  unknownEventKinds: CodexJsonlDriftNamedCount[];
+  unparsedLines: number;
+  missingExpectedFields: CodexJsonlDriftFieldCount[];
+  reasonCodes: string[];
+};
+
+export type CodexJsonlDriftSummary = {
+  files: number;
+  unknownEventKinds: number;
+  unparsedLines: number;
+  missingExpectedFields: number;
+};
+
 export type IndexCodexResult = {
   // Fixed safety stamp: indexing writes only LCO-owned derived cache, while
   // limited/error rows can contain local paths and are not public evidence.
@@ -78,6 +103,8 @@ export type IndexCodexResult = {
   indexedEvents: number;
   limitedFiles: LimitedCodexFile[];
   errors: Array<{ path: string; message: string }>;
+  driftReport: CodexJsonlDriftReport[];
+  driftSummary: CodexJsonlDriftSummary;
 };
 
 export type SourceFileWatermark = {
@@ -2391,6 +2418,7 @@ type ImportedSession = {
   safeText: string;
   eventCount: number;
   sourceEvents: PreparedSourceEventDraft[];
+  driftReport: CodexJsonlDriftReport | null;
 };
 
 type JsonlLineRecord = {
@@ -2417,6 +2445,12 @@ type PreparedSourceEventDraft = {
   ordinal: number;
   observedAt: string | null;
   ranges: PreparedSourceRangeDraft[];
+};
+
+type CodexJsonlDriftAccumulator = {
+  unknownEventKinds: Map<string, number>;
+  unparsedLines: number;
+  missingExpectedFields: Map<string, number>;
 };
 
 type PreparedSourceRangeDraft = {
@@ -2915,7 +2949,9 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
     indexedThreads: 0,
     indexedEvents: 0,
     limitedFiles: [],
-    errors: []
+    errors: [],
+    driftReport: [],
+    driftSummary: emptyCodexJsonlDriftSummary()
   };
   const seenThreads = new Set<string>();
   const summaryThreadsToMaterialize = new Set<string>();
@@ -2950,6 +2986,7 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
       upsertSession(db, path, text, session, { size: stat.size, mtimeMs });
       result.indexedFiles += 1;
       result.indexedEvents += session.eventCount;
+      if (session.driftReport) recordCodexJsonlDriftReport(result, session.driftReport);
       seenThreads.add(session.threadId);
       summaryThreadsToMaterialize.add(session.threadId);
       preparedThreadsToMaterialize.add(session.threadId);
@@ -12764,6 +12801,54 @@ function countJsonlEvents(text: string): number {
   return text.split(/\r?\n/).filter((line) => line.trim().length > 0).length;
 }
 
+const KNOWN_CODEX_JSONL_EVENT_KINDS = new Set([
+  "agent_reasoning",
+  "agent_reasoning_delta",
+  "agent_message",
+  "context_compacted",
+  "custom_tool_call",
+  "custom_tool_call_output",
+  "event_metadata",
+  "exec_command_begin",
+  "exec_command_end",
+  "exec_command_output_delta",
+  "function_call",
+  "function_call_output",
+  "item_completed",
+  "message",
+  "mcp_tool_call_begin",
+  "mcp_tool_call_end",
+  "native_subagent_result_metadata",
+  "noop",
+  "patch_apply_end",
+  "plan_update",
+  "reasoning",
+  "session_metadata",
+  "task_complete",
+  "task_started",
+  "thread_name",
+  "thread_name_updated",
+  "token_count",
+  "tool_call",
+  "tool_search_call",
+  "tool_search_output",
+  "tool_use",
+  "turn_diff",
+  "turn_aborted",
+  "user_message",
+  "web_search_begin",
+  "web_search_end"
+]);
+
+const CODEX_JSONL_TRANSPARENT_ENVELOPES = new Set([
+  "compacted",
+  "event_msg",
+  "item",
+  "response_item",
+  "session_meta",
+  "turn_context"
+]);
+
 function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: number): ImportedSession {
   const fallbackId = fallbackThreadId(sourcePath);
   const session: ImportedSession = {
@@ -12785,33 +12870,45 @@ function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: num
     closeoutEnvelopeCloseCount: 0,
     safeText: "",
     eventCount: 0,
-    sourceEvents: []
+    sourceEvents: [],
+    driftReport: null
   };
 
+  const drift = emptyCodexJsonlDriftAccumulator();
   const safeParts: string[] = [];
   const touched = new Set<string>();
   const records = jsonlLineRecords(text);
   const sourceHash = stableId(text);
   const sourcePathRef = publicSourcePathRef(sourcePath);
+  let sawThreadIdInFile = false;
   for (let i = 0; i < records.length; i += 1) {
     const record = records[i]!;
     let item: any;
     try {
       item = JSON.parse(record.text);
     } catch {
+      recordCodexJsonlUnparsedLine(drift);
       continue;
     }
+    const rawItem = item;
+    item = normalizeCodexJsonlItem(rawItem);
     if (session.eventCount >= maxEventsPerFile) break;
     session.eventCount += 1;
     const rangeKinds = new Set<PreparedSourceRangeKind>();
     const timestamp = findTimestamp(item);
+    recordCodexJsonlEventKindDrift(drift, rawItem);
+    recordCodexJsonlMissingFieldDrift(drift, item);
     if (timestamp) {
       session.createdAt ??= timestamp;
       session.updatedAt = timestamp;
     }
     const meta = item.session_meta?.payload ?? item.session_meta ?? item.turn_context?.payload ?? null;
     if (meta) {
-      session.threadId = safeThreadId(String(meta.id ?? meta.thread_id ?? session.threadId));
+      const metaThreadId = stringOrNull(meta.id ?? meta.thread_id);
+      if (metaThreadId) {
+        sawThreadIdInFile = true;
+        session.threadId = safeThreadId(metaThreadId);
+      }
       const cwd = stringOrNull(meta.cwd ?? meta.workdir ?? session.cwd);
       session.cwd = cwd ? redactSafeString(cwd) : null;
       session.model = stringOrNull(meta.model ?? session.model);
@@ -12874,7 +12971,229 @@ function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: num
   session.title ??= session.finalMessage ? truncate(session.finalMessage, 80) : session.threadId;
   session.updatedAt ??= new Date().toISOString();
   session.createdAt ??= session.updatedAt;
+  if (!sawThreadIdInFile) recordCodexJsonlMissingField(drift, "session_meta.payload.id");
+  session.driftReport = codexJsonlDriftReport(sourcePath, drift);
   return session;
+}
+
+function emptyCodexJsonlDriftAccumulator(): CodexJsonlDriftAccumulator {
+  return {
+    unknownEventKinds: new Map(),
+    unparsedLines: 0,
+    missingExpectedFields: new Map()
+  };
+}
+
+function emptyCodexJsonlDriftSummary(): CodexJsonlDriftSummary {
+  return {
+    files: 0,
+    unknownEventKinds: 0,
+    unparsedLines: 0,
+    missingExpectedFields: 0
+  };
+}
+
+function recordCodexJsonlDriftReport(result: IndexCodexResult, report: CodexJsonlDriftReport): void {
+  result.driftReport.push(report);
+  result.driftSummary.files += 1;
+  result.driftSummary.unknownEventKinds += report.unknownEventKinds.reduce((sum, item) => sum + item.count, 0);
+  result.driftSummary.unparsedLines += report.unparsedLines;
+  result.driftSummary.missingExpectedFields += report.missingExpectedFields.reduce((sum, item) => sum + item.count, 0);
+}
+
+function recordCodexJsonlUnparsedLine(drift: CodexJsonlDriftAccumulator): void {
+  drift.unparsedLines += 1;
+}
+
+function recordCodexJsonlEventKindDrift(drift: CodexJsonlDriftAccumulator, item: any): void {
+  const kind = codexJsonlEventKind(item);
+  if (!kind || KNOWN_CODEX_JSONL_EVENT_KINDS.has(kind)) return;
+  if (!codexJsonlHasUnextractedContentfulPayload(item)) return;
+  const safeKind = publicSafeIdentifier(kind) ?? `unknown_${stableId(kind).slice(0, 12)}`;
+  drift.unknownEventKinds.set(safeKind, (drift.unknownEventKinds.get(safeKind) ?? 0) + 1);
+}
+
+function recordCodexJsonlMissingFieldDrift(drift: CodexJsonlDriftAccumulator, item: any): void {
+  const eventMsg = isObjectRecord(item.event_msg) ? item.event_msg : null;
+  if (eventMsg) {
+    const eventType = stringOrNull(eventMsg.type)?.toLowerCase() ?? "";
+    if (eventType === "thread_name" && !stringOrNull(eventMsg.name)) {
+      recordCodexJsonlMissingField(drift, "event_msg.name");
+    }
+    if (eventType === "agent_message" && !stringOrNull(eventMsg.message) && !stringOrNull(eventMsg.text)) {
+      recordCodexJsonlMissingField(drift, "event_msg.message");
+    }
+  }
+
+  const responseItem = isObjectRecord(item.response_item) ? item.response_item : null;
+  if (responseItem) {
+    const responseType = stringOrNull(responseItem.type)?.toLowerCase() ?? "";
+    if (responseType === "message" && !responseItemHasText(responseItem)) {
+      recordCodexJsonlMissingField(drift, "response_item.content");
+    }
+    if (
+      (responseType === "function_call" || responseType === "tool_call" || responseType === "tool_use")
+      && !responseItemHasToolName(responseItem)
+    ) {
+      recordCodexJsonlMissingField(drift, "response_item.name");
+    }
+  }
+
+}
+
+function recordCodexJsonlMissingField(drift: CodexJsonlDriftAccumulator, field: string): void {
+  drift.missingExpectedFields.set(field, (drift.missingExpectedFields.get(field) ?? 0) + 1);
+}
+
+function responseItemHasText(responseItem: Record<string, unknown>): boolean {
+  if (stringOrNull(responseItem.text)) return true;
+  return codexJsonlArrayHasText(responseItem.content);
+}
+
+function responseItemHasToolName(responseItem: Record<string, unknown>): boolean {
+  const functionRecord = isObjectRecord(responseItem.function) ? responseItem.function : {};
+  const toolRecord = isObjectRecord(responseItem.tool) ? responseItem.tool : {};
+  return Boolean(
+    stringOrNull(responseItem.name)
+    ?? stringOrNull(responseItem.tool_name)
+    ?? stringOrNull(responseItem.toolName)
+    ?? stringOrNull(responseItem.recipient_name)
+    ?? stringOrNull(functionRecord.name)
+    ?? stringOrNull(toolRecord.name)
+  );
+}
+
+function codexJsonlArrayHasText(value: unknown): boolean {
+  if (typeof value === "string" && value.trim()) return true;
+  if (!Array.isArray(value)) return false;
+  return value.some((part) => {
+    if (typeof part === "string" && part.trim()) return true;
+    return isObjectRecord(part) && typeof part.text === "string" && part.text.trim().length > 0;
+  });
+}
+
+function normalizeCodexJsonlItem(item: any): any {
+  if (!isObjectRecord(item)) return item;
+  const envelope = stringOrNull(item.type)?.toLowerCase() ?? "";
+  const payload = isObjectRecord(item.payload) ? item.payload : null;
+  if (!payload || !CODEX_JSONL_TRANSPARENT_ENVELOPES.has(envelope)) return item;
+  if (envelope === "event_msg") return { ...item, event_msg: payload };
+  if (envelope === "response_item" || envelope === "item") return { ...item, response_item: payload };
+  if (envelope === "session_meta") return { ...item, session_meta: { payload } };
+  if (envelope === "turn_context") return { ...item, turn_context: { payload } };
+  return item;
+}
+
+function codexJsonlEventKind(item: any): string | null {
+  const envelope = stringOrNull(item.type)?.toLowerCase() ?? null;
+  if (envelope && CODEX_JSONL_TRANSPARENT_ENVELOPES.has(envelope)) {
+    const payloadKind = stringOrNull(item.payload?.type ?? item.item?.payload?.type)?.toLowerCase();
+    if (payloadKind) return payloadKind;
+  }
+
+  const inlineKind = stringOrNull(
+    item.event_msg?.type
+    ?? item.response_item?.type
+    ?? item.item?.payload?.type
+    ?? item.item?.type
+  )?.toLowerCase();
+  if (inlineKind) return inlineKind;
+
+  if (envelope && CODEX_JSONL_TRANSPARENT_ENVELOPES.has(envelope)) {
+    return null;
+  }
+  return stringOrNull(item.type ?? item.payload?.type)?.toLowerCase() ?? null;
+}
+
+function codexJsonlHasUnextractedContentfulPayload(item: any): boolean {
+  const payload = codexJsonlInnerPayload(item);
+  const contentfulStrings = collectCodexJsonlContentfulStrings(payload);
+  if (contentfulStrings.length === 0) return false;
+
+  const normalized = normalizeCodexJsonlItem(item);
+  const extractedStrings = collectCodexJsonlExtractedStrings(normalized);
+  return contentfulStrings.some((value) => {
+    const normalizedValue = normalizeComparableCodexText(value);
+    return normalizedValue.length > 0 && !extractedStrings.some((extracted) => extracted.includes(normalizedValue));
+  });
+}
+
+function codexJsonlInnerPayload(item: any): unknown {
+  if (isObjectRecord(item.event_msg)) return item.event_msg;
+  if (isObjectRecord(item.response_item)) return item.response_item;
+  if (isObjectRecord(item.item?.payload)) return item.item.payload;
+  if (isObjectRecord(item.item)) return item.item;
+  if (isObjectRecord(item.payload)) return item.payload;
+  return item;
+}
+
+function collectCodexJsonlExtractedStrings(item: any): string[] {
+  const values = [
+    item.event_msg?.name,
+    item.thread_name,
+    item.payload?.title,
+    ...extractTextPayloads(item)
+  ];
+  return values
+    .filter((value): value is string => typeof value === "string")
+    .map(normalizeComparableCodexText)
+    .filter(Boolean);
+}
+
+// Depth/node budgets keep pathological or hostile JSONL payloads from blowing the stack; real
+// Codex records nest a handful of levels, so hitting a budget just means "treat as non-contentful".
+const CODEX_JSONL_CONTENTFUL_MAX_DEPTH = 8;
+const CODEX_JSONL_CONTENTFUL_MAX_NODES = 400;
+
+function collectCodexJsonlContentfulStrings(value: unknown, keyHint = "", contentAncestor = false, depth = 0, budget = { nodes: CODEX_JSONL_CONTENTFUL_MAX_NODES }): string[] {
+  const out: string[] = [];
+  if (depth > CODEX_JSONL_CONTENTFUL_MAX_DEPTH || budget.nodes <= 0) return out;
+  budget.nodes -= 1;
+  const contentLike = contentAncestor || codexJsonlContentFieldName(keyHint);
+  if (typeof value === "string") {
+    if (contentLike && value.trim()) out.push(value);
+    return out;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) out.push(...collectCodexJsonlContentfulStrings(item, keyHint, contentLike, depth + 1, budget));
+    return out;
+  }
+  if (!isObjectRecord(value)) return out;
+  for (const [key, child] of Object.entries(value)) {
+    out.push(...collectCodexJsonlContentfulStrings(child, key, contentLike || codexJsonlContentFieldName(key), depth + 1, budget));
+  }
+  return out;
+}
+
+function codexJsonlContentFieldName(value: string): boolean {
+  return /(?:^|[_-])(content|message|name|summary|text|title)(?:$|[_-])/i.test(value);
+}
+
+function normalizeComparableCodexText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function codexJsonlDriftReport(sourcePath: string, drift: CodexJsonlDriftAccumulator): CodexJsonlDriftReport | null {
+  if (drift.unparsedLines === 0 && drift.unknownEventKinds.size === 0 && drift.missingExpectedFields.size === 0) return null;
+  const unknownEventKinds = [...drift.unknownEventKinds.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .slice(0, 12)
+    .map(([kind, count]) => ({ kind, count }));
+  const missingExpectedFields = [...drift.missingExpectedFields.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([field, count]) => ({ field, count }));
+  const reasonCodes = [
+    ...missingExpectedFields.map((item) => `missing_field:${item.field}`),
+    ...unknownEventKinds.map((item) => `unknown_event_kind:${item.kind}`),
+    drift.unparsedLines > 0 ? "unparsed_line" : ""
+  ].filter(Boolean);
+  return {
+    path: sourcePath,
+    unknownEventKinds,
+    unparsedLines: drift.unparsedLines,
+    missingExpectedFields,
+    reasonCodes
+  };
 }
 
 function extractCodexToolCalls(item: any, sourcePath: string, ordinal: number): CodexToolCallDraft[] {
@@ -13027,14 +13346,14 @@ function createPreparedSourceEventDraft(input: {
 }
 
 function preparedEventKind(item: any, rangeKinds: PreparedSourceRangeKind[]): string {
-  const eventType = stringOrNull(item.event_msg?.type ?? item.type ?? item.response_item?.type ?? item.payload?.type);
+  const eventType = codexJsonlEventKind(item);
   if (eventType && /^[A-Za-z0-9_.:-]{1,64}$/.test(eventType)) return eventType;
   return rangeKinds[0] ?? "event_metadata";
 }
 
 function textRangeKind(item: any): PreparedSourceRangeKind {
   const role = stringOrNull(item.response_item?.role ?? item.message?.role ?? item.event_msg?.role ?? item.payload?.role)?.toLowerCase();
-  const eventType = stringOrNull(item.event_msg?.type ?? item.type ?? item.payload?.type)?.toLowerCase();
+  const eventType = codexJsonlEventKind(item);
   if (role === "user" || eventType?.includes("user")) return "user_prompt";
   if (role === "assistant" || eventType?.includes("agent") || eventType?.includes("assistant")) return "assistant_message";
   return "event_metadata";
