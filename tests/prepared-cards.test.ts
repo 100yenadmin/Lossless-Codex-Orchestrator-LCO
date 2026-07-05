@@ -220,21 +220,21 @@ function insertSessionMetadataRow(
   );
 }
 
-function insertAttentionQueueRow(db: ReturnType<typeof createDatabase>, threadId: string): void {
+function insertAttentionQueueRow(db: ReturnType<typeof createDatabase>, threadId: string, reasonCodes: string[] = ["ci_failed", "review_blocked"]): void {
   db.prepare(`
     INSERT INTO attention_queue (
       queue_id, target_ref, item_kind, status, tool_call_json, execute_false,
       source_refs_json, reason_codes_json, confidence, created_at, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
-    "attention-prepared-work-state",
+    `attention-${threadId}-${reasonCodes.join("-").replace(/[^a-z0-9_-]+/gi, "_").slice(0, 64)}`,
     `codex_thread:${threadId}`,
     "watcher_trigger",
     "open",
     null,
     1,
     JSON.stringify([`codex_thread:${threadId}`]),
-    JSON.stringify(["ci_failed", "review_blocked"]),
+    JSON.stringify(reasonCodes),
     0.91,
     "2026-07-05T10:00:06.000Z",
     "2026-07-05T10:00:06.000Z"
@@ -445,6 +445,101 @@ test("prepared cards derive next action from likely final messages without plan 
     assert.equal(card.reasonCodes.includes("from_final_message"), true);
     assert.equal(card.reasonCodes.includes("from_latest_plan"), false);
     assert.doesNotMatch(card.summaryText, /summary leaf|prepared source range|Final:/i);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared cards do not promote unlabeled completed finals into next action", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-completed-final-no-next-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const threadId = "019f-prepared-completed-final-no-next";
+  const lines = [
+    { timestamp: "2026-07-05T11:30:00.000Z", session_meta: { payload: { id: threadId, model: "gpt-5.5" } } },
+    { timestamp: "2026-07-05T11:30:01.000Z", event_msg: { type: "thread_name", name: "Completed final without next action" } },
+    {
+      timestamp: "2026-07-05T11:30:02.000Z",
+      event_msg: {
+        type: "agent_message",
+        message: "Final: All prepared-card canaries passed. Evidence packet is complete."
+      }
+    }
+  ];
+  writeFileSync(
+    join(sessions, "rollout-2026-07-05T11-30-00-019f-prepared-completed-final-no-next.jsonl"),
+    lines.map((line) => JSON.stringify(line)).join("\n") + "\n"
+  );
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    insertSessionMetadataRow(db, { threadId, status: "completed", closeoutState: "done", planCompletionState: "complete" });
+    materializeSummaryLeaves(db, { threadId });
+    materializePreparedCards(db, { threadId });
+
+    const card = getPreparedCards(db, { threadId, limit: 10 }).cards[0]!;
+    assert.equal(card.state, "completed");
+    assert.equal(card.nextAction, null);
+    assert.match(card.summaryText, /^Finished: All prepared-card canaries passed\./);
+    assert.doesNotMatch(card.summaryText, /next All prepared-card canaries passed/i);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared card attention drops unsafe reason codes before public output", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-attention-unsafe-reasons-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const threadId = "019f-attention-unsafe-reasons";
+    insertSummaryLeafRow(db, {
+      id: "b1000000000000000000000000000001",
+      threadId,
+      leafKind: "closeout",
+      confidence: 0.95
+    });
+    insertAttentionQueueRow(db, threadId, ["ci_failed", "/Users/lume/private/session.jsonl", "admin@example.com"]);
+
+    materializePreparedCards(db, { threadId });
+
+    const card = getPreparedCards(db, { threadId, limit: 10 }).cards[0]!;
+    const serialized = JSON.stringify(card);
+    assert.equal(card.reasonCodes.includes("ci_failed"), true);
+    assert.equal(card.blocker, "ci failed");
+    assert.equal(serialized.includes("/Users/lume"), false);
+    assert.equal(serialized.includes("session.jsonl"), false);
+    assert.equal(serialized.includes("admin@example.com"), false);
+    assert.equal(card.reasonCodes.some((code) => code.includes("private") || code.includes("example")), false);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared card attention advisory codes do not synthesize blockers", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-attention-advisory-reasons-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const threadId = "019f-attention-advisory-reasons";
+    insertSummaryLeafRow(db, {
+      id: "b2000000000000000000000000000002",
+      threadId,
+      leafKind: "closeout",
+      confidence: 0.95
+    });
+    insertAttentionQueueRow(db, threadId, ["stale_cache", "watcher_not_configured", "summary_leaves_missing"]);
+
+    materializePreparedCards(db, { threadId });
+
+    const card = getPreparedCards(db, { threadId, limit: 10 }).cards[0]!;
+    assert.equal(card.blocker, null);
+    assert.equal(card.reasonCodes.includes("stale_cache"), true);
+    assert.equal(card.reasonCodes.includes("watcher_not_configured"), true);
+    assert.equal(card.reasonCodes.includes("summary_leaves_missing"), true);
+    assert.doesNotMatch(card.summaryText, /^Blocked:/);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });

@@ -4962,7 +4962,7 @@ function preparedPlanStepCandidates(planText: string): Array<{ text: string; che
 function nextActionFromFinalMessage(finalMessage: string): string | null {
   const labeled = extractRawLabeledValue(finalMessage, ["next action", "next"]);
   if (labeled) return firstFinalMessageClause(labeled);
-  return firstFinalMessageClause(finalMessage);
+  return null;
 }
 
 function firstFinalMessageClause(value: string): string | null {
@@ -4987,12 +4987,43 @@ function getPreparedCardAttentionSignal(db: LooDatabase, targetRef: string): { b
     LIMIT 3
   `).all(targetRef) as Array<{ reasonCodesJson: string; sourceRefsJson: string }>;
   const reasonCodes = unique(rows.flatMap((row) => parseSourceRefsJson(row.reasonCodesJson))
-    .map(publicSafeIdentifier)
+    .map(publicSafePreparedAttentionReasonCode)
     .filter((code): code is string => Boolean(code)));
-  const blockerCodes = reasonCodes.filter((code) => !["needs_attention", "prepared_card_ready", "prepared_card_completed"].includes(code));
+  const blockerCodes = reasonCodes.filter(isPreparedAttentionBlockerReasonCode);
   const blocker = blockerCodes.length ? blockerCodes.slice(0, 3).map(humanPreparedReasonCode).join("; ") : null;
   const sourceRefs = unique(rows.flatMap((row) => parseSourceRefsJson(row.sourceRefsJson))).filter(isPublicPreparedSourceRef).slice(0, 12);
   return { blocker, reasonCodes, sourceRefs };
+}
+
+const PREPARED_ATTENTION_BLOCKER_REASON_CODES = new Set([
+  "approval_required",
+  "blocked",
+  "build_failed",
+  "changes_requested",
+  "checks_failed",
+  "ci_failed",
+  "codeql_failed",
+  "merge_blocked",
+  "missing_info",
+  "missing_operator_input",
+  "missing_user_input",
+  "package_install_failed",
+  "publish_blocked",
+  "release_blocked",
+  "review_blocked",
+  "security_blocked",
+  "setup_required",
+  "test_failed"
+]);
+
+function publicSafePreparedAttentionReasonCode(value: string): string | null {
+  const trimmed = value.trim();
+  if (!/^[a-z][a-z0-9]*(?:[_:-][a-z0-9]+)*$/.test(trimmed)) return null;
+  return publicSafeIdentifier(trimmed);
+}
+
+function isPreparedAttentionBlockerReasonCode(code: string): boolean {
+  return PREPARED_ATTENTION_BLOCKER_REASON_CODES.has(code);
 }
 
 function humanPreparedReasonCode(code: string): string {
