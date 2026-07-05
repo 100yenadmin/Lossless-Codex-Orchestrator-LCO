@@ -291,6 +291,7 @@ test("qa-lab workflow rejects unsafe public summary identifiers", (t) => {
   assert.equal(report.ok, false);
   assert.ok(report.blockers.some((blocker) => blocker.code === "openclaw_workflow_output_summary_not_public_safe:loo_search_sessions"));
   assert.doesNotMatch(JSON.stringify(report), /\/Users\/lume|session\.jsonl/);
+  assert.doesNotMatch(readFileSync(join(dir, "workflow-run.json"), "utf8"), /\/Users\/lume|session\.jsonl/);
 });
 
 test("qa-lab workflow requires dry-run control to explicitly report live false", (t) => {
@@ -337,6 +338,24 @@ test("qa-lab workflow selects source ref and thread id from the same session car
   assert.equal(report.ok, true, JSON.stringify(report, null, 2));
   assert.equal(report.workflow.selectedSourceRef, "codex_thread:z-thread");
   assert.equal(report.workflow.selectedThreadId, "z-thread");
+  const invokedSteps = report.workflow.steps.filter((step) => step.toolName.startsWith("loo_"));
+  assert.ok(invokedSteps.every((step) => step.outputSummary.sourceRefs?.includes("codex_thread:z-thread")), JSON.stringify(invokedSteps, null, 2));
+});
+
+test("qa-lab workflow rejects untrusted OpenClaw binary names before spawning", (t) => {
+  const dir = makeTempDir(t, "loo-qa-workflow-untrusted-bin-");
+
+  const report = createQaLabWorkflowReport({
+    scenarioId: "issue-517-agent-workflow",
+    surface: "openclaw-gateway",
+    mode: "dry-run",
+    evidenceDir: dir,
+    openclawBin: "/bin/sh"
+  });
+
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.some((blocker) => blocker.code === "workflow_openclaw_bin_untrusted_name"));
+  assert.equal(report.workflow.steps.length, 0);
 });
 
 test("qa-lab workflow fails closed for unsupported surfaces and live mode", (t) => {

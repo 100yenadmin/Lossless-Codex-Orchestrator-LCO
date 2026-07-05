@@ -142,7 +142,9 @@ export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabW
   let selectedThreadId: string | null = null;
   let dryRunApprovalAuditId: string | null = null;
   let dryRunParamsHash: string | null = null;
-  const openclawBin = options.openclawBin || "openclaw";
+  const requestedOpenClawBin = options.openclawBin || "openclaw";
+  const openclawBinValidation = validateOpenClawBin(requestedOpenClawBin);
+  const openclawBin = openclawBinValidation.ok ? requestedOpenClawBin : "openclaw";
   const gatewayTimeoutMs = options.gatewayTimeoutMs ?? DEFAULT_GATEWAY_TIMEOUT_MS;
   const deadline = Date.now() + gatewayTimeoutMs;
   const command = `${sanitizeCommandBinary(openclawBin)} gateway call tools.invoke --json --params <redacted>`;
@@ -152,6 +154,9 @@ export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabW
   }
   if (options.mode !== "dry-run") {
     addBlocker(blockers, "P0", "workflow_mode_not_supported", "qaLabWorkflow", "Only --mode dry-run is supported; live-approved must fail closed for #517.");
+  }
+  if (!openclawBinValidation.ok) {
+    addBlocker(blockers, "P1", openclawBinValidation.code, "qaLabWorkflow", openclawBinValidation.detail);
   }
 
   if (blockers.length === 0) {
@@ -204,6 +209,7 @@ export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabW
       ];
       for (const call of calls) {
         const step = invokeWorkflowTool(openclawBin, options, deadline, call);
+        ensureStepSourceRef(step, selectedSourceRef);
         steps.push(step);
         if (call.step === "control_dry_run") {
           dryRunApprovalAuditId = readStringPath(step.rawOutput, ["approvalAuditId"]) ?? readStringPath(step.rawOutput, ["approval_audit_id"]) ?? null;
@@ -291,6 +297,7 @@ function invokeWorkflowTool(
   const outputSummary = summarizeOutput(call.toolName, output, call.args);
   const outputSummaryPublicSafe = summaryIsPublicSafe(outputSummary);
   if (!outputSummaryPublicSafe) sanitizeOutputSummary(outputSummary);
+  const sanitizedOutputSummaryPublicSafe = summaryIsPublicSafe(outputSummary);
   const pluginOk = result.status === 0
     && result.parsed !== undefined
     && !hasErrorShape(payload)
@@ -300,7 +307,7 @@ function invokeWorkflowTool(
     ...gatewayFailureBlockers(result, `openclaw_workflow_tool_failed:${call.toolName}`),
     ...(result.status === 0 && result.parsed === undefined ? [`openclaw_workflow_tool_invalid_json:${call.toolName}`] : []),
     ...(pluginOk ? [] : [`openclaw_workflow_tool_not_ok:${call.toolName}`]),
-    ...(outputSummaryPublicSafe ? [] : [`openclaw_workflow_output_summary_not_public_safe:${call.toolName}`])
+    ...(outputSummaryPublicSafe && sanitizedOutputSummaryPublicSafe ? [] : [`openclaw_workflow_output_summary_not_public_safe:${call.toolName}`])
   ];
   return {
     step: call.step,
@@ -572,12 +579,23 @@ function ensureStepSourceRef(step: InternalWorkflowStep, selectedSourceRef: stri
 }
 
 function summaryIsPublicSafe(summary: QaLabWorkflowStep["outputSummary"]): boolean {
+  if (containsUnsafeSummaryValue(summary)) return false;
   if (!["array", "object", "missing", "string", "number", "boolean", "undefined"].includes(summary.outputKind)) return false;
   if (summary.threadId && !SAFE_IDENTIFIER_PATTERN.test(summary.threadId)) return false;
   if (summary.approvalAuditId && !SAFE_IDENTIFIER_PATTERN.test(summary.approvalAuditId)) return false;
   if (summary.paramsHash && !SAFE_IDENTIFIER_PATTERN.test(summary.paramsHash)) return false;
   if (summary.sourceRefs?.some((ref) => !/^(codex_thread|codex_event|codex_range|codex_source|summary_leaf|prepared_card|prepared_inbox|lcm_summary):[A-Za-z0-9_.:-]{1,180}$/.test(ref))) return false;
   return true;
+}
+
+function containsUnsafeSummaryValue(value: unknown, depth = 0): boolean {
+  if (depth > MAX_OUTPUT_SCAN_DEPTH) return true;
+  if (typeof value === "string") {
+    return /\/Users\/|\/Volumes\/|\.jsonl\b|\.sqlite\b|Bearer\s+|npm_[A-Za-z0-9]{20,}|token|cookie/i.test(value);
+  }
+  if (Array.isArray(value)) return value.some((item) => containsUnsafeSummaryValue(item, depth + 1));
+  if (isRecord(value)) return Object.values(value).some((item) => containsUnsafeSummaryValue(item, depth + 1));
+  return false;
 }
 
 function sanitizeOutputSummary(summary: QaLabWorkflowStep["outputSummary"]): void {
@@ -608,6 +626,20 @@ function uniqueBlockers(blockers: QaLabWorkflowBlocker[]): QaLabWorkflowBlocker[
 
 function sanitizeCommandBinary(openclawBin: string): string {
   return openclawBin.includes("/") ? basename(openclawBin) : openclawBin;
+}
+
+function validateOpenClawBin(openclawBin: string): { ok: true } | { ok: false; code: string; detail: string } {
+  if (/[^\x20-\x7E]/.test(openclawBin) || /[\0\r\n\t]/.test(openclawBin)) {
+    return { ok: false, code: "workflow_openclaw_bin_invalid", detail: "OpenClaw binary path contains control characters." };
+  }
+  const binaryName = basename(openclawBin);
+  if (binaryName !== openclawBin && openclawBin.split(/[\\/]+/).includes("..")) {
+    return { ok: false, code: "workflow_openclaw_bin_traversal", detail: "OpenClaw binary path must not contain parent-directory traversal." };
+  }
+  if (!/^openclaw[A-Za-z0-9_.-]*$/.test(binaryName)) {
+    return { ok: false, code: "workflow_openclaw_bin_untrusted_name", detail: "OpenClaw binary name must be openclaw or an explicit openclaw-* test wrapper." };
+  }
+  return { ok: true };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
