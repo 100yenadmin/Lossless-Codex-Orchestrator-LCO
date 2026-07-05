@@ -66,6 +66,7 @@ test("opt-in search telemetry correlates describe and expand follows with rank",
       query: "search expansion telemetry harvest target",
       limit: 5,
       telemetry: true,
+      telemetrySessionId: "agent-alpha",
       now: "2026-07-06T00:00:00.000Z"
     });
     assert.equal(results[0]?.sourceRef, "codex_thread:019f-telemetry-alpha");
@@ -73,6 +74,7 @@ test("opt-in search telemetry correlates describe and expand follows with rank",
     const described = describeRecallRef(db, {
       sourceRef: "codex_thread:019f-telemetry-alpha",
       telemetry: true,
+      telemetrySessionId: "agent-alpha",
       now: "2026-07-06T00:05:00.000Z"
     });
     assert.equal(described?.sourceRef, "codex_thread:019f-telemetry-alpha");
@@ -81,6 +83,7 @@ test("opt-in search telemetry correlates describe and expand follows with rank",
       sourceRef: "codex_thread:019f-telemetry-alpha",
       profile: "metadata",
       telemetry: true,
+      telemetrySessionId: "agent-alpha",
       now: "2026-07-06T00:06:00.000Z"
     });
     assert.equal(expanded.sourceRef, "codex_thread:019f-telemetry-alpha");
@@ -118,17 +121,20 @@ test("LOO_TELEMETRY env records one follow event per recall action", () => {
     const results = searchSessions(db, {
       query: "search expansion telemetry harvest target",
       limit: 5,
+      telemetrySessionId: "env-agent-alpha",
       now: "2026-07-06T00:00:00.000Z"
     });
     assert.equal(results[0]?.sourceRef, "codex_thread:019f-telemetry-alpha");
 
     describeRecallRef(db, {
       sourceRef: "codex_thread:019f-telemetry-alpha",
+      telemetrySessionId: "env-agent-alpha",
       now: "2026-07-06T00:05:00.000Z"
     });
     expandRecallRef(db, {
       sourceRef: "codex_thread:019f-telemetry-alpha",
       profile: "metadata",
+      telemetrySessionId: "env-agent-alpha",
       now: "2026-07-06T00:06:00.000Z"
     });
 
@@ -172,11 +178,13 @@ test("search telemetry is off by default and ignores follows outside the correla
       query: "search expansion telemetry harvest target",
       limit: 5,
       telemetry: true,
+      telemetrySessionId: "agent-expired",
       now: "2026-07-06T00:00:00.000Z"
     });
     describeRecallRef(db, {
       sourceRef: "codex_thread:019f-telemetry-alpha",
       telemetry: true,
+      telemetrySessionId: "agent-expired",
       now: "2026-07-06T00:16:01.000Z"
     });
     assert.equal((db.prepare("SELECT COUNT(*) AS count FROM telemetry_search_events").get() as { count: number }).count, 1);
@@ -196,11 +204,13 @@ test("retrieval telemetry harvest proposes local non-public-safe scenarios and p
       query: "search expansion telemetry harvest target",
       limit: 5,
       telemetry: true,
+      telemetrySessionId: "agent-harvest",
       now: "2026-07-06T00:00:00.000Z"
     });
     describeRecallRef(db, {
       sourceRef: "codex_thread:019f-telemetry-alpha",
       telemetry: true,
+      telemetrySessionId: "agent-harvest",
       now: "2026-07-06T00:03:00.000Z"
     });
 
@@ -222,7 +232,7 @@ test("retrieval telemetry harvest proposes local non-public-safe scenarios and p
     assert.equal(proposal.publicSafe, false);
     assert.equal(proposal.requiresManualCuration, true);
     assert.deepEqual(proposal.scenarios, [{
-      id: "harvested-search-expansion-telemetry-harvest-target-1",
+      id: "harvested-query-1",
       query: "search expansion telemetry harvest target",
       queryHash: sha256("search expansion telemetry harvest target"),
       expectedSourceRefs: ["codex_thread:019f-telemetry-alpha"],
@@ -237,6 +247,98 @@ test("retrieval telemetry harvest proposes local non-public-safe scenarios and p
     assert.equal(metrics.publicSafe, true);
     assert.deepEqual(metrics.metrics?.rankDistribution, { "1": 1 });
     assert.deepEqual(metrics.metrics?.topMissQueries, []);
+  } finally {
+    db.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("retrieval telemetry follows require a matching telemetry session key", () => {
+  const fixture = makeTelemetryFixture();
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [fixture.sessions], maxFiles: 10 });
+    searchSessions(db, {
+      query: "search expansion telemetry harvest target",
+      limit: 5,
+      telemetry: true,
+      telemetrySessionId: "agent-a",
+      now: "2026-07-06T00:00:00.000Z"
+    });
+    searchSessions(db, {
+      query: "telemetry",
+      limit: 5,
+      telemetry: true,
+      telemetrySessionId: "agent-b",
+      now: "2026-07-06T00:01:00.000Z"
+    });
+
+    describeRecallRef(db, {
+      sourceRef: "codex_thread:019f-telemetry-alpha",
+      telemetry: true,
+      telemetrySessionId: "agent-a",
+      now: "2026-07-06T00:02:00.000Z"
+    });
+    describeRecallRef(db, {
+      sourceRef: "codex_thread:019f-telemetry-alpha",
+      telemetry: true,
+      now: "2026-07-06T00:03:00.000Z"
+    });
+
+    const rows = db.prepare(`
+      SELECT s.query_text AS queryText, f.rank_position AS rankPosition, f.follow_kind AS followKind
+      FROM telemetry_follow_events f
+      JOIN telemetry_search_events s ON s.id = f.search_event_id
+      ORDER BY f.ts ASC
+    `).all().map((row) => ({ ...(row as Record<string, unknown>) }));
+    assert.deepEqual(rows, [{
+      queryText: "search expansion telemetry harvest target",
+      rankPosition: 1,
+      followKind: "describe"
+    }]);
+  } finally {
+    db.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("public telemetry miss metrics do not expose stable per-query hashes", () => {
+  const fixture = makeTelemetryFixture();
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    const privateQuery = "ssn 1234 private miss query";
+    db.prepare(`
+      INSERT INTO telemetry_search_events (
+        id, ts, query_text, query_hash, result_refs_json, matched_field_distribution_json, engine_version
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "manual-search-private-miss",
+      "2026-07-06T00:00:00.000Z",
+      privateQuery,
+      sha256(privateQuery),
+      JSON.stringify(["codex_thread:a", "codex_thread:b", "codex_thread:c", "codex_thread:d", "codex_thread:e", "codex_thread:target"]),
+      "{}",
+      "test"
+    );
+    db.prepare(`
+      INSERT INTO telemetry_follow_events (
+        id, ts, search_event_id, chosen_ref, rank_position, follow_kind
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `).run("manual-follow-private-miss", "2026-07-06T00:01:00.000Z", "manual-search-private-miss", "codex_thread:target", 6, "describe");
+
+    const proposalPath = join(fixture.root, "harvest-proposals.json");
+    const metricsPath = join(fixture.root, "telemetry-metrics.json");
+    const report = harvestRetrievalTelemetry(db, { proposalPath, metricsPath, now: "2026-07-06T00:10:00.000Z" });
+    const metricsText = readFileSync(metricsPath, "utf8");
+    const metrics = JSON.parse(metricsText) as { metrics?: { topMissQueries?: Array<Record<string, unknown>> } };
+
+    assert.equal(report.publicSafe, true);
+    assert.equal(metrics.metrics?.topMissQueries?.length, 1);
+    assert.equal("queryHash" in (metrics.metrics?.topMissQueries?.[0] ?? {}), false);
+    assert.match(String(metrics.metrics?.topMissQueries?.[0]?.missId), /^miss_\d+$/);
+    assert.doesNotMatch(metricsText, /ssn 1234|private miss query/);
+    assert.doesNotMatch(metricsText, new RegExp(sha256(privateQuery)));
+    assert.doesNotMatch(JSON.stringify(report.metrics), new RegExp(sha256(privateQuery)));
   } finally {
     db.close();
     rmSync(fixture.root, { recursive: true, force: true });
