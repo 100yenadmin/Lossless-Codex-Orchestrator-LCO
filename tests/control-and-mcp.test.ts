@@ -815,6 +815,17 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     }
     assert.equal(LOO_COMMAND_POLICY.loo_index_sessions.mode, "local_cache_write");
     assert.deepEqual(LOO_COMMAND_POLICY.loo_index_sessions.mutationClasses, ["derived_cache"]);
+    for (const telemetryAwareTool of [
+      "loo_search_sessions",
+      "loo_grep",
+      "loo_describe_session",
+      "loo_describe_ref",
+      "loo_expand_session",
+      "loo_expand_query"
+    ]) {
+      assert.equal(LOO_COMMAND_POLICY[telemetryAwareTool]?.mode, "local_cache_write");
+      assert.deepEqual(LOO_COMMAND_POLICY[telemetryAwareTool]?.mutationClasses, ["derived_cache"]);
+    }
     assert.equal(LOO_COMMAND_POLICY.loo_index_sessions.mutationClasses.includes("source_store"), false);
     assert.equal(LOO_COMMAND_POLICY.loo_index_sessions.mutationClasses.includes("external_system"), false);
     assert.equal(LOO_COMMAND_POLICY.loo_index_sessions.mutationClasses.includes("live_control"), false);

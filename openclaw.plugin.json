@@ -150,10 +150,12 @@
         "name": "loo_search_sessions",
         "description": "Search indexed Codex sessions with bounded safe text.",
         "safety": {
-          "mode": "read_only",
+          "mode": "local_cache_write",
           "source": "local_index",
           "requiresApproval": false,
-          "mutationClasses": []
+          "mutationClasses": [
+            "derived_cache"
+          ]
         },
         "metadata": {
           "tier": "workflow_detail"
@@ -187,10 +189,12 @@
         "name": "loo_grep",
         "description": "Search Codex index and optional read-only OpenClaw LCM peer DBs with source-prefixed refs.",
         "safety": {
-          "mode": "read_only",
+          "mode": "local_cache_write",
           "source": "local_index",
           "requiresApproval": false,
-          "mutationClasses": []
+          "mutationClasses": [
+            "derived_cache"
+          ]
         },
         "metadata": {
           "tier": "workflow_detail"
@@ -233,10 +237,12 @@
         "name": "loo_describe_session",
         "description": "Describe one indexed Codex session by thread id.",
         "safety": {
-          "mode": "read_only",
+          "mode": "local_cache_write",
           "source": "local_index",
           "requiresApproval": false,
-          "mutationClasses": []
+          "mutationClasses": [
+            "derived_cache"
+          ]
         },
         "metadata": {
           "tier": "workflow_detail"
@@ -255,10 +261,12 @@
         "name": "loo_describe_ref",
         "description": "Describe a source-prefixed recall ref such as codex_thread:* or lcm_summary:*.",
         "safety": {
-          "mode": "read_only",
+          "mode": "local_cache_write",
           "source": "local_index",
           "requiresApproval": false,
-          "mutationClasses": []
+          "mutationClasses": [
+            "derived_cache"
+          ]
         },
         "metadata": {
           "tier": "public_facade",
@@ -285,10 +293,12 @@
         "name": "loo_expand_session",
         "description": "Expand one indexed Codex session into a bounded evidence brief.",
         "safety": {
-          "mode": "read_only",
+          "mode": "local_cache_write",
           "source": "local_index",
           "requiresApproval": false,
-          "mutationClasses": []
+          "mutationClasses": [
+            "derived_cache"
+          ]
         },
         "metadata": {
           "tier": "workflow_detail"
@@ -320,10 +330,12 @@
         "name": "loo_expand_query",
         "description": "Search then expand the best matching Codex or LCM peer recall ref.",
         "safety": {
-          "mode": "read_only",
+          "mode": "local_cache_write",
           "source": "local_index",
           "requiresApproval": false,
-          "mutationClasses": []
+          "mutationClasses": [
+            "derived_cache"
+          ]
         },
         "metadata": {
           "tier": "public_facade",
@@ -2449,10 +2461,12 @@
         "name": "lco_describe_ref",
         "description": "Describe a source-prefixed recall ref such as codex_thread:* or lcm_summary:*.",
         "safety": {
-          "mode": "read_only",
+          "mode": "local_cache_write",
           "source": "local_index",
           "requiresApproval": false,
-          "mutationClasses": []
+          "mutationClasses": [
+            "derived_cache"
+          ]
         },
         "metadata": {
           "tier": "public_facade",
@@ -2480,10 +2494,12 @@
         "name": "lco_expand_query",
         "description": "Search then expand the best matching Codex or LCM peer recall ref.",
         "safety": {
-          "mode": "read_only",
+          "mode": "local_cache_write",
           "source": "local_index",
           "requiresApproval": false,
-          "mutationClasses": []
+          "mutationClasses": [
+            "derived_cache"
+          ]
         },
         "metadata": {
           "tier": "public_facade",
@@ -2870,7 +2886,25 @@
         },
         "callPolicy": "LOO_TOOL_PROFILE filters tools/list and OpenClaw declarations only; hidden tools remain callable by exact name when invoked by a capable client."
       },
-      "proofBoundary": "This metadata defines recommended operator tiers only. It does not remove tools, hide expert/debug surfaces, loosen approvals, run live Codex control, mutate a GUI, publish npm, or create GitHub releases."
+      "retrievalTelemetry": {
+        "environmentVariable": "LOO_TELEMETRY",
+        "enabledValue": "1",
+        "defaultEnabled": false,
+        "affectedTools": [
+          "loo_search_sessions",
+          "loo_grep",
+          "loo_describe_session",
+          "loo_describe_ref",
+          "loo_expand_session",
+          "loo_expand_query"
+        ],
+        "mutationMode": "local_cache_write",
+        "mutationClasses": [
+          "derived_cache"
+        ],
+        "privacyBoundary": "When LOO_TELEMETRY=1, affected search/describe/expand tools may write opt-in local derived-cache telemetry. Query text stays in the local DB and proposal harvest file; public reports and metrics remain hash+counts/ranks only."
+      },
+      "proofBoundary": "This metadata defines recommended operator tiers only. It does not remove tools, hide expert/debug surfaces, loosen approvals, run live Codex control, mutate a GUI, publish npm, or create GitHub releases. Opt-in retrieval telemetry, when enabled, is limited to local derived-cache writes."
     }
   }
 }

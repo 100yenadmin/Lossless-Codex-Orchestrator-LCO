@@ -82,6 +82,12 @@ Safety details:
   pure read. `mode: "local_cache_write"` plus `derived_cache` means LCO updates
   only its own local cache or audit state; it is still not Codex source-store
   mutation, external mutation, live control, or GUI mutation.
+- `LOO_TELEMETRY=1` enables opt-in search-to-describe/expand telemetry for
+  search, grep, describe, and expand tools. The affected tools are classified
+  as `local_cache_write`/`derived_cache` because they may write LCO-owned
+  telemetry rows. The default is off. Query text stays only in the local DB and
+  local `loo eval retrieval --harvest` proposal file; public reports and
+  metrics stay hash, count, and rank based.
 - Optional LCM peer recall uses `LOO_LCM_DB_PATHS` or per-call `lcm_db_paths` and opens those DBs read-only.
 - Control tools should run `dry_run=true` first.
 - Live control requires `approval_audit_id` from the dry-run result.

@@ -1,0 +1,278 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { spawnSync } from "node:child_process";
+import test from "node:test";
+
+import {
+  createDatabase,
+  describeRecallRef,
+  expandRecallRef,
+  harvestRetrievalTelemetry,
+  indexCodexSessions,
+  searchSessions
+} from "../packages/core/src/index.js";
+
+function writeSession(path: string, threadId: string, title: string, body: string): void {
+  writeFileSync(path, [
+    JSON.stringify({
+      session_meta: {
+        payload: {
+          id: threadId,
+          cwd: "/Volumes/LEXAR/repos/lco",
+          model: "gpt-5.5"
+        }
+      }
+    }),
+    JSON.stringify({ event_msg: { type: "thread_name", name: title } }),
+    JSON.stringify({
+      response_item: {
+        type: "message",
+        role: "assistant",
+        content: [{ type: "output_text", text: body }]
+      }
+    })
+  ].join("\n") + "\n");
+}
+
+function makeTelemetryFixture() {
+  const root = mkdtempSync(join(tmpdir(), "loo-retrieval-telemetry-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  writeSession(
+    join(sessions, "rollout-2026-07-06T00-00-00-019f-telemetry-alpha.jsonl"),
+    "019f-telemetry-alpha",
+    "Telemetry alpha rank target",
+    "Alpha proposed plan mentions search expansion telemetry harvest target."
+  );
+  writeSession(
+    join(sessions, "rollout-2026-07-06T00-01-00-019f-telemetry-bravo.jsonl"),
+    "019f-telemetry-bravo",
+    "Telemetry bravo distractor",
+    "Bravo final message mentions telemetry harvest distractor."
+  );
+  return { root, sessions };
+}
+
+test("opt-in search telemetry correlates describe and expand follows with rank", () => {
+  const fixture = makeTelemetryFixture();
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [fixture.sessions], maxFiles: 10 });
+
+    const results = searchSessions(db, {
+      query: "search expansion telemetry harvest target",
+      limit: 5,
+      telemetry: true,
+      now: "2026-07-06T00:00:00.000Z"
+    });
+    assert.equal(results[0]?.sourceRef, "codex_thread:019f-telemetry-alpha");
+
+    const described = describeRecallRef(db, {
+      sourceRef: "codex_thread:019f-telemetry-alpha",
+      telemetry: true,
+      now: "2026-07-06T00:05:00.000Z"
+    });
+    assert.equal(described?.sourceRef, "codex_thread:019f-telemetry-alpha");
+
+    const expanded = expandRecallRef(db, {
+      sourceRef: "codex_thread:019f-telemetry-alpha",
+      profile: "metadata",
+      telemetry: true,
+      now: "2026-07-06T00:06:00.000Z"
+    });
+    assert.equal(expanded.sourceRef, "codex_thread:019f-telemetry-alpha");
+
+    const searchRows = db.prepare("SELECT query_text AS queryText, query_hash AS queryHash, result_refs_json AS resultRefsJson FROM telemetry_search_events").all() as Array<{
+      queryText: string;
+      queryHash: string;
+      resultRefsJson: string;
+    }>;
+    assert.equal(searchRows.length, 1);
+    assert.equal(searchRows[0]?.queryText, "search expansion telemetry harvest target");
+    assert.match(searchRows[0]?.queryHash ?? "", /^[a-f0-9]{64}$/);
+    assert.deepEqual(JSON.parse(searchRows[0]?.resultRefsJson ?? "[]").slice(0, 1), ["codex_thread:019f-telemetry-alpha"]);
+
+    const followRows = db.prepare("SELECT chosen_ref AS chosenRef, rank_position AS rankPosition, follow_kind AS followKind FROM telemetry_follow_events ORDER BY ts").all()
+      .map((row) => ({ ...(row as Record<string, unknown>) }));
+    assert.deepEqual(followRows, [
+      { chosenRef: "codex_thread:019f-telemetry-alpha", rankPosition: 1, followKind: "describe" },
+      { chosenRef: "codex_thread:019f-telemetry-alpha", rankPosition: 1, followKind: "expand" }
+    ]);
+  } finally {
+    db.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LOO_TELEMETRY env records one follow event per recall action", () => {
+  const fixture = makeTelemetryFixture();
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  const originalTelemetry = process.env.LOO_TELEMETRY;
+  process.env.LOO_TELEMETRY = "1";
+  try {
+    indexCodexSessions(db, { roots: [fixture.sessions], maxFiles: 10 });
+
+    const results = searchSessions(db, {
+      query: "search expansion telemetry harvest target",
+      limit: 5,
+      now: "2026-07-06T00:00:00.000Z"
+    });
+    assert.equal(results[0]?.sourceRef, "codex_thread:019f-telemetry-alpha");
+
+    describeRecallRef(db, {
+      sourceRef: "codex_thread:019f-telemetry-alpha",
+      now: "2026-07-06T00:05:00.000Z"
+    });
+    expandRecallRef(db, {
+      sourceRef: "codex_thread:019f-telemetry-alpha",
+      profile: "metadata",
+      now: "2026-07-06T00:06:00.000Z"
+    });
+
+    const followRows = db.prepare("SELECT chosen_ref AS chosenRef, rank_position AS rankPosition, follow_kind AS followKind FROM telemetry_follow_events ORDER BY ts").all()
+      .map((row) => ({ ...(row as Record<string, unknown>) }));
+    assert.deepEqual(followRows, [
+      { chosenRef: "codex_thread:019f-telemetry-alpha", rankPosition: 1, followKind: "describe" },
+      { chosenRef: "codex_thread:019f-telemetry-alpha", rankPosition: 1, followKind: "expand" }
+    ]);
+  } finally {
+    if (originalTelemetry === undefined) {
+      delete process.env.LOO_TELEMETRY;
+    } else {
+      process.env.LOO_TELEMETRY = originalTelemetry;
+    }
+    db.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("search telemetry is off by default and ignores follows outside the correlation window", () => {
+  const fixture = makeTelemetryFixture();
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [fixture.sessions], maxFiles: 10 });
+
+    searchSessions(db, {
+      query: "search expansion telemetry harvest target",
+      limit: 5,
+      now: "2026-07-06T00:00:00.000Z"
+    });
+    describeRecallRef(db, {
+      sourceRef: "codex_thread:019f-telemetry-alpha",
+      telemetry: true,
+      now: "2026-07-06T00:05:00.000Z"
+    });
+    assert.equal((db.prepare("SELECT COUNT(*) AS count FROM telemetry_search_events").get() as { count: number }).count, 0);
+    assert.equal((db.prepare("SELECT COUNT(*) AS count FROM telemetry_follow_events").get() as { count: number }).count, 0);
+
+    searchSessions(db, {
+      query: "search expansion telemetry harvest target",
+      limit: 5,
+      telemetry: true,
+      now: "2026-07-06T00:00:00.000Z"
+    });
+    describeRecallRef(db, {
+      sourceRef: "codex_thread:019f-telemetry-alpha",
+      telemetry: true,
+      now: "2026-07-06T00:16:01.000Z"
+    });
+    assert.equal((db.prepare("SELECT COUNT(*) AS count FROM telemetry_search_events").get() as { count: number }).count, 1);
+    assert.equal((db.prepare("SELECT COUNT(*) AS count FROM telemetry_follow_events").get() as { count: number }).count, 0);
+  } finally {
+    db.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("retrieval telemetry harvest proposes local non-public-safe scenarios and public-safe aggregate metrics", () => {
+  const fixture = makeTelemetryFixture();
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [fixture.sessions], maxFiles: 10 });
+    searchSessions(db, {
+      query: "search expansion telemetry harvest target",
+      limit: 5,
+      telemetry: true,
+      now: "2026-07-06T00:00:00.000Z"
+    });
+    describeRecallRef(db, {
+      sourceRef: "codex_thread:019f-telemetry-alpha",
+      telemetry: true,
+      now: "2026-07-06T00:03:00.000Z"
+    });
+
+    const proposalPath = join(fixture.root, "harvest-proposals.json");
+    const metricsPath = join(fixture.root, "telemetry-metrics.json");
+    const report = harvestRetrievalTelemetry(db, { proposalPath, metricsPath, now: "2026-07-06T00:10:00.000Z" });
+
+    assert.equal(report.publicSafe, true);
+    assert.equal(report.proposalFile.publicSafe, false);
+    assert.equal(report.proposalFile.requiresManualCuration, true);
+    assert.equal(report.metricsFile?.publicSafe, true);
+    assert.equal(report.summary.proposedScenarios, 1);
+
+    const proposal = JSON.parse(readFileSync(proposalPath, "utf8")) as {
+      publicSafe?: boolean;
+      requiresManualCuration?: boolean;
+      scenarios?: Array<{ query?: string; expectedSourceRefs?: string[]; observedRank?: number; followKinds?: string[]; occurrenceCount?: number }>;
+    };
+    assert.equal(proposal.publicSafe, false);
+    assert.equal(proposal.requiresManualCuration, true);
+    assert.deepEqual(proposal.scenarios, [{
+      id: "harvested-search-expansion-telemetry-harvest-target-1",
+      query: "search expansion telemetry harvest target",
+      queryHash: sha256("search expansion telemetry harvest target"),
+      expectedSourceRefs: ["codex_thread:019f-telemetry-alpha"],
+      observedRank: 1,
+      followKinds: ["describe"],
+      occurrenceCount: 1
+    }]);
+
+    const metricsText = readFileSync(metricsPath, "utf8");
+    assert.doesNotMatch(metricsText, /search expansion telemetry harvest target/);
+    const metrics = JSON.parse(metricsText) as { publicSafe?: boolean; metrics?: { rankDistribution?: Record<string, number>; topMissQueries?: unknown[] } };
+    assert.equal(metrics.publicSafe, true);
+    assert.deepEqual(metrics.metrics?.rankDistribution, { "1": 1 });
+    assert.deepEqual(metrics.metrics?.topMissQueries, []);
+  } finally {
+    db.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+test("CLI harvest mode rejects evidence paths and writes no scenario-file output", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-retrieval-harvest-cli-"));
+  try {
+    const result = spawnSync(process.execPath, [
+      "--import",
+      "tsx",
+      "packages/cli/src/index.ts",
+      "eval",
+      "retrieval",
+      "--harvest",
+      join(root, "proposal.json"),
+      "--evidence-path",
+      join(root, "evidence.json")
+    ], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        LOO_DB_PATH: join(root, "orchestrator.sqlite")
+      }
+    });
+
+    assert.equal(result.status, 2, result.stderr || result.stdout);
+    assert.equal(result.stdout.trim(), "");
+    assert.match(result.stderr, /^Error: Invalid --harvest: cannot be combined with --evidence-path\n$/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
