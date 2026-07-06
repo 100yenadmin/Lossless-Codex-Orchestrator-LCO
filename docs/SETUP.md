@@ -30,8 +30,15 @@ Install the stable public package:
 
 ```bash
 npm install -g lossless-openclaw-orchestrator@latest
-loo doctor
+lco doctor
 ```
+
+The current published npm package name is still
+`lossless-openclaw-orchestrator` until the package-rename lane ships. It
+installs the canonical `lco` CLI and `lco-mcp-server`.
+
+The historical `loo`, `loo-mcp-server`, and `LOO_*` names remain maintained
+compatibility aliases for at least two minor releases.
 
 Install the beta train only when you explicitly want prerelease behavior:
 
@@ -40,16 +47,16 @@ npm install -g lossless-openclaw-orchestrator@beta
 ```
 
 Fresh walkthrough proof for maintainers or release PRs should use an isolated npm prefix
-and a fresh LOO_DB_PATH so the result does not depend on the maintainer's
+and a fresh LCO_DB_PATH so the result does not depend on the maintainer's
 global install or existing local database:
 
 ```bash
 walkthrough_root="$(mktemp -d /tmp/lco-setup.XXXXXX)"
 export NPM_CONFIG_PREFIX="$walkthrough_root/npm-prefix"
 export PATH="$NPM_CONFIG_PREFIX/bin:$PATH"
-export LOO_DB_PATH="$walkthrough_root/orchestrator.sqlite"
+export LCO_DB_PATH="$walkthrough_root/orchestrator.sqlite"
 npm install -g lossless-openclaw-orchestrator@latest
-loo doctor --json
+lco doctor --json
 ```
 
 Before a candidate version is published, a release PR may use the local repo build
@@ -58,10 +65,10 @@ as the registry package substitute and must say so in the PR body:
 ```bash
 npm run build
 npm install -g "$PWD"
-loo doctor --json
+lco doctor --json
 ```
 
-On a never-indexed database, `loo doctor --json` can report the first-run
+On a never-indexed database, `lco doctor --json` can report the first-run
 classification `not_indexed_yet`. That is the expected prompt to run the index
 step below, not a broken install. If the `codexJsonlDrift` block appears after
 indexing, treat it as a bounded completeness caveat for the flagged files.
@@ -100,13 +107,13 @@ $HOME/.openclaw/lossless-openclaw-orchestrator/orchestrator.sqlite
 Set it explicitly if you want repeatable shell sessions:
 
 ```bash
-export LOO_DB_PATH="$HOME/.openclaw/lossless-openclaw-orchestrator/orchestrator.sqlite"
+export LCO_DB_PATH="$HOME/.openclaw/lossless-openclaw-orchestrator/orchestrator.sqlite"
 ```
 
 Optional read-only OpenClaw LCM peer database paths:
 
 ```bash
-export LOO_LCM_DB_PATHS="$HOME/.openclaw/lcm.db"
+export LCO_LCM_DB_PATHS="$HOME/.openclaw/lcm.db"
 ```
 
 LCM peer DBs are opened read-only. LCO does not merge raw Codex transcripts into
@@ -117,7 +124,7 @@ OpenClaw LCM.
 Run a bounded first import:
 
 ```bash
-loo index codex --max-files 500 "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
+lco index codex --max-files 500 "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
 ```
 
 The default importer applies a 50 MB per-file index cap. Use
@@ -127,13 +134,13 @@ need to index larger Codex JSONL files.
 For a smaller smoke:
 
 ```bash
-loo index codex --max-files 50 "$HOME/.codex/sessions"
+lco index codex --max-files 50 "$HOME/.codex/sessions"
 ```
 
 Then check readiness:
 
 ```bash
-loo doctor
+lco doctor
 ```
 
 The index stores metadata, source refs, extraction fields, and safe searchable
@@ -144,41 +151,50 @@ text. Raw transcripts remain in the local Codex store.
 Search:
 
 ```bash
-loo search "proposed plan billing bridge"
+lco search "proposed plan billing bridge"
 ```
 
 Describe a result:
 
 ```bash
-loo describe codex_thread:<thread-id>
+lco describe codex_thread:<thread-id>
 ```
 
 Expand a brief:
 
 ```bash
-loo expand-ref --profile brief --token-budget 1000 codex_thread:<thread-id>
+lco expand-ref --profile brief --token-budget 1000 codex_thread:<thread-id>
 ```
 
 Expand by query:
 
 ```bash
-loo expand-query --profile brief --token-budget 1000 "billing bridge"
+lco expand-query --profile brief --token-budget 1000 "billing bridge"
 ```
 
 Look up detail fields through MCP/OpenClaw tools when available:
 
-- `loo_codex_plans`
-- `loo_codex_final_messages`
-- `loo_codex_touched_files`
-- `loo_codex_tool_calls`
+- `lco_codex_plans`
+- `lco_codex_final_messages`
+- `lco_codex_touched_files`
+- `lco_codex_tool_calls`
 
 ## 6. Enable Codex Thread Title Aliases
 
-The published LCO package includes a Codex plugin manifest at
-`.codex-plugin/plugin.json` and hook config at `hooks/hooks.json`. When
-installed as a Codex plugin, its Stop hook runs `loo hook thread-title-finalize`
-after assistant turns. The hook writes one public-safe local title alias per
-thread, such as:
+The published LCO package includes a small Codex plugin bundle for one purpose:
+the Stop hook thread-title finalizer. It is not a general tool surface and does
+not add agent-callable tools. The bundle consists of `.codex-plugin/plugin.json`
+plus `hooks/hooks.json`; plugin-aware Codex hosts install the package root as the
+plugin root, set `CLAUDE_PLUGIN_ROOT`, and run the hook command from
+`hooks/hooks.json`:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/.codex-plugin/scripts/thread-title-finalize.mjs"
+```
+
+After assistant turns, the wrapper runs `lco hook thread-title-finalize` against
+the hook payload. The hook writes one public-safe local title alias per thread,
+such as:
 
 ```text
 lossless-openclaw-orchestrator: Codex thread title finalizer
@@ -192,8 +208,8 @@ Manual smoke:
 
 ```bash
 printf '%s\n' '{"thread_id":"019f-example","cwd":"'$PWD'","task_summary":"Codex thread title finalizer"}' \
-  | loo hook thread-title-finalize --payload-stdin --strict
-loo search "Codex thread title finalizer"
+  | lco hook thread-title-finalize --payload-stdin --strict
+lco search "Codex thread title finalizer"
 ```
 
 Safety boundary: this hook preserves the canonical Codex title, hashes/redacts
@@ -203,42 +219,99 @@ tool.
 
 ## 7. Connect MCP
 
-Start the MCP server:
+LCO works from any MCP-capable agent without OpenClaw. Index first from the CLI:
 
 ```bash
-loo-mcp-server
+lco index codex "$HOME/.codex/sessions"
+```
+
+Then add the stdio MCP server to each client that should read the local LCO
+store.
+
+Start the MCP server directly:
+
+```bash
+lco-mcp-server
 ```
 
 Equivalent CLI entry:
 
 ```bash
-loo serve
+lco serve
 ```
 
-MCP client config:
+### Claude Code (`.mcp.json`)
 
 ```json
 {
   "mcpServers": {
-    "lossless-openclaw-orchestrator": {
-      "command": "loo-mcp-server"
+    "lco": {
+      "command": "lco-mcp-server",
+      "env": {
+        "LCO_DB_PATH": "~/.openclaw/lossless-openclaw-orchestrator/orchestrator.sqlite",
+        "LCO_TOOL_PROFILE": "facade"
+      }
     }
   }
 }
 ```
 
-The MCP server exposes the same `loo_*` surface used by OpenClaw.
+### Cursor
+
+Add the same server entry to Cursor's MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "lco": {
+      "command": "lco-mcp-server",
+      "env": {
+        "LCO_DB_PATH": "~/.openclaw/lossless-openclaw-orchestrator/orchestrator.sqlite",
+        "LCO_TOOL_PROFILE": "facade"
+      }
+    }
+  }
+}
+```
+
+### Generic MCP client
+
+Use stdio transport and launch `lco-mcp-server`:
+
+```json
+{
+  "transport": "stdio",
+  "command": "lco-mcp-server",
+  "env": {
+    "LCO_DB_PATH": "~/.openclaw/lossless-openclaw-orchestrator/orchestrator.sqlite",
+    "LCO_TOOL_PROFILE": "facade"
+  }
+}
+```
+
+The MCP server exposes the same `lco_*` surface used by OpenClaw.
 
 Optional tool exposure profiles:
 
 ```bash
-export LOO_TOOL_PROFILE=facade  # facade, standard, or all
+export LCO_TOOL_PROFILE=facade  # facade, standard, or all
 ```
 
 `all` is the default and preserves the full catalog. `facade` lists the compact
-operator path plus tested public `lco_*` aliases for those facade tools;
-`standard` adds workflow-detail tools. The full runtime catalog remains
-available under the backward-compatible `loo_*` names.
+operator path; `standard` adds workflow-detail tools. `LCO_TOOL_PROFILE=facade`
+is the right default for general agents, while `standard` and `all` are for
+expert workflows.
+
+### Multi-client Mounting
+
+Multiple clients can mount the same local store with a shared `LCO_DB_PATH`; it
+is one local recall DB. Use separate stores per client by giving each client its
+own `LCO_DB_PATH`. Shared-store behavior works, and per-client isolation is test-proven.
+
+Compatibility aliases remain available for at least two minor releases:
+`loo-mcp-server` launches the same server, and `LOO_DB_PATH`,
+`LOO_LCM_DB_PATHS`, and `LOO_TOOL_PROFILE` remain accepted fallbacks for the
+canonical `LCO_*` env names.
 
 ## 8. Install In OpenClaw
 
@@ -252,20 +325,20 @@ openclaw plugins list --json
 Run a public-safe plugin readiness check:
 
 ```bash
-loo openclaw dogfood --profile lco-dogfood --install-source lossless-openclaw-orchestrator@latest --required-tool loo_doctor --required-tool loo_search_sessions --strict
+lco openclaw dogfood --profile lco-dogfood --install-source lossless-openclaw-orchestrator@latest --required-tool lco_doctor --required-tool lco_search_sessions --strict
 ```
 
 Run a tool smoke through OpenClaw Gateway:
 
 ```bash
-loo openclaw tool-smoke --profile lco-dogfood --required-tool loo_doctor --required-tool loo_search_sessions --strict
+lco openclaw tool-smoke --profile lco-dogfood --required-tool lco_doctor --required-tool lco_search_sessions --strict
 ```
 
 After a published install, combine the package, dogfood, and tool-smoke reports
 into one first-run classifier:
 
 ```bash
-loo openclaw published-smoke --evidence-dir /tmp/lco-published-smoke --dogfood-report plugin-load.json --tool-smoke-report tool-smoke.json --strict
+lco openclaw published-smoke --evidence-dir /tmp/lco-published-smoke --dogfood-report plugin-load.json --tool-smoke-report tool-smoke.json --strict
 ```
 
 If the gateway needs first-run setup, LCO reports classifications such as
@@ -278,7 +351,7 @@ Useful recovery commands may include:
 openclaw doctor --generate-gateway-token --non-interactive --yes
 OPENCLAW_GATEWAY_TOKEN='<scoped-token>' openclaw onboard --non-interactive --accept-risk --gateway-auth token --gateway-token-ref-env OPENCLAW_GATEWAY_TOKEN
 OPENCLAW_GATEWAY_TOKEN='<scoped-token>' openclaw gateway status --json --token '<scoped-token>'
-OPENCLAW_GATEWAY_TOKEN='<scoped-token>' loo openclaw tool-smoke --profile lco-dogfood --required-tool loo_doctor --required-tool loo_search_sessions --strict
+OPENCLAW_GATEWAY_TOKEN='<scoped-token>' lco openclaw tool-smoke --profile lco-dogfood --required-tool lco_doctor --required-tool lco_search_sessions --strict
 ```
 
 Do not paste real tokens into issues, PRs, screenshots, or public evidence.
@@ -293,14 +366,14 @@ skills/lossless-openclaw-orchestrator/SKILL.md
 
 The safe loop is:
 
-1. `loo_doctor`
-2. `loo_search_sessions`
-3. `loo_describe_session` or `loo_describe_ref`
-4. `loo_codex_plans`, `loo_codex_final_messages`, and
-   `loo_codex_touched_files`
-5. `loo_expand_session` or `loo_expand_query`
-6. `loo_codex_control_dry_run` only when action is needed
-7. `loo_codex_start_thread` only after dry-run approval when a new Codex thread
+1. `lco_doctor`
+2. `lco_search_sessions`
+3. `lco_describe_session` or `lco_describe_ref`
+4. `lco_codex_plans`, `lco_codex_final_messages`, and
+   `lco_codex_touched_files`
+5. `lco_expand_session` or `lco_expand_query`
+6. `lco_codex_control_dry_run` only when action is needed
+7. `lco_codex_start_thread` only after dry-run approval when a new Codex thread
    is needed
 8. live action only with a matching `approval_audit_id`
 
@@ -445,14 +518,14 @@ that the daemon entrypoint launches and inspect LCO's readiness view separately:
 
 ```bash
 cua-driver mcp --help
-loo doctor --json
+lco doctor --json
 ```
 
 Read-only checks:
 
 ```bash
-loo desktop see cua-driver
-loo desktop see peekaboo --snapshot --max-nodes 50
+lco desktop see cua-driver
+lco desktop see peekaboo --snapshot --max-nodes 50
 ```
 
 The desktop fallback surface reports readiness and blockers. For CUA readiness,
@@ -466,36 +539,38 @@ approval, or release readiness without an explicit action-bound proof packet.
 
 ## 11. Troubleshooting
 
-`loo: command not found`
+`lco: command not found`
 
 - Confirm the global npm bin directory is on `PATH`.
 - Try `npm prefix -g` and inspect its `bin` directory.
+- If older automation still calls `loo`, that binary remains a compatibility
+  alias for at least two minor releases.
 
-`loo doctor` cannot find Codex sessions
+`lco doctor` cannot find Codex sessions
 
 - Confirm Codex has local sessions under `~/.codex/sessions`.
-- Pass explicit roots to `loo index codex`.
+- Pass explicit roots to `lco index codex`.
 
 Search returns no results
 
-- Run `loo index codex --max-files 500 "$HOME/.codex/sessions"`.
-- Confirm `LOO_DB_PATH` points at the same database for index and search.
+- Run `lco index codex --max-files 500 "$HOME/.codex/sessions"`.
+- Confirm `LCO_DB_PATH` points at the same database for index and search.
 
 OpenClaw plugin installs but tools are missing
 
 - Run `openclaw plugins list --json`.
-- Run `loo openclaw dogfood --profile lco-dogfood --install-source lossless-openclaw-orchestrator@latest --required-tool loo_doctor --required-tool loo_search_sessions --strict`.
+- Run `lco openclaw dogfood --profile lco-dogfood --install-source lossless-openclaw-orchestrator@latest --required-tool lco_doctor --required-tool lco_search_sessions --strict`.
 - Check [docs/OPENCLAW_PLUGIN.md](OPENCLAW_PLUGIN.md).
 
 OpenClaw gateway tool smoke reports credential or device blockers
 
 - Treat this as first-run gateway setup, not a package failure.
-- In `loo openclaw published-smoke`, `ok`/`packagePathOk` prove package-path
+- In `lco openclaw published-smoke`, `ok`/`packagePathOk` prove package-path
   health only. `publishedSmokeReady` is the clean-profile gateway-ready claim.
 - A configured gateway proof is useful local evidence, but it does not satisfy
   fresh-profile gateway readiness.
-- Use the recovery commands returned by `loo openclaw published-smoke` or
-  `loo openclaw tool-smoke`.
+- Use the recovery commands returned by `lco openclaw published-smoke` or
+  `lco openclaw tool-smoke`.
 
 npm install reports `ENOVERSIONS` for a visible beta
 
@@ -508,7 +583,7 @@ npm install reports `ENOVERSIONS` for a visible beta
   ```
 
 - The same npm selector-drift tarball fallback can be recorded through
-  `loo openclaw published-smoke --npm-install-diagnostic-report <path>` after
+  `lco openclaw published-smoke --npm-install-diagnostic-report <path>` after
   you keep the evidence public-safe.
 - Record blocker codes and fallback status only; do not paste raw npm stderr,
   auth config, or tokens into public evidence.

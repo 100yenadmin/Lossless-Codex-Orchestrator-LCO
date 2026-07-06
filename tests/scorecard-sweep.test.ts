@@ -368,8 +368,8 @@ test("scorecard sweep can pass for complete public-safe passing scorecards", () 
 });
 
 test("VISION and release docs document the scorecard sweep command", () => {
-  assert.match(readFileSync("VISION.md", "utf8"), /loo scorecards sweep/);
-  assert.match(readFileSync("docs/CLAIM_AUDIT.md", "utf8"), /loo scorecards sweep/);
+  assert.match(readFileSync("VISION.md", "utf8"), /lco scorecards sweep/);
+  assert.match(readFileSync("docs/CLAIM_AUDIT.md", "utf8"), /lco scorecards sweep/);
   assert.match(readFileSync("docs/BETA_RELEASE_RUNBOOK.md", "utf8"), /scorecards sweep/);
   assert.doesNotMatch(readFileSync("README.md", "utf8"), /loo scorecards sweep|issue-<number>-scorecard-sweep/);
 });

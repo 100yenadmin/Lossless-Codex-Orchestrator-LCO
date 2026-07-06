@@ -23,14 +23,14 @@ transcripts every time.
 
 ```bash
 npm install -g lossless-openclaw-orchestrator@latest
-loo doctor
-loo index codex --max-files 500 "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
+lco doctor
+lco index codex --max-files 500 "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
 ```
 
 If this helps your main agent stay on top of Codex work, a star helps other
 agent builders find it. ⭐
 
-[Setup](docs/SETUP.md) · [OpenClaw Plugin](docs/OPENCLAW_PLUGIN.md) · [Agent Skill](skills/lossless-openclaw-orchestrator/SKILL.md) · [Vision](VISION.md) · [Privacy](docs/PRIVACY.md) · [Contributing](CONTRIBUTING.md) · [AGENTS.md](AGENTS.md) · [Security](SECURITY.md) · [Code of Conduct](CODE_OF_CONDUCT.md) · [Release Notes](docs/releases/CHANGELOG.md) · [License](LICENSE)
+[Setup](docs/SETUP.md) · [OpenClaw Plugin](docs/OPENCLAW_PLUGIN.md) · [Agent Skill](skills/lossless-openclaw-orchestrator/SKILL.md) · [Vision](VISION.md) · [Privacy](docs/PRIVACY.md) · [Hermes Boundary](docs/HERMES_ADAPTER_BOUNDARY.md) · [Contributing](CONTRIBUTING.md) · [AGENTS.md](AGENTS.md) · [Security](SECURITY.md) · [Code of Conduct](CODE_OF_CONDUCT.md) · [Release Notes](docs/releases/CHANGELOG.md) · [License](LICENSE)
 
 ## Why It Exists
 
@@ -64,7 +64,7 @@ picture over local Codex work.
 - Blends relevance, recency, identifier matching, and query fallback so agents
   can find "the billing bridge plan" or "the PR that touched auth" without the
   exact thread id.
-- Detects Codex JSONL format drift in `loo doctor` so broken imports are visible
+- Detects Codex JSONL format drift in `lco doctor` so broken imports are visible
   instead of silently missing work.
 
 **Prepared state for agents**
@@ -90,12 +90,12 @@ picture over local Codex work.
 
 **Operating picture tools**
 
-- `loo_recent_sessions` shows recent or active Codex work as compact cards.
-- `loo_attention_inbox` lists threads that need action, review, approval, watch,
+- `lco_recent_sessions` shows recent or active Codex work as compact cards.
+- `lco_attention_inbox` lists threads that need action, review, approval, watch,
   or blocker triage.
-- `loo_project_digest` creates a project-level handoff brief from Codex cards,
+- `lco_project_digest` creates a project-level handoff brief from Codex cards,
   optional GitHub items, plan pins, and source coverage.
-- `loo_operating_picture` powers cockpit-style views such as session maps,
+- `lco_operating_picture` powers cockpit-style views such as session maps,
   collaboration next steps, active-thread state, autonomy tick planning,
   GitHub operating items, and business pulse cards.
 
@@ -135,13 +135,24 @@ Requirements:
 - Node.js 22.5 or newer
 - npm
 - local Codex session files, usually under `~/.codex/sessions`
-- OpenClaw Desktop/CLI if you want OpenClaw to call the installed `loo_*` tools
+- OpenClaw Desktop/CLI if you want OpenClaw to call the installed `lco_*` tools
 
 Stable install:
 
 ```bash
 npm install -g lossless-openclaw-orchestrator@latest
-loo doctor
+lco doctor
+```
+
+The current published npm package name is still
+`lossless-openclaw-orchestrator` until the package-rename lane ships. It
+installs the canonical `lco` CLI and `lco-mcp-server`. The historical `loo`,
+`loo-mcp-server`, and `LOO_*` env names remain maintained compatibility aliases
+for at least two minor releases.
+
+```bash
+loo index codex "$HOME/.codex/sessions"
+loo-mcp-server
 ```
 
 Beta train, when you explicitly want the newest prerelease:
@@ -178,13 +189,13 @@ Choose where LCO stores its local index. The default is already under
 `~/.openclaw`, but setting it explicitly makes setup easier to inspect:
 
 ```bash
-export LOO_DB_PATH="$HOME/.openclaw/lossless-openclaw-orchestrator/orchestrator.sqlite"
+export LCO_DB_PATH="$HOME/.openclaw/lossless-openclaw-orchestrator/orchestrator.sqlite"
 ```
 
 Index local Codex sessions:
 
 ```bash
-loo index codex --max-files 500 "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
+lco index codex --max-files 500 "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
 ```
 
 The importer applies a 50 MB per-file index cap so one oversized JSONL cannot
@@ -194,14 +205,14 @@ intentionally want to widen that local indexing window.
 Optional: allow recall from one or more OpenClaw LCM peer databases:
 
 ```bash
-export LOO_LCM_DB_PATHS="$HOME/.openclaw/lcm.db"
+export LCO_LCM_DB_PATHS="$HOME/.openclaw/lcm.db"
 ```
 
 Check local readiness:
 
 ```bash
-loo doctor
-loo onboard status --strict
+lco doctor
+lco onboard status --strict
 ```
 
 ## First Workflow 🧭
@@ -209,58 +220,56 @@ loo onboard status --strict
 Search for a Codex thread:
 
 ```bash
-loo search "billing bridge proposed plan"
+lco search "billing bridge proposed plan"
 ```
 
 Describe a result:
 
 ```bash
-loo describe codex_thread:<thread-id>
+lco describe codex_thread:<thread-id>
 ```
 
 Expand a small brief:
 
 ```bash
-loo expand-ref --profile brief --token-budget 1000 codex_thread:<thread-id>
+lco expand-ref --profile brief --token-budget 1000 codex_thread:<thread-id>
 ```
 
 Expand from a query when you do not know the ref yet:
 
 ```bash
-loo expand-query --profile brief --token-budget 1000 "billing bridge"
+lco expand-query --profile brief --token-budget 1000 "billing bridge"
 ```
 
 For an agent or MCP client, start with the normal operator path:
 
 | Step | Tool | What your agent gets |
 | --- | --- | --- |
-| 1 | `loo_prepared_inbox` | The best starting view of work that needs attention. |
-| 2 | `loo_describe_ref` | Details for a selected thread, card, leaf, or source ref. |
-| 3 | `loo_expand_query` | A bounded brief when the exact ref is unknown. |
-| 4 | `loo_recent_sessions` | Recent and active Codex work as compact cards. |
-| 5 | `loo_attention_inbox` | Blocked, waiting, stale, approval-needed, or ready-for-review work. |
-| 6 | `loo_project_digest` | A project-level handoff brief. |
-| 7 | `loo_codex_control_dry_run` | A preview packet for the exact Codex action. |
-| 8 | `loo_codex_resume_thread` | Resume a Codex thread after the dry-run packet is approved. |
+| 1 | `lco_prepared_inbox` | The best starting view of work that needs attention. |
+| 2 | `lco_describe_ref` | Details for a selected thread, card, leaf, or source ref. |
+| 3 | `lco_expand_query` | A bounded brief when the exact ref is unknown. |
+| 4 | `lco_recent_sessions` | Recent and active Codex work as compact cards. |
+| 5 | `lco_attention_inbox` | Blocked, waiting, stale, approval-needed, or ready-for-review work. |
+| 6 | `lco_project_digest` | A project-level handoff brief. |
+| 7 | `lco_codex_control_dry_run` | A preview packet for the exact Codex action. |
+| 8 | `lco_codex_resume_thread` | Resume a Codex thread after the dry-run packet is approved. |
 
 The packaged agent playbook is
 [skills/lossless-openclaw-orchestrator/SKILL.md](skills/lossless-openclaw-orchestrator/SKILL.md).
 
-Naming note: `LCO` is the public product abbreviation. Published `@latest`
-currently uses the historical `loo` CLI, `loo-mcp-server`, and `loo_*`
-OpenClaw/MCP runtime prefix. The source 1.4 line exposes `lco`,
-`lco-mcp-server`, and canonical `lco_*` tools while keeping `loo`
-compatibility aliases. Runnable stable examples use the commands available in
-the published package.
+Naming note: `LCO` is the public product abbreviation. New user-facing examples
+use `lco`, `lco-mcp-server`, and canonical `lco_*` tools. The historical `loo`,
+`loo-mcp-server`, and `loo_*` names remain maintained compatibility aliases for
+at least two minor releases.
 
 ## Works With 🔌
 
 | Surface | Status | What to use today |
 | --- | --- | --- |
-| Codex local sessions | Stable | `loo index codex`, `loo search`, `loo describe`, and bounded expansion. |
-| MCP clients | Stable | `loo-mcp-server` exposes the local tool registry over stdio. |
-| OpenClaw | Stable | Install the plugin and let your OpenClaw agent call `loo_*` tools. |
-| Hermes-style and custom agents | Adapter direction | Use the MCP surface today; dedicated identity/adapter work is tracked in #616. |
+| Codex local sessions | Stable | `lco index codex`, `lco search`, `lco describe`, and bounded expansion. |
+| MCP clients | Stable | `lco-mcp-server` exposes the local tool registry over stdio. |
+| OpenClaw | Stable | Install the plugin and let your OpenClaw agent call `lco_*` tools. |
+| Hermes-style and custom agents | MCP-supported, native adapter deferred | Use the MCP surface today; see [docs/HERMES_ADAPTER_BOUNDARY.md](docs/HERMES_ADAPTER_BOUNDARY.md). |
 
 LCO is OpenClaw-first because that is where the product has been dogfooded, but
 the useful layer is broader: one local Codex memory and command surface that any
@@ -271,7 +280,7 @@ agent harness can call through CLI or MCP.
 Run the MCP server directly:
 
 ```bash
-loo-mcp-server
+lco-mcp-server
 ```
 
 Typical MCP client entry:
@@ -279,8 +288,8 @@ Typical MCP client entry:
 ```json
 {
   "mcpServers": {
-    "lossless-openclaw-orchestrator": {
-      "command": "loo-mcp-server"
+    "lco": {
+      "command": "lco-mcp-server"
     }
   }
 }
@@ -296,13 +305,14 @@ openclaw plugins list --json
 Smoke the OpenClaw path:
 
 ```bash
-loo openclaw dogfood --profile lco-dogfood --install-source lossless-openclaw-orchestrator@latest --required-tool loo_doctor --required-tool loo_search_sessions --strict
-loo openclaw tool-smoke --profile lco-dogfood --required-tool loo_doctor --required-tool loo_search_sessions --strict
+lco openclaw dogfood --profile lco-dogfood --install-source lossless-openclaw-orchestrator@latest --required-tool lco_doctor --required-tool lco_search_sessions --strict
+lco openclaw tool-smoke --profile lco-dogfood --required-tool lco_doctor --required-tool lco_search_sessions --strict
 ```
 
-Tool exposure can be narrowed with `LOO_TOOL_PROFILE=facade|standard|all`.
+Tool exposure can be narrowed with `LCO_TOOL_PROFILE=facade|standard|all`.
 The default is `all`, preserving the full catalog. `facade` exposes the compact
-operator path plus its `lco_*` aliases; `standard` adds workflow-detail tools.
+operator path (`lco_*`) plus `loo_*` compatibility aliases; `standard` adds
+workflow-detail tools.
 Profile filtering affects tool listing and OpenClaw declarations only.
 
 See [docs/OPENCLAW_PLUGIN.md](docs/OPENCLAW_PLUGIN.md) for the full OpenClaw
@@ -345,13 +355,13 @@ connector URLs, or customer data into public issues or PRs. Use
 - `packages/core`: local SQLite index, field-weighted search, source refs,
   summary leaves, prepared cards, inboxes, session descriptions, and bounded
   expansion
-- `packages/mcp-server`: stdio MCP server exposing the `loo_*` and `lco_*`
-  operator tools
+- `packages/mcp-server`: stdio MCP server exposing `lco_*` operator tools and
+  `loo_*` compatibility aliases
 - `packages/openclaw-plugin`: OpenClaw plugin entry and manifest surface
 - `.codex-plugin/` and `hooks/`: Codex plugin manifest, Stop hook config, and
   wrapper for local thread title aliases
-- `packages/cli`: `loo` CLI for setup, indexing, recall, smoke, eval, and
-  release checks
+- `packages/cli`: `lco` CLI for setup, indexing, recall, smoke, eval, and
+  release checks, with `loo` retained as a compatibility alias
 - `packages/adapters`: Codex transport, audit, redaction, desktop-readiness, and
   adapter contracts
 - `skills/`: packaged agent-facing OpenClaw playbook
@@ -372,10 +382,11 @@ main orchestration agent can start from compact prepared state instead of
 rereading huge Codex transcripts. The historical architecture handoff remains in
 [docs/sprints/brief-lco-1.2-prepared-state-summary-leaves-2026-07-03.md](docs/sprints/brief-lco-1.2-prepared-state-summary-leaves-2026-07-03.md).
 
-The 1.4 identity work has started in source: `lco` and `lco_*` are now the
-canonical names on `main`, with `loo` kept as a compatibility path. The npm
-package name is still `lossless-openclaw-orchestrator`, so the install command
-above remains the current public package path.
+The 1.4 identity work makes `lco`, `lco-mcp-server`, `lco_*`, and `LCO_*` the
+canonical command and tool names, with `loo`, `loo-mcp-server`, `loo_*`, and
+`LOO_*` retained as compatibility aliases for at least two minor releases. The
+currently published npm package remains `lossless-openclaw-orchestrator` until
+the separate package-rename lane publishes `lossless-codex-orchestrator`.
 
 For the full product direction, read [VISION.md](VISION.md).
 

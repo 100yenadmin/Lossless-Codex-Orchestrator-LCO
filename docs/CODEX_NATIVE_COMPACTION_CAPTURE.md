@@ -63,7 +63,7 @@ When a future Codex-native sanitized packet passes the rejection rules, LCO may
 materialize an advisory summary leaf:
 
 - `leaf_kind`: a currently supported metadata-only leaf kind, such as
-  `event_metadata`, until the `loo_summary_leaves` schema explicitly adds a
+  `event_metadata`, until the `lco_summary_leaves` schema explicitly adds a
   dedicated compaction-summary kind
 - `summary_text`: the current metadata-only summary-leaf text for that kind;
   the bounded excerpt stays on the sanitized packet until a dedicated leaf kind

@@ -9,7 +9,7 @@ and tracker issue
 ## Durable Plan Contract
 
 - Goal: Prove the real user path for a Codex-first local orchestrator: installed
-  OpenClaw gateway, live `loo_*` tool calls, approved harmless Codex control,
+  OpenClaw gateway, live `lco_*` tool calls, approved harmless Codex control,
   refreshed session state, bounded reasoning from safe summaries, and
   action-bound desktop collaboration only where direct protocol is insufficient.
 - Resume identity: repo
@@ -78,7 +78,7 @@ and tracker issue
 For #158, use the installed gateway path rather than the direct Codex smoke:
 
 ```bash
-loo openclaw live-control-smoke \
+lco openclaw live-control-smoke \
   --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-158-gateway-live-codex-proof/runtime-proof \
   --thread-id <selected-harmless-codex-thread-id> \
   --strict
@@ -86,8 +86,8 @@ loo openclaw live-control-smoke \
 
 The command writes `openclaw-gateway-live-codex-v1-1.runtime-proof.json` and
 `openclaw-gateway-live-control-smoke-report.json`. It must be preceded by an
-explicit target choice, invokes `loo_codex_control_dry_run` first, sends only
-with the matching `approval_audit_id`, then reads `loo_audit_tail` for
+explicit target choice, invokes `lco_codex_control_dry_run` first, sends only
+with the matching `approval_audit_id`, then reads `lco_audit_tail` for
 public-safe audit metadata. Do not use it for broad gateway scope approval,
 generic live control, GUI mutation, or raw transcript inspection.
 
@@ -98,7 +98,7 @@ path evidence.
 For #159, consume the #158 report and refresh through public OpenClaw tools:
 
 ```bash
-loo openclaw post-action-refresh-smoke \
+lco openclaw post-action-refresh-smoke \
   --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-159-post-action-refresh-reasoning/runtime-proof \
   --thread-id <selected-harmless-codex-thread-id> \
   --live-proof-report /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-158-gateway-live-codex-proof/runtime-proof/openclaw-gateway-live-control-smoke-report.json \
@@ -107,8 +107,8 @@ loo openclaw post-action-refresh-smoke \
 
 The command writes `post-action-refresh-reasoning-v1-1.runtime-proof.json` and
 `post-action-refresh-reasoning-report.json`. It invokes only read/recall tools
-through OpenClaw Gateway: `loo_codex_thread_map`, `loo_search_sessions`,
-`loo_describe_session`, and `loo_expand_query`. It must not run live Codex
+through OpenClaw Gateway: `lco_codex_thread_map`, `lco_search_sessions`,
+`lco_describe_session`, and `lco_expand_query`. It must not run live Codex
 control, mutate a GUI, or store raw transcript/prompt text.
 
 ## Working App Claim

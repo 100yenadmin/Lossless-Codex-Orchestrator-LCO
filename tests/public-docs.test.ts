@@ -21,12 +21,12 @@ test("GA README is a public landing page with first-run setup path", () => {
     /## OpenClaw And MCP/,
     /## Privacy And Local Data/,
     /npm install -g lossless-openclaw-orchestrator@latest/,
-    /loo doctor/,
-    /loo index codex/,
-    /loo search/,
-    /loo describe/,
-    /loo expand/,
-    /loo-mcp-server/,
+    /lco doctor/,
+    /lco index codex/,
+    /lco search/,
+    /lco describe/,
+    /lco expand/,
+    /lco-mcp-server/,
     /skills\/lossless-openclaw-orchestrator\/SKILL\.md/,
     /docs\/OPENCLAW_PLUGIN\.md/,
     /docs\/PRIVACY\.md/
@@ -37,7 +37,7 @@ test("GA README is a public landing page with first-run setup path", () => {
   assert.doesNotMatch(readme, /## Current Sprint:/);
   assert.doesNotMatch(readme, /What a local OpenClaw agent can do today[\s\S]{1000,}/);
   assert.doesNotMatch(readme, /Scorecard and release proof commands:/);
-  assert.doesNotMatch(readme, /Claim Audit|loo release preflight|loo release general-readiness|issue-<number>-scorecard-sweep/);
+  assert.doesNotMatch(readme, /Claim Audit|lco release preflight|lco release general-readiness|issue-<number>-scorecard-sweep/);
   assert.doesNotMatch(readme, /#307 separates[\s\S]+#308 reports/i);
 });
 
@@ -49,25 +49,25 @@ test("setup guide covers install, local indexing, OpenClaw, MCP, and troubleshoo
     /^# Setup Guide/m,
     /Node\.js 22/,
     /npm install -g lossless-openclaw-orchestrator@latest/,
-    /LOO_DB_PATH/,
-    /LOO_LCM_DB_PATHS/,
+    /LCO_DB_PATH/,
+    /LCO_LCM_DB_PATHS/,
     /isolated npm prefix/i,
-    /fresh LOO_DB_PATH/i,
+    /fresh LCO_DB_PATH/i,
     /local repo build/i,
-    /loo doctor/,
+    /lco doctor/,
     /not_indexed_yet/,
     /codexJsonlDrift/,
-    /loo index codex/,
+    /lco index codex/,
     /~\/.codex\/sessions/,
     /~\/.codex\/archived_sessions/,
-    /loo search/,
-    /loo describe/,
-    /loo expand/,
-    /loo-mcp-server/,
+    /lco search/,
+    /lco describe/,
+    /lco expand/,
+    /lco-mcp-server/,
     /OpenClaw/,
-    /loo openclaw published-smoke/,
+    /lco openclaw published-smoke/,
     /npm selector.*tarball fallback/i,
-    /loo openclaw tool-smoke/,
+    /lco openclaw tool-smoke/,
     /CUA Driver is the preferred\/default\s+desktop fallback backend/i,
     /not bundled by LCO/i,
     /desktop-fallback readiness blocker/i,
@@ -139,8 +139,12 @@ test("public docs preserve release claim boundaries", () => {
     assert.match(publicDocs, required);
   }
 
-  assert.match(readme, /Published `@latest`\s+currently uses the historical `loo` CLI/i);
-  assert.match(readme, /source 1\.4 line exposes[\s\S]{0,120}`lco-mcp-server`, and canonical `lco_\*` tools/i);
+  assert.match(readme, /`lco`, `lco-mcp-server`, and canonical `lco_\*` tools/i);
+  assert.match(readme, /historical `loo`[\s\S]{0,180}compatibility aliases/i);
+  assert.match(readme, /`loo-mcp-server`[\s\S]{0,180}compatibility aliases/i);
+  assert.match(readme, /lossless-openclaw-orchestrator[\s\S]{0,180}current published npm package/i);
+  assert.match(readme, /package-rename lane[\s\S]{0,180}lossless-codex-orchestrator/i);
+  assert.match(readme, /at least two minor releases/i);
   assert.match(readme, /Give your main agent a memory and command layer for all your Codex projects and threads\./i);
   assert.match(readme, /field-weighted FTS5 search/i);
   assert.match(readme, /prepared cards/i);
@@ -159,7 +163,7 @@ test("public docs preserve release claim boundaries", () => {
   assert.doesNotMatch(publicDocs, /unattended desktop takeover is supported/i);
   assert.doesNotMatch(publicDocs, /bypasses Codex permissions/i);
   assert.doesNotMatch(publicDocs, /generic GUI mutation is supported/i);
-  assert.doesNotMatch(readme, /verify `cua-driver mcp` availability through `loo doctor/i);
+  assert.doesNotMatch(readme, /verify `cua-driver mcp` availability through `lco doctor/i);
 });
 
 test("release-captain docs include repeatable full gateway coverage smoke", () => {

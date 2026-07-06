@@ -77,7 +77,7 @@ Every meaningful PR should name the proof it ran:
 - failing test, smoke, or eval scenario used to define the change
 - focused validation command
 - `npm run check`, or why CI is the right place for heavier validation
-- OpenClaw gateway dogfood when the change affects installed `loo_*` tools
+- OpenClaw gateway dogfood when the change affects installed `lco_*` tools
 - evidence path such as `evidence/YYYY-MM-DD/issue-<number>/`, or the
   maintainer-provided external evidence path linked from the issue
 

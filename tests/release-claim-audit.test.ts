@@ -93,11 +93,11 @@ test("public docs include setup, MCP/OpenClaw, demo, and approval-boundary proof
 
   assert.match(readme, /docs\/OPENCLAW_PLUGIN\.md/);
   assert.match(readme, /docs\/SETUP\.md/);
-  assert.match(readme, /loo index codex --max-files \d+/);
-  assert.match(setup, /loo-mcp-server/);
-  assert.match(setup, /loo openclaw dogfood/);
-  assert.match(setup, /loo openclaw tool-smoke/);
-  assert.match(openclawDocs, /loo-mcp-server/);
+  assert.match(readme, /lco index codex --max-files \d+/);
+  assert.match(setup, /lco-mcp-server/);
+  assert.match(setup, /lco openclaw dogfood/);
+  assert.match(setup, /lco openclaw tool-smoke/);
+  assert.match(openclawDocs, /lco-mcp-server/);
   assert.match(openclawDocs, /dry_run=true/);
   assert.match(openclawDocs, /approval_audit_id/);
 
@@ -105,13 +105,13 @@ test("public docs include setup, MCP/OpenClaw, demo, and approval-boundary proof
     /100\+ local Codex sessions/i,
     /node dist\/packages\/cli\/src\/index\.js index codex --max-files \d+/i,
     /node dist\/packages\/cli\/src\/index\.js search/i,
-    /loo_codex_plans/i,
-    /loo_codex_final_messages/i,
+    /lco_codex_plans/i,
+    /lco_codex_final_messages/i,
     /expand.*two sessions/i,
-    /loo_codex_control_dry_run/i,
+    /lco_codex_control_dry_run/i,
     /approval_audit_id/i,
     /does not run live control/i,
-    /loo release demo-status/i
+    /lco release demo-status/i
   ]) {
     assert.match(demo, required);
   }
@@ -123,12 +123,12 @@ test("public docs include setup, MCP/OpenClaw, demo, and approval-boundary proof
     /No cloud sync/i,
     /No unattended desktop takeover/i,
     /No permission bypass/i,
-    /loo release preflight/i,
+    /lco release preflight/i,
     /approved_live_control_smoke_missing/i
   ]) {
     assert.match(claimAudit, required);
   }
-  assert.match(claimAudit, /loo release preflight[^\n]+--strict/i);
+  assert.match(claimAudit, /lco release preflight[^\n]+--strict/i);
   assert.match(claudeBoundary, /read-only session inventory/i);
   assert.match(claudeBoundary, /does not prove Claude Code indexing, control, parity, GUI mutation, or cloud sync/i);
   assert.doesNotMatch(claudeBoundary, /full Claude Code parity|control Claude Code remotely|unattended Claude takeover/i);
@@ -332,8 +332,8 @@ test("beta release runbook defines RC cadence and keeps main distinct from relea
     /packaging\/install review/i,
     /public-claim review/i,
     /local-agent usability review/i,
-    /node \.\/dist\/packages\/cli\/src\/index\.js openclaw dogfood[^\n]+--required-tool loo_doctor[^\n]+--required-tool loo_search_sessions[^\n]+--required-tool loo_describe_session[^\n]+--required-tool loo_expand_session[^\n]+--required-tool loo_expand_query[^\n]+--required-tool loo_codex_plans[^\n]+--required-tool loo_codex_final_messages[^\n]+--required-tool loo_codex_thread_map[^\n]+--required-tool loo_codex_control_dry_run/i,
-    /node \.\/dist\/packages\/cli\/src\/index\.js openclaw tool-smoke[^\n]+--profile lco-dogfood[^\n]+--session-key agent:main:lco-dogfood[^\n]+--required-tool loo_doctor[^\n]+--required-tool loo_search_sessions[^\n]+--required-tool loo_describe_session[^\n]+--required-tool loo_expand_session[^\n]+--required-tool loo_expand_query[^\n]+--required-tool loo_codex_plans[^\n]+--required-tool loo_codex_final_messages[^\n]+--required-tool loo_codex_thread_map[^\n]+--required-tool loo_codex_control_dry_run[^\n]+--evidence-path[^\n]+--strict/i,
+    /node \.\/dist\/packages\/cli\/src\/index\.js openclaw dogfood[^\n]+--required-tool lco_doctor[^\n]+--required-tool lco_search_sessions[^\n]+--required-tool lco_describe_session[^\n]+--required-tool lco_expand_session[^\n]+--required-tool lco_expand_query[^\n]+--required-tool lco_codex_plans[^\n]+--required-tool lco_codex_final_messages[^\n]+--required-tool lco_codex_thread_map[^\n]+--required-tool lco_codex_control_dry_run/i,
+    /node \.\/dist\/packages\/cli\/src\/index\.js openclaw tool-smoke[^\n]+--profile lco-dogfood[^\n]+--session-key agent:main:lco-dogfood[^\n]+--required-tool lco_doctor[^\n]+--required-tool lco_search_sessions[^\n]+--required-tool lco_describe_session[^\n]+--required-tool lco_expand_session[^\n]+--required-tool lco_expand_query[^\n]+--required-tool lco_codex_plans[^\n]+--required-tool lco_codex_final_messages[^\n]+--required-tool lco_codex_thread_map[^\n]+--required-tool lco_codex_control_dry_run[^\n]+--evidence-path[^\n]+--strict/i,
     /--approved-live-control-evidence \/Volumes\/LEXAR\/Codex\/lossless-openclaw-orchestrator\/YYYY-MM-DD\/release-status\/approved-live-control-smoke\.json/i,
     /--npm-publish-approval-evidence \/Volumes\/LEXAR\/Codex\/lossless-openclaw-orchestrator\/YYYY-MM-DD\/release-status\/npm-approval\.json/i,
     /--github-release-approval-evidence \/Volumes\/LEXAR\/Codex\/lossless-openclaw-orchestrator\/YYYY-MM-DD\/release-status\/github-release-approval\.json/i,
@@ -373,7 +373,7 @@ test("beta release runbook defines RC cadence and keeps main distinct from relea
     /release_scorecard_source/i,
     /cp evals\/scorecards\/v1\.0\/\*\.json "\$release_scorecard_source"/i,
     /fill the copied scorecards/i,
-    /loo scorecards sweep[^\n]+--scorecard-dir "\$release_scorecard_source"/i,
+    /lco scorecards sweep[^\n]+--scorecard-dir "\$release_scorecard_source"/i,
     /--candidate-sha <release-candidate-sha>/i,
     /--github-ci-evidence/i,
     /--codeql-evidence/i,

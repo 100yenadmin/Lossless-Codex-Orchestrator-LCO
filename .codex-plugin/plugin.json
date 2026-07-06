@@ -1,6 +1,6 @@
 {
   "name": "lossless-openclaw-orchestrator",
-  "version": "1.2.5",
+  "version": "1.4.0",
   "description": "Index, search, and prepare local Codex sessions with LCO, including one-shot thread title aliases for easier recall.",
   "author": {
     "name": "100yenadmin",
@@ -19,7 +19,7 @@
   "interface": {
     "displayName": "Lossless Codex Orchestrator",
     "shortDescription": "Local Codex indexing and one-shot title aliases",
-    "longDescription": "LCO keeps Codex session recall local-first by indexing public-safe metadata and adding one-shot thread title aliases after assistant stops, so agents can find threads by generated names and IDs without reading raw histories.",
+    "longDescription": "LCO keeps Codex session recall local-first by indexing public-safe metadata and running the Stop hook thread-title finalizer after assistant stops, so agents can find threads by generated names and IDs without reading raw histories. This bundle is not a general tool surface.",
     "developerName": "100yenadmin",
     "category": "Developer Tools",
     "capabilities": [

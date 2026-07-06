@@ -24,7 +24,7 @@ file. The report is public-safe metadata only:
 `driftSummary` totals the same counts across affected files. Clean imports
 return an empty `driftReport` and zeroed `driftSummary`.
 
-`loo doctor`, `loo onboard status`, and related status tools expose the
+`lco doctor`, `lco onboard status`, and related status tools expose the
 public-safe `CodexJsonlDriftStatus` contract for previously indexed data. Its
 top-level `state` is one of:
 
@@ -51,7 +51,7 @@ When `availability` is `requires_index_run`, `nextAction` contains the suggested
 local command for a bounded first index run:
 
 ```bash
-loo index codex --max-files 500 "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
+lco index codex --max-files 500 "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
 ```
 
 On non-POSIX shells, replace `$HOME` with the absolute home directory before
@@ -65,7 +65,7 @@ the database file itself is absent, the status also includes
 `codex_jsonl_drift_database_missing`; the remediation remains the same bounded
 index command.
 
-When `loo index codex` is later run with a narrower or different root set, LCO
+When `lco index codex` is later run with a narrower or different root set, LCO
 prunes indexed rows only for missing JSONL files that are still under the current
 canonical root set. It intentionally keeps rows for still-existing files outside
 the current roots. That fail-closed behavior avoids deleting a user's derived

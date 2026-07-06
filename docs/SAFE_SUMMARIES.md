@@ -24,7 +24,7 @@ The beta summary line is deterministic and bounded. It may combine title, model,
 
 ## Expansion Boundary
 
-`loo_expand_session`, `loo_expand_query`, and `loo_grep -> loo_describe_ref -> loo_expand_query` return bounded evidence briefs. The beta profiles are:
+`lco_expand_session`, `lco_expand_query`, and `lco_grep -> lco_describe_ref -> lco_expand_query` return bounded evidence briefs. The beta profiles are:
 
 - metadata-only: source refs, ids, counts, timestamps, paths, and other routing metadata without expanded content.
 - 1k token brief: quick status, final message, touched files, and first extracted plans when they fit.

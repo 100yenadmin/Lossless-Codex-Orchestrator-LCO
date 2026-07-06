@@ -15,7 +15,7 @@ The doctor output should report `localOnly: true`, the Codex transport status, L
 ## 2. Index 100+ Local Codex Sessions
 
 ```bash
-export LOO_DB_PATH="$HOME/.openclaw/lossless-openclaw-orchestrator/orchestrator.sqlite"
+export LCO_DB_PATH="$HOME/.openclaw/lossless-openclaw-orchestrator/orchestrator.sqlite"
 node dist/packages/cli/src/index.js index codex --max-files 150 --max-bytes-per-file 52428800 --max-events-per-file 50000 "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
 ```
 
@@ -32,9 +32,9 @@ node dist/packages/cli/src/index.js search "final message"
 
 MCP/OpenClaw:
 
-- `loo_codex_plans`
-- `loo_codex_final_messages`
-- `loo_codex_thread_map`
+- `lco_codex_plans`
+- `lco_codex_final_messages`
+- `lco_codex_thread_map`
 
 The expected proof is that searches return bounded safe-text refs such as `codex_thread:*`, not raw transcript dumps.
 
@@ -54,7 +54,7 @@ The result should include metadata, final messages, proposed plans, touched file
 Use the control dry-run tool before any live Codex mutation:
 
 ```text
-loo_codex_control_dry_run({
+lco_codex_control_dry_run({
   "action": "send",
   "thread_id": "<thread-id>",
   "message": "Harmless beta smoke: please acknowledge this dry-run boundary."
@@ -80,7 +80,7 @@ Then validate the demo proof without performing any gated action:
 node dist/packages/cli/src/index.js release demo-status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/demo --strict
 ```
 
-`loo release demo-status` writes `release-demo-status.json`, checks for 100+ indexed sessions, plan/final search proof, two expansion proofs, dry-run control proof, raw artifact leakage, and optional approved live-control proof. It records that it did not run live Codex control, mutate a GUI, publish npm, or create a GitHub Release. Until an explicitly approved live-control smoke proof is supplied, `--strict` fails with `approved_live_control_smoke_missing`. A `codex-working-app-proof` demo-status run must also pass `--runtime-proof-dir` with the public-safe #158 and #159 v1.1 marker files; otherwise it fails closed with `runtime_proof_missing:*`.
+`lco release demo-status` writes `release-demo-status.json`, checks for 100+ indexed sessions, plan/final search proof, two expansion proofs, dry-run control proof, raw artifact leakage, and optional approved live-control proof. It records that it did not run live Codex control, mutate a GUI, publish npm, or create a GitHub Release. Until an explicitly approved live-control smoke proof is supplied, `--strict` fails with `approved_live_control_smoke_missing`. A `codex-working-app-proof` demo-status run must also pass `--runtime-proof-dir` with the public-safe #158 and #159 v1.1 marker files; otherwise it fails closed with `runtime_proof_missing:*`.
 
 ## 6. Desktop Fallback Readiness
 
@@ -89,4 +89,4 @@ node dist/packages/cli/src/index.js desktop see cua-driver
 node dist/packages/cli/src/index.js desktop see peekaboo
 ```
 
-`node dist/packages/cli/src/index.js desktop see peekaboo --snapshot` is optional and should be used only when the user accepts a local visible snapshot. `loo_desktop_act` remains dry-run-only in this beta.
+`node dist/packages/cli/src/index.js desktop see peekaboo --snapshot` is optional and should be used only when the user accepts a local visible snapshot. `lco_desktop_act` remains dry-run-only in this beta.

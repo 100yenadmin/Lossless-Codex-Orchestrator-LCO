@@ -1,6 +1,6 @@
 # Privacy Model
 
-Lossless OpenClaw Orchestrator indexes local agent sessions so another local agent can reason over them without rereading everything.
+Lossless Codex Orchestrator indexes local agent sessions so another local agent can reason over them without rereading everything.
 
 Default behavior:
 
@@ -19,7 +19,7 @@ Mutation classes:
 - LCO-owned local cache or audit writes use `mode: "local_cache_write"` and
   `mutationClasses: ["derived_cache"]`.
 - `derived_cache` means LCO writes its own local SQLite cache or audit record,
-  such as `loo_index_sessions` or `loo_codex_control_dry_run`.
+  such as `lco_index_sessions` or `lco_codex_control_dry_run`.
 - `source_store` is reserved for mutations to Codex/OpenClaw source stores and
   is not part of the default prepared-state path.
 - `external_system`, `github_write`, `notion_write`, `release_publish`, and
