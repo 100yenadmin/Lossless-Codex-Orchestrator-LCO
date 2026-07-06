@@ -1,7 +1,12 @@
 # Lossless Codex Orchestrator
 
-**LCO turns local Codex sessions into searchable, bounded, approval-aware
-work objects for OpenClaw.**
+**Codex memory + approval-gated control adapters for OpenClaw, MCP clients,
+and Codex-heavy agent harnesses.**
+
+LCO turns local Codex sessions into searchable, public-safe work objects: what
+is active, what was planned, what finished, what files changed, and what the
+next safe action is. It is built for agents that need memory, handoff, and
+bounded control without rereading raw transcripts.
 
 ![Enchanted open-claw conductor guiding bounded session cards and an abstract code beast in a dark technical workshop](assets/readme/hero.png)
 
@@ -12,56 +17,57 @@ work objects for OpenClaw.**
 [![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)](LICENSE)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](CONTRIBUTING.md)
 
-Use it when an agent or user needs to answer: what sessions are active, what did
-they plan, what did they finish, what files did they touch, and what is the next
-safe action without rereading raw transcripts.
+```bash
+npm install -g lossless-openclaw-orchestrator@latest
+loo doctor
+```
 
-| What LCO gives agents | Why it matters |
+If LCO saves you from losing a Codex thread, a star helps other agent builders
+find it. ⭐
+
+[Setup](docs/SETUP.md) · [Contributing](CONTRIBUTING.md) · [Agent Instructions](AGENTS.md) · [Agent Skill](skills/lossless-openclaw-orchestrator/SKILL.md) · [OpenClaw Plugin](docs/OPENCLAW_PLUGIN.md) · [Security](SECURITY.md) · [Code of Conduct](CODE_OF_CONDUCT.md) · [Vision](VISION.md) · [Privacy](docs/PRIVACY.md) · [Claude Boundary](docs/CLAUDE_ADAPTER_BOUNDARY.md) · [Claim Audit](docs/CLAIM_AUDIT.md) · [QA Lab](docs/QA_LAB.md) · [Release Notes](docs/releases/CHANGELOG.md) · [Release Runbook](docs/BETA_RELEASE_RUNBOOK.md) · [License](LICENSE)
+
+## Why Use LCO? ⭐
+
+Codex is powerful, but long-running local work gets hard to supervise once you
+have many threads, retries, plans, and handoffs. LCO gives your orchestrator a
+local operating picture before it acts.
+
+| You need to know... | LCO gives you... |
 | --- | --- |
-| Searchable local session memory | Find plans, finals, touched files, and refs without raw transcript rereads. |
-| Bounded evidence expansion | Read compact public-safe briefs before opening larger source material. |
-| Approval-gated boundaries | Dry-run Codex actions and verify matching audit ids before any live control. |
-| OpenClaw/MCP tools | Use the same local-first recall and approval-bounded surfaces from agent workflows. |
+| Which Codex sessions matter? | Searchable cards over plans, finals, touched files, refs, and active state. |
+| What happened without dumping private logs? | Public-safe summaries, source refs, and bounded evidence expansion. |
+| What should an agent do next? | Prepared inboxes, attention queues, project digests, and dry-run packets. |
+| Can this harness use it? | A CLI, MCP server, and OpenClaw plugin backed by the same local registry. |
+| Can control stay bounded? | Approval hashes and `approval_audit_id` matching before live Codex control. |
 
-[Setup](docs/SETUP.md) · [Contributing](CONTRIBUTING.md) · [Agent Instructions](AGENTS.md) · [Agent Skill](skills/lossless-openclaw-orchestrator/SKILL.md) · [OpenClaw Plugin](docs/OPENCLAW_PLUGIN.md) · [Security](SECURITY.md) · [Code of Conduct](CODE_OF_CONDUCT.md) · [Vision](VISION.md) · [Privacy](docs/PRIVACY.md) · [Claude Boundary](docs/CLAUDE_ADAPTER_BOUNDARY.md) · [Claim Audit](docs/CLAIM_AUDIT.md) · [QA Lab](docs/QA_LAB.md) · [Release Notes](docs/releases/CHANGELOG.md) · [License](LICENSE)
-
-## Why It Matters
-
-Codex is powerful, but long-running local work can become hard to supervise
-once you have dozens or hundreds of threads. LCO gives your orchestrator agent a
-safe operating picture: search first, inspect compact session cards, expand only
-bounded evidence, and dry-run the next action before anything live happens.
-
-If you are here to contribute, start with [CONTRIBUTING.md](CONTRIBUTING.md).
-If you are an agent working in this repository, read [AGENTS.md](AGENTS.md)
-before editing files.
+The short version: LCO is local memory plus adapter plumbing for Codex. It lets
+an agent search first, inspect only the evidence it needs, then dry-run the next
+action before anything live happens.
 
 ## What It Does
 
-LCO's wedge is approval-gated orchestration over bounded, public-safe recall: an agent can safely operate a Codex fleet, not just remember it.
+LCO's wedge is approval-gated orchestration over bounded, public-safe recall: an
+agent can operate a Codex-heavy workflow, not just remember it.
 
-LCO is a local-first orchestration layer for Codex-heavy work:
+Core capabilities:
 
 - indexes local Codex session stores into a local SQLite database
 - searches sessions by safe summaries, plans, finals, touched files, and refs
-- adds one-shot Codex thread title aliases for easier name/ID recall
 - describes one session without exposing the whole transcript
 - expands only the evidence an agent needs, with token-budgeted profiles
 - exposes `loo_*` tools through MCP and the OpenClaw plugin
-- detects Codex JSONL format drift per file and surfaces it in `loo doctor`
-  as public-safe reason codes, so parser gaps are visible instead of silent
+- adds one-shot Codex thread title aliases for easier name/ID recall
+- detects Codex JSONL format drift per file and reports public-safe reason
+  codes in `loo doctor`
 - creates dry-run approval packets before Codex resume/send/steer/interrupt
 - reports Codex Desktop visibility and fallback readiness without GUI mutation
-- validates exact action-bound Desktop collaboration proof packets without executing them
-- summarizes runtime Desktop visibility coverage and next read-only proof steps
 - classifies active threads as running, blocked, needs-nudge, stale, waiting,
-  approval-needed, idle, or unknown from public-safe read-only signals,
-  including attention coverage, non-executed read-only probe recommendations,
-  and non-executed control dry-run recommendations for safe nudge handoff
+  approval-needed, idle, or unknown from public-safe read-only signals
 - plans one deterministic read-only autonomy loop tick with `execute:false`
   tool calls so an agent can probe before dry-run handoff without mutation
 
-The result is a staged recall loop:
+The normal recall loop:
 
 1. Search broadly.
 2. Describe the likely session.
@@ -69,7 +75,7 @@ The result is a staged recall loop:
 4. Dry-run the next action.
 5. Execute only after the user approves the exact target/action.
 
-## Install
+## Install 🚀
 
 Requirements:
 
@@ -106,11 +112,10 @@ tarball_url="$(npm view lossless-openclaw-orchestrator@latest dist.tarball)"
 test -n "$tarball_url" && npm install -g "$tarball_url"
 ```
 
-That recovery path is a package-install diagnostic, not a broader product claim.
-
-If the `ETARGET` message says the requested package version must have a publish
-date before a specific time, check for a local npm `min-release-age`/`before`
-pin before treating it as registry drift.
+That recovery path is a package-install diagnostic, not a broader product
+claim. If the `ETARGET` message says the requested package version must have a
+publish date before a specific time, check for a local npm
+`min-release-age`/`before` pin before treating it as registry drift.
 
 Full first-run instructions live in [docs/SETUP.md](docs/SETUP.md).
 
@@ -191,10 +196,9 @@ instead of treating every `loo_*` tool as a peer:
 | 8 | `loo_codex_resume_thread` | Run an approved resume only after the matching audit id. |
 
 Other declared tools remain available as `workflow_detail`, `proof_debug`, or
-`internal_low_level` surfaces for setup, diagnosis, proof, and recovery. Their
-existence is deliberate: normal agents should start from the facade, then drop
-to the lower tiers only when the compact path returns a specific next step or
-blocker.
+`internal_low_level` surfaces for setup, diagnosis, proof, and recovery. Normal
+agents should start from the facade, then drop to lower tiers only when the
+compact path returns a specific next step or blocker.
 
 `loo_codex_control_dry_run` returns the audit id and hashes an agent should show
 before any live start/resume/send/steer/interrupt call. Live control requires
@@ -213,6 +217,20 @@ Naming policy: `LCO` is the public product abbreviation and `lco_*` is the
 forward public alias target for new user-facing tool names. The public facade
 now exposes tested `lco_*` aliases for the eight normal operator tools while
 the historical `loo_*` names remain backward compatible. The currently callable OpenClaw/MCP tools still use the historical `loo_*` runtime prefix for the full catalog. Runnable examples keep using `loo_*`; alias metadata points back to the `loo_*` target with `metadata.aliasOf`.
+
+## Works With 🔌
+
+| Surface | Status | What to use today |
+| --- | --- | --- |
+| Codex local sessions | Shipped | `loo index codex`, `loo search`, `loo describe`, `loo expand-*`. |
+| MCP clients | Shipped | `loo-mcp-server` exposes the same local-first tool registry over stdio. |
+| OpenClaw | Shipped | Install the npm plugin and call `loo_*` tools through the local gateway. |
+| Hermes | Roadmap / adapter tier | Tracked under the 1.4 identity and adapter-tier work in #616; not advertised as shipped here. |
+| Claude Code | Boundary stub | Redacted fixture inventory and adapter-boundary docs only. See [docs/CLAUDE_ADAPTER_BOUNDARY.md](docs/CLAUDE_ADAPTER_BOUNDARY.md). |
+
+LCO is specialized for OpenClaw because that is the first major integration,
+but the architecture is broader: CLI first, MCP server for generic clients,
+and adapter boundaries for future harnesses.
 
 ## OpenClaw And MCP
 
@@ -354,36 +372,40 @@ The stable public product is Codex-first local orchestration: index, search,
 describe, expand, prepared-state recall, OpenClaw/MCP tools, and
 approval-gated dry-run/control boundaries.
 
-Current stable: `1.3.5` has shipped with the 1.3 retrieval, indexing,
-doctor, setup, day-one UX hardening, bounded direct CLI recall smoke,
-published-package smoke PATH-shadow hardening, and first-run Node/MCP startup
-hardening plus gateway live-send proof validation hardening while keeping the
-public claim boundary unchanged.
+Current stable: `1.3.5` has shipped with the 1.3 retrieval, indexing, doctor,
+setup, day-one UX hardening, bounded direct CLI recall smoke, published-package
+smoke PATH-shadow hardening, first-run Node/MCP startup hardening, and gateway
+live-send proof validation hardening while keeping the public claim boundary
+unchanged.
+
 Since 1.2.x, the 1.2 prepared-state and summary-leaves lane has remained
-shipped as part of the stable product line.
-Current launch-hardening proof is summarized in [VISION.md](VISION.md) and
-[docs/QA_LAB.md](docs/QA_LAB.md). Keep sprint and agent-operator details there,
-in [AGENTS.md](AGENTS.md), and in the packaged
-[agent skill](skills/lossless-openclaw-orchestrator/SKILL.md), not in this
-public landing page. The historical 1.2 architecture handoff remains in
+shipped as part of the stable product line. Current launch-hardening proof is
+summarized in [VISION.md](VISION.md) and [docs/QA_LAB.md](docs/QA_LAB.md).
+Keep sprint and agent-operator details there, in [AGENTS.md](AGENTS.md), and in
+the packaged [agent skill](skills/lossless-openclaw-orchestrator/SKILL.md), not
+in this public landing page. The historical 1.2 architecture handoff remains in
 [docs/sprints/brief-lco-1.2-prepared-state-summary-leaves-2026-07-03.md](docs/sprints/brief-lco-1.2-prepared-state-summary-leaves-2026-07-03.md).
 
 Since 1.2.x, the shipped 1.2 layer has been local, deterministic, and opt-in.
-It provides
-source-ref-backed ranges, summary leaves, prepared cards, persisted watcher
-observations, execute-false local attention queue items, and hook capture so an
-OpenClaw/Eva agent can start from compact prepared state rather than rereading
-huge Codex transcripts. Summary leaves are advisory
+It provides source-ref-backed ranges, summary leaves, prepared cards, persisted
+watcher observations, execute-false local attention queue items, and hook
+capture so an OpenClaw/Eva agent can start from compact prepared state rather
+than rereading huge Codex transcripts. Summary leaves are advisory
 routing/evidence cards over prepared ranges; they are not authority, hidden
 autonomy, GUI mutation, Claude parity, or true Codex compaction-summary capture.
+
 When a specific Codex thread id is requested, prepared-state status reports
 thread-level `targetCoverage` with opaque source refs, freshness, coverage, and
 reason codes such as `source_present_not_indexed` instead of hiding a miss
-behind healthy global cache counts.
-The hook sidecar CLI lives under `loo hook closeout-capture`,
-`loo hook state-prep`, `loo hook compaction-capture --mode marker`, and
+behind healthy global cache counts. The hook sidecar CLI lives under
+`loo hook closeout-capture`, `loo hook state-prep`,
+`loo hook compaction-capture --mode marker`, and
 `loo hook thread-title-finalize`; those commands write only LCO-owned derived
 cache and treat transcript paths as hash/redact-only inputs.
+
+The 1.4 identity-release tracker is #616. It covers future `lco`-first naming,
+the new `lossless-codex-orchestrator` package, and adapter-tier docs. Those are
+not current install instructions for this stable README.
 
 ## Maintainer Proof
 
