@@ -910,10 +910,10 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     const permissionsTool = tools.find((tool) => tool.name === "loo_permissions");
     assert.ok(permissionsTool);
     const permissions = permissionsTool.execute({}) as { commandPolicy: typeof LOO_COMMAND_POLICY };
-    assert.deepEqual(permissions.commandPolicy.loo_codex_thread_map, LOO_COMMAND_POLICY.loo_operating_picture);
-    assert.deepEqual(permissions.commandPolicy.loo_cockpit_inbox, LOO_COMMAND_POLICY.loo_operating_picture);
-    assert.deepEqual(permissions.commandPolicy.loo_codex_start_thread_post_create_proof, LOO_COMMAND_POLICY.loo_desktop_proof);
-    assert.deepEqual(permissions.commandPolicy.loo_desktop_see, LOO_COMMAND_POLICY.loo_desktop_proof);
+    assert.deepEqual(permissions.commandPolicy.loo_codex_thread_map, LOO_COMMAND_POLICY.loo_codex_thread_map);
+    assert.deepEqual(permissions.commandPolicy.loo_cockpit_inbox, LOO_COMMAND_POLICY.loo_cockpit_inbox);
+    assert.deepEqual(permissions.commandPolicy.loo_codex_start_thread_post_create_proof, LOO_COMMAND_POLICY.loo_codex_start_thread_post_create_proof);
+    assert.deepEqual(permissions.commandPolicy.loo_desktop_see, LOO_COMMAND_POLICY.loo_desktop_see);
 
     const closeoutTool = tools.find((tool) => tool.name === "loo_closeout_dry_run");
     assert.ok(closeoutTool);

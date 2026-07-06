@@ -169,6 +169,36 @@ test("indexes Codex sessions with plans, finals, touched files, and search text"
   }
 });
 
+test("loo_codex_extract dispatches all canonical extraction kinds", async () => {
+  const fixture = makeFixture();
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [fixture.sessions], maxFiles: 10 });
+
+    const tools = createLooTools({
+      db,
+      audit: createAuditStore(join(fixture.root, "audit.jsonl")),
+      codexClient: { request: async () => ({ ok: true }) }
+    });
+    const extractTool = tools.find((tool) => tool.name === "loo_codex_extract");
+    assert.ok(extractTool);
+
+    const plans = await extractTool.execute({ kind: "plans", thread_id: "019f-test-thread", limit: 5 }) as Array<{ text?: string }>;
+    const finals = await extractTool.execute({ kind: "final_messages", thread_id: "019f-test-thread", limit: 5 }) as Array<{ text?: string }>;
+    const toolCalls = await extractTool.execute({ kind: "tool_calls", thread_id: "019f-test-thread", limit: 5 }) as Array<{ toolName?: string }>;
+    const touchedFiles = await extractTool.execute({ kind: "touched_files", thread_id: "019f-test-thread", limit: 5 }) as string[];
+
+    assert.equal(plans[0]?.text?.includes("Billing bridge"), true);
+    assert.equal(finals[0]?.text?.includes("Next action"), true);
+    assert.equal(toolCalls[0]?.toolName, "functions.exec_command");
+    assert.deepEqual(touchedFiles, ["/Volumes/LEXAR/repos/example/src/billing.ts"]);
+    await assert.rejects(async () => extractTool.execute({ kind: "touched_files", limit: 5 }), /thread_id is required/);
+  } finally {
+    db.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("describe not-found returns structured ref_not_found result with nearest matches", async () => {
   const fixture = makeFixture();
   const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));

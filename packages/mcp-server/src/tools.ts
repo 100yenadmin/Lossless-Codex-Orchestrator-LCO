@@ -575,14 +575,14 @@ export function createLooTools(options: {
         return getPreparedCards(options.db, {
           threadId: optionalString(input.thread_id),
           state: optionalPreparedCardState(input.state),
-          limit: optionalNumber(input.limit)
+          limit: optionalBoundedInteger(input.limit, 1, 500)
         });
       }
       if (view === "leaves") {
         return getSummaryLeaves(options.db, {
           threadId: optionalString(input.thread_id),
           leafKind: optionalSummaryLeafKind(input.leaf_kind),
-          limit: optionalNumber(input.limit)
+          limit: optionalBoundedInteger(input.limit, 1, 1000)
         });
       }
       return expandSummaryLeaves(options.db, {
@@ -838,7 +838,7 @@ export function createLooTools(options: {
       if (kind === "plan_state_pins") return createPlanStatePinsReport(resolvePlanStateText(input));
       return createGithubOperatingItemsReport(optionalGithubRecords(input.github_records), {
         includeGreen: optionalBoolean(input.include_green),
-        limit: optionalNumber(input.limit),
+        limit: optionalBoundedInteger(input.limit, 1, 200),
         now: optionalString(input.now)
       });
     }),
@@ -848,10 +848,10 @@ export function createLooTools(options: {
       limit: { type: "integer", minimum: 1, maximum: 1000 }
     }, (input) => {
       const kind = requiredCodexExtractKind(input.kind);
-      if (kind === "plans") return getCodexPlans(options.db, { threadId: optionalString(input.thread_id), limit: optionalNumber(input.limit) });
-      if (kind === "final_messages") return getCodexFinalMessages(options.db, { threadId: optionalString(input.thread_id), limit: optionalNumber(input.limit) });
+      if (kind === "plans") return getCodexPlans(options.db, { threadId: optionalString(input.thread_id), limit: optionalBoundedInteger(input.limit, 1, 500) });
+      if (kind === "final_messages") return getCodexFinalMessages(options.db, { threadId: optionalString(input.thread_id), limit: optionalBoundedInteger(input.limit, 1, 500) });
       if (kind === "touched_files") return getCodexTouchedFiles(options.db, { threadId: requiredString(input.thread_id, "thread_id") });
-      return getCodexToolCalls(options.db, { threadId: optionalString(input.thread_id), limit: optionalNumber(input.limit) });
+      return getCodexToolCalls(options.db, { threadId: optionalString(input.thread_id), limit: optionalBoundedInteger(input.limit, 1, 1000) });
     }),
     tool("loo_closeout_dry_run", "Preview public-safe closeout envelopes that a hook-agent could attach without mutating Codex.", {
       thread_id: { type: "string" },
@@ -1116,7 +1116,7 @@ function createEffectiveCommandPolicy(): Record<string, LooCommandSafety> {
   return Object.fromEntries(
     Object.keys(LOO_COMMAND_POLICY).map((name) => {
       const canonicalName = canonicalLooToolName(name);
-      return [name, LOO_COMMAND_POLICY[canonicalName] ?? LOO_COMMAND_POLICY[name]];
+      return [name, LOO_COMMAND_POLICY[name] ?? LOO_COMMAND_POLICY[canonicalName]];
     })
   );
 }
@@ -1688,7 +1688,6 @@ function startProofThreadId(input: Record<string, unknown>): string | null {
 }
 
 function startThreadPostCreateProofInput(input: Record<string, unknown>): Record<string, unknown> {
-  const limit = optionalNumber(input.limit);
   return {
     created_thread_id: input.created_thread_id,
     worker_thread_id: input.worker_thread_id,
@@ -1696,7 +1695,7 @@ function startThreadPostCreateProofInput(input: Record<string, unknown>): Record
     requested_title: input.requested_title,
     alias: input.alias,
     parent_thread_id: input.parent_thread_id,
-    limit: limit === undefined ? undefined : Math.min(100, Math.max(1, Math.trunc(limit)))
+    limit: optionalBoundedInteger(input.limit, 1, 100)
   };
 }
 
@@ -1757,6 +1756,12 @@ function normalizeCodexThreadIdInput(value: string): string {
 
 function optionalNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function optionalBoundedInteger(value: unknown, min: number, max: number): number | undefined {
+  const number = optionalNumber(value);
+  if (number === undefined) return undefined;
+  return Math.min(max, Math.max(min, Math.trunc(number)));
 }
 
 function optionalBoolean(value: unknown): boolean | undefined {
