@@ -45,11 +45,18 @@ Codex sessions through the installed `loo_*` tools.
   Use `nextControlDryRun` only as a non-executed dry-run handoff; treat
   low-confidence or conflicting states as inspect-first, never as approval to
   send or steer.
-- For #434 continuity, `LCO` is the public product abbreviation and `lco_*` is
-  the forward public alias target for new user-facing tool names. Runnable
-  examples and the wider catalog currently use `loo_*`; the public facade also
-  exposes tested `lco_*` aliases for the eight normal operator tools, while
-  `loo_*` remains the set of backward-compatible aliases.
+- `LCO` is the public product abbreviation and `lco_*` is the forward public
+  alias target for new user-facing tool names. Runnable examples and the wider
+  catalog use `loo_*`; the public facade also exposes tested `lco_*` aliases
+  for the eight normal operator tools, while `loo_*` remains backward-compatible.
+- `LOO_TOOL_PROFILE=facade|standard|all` filters MCP/OpenClaw tool listing.
+  `facade` lists the compact public path and its `lco_*` aliases, `standard`
+  adds workflow-detail tools such as `loo_doctor`, and `all` remains the
+  default full catalog.
+- `LOO_TELEMETRY=1` enables opt-in retrieval telemetry only for local
+  search-to-describe/expand correlation. It writes LCO-owned derived cache,
+  requires a telemetry session id for correlation, and does not store raw query
+  text.
 
 ## Compact Public Facade
 

@@ -97,6 +97,11 @@ Package channels:
 - `beta` is the active prerelease train.
 - `next` is reserved for release candidates.
 
+If npm shows a version or dist-tag but install fails with a selector cutoff
+error such as `ENOVERSIONS` or `ETARGET`, use the npm selector-drift tarball fallback
+guidance from `loo onboard status --strict`; that recovery path is a
+package-install diagnostic, not a broader product claim.
+
 Full first-run instructions live in [docs/SETUP.md](docs/SETUP.md).
 
 ## Set Up

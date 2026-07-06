@@ -51,7 +51,12 @@ test("setup guide covers install, local indexing, OpenClaw, MCP, and troubleshoo
     /npm install -g lossless-openclaw-orchestrator@latest/,
     /LOO_DB_PATH/,
     /LOO_LCM_DB_PATHS/,
+    /isolated npm prefix/i,
+    /fresh LOO_DB_PATH/i,
+    /local repo build/i,
     /loo doctor/,
+    /not_indexed_yet/,
+    /codexJsonlDrift/,
     /loo index codex/,
     /~\/.codex\/sessions/,
     /~\/.codex\/archived_sessions/,
@@ -61,6 +66,7 @@ test("setup guide covers install, local indexing, OpenClaw, MCP, and troubleshoo
     /loo-mcp-server/,
     /OpenClaw/,
     /loo openclaw published-smoke/,
+    /npm selector.*tarball fallback/i,
     /loo openclaw tool-smoke/,
     /CUA Driver is the preferred\/default\s+desktop fallback backend/i,
     /not bundled by LCO/i,
@@ -122,6 +128,7 @@ test("public docs preserve release claim boundaries", () => {
   assert.match(readme, /CUA Driver as the preferred\/default desktop fallback backend/i);
   assert.match(readme, /externally installed, not bundled by LCO/i);
   assert.match(readme, /verify the launch entrypoint with `cua-driver mcp --help`/i);
+  assert.match(readme, /npm selector.*tarball fallback/i);
   assert.match(setup, /do not treat a CUA `type_text` success\s+payload or ready desktop proof packet as proof/i);
 
   assert.doesNotMatch(publicDocs, /Full Claude Code parity is supported/i);
@@ -130,4 +137,34 @@ test("public docs preserve release claim boundaries", () => {
   assert.doesNotMatch(publicDocs, /bypasses Codex permissions/i);
   assert.doesNotMatch(publicDocs, /generic GUI mutation is supported/i);
   assert.doesNotMatch(readme, /verify `cua-driver mcp` availability through `loo doctor/i);
+});
+
+test("current docs do not present closed issue references as pending work", () => {
+  const currentDocs = [
+    "README.md",
+    "VISION.md",
+    "docs/SETUP.md",
+    "docs/OPENCLAW_PLUGIN.md",
+    "docs/BETA_RELEASE_RUNBOOK.md",
+    "docs/RELEASE_CHECKLIST.md",
+    "docs/QA_LAB.md",
+    "docs/CLAIM_AUDIT.md",
+    "skills/lossless-openclaw-orchestrator/SKILL.md"
+  ].map(read).join("\n");
+
+  for (const forbidden of [
+    /until\s+#434/i,
+    /Naming policy for #434/i,
+    /For #434 continuity/i,
+    /#157[\s\S]{0,120}fails closed until/i,
+    /#158[\s\S]{0,120}must prove/i,
+    /#159[\s\S]{0,120}must prove/i,
+    /pre-#570/i,
+    /pre-#583/i,
+    /pre-#585/i,
+    /known issue/i,
+    /does not work/i
+  ]) {
+    assert.doesNotMatch(currentDocs, forbidden);
+  }
 });

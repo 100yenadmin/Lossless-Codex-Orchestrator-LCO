@@ -20,6 +20,11 @@ loo qa-lab tool-coverage \
 The command emits and writes `tool-coverage.json` with schema
 `lco.qaLab.toolCoverage.v1`.
 
+For a full QA Lab packet, create the run evidence root first, `cd` into it, and
+pass a relative --evidence-dir value from inside the evidence root for each gate.
+Demo and judge inputs must come from a synthetic corpus or the committed
+retrieval goldens. Live-store content can never be public evidence.
+
 ## What It Proves
 
 - The runtime MCP registry and OpenClaw plugin manifest agree on declared

@@ -27,7 +27,7 @@ npm install -g lossless-openclaw-orchestrator@latest
 openclaw plugins install lossless-openclaw-orchestrator@latest
 ```
 
-Before beta release, dogfood the local OpenClaw plugin path from an isolated profile:
+For local candidate dogfood, use an isolated profile:
 
 ```bash
 loo openclaw dogfood --profile lco-dogfood --install-source . --link --evidence-path /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/issue-44-local-openclaw-gateway-dogfood/plugin-load.json --strict
@@ -35,14 +35,10 @@ loo openclaw dogfood --profile lco-dogfood --install-source . --link --evidence-
 
 This command wraps `openclaw plugins list --json` plus runtime inspection into a public-safe status report. It records only loaded/enabled state, required `loo_*` tool coverage, blocker codes, and install/list exit status. It does not write raw OpenClaw plugin JSON, raw Codex transcripts, expanded text, local SQLite contents, screenshots, tokens, or credentials.
 
-Milestone 7 raises the bar from declaration proof to working-app proof. Issue
-[#158](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/158)
-must prove one approved harmless live Codex action through the installed
-OpenClaw gateway path, and
-[#159](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/159)
-must prove post-action refresh and safe source-ref-based reasoning. Tool
-declaration, package install, and dry-run audit proof are necessary but no
-longer sufficient for a working-app claim.
+The working-app proof gate is represented by release status, runtime scenarios,
+and QA Lab reports. Tool declaration, package install, and dry-run audit proof
+are necessary, but they are not enough for a working-app or GA claim unless the
+matching release gate artifacts are present and public-safe.
 
 Recommended OpenClaw configuration should expose the `loo_*` tools and keep live controls approval-gated.
 
@@ -54,7 +50,8 @@ compact operator path from detail, proof, and low-level recovery surfaces:
   `loo_recent_sessions`, `loo_attention_inbox`, `loo_project_digest`,
   `loo_codex_control_dry_run`, and `loo_codex_resume_thread`.
 - `workflow_detail`: supporting read/detail/setup/control tools that a facade
-  result may route to.
+  result may route to. `loo_doctor` is in this tier so restricted `standard`
+  profiles still have a setup/readiness check.
 - `proof_debug`: safety, proof, fallback, sanitizer, permission, and audit
   tools for diagnosis and release evidence.
 - `internal_low_level`: direct store or protocol probes that should stay
@@ -72,14 +69,13 @@ the full catalog, `standard` exposes the facade plus workflow-detail tools, and
 tool invocation by name remains governed by the underlying client capability
 and the tool's safety contract.
 
-Naming policy for #434: `LCO` is the product abbreviation and `lco_*` is the
-forward public alias target for new user-facing tool names. The public facade
-now exposes tested `lco_*` aliases for the eight normal operator tools, and each
-alias points at its `loo_*` target with `metadata.aliasOf`. The historical
-`loo_*` names remain backward compatible and the wider runtime catalog still
-uses `loo_*`; future alias work must not silently rename or delete existing
-tools. Broad alias expansion beyond the public facade remains separate from
-this release candidate.
+Naming policy: `LCO` is the product abbreviation and `lco_*` is the forward
+public alias target for new user-facing tool names. The public facade exposes
+tested `lco_*` aliases for the eight normal operator tools, and each alias
+points at its `loo_*` target with `metadata.aliasOf`. The historical `loo_*`
+names remain backward compatible and the wider runtime catalog still uses
+`loo_*`; alias expansion beyond the public facade must not silently rename or
+delete existing tools.
 
 Safety details:
 
