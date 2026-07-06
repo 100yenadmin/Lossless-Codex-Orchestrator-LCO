@@ -235,6 +235,30 @@ test("app-server threads report downgrades coverage when metadata probe fails", 
   assert.doesNotMatch(JSON.stringify(report), /\/Users\/lume|private\.jsonl|sk-test_1234567890/);
 });
 
+test("app-server thread titles and aliases redact token and path patterns", async () => {
+  const client = new FakeCodexReadClient({
+    "thread/list": {
+      ok: true,
+      result: {
+        data: [{
+          id: "thr_secret_title",
+          name: "/Users/lume/private sk-test_1234567890",
+          titleAliases: ["EVA-LCO", "/Volumes/LEXAR/private github_pat_1234567890abcdefghij"],
+          status: { type: "active" }
+        }]
+      },
+      notifications: []
+    }
+  });
+
+  const report = await createCodexAppServerThreadsReport({ client, limit: 5 });
+  const serialized = JSON.stringify(report);
+
+  assert.equal(report.threads[0]?.titleSanitized?.includes("<redacted"), true);
+  assert.ok(report.threads[0]?.titleAliases.includes("EVA-LCO"));
+  assert.doesNotMatch(serialized, /\/Users\/lume|\/Volumes\/LEXAR|sk-test_1234567890|github_pat_1234567890abcdefghij/);
+});
+
 test("app-server threads report can claim loaded signals only for an explicit same-connection source", async () => {
   const client = new FakeCodexReadClient({
     "thread/list": {

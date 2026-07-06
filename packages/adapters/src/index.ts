@@ -2946,9 +2946,7 @@ function optionalDesktopBackendObservation(value: unknown): DesktopBackend | und
 }
 
 function publicTextField(value: unknown, maxChars: number): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return trimmed ? capTextValue(trimmed, maxChars) : undefined;
+  return publicProofTextField(value, maxChars);
 }
 
 function publicHashField(value: unknown): value is string {

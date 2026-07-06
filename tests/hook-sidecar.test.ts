@@ -116,12 +116,45 @@ test("compaction hook records marker lifecycle only without true summary-capture
       assert.equal(report.packet.hookKind, "compaction_marker");
       assert.equal(report.packet.payload.mode, "marker");
       assert.equal(report.packet.payload.lifecycle, "pre_compact");
+      assert.equal(report.packet.payload.markerNote, null);
+      assert.match(report.packet.payload.markerNoteHash ?? "", /^[0-9a-f]{32}$/);
+      assert.match(report.packet.payload.omissions.join(","), /marker_note_hash_only/);
       assert.equal(report.actionsPerformed.trueCompactionSummaryCaptured, false);
       assert.equal(report.actionsPerformed.modelCompactionRun, false);
       assert.equal(report.packet.payload.summaryCaptured, false);
       assert.equal(report.blockers.length, 0);
       assert.doesNotMatch(serialized, /raw summary-shaped value|\/Users\/lume|raw-thread\.jsonl|npm_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456/);
       assert.match(report.proofBoundary, /Codex-native/i);
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("closeout hook redacts sensitive field values using label context", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-hook-closeout-sensitive-labels-"));
+  try {
+    const db = createDatabase(join(root, "orchestrator.sqlite"));
+    try {
+      const report = captureCloseoutHookPacket(db, {
+        threadId: "019f-hook-sensitive-labels",
+        lastAssistantMessage: [
+          "<loo_closeout>",
+          "Status: complete",
+          "Password: plain-public-looking-value",
+          "Cookie: sid=abc123",
+          "Next action: continue public-safe work",
+          "</loo_closeout>"
+        ].join("\n")
+      });
+      const serialized = JSON.stringify(report);
+
+      assert.equal(report.blockers.length, 0);
+      assert.equal(report.packet.payload.closeout?.fields.password, "<redacted-secret>");
+      assert.equal(report.packet.payload.closeout?.fields.cookie, "<redacted-secret>");
+      assert.doesNotMatch(serialized, /plain-public-looking-value|sid=abc123/);
     } finally {
       db.close();
     }

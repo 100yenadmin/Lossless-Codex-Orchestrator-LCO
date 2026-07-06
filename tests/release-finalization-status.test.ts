@@ -24,6 +24,7 @@ function writeNpmEvidence(path: string, overrides: Record<string, unknown> = {})
     distTag: "beta",
     distTagVersion: packageVersion,
     latestVersion: "1.0.0",
+    candidateSha,
     published: true,
     rawSecretIncluded: false,
     ...overrides
@@ -197,6 +198,58 @@ test("release finalization-status rejects beta dist-tag mismatch", () => {
   assert.equal(result.status, 1, result.stderr || result.stdout);
   const payload = JSON.parse(result.stdout) as { blockers?: string[] };
   assert.ok(payload.blockers?.includes("npm_dist_tag_version_mismatch"));
+});
+
+test("release finalization-status rejects npm candidate SHA mismatch", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-finalization-npm-sha-"));
+  const { npmEvidence, gitTagEvidence, githubReleaseEvidence } = writeHappyEvidence(evidenceDir);
+  writeNpmEvidence(npmEvidence, { candidateSha: "f".repeat(40) });
+  const result = runFinalizationStatus([
+    "--evidence-dir",
+    evidenceDir,
+    "--candidate-sha",
+    candidateSha,
+    "--package-version",
+    packageVersion,
+    "--npm-publish-evidence",
+    npmEvidence,
+    "--git-tag-evidence",
+    gitTagEvidence,
+    "--github-release-evidence",
+    githubReleaseEvidence,
+    "--strict"
+  ]);
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as { blockers?: string[]; actionsVerified?: Record<string, boolean> };
+  assert.ok(payload.blockers?.includes("npm_candidate_sha_mismatch"));
+  assert.equal(payload.actionsVerified?.npmPublished, false);
+});
+
+test("release finalization-status rejects parsed falsy evidence files", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-finalization-falsy-"));
+  const { npmEvidence, gitTagEvidence, githubReleaseEvidence } = writeHappyEvidence(evidenceDir);
+  writeJson(npmEvidence, false);
+  const result = runFinalizationStatus([
+    "--evidence-dir",
+    evidenceDir,
+    "--candidate-sha",
+    candidateSha,
+    "--package-version",
+    packageVersion,
+    "--npm-publish-evidence",
+    npmEvidence,
+    "--git-tag-evidence",
+    gitTagEvidence,
+    "--github-release-evidence",
+    githubReleaseEvidence,
+    "--strict"
+  ]);
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as { blockers?: string[]; actionsVerified?: Record<string, boolean> };
+  assert.ok(payload.blockers?.includes("npm_evidence_invalid"));
+  assert.equal(payload.actionsVerified?.npmPublished, false);
 });
 
 test("release finalization-status rejects non-prerelease beta GitHub Release evidence", () => {
