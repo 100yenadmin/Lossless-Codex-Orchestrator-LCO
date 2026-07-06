@@ -194,6 +194,37 @@ test("npm dist-tag policy is explicit for stable, beta, and rc channels", () => 
   assert.match(runbook, /npm `latest` must move only after/i);
 });
 
+test("README and VISION describe the current stable package without stale release-candidate wording", () => {
+  const readme = read("README.md");
+  const vision = read("VISION.md");
+
+  assert.match(readme, new RegExp("Current stable:\\s+`" + escapedPackageVersion + "`", "i"));
+  assert.match(readme, new RegExp("`" + escapedPackageVersion + "`[\\s\\S]{0,240}shipped", "i"));
+  assert.match(readme, /Since 1\.2\.x[\s\S]{0,120}1\.2 prepared-state and summary-leaves lane/i);
+  assert.match(vision, new RegExp("stable[\\s\\S]{0,120}`" + escapedPackageVersion + "`[\\s\\S]{0,240}shipped", "i"));
+  assert.doesNotMatch(readme, /`1\.3\.[0-9]+` release candidate/i);
+  assert.doesNotMatch(vision, /`1\.3\.[0-9]+` release candidate/i);
+  assert.doesNotMatch(readme, /release candidate carries post-sprint feature hardening/i);
+  assert.doesNotMatch(vision, /release candidate carries the M12 feature/i);
+});
+
+test("VISION keeps scratch-thread live smokes standing-approved without widening real-thread approval", () => {
+  const vision = read("VISION.md");
+  const claimAudit = read("docs/CLAIM_AUDIT.md");
+
+  for (const [surface, content] of [
+    ["VISION", vision],
+    ["claim audit", claimAudit]
+  ] as const) {
+    assert.match(content, /scratch-thread live smokes/i, surface);
+    assert.match(content, /standing-approved/i, surface);
+    assert.match(content, /thread created by the smoke/i, surface);
+    assert.match(content, /harmless/i, surface);
+    assert.match(content, /real user threads[\s\S]{0,240}exact-target approval/i, surface);
+    assert.doesNotMatch(content, /standing-approved\s+(?:class\s+)?for real user threads/i, `${surface} must not approve real-thread live control broadly`);
+  }
+});
+
 test("stable and prerelease package metadata pins the intended npm dist-tag", () => {
   const packageJson = JSON.parse(read("package.json")) as {
     version?: string;

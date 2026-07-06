@@ -99,8 +99,14 @@ Package channels:
 
 If npm shows a version or dist-tag but install fails with a selector cutoff
 error such as `ENOVERSIONS` or `ETARGET`, use the npm selector-drift tarball fallback
-guidance from `loo onboard status --strict`; that recovery path is a
-package-install diagnostic, not a broader product claim.
+with raw npm commands a fresh shell can run:
+
+```bash
+tarball_url="$(npm view lossless-openclaw-orchestrator@latest dist.tarball)"
+test -n "$tarball_url" && npm install -g "$tarball_url"
+```
+
+That recovery path is a package-install diagnostic, not a broader product claim.
 
 Full first-run instructions live in [docs/SETUP.md](docs/SETUP.md).
 
@@ -118,6 +124,10 @@ Index local Codex sessions:
 ```bash
 loo index codex --max-files 500 "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
 ```
+
+The default importer applies a 50 MB per-file index cap so one oversized JSONL
+cannot dominate a first run. Use `--max-bytes-per-file <bytes>` only when you
+intentionally want to widen that local indexing window.
 
 Optional: allow read-only recall from one or more OpenClaw LCM peer databases:
 
@@ -340,9 +350,11 @@ The stable public product is Codex-first local orchestration: index, search,
 describe, expand, prepared-state recall, OpenClaw/MCP tools, and
 approval-gated dry-run/control boundaries.
 
-The 1.2 prepared-state and summary-leaves lane is shipped in stable `1.2.6`.
-The `1.3.0` release candidate carries post-sprint feature hardening without
-widening the public claim boundary.
+Current stable: `1.3.1` has shipped with the 1.3 retrieval, indexing,
+doctor, setup, and day-one UX hardening while keeping the public claim boundary
+unchanged.
+Since 1.2.x, the 1.2 prepared-state and summary-leaves lane has remained
+shipped as part of the stable product line.
 Current launch-hardening proof is summarized in [VISION.md](VISION.md) and
 [docs/QA_LAB.md](docs/QA_LAB.md). Keep sprint and agent-operator details there,
 in [AGENTS.md](AGENTS.md), and in the packaged
@@ -350,7 +362,8 @@ in [AGENTS.md](AGENTS.md), and in the packaged
 public landing page. The historical 1.2 architecture handoff remains in
 [docs/sprints/brief-lco-1.2-prepared-state-summary-leaves-2026-07-03.md](docs/sprints/brief-lco-1.2-prepared-state-summary-leaves-2026-07-03.md).
 
-The shipped 1.2 layer is local, deterministic, and opt-in. It provides
+Since 1.2.x, the shipped 1.2 layer has been local, deterministic, and opt-in.
+It provides
 source-ref-backed ranges, summary leaves, prepared cards, persisted watcher
 observations, execute-false local attention queue items, and hook capture so an
 OpenClaw/Eva agent can start from compact prepared state rather than rereading

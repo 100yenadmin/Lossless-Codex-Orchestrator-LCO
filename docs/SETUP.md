@@ -66,6 +66,15 @@ classification `not_indexed_yet`. That is the expected prompt to run the index
 step below, not a broken install. If the `codexJsonlDrift` block appears after
 indexing, treat it as a bounded completeness caveat for the flagged files.
 
+If npm metadata shows the package but `npm install` fails with selector drift
+such as `ENOVERSIONS` or `ETARGET`, use the npm selector-drift tarball fallback
+with raw commands:
+
+```bash
+tarball_url="$(npm view lossless-openclaw-orchestrator@latest dist.tarball)"
+test -n "$tarball_url" && npm install -g "$tarball_url"
+```
+
 Update later:
 
 ```bash
@@ -110,6 +119,10 @@ Run a bounded first import:
 ```bash
 loo index codex --max-files 500 "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
 ```
+
+The default importer applies a 50 MB per-file index cap. Use
+`--max-bytes-per-file <bytes>` only for an intentional local override when you
+need to index larger Codex JSONL files.
 
 For a smaller smoke:
 
@@ -479,10 +492,17 @@ OpenClaw gateway tool smoke reports credential or device blockers
 
 npm install reports `ENOVERSIONS` for a visible beta
 
-- First verify the package with `npm view lossless-openclaw-orchestrator@beta version dist.tarball --json`.
-- If the registry tarball is visible, use the guarded npm selector-drift tarball fallback
-  command from `loo onboard status` or pass a public-safe npm install diagnostic to
-  `loo openclaw published-smoke --npm-install-diagnostic-report <path>`.
+- First verify the package with `npm view lossless-openclaw-orchestrator@beta dist.tarball`.
+- If the registry tarball is visible, install directly with:
+
+  ```bash
+  tarball_url="$(npm view lossless-openclaw-orchestrator@beta dist.tarball)"
+  test -n "$tarball_url" && npm install -g "$tarball_url"
+  ```
+
+- The same npm selector-drift tarball fallback can be recorded through
+  `loo openclaw published-smoke --npm-install-diagnostic-report <path>` after
+  you keep the evidence public-safe.
 - Record blocker codes and fallback status only; do not paste raw npm stderr,
   auth config, or tokens into public evidence.
 

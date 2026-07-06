@@ -11,11 +11,13 @@ import {
   createCodexCollaborationNextSteps,
   createCodexCollaborationCockpit,
   createCodexRuntimeDesktopVisibilityStatus,
+  createCodexThreadNotFoundResult,
   describeSession,
   describeRecallRef,
   defaultCodexRoots,
   createIndexedSessionSanitizerReport,
   createIndexedSessionSanitizerRepairPlan,
+  createRecallRefNotFoundResult,
   expandSession,
   expandQuery,
   expandSummaryLeaves,
@@ -465,23 +467,29 @@ export function createLooTools(options: {
       thread_id: { type: "string" },
       telemetry_session_id: { type: "string" },
       now: { type: "string" }
-    }, (input) => describeSession(options.db, requiredString(input.thread_id, "thread_id"), {
-      telemetry: telemetryEnabled,
-      telemetrySessionId: optionalString(input.telemetry_session_id),
-      now: optionalString(input.now)
-    })),
+    }, (input) => {
+      const threadId = normalizeCodexThreadIdInput(requiredString(input.thread_id, "thread_id"));
+      return describeSession(options.db, threadId, {
+        telemetry: telemetryEnabled,
+        telemetrySessionId: optionalString(input.telemetry_session_id),
+        now: optionalString(input.now)
+      }) ?? createCodexThreadNotFoundResult(options.db, threadId);
+    }),
     tool("loo_describe_ref", "Describe a source-prefixed recall ref such as codex_thread:* or lcm_summary:*.", {
       source_ref: { type: "string" },
       lcm_db_paths: { type: "array", items: { type: "string" } },
       telemetry_session_id: { type: "string" },
       now: { type: "string" }
-    }, (input) => describeRecallRef(options.db, {
-      sourceRef: requiredString(input.source_ref, "source_ref"),
-      lcmDbPaths: optionalRoots(input.lcm_db_paths, configuredLcmPeerDbPaths()),
-      telemetry: telemetryEnabled,
-      telemetrySessionId: optionalString(input.telemetry_session_id),
-      now: optionalString(input.now)
-    })),
+    }, (input) => {
+      const sourceRef = requiredString(input.source_ref, "source_ref");
+      return describeRecallRef(options.db, {
+        sourceRef,
+        lcmDbPaths: optionalRoots(input.lcm_db_paths, configuredLcmPeerDbPaths()),
+        telemetry: telemetryEnabled,
+        telemetrySessionId: optionalString(input.telemetry_session_id),
+        now: optionalString(input.now)
+      }) ?? createRecallRefNotFoundResult(options.db, sourceRef);
+    }),
     tool("loo_expand_session", "Expand one indexed Codex session into a bounded evidence brief.", {
       thread_id: { type: "string" },
       profile: { type: "string", enum: ["metadata", "brief", "evidence"] },
@@ -1733,6 +1741,10 @@ function requiredString(value: unknown, name: string): string {
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function normalizeCodexThreadIdInput(value: string): string {
+  return value.startsWith("codex_thread:") ? value.slice("codex_thread:".length) : value;
 }
 
 function optionalNumber(value: unknown): number | undefined {

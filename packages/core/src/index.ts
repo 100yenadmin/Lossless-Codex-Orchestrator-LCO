@@ -68,9 +68,26 @@ let cachedDatabaseSync: DatabaseSyncConstructor | null = null;
 
 function getDatabaseSync(): DatabaseSyncConstructor {
   if (!cachedDatabaseSync) {
-    cachedDatabaseSync = (require("node:sqlite") as { DatabaseSync: DatabaseSyncConstructor }).DatabaseSync;
+    cachedDatabaseSync = withSuppressedNodeSqliteExperimentalWarning(
+      () => (require("node:sqlite") as { DatabaseSync: DatabaseSyncConstructor }).DatabaseSync
+    );
   }
   return cachedDatabaseSync;
+}
+
+function withSuppressedNodeSqliteExperimentalWarning<T>(load: () => T): T {
+  const originalEmitWarning = process.emitWarning;
+  process.emitWarning = ((warning: string | Error, ...args: unknown[]) => {
+    const warningName = warning instanceof Error ? warning.name : typeof args[0] === "string" ? args[0] : undefined;
+    const warningMessage = warning instanceof Error ? warning.message : String(warning);
+    if (warningName === "ExperimentalWarning" && /SQLite is an experimental feature/i.test(warningMessage)) return;
+    return (originalEmitWarning as (...emitArgs: unknown[]) => void).call(process, warning, ...args);
+  }) as typeof process.emitWarning;
+  try {
+    return load();
+  } finally {
+    process.emitWarning = originalEmitWarning;
+  }
 }
 
 export type IndexCodexOptions = {
@@ -2317,6 +2334,19 @@ export type RecallDescription = {
   metadata?: SessionMetadata;
 };
 
+export type RecallRefNotFoundResult = {
+  ok: false;
+  code: "ref_not_found";
+  ref: string;
+  reason: "ref_not_found";
+  message: string;
+  nearestMatches: Array<{
+    sourceRef: string;
+    title: string | null;
+    score: number;
+  }>;
+};
+
 export type ExpandRecallResult = {
   sourceKind: RecallSourceKind;
   sourceRef: string;
@@ -2593,6 +2623,7 @@ const SUMMARY_LEAF_EDGE_DELETE_BATCH_SIZE = 400;
 const SUMMARY_LEAF_SOURCE_RANGE_REF_LIMIT = 50;
 const PREPARED_CARD_SOURCE_RANGE_REF_LIMIT = 50;
 const CODEX_JSONL_DRIFT_INDEX_NEXT_ACTION = "loo index codex --max-files 500 \"$HOME/.codex/sessions\" \"$HOME/.codex/archived_sessions\"";
+const CODEX_JSONL_DRIFT_MISSING_DB_NEXT_ACTION = "loo index codex \"$HOME/.codex/sessions\"";
 
 export function createDatabase(dbPath?: string): LooDatabase;
 export function createDatabase(options: CreateDatabaseOptions): LooDatabase;
@@ -4275,7 +4306,13 @@ export function getCodexJsonlDriftStatus(db: LooDatabase): CodexJsonlDriftStatus
 }
 
 export function readCodexJsonlDriftStatusFromPath(dbPath = defaultDatabasePath()): CodexJsonlDriftStatus {
-  if (!existsSync(dbPath)) return emptyCodexJsonlDriftStatus("database_missing");
+  if (!existsSync(dbPath)) {
+    return {
+      ...emptyCodexJsonlDriftStatus("requires_index_run"),
+      nextAction: CODEX_JSONL_DRIFT_MISSING_DB_NEXT_ACTION,
+      reasonCodes: ["codex_jsonl_drift_database_missing", "codex_jsonl_drift_projection_requires_index_run"]
+    };
+  }
   const DatabaseSync = getDatabaseSync();
   let db: LooDatabase | null = null;
   try {
@@ -13867,6 +13904,62 @@ export function describeRecallRef(db: LooDatabase, options: { sourceRef: string;
     now: options.now
   });
   return result;
+}
+
+export function createRecallRefNotFoundResult(db: LooDatabase, sourceRef: string): RecallRefNotFoundResult {
+  const parsed = parseSourceRef(sourceRef);
+  if (parsed.kind === "codex_thread") {
+    return createCodexThreadNotFoundResult(db, parsed.id);
+  }
+  const safeRef = publicSafeText(sourceRef, 180);
+  const label = parsed.kind === "claude_session" ? "Claude session ref" : "LCM summary ref";
+  return {
+    ok: false,
+    code: "ref_not_found",
+    ref: safeRef,
+    reason: "ref_not_found",
+    message: `Unknown ${label}: ${safeRef}`,
+    nearestMatches: []
+  };
+}
+
+export function createCodexThreadNotFoundResult(db: LooDatabase, threadId: string): RecallRefNotFoundResult {
+  const normalizedThreadId = bareCodexThreadId(threadId);
+  const safeThreadId = publicSafeText(normalizedThreadId, 160);
+  const sourceRef = codexThreadRef(safeThreadId);
+  return {
+    ok: false,
+    code: "ref_not_found",
+    ref: sourceRef,
+    reason: "ref_not_found",
+    message: `Unknown Codex thread: ${safeThreadId}`,
+    nearestMatches: nearestCodexThreadMatches(db, normalizedThreadId)
+  };
+}
+
+function nearestCodexThreadMatches(db: LooDatabase, threadId: string): RecallRefNotFoundResult["nearestMatches"] {
+  const query = nearestCodexThreadQuery(threadId);
+  if (!query) return [];
+  return searchSessions(db, { query, limit: 3, telemetry: false }).slice(0, 3).map((match, index) => ({
+    sourceRef: match.sourceRef,
+    title: match.title,
+    score: index + 1
+  }));
+}
+
+function nearestCodexThreadQuery(threadId: string): string {
+  const useful = threadId
+    .replace(/^codex_thread:/, "")
+    .split(/[^A-Za-z0-9]+/)
+    .map((part) => part.trim())
+    .filter((part) => part.length >= 3)
+    .filter((part) => !isCodexThreadIdLikeSearchToken(part));
+  return useful.join(" ");
+}
+
+function isCodexThreadIdLikeSearchToken(part: string): boolean {
+  if (/^[0-9a-f]{3,}$/i.test(part)) return true;
+  return part.length >= 8 && /^[0-9a-z]+$/i.test(part) && /\d/.test(part);
 }
 
 export function expandRecallRef(db: LooDatabase, options: {

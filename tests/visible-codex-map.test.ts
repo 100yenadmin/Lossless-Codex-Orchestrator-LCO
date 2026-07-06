@@ -99,6 +99,51 @@ test("app-server status report is read-only and sanitizes unavailable probes", a
   assert.doesNotMatch(JSON.stringify(report), /Bearer abcdefghijklmnop/);
 });
 
+test("app-server status report fails fast when the Codex binary is missing", async () => {
+  const client = new FakeCodexReadClient({});
+
+  const report = await createCodexAppServerStatusReport({
+    client,
+    command: "definitely-missing-lco-codex-binary"
+  });
+
+  assert.equal(report.schema, "lco.codex.appServerStatus.v1");
+  assert.equal(report.publicSafe, true);
+  assert.equal(report.readOnly, true);
+  assert.equal(report.transport.available, false);
+  assert.equal(report.remoteControl.status, "unavailable");
+  assert.equal(report.remoteControl.readiness, "unknown");
+  assert.equal(report.sourceCoverage.codexAppServer, "unavailable");
+  assert.equal(client.requests.length, 0);
+  assert.match(report.transport.error ?? "", /ENOENT|not found|no such file/i);
+  assert.ok(report.errors.some((error) => /codex_binary_unavailable/i.test(error)));
+  assert.match(report.remoteControl.error ?? "", /codex_binary_unavailable/i);
+});
+
+test("app-server status report distinguishes non-zero Codex transport failures from missing binaries", async () => {
+  const client = new FakeCodexReadClient({});
+
+  const report = await createCodexAppServerStatusReport({
+    client,
+    transport: {
+      mode: "stdio",
+      command: "codex",
+      available: false,
+      version: "codex version probe failed",
+      error: "exit 2"
+    }
+  });
+
+  assert.equal(report.transport.available, false);
+  assert.equal(report.transport.error, "exit 2");
+  assert.equal(report.remoteControl.status, "unavailable");
+  assert.equal(report.remoteControl.readiness, "unknown");
+  assert.equal(report.sourceCoverage.codexAppServer, "unavailable");
+  assert.equal(client.requests.length, 0);
+  assert.ok(report.errors.some((error) => /codex_transport_unavailable: exit 2/i.test(error)));
+  assert.match(report.remoteControl.error ?? "", /codex_transport_unavailable: exit 2/i);
+});
+
 test("app-server threads report never requests turns and omits raw path cwd preview fields", async () => {
   const client = new FakeCodexReadClient({
     "thread/list": {

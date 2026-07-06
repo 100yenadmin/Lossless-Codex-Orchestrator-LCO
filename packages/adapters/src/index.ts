@@ -1003,6 +1003,46 @@ export async function createCodexAppServerStatusReport(options: {
   now?: string;
 }): Promise<CodexAppServerStatusReport> {
   const transport = options.transport ?? codexTransportStatus({ command: options.command ?? process.env.LOO_CODEX_BIN ?? "codex" });
+  if (!transport.available) {
+    const label = codexTransportUnavailableLabel(transport.error);
+    const error = transport.error ? `${label}: ${transport.error}` : label;
+    return {
+      schema: "lco.codex.appServerStatus.v1",
+      publicSafe: true,
+      readOnly: true,
+      generatedAt: options.now ?? new Date().toISOString(),
+      transport: {
+        mode: "stdio",
+        command: capTextValue(transport.command, 160),
+        available: false,
+        version: transport.version ? capTextValue(transport.version, 160) : null,
+        error: transport.error ? capTextValue(transport.error, 260) : label
+      },
+      methodPolicy: {
+        surface: "read",
+        allowedReadMethods: [...CODEX_READ_METHODS].sort(),
+        controlMethods: [...CODEX_CONTROL_METHODS].sort(),
+        forbiddenMethods: [...CODEX_FORBIDDEN_METHODS].sort()
+      },
+      remoteControl: {
+        status: "unavailable",
+        readiness: "unknown",
+        environmentRef: null,
+        serverName: null,
+        error: capTextValue(error, 260)
+      },
+      sourceCoverage: {
+        codexAppServer: "unavailable"
+      },
+      errors: [capTextValue(error, 260)],
+      actionsPerformed: {
+        liveCodexControlRun: false,
+        desktopGuiActionRun: false,
+        rawTranscriptRead: false
+      },
+      proofBoundary: "This report probes only read-allowlisted Codex app-server status. It does not enable remote control, send turns, resume threads, read raw transcript turns, mutate files, or mutate the desktop GUI."
+    };
+  }
   const remoteControl = await codexReadRequest(options.client, "remoteControl/status/read", {});
   const remoteRecord = asRecord(remoteControl.result);
   const statusValue = stringField(remoteRecord?.status);
@@ -1046,6 +1086,13 @@ export async function createCodexAppServerStatusReport(options: {
     },
     proofBoundary: "This report probes only read-allowlisted Codex app-server status. It does not enable remote control, send turns, resume threads, read raw transcript turns, mutate files, or mutate the desktop GUI."
   };
+}
+
+function codexTransportUnavailableLabel(error: string | null): "codex_binary_unavailable" | "codex_transport_unavailable" {
+  if (!error) return "codex_binary_unavailable";
+  return /\b(?:ENOENT|EACCES)\b|not found|no such file|permission denied/i.test(error)
+    ? "codex_binary_unavailable"
+    : "codex_transport_unavailable";
 }
 
 export async function createCodexAppServerThreadsReport(options: {

@@ -83,6 +83,21 @@ test("setup guide covers install, local indexing, OpenClaw, MCP, and troubleshoo
   }
 });
 
+test("public docs document index byte cap and fresh-user tarball recovery commands", () => {
+  const readme = read("README.md");
+  const setup = read("docs/SETUP.md");
+
+  for (const [surface, content] of [
+    ["README", readme],
+    ["setup guide", setup]
+  ] as const) {
+    assert.match(content, /50\s*MB per-file index cap/i, `${surface} must name the default per-file cap`);
+    assert.match(content, /--max-bytes-per-file/i, `${surface} must document the override flag`);
+    assert.match(content, /npm view lossless-openclaw-orchestrator@[a-z]+ dist\.tarball/i, `${surface} must show a raw npm tarball lookup`);
+    assert.match(content, /npm install -g "\$tarball_url"/i, `${surface} must show a raw npm tarball install`);
+  }
+});
+
 test("setup guide tells Codex and Claude users how to install agent provenance rules safely", () => {
   const setup = read("docs/SETUP.md");
 
