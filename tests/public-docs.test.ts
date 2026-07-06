@@ -19,7 +19,7 @@ test("GA README is a public landing page with first-run setup path", () => {
     /## Set Up/,
     /## First Workflow/,
     /## OpenClaw And MCP/,
-    /## Safety Boundaries/,
+    /## Privacy And Local Data/,
     /npm install -g lossless-openclaw-orchestrator@latest/,
     /loo doctor/,
     /loo index codex/,
@@ -29,8 +29,7 @@ test("GA README is a public landing page with first-run setup path", () => {
     /loo-mcp-server/,
     /skills\/lossless-openclaw-orchestrator\/SKILL\.md/,
     /docs\/OPENCLAW_PLUGIN\.md/,
-    /docs\/PRIVACY\.md/,
-    /docs\/CLAIM_AUDIT\.md/
+    /docs\/PRIVACY\.md/
   ]) {
     assert.match(readme, required);
   }
@@ -38,6 +37,7 @@ test("GA README is a public landing page with first-run setup path", () => {
   assert.doesNotMatch(readme, /## Current Sprint:/);
   assert.doesNotMatch(readme, /What a local OpenClaw agent can do today[\s\S]{1000,}/);
   assert.doesNotMatch(readme, /Scorecard and release proof commands:/);
+  assert.doesNotMatch(readme, /Claim Audit|loo release preflight|loo release general-readiness|issue-<number>-scorecard-sweep/);
   assert.doesNotMatch(readme, /#307 separates[\s\S]+#308 reports/i);
 });
 
@@ -123,28 +123,36 @@ test("setup guide tells Codex and Claude users how to install agent provenance r
 test("public docs preserve release claim boundaries", () => {
   const readme = read("README.md");
   const setup = read("docs/SETUP.md");
-  const publicDocs = `${readme}\n${setup}`;
+  const claimAudit = read("docs/CLAIM_AUDIT.md");
+  const publicDocs = `${readme}\n${setup}\n${claimAudit}`;
 
   for (const required of [
-    /Codex-first/i,
-    /local-first/i,
+    /local Codex/i,
+    /local SQLite/i,
     /Claude Code.*adapter stub/i,
     /no cloud sync/i,
     /no unattended desktop takeover/i,
     /no permission bypass/i,
     /no enterprise/i,
-    /generic GUI mutation.*not/i
+    /generic GUI mutation/i
   ]) {
     assert.match(publicDocs, required);
   }
 
-  assert.match(readme, /`lco_\*` is the\s+forward public alias target/i);
-  assert.match(readme, /currently\s+callable OpenClaw\/MCP tools still use the historical `loo_\*` runtime prefix/i);
-  assert.match(readme, /CUA Driver as the preferred\/default desktop fallback backend/i);
-  assert.match(readme, /externally installed, not bundled by LCO/i);
-  assert.match(readme, /verify the launch entrypoint with `cua-driver mcp --help`/i);
-  assert.match(readme, /npm selector.*tarball fallback/i);
+  assert.match(readme, /Published `@latest`\s+currently uses the historical `loo` CLI/i);
+  assert.match(readme, /source 1\.4 line exposes[\s\S]{0,120}`lco-mcp-server`, and canonical `lco_\*` tools/i);
+  assert.match(readme, /Give your main agent a memory and command layer for all your Codex projects and threads\./i);
+  assert.match(readme, /field-weighted FTS5 search/i);
+  assert.match(readme, /prepared cards/i);
+  assert.match(readme, /summary leaves/i);
+  assert.match(readme, /attention inbox/i);
+  assert.match(readme, /project digest/i);
+  assert.match(readme, /dry-run command packets/i);
+  assert.match(readme, /npm selector[\s\S]*tarball\s+fallback/i);
+  assert.match(setup, /CUA Driver is the preferred\/default\s+desktop fallback backend/i);
   assert.match(setup, /do not treat a CUA `type_text` success\s+payload or ready desktop proof packet as proof/i);
+  assert.match(claimAudit, /No cloud sync/i);
+  assert.doesNotMatch(readme, /no cloud sync|no unattended desktop takeover|no permission bypass|CUA Driver/i);
 
   assert.doesNotMatch(publicDocs, /Full Claude Code parity is supported/i);
   assert.doesNotMatch(publicDocs, /cloud sync is supported/i);

@@ -156,16 +156,16 @@ function validateM9Scenarios(rootDir: string): GeneralReleaseReadinessCheck {
 }
 
 function validateDocsTruth(rootDir: string): GeneralReleaseReadinessCheck {
-  const readme = readText(join(rootDir, "README.md"));
   const vision = readText(join(rootDir, "VISION.md"));
+  const checklist = readText(join(rootDir, "docs", "RELEASE_CHECKLIST.md"));
   const runbook = readText(join(rootDir, "docs", "BETA_RELEASE_RUNBOOK.md"));
-  const surfaces = [readme, vision, runbook];
+  const surfaces = [vision, checklist, runbook];
   return check(Boolean(
     surfaces.every((content) => content
       && /loo release general-readiness/i.test(content)
       && /fresh npm/i.test(content)
       && /agent dogfood/i.test(content))
-  ), "README, VISION, and release runbook point to the general-readiness gate");
+  ), "VISION, release checklist, and release runbook point to the general-readiness gate");
 }
 
 function validateFreshNpmEvidence(
