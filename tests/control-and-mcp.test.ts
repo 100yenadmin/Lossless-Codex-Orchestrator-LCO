@@ -340,6 +340,87 @@ test("Codex live send waits for a real turn completion before returning success"
   }
 });
 
+test("OpenClaw plugin wrapper preserves async turn fidelity for live send", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-wrapper-turn-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const sequenceCalls: CodexControlStep[][] = [];
+  const turnWaitInputs: CodexControlSequenceOptions[] = [];
+  let singleRequestCalled = false;
+  const tools = createLooTools({
+    db,
+    audit,
+    includeAliases: false,
+    codexClient: {
+      request: async () => {
+        singleRequestCalled = true;
+        return { ok: true, result: { turn: { id: "turn_bypass", status: "inProgress" } } };
+      },
+      requestSequenceUntilTurnResolved: async (steps: CodexControlStep[], options: CodexControlSequenceOptions) => {
+        sequenceCalls.push(steps);
+        turnWaitInputs.push(options);
+        return {
+          responses: steps.map((step) => step.method === "turn/start"
+            ? { ok: true, result: { turn: { id: "turn_plugin_wrapper", status: "inProgress" } } }
+            : { ok: true, result: { thread: { id: "thr_plugin_wrapper", loaded: true } } }),
+          turn: {
+            id: "turn_plugin_wrapper",
+            status: "completed",
+            completed: true,
+            notificationMethods: ["turn/started", "turn/completed"],
+            approvalRequestCount: 0,
+            serverRequestCount: 0
+          }
+        };
+      }
+    }
+  });
+
+  try {
+    const sendTool = tools.find((tool) => tool.name === "lco_codex_send_message");
+    assert.ok(sendTool);
+    const dryRun = await executeLooToolForOpenClaw(sendTool, {
+      thread_id: "thr_plugin_wrapper",
+      message: "continue",
+      dry_run: true
+    }) as { approval_audit_id?: string };
+    assert.match(dryRun.approval_audit_id ?? "", /^loo_audit_/);
+
+    const live = await executeLooToolForOpenClaw(sendTool, {
+      thread_id: "thr_plugin_wrapper",
+      message: "continue",
+      dry_run: false,
+      approval_audit_id: dryRun.approval_audit_id,
+      turn_wait_ms: 25
+    }) as {
+      live?: boolean;
+      status?: string;
+      turn?: { id?: string; status?: string; completed?: boolean; notification_methods?: string[] };
+      proof_state?: { completed?: boolean; turn_id?: string; response_status?: string };
+    };
+
+    assert.equal(singleRequestCalled, false, "wrapper must not bypass the bounded sequence path");
+    assert.deepEqual(sequenceCalls[0]?.map((step) => step.method), ["thread/resume", "turn/start"]);
+    assert.deepEqual(turnWaitInputs, [{
+      threadId: "thr_plugin_wrapper",
+      expectedTurnId: undefined,
+      turnWaitMs: 25
+    }]);
+    assert.equal(live.live, true);
+    assert.equal(live.status, "completed");
+    assert.equal(live.turn?.id, "turn_plugin_wrapper");
+    assert.equal(live.turn?.status, "completed");
+    assert.equal(live.turn?.completed, true);
+    assert.deepEqual(live.turn?.notification_methods, ["turn/started", "turn/completed"]);
+    assert.equal(live.proof_state?.completed, true);
+    assert.equal(live.proof_state?.turn_id, "turn_plugin_wrapper");
+    assert.equal(live.proof_state?.response_status, "completed");
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Codex live send fails closed when the bounded turn wait expires", async () => {
   const root = mkdtempSync(join(tmpdir(), "loo-control-turn-timeout-"));
   const audit = createAuditStore(join(root, "audit.jsonl"));

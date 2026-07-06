@@ -90,19 +90,27 @@ const readmePublicDocsRequiredPatterns = [
   /VISION\.md/i,
   /docs\/OPENCLAW_PLUGIN\.md/i,
   /docs\/PRIVACY\.md/i,
-  /docs\/CLAIM_AUDIT\.md/i,
   /docs\/releases\/CHANGELOG\.md/i,
   /License/i,
-  /## Safety Boundaries/i,
-  /Core proof commands/i,
-  /loo release preflight/i,
-  /loo release demo-status/i,
-  /loo release status/i,
-  /full Claude Code parity/i,
-  /cloud sync/i,
-  /unattended desktop takeover/i,
-  /permission bypass/i,
-  /enterprise/i,
+  /memory and command layer/i,
+  /Codex projects and threads/i,
+  /field-weighted FTS5 search/i,
+  /prepared cards/i,
+  /summary leaves/i,
+  /attention inbox/i,
+  /project digest/i,
+  /dry-run command packets/i,
+  /## OpenClaw And MCP/i
+];
+
+const claimAuditRequiredPatterns = [
+  /Forbidden Beta Claims/i,
+  /approved_live_control_smoke_missing/i,
+  /Full Claude Code parity/i,
+  /No cloud sync/i,
+  /No unattended desktop takeover/i,
+  /No permission bypass/i,
+  /release-grade enterprise security/i,
   /generic GUI mutation/i
 ];
 
@@ -163,9 +171,9 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
   const evidenceScanDepthExceeded = evidenceScan.depthLimitExceeded;
   const checks: Record<string, ReleasePreflightCheck> = {
     packageJson: check(Boolean(!packageJsonRead.error && packageJson?.name && packageJson.version && packageJson.description?.match(/local Codex sessions/i)), packageJsonRead.error ?? "package metadata keeps Codex-first beta positioning"),
-    readme: check(Boolean(readme && readmePublicDocsRequiredPatterns.every((pattern) => pattern.test(readme))), "README includes public setup path, OpenClaw/MCP entrypoints, safety boundaries, and forbidden claims"),
+    readme: check(Boolean(readme && readmePublicDocsRequiredPatterns.every((pattern) => pattern.test(readme))), "README includes human product positioning, public setup path, and OpenClaw/MCP entrypoints"),
     openclawManifest: check(Boolean(!openclawManifestRead.error && openclawPackageMetadataOk && openclawManifest?.id === "lossless-openclaw-orchestrator" && openclawManifest.mcp?.command === "lco-mcp-server" && openclawManifest.mcp.transport === "stdio" && openclawManifest.tools?.prefix === "lco_" && openclawManifest.safety?.localOnlyByDefault === true), openclawManifestRead.error ?? "root OpenClaw manifest and package runtime entry are packageable and local-only by default"),
-    claimAudit: check(Boolean(claimAudit?.match(/Forbidden Beta Claims/i) && claimAudit.match(/approved_live_control_smoke_missing/i)), "claim audit records forbidden claims and the live-control blocker code"),
+    claimAudit: check(Boolean(claimAudit && claimAuditRequiredPatterns.every((pattern) => pattern.test(claimAudit))), "claim audit records forbidden claims and the live-control blocker code"),
     betaDemo: check(Boolean(betaDemo?.match(/100\+ local Codex sessions/i) && betaDemo.match(/does not run live control/i)), "demo workflow covers 100+ Codex sessions and dry-run-only control boundary"),
     rawArtifacts: check(
       rawSessionArtifacts.length === 0 && evidenceScanDepthExceeded.length === 0,

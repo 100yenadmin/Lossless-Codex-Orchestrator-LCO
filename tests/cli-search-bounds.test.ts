@@ -114,6 +114,60 @@ test("loo search classifies locked databases without leaking local paths", () =>
   }
 });
 
+test("loo search classifies slow safe-text queries as recall_timeout_exceeded", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-cli-search-timeout-"));
+  try {
+    const dbPath = join(root, "orchestrator.sqlite");
+    const sessions = join(root, "sessions");
+    mkdirSync(sessions, { recursive: true });
+    for (let index = 0; index < 250; index += 1) {
+      const id = `019f-search-timeout-${String(index).padStart(3, "0")}`;
+      writeSession(
+        join(sessions, `${id}.jsonl`),
+        id,
+        `Timeout recall fixture ${index}`,
+        `Final: timeout recall fixture ${index} mentions shared timeout needle repeatedly. timeout needle timeout needle.`
+      );
+    }
+    const db = createDatabase(dbPath);
+    try {
+      indexCodexSessions(db, { roots: [sessions], maxFiles: 300 });
+    } finally {
+      db.close();
+    }
+
+    const result = runLoo(["search", "--limit", "100", "--timeout-ms", "1", "timeout needle"], {
+      ...process.env,
+      LOO_DB_PATH: dbPath
+    }, 5_000);
+
+    assert.equal(result.status, 1, result.stderr || result.stdout);
+    assert.equal(result.stderr.trim(), "");
+    const payload = JSON.parse(result.stdout) as {
+      ok?: unknown;
+      code?: unknown;
+      classification?: unknown;
+      publicSafe?: unknown;
+      sourceCoverage?: { localIndex?: unknown };
+      blockers?: unknown[];
+      actionsPerformed?: Record<string, unknown>;
+      elapsedMs?: unknown;
+    };
+    assert.equal(payload.ok, false);
+    assert.equal(payload.code, "recall_timeout_exceeded");
+    assert.equal(payload.classification, "recoverable_setup_error");
+    assert.equal(payload.publicSafe, true);
+    assert.equal(payload.sourceCoverage?.localIndex, "slow_query");
+    assert.deepEqual(payload.blockers, ["recall_timeout_exceeded"]);
+    assert.equal(payload.actionsPerformed?.rawTranscriptRead, false);
+    assert.equal(payload.actionsPerformed?.liveControl, false);
+    assert.equal(typeof payload.elapsedMs, "number");
+    assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /\/Volumes\/LEXAR|\/Users\/|\/tmp\/|orchestrator\.sqlite|\.jsonl/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("loo index codex classifies locked databases without leaking local paths", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-cli-index-locked-"));
   let locker: DatabaseSync | null = null;

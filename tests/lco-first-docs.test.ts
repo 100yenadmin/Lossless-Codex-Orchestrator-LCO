@@ -7,10 +7,11 @@ function read(path: string): string {
 }
 
 function section(markdown: string, heading: string): string {
-  const marker = `## ${heading}\n`;
-  const start = markdown.indexOf(marker);
+  const marker = new RegExp(`^##\\s+${heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\s.*)?$`, "m");
+  const match = marker.exec(markdown);
+  const start = match?.index ?? -1;
   assert.notEqual(start, -1, `missing section: ${heading}`);
-  const rest = markdown.slice(start + marker.length);
+  const rest = markdown.slice(start + (match?.[0].length ?? 0));
   const next = rest.search(/^## /m);
   return next >= 0 ? rest.slice(0, next) : rest;
 }

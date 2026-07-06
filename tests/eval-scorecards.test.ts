@@ -207,6 +207,7 @@ test("release status scorecard commands include required evidence directory plac
 test("VISION.md routes milestone sweeps and issue updates to scorecard v1 examples", () => {
   const vision = read("VISION.md");
   const readme = read("README.md");
+  const runbook = read("docs/BETA_RELEASE_RUNBOOK.md");
   const packageJson = JSON.parse(read("package.json")) as { files?: string[] };
 
   assert.match(vision, /evals\/scorecards\/v1\.0/);
@@ -216,7 +217,8 @@ test("VISION.md routes milestone sweeps and issue updates to scorecard v1 exampl
   assert.match(vision, /local-agent-usability-review\.json/);
   assert.match(vision, /local-mac-search-ui-review\.json/);
   assert.match(vision, /working-app-runtime-proof-review\.json/);
-  assert.match(readme, /evals\/scorecards\/v1\.0/);
+  assert.match(runbook, /evals\/scorecards\/v1\.0/);
+  assert.doesNotMatch(readme, /evals\/scorecards\/v1\.0/);
   assert.equal(packageJson.files?.includes("evals"), true, "npm package must include versioned scorecard examples");
 
   const template = read(join(scorecardDir, "issue-scorecard-update-template.md"));

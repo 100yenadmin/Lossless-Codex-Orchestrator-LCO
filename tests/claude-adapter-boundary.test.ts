@@ -11,7 +11,6 @@ function read(path: string): string {
 test("Claude adapter boundary inventory exists without claiming parity", () => {
   assert.equal(existsSync("docs/CLAUDE_ADAPTER_BOUNDARY.md"), true, "Claude boundary inventory doc must exist");
   const boundary = read("docs/CLAUDE_ADAPTER_BOUNDARY.md");
-  const readme = read("README.md");
   const vision = read("VISION.md");
 
   assert.match(boundary, /#163/);
@@ -30,9 +29,8 @@ test("Claude adapter boundary inventory exists without claiming parity", () => {
   assert.match(boundary, /does not prove Claude Code indexing, control, parity, GUI mutation, or cloud sync/i);
   assert.doesNotMatch(boundary, /full Claude Code parity|control Claude Code remotely|unattended Claude takeover/i);
 
-  assert.match(readme, /docs\/CLAUDE_ADAPTER_BOUNDARY\.md/);
-  assert.match(readme, /Claude Code support is an adapter stub and redacted fixture inventory/i);
-  assert.match(readme, /full Claude Code parity/i);
+  const readme = read("README.md");
+  assert.doesNotMatch(readme, /CLAUDE_ADAPTER_BOUNDARY\.md|Early adapter research|Claude Code support is an adapter stub|full Claude Code parity|cloud sync/i);
   assert.match(vision, /CLAUDE_ADAPTER_BOUNDARY\.md/);
   assert.match(vision, /Claude metadata fixture inventory/i);
 });
