@@ -20,6 +20,7 @@ test("package metadata and entrypoints enforce Node 22.5 before SQLite import pa
   assert.equal(nodeVersionMeetsMinimum("22.4.9", "22.5.0"), false);
   assert.equal(nodeVersionMeetsMinimum("22.5.0", "22.5.0"), true);
   assert.equal(nodeVersionMeetsMinimum("23.0.0", "22.5.0"), true);
+  assert.equal(nodeVersionMeetsMinimum("22.5.0-pre", "22.5.0"), true);
   assert.equal(nodeVersionMeetsMinimum("vx.y.z", "22.5.0"), false);
   assert.equal(formatUnsupportedNodeVersion("vx.y.z"), "Node >=22.5.0 required, could not parse current Node version \"vx.y.z\"\n");
 
@@ -27,6 +28,7 @@ test("package metadata and entrypoints enforce Node 22.5 before SQLite import pa
   assert.doesNotMatch(mcpEntry, /node:sqlite|core\/src\/index|createDatabase/);
   assert.match(cliEntry, /assertSupportedNodeVersion\(process\.versions\.node\)/);
   assert.match(mcpEntry, /assertSupportedNodeVersion\(process\.versions\.node\)/);
+  assert.match(mcpEntry, /failed to load its runtime module/);
 });
 
 test("CLI entrypoint exits with a friendly Node floor message before running commands", () => {
@@ -85,7 +87,17 @@ test("MCP server answers initialize and tools/list when DB startup is unavailabl
     server.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} })}\n`);
     const list = await readJsonRpcResponse(server, () => stdout, 2, () => stderr);
     assert.ok(list.result?.tools?.some((tool: { name?: string }) => tool.name === "loo_doctor"));
+    const startupStatus = list.result?.startupStatus as {
+      ok?: unknown;
+      code?: unknown;
+      retryPolicy?: { negativeCache?: unknown; retryOn?: unknown; persistentFailureCost?: unknown };
+    } | undefined;
+    assert.equal(startupStatus?.ok, false);
+    assert.equal(startupStatus?.code, "database_unavailable");
+    assert.equal(startupStatus?.retryPolicy?.negativeCache, false);
+    assert.match(String(startupStatus?.retryPolicy?.retryOn), /tools_list_or_tools_call/);
 
+    // Product contract: failed local runtime startup is not cached, so a repaired setup can recover in the same MCP process.
     server.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "loo_doctor", arguments: {} } })}\n`);
     const call = await readJsonRpcResponse(server, () => stdout, 3, () => stderr);
     const structured = call.result?.structuredContent as { ok?: unknown; code?: unknown; retryable?: unknown; message?: unknown; nextAction?: unknown } | undefined;
@@ -205,6 +217,7 @@ async function readJsonRpcResponse(
   result?: {
     serverInfo?: { name?: string };
     tools?: Array<{ name?: string }>;
+    startupStatus?: unknown;
     content?: Array<{ type?: string; text?: string }>;
     structuredContent?: unknown;
   };
