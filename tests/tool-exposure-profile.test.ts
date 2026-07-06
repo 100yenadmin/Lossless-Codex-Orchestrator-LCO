@@ -5,14 +5,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { createAuditStore } from "../packages/adapters/src/index.js";
+import { createAuditStore, LOO_COMMAND_POLICY } from "../packages/adapters/src/index.js";
 import { createDatabase } from "../packages/core/src/index.js";
 import {
+  canonicalLooToolName,
   createLooToolDeclarations,
   createLooTools,
   createLooToolSurfaceSummary,
+  LOO_TOOL_ALIAS_REGISTRY,
   LOO_TOOL_SURFACE,
+  looAliasTargetName,
   parseLooToolProfile,
+  withLooToolAliases,
+  type LooTool,
   type LooToolDeclaration,
   type LooToolProfile,
   type LooToolTier
@@ -77,6 +82,7 @@ test("facade lco aliases are derived exactly from public facade tools", () => {
     assert.ok(alias, `${aliasName} must be declared`);
     assert.ok(target, `${targetName} must be declared`);
     assert.equal(alias.metadata.aliasOf, targetName);
+    assert.deepEqual(alias.metadata, { ...target.metadata, aliasOf: targetName });
     assert.equal(alias.metadata.tier, "public_facade");
     assert.deepEqual(alias.safety, target.safety);
     assert.deepEqual(alias.inputSchema, target.inputSchema);
@@ -85,6 +91,70 @@ test("facade lco aliases are derived exactly from public facade tools", () => {
 
   assert.equal(aliases.length, 8);
   assert.equal(aliases.some((tool) => tool.metadata.aliasOf && tool.metadata.tier !== "public_facade"), false);
+});
+
+test("facade aliases are the only active redirect aliases and resolve through the registry", () => {
+  const publicFacadeNames = createLooToolSurfaceSummary().publicFacadeTools;
+
+  assert.deepEqual(
+    Object.keys(LOO_TOOL_ALIAS_REGISTRY).sort(),
+    publicFacadeNames.map(toLcoAliasName).sort()
+  );
+
+  for (const targetName of publicFacadeNames) {
+    const aliasName = toLcoAliasName(targetName);
+    assert.deepEqual(LOO_TOOL_ALIAS_REGISTRY[aliasName], { targetName });
+    assert.equal(looAliasTargetName(aliasName), targetName);
+    assert.equal(canonicalLooToolName(aliasName), targetName);
+  }
+
+  assert.equal(Object.keys(LOO_TOOL_ALIAS_REGISTRY).length, 8);
+  assert.equal(looAliasTargetName("lco_doctor"), null);
+  assert.equal(canonicalLooToolName("lco_doctor"), "lco_doctor");
+});
+
+test("redirect aliases target any declared tool and merge kind defaults before caller args", async () => {
+  const calls: Record<string, unknown>[] = [];
+  const tools: LooTool[] = [{
+    name: "any_declared_target",
+    description: "Synthetic target used to verify general redirect aliases.",
+    safety: LOO_COMMAND_POLICY.loo_describe_ref,
+    metadata: { tier: "workflow_detail" },
+    inputSchema: {
+      type: "object",
+      additionalProperties: true,
+      properties: {
+        kind: { type: "string" },
+        limit: { type: "integer" },
+        query: { type: "string" }
+      }
+    },
+    execute(input) {
+      calls.push(input);
+      return { input };
+    }
+  }];
+  const registry = {
+    legacy_any_target: {
+      targetName: "any_declared_target",
+      kindDefaults: {
+        kind: "plans",
+        limit: 10
+      }
+    }
+  };
+
+  const aliasedTools = withLooToolAliases(tools, registry);
+  const alias = aliasedTools.find((tool) => tool.name === "legacy_any_target");
+  assert.ok(alias, "synthetic redirect alias must be declared");
+
+  const result = await alias.execute({ limit: 2, query: "user supplied" });
+
+  assert.equal(looAliasTargetName("legacy_any_target", registry), "any_declared_target");
+  assert.deepEqual(result, { input: { kind: "plans", limit: 2, query: "user supplied" } });
+  assert.deepEqual(calls, [{ kind: "plans", limit: 2, query: "user supplied" }]);
+  assert.equal(alias.metadata.aliasOf, "any_declared_target");
+  assert.deepEqual(alias.inputSchema, tools[0]!.inputSchema);
 });
 
 test("lco facade aliases invoke the same handlers as their loo targets", async () => {
@@ -147,6 +217,9 @@ test("tool surface summary documents exposure filtering as non-gating", () => {
   assert.ok(summary.retrievalTelemetry.affectedTools.includes("loo_expand_query"));
   assert.match(summary.retrievalTelemetry.privacyBoundary, /Raw query text is not stored/i);
   assert.match(summary.retrievalTelemetry.privacyBoundary, /telemetry session id/i);
+  assert.match(summary.namingPolicy.aliasPolicy, /redirect alias registry/i);
+  assert.match(summary.namingPolicy.aliasPolicy, /kindDefaults/i);
+  assert.match(summary.namingPolicy.aliasPolicy, /caller arguments override/i);
 });
 
 function expectedBaseNamesForTiers(tiers: LooToolTier[]): string[] {
@@ -160,7 +233,7 @@ function toLcoAliasName(name: string): string {
   return name.replace(/^loo_/, "lco_");
 }
 
-async function readMcpToolList(profile: LooToolProfile | undefined): Promise<Array<Pick<LooToolDeclaration, "name" | "metadata">>> {
+async function readMcpToolList(profile: string | undefined): Promise<Array<Pick<LooToolDeclaration, "name" | "metadata">>> {
   const root = mkdtempSync(join(tmpdir(), "loo-mcp-profile-"));
   const server = spawn(process.execPath, ["--import", "tsx", "packages/mcp-server/src/server.ts"], {
     cwd: process.cwd(),
