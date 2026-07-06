@@ -476,14 +476,14 @@ async function main() {
       client: new AppServerLiveControlSmokeClient({
         command: parsed.codexBin ?? process.env.LOO_CODEX_BIN ?? "codex",
         args: parsed.appServerArgs,
-        timeoutMs: parsed.timeoutMs
+        timeoutMs: parsed.turnWaitMs ?? parsed.timeoutMs
       }),
       audit,
       evidenceDir: parsed.evidenceDir,
       message: parsed.message,
       threadId: parsed.threadId,
       cwd: parsed.cwd,
-      timeoutMs: parsed.timeoutMs
+      timeoutMs: parsed.turnWaitMs ?? parsed.timeoutMs
     });
     console.log(JSON.stringify(report, null, 2));
     return;
@@ -1105,11 +1105,11 @@ function mainUsageText(): string {
     "  loo sanitize sessions [--thread-id id] [--limit n] [--evidence-dir path] [--strict]",
     "  loo serve",
     "  loo audit-path",
-    "  loo codex live-control-smoke --evidence-dir path [--thread-id id] [--message text] [--cwd path] [--timeout-ms ms] [--audit-path path] [--codex-bin path] [--app-server-args \"app-server --stdio\"]",
+    "  loo codex live-control-smoke --evidence-dir path [--thread-id id] [--message text] [--cwd path] [--timeout-ms ms] [--turn-wait-ms ms] [--audit-path path] [--codex-bin path] [--app-server-args \"app-server --stdio\"]",
     "  loo openclaw dogfood [--dev] [--profile name] [--install-source path] [--link] [--force-install] [--evidence-path path] [--strict]",
     "  loo openclaw tool-smoke [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--thread-id id] [--expand-profile metadata|brief|evidence] [--token-budget n] [--coverage default|full] [--required-tool name] [--evidence-path path] [--strict]",
     "  loo openclaw published-smoke --evidence-dir path --dogfood-report path --tool-smoke-report path [--configured-tool-smoke-report path] [--npm-install-diagnostic-report path] [--binary-probe-report path] [--registry-version version] [--registry-beta-version version] [--root path] [--now iso] [--strict] [--gateway-ready-strict]",
-    "  loo openclaw live-control-smoke --evidence-dir path --thread-id id --action send|resume|steer|interrupt [--expected-turn-id id] [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--message text] [--strict]",
+    "  loo openclaw live-control-smoke --evidence-dir path --thread-id id --action send|resume|steer|interrupt [--expected-turn-id id] [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--turn-wait-ms ms] [--session-key key] [--message text] [--strict]",
     "  loo openclaw post-action-refresh-smoke --evidence-dir path --thread-id id --live-proof-report path [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--expand-profile metadata|brief|evidence] [--token-budget n] [--strict]",
     "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--runtime-proof-dir path] [--package-version version] [--candidate-sha sha] [--strict]",
     "  loo runtime sweep-summary --evidence-dir path --dry-run-scenarios path --runtime-scenarios path --scorecard-sweep path --published-smoke path [--runtime-proof-dir path] [--now iso] [--strict]",
@@ -1906,7 +1906,7 @@ function printReleaseDemoStatusHelp(): void {
 function printLiveControlSmokeHelp(): void {
   console.log([
     "Usage:",
-    "  loo codex live-control-smoke --evidence-dir path [--thread-id id] [--message text] [--cwd path] [--timeout-ms ms] [--audit-path path] [--codex-bin path] [--app-server-args \"app-server --stdio\"]",
+    "  loo codex live-control-smoke --evidence-dir path [--thread-id id] [--message text] [--cwd path] [--timeout-ms ms] [--turn-wait-ms ms] [--audit-path path] [--codex-bin path] [--app-server-args \"app-server --stdio\"]",
     "",
     "Runs one approval-gated live Codex send smoke with a harmless prompt.",
     "",
@@ -1917,6 +1917,7 @@ function printLiveControlSmokeHelp(): void {
     "Safety boundary:",
     "  The command creates a dry-run audit id first, then uses the matching approval_audit_id for live send.",
     "  Evidence contains refs, audit ids, hashes, notification method names, and status only.",
+    "  --turn-wait-ms overrides the bounded turn wait; LOO_CODEX_TURN_WAIT_MS is also honored by live LCO tool calls.",
     "  It does not write raw prompt text, raw transcript spans, screenshots, SQLite DBs, tokens, or credentials.",
     "  When --thread-id is omitted, it starts an ephemeral Codex thread as the disposable target."
   ].join("\n"));
@@ -1925,7 +1926,7 @@ function printLiveControlSmokeHelp(): void {
 function printOpenClawLiveControlSmokeHelp(): void {
   console.log([
     "Usage:",
-    "  loo openclaw live-control-smoke --evidence-dir path --thread-id id --action send|resume|steer|interrupt [--expected-turn-id id] [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--message text] [--strict]",
+    "  loo openclaw live-control-smoke --evidence-dir path --thread-id id --action send|resume|steer|interrupt [--expected-turn-id id] [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--turn-wait-ms ms] [--session-key key] [--message text] [--strict]",
     "",
     "Runs one approval-gated live Codex send, resume, steer, or interrupt through the installed OpenClaw gateway tools.invoke path.",
     "",
@@ -1936,6 +1937,7 @@ function printOpenClawLiveControlSmokeHelp(): void {
     "Safety boundary:",
     "  The command requires an explicit --thread-id target.",
     "  The command requires an explicit --action so no live action is selected by default.",
+    "  --turn-wait-ms overrides the bounded turn wait passed to the live LCO tool.",
     "  Steer and interrupt require --expected-turn-id so the live action is bound to one known sacrificial turn.",
     "  It invokes loo_codex_control_dry_run first, then uses the matching approval_audit_id for the selected live tool with dry_run:false.",
     "  It reads loo_audit_tail to prove matching dry-run/live audit metadata.",
@@ -2051,6 +2053,7 @@ function parseLiveControlSmokeArgs(input: string[]): {
   message?: string;
   cwd?: string;
   timeoutMs?: number;
+  turnWaitMs?: number;
   auditPath?: string;
   codexBin?: string;
   appServerArgs?: string[];
@@ -2068,6 +2071,8 @@ function parseLiveControlSmokeArgs(input: string[]): {
       parsed.cwd = requireOptionValue(input[++index], arg);
     } else if (arg === "--timeout-ms") {
       parsed.timeoutMs = parsePositiveInteger(input[++index], arg, 600_000);
+    } else if (arg === "--turn-wait-ms") {
+      parsed.turnWaitMs = parsePositiveInteger(input[++index], arg, 600_000);
     } else if (arg === "--audit-path") {
       parsed.auditPath = requireOptionValue(input[++index], arg);
     } else if (arg === "--codex-bin") {
@@ -3300,6 +3305,7 @@ function parseOpenClawLiveControlSmokeArgs(input: string[]): {
   expectedTurnId?: string;
   evidenceDir: string;
   gatewayTimeoutMs?: number;
+  turnWaitMs?: number;
   strict?: boolean;
 } {
   const parsed: Partial<ReturnType<typeof parseOpenClawLiveControlSmokeArgs>> = {};
@@ -3317,6 +3323,8 @@ function parseOpenClawLiveControlSmokeArgs(input: string[]): {
       parsed.token = requireOptionValue(input[++index], arg);
     } else if (arg === "--gateway-timeout-ms") {
       parsed.gatewayTimeoutMs = parsePositiveInteger(input[++index], arg, 600_000);
+    } else if (arg === "--turn-wait-ms") {
+      parsed.turnWaitMs = parsePositiveInteger(input[++index], arg, 600_000);
     } else if (arg === "--session-key") {
       parsed.sessionKey = requireOptionValue(input[++index], arg);
     } else if (arg === "--thread-id") {

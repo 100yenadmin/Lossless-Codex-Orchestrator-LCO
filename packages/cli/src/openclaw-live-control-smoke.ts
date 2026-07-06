@@ -15,6 +15,7 @@ export type OpenClawGatewayLiveControlSmokeOptions = {
   expectedTurnId?: string;
   evidenceDir: string;
   gatewayTimeoutMs?: number;
+  turnWaitMs?: number;
   now?: string;
 };
 
@@ -112,6 +113,7 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
     ...(options.profile ? ["--profile", options.profile] : [])
   ];
   const gatewayTimeoutMs = options.gatewayTimeoutMs ?? 120_000;
+  const turnWaitMs = options.turnWaitMs;
   const gatewayToken = options.token || process.env.OPENCLAW_GATEWAY_TOKEN;
   const gatewayOptions = [
     ...(options.gatewayUrl ? ["--url", options.gatewayUrl] : []),
@@ -119,7 +121,13 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
     "--timeout",
     String(gatewayTimeoutMs)
   ];
-  const callOptions = { timeoutMs: gatewayTimeoutMs, env: options.token ? { OPENCLAW_GATEWAY_TOKEN: options.token } : undefined };
+  const callOptions = {
+    timeoutMs: Math.max(gatewayTimeoutMs, turnWaitMs ?? 0),
+    env: {
+      ...(options.token ? { OPENCLAW_GATEWAY_TOKEN: options.token } : {}),
+      ...(turnWaitMs ? { LOO_CODEX_TURN_WAIT_MS: String(turnWaitMs) } : {})
+    }
+  };
   const sessionKey = options.sessionKey || "agent:main:lco-live-control-smoke";
   const action = normalizeAction(options.action);
   const expectedTurnId = requiresTurnBinding(action) ? requiredExpectedTurnId(options.expectedTurnId, action) : null;
@@ -151,7 +159,7 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
   const live = blockers.length === 0
     ? callGatewayJson(openclawBin, baseArgs, gatewayOptions, "tools.invoke", {
       name: liveToolName,
-      args: liveArgs(action, options.threadId, controlMessage, dryRunSummary.approvalAuditId, expectedTurnId),
+      args: liveArgs(action, options.threadId, controlMessage, dryRunSummary.approvalAuditId, expectedTurnId, turnWaitMs),
       sessionKey,
       confirm: false,
       idempotencyKey: `loo-live-smoke-${action}-${options.threadId}-${dryRunSummary.approvalAuditId}`
@@ -275,11 +283,12 @@ function liveDryRunArgs(action: OpenClawGatewayLiveControlAction, threadId: stri
   return { action, thread_id: threadId };
 }
 
-function liveArgs(action: OpenClawGatewayLiveControlAction, threadId: string, message: string, approvalAuditId: string | null, expectedTurnId: string | null): Record<string, unknown> {
+function liveArgs(action: OpenClawGatewayLiveControlAction, threadId: string, message: string, approvalAuditId: string | null, expectedTurnId: string | null, turnWaitMs?: number): Record<string, unknown> {
   const common = {
     thread_id: threadId,
     dry_run: false,
-    approval_audit_id: approvalAuditId
+    approval_audit_id: approvalAuditId,
+    ...(turnWaitMs ? { turn_wait_ms: turnWaitMs } : {})
   };
   if (action === "send") return { ...common, message };
   if (action === "steer") return { ...common, message, expected_turn_id: expectedTurnId };
@@ -367,7 +376,7 @@ function summarizeControl(call: GatewayCallResult | null): ControlSummary {
     messageHash: stringPath(details, ["message_hash"]) || stringPath(details, ["messageHash"]),
     live: booleanPath(details, ["live"]),
     method: stringPath(details, ["method"]),
-    turnStatus: stringPath(details, ["response", "turn", "status"]) || stringPath(details, ["response", "status"]) || stringPath(details, ["status"]),
+    turnStatus: stringPath(details, ["response", "turn", "status"]) || stringPath(details, ["response", "result", "turn", "status"]) || stringPath(details, ["response", "status"]) || stringPath(details, ["turn_status"]) || stringPath(details, ["status"]),
     responseOk: booleanPath(details, ["response", "ok"]) ?? booleanPath(details, ["ok"]),
     expectedTurnId: stringPath(details, ["expected_turn_id"]) || stringPath(details, ["expectedTurnId"])
   };

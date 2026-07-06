@@ -13,11 +13,33 @@ export * from "./redaction.js";
 export type CodexClient = {
   request(method: string, params: Record<string, unknown>): Promise<unknown>;
   requestSequence?(steps: CodexControlStep[]): Promise<unknown[]>;
+  requestSequenceUntilTurnResolved?(steps: CodexControlStep[], options: CodexControlSequenceOptions): Promise<CodexControlSequenceResult>;
 };
 
 export type CodexControlStep = {
   method: string;
   params: Record<string, unknown>;
+};
+
+export type CodexControlSequenceOptions = {
+  threadId: string;
+  expectedTurnId?: string;
+  turnWaitMs: number;
+};
+
+export type CodexControlSequenceResult = {
+  responses: unknown[];
+  turn?: CodexTurnResolution;
+};
+
+export type CodexTurnResolution = {
+  id?: string;
+  status: string | null;
+  completed: boolean;
+  notificationMethods: string[];
+  approvalRequestCount: number;
+  serverRequestCount: number;
+  error?: string;
 };
 
 export type SourceCoverageState = "ok" | "partial" | "unavailable" | "not_configured";
@@ -595,6 +617,9 @@ export type ControlResult = {
   connectionScope?: "single_request" | "same_connection_sequence";
   loadedThreadReusable?: boolean;
   createdThreadId?: string;
+  expectedTurnId?: string;
+  status?: string;
+  turn?: CodexTurnResolution;
   proofState: ControlProofState;
   response?: unknown;
 };
@@ -606,7 +631,11 @@ export type ControlProofStateStatus =
   | "completed"
   | "persisted"
   | "unverified_pending"
-  | "transport_rejected";
+  | "transport_rejected"
+  | "turn_started_unconfirmed"
+  | "turn_transport_error"
+  | "turn_server_request_unconfirmed"
+  | "turn_id_missing";
 
 export type ControlProofState = {
   acceptedByTransport: boolean;
@@ -643,6 +672,8 @@ export type AuditRecord = {
 };
 
 const CODEX_CONTROL_DRY_RUN_TTL_MS = 15 * 60 * 1000;
+const DEFAULT_CODEX_TURN_WAIT_MS = 120_000;
+const MAX_CODEX_TURN_WAIT_MS = 600_000;
 
 export function createAuditStore(path: string) {
   mkdirSync(dirname(path), { recursive: true });
@@ -705,12 +736,18 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
     approvalAuditId?: string;
     loadedThreadReusable?: boolean;
     createdThreadFromResponse?: boolean;
+    expectedTurnId?: string;
+    turnResolution?: {
+      expectedTurnId?: string;
+      turnWaitMs?: number;
+    };
   }): Promise<ControlResult> => {
     assertCodexMethodAllowed(spec.method, "control");
     const steps = spec.steps?.length ? spec.steps : [{ method: spec.method, params: spec.params }];
     const methodSequence = steps.map((step) => step.method);
     for (const step of steps) assertCodexMethodAllowed(step.method, "control");
-    const connectionScope = steps.length > 1 ? "same_connection_sequence" : "single_request";
+    const requiresSequence = steps.length > 1 || Boolean(spec.turnResolution);
+    const connectionScope = requiresSequence ? "same_connection_sequence" : "single_request";
     const paramsHash = options.audit.fingerprintValue({
       action: spec.action,
       method: spec.method,
@@ -739,6 +776,7 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
         methodSequence,
         connectionScope,
         loadedThreadReusable: spec.loadedThreadReusable,
+        expectedTurnId: spec.expectedTurnId,
         proofState: dryRunProofState()
       };
     }
@@ -760,12 +798,23 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
     if (!Number.isFinite(dryRunCreatedAtMs) || dryRunCreatedAtMs + CODEX_CONTROL_DRY_RUN_TTL_MS <= Date.now()) {
       throw new Error("approval_audit_id dry-run record expired");
     }
-    const response = steps.length > 1
-      ? await requestCodexControlSequence(options.client, steps)
+    const sequenceResult = requiresSequence
+      ? await requestCodexControlSequence(options.client, steps, spec.turnResolution
+        ? {
+            threadId: spec.threadId,
+            expectedTurnId: spec.turnResolution.expectedTurnId,
+            turnWaitMs: resolveCodexTurnWaitMs(spec.turnResolution.turnWaitMs)
+          }
+        : undefined)
+      : undefined;
+    const rawResponse = sequenceResult
+      ? sequenceResult.responses.at(-1) ?? { ok: true }
       : await options.client.request(spec.method, spec.params);
+    const response = responseWithTurnResolution(rawResponse, sequenceResult?.turn);
     const liveRecord = options.audit.append({ action: spec.action, target: spec.threadId, paramsHash, messageHash, live: true });
     const createdThreadId = spec.createdThreadFromResponse ? extractControlThreadId(response) : undefined;
     const proofThreadId = createdThreadId ?? spec.threadId;
+    const status = sequenceResult?.turn?.status ?? extractControlStatus(response) ?? undefined;
     return {
       action: spec.action,
       threadId: spec.threadId,
@@ -778,11 +827,15 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
       connectionScope,
       loadedThreadReusable: spec.loadedThreadReusable,
       createdThreadId,
+      expectedTurnId: spec.expectedTurnId,
+      status,
+      turn: sequenceResult?.turn ? publicTurnResolution(sequenceResult.turn) : undefined,
       proofState: liveProofState({
         method: spec.method,
         methodSequence,
         threadId: proofThreadId,
-        response
+        response,
+        turnResolution: sequenceResult?.turn
       }),
       response: redactValue(response)
     };
@@ -800,7 +853,7 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
         createdThreadFromResponse: true
       });
     },
-    sendMessage(input: { threadId: string; message: string; dryRun?: boolean; approvalAuditId?: string }) {
+    sendMessage(input: { threadId: string; message: string; dryRun?: boolean; approvalAuditId?: string; turnWaitMs?: number }) {
       const resumeParams = { threadId: input.threadId, excludeTurns: true };
       const turnStartParams = { threadId: input.threadId, input: [{ type: "text", text: input.message }] };
       return execute({
@@ -815,7 +868,10 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
           { method: "thread/resume", params: resumeParams },
           { method: "turn/start", params: turnStartParams }
         ],
-        loadedThreadReusable: true
+        loadedThreadReusable: true,
+        turnResolution: {
+          turnWaitMs: input.turnWaitMs
+        }
       });
     },
     resumeThread(input: { threadId: string; dryRun?: boolean; approvalAuditId?: string }) {
@@ -829,7 +885,7 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
         loadedThreadReusable: false
       });
     },
-    steerThread(input: { threadId: string; message: string; expectedTurnId?: string; dryRun?: boolean; approvalAuditId?: string }) {
+    steerThread(input: { threadId: string; message: string; expectedTurnId?: string; dryRun?: boolean; approvalAuditId?: string; turnWaitMs?: number }) {
       if (!input.expectedTurnId) throw new Error("expected_turn_id is required for steer actions");
       return execute({
         action: "codex_steer_thread",
@@ -838,17 +894,29 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
         message: input.message,
         dryRun: input.dryRun,
         approvalAuditId: input.approvalAuditId,
-        params: { threadId: input.threadId, expectedTurnId: input.expectedTurnId, input: [{ type: "text", text: input.message }] }
+        params: { threadId: input.threadId, expectedTurnId: input.expectedTurnId, input: [{ type: "text", text: input.message }] },
+        expectedTurnId: input.expectedTurnId,
+        turnResolution: {
+          expectedTurnId: input.expectedTurnId,
+          turnWaitMs: input.turnWaitMs
+        }
       });
     },
-    interruptThread(input: { threadId: string; dryRun?: boolean; approvalAuditId?: string }) {
+    interruptThread(input: { threadId: string; expectedTurnId?: string; dryRun?: boolean; approvalAuditId?: string; turnWaitMs?: number }) {
       return execute({
         action: "codex_interrupt_thread",
         method: "turn/interrupt",
         threadId: input.threadId,
         dryRun: input.dryRun,
         approvalAuditId: input.approvalAuditId,
-        params: { threadId: input.threadId }
+        params: { threadId: input.threadId, ...(input.expectedTurnId ? { expectedTurnId: input.expectedTurnId } : {}) },
+        expectedTurnId: input.expectedTurnId,
+        turnResolution: input.expectedTurnId
+          ? {
+              expectedTurnId: input.expectedTurnId,
+              turnWaitMs: input.turnWaitMs
+            }
+          : undefined
       });
     }
   };
@@ -872,12 +940,14 @@ function liveProofState(input: {
   methodSequence: string[];
   threadId: string;
   response: unknown;
+  turnResolution?: CodexTurnResolution;
 }): ControlProofState {
   const acceptedByTransport = asRecord(input.response)?.ok === false ? false : true;
-  const turnId = extractControlTurnId(input.response);
+  const turnId = input.turnResolution?.id ?? extractControlTurnId(input.response);
   const responseThreadId = extractControlThreadId(input.response);
-  const responseStatus = extractControlStatus(input.response);
+  const responseStatus = input.turnResolution?.status ?? extractControlStatus(input.response);
   const normalizedStatus = normalizeControlStatus(responseStatus);
+  const failClosedStatus = failClosedTurnProofStatus(normalizedStatus);
   const started = acceptedByTransport && Boolean(
     turnId
     || responseThreadId
@@ -888,7 +958,8 @@ function liveProofState(input: {
     || normalizedStatus === "queued"
   );
   const completed = acceptedByTransport && Boolean(
-    normalizedStatus === "completed"
+    input.turnResolution?.completed === true
+    || normalizedStatus === "completed"
     || normalizedStatus === "complete"
     || normalizedStatus === "done"
   );
@@ -896,16 +967,19 @@ function liveProofState(input: {
   const unverifiedPending = acceptedByTransport && !persisted && (started || completed || normalizedStatus !== null);
   const status: ControlProofStateStatus = !acceptedByTransport
     ? "transport_rejected"
-    : persisted
-      ? "persisted"
-      : unverifiedPending
-        ? "unverified_pending"
-        : completed
-          ? "completed"
-          : started
-            ? "started"
-            : "accepted_by_transport";
+    : failClosedStatus
+      ? failClosedStatus
+      : persisted
+        ? "persisted"
+        : unverifiedPending
+          ? "unverified_pending"
+          : completed
+            ? "completed"
+            : started
+              ? "started"
+              : "accepted_by_transport";
   const proofThreadId = responseThreadId ?? input.threadId;
+  const failClosed = Boolean(failClosedStatus);
   return {
     acceptedByTransport,
     started,
@@ -937,13 +1011,66 @@ function liveProofState(input: {
             stopConditions: ["execute_false_only", "raw_transcript_not_read", "do_not_claim_completed_or_persisted_until_durable_read"]
           }
     } : {}),
-    callerInstruction: acceptedByTransport
-      ? input.method === "thread/start"
-        ? "Transport acceptance is not durable thread creation. Run the bounded post-create proof before claiming the new thread completed, persisted, or is safe to build on."
-        : "Transport acceptance is not durable execution. Run the bounded follow-up proof before claiming the turn or thread completed, persisted, or is safe to build on."
-      : "Codex transport did not accept the control request. Do not retry live control without a fresh dry-run and approval.",
+    callerInstruction: failClosed
+      ? `Codex turn proof failed closed with ${status}. Do not treat this live control as completed or build on it without a fresh dry-run and new proof.`
+      : acceptedByTransport
+        ? input.method === "thread/start"
+          ? "Transport acceptance is not durable thread creation. Run the bounded post-create proof before claiming the new thread completed, persisted, or is safe to build on."
+          : "Transport acceptance is not durable execution. Run the bounded follow-up proof before claiming the turn or thread completed, persisted, or is safe to build on."
+        : "Codex transport did not accept the control request. Do not retry live control without a fresh dry-run and approval.",
     proofBoundary: "This proof state is public-safe transport/output classification only. It does not read raw transcripts, prove durable local-session persistence, mutate the GUI, or claim completed orchestration without follow-up evidence."
   };
+}
+
+function failClosedTurnProofStatus(value: string | null): ControlProofStateStatus | null {
+  if (value === "turn_started_unconfirmed") return "turn_started_unconfirmed";
+  if (value === "turn_transport_error") return "turn_transport_error";
+  if (value === "turn_server_request_unconfirmed") return "turn_server_request_unconfirmed";
+  if (value === "turn_id_missing") return "turn_id_missing";
+  return null;
+}
+
+function responseWithTurnResolution(response: unknown, turn: CodexTurnResolution | undefined): unknown {
+  if (!turn) return response;
+  const record = asRecord(response);
+  const next: Record<string, unknown> = record ? { ...record } : { value: response };
+  const publicTurn = publicTurnResolution(turn);
+  const result = asRecord(next.result);
+  if (result) {
+    next.result = {
+      ...result,
+      turn: {
+        ...(asRecord(result.turn) ?? {}),
+        ...publicTurn
+      }
+    };
+  }
+  next.turn = {
+    ...(asRecord(next.turn) ?? {}),
+    ...publicTurn
+  };
+  if (turn.status) next.status = turn.status;
+  return next;
+}
+
+function publicTurnResolution(turn: CodexTurnResolution): CodexTurnResolution {
+  return {
+    ...(turn.id ? { id: turn.id } : {}),
+    status: turn.status,
+    completed: turn.completed,
+    notificationMethods: [...new Set(turn.notificationMethods)].sort(),
+    approvalRequestCount: turn.approvalRequestCount,
+    serverRequestCount: turn.serverRequestCount
+  };
+}
+
+function resolveCodexTurnWaitMs(value?: number): number {
+  if (Number.isFinite(value) && value && value > 0) {
+    return Math.min(Math.floor(value), MAX_CODEX_TURN_WAIT_MS);
+  }
+  const fromEnv = Number.parseInt(process.env.LOO_CODEX_TURN_WAIT_MS ?? "", 10);
+  if (Number.isFinite(fromEnv) && fromEnv > 0) return Math.min(fromEnv, MAX_CODEX_TURN_WAIT_MS);
+  return DEFAULT_CODEX_TURN_WAIT_MS;
 }
 
 function extractControlTurnId(value: unknown): string | undefined {
@@ -980,11 +1107,28 @@ function normalizeControlStatus(value: string | null): string | null {
   return value.trim().replace(/([a-z])([A-Z])/g, "$1_$2").replace(/[\s-]+/g, "_").toLowerCase();
 }
 
-async function requestCodexControlSequence(client: CodexClient, steps: CodexControlStep[]): Promise<unknown> {
+async function requestCodexControlSequence(
+  client: CodexClient,
+  steps: CodexControlStep[],
+  turnResolution?: CodexControlSequenceOptions
+): Promise<CodexControlSequenceResult> {
+  if (turnResolution) {
+    if (!client.requestSequenceUntilTurnResolved) {
+      throw new Error("turn lifecycle proof is required for this Codex control action");
+    }
+    const result = await client.requestSequenceUntilTurnResolved(steps, turnResolution);
+    assertCodexControlSequenceResponses(result.responses, steps);
+    return result;
+  }
   if (!client.requestSequence) {
     throw new Error("same-connection control sequence is required for this Codex control action");
   }
   const responses = await client.requestSequence(steps);
+  assertCodexControlSequenceResponses(responses, steps);
+  return { responses };
+}
+
+function assertCodexControlSequenceResponses(responses: unknown[], steps: CodexControlStep[]): void {
   for (let index = 0; index < responses.length; index += 1) {
     if (asRecord(responses[index])?.ok === false) {
       throw new Error(`Codex control sequence step failed: ${steps[index]?.method ?? "unknown"}`);
@@ -993,7 +1137,6 @@ async function requestCodexControlSequence(client: CodexClient, steps: CodexCont
   if (responses.length !== steps.length) {
     throw new Error(`Codex control sequence returned ${responses.length} response(s) for ${steps.length} step(s)`);
   }
-  return responses.at(-1) ?? { ok: true };
 }
 
 export async function createCodexAppServerStatusReport(options: {
