@@ -111,3 +111,107 @@ test("loo search classifies locked databases without leaking local paths", () =>
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("direct CLI recall commands suppress telemetry side effects", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-cli-recall-telemetry-"));
+  try {
+    const dbPath = join(root, "orchestrator.sqlite");
+    const sessions = join(root, "sessions");
+    mkdirSync(sessions, { recursive: true });
+    writeSession(
+      join(sessions, "telemetry.jsonl"),
+      "019f-search-telemetry",
+      "Telemetry-free plan search fixture",
+      "Final: telemetry-free plan search fixture complete."
+    );
+    const db = createDatabase(dbPath);
+    try {
+      indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    } finally {
+      db.close();
+    }
+
+    const env = {
+      ...process.env,
+      LOO_DB_PATH: dbPath,
+      LOO_TELEMETRY: "1",
+      LOO_TELEMETRY_SESSION_ID: "cli-smoke-should-not-write"
+    };
+    const search = runLoo(["search", "--limit", "1", "--timeout-ms", "1000", "plan"], env, 5_000);
+    assert.equal(search.status, 0, search.stderr || search.stdout);
+    const describe = runLoo(["describe", "--timeout-ms", "1000", "codex_thread:019f-search-telemetry"], env, 5_000);
+    assert.equal(describe.status, 0, describe.stderr || describe.stdout);
+    const expand = runLoo(["expand-ref", "--profile", "metadata", "--timeout-ms", "1000", "codex_thread:019f-search-telemetry"], env, 5_000);
+    assert.equal(expand.status, 0, expand.stderr || expand.stdout);
+
+    const reopened = createDatabase(dbPath, { maintenance: "schema-only" });
+    try {
+      assert.equal((reopened.prepare("SELECT COUNT(*) AS count FROM telemetry_search_events").get() as { count: number }).count, 0);
+      assert.equal((reopened.prepare("SELECT COUNT(*) AS count FROM telemetry_follow_events").get() as { count: number }).count, 0);
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("loo describe and expand classify locked databases without leaking local paths", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-cli-recall-locked-"));
+  let locker: DatabaseSync | null = null;
+  try {
+    const dbPath = join(root, "orchestrator.sqlite");
+    const sessions = join(root, "sessions");
+    mkdirSync(sessions, { recursive: true });
+    writeSession(
+      join(sessions, "locked-recall.jsonl"),
+      "019f-recall-locked",
+      "Locked recall fixture",
+      "Final: locked recall fixture complete."
+    );
+    const db = createDatabase(dbPath);
+    try {
+      indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    } finally {
+      db.close();
+    }
+
+    locker = new DatabaseSync(dbPath, { timeout: 1 });
+    locker.exec("PRAGMA locking_mode=EXCLUSIVE; BEGIN EXCLUSIVE; CREATE TABLE IF NOT EXISTS lock_hold (id INTEGER); INSERT INTO lock_hold VALUES (1);");
+    const env = { ...process.env, LOO_DB_PATH: dbPath };
+
+    for (const args of [
+      ["describe", "--timeout-ms", "50", "codex_thread:019f-recall-locked"],
+      ["expand-ref", "--timeout-ms", "50", "codex_thread:019f-recall-locked"],
+      ["expand-query", "--timeout-ms", "50", "locked recall"]
+    ]) {
+      const result = runLoo(args, env, 5_000);
+      assert.equal(result.status, 1, result.stderr || result.stdout);
+      assert.equal(result.stderr.trim(), "");
+      const payload = JSON.parse(result.stdout) as {
+        ok?: unknown;
+        code?: unknown;
+        classification?: unknown;
+        publicSafe?: unknown;
+        actionsPerformed?: Record<string, unknown>;
+      };
+      assert.equal(payload.ok, false);
+      assert.equal(payload.code, "database_busy");
+      assert.equal(payload.classification, "recoverable_setup_error");
+      assert.equal(payload.publicSafe, true);
+      assert.equal(payload.actionsPerformed?.rawTranscriptRead, false);
+      assert.equal(payload.actionsPerformed?.liveControl, false);
+      assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /\/Volumes\/LEXAR|\/Users\/|\/tmp\/|orchestrator\.sqlite|\.jsonl|PRIVATE_CANARY/);
+    }
+  } finally {
+    if (locker) {
+      try {
+        locker.exec("ROLLBACK;");
+      } catch {
+        // The lock may already be released if the fixture failed before BEGIN.
+      }
+      locker.close();
+    }
+    rmSync(root, { recursive: true, force: true });
+  }
+});

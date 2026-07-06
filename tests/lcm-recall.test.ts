@@ -299,8 +299,8 @@ test("CLI recall flags pass token budgets and explicit LCM peer paths override e
     });
     assert.equal(usage.status, 2);
     assert.equal(usage.stderr.includes("--token-budget"), true);
-    assert.equal(usage.stderr.includes("describe [--lcm-db path] <source-ref>"), true);
-    assert.equal(usage.stderr.includes("expand-ref [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <source-ref>"), true);
+    assert.equal(usage.stderr.includes("describe [--lcm-db path] [--timeout-ms ms] <source-ref>"), true);
+    assert.equal(usage.stderr.includes("expand-ref [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] [--timeout-ms ms] <source-ref>"), true);
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
