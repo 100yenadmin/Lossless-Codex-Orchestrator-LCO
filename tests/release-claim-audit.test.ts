@@ -444,7 +444,7 @@ test("release preflight writes a public-safe artifact manifest without hiding li
   assert.equal(payload.checks?.openclawManifest?.ok, true);
   assert.equal(payload.checks?.claimAudit?.ok, true);
   assert.deepEqual(payload.blockers, ["approved_live_control_smoke_missing"]);
-  assert.equal(payload.artifactManifestPath, join(evidenceDir, "release-preflight.json"));
+  assert.equal(payload.artifactManifestPath, "release-preflight.json");
   assert.equal(existsSync(join(evidenceDir, "release-preflight.json")), true);
 
   const manifest = JSON.parse(read(join(evidenceDir, "release-preflight.json"))) as {

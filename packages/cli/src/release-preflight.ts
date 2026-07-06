@@ -107,6 +107,8 @@ const readmePublicDocsRequiredPatterns = [
 ];
 
 export function runReleasePreflight(options: ReleasePreflightOptions = {}): ReleasePreflightReport {
+  const artifactManifestName = "release-preflight.json";
+  const artifactManifestWritePath = options.evidenceDir ? join(options.evidenceDir, artifactManifestName) : null;
   const claimScope = normalizeReleaseClaimScope(options.claimScope);
   const liveControlRequired = releaseClaimScopeRequiresLiveControl(claimScope);
   const workingAppRuntimeProofRequired = releaseClaimScopeRequiresWorkingAppRuntimeProof(claimScope);
@@ -198,7 +200,7 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
     generatedAt: options.now ?? new Date().toISOString(),
     claimScope,
     excludedClaims,
-    artifactManifestPath: options.evidenceDir ? join(options.evidenceDir, "release-preflight.json") : null,
+    artifactManifestPath: artifactManifestWritePath ? artifactManifestName : null,
     packageName: packageJson?.name ?? null,
     packageVersion: packageJson?.version ?? null,
     checks,
@@ -208,9 +210,9 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
     evidenceScanDepthExceeded
   };
 
-  if (report.artifactManifestPath) {
+  if (artifactManifestWritePath) {
     mkdirSync(options.evidenceDir!, { recursive: true });
-    writeFileSync(report.artifactManifestPath, `${JSON.stringify(report, null, 2)}\n`);
+    writeFileSync(artifactManifestWritePath, `${JSON.stringify(report, null, 2)}\n`);
   }
 
   return report;

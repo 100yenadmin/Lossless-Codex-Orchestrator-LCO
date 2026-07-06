@@ -61,7 +61,7 @@
     "source coverage for collaboration cockpit, coherence, fallback, and proof reports",
     "execute=false next proof tool calls when a lane is blocked",
     "actionsPerformed flags showing no live Codex control, no GUI mutation, no screenshot capture, no npm publish, and no GitHub Release creation",
-    "public-safe scan with zero raw transcript, screenshot, token, cookie, and path leaks"
+    "public-safe scan with zero raw transcript, screenshot, credential-like, browser-session, and path leaks"
   ],
   "metrics": {
     "requires_runtime_desktop_visibility_status_report": true,

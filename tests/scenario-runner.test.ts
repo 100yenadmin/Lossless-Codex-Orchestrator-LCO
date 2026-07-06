@@ -112,7 +112,7 @@ test("scenario sweep rejects unsafe ids before writing evidence paths", () => {
 
   assert.equal(report.ok, false);
   assert.equal(report.scenarios[0]?.id, "unsafe");
-  assert.equal(report.scenarios[0]?.evidencePath, join(evidenceDir, "unsafe.json"));
+  assert.equal(report.scenarios[0]?.evidencePath, "unsafe.json");
   assert.match(report.blockers.join("\n"), /scenario_invalid_id:unsafe/);
   assert.equal(existsSync(join(root, "outside.json")), false);
 });
@@ -486,9 +486,8 @@ test("Desktop-first daily orchestration scenario composes the full safe handoff 
     /public-safe scan/i,
     /raw transcript/,
     /screenshot/,
-    /token/,
-    /cookie/,
-    /credential/
+    /credential-like/,
+    /browser-session/
   ]) {
     assert.match(expectedEvidence, required);
   }

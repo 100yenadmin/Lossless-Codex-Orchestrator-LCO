@@ -61,8 +61,8 @@ test("release bundle writes public-safe local artifacts without publishing", () 
   assert.equal(payload.githubReleaseCreated, false);
   assert.deepEqual(payload.blockers, ["approved_live_control_smoke_missing"]);
   assert.deepEqual(payload.rawSessionArtifacts, []);
-  assert.equal(payload.releaseNotesPath, join(evidenceDir, releaseNotesFile));
-  assert.equal(payload.bundleManifestPath, join(evidenceDir, "release-bundle.json"));
+  assert.equal(payload.releaseNotesPath, releaseNotesFile);
+  assert.equal(payload.bundleManifestPath, "release-bundle.json");
   assert.equal(existsSync(join(evidenceDir, releaseNotesFile)), true);
   assert.equal(existsSync(join(evidenceDir, "release-bundle.json")), true);
 

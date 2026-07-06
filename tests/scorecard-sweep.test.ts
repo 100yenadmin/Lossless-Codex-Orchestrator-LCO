@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { createScorecardSweep } from "../packages/cli/src/scorecard-sweep.js";
@@ -49,7 +49,8 @@ test("scorecard sweep writes a public-safe aggregate packet from bundled scoreca
   assert.equal(packagingScorecard?.status, "scored");
   assert.deepEqual(packagingScorecard?.blockers, []);
   assert.equal(report.scorecards.every((scorecard) => scorecard.status === "scored"), true);
-  assert.equal(report.scorecards.every((scorecard) => dirname(scorecard.evidencePath) === evidenceDir), true);
+  assert.equal(report.sweepPath, "scorecard-sweep.json");
+  assert.equal(report.scorecards.every((scorecard) => !scorecard.evidencePath.includes("/")), true);
   assert.deepEqual(report.blockers, []);
   assert.equal(existsSync(join(evidenceDir, "scorecard-sweep.json")), true);
 

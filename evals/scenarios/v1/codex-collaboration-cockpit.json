@@ -33,7 +33,7 @@
     "Desktop state values limited to desktop_visible, fallback_ready, fallback_blocked, cli_visible, unknown, or not_configured",
     "sourceCoverage for recentSessions, cockpitInbox, desktopCoherence, and desktopFallback",
     "actionsPerformed flags showing no live Codex control, no GUI mutation, no raw transcript read, no screenshot capture, no npm publish, and no GitHub Release creation",
-    "public-safe scan with zero raw transcript, token, cookie, screenshot, and path leaks",
+    "public-safe scan with zero raw transcript, credential-like, browser-session, screenshot, and path leaks",
     "lco.codex.collaborationNextSteps.v1 schema with execute=false tool-call packets",
     "next-step packets for watcher resume, Desktop coherence, fallback status, blocked approval, and observe/no-op lanes",
     "lco.codex.activeThreadState.v1 schema with running, blocked, needs_nudge, stale, waiting, needs_approval, idle, and unknown state counts",

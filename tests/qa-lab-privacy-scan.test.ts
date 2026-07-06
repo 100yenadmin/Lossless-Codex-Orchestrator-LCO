@@ -31,6 +31,46 @@ function writeJson(path: string, value: unknown): void {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
 }
 
+function writeDemoStatusCanaryEvidence(dir: string): void {
+  writeJson(join(dir, "index-codex.json"), {
+    indexedFiles: 125,
+    skippedFiles: 0,
+    indexedThreads: 125,
+    indexedEvents: 1200,
+    limitedFiles: [],
+    errors: []
+  });
+  writeJson(join(dir, "plans-search.json"), [
+    { sourceRef: "codex_thread:plan-thread", threadId: "plan-thread", snippet: "Proposed plan" }
+  ]);
+  writeJson(join(dir, "finals-search.json"), [
+    { sourceRef: "codex_thread:final-thread", threadId: "final-thread", snippet: "Final message" }
+  ]);
+  writeJson(join(dir, "expand-brief.json"), {
+    sourceRef: "codex_thread:plan-thread",
+    text: "Metadata\nFinal message\nProposed plan\nTouched files",
+    profile: { name: "brief" }
+  });
+  writeJson(join(dir, "expand-evidence.json"), {
+    sourceRef: "codex_thread:final-thread",
+    text: "Metadata\nFinal message\nProposed plan\nTouched files\nSafe summary",
+    profile: { name: "evidence" }
+  });
+  writeJson(join(dir, "control-dry-run.json"), {
+    action: "send",
+    threadId: "plan-thread",
+    live: false,
+    approvalAuditId: "loo_audit_test",
+    paramsHash: "a".repeat(64),
+    messageHash: "b".repeat(64)
+  });
+}
+
+function assertLooOk(args: string[]): void {
+  const result = runLoo(args);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+}
+
 test("loo qa-lab privacy-scan writes a public-safe clean evidence report", (t) => {
   const dir = makeTempDir(t, "loo-qa-privacy-clean-");
   writeJson(join(dir, "scenario-sweep.json"), {
@@ -75,6 +115,89 @@ test("loo qa-lab privacy-scan writes a public-safe clean evidence report", (t) =
   assert.equal(report.actionsPerformed.screenshotsCaptured, false);
   assert.doesNotMatch(result.stdout, new RegExp(dir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.equal(result.stderr.trim(), "");
+});
+
+test("release gate evidence reports are self-compatible with privacy scan", (t) => {
+  const dir = makeTempDir(t, "loo-qa-privacy-release-gates-");
+  writeDemoStatusCanaryEvidence(dir);
+
+  assertLooOk([
+    "scorecards",
+    "sweep",
+    "--evidence-dir",
+    dir,
+    "--claim-scope",
+    "codex-read-search-expand-dry-run",
+    "--package-version",
+    packageVersion,
+    "--candidate-sha",
+    candidateSha,
+    "--strict"
+  ]);
+  assertLooOk([
+    "eval",
+    "scenarios",
+    "--evidence-dir",
+    dir,
+    "--package-version",
+    packageVersion,
+    "--candidate-sha",
+    candidateSha,
+    "--strict"
+  ]);
+  assertLooOk([
+    "release",
+    "preflight",
+    "--evidence-dir",
+    dir,
+    "--claim-scope",
+    "codex-read-search-expand-dry-run",
+    "--strict"
+  ]);
+  assertLooOk([
+    "release",
+    "demo-status",
+    "--evidence-dir",
+    dir,
+    "--claim-scope",
+    "codex-read-search-expand-dry-run",
+    "--strict"
+  ]);
+  assertLooOk([
+    "release",
+    "bundle",
+    "--evidence-dir",
+    dir,
+    "--claim-scope",
+    "codex-read-search-expand-dry-run",
+    "--strict"
+  ]);
+  assertLooOk([
+    "release",
+    "status",
+    "--evidence-dir",
+    dir,
+    "--claim-scope",
+    "codex-read-search-expand-dry-run"
+  ]);
+
+  const result = runLoo([
+    "qa-lab",
+    "privacy-scan",
+    "--evidence-dir",
+    dir,
+    "--package-version",
+    packageVersion,
+    "--candidate-sha",
+    candidateSha,
+    "--strict"
+  ]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout) as PrivacyScanReport;
+  assert.equal(report.ok, true);
+  assert.deepEqual(report.rawSessionArtifacts, []);
+  assert.deepEqual(report.secretLikeEvidenceFindings, []);
 });
 
 test("loo qa-lab privacy-scan strict mode blocks raw artifacts and secret-like values without echoing them", (t) => {
