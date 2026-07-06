@@ -211,6 +211,9 @@ test("README and VISION describe the current stable package without stale releas
 test("VISION keeps scratch-thread live smokes standing-approved without widening real-thread approval", () => {
   const vision = read("VISION.md");
   const claimAudit = read("docs/CLAIM_AUDIT.md");
+  const proofBoundarySection = vision.match(/## Proof Boundary[\s\S]*?(?=\n## Current Release Gates)/)?.[0] ?? "";
+  const doNotClaimSection = proofBoundarySection.match(/Do not claim:[\s\S]*?(?=\nApproval doctrine:)/)?.[0] ?? "";
+  const approvalDoctrineSection = proofBoundarySection.match(/Approval doctrine:[\s\S]*$/)?.[0] ?? "";
 
   for (const [surface, content] of [
     ["VISION", vision],
@@ -223,6 +226,9 @@ test("VISION keeps scratch-thread live smokes standing-approved without widening
     assert.match(content, /real user threads[\s\S]{0,240}exact-target approval/i, surface);
     assert.doesNotMatch(content, /standing-approved\s+(?:class\s+)?for real user threads/i, `${surface} must not approve real-thread live control broadly`);
   }
+
+  assert.match(approvalDoctrineSection, /scratch-thread live smokes[\s\S]{0,160}standing-approved/i);
+  assert.doesNotMatch(doNotClaimSection, /scratch-thread live smokes[\s\S]{0,160}standing-approved/i);
 });
 
 test("stable and prerelease package metadata pins the intended npm dist-tag", () => {

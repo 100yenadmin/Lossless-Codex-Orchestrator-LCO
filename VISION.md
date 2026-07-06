@@ -312,8 +312,10 @@ Do not claim:
 - Unattended desktop takeover.
 - Codex permission or sandbox bypass.
 - Release-grade enterprise security.
-- Scratch-thread live smokes are standing-approved only when the harmless thread created by the smoke remains disposable.
-- Real user threads still require exact-target approval: a user must approve the exact target thread and harmless prompt, and the evidence must prove Codex approval semantics were preserved.
+
+Approval doctrine:
+
+Scratch-thread live smokes are standing-approved only when the harmless thread created by the smoke remains disposable. Real user threads still require exact-target approval: a user must approve the exact target thread and harmless prompt, and the evidence must prove Codex approval semantics were preserved.
 
 ## Current Release Gates
 
