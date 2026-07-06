@@ -70,10 +70,14 @@ test("release bundle writes public-safe local artifacts without publishing", () 
   assert.equal(existsSync(join(evidenceDir, "release-bundle.json")), true);
 
   const notes = read(join(evidenceDir, releaseNotesFile));
+  // With committed release notes present, the bundle uses them (not the draft
+  // fallback); assert the real notes carry the proof boundary and stay public-safe.
   assert.match(notes, /approved_live_control_smoke_missing/);
-  assert.match(notes, /not publish to npm/i);
-  assert.match(notes, /not create a GitHub Release/i);
+  assert.match(notes, /local Codex sessions/i);
+  assert.match(notes, /No cloud sync/i);
   assert.doesNotMatch(notes, /Full Claude Code parity/i);
+  // No absolute local filesystem paths from any contributor's machine.
+  assert.doesNotMatch(notes, /\/(Users|home)\/[a-z0-9._-]+\/|\/Volumes\/[A-Za-z0-9._-]+\//i);
 
   const manifest = JSON.parse(read(join(evidenceDir, "release-bundle.json"))) as {
     releasePreflight?: { releaseReady?: boolean };
