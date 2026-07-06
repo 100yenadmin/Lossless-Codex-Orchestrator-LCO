@@ -1480,6 +1480,30 @@ test("new cockpit and operating-picture tools are exposed through MCP with publi
       () => watcherTool.execute({ action: "list", watcher_specs: [{ ...watcherSpec, mutates: true }] }),
       /mutates=false/
     );
+
+    const malformedWatcherSpec: Record<string, unknown> = { ...watcherSpec };
+    delete malformedWatcherSpec.ttlSeconds;
+    for (const action of ["list", "status", "dry_run"] as const) {
+      await assert.rejects(
+        async () => watcherTool.execute({
+          action,
+          watcher_specs: [malformedWatcherSpec],
+          watch_id: action === "status" ? watcherSpec.watchId : undefined
+        }),
+        /ttlSeconds is required/
+      );
+    }
+    await assert.rejects(
+      async () => watcherTool.execute({ action: "resume_request_packet", watcher_spec: malformedWatcherSpec }),
+      /ttlSeconds is required/
+    );
+    const watcherEvents = await watcherTool.execute({
+      action: "events",
+      watcher_specs: [malformedWatcherSpec],
+      watcher_spec: malformedWatcherSpec,
+      now: "2026-07-01T12:00:00.000Z"
+    });
+    assert.equal((watcherEvents as { publicSafe?: boolean }).publicSafe, true);
     assertNoUnsafeStrings({ recent, collaborationCockpit, runtimeVisibility, pins, pulse, watcherDryRun }, sessions);
   });
 });

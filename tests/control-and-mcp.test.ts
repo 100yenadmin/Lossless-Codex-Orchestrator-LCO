@@ -438,6 +438,62 @@ test("Codex start-thread post-create proof reports public-safe created-but-unind
   }
 });
 
+test("canonical desktop proof filters start-thread proof input to the allowed subset", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-control-start-proof-filter-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const rawPathCanary = "/Users/lume/.codex/sessions/raw/private-thread.jsonl";
+  const secretCanary = "github_pat_desktopProofInputShouldNotLeak123456";
+  const readCalls: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const tools = createLooTools({
+    db,
+    audit,
+    includeAliases: true,
+    codexClient: {
+      request: async () => ({ ok: true })
+    },
+    codexReadClient: {
+      request: async (method, params) => {
+        readCalls.push({ method, params });
+        if (method === "thread/list") {
+          return { ok: true, result: { threads: [{ id: "thr_created", name: "Filtered proof worker", status: "ready" }] } };
+        }
+        if (method === "thread/read") {
+          return { ok: true, result: { thread: { id: "thr_created", name: "Filtered proof worker", status: "ready" } } };
+        }
+        throw new Error(`unexpected read method ${method}`);
+      }
+    }
+  });
+
+  try {
+    const proofTool = tools.find((tool) => tool.name === "loo_desktop_proof");
+    assert.ok(proofTool);
+    const proof = await proofTool.execute({
+      check: "start_thread_post_create_proof",
+      created_thread_id: "thr_created",
+      requested_title: "Filtered proof worker",
+      alias: "filtered-proof",
+      parent_thread_id: "thr_parent",
+      limit: 10,
+      scratch_file_path: rawPathCanary,
+      approval_ref: secretCanary,
+      action_evidence: { raw: `${rawPathCanary} ${secretCanary}` },
+      observation: { raw: `${rawPathCanary} ${secretCanary}` },
+      before_visible_map: { raw: `${rawPathCanary} ${secretCanary}` }
+    }) as { public_safe?: boolean; status?: string };
+    const serialized = JSON.stringify(proof);
+    assert.equal(proof.public_safe, true);
+    assert.equal(proof.status, "created_but_unindexed");
+    assert.equal(serialized.includes(rawPathCanary), false);
+    assert.equal(serialized.includes(secretCanary), false);
+    assert.deepEqual(readCalls.map((call) => call.method), ["thread/list", "thread/read"]);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Codex start-thread post-create proof reads the full created thread id even when public output is capped", async () => {
   const root = mkdtempSync(join(tmpdir(), "loo-control-start-proof-long-id-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));

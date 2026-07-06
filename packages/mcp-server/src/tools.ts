@@ -314,7 +314,7 @@ export function createLooToolSurfaceSummary(): LooToolSurfaceSummary {
       legacyCompatiblePrefix: "loo_",
       packageName: "lossless-openclaw-orchestrator",
       compatibilityIssue: "#434",
-      aliasPolicy: "`lco_*` is the forward public alias target for new user-facing tool names. The redirect alias registry can point an alias at any declared tool and can provide `kindDefaults`; caller arguments override those defaults at dispatch. The active registry contains the eight tested public-facade `lco_*` aliases plus folded historical `loo_*` compatibility aliases for the C1 umbrella tools. Those historical names stay backward compatible. Each alias carries `metadata.aliasOf`; redirect aliases do not create separate coverage obligations."
+      aliasPolicy: "`lco_*` is the forward public alias target for new user-facing tool names. The redirect alias registry can point an alias at any declared tool and can provide `kindDefaults`; caller arguments override those defaults at dispatch. The active registry contains eight public-facade `lco_*` aliases with execution tests, plus folded historical `loo_*` compatibility aliases for the C1 umbrella tools. Those historical names remain backward compatible through canonical umbrella dispatch. Each alias carries `metadata.aliasOf`; redirect aliases do not create separate coverage obligations."
     },
     desktopFallback: {
       normalFirstPath: "direct Codex protocol",
@@ -949,7 +949,7 @@ export function createLooTools(options: {
     }, (input) => createStartThreadPostCreateProof({
       db: options.db,
       codexReadClient,
-      input
+      input: startThreadPostCreateProofInput(input)
     })),
     tool("loo_visible_codex_map", "Join indexed session cards with optional visible Codex and read-only app-server signals.", {
       limit: { type: "integer", minimum: 1, maximum: 500 },
@@ -1381,7 +1381,7 @@ export function createLooTools(options: {
         });
       }
       if (check === "start_thread_post_create_proof") {
-        return createStartThreadPostCreateProof({ db: options.db, codexReadClient, input });
+        return createStartThreadPostCreateProof({ db: options.db, codexReadClient, input: startThreadPostCreateProofInput(input) });
       }
       if (check === "coherence") {
         const visibleMap = optionalRecord(input.visible_map) as VisibleCodexSessionMapReport | undefined;
@@ -2069,6 +2069,18 @@ function startProofThreadId(input: Record<string, unknown>): string | null {
     ?? optionalString(input.worker_thread_id)
     ?? bareStartProofThreadRef(optionalString(input.created_thread_ref))
     ?? null;
+}
+
+function startThreadPostCreateProofInput(input: Record<string, unknown>): Record<string, unknown> {
+  return {
+    created_thread_id: input.created_thread_id,
+    worker_thread_id: input.worker_thread_id,
+    created_thread_ref: input.created_thread_ref,
+    requested_title: input.requested_title,
+    alias: input.alias,
+    parent_thread_id: input.parent_thread_id,
+    limit: input.limit
+  };
 }
 
 function bareStartProofThreadRef(value: string | undefined): string | null {
