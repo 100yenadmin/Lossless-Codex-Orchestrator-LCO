@@ -104,22 +104,23 @@ export function createReleaseFinalizationStatus(options: ReleaseFinalizationStat
   blockers.push(...missingOrInvalidBlockers("git_tag", tagEvidence));
   blockers.push(...missingOrInvalidBlockers("github_release", releaseEvidence));
 
-  if (npmEvidence.value) {
+  if (hasJsonEvidence(npmEvidence)) {
     blockers.push(...validateNoSecrets("npm_evidence", npmEvidence.value));
     blockers.push(...validateNpmEvidence(npmEvidence.value, {
       packageName,
       packageVersion,
-      expectedDistTag
+      expectedDistTag,
+      candidateSha: options.candidateSha
     }));
   }
-  if (tagEvidence.value) {
+  if (hasJsonEvidence(tagEvidence)) {
     blockers.push(...validateNoSecrets("git_tag_evidence", tagEvidence.value));
     blockers.push(...validateGitTagEvidence(tagEvidence.value, {
       candidateSha: options.candidateSha,
       expectedGitTag
     }));
   }
-  if (releaseEvidence.value) {
+  if (hasJsonEvidence(releaseEvidence)) {
     blockers.push(...validateNoSecrets("github_release_evidence", releaseEvidence.value));
     blockers.push(...validateGitHubReleaseEvidence(releaseEvidence.value, {
       candidateSha: options.candidateSha,
@@ -143,9 +144,9 @@ export function createReleaseFinalizationStatus(options: ReleaseFinalizationStat
     finalizationManifestPath: join(evidenceDir, RELEASE_FINALIZATION_MANIFEST),
     blockers: uniqueBlockers,
     actionsVerified: {
-      npmPublished: npmEvidence.value !== null && !uniqueBlockers.some((blocker) => blocker.startsWith("npm_")),
-      gitTagPushed: tagEvidence.value !== null && !uniqueBlockers.some((blocker) => blocker.startsWith("git_tag_")),
-      githubReleaseCreated: releaseEvidence.value !== null && !uniqueBlockers.some((blocker) => blocker.startsWith("github_release_"))
+      npmPublished: evidenceVerified(npmEvidence, uniqueBlockers, "npm_"),
+      gitTagPushed: evidenceVerified(tagEvidence, uniqueBlockers, "git_tag_"),
+      githubReleaseCreated: evidenceVerified(releaseEvidence, uniqueBlockers, "github_release_")
     },
     npm: npmSummary(npmEvidence.value),
     gitTag: gitTagSummary(tagEvidence.value),
@@ -207,13 +208,22 @@ function missingOrInvalidBlockers(prefix: "npm_publish" | "git_tag" | "github_re
   return [];
 }
 
-function validateNpmEvidence(value: unknown, expected: { packageName: string; packageVersion: string; expectedDistTag: string }): string[] {
+function hasJsonEvidence(result: JsonReadResult): boolean {
+  return !result.missing && !result.invalid;
+}
+
+function evidenceVerified(result: JsonReadResult, blockers: string[], prefix: string): boolean {
+  return hasJsonEvidence(result) && asRecord(result.value) !== null && !blockers.some((blocker) => blocker.startsWith(prefix));
+}
+
+function validateNpmEvidence(value: unknown, expected: { packageName: string; packageVersion: string; expectedDistTag: string; candidateSha: string }): string[] {
   const record = asRecord(value);
   if (!record) return ["npm_evidence_invalid"];
   const blockers: string[] = [];
   if (record.kind !== "loo_release_npm_publish_evidence") blockers.push("npm_evidence_invalid_kind");
   if (record.rawSecretIncluded !== false) blockers.push("npm_evidence_secret_flag_present");
   if (record.published !== true) blockers.push("npm_package_not_published");
+  if (stringField(record, "candidateSha") !== expected.candidateSha) blockers.push("npm_candidate_sha_mismatch");
   if (stringField(record, "packageName") !== expected.packageName) blockers.push("npm_package_mismatch");
   if (stringField(record, "packageVersion") !== expected.packageVersion) blockers.push("npm_version_mismatch");
   if (stringField(record, "distTag") !== expected.expectedDistTag) blockers.push("npm_dist_tag_mismatch");

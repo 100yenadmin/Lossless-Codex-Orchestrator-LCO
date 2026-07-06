@@ -25,6 +25,7 @@ export type RuntimeProofRequirement = {
   id: string;
   requiredMarkers: string[];
   maxCounts: Record<string, number>;
+  minCounts?: Record<string, number>;
   exactStringFields?: Partial<Record<keyof RuntimeProofJson, string>>;
 };
 
@@ -48,6 +49,9 @@ export const WORKING_APP_RUNTIME_PROOF_REQUIREMENTS: RuntimeProofRequirement[] =
     maxCounts: {
       live_action_count: 1,
       raw_prompt_chars: 0
+    },
+    minCounts: {
+      live_action_count: 1
     }
   },
   {
@@ -176,7 +180,11 @@ function runtimeCountBlockers(requirement: RuntimeProofRequirement, proof: Runti
     const actualValue = proof[field as keyof RuntimeProofJson];
     if (typeof actualValue !== "number") return [`runtime_proof_missing:${requirement.id}:${field}`];
     if (!Number.isInteger(actualValue) || actualValue < 0) return [`runtime_proof_invalid:${requirement.id}:${field}`];
-    return actualValue <= maxValue ? [] : [`runtime_proof_limit_exceeded:${requirement.id}:${field}`];
+    const minValue = requirement.minCounts?.[field];
+    return [
+      ...(typeof minValue === "number" && actualValue < minValue ? [`runtime_proof_below_minimum:${requirement.id}:${field}`] : []),
+      ...(actualValue <= maxValue ? [] : [`runtime_proof_limit_exceeded:${requirement.id}:${field}`])
+    ];
   });
 }
 

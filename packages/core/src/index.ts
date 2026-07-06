@@ -627,6 +627,7 @@ export type HookCapturePacket = {
     mode?: "marker";
     lifecycle?: HookCompactionLifecycle;
     markerNote?: string | null;
+    markerNoteHash?: string | null;
     summaryCaptured?: false;
     titleFinalizer?: {
       suggestedTitle: string | null;
@@ -5572,12 +5573,13 @@ export function captureCompactionMarkerHookPacket(db: LooDatabase, input: Compac
       transcriptPathRedacted: Boolean(transcriptPath),
       mode: "marker",
       lifecycle,
-      markerNote: markerNote ? redactHookString(markerNote, 240) : null,
+      markerNote: null,
+      markerNoteHash: markerNote ? stableId(markerNote) : null,
       summaryCaptured: false,
       omissions: unique([
         transcriptPath ? "transcript_path_hash_only" : "",
         summary ? "summary_payload_not_captured_marker_mode" : "",
-        markerNote && markerNote.length > 240 ? "marker_note_truncated" : ""
+        markerNote ? "marker_note_hash_only" : ""
       ].filter(Boolean))
     },
     sourceRefs: hookSourceRefs(resolved.targetRef, markerNote ?? ""),
@@ -7593,9 +7595,13 @@ function hookCloseoutFields(text: string): Record<string, string> {
     if (!match) continue;
     const key = publicSafeIdentifier(match[1]!.toLowerCase().replace(/\s+/g, "_").replace(/-/g, "_"));
     if (!key) continue;
-    fields[key] = redactHookString(match[2]!, 240);
+    fields[key] = isSensitiveHookCloseoutKey(key) ? "<redacted-secret>" : redactHookString(match[2]!, 240);
   }
   return fields;
+}
+
+function isSensitiveHookCloseoutKey(key: string): boolean {
+  return /(?:password|passcode|secret|token|cookie|authorization|auth|api_key|access_token|refresh_token|session_(?:id|token|cookie))/i.test(key);
 }
 
 function normalizeCompactionLifecycle(value: CompactionMarkerHookInput["lifecycle"]): HookCompactionLifecycle {
