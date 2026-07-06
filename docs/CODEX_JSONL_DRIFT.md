@@ -59,6 +59,14 @@ stores, run live control, or upload transcripts. The reason code
 `codex_jsonl_drift_projection_requires_index_run` means the status object is
 requesting that first projection pass rather than reporting parser drift.
 
+When `loo index codex` is later run with a narrower or different root set, LCO
+prunes indexed rows only for missing JSONL files that are still under the current
+canonical root set. It intentionally keeps rows for still-existing files outside
+the current roots. That fail-closed behavior avoids deleting a user's derived
+cache merely because they changed the index scope, but it means drift/status
+counts can include retained rows from earlier roots until the user intentionally
+reindexes or rebuilds the local LCO database.
+
 Known bookkeeping inner kinds such as token counts, reasoning markers, tool
 outputs, task lifecycle events, and patch markers are noise-gated. Unknown kinds
 are reported only when their payload appears to contain content-like strings the

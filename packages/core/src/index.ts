@@ -3490,7 +3490,7 @@ function canonicalExistingPath(path: string): string | null {
   try {
     return realpathSync.native(path);
   } catch {
-    return existsSync(path) ? resolve(path) : null;
+    return null;
   }
 }
 
