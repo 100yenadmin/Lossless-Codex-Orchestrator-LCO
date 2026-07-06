@@ -662,6 +662,31 @@ test("OpenClaw live-control smoke requires completed proof independent of termin
   }
 });
 
+test("OpenClaw live-control smoke requires terminal send status independent of completed proof", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-smoke-status-running-proof-true-"));
+  const { bin, callsPath } = createFakeOpenClaw(root, { liveTurnStatus: "running", liveProofCompleted: true });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+
+  try {
+    const report = runOpenClawGatewayLiveControlSmoke({
+      openclawBin: bin,
+      evidenceDir: join(root, "evidence"),
+      threadId: "thr_gateway_live",
+      action: "send"
+    });
+
+    assert.equal(report.ok, false);
+    assert.equal(report.live.turnStatus, "running");
+    assert.equal(report.live.turnCompleted, true);
+    assert.match(report.blockers.join("\n"), /openclaw_live_send_not_proven/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("OpenClaw live-control smoke accepts audit tail records from tool details envelope", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-smoke-audit-details-"));
   const evidenceDir = join(root, "evidence");

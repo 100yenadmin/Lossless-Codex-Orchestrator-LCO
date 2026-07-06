@@ -1331,6 +1331,7 @@ const SAFE_VALIDATION_MESSAGES = new Set([
   "desktop proof check is not supported",
   "source_ref or thread_id is required",
   "roots must be an array",
+  "roots[] is required",
   "github_items must be an array",
   "github_records must be an array",
   "watcher_specs must be an array",
