@@ -8332,6 +8332,10 @@ export function searchSessions(db: LooDatabase, options: {
 }
 
 function retrievalTelemetryEnabled(explicit?: boolean): boolean {
+  // The env fallback is an intentional local opt-in write path. Callers that
+  // omit the explicit flag can still write derived-cache telemetry when
+  // LOO_TELEMETRY=1, so recall tools are conservatively classified as
+  // local_cache_write even though the default behavior is read-only.
   return explicit ?? process.env.LOO_TELEMETRY?.trim() === "1";
 }
 

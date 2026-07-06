@@ -10,7 +10,9 @@ import {
   createDatabase,
   describeRecallRef,
   expandRecallRef,
+  grepRecall,
   harvestRetrievalTelemetry,
+  indexClaudeSessionInventory,
   indexCodexSessions,
   searchSessions
 } from "../packages/core/src/index.js";
@@ -228,6 +230,62 @@ test("expand telemetry records one expand follow without an internal describe fo
   } finally {
     db.close();
     rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("Claude recall telemetry correlates describe and expand follows with rank", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-retrieval-telemetry-claude-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexClaudeSessionInventory(db, {
+      sessions: [{
+        sessionId: "claude-telemetry-1",
+        title: "Claude telemetry recall proof",
+        project: "Lossless OpenClaw Orchestrator",
+        workspaceHint: "lossless-openclaw-orchestrator",
+        status: "fixture-only",
+        safeSummary: "Claude telemetry branch coverage for recall follow correlation.",
+        updatedAt: "2026-07-06T00:00:00.000Z",
+        sourcePath: "/Users/lume/private/claude-telemetry.sqlite"
+      }]
+    });
+
+    const grep = grepRecall(db, {
+      query: "Claude telemetry branch coverage",
+      limit: 5,
+      telemetry: true,
+      telemetrySessionId: "agent-claude",
+      now: "2026-07-06T00:00:00.000Z"
+    });
+    assert.equal(grep.matches[0]?.sourceRef, "claude_session:claude-telemetry-1");
+
+    describeRecallRef(db, {
+      sourceRef: "claude_session:claude-telemetry-1",
+      telemetry: true,
+      telemetrySessionId: "agent-claude",
+      now: "2026-07-06T00:01:00.000Z"
+    });
+    expandRecallRef(db, {
+      sourceRef: "claude_session:claude-telemetry-1",
+      profile: "metadata",
+      telemetry: true,
+      telemetrySessionId: "agent-claude",
+      now: "2026-07-06T00:02:00.000Z"
+    });
+
+    const followRows = db.prepare(`
+      SELECT f.chosen_ref AS chosenRef, f.rank_position AS rankPosition, f.follow_kind AS followKind
+      FROM telemetry_follow_events f
+      JOIN telemetry_search_events s ON s.id = f.search_event_id
+      ORDER BY f.ts ASC
+    `).all().map((row) => ({ ...(row as Record<string, unknown>) }));
+    assert.deepEqual(followRows, [
+      { chosenRef: "claude_session:claude-telemetry-1", rankPosition: 1, followKind: "describe" },
+      { chosenRef: "claude_session:claude-telemetry-1", rankPosition: 1, followKind: "expand" }
+    ]);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
