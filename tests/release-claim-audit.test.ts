@@ -73,7 +73,7 @@ test("public beta package and README do not overclaim Claude or desktop control"
 
   assert.match(packageJson.description ?? "", /local Codex sessions/i);
   assert.match(packageJson.description ?? "", /approval-gated/i);
-  assert.match(readme, /Claude Code support is an adapter stub/i);
+  assert.doesNotMatch(readme, /CLAUDE_ADAPTER_BOUNDARY\.md|Claude Code support is an adapter stub|full Claude Code parity|cloud sync|unattended desktop takeover/i);
   assert.match(openclawDocs, /approval-gated dry-run/i);
   assert.match(openclawDocs, /live controls approval-gated/i);
 });
@@ -201,6 +201,9 @@ test("README and VISION describe the current stable package without stale releas
 
   assert.match(readme, new RegExp("Current stable:\\s+`" + escapedDocumentedStableVersion + "`", "i"));
   assert.match(readme, new RegExp("`" + escapedDocumentedStableVersion + "`[\\s\\S]{0,240}shipped", "i"));
+  assert.match(readme, /npm install -g lossless-openclaw-orchestrator@latest/i);
+  assert.match(readme, /`latest` is the stable public channel/i);
+  assert.match(readme, /Stable today:[\s\S]{0,240}prepared cards/i);
   assert.match(readme, /Since 1\.2\.x[\s\S]{0,120}1\.2 prepared-state and summary-leaves lane/i);
   assert.match(vision, new RegExp("stable[\\s\\S]{0,120}`" + escapedDocumentedStableVersion + "`[\\s\\S]{0,240}shipped", "i"));
   assert.doesNotMatch(readme, /`1\.3\.[0-9]+` release candidate/i);
@@ -279,11 +282,9 @@ test("beta release runbook defines RC cadence and keeps main distinct from relea
   assert.equal(existsSync("docs/BETA_RELEASE_RUNBOOK.md"), true, "docs/BETA_RELEASE_RUNBOOK.md must exist");
   assert.equal(existsSync(".github/workflows/codeql.yml"), true, ".github/workflows/codeql.yml must exist");
 
-  const readme = read("README.md");
   const vision = read("VISION.md");
   const runbook = read("docs/BETA_RELEASE_RUNBOOK.md");
 
-  assert.match(readme, /docs\/BETA_RELEASE_RUNBOOK\.md/);
   assert.match(vision, /docs\/BETA_RELEASE_RUNBOOK\.md/);
 
   for (const required of [
@@ -729,40 +730,41 @@ test("release preflight reports malformed package JSON as a structured blocker",
   assert.deepEqual(payload.blockers, ["packageJson_failed", "approved_live_control_smoke_missing"]);
 });
 
-test("release preflight README gate enforces the full forbidden-claims boundary", () => {
-  const rootDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-readme-root-"));
-  writeProjectSkeleton(rootDir, {
-    readme: [
-      "# Lossless OpenClaw Orchestrator",
-      "Allowed public beta claim:",
-      "loo release preflight",
-      "Full Claude Code parity",
-      "cloud sync",
-      "unattended desktop takeover",
-      "permission bypass"
-    ].join("\n")
-  });
+test("release preflight claim audit gate enforces the full forbidden-claims boundary", () => {
+  const rootDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-claim-audit-root-"));
+  writeProjectSkeleton(rootDir);
+  writeFileSync(join(rootDir, "docs/CLAIM_AUDIT.md"), [
+    "Forbidden Beta Claims",
+    "approved_live_control_smoke_missing",
+    "Full Claude Code parity",
+    "release-grade enterprise security"
+  ].join("\n"));
 
   const payload = runReleasePreflight({ rootDir });
 
-  assert.equal(payload.checks.readme?.ok, false);
-  assert.match(payload.checks.readme?.detail ?? "", /safety boundaries/i);
-  assert.deepEqual(payload.blockers, ["readme_failed", "approved_live_control_smoke_missing"]);
+  assert.equal(payload.checks.readme?.ok, true);
+  assert.equal(payload.checks.claimAudit?.ok, false);
+  assert.match(payload.checks.claimAudit?.detail ?? "", /forbidden claims/i);
+  assert.deepEqual(payload.blockers, ["claimAudit_failed", "approved_live_control_smoke_missing"]);
 });
 
-test("release preflight README gate preserves maintainer proof commands", () => {
+test("release preflight README gate preserves human product positioning", () => {
   const rootDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-readme-commands-root-"));
   writeProjectSkeleton(rootDir);
-  const readmeWithoutProofCommands = readFileSync(join(rootDir, "README.md"), "utf8")
-    .replace(/^loo release preflight$/m, "")
-    .replace(/^loo release demo-status$/m, "")
-    .replace(/^loo release status$/m, "");
-  writeFileSync(join(rootDir, "README.md"), readmeWithoutProofCommands);
+  const readmeWithoutProductPositioning = readFileSync(join(rootDir, "README.md"), "utf8")
+    .replace(/^Give your main agent a memory and command layer for all your Codex projects and threads\.$/m, "")
+    .replace(/^field-weighted FTS5 search$/m, "")
+    .replace(/^prepared cards$/m, "")
+    .replace(/^summary leaves$/m, "")
+    .replace(/^attention inbox$/m, "")
+    .replace(/^project digest$/m, "")
+    .replace(/^dry-run command packets$/m, "");
+  writeFileSync(join(rootDir, "README.md"), readmeWithoutProductPositioning);
 
   const payload = runReleasePreflight({ rootDir });
 
   assert.equal(payload.checks.readme?.ok, false);
-  assert.match(payload.checks.readme?.detail ?? "", /public setup path/i);
+  assert.match(payload.checks.readme?.detail ?? "", /human product positioning/i);
   assert.deepEqual(payload.blockers, ["readme_failed", "approved_live_control_smoke_missing"]);
 });
 
@@ -967,24 +969,26 @@ function writeProjectSkeleton(rootDir: string, overrides: { readme?: string; run
     "VISION.md",
     "docs/OPENCLAW_PLUGIN.md",
     "docs/PRIVACY.md",
-    "docs/CLAIM_AUDIT.md",
     "docs/releases/CHANGELOG.md",
     "License",
-    "## Safety Boundaries",
-    "Core proof commands",
-    "loo release preflight",
-    "loo release demo-status",
-    "loo release status",
-    "Full Claude Code parity",
-    "cloud sync",
-    "unattended desktop takeover",
-    "permission bypass",
-    "generic GUI mutation",
-    "release-grade enterprise security"
+    "Give your main agent a memory and command layer for all your Codex projects and threads.",
+    "field-weighted FTS5 search",
+    "prepared cards",
+    "summary leaves",
+    "attention inbox",
+    "project digest",
+    "dry-run command packets",
+    "## OpenClaw And MCP"
   ].join("\n"));
   writeFileSync(join(rootDir, "docs/CLAIM_AUDIT.md"), [
     "Forbidden Beta Claims",
-    "approved_live_control_smoke_missing"
+    "approved_live_control_smoke_missing",
+    "Full Claude Code parity",
+    "No cloud sync",
+    "No unattended desktop takeover",
+    "No permission bypass",
+    "release-grade enterprise security",
+    "generic GUI mutation"
   ].join("\n"));
   writeFileSync(join(rootDir, "docs/BETA_RELEASE_DEMO.md"), [
     "100+ local Codex sessions",

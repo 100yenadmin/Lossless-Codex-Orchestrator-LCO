@@ -543,7 +543,7 @@ test("general release readiness sanitizes package version inside public proof bo
     "loo_codex_control_dry_run",
     "raw transcripts"
   ].join("\n"));
-  writeFileSync(join(rootDir, "README.md"), "loo release general-readiness\nfresh npm\nagent dogfood\n");
+  writeFileSync(join(rootDir, "README.md"), "# Lossless Codex Orchestrator\n");
   writeFileSync(join(rootDir, "VISION.md"), "loo release general-readiness\nfresh npm\nagent dogfood\n");
   writeFileSync(join(rootDir, "docs", "BETA_RELEASE_RUNBOOK.md"), "loo release general-readiness\nfresh npm\nagent dogfood\n");
   writeJson(join(rootDir, "evals", "scenarios", "v1", "m9-fresh-npm-clean-profile.json"), {
@@ -570,16 +570,14 @@ test("general release readiness sanitizes package version inside public proof bo
   assert.doesNotMatch(report.proofBoundary, /\n/);
 });
 
-test("README, VISION, and release runbook point to the general release checklist", () => {
+test("VISION, release checklist, and release runbook point to the general release checklist", () => {
   assert.equal(existsSync("docs/RELEASE_CHECKLIST.md"), true);
   const checklist = read("docs/RELEASE_CHECKLIST.md");
-  const readme = read("README.md");
   const vision = read("VISION.md");
   const runbook = read("docs/BETA_RELEASE_RUNBOOK.md");
 
   for (const [surface, content] of [
     ["release checklist", checklist],
-    ["README", readme],
     ["VISION", vision],
     ["release runbook", runbook]
   ] as const) {

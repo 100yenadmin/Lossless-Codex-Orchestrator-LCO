@@ -117,10 +117,10 @@ test("scenario sweep rejects unsafe ids before writing evidence paths", () => {
   assert.equal(existsSync(join(root, "outside.json")), false);
 });
 
-test("VISION and README document the scenario runner command", () => {
+test("VISION and release docs document the scenario runner command", () => {
   assert.match(readFileSync("VISION.md", "utf8"), /loo eval scenarios/);
-  assert.match(readFileSync("README.md", "utf8"), /loo eval scenarios/);
-  assert.match(readFileSync("README.md", "utf8"), /evals\/scenarios\/v1/);
+  assert.match(readFileSync("docs/BETA_RELEASE_RUNBOOK.md", "utf8"), /eval scenarios/);
+  assert.doesNotMatch(readFileSync("README.md", "utf8"), /loo eval scenarios|evals\/scenarios\/v1/);
 });
 
 test("M9 agent dogfood scenario captures the gateway-only handoff workflow", () => {

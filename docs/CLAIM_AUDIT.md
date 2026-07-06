@@ -27,6 +27,7 @@ post-action refresh working-app loop.
 - No cloud sync.
 - No unattended desktop takeover.
 - No permission bypass.
+- No generic GUI mutation.
 - No release-grade enterprise security claim.
 
 Claude Code is an adapter stub in this beta. Public docs may mention the stub, but must not imply Claude Code session indexing or control parity until storage and control paths are proven.
