@@ -3,6 +3,7 @@
 One line per released version, newest first. Each line links to the full
 release notes for that version.
 
+- [1.3.2](RELEASE_NOTES_1.3.2.md)
 - [1.3.1](RELEASE_NOTES_1.3.1.md)
 - [1.3.0](RELEASE_NOTES_1.3.0.md)
 - [1.2.6](RELEASE_NOTES_1.2.6.md)
