@@ -103,19 +103,19 @@ Do not move `latest` during prerelease or pre-stable lanes. Install stable relea
 with:
 
 ```bash
-npm install -g lossless-codex-orchestrator@latest
+npm install -g lossless-openclaw-orchestrator@latest
 ```
 
 Install beta releases with:
 
 ```bash
-npm install -g lossless-codex-orchestrator@beta
+npm install -g lossless-openclaw-orchestrator@beta
 ```
 
-The former package name `lossless-openclaw-orchestrator` remains maintained for
-at least two minor releases, but release proof should use the canonical
-`lossless-codex-orchestrator` package unless a compatibility check is being
-run deliberately.
+The currently published package name remains `lossless-openclaw-orchestrator`
+until the package-rename lane publishes `lossless-codex-orchestrator`; release
+proof must use the published package name until that separate lane lands. The
+`lco` CLI and `lco-mcp-server` remain the canonical command surface.
 
 Move `latest` only as part of a separate stable-release issue after the
 pre-publish candidate gates pass and the release-status approval markers

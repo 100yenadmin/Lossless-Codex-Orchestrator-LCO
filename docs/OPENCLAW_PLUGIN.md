@@ -23,12 +23,15 @@ and approval-gated dry-run before live Codex control.
 Public install path:
 
 ```bash
-npm install -g lossless-codex-orchestrator@latest
-openclaw plugins install lossless-codex-orchestrator@latest
+npm install -g lossless-openclaw-orchestrator@latest
+openclaw plugins install lossless-openclaw-orchestrator@latest
 ```
 
-The former package name `lossless-openclaw-orchestrator` remains maintained for
-at least two minor releases for existing OpenClaw automation.
+The current published npm package name remains
+`lossless-openclaw-orchestrator` until the package-rename lane ships. The
+installed plugin exposes the canonical `lco_*` tools; `loo_*` tool aliases
+remain maintained for at least two minor releases for existing OpenClaw
+automation.
 
 For local candidate dogfood, use an isolated profile:
 

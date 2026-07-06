@@ -19,6 +19,16 @@ function section(markdown: string, heading: string): string {
 test("public first-run docs are lco-first while preserving loo compatibility", () => {
   const readme = read("README.md");
   const setup = read("docs/SETUP.md");
+  const openclawPlugin = read("docs/OPENCLAW_PLUGIN.md");
+  const releaseRunbook = read("docs/BETA_RELEASE_RUNBOOK.md");
+  const releaseChecklist = read("docs/RELEASE_CHECKLIST.md");
+  const publicInstallDocs = [
+    readme,
+    setup,
+    openclawPlugin,
+    releaseRunbook,
+    releaseChecklist
+  ].join("\n");
   const firstWorkflow = section(readme, "First Workflow");
   const mcpSetup = section(setup, "7. Connect MCP");
 
@@ -33,19 +43,21 @@ test("public first-run docs are lco-first while preserving loo compatibility", (
     /lco-mcp-server/,
     /LCO_DB_PATH/,
     /LCO_LCM_DB_PATHS/,
-    /LCO_TOOL_PROFILE/
+    /LCO_TOOL_PROFILE/,
+    /openclaw plugins install lossless-openclaw-orchestrator@latest/
   ]) {
-    assert.match(`${readme}\n${setup}`, required);
+    assert.match(publicInstallDocs, required);
   }
 
   assert.doesNotMatch(firstWorkflow, /\bloo (?:search|describe|expand-ref|expand-query)\b/);
   assert.doesNotMatch(mcpSetup, /"command":\s*"loo-mcp-server"/);
-  assert.doesNotMatch(`${readme}\n${setup}`, /npm install -g lossless-codex-orchestrator@(?:latest|beta)/);
-  assert.match(`${readme}\n${setup}`, /lossless-openclaw-orchestrator[\s\S]{0,180}current published npm package/i);
-  assert.match(`${readme}\n${setup}`, /package-rename lane[\s\S]{0,180}lossless-codex-orchestrator/i);
-  assert.match(`${readme}\n${setup}`, /`loo`[\s\S]{0,180}compat/i);
-  assert.match(`${readme}\n${setup}`, /`LOO_\*`[\s\S]{0,180}compat/i);
-  assert.match(`${readme}\n${setup}`, /at least two minor releases/i);
+  assert.doesNotMatch(publicInstallDocs, /npm install -g lossless-codex-orchestrator@(?:latest|beta)/);
+  assert.doesNotMatch(publicInstallDocs, /openclaw plugins install lossless-codex-orchestrator@(?:latest|beta)/);
+  assert.match(publicInstallDocs, /lossless-openclaw-orchestrator[\s\S]{0,180}current published npm package/i);
+  assert.match(publicInstallDocs, /package-rename lane[\s\S]{0,180}lossless-codex-orchestrator/i);
+  assert.match(publicInstallDocs, /`loo`[\s\S]{0,180}compat/i);
+  assert.match(publicInstallDocs, /`LOO_\*`[\s\S]{0,180}compat/i);
+  assert.match(publicInstallDocs, /at least two minor releases/i);
 });
 
 test("setup guide includes per-client MCP mounting examples and multi-client storage guidance", () => {
