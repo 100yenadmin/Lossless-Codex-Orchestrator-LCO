@@ -99,6 +99,11 @@ Safety details:
   rank based without raw query text. `--metrics-path` is intentionally exempt
   from the private proposal-path guard because it writes only `publicSafe:true`
   aggregate counts, ranks, and ephemeral miss ids.
+- OpenClaw tool calls are validated against the declared top-level input schema
+  before execution. Unknown top-level fields return public-safe
+  `validation_failed` errors instead of being silently ignored; clients should
+  not piggyback telemetry, tags, or control metadata inside tool args unless the
+  selected tool explicitly declares those fields.
 - Optional LCM peer recall uses `LOO_LCM_DB_PATHS` or per-call `lcm_db_paths` and opens those DBs read-only.
 - Control tools should run `dry_run=true` first.
 - Live control requires `approval_audit_id` from the dry-run result.

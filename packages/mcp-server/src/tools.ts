@@ -457,12 +457,12 @@ function validateOpenClawToolInput(schema: Record<string, unknown>, input: Recor
   for (const [key, value] of Object.entries(input)) {
     const property = isRecordValue(properties[key]) ? properties[key] : undefined;
     if (!property || value === undefined) continue;
-    const enumValues = Array.isArray(property.enum) ? property.enum : undefined;
-    if (enumValues && !enumValues.includes(value)) return `${publicSafeInputField(key)} is not supported`;
     const expectedType = typeof property.type === "string" ? property.type : undefined;
     if (expectedType && !schemaValueMatchesType(value, expectedType)) {
       return `${publicSafeInputField(key)} must be ${expectedType}`;
     }
+    const enumValues = Array.isArray(property.enum) ? property.enum : undefined;
+    if (enumValues && !enumValues.includes(value)) return `${publicSafeInputField(key)} is not supported`;
     if (expectedType === "array" && Array.isArray(value)) {
       const items = isRecordValue(property.items) ? property.items : undefined;
       const itemType = typeof items?.type === "string" ? items.type : undefined;

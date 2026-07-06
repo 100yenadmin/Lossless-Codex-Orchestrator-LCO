@@ -1439,6 +1439,15 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.equal(gatewayUnknownArg.code, "validation_failed");
     assert.equal(gatewayUnknownArg.error?.message, "turn_wait_ms is not allowed");
     assertNoRawLocalPaths(gatewayUnknownArg);
+    const gatewayWrongTypedEnum = await executeLooToolForOpenClaw(dryRunTool, {
+      action: 123,
+      thread_id: "thr_1",
+      message: "continue"
+    }) as { ok: boolean; code?: string; error?: { code?: string; message?: string } };
+    assert.equal(gatewayWrongTypedEnum.ok, false);
+    assert.equal(gatewayWrongTypedEnum.code, "validation_failed");
+    assert.equal(gatewayWrongTypedEnum.error?.message, "action must be string");
+    assertNoRawLocalPaths(gatewayWrongTypedEnum);
     const lcmPeerTool = tools.find((tool) => tool.name === "loo_lcm_peer_dbs");
     assert.ok(lcmPeerTool);
     const nestedParserValidation = await executeLooToolForOpenClaw(lcmPeerTool, {
