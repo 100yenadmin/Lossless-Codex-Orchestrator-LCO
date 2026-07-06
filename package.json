@@ -41,7 +41,7 @@
     "prepare": "npm run build"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.5.0"
   },
   "files": [
     ".codex-plugin",
