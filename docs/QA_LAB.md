@@ -25,6 +25,17 @@ pass a relative --evidence-dir value from inside the evidence root for each gate
 Demo and judge inputs must come from a synthetic corpus or the committed
 retrieval goldens. Live-store content can never be public evidence.
 
+Direct CLI recall smokes should use bounded search arguments so large or
+temporarily locked local stores classify cleanly instead of hanging:
+
+```bash
+loo search --limit 10 --timeout-ms 5000 "<public-safe-query>"
+```
+
+If the local derived-cache database is busy, the command returns a public-safe
+`database_busy` recovery packet. Treat that as a setup/runtime blocker for the
+direct CLI lane, not as proof of a product recall result.
+
 ## What It Proves
 
 - The runtime MCP registry and OpenClaw plugin manifest agree on canonical

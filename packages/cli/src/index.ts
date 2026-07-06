@@ -97,6 +97,10 @@ import { fileURLToPath } from "node:url";
 
 const [, , command, ...args] = process.argv;
 const cliFilePath = fileURLToPath(import.meta.url);
+const DEFAULT_SEARCH_LIMIT = 10;
+const MAX_SEARCH_LIMIT = 100;
+const DEFAULT_SEARCH_TIMEOUT_MS = 5_000;
+const MAX_SEARCH_TIMEOUT_MS = 60_000;
 
 async function main() {
   if (!command) {
@@ -228,11 +232,35 @@ async function main() {
       printSearchHelp();
       return;
     }
-    const db = createDatabase();
+    const parsed = parseSearchArgs(args);
+    let db: ReturnType<typeof createDatabase> | null = null;
     try {
-      console.log(JSON.stringify(searchSessions(db, { query: args.join(" "), limit: 10 }), null, 2));
+      db = createDatabase({ maintenance: "schema-only", busyTimeoutMs: parsed.timeoutMs });
+      const started = performance.now();
+      const results = searchSessions(db, { query: parsed.query, limit: parsed.limit });
+      const elapsedMs = Math.round(performance.now() - started);
+      if (elapsedMs > parsed.timeoutMs) {
+        console.log(JSON.stringify(createSearchTimeoutReport({
+          elapsedMs,
+          limit: parsed.limit,
+          timeoutMs: parsed.timeoutMs
+        }), null, 2));
+        process.exitCode = 1;
+        return;
+      }
+      console.log(JSON.stringify(results, null, 2));
+    } catch (error) {
+      if (isDatabaseBusyError(error)) {
+        console.log(JSON.stringify(createSearchDatabaseBusyReport({
+          limit: parsed.limit,
+          timeoutMs: parsed.timeoutMs
+        }), null, 2));
+        process.exitCode = 1;
+        return;
+      }
+      throw error;
     } finally {
-      db.close();
+      db?.close();
     }
     return;
   }
@@ -1049,7 +1077,7 @@ function mainUsageText(): string {
     "  loo index codex [--verify] [--max-files n] [--max-bytes-per-file n] [--max-events-per-file n] [roots...]",
     "  loo index bench --sessions n [--verify] (internal)",
     "  loo probe codex-sqlite [roots...]",
-    "  loo search <query>",
+    "  loo search [--limit n] [--timeout-ms ms] <query>",
     "  loo session-map [--project name] [--status value] [--priority value] [--blocker value] [--priority-order urgent,high,medium,low] [--limit n]",
     "  loo grep [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <query>",
     "  loo describe [--lcm-db path] <source-ref>",
@@ -1143,14 +1171,108 @@ function isCliUsageErrorMessage(message: string): boolean {
 function printSearchHelp(): void {
   console.log([
     "Usage:",
-    "  loo search <query>",
+    "  loo search [--limit n] [--timeout-ms ms] <query>",
     "",
     "Search indexed Codex sessions with bounded safe text.",
     "",
+    "Options:",
+    "  --limit n        Maximum results to return (default 10, max 100).",
+    "  --timeout-ms ms  SQLite busy timeout plus slow-query classifier (default 5000, max 60000).",
+    "",
     "Safety boundary:",
     "  The help command does not open or query the local orchestrator database.",
-    "  Search results use source-prefixed refs and safe summaries rather than raw transcripts."
+    "  Search results use source-prefixed refs and safe summaries rather than raw transcripts.",
+    "  Busy or locked databases return a public-safe recovery packet instead of raw logs."
   ].join("\n"));
+}
+
+type ParsedSearchArgs = {
+  query: string;
+  limit: number;
+  timeoutMs: number;
+};
+
+function parseSearchArgs(input: string[]): ParsedSearchArgs {
+  const queryParts: string[] = [];
+  let limit = DEFAULT_SEARCH_LIMIT;
+  let timeoutMs = DEFAULT_SEARCH_TIMEOUT_MS;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--limit") {
+      limit = parsePositiveInteger(input[++index], "--limit", MAX_SEARCH_LIMIT);
+      continue;
+    }
+    if (arg === "--timeout-ms") {
+      timeoutMs = parsePositiveInteger(input[++index], "--timeout-ms", MAX_SEARCH_TIMEOUT_MS);
+      continue;
+    }
+    queryParts.push(arg);
+  }
+  const query = queryParts.join(" ").trim();
+  if (!query) throw new Error("search requires a query");
+  return { query, limit, timeoutMs };
+}
+
+function isDatabaseBusyError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /\b(?:SQLITE_BUSY|database is locked|database is busy|database table is locked)\b/i.test(message);
+}
+
+function createSearchDatabaseBusyReport(options: { limit: number; timeoutMs: number }): Record<string, unknown> {
+  return {
+    schema: "lco.cli.searchStatus.v1",
+    ok: false,
+    code: "database_busy",
+    classification: "recoverable_setup_error",
+    publicSafe: true,
+    readOnly: true,
+    resultLimit: options.limit,
+    busyTimeoutMs: options.timeoutMs,
+    sourceCoverage: { localIndex: "temporarily_unavailable" },
+    blockers: ["database_busy"],
+    nextSafeCommands: [
+      "Close or wait for overlapping LCO index/prep/search commands, then retry: loo search --timeout-ms 5000 --limit 10 <query>",
+      "Run loo doctor for public-safe readiness if the busy state persists."
+    ],
+    actionsPerformed: searchNoActionPerformed(),
+    privateDataExclusions: ["raw transcripts", "raw prompts", "SQLite rows", "local paths", "raw logs", "tokens", "cookies", "screenshots"],
+    proofBoundary: "This packet classifies a direct CLI search setup failure only. It does not read raw transcripts, run live Codex control, mutate a GUI, publish npm, or create a GitHub Release."
+  };
+}
+
+function createSearchTimeoutReport(options: { elapsedMs: number; limit: number; timeoutMs: number }): Record<string, unknown> {
+  return {
+    schema: "lco.cli.searchStatus.v1",
+    ok: false,
+    code: "search_timeout_exceeded",
+    classification: "recoverable_setup_error",
+    publicSafe: true,
+    readOnly: true,
+    resultLimit: options.limit,
+    timeoutMs: options.timeoutMs,
+    elapsedMs: options.elapsedMs,
+    sourceCoverage: { localIndex: "slow_query" },
+    blockers: ["search_timeout_exceeded"],
+    nextSafeCommands: [
+      "Retry with a narrower query or smaller --limit.",
+      "Run loo doctor for public-safe readiness if direct CLI search remains slow."
+    ],
+    actionsPerformed: searchNoActionPerformed(),
+    privateDataExclusions: ["raw transcripts", "raw prompts", "SQLite rows", "local paths", "raw logs", "tokens", "cookies", "screenshots"],
+    proofBoundary: "This packet classifies direct CLI search latency after a bounded safe-text query. It does not read raw transcripts, run live Codex control, mutate a GUI, publish npm, or create a GitHub Release."
+  };
+}
+
+function searchNoActionPerformed(): Record<string, boolean> {
+  return {
+    rawTranscriptRead: false,
+    sourceStoreMutation: false,
+    externalWrite: false,
+    liveControl: false,
+    guiMutation: false,
+    npmPublished: false,
+    githubReleaseCreated: false
+  };
 }
 
 function printOpenClawDogfoodHelp(): void {
