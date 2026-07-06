@@ -40,12 +40,29 @@ This remains Codex-first local orchestration.
   `blocker`, and `nextAction` are derived from the latest plan, final, and
   attention signals with source reason codes and low-confidence downgrades.
   `thread_name_updated` events are captured for fresher title routing.
+- Opt-in retrieval telemetry harvesting can propose local golden-scenario
+  candidates from search-to-describe/expand behavior. It requires explicit
+  telemetry enablement and session correlation, emits public-safe aggregate
+  metrics, keeps proposal files marked non-public-safe for manual curation, and
+  reports bounded sampling/truncation instead of implying full-population
+  coverage.
 - Tool exposure profiles are available through
   `LOO_TOOL_PROFILE=facade|standard|all`. The default remains `all`, preserving
   existing behavior. The public facade has tested `lco_*` aliases for the eight
   public-facade tools; aliases carry `metadata.aliasOf` and are excluded from
   coverage denominators. Invalid profile values warn and fall back instead of
   crashing.
+- Post-sprint integration-audit hardening is included: the ranked-search JOIN
+  now uses the same pinned session-rowid invariant as the FTS write path (with
+  a corruption regression test), `loo_doctor` is exposed at the `standard`
+  profile tier so the agent playbook's first step works under restricted
+  profiles, `loo doctor` on a never-indexed database reports a friendly
+  first-run state instead of `schema_missing`, retrieval golden scenarios now
+  ship with their fixture corpus so the packaged strict eval runs out of the
+  box (missing corpora fail closed with `corpus_missing` instead of silent
+  zero scores), stale source-file rows are pruned so drift status cannot cite
+  deleted files, and redundant FTS backfill gates were consolidated with the
+  legacy-table rowid repair moved into migration.
 - Release notes are archived under `docs/releases/`, with
   `docs/releases/CHANGELOG.md` as the per-version index.
 
