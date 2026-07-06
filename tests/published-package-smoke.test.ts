@@ -901,6 +901,30 @@ test("published-smoke classifies global loo PATH shadowing without failing prove
     assert.ok(report.binaryProbeDiagnostic.guidance.some((item) => item.includes("exact published tarball")));
     assert.ok(report.nextSafeCommands.some((command) => command.includes("npm view lossless-openclaw-orchestrator@")));
     assert.doesNotMatch(JSON.stringify(report), /\/opt\/homebrew|private shell output|old version with raw npm output/i);
+
+    writeJson(binaryProbePath, {
+      kind: "loo_published_binary_probe_evidence",
+      publicSafe: true,
+      rawSecretIncluded: false,
+      expectedPackage: "lossless-openclaw-orchestrator",
+      expectedVersion: packageJson.version,
+      observedVersion: "1.2.6",
+      resolvedBinarySource: "global_path",
+      pathShadowed: true,
+      packageJsonVersion: packageJson.version
+    });
+    const selfAttestedReport = createPublishedPackageSmokeReport({
+      rootDir: new URL("..", import.meta.url).pathname,
+      dogfoodReportPath: dogfoodPath,
+      toolSmokeReportPath: toolSmokePath,
+      binaryProbeReportPath: binaryProbePath
+    });
+    assert.equal(selfAttestedReport.ok, false);
+    assert.equal(selfAttestedReport.packagePathOk, false);
+    assert.equal(selfAttestedReport.binaryProbeDiagnostic.classification, "candidate_binary_version_mismatch");
+    assert.equal(selfAttestedReport.binaryProbeDiagnostic.packageInstallLikelyOk, false);
+    assert.equal(selfAttestedReport.binaryProbeDiagnostic.tarballBinaryVersion, null);
+    assert.deepEqual(selfAttestedReport.blockers, ["binary_probe_candidate_version_mismatch"]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -419,10 +419,9 @@ function readBinaryProbeDiagnostic(path: string | undefined, packageVersion: str
   const observedVersion = safeVersionString(readNestedString(payload, ["observedVersion"]));
   const expectedVersion = safeVersionString(readNestedString(payload, ["expectedVersion"])) ?? packageVersion;
   const tarballBinaryVersion = safeVersionString(readNestedString(payload, ["tarballBinaryVersion"]));
-  const packageJsonVersion = safeVersionString(readNestedString(payload, ["packageJsonVersion"]));
   const pathShadowed = readNestedBoolean(payload, ["pathShadowed"]);
   const resolvedBinarySource = readResolvedBinarySource(payload);
-  const tarballMatches = tarballBinaryVersion === packageVersion || packageJsonVersion === packageVersion;
+  const tarballMatches = tarballBinaryVersion === packageVersion;
   const evidenceInputs = [
     "binary_probe",
     pathShadowed ? "path_shadowed" : null,
