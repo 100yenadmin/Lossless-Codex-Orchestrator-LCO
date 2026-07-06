@@ -439,6 +439,8 @@ export async function executeLooToolForOpenClaw(tool: LooTool, input: Record<str
 }
 
 function validateOpenClawToolInput(schema: Record<string, unknown>, input: Record<string, unknown>): string | null {
+  // Shallow top-level guard for OpenClaw's plugin boundary. Nested fixture
+  // objects are intentionally left to tool-specific public-safe parsers.
   if (schema.type !== "object") return null;
   if (!isRecordValue(input)) return "value must be an object";
   const properties = isRecordValue(schema.properties) ? schema.properties : {};

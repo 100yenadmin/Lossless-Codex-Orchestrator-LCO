@@ -21,6 +21,7 @@ function createFakeOpenClaw(dir: string, options: {
   liveResponseOkFalse?: boolean;
   mismatchedLiveMessageHash?: boolean;
   missingLiveTurnStatus?: boolean;
+  liveProofCompleted?: boolean;
   resumeResponseMissingStatus?: boolean;
   resumeResponseOkFalse?: boolean;
   resumeMethod?: string;
@@ -32,12 +33,13 @@ function createFakeOpenClaw(dir: string, options: {
   const bin = join(dir, "openclaw-live-fake.mjs");
   const liveMessageHash = options.mismatchedLiveMessageHash ? "c".repeat(64) : MESSAGE_HASH;
   const liveTurnStatus = options.liveTurnStatus ?? "completed";
+  const liveProofCompleted = options.liveProofCompleted ?? liveTurnStatus === "completed";
   const liveProofState = options.liveResponseOkFalse || options.missingLiveTurnStatus
     ? ""
     : `turn_status: "${liveTurnStatus}",
       proof_state: {
         accepted_by_transport: true,
-        completed: ${liveTurnStatus === "completed"},
+        completed: ${liveProofCompleted},
         status: "${liveTurnStatus === "completed" ? "unverified_pending" : "turn_started_unconfirmed"}"
       },`;
   const liveResponse = options.liveResponseOkFalse
@@ -627,6 +629,31 @@ test("OpenClaw live-control smoke fails closed on in-flight send statuses", () =
 
     assert.equal(report.ok, false);
     assert.equal(report.live.turnStatus, "running");
+    assert.match(report.blockers.join("\n"), /openclaw_live_send_not_proven/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw live-control smoke requires completed proof independent of terminal-looking send status", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-smoke-status-complete-proof-false-"));
+  const { bin, callsPath } = createFakeOpenClaw(root, { liveTurnStatus: "complete", liveProofCompleted: false });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+
+  try {
+    const report = runOpenClawGatewayLiveControlSmoke({
+      openclawBin: bin,
+      evidenceDir: join(root, "evidence"),
+      threadId: "thr_gateway_live",
+      action: "send"
+    });
+
+    assert.equal(report.ok, false);
+    assert.equal(report.live.turnStatus, "complete");
+    assert.equal(report.live.turnCompleted, false);
     assert.match(report.blockers.join("\n"), /openclaw_live_send_not_proven/);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
