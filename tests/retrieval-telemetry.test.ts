@@ -166,6 +166,12 @@ test("search telemetry is off by default and ignores follows outside the correla
       limit: 5,
       now: "2026-07-06T00:00:00.000Z"
     });
+    searchSessions(db, {
+      query: "search expansion telemetry harvest target",
+      limit: 5,
+      telemetry: true,
+      now: "2026-07-06T00:01:00.000Z"
+    });
     describeRecallRef(db, {
       sourceRef: "codex_thread:019f-telemetry-alpha",
       telemetry: true,
@@ -189,6 +195,36 @@ test("search telemetry is off by default and ignores follows outside the correla
     });
     assert.equal((db.prepare("SELECT COUNT(*) AS count FROM telemetry_search_events").get() as { count: number }).count, 1);
     assert.equal((db.prepare("SELECT COUNT(*) AS count FROM telemetry_follow_events").get() as { count: number }).count, 0);
+  } finally {
+    db.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("expand telemetry records one expand follow without an internal describe follow", () => {
+  const fixture = makeTelemetryFixture();
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [fixture.sessions], maxFiles: 10 });
+    searchSessions(db, {
+      query: "search expansion telemetry harvest target",
+      limit: 5,
+      telemetry: true,
+      telemetrySessionId: "agent-expand-only",
+      now: "2026-07-06T00:00:00.000Z"
+    });
+
+    expandRecallRef(db, {
+      sourceRef: "codex_thread:019f-telemetry-alpha",
+      profile: "metadata",
+      telemetry: true,
+      telemetrySessionId: "agent-expand-only",
+      now: "2026-07-06T00:02:00.000Z"
+    });
+
+    const followRows = db.prepare("SELECT follow_kind AS followKind, COUNT(*) AS count FROM telemetry_follow_events GROUP BY follow_kind ORDER BY follow_kind").all()
+      .map((row) => ({ ...(row as Record<string, unknown>) }));
+    assert.deepEqual(followRows, [{ followKind: "expand", count: 1 }]);
   } finally {
     db.close();
     rmSync(fixture.root, { recursive: true, force: true });
@@ -227,12 +263,15 @@ test("retrieval telemetry harvest proposes local non-public-safe scenarios and p
     const proposal = JSON.parse(readFileSync(proposalPath, "utf8")) as {
       publicSafe?: boolean;
       requiresManualCuration?: boolean;
-      scenarios?: Array<{ query?: string; expectedSourceRefs?: string[]; observedRank?: number; followKinds?: string[]; occurrenceCount?: number }>;
+      scenarios?: Array<{ publicSafe?: boolean; requiresManualCuration?: boolean; redactionRequired?: boolean; query?: string; expectedSourceRefs?: string[]; observedRank?: number; followKinds?: string[]; occurrenceCount?: number }>;
     };
     assert.equal(proposal.publicSafe, false);
     assert.equal(proposal.requiresManualCuration, true);
     assert.deepEqual(proposal.scenarios, [{
       id: "harvested-query-1",
+      publicSafe: false,
+      requiresManualCuration: true,
+      redactionRequired: true,
       query: "search expansion telemetry harvest target",
       queryHash: sha256("search expansion telemetry harvest target"),
       expectedSourceRefs: ["codex_thread:019f-telemetry-alpha"],
@@ -309,13 +348,14 @@ test("public telemetry miss metrics do not expose stable per-query hashes", () =
     const privateQuery = "ssn 1234 private miss query";
     db.prepare(`
       INSERT INTO telemetry_search_events (
-        id, ts, query_text, query_hash, result_refs_json, matched_field_distribution_json, engine_version
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        id, ts, query_text, query_hash, telemetry_session_key, result_refs_json, matched_field_distribution_json, engine_version
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       "manual-search-private-miss",
       "2026-07-06T00:00:00.000Z",
       privateQuery,
       sha256(privateQuery),
+      sha256("manual-session"),
       JSON.stringify(["codex_thread:a", "codex_thread:b", "codex_thread:c", "codex_thread:d", "codex_thread:e", "codex_thread:target"]),
       "{}",
       "test"
@@ -374,6 +414,39 @@ test("CLI harvest mode rejects evidence paths and writes no scenario-file output
     assert.equal(result.status, 2, result.stderr || result.stdout);
     assert.equal(result.stdout.trim(), "");
     assert.match(result.stderr, /^Error: Invalid --harvest: cannot be combined with --evidence-path\n$/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("CLI harvest strict mode exits non-zero when no scenarios are proposed", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-retrieval-harvest-strict-"));
+  try {
+    const result = spawnSync(process.execPath, [
+      "--import",
+      "tsx",
+      "packages/cli/src/index.ts",
+      "eval",
+      "retrieval",
+      "--harvest",
+      join(root, "proposal.json"),
+      "--metrics-path",
+      join(root, "metrics.json"),
+      "--now",
+      "2026-07-06T00:00:00.000Z",
+      "--strict"
+    ], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        LOO_DB_PATH: join(root, "orchestrator.sqlite")
+      }
+    });
+
+    assert.equal(result.status, 1, result.stderr || result.stdout);
+    const report = JSON.parse(result.stdout) as { summary?: { proposedScenarios?: number } };
+    assert.equal(report.summary?.proposedScenarios, 0);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

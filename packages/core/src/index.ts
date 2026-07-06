@@ -2257,6 +2257,8 @@ const SESSION_METADATA_EXTRACTOR_VERSION = `session-metadata-v${SESSION_METADATA
 const RETRIEVAL_TELEMETRY_MIGRATION_ID = "2026-07-06-retrieval-telemetry";
 const RETRIEVAL_TELEMETRY_ENGINE_VERSION = "field-weighted-fts-v1";
 const RETRIEVAL_TELEMETRY_WINDOW_MS = 15 * 60 * 1000;
+const RETRIEVAL_TELEMETRY_HARVEST_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
+const RETRIEVAL_TELEMETRY_HARVEST_MAX_ROWS = 1000;
 
 export type RecallSourceKind = "codex_thread" | "lcm_summary" | "claude_session";
 
@@ -2458,6 +2460,8 @@ export type RetrievalTelemetryHarvestOptions = {
   proposalPath: string;
   metricsPath?: string | null;
   now?: string;
+  lookbackMs?: number;
+  maxRows?: number;
 };
 
 export type LcmPeerProbe = {
@@ -2753,7 +2757,7 @@ export function migrate(db: LooDatabase): void {
         'Additive Codex source extractor-state columns and hot read-path indexes'
       ),
       (
-        '2026-07-06-retrieval-telemetry',
+        '${RETRIEVAL_TELEMETRY_MIGRATION_ID}',
         datetime('now'),
         'Additive opt-in retrieval telemetry search and follow tables'
       );
@@ -8339,8 +8343,9 @@ function recordTelemetrySearchEvent(db: LooDatabase, options: {
 }): void {
   const query = options.query.trim();
   if (!query) return;
-  const resultRefs = options.results.map((result) => result.sourceRef).filter(Boolean);
   const telemetrySessionKey = retrievalTelemetrySessionKey(options.telemetrySessionId);
+  if (!telemetrySessionKey) return;
+  const resultRefs = options.results.map((result) => result.sourceRef).filter(Boolean);
   db.prepare(`
     INSERT INTO telemetry_search_events (
       id, ts, query_text, query_hash, telemetry_session_key, result_refs_json, matched_field_distribution_json, engine_version
@@ -13897,6 +13902,10 @@ type TelemetryHarvestCandidate = {
 
 export function harvestRetrievalTelemetry(db: LooDatabase, options: RetrievalTelemetryHarvestOptions): RetrievalTelemetryHarvestReport {
   const generatedAt = telemetryTimestamp(options.now);
+  const generatedAtMs = timestampMillis(generatedAt) ?? Date.now();
+  const lookbackMs = positiveLimit(options.lookbackMs, RETRIEVAL_TELEMETRY_HARVEST_LOOKBACK_MS, "lookbackMs");
+  const maxRows = clamp(options.maxRows ?? RETRIEVAL_TELEMETRY_HARVEST_MAX_ROWS, 1, 10_000);
+  const sinceIso = new Date(generatedAtMs - lookbackMs).toISOString();
   const rows = db.prepare(`
     SELECT
       s.query_text AS queryText,
@@ -13907,9 +13916,13 @@ export function harvestRetrievalTelemetry(db: LooDatabase, options: RetrievalTel
       COUNT(*) AS occurrenceCount
     FROM telemetry_follow_events f
     JOIN telemetry_search_events s ON s.id = f.search_event_id
+    WHERE s.telemetry_session_key IS NOT NULL
+      AND f.ts >= ?
+      AND f.ts <= ?
     GROUP BY s.query_hash, s.query_text, f.chosen_ref, f.rank_position, f.follow_kind
     ORDER BY s.query_hash ASC, occurrenceCount DESC, f.rank_position ASC, f.chosen_ref ASC
-  `).all() as Array<{
+    LIMIT ?
+  `).all(sinceIso, generatedAt, maxRows) as Array<{
     queryText: string;
     queryHash: string;
     chosenRef: string;
@@ -13952,6 +13965,9 @@ export function harvestRetrievalTelemetry(db: LooDatabase, options: RetrievalTel
     .sort((left, right) => left.queryHash.localeCompare(right.queryHash));
   const scenarios = candidates.map((candidate, index) => ({
     id: `harvested-query-${index + 1}`,
+    publicSafe: false,
+    requiresManualCuration: true,
+    redactionRequired: true,
     query: candidate.queryText,
     queryHash: candidate.queryHash,
     expectedSourceRefs: [candidate.chosenRef],

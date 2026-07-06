@@ -431,7 +431,8 @@ export function createLooTools(options: {
       profile: { type: "string", enum: ["metadata", "brief", "evidence"] },
       token_budget: { type: "integer", minimum: 20, maximum: 8000 },
       lcm_db_paths: { type: "array", items: { type: "string" } },
-      telemetry_session_id: { type: "string" }
+      telemetry_session_id: { type: "string" },
+      now: { type: "string" }
     }, (input) => grepRecall(options.db, {
       query: requiredString(input.query, "query"),
       limit: optionalNumber(input.limit),
@@ -439,7 +440,8 @@ export function createLooTools(options: {
       tokenBudget: optionalNumber(input.token_budget),
       lcmDbPaths: optionalRoots(input.lcm_db_paths, configuredLcmPeerDbPaths()),
       telemetry: telemetryEnabled,
-      telemetrySessionId: optionalString(input.telemetry_session_id)
+      telemetrySessionId: optionalString(input.telemetry_session_id),
+      now: optionalString(input.now)
     })),
     tool("loo_describe_session", "Describe one indexed Codex session by thread id.", {
       thread_id: { type: "string" },

@@ -235,6 +235,9 @@
             },
             "telemetry_session_id": {
               "type": "string"
+            },
+            "now": {
+              "type": "string"
             }
           }
         }
