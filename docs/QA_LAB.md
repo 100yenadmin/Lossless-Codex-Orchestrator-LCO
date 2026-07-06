@@ -33,6 +33,9 @@ reported as setup/runtime blockers:
 loo search --limit 10 --timeout-ms 5000 "<public-safe-query>"
 ```
 
+If the public-safe query begins with flag-like words, pass `--` before the query
+text, for example `loo search --limit 10 -- --limit flaglikequery`.
+
 If the local derived-cache database is busy, the command returns a public-safe
 `database_busy` recovery packet. Treat that as a setup/runtime blocker for the
 direct CLI lane, not as proof of a product recall result. The synchronous

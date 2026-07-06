@@ -73,6 +73,8 @@ test("loo search classifies locked databases without leaking local paths", () =>
       db.close();
     }
 
+    // This intentionally holds an exclusive write transaction so the spawned CLI
+    // proves the SQLite busy-timeout path rather than relying on a slow query.
     locker = new DatabaseSync(dbPath, { timeout: 1 });
     locker.exec("PRAGMA locking_mode=EXCLUSIVE; BEGIN EXCLUSIVE; CREATE TABLE IF NOT EXISTS lock_hold (id INTEGER); INSERT INTO lock_hold VALUES (1);");
 
@@ -108,6 +110,38 @@ test("loo search classifies locked databases without leaking local paths", () =>
       }
       locker.close();
     }
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("loo search supports flag-like query text after the option delimiter", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-cli-search-delimiter-"));
+  try {
+    const dbPath = join(root, "orchestrator.sqlite");
+    const sessions = join(root, "sessions");
+    mkdirSync(sessions, { recursive: true });
+    writeSession(
+      join(sessions, "flaglike.jsonl"),
+      "019f-search-flaglike",
+      "Flag-like query fixture",
+      "Final: --limit flaglikequery is searchable as text."
+    );
+    const db = createDatabase(dbPath);
+    try {
+      indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    } finally {
+      db.close();
+    }
+
+    const result = runLoo(["search", "--limit", "1", "--", "--limit", "flaglikequery"], {
+      ...process.env,
+      LOO_DB_PATH: dbPath
+    }, 5_000);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const payload = JSON.parse(result.stdout) as Array<{ sourceRef?: unknown }>;
+    assert.equal(payload.length, 1);
+    assert.equal(payload[0]?.sourceRef, "codex_thread:019f-search-flaglike");
+  } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -176,6 +210,8 @@ test("loo describe and expand classify locked databases without leaking local pa
       db.close();
     }
 
+    // This intentionally holds an exclusive write transaction so the spawned CLI
+    // proves the SQLite busy-timeout path rather than relying on a slow query.
     locker = new DatabaseSync(dbPath, { timeout: 1 });
     locker.exec("PRAGMA locking_mode=EXCLUSIVE; BEGIN EXCLUSIVE; CREATE TABLE IF NOT EXISTS lock_hold (id INTEGER); INSERT INTO lock_hold VALUES (1);");
     const env = { ...process.env, LOO_DB_PATH: dbPath };

@@ -1192,6 +1192,7 @@ function printSearchHelp(): void {
     "Options:",
     "  --limit n        Maximum results to return (default 10, max 100).",
     "  --timeout-ms ms  SQLite busy timeout plus slow-query classifier (default 5000, max 60000).",
+    "  --               Treat remaining arguments as query text, even when they look like flags.",
     "",
     "Safety boundary:",
     "  The help command does not open or query the local orchestrator database.",
@@ -1219,6 +1220,10 @@ function parseSearchArgs(input: string[]): ParsedSearchArgs {
     if (arg === "--timeout-ms") {
       timeoutMs = parsePositiveInteger(input[++index], "--timeout-ms", MAX_RECALL_TIMEOUT_MS);
       continue;
+    }
+    if (arg === "--") {
+      queryParts.push(...input.slice(index + 1));
+      break;
     }
     queryParts.push(arg);
   }
