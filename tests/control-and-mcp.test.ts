@@ -475,7 +475,7 @@ test("canonical desktop proof filters start-thread proof input to the allowed su
       requested_title: "Filtered proof worker",
       alias: "filtered-proof",
       parent_thread_id: "thr_parent",
-      limit: 10,
+      limit: 500,
       scratch_file_path: rawPathCanary,
       approval_ref: secretCanary,
       action_evidence: { raw: `${rawPathCanary} ${secretCanary}` },
@@ -488,6 +488,7 @@ test("canonical desktop proof filters start-thread proof input to the allowed su
     assert.equal(serialized.includes(rawPathCanary), false);
     assert.equal(serialized.includes(secretCanary), false);
     assert.deepEqual(readCalls.map((call) => call.method), ["thread/list", "thread/read"]);
+    assert.equal(readCalls[0]?.params.limit, 100);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });

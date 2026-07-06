@@ -503,18 +503,6 @@ export function createLooTools(options: {
       telemetrySessionId: optionalString(input.telemetry_session_id),
       now: optionalString(input.now)
     })),
-    tool("loo_describe_session", "Describe one indexed Codex session by thread id.", {
-      thread_id: { type: "string" },
-      telemetry_session_id: { type: "string" },
-      now: { type: "string" }
-    }, (input) => {
-      const threadId = normalizeCodexThreadIdInput(requiredString(input.thread_id, "thread_id"));
-      return describeSession(options.db, threadId, {
-        telemetry: telemetryEnabled,
-        telemetrySessionId: optionalString(input.telemetry_session_id),
-        now: optionalString(input.now)
-      }) ?? createCodexThreadNotFoundResult(options.db, threadId);
-    }),
     tool("loo_describe_ref", "Describe a source-prefixed recall ref such as codex_thread:* or lcm_summary:*.", {
       source_ref: { type: "string" },
       thread_id: { type: "string" },
@@ -561,42 +549,6 @@ export function createLooTools(options: {
       telemetrySessionId: optionalString(input.telemetry_session_id),
       now: optionalString(input.now)
     })),
-    tool("loo_summary_leaves", "List deterministic public-safe summary leaves over prepared Codex source ranges.", {
-      thread_id: { type: "string" },
-      leaf_kind: { type: "string", enum: ["user_prompt", "assistant_message", "proposed_plan", "final_message", "closeout", "tool_call_metadata", "event_metadata"] },
-      limit: { type: "integer", minimum: 1, maximum: 1000 }
-    }, (input) => getSummaryLeaves(options.db, {
-      threadId: optionalString(input.thread_id),
-      leafKind: optionalSummaryLeafKind(input.leaf_kind),
-      limit: optionalNumber(input.limit)
-    })),
-    tool("loo_summary_expand", "Expand public-safe summary leaf lineage under depth, node, and token caps.", {
-      leaf_ref: { type: "string" },
-      thread_id: { type: "string" },
-      max_depth: { type: "integer", minimum: 0, maximum: 20 },
-      max_nodes: { type: "integer", minimum: 1, maximum: 200 },
-      token_budget: { type: "integer", minimum: 8, maximum: 8000 }
-    }, (input) => expandSummaryLeaves(options.db, {
-      leafRef: optionalString(input.leaf_ref),
-      threadId: optionalString(input.thread_id),
-      maxDepth: optionalNumber(input.max_depth),
-      maxNodes: optionalNumber(input.max_nodes),
-      tokenBudget: optionalNumber(input.token_budget)
-    })),
-    tool("loo_prepared_state_status", "Read public-safe prepared-state cache coverage and counts.", {
-      thread_id: { type: "string" }
-    }, (input) => getPreparedStateStatus(options.db, {
-      threadId: optionalString(input.thread_id)
-    })),
-    tool("loo_prepared_cards", "List public-safe prepared Codex state cards over summary leaves.", {
-      thread_id: { type: "string" },
-      state: { type: "string", enum: [...PREPARED_CARD_STATES] },
-      limit: { type: "integer", minimum: 1, maximum: 500 }
-    }, (input) => getPreparedCards(options.db, {
-      threadId: optionalString(input.thread_id),
-      state: optionalPreparedCardState(input.state),
-      limit: optionalNumber(input.limit)
-    })),
     tool("loo_prepared_inbox", "Read the deterministic execute-false prepared-state attention inbox.", {
       thread_id: { type: "string" },
       limit: { type: "integer", minimum: 1, maximum: 200 }
@@ -641,36 +593,6 @@ export function createLooTools(options: {
         tokenBudget: optionalNumber(input.token_budget)
       });
     }),
-    tool("loo_codex_thread_map", "Read the indexed Codex thread map.", {
-      limit: { type: "integer", minimum: 1, maximum: 500 },
-      project: { type: "string" },
-      status: { type: "string" },
-      priority: { type: "string" },
-      blocker: { type: "string" },
-      priority_order: { type: "array", items: { type: "string" } }
-    }, (input) => getCodexThreadMap(options.db, {
-      limit: optionalNumber(input.limit),
-      project: optionalString(input.project),
-      status: optionalString(input.status),
-      priority: optionalString(input.priority),
-      blocker: optionalString(input.blocker),
-      priorityOrder: optionalStringArray(input.priority_order)
-    })),
-    tool("loo_codex_session_management_map", "Read a public-safe orchestration map for active, blocked, expansion, archive, fork, and resume lanes.", {
-      limit: { type: "integer", minimum: 1, maximum: 500 },
-      project: { type: "string" },
-      status: { type: "string" },
-      priority: { type: "string" },
-      blocker: { type: "string" },
-      priority_order: { type: "array", items: { type: "string" } }
-    }, (input) => getCodexSessionManagementMap(options.db, {
-      limit: optionalNumber(input.limit),
-      project: optionalString(input.project),
-      status: optionalString(input.status),
-      priority: optionalString(input.priority),
-      blocker: optionalString(input.blocker),
-      priorityOrder: optionalStringArray(input.priority_order)
-    })),
     tool("loo_recent_sessions", "List recent or active Codex sessions as compact public-safe cards without requiring query text.", {
       scope: { type: "string", enum: ["active", "recent", "all"] },
       since: { type: "string" },
@@ -696,125 +618,6 @@ export function createLooTools(options: {
       touchedPath: optionalString(input.touched_path),
       risk: optionalRisk(input.risk),
       includeCards: input.include_cards !== false,
-      now: optionalString(input.now)
-    })),
-    tool("loo_cockpit_inbox", "Rank Codex sessions that need attention using deterministic public-safe session cards.", {
-      limit: { type: "integer", minimum: 1, maximum: 500 },
-      priority_order: { type: "array", items: { type: "string" } },
-      watcher_specs: { type: "array", items: { type: "object", additionalProperties: true } },
-      now: { type: "string" }
-    }, (input) => getCockpitInbox(options.db, {
-      limit: optionalNumber(input.limit),
-      priorityOrder: optionalStringArray(input.priority_order),
-      watcherSpecs: optionalWatchSpecs(input.watcher_specs),
-      now: optionalString(input.now)
-    })),
-    tool("loo_codex_collaboration_cockpit", "Summarize Codex collaboration lanes from indexed sessions, inbox urgency, watcher requests, and optional Desktop coherence/fallback evidence without performing actions.", {
-      limit: { type: "integer", minimum: 1, maximum: 500 },
-      priority_order: { type: "array", items: { type: "string" } },
-      watcher_specs: { type: "array", items: { type: "object", additionalProperties: true } },
-      desktop_coherence_reports: { type: "array", items: { type: "object", additionalProperties: true } },
-      desktop_fallback_reports: { type: "array", items: { type: "object", additionalProperties: true } },
-      now: { type: "string" }
-    }, (input) => createCodexCollaborationCockpit(options.db, {
-      limit: optionalNumber(input.limit),
-      priorityOrder: optionalStringArray(input.priority_order),
-      watcherSpecs: optionalWatchSpecs(input.watcher_specs),
-      desktopCoherenceReports: optionalRecordArray(input.desktop_coherence_reports),
-      desktopFallbackReports: optionalRecordArray(input.desktop_fallback_reports),
-      now: optionalString(input.now)
-    })),
-    tool("loo_codex_collaboration_next_steps", "Plan exact read-only next tool calls for Codex collaboration lanes without executing control or GUI actions.", {
-      limit: { type: "integer", minimum: 1, maximum: 500 },
-      priority_order: { type: "array", items: { type: "string" } },
-      watcher_specs: { type: "array", items: { type: "object", additionalProperties: true } },
-      desktop_coherence_reports: { type: "array", items: { type: "object", additionalProperties: true } },
-      desktop_fallback_reports: { type: "array", items: { type: "object", additionalProperties: true } },
-      now: { type: "string" }
-    }, (input) => createCodexCollaborationNextSteps(options.db, {
-      limit: optionalNumber(input.limit),
-      priorityOrder: optionalStringArray(input.priority_order),
-      watcherSpecs: optionalWatchSpecs(input.watcher_specs),
-      desktopCoherenceReports: optionalRecordArray(input.desktop_coherence_reports),
-      desktopFallbackReports: optionalRecordArray(input.desktop_fallback_reports),
-      now: optionalString(input.now)
-    })),
-    tool("loo_codex_runtime_desktop_visibility_status", "Summarize whether collaboration cockpit lanes have public-safe runtime Desktop visibility proof or exact read-only next proof steps.", {
-      limit: { type: "integer", minimum: 1, maximum: 500 },
-      priority_order: { type: "array", items: { type: "string" } },
-      watcher_specs: { type: "array", items: { type: "object", additionalProperties: true } },
-      desktop_coherence_reports: { type: "array", items: { type: "object", additionalProperties: true } },
-      desktop_fallback_reports: { type: "array", items: { type: "object", additionalProperties: true } },
-      desktop_collaboration_proof_reports: { type: "array", items: { type: "object", additionalProperties: true } },
-      now: { type: "string" }
-    }, (input) => createCodexRuntimeDesktopVisibilityStatus(options.db, {
-      limit: optionalNumber(input.limit),
-      priorityOrder: optionalStringArray(input.priority_order),
-      watcherSpecs: optionalWatchSpecs(input.watcher_specs),
-      desktopCoherenceReports: optionalRecordArray(input.desktop_coherence_reports),
-      desktopFallbackReports: optionalRecordArray(input.desktop_fallback_reports),
-      desktopCollaborationProofReports: optionalRecordArray(input.desktop_collaboration_proof_reports),
-      now: optionalString(input.now)
-    })),
-    tool("loo_codex_active_thread_state", "Classify active Codex threads using public-safe cockpit signals, attention coverage, execute-false read-only probes, and non-executed control dry-run recommendations where safe.", {
-      limit: { type: "integer", minimum: 1, maximum: 500 },
-      priority_order: { type: "array", items: { type: "string" } },
-      watcher_specs: { type: "array", items: { type: "object", additionalProperties: true } },
-      desktop_coherence_reports: { type: "array", items: { type: "object", additionalProperties: true } },
-      desktop_fallback_reports: { type: "array", items: { type: "object", additionalProperties: true } },
-      app_server_threads: { type: "object", additionalProperties: true },
-      visible_map: { type: "object", additionalProperties: true },
-      now: { type: "string" }
-    }, (input) => createCodexActiveThreadState(options.db, {
-      limit: optionalNumber(input.limit),
-      priorityOrder: optionalStringArray(input.priority_order),
-      watcherSpecs: optionalWatchSpecs(input.watcher_specs),
-      desktopCoherenceReports: optionalRecordArray(input.desktop_coherence_reports),
-      desktopFallbackReports: optionalRecordArray(input.desktop_fallback_reports),
-      appServerThreads: optionalRecord(input.app_server_threads) as AppServerThreadsInput | undefined,
-      visibleMap: optionalRecord(input.visible_map) as VisibleCodexSessionMapReport | undefined,
-      now: optionalString(input.now)
-    })),
-    tool("loo_codex_autonomy_tick", "Plan one deterministic read-only Codex autonomy loop tick from active-thread state without executing control, GUI actions, raw transcript reads, publishing, or releases.", {
-      limit: { type: "integer", minimum: 1, maximum: 500 },
-      priority_order: { type: "array", items: { type: "string" } },
-      watcher_specs: { type: "array", items: { type: "object", additionalProperties: true } },
-      desktop_coherence_reports: { type: "array", items: { type: "object", additionalProperties: true } },
-      desktop_fallback_reports: { type: "array", items: { type: "object", additionalProperties: true } },
-      app_server_threads: { type: "object", additionalProperties: true },
-      visible_map: { type: "object", additionalProperties: true },
-      now: { type: "string" }
-    }, (input) => createCodexAutonomyTick(options.db, {
-      limit: optionalNumber(input.limit),
-      priorityOrder: optionalStringArray(input.priority_order),
-      watcherSpecs: optionalWatchSpecs(input.watcher_specs),
-      desktopCoherenceReports: optionalRecordArray(input.desktop_coherence_reports),
-      desktopFallbackReports: optionalRecordArray(input.desktop_fallback_reports),
-      appServerThreads: optionalRecord(input.app_server_threads) as AppServerThreadsInput | undefined,
-      visibleMap: optionalRecord(input.visible_map) as VisibleCodexSessionMapReport | undefined,
-      now: optionalString(input.now)
-    })),
-    tool("loo_codex_desktop_collaboration_proof", "Validate an exact action-bound Codex Desktop collaboration proof packet without running live control or GUI mutation.", {
-      target_ref: { type: "string" },
-      target_thread_id: { type: "string" },
-      backend: { type: "string", enum: ["direct", "cua-driver", "peekaboo"] },
-      target_app: { type: "string" },
-      target_window: { type: "string" },
-      action: { type: "string" },
-      action_hash: { type: "string" },
-      approval_packet: { type: "object", additionalProperties: true },
-      execute: { type: "boolean" },
-      now: { type: "string" }
-    }, (input) => createCodexDesktopCollaborationProof({
-      targetRef: optionalString(input.target_ref),
-      targetThreadId: optionalString(input.target_thread_id),
-      desktopBackend: optionalDesktopBackend(input.backend),
-      targetApp: optionalString(input.target_app),
-      targetWindow: optionalString(input.target_window),
-      action: optionalString(input.action),
-      actionHash: optionalString(input.action_hash),
-      approvalPacket: input.approval_packet,
-      execute: input.execute === true,
       now: optionalString(input.now)
     })),
     tool("loo_watchers", "Read watcher status, dry-run request packets, persisted watcher events, or one resume-request packet through a canonical execute-false watcher surface.", {
@@ -864,68 +667,6 @@ export function createLooTools(options: {
         proofBoundary: "Dry-run watcher packets are requests only; no live Codex control, GUI mutation, external write, cleanup, or notification is performed."
       };
     }),
-    tool("loo_watchers_list", "List read-only watcher specs as deterministic public-safe watcher status rows.", {
-      watcher_specs: { type: "array", items: { type: "object", additionalProperties: true } },
-      limit: { type: "integer", minimum: 1, maximum: 1000 },
-      now: { type: "string" }
-    }, (input) => createWatcherStatusReport(optionalWatchSpecs(input.watcher_specs) ?? [], {
-      limit: optionalNumber(input.limit),
-      now: optionalString(input.now)
-    })),
-    tool("loo_watcher_status", "Describe one read-only watcher status without cleanup or mutation.", {
-      watcher_specs: { type: "array", items: { type: "object", additionalProperties: true } },
-      watch_id: { type: "string" },
-      now: { type: "string" }
-    }, (input) => createWatcherStatusReport(optionalWatchSpecs(input.watcher_specs) ?? [], {
-      watchId: optionalString(input.watch_id),
-      now: optionalString(input.now)
-    })),
-    tool("loo_watcher_dry_run", "Preview watcher-triggered resume request packets without sending or mutating anything.", {
-      watcher_specs: { type: "array", items: { type: "object", additionalProperties: true } },
-      limit: { type: "integer", minimum: 1, maximum: 1000 },
-      now: { type: "string" }
-    }, (input) => {
-      const status = createWatcherStatusReport(optionalWatchSpecs(input.watcher_specs) ?? [], {
-        limit: optionalNumber(input.limit),
-        now: optionalString(input.now)
-      });
-      return {
-        schema: "lco.watchers.dryRun.v1",
-        publicSafe: true,
-        status,
-        resumeRequestPackets: status.watchers
-          .filter((watcher) => watcher.status === "triggered")
-          .map((watcher) => createResumeRequestPacket(watcher, { now: optionalString(input.now) })),
-        actionsPerformed: status.actionsPerformed,
-        proofBoundary: "Dry-run watcher packets are requests only; no live Codex control, GUI mutation, external write, cleanup, or notification is performed."
-      };
-    }),
-    tool("loo_watcher_events", "Read persisted public-safe watcher observations and execute-false local attention queue items.", {
-      watch_id: { type: "string" },
-      target_ref: { type: "string" },
-      limit: { type: "integer", minimum: 1, maximum: 1000 },
-      now: { type: "string" }
-    }, (input) => getWatcherEvents(options.db, {
-      watchId: optionalString(input.watch_id),
-      targetRef: optionalString(input.target_ref),
-      limit: optionalNumber(input.limit),
-      now: optionalString(input.now)
-    })),
-    tool("loo_resume_request_packet", "Create one approval-bounded resume request packet from a read-only watcher spec.", {
-      watcher_spec: { type: "object", additionalProperties: true },
-      now: { type: "string" },
-      ttl_seconds: { type: "integer", minimum: 60, maximum: 86400 },
-      recommended_action: { type: "string", enum: ["inspect", "resume", "approve", "ignore"] }
-    }, (input) => {
-      const status = createWatcherStatusReport([requiredWatchSpec(input.watcher_spec, "watcher_spec")], { now: optionalString(input.now), limit: 1 });
-      const watcher = status.watchers[0];
-      if (!watcher) throw new Error("watcher_spec did not produce a watcher state");
-      return createResumeRequestPacket(watcher, {
-        now: optionalString(input.now),
-        ttlSeconds: optionalNumber(input.ttl_seconds),
-        recommendedAction: optionalWatcherRecommendedAction(input.recommended_action)
-      });
-    }),
     tool("loo_codex_app_server_status", "Read Codex app-server status and read-method posture without enabling control.", {}, () => createCodexAppServerStatusReport({
       client: codexReadClient,
       command: process.env.LOO_CODEX_BIN || "codex"
@@ -938,19 +679,6 @@ export function createLooTools(options: {
       limit: optionalNumber(input.limit),
       readThreadId: optionalString(input.read_thread_id)
     })),
-    tool("loo_codex_start_thread_post_create_proof", "Read public-safe post-create proof for a newly started Codex thread without control, raw transcripts, or GUI mutation.", {
-      created_thread_id: { type: "string" },
-      worker_thread_id: { type: "string" },
-      created_thread_ref: { type: "string" },
-      requested_title: { type: "string" },
-      alias: { type: "string" },
-      parent_thread_id: { type: "string" },
-      limit: { type: "integer", minimum: 1, maximum: 100 }
-    }, (input) => createStartThreadPostCreateProof({
-      db: options.db,
-      codexReadClient,
-      input: startThreadPostCreateProofInput(input)
-    })),
     tool("loo_visible_codex_map", "Join indexed session cards with optional visible Codex and read-only app-server signals.", {
       limit: { type: "integer", minimum: 1, maximum: 500 },
       include_app_server: { type: "boolean" },
@@ -961,69 +689,6 @@ export function createLooTools(options: {
       visible_codex: { type: "object", additionalProperties: true },
       app_server_threads: { type: "object", additionalProperties: true }
     }, (input) => buildVisibleCodexMapFromToolInput(input, options)),
-    tool("loo_codex_desktop_coherence", "Classify whether CLI/direct/app-server Codex thread evidence is also visible in Codex Desktop without performing control or GUI actions.", {
-      thread_id: { type: "string" },
-      source_ref: { type: "string" },
-      refresh_kind: { type: "string", enum: ["none", "desktop_refresh", "desktop_restart"] },
-      visible_map: { type: "object", additionalProperties: true },
-      before_visible_map: { type: "object", additionalProperties: true },
-      after_visible_map: { type: "object", additionalProperties: true },
-      action_evidence: { type: "object", additionalProperties: true },
-      include_app_server: { type: "boolean" },
-      include_visible_snapshot: { type: "boolean" },
-      backend: { type: "string", enum: ["direct", "cua-driver", "peekaboo"] },
-      max_nodes: { type: "integer", minimum: 1, maximum: 500 },
-      max_chars: { type: "integer", minimum: 1, maximum: 20000 },
-      limit: { type: "integer", minimum: 1, maximum: 500 },
-      now: { type: "string" }
-    }, async (input) => {
-      const visibleMap = optionalRecord(input.visible_map) as VisibleCodexSessionMapReport | undefined;
-      const beforeMap = optionalRecord(input.before_visible_map) as VisibleCodexSessionMapReport | undefined;
-      const afterMap = optionalRecord(input.after_visible_map) as VisibleCodexSessionMapReport | undefined;
-      const generatedMap = (visibleMap || beforeMap || afterMap) ? undefined : await buildVisibleCodexMapForTool(input, options);
-      return createCodexDesktopCoherenceReport({
-        threadId: optionalString(input.thread_id),
-        sourceRef: optionalString(input.source_ref),
-        visibleMap: visibleMap ?? generatedMap,
-        beforeMap,
-        afterMap,
-        refreshKind: optionalRefreshKind(input.refresh_kind),
-        actionEvidence: optionalRecord(input.action_evidence),
-        now: optionalString(input.now)
-      });
-    }),
-    tool("loo_codex_desktop_fallback_status", "Report CUA-first and Peekaboo-secondary Codex Desktop fallback readiness for a target thread without performing GUI actions.", {
-      thread_id: { type: "string" },
-      source_ref: { type: "string" },
-      coherence: { type: "object", additionalProperties: true },
-      include_visible_snapshot: { type: "boolean" },
-      max_nodes: { type: "integer", minimum: 1, maximum: 500 },
-      max_chars: { type: "integer", minimum: 1, maximum: 20000 },
-      now: { type: "string" }
-    }, (input) => createCodexDesktopFallbackReport({
-      threadId: optionalString(input.thread_id),
-      sourceRef: optionalString(input.source_ref),
-      coherence: optionalRecord(input.coherence),
-      includePeekabooSnapshot: input.include_visible_snapshot === true,
-      maxNodes: optionalNumber(input.max_nodes),
-      maxChars: optionalNumber(input.max_chars),
-      now: optionalString(input.now),
-      probe: options.desktopProbe
-    })),
-    tool("loo_plan_state_pins", "Extract only manual pins, approval boundaries, and exception ledger entries from PLAN_STATE text.", {
-      plan_state_text: { type: "string" },
-      plan_state_path: { type: "string" }
-    }, (input) => createPlanStatePinsReport(resolvePlanStateText(input))),
-    tool("loo_github_operating_items", "Normalize public-safe GitHub issue, PR, and check records into Eva operating-picture github_items without writing to GitHub.", {
-      github_records: { type: "array", items: { type: "object", additionalProperties: true } },
-      include_green: { type: "boolean" },
-      limit: { type: "integer", minimum: 1, maximum: 200 },
-      now: { type: "string" }
-    }, (input) => createGithubOperatingItemsReport(optionalGithubRecords(input.github_records), {
-      includeGreen: optionalBoolean(input.include_green),
-      limit: optionalNumber(input.limit),
-      now: optionalString(input.now)
-    })),
     tool("loo_project_digest", "Create a read-only Eva operating digest from LCO/Codex cards, optional structured GitHub items, PLAN_STATE pins, and source authority coverage.", {
       window: { type: "string", enum: ["today", "24h", "7d", "custom"] },
       limit: { type: "integer", minimum: 1, maximum: 200 },
@@ -1177,21 +842,6 @@ export function createLooTools(options: {
         now: optionalString(input.now)
       });
     }),
-    tool("loo_codex_final_messages", "Read final assistant/status messages extracted from Codex sessions.", {
-      thread_id: { type: "string" },
-      limit: { type: "integer", minimum: 1, maximum: 500 }
-    }, (input) => getCodexFinalMessages(options.db, { threadId: optionalString(input.thread_id), limit: optionalNumber(input.limit) })),
-    tool("loo_codex_plans", "Read proposed_plan blocks extracted from Codex sessions.", {
-      thread_id: { type: "string" },
-      limit: { type: "integer", minimum: 1, maximum: 500 }
-    }, (input) => getCodexPlans(options.db, { threadId: optionalString(input.thread_id), limit: optionalNumber(input.limit) })),
-    tool("loo_codex_touched_files", "Read touched files extracted for one Codex session.", {
-      thread_id: { type: "string" }
-    }, (input) => getCodexTouchedFiles(options.db, { threadId: requiredString(input.thread_id, "thread_id") })),
-    tool("loo_codex_tool_calls", "Read redacted tool-call metadata extracted from Codex sessions.", {
-      thread_id: { type: "string" },
-      limit: { type: "integer", minimum: 1, maximum: 1000 }
-    }, (input) => getCodexToolCalls(options.db, { threadId: optionalString(input.thread_id), limit: optionalNumber(input.limit) })),
     tool("loo_codex_extract", "Read extracted Codex plans, final messages, touched files, or tool-call metadata through one canonical extraction surface.", {
       kind: { type: "string", enum: ["plans", "final_messages", "touched_files", "tool_calls"] },
       thread_id: { type: "string" },
@@ -1243,18 +893,6 @@ export function createLooTools(options: {
     tool("loo_codex_send_message", "Send a message to a Codex thread. Live mode requires approval_audit_id.", controlSchema(true), (input) => snakeCaseControlResult(control.sendMessage(messageControlInput(input)))),
     tool("loo_codex_steer_thread", "Steer a running Codex thread. Live mode requires approval_audit_id and expected_turn_id.", controlSchema(true, true), (input) => snakeCaseControlResult(control.steerThread(messageControlInput(input, true)))),
     tool("loo_codex_interrupt_thread", "Interrupt a Codex thread. Live mode requires approval_audit_id.", controlSchema(), (input) => snakeCaseControlResult(control.interruptThread(controlInput(input)))),
-    tool("loo_desktop_see", "Inspect desktop fallback readiness through direct/CUA/Peekaboo backends.", {
-      backend: { type: "string", enum: ["direct", "cua-driver", "peekaboo"] },
-      include_snapshot: { type: "boolean" },
-      max_nodes: { type: "integer", minimum: 1, maximum: 500 },
-      max_chars: { type: "integer", minimum: 1, maximum: 20000 }
-    }, (input) => desktopSee({
-      backend: optionalDesktopBackend(input.backend),
-      includeSnapshot: input.include_snapshot === true,
-      maxNodes: optionalNumber(input.max_nodes),
-      maxChars: optionalNumber(input.max_chars),
-      probe: options.desktopProbe
-    })),
     tool("loo_desktop_act", "Dry-run desktop fallback action for CUA/Peekaboo; live requests return structured missing-proof blockers.", {
       backend: { type: "string", enum: ["direct", "cua-driver", "peekaboo"] },
       action: { type: "string" },
@@ -1279,28 +917,6 @@ export function createLooTools(options: {
       focusBeforeApplication: optionalString(input.focus_before_application),
       focusAfterApplication: optionalString(input.focus_after_application),
       publicSafeObservation: input.public_safe_observation === true
-    })),
-    tool("loo_desktop_proof_report", "Validate a supplied public-safe desktop GUI action observation and return release-compatible proof when it satisfies no-focus/action-bound gates.", {
-      observation: {
-        type: "object",
-        additionalProperties: true
-      }
-    }, (input) => createDesktopGuiProofReport(input.observation)),
-    tool("loo_desktop_live_proof_harness", "Prepare a public-safe desktop live/no-focus proof packet without running the GUI action.", {
-      backend: { type: "string", enum: ["direct", "cua-driver", "peekaboo"] },
-      target_app: { type: "string" },
-      target_window: { type: "string" },
-      action: { type: "string" },
-      approval_ref: { type: "string" },
-      scratch_file_path: { type: "string" }
-    }, (input) => createDesktopLiveProofHarness({
-      backend: optionalDesktopBackend(input.backend),
-      targetApp: optionalString(input.target_app),
-      targetWindow: optionalString(input.target_window),
-      action: optionalString(input.action),
-      approvalRef: optionalString(input.approval_ref),
-      scratchFilePath: optionalString(input.scratch_file_path),
-      probe: options.desktopProbe
     })),
     tool("loo_desktop_proof_action", "Run the one approved CUA TextEdit scratch launch proof action and return a public-safe observation for proof-report validation.", {
       backend: { type: "string", enum: ["cua-driver"] },
@@ -2072,6 +1688,7 @@ function startProofThreadId(input: Record<string, unknown>): string | null {
 }
 
 function startThreadPostCreateProofInput(input: Record<string, unknown>): Record<string, unknown> {
+  const limit = optionalNumber(input.limit);
   return {
     created_thread_id: input.created_thread_id,
     worker_thread_id: input.worker_thread_id,
@@ -2079,7 +1696,7 @@ function startThreadPostCreateProofInput(input: Record<string, unknown>): Record
     requested_title: input.requested_title,
     alias: input.alias,
     parent_thread_id: input.parent_thread_id,
-    limit: input.limit
+    limit: limit === undefined ? undefined : Math.min(100, Math.max(1, Math.trunc(limit)))
   };
 }
 
