@@ -30,7 +30,7 @@ export function formatUnsupportedNodeVersion(current: string): string {
 }
 
 function parseNodeVersion(version: string): VersionParts | null {
-  const match = version.trim().replace(/^v/, "").match(/^(\d+)\.(\d+)\.(\d+)/);
+  const match = version.trim().replace(/^v/, "").match(/^(\d+)\.(\d+)\.(\d+)$/);
   if (!match) return null;
   return {
     major: Number(match[1]),

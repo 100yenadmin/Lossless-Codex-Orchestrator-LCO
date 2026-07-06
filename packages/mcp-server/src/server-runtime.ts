@@ -32,11 +32,9 @@ rl.on("line", async (line) => {
     if (message.method === "initialize") {
       send({ id: message.id, result: { protocolVersion: "2024-11-05", serverInfo: { name: "lossless-openclaw-orchestrator", version: SERVER_VERSION }, capabilities: { tools: {} } } });
     } else if (message.method === "tools/list") {
-      const runtime = getRuntimeState();
       send({
         id: message.id,
         result: {
-          startupStatus: runtime.ok ? createStartupReadyResult() : runtime.failure,
           tools: filterLooToolsByProfile(toolDeclarations, toolProfile)
             .map(({ name, description, metadata, inputSchema }) => ({ name, description, metadata, inputSchema }))
         }
@@ -82,25 +80,19 @@ function getRuntimeState(): RuntimeState {
     return { ok: false, failure: createStartupUnavailableResult("audit_unavailable") };
   }
 
-  let codexClient: ReturnType<typeof createCodexAppServerStdioClient>;
-  let codexReadClient: ReturnType<typeof createCodexAppServerStdioClient>;
-  try {
-    const codexCommand = process.env.LOO_CODEX_BIN || "codex";
-    const codexArgs = (process.env.LOO_CODEX_APP_SERVER_ARGS || "app-server --stdio").split(/\s+/).filter(Boolean);
-    codexClient = createCodexAppServerStdioClient({
-      command: codexCommand,
-      args: codexArgs,
-      surface: "control"
-    });
-    codexReadClient = createCodexAppServerStdioClient({
-      command: codexCommand,
-      args: codexArgs,
-      surface: "read"
-    });
-  } catch {
-    db.close();
-    return { ok: false, failure: createStartupUnavailableResult("codex_client_unavailable") };
-  }
+  const codexCommand = process.env.LOO_CODEX_BIN || "codex";
+  const codexArgs = (process.env.LOO_CODEX_APP_SERVER_ARGS || "app-server --stdio").split(/\s+/).filter(Boolean);
+  const codexClient = createCodexAppServerStdioClient({
+    command: codexCommand,
+    args: codexArgs,
+    surface: "control"
+  });
+  const codexReadClient = createCodexAppServerStdioClient({
+    command: codexCommand,
+    args: codexArgs,
+    surface: "read"
+  });
+
 
   try {
     runtimeState = {
@@ -131,7 +123,6 @@ function createRuntimeDatabase(): { ok: true; db: ReturnType<typeof createDataba
 type StartupFailureCode =
   | "database_unavailable"
   | "audit_unavailable"
-  | "codex_client_unavailable"
   | "tool_registry_unavailable";
 
 function createStartupUnavailableResult(code: StartupFailureCode) {
@@ -159,43 +150,15 @@ function createStartupUnavailableResult(code: StartupFailureCode) {
       githubReleaseCreated: false
     },
     privateDataExclusions: ["raw transcripts", "raw prompts", "SQLite rows", "local paths", "raw logs", "tokens", "cookies", "screenshots"],
-    proofBoundary: "This packet classifies MCP local startup only. Startup failures are not cached, so transient setup errors may recover on the next tools/call. It does not read raw transcripts, run live Codex control, mutate a GUI, publish npm, or create a GitHub Release."
-  };
-}
-
-function createStartupReadyResult() {
-  return {
-    schema: "lco.mcp.startupStatus.v1",
-    ok: true,
-    code: "startup_ready",
-    classification: "ready",
-    publicSafe: true,
-    readOnly: true,
-    retryable: false,
-    retryPolicy: startupRetryPolicy(),
-    message: "Local LCO MCP runtime startup is ready.",
-    nextAction: "Call the listed loo_* tools through MCP as needed.",
-    blockers: [],
-    sourceCoverage: { localIndex: "ok", audit: "ok", toolRegistry: "ok" },
-    actionsPerformed: {
-      rawTranscriptRead: false,
-      sourceStoreMutation: false,
-      externalWrite: false,
-      liveControl: false,
-      guiMutation: false,
-      npmPublished: false,
-      githubReleaseCreated: false
-    },
-    privateDataExclusions: ["raw transcripts", "raw prompts", "SQLite rows", "local paths", "raw logs", "tokens", "cookies", "screenshots"],
-    proofBoundary: "This packet reports MCP local startup readiness only. It does not read raw transcripts, run live Codex control, mutate a GUI, publish npm, or create a GitHub Release."
+    proofBoundary: "This packet classifies MCP local startup for a tools/call request only. tools/list stays a static MCP catalog response and does not initialize the local runtime. Startup failures are not cached, so transient setup errors may recover on the next tools/call. It does not read raw transcripts, run live Codex control, mutate a GUI, publish npm, or create a GitHub Release."
   };
 }
 
 function startupRetryPolicy() {
   return {
     negativeCache: false,
-    retryOn: "next_tools_list_or_tools_call",
-    persistentFailureCost: "A persistent startup failure re-attempts local startup on each tools/list or tools/call until the local setup is repaired."
+    retryOn: "next_tools_call",
+    persistentFailureCost: "A persistent startup failure re-attempts local startup on each tools/call until the local setup is repaired. tools/list remains a static catalog operation and does not initialize or retry runtime startup."
   };
 }
 
@@ -216,12 +179,6 @@ function startupFailureDetails(code: StartupFailureCode): {
         message: "Local LCO audit store is unavailable during MCP startup.",
         nextAction: "Set LOO_AUDIT_PATH to a writable local JSONL audit path or repair the OpenClaw LCO config, then retry the tool call.",
         sourceCoverage: { localIndex: "ok", audit: "unavailable" }
-      };
-    case "codex_client_unavailable":
-      return {
-        message: "Codex app-server client configuration is unavailable during MCP startup.",
-        nextAction: "Check LOO_CODEX_BIN and LOO_CODEX_APP_SERVER_ARGS, then retry the tool call.",
-        sourceCoverage: { localIndex: "ok", audit: "ok", codexAppServer: "unavailable" }
       };
     case "tool_registry_unavailable":
       return {

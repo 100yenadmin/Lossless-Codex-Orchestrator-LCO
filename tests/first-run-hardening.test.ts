@@ -20,8 +20,9 @@ test("package metadata and entrypoints enforce Node 22.5 before SQLite import pa
   assert.equal(nodeVersionMeetsMinimum("22.4.9", "22.5.0"), false);
   assert.equal(nodeVersionMeetsMinimum("22.5.0", "22.5.0"), true);
   assert.equal(nodeVersionMeetsMinimum("23.0.0", "22.5.0"), true);
-  assert.equal(nodeVersionMeetsMinimum("22.5.0-pre", "22.5.0"), true);
+  assert.equal(nodeVersionMeetsMinimum("22.5.0-pre", "22.5.0"), false);
   assert.equal(nodeVersionMeetsMinimum("vx.y.z", "22.5.0"), false);
+  assert.equal(formatUnsupportedNodeVersion("22.5.0-pre"), "Node >=22.5.0 required, could not parse current Node version \"22.5.0-pre\"\n");
   assert.equal(formatUnsupportedNodeVersion("vx.y.z"), "Node >=22.5.0 required, could not parse current Node version \"vx.y.z\"\n");
 
   assert.doesNotMatch(cliEntry, /node:sqlite|core\/src\/index/);
@@ -50,7 +51,7 @@ test("CLI entrypoint exits with a friendly Node floor message before running com
   assert.doesNotMatch(result.stderr, /\bat\s+|node:sqlite|ERR_UNKNOWN_BUILTIN_MODULE|file:\/\//);
 });
 
-test("MCP server answers initialize and tools/list when DB startup is unavailable, then classifies tools/call", async () => {
+test("MCP server keeps tools/list static when DB startup is unavailable, then classifies tools/call", async () => {
   const root = mkdtempSync(join(tmpdir(), "loo-mcp-db-fail-"));
   const home = join(root, "home");
   mkdirSync(home);
@@ -87,33 +88,34 @@ test("MCP server answers initialize and tools/list when DB startup is unavailabl
     server.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} })}\n`);
     const list = await readJsonRpcResponse(server, () => stdout, 2, () => stderr);
     assert.ok(list.result?.tools?.some((tool: { name?: string }) => tool.name === "loo_doctor"));
-    const startupStatus = list.result?.startupStatus as {
-      ok?: unknown;
-      code?: unknown;
-      retryPolicy?: { negativeCache?: unknown; retryOn?: unknown; persistentFailureCost?: unknown };
-    } | undefined;
-    assert.equal(startupStatus?.ok, false);
-    assert.equal(startupStatus?.code, "database_unavailable");
-    assert.equal(startupStatus?.retryPolicy?.negativeCache, false);
-    assert.match(String(startupStatus?.retryPolicy?.retryOn), /tools_list_or_tools_call/);
+    assert.equal(list.result?.startupStatus, undefined);
 
     // Product contract: failed local runtime startup is not cached, so a repaired setup can recover in the same MCP process.
-    server.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "loo_doctor", arguments: {} } })}\n`);
+    server.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "loo_search_sessions", arguments: { query: "startup recovery fixture", limit: 1 } } })}\n`);
     const call = await readJsonRpcResponse(server, () => stdout, 3, () => stderr);
-    const structured = call.result?.structuredContent as { ok?: unknown; code?: unknown; retryable?: unknown; message?: unknown; nextAction?: unknown } | undefined;
+    const structured = call.result?.structuredContent as {
+      ok?: unknown;
+      code?: unknown;
+      retryable?: unknown;
+      message?: unknown;
+      nextAction?: unknown;
+      retryPolicy?: { negativeCache?: unknown; retryOn?: unknown; persistentFailureCost?: unknown };
+    } | undefined;
     assert.equal(structured?.ok, false);
     assert.equal(structured?.code, "database_unavailable");
     assert.equal(structured?.retryable, true);
+    assert.equal(structured?.retryPolicy?.negativeCache, false);
+    assert.equal(structured?.retryPolicy?.retryOn, "next_tools_call");
     assert.match(String(structured?.message), /local LCO database is unavailable/i);
     assert.match(String(structured?.nextAction), /loo doctor/i);
     assert.equal(call.result?.content?.[0]?.type, "text");
 
     rmSync(blockedDbParent, { force: true });
     mkdirSync(blockedDbParent);
-    server.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "loo_doctor", arguments: {} } })}\n`);
+    server.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "loo_search_sessions", arguments: { query: "startup recovery fixture", limit: 1 } } })}\n`);
     const recoveredCall = await readJsonRpcResponse(server, () => stdout, 4, () => stderr);
     const recoveredStructured = recoveredCall.result?.structuredContent as { ok?: unknown; code?: unknown } | undefined;
-    assert.equal(recoveredStructured?.ok, true);
+    assert.ok(recoveredStructured);
     assert.notEqual(recoveredStructured?.code, "database_unavailable");
 
     assert.doesNotMatch(`${stdout}\n${stderr}`, /\bat\s+|node:sqlite|ENOTDIR|\/Volumes\/LEXAR|\/Users\/|\/tmp\/loo-mcp-db-fail/);
