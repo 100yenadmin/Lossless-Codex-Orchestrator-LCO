@@ -89,6 +89,7 @@ test("qa-lab tool coverage passes strict full coverage only when every declared 
   assert.equal(report.schema, "lco.qaLab.toolCoverage.v1");
   assert.equal(report.ok, true);
   assert.equal(report.qaLabToolCoverageReady, true);
+  assert.equal(report.publicSafe, true);
   assert.equal(report.declaredToolCount, 60);
   assert.deepEqual(report.tierCounts, {
     public_facade: 8,
@@ -105,6 +106,7 @@ test("qa-lab tool coverage passes strict full coverage only when every declared 
   const written = JSON.parse(readFileSync(join(dir, "tool-coverage.json"), "utf8")) as QaLabToolCoverageReport;
   assert.equal(written.schema, "lco.qaLab.toolCoverage.v1");
   assert.equal(written.qaLabToolCoverageReady, true);
+  assert.equal(written.publicSafe, true);
 });
 
 test("qa-lab tool coverage fails strict for the 1.2.5-style 36 of 60 gateway evidence", (t) => {
@@ -301,6 +303,7 @@ test("qa-lab tool coverage redacts unsafe evidence values instead of echoing can
 
   const serialized = JSON.stringify(report);
   assert.equal(report.ok, false);
+  assert.equal(report.publicSafe, false);
   assert.ok(report.blockers.some((blocker) => blocker.code === "unsafe_evidence_value"));
   assert.equal(report.evidenceIndex.toolSmokeReport.status, "unsafe");
   assert.equal(report.evidenceIndex.toolSmokeReport.evidenceRef, "redacted-evidence-ref");

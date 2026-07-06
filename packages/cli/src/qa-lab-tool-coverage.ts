@@ -76,6 +76,7 @@ export type QaLabToolCoverageReport = {
   schema: "lco.qaLab.toolCoverage.v1";
   ok: boolean;
   qaLabToolCoverageReady: boolean;
+  publicSafe: boolean;
   generatedAt: string;
   packageName: "lossless-openclaw-orchestrator";
   packageVersion: string | null;
@@ -277,10 +278,12 @@ export function createQaLabToolCoverageReport(options: QaLabToolCoverageOptions)
 
   const dedupedBlockers = uniqueBlockers(blockers);
   const qaLabToolCoverageReady = dedupedBlockers.filter((blocker) => blocker.severity !== "P3").length === 0;
+  const publicSafe = !dedupedBlockers.some((blocker) => blocker.severity === "P0");
   const report: QaLabToolCoverageReport = {
     schema: "lco.qaLab.toolCoverage.v1",
     ok: qaLabToolCoverageReady,
     qaLabToolCoverageReady,
+    publicSafe,
     generatedAt: options.now ?? new Date().toISOString(),
     packageName: PACKAGE_NAME,
     packageVersion: options.packageVersion ?? null,
