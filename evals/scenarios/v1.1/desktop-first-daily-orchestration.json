@@ -63,7 +63,7 @@
     "Desktop coherence and fallback source coverage without screenshots or raw window text",
     "active-thread and autonomy reason codes for nudge and approval lanes",
     "actionsPerformed flags showing no live Codex control, no GUI mutation, no screenshot capture, no npm publish, and no GitHub Release creation",
-    "public-safe scan proving no raw transcript, raw prompt, screenshot, SQLite DB, token, cookie, credential, or private customer data leaks"
+    "public-safe scan proving no raw transcript, raw prompt, screenshot, SQLite DB, credential-like value, browser-session value, or private customer data leaks"
   ],
   "metrics": {
     "requires_desktop_first_tool_sequence": true,

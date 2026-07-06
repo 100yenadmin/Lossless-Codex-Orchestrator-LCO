@@ -39,10 +39,11 @@ export type ReleaseBundleReport = {
 export function createReleaseBundle(options: ReleaseBundleOptions): ReleaseBundleReport {
   const evidenceDir = resolve(options.evidenceDir);
   const packageRoot = options.rootDir ? resolve(options.rootDir) : findPackageRoot(dirname(fileURLToPath(import.meta.url))) ?? process.cwd();
+  const bundleManifestName = "release-bundle.json";
 
   mkdirSync(evidenceDir, { recursive: true });
   const preflight = runReleasePreflight({
-    evidenceDir,
+    evidenceDir: options.evidenceDir,
     approvedLiveControlEvidence: options.approvedLiveControlEvidence,
     claimScope: options.claimScope,
     runtimeProofDir: options.runtimeProofDir,
@@ -58,7 +59,7 @@ export function createReleaseBundle(options: ReleaseBundleOptions): ReleaseBundl
     throw new Error(`Release notes are missing: docs/releases/${releaseNotesFile}`);
   }
   const releaseNotesPath = join(evidenceDir, releaseNotesFile);
-  const bundleManifestPath = join(evidenceDir, "release-bundle.json");
+  const bundleManifestPath = join(evidenceDir, bundleManifestName);
 
   writeFileSync(releaseNotesPath, readFileSync(releaseNotesSource, "utf8"));
 
@@ -72,8 +73,8 @@ export function createReleaseBundle(options: ReleaseBundleOptions): ReleaseBundl
     packageVersion: preflight.packageVersion,
     npmPublished: false,
     githubReleaseCreated: false,
-    releaseNotesPath,
-    bundleManifestPath,
+    releaseNotesPath: releaseNotesFile,
+    bundleManifestPath: bundleManifestName,
     blockers: preflight.blockers,
     rawSessionArtifacts: preflight.rawSessionArtifacts,
     forbiddenClaims: preflight.forbiddenClaims,

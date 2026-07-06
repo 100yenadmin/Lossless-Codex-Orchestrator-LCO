@@ -47,7 +47,7 @@
     "CUA Driver preferred backend readiness, blockers, permission state, and focus probe result",
     "Peekaboo secondary fallback readiness, blockers, and visible-screen warning",
     "actionsPerformed flags showing no live Codex control, no GUI mutation, no screenshot capture, and no raw transcript read",
-    "public-safe scan with zero raw transcript, screenshot, token, cookie, and path leaks"
+    "public-safe scan with zero raw transcript, screenshot, credential-like, browser-session, and path leaks"
   ],
   "metrics": {
     "requires_codex_desktop_fallback_status_report": true,

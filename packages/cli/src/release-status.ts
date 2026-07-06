@@ -110,6 +110,7 @@ export type ReleaseStatusReport = {
 export function createReleaseStatus(options: ReleaseStatusOptions): ReleaseStatusReport {
   const evidenceDir = resolve(options.evidenceDir);
   mkdirSync(evidenceDir, { recursive: true });
+  const statusManifestName = "release-status.json";
   const generatedAt = options.now ?? new Date().toISOString();
   const candidateSha = options.candidateSha?.trim();
   const candidateShaSatisfied = Boolean(candidateSha && /^[0-9a-f]{40}$/i.test(candidateSha));
@@ -162,7 +163,7 @@ export function createReleaseStatus(options: ReleaseStatusOptions): ReleaseStatu
   if (!candidateShaSatisfied) blockers.push(candidateSha ? "candidate_sha_invalid" : "candidate_sha_missing");
   if (githubCiValidation.blocker) blockers.push(githubCiValidation.blocker);
   if (codeqlValidation.blocker) blockers.push(codeqlValidation.blocker);
-  const statusManifestPath = join(evidenceDir, "release-status.json");
+  const statusManifestPath = join(evidenceDir, statusManifestName);
   const report: ReleaseStatusReport = {
     ok: blockers.length === 0,
     releaseReady: blockers.length === 0,
@@ -172,7 +173,7 @@ export function createReleaseStatus(options: ReleaseStatusOptions): ReleaseStatu
     excludedClaims: releasePreflight.excludedClaims,
     packageName: releasePreflight.packageName,
     packageVersion: releasePreflight.packageVersion,
-    statusManifestPath,
+    statusManifestPath: statusManifestName,
     blockers,
     explicitApprovalsRequired,
     releaseChecks,

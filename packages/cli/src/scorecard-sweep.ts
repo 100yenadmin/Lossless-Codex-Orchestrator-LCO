@@ -158,7 +158,8 @@ export function createScorecardSweep(options: ScorecardSweepOptions): ScorecardS
   const scorecardDeclarationBlockers = [...scorecards.flatMap((scorecard) => scorecard.blockers), ...missingRequiredScorecards];
   const runtimeEvidenceValidation = validateRuntimeEvidenceForScope(claimScope, options.runtimeProofDir);
   const blockers = [...scorecardDeclarationBlockers, ...rawArtifactBlockers, ...runtimeEvidenceValidation.blockers];
-  const sweepPath = join(evidenceDir, "scorecard-sweep.json");
+  const sweepName = "scorecard-sweep.json";
+  const sweepPath = join(evidenceDir, sweepName);
   const report: ScorecardSweepReport = {
     schema: "lco.scorecardSweep.v1",
     ok: blockers.length === 0,
@@ -172,7 +173,7 @@ export function createScorecardSweep(options: ScorecardSweepOptions): ScorecardS
     claimScope,
     scorecardVersion: SCORECARD_VERSION,
     scorecardSourceDir: sourceDirForReport,
-    sweepPath,
+    sweepPath: sweepName,
     actionsPerformed: {
       liveCodexControlRun: false,
       desktopGuiActionRun: false,
@@ -226,20 +227,20 @@ function readScorecards(scorecardDir: string, evidenceDir: string): ScorecardSwe
   if (!existsSync(scorecardDir)) {
     const entry: ScorecardSweepEntry = {
       name: "scorecard-directory",
-      file: scorecardDir,
+      file: basename(scorecardDir) || "scorecard-directory",
       claimClass: "unknown",
       surface: "unknown",
       currentScore: "missing",
       status: "invalid",
-      evidencePath: join(evidenceDir, "scorecard-directory.json"),
+      evidencePath: "scorecard-directory.json",
       expectedPublicSafeEvidence: [],
       privateDataExclusions: DEFAULT_PRIVATE_DATA_EXCLUSIONS,
-      knownGaps: [`Scorecard directory not found: ${scorecardDir}`],
+      knownGaps: ["Scorecard directory not found."],
       nextAction: "Restore evals/scorecards/v1.0 before running milestone sweeps.",
       proofBoundary: "No scorecard proof exists because the scorecard directory is missing.",
       blockers: ["scorecard_directory_missing"]
     };
-    writeScorecardEntry(entry);
+    writeScorecardEntry(entry, evidenceDir);
     return [entry];
   }
 
@@ -251,7 +252,8 @@ function readScorecards(scorecardDir: string, evidenceDir: string): ScorecardSwe
 
 function readScorecard(path: string, file: string, evidenceDir: string): ScorecardSweepEntry {
   const name = basename(file, ".json");
-  const evidencePath = join(evidenceDir, file);
+  const evidencePath = file;
+  const evidenceWritePath = join(evidenceDir, file);
   try {
     const scorecard = JSON.parse(readFileSync(path, "utf8")) as ScorecardJson;
     const currentScore = stringValue(scorecard.current_score) || "missing";
@@ -285,7 +287,7 @@ function readScorecard(path: string, file: string, evidenceDir: string): Scoreca
       proofBoundary: stringValue(scorecard.proof_boundary) || "No proof boundary supplied.",
       blockers
     };
-    writeFileSync(evidencePath, `${JSON.stringify(entry, null, 2)}\n`);
+    writeFileSync(evidenceWritePath, `${JSON.stringify(entry, null, 2)}\n`);
     return entry;
   } catch {
     const entry: ScorecardSweepEntry = {
@@ -303,13 +305,13 @@ function readScorecard(path: string, file: string, evidenceDir: string): Scoreca
       proofBoundary: "Invalid scorecard JSON cannot prove beta readiness.",
       blockers: [`scorecard_invalid_json:${name}`]
     };
-    writeScorecardEntry(entry);
+    writeScorecardEntry(entry, evidenceDir);
     return entry;
   }
 }
 
-function writeScorecardEntry(entry: ScorecardSweepEntry): void {
-  writeFileSync(entry.evidencePath, `${JSON.stringify(entry, null, 2)}\n`);
+function writeScorecardEntry(entry: ScorecardSweepEntry, evidenceDir: string): void {
+  writeFileSync(join(evidenceDir, entry.evidencePath), `${JSON.stringify(entry, null, 2)}\n`);
 }
 
 function isPassingScore(value: string): boolean {

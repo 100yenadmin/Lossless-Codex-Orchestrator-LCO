@@ -199,7 +199,8 @@ export function createScenarioSweep(options: ScenarioSweepOptions): ScenarioSwee
     ...rawArtifactBlockers,
     ...secretBlockers
   ];
-  const sweepPath = join(evidenceDir, "scenario-sweep.json");
+  const sweepName = "scenario-sweep.json";
+  const sweepPath = join(evidenceDir, sweepName);
   const hasRuntimeScenarios = scenarios.some((scenario) => scenario.dryRunPlan.mode === "runtime_required");
   const runtimeProofUnsafeBlockers = scenarios.flatMap((scenario) => scenario.blockers).filter((blocker) =>
     /^runtime_proof_(?:not_public_safe|raw_private|secret_like):/.test(blocker)
@@ -216,7 +217,7 @@ export function createScenarioSweep(options: ScenarioSweepOptions): ScenarioSwee
     generatedAt: options.now ?? new Date().toISOString(),
     scenarioVersion: scenarioVersionForReport(scenarios),
     scenarioSourceDir: sourceDirForReport,
-    sweepPath,
+    sweepPath: sweepName,
     scenarioCount: scenarios.length,
     passedScenarioCount: Math.max(0, scenarios.length - failedScenarioCount),
     failedScenarioCount,
@@ -256,7 +257,7 @@ function readScenarios(scenarioDir: string, evidenceDir: string, runtimeProofDir
       blockers: ["scenario_directory_missing"],
       proofBoundary: "No scenario proof exists because the scenario directory is missing."
     });
-    writeScenarioEntry(entry);
+    writeScenarioEntry(entry, evidenceDir);
     return [entry];
   }
 
@@ -309,7 +310,7 @@ function readScenario(path: string, file: string, evidenceDir: string, runtimePr
       blockers: [`scenario_invalid_json:${id}`],
       proofBoundary: "Invalid scenario JSON cannot prove QA Lab readiness."
     });
-    writeScenarioEntry(entry);
+    writeScenarioEntry(entry, evidenceDir);
     return entry;
   }
 }
@@ -343,7 +344,7 @@ function readDryRunScenario(scenario: ScenarioJson, file: string, evidenceDir: s
     userTask: stringValue(scenario.user_task) || "",
     surface: stringValue(scenario.surface) || "unknown",
     status: blockers.length === 0 ? "dry_run_ready" : "invalid",
-    evidencePath: join(evidenceDir, `${id}.json`),
+    evidencePath: `${id}.json`,
     allowedTools,
     forbiddenBehaviors,
     expectedPublicSafeEvidence,
@@ -359,7 +360,7 @@ function readDryRunScenario(scenario: ScenarioJson, file: string, evidenceDir: s
     nextAction: stringValue(scenario.next_action) || "Run this scenario through fixture, CLI, MCP, or OpenClaw gateway evidence when the matching surface is ready.",
     blockers
   };
-  writeScenarioEntry(entry);
+  writeScenarioEntry(entry, evidenceDir);
   return entry;
 }
 
@@ -410,7 +411,7 @@ function readRuntimeScenario(scenario: ScenarioJson, file: string, evidenceDir: 
     userTask: stringValue(scenario.user_task) || "",
     surface: stringValue(scenario.surface) || "unknown",
     status: contractBlockers.length > 0 ? "invalid" : proof.blockers.length > 0 ? "runtime_proof_required" : "runtime_proof_ready",
-    evidencePath: join(evidenceDir, `${id}.json`),
+    evidencePath: `${id}.json`,
     allowedTools: allowedTools.length > 0 ? allowedTools : requiredTools,
     forbiddenBehaviors,
     expectedPublicSafeEvidence,
@@ -424,7 +425,7 @@ function readRuntimeScenario(scenario: ScenarioJson, file: string, evidenceDir: 
     },
     runtimeProof: {
       proofMode: "runtime_required",
-      proofPath: proof.proofPath,
+      proofPath: proof.proofPath ? basename(proof.proofPath) : "",
       requiredMarkers,
       presentMarkers: proof.presentMarkers,
       publicSafe: proof.publicSafe
@@ -433,7 +434,7 @@ function readRuntimeScenario(scenario: ScenarioJson, file: string, evidenceDir: 
     nextAction: stringValue(scenario.next_action) || "Attach public-safe runtime proof markers before claiming this working-app scenario.",
     blockers
   };
-  writeScenarioEntry(entry);
+  writeScenarioEntry(entry, evidenceDir);
   return entry;
 }
 
@@ -454,7 +455,7 @@ function invalidScenarioEntry(input: {
     userTask: "",
     surface: "unknown",
     status: "invalid",
-    evidencePath: join(input.evidenceDir, `${input.id}.json`),
+    evidencePath: `${input.id}.json`,
     allowedTools: [],
     forbiddenBehaviors: [],
     expectedPublicSafeEvidence: [],
@@ -472,8 +473,8 @@ function invalidScenarioEntry(input: {
   };
 }
 
-function writeScenarioEntry(entry: ScenarioSweepEntry): void {
-  writeFileSync(entry.evidencePath, `${JSON.stringify(entry, null, 2)}\n`);
+function writeScenarioEntry(entry: ScenarioSweepEntry, evidenceDir: string): void {
+  writeFileSync(join(evidenceDir, entry.evidencePath), `${JSON.stringify(entry, null, 2)}\n`);
 }
 
 function validateRuntimeProof(input: {

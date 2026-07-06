@@ -122,7 +122,7 @@ test("release status writes an approval packet without performing gated actions"
 
   assert.equal(payload.ok, false);
   assert.equal(payload.releaseReady, false);
-  assert.equal(payload.statusManifestPath, join(evidenceDir, "release-status.json"));
+  assert.equal(payload.statusManifestPath, "release-status.json");
   assert.deepEqual(payload.releasePreflight?.blockers, ["approved_live_control_smoke_missing"]);
   assert.deepEqual(payload.blockers, [
     "approved_live_control_smoke_missing",
@@ -1202,7 +1202,7 @@ test("release status treats malformed approval proof shapes as unsatisfied witho
     id: "npm_publish",
     satisfied: false
   });
-  assert.equal(payload.statusManifestPath, join(evidenceDir, "release-status.json"));
+  assert.equal(payload.statusManifestPath, "release-status.json");
   assert.equal(existsSync(join(evidenceDir, "release-status.json")), true);
 });
 

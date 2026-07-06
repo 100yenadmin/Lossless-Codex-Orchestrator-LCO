@@ -95,7 +95,7 @@ test("release demo-status reports demo blockers without performing gated actions
 
   assert.equal(payload.ok, false);
   assert.equal(payload.demoReady, false);
-  assert.equal(payload.demoStatusManifestPath, join(evidenceDir, "release-demo-status.json"));
+  assert.equal(payload.demoStatusManifestPath, "release-demo-status.json");
   assert.deepEqual(payload.actionsPerformed, {
     liveCodexControlRun: false,
     desktopGuiActionRun: false,

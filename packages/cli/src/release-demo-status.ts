@@ -84,13 +84,14 @@ type ApprovedProofResult = {
 export function createReleaseDemoStatus(options: ReleaseDemoStatusOptions): ReleaseDemoStatusReport {
   const evidenceDir = resolve(options.evidenceDir);
   mkdirSync(evidenceDir, { recursive: true });
+  const demoStatusManifestName = "release-demo-status.json";
 
   const claimScope = normalizeReleaseClaimScope(options.claimScope);
   const liveControlRequired = releaseClaimScopeRequiresLiveControl(claimScope);
   const workingAppRuntimeProofRequired = releaseClaimScopeRequiresWorkingAppRuntimeProof(claimScope);
   const excludedClaims = excludedClaimsForScope(claimScope);
   const minSessions = options.minSessions ?? DEFAULT_MIN_SESSIONS;
-  const evidenceFiles = {
+  const evidenceFilePaths = {
     index: join(evidenceDir, "index-codex.json"),
     planSearch: join(evidenceDir, "plans-search.json"),
     finalSearch: join(evidenceDir, "finals-search.json"),
@@ -99,16 +100,25 @@ export function createReleaseDemoStatus(options: ReleaseDemoStatusOptions): Rele
     controlDryRun: join(evidenceDir, "control-dry-run.json"),
     approvedLiveControl: resolveEvidencePath(evidenceDir, options.approvedLiveControlEvidence ?? "approved-live-control-smoke.json")
   };
+  const evidenceFiles = {
+    index: "index-codex.json",
+    planSearch: "plans-search.json",
+    finalSearch: "finals-search.json",
+    briefExpansion: "expand-brief.json",
+    evidenceExpansion: "expand-evidence.json",
+    controlDryRun: "control-dry-run.json",
+    approvedLiveControl: basename(evidenceFilePaths.approvedLiveControl)
+  };
 
-  const indexEvidence = readJson(evidenceFiles.index);
-  const planSearchEvidence = readJson(evidenceFiles.planSearch);
-  const finalSearchEvidence = readJson(evidenceFiles.finalSearch);
-  const briefExpansionEvidence = readJson(evidenceFiles.briefExpansion);
-  const evidenceExpansionEvidence = readJson(evidenceFiles.evidenceExpansion);
-  const controlDryRunEvidence = readJson(evidenceFiles.controlDryRun);
+  const indexEvidence = readJson(evidenceFilePaths.index);
+  const planSearchEvidence = readJson(evidenceFilePaths.planSearch);
+  const finalSearchEvidence = readJson(evidenceFilePaths.finalSearch);
+  const briefExpansionEvidence = readJson(evidenceFilePaths.briefExpansion);
+  const evidenceExpansionEvidence = readJson(evidenceFilePaths.evidenceExpansion);
+  const controlDryRunEvidence = readJson(evidenceFilePaths.controlDryRun);
   const controlDryRunProof = parseControlDryRun(controlDryRunEvidence.value);
   const approvedLiveControl = liveControlRequired
-    ? validateApprovedLiveControlProof(evidenceFiles.approvedLiveControl)
+    ? validateApprovedLiveControlProof(evidenceFilePaths.approvedLiveControl)
     : { check: check(false, liveControlExcludedDetail(claimScope)), proof: null };
   const workingAppRuntimeProof = workingAppRuntimeProofRequired
     ? validateWorkingAppRuntimeProof(options.runtimeProofDir)
@@ -154,14 +164,14 @@ export function createReleaseDemoStatus(options: ReleaseDemoStatusOptions): Rele
     ...(workingAppRuntimeProofRequired && workingAppRuntimeProof ? workingAppRuntimeProof.blockers : [])
   ].filter((blocker): blocker is string => blocker !== null);
 
-  const demoStatusManifestPath = join(evidenceDir, "release-demo-status.json");
+  const demoStatusManifestPath = join(evidenceDir, demoStatusManifestName);
   const report: ReleaseDemoStatusReport = {
     ok: blockers.length === 0,
     demoReady: blockers.length === 0,
     generatedAt: options.now ?? new Date().toISOString(),
     claimScope,
     excludedClaims,
-    demoStatusManifestPath,
+    demoStatusManifestPath: demoStatusManifestName,
     minSessions,
     blockers,
     checks,

@@ -42,7 +42,7 @@
     "loo_codex_desktop_coherence state: cli_visible, desktop_visible, desktop_refresh_required, desktop_restart_required, or unknown",
     "desktop visibility proof boundary",
     "fallback routing note to #308 when Desktop visibility is not proven",
-    "public-safe scan with zero raw transcript, screenshot, token, cookie, and path leaks"
+    "public-safe scan with zero raw transcript, screenshot, credential-like, browser-session, and path leaks"
   ],
   "metrics": {
     "requires_codex_desktop_coherence_report": true,
