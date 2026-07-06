@@ -1237,8 +1237,9 @@ function smokeCodexDesktopCollaborationProofReport(threadId?: string): Record<st
       dryRunOnly: true
     },
     requiredNextToolCall: {
-      tool: "loo_desktop_live_proof_harness",
+      tool: "lco_desktop_proof",
       args: {
+        check: "live_proof_harness",
         backend: args.backend,
         target_app: args.target_app,
         target_window: args.target_window,
@@ -1507,7 +1508,7 @@ function summarizeInvocation(
         || (status === "covered" && rawAction !== null)
         || (action !== null && (
           action.execute !== false
-          || !["loo_recent_sessions", "loo_cockpit_inbox", "loo_codex_app_server_threads", "loo_visible_codex_map"].includes(tool ?? "")
+          || !["lco_recent_sessions", "lco_operating_picture", "lco_codex_app_server_threads", "lco_visible_codex_map"].includes(tool ?? "")
           || !args
           || !hasValidActiveThreadReadOnlyActionArgs(tool, args)
           || !stringPath(action, ["reason"])
@@ -1519,7 +1520,7 @@ function summarizeInvocation(
       const action = stringPath(args, ["action"]);
       const threadId = stringPath(args, ["thread_id"]);
       const confidence = numberPath(recommendation, ["confidence"]);
-      return tool !== "loo_codex_control_dry_run"
+      return tool !== "lco_codex_control_dry_run"
         || recommendation.execute !== false
         || (recommendation.status !== "ready" && recommendation.status !== "blocked")
         || action !== "resume"
@@ -1977,8 +1978,9 @@ function publicSafeFallbackNextToolCall(value: unknown): OpenClawToolInvocationS
 
 function publicSafeCollaborationProofNextToolCall(value: unknown): OpenClawToolInvocationSummary["summary"]["nextToolCall"] | undefined {
   if (!isRecord(value)) return undefined;
-  if (stringPath(value, ["tool"]) !== "loo_desktop_live_proof_harness") return undefined;
+  if (stringPath(value, ["tool"]) !== "lco_desktop_proof") return undefined;
   const args = isRecord(value.args) ? value.args : {};
+  if (stringPath(args, ["check"]) !== "live_proof_harness") return undefined;
   const backend = stringPath(args, ["backend"]);
   const targetApp = stringPath(args, ["target_app"]);
   const targetWindow = stringPath(args, ["target_window"]);
@@ -1987,8 +1989,9 @@ function publicSafeCollaborationProofNextToolCall(value: unknown): OpenClawToolI
   if (!backend || !/^(cua-driver|peekaboo)$/.test(backend)) return undefined;
   if (!targetApp || !targetWindow || !action || !approvalRef) return undefined;
   return {
-    tool: "loo_desktop_live_proof_harness",
+    tool: "lco_desktop_proof",
     args: {
+      check: "live_proof_harness",
       backend,
       target_app: targetApp.slice(0, 120),
       target_window: targetWindow.slice(0, 160),
@@ -2002,7 +2005,7 @@ function publicSafeCollaborationProofNextToolCall(value: unknown): OpenClawToolI
 function publicSafeRuntimeVisibilityNextToolCall(value: unknown): OpenClawToolInvocationSummary["summary"]["nextToolCall"] | undefined {
   if (!isRecord(value)) return undefined;
   const tool = stringPath(value, ["tool"]);
-  if (tool === "loo_desktop_live_proof_harness") return publicSafeCollaborationProofNextToolCall(value);
+  if (tool === "lco_desktop_proof") return publicSafeCollaborationProofNextToolCall(value);
   if (tool === "loo_codex_desktop_coherence") return publicSafeFallbackNextToolCall(value);
   return undefined;
 }
@@ -2296,18 +2299,18 @@ function arrayPath(value: unknown, path: string[]): unknown[] {
 }
 
 function hasValidActiveThreadReadOnlyActionArgs(tool: string | undefined, args: Record<string, unknown>): boolean {
-  if (tool === "loo_recent_sessions") {
+  if (tool === "lco_recent_sessions") {
     return stringPath(args, ["scope"]) === "active"
       && booleanPath(args, ["include_cards"]) === true
       && validPositiveLimit(args);
   }
-  if (tool === "loo_cockpit_inbox") {
-    return validPositiveLimit(args);
+  if (tool === "lco_operating_picture") {
+    return stringPath(args, ["kind"]) === "cockpit_inbox" && validPositiveLimit(args);
   }
-  if (tool === "loo_codex_app_server_threads") {
+  if (tool === "lco_codex_app_server_threads") {
     return Boolean(stringPath(args, ["read_thread_id"])) && validPositiveLimit(args);
   }
-  if (tool === "loo_visible_codex_map") {
+  if (tool === "lco_visible_codex_map") {
     return booleanPath(args, ["include_app_server"]) === true
       && booleanPath(args, ["include_visible_snapshot"]) === false
       && validPositiveLimit(args);
@@ -2383,7 +2386,7 @@ function hasValidAutonomyTickStep(step: Record<string, unknown>): boolean {
     return false;
   }
   if (stepType === "read_only_probe") {
-    return ["loo_recent_sessions", "loo_cockpit_inbox", "loo_codex_app_server_threads", "loo_visible_codex_map"].includes(tool ?? "")
+    return ["lco_recent_sessions", "lco_operating_picture", "lco_codex_app_server_threads", "lco_visible_codex_map"].includes(tool ?? "")
       && reasonCodes.includes("autonomy_tick_read_only_probe")
       && stopConditions.includes("recompute_tick_after_probe")
       && stopConditions.includes("raw_transcript_not_read")
@@ -2391,7 +2394,7 @@ function hasValidAutonomyTickStep(step: Record<string, unknown>): boolean {
   }
   if (stepType === "control_dry_run") {
     const blocked = status === "blocked" || reasonCodes.includes("control_dry_run_blocked");
-    return tool === "loo_codex_control_dry_run"
+    return tool === "lco_codex_control_dry_run"
       && (status === "ready" || status === "blocked")
       && stringPath(args, ["action"]) === "resume"
       && Boolean(stringPath(args, ["thread_id"]))
@@ -2422,17 +2425,20 @@ function publicSafeAutonomyTickNextToolCall(value: unknown): OpenClawToolInvocat
 }
 
 function publicSafeAutonomyTickArgs(tool: string | undefined, args: Record<string, unknown>): Record<string, unknown> | null {
-  if (tool === "loo_recent_sessions") {
+  if (tool === "lco_recent_sessions") {
     return {
       scope: "active",
       include_cards: true,
       limit: numberPath(args, ["limit"]) ?? 20
     };
   }
-  if (tool === "loo_cockpit_inbox") {
-    return { limit: numberPath(args, ["limit"]) ?? 20 };
+  if (tool === "lco_operating_picture") {
+    return {
+      kind: "cockpit_inbox",
+      limit: numberPath(args, ["limit"]) ?? 20
+    };
   }
-  if (tool === "loo_codex_app_server_threads") {
+  if (tool === "lco_codex_app_server_threads") {
     const threadId = stringPath(args, ["read_thread_id"]);
     if (!isSafeAutonomyThreadId(threadId)) return null;
     return {
@@ -2440,14 +2446,14 @@ function publicSafeAutonomyTickArgs(tool: string | undefined, args: Record<strin
       limit: numberPath(args, ["limit"]) ?? 20
     };
   }
-  if (tool === "loo_visible_codex_map") {
+  if (tool === "lco_visible_codex_map") {
     return {
       include_app_server: true,
       include_visible_snapshot: false,
       limit: numberPath(args, ["limit"]) ?? 20
     };
   }
-  if (tool === "loo_codex_control_dry_run") {
+  if (tool === "lco_codex_control_dry_run") {
     const threadId = stringPath(args, ["thread_id"]);
     if (!isSafeAutonomyThreadId(threadId)) return null;
     return {
