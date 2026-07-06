@@ -633,8 +633,8 @@ function callGatewayBackendJson(
     encoding: "utf8",
     env: {
       ...process.env,
-      LOO_GATEWAY_BACKEND_REQUEST: request,
-      LOO_GATEWAY_BACKEND_TOKEN: token
+      LCO_GATEWAY_BACKEND_REQUEST: request,
+      LCO_GATEWAY_BACKEND_TOKEN: token
     },
     maxBuffer: 20 * 1024 * 1024,
     timeout: gatewayProcessTimeoutMs(timeoutMs)
@@ -653,8 +653,15 @@ function callGatewayBackendJson(
 }
 
 const GATEWAY_BACKEND_CALL_SCRIPT = `
-const rawRequest = process.env.LOO_GATEWAY_BACKEND_REQUEST || "{}";
-const token = process.env.LOO_GATEWAY_BACKEND_TOKEN || "";
+function readEnv(name) {
+  const suffix = name.replace(/^(?:LCO|LOO)_/, "");
+  const lco = process.env["LCO_" + suffix]?.trim();
+  if (lco) return lco;
+  const loo = process.env["LOO_" + suffix]?.trim();
+  return loo || undefined;
+}
+const rawRequest = readEnv("GATEWAY_BACKEND_REQUEST") || "{}";
+const token = readEnv("GATEWAY_BACKEND_TOKEN") || "";
 const request = JSON.parse(rawRequest);
 const timeoutMs = Math.max(250, Number(request.timeoutMs) || 60000);
 const ws = new WebSocket(request.url);

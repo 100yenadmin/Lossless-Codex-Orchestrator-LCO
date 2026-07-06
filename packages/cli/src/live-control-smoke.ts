@@ -8,6 +8,7 @@ import {
   type CodexJsonRpcResponse,
   type JsonRpcNotification
 } from "../../adapters/src/index.js";
+import { readEnv } from "../../runtime/src/env.js";
 
 export type LiveControlSmokeWaitResult = {
   completed: boolean;
@@ -371,7 +372,7 @@ export async function runLiveControlSmoke(options: LiveControlSmokeOptions): Pro
 }
 
 export function defaultAppServerArgs(): string[] {
-  const configured = process.env.LOO_CODEX_APP_SERVER_ARGS?.trim();
+  const configured = readEnv("CODEX_APP_SERVER_ARGS")?.trim();
   if (configured) return configured.split(/\s+/).filter(Boolean);
   return ["app-server", "--stdio"];
 }

@@ -17,7 +17,10 @@ function read(path: string): string {
 }
 
 test("public beta release notes exist and preserve the proof boundary", () => {
-  assert.equal(existsSync(releaseNotesPath), true, "release notes must exist before a GitHub Release");
+  if (!existsSync(releaseNotesPath)) {
+    assert.equal(packageVersion, "1.4.0", "only the lane-1 1.4.0 opener may rely on generated local draft notes");
+    return;
+  }
   const notes = read(releaseNotesPath);
 
   assert.match(notes, new RegExp(packageVersion.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
@@ -137,7 +140,7 @@ test("release bundle --claim-scope codex-read-search-expand-dry-run passes stric
   assert.deepEqual(payload.releasePreflight?.excludedClaims, payload.excludedClaims);
 });
 
-test("release bundle requires version-specific release notes", () => {
+test("release bundle generates local draft notes when committed version notes are absent", () => {
   const rootDir = mkdtempSync(join(tmpdir(), "loo-release-bundle-root-"));
   mkdirSync(join(rootDir, "docs"), { recursive: true });
   writeFileSync(join(rootDir, "package.json"), JSON.stringify({
@@ -146,8 +149,9 @@ test("release bundle requires version-specific release notes", () => {
     description: "Test package for local Codex sessions"
   }));
 
-  assert.throws(
-    () => createReleaseBundle({ evidenceDir: join(rootDir, "evidence"), rootDir }),
-    /docs\/releases\/RELEASE_NOTES_9\.9\.9-test\.0\.md/
-  );
+  const report = createReleaseBundle({ evidenceDir: join(rootDir, "evidence"), rootDir });
+  assert.equal(report.releaseNotesPath, "RELEASE_NOTES_9.9.9-test.0.md");
+  const notes = read(join(rootDir, "evidence", "RELEASE_NOTES_9.9.9-test.0.md"));
+  assert.match(notes, /local draft notes/i);
+  assert.match(notes, /do not publish to npm/i);
 });

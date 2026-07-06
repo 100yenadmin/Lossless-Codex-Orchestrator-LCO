@@ -1,6 +1,10 @@
 import { createInterface } from "node:readline";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createAuditStore, createCodexAppServerStdioClient } from "../../adapters/src/index.js";
 import { createDatabase } from "../../core/src/index.js";
+import { readEnv, readEnvWithFallback, resolveHomeDir } from "../../runtime/src/env.js";
 import {
   createLooToolDeclarations,
   createLooTools,
@@ -9,13 +13,14 @@ import {
   type LooTool
 } from "./tools.js";
 
-const toolProfile = parseLooToolProfile(process.env.LOO_TOOL_PROFILE, {
+const toolProfile = parseLooToolProfile(readEnv("TOOL_PROFILE"), {
   onInvalid: (value) => {
-    process.stderr.write(`Invalid LOO_TOOL_PROFILE=${JSON.stringify(value)}; falling back to all.\n`);
+    process.stderr.write(`Invalid LCO_TOOL_PROFILE=${JSON.stringify(value)}; falling back to all.\n`);
   }
 });
 const toolDeclarations = createLooToolDeclarations({ includeAliases: true });
-const SERVER_VERSION = "1.0.0";
+const MCP_PROTOCOL_VERSION = "2025-11-25";
+const SERVER_VERSION = readPackageVersion();
 type StartupFailure = ReturnType<typeof createStartupUnavailableResult>;
 type RuntimeState =
   | { ok: true; tools: LooTool[] }
@@ -30,7 +35,7 @@ rl.on("line", async (line) => {
     const message = JSON.parse(line);
     messageId = message.id ?? null;
     if (message.method === "initialize") {
-      send({ id: message.id, result: { protocolVersion: "2024-11-05", serverInfo: { name: "lossless-openclaw-orchestrator", version: SERVER_VERSION }, capabilities: { tools: {} } } });
+      send({ id: message.id, result: { protocolVersion: MCP_PROTOCOL_VERSION, serverInfo: { name: "lossless-openclaw-orchestrator", version: SERVER_VERSION }, capabilities: { tools: {} } } });
     } else if (message.method === "tools/list") {
       send({
         id: message.id,
@@ -74,14 +79,14 @@ function getRuntimeState(): RuntimeState {
   const db = dbResult.db;
   let audit: ReturnType<typeof createAuditStore>;
   try {
-    audit = createAuditStore(process.env.LOO_AUDIT_PATH || `${process.env.HOME || "."}/.openclaw/lossless-openclaw-orchestrator/audit.jsonl`);
+    audit = createAuditStore(readEnv("AUDIT_PATH") || join(resolveHomeDir(), ".openclaw", "lossless-openclaw-orchestrator", "audit.jsonl"));
   } catch {
     db.close();
     return { ok: false, failure: createStartupUnavailableResult("audit_unavailable") };
   }
 
-  const codexCommand = process.env.LOO_CODEX_BIN || "codex";
-  const codexArgs = (process.env.LOO_CODEX_APP_SERVER_ARGS || "app-server --stdio").split(/\s+/).filter(Boolean);
+  const codexCommand = readEnvWithFallback("CODEX_BIN", "codex");
+  const codexArgs = (readEnv("CODEX_APP_SERVER_ARGS") || "app-server --stdio").split(/\s+/).filter(Boolean);
   const codexClient = createCodexAppServerStdioClient({
     command: codexCommand,
     args: codexArgs,
@@ -171,22 +176,40 @@ function startupFailureDetails(code: StartupFailureCode): {
     case "database_unavailable":
       return {
         message: "Local LCO database is unavailable during MCP startup.",
-        nextAction: "Run loo doctor in a shell with a writable HOME or set LOO_DB_PATH to a writable local database path, then retry the tool call.",
+        nextAction: "Run lco doctor in a shell with a writable HOME/USERPROFILE or set LCO_DB_PATH to a writable local database path, then retry the tool call.",
         sourceCoverage: { localIndex: "unavailable" }
       };
     case "audit_unavailable":
       return {
         message: "Local LCO audit store is unavailable during MCP startup.",
-        nextAction: "Set LOO_AUDIT_PATH to a writable local JSONL audit path or repair the OpenClaw LCO config, then retry the tool call.",
+        nextAction: "Set LCO_AUDIT_PATH to a writable local JSONL audit path or repair the OpenClaw LCO config, then retry the tool call.",
         sourceCoverage: { localIndex: "ok", audit: "unavailable" }
       };
     case "tool_registry_unavailable":
       return {
         message: "LCO MCP tool registry is unavailable during startup.",
-        nextAction: "Run loo doctor and npm run check from the installed package or repo, then retry the tool call.",
+        nextAction: "Run lco doctor and npm run check from the installed package or repo, then retry the tool call.",
         sourceCoverage: { localIndex: "ok", audit: "ok", toolRegistry: "unavailable" }
       };
   }
+}
+
+function readPackageVersion(): string {
+  const currentDir = dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    join(currentDir, "../../../package.json"),
+    join(currentDir, "../../../../package.json")
+  ];
+  for (const candidate of candidates) {
+    if (!existsSync(candidate)) continue;
+    try {
+      const parsed = JSON.parse(readFileSync(candidate, "utf8"));
+      if (typeof parsed.version === "string" && parsed.version.trim()) return parsed.version;
+    } catch {
+      // Fall through to the next candidate.
+    }
+  }
+  return "0.0.0";
 }
 
 function sendToolResult(id: unknown, result: unknown): void {

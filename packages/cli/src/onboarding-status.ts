@@ -343,9 +343,9 @@ function manifestBlockers(manifest: OpenClawManifestRead): string[] {
   if (!manifest.exists) return [];
   const blockers = manifest.error ? [manifest.error] : [];
   if (manifest.error) return blockers;
-  if (manifest.mcpCommand !== "loo-mcp-server") blockers.push("invalid_openclaw_manifest_mcp_command");
+  if (manifest.mcpCommand !== "lco-mcp-server") blockers.push("invalid_openclaw_manifest_mcp_command");
   if (manifest.mcpTransport !== "stdio") blockers.push("invalid_openclaw_manifest_transport");
-  if (manifest.toolPrefix !== "loo_") blockers.push("invalid_openclaw_manifest_tool_prefix");
+  if (manifest.toolPrefix !== "lco_") blockers.push("invalid_openclaw_manifest_tool_prefix");
   return blockers;
 }
 

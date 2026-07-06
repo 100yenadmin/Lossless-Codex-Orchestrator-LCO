@@ -638,8 +638,8 @@ test("summary leaf tools expose read-only public-safe leaf and expansion reports
     materializeSummaryLeaves(db, { threadId });
 
     const declarations = new Map(createLooToolDeclarations().map((tool) => [tool.name, tool]));
-    assert.equal(declarations.get("loo_prepared_state")?.safety.mode, "read_only");
-    assert.deepEqual(declarations.get("loo_prepared_state")?.safety.mutationClasses, []);
+    assert.equal(declarations.get("lco_prepared_state")?.safety.mode, "read_only");
+    assert.deepEqual(declarations.get("lco_prepared_state")?.safety.mutationClasses, []);
 
     const tools = createLooTools({
       db,

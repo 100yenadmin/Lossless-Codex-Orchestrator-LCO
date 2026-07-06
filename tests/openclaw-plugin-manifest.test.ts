@@ -11,6 +11,8 @@ import {
 
 const PLUGIN_ENTRY = "./dist/packages/openclaw-plugin/src/index.js";
 const PACKAGE_BINS = {
+  lco: "dist/packages/cli/src/index.js",
+  "lco-mcp-server": "dist/packages/mcp-server/src/server.js",
   loo: "dist/packages/cli/src/index.js",
   "loo-mcp-server": "dist/packages/mcp-server/src/server.js"
 };
@@ -35,6 +37,18 @@ test("npm bin metadata is publish-normalized for the beta CLI entrypoints", () =
     assert.equal(binPath.startsWith("./"), false, `${command} bin path must not use a leading ./`);
     assert.equal(binPath.startsWith("/"), false, `${command} bin path must stay package-relative`);
   }
+});
+
+test("package and OpenClaw manifests open the 1.4.0 train together", () => {
+  const pkg = readJson("package.json");
+  const manifest = readJson("openclaw.plugin.json");
+  const sourceManifest = readJson("packages/openclaw-plugin/openclaw.plugin.json");
+
+  assert.equal(pkg.version, "1.4.0");
+  assert.equal(manifest.version, "1.4.0");
+  assert.equal(sourceManifest.version, "1.4.0");
+  assert.deepEqual(manifest.tools, { prefix: "lco_" });
+  assert.deepEqual(sourceManifest.tools, { prefix: "lco_" });
 });
 
 test("Codex plugin bundle installs the thread title finalizer hook without adding an agent tool", () => {
@@ -67,6 +81,8 @@ test("OpenClaw plugin contracts match the exported loo tool declarations", () =>
   assert.deepEqual(contracts?.tools, expectedTools.map((tool) => tool.name));
   assert.deepEqual(contracts?.toolDeclarations, expectedTools);
   assert.deepEqual(sourceContracts?.toolDeclarations, expectedTools);
+  assert.equal(expectedTools.some((tool) => tool.name.startsWith("lco_") && !tool.metadata.aliasOf), true);
+  assert.equal(expectedTools.some((tool) => tool.name.startsWith("loo_") && tool.metadata.aliasOf === undefined), false);
   for (const declaration of [...(contracts?.toolDeclarations as typeof expectedTools), ...(sourceContracts?.toolDeclarations as typeof expectedTools)]) {
     assert.deepEqual(declaration.safety, LOO_COMMAND_POLICY[canonicalLooToolName(declaration.name)]);
   }
@@ -116,14 +132,8 @@ test("OpenClaw plugin contracts classify every tool into an operator surface tie
   const aliases = declarations.filter((declaration) => isLooToolAlias(declaration));
   const lcoAliases = aliases.filter((declaration) => declaration.name.startsWith("lco_"));
   const compatibilityAliases = aliases.filter((declaration) => declaration.name.startsWith("loo_"));
-  assert.deepEqual(
-    lcoAliases.map((declaration) => declaration.name).sort(),
-    generatedToolSurface.publicFacadeTools.map((name) => name.replace(/^loo_/, "lco_")).sort()
-  );
-  assert.equal(compatibilityAliases.length, 31);
-  for (const alias of lcoAliases) {
-    assert.equal(generatedToolSurface.publicFacadeTools.includes(String(alias.metadata?.aliasOf)), true);
-  }
+  assert.deepEqual(lcoAliases, []);
+  assert.equal(compatibilityAliases.length, 65);
   for (const alias of compatibilityAliases) {
     assert.equal(baseDeclarations.some((declaration) => declaration.name === alias.metadata?.aliasOf), true);
   }
@@ -167,11 +177,11 @@ test("OpenClaw plugin contracts classify every tool into an operator surface tie
     assert.deepEqual(manifestContracts?.toolSurface, generatedToolSurface);
     assert.equal(toolSurface?.namingPolicy?.publicProductAbbreviation, "LCO");
     assert.equal(toolSurface?.namingPolicy?.forwardPublicAliasTarget, "lco_*");
-    assert.equal(toolSurface?.namingPolicy?.currentRuntimePrefix, "loo_");
+    assert.equal(toolSurface?.namingPolicy?.currentRuntimePrefix, "lco_");
     assert.equal(toolSurface?.namingPolicy?.legacyCompatiblePrefix, "loo_");
-    assert.equal(toolSurface?.namingPolicy?.compatibilityIssue, "#434");
+    assert.equal(toolSurface?.namingPolicy?.compatibilityIssue, "#616");
     assert.match(String(toolSurface?.namingPolicy?.aliasPolicy), /backward compatible/);
-    assert.equal(toolSurface?.exposureProfile?.environmentVariable, "LOO_TOOL_PROFILE");
+    assert.equal(toolSurface?.exposureProfile?.environmentVariable, "LCO_TOOL_PROFILE");
     assert.equal(toolSurface?.exposureProfile?.defaultProfile, "all");
     assert.deepEqual(toolSurface?.exposureProfile?.profiles?.facade?.tiers, ["public_facade"]);
     assert.match(String(toolSurface?.exposureProfile?.callPolicy), /hidden.*callable/i);

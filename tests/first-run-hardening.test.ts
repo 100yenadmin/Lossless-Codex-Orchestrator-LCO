@@ -107,7 +107,7 @@ test("MCP server keeps tools/list static when DB startup is unavailable, then cl
     assert.equal(structured?.retryPolicy?.negativeCache, false);
     assert.equal(structured?.retryPolicy?.retryOn, "next_tools_call");
     assert.match(String(structured?.message), /local LCO database is unavailable/i);
-    assert.match(String(structured?.nextAction), /loo doctor/i);
+    assert.match(String(structured?.nextAction), /lco doctor/i);
     assert.equal(call.result?.content?.[0]?.type, "text");
 
     rmSync(blockedDbParent, { force: true });
@@ -179,7 +179,7 @@ test("MCP server distinguishes audit-store startup failures from database failur
     assert.equal(structured?.code, "audit_unavailable");
     assert.equal(structured?.retryable, true);
     assert.match(String(structured?.message), /audit store is unavailable/i);
-    assert.match(String(structured?.nextAction), /LOO_AUDIT_PATH/i);
+    assert.match(String(structured?.nextAction), /LCO_AUDIT_PATH/i);
     assert.equal(structured?.sourceCoverage?.localIndex, "ok");
     assert.equal(structured?.sourceCoverage?.audit, "unavailable");
     assert.doesNotMatch(`${stdout}\n${stderr}`, /\bat\s+|node:sqlite|ENOTDIR|\/Volumes\/LEXAR|\/Users\/|\/tmp\/loo-mcp-runtime-fail/);

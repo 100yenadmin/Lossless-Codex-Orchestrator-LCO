@@ -331,6 +331,8 @@ test("onboard status normalizes package entrypoint paths consistently", () => {
         name: "lossless-openclaw-orchestrator",
         version: "0.1.0-beta.fixture",
         bin: {
+          lco: "./dist/packages/cli/src/index.js",
+          "lco-mcp-server": "./dist/packages/mcp-server/src/server.js",
           loo: "./dist/packages/cli/src/index.js"
         },
         openclaw: {
@@ -343,6 +345,8 @@ test("onboard status normalizes package entrypoint paths consistently", () => {
 
     assert.equal(report.ok, true, report.blockers.join(", "));
     assert.deepEqual(report.warnings, []);
+    assert.equal(report.packageEntrypoints.find((entry) => entry.id === "lco")?.path, "dist/packages/cli/src/index.js");
+    assert.equal(report.packageEntrypoints.find((entry) => entry.id === "lco-mcp-server")?.path, "dist/packages/mcp-server/src/server.js");
     assert.equal(report.packageEntrypoints.find((entry) => entry.id === "loo")?.path, "dist/packages/cli/src/index.js");
     assert.equal(report.packageEntrypoints.find((entry) => entry.id === "openclaw_extension_1")?.path, "dist/packages/openclaw-plugin/src/index.js");
   } finally {
@@ -376,8 +380,8 @@ function writeMinimalOnboardingTree(root: string, options: {
     "VISION.md": "fixture",
     "openclaw.plugin.json": JSON.stringify({
       contracts: { tools: requiredOpenClawToolsForTest() },
-      mcp: { command: "loo-mcp-server", transport: "stdio" },
-      tools: { prefix: "loo_" }
+      mcp: { command: "lco-mcp-server", transport: "stdio" },
+      tools: { prefix: "lco_" }
     }, null, 2),
     "docs/OPENCLAW_PLUGIN.md": "fixture",
     "docs/BETA_RELEASE_DEMO.md": "fixture",
@@ -387,6 +391,7 @@ function writeMinimalOnboardingTree(root: string, options: {
     "packages/mcp-server/src/server.ts": "fixture",
     "packages/openclaw-plugin/src/index.ts": "fixture",
     "dist/packages/cli/src/index.js": "fixture",
+    "dist/packages/mcp-server/src/server.js": "fixture",
     "dist/packages/openclaw-plugin/src/index.js": "fixture"
   };
 

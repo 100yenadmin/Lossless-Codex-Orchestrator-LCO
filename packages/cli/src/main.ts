@@ -46,6 +46,7 @@ import {
   type StatePrepHookInput,
   type ThreadTitleFinalizerInput
 } from "../../core/src/index.js";
+import { readEnv, readEnvWithFallback, resolveHomeDir } from "../../runtime/src/env.js";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { performance } from "node:perf_hooks";
@@ -138,13 +139,13 @@ async function main() {
     console.log(JSON.stringify({
       ok: true,
       database: {
-        configured: Boolean(process.env.LOO_DB_PATH),
+        configured: Boolean(readEnv("DB_PATH")),
         activePresent: existsSync(defaultDatabasePath()),
         location: "local"
       },
       localOnly: true,
       codexJsonlDrift: readCodexJsonlDriftStatusFromPath(defaultDatabasePath()),
-      codex: codexTransportStatus({ command: process.env.LOO_CODEX_BIN || "codex" }),
+      codex: codexTransportStatus({ command: readEnvWithFallback("CODEX_BIN", "codex") }),
       lcmPeers: probeLcmPeerDbs(configuredLcmPeerDbPaths()),
       desktopFallbacks: desktopFallbackDiagnostics()
     }, null, 2));
@@ -228,7 +229,7 @@ async function main() {
   }
   if (command === "probe" && args[0] === "codex-sqlite") {
     const roots = args.slice(1);
-    console.log(JSON.stringify(probeCodexSqliteStores(roots.length ? roots : [join(process.env.HOME || ".", ".codex")]), null, 2));
+    console.log(JSON.stringify(probeCodexSqliteStores(roots.length ? roots : [join(resolveHomeDir(), ".codex")]), null, 2));
     return;
   }
   if (command === "search") {
@@ -466,7 +467,7 @@ async function main() {
     return;
   }
   if (command === "audit-path") {
-    console.log(createAuditStore(process.env.LOO_AUDIT_PATH || `${process.env.HOME}/.openclaw/lossless-openclaw-orchestrator/audit.jsonl`).path);
+    console.log(createAuditStore(readEnv("AUDIT_PATH") || join(resolveHomeDir(), ".openclaw", "lossless-openclaw-orchestrator", "audit.jsonl")).path);
     return;
   }
   if (command === "codex" && args[0] === "live-control-smoke") {
@@ -475,10 +476,10 @@ async function main() {
       return;
     }
     const parsed = parseLiveControlSmokeArgs(args.slice(1));
-    const audit = createAuditStore(parsed.auditPath ?? process.env.LOO_AUDIT_PATH ?? `${process.env.HOME}/.openclaw/lossless-openclaw-orchestrator/audit.jsonl`);
+    const audit = createAuditStore(parsed.auditPath ?? readEnv("AUDIT_PATH") ?? join(resolveHomeDir(), ".openclaw", "lossless-openclaw-orchestrator", "audit.jsonl"));
     const report = await runLiveControlSmoke({
       client: new AppServerLiveControlSmokeClient({
-        command: parsed.codexBin ?? process.env.LOO_CODEX_BIN ?? "codex",
+        command: parsed.codexBin ?? readEnv("CODEX_BIN") ?? "codex",
         args: parsed.appServerArgs,
         timeoutMs: parsed.turnWaitMs ?? parsed.timeoutMs
       }),
@@ -1747,9 +1748,9 @@ function printQaLabCliMcpSmokeHelp(): void {
     "",
     "Options:",
     "  --cli-bin path        CLI binary to probe with --help; defaults to loo.",
-    "  --mcp-bin path        MCP server binary to probe with initialize + tools/list; defaults to loo-mcp-server.",
+    "  --mcp-bin path        MCP server binary to probe with initialize + tools/list; defaults to lco-mcp-server.",
     "  --required-tool name  Require a listed MCP tool; may be repeated.",
-    "  --tool-call name      Safe representative MCP tool to call with empty arguments; defaults to loo_doctor.",
+    "  --tool-call name      Safe representative MCP tool to call with empty arguments; defaults to lco_doctor.",
     `  --timeout-ms ms       Per-probe timeout; max ${MAX_CLI_MCP_PRODUCT_SMOKE_TIMEOUT_MS}ms. CLI and MCP probes run sequentially.`,
     "  --strict              Exit non-zero unless CLI and MCP readiness are both proved.",
     "",
@@ -4508,8 +4509,8 @@ function parseQaLabCliMcpSmokeArgs(input: string[]): {
 }
 
 function parseLooToolName(value: string, flag: string): string {
-  if (/^loo_[a-z0-9_]+$/.test(value)) return value;
-  throw new Error(`${flag} requires a loo_* tool name`);
+  if (/^(?:lco|loo)_[a-z0-9_]+$/.test(value)) return value;
+  throw new Error(`${flag} requires an lco_* or loo_* tool name`);
 }
 
 function parseQaLabJudgeArgs(input: string[]): {

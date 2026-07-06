@@ -125,9 +125,10 @@ test("Codex Desktop collaboration proof accepts exact dry-run approval packet an
     noScreenshotPolicy: true,
     dryRunOnly: true
   });
-  assert.equal(report.requiredNextToolCall?.tool, "loo_desktop_live_proof_harness");
+  assert.equal(report.requiredNextToolCall?.tool, "lco_desktop_proof");
   assert.equal(report.requiredNextToolCall?.execute, false);
   assert.deepEqual(report.requiredNextToolCall?.args, {
+    check: "live_proof_harness",
     backend: "cua-driver",
     target_app: "Codex",
     target_window: "Lossless OpenClaw Orchestrator",

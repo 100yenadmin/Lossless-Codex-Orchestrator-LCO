@@ -2034,8 +2034,9 @@ test("Codex Desktop fallback report requires an explicit coherence input when on
   assert.equal(report.fallback.desktopVisibility, null);
   assert.ok(report.blockers.includes("coherence_input_missing"));
   assert.deepEqual(report.nextToolCall, {
-    tool: "loo_codex_desktop_coherence",
+    tool: "lco_desktop_proof",
     args: {
+      check: "coherence",
       thread_id: "019f1ed4-4c45-70e2-be84-69d93a1be08b",
       source_ref: "codex_thread:019f1ed4-4c45-70e2-be84-69d93a1be08b"
     }
@@ -2059,8 +2060,9 @@ test("Codex Desktop fallback report requires an explicit coherence input when on
   assert.equal(emptyCoherence.fallback.reason, "coherence_input_missing");
   assert.ok(emptyCoherence.blockers.includes("coherence_input_missing"));
   assert.deepEqual(emptyCoherence.nextToolCall, {
-    tool: "loo_codex_desktop_coherence",
+    tool: "lco_desktop_proof",
     args: {
+      check: "coherence",
       thread_id: "019f1ed4-4c45-70e2-be84-69d93a1be08b",
       source_ref: "codex_thread:019f1ed4-4c45-70e2-be84-69d93a1be08b"
     }
