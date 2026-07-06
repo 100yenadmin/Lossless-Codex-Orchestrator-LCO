@@ -44,6 +44,7 @@ export type OpenClawGatewayLiveControlSmokeReport = {
     live: boolean | null;
     method: string | null;
     turnStatus: string | null;
+    turnCompleted: boolean | null;
     responseOk: boolean | null;
     expectedTurnId: string | null;
   };
@@ -86,12 +87,13 @@ type ControlSummary = {
   live: boolean | null;
   method: string | null;
   turnStatus: string | null;
+  turnCompleted: boolean | null;
   responseOk: boolean | null;
   expectedTurnId: string | null;
 };
 
 const SCENARIO_ID = "openclaw-gateway-live-codex-v1-1";
-export const ACCEPTED_LIVE_TURN_STATUSES = new Set(["accepted", "completed", "in_progress", "pending", "queued", "running"]);
+export const ACCEPTED_LIVE_TURN_STATUSES = new Set(["completed", "complete", "done"]);
 const DEFAULT_MESSAGE = "LCO OpenClaw gateway live-control smoke. Reply with exactly: LCO gateway live smoke acknowledged. Do not run commands, edit files, or use tools.";
 const DEFAULT_STEER_MESSAGE = "LCO OpenClaw gateway steer smoke. Keep this sacrificial QA turn bounded; do not run commands, edit files, or use tools.";
 const PRIVATE_DATA_EXCLUSIONS = [
@@ -324,7 +326,7 @@ function validLive(action: OpenClawGatewayLiveControlAction, summary: ControlSum
   const actionAccepted = action === "resume"
     ? summary.method === "thread/resume"
     : action === "send"
-      ? liveTurnStatusProvesSendAccepted(summary.turnStatus)
+      ? liveTurnStatusProvesSendAccepted(summary.turnStatus) && summary.turnCompleted === true
       : action === "steer"
         ? summary.method === "turn/steer" && summary.expectedTurnId === expectedTurnId
         : summary.method === "turn/interrupt" && summary.expectedTurnId === expectedTurnId;
@@ -377,6 +379,7 @@ function summarizeControl(call: GatewayCallResult | null): ControlSummary {
     live: booleanPath(details, ["live"]),
     method: stringPath(details, ["method"]),
     turnStatus: stringPath(details, ["response", "turn", "status"]) || stringPath(details, ["response", "result", "turn", "status"]) || stringPath(details, ["response", "status"]) || stringPath(details, ["turn_status"]) || stringPath(details, ["status"]),
+    turnCompleted: booleanPath(details, ["proof_state", "completed"]) ?? booleanPath(details, ["proofState", "completed"]) ?? booleanPath(details, ["turn", "completed"]) ?? booleanPath(details, ["response", "turn", "completed"]),
     responseOk: booleanPath(details, ["response", "ok"]) ?? booleanPath(details, ["ok"]),
     expectedTurnId: stringPath(details, ["expected_turn_id"]) || stringPath(details, ["expectedTurnId"])
   };

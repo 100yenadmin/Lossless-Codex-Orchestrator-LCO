@@ -1429,6 +1429,16 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.equal(gatewayValidation.error?.code, "validation_failed");
     assert.equal(gatewayValidation.error?.message, "expected_turn_id is required");
     assertNoRawLocalPaths(gatewayValidation);
+    const gatewayUnknownArg = await executeLooToolForOpenClaw(dryRunTool, {
+      action: "send",
+      thread_id: "thr_1",
+      message: "continue",
+      turn_wait_ms: 60_000
+    }) as { ok: boolean; code?: string; error?: { code?: string; message?: string } };
+    assert.equal(gatewayUnknownArg.ok, false);
+    assert.equal(gatewayUnknownArg.code, "validation_failed");
+    assert.equal(gatewayUnknownArg.error?.message, "turn_wait_ms is not allowed");
+    assertNoRawLocalPaths(gatewayUnknownArg);
     const genericSteerDryRun = await dryRunTool.execute({
       action: "steer",
       thread_id: "thr_1",

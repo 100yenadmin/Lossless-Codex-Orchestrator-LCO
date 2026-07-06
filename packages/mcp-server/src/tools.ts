@@ -427,6 +427,8 @@ export function createLooToolDeclarations(options: LooToolExposureOptions = {}):
 }
 
 export async function executeLooToolForOpenClaw(tool: LooTool, input: Record<string, unknown>): Promise<unknown> {
+  const validationMessage = validateOpenClawToolInput(tool.inputSchema, input);
+  if (validationMessage) return publicSafeValidationFailure(validationMessage);
   try {
     return await tool.execute(input);
   } catch (error) {
@@ -434,6 +436,52 @@ export async function executeLooToolForOpenClaw(tool: LooTool, input: Record<str
     if (message) return publicSafeValidationFailure(message);
     throw error;
   }
+}
+
+function validateOpenClawToolInput(schema: Record<string, unknown>, input: Record<string, unknown>): string | null {
+  if (schema.type !== "object") return null;
+  if (!isRecordValue(input)) return "value must be an object";
+  const properties = isRecordValue(schema.properties) ? schema.properties : {};
+  if (schema.additionalProperties === false) {
+    for (const key of Object.keys(input)) {
+      if (!(key in properties)) return `${publicSafeInputField(key)} is not allowed`;
+    }
+  }
+  for (const [key, value] of Object.entries(input)) {
+    const property = isRecordValue(properties[key]) ? properties[key] : undefined;
+    if (!property || value === undefined) continue;
+    const enumValues = Array.isArray(property.enum) ? property.enum : undefined;
+    if (enumValues && !enumValues.includes(value)) return `${publicSafeInputField(key)} is not supported`;
+    const expectedType = typeof property.type === "string" ? property.type : undefined;
+    if (expectedType && !schemaValueMatchesType(value, expectedType)) {
+      return `${publicSafeInputField(key)} must be ${expectedType}`;
+    }
+    if ((expectedType === "integer" || expectedType === "number") && typeof value === "number") {
+      const minimum = typeof property.minimum === "number" ? property.minimum : undefined;
+      const maximum = typeof property.maximum === "number" ? property.maximum : undefined;
+      if (minimum !== undefined && value < minimum) return `${publicSafeInputField(key)} is below minimum`;
+      if (maximum !== undefined && value > maximum) return `${publicSafeInputField(key)} is above maximum`;
+    }
+  }
+  return null;
+}
+
+function schemaValueMatchesType(value: unknown, type: string): boolean {
+  if (type === "string") return typeof value === "string";
+  if (type === "boolean") return typeof value === "boolean";
+  if (type === "integer") return typeof value === "number" && Number.isInteger(value);
+  if (type === "number") return typeof value === "number" && Number.isFinite(value);
+  if (type === "array") return Array.isArray(value);
+  if (type === "object") return isRecordValue(value);
+  return true;
+}
+
+function publicSafeInputField(value: string): string {
+  return /^[A-Za-z0-9_.-]{1,80}$/.test(value) ? value : "field";
+}
+
+function isRecordValue(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 export function createLooTools(options: {
