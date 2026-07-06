@@ -466,8 +466,8 @@ test("MCP doctor and desktop tools expose CUA diagnostics while desktop act stay
     }, {
       publicSafe: true,
       readOnly: true,
-      state: "clean",
-      availability: "ready"
+      state: "not_indexed_yet",
+      availability: "requires_index_run"
     });
     assert.equal(doctorResult.desktopFallbacks.preferred, "cua-driver");
     const cuaBackend = doctorResult.desktopFallbacks.backends.find((backend) => backend.backend === "cua-driver");
