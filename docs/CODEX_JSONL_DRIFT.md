@@ -31,17 +31,20 @@ top-level `state` is one of:
 - `clean`: indexed JSONL rows exist and no drift counters are present.
 - `drift_detected`: indexed rows exist and at least one indexed source reported
   unknown event kinds, unparsed lines, or missing expected fields.
-- `not_indexed_yet`: the database is present, but no Codex JSONL source rows
-  have been indexed into LCO yet.
-- `unavailable`: the status could not be computed safely, usually because the
-  database is missing or a read failed.
+- `not_indexed_yet`: no Codex JSONL source rows have been indexed into LCO yet.
+  This includes the first run before the local LCO database file exists.
+- `unavailable`: the status could not be computed safely, usually because a
+  read failed.
 
 `availability` explains whether the status can be trusted:
 
 - `ready`: the indexed drift projection is available.
-- `database_missing`: the LCO database is not present yet.
-- `requires_index_run`: the database exists, but Codex JSONL projection data has
-  not been populated yet.
+- `database_missing`: the LCO database is not present yet. Current first-run
+  doctor output folds this into `requires_index_run` so the user receives one
+  bounded index command instead of a separate database repair path.
+- `requires_index_run`: Codex JSONL projection data has not been populated yet.
+  This can mean the local LCO database is missing or that the database exists
+  with no indexed Codex JSONL rows.
 - `read_error`: LCO could not read the projection tables.
 
 When `availability` is `requires_index_run`, `nextAction` contains the suggested
@@ -57,7 +60,10 @@ running the command manually.
 That command is a local derived-cache write only; it does not mutate Codex source
 stores, run live control, or upload transcripts. The reason code
 `codex_jsonl_drift_projection_requires_index_run` means the status object is
-requesting that first projection pass rather than reporting parser drift.
+requesting that first projection pass rather than reporting parser drift. When
+the database file itself is absent, the status also includes
+`codex_jsonl_drift_database_missing`; the remediation remains the same bounded
+index command.
 
 When `loo index codex` is later run with a narrower or different root set, LCO
 prunes indexed rows only for missing JSONL files that are still under the current

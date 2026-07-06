@@ -7,7 +7,9 @@ import test from "node:test";
 import { createAuditStore } from "../packages/adapters/src/index.js";
 import {
   captureThreadTitleFinalizerHookPacket,
+  createCodexThreadNotFoundResult,
   createDatabase,
+  createRecallRefNotFoundResult,
   describeSession,
   describeRecallRef,
   expandSession,
@@ -161,6 +163,54 @@ test("indexes Codex sessions with plans, finals, touched files, and search text"
     assert.equal(expanded.threadId, "019f-test-thread");
     assert.equal(expanded.text.includes("Implement billing bridge"), true);
     assert.equal(expanded.text.includes("billing bridge smoke passed"), true);
+  } finally {
+    db.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("describe not-found returns structured ref_not_found result with nearest matches", async () => {
+  const fixture = makeFixture();
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [fixture.sessions], maxFiles: 10 });
+
+    const direct = describeSession(db, "019f-missing-billing-bridge");
+    const recall = describeRecallRef(db, { sourceRef: "codex_thread:019f-missing-billing-bridge" });
+    const notFound = createRecallRefNotFoundResult(db, "codex_thread:019f-missing-billing-bridge");
+    const tools = createLooTools({
+      db,
+      audit: createAuditStore(join(fixture.root, "audit.jsonl")),
+      codexClient: { request: async () => ({ ok: true }) }
+    });
+    const describeSessionTool = tools.find((tool) => tool.name === "loo_describe_session");
+    const describeRefTool = tools.find((tool) => tool.name === "loo_describe_ref");
+    assert.ok(describeSessionTool);
+    assert.ok(describeRefTool);
+    const mcpSessionPrefixedFound = await describeSessionTool.execute({ thread_id: "codex_thread:019f-test-thread" }) as { sourceRef?: string };
+    const mcpSessionPrefixedNotFound = await describeSessionTool.execute({ thread_id: "codex_thread:019f-missing-billing-bridge" }) as { ref?: string; message?: string };
+    const mcpNotFound = await describeRefTool.execute({ source_ref: "codex_thread:019f-missing-billing-bridge" });
+    const directPrefixedNotFound = createCodexThreadNotFoundResult(db, "codex_thread:019f-missing-billing-bridge");
+
+    assert.equal(direct, null);
+    assert.equal(recall, null);
+    assert.deepEqual(notFound, {
+      ok: false,
+      code: "ref_not_found",
+      ref: "codex_thread:019f-missing-billing-bridge",
+      reason: "ref_not_found",
+      message: "Unknown Codex thread: 019f-missing-billing-bridge",
+      nearestMatches: [{
+        sourceRef: "codex_thread:019f-test-thread",
+        title: "Implement billing bridge",
+        score: 1
+      }]
+    });
+    assert.deepEqual(mcpNotFound, notFound);
+    assert.equal(mcpSessionPrefixedFound.sourceRef, "codex_thread:019f-test-thread");
+    assert.equal(mcpSessionPrefixedNotFound.ref, "codex_thread:019f-missing-billing-bridge");
+    assert.equal(mcpSessionPrefixedNotFound.message, "Unknown Codex thread: 019f-missing-billing-bridge");
+    assert.equal(directPrefixedNotFound.ref, "codex_thread:019f-missing-billing-bridge");
   } finally {
     db.close();
     rmSync(fixture.root, { recursive: true, force: true });

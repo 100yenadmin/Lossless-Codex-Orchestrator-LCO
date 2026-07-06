@@ -18,6 +18,7 @@ import {
   configuredLcmPeerDbPaths,
   createCloseoutEnvelopeReport,
   createDatabase,
+  createRecallRefNotFoundResult,
   createIndexedSessionSanitizerRepairPlan,
   createIndexedSessionSanitizerReport,
   defaultCodexRoots,
@@ -267,7 +268,13 @@ async function main() {
     if (!sourceRef) throw new Error("describe requires a source ref");
     const db = createDatabase();
     try {
-      console.log(JSON.stringify(describeRecallRef(db, { sourceRef, lcmDbPaths: parsed.lcmDbPaths }), null, 2));
+      const description = describeRecallRef(db, { sourceRef, lcmDbPaths: parsed.lcmDbPaths });
+      if (!description) {
+        console.log(JSON.stringify(createRecallRefNotFoundResult(db, sourceRef), null, 2));
+        process.exitCode = 1;
+        return;
+      }
+      console.log(JSON.stringify(description, null, 2));
     } finally {
       db.close();
     }

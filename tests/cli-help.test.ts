@@ -145,6 +145,90 @@ test("loo doctor omits local database paths from public-safe output", () => {
   }
 });
 
+test("loo describe exits nonzero with structured ref_not_found JSON for unknown refs", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-describe-not-found-"));
+  try {
+    const dbPath = join(root, "orchestrator.sqlite");
+    const sessions = join(root, "sessions");
+    mkdirSync(sessions, { recursive: true });
+    writeFileSync(
+      join(sessions, "billing.jsonl"),
+      [
+        { timestamp: "2026-07-06T13:00:00.000Z", session_meta: { payload: { id: "019f-describe-known" } } },
+        { timestamp: "2026-07-06T13:00:01.000Z", event_msg: { type: "thread_name", name: "Billing bridge canary" } },
+        { timestamp: "2026-07-06T13:00:02.000Z", event_msg: { type: "agent_message", message: "Final: Billing bridge canary complete." } }
+      ].map((line) => JSON.stringify(line)).join("\n") + "\n"
+    );
+    const db = createDatabase(dbPath);
+    try {
+      indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    } finally {
+      db.close();
+    }
+
+    const result = runLoo(["describe", "codex_thread:019f-missing-billing"], {
+      ...process.env,
+      LOO_DB_PATH: dbPath
+    });
+
+    assert.equal(result.status, 1, result.stderr || result.stdout);
+    assert.equal(result.stderr.trim(), "");
+    const payload = JSON.parse(result.stdout) as {
+      ok?: unknown;
+      code?: unknown;
+      ref?: unknown;
+      reason?: unknown;
+      message?: unknown;
+      nearestMatches?: Array<{ sourceRef?: unknown; title?: unknown; score?: unknown }>;
+    };
+    assert.equal(payload.ok, false);
+    assert.equal(payload.code, "ref_not_found");
+    assert.equal(payload.ref, "codex_thread:019f-missing-billing");
+    assert.equal(payload.reason, "ref_not_found");
+    assert.equal(payload.message, "Unknown Codex thread: 019f-missing-billing");
+    assert.deepEqual(payload.nearestMatches, [{
+      sourceRef: "codex_thread:019f-describe-known",
+      title: "Billing bridge canary",
+      score: 1
+    }]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("loo doctor reports missing DB as read-only first-run not_indexed_yet guidance", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-doctor-missing-db-"));
+  try {
+    const dbPath = join(root, "missing", "orchestrator.sqlite");
+    assert.equal(existsSync(dbPath), false);
+
+    const result = runLoo(["doctor"], {
+      ...process.env,
+      LOO_DB_PATH: dbPath
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const report = JSON.parse(result.stdout) as {
+      database?: { configured?: unknown; activePresent?: unknown; location?: unknown };
+      codexJsonlDrift?: {
+        state?: unknown;
+        availability?: unknown;
+        nextAction?: unknown;
+        readOnly?: unknown;
+      };
+    };
+    assert.deepEqual(report.database, { configured: true, activePresent: false, location: "local" });
+    assert.equal(report.codexJsonlDrift?.state, "not_indexed_yet");
+    assert.equal(report.codexJsonlDrift?.availability, "requires_index_run");
+    assert.equal(report.codexJsonlDrift?.nextAction, "loo index codex \"$HOME/.codex/sessions\"");
+    assert.equal(report.codexJsonlDrift?.readOnly, true);
+    assert.equal(existsSync(dbPath), false);
+    assert.doesNotMatch(result.stdout, /orchestrator\.sqlite|\/Volumes\/LEXAR|\/Users\//);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("loo doctor reports clean Codex JSONL drift status without local paths", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-doctor-drift-clean-"));
   try {
