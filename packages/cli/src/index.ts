@@ -577,10 +577,12 @@ async function main() {
           maxEventsPerFile: payload.maxEventsPerFile
         });
       }
-      const report = parsed.floorFile
+      const floors = parsed.floorFile ? readRetrievalFloorFile(parsed.floorFile) : null;
+      const report = floors
         ? evaluateRetrievalBaselineScenarios(db, {
           scenarios: payload.scenarios,
-          floors: readRetrievalFloorFile(parsed.floorFile)
+          floors,
+          now: typeof floors.measuredAt === "string" ? floors.measuredAt : undefined
         })
         : evaluateRetrievalScenarios(db, { scenarios: payload.scenarios });
       if (parsed.evidencePath) {

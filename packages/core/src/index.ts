@@ -13445,12 +13445,13 @@ export function grepRecall(db: LooDatabase, options: {
   profile?: RecallProfileName;
   tokenBudget?: number;
   lcmDbPaths?: string[];
+  now?: string;
 }): { query: string; profile: RecallProfile; matches: RecallSearchResult[] } {
   const query = options.query.trim();
   const limit = clamp(options.limit ?? 10, 1, 100);
   const profile = resolveRecallProfile(options.profile, options.tokenBudget);
   if (!query) return { query, profile, matches: [] };
-  const codexMatches: RecallSearchResult[] = searchSessions(db, { query, limit }).map((match) => ({
+  const codexMatches: RecallSearchResult[] = searchSessions(db, { query, limit, now: options.now }).map((match) => ({
     ...match,
     sourceKind: "codex_thread",
     sourceRef: codexThreadRef(match.threadId),
@@ -13643,7 +13644,7 @@ export function evaluateRetrievalBaselineScenarios(db: LooDatabase, options: {
   floors?: RetrievalBaselineFloors | null;
   now?: string;
 }): RetrievalBaselineReport {
-  const scenarios = options.scenarios.map((scenario) => evaluateRetrievalBaselineScenario(db, scenario));
+  const scenarios = options.scenarios.map((scenario) => evaluateRetrievalBaselineScenario(db, scenario, options.now));
   const overall = retrievalBaselineMetrics(scenarios);
   const families = retrievalBaselineFamilyMetrics(scenarios);
   const blockers = retrievalBaselineFloorBlockers(scenarios, overall, families, options.floors ?? null);
@@ -13674,11 +13675,11 @@ export function evaluateRetrievalBaselineScenarios(db: LooDatabase, options: {
   };
 }
 
-function evaluateRetrievalBaselineScenario(db: LooDatabase, scenario: RetrievalEvalScenario): RetrievalBaselineScenarioResult {
+function evaluateRetrievalBaselineScenario(db: LooDatabase, scenario: RetrievalEvalScenario, now?: string): RetrievalBaselineScenarioResult {
   const k = clamp(scenario.k ?? scenario.limit ?? 5, 1, 20);
   const limit = Math.max(5, k);
   const expectedSourceRefs = unique(scenario.expectedSourceRefs.filter(Boolean));
-  const matches = grepRecall(db, { query: scenario.query, limit }).matches;
+  const matches = grepRecall(db, { query: scenario.query, limit, now }).matches;
   const topRefs = matches.map((match) => match.sourceRef);
   const firstExpectedIndex = topRefs.findIndex((ref) => expectedSourceRefs.includes(ref));
   const firstExpectedRank = firstExpectedIndex >= 0 ? firstExpectedIndex + 1 : null;
