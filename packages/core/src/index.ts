@@ -56,6 +56,12 @@ export type {
 
 export type LooDatabase = NodeDatabaseSync;
 type DatabaseSyncConstructor = new (path: string, options?: { readOnly?: boolean }) => NodeDatabaseSync;
+export type DatabaseMaintenanceMode = "full" | "schema-only";
+export type CreateDatabaseOptions = {
+  path?: string;
+  maintenance?: DatabaseMaintenanceMode;
+};
+type CreateDatabasePathOptions = Omit<CreateDatabaseOptions, "path">;
 
 const require = createRequire(import.meta.url);
 let cachedDatabaseSync: DatabaseSyncConstructor | null = null;
@@ -2588,12 +2594,20 @@ const SUMMARY_LEAF_SOURCE_RANGE_REF_LIMIT = 50;
 const PREPARED_CARD_SOURCE_RANGE_REF_LIMIT = 50;
 const CODEX_JSONL_DRIFT_INDEX_NEXT_ACTION = "loo index codex --max-files 500 \"$HOME/.codex/sessions\" \"$HOME/.codex/archived_sessions\"";
 
-export function createDatabase(dbPath?: string): LooDatabase {
-  const resolved = dbPath ?? defaultDatabasePath();
+export function createDatabase(dbPath?: string): LooDatabase;
+export function createDatabase(options: CreateDatabaseOptions): LooDatabase;
+export function createDatabase(dbPath: string, options: CreateDatabasePathOptions): LooDatabase;
+export function createDatabase(dbPathOrOptions?: string | CreateDatabaseOptions, pathOptions?: CreateDatabasePathOptions): LooDatabase {
+  const resolved = typeof dbPathOrOptions === "string"
+    ? dbPathOrOptions
+    : dbPathOrOptions?.path ?? defaultDatabasePath();
+  const maintenance = typeof dbPathOrOptions === "string"
+    ? pathOptions?.maintenance ?? "full"
+    : dbPathOrOptions?.maintenance ?? "full";
   mkdirSync(dirname(resolved), { recursive: true });
   const DatabaseSync = getDatabaseSync();
   const db = new DatabaseSync(resolved);
-  migrate(db);
+  migrate(db, { maintenance });
   return db;
 }
 
@@ -2612,7 +2626,7 @@ export function configuredLcmPeerDbPaths(raw = process.env.LOO_LCM_DB_PATHS ?? "
   return unique(normalizePeerPaths(raw.split(new RegExp(`[${escapeRegExp(delimiter)},\\n]`, "g")).map((part) => part.trim()).filter(Boolean)));
 }
 
-export function migrate(db: LooDatabase): void {
+export function migrate(db: LooDatabase, options: { maintenance?: DatabaseMaintenanceMode } = {}): void {
   db.exec(`
     PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
@@ -3112,15 +3126,17 @@ export function migrate(db: LooDatabase): void {
       'Additive retrieval telemetry session-key column and session timestamp index'
     );
   `);
-  // Gate FTS maintenance on rowid-pinning drift. The pinned-count check also
-  // detects count drift, so migration and index paths share one repair test.
-  const codexSearchFtsMigrationRecorded = db
-    .prepare("SELECT 1 FROM loo_schema_migrations WHERE migration_id = ?")
-    .get(CODEX_SEARCH_FTS_MIGRATION_ID) !== undefined;
-  repairCodexFtsRowidPinning(db, {
-    forceSearchRepair: !codexSearchFtsMigrationRecorded,
-    recordSearchMigration: !codexSearchFtsMigrationRecorded
-  });
+  if (options.maintenance !== "schema-only") {
+    // Gate FTS maintenance on rowid-pinning drift. The pinned-count check also
+    // detects count drift, so migration and index paths share one repair test.
+    const codexSearchFtsMigrationRecorded = db
+      .prepare("SELECT 1 FROM loo_schema_migrations WHERE migration_id = ?")
+      .get(CODEX_SEARCH_FTS_MIGRATION_ID) !== undefined;
+    repairCodexFtsRowidPinning(db, {
+      forceSearchRepair: !codexSearchFtsMigrationRecorded,
+      recordSearchMigration: !codexSearchFtsMigrationRecorded
+    });
+  }
 }
 
 function ensureColumn(db: LooDatabase, table: string, column: string, definition: string): void {

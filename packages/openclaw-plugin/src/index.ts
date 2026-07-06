@@ -78,7 +78,7 @@ export default defineToolPlugin({
 
 function getNativeRuntime(): NativeRuntime {
   if (nativeRuntime) return nativeRuntime;
-  const db = createDatabase();
+  const db = createDatabase({ maintenance: "schema-only" });
   const audit = createAuditStore(process.env.LOO_AUDIT_PATH || `${process.env.HOME || "."}/.openclaw/lossless-openclaw-orchestrator/audit.jsonl`);
   const codexClient = createCodexAppServerStdioClient({
     command: process.env.LOO_CODEX_BIN || "codex",
