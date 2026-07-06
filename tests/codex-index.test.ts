@@ -406,6 +406,47 @@ test("migrate repairs legacy Codex FTS rowid drift without reindexing", () => {
   }
 });
 
+test("schema-only database startup skips Codex FTS rowid repair until explicit indexing", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-schema-only-startup-"));
+  const dbPath = join(root, "orchestrator.sqlite");
+  let driftThreadId = "";
+  try {
+    const corpus = writeSyntheticCodexCorpus(root, 2);
+    const db = createDatabase(dbPath);
+    try {
+      indexCodexSessions(db, { roots: [corpus.sessionsDir], maxFiles: 10 });
+      const driftRow = db.prepare("SELECT rowid AS sessionRowid, thread_id AS threadId FROM codex_sessions ORDER BY rowid ASC LIMIT 1").get() as { sessionRowid: number; threadId: string };
+      driftThreadId = driftRow.threadId;
+      db.prepare("DELETE FROM codex_safe_text_fts WHERE rowid = ?").run(driftRow.sessionRowid);
+      db.prepare("INSERT INTO codex_safe_text_fts (thread_id, content) VALUES (?, ?)").run(driftRow.threadId, "legacy unpinned safe text");
+      db.prepare("DELETE FROM codex_search_fts WHERE rowid = ?").run(driftRow.sessionRowid);
+      db.prepare(`
+        INSERT INTO codex_search_fts (thread_id, title, summary, plans, finals, touched_files, tool_meta, body)
+        VALUES (?, ?, '', '', '', '', '', ?)
+      `).run(driftRow.threadId, "legacy unpinned search title", "legacy unpinned search body");
+      const before = codexFtsRowidSnapshot(db).find((row) => row.threadId === driftRow.threadId);
+      assert.notEqual(before?.safeTextFtsRowid, before?.sessionRowid);
+      assert.notEqual(before?.searchFtsRowid, before?.sessionRowid);
+    } finally {
+      db.close();
+    }
+
+    const reopened = createDatabase(dbPath, { maintenance: "schema-only" });
+    try {
+      const afterStartup = codexFtsRowidSnapshot(reopened).find((row) => row.threadId === driftThreadId);
+      assert.notEqual(afterStartup?.safeTextFtsRowid, afterStartup?.sessionRowid, "schema-only startup must not repair safe-text FTS drift");
+      assert.notEqual(afterStartup?.searchFtsRowid, afterStartup?.sessionRowid, "schema-only startup must not repair search FTS drift");
+
+      indexCodexSessions(reopened, { roots: [corpus.sessionsDir], maxFiles: 10 });
+      assertCodexFtsPinnedToSessionRowids(reopened);
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Codex indexing repairs legacy FTS rowid drift before mutating a session", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-codex-fts-rowid-repair-"));
   try {
