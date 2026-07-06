@@ -746,7 +746,8 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
     const steps = spec.steps?.length ? spec.steps : [{ method: spec.method, params: spec.params }];
     const methodSequence = steps.map((step) => step.method);
     for (const step of steps) assertCodexMethodAllowed(step.method, "control");
-    const connectionScope = steps.length > 1 ? "same_connection_sequence" : "single_request";
+    const requiresSequence = steps.length > 1 || Boolean(spec.turnResolution);
+    const connectionScope = requiresSequence ? "same_connection_sequence" : "single_request";
     const paramsHash = options.audit.fingerprintValue({
       action: spec.action,
       method: spec.method,
@@ -797,7 +798,7 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
     if (!Number.isFinite(dryRunCreatedAtMs) || dryRunCreatedAtMs + CODEX_CONTROL_DRY_RUN_TTL_MS <= Date.now()) {
       throw new Error("approval_audit_id dry-run record expired");
     }
-    const sequenceResult = steps.length > 1
+    const sequenceResult = requiresSequence
       ? await requestCodexControlSequence(options.client, steps, spec.turnResolution
         ? {
             threadId: spec.threadId,

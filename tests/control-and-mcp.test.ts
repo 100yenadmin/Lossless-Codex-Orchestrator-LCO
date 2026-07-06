@@ -81,6 +81,7 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
     assert.equal(calls.length, 0);
 
     const sequenceCalls: Array<Array<{ method: string; params: Record<string, unknown> }>> = [];
+    const sequenceOptions: CodexControlSequenceOptions[] = [];
     const sequenceControl = createCodexControl({
       audit,
       client: {
@@ -88,8 +89,9 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
           calls.push({ method, params });
           return { ok: true };
         },
-        requestSequenceUntilTurnResolved: async (steps: CodexControlStep[]) => {
+        requestSequenceUntilTurnResolved: async (steps: CodexControlStep[], options: CodexControlSequenceOptions) => {
           sequenceCalls.push(steps);
+          sequenceOptions.push(options);
           return {
             responses: steps.map((step) => ({ ok: true, method: step.method })),
             turn: {
@@ -120,6 +122,7 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
     assert.deepEqual(sequenceCalls[0]?.map((step) => step.method), ["thread/resume", "turn/start"]);
     assert.deepEqual(sequenceCalls[0]?.[0]?.params, { threadId: "thr_1", excludeTurns: true });
     assert.deepEqual(sequenceCalls[0]?.[1]?.params, { threadId: "thr_1", input: [{ type: "text", text: "continue" }] });
+    assert.deepEqual(sequenceOptions[0], { threadId: "thr_1", expectedTurnId: undefined, turnWaitMs: 120_000 });
     await assert.rejects(
       () => sequenceControl.sendMessage({
         threadId: "thr_1",
@@ -147,13 +150,58 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
       () => control.steerThread({ threadId: "thr_1", message: "focus on tests", dryRun: false, approvalAuditId: steerDryRun.approvalAuditId }),
       /expected_turn_id is required/
     );
-    await control.steerThread({ threadId: "thr_1", message: "focus on tests", expectedTurnId: "turn_1", dryRun: false, approvalAuditId: steerDryRun.approvalAuditId });
-    assert.equal(calls[1]?.method, "turn/steer");
-    assert.deepEqual(calls[1]?.params, { threadId: "thr_1", expectedTurnId: "turn_1", input: [{ type: "text", text: "focus on tests" }] });
+    await assert.rejects(
+      () => control.steerThread({ threadId: "thr_1", message: "focus on tests", expectedTurnId: "turn_1", dryRun: false, approvalAuditId: steerDryRun.approvalAuditId }),
+      /turn lifecycle proof/
+    );
+
+    const sequenceSteerDryRun = await sequenceControl.steerThread({
+      threadId: "thr_1",
+      message: "focus on tests",
+      expectedTurnId: "turn_1",
+      dryRun: true
+    });
+    const sequenceSteerLive = await sequenceControl.steerThread({
+      threadId: "thr_1",
+      message: "focus on tests",
+      expectedTurnId: "turn_1",
+      dryRun: false,
+      approvalAuditId: sequenceSteerDryRun.approvalAuditId,
+      turnWaitMs: 250
+    });
+    assert.equal(sequenceSteerLive.method, "turn/steer");
+    assert.equal(sequenceSteerLive.connectionScope, "same_connection_sequence");
+    assert.deepEqual(sequenceCalls[1]?.map((step) => step.method), ["turn/steer"]);
+    assert.deepEqual(sequenceCalls[1]?.[0]?.params, { threadId: "thr_1", expectedTurnId: "turn_1", input: [{ type: "text", text: "focus on tests" }] });
+    assert.deepEqual(sequenceOptions[1], { threadId: "thr_1", expectedTurnId: "turn_1", turnWaitMs: 250 });
 
     const interruptDryRun = await control.interruptThread({ threadId: "thr_1", dryRun: true });
     await control.interruptThread({ threadId: "thr_1", dryRun: false, approvalAuditId: interruptDryRun.approvalAuditId });
-    assert.equal(calls[2]?.method, "turn/interrupt");
+    assert.equal(calls[1]?.method, "turn/interrupt");
+
+    const boundInterruptDryRun = await control.interruptThread({ threadId: "thr_1", expectedTurnId: "turn_1", dryRun: true });
+    await assert.rejects(
+      () => control.interruptThread({ threadId: "thr_1", expectedTurnId: "turn_1", dryRun: false, approvalAuditId: boundInterruptDryRun.approvalAuditId }),
+      /turn lifecycle proof/
+    );
+
+    const sequenceInterruptDryRun = await sequenceControl.interruptThread({
+      threadId: "thr_1",
+      expectedTurnId: "turn_1",
+      dryRun: true
+    });
+    const sequenceInterruptLive = await sequenceControl.interruptThread({
+      threadId: "thr_1",
+      expectedTurnId: "turn_1",
+      dryRun: false,
+      approvalAuditId: sequenceInterruptDryRun.approvalAuditId,
+      turnWaitMs: 500
+    });
+    assert.equal(sequenceInterruptLive.method, "turn/interrupt");
+    assert.equal(sequenceInterruptLive.connectionScope, "same_connection_sequence");
+    assert.deepEqual(sequenceCalls[2]?.map((step) => step.method), ["turn/interrupt"]);
+    assert.deepEqual(sequenceCalls[2]?.[0]?.params, { threadId: "thr_1", expectedTurnId: "turn_1" });
+    assert.deepEqual(sequenceOptions[2], { threadId: "thr_1", expectedTurnId: "turn_1", turnWaitMs: 500 });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

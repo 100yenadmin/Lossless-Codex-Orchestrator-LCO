@@ -304,11 +304,13 @@ The safe loop is:
    is needed
 8. live action only with a matching `approval_audit_id`
 
-Live start/send/resume results distinguish `accepted_by_transport`, `started`,
-`completed`, `persisted`, and `unverified_pending`. If a result is
+Live start/send/steer/interrupt results distinguish `accepted_by_transport`,
+`started`, `completed`, `persisted`, and `unverified_pending`. If a result is
 `unverified_pending`, treat it as transport acceptance only and run the returned
 read-only `next_proof` tool call before claiming durable execution or local
 session persistence.
+Live resume only proves that the thread was rejoined/loaded by the transport;
+do not use resume by itself as durable turn execution proof.
 Live send/turn-bound control waits are bounded; use `--turn-wait-ms` on smoke
 commands or `LOO_CODEX_TURN_WAIT_MS` for live tool calls when a shorter or
 longer local verification window is intentional.
