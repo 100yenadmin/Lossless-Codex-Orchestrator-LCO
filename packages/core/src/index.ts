@@ -2375,6 +2375,7 @@ export type RetrievalBaselineFloors = {
   engine?: string;
   scenarioSet?: string;
   scenarioCount?: number;
+  measuredAt?: string;
   overall: RetrievalBaselineMetricSet;
   families: Record<string, RetrievalBaselineMetricSet & { scenarioCount?: number }>;
 };
