@@ -1108,7 +1108,7 @@ function mainUsageText(): string {
     "  loo codex live-control-smoke --evidence-dir path [--thread-id id] [--message text] [--cwd path] [--timeout-ms ms] [--audit-path path] [--codex-bin path] [--app-server-args \"app-server --stdio\"]",
     "  loo openclaw dogfood [--dev] [--profile name] [--install-source path] [--link] [--force-install] [--evidence-path path] [--strict]",
     "  loo openclaw tool-smoke [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--thread-id id] [--expand-profile metadata|brief|evidence] [--token-budget n] [--coverage default|full] [--required-tool name] [--evidence-path path] [--strict]",
-    "  loo openclaw published-smoke --evidence-dir path --dogfood-report path --tool-smoke-report path [--configured-tool-smoke-report path] [--npm-install-diagnostic-report path] [--registry-version version] [--registry-beta-version version] [--root path] [--now iso] [--strict]",
+    "  loo openclaw published-smoke --evidence-dir path --dogfood-report path --tool-smoke-report path [--configured-tool-smoke-report path] [--npm-install-diagnostic-report path] [--binary-probe-report path] [--registry-version version] [--registry-beta-version version] [--root path] [--now iso] [--strict]",
     "  loo openclaw live-control-smoke --evidence-dir path --thread-id id --action send|resume|steer|interrupt [--expected-turn-id id] [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--message text] [--strict]",
     "  loo openclaw post-action-refresh-smoke --evidence-dir path --thread-id id --live-proof-report path [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--expand-profile metadata|brief|evidence] [--token-budget n] [--strict]",
     "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--runtime-proof-dir path] [--package-version version] [--candidate-sha sha] [--strict]",
@@ -1822,13 +1822,14 @@ function printQaLabWorkflowHelp(): void {
 function printOpenClawPublishedSmokeHelp(): void {
   console.log([
     "Usage:",
-    "  loo openclaw published-smoke --evidence-dir path --dogfood-report path --tool-smoke-report path [--configured-tool-smoke-report path] [--npm-install-diagnostic-report path] [--registry-version version] [--registry-beta-version version] [--root path] [--now iso] [--strict] [--gateway-ready-strict]",
+    "  loo openclaw published-smoke --evidence-dir path --dogfood-report path --tool-smoke-report path [--configured-tool-smoke-report path] [--npm-install-diagnostic-report path] [--binary-probe-report path] [--registry-version version] [--registry-beta-version version] [--root path] [--now iso] [--strict] [--gateway-ready-strict]",
     "",
     "Writes a public-safe summary of the published npm package path for the expected dist-tag and gateway setup state.",
     "",
     "This command consumes sanitized reports from `loo openclaw dogfood` and `loo openclaw tool-smoke`.",
     "Optional `--configured-tool-smoke-report` records a separately named configured-profile gateway proof without marking the fresh published profile ready.",
     "Optional `--npm-install-diagnostic-report` records public-safe npm selector drift and tarball fallback proof without storing raw npm output.",
+    "Optional `--binary-probe-report` records public-safe candidate-binary attribution and classifies global `loo` PATH shadowing separately from package defects.",
     "",
     "Strict mode:",
     "  --strict exits non-zero only when ok/packagePathOk is false; it is package-path strict.",
@@ -3220,6 +3221,7 @@ function parseOpenClawPublishedSmokeArgs(input: string[]): {
   toolSmokeReportPath: string;
   configuredToolSmokeReportPath?: string;
   npmInstallDiagnosticReportPath?: string;
+  binaryProbeReportPath?: string;
   strict: boolean;
   gatewayReadyStrict: boolean;
 } {
@@ -3233,6 +3235,7 @@ function parseOpenClawPublishedSmokeArgs(input: string[]): {
     toolSmokeReportPath?: string;
     configuredToolSmokeReportPath?: string;
     npmInstallDiagnosticReportPath?: string;
+    binaryProbeReportPath?: string;
     strict: boolean;
     gatewayReadyStrict: boolean;
   } = { strict: false, gatewayReadyStrict: false };
@@ -3256,6 +3259,8 @@ function parseOpenClawPublishedSmokeArgs(input: string[]): {
       parsed.configuredToolSmokeReportPath = requireOptionValue(input[++index], arg);
     } else if (arg === "--npm-install-diagnostic-report") {
       parsed.npmInstallDiagnosticReportPath = requireOptionValue(input[++index], arg);
+    } else if (arg === "--binary-probe-report") {
+      parsed.binaryProbeReportPath = requireOptionValue(input[++index], arg);
     } else if (arg === "--strict") {
       parsed.strict = true;
     } else if (arg === "--gateway-ready-strict") {
@@ -3276,6 +3281,7 @@ function parseOpenClawPublishedSmokeArgs(input: string[]): {
     toolSmokeReportPath: parsed.toolSmokeReportPath,
     configuredToolSmokeReportPath: parsed.configuredToolSmokeReportPath,
     npmInstallDiagnosticReportPath: parsed.npmInstallDiagnosticReportPath,
+    binaryProbeReportPath: parsed.binaryProbeReportPath,
     strict: parsed.strict,
     gatewayReadyStrict: parsed.gatewayReadyStrict
   };

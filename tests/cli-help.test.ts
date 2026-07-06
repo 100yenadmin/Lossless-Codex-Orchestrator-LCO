@@ -467,8 +467,10 @@ test("loo openclaw published-smoke --help exposes selector-drift diagnostic inpu
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /Usage:\n  loo openclaw published-smoke/);
   assert.match(result.stdout, /--npm-install-diagnostic-report path/);
+  assert.match(result.stdout, /--binary-probe-report path/);
   assert.match(result.stdout, /--gateway-ready-strict/);
   assert.match(result.stdout, /npm selector drift/i);
+  assert.match(result.stdout, /PATH shadowing/i);
   assert.match(result.stdout, /package-path strict/i);
   assert.match(result.stdout, /publishedSmokeReady/i);
   assert.match(result.stdout, /both flags/i);

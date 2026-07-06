@@ -13,6 +13,7 @@ export type PublishedPackageSmokeOptions = {
   toolSmokeReportPath: string;
   configuredToolSmokeReportPath?: string;
   npmInstallDiagnosticReportPath?: string;
+  binaryProbeReportPath?: string;
 };
 
 export type PublishedPackageSmokeReport = {
@@ -99,6 +100,22 @@ export type PublishedPackageSmokeReport = {
     evidenceInputs: string[];
     guidance: string[];
   };
+  binaryProbeDiagnostic: {
+    provided: boolean;
+    classification:
+      | "not_provided"
+      | "valid_candidate_binary"
+      | "smoke_harness_path_shadow"
+      | "candidate_binary_version_mismatch"
+      | "invalid";
+    packageInstallLikelyOk: boolean;
+    resolvedBinarySource: "package_tarball" | "package_exec" | "global_path" | "unknown";
+    observedVersion: string | null;
+    packageVersion: string;
+    tarballBinaryVersion: string | null;
+    evidenceInputs: string[];
+    guidance: string[];
+  };
   blockers: string[];
   nextSafeCommands: string[];
   actionsPerformed: {
@@ -163,13 +180,15 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
       ? matchingRegistryStatus(expectedDistTag)
       : mismatchedRegistryStatus(expectedDistTag)
     : "not_run";
+  const binaryProbeDiagnostic = readBinaryProbeDiagnostic(options.binaryProbeReportPath, packageJson.version);
   const blockers = [
     ...(packageJson.name === PACKAGE_NAME ? [] : ["package_name_mismatch"]),
     ...(versionMatchStatus.endsWith("_mismatch") ? [`registry_${expectedDistTag}_version_mismatch`] : []),
     ...(dogfoodReady ? [] : ["openclaw_dogfood_not_ready"]),
     ...(requiredToolsPresent ? [] : ["openclaw_required_tools_missing"]),
     ...(!toolSmokeReady && !setupRequired ? ["openclaw_tool_smoke_not_ready"] : []),
-    ...(setupRequired && !packageInstallLikelyOk ? ["openclaw_gateway_setup_not_package_safe"] : [])
+    ...(setupRequired && !packageInstallLikelyOk ? ["openclaw_gateway_setup_not_package_safe"] : []),
+    ...binaryProbeBlockers(binaryProbeDiagnostic)
   ];
   const packagePathOk = blockers.length === 0;
   const npmInstallDiagnostic = readNpmInstallDiagnostic(options.npmInstallDiagnosticReportPath);
@@ -213,9 +232,11 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
     setupBlockers,
     setupRecovery,
     npmInstallDiagnostic,
+    binaryProbeDiagnostic,
     blockers,
     nextSafeCommands: uniqueStrings([
       ...npmInstallDiagnosticCommands(expectedPackage, npmInstallDiagnostic),
+      ...binaryProbeDiagnosticCommands(packageJson.version, binaryProbeDiagnostic),
       `npm view ${expectedPackage} version dist-tags --json`,
       `loo openclaw dogfood --profile lco-dogfood-published --install-source ${expectedPackage} --required-tool loo_doctor --required-tool loo_search_sessions --strict`,
       "loo openclaw tool-smoke --profile lco-dogfood-published --required-tool loo_doctor --required-tool loo_search_sessions --strict",
@@ -358,6 +379,127 @@ function npmInstallDiagnosticCommands(
     `${tarballLookup} --json`,
     `tarball_url="$(${tarballLookup})" && test -n "$tarball_url" && npm install -g "$tarball_url"`
   ];
+}
+
+function binaryProbeDiagnosticCommands(
+  packageVersion: string,
+  diagnostic: PublishedPackageSmokeReport["binaryProbeDiagnostic"]
+): string[] {
+  if (diagnostic.classification !== "smoke_harness_path_shadow" && diagnostic.classification !== "candidate_binary_version_mismatch") return [];
+  const tarballLookup = `npm view ${PACKAGE_NAME}@${packageVersion} dist.tarball`;
+  return [
+    `${tarballLookup} --json`,
+    `tarball_url="$(${tarballLookup})" && test -n "$tarball_url" && tmp_dir="$(mktemp -d)" && curl -fsSL "$tarball_url" -o "$tmp_dir/package.tgz" && tar -xzf "$tmp_dir/package.tgz" -C "$tmp_dir" && node "$tmp_dir/package/dist/packages/cli/src/index.js" --version`
+  ];
+}
+
+function binaryProbeBlockers(diagnostic: PublishedPackageSmokeReport["binaryProbeDiagnostic"]): string[] {
+  if (!diagnostic.provided || diagnostic.classification === "not_provided" || diagnostic.classification === "valid_candidate_binary" || diagnostic.classification === "smoke_harness_path_shadow") return [];
+  if (diagnostic.classification === "candidate_binary_version_mismatch") return ["binary_probe_candidate_version_mismatch"];
+  return ["binary_probe_invalid"];
+}
+
+function readBinaryProbeDiagnostic(path: string | undefined, packageVersion: string): PublishedPackageSmokeReport["binaryProbeDiagnostic"] {
+  if (!path) {
+    return {
+      provided: false,
+      classification: "not_provided",
+      packageInstallLikelyOk: false,
+      resolvedBinarySource: "unknown",
+      observedVersion: null,
+      packageVersion,
+      tarballBinaryVersion: null,
+      evidenceInputs: [],
+      guidance: []
+    };
+  }
+  const payload = readJsonObject(path);
+  const publicSafe = payload.publicSafe === true && payload.rawSecretIncluded === false;
+  if (!publicSafe) return invalidBinaryProbeDiagnostic(packageVersion, ["invalid_or_non_public_safe_binary_probe"]);
+  const observedVersion = safeVersionString(readNestedString(payload, ["observedVersion"]));
+  const expectedVersion = safeVersionString(readNestedString(payload, ["expectedVersion"])) ?? packageVersion;
+  const tarballBinaryVersion = safeVersionString(readNestedString(payload, ["tarballBinaryVersion"]));
+  const packageJsonVersion = safeVersionString(readNestedString(payload, ["packageJsonVersion"]));
+  const pathShadowed = readNestedBoolean(payload, ["pathShadowed"]);
+  const resolvedBinarySource = readResolvedBinarySource(payload);
+  const tarballMatches = tarballBinaryVersion === packageVersion || packageJsonVersion === packageVersion;
+  const evidenceInputs = [
+    "binary_probe",
+    pathShadowed ? "path_shadowed" : null,
+    tarballMatches ? "candidate_tarball_version_match" : null
+  ].filter((item): item is string => Boolean(item));
+
+  if (pathShadowed && tarballMatches) {
+    return {
+      provided: true,
+      classification: "smoke_harness_path_shadow",
+      packageInstallLikelyOk: true,
+      resolvedBinarySource,
+      observedVersion,
+      packageVersion,
+      tarballBinaryVersion,
+      evidenceInputs,
+      guidance: [
+        "The command runner resolved a non-candidate loo binary, but exact published tarball proof matched the package version; treat this as smoke harness PATH shadowing.",
+        "Rerun product smoke from the exact published tarball or validate the resolved binary path before claiming a package version defect."
+      ]
+    };
+  }
+
+  if (!pathShadowed && expectedVersion === packageVersion && observedVersion === packageVersion && (resolvedBinarySource === "package_tarball" || resolvedBinarySource === "package_exec")) {
+    return {
+      provided: true,
+      classification: "valid_candidate_binary",
+      packageInstallLikelyOk: true,
+      resolvedBinarySource,
+      observedVersion,
+      packageVersion,
+      tarballBinaryVersion,
+      evidenceInputs: uniqueStrings([...evidenceInputs, "candidate_binary_version_match"]),
+      guidance: ["The resolved binary was attributed to the candidate package and reported the expected version."]
+    };
+  }
+
+  return {
+    provided: true,
+    classification: "candidate_binary_version_mismatch",
+    packageInstallLikelyOk: false,
+    resolvedBinarySource,
+    observedVersion,
+    packageVersion,
+    tarballBinaryVersion,
+    evidenceInputs,
+    guidance: [
+      "The binary probe did not prove the candidate package version; keep package readiness fail-closed until exact tarball or package-scoped binary proof passes."
+    ]
+  };
+}
+
+function invalidBinaryProbeDiagnostic(
+  packageVersion: string,
+  evidenceInputs: string[]
+): PublishedPackageSmokeReport["binaryProbeDiagnostic"] {
+  return {
+    provided: true,
+    classification: "invalid",
+    packageInstallLikelyOk: false,
+    resolvedBinarySource: "unknown",
+    observedVersion: null,
+    packageVersion,
+    tarballBinaryVersion: null,
+    evidenceInputs,
+    guidance: ["The binary probe report was absent, malformed, or not public-safe; keep package readiness fail-closed if this probe is required for the claim."]
+  };
+}
+
+function readResolvedBinarySource(input: Record<string, unknown>): PublishedPackageSmokeReport["binaryProbeDiagnostic"]["resolvedBinarySource"] {
+  const value = readNestedString(input, ["resolvedBinarySource"]);
+  if (value === "package_tarball" || value === "package_exec" || value === "global_path") return value;
+  return "unknown";
+}
+
+function safeVersionString(value: string | null): string | null {
+  return value && /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$/.test(value) ? value : null;
 }
 
 function readNpmInstallDiagnostic(path: string | undefined): PublishedPackageSmokeReport["npmInstallDiagnostic"] {
