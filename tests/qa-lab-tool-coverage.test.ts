@@ -279,6 +279,54 @@ test("qa-lab tool coverage still blocks published-smoke clean-profile setup-requ
   }]);
 });
 
+test("qa-lab tool coverage does not let ready booleans mask published-smoke setup blockers", (t) => {
+  const dir = makeTempDir(t, "loo-qa-tool-coverage-published-inconsistent-");
+  const toolSmokeReport = writeToolSmokeReport(dir, allDeclaredToolNames());
+  const publishedSmoke = writePublishedSmokeReport(dir, {
+    publishedSmokeReady: true,
+    packagePathOk: true,
+    setupRequired: true,
+    setupBlockers: ["fresh_profile_gateway_credentials_required"],
+    toolSmoke: {
+      toolSmokeReady: true,
+      gatewaySetupClassification: "ready",
+      packageInstallLikelyOk: true
+    },
+    setupRecovery: {
+      classification: "credential_required"
+    },
+    configuredGateway: {
+      provided: false,
+      toolSmokeReady: false,
+      gatewaySetupClassification: "unknown",
+      packageInstallLikelyOk: false,
+      toolCount: 0,
+      invokedTools: []
+    }
+  });
+
+  const report = createQaLabToolCoverageReport({
+    evidenceDir: dir,
+    packageVersion,
+    candidateSha,
+    toolSmokeReport,
+    publishedSmoke,
+    coveragePolicy: "full",
+    claimScope: "codex-read-search-expand-dry-run",
+    now: "2026-07-06T00:00:00.000Z"
+  });
+
+  assert.equal(report.ok, false);
+  assert.equal(report.evidenceIndex.publishedSmoke.status, "blocked");
+  assert.ok(report.blockers.some((blocker) => blocker.code === "publishedSmoke_setup_not_ready"));
+  assert.deepEqual(report.setupBlockers.filter((blocker) => blocker.source === "publishedSmoke"), [{
+    code: "publishedSmoke_setup_credential_required",
+    source: "publishedSmoke",
+    detail: "Published-package smoke report reports setup status credential_required.",
+    allowed: false
+  }]);
+});
+
 test("qa-lab tool coverage excludes lco aliases from declared-tool accounting", (t) => {
   const dir = makeTempDir(t, "loo-qa-tool-coverage-aliases-");
   const baseTools = createLooToolDeclarations({ includeAliases: false });

@@ -458,7 +458,6 @@ function collectSetupBlockers(
 }
 
 function publishedSmokeSetupStatus(value: JsonRecord): unknown {
-  if (value.publishedSmokeReady === true && value.packagePathOk === true) return "ready";
   const setupBlockers = readPath(value, ["setupBlockers"]);
   const setupRequired = value.setupRequired === true || (Array.isArray(setupBlockers) && setupBlockers.length > 0);
   const toolSmokeStatus = readPath(value, ["toolSmoke", "gatewaySetupClassification"]);
@@ -468,11 +467,12 @@ function publishedSmokeSetupStatus(value: JsonRecord): unknown {
     if (typeof recoveryStatus === "string" && recoveryStatus !== "ready") return recoveryStatus;
     return "setup_required";
   }
+  if (value.packagePathOk === false || value.ok === false) return "package_path_not_ready";
+  if (value.publishedSmokeReady === true && value.packagePathOk === true) return "ready";
   if (value.publishedSmokeReady === false) {
     if (typeof toolSmokeStatus === "string" && toolSmokeStatus !== "ready") return toolSmokeStatus;
     return "not_ready";
   }
-  if (value.packagePathOk === false || value.ok === false) return "package_path_not_ready";
   return undefined;
 }
 
