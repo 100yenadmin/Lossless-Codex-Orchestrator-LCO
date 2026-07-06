@@ -3045,7 +3045,7 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
     result.skippedFiles += Math.max(0, fileSelection.droppedOldest.actual - fileSelection.droppedOldest.limit);
     result.limitedFiles.push(fileSelection.droppedOldest);
   }
-  pruneMissingCodexSourceFiles(db, options.roots);
+  pruneMissingCodexSourceFiles(db, options.roots, fileSelection.candidateFiles);
   repairCodexFtsRowidPinning(db);
   const seenThreads = new Set<string>();
   const summaryThreadsToMaterialize = new Set<string>();
@@ -3450,16 +3450,21 @@ function clearSourceFileIndexInsideTransaction(db: LooDatabase, sourcePath: stri
   db.prepare("DELETE FROM codex_source_files WHERE source_path = ?").run(sourcePath);
 }
 
-function pruneMissingCodexSourceFiles(db: LooDatabase, roots: string[]): void {
+function pruneMissingCodexSourceFiles(db: LooDatabase, roots: string[], candidateFiles: string[]): void {
   const existingRoots = unique(roots.map(canonicalExistingPath).filter((root): root is string => root !== null));
   if (existingRoots.length === 0) return;
+  const currentResolvedPaths = new Set(candidateFiles.map((path) => resolve(path)));
+  const currentCanonicalPaths = new Set(candidateFiles.map(canonicalExistingPath).filter((path): path is string => path !== null));
   const rows = db.prepare("SELECT source_path AS sourcePath FROM codex_source_files").all() as Array<{ sourcePath: string }>;
   const missingSourcePaths: string[] = [];
   for (const row of rows) {
     const sourcePath = String(row.sourcePath ?? "");
     if (!sourcePath.endsWith(".jsonl")) continue;
+    if (currentResolvedPaths.has(resolve(sourcePath))) continue;
+    const canonicalSourcePath = canonicalMaybeMissingPath(sourcePath);
+    if (currentCanonicalPaths.has(canonicalSourcePath)) continue;
     if (existsSync(sourcePath)) continue;
-    if (!existingRoots.some((root) => sourcePathIsWithinRoot(sourcePath, root))) continue;
+    if (!existingRoots.some((root) => canonicalPathIsWithinRoot(canonicalSourcePath, root))) continue;
     missingSourcePaths.push(sourcePath);
   }
   if (missingSourcePaths.length === 0) return;
@@ -3475,8 +3480,8 @@ function pruneMissingCodexSourceFiles(db: LooDatabase, roots: string[]): void {
   }
 }
 
-function sourcePathIsWithinRoot(sourcePath: string, root: string): boolean {
-  const relativePath = relative(root, canonicalMaybeMissingPath(sourcePath));
+function canonicalPathIsWithinRoot(canonicalPath: string, root: string): boolean {
+  const relativePath = relative(root, canonicalPath);
   return relativePath === "" || (relativePath.length > 0 && relativePath !== ".." && !relativePath.startsWith(`..${sep}`) && !isAbsolute(relativePath));
 }
 
@@ -14203,6 +14208,7 @@ type JsonlFileCandidate = {
 
 type JsonlFileSelection = {
   files: string[];
+  candidateFiles: string[];
   droppedOldest: LimitedCodexFile | null;
 };
 
@@ -14213,9 +14219,11 @@ function collectJsonlFiles(roots: string[], maxFiles: number): JsonlFileSelectio
     walk(root, candidates);
   }
   candidates.sort((left, right) => right.mtimeMs - left.mtimeMs || left.path.localeCompare(right.path));
+  const candidateFiles = candidates.map((candidate) => candidate.path);
   const files = candidates.slice(0, maxFiles).map((candidate) => candidate.path);
   return {
     files,
+    candidateFiles,
     droppedOldest: candidates.length > maxFiles
       ? {
           path: roots.length === 1 ? roots[0] : roots.join(delimiter),
