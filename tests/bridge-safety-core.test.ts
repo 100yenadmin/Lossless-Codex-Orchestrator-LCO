@@ -7,6 +7,7 @@ import test from "node:test";
 
 import {
   CODEX_CONTROL_METHODS,
+  CODEX_TURN_NOTIFICATION_METHOD_STATUS,
   CodexJsonRpcClient,
   LineProcessTransport,
   assertCodexMethodAllowed,
@@ -82,6 +83,23 @@ test("Codex method policy blocks generic mutation passthrough but allows approve
   assert.doesNotThrow(() => assertCodexMethodAllowed("thread/start", "control"));
   assert.doesNotThrow(() => assertCodexMethodAllowed("thread/start", "smoke_setup"));
   assert.throws(() => assertCodexMethodAllowed("config/value/write", "control"), /forbidden/);
+});
+
+test("Codex turn notification method statuses are pinned for async completion waits", () => {
+  assert.deepEqual(CODEX_TURN_NOTIFICATION_METHOD_STATUS, {
+    "turn/completed": "completed",
+    "turn/failed": "failed",
+    "turn/interrupted": "interrupted",
+    "turn/cancelled": "cancelled",
+    "turn/canceled": "cancelled",
+    "turn/started": "running"
+  });
+  assert.deepEqual(
+    Object.entries(CODEX_TURN_NOTIFICATION_METHOD_STATUS)
+      .filter(([, status]) => status !== "running")
+      .map(([method]) => method),
+    ["turn/completed", "turn/failed", "turn/interrupted", "turn/cancelled", "turn/canceled"]
+  );
 });
 
 test("Codex JSON-RPC client initializes, sends initialized notification, buffers notifications, and returns results", async () => {

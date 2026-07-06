@@ -1062,7 +1062,7 @@ function publicTurnResolution(turn: CodexTurnResolution): CodexTurnResolution {
     ...(turn.id ? { id: turn.id } : {}),
     status: turn.status,
     completed: turn.completed,
-    notificationMethods: [...new Set(turn.notificationMethods)].sort(),
+    notificationMethods: [...new Set(turn.notificationMethods)],
     approvalRequestCount: turn.approvalRequestCount,
     serverRequestCount: turn.serverRequestCount
   };

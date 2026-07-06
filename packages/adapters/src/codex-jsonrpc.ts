@@ -49,6 +49,15 @@ export type CodexJsonRpcClientOptions = {
   surface?: CodexMethodSurface;
 };
 
+export const CODEX_TURN_NOTIFICATION_METHOD_STATUS = {
+  "turn/completed": "completed",
+  "turn/failed": "failed",
+  "turn/interrupted": "interrupted",
+  "turn/cancelled": "cancelled",
+  "turn/canceled": "cancelled",
+  "turn/started": "running"
+} as const;
+
 const DEFAULT_TIMEOUT_MS = 10_000;
 const CLIENT_INFO = {
   name: "lossless-openclaw-orchestrator",
@@ -516,12 +525,9 @@ function turnFromNotification(notification: JsonRpcNotification): { id?: string;
 }
 
 function methodStatus(method: string): string | null {
-  if (method === "turn/completed") return "completed";
-  if (method === "turn/failed") return "failed";
-  if (method === "turn/interrupted") return "interrupted";
-  if (method === "turn/cancelled" || method === "turn/canceled") return "cancelled";
-  if (method === "turn/started") return "running";
-  return null;
+  // Extension point for Codex protocol drift: add future terminal notification
+  // methods here so bounded turn waits do not degrade into timeout packets.
+  return CODEX_TURN_NOTIFICATION_METHOD_STATUS[method as keyof typeof CODEX_TURN_NOTIFICATION_METHOD_STATUS] ?? null;
 }
 
 function turnStatusResolved(status: string | null): boolean {
