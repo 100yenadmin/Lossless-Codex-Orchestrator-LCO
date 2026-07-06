@@ -32,10 +32,12 @@ export type OpenClawPostActionRefreshSmokeReport = {
     path: string;
     accepted: boolean;
     targetMatches: boolean;
+    actionObservedAt: string | null;
   };
   refresh: {
     postActionRefresh: boolean;
     refreshedAt: string | null;
+    refreshedAfterLiveAction: boolean;
     statusBucket: string | null;
     safeSummaryDelta: boolean;
     boundedExpansionProfile: string | null;
@@ -71,6 +73,7 @@ type GatewayCallResult = {
 type LiveProofSummary = {
   accepted: boolean;
   targetRef: string | null;
+  actionObservedAt: string | null;
   blockers: string[];
 };
 
@@ -187,6 +190,11 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
   const statusBucket = targetThreadMapOutput ? firstString(targetThreadMapOutput, ["statusBucket", "status_bucket", "status"]) ?? (refreshedAt ? "refreshed" : null) : null;
   const safeSummaryDelta = hasTargetSafeSummaryDelta(targetSearchOutput, targetDescribeOutput, query);
   const boundedExpansionProfile = targetExpandOutput ? firstString(targetExpandOutput, ["profile"]) || expandProfile : null;
+  const refreshTimestampValid = refreshedAt ? parseTimestamp(refreshedAt) !== null : false;
+  const refreshedAfterLiveAction = refreshedAt !== null
+    && refreshTimestampValid
+    && liveProof.actionObservedAt !== null
+    && timestampAfter(refreshedAt, liveProof.actionObservedAt);
   if (blockers.length === 0) {
     if (!targetThreadMapOutput) blockers.push("post_action_refresh_thread_map_target_missing");
     if (!targetSearchOutput) blockers.push("post_action_refresh_search_target_missing");
@@ -194,6 +202,8 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
     if (!targetExpandOutput) blockers.push("post_action_refresh_expand_target_missing");
     if (!sourceRefs.includes(targetRef)) blockers.push("post_action_refresh_target_ref_missing");
     if (!refreshedAt) blockers.push("post_action_refresh_timestamp_missing");
+    else if (!refreshTimestampValid) blockers.push("post_action_refresh_timestamp_invalid");
+    else if (!refreshedAfterLiveAction) blockers.push("post_action_refresh_not_after_live_action");
     if (!statusBucket) blockers.push("post_action_refresh_status_bucket_missing");
     if (!safeSummaryDelta) blockers.push("post_action_refresh_safe_summary_delta_missing");
   }
@@ -213,11 +223,13 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
     liveProof: {
       path: options.liveProofReportPath,
       accepted: liveProof.accepted,
-      targetMatches: liveProof.targetRef === targetRef
+      targetMatches: liveProof.targetRef === targetRef,
+      actionObservedAt: liveProof.actionObservedAt
     },
     refresh: {
       postActionRefresh: proofReady,
       refreshedAt: proofReady ? refreshedAt : null,
+      refreshedAfterLiveAction: proofReady && refreshedAfterLiveAction,
       statusBucket: proofReady ? statusBucket : null,
       safeSummaryDelta: proofReady && safeSummaryDelta,
       boundedExpansionProfile: proofReady ? boundedExpansionProfile : null
@@ -255,10 +267,12 @@ function readLiveProof(path: string, targetRef: string): LiveProofSummary {
   try {
     parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
   } catch {
-    return { accepted: false, targetRef: null, blockers: ["post_action_refresh_proof_missing"] };
+    return { accepted: false, targetRef: null, actionObservedAt: null, blockers: ["post_action_refresh_proof_missing"] };
   }
   const record = isRecord(parsed) ? parsed : {};
   const proofTarget = stringPath(record, ["targetRef"]) || stringPath(record, ["target_ref"]);
+  const actionObservedAt = firstString(record, ["actionObservedAt", "action_observed_at"]) || stringPath(record, ["generatedAt"]) || stringPath(record, ["generated_at"]);
+  const actionObservedAtTimestamp = actionObservedAt ? parseTimestamp(actionObservedAt) : null;
   const actionRecord = isRecord(record.actionsPerformed) ? record.actionsPerformed : {};
   const authorization = isRecord(record.authorization) ? record.authorization : {};
   const blockers = [
@@ -266,9 +280,11 @@ function readLiveProof(path: string, targetRef: string): LiveProofSummary {
     ...(proofTarget === targetRef ? [] : ["post_action_live_proof_target_mismatch"]),
     ...(authorization.approvalAuditIdMatchesDryRun === true ? [] : ["post_action_live_proof_approval_mismatch"]),
     ...(actionRecord.liveCodexControlRun === true ? [] : ["post_action_live_proof_action_missing"]),
-    ...(actionRecord.rawTranscriptRead === false ? [] : ["post_action_live_proof_raw_transcript"])
+    ...(actionRecord.rawTranscriptRead === false ? [] : ["post_action_live_proof_raw_transcript"]),
+    ...(actionObservedAt ? [] : ["post_action_live_proof_timestamp_missing"]),
+    ...(actionObservedAt && actionObservedAtTimestamp === null ? ["post_action_live_proof_timestamp_invalid"] : [])
   ];
-  return { accepted: blockers.length === 0, targetRef: proofTarget, blockers };
+  return { accepted: blockers.length === 0, targetRef: proofTarget, actionObservedAt: actionObservedAtTimestamp ? actionObservedAt : null, blockers };
 }
 
 function runtimeProofForReport(report: OpenClawPostActionRefreshSmokeReport): Record<string, unknown> {
@@ -281,6 +297,7 @@ function runtimeProofForReport(report: OpenClawPostActionRefreshSmokeReport): Re
     public_safe: report.publicSafe && report.blockers.length === 0,
     proof_markers: {
       post_action_refresh: report.blockers.length === 0 && report.refresh.postActionRefresh,
+      refreshed_after_live_action: report.blockers.length === 0 && report.refresh.refreshedAfterLiveAction,
       agent_reasoning_note: report.blockers.length === 0 && report.reasoning.agentReasoningNote.length > 0,
       source_refs: report.blockers.length === 0 && report.reasoning.sourceRefs.includes(report.targetRef)
     },
@@ -472,6 +489,17 @@ function hasTargetSafeSummaryDelta(searchOutput: unknown, describeOutput: unknow
 function sanitizeId(value: string): string {
   const sanitized = value.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
   return sanitized || "run";
+}
+
+function timestampAfter(later: string, earlier: string): boolean {
+  const laterMs = parseTimestamp(later);
+  const earlierMs = parseTimestamp(earlier);
+  return laterMs !== null && earlierMs !== null && laterMs > earlierMs;
+}
+
+function parseTimestamp(value: string): number | null {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function firstString(value: unknown, keys: string[]): string | null {

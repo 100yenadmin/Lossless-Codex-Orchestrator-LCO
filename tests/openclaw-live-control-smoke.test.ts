@@ -234,6 +234,7 @@ test("OpenClaw live-control smoke proves dry-run live send and audit tail throug
     assert.equal(report.live.live, true);
     assert.equal(report.live.approvalAuditId, LIVE_AUDIT_ID);
     assert.equal(report.live.turnStatus, "completed");
+    assert.equal(report.live.actionObservedAt, "2026-07-01T00:00:00.000Z");
     assert.equal(report.authorization.approvalAuditIdUsed, DRY_RUN_AUDIT_ID);
     assert.equal(report.authorization.approvalAuditIdMatchesDryRun, true);
     assert.equal(report.audit.matchingDryRunRecord, true);

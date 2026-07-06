@@ -47,6 +47,7 @@ export type OpenClawGatewayLiveControlSmokeReport = {
     turnCompleted: boolean | null;
     responseOk: boolean | null;
     expectedTurnId: string | null;
+    actionObservedAt: string | null;
   };
   audit: {
     tailRead: boolean;
@@ -172,7 +173,9 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
     : null;
   blockers.push(...(live ? gatewayCallBlockers(live, "openclaw_live_control_failed") : []));
   const liveSummary = summarizeControl(live);
-  if (live && !validLive(action, liveSummary, expectedTurnId)) blockers.push(`openclaw_live_${action}_not_proven`);
+  const liveAccepted = Boolean(live && validLive(action, liveSummary, expectedTurnId));
+  const liveActionObservedAt = liveAccepted ? options.now ?? new Date().toISOString() : null;
+  if (live && !liveAccepted) blockers.push(`openclaw_live_${action}_not_proven`);
   if (live && dryRunSummary.paramsHash && liveSummary.paramsHash && liveSummary.paramsHash !== dryRunSummary.paramsHash) blockers.push("openclaw_live_params_hash_mismatch");
   if (live && dryRunSummary.messageHash && liveSummary.messageHash && liveSummary.messageHash !== dryRunSummary.messageHash) blockers.push("openclaw_live_message_hash_mismatch");
   const approvalAuditIdUsed = live ? dryRunSummary.approvalAuditId : null;
@@ -223,7 +226,10 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
       live: dryRunSummary.live,
       expectedTurnId: dryRunSummary.expectedTurnId
     },
-    live: liveSummary,
+    live: {
+      ...liveSummary,
+      actionObservedAt: liveActionObservedAt
+    },
     audit: {
       tailRead: Boolean(auditTail && auditTail.status === 0),
       matchingDryRunRecord,
