@@ -1721,8 +1721,9 @@ test("Codex collaboration cockpit routes stale GUI read-state to reconciliation 
     assert.ok(step);
     assert.equal(step.category, "desktop_coherence");
     assert.equal(step.status, "ready");
-    assert.equal(step.toolCall?.tool, "loo_codex_desktop_coherence");
+    assert.equal(step.toolCall?.tool, "lco_desktop_proof");
     assert.equal(step.toolCall?.execute, false);
+    assert.equal(step.toolCall?.args.check, "coherence");
     assert.equal(step.toolCall?.args.thread_id, "019f-collab-read-state-stale");
     assert.equal(step.toolCall?.args.source_ref, "codex_thread:019f-collab-read-state-stale");
     assert.equal(step.toolCall?.args.include_app_server, true);
@@ -2271,8 +2272,9 @@ test("Codex collaboration cockpit preserves top-level fallback coherence handoff
         fallback: { required: false, reason: "coherence_input_missing", coherenceState: null, desktopVisibility: null },
         blockers: ["coherence_input_missing"],
         nextToolCall: {
-          tool: "loo_codex_desktop_coherence",
+          tool: "lco_desktop_proof",
           args: {
+            check: "coherence",
             thread_id: "019f-collab-coherence-missing",
             source_ref: "codex_thread:019f-collab-coherence-missing"
           }
@@ -2519,8 +2521,9 @@ test("Codex collaboration next-step planner emits read-only exact tool packets",
           fallback: { required: false, reason: "coherence_input_missing", coherenceState: null, desktopVisibility: null },
           blockers: ["coherence_input_missing", tokenCanary],
           nextToolCall: {
-            tool: "loo_codex_desktop_coherence",
+            tool: "lco_desktop_proof",
             args: {
+              check: "coherence",
               thread_id: "019f-plan-stale-other",
               source_ref: "codex_thread:019f-plan-stale-other"
             }
@@ -2598,15 +2601,17 @@ test("Codex collaboration next-step planner emits read-only exact tool packets",
 
     assert.equal(watcherStep?.category, "watcher_resume_packet");
     assert.equal(watcherStep?.status, "ready");
-    assert.equal(watcherStep?.toolCall?.tool, "loo_resume_request_packet");
+    assert.equal(watcherStep?.toolCall?.tool, "lco_watchers");
     assert.equal(watcherStep?.toolCall?.execute, false);
+    assert.equal(watcherStep?.toolCall?.args.action, "resume_request_packet");
     assert.equal(watcherStep?.toolCall?.args.recommended_action, "resume");
     assert.equal((watcherStep?.toolCall?.args.watcher_spec as Record<string, unknown> | undefined)?.target_ref, "codex_thread:019f-plan-watch");
     assert.equal((watcherOtherStep?.toolCall?.args.watcher_spec as Record<string, unknown> | undefined)?.target_ref, "codex_thread:019f-plan-watch-other");
 
     assert.equal(missingStep?.category, "desktop_coherence");
-    assert.equal(missingStep?.toolCall?.tool, "loo_codex_desktop_coherence");
+    assert.equal(missingStep?.toolCall?.tool, "lco_desktop_proof");
     assert.deepEqual(missingStep?.toolCall?.args, {
+      check: "coherence",
       thread_id: "019f-plan-missing",
       source_ref: "codex_thread:019f-plan-missing"
     });
@@ -2617,8 +2622,9 @@ test("Codex collaboration next-step planner emits read-only exact tool packets",
     assert.equal(approvalNeededStep?.blockers.includes("approval_required"), true);
 
     assert.equal(cliStep?.category, "desktop_fallback_status");
-    assert.equal(cliStep?.toolCall?.tool, "loo_codex_desktop_fallback_status");
+    assert.equal(cliStep?.toolCall?.tool, "lco_desktop_proof");
     assert.equal(cliStep?.toolCall?.execute, false);
+    assert.equal(cliStep?.toolCall?.args.check, "fallback_status");
     assert.equal((cliStep?.toolCall?.args.coherence as Record<string, unknown> | undefined)?.state, "cli_visible");
 
     assert.equal(cliVisibleProvenStep?.category, "observe");
@@ -2628,9 +2634,10 @@ test("Codex collaboration next-step planner emits read-only exact tool packets",
 
     assert.equal(coherenceHandoffStep?.category, "desktop_coherence");
     assert.equal(coherenceHandoffStep?.reasonCodes.includes("coherence_input_missing"), true);
-    assert.equal(coherenceHandoffStep?.toolCall?.tool, "loo_codex_desktop_coherence");
+    assert.equal(coherenceHandoffStep?.toolCall?.tool, "lco_desktop_proof");
     assert.equal(coherenceHandoffStep?.toolCall?.execute, false);
     assert.deepEqual(coherenceHandoffStep?.toolCall?.args, {
+      check: "coherence",
       thread_id: "019f-plan-coherence-missing",
       source_ref: "codex_thread:019f-plan-coherence-missing"
     });
@@ -2641,9 +2648,10 @@ test("Codex collaboration next-step planner emits read-only exact tool packets",
     assert.equal(visibleStep?.reasonCodes.includes("desktop_visible_no_action"), true);
 
     assert.equal(unknownNoCoherenceStep?.category, "desktop_coherence");
-    assert.equal(unknownNoCoherenceStep?.toolCall?.tool, "loo_codex_desktop_coherence");
+    assert.equal(unknownNoCoherenceStep?.toolCall?.tool, "lco_desktop_proof");
     assert.equal(unknownNoCoherenceStep?.toolCall?.execute, false);
     assert.deepEqual(unknownNoCoherenceStep?.toolCall?.args, {
+      check: "coherence",
       thread_id: "019f-plan-unknown-no-coherence",
       source_ref: "codex_thread:019f-plan-unknown-no-coherence"
     });
@@ -2711,7 +2719,8 @@ test("Codex collaboration next-step planner sanitizes caller-controlled now and 
     assert.equal(approvalTextStep?.category, "approval_boundary");
     assert.equal(approvalTextStep?.status, "blocked");
     assert.equal(approvalTextStep?.toolCall, null);
-    assert.equal(stateClampStep?.toolCall?.tool, "loo_codex_desktop_fallback_status");
+    assert.equal(stateClampStep?.toolCall?.tool, "lco_desktop_proof");
+    assert.equal(stateClampStep?.toolCall?.args.check, "fallback_status");
     assert.equal(coherenceArg?.state, "unknown");
     assert.notEqual(report.generatedAt, tokenCanary);
     assertNoUnsafeStrings(report, tokenCanary);
@@ -2803,8 +2812,8 @@ test("Codex runtime Desktop visibility status summarizes coverage without action
             dryRunOnly: true
           },
           requiredNextToolCall: {
-            tool: "loo_desktop_live_proof_harness",
-            args: { backend: "cua-driver", approval_ref: "issue-342" },
+            tool: "lco_desktop_proof",
+            args: { check: "live_proof_harness", backend: "cua-driver", approval_ref: "issue-342" },
             execute: false
           },
           actionsPerformed: {
@@ -2867,12 +2876,14 @@ test("Codex runtime Desktop visibility status summarizes coverage without action
     assert.equal(proofReady?.coverage, "covered");
     assert.equal(proofReady?.reasonCodes.includes("action_bound_desktop_proof_ready"), true);
     assert.equal(proofReady?.nextToolCall?.execute, false);
-    assert.equal(proofReady?.nextToolCall?.tool, "loo_desktop_live_proof_harness");
+    assert.equal(proofReady?.nextToolCall?.tool, "lco_desktop_proof");
+    assert.equal(proofReady?.nextToolCall?.args.check, "live_proof_harness");
     assert.equal(missing?.coverage, "blocked");
     assert.equal(missing?.blockers.includes("desktop_visibility_runtime_proof_missing"), true);
-    assert.equal(missing?.nextToolCall?.tool, "loo_codex_desktop_coherence");
+    assert.equal(missing?.nextToolCall?.tool, "lco_desktop_proof");
     assert.equal(missing?.nextToolCall?.execute, false);
     assert.deepEqual(missing?.nextToolCall?.args, {
+      check: "coherence",
       thread_id: "019f-runtime-missing",
       source_ref: "codex_thread:019f-runtime-missing"
     });
@@ -3060,7 +3071,7 @@ test("Codex active-thread state classifies running blocked stale and needs-nudge
     assert.equal(byThread.get("codex_thread:019f-state-blocked")?.state, "blocked");
     assert.equal(byThread.get("codex_thread:019f-state-blocked")?.sourceCoverage.codexAppServer, "partial");
     assert.equal(byThread.get("codex_thread:019f-state-blocked")?.attentionCoverage.status, "partial");
-    assert.equal(byThread.get("codex_thread:019f-state-blocked")?.attentionCoverage.nextReadOnlyAction?.tool, "loo_codex_app_server_threads");
+    assert.equal(byThread.get("codex_thread:019f-state-blocked")?.attentionCoverage.nextReadOnlyAction?.tool, "lco_codex_app_server_threads");
     assert.equal(byThread.get("codex_thread:019f-state-blocked")?.attentionCoverage.nextReadOnlyAction?.execute, false);
     assert.equal(byThread.get("codex_thread:019f-state-approval")?.state, "needs_approval");
     assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.state, "needs_nudge");
@@ -3070,13 +3081,13 @@ test("Codex active-thread state classifies running blocked stale and needs-nudge
     assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.sourceCoverage.watchers, "ok");
     assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.attentionCoverage.status, "partial");
     assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.attentionCoverage.reasonCodes.includes("attention_conflicting_state"), true);
-    assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.attentionCoverage.nextReadOnlyAction?.tool, "loo_codex_app_server_threads");
+    assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.attentionCoverage.nextReadOnlyAction?.tool, "lco_codex_app_server_threads");
     assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.attentionCoverage.nextReadOnlyAction?.execute, false);
     assert.deepEqual(byThread.get("codex_thread:019f-state-needs-nudge")?.attentionCoverage.nextReadOnlyAction?.args, {
       read_thread_id: "019f-state-needs-nudge",
       limit: 20
     });
-    assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.nextControlDryRun?.tool, "loo_codex_control_dry_run");
+    assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.nextControlDryRun?.tool, "lco_codex_control_dry_run");
     assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.nextControlDryRun?.execute, false);
     assert.equal(byThread.get("codex_thread:019f-state-needs-nudge")?.nextControlDryRun?.status, "ready");
     assert.deepEqual(byThread.get("codex_thread:019f-state-needs-nudge")?.nextControlDryRun?.args, {
@@ -3094,13 +3105,13 @@ test("Codex active-thread state classifies running blocked stale and needs-nudge
     assert.equal(byThread.get("codex_thread:019f-state-conflict")?.attentionCoverage.reasonCodes.includes("attention_conflicting_state"), true);
     assert.equal(byThread.get("codex_thread:019f-state-conflict")?.attentionCoverage.reasonCodes.includes("attention_confidence_floor_applied"), true);
     assert.equal(byThread.get("codex_thread:019f-state-conflict")?.attentionCoverage.reasonCodes.includes("attention_low_confidence"), true);
-    assert.equal(byThread.get("codex_thread:019f-state-conflict")?.attentionCoverage.nextReadOnlyAction?.tool, "loo_codex_app_server_threads");
+    assert.equal(byThread.get("codex_thread:019f-state-conflict")?.attentionCoverage.nextReadOnlyAction?.tool, "lco_codex_app_server_threads");
     assert.equal(byThread.get("codex_thread:019f-state-conflict")?.attentionCoverage.nextReadOnlyAction?.execute, false);
     assert.equal(byThread.get("codex_thread:019f-state-loaded-only")?.state, "unknown");
     assert.equal(byThread.get("codex_thread:019f-state-loaded-only")?.reasonCodes.includes("app_server_loaded"), true);
     assert.equal(byThread.get("codex_thread:019f-state-loaded-only")?.reasonCodes.includes("app_server_running"), false);
     assert.equal(byThread.get("codex_thread:019f-state-loaded-only")?.attentionCoverage.status, "needs_probe");
-    assert.equal(byThread.get("codex_thread:019f-state-loaded-only")?.attentionCoverage.nextReadOnlyAction?.tool, "loo_visible_codex_map");
+    assert.equal(byThread.get("codex_thread:019f-state-loaded-only")?.attentionCoverage.nextReadOnlyAction?.tool, "lco_visible_codex_map");
     assert.equal(byThread.get("codex_thread:019f-state-loaded-only")?.attentionCoverage.nextReadOnlyAction?.execute, false);
     assert.equal(report.items[0]?.state, "needs_nudge");
     assert.equal(report.actionsPerformed.liveCodexControlRun, false);
@@ -3158,7 +3169,7 @@ test("Codex active-thread state classifies before applying caller limit", () => 
     assert.equal(report.summary.returned, 1);
     assert.equal(report.items[0]?.threadId, "codex_thread:019f-active-limit-nudge");
     assert.equal(report.items[0]?.state, "needs_nudge");
-    assert.equal(report.items[0]?.nextControlDryRun?.tool, "loo_codex_control_dry_run");
+    assert.equal(report.items[0]?.nextControlDryRun?.tool, "lco_codex_control_dry_run");
     assert.equal(report.items[0]?.nextControlDryRun?.execute, false);
     assert.deepEqual(report.items[0]?.nextControlDryRun?.args, {
       action: "resume",
@@ -3193,7 +3204,7 @@ test("Codex active-thread attention coverage emits unknown when no attention sou
     assert.equal(report.items[0]?.state, "unknown");
     assert.equal(report.items[0]?.attentionCoverage.status, "unknown");
     assert.equal(report.items[0]?.attentionCoverage.reasonCodes.includes("attention_sources_not_configured"), true);
-    assert.equal(report.items[0]?.attentionCoverage.nextReadOnlyAction?.tool, "loo_codex_app_server_threads");
+    assert.equal(report.items[0]?.attentionCoverage.nextReadOnlyAction?.tool, "lco_codex_app_server_threads");
     assert.equal(report.items[0]?.attentionCoverage.nextReadOnlyAction?.execute, false);
     assert.equal(report.actionsPerformed.liveCodexControlRun, false);
     assert.equal(report.actionsPerformed.desktopGuiActionRun, false);
@@ -3263,13 +3274,13 @@ test("Codex autonomy tick orders read-only probes before control dry-run recomme
     assert.equal(report.steps.length, 2);
     assert.deepEqual(report.steps.map((step) => step.stepType), ["read_only_probe", "control_dry_run"]);
     assert.equal(report.steps[0]?.threadId, "codex_thread:019f-autonomy-nudge");
-    assert.equal(report.steps[0]?.tool, "loo_codex_app_server_threads");
+    assert.equal(report.steps[0]?.tool, "lco_codex_app_server_threads");
     assert.equal(report.steps[0]?.execute, false);
     assert.deepEqual(report.steps[0]?.args, { read_thread_id: "019f-autonomy-nudge", limit: 20 });
     assert.equal(report.steps[0]?.idempotencyKey.startsWith("autonomy_tick:"), true);
     assert.equal(report.steps[0]?.reasonCodes.includes("autonomy_tick_read_only_probe"), true);
     assert.equal(report.steps[0]?.stopConditions.includes("recompute_tick_after_probe"), true);
-    assert.equal(report.steps[1]?.tool, "loo_codex_control_dry_run");
+    assert.equal(report.steps[1]?.tool, "lco_codex_control_dry_run");
     assert.equal(report.steps[1]?.execute, false);
     assert.equal(report.steps[1]?.status, "ready");
     assert.deepEqual(report.steps[1]?.args, { action: "resume", thread_id: "019f-autonomy-nudge" });
@@ -3368,7 +3379,7 @@ test("Codex autonomy tick reports blocked dry-runs and omitted limited steps", (
     assert.ok(urgentProbe);
     assert.ok(urgentProbe.priority > blocked.priority);
     assert.equal(full.summary.blockedControlDryRuns, 1);
-    assert.equal(blocked.tool, "loo_codex_control_dry_run");
+    assert.equal(blocked.tool, "lco_codex_control_dry_run");
     assert.equal(blocked.execute, false);
     assert.equal(blocked.status, "blocked");
     assert.equal((blocked.blockers?.length ?? 0) > 0, true);

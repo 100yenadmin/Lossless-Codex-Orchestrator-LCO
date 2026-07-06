@@ -1,5 +1,5 @@
 import { readFileSync, realpathSync, statSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, join } from "node:path";
 
 import {
   configuredLcmPeerDbPaths,
@@ -78,6 +78,7 @@ import {
   type DesktopProbe,
   type LooCommandSafety
 } from "../../adapters/src/index.js";
+import { readEnv, readEnvWithFallback, resolveHomeDir } from "../../runtime/src/env.js";
 
 export type LooTool = {
   name: string;
@@ -111,10 +112,10 @@ export type LooToolSurfaceSummary = {
   namingPolicy: {
     publicProductAbbreviation: "LCO";
     forwardPublicAliasTarget: "lco_*";
-    currentRuntimePrefix: "loo_";
+    currentRuntimePrefix: "lco_";
     legacyCompatiblePrefix: "loo_";
     packageName: "lossless-openclaw-orchestrator";
-    compatibilityIssue: "#434";
+    compatibilityIssue: "#616";
     aliasPolicy: string;
   };
   desktopFallback: {
@@ -127,7 +128,7 @@ export type LooToolSurfaceSummary = {
     proofBoundary: string;
   };
   exposureProfile: {
-    environmentVariable: "LOO_TOOL_PROFILE";
+    environmentVariable: "LCO_TOOL_PROFILE";
     defaultProfile: "all";
     profiles: Record<LooToolProfile, {
       tiers: LooToolTier[];
@@ -137,7 +138,7 @@ export type LooToolSurfaceSummary = {
     callPolicy: string;
   };
   retrievalTelemetry: {
-    environmentVariable: "LOO_TELEMETRY";
+    environmentVariable: "LCO_TELEMETRY";
     enabledValue: "1";
     defaultEnabled: false;
     affectedTools: string[];
@@ -158,145 +159,111 @@ export const LOO_TOOL_PROFILE_TIERS: Record<LooToolProfile, LooToolTier[]> = {
 };
 
 export const LOO_TOOL_SURFACE: Record<string, LooToolSurfaceMetadata> = {
-  loo_index_sessions: { tier: "workflow_detail" },
-  loo_search_sessions: { tier: "workflow_detail" },
-  loo_grep: { tier: "workflow_detail" },
-  loo_describe_session: { tier: "workflow_detail" },
-  loo_describe_ref: {
+  lco_index_sessions: { tier: "workflow_detail" },
+  lco_search_sessions: { tier: "workflow_detail" },
+  lco_grep: { tier: "workflow_detail" },
+  lco_describe_ref: {
     tier: "public_facade",
     operatorPathRank: 2,
     operatorPathRole: "Look up a specific session or source ref after the inbox identifies it."
   },
-  loo_expand_session: { tier: "workflow_detail" },
-  loo_expand_query: {
+  lco_expand_session: { tier: "workflow_detail" },
+  lco_expand_query: {
     tier: "public_facade",
     operatorPathRank: 3,
     operatorPathRole: "Expand one bounded evidence brief from a query when the ref is not known."
   },
-  loo_summary_leaves: { tier: "workflow_detail" },
-  loo_summary_expand: { tier: "workflow_detail" },
-  loo_prepared_state_status: { tier: "workflow_detail" },
-  loo_prepared_cards: { tier: "workflow_detail" },
-  loo_prepared_state: { tier: "workflow_detail" },
-  loo_prepared_inbox: {
+  lco_prepared_state: { tier: "workflow_detail" },
+  lco_prepared_inbox: {
     tier: "public_facade",
     operatorPathRank: 1,
     operatorPathRole: "Start from the compact prepared-state operating picture."
   },
-  loo_codex_thread_map: { tier: "workflow_detail" },
-  loo_codex_session_management_map: { tier: "workflow_detail" },
-  loo_recent_sessions: {
+  lco_recent_sessions: {
     tier: "public_facade",
     operatorPathRank: 4,
     operatorPathRole: "Refresh recent or active session cards after reads or approved actions."
   },
-  loo_cockpit_inbox: { tier: "workflow_detail" },
-  loo_codex_collaboration_cockpit: { tier: "workflow_detail" },
-  loo_codex_collaboration_next_steps: { tier: "workflow_detail" },
-  loo_codex_runtime_desktop_visibility_status: { tier: "workflow_detail" },
-  loo_codex_active_thread_state: { tier: "workflow_detail" },
-  loo_codex_autonomy_tick: { tier: "workflow_detail" },
-  loo_codex_desktop_collaboration_proof: { tier: "proof_debug" },
-  loo_watchers: { tier: "workflow_detail" },
-  loo_watchers_list: { tier: "workflow_detail" },
-  loo_watcher_status: { tier: "workflow_detail" },
-  loo_watcher_dry_run: { tier: "workflow_detail" },
-  loo_watcher_events: { tier: "workflow_detail" },
-  loo_resume_request_packet: { tier: "workflow_detail" },
-  loo_codex_app_server_status: { tier: "proof_debug" },
-  loo_codex_app_server_threads: { tier: "internal_low_level" },
-  loo_visible_codex_map: { tier: "proof_debug" },
-  loo_codex_desktop_coherence: { tier: "proof_debug" },
-  loo_codex_desktop_fallback_status: { tier: "proof_debug" },
-  loo_operating_picture: { tier: "workflow_detail" },
-  loo_plan_state_pins: { tier: "workflow_detail" },
-  loo_github_operating_items: { tier: "workflow_detail" },
-  loo_project_digest: {
+  lco_watchers: { tier: "workflow_detail" },
+  lco_codex_app_server_status: { tier: "proof_debug" },
+  lco_codex_app_server_threads: { tier: "internal_low_level" },
+  lco_visible_codex_map: { tier: "proof_debug" },
+  lco_operating_picture: { tier: "workflow_detail" },
+  lco_project_digest: {
     tier: "public_facade",
     operatorPathRank: 6,
     operatorPathRole: "Create a bounded provenance and handoff digest from available operating inputs."
   },
-  loo_attention_inbox: {
+  lco_attention_inbox: {
     tier: "public_facade",
     operatorPathRank: 5,
     operatorPathRole: "Review the compact attention queue before choosing a next action."
   },
-  loo_business_pulse: { tier: "workflow_detail" },
-  loo_codex_final_messages: { tier: "workflow_detail" },
-  loo_codex_plans: { tier: "workflow_detail" },
-  loo_codex_touched_files: { tier: "workflow_detail" },
-  loo_codex_tool_calls: { tier: "workflow_detail" },
-  loo_codex_extract: { tier: "workflow_detail" },
-  loo_closeout_dry_run: { tier: "workflow_detail" },
-  loo_session_sanitizer: { tier: "proof_debug" },
-  loo_codex_sqlite_stores: { tier: "internal_low_level" },
-  loo_lcm_peer_dbs: { tier: "internal_low_level" },
-  loo_codex_control_dry_run: {
+  lco_business_pulse: { tier: "workflow_detail" },
+  lco_codex_extract: { tier: "workflow_detail" },
+  lco_closeout_dry_run: { tier: "workflow_detail" },
+  lco_session_sanitizer: { tier: "proof_debug" },
+  lco_codex_sqlite_stores: { tier: "internal_low_level" },
+  lco_lcm_peer_dbs: { tier: "internal_low_level" },
+  lco_codex_control_dry_run: {
     tier: "public_facade",
     operatorPathRank: 7,
     operatorPathRole: "Create the exact dry-run action packet and approval hashes before live control."
   },
-  loo_codex_start_thread: { tier: "workflow_detail" },
-  loo_codex_start_thread_post_create_proof: { tier: "proof_debug" },
-  loo_codex_resume_thread: {
+  lco_codex_start_thread: { tier: "workflow_detail" },
+  lco_codex_resume_thread: {
     tier: "public_facade",
     operatorPathRank: 8,
     operatorPathRole: "Run the approved resume action only after a matching dry-run audit id."
   },
-  loo_codex_send_message: { tier: "workflow_detail" },
-  loo_codex_steer_thread: { tier: "workflow_detail" },
-  loo_codex_interrupt_thread: { tier: "workflow_detail" },
-  loo_desktop_proof: { tier: "proof_debug" },
-  loo_desktop_see: { tier: "proof_debug" },
-  loo_desktop_act: { tier: "proof_debug" },
-  loo_desktop_proof_report: { tier: "proof_debug" },
-  loo_desktop_live_proof_harness: { tier: "proof_debug" },
-  loo_desktop_proof_action: { tier: "proof_debug" },
-  loo_doctor: { tier: "workflow_detail" },
-  loo_permissions: { tier: "proof_debug" },
-  loo_audit_tail: { tier: "proof_debug" }
+  lco_codex_send_message: { tier: "workflow_detail" },
+  lco_codex_steer_thread: { tier: "workflow_detail" },
+  lco_codex_interrupt_thread: { tier: "workflow_detail" },
+  lco_desktop_proof: { tier: "proof_debug" },
+  lco_desktop_act: { tier: "proof_debug" },
+  lco_desktop_proof_action: { tier: "proof_debug" },
+  lco_doctor: { tier: "workflow_detail" },
+  lco_permissions: { tier: "proof_debug" },
+  lco_audit_tail: { tier: "proof_debug" }
+};
+
+const LOO_FOLDED_COMPATIBILITY_ALIASES: LooToolAliasRegistry = {
+  loo_describe_session: { targetName: "lco_describe_ref" },
+  loo_watchers_list: { targetName: "lco_watchers", kindDefaults: { action: "list" } },
+  loo_watcher_status: { targetName: "lco_watchers", kindDefaults: { action: "status" } },
+  loo_watcher_dry_run: { targetName: "lco_watchers", kindDefaults: { action: "dry_run" } },
+  loo_watcher_events: { targetName: "lco_watchers", kindDefaults: { action: "events" } },
+  loo_resume_request_packet: { targetName: "lco_watchers", kindDefaults: { action: "resume_request_packet" } },
+  loo_codex_final_messages: { targetName: "lco_codex_extract", kindDefaults: { kind: "final_messages" } },
+  loo_codex_plans: { targetName: "lco_codex_extract", kindDefaults: { kind: "plans" } },
+  loo_codex_touched_files: { targetName: "lco_codex_extract", kindDefaults: { kind: "touched_files" } },
+  loo_codex_tool_calls: { targetName: "lco_codex_extract", kindDefaults: { kind: "tool_calls" } },
+  loo_summary_leaves: { targetName: "lco_prepared_state", kindDefaults: { view: "leaves" } },
+  loo_summary_expand: { targetName: "lco_prepared_state", kindDefaults: { view: "expand" } },
+  loo_prepared_state_status: { targetName: "lco_prepared_state", kindDefaults: { view: "status" } },
+  loo_prepared_cards: { targetName: "lco_prepared_state", kindDefaults: { view: "cards" } },
+  loo_codex_thread_map: { targetName: "lco_operating_picture", kindDefaults: { kind: "thread_map" } },
+  loo_codex_session_management_map: { targetName: "lco_operating_picture", kindDefaults: { kind: "session_management_map" } },
+  loo_cockpit_inbox: { targetName: "lco_operating_picture", kindDefaults: { kind: "cockpit_inbox" } },
+  loo_codex_collaboration_cockpit: { targetName: "lco_operating_picture", kindDefaults: { kind: "collaboration_cockpit" } },
+  loo_codex_collaboration_next_steps: { targetName: "lco_operating_picture", kindDefaults: { kind: "collaboration_next_steps" } },
+  loo_codex_runtime_desktop_visibility_status: { targetName: "lco_operating_picture", kindDefaults: { kind: "runtime_desktop_visibility_status" } },
+  loo_codex_active_thread_state: { targetName: "lco_operating_picture", kindDefaults: { kind: "active_thread_state" } },
+  loo_codex_autonomy_tick: { targetName: "lco_operating_picture", kindDefaults: { kind: "autonomy_tick" } },
+  loo_plan_state_pins: { targetName: "lco_operating_picture", kindDefaults: { kind: "plan_state_pins" } },
+  loo_github_operating_items: { targetName: "lco_operating_picture", kindDefaults: { kind: "github_operating_items" } },
+  loo_codex_desktop_collaboration_proof: { targetName: "lco_desktop_proof", kindDefaults: { check: "collaboration_proof" } },
+  loo_codex_start_thread_post_create_proof: { targetName: "lco_desktop_proof", kindDefaults: { check: "start_thread_post_create_proof" } },
+  loo_codex_desktop_coherence: { targetName: "lco_desktop_proof", kindDefaults: { check: "coherence" } },
+  loo_codex_desktop_fallback_status: { targetName: "lco_desktop_proof", kindDefaults: { check: "fallback_status" } },
+  loo_desktop_see: { targetName: "lco_desktop_proof", kindDefaults: { check: "see" } },
+  loo_desktop_proof_report: { targetName: "lco_desktop_proof", kindDefaults: { check: "proof_report" } },
+  loo_desktop_live_proof_harness: { targetName: "lco_desktop_proof", kindDefaults: { check: "live_proof_harness" } }
 };
 
 export const LOO_TOOL_ALIAS_REGISTRY: LooToolAliasRegistry = {
-  loo_describe_session: { targetName: "loo_describe_ref" },
-  loo_watchers_list: { targetName: "loo_watchers", kindDefaults: { action: "list" } },
-  loo_watcher_status: { targetName: "loo_watchers", kindDefaults: { action: "status" } },
-  loo_watcher_dry_run: { targetName: "loo_watchers", kindDefaults: { action: "dry_run" } },
-  loo_watcher_events: { targetName: "loo_watchers", kindDefaults: { action: "events" } },
-  loo_resume_request_packet: { targetName: "loo_watchers", kindDefaults: { action: "resume_request_packet" } },
-  loo_codex_final_messages: { targetName: "loo_codex_extract", kindDefaults: { kind: "final_messages" } },
-  loo_codex_plans: { targetName: "loo_codex_extract", kindDefaults: { kind: "plans" } },
-  loo_codex_touched_files: { targetName: "loo_codex_extract", kindDefaults: { kind: "touched_files" } },
-  loo_codex_tool_calls: { targetName: "loo_codex_extract", kindDefaults: { kind: "tool_calls" } },
-  loo_summary_leaves: { targetName: "loo_prepared_state", kindDefaults: { view: "leaves" } },
-  loo_summary_expand: { targetName: "loo_prepared_state", kindDefaults: { view: "expand" } },
-  loo_prepared_state_status: { targetName: "loo_prepared_state", kindDefaults: { view: "status" } },
-  loo_prepared_cards: { targetName: "loo_prepared_state", kindDefaults: { view: "cards" } },
-  loo_codex_thread_map: { targetName: "loo_operating_picture", kindDefaults: { kind: "thread_map" } },
-  loo_codex_session_management_map: { targetName: "loo_operating_picture", kindDefaults: { kind: "session_management_map" } },
-  loo_cockpit_inbox: { targetName: "loo_operating_picture", kindDefaults: { kind: "cockpit_inbox" } },
-  loo_codex_collaboration_cockpit: { targetName: "loo_operating_picture", kindDefaults: { kind: "collaboration_cockpit" } },
-  loo_codex_collaboration_next_steps: { targetName: "loo_operating_picture", kindDefaults: { kind: "collaboration_next_steps" } },
-  loo_codex_runtime_desktop_visibility_status: { targetName: "loo_operating_picture", kindDefaults: { kind: "runtime_desktop_visibility_status" } },
-  loo_codex_active_thread_state: { targetName: "loo_operating_picture", kindDefaults: { kind: "active_thread_state" } },
-  loo_codex_autonomy_tick: { targetName: "loo_operating_picture", kindDefaults: { kind: "autonomy_tick" } },
-  loo_plan_state_pins: { targetName: "loo_operating_picture", kindDefaults: { kind: "plan_state_pins" } },
-  loo_github_operating_items: { targetName: "loo_operating_picture", kindDefaults: { kind: "github_operating_items" } },
-  loo_codex_desktop_collaboration_proof: { targetName: "loo_desktop_proof", kindDefaults: { check: "collaboration_proof" } },
-  loo_codex_start_thread_post_create_proof: { targetName: "loo_desktop_proof", kindDefaults: { check: "start_thread_post_create_proof" } },
-  loo_codex_desktop_coherence: { targetName: "loo_desktop_proof", kindDefaults: { check: "coherence" } },
-  loo_codex_desktop_fallback_status: { targetName: "loo_desktop_proof", kindDefaults: { check: "fallback_status" } },
-  loo_desktop_see: { targetName: "loo_desktop_proof", kindDefaults: { check: "see" } },
-  loo_desktop_proof_report: { targetName: "loo_desktop_proof", kindDefaults: { check: "proof_report" } },
-  loo_desktop_live_proof_harness: { targetName: "loo_desktop_proof", kindDefaults: { check: "live_proof_harness" } },
-  lco_describe_ref: { targetName: "loo_describe_ref" },
-  lco_expand_query: { targetName: "loo_expand_query" },
-  lco_prepared_inbox: { targetName: "loo_prepared_inbox" },
-  lco_recent_sessions: { targetName: "loo_recent_sessions" },
-  lco_project_digest: { targetName: "loo_project_digest" },
-  lco_attention_inbox: { targetName: "loo_attention_inbox" },
-  lco_codex_control_dry_run: { targetName: "loo_codex_control_dry_run" },
-  lco_codex_resume_thread: { targetName: "loo_codex_resume_thread" }
+  ...Object.fromEntries(Object.keys(LOO_TOOL_SURFACE).map((targetName) => [legacyLooToolName(targetName), { targetName }])),
+  ...LOO_FOLDED_COMPATIBILITY_ALIASES
 };
 
 const LOO_FOLDED_COMPATIBILITY_TOOL_NAMES = new Set(
@@ -310,11 +277,11 @@ export function createLooToolSurfaceSummary(): LooToolSurfaceSummary {
     namingPolicy: {
       publicProductAbbreviation: "LCO",
       forwardPublicAliasTarget: "lco_*",
-      currentRuntimePrefix: "loo_",
+      currentRuntimePrefix: "lco_",
       legacyCompatiblePrefix: "loo_",
       packageName: "lossless-openclaw-orchestrator",
-      compatibilityIssue: "#434",
-      aliasPolicy: "`lco_*` is the forward public alias target for new user-facing tool names. The redirect alias registry can point an alias at any declared tool and can provide `kindDefaults`; caller arguments override those defaults at dispatch. The active registry contains eight public-facade `lco_*` aliases with execution tests, plus folded historical `loo_*` compatibility aliases for the C1 umbrella tools. Those historical names remain backward compatible through canonical umbrella dispatch. Each alias carries `metadata.aliasOf`; redirect aliases do not create separate coverage obligations."
+      compatibilityIssue: "#616",
+      aliasPolicy: "`lco_*` is the canonical runtime and public tool prefix. The redirect alias registry maintains backward compatible `loo_*` aliases for every canonical tool plus folded historical C1 leaf aliases. Redirect aliases can provide `kindDefaults`; caller arguments override those defaults at dispatch. Each alias carries `metadata.aliasOf`; redirect aliases do not create separate coverage obligations."
     },
     desktopFallback: {
       normalFirstPath: "direct Codex protocol",
@@ -326,42 +293,41 @@ export function createLooToolSurfaceSummary(): LooToolSurfaceSummary {
       proofBoundary: "CUA fallback readiness reports daemon and blocker state; MCP launchability still requires an explicit `cua-driver mcp --help` check unless LCO adds a launch probe. Codex composer-write proof needs a separately documented read-back before any send claim, and the current LCO proof report/live-proof harness do not validate a composer read-back field. No generic GUI mutation, unattended control, no-focus behavior, composer send approval, or release readiness is claimed without action-bound proof."
     },
     exposureProfile: {
-      environmentVariable: "LOO_TOOL_PROFILE",
+      environmentVariable: "LCO_TOOL_PROFILE",
       defaultProfile: "all",
       profiles: {
         facade: {
           tiers: LOO_TOOL_PROFILE_TIERS.facade,
           includesFacadeAliases: true,
-          description: "Expose only public-facade tools and their lco_* aliases."
+          description: "Expose public-facade canonical lco_* tools and their loo_* compatibility aliases."
         },
         standard: {
           tiers: LOO_TOOL_PROFILE_TIERS.standard,
           includesFacadeAliases: true,
-          description: "Expose public-facade and workflow-detail tools, public-facade lco_* aliases, and compatibility aliases whose targets are in profile."
+          description: "Expose public-facade and workflow-detail canonical lco_* tools plus loo_* compatibility aliases whose targets are in profile."
         },
         all: {
           tiers: LOO_TOOL_PROFILE_TIERS.all,
           includesFacadeAliases: true,
-          description: "Expose the full canonical LCO catalog, public-facade lco_* aliases, and folded historical loo_* compatibility aliases."
+          description: "Expose the full canonical LCO lco_* catalog, direct loo_* compatibility aliases, and folded historical loo_* compatibility aliases."
         }
       },
-      callPolicy: "LOO_TOOL_PROFILE filters tools/list and OpenClaw declarations only; hidden tools remain callable by exact name when invoked by a capable client."
+      callPolicy: "LCO_TOOL_PROFILE filters tools/list and OpenClaw declarations only; hidden tools remain callable by exact name when invoked by a capable client. LOO_TOOL_PROFILE is accepted as a compatibility fallback."
     },
     retrievalTelemetry: {
-      environmentVariable: "LOO_TELEMETRY",
+      environmentVariable: "LCO_TELEMETRY",
       enabledValue: "1",
       defaultEnabled: false,
       affectedTools: [
-        "loo_search_sessions",
-        "loo_grep",
-        "loo_describe_session",
-        "loo_describe_ref",
-        "loo_expand_session",
-        "loo_expand_query"
+        "lco_search_sessions",
+        "lco_grep",
+        "lco_describe_ref",
+        "lco_expand_session",
+        "lco_expand_query"
       ],
       mutationMode: "local_cache_write",
       mutationClasses: ["derived_cache"],
-      privacyBoundary: "When LOO_TELEMETRY=1 and a telemetry session id is supplied, affected search/describe/expand tools may write opt-in local derived-cache telemetry. Raw query text is not stored in telemetry rows or harvest proposals; public reports and metrics remain aggregate counts/ranks/hashes/placeholders only."
+      privacyBoundary: "When LCO_TELEMETRY=1 and a telemetry session id is supplied, affected search/describe/expand tools may write opt-in local derived-cache telemetry. LOO_TELEMETRY remains a compatibility fallback. Raw query text is not stored in telemetry rows or harvest proposals; public reports and metrics remain aggregate counts/ranks/hashes/placeholders only."
     },
     proofBoundary: "This metadata defines recommended operator tiers only. It does not remove tools, hide expert/debug surfaces, loosen approvals, run live Codex control, mutate a GUI, publish npm, or create GitHub releases. Opt-in retrieval telemetry, when enabled, is limited to local derived-cache writes."
   };
@@ -418,7 +384,8 @@ export function createLooToolDeclarations(options: LooToolExposureOptions = {}):
   const declarations = createLooTools({
     db: {} as LooDatabase,
     audit: metadataOnlyAudit,
-    codexClient: metadataOnlyCodexClient
+    codexClient: metadataOnlyCodexClient,
+    includeAliases: false
   }).map(({ name, description, safety, metadata, inputSchema }) => ({ name, description, safety, metadata, inputSchema }));
   return filterLooToolsByProfile(
     options.includeAliases ? withLooToolAliases(declarations) : declarations,
@@ -511,9 +478,9 @@ export function createLooTools(options: {
 }): LooTool[] {
   const control = createCodexControl({ audit: options.audit, client: options.codexClient });
   const codexReadClient = options.codexReadClient ?? options.codexClient;
-  const telemetryEnabled = options.telemetryEnabled ?? process.env.LOO_TELEMETRY?.trim() === "1";
+  const telemetryEnabled = options.telemetryEnabled ?? readEnv("TELEMETRY") === "1";
   const tools: LooTool[] = [
-    tool("loo_index_sessions", "Index local Codex session JSONL files into the local orchestrator database.", {
+    tool("lco_index_sessions", "Index local Codex session JSONL files into the local orchestrator database.", {
       roots: { type: "array", items: { type: "string" } },
       max_files: { type: "integer", minimum: 1, maximum: 100000 },
       max_bytes_per_file: { type: "integer", minimum: 1, maximum: 1073741824 },
@@ -524,7 +491,7 @@ export function createLooTools(options: {
       maxBytesPerFile: optionalNumber(input.max_bytes_per_file),
       maxEventsPerFile: optionalNumber(input.max_events_per_file)
     }))),
-    tool("loo_search_sessions", "Search indexed Codex sessions with bounded safe text.", {
+    tool("lco_search_sessions", "Search indexed Codex sessions with bounded safe text.", {
       query: { type: "string" },
       limit: { type: "integer", minimum: 1, maximum: 100 },
       include_app_server: { type: "boolean" },
@@ -549,7 +516,7 @@ export function createLooTools(options: {
         telemetrySessionId: optionalString(input.telemetry_session_id)
       });
     }),
-    tool("loo_grep", "Search Codex index and optional read-only OpenClaw LCM peer DBs with source-prefixed refs.", {
+    tool("lco_grep", "Search Codex index and optional read-only OpenClaw LCM peer DBs with source-prefixed refs.", {
       query: { type: "string" },
       limit: { type: "integer", minimum: 1, maximum: 100 },
       profile: { type: "string", enum: ["metadata", "brief", "evidence"] },
@@ -567,7 +534,7 @@ export function createLooTools(options: {
       telemetrySessionId: optionalString(input.telemetry_session_id),
       now: optionalString(input.now)
     })),
-    tool("loo_describe_ref", "Describe a source-prefixed recall ref such as codex_thread:* or lcm_summary:*.", {
+    tool("lco_describe_ref", "Describe a source-prefixed recall ref such as codex_thread:* or lcm_summary:*.", {
       source_ref: { type: "string" },
       thread_id: { type: "string" },
       lcm_db_paths: { type: "array", items: { type: "string" } },
@@ -583,7 +550,7 @@ export function createLooTools(options: {
         now: optionalString(input.now)
       }) ?? createRecallRefNotFoundResult(options.db, sourceRef);
     }),
-    tool("loo_expand_session", "Expand one indexed Codex session into a bounded evidence brief.", {
+    tool("lco_expand_session", "Expand one indexed Codex session into a bounded evidence brief.", {
       thread_id: { type: "string" },
       profile: { type: "string", enum: ["metadata", "brief", "evidence"] },
       token_budget: { type: "integer", minimum: 20, maximum: 8000 },
@@ -597,7 +564,7 @@ export function createLooTools(options: {
       telemetrySessionId: optionalString(input.telemetry_session_id),
       now: optionalString(input.now)
     })),
-    tool("loo_expand_query", "Search then expand the best matching Codex or LCM peer recall ref.", {
+    tool("lco_expand_query", "Search then expand the best matching Codex or LCM peer recall ref.", {
       query: { type: "string" },
       profile: { type: "string", enum: ["metadata", "brief", "evidence"] },
       token_budget: { type: "integer", minimum: 20, maximum: 8000 },
@@ -613,14 +580,14 @@ export function createLooTools(options: {
       telemetrySessionId: optionalString(input.telemetry_session_id),
       now: optionalString(input.now)
     })),
-    tool("loo_prepared_inbox", "Read the deterministic execute-false prepared-state attention inbox.", {
+    tool("lco_prepared_inbox", "Read the deterministic execute-false prepared-state attention inbox.", {
       thread_id: { type: "string" },
       limit: { type: "integer", minimum: 1, maximum: 200 }
     }, (input) => getPreparedInbox(options.db, {
       threadId: optionalString(input.thread_id),
       limit: optionalNumber(input.limit)
     })),
-    tool("loo_prepared_state", "Read prepared-state status, cards, summary leaves, or bounded summary expansion through one canonical prepared-state surface.", {
+    tool("lco_prepared_state", "Read prepared-state status, cards, summary leaves, or bounded summary expansion through one canonical prepared-state surface.", {
       view: { type: "string", enum: ["status", "cards", "leaves", "expand"] },
       thread_id: { type: "string" },
       state: { type: "string", enum: [...PREPARED_CARD_STATES] },
@@ -657,7 +624,7 @@ export function createLooTools(options: {
         tokenBudget: optionalNumber(input.token_budget)
       });
     }),
-    tool("loo_recent_sessions", "List recent or active Codex sessions as compact public-safe cards without requiring query text.", {
+    tool("lco_recent_sessions", "List recent or active Codex sessions as compact public-safe cards without requiring query text.", {
       scope: { type: "string", enum: ["active", "recent", "all"] },
       since: { type: "string" },
       limit: { type: "integer", minimum: 1, maximum: 500 },
@@ -684,7 +651,7 @@ export function createLooTools(options: {
       includeCards: input.include_cards !== false,
       now: optionalString(input.now)
     })),
-    tool("loo_watchers", "Read watcher status, dry-run request packets, persisted watcher events, or one resume-request packet through a canonical execute-false watcher surface.", {
+    tool("lco_watchers", "Read watcher status, dry-run request packets, persisted watcher events, or one resume-request packet through a canonical execute-false watcher surface.", {
       action: { type: "string", enum: ["list", "status", "dry_run", "events", "resume_request_packet"] },
       watcher_specs: { type: "array", items: { type: "object", additionalProperties: true } },
       watcher_spec: { type: "object", additionalProperties: true },
@@ -731,11 +698,11 @@ export function createLooTools(options: {
         proofBoundary: "Dry-run watcher packets are requests only; no live Codex control, GUI mutation, external write, cleanup, or notification is performed."
       };
     }),
-    tool("loo_codex_app_server_status", "Read Codex app-server status and read-method posture without enabling control.", {}, () => createCodexAppServerStatusReport({
+    tool("lco_codex_app_server_status", "Read Codex app-server status and read-method posture without enabling control.", {}, () => createCodexAppServerStatusReport({
       client: codexReadClient,
-      command: process.env.LOO_CODEX_BIN || "codex"
+      command: readEnvWithFallback("CODEX_BIN", "codex")
     })),
-    tool("loo_codex_app_server_threads", "Read Codex app-server thread metadata and loaded-signal posture without turns or raw paths.", {
+    tool("lco_codex_app_server_threads", "Read Codex app-server thread metadata and loaded-signal posture without turns or raw paths.", {
       limit: { type: "integer", minimum: 1, maximum: 100 },
       read_thread_id: { type: "string" }
     }, (input) => createCodexAppServerThreadsReport({
@@ -743,7 +710,7 @@ export function createLooTools(options: {
       limit: optionalNumber(input.limit),
       readThreadId: optionalString(input.read_thread_id)
     })),
-    tool("loo_visible_codex_map", "Join indexed session cards with optional visible Codex and read-only app-server signals.", {
+    tool("lco_visible_codex_map", "Join indexed session cards with optional visible Codex and read-only app-server signals.", {
       limit: { type: "integer", minimum: 1, maximum: 500 },
       include_app_server: { type: "boolean" },
       include_visible_snapshot: { type: "boolean" },
@@ -753,7 +720,7 @@ export function createLooTools(options: {
       visible_codex: { type: "object", additionalProperties: true },
       app_server_threads: { type: "object", additionalProperties: true }
     }, (input) => buildVisibleCodexMapFromToolInput(input, options)),
-    tool("loo_project_digest", "Create a read-only Eva operating digest from LCO/Codex cards, optional structured GitHub items, PLAN_STATE pins, and source authority coverage.", {
+    tool("lco_project_digest", "Create a read-only Eva operating digest from LCO/Codex cards, optional structured GitHub items, PLAN_STATE pins, and source authority coverage.", {
       window: { type: "string", enum: ["today", "24h", "7d", "custom"] },
       limit: { type: "integer", minimum: 1, maximum: 200 },
       plan_state_text: { type: "string" },
@@ -767,7 +734,7 @@ export function createLooTools(options: {
       githubItems: optionalGithubItems(input.github_items),
       now: optionalString(input.now)
     })),
-    tool("loo_attention_inbox", "Return only operating-picture cards that need action, review, approval, watch, or blocker triage.", {
+    tool("lco_attention_inbox", "Return only operating-picture cards that need action, review, approval, watch, or blocker triage.", {
       window: { type: "string", enum: ["today", "24h", "7d", "custom"] },
       limit: { type: "integer", minimum: 1, maximum: 200 },
       plan_state_text: { type: "string" },
@@ -781,7 +748,7 @@ export function createLooTools(options: {
       githubItems: optionalGithubItems(input.github_items),
       now: optionalString(input.now)
     })),
-    tool("loo_business_pulse", "Answer 'How is the business?' from bounded cited operating cards with explicit source and authority coverage gaps.", {
+    tool("lco_business_pulse", "Answer 'How is the business?' from bounded cited operating cards with explicit source and authority coverage gaps.", {
       window: { type: "string", enum: ["today", "24h", "7d", "custom"] },
       limit: { type: "integer", minimum: 1, maximum: 200 },
       plan_state_text: { type: "string" },
@@ -795,7 +762,7 @@ export function createLooTools(options: {
       githubItems: optionalGithubItems(input.github_items),
       now: optionalString(input.now)
     })),
-    tool("loo_operating_picture", "Read deterministic Codex and Eva operating-picture maps, inboxes, pins, GitHub items, or autonomy planning state through one canonical read-only surface.", {
+    tool("lco_operating_picture", "Read deterministic Codex and Eva operating-picture maps, inboxes, pins, GitHub items, or autonomy planning state through one canonical read-only surface.", {
       kind: { type: "string", enum: ["thread_map", "session_management_map", "cockpit_inbox", "collaboration_cockpit", "collaboration_next_steps", "runtime_desktop_visibility_status", "active_thread_state", "autonomy_tick", "plan_state_pins", "github_operating_items"] },
       limit: { type: "integer", minimum: 1, maximum: 500 },
       project: { type: "string" },
@@ -906,7 +873,7 @@ export function createLooTools(options: {
         now: optionalString(input.now)
       });
     }),
-    tool("loo_codex_extract", "Read extracted Codex plans, final messages, touched files, or tool-call metadata through one canonical extraction surface.", {
+    tool("lco_codex_extract", "Read extracted Codex plans, final messages, touched files, or tool-call metadata through one canonical extraction surface.", {
       kind: { type: "string", enum: ["plans", "final_messages", "touched_files", "tool_calls"] },
       thread_id: { type: "string" },
       limit: { type: "integer", minimum: 1, maximum: 1000 }
@@ -917,7 +884,7 @@ export function createLooTools(options: {
       if (kind === "touched_files") return getCodexTouchedFiles(options.db, { threadId: requiredString(input.thread_id, "thread_id") });
       return getCodexToolCalls(options.db, { threadId: optionalString(input.thread_id), limit: optionalBoundedInteger(input.limit, 1, 1000) });
     }),
-    tool("loo_closeout_dry_run", "Preview public-safe closeout envelopes that a hook-agent could attach without mutating Codex.", {
+    tool("lco_closeout_dry_run", "Preview public-safe closeout envelopes that a hook-agent could attach without mutating Codex.", {
       thread_id: { type: "string" },
       limit: { type: "integer", minimum: 1, maximum: 500 },
       include_unavailable: { type: "boolean" }
@@ -926,7 +893,7 @@ export function createLooTools(options: {
       limit: optionalNumber(input.limit),
       includeUnavailable: input.include_unavailable === true
     })),
-    tool("loo_session_sanitizer", "Dry-run public-safe sanitizer findings from indexed Codex safe text without reading raw transcripts or mutating sessions.", {
+    tool("lco_session_sanitizer", "Dry-run public-safe sanitizer findings from indexed Codex safe text without reading raw transcripts or mutating sessions.", {
       thread_id: { type: "string" },
       limit: { type: "integer", minimum: 1, maximum: 500 },
       repair_plan: { type: "boolean" }
@@ -939,25 +906,25 @@ export function createLooTools(options: {
         ? { ...report, repairPlan: createIndexedSessionSanitizerRepairPlan(report) }
         : report;
     }),
-    tool("loo_codex_sqlite_stores", "Probe local Codex state_*.sqlite and logs_*.sqlite stores read-only.", {
+    tool("lco_codex_sqlite_stores", "Probe local Codex state_*.sqlite and logs_*.sqlite stores read-only.", {
       roots: { type: "array", items: { type: "string" } },
       max_files: { type: "integer", minimum: 1, maximum: 1000 }
-    }, (input) => publicSafeCodexSqliteProbe(probeCodexSqliteStores(optionalRoots(input.roots, [`${process.env.HOME || "."}/.codex`]), optionalNumber(input.max_files)))),
-    tool("loo_lcm_peer_dbs", "Probe configured OpenClaw LCM peer DBs read-only.", {
+    }, (input) => publicSafeCodexSqliteProbe(probeCodexSqliteStores(optionalRoots(input.roots, [join(resolveHomeDir(), ".codex")]), optionalNumber(input.max_files)))),
+    tool("lco_lcm_peer_dbs", "Probe configured OpenClaw LCM peer DBs read-only.", {
       lcm_db_paths: { type: "array", items: { type: "string" } }
     }, (input) => probeLcmPeerDbs(optionalRoots(input.lcm_db_paths, configuredLcmPeerDbPaths()))),
-    tool("loo_codex_control_dry_run", "Create a dry-run audit id for a Codex control action.", {
+    tool("lco_codex_control_dry_run", "Create a dry-run audit id for a Codex control action.", {
       action: { type: "string", enum: ["start", "send", "resume", "steer", "interrupt"] },
       thread_id: { type: "string" },
       message: { type: "string" },
       expected_turn_id: { type: "string" }
     }, (input) => snakeCaseControlResult(dispatchControl(control, input, true))),
-    tool("loo_codex_start_thread", "Create a new Codex thread. Dry-run by default; live mode requires approval_audit_id and still needs follow-up proof before durability claims.", startControlSchema(), (input) => snakeCaseControlResult(control.startThread(startControlInput(input)))),
-    tool("loo_codex_resume_thread", "Resume or rejoin a Codex thread without starting a turn. Live mode requires approval_audit_id.", controlSchema(), (input) => snakeCaseControlResult(control.resumeThread(controlInput(input)))),
-    tool("loo_codex_send_message", "Send a message to a Codex thread. Live mode requires approval_audit_id and waits for bounded turn proof.", controlSchema(true, false, true), (input) => snakeCaseControlResult(control.sendMessage(messageControlInput(input, false, true)))),
-    tool("loo_codex_steer_thread", "Steer a running Codex thread. Live mode requires approval_audit_id and expected_turn_id.", controlSchema(true, true, true), (input) => snakeCaseControlResult(control.steerThread(messageControlInput(input, true, true)))),
-    tool("loo_codex_interrupt_thread", "Interrupt a Codex thread. Live mode requires approval_audit_id; expected_turn_id enables bounded turn proof.", controlSchema(false, true, true), (input) => snakeCaseControlResult(control.interruptThread(controlInput(input, false, true)))),
-    tool("loo_desktop_act", "Dry-run desktop fallback action for CUA/Peekaboo; live requests return structured missing-proof blockers.", {
+    tool("lco_codex_start_thread", "Create a new Codex thread. Dry-run by default; live mode requires approval_audit_id and still needs follow-up proof before durability claims.", startControlSchema(), (input) => snakeCaseControlResult(control.startThread(startControlInput(input)))),
+    tool("lco_codex_resume_thread", "Resume or rejoin a Codex thread without starting a turn. Live mode requires approval_audit_id.", controlSchema(), (input) => snakeCaseControlResult(control.resumeThread(controlInput(input)))),
+    tool("lco_codex_send_message", "Send a message to a Codex thread. Live mode requires approval_audit_id and waits for bounded turn proof.", controlSchema(true, false, true), (input) => snakeCaseControlResult(control.sendMessage(messageControlInput(input, false, true)))),
+    tool("lco_codex_steer_thread", "Steer a running Codex thread. Live mode requires approval_audit_id and expected_turn_id.", controlSchema(true, true, true), (input) => snakeCaseControlResult(control.steerThread(messageControlInput(input, true, true)))),
+    tool("lco_codex_interrupt_thread", "Interrupt a Codex thread. Live mode requires approval_audit_id; expected_turn_id enables bounded turn proof.", controlSchema(false, true, true), (input) => snakeCaseControlResult(control.interruptThread(controlInput(input, false, true)))),
+    tool("lco_desktop_act", "Dry-run desktop fallback action for CUA/Peekaboo; live requests return structured missing-proof blockers.", {
       backend: { type: "string", enum: ["direct", "cua-driver", "peekaboo"] },
       action: { type: "string" },
       dry_run: { type: "boolean" },
@@ -982,7 +949,7 @@ export function createLooTools(options: {
       focusAfterApplication: optionalString(input.focus_after_application),
       publicSafeObservation: input.public_safe_observation === true
     })),
-    tool("loo_desktop_proof_action", "Run the one approved CUA TextEdit scratch launch proof action and return a public-safe observation for proof-report validation.", {
+    tool("lco_desktop_proof_action", "Run the one approved CUA TextEdit scratch launch proof action and return a public-safe observation for proof-report validation.", {
       backend: { type: "string", enum: ["cua-driver"] },
       target_app: { type: "string", enum: ["TextEdit"] },
       target_window: { type: "string", enum: ["lco-desktop-proof.txt"] },
@@ -1009,7 +976,7 @@ export function createLooTools(options: {
       execute: input.execute === true,
       probe: options.desktopProbe
     })),
-    tool("loo_desktop_proof", "Read or validate desktop proof/check surfaces through one canonical proof surface without broad GUI mutation.", {
+    tool("lco_desktop_proof", "Read or validate desktop proof/check surfaces through one canonical proof surface without broad GUI mutation.", {
       check: { type: "string", enum: ["collaboration_proof", "start_thread_post_create_proof", "coherence", "fallback_status", "see", "proof_report", "live_proof_harness"] },
       target_ref: { type: "string" },
       target_thread_id: { type: "string" },
@@ -1111,21 +1078,21 @@ export function createLooTools(options: {
         probe: options.desktopProbe
       });
     }),
-    tool("loo_doctor", "Read local orchestrator health.", {}, () => ({
+    tool("lco_doctor", "Read local orchestrator health.", {}, () => ({
       ok: true,
       localOnly: true,
-      toolPrefix: "loo_*",
+      toolPrefix: "lco_*",
       codexJsonlDrift: getCodexJsonlDriftStatus(options.db),
-      codex: codexTransportStatus({ command: process.env.LOO_CODEX_BIN || "codex" }),
+      codex: codexTransportStatus({ command: readEnvWithFallback("CODEX_BIN", "codex") }),
       lcmPeers: probeLcmPeerDbs(configuredLcmPeerDbPaths()),
       desktopFallbacks: desktopFallbackDiagnostics({ probe: options.desktopProbe })
     })),
-    tool("loo_permissions", "Read safety posture for live controls.", {}, () => ({
+    tool("lco_permissions", "Read safety posture for live controls.", {}, () => ({
       liveControlRequires: ["dry_run", "approval_audit_id"],
       uploadsLocalText: false,
       commandPolicy: createEffectiveCommandPolicy()
     })),
-    tool("loo_audit_tail", "Read recent local audit records without raw prompt text.", {
+    tool("lco_audit_tail", "Read recent local audit records without raw prompt text.", {
       limit: { type: "integer", minimum: 1, maximum: 1000 }
     }, (input) => ({
       auditPath: publicSafeLocalPath(options.audit.path, "audit.jsonl"),
@@ -1134,7 +1101,7 @@ export function createLooTools(options: {
     }))
   ];
   const canonicalTools = tools.filter((tool) => !LOO_FOLDED_COMPATIBILITY_TOOL_NAMES.has(tool.name));
-  return options.includeAliases ? withLooToolAliases(canonicalTools) : canonicalTools;
+  return (options.includeAliases ?? true) ? withLooToolAliases(canonicalTools) : canonicalTools;
 }
 
 export function parseLooToolProfile(value: unknown, options?: { onInvalid?: (value: string) => void }): LooToolProfile {
@@ -1148,16 +1115,17 @@ export function filterLooToolsByProfile<T extends { metadata: LooToolSurfaceMeta
   const tiers = LOO_TOOL_PROFILE_TIERS[profile];
   return tools.filter((tool) => {
     if (!tiers.includes(tool.metadata.tier)) return false;
-    // Folded loo_* compatibility aliases are non-facade today; keep this guard so facade stays lco_* only if tiers change later.
-    if (profile === "facade" && "name" in tool && typeof tool.name === "string" && tool.name.startsWith("loo_") && tool.metadata.aliasOf) {
-      return false;
-    }
     return true;
   });
 }
 
 export function isLooToolAlias(tool: { metadata?: { aliasOf?: unknown } }): boolean {
   return typeof tool.metadata?.aliasOf === "string" && tool.metadata.aliasOf.length > 0;
+}
+
+export function legacyLooToolName(name: string): string {
+  if (!name.startsWith("lco_")) throw new Error(`Cannot derive loo_* alias for non-lco tool: ${name}`);
+  return `loo_${name.slice("lco_".length)}`;
 }
 
 export function lcoAliasNameForLooTool(name: string): string {
@@ -1170,7 +1138,7 @@ export function looAliasTargetName(name: string, registry: LooToolAliasRegistry 
 }
 
 export function isUnknownLcoAliasName(name: string): boolean {
-  return name.startsWith("lco_") && looAliasTargetName(name) === null;
+  return name.startsWith("lco_") && !LOO_TOOL_SURFACE[name] && looAliasTargetName(name) === null;
 }
 
 export function canonicalLooToolName(name: string, registry: LooToolAliasRegistry = LOO_TOOL_ALIAS_REGISTRY): string {
@@ -1178,12 +1146,12 @@ export function canonicalLooToolName(name: string, registry: LooToolAliasRegistr
 }
 
 function createEffectiveCommandPolicy(): Record<string, LooCommandSafety> {
-  return Object.fromEntries(
-    Object.keys(LOO_COMMAND_POLICY).map((name) => {
-      const canonicalName = canonicalLooToolName(name);
-      return [name, LOO_COMMAND_POLICY[name] ?? LOO_COMMAND_POLICY[canonicalName]];
-    })
-  );
+  const entries: Array<[string, LooCommandSafety]> = Object.entries(LOO_COMMAND_POLICY);
+  for (const [aliasName, declaration] of Object.entries(LOO_TOOL_ALIAS_REGISTRY)) {
+    const safety = LOO_COMMAND_POLICY[declaration.targetName];
+    if (safety) entries.push([aliasName, safety]);
+  }
+  return Object.fromEntries(entries);
 }
 
 export function withLooToolAliases<T extends LooTool | LooToolDeclaration>(

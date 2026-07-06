@@ -130,7 +130,7 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
     timeoutMs: Math.max(gatewayTimeoutMs, turnWaitMs ?? 0),
     env: {
       ...(options.token ? { OPENCLAW_GATEWAY_TOKEN: options.token } : {}),
-      ...(turnWaitMs ? { LOO_CODEX_TURN_WAIT_MS: String(turnWaitMs) } : {})
+      ...(turnWaitMs ? { LCO_CODEX_TURN_WAIT_MS: String(turnWaitMs) } : {})
     }
   };
   const sessionKey = options.sessionKey || "agent:main:lco-live-control-smoke";

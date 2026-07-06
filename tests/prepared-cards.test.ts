@@ -1870,12 +1870,12 @@ test("prepared inbox critical and high counts cover all valid items before page 
 test("prepared-state tools are exposed through MCP as read-only public-safe tools", async () => {
   const declarations = createLooToolDeclarations();
   const declarationByName = new Map(declarations.map((declaration) => [declaration.name, declaration]));
-  for (const toolName of ["loo_prepared_state", "loo_prepared_inbox"]) {
+  for (const toolName of ["lco_prepared_state", "lco_prepared_inbox"]) {
     assert.equal(declarationByName.get(toolName)?.safety.mode, "read_only");
     assert.deepEqual(declarationByName.get(toolName)?.safety.mutationClasses, []);
   }
   assert.equal(
-    Object.prototype.hasOwnProperty.call(declarationByName.get("loo_prepared_state")?.inputSchema.properties ?? {}, "thread_id"),
+    Object.prototype.hasOwnProperty.call(declarationByName.get("lco_prepared_state")?.inputSchema.properties ?? {}, "thread_id"),
     true
   );
 
@@ -1912,8 +1912,8 @@ test("prepared-state tools are exposed through MCP as read-only public-safe tool
         }
       }
     });
-    const preparedStateTool = tools.find((tool) => tool.name === "loo_prepared_state");
-    const inboxTool = tools.find((tool) => tool.name === "loo_prepared_inbox");
+    const preparedStateTool = tools.find((tool) => tool.name === "lco_prepared_state");
+    const inboxTool = tools.find((tool) => tool.name === "lco_prepared_inbox");
     const stateEnum = ((preparedStateTool?.inputSchema.properties as Record<string, { enum?: string[] }> | undefined)?.state?.enum ?? []);
     assert.equal(stateEnum.includes("completed"), true);
     assert.equal(stateEnum.includes("blocked_missing_info"), true);

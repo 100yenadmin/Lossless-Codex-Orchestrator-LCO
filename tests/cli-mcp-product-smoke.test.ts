@@ -51,7 +51,7 @@ function writeFakeMcpServer(path: string, toolNames: string[], options: {
     "  const message = JSON.parse(line);",
     "  if (message.method === 'initialize') {",
     "    if (initializeError) { send({ id: message.id, error: { code: -32000, message: 'init failed' } }); return; }",
-    "    send({ id: message.id, result: { protocolVersion: '2024-11-05', serverInfo: { name: 'fake-lco', version: '1.3.0' }, capabilities: { tools: {} } } });",
+    "    send({ id: message.id, result: { protocolVersion: '2025-11-25', serverInfo: { name: 'fake-lco', version: '1.3.0' }, capabilities: { tools: {} } } });",
     "    return;",
     "  }",
     "  if (message.method === 'tools/list') {",
@@ -78,13 +78,13 @@ test("loo qa-lab cli-mcp-smoke proves CLI help plus MCP tools/list and tools/cal
   try {
     const evidenceDir = join(dir, "evidence");
     const cliBin = join(dir, "loo");
-    const mcpBin = join(dir, "loo-mcp-server");
+    const mcpBin = join(dir, "lco-mcp-server");
     writeFakeCli(cliBin);
     writeFakeMcpServer(mcpBin, [
-      "loo_doctor",
-      "loo_prepared_inbox",
-      "loo_describe_ref",
-      "loo_expand_query"
+      "lco_doctor",
+      "lco_prepared_inbox",
+      "lco_describe_ref",
+      "lco_expand_query"
     ]);
 
     const result = spawnSync(process.execPath, [
@@ -104,9 +104,9 @@ test("loo qa-lab cli-mcp-smoke proves CLI help plus MCP tools/list and tools/cal
       "--mcp-bin",
       mcpBin,
       "--required-tool",
-      "loo_doctor",
+      "lco_doctor",
       "--required-tool",
-      "loo_expand_query",
+      "lco_expand_query",
       "--strict"
     ], {
       cwd: repoRoot,
@@ -150,14 +150,14 @@ test("loo qa-lab cli-mcp-smoke proves CLI help plus MCP tools/list and tools/cal
     assert.equal(report.mcpToolsCallReady, true);
     assert.equal(report.toolsListed, 4);
     assert.deepEqual(report.toolCallProbe, {
-      toolName: "loo_doctor",
+      toolName: "lco_doctor",
       ok: true,
       contentItemCount: 1,
       contentKinds: ["text"],
       structuredContentPresent: true,
       errorCode: null
     });
-    assert.deepEqual(report.requiredToolsPresent, ["loo_doctor", "loo_expand_query"]);
+    assert.deepEqual(report.requiredToolsPresent, ["lco_doctor", "lco_expand_query"]);
     assert.deepEqual(report.blockers, []);
     assert.deepEqual(report.setupBlockers, []);
     assert.deepEqual(report.warnings, []);
@@ -170,7 +170,7 @@ test("loo qa-lab cli-mcp-smoke proves CLI help plus MCP tools/list and tools/cal
     });
     assert.ok(report.privateDataExclusions.includes("raw MCP stdout/stderr"));
     assert.match(report.proofBoundary, /CLI --help, MCP tools\/list, and MCP tools\/call/i);
-    assert.match(report.proofBoundary, /MCP with protocolVersion 2024-11-05/i);
+    assert.match(report.proofBoundary, /MCP with protocolVersion 2025-11-25/i);
     assert.match(report.proofBoundary, /does not run live Codex control/i);
     assert.ok(report.nextSafeCommands.some((command) => command.includes("loo qa-lab cli-mcp-smoke")));
     assert.equal(existsSync(join(evidenceDir, "cli-mcp-product-smoke.json")), true);
@@ -203,6 +203,8 @@ test("loo qa-lab cli-mcp-smoke separates setup-required binaries from package de
       "--mcp-bin",
       mcpBin,
       "--required-tool",
+      "loo_doctor",
+      "--tool-call",
       "loo_doctor",
       "--strict"
     ], {
@@ -260,6 +262,8 @@ test("loo qa-lab cli-mcp-smoke treats missing required MCP tools as package defe
       "loo_doctor",
       "--required-tool",
       "loo_expand_query",
+      "--tool-call",
+      "loo_doctor",
       "--strict"
     ], {
       cwd: repoRoot,
@@ -314,6 +318,8 @@ test("loo qa-lab cli-mcp-smoke treats CLI help failure as package defect", () =>
       mcpBin,
       "--required-tool",
       "loo_doctor",
+      "--tool-call",
+      "loo_doctor",
       "--strict"
     ], {
       cwd: repoRoot,
@@ -356,6 +362,8 @@ test("loo qa-lab cli-mcp-smoke reports MCP initialize and tools/call errors as p
       initMcp,
       "--required-tool",
       "loo_doctor",
+      "--tool-call",
+      "loo_doctor",
       "--strict"
     ], {
       cwd: repoRoot,
@@ -387,6 +395,8 @@ test("loo qa-lab cli-mcp-smoke reports MCP initialize and tools/call errors as p
       "--mcp-bin",
       callMcp,
       "--required-tool",
+      "loo_doctor",
+      "--tool-call",
       "loo_doctor",
       "--strict"
     ], {
@@ -471,6 +481,8 @@ test("loo qa-lab cli-mcp-smoke rejects mismatched tools/call response names", ()
       mcpBin,
       "--required-tool",
       "loo_doctor",
+      "--tool-call",
+      "loo_doctor",
       "--strict"
     ], {
       cwd: repoRoot,
@@ -513,6 +525,8 @@ test("loo qa-lab cli-mcp-smoke accepts fast-exit server after successful tools/c
       "--mcp-bin",
       mcpBin,
       "--required-tool",
+      "loo_doctor",
+      "--tool-call",
       "loo_doctor",
       "--strict"
     ], {
@@ -584,7 +598,7 @@ test("loo qa-lab cli-mcp-smoke rejects non-loo tool names before running probes"
     });
 
     assert.equal(requiredToolResult.status, 1, requiredToolResult.stderr || requiredToolResult.stdout);
-    assert.match(requiredToolResult.stderr, /--required-tool requires a loo_\* tool name/);
+    assert.match(requiredToolResult.stderr, /--required-tool requires an lco_\* or loo_\* tool name/);
     assert.equal(existsSync(join(dir, "required-evidence", "cli-mcp-product-smoke.json")), false);
 
     const toolCallResult = spawnSync(process.execPath, [
@@ -607,7 +621,7 @@ test("loo qa-lab cli-mcp-smoke rejects non-loo tool names before running probes"
     });
 
     assert.equal(toolCallResult.status, 1, toolCallResult.stderr || toolCallResult.stdout);
-    assert.match(toolCallResult.stderr, /--tool-call requires a loo_\* tool name/);
+    assert.match(toolCallResult.stderr, /--tool-call requires an lco_\* or loo_\* tool name/);
     assert.equal(existsSync(join(dir, "tool-call-evidence", "cli-mcp-product-smoke.json")), false);
   } finally {
     rmSync(dir, { recursive: true, force: true });

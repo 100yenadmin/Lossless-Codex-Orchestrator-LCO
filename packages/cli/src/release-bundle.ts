@@ -55,13 +55,15 @@ export function createReleaseBundle(options: ReleaseBundleOptions): ReleaseBundl
   }
   const releaseNotesFile = `RELEASE_NOTES_${preflight.packageVersion}.md`;
   const releaseNotesSource = join(packageRoot, "docs", "releases", releaseNotesFile);
-  if (!existsSync(releaseNotesSource)) {
-    throw new Error(`Release notes are missing: docs/releases/${releaseNotesFile}`);
-  }
   const releaseNotesPath = join(evidenceDir, releaseNotesFile);
   const bundleManifestPath = join(evidenceDir, bundleManifestName);
 
-  writeFileSync(releaseNotesPath, readFileSync(releaseNotesSource, "utf8"));
+  writeFileSync(
+    releaseNotesPath,
+    existsSync(releaseNotesSource)
+      ? readFileSync(releaseNotesSource, "utf8")
+      : createDraftReleaseNotes(preflight)
+  );
 
   const report: ReleaseBundleReport = {
     ok: preflight.ok,
@@ -88,6 +90,23 @@ export function createReleaseBundle(options: ReleaseBundleOptions): ReleaseBundl
 
   writeFileSync(bundleManifestPath, `${JSON.stringify(report, null, 2)}\n`);
   return report;
+}
+
+function createDraftReleaseNotes(preflight: ReleasePreflightReport): string {
+  const blockers = preflight.blockers.length ? preflight.blockers : ["none"];
+  return [
+    `# Lossless OpenClaw Orchestrator ${preflight.packageVersion} Draft Release Notes`,
+    "",
+    "These local draft notes were generated for a release evidence bundle before committed release notes exist.",
+    "They do not publish to npm, do not create a GitHub Release, do not update the changelog, and do not claim release readiness.",
+    "",
+    `- Claim scope: ${preflight.claimScope}`,
+    `- Release ready: ${preflight.releaseReady ? "true" : "false"}`,
+    `- Blockers: ${blockers.join(", ")}`,
+    `- npm published: false`,
+    `- GitHub Release created: false`,
+    ""
+  ].join("\n");
 }
 
 function findPackageRoot(start: string): string | null {

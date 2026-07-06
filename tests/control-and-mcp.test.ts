@@ -598,7 +598,7 @@ test("Codex live send reports transport acceptance as unverified until follow-up
     assert.equal(live.proofState.unverifiedPending, true);
     assert.equal(live.proofState.status, "turn_started_unconfirmed");
     assert.equal(live.proofState.turnId, "turn_pending");
-    assert.equal(live.proofState.nextProof?.tool, "loo_codex_app_server_threads");
+    assert.equal(live.proofState.nextProof?.tool, "lco_codex_app_server_threads");
     assert.equal(live.proofState.nextProof?.execute, false);
     assert.deepEqual(live.proofState.nextProof?.args, { read_thread_id: "thr_1", limit: 20 });
     assert.match(live.proofState.callerInstruction, /failed closed/i);
@@ -699,8 +699,9 @@ test("Codex start-thread workflow is dry-run first and live creation remains pen
     assert.equal(live.proofState.unverifiedPending, true);
     assert.equal(live.proofState.status, "unverified_pending");
     assert.equal(live.proofState.threadId, "thr_created");
-    assert.equal(live.proofState.nextProof?.tool, "loo_codex_start_thread_post_create_proof");
+    assert.equal(live.proofState.nextProof?.tool, "lco_desktop_proof");
     assert.deepEqual(live.proofState.nextProof?.args, {
+      check: "start_thread_post_create_proof",
       created_thread_id: "thr_created",
       created_thread_ref: "codex_thread:thr_created",
       limit: 20
@@ -1208,7 +1209,7 @@ test("Codex start-thread post-create proof classifies indexed described persiste
   }
 });
 
-test("MCP tool registry exposes loo-prefixed tools with local-only control safety", async () => {
+test("MCP tool registry exposes lco-prefixed canonical tools with loo compatibility safety", async () => {
   const root = mkdtempSync(join(tmpdir(), "loo-mcp-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
   const audit = createAuditStore(join(root, "audit.jsonl"));
@@ -1221,35 +1222,35 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
         codexRequests.push({ method, params });
         return { ok: true, result: { thread: { id: "thr_created", status: "ready" } } };
       }
-    }
+    },
+    includeAliases: false
   });
 
   try {
     const toolNames = tools.map((tool) => tool.name).sort();
     const declaredToolNames = createLooToolDeclarations().map((tool) => tool.name).sort();
     assert.deepEqual(declaredToolNames, toolNames);
-    assert.equal(toolNames.includes("loo_index_sessions"), true);
-    assert.equal(toolNames.includes("loo_grep"), true);
-    assert.equal(toolNames.includes("loo_search_sessions"), true);
-    assert.equal(toolNames.includes("loo_describe_ref"), true);
-    assert.equal(toolNames.includes("loo_closeout_dry_run"), true);
-    assert.equal(toolNames.includes("loo_codex_start_thread"), true);
-    assert.equal(toolNames.includes("loo_codex_send_message"), true);
-    assert.equal(toolNames.includes("loo_desktop_proof"), true);
+    assert.equal(toolNames.includes("lco_index_sessions"), true);
+    assert.equal(toolNames.includes("lco_grep"), true);
+    assert.equal(toolNames.includes("lco_search_sessions"), true);
+    assert.equal(toolNames.includes("lco_describe_ref"), true);
+    assert.equal(toolNames.includes("lco_closeout_dry_run"), true);
+    assert.equal(toolNames.includes("lco_codex_start_thread"), true);
+    assert.equal(toolNames.includes("lco_codex_send_message"), true);
+    assert.equal(toolNames.includes("lco_desktop_proof"), true);
     assert.deepEqual(toolNames.filter((name) => !LOO_COMMAND_POLICY[name]), []);
     for (const declaration of createLooToolDeclarations()) {
       assert.deepEqual(declaration.safety, LOO_COMMAND_POLICY[declaration.name]);
       assert.ok(Array.isArray(declaration.safety.mutationClasses));
     }
-    assert.equal(LOO_COMMAND_POLICY.loo_index_sessions.mode, "local_cache_write");
-    assert.deepEqual(LOO_COMMAND_POLICY.loo_index_sessions.mutationClasses, ["derived_cache"]);
+    assert.equal(LOO_COMMAND_POLICY.lco_index_sessions.mode, "local_cache_write");
+    assert.deepEqual(LOO_COMMAND_POLICY.lco_index_sessions.mutationClasses, ["derived_cache"]);
     for (const telemetryAwareTool of [
-      "loo_search_sessions",
-      "loo_grep",
-      "loo_describe_session",
-      "loo_describe_ref",
-      "loo_expand_session",
-      "loo_expand_query"
+      "lco_search_sessions",
+      "lco_grep",
+      "lco_describe_ref",
+      "lco_expand_session",
+      "lco_expand_query"
     ]) {
       assert.equal(LOO_COMMAND_POLICY[telemetryAwareTool]?.mode, "local_cache_write");
       assert.deepEqual(LOO_COMMAND_POLICY[telemetryAwareTool]?.mutationClasses, ["derived_cache"]);
@@ -1258,29 +1259,26 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
       assert.ok(properties?.telemetry_session_id, `${telemetryAwareTool} accepts telemetry_session_id`);
       assert.ok(properties?.now, `${telemetryAwareTool} accepts deterministic now`);
     }
-    assert.equal(LOO_COMMAND_POLICY.loo_index_sessions.mutationClasses.includes("source_store"), false);
-    assert.equal(LOO_COMMAND_POLICY.loo_index_sessions.mutationClasses.includes("external_system"), false);
-    assert.equal(LOO_COMMAND_POLICY.loo_index_sessions.mutationClasses.includes("live_control"), false);
-    assert.equal(LOO_COMMAND_POLICY.loo_codex_control_dry_run.mode, "local_cache_write");
-    assert.deepEqual(LOO_COMMAND_POLICY.loo_codex_control_dry_run.mutationClasses, ["derived_cache"]);
-    assert.deepEqual(LOO_COMMAND_POLICY.loo_codex_start_thread.mutationClasses, ["derived_cache", "live_control"]);
-    assert.deepEqual(LOO_COMMAND_POLICY.loo_watchers.mutationClasses, []);
-    assert.deepEqual(LOO_COMMAND_POLICY.loo_watchers_list.mutationClasses, []);
-    assert.deepEqual(LOO_COMMAND_POLICY.loo_watcher_status.mutationClasses, []);
-    assert.deepEqual(LOO_COMMAND_POLICY.loo_watcher_dry_run.mutationClasses, []);
-    assert.deepEqual(LOO_COMMAND_POLICY.loo_resume_request_packet.mutationClasses, []);
-    assert.deepEqual(LOO_COMMAND_POLICY.loo_codex_send_message.mutationClasses, ["derived_cache", "live_control"]);
-    assert.deepEqual(LOO_COMMAND_POLICY.loo_desktop_proof_action.mutationClasses, ["derived_cache", "desktop_gui"]);
+    assert.equal(LOO_COMMAND_POLICY.lco_index_sessions.mutationClasses.includes("source_store"), false);
+    assert.equal(LOO_COMMAND_POLICY.lco_index_sessions.mutationClasses.includes("external_system"), false);
+    assert.equal(LOO_COMMAND_POLICY.lco_index_sessions.mutationClasses.includes("live_control"), false);
+    assert.equal(LOO_COMMAND_POLICY.lco_codex_control_dry_run.mode, "local_cache_write");
+    assert.deepEqual(LOO_COMMAND_POLICY.lco_codex_control_dry_run.mutationClasses, ["derived_cache"]);
+    assert.deepEqual(LOO_COMMAND_POLICY.lco_codex_start_thread.mutationClasses, ["derived_cache", "live_control"]);
+    assert.deepEqual(LOO_COMMAND_POLICY.lco_watchers.mutationClasses, []);
+    assert.deepEqual(LOO_COMMAND_POLICY.lco_codex_send_message.mutationClasses, ["derived_cache", "live_control"]);
+    assert.deepEqual(LOO_COMMAND_POLICY.lco_desktop_proof_action.mutationClasses, ["derived_cache", "desktop_gui"]);
 
-    const permissionsTool = tools.find((tool) => tool.name === "loo_permissions");
+    const permissionsTool = tools.find((tool) => tool.name === "lco_permissions");
     assert.ok(permissionsTool);
-    const permissions = permissionsTool.execute({}) as { commandPolicy: typeof LOO_COMMAND_POLICY };
-    assert.deepEqual(permissions.commandPolicy.loo_codex_thread_map, LOO_COMMAND_POLICY.loo_codex_thread_map);
-    assert.deepEqual(permissions.commandPolicy.loo_cockpit_inbox, LOO_COMMAND_POLICY.loo_cockpit_inbox);
-    assert.deepEqual(permissions.commandPolicy.loo_codex_start_thread_post_create_proof, LOO_COMMAND_POLICY.loo_codex_start_thread_post_create_proof);
-    assert.deepEqual(permissions.commandPolicy.loo_desktop_see, LOO_COMMAND_POLICY.loo_desktop_see);
+    const permissions = permissionsTool.execute({}) as { commandPolicy: Record<string, typeof LOO_COMMAND_POLICY.lco_permissions> };
+    assert.deepEqual(permissions.commandPolicy.lco_codex_thread_map, undefined);
+    assert.deepEqual(permissions.commandPolicy.loo_codex_thread_map, LOO_COMMAND_POLICY.lco_operating_picture);
+    assert.deepEqual(permissions.commandPolicy.loo_cockpit_inbox, LOO_COMMAND_POLICY.lco_operating_picture);
+    assert.deepEqual(permissions.commandPolicy.loo_codex_start_thread_post_create_proof, LOO_COMMAND_POLICY.lco_desktop_proof);
+    assert.deepEqual(permissions.commandPolicy.loo_desktop_see, LOO_COMMAND_POLICY.lco_desktop_proof);
 
-    const closeoutTool = tools.find((tool) => tool.name === "loo_closeout_dry_run");
+    const closeoutTool = tools.find((tool) => tool.name === "lco_closeout_dry_run");
     assert.ok(closeoutTool);
     const closeoutReport = closeoutTool.execute({ limit: 5 }) as {
       dryRun: boolean;
@@ -1315,7 +1313,7 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.equal(mappedCloseoutReport.candidates[0]?.state, "unavailable");
     assert.equal(mappedCloseoutReport.candidates[0]?.wouldAttach, false);
 
-    const sendTool = tools.find((tool) => tool.name === "loo_codex_send_message");
+    const sendTool = tools.find((tool) => tool.name === "lco_codex_send_message");
     assert.ok(sendTool);
     const dryRun = await sendTool.execute({ thread_id: "thr_1", message: "continue", dry_run: true }) as {
       live: boolean;
@@ -1338,7 +1336,7 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.deepEqual(dryRun.approval_packet.methodSequence, ["thread/resume", "turn/start"]);
     assert.deepEqual(dryRun.approval_packet.predictedMutation, ["thread/resume", "turn/start"]);
 
-    const dryRunTool = tools.find((tool) => tool.name === "loo_codex_control_dry_run");
+    const dryRunTool = tools.find((tool) => tool.name === "lco_codex_control_dry_run");
     assert.ok(dryRunTool);
     const genericDryRun = await dryRunTool.execute({ action: "send", thread_id: "thr_1", message: "continue" }) as {
       approval_audit_id: string;
@@ -1352,7 +1350,7 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.notEqual(genericDryRun.message_hash, sha256("continue"));
     assert.equal(genericDryRun.message_hash, dryRun.message_hash);
 
-    const startTool = tools.find((tool) => tool.name === "loo_codex_start_thread");
+    const startTool = tools.find((tool) => tool.name === "lco_codex_start_thread");
     assert.ok(startTool);
     const startDryRun = await startTool.execute({}) as {
       live: boolean;
@@ -1395,14 +1393,15 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.equal(startLive.proof_state.persisted, false);
     assert.equal(startLive.proof_state.unverified_pending, true);
     assert.equal(startLive.proof_state.status, "unverified_pending");
-    assert.equal(startLive.proof_state.next_proof.tool, "loo_codex_start_thread_post_create_proof");
+    assert.equal(startLive.proof_state.next_proof.tool, "lco_desktop_proof");
     assert.deepEqual(startLive.proof_state.next_proof.args, {
+      check: "start_thread_post_create_proof",
       created_thread_id: "thr_created",
       created_thread_ref: "codex_thread:thr_created",
       limit: 20
     });
 
-    const steerTool = tools.find((tool) => tool.name === "loo_codex_steer_thread");
+    const steerTool = tools.find((tool) => tool.name === "lco_codex_steer_thread");
     assert.ok(steerTool);
     assert.ok((steerTool.inputSchema.properties as Record<string, unknown>).expected_turn_id);
     const dryRunToolSchema = dryRunTool.inputSchema.properties as Record<string, unknown>;
@@ -1448,7 +1447,7 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.equal(gatewayWrongTypedEnum.code, "validation_failed");
     assert.equal(gatewayWrongTypedEnum.error?.message, "action must be string");
     assertNoRawLocalPaths(gatewayWrongTypedEnum);
-    const lcmPeerTool = tools.find((tool) => tool.name === "loo_lcm_peer_dbs");
+    const lcmPeerTool = tools.find((tool) => tool.name === "lco_lcm_peer_dbs");
     assert.ok(lcmPeerTool);
     const nestedParserValidation = await executeLooToolForOpenClaw(lcmPeerTool, {
       lcm_db_paths: ["./valid-looking.sqlite", 123, "/private/raw-transcript.sqlite"]
@@ -1480,7 +1479,7 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
 
     appendFileSync(audit.path, "{malformed audit jsonl\n");
 
-    const auditTailTool = tools.find((tool) => tool.name === "loo_audit_tail");
+    const auditTailTool = tools.find((tool) => tool.name === "lco_audit_tail");
     assert.ok(auditTailTool);
     const auditTail = await auditTailTool.execute({ limit: 5 }) as {
       auditPath: string;
@@ -1559,6 +1558,88 @@ test("MCP stdio tools/list exposes facade metadata in the runtime catalog", asyn
     assert.equal(preparedInbox?.metadata?.tier, "public_facade");
     assert.equal(preparedInbox?.metadata?.operatorPathRank, 1);
     assert.equal(debugTool?.metadata?.tier, "proof_debug");
+  } finally {
+    server.kill();
+    await new Promise<void>((resolve) => server.once("exit", () => resolve()));
+    rmSync(root, { recursive: true, force: true });
+  }
+
+  assert.doesNotMatch(stderr, /Unhandled|uncaught|ERR_UNHANDLED/i);
+});
+
+test("MCP stdio initialize reports the current protocol revision and package version", async () => {
+  const root = mkdtempSync(join(tmpdir(), "lco-mcp-init-"));
+  const pkg = JSON.parse(readFileSync("package.json", "utf8")) as { version: string };
+  const server = spawn(process.execPath, ["--import", "tsx", "packages/mcp-server/src/server.ts"], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      HOME: root,
+      LCO_DB_PATH: join(root, "orchestrator.sqlite"),
+      LCO_AUDIT_PATH: join(root, "audit.jsonl"),
+      LCO_CODEX_BIN: "lco-codex-not-needed-for-init"
+    },
+    stdio: ["pipe", "pipe", "pipe"]
+  });
+  let stdout = "";
+  let stderr = "";
+  server.stdout.setEncoding("utf8");
+  server.stderr.setEncoding("utf8");
+  server.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+
+  try {
+    const outputLine = await new Promise<string>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error(`Timed out waiting for MCP initialize response. stderr=${stderr}`));
+      }, 5_000);
+      const cleanup = () => {
+        clearTimeout(timeout);
+        server.stdout.off("data", onStdout);
+        server.off("exit", onExit);
+      };
+      const onStdout = (chunk: string) => {
+        stdout += chunk;
+        const newlineIndex = stdout.lastIndexOf("\n");
+        if (newlineIndex === -1) return;
+        const line = stdout
+          .slice(0, newlineIndex)
+          .split("\n")
+          .find((candidate) => candidate.trim());
+        if (line) {
+          cleanup();
+          resolve(line);
+        }
+      };
+      const onExit = (code: number | null) => {
+        cleanup();
+        reject(new Error(`MCP server exited before initialize response. code=${code} stderr=${stderr}`));
+      };
+      server.stdout.on("data", onStdout);
+      server.once("exit", onExit);
+      server.stdin.write(`${JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-11-25",
+          capabilities: {},
+          clientInfo: { name: "test-client", version: "1.0.0" }
+        }
+      })}\n`);
+    });
+    const response = JSON.parse(outputLine) as {
+      result?: {
+        protocolVersion?: string;
+        serverInfo?: { name?: string; version?: string };
+        capabilities?: { tools?: unknown };
+      };
+    };
+    assert.equal(response.result?.protocolVersion, "2025-11-25");
+    assert.equal(response.result?.serverInfo?.name, "lossless-openclaw-orchestrator");
+    assert.equal(response.result?.serverInfo?.version, pkg.version);
+    assert.deepEqual(response.result?.capabilities, { tools: {} });
   } finally {
     server.kill();
     await new Promise<void>((resolve) => server.once("exit", () => resolve()));

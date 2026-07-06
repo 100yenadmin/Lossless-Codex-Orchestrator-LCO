@@ -25,6 +25,7 @@ import {
   searchCodexSessions
 } from "./search.js";
 import type { CodexSearchMatchFeatures } from "./search.js";
+import { readEnv, resolveHomeDir } from "../../runtime/src/env.js";
 
 export { createSessionSanitizerRepairPlan, createSessionSanitizerReport } from "./session-sanitizer.js";
 export { CODEX_SEARCH_FTS_WEIGHTS, normalizeBm25TextScores } from "./search.js";
@@ -1293,7 +1294,7 @@ export type CodexCollaborationNextStepCategory =
 export type CodexCollaborationNextStepStatus = "ready" | "blocked" | "noop";
 
 export type CodexCollaborationNextStepToolCall = {
-  tool: "loo_resume_request_packet" | "loo_codex_desktop_coherence" | "loo_codex_desktop_fallback_status";
+  tool: "lco_watchers" | "lco_desktop_proof";
   args: Record<string, unknown>;
   execute: false;
 };
@@ -1346,11 +1347,7 @@ export type CodexCollaborationNextStepsOptions = CodexCollaborationCockpitOption
 export type CodexRuntimeDesktopVisibilityCoverage = "covered" | "partial" | "blocked";
 
 export type CodexRuntimeDesktopVisibilityToolCall = {
-  tool:
-    | "loo_codex_desktop_coherence"
-    | "loo_codex_desktop_fallback_status"
-    | "loo_codex_desktop_collaboration_proof"
-    | "loo_desktop_live_proof_harness";
+  tool: "lco_desktop_proof";
   args: Record<string, unknown>;
   execute: false;
 };
@@ -1408,7 +1405,7 @@ export type CodexRuntimeDesktopVisibilityStatusOptions = CodexCollaborationCockp
 export type CodexActiveThreadStateKind = "running" | "blocked" | "needs_nudge" | "stale" | "waiting" | "needs_approval" | "idle" | "unknown";
 
 export type CodexActiveThreadControlDryRunRecommendation = {
-  tool: "loo_codex_control_dry_run";
+  tool: "lco_codex_control_dry_run";
   execute: false;
   status: "ready" | "blocked";
   args: {
@@ -1424,7 +1421,7 @@ export type CodexActiveThreadControlDryRunRecommendation = {
 };
 
 export type CodexActiveThreadReadOnlyAction = {
-  tool: "loo_recent_sessions" | "loo_cockpit_inbox" | "loo_codex_app_server_threads" | "loo_visible_codex_map";
+  tool: "lco_recent_sessions" | "lco_operating_picture" | "lco_codex_app_server_threads" | "lco_visible_codex_map";
   execute: false;
   args: Record<string, string | number | boolean>;
   reason: string;
@@ -1705,7 +1702,7 @@ export type WatcherAttentionQueueItem = {
   itemKind: "watcher_resume_request" | "watcher_inspection";
   status: WatcherStatus;
   toolCall: {
-    tool: "loo_resume_request_packet" | "loo_watcher_status";
+    tool: "lco_watchers";
     execute: false;
     args: Record<string, unknown>;
   };
@@ -2654,17 +2651,17 @@ function databaseOpenOptions(busyTimeoutMs?: number): { timeout?: number } | und
 }
 
 export function defaultDatabasePath(): string {
-  return process.env.LOO_DB_PATH?.trim() || join(process.env.HOME || ".", ".openclaw", "lossless-openclaw-orchestrator", "orchestrator.sqlite");
+  return readEnv("DB_PATH") || join(resolveHomeDir(), ".openclaw", "lossless-openclaw-orchestrator", "orchestrator.sqlite");
 }
 
-export function defaultCodexRoots(home = process.env.HOME || "."): string[] {
+export function defaultCodexRoots(home = resolveHomeDir()): string[] {
   return [
     join(home, ".codex", "sessions"),
     join(home, ".codex", "archived_sessions")
   ];
 }
 
-export function configuredLcmPeerDbPaths(raw = process.env.LOO_LCM_DB_PATHS ?? ""): string[] {
+export function configuredLcmPeerDbPaths(raw = readEnv("LCM_DB_PATHS") ?? ""): string[] {
   return unique(normalizePeerPaths(raw.split(new RegExp(`[${escapeRegExp(delimiter)},\\n]`, "g")).map((part) => part.trim()).filter(Boolean)));
 }
 
@@ -7784,22 +7781,24 @@ function watcherAttentionQueueDraft(
   if (watcher.status === "active" || watcher.status === "expired") return null;
   const toolCall: WatcherAttentionQueueItem["toolCall"] = watcher.status === "triggered"
     ? {
-        tool: "loo_resume_request_packet",
+        tool: "lco_watchers",
         execute: false,
         args: {
+          action: "resume_request_packet",
           watcher_spec: safeSpec,
           recommended_action: watcher.recommendedAction
         }
       }
     : {
-        tool: "loo_watcher_status",
+        tool: "lco_watchers",
         execute: false,
         args: {
+          action: "status",
           watcher_specs: [safeSpec],
           watch_id: watcher.watchId
         }
       };
-  const itemKind: WatcherAttentionQueueItem["itemKind"] = toolCall.tool === "loo_resume_request_packet"
+  const itemKind: WatcherAttentionQueueItem["itemKind"] = watcher.status === "triggered"
     ? "watcher_resume_request"
     : "watcher_inspection";
   const reasonCodes = unique([
@@ -7923,13 +7922,21 @@ function publicWatcherAttentionQueueItemFromRow(row: WatcherAttentionQueueRow): 
 function publicWatcherToolCallFromStored(record: Record<string, unknown>): WatcherAttentionQueueItem["toolCall"] | null {
   const serialized = JSON.stringify(record);
   if (looksSensitiveRefLike(serialized)) return null;
-  const tool = record.tool === "loo_resume_request_packet" || record.tool === "loo_watcher_status" ? record.tool : null;
+  const legacyAction = record.tool === "loo_resume_request_packet"
+    ? "resume_request_packet"
+    : record.tool === "loo_watcher_status"
+    ? "status"
+    : null;
+  const tool = record.tool === "lco_watchers" || legacyAction ? "lco_watchers" : null;
   const args = isObjectRecord(record.args) ? record.args : null;
   if (!tool || !args || record.execute !== false) return null;
   return {
     tool,
     execute: false,
-    args
+    args: {
+      ...(legacyAction ? { action: legacyAction } : {}),
+      ...args
+    }
   };
 }
 
@@ -8419,9 +8426,9 @@ export function searchSessions(db: LooDatabase, options: {
 function retrievalTelemetryEnabled(explicit?: boolean): boolean {
   // The env fallback is an intentional local opt-in write path for callers that
   // omit the explicit flag. Explicit false is definitive so nested recall calls
-  // can suppress duplicate derived-cache writes even when LOO_TELEMETRY=1.
+  // can suppress duplicate derived-cache writes even when LCO_TELEMETRY=1.
   if (explicit !== undefined) return explicit;
-  return process.env.LOO_TELEMETRY?.trim() === "1";
+  return readEnv("TELEMETRY") === "1";
 }
 
 function recordTelemetrySearchEvent(db: LooDatabase, options: {
@@ -8530,7 +8537,7 @@ function latestTelemetrySearchEventForRef(db: LooDatabase, sourceRef: string, no
 }
 
 function retrievalTelemetrySessionKey(explicit?: string): string | null {
-  const raw = explicit ?? process.env.LOO_TELEMETRY_SESSION_ID;
+  const raw = explicit ?? readEnv("TELEMETRY_SESSION_ID");
   const value = raw?.trim();
   if (!value) return null;
   return sha256Hex(value);
@@ -9864,7 +9871,8 @@ function collaborationNextStepForLane(
       reasonCodes: unique([...lane.reasonCodes, "watcher_triggered", "resume_request_packet"]),
       blockers: [],
       confidence: Math.min(0.98, Math.max(lane.card.confidence, input.watcher.confidence)),
-      toolCall: collaborationToolCall("loo_resume_request_packet", {
+      toolCall: collaborationToolCall("lco_watchers", {
+        action: "resume_request_packet",
         watcher_spec: collaborationPublicSafeWatchSpecArg(input.watcherSpec),
         now: input.now,
         recommended_action: input.watcher.recommendedAction
@@ -9882,7 +9890,10 @@ function collaborationNextStepForLane(
       reasonCodes: unique([...lane.reasonCodes, "coherence_input_missing", "desktop_coherence_required"]),
       blockers: [],
       confidence: Math.max(0.55, lane.desktop.confidence),
-      toolCall: collaborationToolCall("loo_codex_desktop_coherence", collaborationDesktopCoherenceArgsFromFallback(input.fallback, threadId, sourceRef))
+      toolCall: collaborationToolCall("lco_desktop_proof", {
+        check: "coherence",
+        ...collaborationDesktopCoherenceArgsFromFallback(input.fallback, threadId, sourceRef)
+      })
     });
   }
 
@@ -9894,7 +9905,8 @@ function collaborationNextStepForLane(
       reasonCodes: unique([...lane.reasonCodes, "desktop_coherence_missing", "desktop_coherence_required"]),
       blockers: [],
       confidence: Math.max(0.6, lane.desktop.confidence),
-      toolCall: collaborationToolCall("loo_codex_desktop_coherence", {
+      toolCall: collaborationToolCall("lco_desktop_proof", {
+        check: "coherence",
         thread_id: threadId,
         source_ref: sourceRef
       })
@@ -9909,7 +9921,8 @@ function collaborationNextStepForLane(
       reasonCodes: unique([...lane.reasonCodes, "desktop_coherence_missing", "desktop_coherence_required"]),
       blockers: [],
       confidence: Math.max(0.55, lane.desktop.confidence),
-      toolCall: collaborationToolCall("loo_codex_desktop_coherence", {
+      toolCall: collaborationToolCall("lco_desktop_proof", {
+        check: "coherence",
         thread_id: threadId,
         source_ref: sourceRef
       })
@@ -9925,7 +9938,8 @@ function collaborationNextStepForLane(
       reasonCodes: unique([...lane.reasonCodes, "read_state_reconciliation_required", "desktop_coherence_required"]),
       blockers: [],
       confidence: Math.max(0.6, lane.desktop.confidence),
-      toolCall: collaborationToolCall("loo_codex_desktop_coherence", {
+      toolCall: collaborationToolCall("lco_desktop_proof", {
+        check: "coherence",
         thread_id: threadId,
         source_ref: sourceRef,
         action_evidence: collaborationPublicSafeActionEvidenceArg(input.coherence.actionEvidence),
@@ -9943,7 +9957,8 @@ function collaborationNextStepForLane(
       reasonCodes: unique([...lane.reasonCodes, "desktop_fallback_status_required"]),
       blockers: [],
       confidence: Math.max(0.55, lane.desktop.confidence),
-      toolCall: collaborationToolCall("loo_codex_desktop_fallback_status", {
+      toolCall: collaborationToolCall("lco_desktop_proof", {
+        check: "fallback_status",
         thread_id: threadId,
         source_ref: sourceRef,
         coherence: collaborationPublicSafeCoherenceArg(input.coherence, threadId, sourceRef)
@@ -10091,7 +10106,7 @@ function runtimeDesktopVisibilityLaneRecord(
 function runtimeDesktopVisibilityNextToolCall(step: CodexCollaborationNextStep | null): CodexRuntimeDesktopVisibilityToolCall | null {
   if (!step?.toolCall) return null;
   const tool = step.toolCall.tool;
-  if (tool !== "loo_codex_desktop_coherence" && tool !== "loo_codex_desktop_fallback_status") return null;
+  if (tool !== "lco_desktop_proof") return null;
   return {
     tool,
     args: runtimeDesktopVisibilityPublicSafeArgs(step.toolCall.args),
@@ -10103,11 +10118,14 @@ function runtimeDesktopVisibilityProofToolCall(proof: Record<string, unknown>): 
   const candidate = isObjectRecord(proof.requiredNextToolCall) ? proof.requiredNextToolCall : null;
   if (!candidate) return null;
   const tool = collaborationString(candidate.tool, 120);
-  if (tool !== "loo_desktop_live_proof_harness") return null;
+  if (tool !== "lco_desktop_proof" && tool !== "loo_desktop_live_proof_harness") return null;
   if (candidate.execute !== false) return null;
   return {
-    tool,
-    args: runtimeDesktopVisibilityPublicSafeArgs(isObjectRecord(candidate.args) ? candidate.args : {}),
+    tool: "lco_desktop_proof",
+    args: runtimeDesktopVisibilityPublicSafeArgs({
+      ...(tool === "loo_desktop_live_proof_harness" ? { check: "live_proof_harness" } : {}),
+      ...(isObjectRecord(candidate.args) ? candidate.args : {})
+    }),
     execute: false
   };
 }
@@ -10308,7 +10326,7 @@ function activeThreadNextReadOnlyAction(
   const threadId = safeThreadId(lane.threadId);
   if (input.indexedSessionMissing) {
     return {
-      tool: "loo_recent_sessions",
+      tool: "lco_recent_sessions",
       execute: false,
       args: { scope: "active", include_cards: true, limit: 20 },
       reason: "Refresh public-safe indexed active session cards before trusting the active-state lane."
@@ -10316,15 +10334,15 @@ function activeThreadNextReadOnlyAction(
   }
   if (input.cockpitInboxMissing) {
     return {
-      tool: "loo_cockpit_inbox",
+      tool: "lco_operating_picture",
       execute: false,
-      args: { limit: 20 },
+      args: { kind: "cockpit_inbox", limit: 20 },
       reason: "Refresh the deterministic cockpit inbox before trusting the active-state lane."
     };
   }
   if (input.hardConflict || input.softConflict || input.appServerMissing) {
     return {
-      tool: "loo_codex_app_server_threads",
+      tool: "lco_codex_app_server_threads",
       execute: false,
       args: { read_thread_id: threadId, limit: 20 },
       reason: "Refresh read-only Codex app-server thread metadata before trusting the active-state lane."
@@ -10332,14 +10350,14 @@ function activeThreadNextReadOnlyAction(
   }
   if (input.state === "unknown" && input.visibleMapMissing) {
     return {
-      tool: "loo_visible_codex_map",
+      tool: "lco_visible_codex_map",
       execute: false,
       args: { include_app_server: true, include_visible_snapshot: false, limit: 20 },
       reason: "Join indexed and app-server signals through the public-safe visible Codex map before claiming Desktop-visible state."
     };
   }
   return {
-    tool: "loo_codex_app_server_threads",
+    tool: "lco_codex_app_server_threads",
     execute: false,
     args: { read_thread_id: threadId, limit: 20 },
     reason: "Collect one more read-only Codex app-server metadata pass before escalating the attention card."
@@ -10357,7 +10375,7 @@ function activeThreadControlDryRunRecommendation(
   const blocked = state === "needs_approval";
   const blockers = blocked ? ["approval_required_before_live_control"] : [];
   return {
-    tool: "loo_codex_control_dry_run",
+    tool: "lco_codex_control_dry_run",
     execute: false,
     status: blocked ? "blocked" : "ready",
     args: {

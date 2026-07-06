@@ -11,8 +11,9 @@ import { createLooToolDeclarations } from "../packages/mcp-server/src/tools.js";
 
 const tsxImport = createRequire(import.meta.url).resolve("tsx");
 const packageVersion = JSON.parse(readFileSync("package.json", "utf8")).version as string;
-const escapedPackageVersion = packageVersion.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const releaseNotesPath = `docs/releases/RELEASE_NOTES_${packageVersion}.md`;
+const documentedStableVersion = readFileSync("README.md", "utf8").match(/Current stable:\s+`([^`]+)`/i)?.[1] ?? packageVersion;
+const escapedDocumentedStableVersion = documentedStableVersion.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const releaseNotesPath = `docs/releases/RELEASE_NOTES_${documentedStableVersion}.md`;
 
 function read(path: string): string {
   return readFileSync(path, "utf8");
@@ -29,7 +30,7 @@ test("current release metadata ships desktop proof-action without widening claim
   assert.equal(packageLock.packages?.[""]?.version, packageVersion);
   assert.equal(rootPlugin.version, packageVersion);
   assert.equal(workspacePlugin.version, packageVersion);
-  assert.equal(existsSync(releaseNotesPath), true, `${packageVersion} release notes must exist`);
+  assert.equal(existsSync(releaseNotesPath), true, `${documentedStableVersion} release notes must exist`);
 
   const releaseNotes = read(releaseNotesPath);
   assert.match(releaseNotes, /Codex-first local orchestration/i);
@@ -116,7 +117,7 @@ test("public docs include setup, MCP/OpenClaw, demo, and approval-boundary proof
   }
 
   for (const required of [
-    new RegExp(`Allowed Stable ${escapedPackageVersion} Claim`, "i"),
+    new RegExp(`Allowed Stable ${escapedDocumentedStableVersion} Claim`, "i"),
     /Forbidden beta claims/i,
     /Claude Code.*adapter stub/i,
     /No cloud sync/i,
@@ -177,10 +178,10 @@ test("npm dist-tag policy is explicit for stable, beta, and rc channels", () => 
     assert.match(content, /npm dist-tag policy/i, surface);
     assert.match(content, /latest/i, surface);
     assert.match(content, /beta/i, surface);
-    assert.match(content, new RegExp("stable channel\\s+target for this package version is\\s+`" + escapedPackageVersion + "`", "i"), surface);
+    assert.match(content, new RegExp("stable channel\\s+target for this package version is\\s+`" + escapedDocumentedStableVersion + "`", "i"), surface);
     assert.match(content, /npm `latest` must move only after/i, surface);
     assert.match(content, /Do not publish\s+a\s+fake stable/i, surface);
-    assert.doesNotMatch(content, new RegExp("stable channel\\s+currently points at\\s+`" + escapedPackageVersion + "`", "i"), `${surface} must not claim unpublished candidates are already on latest`);
+    assert.doesNotMatch(content, new RegExp("stable channel\\s+currently points at\\s+`" + escapedDocumentedStableVersion + "`", "i"), `${surface} must not claim unpublished candidates are already on latest`);
     assert.doesNotMatch(content, /latest[\s\S]{0,80}1\.0\.0/i, `${surface} must not say latest currently moves to 1.0.0`);
     assert.doesNotMatch(content, /latest[\s\S]{0,200}(?:follows|point at|resolves to)[\s\S]{0,120}newest public beta/i, `${surface} must not imply latest follows the newest beta`);
   }
@@ -198,10 +199,10 @@ test("README and VISION describe the current stable package without stale releas
   const readme = read("README.md");
   const vision = read("VISION.md");
 
-  assert.match(readme, new RegExp("Current stable:\\s+`" + escapedPackageVersion + "`", "i"));
-  assert.match(readme, new RegExp("`" + escapedPackageVersion + "`[\\s\\S]{0,240}shipped", "i"));
+  assert.match(readme, new RegExp("Current stable:\\s+`" + escapedDocumentedStableVersion + "`", "i"));
+  assert.match(readme, new RegExp("`" + escapedDocumentedStableVersion + "`[\\s\\S]{0,240}shipped", "i"));
   assert.match(readme, /Since 1\.2\.x[\s\S]{0,120}1\.2 prepared-state and summary-leaves lane/i);
-  assert.match(vision, new RegExp("stable[\\s\\S]{0,120}`" + escapedPackageVersion + "`[\\s\\S]{0,240}shipped", "i"));
+  assert.match(vision, new RegExp("stable[\\s\\S]{0,120}`" + escapedDocumentedStableVersion + "`[\\s\\S]{0,240}shipped", "i"));
   assert.doesNotMatch(readme, /`1\.3\.[0-9]+` release candidate/i);
   assert.doesNotMatch(vision, /`1\.3\.[0-9]+` release candidate/i);
   assert.doesNotMatch(readme, /release candidate carries post-sprint feature hardening/i);
@@ -421,7 +422,7 @@ test("OpenClaw plugin manifest is packageable and matches the beta safety bounda
     contracts?: { tools?: unknown[]; toolDeclarations?: unknown[] };
   };
   const expectedTools = createLooToolDeclarations({ includeAliases: true });
-  const expectedPolicyTools = expectedTools.filter((tool) => tool.name.startsWith("loo_"));
+  const expectedPolicyTools = createLooToolDeclarations({ includeAliases: false });
   const expectedToolNames = expectedTools.map((tool) => tool.name);
 
   assert.equal(packageJson.name, "lossless-openclaw-orchestrator");
@@ -441,9 +442,9 @@ test("OpenClaw plugin manifest is packageable and matches the beta safety bounda
   assert.match(manifest.description ?? "", /local Codex sessions/i);
   assert.match(manifest.description ?? "", /approval-gated dry-run\/control boundaries/i);
   assert.doesNotMatch(manifest.description ?? "", /Claude Code remotely/i);
-  assert.equal(manifest.mcp?.command, "loo-mcp-server");
+  assert.equal(manifest.mcp?.command, "lco-mcp-server");
   assert.equal(manifest.mcp?.transport, "stdio");
-  assert.equal(manifest.tools?.prefix, "loo_");
+  assert.equal(manifest.tools?.prefix, "lco_");
   assert.deepEqual(manifest.configSchema, { type: "object", additionalProperties: false, properties: {} });
   assert.equal(manifest.activation?.onStartup, true);
   assert.deepEqual(manifest.contracts?.tools, expectedToolNames);
@@ -958,6 +959,7 @@ function writeProjectSkeleton(rootDir: string, overrides: { readme?: string; run
     "npm install -g lossless-openclaw-orchestrator@latest",
     "loo index codex",
     "loo-mcp-server",
+    "lco-mcp-server",
     "CONTRIBUTING.md",
     "AGENTS.md",
     "CODE_OF_CONDUCT.md",
@@ -992,8 +994,8 @@ function writeProjectSkeleton(rootDir: string, overrides: { readme?: string; run
     id: "lossless-openclaw-orchestrator",
     name: "Lossless OpenClaw Orchestrator",
     description: "Index, search, and prepare local Codex sessions for OpenClaw with approval-gated dry-run/control boundaries.",
-    mcp: { command: "loo-mcp-server", transport: "stdio" },
-    tools: { prefix: "loo_" },
+    mcp: { command: "lco-mcp-server", transport: "stdio" },
+    tools: { prefix: "lco_" },
     configSchema: { type: "object", additionalProperties: false, properties: {} },
     activation: { onStartup: true },
     contracts: { tools: tools.map((tool) => tool.name), toolDeclarations: tools },

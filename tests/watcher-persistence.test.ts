@@ -73,7 +73,8 @@ test("persisted watcher observations reproduce deterministic watcher state and e
     assert.deepEqual(events.observations[0]?.watcher.reasonCodes, expected.watchers[0]?.reasonCodes);
     assert.equal(events.queue[0]?.execute, false);
     assert.equal(events.queue[0]?.toolCall.execute, false);
-    assert.equal(events.queue[0]?.toolCall.tool, "loo_resume_request_packet");
+    assert.equal(events.queue[0]?.toolCall.tool, "lco_watchers");
+    assert.equal(events.queue[0]?.toolCall.args.action, "resume_request_packet");
     assert.equal(events.actionsPerformed.liveControl, false);
     assert.equal(events.actionsPerformed.externalWrite, false);
     assert.equal(events.actionsPerformed.rawTranscriptRead, false);

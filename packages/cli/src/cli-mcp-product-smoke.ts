@@ -69,10 +69,10 @@ type ToolCallProbe = {
 };
 
 const DEFAULT_REQUIRED_TOOLS = [
-  "loo_doctor",
-  "loo_prepared_inbox",
-  "loo_describe_ref",
-  "loo_expand_query"
+  "lco_doctor",
+  "lco_prepared_inbox",
+  "lco_describe_ref",
+  "lco_expand_query"
 ];
 const DEFAULT_TIMEOUT_MS = 5_000;
 export const MAX_CLI_MCP_PRODUCT_SMOKE_TIMEOUT_MS = 10_000;
@@ -92,8 +92,8 @@ const PRIVATE_DATA_EXCLUSIONS = [
 export async function createCliMcpProductSmokeReport(options: CliMcpProductSmokeOptions): Promise<CliMcpProductSmokeReport> {
   const requiredTools = uniqueStrings(options.requiredTools?.length ? options.requiredTools : DEFAULT_REQUIRED_TOOLS);
   const cliProbe = probeCliHelp(options.cliBin ?? "loo", options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
-  const toolCallName = options.toolCallName ?? "loo_doctor";
-  const mcpProbe = await probeMcpToolsListAndCall(options.mcpBin ?? "loo-mcp-server", toolCallName, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  const toolCallName = options.toolCallName ?? "lco_doctor";
+  const mcpProbe = await probeMcpToolsListAndCall(options.mcpBin ?? "lco-mcp-server", toolCallName, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   const requiredToolsPresent = requiredTools.filter((tool) => mcpProbe.tools.includes(tool));
   const missingRequiredTools = requiredTools.filter((tool) => !mcpProbe.tools.includes(tool));
   const blockers = uniqueStrings([
@@ -136,11 +136,11 @@ export async function createCliMcpProductSmokeReport(options: CliMcpProductSmoke
       screenshotsCaptured: false
     },
     privateDataExclusions: PRIVATE_DATA_EXCLUSIONS,
-    proofBoundary: "This public-safe QA Lab product smoke proves CLI --help, MCP tools/list, and MCP tools/call for one safe representative tool from the selected published/fresh-install candidate binaries. The default representative call is loo_doctor with empty arguments, so deeper tools should be covered by workflow-specific QA Lab lanes. The CLI and MCP probes run sequentially with the configured timeout applied per probe. The smoke initializes MCP with protocolVersion 2024-11-05; initialize failures are reported as package/protocol-drift defects for the candidate under test. JSON-RPC id pairing is the primary request/response binding; name-mismatch detection applies only when a non-standard server echoes result.name or result.toolName. It does not run live Codex control, mutate a desktop GUI, capture screenshots, publish npm, create a GitHub Release, store raw CLI output, or store raw MCP output.",
+    proofBoundary: "This public-safe QA Lab product smoke proves CLI --help, MCP tools/list, and MCP tools/call for one safe representative tool from the selected published/fresh-install candidate binaries. The default representative call is lco_doctor with empty arguments, so deeper tools should be covered by workflow-specific QA Lab lanes. The CLI and MCP probes run sequentially with the configured timeout applied per probe. The smoke initializes MCP with protocolVersion 2025-11-25; initialize failures are reported as package/protocol-drift defects for the candidate under test. JSON-RPC id pairing is the primary request/response binding; name-mismatch detection applies only when a non-standard server echoes result.name or result.toolName. It does not run live Codex control, mutate a desktop GUI, capture screenshots, publish npm, create a GitHub Release, store raw CLI output, or store raw MCP output.",
     nextSafeCommands: [
       `loo qa-lab cli-mcp-smoke --evidence-dir <dir> --package-version ${options.packageVersion} --strict`,
       "loo --help",
-      "loo-mcp-server # MCP initialize + tools/list + tools/call"
+      "lco-mcp-server # MCP initialize + tools/list + tools/call"
     ]
   };
   if (options.evidenceDir) writeCliMcpProductSmokeReport(report, options.evidenceDir);
@@ -306,7 +306,7 @@ function probeMcpToolsListAndCall(mcpBin: string, toolCallName: string, timeoutM
       id: 1,
       method: "initialize",
       params: {
-        protocolVersion: "2024-11-05",
+        protocolVersion: "2025-11-25",
         capabilities: {},
         clientInfo: { name: "lco-cli-mcp-product-smoke", version: "1.0.0" }
       }
@@ -382,7 +382,7 @@ function extractToolNames(value: unknown): string[] {
   return uniqueStrings(value
     .map((item) => isRecord(item) && typeof item.name === "string" ? item.name : null)
     .filter((name): name is string => Boolean(name))
-    .filter((name) => /^loo_[a-z0-9_]+$/.test(name)));
+    .filter((name) => /^(?:lco|loo)_[a-z0-9_]+$/.test(name)));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

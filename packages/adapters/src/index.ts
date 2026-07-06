@@ -5,6 +5,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { codexTransportStatus } from "./codex-jsonrpc.js";
 import { CODEX_CONTROL_METHODS, CODEX_FORBIDDEN_METHODS, CODEX_READ_METHODS, assertCodexMethodAllowed } from "./policy.js";
 import { redactValue } from "./redaction.js";
+import { readEnv, readEnvWithFallback, resolveHomeDir } from "../../runtime/src/env.js";
 
 export * from "./codex-jsonrpc.js";
 export * from "./policy.js";
@@ -236,8 +237,9 @@ export type CodexDesktopFallbackReport = {
   };
   blockers: string[];
   nextToolCall: {
-    tool: "loo_codex_desktop_coherence";
+    tool: "lco_desktop_proof";
     args: {
+      check: "coherence";
       thread_id?: string;
       source_ref?: string;
     };
@@ -487,8 +489,9 @@ export type CodexDesktopCollaborationProofReport = {
     dryRunOnly: true;
   };
   requiredNextToolCall: {
-    tool: "loo_desktop_live_proof_harness";
+    tool: "lco_desktop_proof";
     args: {
+      check: "live_proof_harness";
       backend: DesktopBackend;
       target_app: string;
       target_window: string;
@@ -648,7 +651,7 @@ export type ControlProofState = {
   turnId?: string;
   responseStatus?: string;
   nextProof?: {
-    tool: "loo_codex_app_server_threads" | "loo_codex_start_thread_post_create_proof";
+    tool: "lco_codex_app_server_threads" | "lco_desktop_proof";
     execute: false;
     args: Record<string, string | number>;
     reason: string;
@@ -993,9 +996,10 @@ function liveProofState(input: {
     ...(acceptedByTransport && !persisted && proofThreadId !== "new_thread" ? {
       nextProof: input.method === "thread/start"
         ? {
-            tool: "loo_codex_start_thread_post_create_proof",
+            tool: "lco_desktop_proof",
             execute: false,
             args: {
+              check: "start_thread_post_create_proof",
               created_thread_id: proofThreadId,
               created_thread_ref: `codex_thread:${proofThreadId}`,
               limit: 20
@@ -1004,7 +1008,7 @@ function liveProofState(input: {
             stopConditions: ["execute_false_only", "raw_transcript_not_read", "do_not_claim_created_or_persisted_until_post_create_proof"]
           }
         : {
-            tool: "loo_codex_app_server_threads",
+            tool: "lco_codex_app_server_threads",
             execute: false,
             args: { read_thread_id: proofThreadId, limit: 20 },
             reason: "Bounded read-only follow-up proof is required before treating transport acceptance as durable Codex execution or persistence.",
@@ -1068,7 +1072,7 @@ function resolveCodexTurnWaitMs(value?: number): number {
   if (Number.isFinite(value) && value && value > 0) {
     return Math.min(Math.floor(value), MAX_CODEX_TURN_WAIT_MS);
   }
-  const fromEnv = Number.parseInt(process.env.LOO_CODEX_TURN_WAIT_MS ?? "", 10);
+  const fromEnv = Number.parseInt(readEnv("CODEX_TURN_WAIT_MS") ?? "", 10);
   if (Number.isFinite(fromEnv) && fromEnv > 0) return Math.min(fromEnv, MAX_CODEX_TURN_WAIT_MS);
   return DEFAULT_CODEX_TURN_WAIT_MS;
 }
@@ -1145,7 +1149,7 @@ export async function createCodexAppServerStatusReport(options: {
   command?: string;
   now?: string;
 }): Promise<CodexAppServerStatusReport> {
-  const transport = options.transport ?? codexTransportStatus({ command: options.command ?? process.env.LOO_CODEX_BIN ?? "codex" });
+  const transport = options.transport ?? codexTransportStatus({ command: options.command ?? readEnvWithFallback("CODEX_BIN", "codex") });
   if (!transport.available) {
     const label = codexTransportUnavailableLabel(transport.error);
     const error = transport.error ? `${label}: ${transport.error}` : label;
@@ -1371,8 +1375,9 @@ export async function createCodexDesktopFallbackReport(input: {
       : "desktop_visibility_unknown";
   const nextToolCall = coherenceInputMissing && !targetMismatch
     ? {
-        tool: "loo_codex_desktop_coherence" as const,
+        tool: "lco_desktop_proof" as const,
         args: {
+          check: "coherence" as const,
           ...(threadId ? { thread_id: threadId } : {}),
           ...(sourceRef ? { source_ref: sourceRef } : {})
         }
@@ -1915,8 +1920,9 @@ export function createCodexDesktopCollaborationProof(input: {
     },
     requiredNextToolCall: ready && desktopBackend && targetApp && targetWindow && action && approvalRef
       ? {
-        tool: "loo_desktop_live_proof_harness",
+        tool: "lco_desktop_proof",
         args: {
+          check: "live_proof_harness",
           backend: desktopBackend,
           target_app: targetApp,
           target_window: targetWindow,
@@ -2311,7 +2317,7 @@ function desktopStatusPermissionState(permissions: DesktopStatus["permissions"])
 function desktopBackendConfig(backend: DesktopBackend) {
   if (backend === "cua-driver") {
     return {
-      command: process.env.LOO_CUA_DRIVER_BIN || "cua-driver",
+      command: readEnvWithFallback("CUA_DRIVER_BIN", "cua-driver"),
       launchArgs: ["mcp"],
       probeArgs: ["--version"],
       env: {
@@ -2330,7 +2336,7 @@ function desktopBackendConfig(backend: DesktopBackend) {
   }
   if (backend === "peekaboo") {
     return {
-      command: process.env.LOO_PEEKABOO_BIN || "peekaboo",
+      command: readEnvWithFallback("PEEKABOO_BIN", "peekaboo"),
       launchArgs: [],
       probeArgs: ["--version"],
       transport: "none" as const,
@@ -3177,7 +3183,7 @@ function validateDesktopProofActionApproval(approvalArtifact: unknown, expected:
 }
 
 function desktopProofScratchRoot(): string {
-  return resolve(process.env.LOO_DESKTOP_PROOF_SCRATCH_ROOT || "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator");
+  return resolve(readEnvWithFallback("DESKTOP_PROOF_SCRATCH_ROOT", "/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator"));
 }
 
 function isPathInside(parent: string, child: string): boolean {
@@ -3186,12 +3192,12 @@ function isPathInside(parent: string, child: string): boolean {
 }
 
 function desktopProofApprovalKeyPath(): string {
-  return process.env.LOO_DESKTOP_PROOF_APPROVAL_KEY_PATH
-    || join(process.env.HOME || ".", ".openclaw", "lossless-openclaw-orchestrator", "desktop-proof-action.key");
+  return readEnv("DESKTOP_PROOF_APPROVAL_KEY_PATH")
+    || join(resolveHomeDir(), ".openclaw", "lossless-openclaw-orchestrator", "desktop-proof-action.key");
 }
 
 function desktopProofApprovalSecret(options: { allowPersistentKeyCreate?: boolean } = {}): Buffer | null {
-  const envSecret = process.env.LOO_DESKTOP_PROOF_APPROVAL_SECRET;
+  const envSecret = readEnv("DESKTOP_PROOF_APPROVAL_SECRET");
   if (envSecret && envSecret.trim()) return Buffer.from(envSecret.trim(), "utf8");
   const keyPath = desktopProofApprovalKeyPath();
   if (!existsSync(keyPath)) {

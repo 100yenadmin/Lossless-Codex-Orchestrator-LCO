@@ -1,6 +1,7 @@
 // OpenClaw provides this SDK module when loading plugin entries.
 // @ts-expect-error OpenClaw plugin SDK is a runtime peer supplied by OpenClaw.
 import { defineToolPlugin } from "openclaw/plugin-sdk/tool-plugin";
+import { join } from "node:path";
 import {
   createAuditStore,
   createCodexAppServerStdioClient,
@@ -8,6 +9,7 @@ import {
   type CodexClient
 } from "../../adapters/src/index.js";
 import { createDatabase, type LooDatabase } from "../../core/src/index.js";
+import { readEnv, readEnvWithFallback, resolveHomeDir } from "../../runtime/src/env.js";
 import {
   createLooToolDeclarations,
   executeLooToolForOpenClaw,
@@ -22,7 +24,7 @@ export const pluginMetadata = {
   description: "Collaborate with local Codex sessions through OpenClaw using local indexing, prepared-state recall, bounded expansion, and approval-gated dry-run/control boundaries.",
   kind: "tool",
   mcp: {
-    command: "loo-mcp-server",
+    command: "lco-mcp-server",
     transport: "stdio"
   },
   configSchema: {
@@ -61,7 +63,7 @@ export default defineToolPlugin({
   description: pluginMetadata.description,
   configSchema: pluginMetadata.configSchema,
   tools: (tool: NativeToolFactory) => createLooToolDeclarations({
-    profile: parseLooToolProfile(process.env.LOO_TOOL_PROFILE),
+    profile: parseLooToolProfile(readEnv("TOOL_PROFILE")),
     includeAliases: true
   }).map((declaration) => tool({
     name: declaration.name,
@@ -79,15 +81,17 @@ export default defineToolPlugin({
 function getNativeRuntime(): NativeRuntime {
   if (nativeRuntime) return nativeRuntime;
   const db = createDatabase({ maintenance: "schema-only" });
-  const audit = createAuditStore(process.env.LOO_AUDIT_PATH || `${process.env.HOME || "."}/.openclaw/lossless-openclaw-orchestrator/audit.jsonl`);
+  const audit = createAuditStore(readEnv("AUDIT_PATH") || join(resolveHomeDir(), ".openclaw", "lossless-openclaw-orchestrator", "audit.jsonl"));
+  const codexCommand = readEnvWithFallback("CODEX_BIN", "codex");
+  const codexArgs = (readEnv("CODEX_APP_SERVER_ARGS") || "app-server --stdio").split(/\s+/).filter(Boolean);
   const codexClient = createCodexAppServerStdioClient({
-    command: process.env.LOO_CODEX_BIN || "codex",
-    args: (process.env.LOO_CODEX_APP_SERVER_ARGS || "app-server --stdio").split(/\s+/).filter(Boolean),
+    command: codexCommand,
+    args: codexArgs,
     surface: "control"
   });
   const codexReadClient = createCodexAppServerStdioClient({
-    command: process.env.LOO_CODEX_BIN || "codex",
-    args: (process.env.LOO_CODEX_APP_SERVER_ARGS || "app-server --stdio").split(/\s+/).filter(Boolean),
+    command: codexCommand,
+    args: codexArgs,
     surface: "read"
   });
   nativeRuntime = {
