@@ -10,6 +10,7 @@ import {
   createDatabase,
   describeRecallRef,
   expandRecallRef,
+  expandSession,
   grepRecall,
   harvestRetrievalTelemetry,
   indexClaudeSessionInventory,
@@ -221,6 +222,36 @@ test("expand telemetry records one expand follow without an internal describe fo
       profile: "metadata",
       telemetry: true,
       telemetrySessionId: "agent-expand-only",
+      now: "2026-07-06T00:02:00.000Z"
+    });
+
+    const followRows = db.prepare("SELECT follow_kind AS followKind, COUNT(*) AS count FROM telemetry_follow_events GROUP BY follow_kind ORDER BY follow_kind").all()
+      .map((row) => ({ ...(row as Record<string, unknown>) }));
+    assert.deepEqual(followRows, [{ followKind: "expand", count: 1 }]);
+  } finally {
+    db.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("direct expandSession telemetry records one expand follow without an internal describe follow", () => {
+  const fixture = makeTelemetryFixture();
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [fixture.sessions], maxFiles: 10 });
+    searchSessions(db, {
+      query: "search expansion telemetry harvest target",
+      limit: 5,
+      telemetry: true,
+      telemetrySessionId: "agent-expand-session",
+      now: "2026-07-06T00:00:00.000Z"
+    });
+
+    expandSession(db, {
+      threadId: "019f-telemetry-alpha",
+      profile: "metadata",
+      telemetry: true,
+      telemetrySessionId: "agent-expand-session",
       now: "2026-07-06T00:02:00.000Z"
     });
 

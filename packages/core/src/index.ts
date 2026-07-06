@@ -2981,7 +2981,6 @@ export function migrate(db: LooDatabase): void {
       ts TEXT NOT NULL,
       query_text TEXT NOT NULL,
       query_hash TEXT NOT NULL,
-      telemetry_session_key TEXT,
       result_refs_json TEXT NOT NULL DEFAULT '[]',
       matched_field_distribution_json TEXT NOT NULL DEFAULT '{}',
       engine_version TEXT NOT NULL
