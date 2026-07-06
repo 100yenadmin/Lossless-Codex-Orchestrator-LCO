@@ -149,7 +149,13 @@ if (method === "tools.invoke") {
     if (process.env.OPENCLAW_FAKE_DRY_RUN_LIVE_TRUE === "1") output.live = true;
     else if (process.env.OPENCLAW_FAKE_DRY_RUN_LIVE_STRING === "1") output.live = "false";
     else if (process.env.OPENCLAW_FAKE_OMIT_DRY_RUN_LIVE !== "1") output.live = false;
-    console.log(JSON.stringify(wrap(output)));
+    const responseOutput = process.env.OPENCLAW_FAKE_PLAIN_DRY_RUN === "1"
+      ? output
+      : {
+        content: [{ type: "text", text: "redacted dry-run packet" }],
+        details: output
+      };
+    console.log(JSON.stringify(wrap(responseOutput)));
     process.exit(0);
   }
 }
