@@ -91,7 +91,9 @@ Safety details:
   the local DB and local `loo eval retrieval --harvest` proposal file; telemetry
   rows are pruned to the 30-day harvest-retention window, harvest proposal files
   are rejected inside git checkouts, and public reports/metrics stay count and
-  rank based without raw query text.
+  rank based without raw query text. `--metrics-path` is intentionally exempt
+  from the private proposal-path guard because it writes only `publicSafe:true`
+  aggregate counts, ranks, and ephemeral miss ids.
 - Optional LCM peer recall uses `LOO_LCM_DB_PATHS` or per-call `lcm_db_paths` and opens those DBs read-only.
 - Control tools should run `dry_run=true` first.
 - Live control requires `approval_audit_id` from the dry-run result.

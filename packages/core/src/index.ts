@@ -2255,11 +2255,14 @@ export type RecallProfile = {
 const SESSION_METADATA_SCHEMA_VERSION = 4;
 const SESSION_METADATA_EXTRACTOR_VERSION = `session-metadata-v${SESSION_METADATA_SCHEMA_VERSION}` as const;
 const RETRIEVAL_TELEMETRY_MIGRATION_ID = "2026-07-06-retrieval-telemetry";
+const RETRIEVAL_TELEMETRY_SESSION_KEY_MIGRATION_ID = "2026-07-06-retrieval-telemetry-session-key";
 const RETRIEVAL_TELEMETRY_ENGINE_VERSION = "field-weighted-fts-v1";
 const RETRIEVAL_TELEMETRY_WINDOW_MS = 15 * 60 * 1000;
 const RETRIEVAL_TELEMETRY_HARVEST_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
 const RETRIEVAL_TELEMETRY_HARVEST_MAX_ROWS = 1000;
+const RETRIEVAL_TELEMETRY_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
 const RETRIEVAL_TELEMETRY_PROCESS_SESSION_KEY = sha256Hex(`loo-telemetry-process:${process.pid}:${randomUUID()}`);
+const retrievalTelemetryLastPruneByDb = new WeakMap<object, number>();
 
 export type RecallSourceKind = "codex_thread" | "lcm_summary" | "claude_session";
 
@@ -2982,6 +2985,7 @@ export function migrate(db: LooDatabase): void {
       ts TEXT NOT NULL,
       query_text TEXT NOT NULL,
       query_hash TEXT NOT NULL,
+      telemetry_session_key TEXT,
       result_refs_json TEXT NOT NULL DEFAULT '[]',
       matched_field_distribution_json TEXT NOT NULL DEFAULT '{}',
       engine_version TEXT NOT NULL
@@ -2989,6 +2993,7 @@ export function migrate(db: LooDatabase): void {
 
     CREATE INDEX IF NOT EXISTS telemetry_search_events_ts_idx ON telemetry_search_events(ts DESC);
     CREATE INDEX IF NOT EXISTS telemetry_search_events_query_hash_idx ON telemetry_search_events(query_hash, ts DESC);
+    CREATE INDEX IF NOT EXISTS telemetry_search_events_session_ts_idx ON telemetry_search_events(telemetry_session_key, ts DESC);
 
     CREATE TABLE IF NOT EXISTS telemetry_follow_events (
       id TEXT PRIMARY KEY,
@@ -3002,6 +3007,7 @@ export function migrate(db: LooDatabase): void {
 
     CREATE INDEX IF NOT EXISTS telemetry_follow_events_search_idx ON telemetry_follow_events(search_event_id, ts DESC);
     CREATE INDEX IF NOT EXISTS telemetry_follow_events_chosen_ref_idx ON telemetry_follow_events(chosen_ref, ts DESC);
+    CREATE INDEX IF NOT EXISTS telemetry_follow_events_ts_idx ON telemetry_follow_events(ts DESC);
 
     CREATE INDEX IF NOT EXISTS codex_sessions_recent_coalesce_idx ON codex_sessions(COALESCE(updated_at, indexed_at) DESC, thread_id);
     CREATE INDEX IF NOT EXISTS codex_session_metadata_filters_idx ON codex_session_metadata(
@@ -3090,7 +3096,16 @@ export function migrate(db: LooDatabase): void {
   ensureColumn(db, "codex_source_files", "jsonl_drift_missing_expected_fields_json", "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn(db, "codex_source_files", "jsonl_drift_reason_codes_json", "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn(db, "telemetry_search_events", "telemetry_session_key", "TEXT");
-  db.exec("CREATE INDEX IF NOT EXISTS telemetry_search_events_session_ts_idx ON telemetry_search_events(telemetry_session_key, ts DESC)");
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS telemetry_search_events_session_ts_idx ON telemetry_search_events(telemetry_session_key, ts DESC);
+    CREATE INDEX IF NOT EXISTS telemetry_follow_events_ts_idx ON telemetry_follow_events(ts DESC);
+    INSERT OR IGNORE INTO loo_schema_migrations (migration_id, applied_at, description)
+    VALUES (
+      '${RETRIEVAL_TELEMETRY_SESSION_KEY_MIGRATION_ID}',
+      datetime('now'),
+      'Additive retrieval telemetry session-key column and hot pruning indexes'
+    );
+  `);
   // Gate FTS maintenance on rowid-pinning drift. The pinned-count check also
   // detects count drift, so migration and index paths share one repair test.
   const codexSearchFtsMigrationRecorded = db
@@ -8345,6 +8360,20 @@ function recordTelemetrySearchEvent(db: LooDatabase, options: {
   telemetrySessionId?: string;
   now?: string;
 }): void {
+  try {
+    recordTelemetrySearchEventUnchecked(db, options);
+  } catch {
+    // Retrieval telemetry is an optional derived-cache side effect; never let it
+    // block the primary search/describe/expand result.
+  }
+}
+
+function recordTelemetrySearchEventUnchecked(db: LooDatabase, options: {
+  query: string;
+  results: Array<{ sourceRef: string; matchFeatures?: CodexSearchMatchFeatures }>;
+  telemetrySessionId?: string;
+  now?: string;
+}): void {
   const query = options.query.trim();
   if (!query) return;
   const telemetrySessionKey = retrievalTelemetrySessionKey(options.telemetrySessionId);
@@ -8369,6 +8398,21 @@ function recordTelemetrySearchEvent(db: LooDatabase, options: {
 }
 
 function recordTelemetryFollowEvent(db: LooDatabase, options: {
+  sourceRef: string;
+  followKind: RetrievalTelemetryFollowKind;
+  telemetrySessionId?: string;
+  now?: string;
+  telemetry?: boolean;
+}): void {
+  try {
+    recordTelemetryFollowEventUnchecked(db, options);
+  } catch {
+    // Retrieval telemetry is an optional derived-cache side effect; never let it
+    // block the primary search/describe/expand result.
+  }
+}
+
+function recordTelemetryFollowEventUnchecked(db: LooDatabase, options: {
   sourceRef: string;
   followKind: RetrievalTelemetryFollowKind;
   telemetrySessionId?: string;
@@ -8424,9 +8468,12 @@ function retrievalTelemetrySessionKey(explicit?: string): string | null {
 
 function pruneRetrievalTelemetry(db: LooDatabase, nowIso: string): void {
   const nowMs = timestampMillis(nowIso) ?? Date.now();
+  const lastPruneMs = retrievalTelemetryLastPruneByDb.get(db);
+  if (lastPruneMs !== undefined && nowMs - lastPruneMs < RETRIEVAL_TELEMETRY_PRUNE_INTERVAL_MS) return;
   const cutoffIso = new Date(nowMs - RETRIEVAL_TELEMETRY_HARVEST_LOOKBACK_MS).toISOString();
   db.prepare("DELETE FROM telemetry_follow_events WHERE ts < ?").run(cutoffIso);
   db.prepare("DELETE FROM telemetry_search_events WHERE ts < ?").run(cutoffIso);
+  retrievalTelemetryLastPruneByDb.set(db, nowMs);
 }
 
 function matchedFieldDistribution(results: Array<{ matchFeatures?: CodexSearchMatchFeatures }>): Record<string, number> {
@@ -14086,11 +14133,18 @@ function assertTelemetryHarvestProposalPathIsPrivate(proposalPath: string): void
 
 function nearestGitRoot(startDir: string): string | null {
   let cursor = resolve(startDir);
+  const seen = new Set<string>();
   while (cursor && dirname(cursor) !== cursor) {
-    if (existsSync(join(cursor, ".git"))) return cursor;
+    for (const candidate of [cursor, canonicalMaybeMissingPath(cursor)]) {
+      if (seen.has(candidate)) continue;
+      seen.add(candidate);
+      if (existsSync(join(candidate, ".git"))) return candidate;
+    }
     cursor = dirname(cursor);
   }
-  if (existsSync(join(cursor, ".git"))) return cursor;
+  for (const candidate of [cursor, canonicalMaybeMissingPath(cursor)]) {
+    if (!seen.has(candidate) && existsSync(join(candidate, ".git"))) return candidate;
+  }
   return null;
 }
 

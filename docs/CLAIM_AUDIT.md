@@ -126,7 +126,9 @@ pruned to the harvest-retention window. Raw query text remains inside the local
 DB and the local `loo eval retrieval --harvest <out.json>` proposal file, which
 is marked `publicSafe: false`, rejected inside git checkouts, and requires
 manual curation. Public evidence, release reports, and telemetry metrics must
-stay at count and rank level and must not include harvested query text.
+stay at count and rank level and must not include harvested query text. Metrics
+files are intentionally `publicSafe:true` aggregate outputs; only private
+proposal files carry raw query text and receive the checkout-path guard.
 
 `loo release bundle` writes local draft release artifacts without publishing: `RELEASE_NOTES_<package-version>.md`, `release-preflight.json`, and `release-bundle.json`. It must record `npmPublished: false` and `githubReleaseCreated: false` until a separate explicit publish step is approved.
 

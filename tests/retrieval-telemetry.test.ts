@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -214,6 +214,86 @@ test("search telemetry is off by default and ignores follows outside the correla
   } finally {
     db.close();
     rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("telemetry write failures do not block recall results", () => {
+  const fixture = makeTelemetryFixture();
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [fixture.sessions], maxFiles: 10 });
+
+    db.exec("ALTER TABLE telemetry_search_events RENAME TO telemetry_search_events_unavailable");
+    const results = searchSessions(db, {
+      query: "search expansion telemetry harvest target",
+      limit: 5,
+      telemetry: true,
+      telemetrySessionId: "agent-alpha",
+      now: "2026-07-06T00:00:00.000Z"
+    });
+    assert.equal(results[0]?.sourceRef, "codex_thread:019f-telemetry-alpha");
+  } finally {
+    db.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+
+  const followFixture = makeTelemetryFixture();
+  const followDb = createDatabase(join(followFixture.root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(followDb, { roots: [followFixture.sessions], maxFiles: 10 });
+    searchSessions(followDb, {
+      query: "search expansion telemetry harvest target",
+      limit: 5,
+      telemetry: true,
+      telemetrySessionId: "agent-alpha",
+      now: "2026-07-06T00:00:00.000Z"
+    });
+    followDb.exec("DROP TABLE telemetry_follow_events");
+    const described = describeRecallRef(followDb, {
+      sourceRef: "codex_thread:019f-telemetry-alpha",
+      telemetry: true,
+      telemetrySessionId: "agent-alpha",
+      now: "2026-07-06T00:05:00.000Z"
+    });
+    assert.equal(described?.sourceRef, "codex_thread:019f-telemetry-alpha");
+  } finally {
+    followDb.close();
+    rmSync(followFixture.root, { recursive: true, force: true });
+  }
+});
+
+test("telemetry migration records session-key ledger and pruning indexes", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-retrieval-telemetry-migration-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const indexes = db.prepare(`
+      SELECT name FROM sqlite_master
+      WHERE type = 'index' AND name IN (
+        'telemetry_search_events_session_ts_idx',
+        'telemetry_follow_events_ts_idx'
+      )
+      ORDER BY name
+    `).all().map((row) => String((row as { name: string }).name));
+    assert.deepEqual(indexes, [
+      "telemetry_follow_events_ts_idx",
+      "telemetry_search_events_session_ts_idx"
+    ]);
+    const migrations = db.prepare(`
+      SELECT migration_id AS migrationId
+      FROM loo_schema_migrations
+      WHERE migration_id IN (
+        '2026-07-06-retrieval-telemetry',
+        '2026-07-06-retrieval-telemetry-session-key'
+      )
+      ORDER BY migration_id
+    `).all().map((row) => String((row as { migrationId: string }).migrationId));
+    assert.deepEqual(migrations, [
+      "2026-07-06-retrieval-telemetry",
+      "2026-07-06-retrieval-telemetry-session-key"
+    ]);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
@@ -460,6 +540,31 @@ test("retrieval telemetry harvest rejects private proposal output inside a git c
       /Telemetry harvest proposal files include private query text and must be written outside git checkouts/
     );
     assert.equal(existsSync(join(repoRoot, ".tmp-telemetry-harvest-proposal.json")), false);
+  } finally {
+    db.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("retrieval telemetry harvest rejects symlinked proposal output into a git checkout", () => {
+  const fixture = makeTelemetryFixture();
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    const checkout = join(fixture.root, "checkout");
+    const link = join(fixture.root, "checkout-link");
+    mkdirSync(join(checkout, ".git"), { recursive: true });
+    symlinkSync(checkout, link, "dir");
+    const proposalPath = join(link, "telemetry-harvest-proposal.json");
+
+    assert.throws(
+      () => harvestRetrievalTelemetry(db, {
+        proposalPath,
+        metricsPath: join(fixture.root, "telemetry-metrics.json"),
+        now: "2026-07-06T00:10:00.000Z"
+      }),
+      /Telemetry harvest proposal files include private query text and must be written outside git checkouts/
+    );
+    assert.equal(existsSync(proposalPath), false);
   } finally {
     db.close();
     rmSync(fixture.root, { recursive: true, force: true });
