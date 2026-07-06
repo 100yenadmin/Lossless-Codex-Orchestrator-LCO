@@ -314,7 +314,10 @@ test("index pruning removes deleted source rows across symlink-equivalent roots"
   mkdirSync(realSessions, { recursive: true });
   try {
     symlinkSync(realSessions, linkedSessions, "dir");
-  } catch {
+  } catch (error) {
+    rmSync(root, { recursive: true, force: true });
+    const code = (error as NodeJS.ErrnoException)?.code;
+    if (code !== "EPERM" && code !== "ENOTSUP") throw error;
     t.skip("filesystem does not allow directory symlinks in this environment");
     return;
   }
