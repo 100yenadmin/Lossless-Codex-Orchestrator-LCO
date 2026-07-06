@@ -431,6 +431,133 @@ test("Codex live send fails closed on a mid-turn transport error", async () => {
   }
 });
 
+test("Codex steer and interrupt use bounded turn waits for resolved, timeout, and transport-error outcomes", async () => {
+  const actions = [
+    {
+      name: "steer",
+      method: "turn/steer",
+      expectedTurnId: "turn_steer_1",
+      message: "focus on tests",
+      resolvedStatus: "completed",
+      resolvedCompleted: true,
+      dryRun: (control: ReturnType<typeof createCodexControl>) => control.steerThread({
+        threadId: "thr_1",
+        message: "focus on tests",
+        expectedTurnId: "turn_steer_1",
+        dryRun: true
+      }),
+      live: (control: ReturnType<typeof createCodexControl>, approvalAuditId: string) => control.steerThread({
+        threadId: "thr_1",
+        message: "focus on tests",
+        expectedTurnId: "turn_steer_1",
+        dryRun: false,
+        approvalAuditId,
+        turnWaitMs: 25
+      })
+    },
+    {
+      name: "interrupt",
+      method: "turn/interrupt",
+      expectedTurnId: "turn_interrupt_1",
+      resolvedStatus: "interrupted",
+      resolvedCompleted: false,
+      dryRun: (control: ReturnType<typeof createCodexControl>) => control.interruptThread({
+        threadId: "thr_1",
+        expectedTurnId: "turn_interrupt_1",
+        dryRun: true
+      }),
+      live: (control: ReturnType<typeof createCodexControl>, approvalAuditId: string) => control.interruptThread({
+        threadId: "thr_1",
+        expectedTurnId: "turn_interrupt_1",
+        dryRun: false,
+        approvalAuditId,
+        turnWaitMs: 25
+      })
+    }
+  ] as const;
+  const scenarios = [
+    {
+      name: "resolved",
+      status: (action: typeof actions[number]) => action.resolvedStatus,
+      completed: (action: typeof actions[number]) => action.resolvedCompleted,
+      proofStatus: (action: typeof actions[number]) => action.name === "steer" ? "unverified_pending" : "unverified_pending"
+    },
+    {
+      name: "timeout",
+      status: () => "turn_started_unconfirmed",
+      completed: () => false,
+      proofStatus: () => "turn_started_unconfirmed"
+    },
+    {
+      name: "transport-error",
+      status: () => "turn_transport_error",
+      completed: () => false,
+      proofStatus: () => "turn_transport_error"
+    }
+  ] as const;
+
+  for (const action of actions) {
+    for (const scenario of scenarios) {
+      const root = mkdtempSync(join(tmpdir(), `loo-control-${action.name}-${scenario.name}-`));
+      const audit = createAuditStore(join(root, "audit.jsonl"));
+      const sequenceCalls: CodexControlStep[][] = [];
+      const turnWaitInputs: CodexControlSequenceOptions[] = [];
+      const status = scenario.status(action);
+      const completed = scenario.completed(action);
+      const control = createCodexControl({
+        audit,
+        client: {
+          request: async () => {
+            throw new Error("single request path bypassed bounded turn wait");
+          },
+          requestSequenceUntilTurnResolved: async (steps: CodexControlStep[], options: CodexControlSequenceOptions) => {
+            sequenceCalls.push(steps);
+            turnWaitInputs.push(options);
+            return {
+              responses: steps.map((step) => ({
+                ok: true,
+                result: { turn: { id: action.expectedTurnId, status: "inProgress" } },
+                method: step.method
+              })),
+              turn: {
+                id: action.expectedTurnId,
+                status,
+                completed,
+                notificationMethods: status === "turn_transport_error" ? ["turn/started"] : [`turn/${status}`],
+                approvalRequestCount: 0,
+                serverRequestCount: 0,
+                ...(status === "turn_transport_error" ? { error: "stdio closed before turn resolved" } : {})
+              }
+            };
+          }
+        } as any
+      });
+
+      try {
+        const dryRun = await action.dryRun(control);
+        const live = await action.live(control, dryRun.approvalAuditId);
+
+        assert.equal(live.live, true);
+        assert.equal(live.status, status);
+        assert.deepEqual(sequenceCalls[0]?.map((step) => step.method), [action.method]);
+        assert.deepEqual(turnWaitInputs, [{
+          threadId: "thr_1",
+          expectedTurnId: action.expectedTurnId,
+          turnWaitMs: 25
+        }]);
+        assert.equal(live.proofState.turnId, action.expectedTurnId);
+        assert.equal(live.proofState.responseStatus, status);
+        assert.equal(live.proofState.status, scenario.proofStatus(action));
+        assert.equal((live.response as any).turn.status, status);
+        assert.equal((live.response as any).status, status);
+        assert.equal(JSON.stringify(live).includes("stdio closed"), false);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  }
+});
+
 test("Codex live send reports transport acceptance as unverified until follow-up proof", async () => {
   const root = mkdtempSync(join(tmpdir(), "loo-control-proof-state-"));
   const audit = createAuditStore(join(root, "audit.jsonl"));

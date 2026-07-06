@@ -1220,7 +1220,7 @@
       },
       {
         "name": "loo_codex_resume_thread",
-        "description": "Resume or rejoin a Codex thread. Live mode requires approval_audit_id.",
+        "description": "Resume or rejoin a Codex thread without starting a turn. Live mode requires approval_audit_id.",
         "safety": {
           "mode": "approval_gated_control",
           "source": "codex_direct",
@@ -5136,7 +5136,7 @@
       },
       {
         "name": "lco_codex_resume_thread",
-        "description": "Resume or rejoin a Codex thread. Live mode requires approval_audit_id.",
+        "description": "Resume or rejoin a Codex thread without starting a turn. Live mode requires approval_audit_id.",
         "safety": {
           "mode": "approval_gated_control",
           "source": "codex_direct",
