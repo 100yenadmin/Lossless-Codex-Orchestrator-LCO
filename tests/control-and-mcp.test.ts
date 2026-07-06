@@ -1446,7 +1446,7 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     }) as { ok: boolean; code?: string; error?: { code?: string; message?: string } };
     assert.equal(nestedParserValidation.ok, false);
     assert.equal(nestedParserValidation.code, "validation_failed");
-    assert.equal(nestedParserValidation.error?.message, "roots[] is required");
+    assert.equal(nestedParserValidation.error?.message, "lcm_db_paths[] must be string");
     assertNoRawLocalPaths(nestedParserValidation);
     const genericSteerDryRun = await dryRunTool.execute({
       action: "steer",

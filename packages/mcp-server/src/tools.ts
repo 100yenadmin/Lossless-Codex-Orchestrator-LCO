@@ -439,11 +439,16 @@ export async function executeLooToolForOpenClaw(tool: LooTool, input: Record<str
 }
 
 function validateOpenClawToolInput(schema: Record<string, unknown>, input: Record<string, unknown>): string | null {
-  // Shallow top-level guard for OpenClaw's plugin boundary. Nested fixture
-  // objects are intentionally left to tool-specific public-safe parsers.
+  // Shallow top-level guard for OpenClaw's plugin boundary. Top-level arrays
+  // with primitive item schemas are checked here; nested fixture objects are
+  // intentionally left to tool-specific public-safe parsers.
   if (schema.type !== "object") return null;
   if (!isRecordValue(input)) return "value must be an object";
   const properties = isRecordValue(schema.properties) ? schema.properties : {};
+  const requiredFields = Array.isArray(schema.required) ? schema.required.filter((value): value is string => typeof value === "string") : [];
+  for (const key of requiredFields) {
+    if (input[key] === undefined) return `${publicSafeInputField(key)} is required`;
+  }
   if (schema.additionalProperties === false) {
     for (const key of Object.keys(input)) {
       if (!(key in properties)) return `${publicSafeInputField(key)} is not allowed`;
@@ -457,6 +462,15 @@ function validateOpenClawToolInput(schema: Record<string, unknown>, input: Recor
     const expectedType = typeof property.type === "string" ? property.type : undefined;
     if (expectedType && !schemaValueMatchesType(value, expectedType)) {
       return `${publicSafeInputField(key)} must be ${expectedType}`;
+    }
+    if (expectedType === "array" && Array.isArray(value)) {
+      const items = isRecordValue(property.items) ? property.items : undefined;
+      const itemType = typeof items?.type === "string" ? items.type : undefined;
+      if (itemType && itemType !== "object" && itemType !== "array") {
+        for (const item of value) {
+          if (!schemaValueMatchesType(item, itemType)) return `${publicSafeInputField(key)}[] must be ${itemType}`;
+        }
+      }
     }
     if ((expectedType === "integer" || expectedType === "number") && typeof value === "number") {
       const minimum = typeof property.minimum === "number" ? property.minimum : undefined;
