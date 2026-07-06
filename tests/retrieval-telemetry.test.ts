@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
+import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
@@ -17,6 +18,18 @@ import {
   indexCodexSessions,
   searchSessions
 } from "../packages/core/src/index.js";
+
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const builtCliPath = join(repoRoot, "dist/packages/cli/src/index.js");
+
+function runBuiltLoo(args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}) {
+  assert.equal(existsSync(builtCliPath), true, "Run `npm run build` before retrieval telemetry CLI tests");
+  return spawnSync(process.execPath, [builtCliPath, ...args], {
+    cwd: options.cwd ?? repoRoot,
+    encoding: "utf8",
+    env: options.env ?? process.env
+  });
+}
 
 function writeSession(path: string, threadId: string, title: string, body: string): void {
   writeFileSync(path, [
@@ -264,6 +277,48 @@ test("direct expandSession telemetry records one expand follow without an intern
   }
 });
 
+test("LOO_TELEMETRY env direct expandSession records one expand follow without an internal describe follow", () => {
+  const fixture = makeTelemetryFixture();
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  const originalTelemetry = process.env.LOO_TELEMETRY;
+  const originalSession = process.env.LOO_TELEMETRY_SESSION_ID;
+  process.env.LOO_TELEMETRY = "1";
+  delete process.env.LOO_TELEMETRY_SESSION_ID;
+  try {
+    indexCodexSessions(db, { roots: [fixture.sessions], maxFiles: 10 });
+    searchSessions(db, {
+      query: "search expansion telemetry harvest target",
+      limit: 5,
+      now: "2026-07-06T00:00:00.000Z"
+    });
+
+    expandSession(db, {
+      threadId: "019f-telemetry-alpha",
+      profile: "metadata",
+      now: "2026-07-06T00:02:00.000Z"
+    });
+
+    const searchCount = (db.prepare("SELECT COUNT(*) AS count FROM telemetry_search_events").get() as { count: number }).count;
+    const followRows = db.prepare("SELECT follow_kind AS followKind, COUNT(*) AS count FROM telemetry_follow_events GROUP BY follow_kind ORDER BY follow_kind").all()
+      .map((row) => ({ ...(row as Record<string, unknown>) }));
+    assert.equal(searchCount, 1);
+    assert.deepEqual(followRows, [{ followKind: "expand", count: 1 }]);
+  } finally {
+    if (originalTelemetry === undefined) {
+      delete process.env.LOO_TELEMETRY;
+    } else {
+      process.env.LOO_TELEMETRY = originalTelemetry;
+    }
+    if (originalSession === undefined) {
+      delete process.env.LOO_TELEMETRY_SESSION_ID;
+    } else {
+      process.env.LOO_TELEMETRY_SESSION_ID = originalSession;
+    }
+    db.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("Claude recall telemetry correlates describe and expand follows with rank", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-retrieval-telemetry-claude-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
@@ -338,6 +393,13 @@ test("retrieval telemetry harvest proposes local non-public-safe scenarios and p
       telemetrySessionId: "agent-harvest",
       now: "2026-07-06T00:03:00.000Z"
     });
+    expandRecallRef(db, {
+      sourceRef: "codex_thread:019f-telemetry-alpha",
+      profile: "metadata",
+      telemetry: true,
+      telemetrySessionId: "agent-harvest",
+      now: "2026-07-06T00:04:00.000Z"
+    });
 
     const proposalPath = join(fixture.root, "harvest-proposals.json");
     const metricsPath = join(fixture.root, "telemetry-metrics.json");
@@ -352,10 +414,14 @@ test("retrieval telemetry harvest proposes local non-public-safe scenarios and p
     const proposal = JSON.parse(readFileSync(proposalPath, "utf8")) as {
       publicSafe?: boolean;
       requiresManualCuration?: boolean;
+      doNotCommit?: boolean;
+      rawQueryTextIncluded?: boolean;
       scenarios?: Array<{ publicSafe?: boolean; requiresManualCuration?: boolean; redactionRequired?: boolean; query?: string; expectedSourceRefs?: string[]; observedRank?: number; followKinds?: string[]; occurrenceCount?: number }>;
     };
     assert.equal(proposal.publicSafe, false);
     assert.equal(proposal.requiresManualCuration, true);
+    assert.equal(proposal.doNotCommit, true);
+    assert.equal(proposal.rawQueryTextIncluded, true);
     assert.deepEqual(proposal.scenarios, [{
       id: "harvested-query-1",
       publicSafe: false,
@@ -365,8 +431,8 @@ test("retrieval telemetry harvest proposes local non-public-safe scenarios and p
       queryHash: sha256("search expansion telemetry harvest target"),
       expectedSourceRefs: ["codex_thread:019f-telemetry-alpha"],
       observedRank: 1,
-      followKinds: ["describe"],
-      occurrenceCount: 1
+      followKinds: ["describe", "expand"],
+      occurrenceCount: 2
     }]);
 
     const metricsText = readFileSync(metricsPath, "utf8");
@@ -375,6 +441,25 @@ test("retrieval telemetry harvest proposes local non-public-safe scenarios and p
     assert.equal(metrics.publicSafe, true);
     assert.deepEqual(metrics.metrics?.rankDistribution, { "1": 1 });
     assert.deepEqual(metrics.metrics?.topMissQueries, []);
+  } finally {
+    db.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("retrieval telemetry harvest rejects private proposal output inside a git checkout", () => {
+  const fixture = makeTelemetryFixture();
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    assert.throws(
+      () => harvestRetrievalTelemetry(db, {
+        proposalPath: join(repoRoot, ".tmp-telemetry-harvest-proposal.json"),
+        metricsPath: join(fixture.root, "telemetry-metrics.json"),
+        now: "2026-07-06T00:10:00.000Z"
+      }),
+      /Telemetry harvest proposal files include private query text and must be written outside git checkouts/
+    );
+    assert.equal(existsSync(join(repoRoot, ".tmp-telemetry-harvest-proposal.json")), false);
   } finally {
     db.close();
     rmSync(fixture.root, { recursive: true, force: true });
@@ -462,6 +547,11 @@ test("public telemetry miss metrics do not expose stable per-query hashes", () =
     const metrics = JSON.parse(metricsText) as { metrics?: { topMissQueries?: Array<Record<string, unknown>> } };
 
     assert.equal(report.publicSafe, true);
+    assert.deepEqual(report.summary, {
+      telemetrySearchEvents: 1,
+      telemetryFollowEvents: 1,
+      proposedScenarios: 1
+    });
     assert.equal(metrics.metrics?.topMissQueries?.length, 1);
     assert.equal("queryHash" in (metrics.metrics?.topMissQueries?.[0] ?? {}), false);
     assert.match(String(metrics.metrics?.topMissQueries?.[0]?.missId), /^miss_\d+$/);
@@ -481,10 +571,7 @@ function sha256(value: string): string {
 test("CLI harvest mode rejects evidence paths and writes no scenario-file output", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-retrieval-harvest-cli-"));
   try {
-    const result = spawnSync(process.execPath, [
-      "--import",
-      "tsx",
-      "packages/cli/src/index.ts",
+    const result = runBuiltLoo([
       "eval",
       "retrieval",
       "--harvest",
@@ -492,8 +579,6 @@ test("CLI harvest mode rejects evidence paths and writes no scenario-file output
       "--evidence-path",
       join(root, "evidence.json")
     ], {
-      cwd: process.cwd(),
-      encoding: "utf8",
       env: {
         ...process.env,
         LOO_DB_PATH: join(root, "orchestrator.sqlite")
@@ -511,10 +596,7 @@ test("CLI harvest mode rejects evidence paths and writes no scenario-file output
 test("CLI harvest strict mode exits non-zero when no scenarios are proposed", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-retrieval-harvest-strict-"));
   try {
-    const result = spawnSync(process.execPath, [
-      "--import",
-      "tsx",
-      "packages/cli/src/index.ts",
+    const result = runBuiltLoo([
       "eval",
       "retrieval",
       "--harvest",
@@ -525,8 +607,6 @@ test("CLI harvest strict mode exits non-zero when no scenarios are proposed", ()
       "2026-07-06T00:00:00.000Z",
       "--strict"
     ], {
-      cwd: process.cwd(),
-      encoding: "utf8",
       env: {
         ...process.env,
         LOO_DB_PATH: join(root, "orchestrator.sqlite")

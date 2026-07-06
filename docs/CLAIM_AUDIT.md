@@ -121,11 +121,12 @@ runtime-proven installed working-app behavior.
 
 Opt-in retrieval telemetry does not widen the public evidence boundary for this
 claim scope. When `LOO_TELEMETRY=1`, search/grep/describe/expand tools may write
-only LCO-owned `local_cache_write`/`derived_cache` rows. Raw query text remains
-inside the local DB and the local `loo eval retrieval --harvest <out.json>`
-proposal file, which is marked `publicSafe: false` and requires manual
-curation. Public evidence, release reports, and telemetry metrics must stay at
-hash, count, and rank level and must not include harvested query text.
+only LCO-owned `local_cache_write`/`derived_cache` rows. Rows are local and
+pruned to the harvest-retention window. Raw query text remains inside the local
+DB and the local `loo eval retrieval --harvest <out.json>` proposal file, which
+is marked `publicSafe: false`, rejected inside git checkouts, and requires
+manual curation. Public evidence, release reports, and telemetry metrics must
+stay at count and rank level and must not include harvested query text.
 
 `loo release bundle` writes local draft release artifacts without publishing: `RELEASE_NOTES_<package-version>.md`, `release-preflight.json`, and `release-bundle.json`. It must record `npmPublished: false` and `githubReleaseCreated: false` until a separate explicit publish step is approved.
 

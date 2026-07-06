@@ -2259,6 +2259,7 @@ const RETRIEVAL_TELEMETRY_ENGINE_VERSION = "field-weighted-fts-v1";
 const RETRIEVAL_TELEMETRY_WINDOW_MS = 15 * 60 * 1000;
 const RETRIEVAL_TELEMETRY_HARVEST_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
 const RETRIEVAL_TELEMETRY_HARVEST_MAX_ROWS = 1000;
+const RETRIEVAL_TELEMETRY_PROCESS_SESSION_KEY = sha256Hex(`loo-telemetry-process:${process.pid}:${randomUUID()}`);
 
 export type RecallSourceKind = "codex_thread" | "lcm_summary" | "claude_session";
 
@@ -8331,11 +8332,11 @@ export function searchSessions(db: LooDatabase, options: {
 }
 
 function retrievalTelemetryEnabled(explicit?: boolean): boolean {
-  // The env fallback is an intentional local opt-in write path. Callers that
-  // omit the explicit flag can still write derived-cache telemetry when
-  // LOO_TELEMETRY=1, so recall tools are conservatively classified as
-  // local_cache_write even though the default behavior is read-only.
-  return explicit ?? process.env.LOO_TELEMETRY?.trim() === "1";
+  // The env fallback is an intentional local opt-in write path for callers that
+  // omit the explicit flag. Explicit false is definitive so nested recall calls
+  // can suppress duplicate derived-cache writes even when LOO_TELEMETRY=1.
+  if (explicit !== undefined) return explicit;
+  return process.env.LOO_TELEMETRY?.trim() === "1";
 }
 
 function recordTelemetrySearchEvent(db: LooDatabase, options: {
@@ -8348,6 +8349,8 @@ function recordTelemetrySearchEvent(db: LooDatabase, options: {
   if (!query) return;
   const telemetrySessionKey = retrievalTelemetrySessionKey(options.telemetrySessionId);
   if (!telemetrySessionKey) return;
+  const nowIso = telemetryTimestamp(options.now);
+  pruneRetrievalTelemetry(db, nowIso);
   const resultRefs = options.results.map((result) => result.sourceRef).filter(Boolean);
   db.prepare(`
     INSERT INTO telemetry_search_events (
@@ -8355,7 +8358,7 @@ function recordTelemetrySearchEvent(db: LooDatabase, options: {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     `tel_search_${randomUUID()}`,
-    telemetryTimestamp(options.now),
+    nowIso,
     query,
     sha256Hex(query),
     telemetrySessionKey,
@@ -8376,6 +8379,7 @@ function recordTelemetryFollowEvent(db: LooDatabase, options: {
   const sourceRef = options.sourceRef.trim();
   if (!sourceRef) return;
   const nowIso = telemetryTimestamp(options.now);
+  pruneRetrievalTelemetry(db, nowIso);
   const recent = latestTelemetrySearchEventForRef(db, sourceRef, nowIso, retrievalTelemetrySessionKey(options.telemetrySessionId));
   if (!recent) return;
   db.prepare(`
@@ -8414,8 +8418,15 @@ function latestTelemetrySearchEventForRef(db: LooDatabase, sourceRef: string, no
 function retrievalTelemetrySessionKey(explicit?: string): string | null {
   const raw = explicit ?? process.env.LOO_TELEMETRY_SESSION_ID;
   const value = raw?.trim();
-  if (!value) return null;
+  if (!value) return process.env.LOO_TELEMETRY?.trim() === "1" ? RETRIEVAL_TELEMETRY_PROCESS_SESSION_KEY : null;
   return sha256Hex(value);
+}
+
+function pruneRetrievalTelemetry(db: LooDatabase, nowIso: string): void {
+  const nowMs = timestampMillis(nowIso) ?? Date.now();
+  const cutoffIso = new Date(nowMs - RETRIEVAL_TELEMETRY_HARVEST_LOOKBACK_MS).toISOString();
+  db.prepare("DELETE FROM telemetry_follow_events WHERE ts < ?").run(cutoffIso);
+  db.prepare("DELETE FROM telemetry_search_events WHERE ts < ?").run(cutoffIso);
 }
 
 function matchedFieldDistribution(results: Array<{ matchFeatures?: CodexSearchMatchFeatures }>): Record<string, number> {
@@ -13909,6 +13920,7 @@ export function harvestRetrievalTelemetry(db: LooDatabase, options: RetrievalTel
   const lookbackMs = positiveLimit(options.lookbackMs, RETRIEVAL_TELEMETRY_HARVEST_LOOKBACK_MS, "lookbackMs");
   const maxRows = clamp(options.maxRows ?? RETRIEVAL_TELEMETRY_HARVEST_MAX_ROWS, 1, 10_000);
   const sinceIso = new Date(generatedAtMs - lookbackMs).toISOString();
+  assertTelemetryHarvestProposalPathIsPrivate(options.proposalPath);
   const rows = db.prepare(`
     SELECT
       s.query_text AS queryText,
@@ -13920,12 +13932,14 @@ export function harvestRetrievalTelemetry(db: LooDatabase, options: RetrievalTel
     FROM telemetry_follow_events f
     JOIN telemetry_search_events s ON s.id = f.search_event_id
     WHERE s.telemetry_session_key IS NOT NULL
+      AND s.ts >= ?
+      AND s.ts <= ?
       AND f.ts >= ?
       AND f.ts <= ?
     GROUP BY s.query_hash, s.query_text, f.chosen_ref, f.rank_position, f.follow_kind
     ORDER BY s.query_hash ASC, occurrenceCount DESC, f.rank_position ASC, f.chosen_ref ASC
     LIMIT ?
-  `).all(sinceIso, generatedAt, maxRows) as Array<{
+  `).all(sinceIso, generatedAt, sinceIso, generatedAt, maxRows) as Array<{
     queryText: string;
     queryHash: string;
     chosenRef: string;
@@ -13933,8 +13947,20 @@ export function harvestRetrievalTelemetry(db: LooDatabase, options: RetrievalTel
     followKind: RetrievalTelemetryFollowKind;
     occurrenceCount: number;
   }>;
-  const searchEventCount = countRows(db, "telemetry_search_events");
-  const followEventCount = countRows(db, "telemetry_follow_events");
+  const countRow = db.prepare(`
+    SELECT
+      COUNT(DISTINCT s.id) AS telemetrySearchEvents,
+      COUNT(DISTINCT f.id) AS telemetryFollowEvents
+    FROM telemetry_follow_events f
+    JOIN telemetry_search_events s ON s.id = f.search_event_id
+    WHERE s.telemetry_session_key IS NOT NULL
+      AND s.ts >= ?
+      AND s.ts <= ?
+      AND f.ts >= ?
+      AND f.ts <= ?
+  `).get(sinceIso, generatedAt, sinceIso, generatedAt) as { telemetrySearchEvents?: number; telemetryFollowEvents?: number } | undefined;
+  const searchEventCount = Number(countRow?.telemetrySearchEvents ?? 0);
+  const followEventCount = Number(countRow?.telemetryFollowEvents ?? 0);
   const candidatesByQuery = new Map<string, Map<string, TelemetryHarvestCandidate>>();
   const rankDistribution: Record<string, number> = {};
 
@@ -13942,7 +13968,6 @@ export function harvestRetrievalTelemetry(db: LooDatabase, options: RetrievalTel
     const rank = Number(row.rankPosition);
     const occurrenceCount = Number(row.occurrenceCount);
     if (!Number.isSafeInteger(rank) || rank < 1 || !Number.isSafeInteger(occurrenceCount) || occurrenceCount < 1) continue;
-    rankDistribution[String(rank)] = (rankDistribution[String(rank)] ?? 0) + occurrenceCount;
     const byRef = candidatesByQuery.get(row.queryHash) ?? new Map<string, TelemetryHarvestCandidate>();
     const existing = byRef.get(row.chosenRef);
     if (existing) {
@@ -13966,6 +13991,10 @@ export function harvestRetrievalTelemetry(db: LooDatabase, options: RetrievalTel
     .map((byRef) => [...byRef.values()].sort(compareTelemetryHarvestCandidates)[0])
     .filter((candidate): candidate is TelemetryHarvestCandidate => Boolean(candidate))
     .sort((left, right) => left.queryHash.localeCompare(right.queryHash));
+  for (const candidate of candidates) {
+    const rankKey = String(candidate.observedRank);
+    rankDistribution[rankKey] = (rankDistribution[rankKey] ?? 0) + 1;
+  }
   const scenarios = candidates.map((candidate, index) => ({
     id: `harvested-query-${index + 1}`,
     publicSafe: false,
@@ -13991,16 +14020,6 @@ export function harvestRetrievalTelemetry(db: LooDatabase, options: RetrievalTel
       }))
   };
 
-  mkdirSync(dirname(options.proposalPath), { recursive: true });
-  writeFileSync(options.proposalPath, `${JSON.stringify({
-    schema: "lco.retrieval.telemetryHarvest.v1",
-    publicSafe: false,
-    requiresManualCuration: true,
-    generatedAt,
-    source: "local_derived_cache",
-    scenarios
-  }, null, 2)}\n`);
-
   if (options.metricsPath) {
     mkdirSync(dirname(options.metricsPath), { recursive: true });
     writeFileSync(options.metricsPath, `${JSON.stringify({
@@ -14010,6 +14029,18 @@ export function harvestRetrievalTelemetry(db: LooDatabase, options: RetrievalTel
       metrics
     }, null, 2)}\n`);
   }
+
+  mkdirSync(dirname(options.proposalPath), { recursive: true });
+  writeFileSync(options.proposalPath, `${JSON.stringify({
+    schema: "lco.retrieval.telemetryHarvest.v1",
+    publicSafe: false,
+    requiresManualCuration: true,
+    doNotCommit: true,
+    rawQueryTextIncluded: true,
+    generatedAt,
+    source: "local_derived_cache",
+    scenarios
+  }, null, 2)}\n`);
 
   return {
     schema: "lco.retrieval.telemetryHarvestReport.v1",
@@ -14045,6 +14076,24 @@ export function harvestRetrievalTelemetry(db: LooDatabase, options: RetrievalTel
   };
 }
 
+function assertTelemetryHarvestProposalPathIsPrivate(proposalPath: string): void {
+  const proposalDir = dirname(canonicalMaybeMissingPath(proposalPath));
+  const gitRoot = nearestGitRoot(proposalDir);
+  if (gitRoot) {
+    throw new Error("Telemetry harvest proposal files include private query text and must be written outside git checkouts");
+  }
+}
+
+function nearestGitRoot(startDir: string): string | null {
+  let cursor = resolve(startDir);
+  while (cursor && dirname(cursor) !== cursor) {
+    if (existsSync(join(cursor, ".git"))) return cursor;
+    cursor = dirname(cursor);
+  }
+  if (existsSync(join(cursor, ".git"))) return cursor;
+  return null;
+}
+
 function compareTelemetryHarvestCandidates(left: TelemetryHarvestCandidate, right: TelemetryHarvestCandidate): number {
   return right.occurrenceCount - left.occurrenceCount
     || left.observedRank - right.observedRank
@@ -14053,10 +14102,6 @@ function compareTelemetryHarvestCandidates(left: TelemetryHarvestCandidate, righ
 
 function orderedFollowKinds(kinds: Set<RetrievalTelemetryFollowKind>): RetrievalTelemetryFollowKind[] {
   return (["describe", "expand"] as RetrievalTelemetryFollowKind[]).filter((kind) => kinds.has(kind));
-}
-
-function countRows(db: LooDatabase, table: string): number {
-  return Number((db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number }).count);
 }
 
 export function evaluateRetrievalScenarios(db: LooDatabase, options: {

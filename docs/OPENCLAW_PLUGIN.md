@@ -85,9 +85,13 @@ Safety details:
 - `LOO_TELEMETRY=1` enables opt-in search-to-describe/expand telemetry for
   search, grep, describe, and expand tools. The affected tools are classified
   as `local_cache_write`/`derived_cache` because they may write LCO-owned
-  telemetry rows. The default is off. Query text stays only in the local DB and
-  local `loo eval retrieval --harvest` proposal file; public reports and
-  metrics stay hash, count, and rank based.
+  telemetry rows. The default is off. If no `LOO_TELEMETRY_SESSION_ID` or
+  per-call session id is supplied, LCO uses a local per-process derived session
+  key so one-env-var telemetry does not silently no-op. Query text stays only in
+  the local DB and local `loo eval retrieval --harvest` proposal file; telemetry
+  rows are pruned to the 30-day harvest-retention window, harvest proposal files
+  are rejected inside git checkouts, and public reports/metrics stay count and
+  rank based without raw query text.
 - Optional LCM peer recall uses `LOO_LCM_DB_PATHS` or per-call `lcm_db_paths` and opens those DBs read-only.
 - Control tools should run `dry_run=true` first.
 - Live control requires `approval_audit_id` from the dry-run result.
