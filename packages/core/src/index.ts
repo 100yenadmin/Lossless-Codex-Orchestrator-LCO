@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, readSync, realpathSync, statSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, readSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -2239,6 +2239,9 @@ export type ExpandSessionOptions = {
   threadId: string;
   tokenBudget?: number;
   profile?: RecallProfileName;
+  telemetry?: boolean;
+  telemetrySessionId?: string;
+  now?: string;
 };
 
 export type RecallProfileName = "metadata" | "brief" | "evidence";
@@ -2251,6 +2254,16 @@ export type RecallProfile = {
 
 const SESSION_METADATA_SCHEMA_VERSION = 4;
 const SESSION_METADATA_EXTRACTOR_VERSION = `session-metadata-v${SESSION_METADATA_SCHEMA_VERSION}` as const;
+const RETRIEVAL_TELEMETRY_MIGRATION_ID = "2026-07-06-retrieval-telemetry";
+const RETRIEVAL_TELEMETRY_SESSION_KEY_MIGRATION_ID = "2026-07-06-retrieval-telemetry-session-key";
+const RETRIEVAL_TELEMETRY_ENGINE_VERSION = "field-weighted-fts-v1";
+const RETRIEVAL_TELEMETRY_WINDOW_MS = 15 * 60 * 1000;
+const RETRIEVAL_TELEMETRY_HARVEST_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
+const RETRIEVAL_TELEMETRY_HARVEST_MAX_ROWS = 1000;
+const RETRIEVAL_TELEMETRY_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
+const RETRIEVAL_TELEMETRY_PRUNE_BATCH_SIZE = 5000;
+const RETRIEVAL_TELEMETRY_CORRELATION_SEARCH_LIMIT = 50;
+const retrievalTelemetryLastPruneByDb = new WeakMap<object, number>();
 
 export type RecallSourceKind = "codex_thread" | "lcm_summary" | "claude_session";
 
@@ -2411,6 +2424,57 @@ export type RetrievalBaselineReport = {
   privateDataExclusions: string[];
   proofBoundary: string;
   nextAction: string;
+};
+
+export type RetrievalTelemetryFollowKind = "describe" | "expand";
+
+export type RetrievalTelemetryHarvestReport = {
+  schema: "lco.retrieval.telemetryHarvestReport.v1";
+  publicSafe: true;
+  generatedAt: string;
+  summary: {
+    telemetrySearchEvents: number;
+    telemetryFollowEvents: number;
+    proposedScenarios: number;
+    sampledGroups: number;
+    maxRows: number;
+    sampleTruncated: boolean;
+  };
+  proposalFile: {
+    written: boolean;
+    publicSafe: false;
+    requiresManualCuration: true;
+  };
+  metricsFile: {
+    written: boolean;
+    publicSafe: true;
+  } | null;
+  metrics: RetrievalTelemetryMetrics;
+  privateDataExclusions: string[];
+  proofBoundary: string;
+  nextAction: string;
+};
+
+export type RetrievalTelemetryMetrics = {
+  sample: {
+    sampledGroups: number;
+    maxRows: number;
+    sampleTruncated: boolean;
+  };
+  rankDistribution: Record<string, number>;
+  topMissQueries: Array<{
+    missId: string;
+    observedRank: number;
+    occurrenceCount: number;
+  }>;
+};
+
+export type RetrievalTelemetryHarvestOptions = {
+  proposalPath: string;
+  metricsPath?: string | null;
+  now?: string;
+  lookbackMs?: number;
+  maxRows?: number;
 };
 
 export type LcmPeerProbe = {
@@ -2704,6 +2768,11 @@ export function migrate(db: LooDatabase): void {
         '2026-07-06-index-fast-skip-and-hot-path-indexes',
         datetime('now'),
         'Additive Codex source extractor-state columns and hot read-path indexes'
+      ),
+      (
+        '${RETRIEVAL_TELEMETRY_MIGRATION_ID}',
+        datetime('now'),
+        'Additive opt-in retrieval telemetry search and follow tables'
       );
 
     CREATE TABLE IF NOT EXISTS prepared_source_events (
@@ -2920,6 +2989,33 @@ export function migrate(db: LooDatabase): void {
     CREATE INDEX IF NOT EXISTS codex_thread_title_aliases_norm_idx ON codex_thread_title_aliases(alias_norm);
     CREATE INDEX IF NOT EXISTS codex_thread_title_aliases_thread_idx ON codex_thread_title_aliases(thread_id);
 
+    CREATE TABLE IF NOT EXISTS telemetry_search_events (
+      id TEXT PRIMARY KEY,
+      ts TEXT NOT NULL,
+      query_text TEXT NOT NULL DEFAULT '',
+      query_hash TEXT NOT NULL,
+      result_refs_json TEXT NOT NULL DEFAULT '[]',
+      matched_field_distribution_json TEXT NOT NULL DEFAULT '{}',
+      engine_version TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS telemetry_search_events_ts_idx ON telemetry_search_events(ts DESC);
+    CREATE INDEX IF NOT EXISTS telemetry_search_events_query_hash_idx ON telemetry_search_events(query_hash, ts DESC);
+
+    CREATE TABLE IF NOT EXISTS telemetry_follow_events (
+      id TEXT PRIMARY KEY,
+      ts TEXT NOT NULL,
+      search_event_id TEXT NOT NULL REFERENCES telemetry_search_events(id) ON DELETE CASCADE,
+      chosen_ref TEXT NOT NULL,
+      rank_position INTEGER NOT NULL,
+      follow_kind TEXT NOT NULL,
+      CHECK (follow_kind IN ('describe', 'expand'))
+    );
+
+    CREATE INDEX IF NOT EXISTS telemetry_follow_events_search_idx ON telemetry_follow_events(search_event_id, ts DESC);
+    CREATE INDEX IF NOT EXISTS telemetry_follow_events_chosen_ref_idx ON telemetry_follow_events(chosen_ref, ts DESC);
+    CREATE INDEX IF NOT EXISTS telemetry_follow_events_ts_idx ON telemetry_follow_events(ts DESC);
+
     CREATE INDEX IF NOT EXISTS codex_sessions_recent_coalesce_idx ON codex_sessions(COALESCE(updated_at, indexed_at) DESC, thread_id);
     CREATE INDEX IF NOT EXISTS codex_session_metadata_filters_idx ON codex_session_metadata(
       LOWER(COALESCE(project, '')),
@@ -3006,6 +3102,16 @@ export function migrate(db: LooDatabase): void {
   ensureColumn(db, "codex_source_files", "jsonl_drift_unparsed_lines", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "codex_source_files", "jsonl_drift_missing_expected_fields_json", "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn(db, "codex_source_files", "jsonl_drift_reason_codes_json", "TEXT NOT NULL DEFAULT '[]'");
+  ensureColumn(db, "telemetry_search_events", "telemetry_session_key", "TEXT");
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS telemetry_search_events_session_ts_idx ON telemetry_search_events(telemetry_session_key, ts DESC);
+    INSERT OR IGNORE INTO loo_schema_migrations (migration_id, applied_at, description)
+    VALUES (
+      '${RETRIEVAL_TELEMETRY_SESSION_KEY_MIGRATION_ID}',
+      datetime('now'),
+      'Additive retrieval telemetry session-key column and session timestamp index'
+    );
+  `);
   // Gate FTS maintenance on rowid-pinning drift. The pinned-count check also
   // detects count drift, so migration and index paths share one repair test.
   const codexSearchFtsMigrationRecorded = db
@@ -8231,8 +8337,188 @@ export function searchSessions(db: LooDatabase, options: {
   limit?: number;
   appServerThreads?: AppServerThreadsInput | null;
   now?: string;
+  telemetry?: boolean;
+  telemetrySessionId?: string;
 }): SessionSearchResult[] {
-  return searchCodexSessions(db, options);
+  const results = searchCodexSessions(db, options);
+  if (retrievalTelemetryEnabled(options.telemetry)) {
+    recordTelemetrySearchEvent(db, {
+      query: options.query,
+      results,
+      telemetrySessionId: options.telemetrySessionId,
+      now: options.now
+    });
+  }
+  return results;
+}
+
+function retrievalTelemetryEnabled(explicit?: boolean): boolean {
+  // The env fallback is an intentional local opt-in write path for callers that
+  // omit the explicit flag. Explicit false is definitive so nested recall calls
+  // can suppress duplicate derived-cache writes even when LOO_TELEMETRY=1.
+  if (explicit !== undefined) return explicit;
+  return process.env.LOO_TELEMETRY?.trim() === "1";
+}
+
+function recordTelemetrySearchEvent(db: LooDatabase, options: {
+  query: string;
+  results: Array<{ sourceRef: string; matchFeatures?: CodexSearchMatchFeatures }>;
+  telemetrySessionId?: string;
+  now?: string;
+}): void {
+  try {
+    recordTelemetrySearchEventUnchecked(db, options);
+  } catch {
+    // Retrieval telemetry is an optional derived-cache side effect; never let it
+    // block the primary search/describe/expand result.
+  }
+}
+
+function recordTelemetrySearchEventUnchecked(db: LooDatabase, options: {
+  query: string;
+  results: Array<{ sourceRef: string; matchFeatures?: CodexSearchMatchFeatures }>;
+  telemetrySessionId?: string;
+  now?: string;
+}): void {
+  const query = options.query.trim();
+  if (!query) return;
+  const telemetrySessionKey = retrievalTelemetrySessionKey(options.telemetrySessionId);
+  if (!telemetrySessionKey) return;
+  const nowIso = telemetryTimestamp(options.now);
+  pruneRetrievalTelemetry(db, nowIso);
+  const resultRefs = options.results.map((result) => result.sourceRef).filter(Boolean);
+  db.prepare(`
+    INSERT INTO telemetry_search_events (
+      id, ts, query_text, query_hash, telemetry_session_key, result_refs_json, matched_field_distribution_json, engine_version
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    `tel_search_${randomUUID()}`,
+    nowIso,
+    "",
+    sha256Hex(query),
+    telemetrySessionKey,
+    JSON.stringify(resultRefs),
+    JSON.stringify(matchedFieldDistribution(options.results)),
+    RETRIEVAL_TELEMETRY_ENGINE_VERSION
+  );
+}
+
+function recordTelemetryFollowEvent(db: LooDatabase, options: {
+  sourceRef: string;
+  followKind: RetrievalTelemetryFollowKind;
+  telemetrySessionId?: string;
+  now?: string;
+  telemetry?: boolean;
+}): void {
+  try {
+    recordTelemetryFollowEventUnchecked(db, options);
+  } catch {
+    // Retrieval telemetry is an optional derived-cache side effect; never let it
+    // block the primary search/describe/expand result.
+  }
+}
+
+function recordTelemetryFollowEventUnchecked(db: LooDatabase, options: {
+  sourceRef: string;
+  followKind: RetrievalTelemetryFollowKind;
+  telemetrySessionId?: string;
+  now?: string;
+  telemetry?: boolean;
+}): void {
+  if (!retrievalTelemetryEnabled(options.telemetry)) return;
+  const sourceRef = options.sourceRef.trim();
+  if (!sourceRef) return;
+  const nowIso = telemetryTimestamp(options.now);
+  pruneRetrievalTelemetry(db, nowIso);
+  const recent = latestTelemetrySearchEventForRef(db, sourceRef, nowIso, retrievalTelemetrySessionKey(options.telemetrySessionId));
+  if (!recent) return;
+  db.prepare(`
+    INSERT INTO telemetry_follow_events (
+      id, ts, search_event_id, chosen_ref, rank_position, follow_kind
+    ) VALUES (?, ?, ?, ?, ?, ?)
+  `).run(
+    `tel_follow_${randomUUID()}`,
+    nowIso,
+    recent.searchEventId,
+    sourceRef,
+    recent.rankPosition,
+    options.followKind
+  );
+}
+
+function latestTelemetrySearchEventForRef(db: LooDatabase, sourceRef: string, nowIso: string, telemetrySessionKey: string | null): { searchEventId: string; rankPosition: number } | null {
+  if (!telemetrySessionKey) return null;
+  const nowMs = timestampMillis(nowIso) ?? Date.now();
+  const sinceIso = new Date(nowMs - RETRIEVAL_TELEMETRY_WINDOW_MS).toISOString();
+  const rows = db.prepare(`
+    SELECT id, result_refs_json AS resultRefsJson
+    FROM telemetry_search_events
+    WHERE telemetry_session_key = ? AND ts >= ? AND ts <= ?
+    ORDER BY ts DESC, id DESC
+    LIMIT ?
+  `).all(telemetrySessionKey, sinceIso, nowIso, RETRIEVAL_TELEMETRY_CORRELATION_SEARCH_LIMIT) as Array<{ id: string; resultRefsJson: string }>;
+  for (const row of rows) {
+    const refs = parseStringArrayJson(row.resultRefsJson);
+    const index = refs.indexOf(sourceRef);
+    if (index >= 0) return { searchEventId: row.id, rankPosition: index + 1 };
+  }
+  return null;
+}
+
+function retrievalTelemetrySessionKey(explicit?: string): string | null {
+  const raw = explicit ?? process.env.LOO_TELEMETRY_SESSION_ID;
+  const value = raw?.trim();
+  if (!value) return null;
+  return sha256Hex(value);
+}
+
+function pruneRetrievalTelemetry(db: LooDatabase, nowIso: string): void {
+  const nowMs = timestampMillis(nowIso) ?? Date.now();
+  const lastPruneMs = retrievalTelemetryLastPruneByDb.get(db);
+  if (lastPruneMs !== undefined && nowMs - lastPruneMs < RETRIEVAL_TELEMETRY_PRUNE_INTERVAL_MS) return;
+  const cutoffIso = new Date(nowMs - RETRIEVAL_TELEMETRY_HARVEST_LOOKBACK_MS).toISOString();
+  db.prepare(`
+    DELETE FROM telemetry_follow_events
+    WHERE rowid IN (
+      SELECT rowid FROM telemetry_follow_events
+      WHERE ts < ?
+      ORDER BY ts ASC
+      LIMIT ?
+    )
+  `).run(cutoffIso, RETRIEVAL_TELEMETRY_PRUNE_BATCH_SIZE);
+  db.prepare(`
+    DELETE FROM telemetry_search_events
+    WHERE rowid IN (
+      SELECT rowid FROM telemetry_search_events
+      WHERE ts < ?
+      ORDER BY ts ASC
+      LIMIT ?
+    )
+  `).run(cutoffIso, RETRIEVAL_TELEMETRY_PRUNE_BATCH_SIZE);
+  retrievalTelemetryLastPruneByDb.set(db, nowMs);
+}
+
+function matchedFieldDistribution(results: Array<{ matchFeatures?: CodexSearchMatchFeatures }>): Record<string, number> {
+  const distribution: Record<string, number> = {};
+  for (const result of results) {
+    for (const field of result.matchFeatures?.matchedFields ?? []) {
+      distribution[field] = (distribution[field] ?? 0) + 1;
+    }
+  }
+  return Object.fromEntries(Object.entries(distribution).sort(([left], [right]) => left.localeCompare(right)));
+}
+
+function parseStringArrayJson(value: unknown): string[] {
+  return parseJsonArray(value).filter((entry): entry is string => typeof entry === "string");
+}
+
+function telemetryTimestamp(now?: string): string {
+  const parsed = timestampMillis(now ?? null);
+  return parsed === null ? new Date().toISOString() : new Date(parsed).toISOString();
+}
+
+function sha256Hex(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 function threadTitleAliasSearchResults(db: LooDatabase, query: string, nowMs: number): SessionSearchResult[] {
@@ -8426,7 +8712,7 @@ function searchClaudeSessions(db: LooDatabase, options: { query: string; limit?:
   }));
 }
 
-export function describeSession(db: LooDatabase, threadId: string): SessionDescription | null {
+export function describeSession(db: LooDatabase, threadId: string, options: { telemetry?: boolean; telemetrySessionId?: string; now?: string } = {}): SessionDescription | null {
   const row = db.prepare(`
     SELECT thread_id AS threadId, title, cwd, model, branch, git_sha AS gitSha, summary, final_message AS finalMessage,
       source_path AS sourcePath, tool_call_count AS toolCallCount
@@ -8434,7 +8720,7 @@ export function describeSession(db: LooDatabase, threadId: string): SessionDescr
     WHERE thread_id = ?
   `).get(threadId) as Record<string, unknown> | undefined;
   if (!row) return null;
-  return {
+  const result: SessionDescription = {
     sourceKind: "codex_thread",
     sourceRef: codexThreadRef(String(row.threadId)),
     threadId: String(row.threadId),
@@ -8451,6 +8737,14 @@ export function describeSession(db: LooDatabase, threadId: string): SessionDescr
     sourcePath: publicSourcePathRef(String(row.sourcePath)),
     metadata: getSessionMetadata(db, threadId)
   };
+  recordTelemetryFollowEvent(db, {
+    sourceRef: result.sourceRef,
+    followKind: "describe",
+    telemetry: options.telemetry,
+    telemetrySessionId: options.telemetrySessionId,
+    now: options.now
+  });
+  return result;
 }
 
 export function describeClaudeSessionInventory(db: LooDatabase, sessionId: string): ClaudeSessionInventoryDescription | null {
@@ -13369,7 +13663,7 @@ function capitalizeLabelStart(label: string): string {
 }
 
 export function expandSession(db: LooDatabase, options: ExpandSessionOptions): ExpandRecallResult & { threadId: string } {
-  const description = describeSession(db, options.threadId);
+  const description = describeSession(db, options.threadId, { telemetry: false });
   if (!description) throw new Error(`Unknown Codex thread: ${options.threadId}`);
   const plans = getCodexPlans(db, { threadId: options.threadId, limit: 10 }).map((plan) => plan.text);
   const profile = resolveRecallProfile(options.profile, options.tokenBudget);
@@ -13388,7 +13682,7 @@ export function expandSession(db: LooDatabase, options: ExpandSessionOptions): E
       `Tool calls: ${description.toolCallCount}`,
       `Source ref: ${publicSourcePathRef(description.sourcePath)}`
     ].filter(Boolean).join("\n");
-    return {
+    const result: ExpandRecallResult & { threadId: string } = {
       sourceKind: "codex_thread",
       sourceRef: description.sourceRef,
       threadId: options.threadId,
@@ -13396,6 +13690,14 @@ export function expandSession(db: LooDatabase, options: ExpandSessionOptions): E
       tokenBudget: profile.tokenBudget,
       profile
     };
+    recordTelemetryFollowEvent(db, {
+      sourceRef: result.sourceRef,
+      followKind: "expand",
+      telemetry: options.telemetry,
+      telemetrySessionId: options.telemetrySessionId,
+      now: options.now
+    });
+    return result;
   }
   const text = [
     `Thread: ${description.title ?? description.threadId}`,
@@ -13408,7 +13710,7 @@ export function expandSession(db: LooDatabase, options: ExpandSessionOptions): E
     description.touchedFiles.length ? `Touched files:\n${formatTouchedFiles(description.touchedFiles, profile.name === "evidence" ? 50 : 12, profile.name === "evidence" ? 3200 : 900)}` : null,
     plans.length ? `Plans:\n${plans.map((plan) => publicSafeText(plan, profile.name === "evidence" ? 3200 : 1200)).join("\n\n")}` : null
   ].filter(Boolean).join("\n\n");
-  return {
+  const result: ExpandRecallResult & { threadId: string } = {
     sourceKind: "codex_thread",
     sourceRef: description.sourceRef,
     threadId: options.threadId,
@@ -13416,6 +13718,14 @@ export function expandSession(db: LooDatabase, options: ExpandSessionOptions): E
     tokenBudget: profile.tokenBudget,
     profile
   };
+  recordTelemetryFollowEvent(db, {
+    sourceRef: result.sourceRef,
+    followKind: "expand",
+    telemetry: options.telemetry,
+    telemetrySessionId: options.telemetrySessionId,
+    now: options.now
+  });
+  return result;
 }
 
 function formatTouchedFiles(files: string[], limit: number, maxChars: number): string {
@@ -13446,13 +13756,15 @@ export function grepRecall(db: LooDatabase, options: {
   profile?: RecallProfileName;
   tokenBudget?: number;
   lcmDbPaths?: string[];
+  telemetry?: boolean;
+  telemetrySessionId?: string;
   now?: string;
 }): { query: string; profile: RecallProfile; matches: RecallSearchResult[] } {
   const query = options.query.trim();
   const limit = clamp(options.limit ?? 10, 1, 100);
   const profile = resolveRecallProfile(options.profile, options.tokenBudget);
   if (!query) return { query, profile, matches: [] };
-  const codexMatches: RecallSearchResult[] = searchSessions(db, { query, limit, now: options.now }).map((match) => ({
+  const codexMatches: RecallSearchResult[] = searchSessions(db, { query, limit, telemetry: false, now: options.now }).map((match) => ({
     ...match,
     sourceKind: "codex_thread",
     sourceRef: codexThreadRef(match.threadId),
@@ -13461,15 +13773,23 @@ export function grepRecall(db: LooDatabase, options: {
   const claudeMatches = searchClaudeSessions(db, { query, limit });
   const lcmMatches = searchLcmPeers(options.lcmDbPaths ?? [], query, limit);
   const matches = [...codexMatches, ...claudeMatches, ...lcmMatches].slice(0, limit).map((match, index) => ({ ...match, score: index + 1 }));
+  if (retrievalTelemetryEnabled(options.telemetry)) {
+    recordTelemetrySearchEvent(db, {
+      query,
+      results: matches,
+      telemetrySessionId: options.telemetrySessionId,
+      now: options.now
+    });
+  }
   return { query, profile, matches };
 }
 
-export function describeRecallRef(db: LooDatabase, options: { sourceRef: string; lcmDbPaths?: string[] }): RecallDescription | null {
+export function describeRecallRef(db: LooDatabase, options: { sourceRef: string; lcmDbPaths?: string[]; telemetry?: boolean; telemetrySessionId?: string; now?: string }): RecallDescription | null {
   const parsed = parseSourceRef(options.sourceRef);
   if (parsed.kind === "codex_thread") {
-    const description = describeSession(db, parsed.id);
+    const description = describeSession(db, parsed.id, { telemetry: false });
     if (!description) return null;
-    return {
+    const result: RecallDescription = {
       sourceKind: "codex_thread",
       sourceRef: description.sourceRef,
       title: description.title,
@@ -13487,11 +13807,19 @@ export function describeRecallRef(db: LooDatabase, options: { sourceRef: string;
       toolCallCount: description.toolCallCount,
       metadata: description.metadata
     };
+    recordTelemetryFollowEvent(db, {
+      sourceRef: result.sourceRef,
+      followKind: "describe",
+      telemetry: options.telemetry,
+      telemetrySessionId: options.telemetrySessionId,
+      now: options.now
+    });
+    return result;
   }
   if (parsed.kind === "claude_session") {
     const description = describeClaudeSessionInventory(db, parsed.id);
     if (!description) return null;
-    return {
+    const result: RecallDescription = {
       sourceKind: "claude_session",
       sourceRef: description.sourceRef,
       title: description.title,
@@ -13503,10 +13831,26 @@ export function describeRecallRef(db: LooDatabase, options: { sourceRef: string;
       workspaceHint: description.workspaceHint,
       status: description.status
     };
+    recordTelemetryFollowEvent(db, {
+      sourceRef: result.sourceRef,
+      followKind: "describe",
+      telemetry: options.telemetry,
+      telemetrySessionId: options.telemetrySessionId,
+      now: options.now
+    });
+    return result;
   }
   const summary = getLcmSummaryByRef(options.lcmDbPaths ?? [], parsed.dbHash, parsed.id);
   if (!summary) return null;
-  return lcmSummaryDescription(summary);
+  const result = lcmSummaryDescription(summary);
+  recordTelemetryFollowEvent(db, {
+    sourceRef: result.sourceRef,
+    followKind: "describe",
+    telemetry: options.telemetry,
+    telemetrySessionId: options.telemetrySessionId,
+    now: options.now
+  });
+  return result;
 }
 
 export function expandRecallRef(db: LooDatabase, options: {
@@ -13514,10 +13858,21 @@ export function expandRecallRef(db: LooDatabase, options: {
   lcmDbPaths?: string[];
   profile?: RecallProfileName;
   tokenBudget?: number;
+  telemetry?: boolean;
+  telemetrySessionId?: string;
+  now?: string;
 }): ExpandRecallResult {
   const parsed = parseSourceRef(options.sourceRef);
   if (parsed.kind === "codex_thread") {
-    return expandSession(db, { threadId: parsed.id, profile: options.profile, tokenBudget: options.tokenBudget });
+    const result = expandSession(db, { threadId: parsed.id, profile: options.profile, tokenBudget: options.tokenBudget, telemetry: false });
+    recordTelemetryFollowEvent(db, {
+      sourceRef: result.sourceRef,
+      followKind: "expand",
+      telemetry: options.telemetry,
+      telemetrySessionId: options.telemetrySessionId,
+      now: options.now
+    });
+    return result;
   }
   if (parsed.kind === "claude_session") {
     const description = describeClaudeSessionInventory(db, parsed.id);
@@ -13527,7 +13882,7 @@ export function expandRecallRef(db: LooDatabase, options: {
     const text = profile.name === "metadata"
       ? metadata
       : truncateByApproxTokens(`${metadata}\n\nSafe summary:\n${publicSafeText(description.summary ?? "", profile.tokenBudget * 6)}`, profile.tokenBudget);
-    return {
+    const result: ExpandRecallResult = {
       sourceKind: "claude_session",
       sourceRef: description.sourceRef,
       sessionId: description.sessionId,
@@ -13535,6 +13890,14 @@ export function expandRecallRef(db: LooDatabase, options: {
       tokenBudget: profile.tokenBudget,
       profile
     };
+    recordTelemetryFollowEvent(db, {
+      sourceRef: result.sourceRef,
+      followKind: "expand",
+      telemetry: options.telemetry,
+      telemetrySessionId: options.telemetrySessionId,
+      now: options.now
+    });
+    return result;
   }
   const summary = getLcmSummaryByRef(options.lcmDbPaths ?? [], parsed.dbHash, parsed.id);
   if (!summary) throw new Error(`Unknown LCM summary ref: ${options.sourceRef}`);
@@ -13554,7 +13917,7 @@ export function expandRecallRef(db: LooDatabase, options: {
   const text = profile.name === "metadata"
     ? metadata
     : truncateByApproxTokens(`${metadata}\n\nContent:\n${publicSafeText(summary.content, profile.tokenBudget * 6)}`, profile.tokenBudget);
-  return {
+  const result: ExpandRecallResult = {
     sourceKind: "lcm_summary",
     sourceRef: lcmSummaryRef(summary.sourcePath, summary.summaryId),
     summaryId: summary.summaryId,
@@ -13562,6 +13925,14 @@ export function expandRecallRef(db: LooDatabase, options: {
     tokenBudget: profile.tokenBudget,
     profile
   };
+  recordTelemetryFollowEvent(db, {
+    sourceRef: result.sourceRef,
+    followKind: "expand",
+    telemetry: options.telemetry,
+    telemetrySessionId: options.telemetrySessionId,
+    now: options.now
+  });
+  return result;
 }
 
 export function expandQuery(db: LooDatabase, options: {
@@ -13570,6 +13941,9 @@ export function expandQuery(db: LooDatabase, options: {
   profile?: RecallProfileName;
   tokenBudget?: number;
   lcmDbPaths?: string[];
+  telemetry?: boolean;
+  telemetrySessionId?: string;
+  now?: string;
 }): ExpandRecallResult {
   const grep = grepRecall(db, options);
   const first = grep.matches[0];
@@ -13586,10 +13960,243 @@ export function expandQuery(db: LooDatabase, options: {
     };
   }
   return {
-    ...expandRecallRef(db, { sourceRef: first.sourceRef, lcmDbPaths: options.lcmDbPaths, profile: options.profile, tokenBudget: options.tokenBudget }),
+    ...expandRecallRef(db, {
+      sourceRef: first.sourceRef,
+      lcmDbPaths: options.lcmDbPaths,
+      profile: options.profile,
+      tokenBudget: options.tokenBudget,
+      telemetry: options.telemetry,
+      telemetrySessionId: options.telemetrySessionId,
+      now: options.now
+    }),
     query: grep.query,
     matches: grep.matches
   };
+}
+
+type TelemetryHarvestCandidate = {
+  queryHash: string;
+  chosenRef: string;
+  observedRank: number;
+  occurrenceCount: number;
+  followKinds: Set<RetrievalTelemetryFollowKind>;
+};
+
+export function harvestRetrievalTelemetry(db: LooDatabase, options: RetrievalTelemetryHarvestOptions): RetrievalTelemetryHarvestReport {
+  const generatedAt = telemetryTimestamp(options.now);
+  const generatedAtMs = timestampMillis(generatedAt) ?? Date.now();
+  const lookbackMs = positiveLimit(options.lookbackMs, RETRIEVAL_TELEMETRY_HARVEST_LOOKBACK_MS, "lookbackMs");
+  const maxRows = clamp(options.maxRows ?? RETRIEVAL_TELEMETRY_HARVEST_MAX_ROWS, 1, 10_000);
+  const sinceIso = new Date(generatedAtMs - lookbackMs).toISOString();
+  assertTelemetryHarvestProposalPathIsPrivate(options.proposalPath);
+  const sampledRows = db.prepare(`
+    SELECT
+      s.query_hash AS queryHash,
+      f.chosen_ref AS chosenRef,
+      f.rank_position AS rankPosition,
+      f.follow_kind AS followKind,
+      COUNT(*) AS occurrenceCount
+    FROM telemetry_follow_events f
+    JOIN telemetry_search_events s ON s.id = f.search_event_id
+    WHERE s.telemetry_session_key IS NOT NULL
+      AND s.ts >= ?
+      AND s.ts <= ?
+      AND f.ts >= ?
+      AND f.ts <= ?
+    GROUP BY s.query_hash, f.chosen_ref, f.rank_position, f.follow_kind
+    ORDER BY occurrenceCount DESC, f.rank_position ASC, s.query_hash ASC, f.chosen_ref ASC
+    LIMIT ?
+  `).all(sinceIso, generatedAt, sinceIso, generatedAt, maxRows + 1) as Array<{
+    queryHash: string;
+    chosenRef: string;
+    rankPosition: number;
+    followKind: RetrievalTelemetryFollowKind;
+    occurrenceCount: number;
+  }>;
+  const sampleTruncated = sampledRows.length > maxRows;
+  const rows = sampledRows.slice(0, maxRows);
+  const countRow = db.prepare(`
+    SELECT
+      COUNT(DISTINCT s.id) AS telemetrySearchEvents,
+      COUNT(DISTINCT f.id) AS telemetryFollowEvents
+    FROM telemetry_follow_events f
+    JOIN telemetry_search_events s ON s.id = f.search_event_id
+    WHERE s.telemetry_session_key IS NOT NULL
+      AND s.ts >= ?
+      AND s.ts <= ?
+      AND f.ts >= ?
+      AND f.ts <= ?
+  `).get(sinceIso, generatedAt, sinceIso, generatedAt) as { telemetrySearchEvents?: number; telemetryFollowEvents?: number } | undefined;
+  const searchEventCount = Number(countRow?.telemetrySearchEvents ?? 0);
+  const followEventCount = Number(countRow?.telemetryFollowEvents ?? 0);
+  const candidatesByQuery = new Map<string, Map<string, TelemetryHarvestCandidate>>();
+  const rankDistribution: Record<string, number> = {};
+
+  for (const row of rows) {
+    const rank = Number(row.rankPosition);
+    const occurrenceCount = Number(row.occurrenceCount);
+    if (!Number.isSafeInteger(rank) || rank < 1 || !Number.isSafeInteger(occurrenceCount) || occurrenceCount < 1) continue;
+    const byRef = candidatesByQuery.get(row.queryHash) ?? new Map<string, TelemetryHarvestCandidate>();
+    const existing = byRef.get(row.chosenRef);
+    if (existing) {
+      existing.observedRank = Math.min(existing.observedRank, rank);
+      existing.occurrenceCount += occurrenceCount;
+      existing.followKinds.add(row.followKind);
+    } else {
+      byRef.set(row.chosenRef, {
+        queryHash: row.queryHash,
+        chosenRef: row.chosenRef,
+        observedRank: rank,
+        occurrenceCount,
+        followKinds: new Set([row.followKind])
+      });
+    }
+    candidatesByQuery.set(row.queryHash, byRef);
+  }
+
+  const candidates = [...candidatesByQuery.values()]
+    .map((byRef) => [...byRef.values()].sort(compareTelemetryHarvestCandidates)[0])
+    .filter((candidate): candidate is TelemetryHarvestCandidate => Boolean(candidate))
+    .sort((left, right) => left.queryHash.localeCompare(right.queryHash));
+  for (const candidate of candidates) {
+    const rankKey = String(candidate.observedRank);
+    rankDistribution[rankKey] = (rankDistribution[rankKey] ?? 0) + 1;
+  }
+  const scenarios = candidates.map((candidate, index) => ({
+    id: `harvested-query-${index + 1}`,
+    publicSafe: false,
+    requiresManualCuration: true,
+    redactionRequired: true,
+    query: telemetryQueryPlaceholder(candidate.queryHash),
+    queryHash: candidate.queryHash,
+    expectedSourceRefs: [candidate.chosenRef],
+    observedRank: candidate.observedRank,
+    followKinds: orderedFollowKinds(candidate.followKinds),
+    occurrenceCount: candidate.occurrenceCount
+  }));
+  const metrics: RetrievalTelemetryMetrics = {
+    sample: {
+      sampledGroups: rows.length,
+      maxRows,
+      sampleTruncated
+    },
+    rankDistribution: Object.fromEntries(Object.entries(rankDistribution).sort(([left], [right]) => Number(left) - Number(right))),
+    topMissQueries: candidates
+      .filter((candidate) => candidate.observedRank > 5)
+      .sort((left, right) => right.occurrenceCount - left.occurrenceCount || right.observedRank - left.observedRank || left.queryHash.localeCompare(right.queryHash))
+      .slice(0, 10)
+      .map((candidate, index) => ({
+        missId: `miss_${index + 1}`,
+        observedRank: candidate.observedRank,
+        occurrenceCount: candidate.occurrenceCount
+      }))
+  };
+
+  if (options.metricsPath) {
+    mkdirSync(dirname(options.metricsPath), { recursive: true });
+    // Metrics files are allowed in git checkouts because this schema is
+    // publicSafe aggregate output only. Do not add raw query text, query hashes,
+    // source refs, or local paths here without restoring a private path guard.
+    writeFileSync(options.metricsPath, `${JSON.stringify({
+      schema: "lco.retrieval.telemetryMetrics.v1",
+      publicSafe: true,
+      generatedAt,
+      metrics
+    }, null, 2)}\n`);
+  }
+
+  // Re-check immediately before writing the private proposal artifact. This is
+  // an accidental-commit guard for local operators, not a sandbox boundary.
+  assertTelemetryHarvestProposalPathIsPrivate(options.proposalPath);
+  mkdirSync(dirname(options.proposalPath), { recursive: true });
+  writeFileSync(options.proposalPath, `${JSON.stringify({
+    schema: "lco.retrieval.telemetryHarvest.v1",
+    publicSafe: false,
+    requiresManualCuration: true,
+    doNotCommit: true,
+    rawQueryTextIncluded: false,
+    generatedAt,
+      source: "local_derived_cache",
+      sampleTruncated,
+      scenarios
+    }, null, 2)}\n`);
+
+  return {
+    schema: "lco.retrieval.telemetryHarvestReport.v1",
+    publicSafe: true,
+    generatedAt,
+    summary: {
+      telemetrySearchEvents: searchEventCount,
+      telemetryFollowEvents: followEventCount,
+      proposedScenarios: scenarios.length,
+      sampledGroups: rows.length,
+      maxRows,
+      sampleTruncated
+    },
+    proposalFile: {
+      written: true,
+      publicSafe: false,
+      requiresManualCuration: true
+    },
+    metricsFile: options.metricsPath ? {
+      written: true,
+      publicSafe: true
+    } : null,
+    metrics,
+    privateDataExclusions: [
+      "raw Codex transcripts",
+      "raw prompts or transcript spans in public output",
+      "verbatim telemetry query text in public metrics",
+      "SQLite DBs",
+      "tokens, credentials, API keys, cookies",
+      "private customer data"
+    ],
+    proofBoundary: "Harvest proposals are local, not-public-safe curation inputs from opt-in derived-cache telemetry. The returned report and metrics contain aggregate counts, sampled ranks, hashes, placeholders, truncation markers, and ephemeral miss ids only; they do not commit scenarios, widen retrieval claims, mutate source stores, or create public evidence from query text.",
+    nextAction: sampleTruncated
+      ? "Increase maxRows or narrow the harvest window before curating proposed retrieval scenarios."
+      : scenarios.length === 0
+      ? "Run opt-in search and describe/expand flows before harvesting proposed retrieval scenarios."
+      : "Manually review, redact, and curate proposed scenarios before adding anything to evals/."
+  };
+}
+
+function telemetryQueryPlaceholder(queryHash: string): string {
+  return `[redacted-query:${queryHash.slice(0, 12)}]`;
+}
+
+function assertTelemetryHarvestProposalPathIsPrivate(proposalPath: string): void {
+  const proposalDir = dirname(canonicalMaybeMissingPath(proposalPath));
+  const gitRoot = nearestGitRoot(proposalDir);
+  if (gitRoot) {
+    throw new Error("Telemetry harvest proposal files are private curation artifacts and must be written outside git checkouts");
+  }
+}
+
+function nearestGitRoot(startDir: string): string | null {
+  let cursor = resolve(startDir);
+  const seen = new Set<string>();
+  while (cursor && dirname(cursor) !== cursor) {
+    for (const candidate of [cursor, canonicalMaybeMissingPath(cursor)]) {
+      if (seen.has(candidate)) continue;
+      seen.add(candidate);
+      if (existsSync(join(candidate, ".git"))) return candidate;
+    }
+    cursor = dirname(cursor);
+  }
+  for (const candidate of [cursor, canonicalMaybeMissingPath(cursor)]) {
+    if (!seen.has(candidate) && existsSync(join(candidate, ".git"))) return candidate;
+  }
+  return null;
+}
+
+function compareTelemetryHarvestCandidates(left: TelemetryHarvestCandidate, right: TelemetryHarvestCandidate): number {
+  return right.occurrenceCount - left.occurrenceCount
+    || left.observedRank - right.observedRank
+    || left.chosenRef.localeCompare(right.chosenRef);
+}
+
+function orderedFollowKinds(kinds: Set<RetrievalTelemetryFollowKind>): RetrievalTelemetryFollowKind[] {
+  return (["describe", "expand"] as RetrievalTelemetryFollowKind[]).filter((kind) => kinds.has(kind));
 }
 
 export function evaluateRetrievalScenarios(db: LooDatabase, options: {

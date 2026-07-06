@@ -135,12 +135,12 @@ function dryRunOnly(source: LooCommandSource, mutationClasses: readonly LooMutat
 // must update this table, the manifests, and the focused policy tests together.
 export const LOO_COMMAND_POLICY: Record<string, LooCommandSafety> = {
   loo_index_sessions: localCacheWrite("local_index"),
-  loo_grep: readOnly("local_index"),
-  loo_search_sessions: readOnly("local_index"),
-  loo_describe_ref: readOnly("local_index"),
-  loo_describe_session: readOnly("local_index"),
-  loo_expand_session: readOnly("local_index"),
-  loo_expand_query: readOnly("local_index"),
+  loo_grep: localCacheWrite("local_index"),
+  loo_search_sessions: localCacheWrite("local_index"),
+  loo_describe_ref: localCacheWrite("local_index"),
+  loo_describe_session: localCacheWrite("local_index"),
+  loo_expand_session: localCacheWrite("local_index"),
+  loo_expand_query: localCacheWrite("local_index"),
   loo_summary_leaves: readOnly("local_index"),
   loo_summary_expand: readOnly("local_index"),
   loo_prepared_state_status: readOnly("local_index"),

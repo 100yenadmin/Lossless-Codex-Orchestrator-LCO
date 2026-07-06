@@ -31,6 +31,7 @@ import {
   getCodexThreadMap,
   getCodexSessionManagementMap,
   grepRecall,
+  harvestRetrievalTelemetry,
   indexCodexSessions,
   probeCodexSqliteStores,
   probeLcmPeerDbs,
@@ -553,10 +554,25 @@ async function main() {
   }
   if (command === "eval" && args[0] === "retrieval") {
     const parsed = parseRetrievalEvalArgs(args.slice(1));
+    if (parsed.mode === "harvest") {
+      const db = createDatabase();
+      try {
+        const report = harvestRetrievalTelemetry(db, {
+          proposalPath: parsed.harvestPath,
+          metricsPath: parsed.metricsPath,
+          now: parsed.now,
+        });
+        console.log(JSON.stringify(report, null, 2));
+        if (parsed.strict && report.summary.proposedScenarios === 0) process.exitCode = 1;
+      } finally {
+        db.close();
+      }
+      return;
+    }
     const payload = readRetrievalScenarioFile(parsed.scenarioFile);
     const corpusReport = createRetrievalCorpusReadinessReport(payload.codexRootRefs, {
       floorFile: parsed.floorFile,
-      now: new Date().toISOString()
+      now: parsed.now ?? new Date().toISOString()
     });
     if (!corpusReport.ok) {
       if (parsed.evidencePath) {
@@ -582,9 +598,9 @@ async function main() {
         ? evaluateRetrievalBaselineScenarios(db, {
           scenarios: payload.scenarios,
           floors,
-          now: typeof floors.measuredAt === "string" ? floors.measuredAt : undefined
+          now: typeof floors.measuredAt === "string" ? floors.measuredAt : parsed.now
         })
-        : evaluateRetrievalScenarios(db, { scenarios: payload.scenarios });
+        : evaluateRetrievalScenarios(db, { scenarios: payload.scenarios, now: parsed.now });
       if (parsed.evidencePath) {
         mkdirSync(dirname(parsed.evidencePath), { recursive: true });
         writeFileSync(parsed.evidencePath, `${JSON.stringify(report, null, 2)}\n`);
@@ -1049,7 +1065,9 @@ function mainUsageText(): string {
     "  loo scorecards sweep --evidence-dir path [--scorecard-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--runtime-proof-dir path] [--package-version version] [--candidate-sha sha] [--strict]",
     "  loo runtime sweep-summary --evidence-dir path --dry-run-scenarios path --runtime-scenarios path --scorecard-sweep path --published-smoke path [--runtime-proof-dir path] [--now iso] [--strict]",
     "  loo ui local-mac-search --evidence-dir path [--sample] [--strict]",
-    "  loo eval retrieval --scenario-file path [--floor-file path] [--evidence-path path] [--strict]",
+    "  loo eval retrieval --scenario-file path [--floor-file path] [--evidence-path path] [--now iso] [--strict]",
+    "  loo eval retrieval --harvest path [--metrics-path path] [--now iso] [--strict]",
+    "    Harvest proposal files are private curation artifacts and must be written outside git checkouts.",
     "  loo eval scenarios --evidence-dir path [--scenario-dir path] [--runtime-proof-dir path] [--package-version version] [--candidate-sha sha] [--strict]",
     "  loo runtime issue-packet --evidence-dir path --failure-report path [--parent-issue #n] [--operating-loop #n] [--milestone name] [--now iso] [--strict]",
     "  loo release preflight [--evidence-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--strict]",
@@ -2410,27 +2428,52 @@ function parseRecallArgs(input: string[]): { rest: string[]; lcmDbPaths: string[
   return { rest, lcmDbPaths: [...new Set(lcmDbPaths)], profile, tokenBudget };
 }
 
-function parseRetrievalEvalArgs(input: string[]): { scenarioFile: string; floorFile?: string; evidencePath?: string; strict: boolean } {
+function parseRetrievalEvalArgs(input: string[]): (
+  | { mode: "scenario"; scenarioFile: string; floorFile?: string; evidencePath?: string; now?: string; strict: boolean }
+  | { mode: "harvest"; harvestPath: string; metricsPath: string; now?: string; strict: boolean }
+) {
   let scenarioFile = "";
   let floorFile: string | undefined;
   let evidencePath: string | undefined;
+  let harvestPath: string | undefined;
+  let metricsPath: string | undefined;
+  let now: string | undefined;
   let strict = false;
   for (let index = 0; index < input.length; index += 1) {
     const arg = input[index]!;
     if (arg === "--scenario-file") {
       scenarioFile = requireOptionValue(input[++index], arg);
+    } else if (arg === "--harvest") {
+      harvestPath = requireOptionValue(input[++index], arg);
+    } else if (arg === "--metrics-path") {
+      metricsPath = requireOptionValue(input[++index], arg);
     } else if (arg === "--floor-file") {
       floorFile = requireOptionValue(input[++index], arg);
     } else if (arg === "--evidence-path") {
       evidencePath = requireOptionValue(input[++index], arg);
+    } else if (arg === "--now") {
+      now = requireOptionValue(input[++index], arg);
     } else if (arg === "--strict") {
       strict = true;
     } else {
       throw new Error(`Unknown eval retrieval option: ${arg}`);
     }
   }
+  if (harvestPath) {
+    if (scenarioFile) throw new Error("Invalid --harvest: cannot be combined with --scenario-file");
+    if (floorFile) throw new Error("Invalid --harvest: cannot be combined with --floor-file");
+    if (evidencePath) throw new Error("Invalid --harvest: cannot be combined with --evidence-path");
+    return {
+      mode: "harvest",
+      harvestPath,
+      metricsPath: metricsPath ?? join(dirname(harvestPath), "telemetry-metrics.json"),
+      now,
+      strict
+    };
+  }
   if (!scenarioFile) throw new Error("eval retrieval requires --scenario-file");
-  return { scenarioFile, floorFile, evidencePath, strict };
+  if (metricsPath) throw new Error("eval retrieval --metrics-path requires --harvest");
+  return { mode: "scenario", scenarioFile, floorFile, evidencePath, now, strict };
 }
 
 function parseScenarioSweepArgs(input: string[]): { evidenceDir: string; scenarioDir?: string; runtimeProofDir?: string; scenarioIds?: string[]; packageVersion?: string; candidateSha?: string; strict: boolean } {

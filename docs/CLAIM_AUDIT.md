@@ -119,6 +119,13 @@ the release reports must include `excludedClaims` showing
 and public copy must not claim live Codex continue/steer/send/interrupt proof or
 runtime-proven installed working-app behavior.
 
+Opt-in retrieval telemetry does not widen the public evidence boundary for this
+claim scope. Public evidence, release reports, and telemetry metrics must stay
+at aggregate count/rank/hash/placeholder level and must not include harvested
+query text, raw prompts, transcripts, or local database artifacts. Operator
+mechanics and the local telemetry safety boundary live in
+`docs/OPENCLAW_PLUGIN.md`.
+
 `loo release bundle` writes local draft release artifacts without publishing: `RELEASE_NOTES_<package-version>.md`, `release-preflight.json`, and `release-bundle.json`. It must record `npmPublished: false` and `githubReleaseCreated: false` until a separate explicit publish step is approved.
 
 `loo release status` writes `release-status.json` without performing gated actions. It must record `npmPublished: false`, `githubReleaseCreated: false`, `liveCodexControlRun: false`, and `desktopGuiActionRun: false`, and it must list `npm_publish_not_approved` and `github_release_not_approved` until those separate release operations are explicitly approved through safe `loo_release_operation_approval` proof markers. It must also list `candidate_sha_missing` or `candidate_sha_invalid`, `github_ci_evidence_missing` or `github_ci_sha_mismatch`, and `codeql_evidence_missing` or `codeql_sha_mismatch` until exact release candidate SHA evidence is supplied. Any non-empty CI or CodeQL `warnings` array, including workflow/action deprecation warnings, must keep release status blocked with `github_ci_warnings_present` or `codeql_warnings_present`. Release operation proof markers must include `operation: "npm_publish" | "github_release"`, `approved: true`, a non-empty `approvalRef`, and `rawSecretIncluded: false`.
