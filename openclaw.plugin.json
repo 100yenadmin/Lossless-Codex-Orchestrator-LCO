@@ -2888,7 +2888,7 @@
         "legacyCompatiblePrefix": "loo_",
         "packageName": "lossless-openclaw-orchestrator",
         "compatibilityIssue": "#434",
-        "aliasPolicy": "`lco_*` is the forward public alias target for new user-facing tool names. Public-facade tools expose tested `lco_*` aliases while historical `loo_*` names stay backward compatible. Alias declarations point at their `loo_*` target with `metadata.aliasOf` and do not create separate coverage obligations."
+        "aliasPolicy": "`lco_*` is the forward public alias target for new user-facing tool names. The redirect alias registry can point an alias at any declared tool and can provide `kindDefaults`; caller arguments override those defaults at dispatch. The active registry contains only the eight tested public-facade `lco_*` aliases, each carrying `metadata.aliasOf`, while historical `loo_*` names stay backward compatible. Redirect aliases do not create separate coverage obligations."
       },
       "desktopFallback": {
         "normalFirstPath": "direct Codex protocol",

@@ -96,6 +96,13 @@ export type LooToolSurfaceMetadata = {
   aliasOf?: string;
 };
 
+export type LooToolAliasDeclaration = {
+  targetName: string;
+  kindDefaults?: Record<string, unknown>;
+};
+
+export type LooToolAliasRegistry = Record<string, LooToolAliasDeclaration>;
+
 export type LooToolSurfaceSummary = {
   tiers: LooToolTier[];
   publicFacadeTools: string[];
@@ -243,6 +250,17 @@ export const LOO_TOOL_SURFACE: Record<string, LooToolSurfaceMetadata> = {
   loo_audit_tail: { tier: "proof_debug" }
 };
 
+export const LOO_TOOL_ALIAS_REGISTRY: LooToolAliasRegistry = {
+  lco_describe_ref: { targetName: "loo_describe_ref" },
+  lco_expand_query: { targetName: "loo_expand_query" },
+  lco_prepared_inbox: { targetName: "loo_prepared_inbox" },
+  lco_recent_sessions: { targetName: "loo_recent_sessions" },
+  lco_project_digest: { targetName: "loo_project_digest" },
+  lco_attention_inbox: { targetName: "loo_attention_inbox" },
+  lco_codex_control_dry_run: { targetName: "loo_codex_control_dry_run" },
+  lco_codex_resume_thread: { targetName: "loo_codex_resume_thread" }
+};
+
 export function createLooToolSurfaceSummary(): LooToolSurfaceSummary {
   return {
     tiers: LOO_TOOL_TIERS,
@@ -254,7 +272,7 @@ export function createLooToolSurfaceSummary(): LooToolSurfaceSummary {
       legacyCompatiblePrefix: "loo_",
       packageName: "lossless-openclaw-orchestrator",
       compatibilityIssue: "#434",
-      aliasPolicy: "`lco_*` is the forward public alias target for new user-facing tool names. Public-facade tools expose tested `lco_*` aliases while historical `loo_*` names stay backward compatible. Alias declarations point at their `loo_*` target with `metadata.aliasOf` and do not create separate coverage obligations."
+      aliasPolicy: "`lco_*` is the forward public alias target for new user-facing tool names. The redirect alias registry can point an alias at any declared tool and can provide `kindDefaults`; caller arguments override those defaults at dispatch. The active registry contains only the eight tested public-facade `lco_*` aliases, each carrying `metadata.aliasOf`, while historical `loo_*` names stay backward compatible. Redirect aliases do not create separate coverage obligations."
     },
     desktopFallback: {
       normalFirstPath: "direct Codex protocol",
@@ -361,7 +379,7 @@ export function createLooToolDeclarations(options: LooToolExposureOptions = {}):
     codexClient: metadataOnlyCodexClient
   }).map(({ name, description, safety, metadata, inputSchema }) => ({ name, description, safety, metadata, inputSchema }));
   return filterLooToolsByProfile(
-    options.includeAliases ? withPublicFacadeAliases(declarations) : declarations,
+    options.includeAliases ? withLooToolAliases(declarations) : declarations,
     options.profile ?? "all"
   );
 }
@@ -1078,7 +1096,7 @@ export function createLooTools(options: {
       records: options.audit.tail(optionalNumber(input.limit) ?? 20)
     }))
   ];
-  return options.includeAliases ? withPublicFacadeAliases(tools) : tools;
+  return options.includeAliases ? withLooToolAliases(tools) : tools;
 }
 
 export function parseLooToolProfile(value: unknown, options?: { onInvalid?: (value: string) => void }): LooToolProfile {
@@ -1102,32 +1120,50 @@ export function lcoAliasNameForLooTool(name: string): string {
   return `lco_${name.slice("loo_".length)}`;
 }
 
-export function looAliasTargetName(name: string): string | null {
-  if (!name.startsWith("lco_")) return null;
-  const target = `loo_${name.slice("lco_".length)}`;
-  return LOO_TOOL_SURFACE[target]?.tier === "public_facade" ? target : null;
+export function looAliasTargetName(name: string, registry: LooToolAliasRegistry = LOO_TOOL_ALIAS_REGISTRY): string | null {
+  return registry[name]?.targetName ?? null;
 }
 
 export function isUnknownLcoAliasName(name: string): boolean {
   return name.startsWith("lco_") && looAliasTargetName(name) === null;
 }
 
-export function canonicalLooToolName(name: string): string {
-  return looAliasTargetName(name) ?? name;
+export function canonicalLooToolName(name: string, registry: LooToolAliasRegistry = LOO_TOOL_ALIAS_REGISTRY): string {
+  return looAliasTargetName(name, registry) ?? name;
 }
 
-function withPublicFacadeAliases<T extends LooTool | LooToolDeclaration>(tools: T[]): T[] {
-  const aliases = tools
-    .filter((tool) => !tool.metadata.aliasOf && tool.metadata.tier === "public_facade")
-    .map((tool) => ({
-      ...tool,
-      name: lcoAliasNameForLooTool(tool.name),
+export function withLooToolAliases<T extends LooTool | LooToolDeclaration>(
+  tools: T[],
+  registry: LooToolAliasRegistry = LOO_TOOL_ALIAS_REGISTRY
+): T[] {
+  const byName = new Map(tools.map((tool) => [tool.name, tool]));
+  const aliases = Object.entries(registry).map(([aliasName, declaration]) => {
+    const target = byName.get(declaration.targetName);
+    if (!target) throw new Error(`Missing LOO alias target for ${aliasName}: ${declaration.targetName}`);
+    const alias = {
+      ...target,
+      name: aliasName,
       metadata: {
-        ...tool.metadata,
-        aliasOf: tool.name
+        ...target.metadata,
+        aliasOf: target.name
       }
-    }) as T);
+    };
+    if (isExecutableTool(target)) {
+      return {
+        ...alias,
+        execute: (input: Record<string, unknown>) => target.execute({
+          ...(declaration.kindDefaults ?? {}),
+          ...input
+        })
+      } as T;
+    }
+    return alias as T;
+  });
   return [...tools, ...aliases];
+}
+
+function isExecutableTool(tool: LooTool | LooToolDeclaration): tool is LooTool {
+  return typeof (tool as { execute?: unknown }).execute === "function";
 }
 
 function publicSafeCodexSqliteProbe(report: ReturnType<typeof probeCodexSqliteStores>) {
