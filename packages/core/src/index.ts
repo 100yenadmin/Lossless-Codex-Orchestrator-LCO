@@ -4101,6 +4101,7 @@ export function getCodexJsonlDriftStatus(db: LooDatabase): CodexJsonlDriftStatus
       jsonl_drift_reason_codes_json AS reasonCodesJson
     FROM codex_source_files
   `).all() as Array<Record<string, unknown>>;
+  if (rows.length === 0) return emptyCodexJsonlDriftStatus("requires_index_run");
   const unknownEventKindCounts = new Map<string, number>();
   const missingExpectedFieldCounts = new Map<string, number>();
   const reasonCodes = new Set<string>();

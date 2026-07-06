@@ -51,6 +51,9 @@ local command for a bounded first index run:
 loo index codex --max-files 500 "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
 ```
 
+On non-POSIX shells, replace `$HOME` with the absolute home directory before
+running the command manually.
+
 That command is a local derived-cache write only; it does not mutate Codex source
 stores, run live control, or upload transcripts. The reason code
 `codex_jsonl_drift_projection_requires_index_run` means the status object is
