@@ -71,6 +71,21 @@ machinery* for control actions; they did not widen the shipped claim. Live
 control remains gated on a full send/resume/steer/interrupt matrix before any
 `codex-live-control` claim.
 
+## Proof Boundary
+
+Do not claim:
+
+- Full parity: Claude Code remains an adapter stub, not an adapter-equivalence claim.
+- No cloud sync.
+- No unattended desktop takeover.
+- No release-grade enterprise security.
+
+Live control stays fail-closed: without an approved live-control smoke for the
+exact target thread and harmless prompt, a stable release bundle records
+`approved_live_control_smoke_missing` as the blocker and does not claim live
+control. Scratch-thread live smokes remain a standing-approved class; real user
+threads still require exact-target approval.
+
 ## Migration
 
 - Nothing is required: `loo`, `loo-mcp-server`, `loo_*` tools, `LOO_*` env vars,
