@@ -161,6 +161,42 @@ test("QA Lab live-control matrix blocks thread-scoped interrupt from satisfying 
   }
 });
 
+test("QA Lab live-control matrix blocks accepted send status from terminal-only send proof", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-live-control-matrix-send-accepted-"));
+  const evidenceDir = join(root, "evidence");
+  try {
+    const reports = allReports(evidenceDir);
+    reports.sendReport = writeActionReport(evidenceDir, "send", {
+      live: {
+        approvalAuditId: LIVE_AUDIT_ID,
+        paramsHash: PARAMS_HASH,
+        messageHash: MESSAGE_HASH,
+        live: true,
+        method: "turn/start",
+        turnStatus: "accepted",
+        responseOk: true
+      }
+    });
+    const report = createQaLabLiveControlMatrixReport({
+      evidenceDir,
+      packageVersion: "1.2.6",
+      candidateSha: SHA,
+      claimScope: "codex-live-control",
+      sacrificialThreadIds: sacrificialThreadIds(),
+      now: "2026-07-05T00:00:00.000Z",
+      ...reports
+    });
+    const send = report.rows.find((row) => row.action === "send");
+
+    assert.equal(report.liveControlMatrixReady, false);
+    assert.equal(send?.status, "blocked");
+    assert.equal(send?.liveProof.turnStatus, "accepted");
+    assert.ok(send?.blockerCodes.includes("live_control_send_runtime_marker_missing"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("QA Lab live-control matrix blocks steer rows whose live turn binding differs from the dry-run turn", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-live-control-matrix-steer-turn-mismatch-"));
   const evidenceDir = join(root, "evidence");

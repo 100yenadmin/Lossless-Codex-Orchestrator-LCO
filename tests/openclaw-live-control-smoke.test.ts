@@ -21,6 +21,7 @@ function createFakeOpenClaw(dir: string, options: {
   liveResponseOkFalse?: boolean;
   mismatchedLiveMessageHash?: boolean;
   missingLiveTurnStatus?: boolean;
+  liveProofCompleted?: boolean;
   resumeResponseMissingStatus?: boolean;
   resumeResponseOkFalse?: boolean;
   resumeMethod?: string;
@@ -31,13 +32,23 @@ function createFakeOpenClaw(dir: string, options: {
   const callsPath = join(dir, "calls.jsonl");
   const bin = join(dir, "openclaw-live-fake.mjs");
   const liveMessageHash = options.mismatchedLiveMessageHash ? "c".repeat(64) : MESSAGE_HASH;
+  const liveTurnStatus = options.liveTurnStatus ?? "completed";
+  const liveProofCompleted = options.liveProofCompleted ?? liveTurnStatus === "completed";
+  const liveProofState = options.liveResponseOkFalse || options.missingLiveTurnStatus
+    ? ""
+    : `turn_status: "${liveTurnStatus}",
+      proof_state: {
+        accepted_by_transport: true,
+        completed: ${liveProofCompleted},
+        status: "${liveTurnStatus === "completed" ? "unverified_pending" : "turn_started_unconfirmed"}"
+      },`;
   const liveResponse = options.liveResponseOkFalse
     ? `{ ok: false, error: "thread not found: thr_gateway_live" }`
     : options.missingLiveTurnStatus
       ? `{ ok: true }`
       : options.liveResponseMissingOk
-        ? `{ turn: { id: "turn_1", status: "${options.liveTurnStatus ?? "completed"}" } }`
-      : `{ ok: true, turn: { id: "turn_1", status: "${options.liveTurnStatus ?? "completed"}" } }`;
+        ? `{ turn: { id: "turn_1", status: "${liveTurnStatus}" } }`
+      : `{ ok: true, turn: { id: "turn_1", status: "${liveTurnStatus}" } }`;
   const resumeResponse = options.resumeResponseOkFalse
     ? `{ ok: false, error: "resume rejected" }`
     : options.resumeResponseMissingStatus
@@ -118,6 +129,7 @@ if (method === "tools.invoke") {
       approval_audit_id: "${LIVE_AUDIT_ID}",
       params_hash: "${PARAMS_HASH}",
       message_hash: "${liveMessageHash}",
+      ${liveProofState}
       response: ${liveResponse}
     } }));
     process.exit(0);
@@ -601,7 +613,7 @@ test("OpenClaw live-control smoke requires explicit action before gateway calls"
   }
 });
 
-test("OpenClaw live-control smoke accepts documented in-flight turn statuses", () => {
+test("OpenClaw live-control smoke fails closed on in-flight send statuses", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-smoke-running-status-"));
   const { bin, callsPath } = createFakeOpenClaw(root, { liveTurnStatus: "running" });
   const previous = process.env.OPENCLAW_FAKE_CALLS;
@@ -615,9 +627,59 @@ test("OpenClaw live-control smoke accepts documented in-flight turn statuses", (
       action: "send"
     });
 
-    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.equal(report.ok, false);
     assert.equal(report.live.turnStatus, "running");
-    assert.deepEqual(report.blockers, []);
+    assert.match(report.blockers.join("\n"), /openclaw_live_send_not_proven/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw live-control smoke requires completed proof independent of terminal-looking send status", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-smoke-status-complete-proof-false-"));
+  const { bin, callsPath } = createFakeOpenClaw(root, { liveTurnStatus: "complete", liveProofCompleted: false });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+
+  try {
+    const report = runOpenClawGatewayLiveControlSmoke({
+      openclawBin: bin,
+      evidenceDir: join(root, "evidence"),
+      threadId: "thr_gateway_live",
+      action: "send"
+    });
+
+    assert.equal(report.ok, false);
+    assert.equal(report.live.turnStatus, "complete");
+    assert.equal(report.live.turnCompleted, false);
+    assert.match(report.blockers.join("\n"), /openclaw_live_send_not_proven/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw live-control smoke requires terminal send status independent of completed proof", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-smoke-status-running-proof-true-"));
+  const { bin, callsPath } = createFakeOpenClaw(root, { liveTurnStatus: "running", liveProofCompleted: true });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+
+  try {
+    const report = runOpenClawGatewayLiveControlSmoke({
+      openclawBin: bin,
+      evidenceDir: join(root, "evidence"),
+      threadId: "thr_gateway_live",
+      action: "send"
+    });
+
+    assert.equal(report.ok, false);
+    assert.equal(report.live.turnStatus, "running");
+    assert.equal(report.live.turnCompleted, true);
+    assert.match(report.blockers.join("\n"), /openclaw_live_send_not_proven/);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;

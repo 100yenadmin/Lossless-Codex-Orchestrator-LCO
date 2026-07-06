@@ -44,6 +44,7 @@ export type OpenClawGatewayLiveControlSmokeReport = {
     live: boolean | null;
     method: string | null;
     turnStatus: string | null;
+    turnCompleted: boolean | null;
     responseOk: boolean | null;
     expectedTurnId: string | null;
   };
@@ -86,12 +87,16 @@ type ControlSummary = {
   live: boolean | null;
   method: string | null;
   turnStatus: string | null;
+  turnCompleted: boolean | null;
   responseOk: boolean | null;
   expectedTurnId: string | null;
 };
 
 const SCENARIO_ID = "openclaw-gateway-live-codex-v1-1";
-export const ACCEPTED_LIVE_TURN_STATUSES = new Set(["accepted", "completed", "in_progress", "pending", "queued", "running"]);
+// Send proof is terminal-only. In-flight transport states are intentionally not
+// accepted by release gates because the gateway bug in #623 returned quickly
+// with `inProgress` while no turn was durably executed.
+export const ACCEPTED_LIVE_TURN_STATUSES = new Set(["completed", "complete", "done"]);
 const DEFAULT_MESSAGE = "LCO OpenClaw gateway live-control smoke. Reply with exactly: LCO gateway live smoke acknowledged. Do not run commands, edit files, or use tools.";
 const DEFAULT_STEER_MESSAGE = "LCO OpenClaw gateway steer smoke. Keep this sacrificial QA turn bounded; do not run commands, edit files, or use tools.";
 const PRIVATE_DATA_EXCLUSIONS = [
@@ -239,7 +244,7 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
       rawTranscriptRead: false
     },
     privateDataExclusions: PRIVATE_DATA_EXCLUSIONS,
-    proofBoundary: "This proves one approved harmless live Codex send/resume/steer/interrupt action through the installed OpenClaw gateway path only. Steer and interrupt proof are turn-bound when --expected-turn-id is supplied. It does not prove unattended live control, broad gateway scope approval, GUI mutation, Claude parity, or bypassed Codex approvals.",
+    proofBoundary: "This proves one approved harmless live Codex send/resume/steer/interrupt action through the installed OpenClaw gateway path only. Send proof requires a terminal gateway turn status plus gateway-attested completion; durable post-action persistence still requires a follow-up read proof. Steer and interrupt proof are turn-bound when --expected-turn-id is supplied. It does not prove unattended live control, broad gateway scope approval, GUI mutation, Claude parity, or bypassed Codex approvals.",
     nextAction: uniqueBlockers.length === 0
       ? "Run the v1.1 runtime scenario sweep against this runtime-proof directory, then continue #159 post-action refresh proof."
       : "Resolve the listed gateway live-control blockers before claiming #158 runtime proof."
@@ -324,7 +329,7 @@ function validLive(action: OpenClawGatewayLiveControlAction, summary: ControlSum
   const actionAccepted = action === "resume"
     ? summary.method === "thread/resume"
     : action === "send"
-      ? liveTurnStatusProvesSendAccepted(summary.turnStatus)
+      ? liveTurnStatusProvesSendAccepted(summary.turnStatus) && summary.turnCompleted === true
       : action === "steer"
         ? summary.method === "turn/steer" && summary.expectedTurnId === expectedTurnId
         : summary.method === "turn/interrupt" && summary.expectedTurnId === expectedTurnId;
@@ -370,6 +375,9 @@ function safeHash(value: string | null): value is string {
 function summarizeControl(call: GatewayCallResult | null): ControlSummary {
   const output = call?.parsed ? unwrapToolOutput(unwrapGatewayPayload(call.parsed)) : undefined;
   const details = unwrapToolDetails(output) ?? output;
+  // `turnCompleted` is gateway-attested response metadata, not an independent
+  // persistence proof. Callers must pair it with audit/hash checks and, for
+  // durable claims, a separate post-action read/proof lane.
   return {
     approvalAuditId: stringPath(details, ["approval_audit_id"]) || stringPath(details, ["approvalAuditId"]),
     paramsHash: stringPath(details, ["params_hash"]) || stringPath(details, ["paramsHash"]),
@@ -377,6 +385,7 @@ function summarizeControl(call: GatewayCallResult | null): ControlSummary {
     live: booleanPath(details, ["live"]),
     method: stringPath(details, ["method"]),
     turnStatus: stringPath(details, ["response", "turn", "status"]) || stringPath(details, ["response", "result", "turn", "status"]) || stringPath(details, ["response", "status"]) || stringPath(details, ["turn_status"]) || stringPath(details, ["status"]),
+    turnCompleted: booleanPath(details, ["proof_state", "completed"]) ?? booleanPath(details, ["proofState", "completed"]) ?? booleanPath(details, ["turn", "completed"]) ?? booleanPath(details, ["response", "turn", "completed"]),
     responseOk: booleanPath(details, ["response", "ok"]) ?? booleanPath(details, ["ok"]),
     expectedTurnId: stringPath(details, ["expected_turn_id"]) || stringPath(details, ["expectedTurnId"])
   };
