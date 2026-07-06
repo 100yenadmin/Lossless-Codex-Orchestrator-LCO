@@ -478,9 +478,9 @@ test("MCP doctor and desktop tools expose CUA diagnostics while desktop act stay
     assert.equal(cuaBackend.permissions.screenRecording.status, "unknown");
     assert.ok(cuaBackend.limitations.some((limitation) => limitation.includes("No live GUI action")));
 
-    const see = tools.find((tool) => tool.name === "loo_desktop_see");
+    const see = tools.find((tool) => tool.name === "loo_desktop_proof");
     assert.ok(see);
-    const seeResult = await see.execute({ backend: "cua-driver" }) as { backend: string; available: boolean; focus: { proof: string } };
+    const seeResult = await see.execute({ check: "see", backend: "cua-driver" }) as { backend: string; available: boolean; focus: { proof: string } };
     assert.equal(seeResult.backend, "cua-driver");
     assert.equal(seeResult.available, false);
     assert.equal(seeResult.focus.proof, "not_measured");
@@ -590,9 +590,10 @@ test("MCP doctor and desktop tools expose CUA diagnostics while desktop act stay
     assert.equal(missingActionLiveRequest.action, "unknown");
     assert.ok(missingActionLiveRequest.blockers?.includes("action_missing"));
 
-    const proofReport = tools.find((tool) => tool.name === "loo_desktop_proof_report");
+    const proofReport = tools.find((tool) => tool.name === "loo_desktop_proof");
     assert.ok(proofReport);
     const invalidProof = await proofReport.execute({
+      check: "proof_report",
       observation: {
         kind: "loo_desktop_gui_action_observation",
         desktopBackend: "direct",
@@ -616,9 +617,10 @@ test("MCP doctor and desktop tools expose CUA diagnostics while desktop act stay
     assert.ok(invalidProof.blockers.includes("desktop_backend_not_gui_fallback"));
     assert.ok(invalidProof.blockers.includes("focus_proof_diagnostic_only"));
 
-    const harness = tools.find((tool) => tool.name === "loo_desktop_live_proof_harness");
+    const harness = tools.find((tool) => tool.name === "loo_desktop_proof");
     assert.ok(harness);
     const harnessResult = await harness.execute({
+      check: "live_proof_harness",
       backend: "cua-driver",
       target_app: "Codex",
       target_window: "Lossless OpenClaw Orchestrator",
@@ -661,9 +663,10 @@ test("MCP desktop live-proof-harness can produce a ready public-safe proof plan 
   });
 
   try {
-    const harness = tools.find((tool) => tool.name === "loo_desktop_live_proof_harness");
+    const harness = tools.find((tool) => tool.name === "loo_desktop_proof");
     assert.ok(harness);
     const result = await harness.execute({
+      check: "live_proof_harness",
       backend: "cua-driver",
       target_app: "Codex",
       target_window: "Lossless OpenClaw Orchestrator",
@@ -1898,9 +1901,9 @@ test("MCP desktop see passes guarded Peekaboo snapshot options", async () => {
   });
 
   try {
-    const see = tools.find((tool) => tool.name === "loo_desktop_see");
+    const see = tools.find((tool) => tool.name === "loo_desktop_proof");
     assert.ok(see);
-    const result = await see.execute({ backend: "peekaboo", include_snapshot: true, max_nodes: 1 }) as {
+    const result = await see.execute({ check: "see", backend: "peekaboo", include_snapshot: true, max_nodes: 1 }) as {
       snapshot?: { blocked: boolean; elements: Array<{ elementId: string }>; truncated: boolean };
       visibleCodex?: {
         windows?: { count: number; windows: Array<{ appName: string; frontmost: boolean }> };
@@ -2096,9 +2099,10 @@ test("MCP exposes #308 Codex Desktop fallback status without GUI mutation", asyn
   });
 
   try {
-    const tool = tools.find((candidate) => candidate.name === "loo_codex_desktop_fallback_status");
+    const tool = tools.find((candidate) => candidate.name === "loo_desktop_proof");
     assert.ok(tool);
     const result = await tool.execute({
+      check: "fallback_status",
       thread_id: "019f1ed4-4c45-70e2-be84-69d93a1be08b",
       coherence: {
         state: "unknown",

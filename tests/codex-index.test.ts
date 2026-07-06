@@ -181,7 +181,8 @@ test("describe not-found returns structured ref_not_found result with nearest ma
     const tools = createLooTools({
       db,
       audit: createAuditStore(join(fixture.root, "audit.jsonl")),
-      codexClient: { request: async () => ({ ok: true }) }
+      codexClient: { request: async () => ({ ok: true }) },
+      includeAliases: true
     });
     const describeSessionTool = tools.find((tool) => tool.name === "loo_describe_session");
     const describeRefTool = tools.find((tool) => tool.name === "loo_describe_ref");

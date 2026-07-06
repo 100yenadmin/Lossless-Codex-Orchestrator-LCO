@@ -72,10 +72,11 @@ and the tool's safety contract.
 Naming policy: `LCO` is the product abbreviation and `lco_*` is the forward
 public alias target for new user-facing tool names. The public facade exposes
 tested `lco_*` aliases for the eight normal operator tools, and each alias
-points at its `loo_*` target with `metadata.aliasOf`. The historical `loo_*`
-names remain backward compatible and the wider runtime catalog still uses
-`loo_*`; alias expansion beyond the public facade must not silently rename or
-delete existing tools.
+points at its `loo_*` target with `metadata.aliasOf`. The wider runtime catalog
+still uses canonical `loo_*` names. Historical folded `loo_*` names may remain
+callable as compatibility aliases, but they must carry `metadata.aliasOf` and
+must credit their canonical target for QA coverage rather than adding duplicate
+coverage obligations.
 
 Safety details:
 

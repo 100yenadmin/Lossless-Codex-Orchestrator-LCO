@@ -247,7 +247,7 @@ test("MCP declarations expose the action-bound Codex Desktop collaboration proof
           throw new Error("not needed");
         }
       }
-    }).find((tool) => tool.name === "loo_codex_desktop_collaboration_proof");
+    }).find((tool) => tool.name === "loo_desktop_proof");
 
     assert.ok(tool);
     const inputProperties = tool.inputSchema.properties as Record<string, { type?: string }>;
@@ -255,6 +255,7 @@ test("MCP declarations expose the action-bound Codex Desktop collaboration proof
 
     const approvalPacket = validApprovalPacket();
     const output = await tool.execute({
+      check: "collaboration_proof",
       target_ref: targetRef,
       target_thread_id: targetThreadId,
       backend: desktopBackend,

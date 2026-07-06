@@ -121,14 +121,14 @@ test("qa-lab tool coverage passes strict full coverage only when every declared 
   assert.equal(report.ok, true);
   assert.equal(report.qaLabToolCoverageReady, true);
   assert.equal(report.publicSafe, true);
-  assert.equal(report.declaredToolCount, 60);
+  assert.equal(report.declaredToolCount, 34);
   assert.deepEqual(report.tierCounts, {
     public_facade: 8,
-    workflow_detail: 35,
-    proof_debug: 14,
+    workflow_detail: 15,
+    proof_debug: 8,
     internal_low_level: 3
   });
-  assert.equal(report.invocationCoverage.invokedDeclaredTools, 60);
+  assert.equal(report.invocationCoverage.invokedDeclaredTools, 34);
   assert.equal(report.invocationCoverage.missingDeclaredTools.length, 0);
   assert.equal(report.blockers.length, 0);
   assert.equal(report.actionsPerformed.liveCodexControlRun, false);
@@ -140,7 +140,7 @@ test("qa-lab tool coverage passes strict full coverage only when every declared 
   assert.equal(written.publicSafe, true);
 });
 
-test("qa-lab tool coverage fails strict for the 1.2.5-style 36 of 60 gateway evidence", (t) => {
+test("qa-lab tool coverage fails strict for default gateway evidence when non-facade canonical tools are missing", (t) => {
   const dir = makeTempDir(t, "loo-qa-tool-coverage-gap-");
   const toolSmokeReport = writeToolSmokeReport(dir, DEFAULT_REQUIRED_TOOL_CALLS);
 
@@ -154,13 +154,13 @@ test("qa-lab tool coverage fails strict for the 1.2.5-style 36 of 60 gateway evi
     now: "2026-07-05T00:00:00.000Z"
   });
 
-  assert.equal(DEFAULT_REQUIRED_TOOL_CALLS.length, 36);
   assert.equal(report.ok, false);
   assert.equal(report.qaLabToolCoverageReady, false);
-  assert.equal(report.invocationCoverage.invokedDeclaredTools, 36);
-  assert.equal(report.invocationCoverage.missingDeclaredTools.length, 24);
+  assert.equal(report.invocationCoverage.totalDeclaredTools, 34);
+  assert.equal(report.invocationCoverage.invokedDeclaredTools < report.invocationCoverage.totalDeclaredTools, true);
+  assert.equal(report.invocationCoverage.missingDeclaredTools.length > 0, true);
   assert.ok(report.blockers.some((blocker) => blocker.code === "declared_tool_product_evidence_missing"));
-  assert.ok(report.toolRows.some((row) => row.name === "loo_describe_ref" && row.coverageStatus === "missing_invocation"));
+  assert.ok(report.toolRows.some((row) => row.name === "loo_index_sessions" && row.coverageStatus === "missing_invocation"));
 });
 
 test("qa-lab tool coverage attributes invocations to their source report", (t) => {
@@ -352,7 +352,7 @@ test("qa-lab tool coverage excludes lco aliases from declared-tool accounting", 
     now: "2026-07-05T00:00:00.000Z"
   });
 
-  assert.equal(aliases.length, 8);
+  assert.equal(aliases.filter((tool) => tool.name.startsWith("lco_")).length, 8);
   assert.equal(report.ok, true);
   assert.equal(report.declaredToolCount, baseTools.length);
   assert.equal(report.catalogCoverage.runtimeDeclaredTools, baseTools.length);
@@ -361,6 +361,50 @@ test("qa-lab tool coverage excludes lco aliases from declared-tool accounting", 
   assert.equal(report.invocationCoverage.invokedDeclaredTools, baseTools.length);
   assert.equal(report.toolRows.some((row) => row.name.startsWith("lco_")), false);
   assert.equal(report.catalogCoverage.extraInManifest.some((name) => name.startsWith("lco_")), false);
+});
+
+test("qa-lab tool coverage credits folded legacy aliases to their canonical umbrella rows", (t) => {
+  const dir = makeTempDir(t, "loo-qa-tool-coverage-c1-aliases-");
+  const baseTools = createLooToolDeclarations({ includeAliases: false }).map((tool) => tool.name);
+  const invokedTools = baseTools.map((toolName) => {
+    if (toolName === "loo_watchers") return "loo_watchers_list";
+    if (toolName === "loo_codex_extract") return "loo_codex_plans";
+    if (toolName === "loo_prepared_state") return "loo_summary_leaves";
+    if (toolName === "loo_operating_picture") return "loo_codex_thread_map";
+    if (toolName === "loo_desktop_proof") return "loo_desktop_see";
+    return toolName;
+  });
+  const allTools = createLooToolDeclarations({ includeAliases: true });
+  const toolSmokeReport = writeToolSmokeReport(dir, invokedTools);
+  const manifestPath = join(dir, "openclaw.plugin.json");
+  writeJson(manifestPath, {
+    contracts: {
+      tools: allTools.map((tool) => tool.name),
+      toolDeclarations: allTools
+    }
+  });
+
+  const report = createQaLabToolCoverageReport({
+    evidenceDir: dir,
+    packageVersion,
+    candidateSha,
+    toolSmokeReport,
+    manifestPath,
+    coveragePolicy: "full",
+    claimScope: "codex-working-app-proof",
+    now: "2026-07-05T00:00:00.000Z"
+  });
+
+  assert.equal(report.ok, true, JSON.stringify(report.blockers, null, 2));
+  assert.equal(report.declaredToolCount, 34);
+  assert.equal(report.invocationCoverage.invokedDeclaredTools, 34);
+  for (const umbrella of ["loo_watchers", "loo_codex_extract", "loo_prepared_state", "loo_operating_picture", "loo_desktop_proof"]) {
+    const row = report.toolRows.find((item) => item.name === umbrella);
+    assert.equal(row?.coverageStatus, "covered", `${umbrella} should be covered through a folded legacy alias`);
+    assert.deepEqual(row?.evidenceRefs, ["openclaw-tool-smoke.json"]);
+  }
+  assert.equal(report.toolRows.some((row) => row.name === "loo_watchers_list"), false);
+  assert.equal(report.toolRows.some((row) => row.name === "loo_codex_plans"), false);
 });
 
 test("qa-lab tool coverage blocks unknown lco aliases in manifest declarations", (t) => {
@@ -554,5 +598,5 @@ test("loo qa-lab tool-coverage --strict exits nonzero for missing product eviden
   assert.equal(result.status, 1, result.stderr || result.stdout);
   const report = JSON.parse(result.stdout) as QaLabToolCoverageReport;
   assert.equal(report.schema, "lco.qaLab.toolCoverage.v1");
-  assert.equal(report.invocationCoverage.missingDeclaredTools.length, 24);
+  assert.equal(report.invocationCoverage.missingDeclaredTools.length, 16);
 });

@@ -67,7 +67,7 @@ test("standard profile exposes doctor as workflow health detail", () => {
 test("facade lco aliases are derived exactly from public facade tools", () => {
   const withAliases = createLooToolDeclarations({ profile: "all", includeAliases: true });
   const byName = new Map(withAliases.map((tool) => [tool.name, tool]));
-  const aliases = withAliases.filter((tool) => tool.metadata.aliasOf);
+  const aliases = withAliases.filter((tool) => tool.metadata.aliasOf && tool.name.startsWith("lco_"));
   const publicFacadeNames = createLooToolSurfaceSummary().publicFacadeTools;
 
   assert.deepEqual(
@@ -93,13 +93,8 @@ test("facade lco aliases are derived exactly from public facade tools", () => {
   assert.equal(aliases.some((tool) => tool.metadata.aliasOf && tool.metadata.tier !== "public_facade"), false);
 });
 
-test("facade aliases are the only active redirect aliases and resolve through the registry", () => {
+test("facade lco aliases resolve through the registry", () => {
   const publicFacadeNames = createLooToolSurfaceSummary().publicFacadeTools;
-
-  assert.deepEqual(
-    Object.keys(LOO_TOOL_ALIAS_REGISTRY).sort(),
-    publicFacadeNames.map(toLcoAliasName).sort()
-  );
 
   for (const targetName of publicFacadeNames) {
     const aliasName = toLcoAliasName(targetName);
@@ -108,9 +103,71 @@ test("facade aliases are the only active redirect aliases and resolve through th
     assert.equal(canonicalLooToolName(aliasName), targetName);
   }
 
-  assert.equal(Object.keys(LOO_TOOL_ALIAS_REGISTRY).length, 8);
   assert.equal(looAliasTargetName("lco_doctor"), null);
   assert.equal(canonicalLooToolName("lco_doctor"), "lco_doctor");
+});
+
+test("C1 canonical umbrellas replace folded read-only leaf tools while preserving compatibility aliases", () => {
+  const baseDeclarations = createLooToolDeclarations({ profile: "all", includeAliases: false });
+  const aliasedDeclarations = createLooToolDeclarations({ profile: "all", includeAliases: true });
+  const baseNames = new Set(baseDeclarations.map((tool) => tool.name));
+  const byName = new Map(aliasedDeclarations.map((tool) => [tool.name, tool]));
+  const expectedUmbrellas = [
+    "loo_watchers",
+    "loo_codex_extract",
+    "loo_prepared_state",
+    "loo_operating_picture",
+    "loo_desktop_proof"
+  ];
+  const expectedCompatAliases: Record<string, string> = {
+    loo_describe_session: "loo_describe_ref",
+    loo_watchers_list: "loo_watchers",
+    loo_watcher_status: "loo_watchers",
+    loo_watcher_dry_run: "loo_watchers",
+    loo_watcher_events: "loo_watchers",
+    loo_resume_request_packet: "loo_watchers",
+    loo_codex_final_messages: "loo_codex_extract",
+    loo_codex_plans: "loo_codex_extract",
+    loo_codex_touched_files: "loo_codex_extract",
+    loo_codex_tool_calls: "loo_codex_extract",
+    loo_summary_leaves: "loo_prepared_state",
+    loo_summary_expand: "loo_prepared_state",
+    loo_prepared_state_status: "loo_prepared_state",
+    loo_prepared_cards: "loo_prepared_state",
+    loo_codex_thread_map: "loo_operating_picture",
+    loo_codex_session_management_map: "loo_operating_picture",
+    loo_cockpit_inbox: "loo_operating_picture",
+    loo_codex_collaboration_cockpit: "loo_operating_picture",
+    loo_codex_collaboration_next_steps: "loo_operating_picture",
+    loo_codex_runtime_desktop_visibility_status: "loo_operating_picture",
+    loo_codex_active_thread_state: "loo_operating_picture",
+    loo_codex_autonomy_tick: "loo_operating_picture",
+    loo_plan_state_pins: "loo_operating_picture",
+    loo_github_operating_items: "loo_operating_picture",
+    loo_codex_desktop_collaboration_proof: "loo_desktop_proof",
+    loo_codex_start_thread_post_create_proof: "loo_desktop_proof",
+    loo_codex_desktop_coherence: "loo_desktop_proof",
+    loo_codex_desktop_fallback_status: "loo_desktop_proof",
+    loo_desktop_see: "loo_desktop_proof",
+    loo_desktop_proof_report: "loo_desktop_proof",
+    loo_desktop_live_proof_harness: "loo_desktop_proof"
+  };
+
+  for (const umbrella of expectedUmbrellas) {
+    assert.equal(baseNames.has(umbrella), true, `${umbrella} must be a canonical base tool`);
+  }
+
+  for (const [compatName, targetName] of Object.entries(expectedCompatAliases)) {
+    assert.equal(baseNames.has(compatName), false, `${compatName} must not be a canonical base tool`);
+    assert.equal(looAliasTargetName(compatName), targetName);
+    assert.equal(canonicalLooToolName(compatName), targetName);
+    assert.equal(byName.get(compatName)?.metadata.aliasOf, targetName);
+    assert.deepEqual(byName.get(compatName)?.safety, byName.get(targetName)?.safety);
+  }
+
+  assert.equal(baseDeclarations.length, 34);
+  assert.equal(aliasedDeclarations.filter((tool) => tool.name.startsWith("lco_") && tool.metadata.aliasOf).length, 8);
+  assert.equal(aliasedDeclarations.filter((tool) => tool.name.startsWith("loo_") && tool.metadata.aliasOf).length, 31);
 });
 
 test("redirect aliases target any declared tool and merge kind defaults before caller args", async () => {
@@ -193,10 +250,10 @@ test("MCP tools/list applies facade profile and invalid profile fallback", async
   const invalidProfileTools = await readMcpToolList("alll");
   const facadeTools = await readMcpToolList("facade");
   const publicFacadeCount = createLooToolSurfaceSummary().publicFacadeTools.length;
-  const baseAllCount = Object.keys(LOO_TOOL_SURFACE).length;
+  const allWithAliasesCount = createLooToolDeclarations({ includeAliases: true }).length;
 
   assert.equal(facadeTools.length, publicFacadeCount * 2);
-  assert.equal(invalidProfileTools.length, baseAllCount + publicFacadeCount);
+  assert.equal(invalidProfileTools.length, allWithAliasesCount);
 
   assert.equal(facadeTools.every((tool) => tool.metadata?.tier === "public_facade"), true);
   assert.ok(invalidProfileTools.some((tool) => tool.name === "loo_session_sanitizer"));
@@ -210,6 +267,8 @@ test("tool surface summary documents exposure filtering as non-gating", () => {
   assert.equal(summary.exposureProfile.environmentVariable, "LOO_TOOL_PROFILE");
   assert.equal(summary.exposureProfile.defaultProfile, "all");
   assert.deepEqual(summary.exposureProfile.profiles.facade.tiers, ["public_facade"]);
+  assert.match(summary.exposureProfile.profiles.standard.description, /compatibility aliases/i);
+  assert.match(summary.exposureProfile.profiles.all.description, /folded historical loo_\* compatibility aliases/i);
   assert.match(summary.exposureProfile.callPolicy, /hidden.*callable/i);
   assert.equal(summary.retrievalTelemetry.environmentVariable, "LOO_TELEMETRY");
   assert.equal(summary.retrievalTelemetry.defaultEnabled, false);
@@ -224,6 +283,7 @@ test("tool surface summary documents exposure filtering as non-gating", () => {
 
 function expectedBaseNamesForTiers(tiers: LooToolTier[]): string[] {
   return Object.entries(LOO_TOOL_SURFACE)
+    .filter(([name]) => !LOO_TOOL_ALIAS_REGISTRY[name])
     .filter(([, metadata]) => tiers.includes(metadata.tier))
     .map(([name]) => name)
     .sort();

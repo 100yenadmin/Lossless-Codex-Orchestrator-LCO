@@ -354,6 +354,7 @@ test("Codex start-thread post-create proof reports public-safe created-but-unind
   const tools = createLooTools({
     db,
     audit,
+    includeAliases: true,
     codexClient: {
       request: async () => ({ ok: true })
     },
@@ -446,6 +447,7 @@ test("Codex start-thread post-create proof reads the full created thread id even
   const tools = createLooTools({
     db,
     audit,
+    includeAliases: true,
     codexClient: {
       request: async () => ({ ok: true })
     },
@@ -499,6 +501,7 @@ test("Codex start-thread post-create proof fails closed without created thread i
   const tools = createLooTools({
     db,
     audit,
+    includeAliases: true,
     codexClient: {
       request: async () => ({ ok: true })
     },
@@ -538,6 +541,7 @@ test("Codex start-thread post-create proof redacts app-server errors", async () 
   const tools = createLooTools({
     db,
     audit,
+    includeAliases: true,
     codexClient: {
       request: async () => ({ ok: true })
     },
@@ -623,6 +627,7 @@ test("Codex start-thread post-create proof does not treat stale prepared card al
   const tools = createLooTools({
     db,
     audit,
+    includeAliases: true,
     codexClient: {
       request: async () => ({ ok: true })
     },
@@ -727,6 +732,7 @@ test("Codex start-thread post-create proof classifies indexed described persiste
   const tools = createLooTools({
     db,
     audit,
+    includeAliases: true,
     codexClient: {
       request: async () => ({ ok: true })
     },
@@ -807,7 +813,7 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.equal(toolNames.includes("loo_closeout_dry_run"), true);
     assert.equal(toolNames.includes("loo_codex_start_thread"), true);
     assert.equal(toolNames.includes("loo_codex_send_message"), true);
-    assert.equal(toolNames.includes("loo_desktop_see"), true);
+    assert.equal(toolNames.includes("loo_desktop_proof"), true);
     assert.deepEqual(toolNames.filter((name) => !LOO_COMMAND_POLICY[name]), []);
     for (const declaration of createLooToolDeclarations()) {
       assert.deepEqual(declaration.safety, LOO_COMMAND_POLICY[declaration.name]);
@@ -825,7 +831,7 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     ]) {
       assert.equal(LOO_COMMAND_POLICY[telemetryAwareTool]?.mode, "local_cache_write");
       assert.deepEqual(LOO_COMMAND_POLICY[telemetryAwareTool]?.mutationClasses, ["derived_cache"]);
-      const declaration = createLooToolDeclarations().find((tool) => tool.name === telemetryAwareTool);
+      const declaration = createLooToolDeclarations({ includeAliases: true }).find((tool) => tool.name === telemetryAwareTool);
       const properties = declaration?.inputSchema.properties as Record<string, unknown> | undefined;
       assert.ok(properties?.telemetry_session_id, `${telemetryAwareTool} accepts telemetry_session_id`);
       assert.ok(properties?.now, `${telemetryAwareTool} accepts deterministic now`);
@@ -836,12 +842,21 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.equal(LOO_COMMAND_POLICY.loo_codex_control_dry_run.mode, "local_cache_write");
     assert.deepEqual(LOO_COMMAND_POLICY.loo_codex_control_dry_run.mutationClasses, ["derived_cache"]);
     assert.deepEqual(LOO_COMMAND_POLICY.loo_codex_start_thread.mutationClasses, ["derived_cache", "live_control"]);
+    assert.deepEqual(LOO_COMMAND_POLICY.loo_watchers.mutationClasses, []);
     assert.deepEqual(LOO_COMMAND_POLICY.loo_watchers_list.mutationClasses, []);
     assert.deepEqual(LOO_COMMAND_POLICY.loo_watcher_status.mutationClasses, []);
     assert.deepEqual(LOO_COMMAND_POLICY.loo_watcher_dry_run.mutationClasses, []);
     assert.deepEqual(LOO_COMMAND_POLICY.loo_resume_request_packet.mutationClasses, []);
     assert.deepEqual(LOO_COMMAND_POLICY.loo_codex_send_message.mutationClasses, ["derived_cache", "live_control"]);
     assert.deepEqual(LOO_COMMAND_POLICY.loo_desktop_proof_action.mutationClasses, ["derived_cache", "desktop_gui"]);
+
+    const permissionsTool = tools.find((tool) => tool.name === "loo_permissions");
+    assert.ok(permissionsTool);
+    const permissions = permissionsTool.execute({}) as { commandPolicy: typeof LOO_COMMAND_POLICY };
+    assert.deepEqual(permissions.commandPolicy.loo_codex_thread_map, LOO_COMMAND_POLICY.loo_operating_picture);
+    assert.deepEqual(permissions.commandPolicy.loo_cockpit_inbox, LOO_COMMAND_POLICY.loo_operating_picture);
+    assert.deepEqual(permissions.commandPolicy.loo_codex_start_thread_post_create_proof, LOO_COMMAND_POLICY.loo_desktop_proof);
+    assert.deepEqual(permissions.commandPolicy.loo_desktop_see, LOO_COMMAND_POLICY.loo_desktop_proof);
 
     const closeoutTool = tools.find((tool) => tool.name === "loo_closeout_dry_run");
     assert.ok(closeoutTool);

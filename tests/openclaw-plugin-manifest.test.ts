@@ -114,12 +114,18 @@ test("OpenClaw plugin contracts classify every tool into an operator surface tie
     assert.equal(typeof declaration.metadata?.operatorPathRole, "string", `${declaration.name} must describe its facade role`);
   }
   const aliases = declarations.filter((declaration) => isLooToolAlias(declaration));
+  const lcoAliases = aliases.filter((declaration) => declaration.name.startsWith("lco_"));
+  const compatibilityAliases = aliases.filter((declaration) => declaration.name.startsWith("loo_"));
   assert.deepEqual(
-    aliases.map((declaration) => declaration.name).sort(),
+    lcoAliases.map((declaration) => declaration.name).sort(),
     generatedToolSurface.publicFacadeTools.map((name) => name.replace(/^loo_/, "lco_")).sort()
   );
-  for (const alias of aliases) {
+  assert.equal(compatibilityAliases.length, 31);
+  for (const alias of lcoAliases) {
     assert.equal(generatedToolSurface.publicFacadeTools.includes(String(alias.metadata?.aliasOf)), true);
+  }
+  for (const alias of compatibilityAliases) {
+    assert.equal(baseDeclarations.some((declaration) => declaration.name === alias.metadata?.aliasOf), true);
   }
 
   for (const manifestContracts of [contracts, sourceContracts]) {
