@@ -638,10 +638,8 @@ test("summary leaf tools expose read-only public-safe leaf and expansion reports
     materializeSummaryLeaves(db, { threadId });
 
     const declarations = new Map(createLooToolDeclarations().map((tool) => [tool.name, tool]));
-    assert.equal(declarations.get("loo_summary_leaves")?.safety.mode, "read_only");
-    assert.deepEqual(declarations.get("loo_summary_leaves")?.safety.mutationClasses, []);
-    assert.equal(declarations.get("loo_summary_expand")?.safety.mode, "read_only");
-    assert.deepEqual(declarations.get("loo_summary_expand")?.safety.mutationClasses, []);
+    assert.equal(declarations.get("loo_prepared_state")?.safety.mode, "read_only");
+    assert.deepEqual(declarations.get("loo_prepared_state")?.safety.mutationClasses, []);
 
     const tools = createLooTools({
       db,
@@ -669,12 +667,11 @@ test("summary leaf tools expose read-only public-safe leaf and expansion reports
         }
       }
     });
-    const leavesTool = tools.find((tool) => tool.name === "loo_summary_leaves");
-    const expandTool = tools.find((tool) => tool.name === "loo_summary_expand");
-    assert.ok(leavesTool);
-    assert.ok(expandTool);
+    const preparedStateTool = tools.find((tool) => tool.name === "loo_prepared_state");
+    assert.ok(preparedStateTool);
 
-    const leavesReport = await leavesTool.execute({
+    const leavesReport = await preparedStateTool.execute({
+      view: "leaves",
       thread_id: threadId,
       leaf_kind: "final_message",
       limit: 10
@@ -686,7 +683,8 @@ test("summary leaf tools expose read-only public-safe leaf and expansion reports
     assert.equal(leavesReport.leaves.every((leaf) => leaf.leafKind === "final_message"), true);
     assert.equal(leavesReport.leaves.length, 1);
 
-    const expandReport = await expandTool.execute({
+    const expandReport = await preparedStateTool.execute({
+      view: "expand",
       leaf_ref: leavesReport.leaves[0]!.leafRef,
       max_depth: 2,
       max_nodes: 5,

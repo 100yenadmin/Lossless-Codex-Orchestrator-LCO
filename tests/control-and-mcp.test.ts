@@ -354,6 +354,7 @@ test("Codex start-thread post-create proof reports public-safe created-but-unind
   const tools = createLooTools({
     db,
     audit,
+    includeAliases: true,
     codexClient: {
       request: async () => ({ ok: true })
     },
@@ -437,6 +438,63 @@ test("Codex start-thread post-create proof reports public-safe created-but-unind
   }
 });
 
+test("canonical desktop proof filters start-thread proof input to the allowed subset", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-control-start-proof-filter-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const rawPathCanary = "/Users/lume/.codex/sessions/raw/private-thread.jsonl";
+  const secretCanary = "github_pat_desktopProofInputShouldNotLeak123456";
+  const readCalls: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const tools = createLooTools({
+    db,
+    audit,
+    includeAliases: true,
+    codexClient: {
+      request: async () => ({ ok: true })
+    },
+    codexReadClient: {
+      request: async (method, params) => {
+        readCalls.push({ method, params });
+        if (method === "thread/list") {
+          return { ok: true, result: { threads: [{ id: "thr_created", name: "Filtered proof worker", status: "ready" }] } };
+        }
+        if (method === "thread/read") {
+          return { ok: true, result: { thread: { id: "thr_created", name: "Filtered proof worker", status: "ready" } } };
+        }
+        throw new Error(`unexpected read method ${method}`);
+      }
+    }
+  });
+
+  try {
+    const proofTool = tools.find((tool) => tool.name === "loo_desktop_proof");
+    assert.ok(proofTool);
+    const proof = await proofTool.execute({
+      check: "start_thread_post_create_proof",
+      created_thread_id: "thr_created",
+      requested_title: "Filtered proof worker",
+      alias: "filtered-proof",
+      parent_thread_id: "thr_parent",
+      limit: 500,
+      scratch_file_path: rawPathCanary,
+      approval_ref: secretCanary,
+      action_evidence: { raw: `${rawPathCanary} ${secretCanary}` },
+      observation: { raw: `${rawPathCanary} ${secretCanary}` },
+      before_visible_map: { raw: `${rawPathCanary} ${secretCanary}` }
+    }) as { public_safe?: boolean; status?: string };
+    const serialized = JSON.stringify(proof);
+    assert.equal(proof.public_safe, true);
+    assert.equal(proof.status, "created_but_unindexed");
+    assert.equal(serialized.includes(rawPathCanary), false);
+    assert.equal(serialized.includes(secretCanary), false);
+    assert.deepEqual(readCalls.map((call) => call.method), ["thread/list", "thread/read"]);
+    assert.equal(readCalls[0]?.params.limit, 100);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Codex start-thread post-create proof reads the full created thread id even when public output is capped", async () => {
   const root = mkdtempSync(join(tmpdir(), "loo-control-start-proof-long-id-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
@@ -446,6 +504,7 @@ test("Codex start-thread post-create proof reads the full created thread id even
   const tools = createLooTools({
     db,
     audit,
+    includeAliases: true,
     codexClient: {
       request: async () => ({ ok: true })
     },
@@ -499,6 +558,7 @@ test("Codex start-thread post-create proof fails closed without created thread i
   const tools = createLooTools({
     db,
     audit,
+    includeAliases: true,
     codexClient: {
       request: async () => ({ ok: true })
     },
@@ -538,6 +598,7 @@ test("Codex start-thread post-create proof redacts app-server errors", async () 
   const tools = createLooTools({
     db,
     audit,
+    includeAliases: true,
     codexClient: {
       request: async () => ({ ok: true })
     },
@@ -623,6 +684,7 @@ test("Codex start-thread post-create proof does not treat stale prepared card al
   const tools = createLooTools({
     db,
     audit,
+    includeAliases: true,
     codexClient: {
       request: async () => ({ ok: true })
     },
@@ -727,6 +789,7 @@ test("Codex start-thread post-create proof classifies indexed described persiste
   const tools = createLooTools({
     db,
     audit,
+    includeAliases: true,
     codexClient: {
       request: async () => ({ ok: true })
     },
@@ -807,7 +870,7 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.equal(toolNames.includes("loo_closeout_dry_run"), true);
     assert.equal(toolNames.includes("loo_codex_start_thread"), true);
     assert.equal(toolNames.includes("loo_codex_send_message"), true);
-    assert.equal(toolNames.includes("loo_desktop_see"), true);
+    assert.equal(toolNames.includes("loo_desktop_proof"), true);
     assert.deepEqual(toolNames.filter((name) => !LOO_COMMAND_POLICY[name]), []);
     for (const declaration of createLooToolDeclarations()) {
       assert.deepEqual(declaration.safety, LOO_COMMAND_POLICY[declaration.name]);
@@ -825,7 +888,7 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     ]) {
       assert.equal(LOO_COMMAND_POLICY[telemetryAwareTool]?.mode, "local_cache_write");
       assert.deepEqual(LOO_COMMAND_POLICY[telemetryAwareTool]?.mutationClasses, ["derived_cache"]);
-      const declaration = createLooToolDeclarations().find((tool) => tool.name === telemetryAwareTool);
+      const declaration = createLooToolDeclarations({ includeAliases: true }).find((tool) => tool.name === telemetryAwareTool);
       const properties = declaration?.inputSchema.properties as Record<string, unknown> | undefined;
       assert.ok(properties?.telemetry_session_id, `${telemetryAwareTool} accepts telemetry_session_id`);
       assert.ok(properties?.now, `${telemetryAwareTool} accepts deterministic now`);
@@ -836,12 +899,21 @@ test("MCP tool registry exposes loo-prefixed tools with local-only control safet
     assert.equal(LOO_COMMAND_POLICY.loo_codex_control_dry_run.mode, "local_cache_write");
     assert.deepEqual(LOO_COMMAND_POLICY.loo_codex_control_dry_run.mutationClasses, ["derived_cache"]);
     assert.deepEqual(LOO_COMMAND_POLICY.loo_codex_start_thread.mutationClasses, ["derived_cache", "live_control"]);
+    assert.deepEqual(LOO_COMMAND_POLICY.loo_watchers.mutationClasses, []);
     assert.deepEqual(LOO_COMMAND_POLICY.loo_watchers_list.mutationClasses, []);
     assert.deepEqual(LOO_COMMAND_POLICY.loo_watcher_status.mutationClasses, []);
     assert.deepEqual(LOO_COMMAND_POLICY.loo_watcher_dry_run.mutationClasses, []);
     assert.deepEqual(LOO_COMMAND_POLICY.loo_resume_request_packet.mutationClasses, []);
     assert.deepEqual(LOO_COMMAND_POLICY.loo_codex_send_message.mutationClasses, ["derived_cache", "live_control"]);
     assert.deepEqual(LOO_COMMAND_POLICY.loo_desktop_proof_action.mutationClasses, ["derived_cache", "desktop_gui"]);
+
+    const permissionsTool = tools.find((tool) => tool.name === "loo_permissions");
+    assert.ok(permissionsTool);
+    const permissions = permissionsTool.execute({}) as { commandPolicy: typeof LOO_COMMAND_POLICY };
+    assert.deepEqual(permissions.commandPolicy.loo_codex_thread_map, LOO_COMMAND_POLICY.loo_codex_thread_map);
+    assert.deepEqual(permissions.commandPolicy.loo_cockpit_inbox, LOO_COMMAND_POLICY.loo_cockpit_inbox);
+    assert.deepEqual(permissions.commandPolicy.loo_codex_start_thread_post_create_proof, LOO_COMMAND_POLICY.loo_codex_start_thread_post_create_proof);
+    assert.deepEqual(permissions.commandPolicy.loo_desktop_see, LOO_COMMAND_POLICY.loo_desktop_see);
 
     const closeoutTool = tools.find((tool) => tool.name === "loo_closeout_dry_run");
     assert.ok(closeoutTool);
@@ -1067,7 +1139,12 @@ test("MCP stdio tools/list exposes facade metadata in the runtime catalog", asyn
       };
       const onStdout = (chunk: string) => {
         stdout += chunk;
-        const line = stdout.split("\n").find((candidate) => candidate.trim());
+        const newlineIndex = stdout.lastIndexOf("\n");
+        if (newlineIndex === -1) return;
+        const line = stdout
+          .slice(0, newlineIndex)
+          .split("\n")
+          .find((candidate) => candidate.trim());
         if (line) {
           cleanup();
           resolve(line);
@@ -1136,7 +1213,12 @@ test("MCP stdio server returns JSON-RPC errors for malformed input frames", asyn
       };
       const onStdout = (chunk: string) => {
         stdout += chunk;
-        const line = stdout.split("\n").find((candidate) => candidate.trim());
+        const newlineIndex = stdout.lastIndexOf("\n");
+        if (newlineIndex === -1) return;
+        const line = stdout
+          .slice(0, newlineIndex)
+          .split("\n")
+          .find((candidate) => candidate.trim());
         if (line) {
           cleanup();
           resolve(line);

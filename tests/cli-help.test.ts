@@ -509,7 +509,8 @@ test("loo qa-lab tool-coverage --help exposes strict real-product coverage gate"
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /Usage:\n  loo qa-lab tool-coverage/);
   assert.match(result.stdout, /--coverage-policy full\|facade/);
-  assert.match(result.stdout, /every declared `loo_\*` tool/);
+  assert.match(result.stdout, /every canonical declared `loo_\*` tool/);
+  assert.match(result.stdout, /compatibility aliases credit their target/);
   assert.match(result.stdout, /writes `tool-coverage\.json`/);
   assert.match(result.stdout, /does not invoke tools/i);
   assert.match(result.stdout, /does not publish npm/i);

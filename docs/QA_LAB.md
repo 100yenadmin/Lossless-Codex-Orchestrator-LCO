@@ -3,7 +3,7 @@
 The QA Lab is the release-captain surface for proving that LCO works as a real
 installed product, not only as unit-tested code. It is intentionally stricter
 than the 1.2.5 GA-assurance patch: catalog presence, package metadata, and
-partial gateway smoke do not prove the full declared tool surface.
+partial gateway smoke do not prove the full canonical tool surface.
 
 ## Current Gate
 
@@ -27,13 +27,15 @@ retrieval goldens. Live-store content can never be public evidence.
 
 ## What It Proves
 
-- The runtime MCP registry and OpenClaw plugin manifest agree on declared
-  `loo_*` tools.
+- The runtime MCP registry and OpenClaw plugin manifest agree on canonical
+  declared `loo_*` tools, while folded compatibility aliases resolve to those
+  canonical rows.
 - Tool tiers are counted and reported as `public_facade`, `workflow_detail`,
   `proof_debug`, and `internal_low_level`.
 - Public facade tools have product invocation evidence.
-- Under `--coverage-policy full`, every declared tool has tier-appropriate
-  product evidence or the release must explicitly exclude that tool/workflow.
+- Under `--coverage-policy full`, every canonical declared tool has
+  tier-appropriate product evidence or the release must explicitly exclude that
+  tool/workflow.
 - Public-safe evidence is used; raw transcripts, prompts, screenshots, SQLite
   DBs, JSONL transcripts, tokens, cookies, and raw gateway output stay out of
   the report.
@@ -49,19 +51,22 @@ output.
 
 For broad/global GA claims, optimize for the full claimed surface:
 
-- 100% declared-tool catalog parity.
+- 100% canonical declared-tool catalog parity.
 - 100% public facade OpenClaw gateway invocation.
-- 100% declared tools with tier-appropriate evidence, or explicit non-claim
-  exclusions in release copy.
+- 100% canonical declared tools with tier-appropriate evidence, or explicit
+  non-claim exclusions in release copy.
 - Zero unresolved P0-P2 blockers.
 - Clean public-safe evidence scan.
 
 Scoped releases may use `--coverage-policy facade` as a diagnostic, but a facade
 pass is not full-surface GA proof.
 
-## 1.2.5 Baseline
+## Baseline And C1 Consolidation
 
 The 1.2.5 release remained an honest scoped stable release. Its latest OpenClaw
-gateway smoke invoked 36 of 60 declared `loo_*` tools. Under M12, that is useful
-evidence but not a full GA proof. The first QA Lab gate must fail that baseline
-until the missing tools have product evidence or are explicitly excluded.
+gateway smoke invoked 36 of 60 declared `loo_*` tools. Under M12, that remains
+useful historical evidence but not a full GA proof. C1 folds input-congruent
+read-only families into 34 canonical tools and keeps the old folded `loo_*`
+names as compatibility aliases. The QA Lab denominator is the canonical surface;
+compatibility aliases should prove backward compatibility without creating extra
+coverage rows.

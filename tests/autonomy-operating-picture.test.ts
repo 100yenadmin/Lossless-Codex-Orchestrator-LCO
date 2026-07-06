@@ -1360,15 +1360,8 @@ test("new cockpit and operating-picture tools are exposed through MCP with publi
     });
     for (const name of [
       "loo_recent_sessions",
-      "loo_cockpit_inbox",
-      "loo_codex_collaboration_cockpit",
-      "loo_codex_runtime_desktop_visibility_status",
-      "loo_watchers_list",
-      "loo_watcher_status",
-      "loo_watcher_dry_run",
-      "loo_resume_request_packet",
-      "loo_plan_state_pins",
-      "loo_github_operating_items",
+      "loo_operating_picture",
+      "loo_watchers",
       "loo_project_digest",
       "loo_attention_inbox",
       "loo_business_pulse"
@@ -1383,36 +1376,42 @@ test("new cockpit and operating-picture tools are exposed through MCP with publi
     assert.equal((recent as { publicSafe?: boolean }).publicSafe, true);
     assert.equal((recent as { generatedAt?: string }).generatedAt, "2026-07-01T12:00:00.000Z");
 
-    const collaborationCockpit = await tools.find((tool) => tool.name === "loo_codex_collaboration_cockpit")?.execute({
+    const operatingTool = tools.find((tool) => tool.name === "loo_operating_picture");
+    assert.ok(operatingTool);
+    const collaborationCockpit = await operatingTool.execute({
+      kind: "collaboration_cockpit",
       limit: 5,
       now: "2026-07-01T12:00:00.000Z"
     });
     assert.equal((collaborationCockpit as { publicSafe?: boolean }).publicSafe, true);
     assert.equal((collaborationCockpit as { actionsPerformed?: { desktopGuiActionRun?: boolean } }).actionsPerformed?.desktopGuiActionRun, false);
 
-    const runtimeVisibility = await tools.find((tool) => tool.name === "loo_codex_runtime_desktop_visibility_status")?.execute({
+    const runtimeVisibility = await operatingTool.execute({
+      kind: "runtime_desktop_visibility_status",
       limit: 5,
       now: "2026-07-01T12:00:00.000Z"
     });
     assert.equal((runtimeVisibility as { publicSafe?: boolean }).publicSafe, true);
     assert.equal((runtimeVisibility as { actionsPerformed?: { desktopGuiActionRun?: boolean } }).actionsPerformed?.desktopGuiActionRun, false);
 
-    const pins = await tools.find((tool) => tool.name === "loo_plan_state_pins")?.execute({
+    const pins = await operatingTool.execute({
+      kind: "plan_state_pins",
       plan_state_text: "<!-- loo:manual-pin -->\n- Project: LCO\n- State: yellow\n- Summary: Test pin.\n- Next: Review.\n<!-- /loo:manual-pin -->"
     });
     assert.equal((pins as { manualPins?: unknown[] }).manualPins?.length, 1);
 
     const planStatePath = join(root, "PLAN_STATE.md");
     writeFileSync(planStatePath, "<!-- loo:manual-pin -->\n- Project: Path pin\n- State: yellow\n- Summary: Allowed path pin.\n- Next: Review.\n<!-- /loo:manual-pin -->\n");
-    const pathPins = await tools.find((tool) => tool.name === "loo_plan_state_pins")?.execute({ plan_state_path: planStatePath });
+    const pathPins = await operatingTool.execute({ kind: "plan_state_pins", plan_state_path: planStatePath });
     assert.equal((pathPins as { manualPins?: unknown[] }).manualPins?.length, 1);
 
     const disallowedPlanPath = join(root, "NOT_PLAN_STATE.md");
     writeFileSync(disallowedPlanPath, "<!-- loo:manual-pin -->\n- Project: Unsafe path\n- State: red\n- Summary: Should not be read.\n- Next: Stop.\n<!-- /loo:manual-pin -->\n");
-    const disallowedPins = await tools.find((tool) => tool.name === "loo_plan_state_pins")?.execute({ plan_state_path: disallowedPlanPath });
+    const disallowedPins = await operatingTool.execute({ kind: "plan_state_pins", plan_state_path: disallowedPlanPath });
     assert.equal((disallowedPins as { manualPins?: unknown[] }).manualPins?.length, 0);
 
-    const githubItems = await tools.find((tool) => tool.name === "loo_github_operating_items")?.execute({
+    const githubItems = await operatingTool.execute({
+      kind: "github_operating_items",
       github_records: [{
         repo: "100yenadmin/Lossless-Codex-Orchestrator-LCO",
         number: 264,
@@ -1467,19 +1466,44 @@ test("new cockpit and operating-picture tools are exposed through MCP with publi
       confidence: 0.9,
       mutates: false
     };
-    const watcherDryRun = await tools.find((tool) => tool.name === "loo_watcher_dry_run")?.execute({
+    const watcherTool = tools.find((tool) => tool.name === "loo_watchers");
+    assert.ok(watcherTool);
+    const watcherDryRun = await watcherTool.execute({
+      action: "dry_run",
       watcher_specs: [watcherSpec],
       now: "2026-07-01T12:00:00.000Z"
     });
     assert.equal((watcherDryRun as { publicSafe?: boolean }).publicSafe, true);
     assert.equal((watcherDryRun as { resumeRequestPackets?: unknown[] }).resumeRequestPackets?.length, 1);
 
-    const unsafeWatcher = await tools.find((tool) => tool.name === "loo_watchers_list");
-    assert.ok(unsafeWatcher);
     assert.throws(
-      () => unsafeWatcher.execute({ watcher_specs: [{ ...watcherSpec, mutates: true }] }),
+      () => watcherTool.execute({ action: "list", watcher_specs: [{ ...watcherSpec, mutates: true }] }),
       /mutates=false/
     );
+
+    const malformedWatcherSpec: Record<string, unknown> = { ...watcherSpec };
+    delete malformedWatcherSpec.ttlSeconds;
+    for (const action of ["list", "status", "dry_run"] as const) {
+      await assert.rejects(
+        async () => watcherTool.execute({
+          action,
+          watcher_specs: [malformedWatcherSpec],
+          watch_id: action === "status" ? watcherSpec.watchId : undefined
+        }),
+        /ttlSeconds is required/
+      );
+    }
+    await assert.rejects(
+      async () => watcherTool.execute({ action: "resume_request_packet", watcher_spec: malformedWatcherSpec }),
+      /ttlSeconds is required/
+    );
+    const watcherEvents = await watcherTool.execute({
+      action: "events",
+      watcher_specs: [malformedWatcherSpec],
+      watcher_spec: malformedWatcherSpec,
+      now: "2026-07-01T12:00:00.000Z"
+    });
+    assert.equal((watcherEvents as { publicSafe?: boolean }).publicSafe, true);
     assertNoUnsafeStrings({ recent, collaborationCockpit, runtimeVisibility, pins, pulse, watcherDryRun }, sessions);
   });
 });
@@ -3010,8 +3034,8 @@ test("Codex active-thread state classifies running blocked stale and needs-nudge
       audit: createAuditStore(join(tmpdir(), "loo-active-state-audit.jsonl")),
       codexClient: { request: async () => ({ ok: true }) }
     });
-    const tool = tools.find((candidate) => candidate.name === "loo_codex_active_thread_state");
-    assert.ok(tool, "MCP registry should expose loo_codex_active_thread_state");
+    const tool = tools.find((candidate) => candidate.name === "loo_operating_picture");
+    assert.ok(tool, "MCP registry should expose canonical loo_operating_picture");
 
     const byThread = new Map(report.items.map((item) => [item.threadId, item]));
     assert.equal(report.schema, "lco.codex.activeThreadState.v1");
@@ -3227,7 +3251,7 @@ test("Codex autonomy tick orders read-only probes before control dry-run recomme
       audit: createAuditStore(join(tmpdir(), "loo-autonomy-tick-audit.jsonl")),
       codexClient: { request: async () => ({ ok: true }) }
     });
-    assert.ok(tools.find((candidate) => candidate.name === "loo_codex_autonomy_tick"));
+    assert.ok(tools.find((candidate) => candidate.name === "loo_operating_picture"));
 
     assert.equal(report.schema, "lco.codex.autonomyTick.v1");
     assert.equal(report.publicSafe, true);

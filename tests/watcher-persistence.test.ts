@@ -277,11 +277,11 @@ test("MCP exposes persisted watcher events as a read-only public-safe tool", asy
         }
       }
     });
-    const tool = tools.find((candidate) => candidate.name === "loo_watcher_events");
+    const tool = tools.find((candidate) => candidate.name === "loo_watchers");
     assert.ok(tool);
     assert.equal(tool.safety.mode, "read_only");
     assert.deepEqual(tool.safety.mutationClasses, []);
-    const report = await tool.execute({ limit: 5, now: "2026-07-03T20:05:00.000Z" });
+    const report = await tool.execute({ action: "events", limit: 5, now: "2026-07-03T20:05:00.000Z" });
     assert.equal((report as { publicSafe?: boolean }).publicSafe, true);
     assert.equal((report as { summary?: { queueItems?: number } }).summary?.queueItems, 1);
   });

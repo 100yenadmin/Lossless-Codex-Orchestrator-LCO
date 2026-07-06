@@ -60,7 +60,7 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
     /M11 proved/i,
     /M12 QA Lab/i,
     /loo qa-lab tool-coverage/i,
-    /60 declared `loo_\*` tools/i,
+    /34 canonical tools plus compatibility aliases/i,
     /1\.2 prepared-state tracker as completed proof/i,
     /What a local OpenClaw agent can do today/i,
     /Completed proof/i,

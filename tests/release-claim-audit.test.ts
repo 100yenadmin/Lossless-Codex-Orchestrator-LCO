@@ -421,7 +421,7 @@ test("OpenClaw plugin manifest is packageable and matches the beta safety bounda
     contracts?: { tools?: unknown[]; toolDeclarations?: unknown[] };
   };
   const expectedTools = createLooToolDeclarations({ includeAliases: true });
-  const expectedBaseTools = createLooToolDeclarations({ includeAliases: false });
+  const expectedPolicyTools = expectedTools.filter((tool) => tool.name.startsWith("loo_"));
   const expectedToolNames = expectedTools.map((tool) => tool.name);
 
   assert.equal(packageJson.name, "lossless-openclaw-orchestrator");
@@ -436,7 +436,7 @@ test("OpenClaw plugin manifest is packageable and matches the beta safety bounda
   assert.equal(manifest.version, packageJson.version);
   assert.equal(sourceManifest.version, packageJson.version);
   assert.equal(sourceManifest.mcp?.command, manifest.mcp?.command);
-  assert.deepEqual([...expectedBaseTools.map((tool) => tool.name)].sort(), Object.keys(LOO_COMMAND_POLICY).sort());
+  assert.deepEqual([...expectedPolicyTools.map((tool) => tool.name)].sort(), Object.keys(LOO_COMMAND_POLICY).sort());
   assert.equal(manifest.name, "Lossless OpenClaw Orchestrator");
   assert.match(manifest.description ?? "", /local Codex sessions/i);
   assert.match(manifest.description ?? "", /approval-gated dry-run\/control boundaries/i);

@@ -1483,7 +1483,7 @@ function printQaLabToolCoverageHelp(): void {
     "Aggregates public-safe QA Lab tool evidence and writes `tool-coverage.json`.",
     "",
     "Coverage policies:",
-    "  full requires tier-appropriate evidence for every declared `loo_*` tool.",
+    "  full requires tier-appropriate evidence for every canonical declared `loo_*` tool; compatibility aliases credit their target.",
     "  facade requires product evidence for public facade tools and records the rest as non-blocking gaps.",
     "",
     "Strict mode:",

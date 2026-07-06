@@ -37,45 +37,21 @@
       "loo_index_sessions",
       "loo_search_sessions",
       "loo_grep",
-      "loo_describe_session",
       "loo_describe_ref",
       "loo_expand_session",
       "loo_expand_query",
-      "loo_summary_leaves",
-      "loo_summary_expand",
-      "loo_prepared_state_status",
-      "loo_prepared_cards",
       "loo_prepared_inbox",
-      "loo_codex_thread_map",
-      "loo_codex_session_management_map",
+      "loo_prepared_state",
       "loo_recent_sessions",
-      "loo_cockpit_inbox",
-      "loo_codex_collaboration_cockpit",
-      "loo_codex_collaboration_next_steps",
-      "loo_codex_runtime_desktop_visibility_status",
-      "loo_codex_active_thread_state",
-      "loo_codex_autonomy_tick",
-      "loo_codex_desktop_collaboration_proof",
-      "loo_watchers_list",
-      "loo_watcher_status",
-      "loo_watcher_dry_run",
-      "loo_watcher_events",
-      "loo_resume_request_packet",
+      "loo_watchers",
       "loo_codex_app_server_status",
       "loo_codex_app_server_threads",
-      "loo_codex_start_thread_post_create_proof",
       "loo_visible_codex_map",
-      "loo_codex_desktop_coherence",
-      "loo_codex_desktop_fallback_status",
-      "loo_plan_state_pins",
-      "loo_github_operating_items",
       "loo_project_digest",
       "loo_attention_inbox",
       "loo_business_pulse",
-      "loo_codex_final_messages",
-      "loo_codex_plans",
-      "loo_codex_touched_files",
-      "loo_codex_tool_calls",
+      "loo_operating_picture",
+      "loo_codex_extract",
       "loo_closeout_dry_run",
       "loo_session_sanitizer",
       "loo_codex_sqlite_stores",
@@ -86,14 +62,43 @@
       "loo_codex_send_message",
       "loo_codex_steer_thread",
       "loo_codex_interrupt_thread",
-      "loo_desktop_see",
       "loo_desktop_act",
-      "loo_desktop_proof_report",
-      "loo_desktop_live_proof_harness",
       "loo_desktop_proof_action",
+      "loo_desktop_proof",
       "loo_doctor",
       "loo_permissions",
       "loo_audit_tail",
+      "loo_describe_session",
+      "loo_watchers_list",
+      "loo_watcher_status",
+      "loo_watcher_dry_run",
+      "loo_watcher_events",
+      "loo_resume_request_packet",
+      "loo_codex_final_messages",
+      "loo_codex_plans",
+      "loo_codex_touched_files",
+      "loo_codex_tool_calls",
+      "loo_summary_leaves",
+      "loo_summary_expand",
+      "loo_prepared_state_status",
+      "loo_prepared_cards",
+      "loo_codex_thread_map",
+      "loo_codex_session_management_map",
+      "loo_cockpit_inbox",
+      "loo_codex_collaboration_cockpit",
+      "loo_codex_collaboration_next_steps",
+      "loo_codex_runtime_desktop_visibility_status",
+      "loo_codex_active_thread_state",
+      "loo_codex_autonomy_tick",
+      "loo_plan_state_pins",
+      "loo_github_operating_items",
+      "loo_codex_desktop_collaboration_proof",
+      "loo_codex_start_thread_post_create_proof",
+      "loo_codex_desktop_coherence",
+      "loo_codex_desktop_fallback_status",
+      "loo_desktop_see",
+      "loo_desktop_proof_report",
+      "loo_desktop_live_proof_harness",
       "lco_describe_ref",
       "lco_expand_query",
       "lco_prepared_inbox",
@@ -243,36 +248,6 @@
         }
       },
       {
-        "name": "loo_describe_session",
-        "description": "Describe one indexed Codex session by thread id.",
-        "safety": {
-          "mode": "local_cache_write",
-          "source": "local_index",
-          "requiresApproval": false,
-          "mutationClasses": [
-            "derived_cache"
-          ]
-        },
-        "metadata": {
-          "tier": "workflow_detail"
-        },
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "thread_id": {
-              "type": "string"
-            },
-            "telemetry_session_id": {
-              "type": "string"
-            },
-            "now": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      {
         "name": "loo_describe_ref",
         "description": "Describe a source-prefixed recall ref such as codex_thread:* or lcm_summary:*.",
         "safety": {
@@ -293,6 +268,9 @@
           "additionalProperties": false,
           "properties": {
             "source_ref": {
+              "type": "string"
+            },
+            "thread_id": {
               "type": "string"
             },
             "lcm_db_paths": {
@@ -405,152 +383,6 @@
         }
       },
       {
-        "name": "loo_summary_leaves",
-        "description": "List deterministic public-safe summary leaves over prepared Codex source ranges.",
-        "safety": {
-          "mode": "read_only",
-          "source": "local_index",
-          "requiresApproval": false,
-          "mutationClasses": []
-        },
-        "metadata": {
-          "tier": "workflow_detail"
-        },
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "thread_id": {
-              "type": "string"
-            },
-            "leaf_kind": {
-              "type": "string",
-              "enum": [
-                "user_prompt",
-                "assistant_message",
-                "proposed_plan",
-                "final_message",
-                "closeout",
-                "tool_call_metadata",
-                "event_metadata"
-              ]
-            },
-            "limit": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 1000
-            }
-          }
-        }
-      },
-      {
-        "name": "loo_summary_expand",
-        "description": "Expand public-safe summary leaf lineage under depth, node, and token caps.",
-        "safety": {
-          "mode": "read_only",
-          "source": "local_index",
-          "requiresApproval": false,
-          "mutationClasses": []
-        },
-        "metadata": {
-          "tier": "workflow_detail"
-        },
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "leaf_ref": {
-              "type": "string"
-            },
-            "thread_id": {
-              "type": "string"
-            },
-            "max_depth": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 20
-            },
-            "max_nodes": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 200
-            },
-            "token_budget": {
-              "type": "integer",
-              "minimum": 8,
-              "maximum": 8000
-            }
-          }
-        }
-      },
-      {
-        "name": "loo_prepared_state_status",
-        "description": "Read public-safe prepared-state cache coverage and counts.",
-        "safety": {
-          "mode": "read_only",
-          "source": "local_index",
-          "requiresApproval": false,
-          "mutationClasses": []
-        },
-        "metadata": {
-          "tier": "workflow_detail"
-        },
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "thread_id": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      {
-        "name": "loo_prepared_cards",
-        "description": "List public-safe prepared Codex state cards over summary leaves.",
-        "safety": {
-          "mode": "read_only",
-          "source": "local_index",
-          "requiresApproval": false,
-          "mutationClasses": []
-        },
-        "metadata": {
-          "tier": "workflow_detail"
-        },
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "thread_id": {
-              "type": "string"
-            },
-            "state": {
-              "type": "string",
-              "enum": [
-                "ready",
-                "stale",
-                "partial",
-                "unknown",
-                "completed",
-                "blocked_missing_info",
-                "waiting_approval",
-                "watching_external_check",
-                "needs_resume",
-                "dirty_worktree_handoff",
-                "stale_or_partial",
-                "ready_for_review",
-                "unknown_lifecycle"
-              ]
-            },
-            "limit": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 500
-            }
-          }
-        }
-      },
-      {
         "name": "loo_prepared_inbox",
         "description": "Read the deterministic execute-false prepared-state attention inbox.",
         "safety": {
@@ -580,8 +412,8 @@
         }
       },
       {
-        "name": "loo_codex_thread_map",
-        "description": "Read the indexed Codex thread map.",
+        "name": "loo_prepared_state",
+        "description": "Read prepared-state status, cards, summary leaves, or bounded summary expansion through one canonical prepared-state surface.",
         "safety": {
           "mode": "read_only",
           "source": "local_index",
@@ -595,70 +427,70 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "view": {
+              "type": "string",
+              "enum": [
+                "status",
+                "cards",
+                "leaves",
+                "expand"
+              ]
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "ready",
+                "stale",
+                "partial",
+                "unknown",
+                "completed",
+                "blocked_missing_info",
+                "waiting_approval",
+                "watching_external_check",
+                "needs_resume",
+                "dirty_worktree_handoff",
+                "stale_or_partial",
+                "ready_for_review",
+                "unknown_lifecycle"
+              ]
+            },
+            "leaf_kind": {
+              "type": "string",
+              "enum": [
+                "user_prompt",
+                "assistant_message",
+                "proposed_plan",
+                "final_message",
+                "closeout",
+                "tool_call_metadata",
+                "event_metadata"
+              ]
+            },
+            "leaf_ref": {
+              "type": "string"
+            },
+            "max_depth": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20
+            },
+            "max_nodes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "token_budget": {
+              "type": "integer",
+              "minimum": 8,
+              "maximum": 8000
+            },
             "limit": {
               "type": "integer",
               "minimum": 1,
-              "maximum": 500
-            },
-            "project": {
-              "type": "string"
-            },
-            "status": {
-              "type": "string"
-            },
-            "priority": {
-              "type": "string"
-            },
-            "blocker": {
-              "type": "string"
-            },
-            "priority_order": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        }
-      },
-      {
-        "name": "loo_codex_session_management_map",
-        "description": "Read a public-safe orchestration map for active, blocked, expansion, archive, fork, and resume lanes.",
-        "safety": {
-          "mode": "read_only",
-          "source": "local_index",
-          "requiresApproval": false,
-          "mutationClasses": []
-        },
-        "metadata": {
-          "tier": "workflow_detail"
-        },
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "limit": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 500
-            },
-            "project": {
-              "type": "string"
-            },
-            "status": {
-              "type": "string"
-            },
-            "priority": {
-              "type": "string"
-            },
-            "blocker": {
-              "type": "string"
-            },
-            "priority_order": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
+              "maximum": 1000
             }
           }
         }
@@ -733,48 +565,8 @@
         }
       },
       {
-        "name": "loo_cockpit_inbox",
-        "description": "Rank Codex sessions that need attention using deterministic public-safe session cards.",
-        "safety": {
-          "mode": "read_only",
-          "source": "local_index",
-          "requiresApproval": false,
-          "mutationClasses": []
-        },
-        "metadata": {
-          "tier": "workflow_detail"
-        },
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "limit": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 500
-            },
-            "priority_order": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "watcher_specs": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "additionalProperties": true
-              }
-            },
-            "now": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      {
-        "name": "loo_codex_collaboration_cockpit",
-        "description": "Summarize Codex collaboration lanes from indexed sessions, inbox urgency, watcher requests, and optional Desktop coherence/fallback evidence without performing actions.",
+        "name": "loo_watchers",
+        "description": "Read watcher status, dry-run request packets, persisted watcher events, or one resume-request packet through a canonical execute-false watcher surface.",
         "safety": {
           "mode": "read_only",
           "source": "structured_operating_inputs",
@@ -788,354 +580,16 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "limit": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 500
-            },
-            "priority_order": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "watcher_specs": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "additionalProperties": true
-              }
-            },
-            "desktop_coherence_reports": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "additionalProperties": true
-              }
-            },
-            "desktop_fallback_reports": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "additionalProperties": true
-              }
-            },
-            "now": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      {
-        "name": "loo_codex_collaboration_next_steps",
-        "description": "Plan exact read-only next tool calls for Codex collaboration lanes without executing control or GUI actions.",
-        "safety": {
-          "mode": "read_only",
-          "source": "structured_operating_inputs",
-          "requiresApproval": false,
-          "mutationClasses": []
-        },
-        "metadata": {
-          "tier": "workflow_detail"
-        },
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "limit": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 500
-            },
-            "priority_order": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "watcher_specs": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "additionalProperties": true
-              }
-            },
-            "desktop_coherence_reports": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "additionalProperties": true
-              }
-            },
-            "desktop_fallback_reports": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "additionalProperties": true
-              }
-            },
-            "now": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      {
-        "name": "loo_codex_runtime_desktop_visibility_status",
-        "description": "Summarize whether collaboration cockpit lanes have public-safe runtime Desktop visibility proof or exact read-only next proof steps.",
-        "safety": {
-          "mode": "read_only",
-          "source": "structured_operating_inputs",
-          "requiresApproval": false,
-          "mutationClasses": []
-        },
-        "metadata": {
-          "tier": "workflow_detail"
-        },
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "limit": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 500
-            },
-            "priority_order": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "watcher_specs": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "additionalProperties": true
-              }
-            },
-            "desktop_coherence_reports": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "additionalProperties": true
-              }
-            },
-            "desktop_fallback_reports": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "additionalProperties": true
-              }
-            },
-            "desktop_collaboration_proof_reports": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "additionalProperties": true
-              }
-            },
-            "now": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      {
-        "name": "loo_codex_active_thread_state",
-        "description": "Classify active Codex threads using public-safe cockpit signals, attention coverage, execute-false read-only probes, and non-executed control dry-run recommendations where safe.",
-        "safety": {
-          "mode": "read_only",
-          "source": "structured_operating_inputs",
-          "requiresApproval": false,
-          "mutationClasses": []
-        },
-        "metadata": {
-          "tier": "workflow_detail"
-        },
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "limit": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 500
-            },
-            "priority_order": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "watcher_specs": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "additionalProperties": true
-              }
-            },
-            "desktop_coherence_reports": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "additionalProperties": true
-              }
-            },
-            "desktop_fallback_reports": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "additionalProperties": true
-              }
-            },
-            "app_server_threads": {
-              "type": "object",
-              "additionalProperties": true
-            },
-            "visible_map": {
-              "type": "object",
-              "additionalProperties": true
-            },
-            "now": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      {
-        "name": "loo_codex_autonomy_tick",
-        "description": "Plan one deterministic read-only Codex autonomy loop tick from active-thread state without executing control, GUI actions, raw transcript reads, publishing, or releases.",
-        "safety": {
-          "mode": "read_only",
-          "source": "structured_operating_inputs",
-          "requiresApproval": false,
-          "mutationClasses": []
-        },
-        "metadata": {
-          "tier": "workflow_detail"
-        },
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "limit": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 500
-            },
-            "priority_order": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "watcher_specs": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "additionalProperties": true
-              }
-            },
-            "desktop_coherence_reports": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "additionalProperties": true
-              }
-            },
-            "desktop_fallback_reports": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "additionalProperties": true
-              }
-            },
-            "app_server_threads": {
-              "type": "object",
-              "additionalProperties": true
-            },
-            "visible_map": {
-              "type": "object",
-              "additionalProperties": true
-            },
-            "now": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      {
-        "name": "loo_codex_desktop_collaboration_proof",
-        "description": "Validate an exact action-bound Codex Desktop collaboration proof packet without running live control or GUI mutation.",
-        "safety": {
-          "mode": "read_only",
-          "source": "desktop_fallback",
-          "requiresApproval": false,
-          "mutationClasses": []
-        },
-        "metadata": {
-          "tier": "proof_debug"
-        },
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "target_ref": {
-              "type": "string"
-            },
-            "target_thread_id": {
-              "type": "string"
-            },
-            "backend": {
+            "action": {
               "type": "string",
               "enum": [
-                "direct",
-                "cua-driver",
-                "peekaboo"
+                "list",
+                "status",
+                "dry_run",
+                "events",
+                "resume_request_packet"
               ]
             },
-            "target_app": {
-              "type": "string"
-            },
-            "target_window": {
-              "type": "string"
-            },
-            "action": {
-              "type": "string"
-            },
-            "action_hash": {
-              "type": "string"
-            },
-            "approval_packet": {
-              "type": "object",
-              "additionalProperties": true
-            },
-            "execute": {
-              "type": "boolean"
-            },
-            "now": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      {
-        "name": "loo_watchers_list",
-        "description": "List read-only watcher specs as deterministic public-safe watcher status rows.",
-        "safety": {
-          "mode": "read_only",
-          "source": "structured_operating_inputs",
-          "requiresApproval": false,
-          "mutationClasses": []
-        },
-        "metadata": {
-          "tier": "workflow_detail"
-        },
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
             "watcher_specs": {
               "type": "array",
               "items": {
@@ -1143,137 +597,14 @@
                 "additionalProperties": true
               }
             },
-            "limit": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 1000
-            },
-            "now": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      {
-        "name": "loo_watcher_status",
-        "description": "Describe one read-only watcher status without cleanup or mutation.",
-        "safety": {
-          "mode": "read_only",
-          "source": "structured_operating_inputs",
-          "requiresApproval": false,
-          "mutationClasses": []
-        },
-        "metadata": {
-          "tier": "workflow_detail"
-        },
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "watcher_specs": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "additionalProperties": true
-              }
-            },
-            "watch_id": {
-              "type": "string"
-            },
-            "now": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      {
-        "name": "loo_watcher_dry_run",
-        "description": "Preview watcher-triggered resume request packets without sending or mutating anything.",
-        "safety": {
-          "mode": "read_only",
-          "source": "structured_operating_inputs",
-          "requiresApproval": false,
-          "mutationClasses": []
-        },
-        "metadata": {
-          "tier": "workflow_detail"
-        },
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "watcher_specs": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "additionalProperties": true
-              }
-            },
-            "limit": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 1000
-            },
-            "now": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      {
-        "name": "loo_watcher_events",
-        "description": "Read persisted public-safe watcher observations and execute-false local attention queue items.",
-        "safety": {
-          "mode": "read_only",
-          "source": "structured_operating_inputs",
-          "requiresApproval": false,
-          "mutationClasses": []
-        },
-        "metadata": {
-          "tier": "workflow_detail"
-        },
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "watch_id": {
-              "type": "string"
-            },
-            "target_ref": {
-              "type": "string"
-            },
-            "limit": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 1000
-            },
-            "now": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      {
-        "name": "loo_resume_request_packet",
-        "description": "Create one approval-bounded resume request packet from a read-only watcher spec.",
-        "safety": {
-          "mode": "read_only",
-          "source": "structured_operating_inputs",
-          "requiresApproval": false,
-          "mutationClasses": []
-        },
-        "metadata": {
-          "tier": "workflow_detail"
-        },
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
             "watcher_spec": {
               "type": "object",
               "additionalProperties": true
             },
-            "now": {
+            "watch_id": {
+              "type": "string"
+            },
+            "target_ref": {
               "type": "string"
             },
             "ttl_seconds": {
@@ -1289,6 +620,14 @@
                 "approve",
                 "ignore"
               ]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "now": {
+              "type": "string"
             }
           }
         }
@@ -1334,48 +673,6 @@
             },
             "read_thread_id": {
               "type": "string"
-            }
-          }
-        }
-      },
-      {
-        "name": "loo_codex_start_thread_post_create_proof",
-        "description": "Read public-safe post-create proof for a newly started Codex thread without control, raw transcripts, or GUI mutation.",
-        "safety": {
-          "mode": "read_only",
-          "source": "codex_direct",
-          "requiresApproval": false,
-          "mutationClasses": []
-        },
-        "metadata": {
-          "tier": "proof_debug"
-        },
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "created_thread_id": {
-              "type": "string"
-            },
-            "worker_thread_id": {
-              "type": "string"
-            },
-            "created_thread_ref": {
-              "type": "string"
-            },
-            "requested_title": {
-              "type": "string"
-            },
-            "alias": {
-              "type": "string"
-            },
-            "parent_thread_id": {
-              "type": "string"
-            },
-            "limit": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 100
             }
           }
         }
@@ -1432,194 +729,6 @@
             "app_server_threads": {
               "type": "object",
               "additionalProperties": true
-            }
-          }
-        }
-      },
-      {
-        "name": "loo_codex_desktop_coherence",
-        "description": "Classify whether CLI/direct/app-server Codex thread evidence is also visible in Codex Desktop without performing control or GUI actions.",
-        "safety": {
-          "mode": "read_only",
-          "source": "structured_operating_inputs",
-          "requiresApproval": false,
-          "mutationClasses": []
-        },
-        "metadata": {
-          "tier": "proof_debug"
-        },
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "thread_id": {
-              "type": "string"
-            },
-            "source_ref": {
-              "type": "string"
-            },
-            "refresh_kind": {
-              "type": "string",
-              "enum": [
-                "none",
-                "desktop_refresh",
-                "desktop_restart"
-              ]
-            },
-            "visible_map": {
-              "type": "object",
-              "additionalProperties": true
-            },
-            "before_visible_map": {
-              "type": "object",
-              "additionalProperties": true
-            },
-            "after_visible_map": {
-              "type": "object",
-              "additionalProperties": true
-            },
-            "action_evidence": {
-              "type": "object",
-              "additionalProperties": true
-            },
-            "include_app_server": {
-              "type": "boolean"
-            },
-            "include_visible_snapshot": {
-              "type": "boolean"
-            },
-            "backend": {
-              "type": "string",
-              "enum": [
-                "direct",
-                "cua-driver",
-                "peekaboo"
-              ]
-            },
-            "max_nodes": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 500
-            },
-            "max_chars": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 20000
-            },
-            "limit": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 500
-            },
-            "now": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      {
-        "name": "loo_codex_desktop_fallback_status",
-        "description": "Report CUA-first and Peekaboo-secondary Codex Desktop fallback readiness for a target thread without performing GUI actions.",
-        "safety": {
-          "mode": "read_only",
-          "source": "desktop_fallback",
-          "requiresApproval": false,
-          "mutationClasses": []
-        },
-        "metadata": {
-          "tier": "proof_debug"
-        },
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "thread_id": {
-              "type": "string"
-            },
-            "source_ref": {
-              "type": "string"
-            },
-            "coherence": {
-              "type": "object",
-              "additionalProperties": true
-            },
-            "include_visible_snapshot": {
-              "type": "boolean"
-            },
-            "max_nodes": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 500
-            },
-            "max_chars": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 20000
-            },
-            "now": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      {
-        "name": "loo_plan_state_pins",
-        "description": "Extract only manual pins, approval boundaries, and exception ledger entries from PLAN_STATE text.",
-        "safety": {
-          "mode": "read_only",
-          "source": "structured_operating_inputs",
-          "requiresApproval": false,
-          "mutationClasses": []
-        },
-        "metadata": {
-          "tier": "workflow_detail"
-        },
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "plan_state_text": {
-              "type": "string"
-            },
-            "plan_state_path": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      {
-        "name": "loo_github_operating_items",
-        "description": "Normalize public-safe GitHub issue, PR, and check records into Eva operating-picture github_items without writing to GitHub.",
-        "safety": {
-          "mode": "read_only",
-          "source": "structured_operating_inputs",
-          "requiresApproval": false,
-          "mutationClasses": []
-        },
-        "metadata": {
-          "tier": "workflow_detail"
-        },
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "github_records": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "additionalProperties": true
-              }
-            },
-            "include_green": {
-              "type": "boolean"
-            },
-            "limit": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 200
-            },
-            "now": {
-              "type": "string"
             }
           }
         }
@@ -1776,11 +885,11 @@
         }
       },
       {
-        "name": "loo_codex_final_messages",
-        "description": "Read final assistant/status messages extracted from Codex sessions.",
+        "name": "loo_operating_picture",
+        "description": "Read deterministic Codex and Eva operating-picture maps, inboxes, pins, GitHub items, or autonomy planning state through one canonical read-only surface.",
         "safety": {
           "mode": "read_only",
-          "source": "local_index",
+          "source": "structured_operating_inputs",
           "requiresApproval": false,
           "mutationClasses": []
         },
@@ -1791,69 +900,105 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "thread_id": {
-              "type": "string"
+            "kind": {
+              "type": "string",
+              "enum": [
+                "thread_map",
+                "session_management_map",
+                "cockpit_inbox",
+                "collaboration_cockpit",
+                "collaboration_next_steps",
+                "runtime_desktop_visibility_status",
+                "active_thread_state",
+                "autonomy_tick",
+                "plan_state_pins",
+                "github_operating_items"
+              ]
             },
             "limit": {
               "type": "integer",
               "minimum": 1,
               "maximum": 500
-            }
-          }
-        }
-      },
-      {
-        "name": "loo_codex_plans",
-        "description": "Read proposed_plan blocks extracted from Codex sessions.",
-        "safety": {
-          "mode": "read_only",
-          "source": "local_index",
-          "requiresApproval": false,
-          "mutationClasses": []
-        },
-        "metadata": {
-          "tier": "workflow_detail"
-        },
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "thread_id": {
+            },
+            "project": {
               "type": "string"
             },
-            "limit": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 500
-            }
-          }
-        }
-      },
-      {
-        "name": "loo_codex_touched_files",
-        "description": "Read touched files extracted for one Codex session.",
-        "safety": {
-          "mode": "read_only",
-          "source": "local_index",
-          "requiresApproval": false,
-          "mutationClasses": []
-        },
-        "metadata": {
-          "tier": "workflow_detail"
-        },
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "thread_id": {
+            "status": {
+              "type": "string"
+            },
+            "priority": {
+              "type": "string"
+            },
+            "blocker": {
+              "type": "string"
+            },
+            "priority_order": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "watcher_specs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_coherence_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_fallback_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_collaboration_proof_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "app_server_threads": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "plan_state_text": {
+              "type": "string"
+            },
+            "plan_state_path": {
+              "type": "string"
+            },
+            "github_records": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "include_green": {
+              "type": "boolean"
+            },
+            "now": {
               "type": "string"
             }
           }
         }
       },
       {
-        "name": "loo_codex_tool_calls",
-        "description": "Read redacted tool-call metadata extracted from Codex sessions.",
+        "name": "loo_codex_extract",
+        "description": "Read extracted Codex plans, final messages, touched files, or tool-call metadata through one canonical extraction surface.",
         "safety": {
           "mode": "read_only",
           "source": "local_index",
@@ -1867,6 +1012,15 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "plans",
+                "final_messages",
+                "touched_files",
+                "tool_calls"
+              ]
+            },
             "thread_id": {
               "type": "string"
             },
@@ -2204,46 +1358,6 @@
         }
       },
       {
-        "name": "loo_desktop_see",
-        "description": "Inspect desktop fallback readiness through direct/CUA/Peekaboo backends.",
-        "safety": {
-          "mode": "read_only",
-          "source": "desktop_fallback",
-          "requiresApproval": false,
-          "mutationClasses": []
-        },
-        "metadata": {
-          "tier": "proof_debug"
-        },
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "backend": {
-              "type": "string",
-              "enum": [
-                "direct",
-                "cua-driver",
-                "peekaboo"
-              ]
-            },
-            "include_snapshot": {
-              "type": "boolean"
-            },
-            "max_nodes": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 500
-            },
-            "max_chars": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 20000
-            }
-          }
-        }
-      },
-      {
         "name": "loo_desktop_act",
         "description": "Dry-run desktop fallback action for CUA/Peekaboo; live requests return structured missing-proof blockers.",
         "safety": {
@@ -2296,71 +1410,6 @@
             },
             "public_safe_observation": {
               "type": "boolean"
-            }
-          }
-        }
-      },
-      {
-        "name": "loo_desktop_proof_report",
-        "description": "Validate a supplied public-safe desktop GUI action observation and return release-compatible proof when it satisfies no-focus/action-bound gates.",
-        "safety": {
-          "mode": "read_only",
-          "source": "desktop_fallback",
-          "requiresApproval": false,
-          "mutationClasses": []
-        },
-        "metadata": {
-          "tier": "proof_debug"
-        },
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "observation": {
-              "type": "object",
-              "additionalProperties": true
-            }
-          }
-        }
-      },
-      {
-        "name": "loo_desktop_live_proof_harness",
-        "description": "Prepare a public-safe desktop live/no-focus proof packet without running the GUI action.",
-        "safety": {
-          "mode": "read_only",
-          "source": "desktop_fallback",
-          "requiresApproval": false,
-          "mutationClasses": []
-        },
-        "metadata": {
-          "tier": "proof_debug"
-        },
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "backend": {
-              "type": "string",
-              "enum": [
-                "direct",
-                "cua-driver",
-                "peekaboo"
-              ]
-            },
-            "target_app": {
-              "type": "string"
-            },
-            "target_window": {
-              "type": "string"
-            },
-            "action": {
-              "type": "string"
-            },
-            "approval_ref": {
-              "type": "string"
-            },
-            "scratch_file_path": {
-              "type": "string"
             }
           }
         }
@@ -2431,6 +1480,159 @@
         }
       },
       {
+        "name": "loo_desktop_proof",
+        "description": "Read or validate desktop proof/check surfaces through one canonical proof surface without broad GUI mutation.",
+        "safety": {
+          "mode": "read_only",
+          "source": "desktop_fallback",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "proof_debug"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "check": {
+              "type": "string",
+              "enum": [
+                "collaboration_proof",
+                "start_thread_post_create_proof",
+                "coherence",
+                "fallback_status",
+                "see",
+                "proof_report",
+                "live_proof_harness"
+              ]
+            },
+            "target_ref": {
+              "type": "string"
+            },
+            "target_thread_id": {
+              "type": "string"
+            },
+            "backend": {
+              "type": "string",
+              "enum": [
+                "direct",
+                "cua-driver",
+                "peekaboo"
+              ]
+            },
+            "target_app": {
+              "type": "string"
+            },
+            "target_window": {
+              "type": "string"
+            },
+            "action": {
+              "type": "string"
+            },
+            "action_hash": {
+              "type": "string"
+            },
+            "approval_packet": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "execute": {
+              "type": "boolean"
+            },
+            "now": {
+              "type": "string"
+            },
+            "created_thread_id": {
+              "type": "string"
+            },
+            "worker_thread_id": {
+              "type": "string"
+            },
+            "created_thread_ref": {
+              "type": "string"
+            },
+            "requested_title": {
+              "type": "string"
+            },
+            "alias": {
+              "type": "string"
+            },
+            "parent_thread_id": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "source_ref": {
+              "type": "string"
+            },
+            "refresh_kind": {
+              "type": "string",
+              "enum": [
+                "none",
+                "desktop_refresh",
+                "desktop_restart"
+              ]
+            },
+            "visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "before_visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "after_visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "action_evidence": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "include_app_server": {
+              "type": "boolean"
+            },
+            "include_visible_snapshot": {
+              "type": "boolean"
+            },
+            "include_snapshot": {
+              "type": "boolean"
+            },
+            "max_nodes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "max_chars": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20000
+            },
+            "coherence": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "observation": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "approval_ref": {
+              "type": "string"
+            },
+            "scratch_file_path": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
         "name": "loo_doctor",
         "description": "Read local orchestrator health.",
         "safety": {
@@ -2491,6 +1693,3089 @@
         }
       },
       {
+        "name": "loo_describe_session",
+        "description": "Describe a source-prefixed recall ref such as codex_thread:* or lcm_summary:*.",
+        "safety": {
+          "mode": "local_cache_write",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": [
+            "derived_cache"
+          ]
+        },
+        "metadata": {
+          "tier": "public_facade",
+          "operatorPathRank": 2,
+          "operatorPathRole": "Look up a specific session or source ref after the inbox identifies it.",
+          "aliasOf": "loo_describe_ref"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "source_ref": {
+              "type": "string"
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "lcm_db_paths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "telemetry_session_id": {
+              "type": "string"
+            },
+            "now": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_watchers_list",
+        "description": "Read watcher status, dry-run request packets, persisted watcher events, or one resume-request packet through a canonical execute-false watcher surface.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail",
+          "aliasOf": "loo_watchers"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "list",
+                "status",
+                "dry_run",
+                "events",
+                "resume_request_packet"
+              ]
+            },
+            "watcher_specs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "watcher_spec": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "watch_id": {
+              "type": "string"
+            },
+            "target_ref": {
+              "type": "string"
+            },
+            "ttl_seconds": {
+              "type": "integer",
+              "minimum": 60,
+              "maximum": 86400
+            },
+            "recommended_action": {
+              "type": "string",
+              "enum": [
+                "inspect",
+                "resume",
+                "approve",
+                "ignore"
+              ]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "now": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_watcher_status",
+        "description": "Read watcher status, dry-run request packets, persisted watcher events, or one resume-request packet through a canonical execute-false watcher surface.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail",
+          "aliasOf": "loo_watchers"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "list",
+                "status",
+                "dry_run",
+                "events",
+                "resume_request_packet"
+              ]
+            },
+            "watcher_specs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "watcher_spec": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "watch_id": {
+              "type": "string"
+            },
+            "target_ref": {
+              "type": "string"
+            },
+            "ttl_seconds": {
+              "type": "integer",
+              "minimum": 60,
+              "maximum": 86400
+            },
+            "recommended_action": {
+              "type": "string",
+              "enum": [
+                "inspect",
+                "resume",
+                "approve",
+                "ignore"
+              ]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "now": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_watcher_dry_run",
+        "description": "Read watcher status, dry-run request packets, persisted watcher events, or one resume-request packet through a canonical execute-false watcher surface.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail",
+          "aliasOf": "loo_watchers"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "list",
+                "status",
+                "dry_run",
+                "events",
+                "resume_request_packet"
+              ]
+            },
+            "watcher_specs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "watcher_spec": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "watch_id": {
+              "type": "string"
+            },
+            "target_ref": {
+              "type": "string"
+            },
+            "ttl_seconds": {
+              "type": "integer",
+              "minimum": 60,
+              "maximum": 86400
+            },
+            "recommended_action": {
+              "type": "string",
+              "enum": [
+                "inspect",
+                "resume",
+                "approve",
+                "ignore"
+              ]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "now": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_watcher_events",
+        "description": "Read watcher status, dry-run request packets, persisted watcher events, or one resume-request packet through a canonical execute-false watcher surface.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail",
+          "aliasOf": "loo_watchers"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "list",
+                "status",
+                "dry_run",
+                "events",
+                "resume_request_packet"
+              ]
+            },
+            "watcher_specs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "watcher_spec": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "watch_id": {
+              "type": "string"
+            },
+            "target_ref": {
+              "type": "string"
+            },
+            "ttl_seconds": {
+              "type": "integer",
+              "minimum": 60,
+              "maximum": 86400
+            },
+            "recommended_action": {
+              "type": "string",
+              "enum": [
+                "inspect",
+                "resume",
+                "approve",
+                "ignore"
+              ]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "now": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_resume_request_packet",
+        "description": "Read watcher status, dry-run request packets, persisted watcher events, or one resume-request packet through a canonical execute-false watcher surface.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail",
+          "aliasOf": "loo_watchers"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "list",
+                "status",
+                "dry_run",
+                "events",
+                "resume_request_packet"
+              ]
+            },
+            "watcher_specs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "watcher_spec": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "watch_id": {
+              "type": "string"
+            },
+            "target_ref": {
+              "type": "string"
+            },
+            "ttl_seconds": {
+              "type": "integer",
+              "minimum": 60,
+              "maximum": 86400
+            },
+            "recommended_action": {
+              "type": "string",
+              "enum": [
+                "inspect",
+                "resume",
+                "approve",
+                "ignore"
+              ]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "now": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_final_messages",
+        "description": "Read extracted Codex plans, final messages, touched files, or tool-call metadata through one canonical extraction surface.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail",
+          "aliasOf": "loo_codex_extract"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "plans",
+                "final_messages",
+                "touched_files",
+                "tool_calls"
+              ]
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_plans",
+        "description": "Read extracted Codex plans, final messages, touched files, or tool-call metadata through one canonical extraction surface.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail",
+          "aliasOf": "loo_codex_extract"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "plans",
+                "final_messages",
+                "touched_files",
+                "tool_calls"
+              ]
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_touched_files",
+        "description": "Read extracted Codex plans, final messages, touched files, or tool-call metadata through one canonical extraction surface.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail",
+          "aliasOf": "loo_codex_extract"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "plans",
+                "final_messages",
+                "touched_files",
+                "tool_calls"
+              ]
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_tool_calls",
+        "description": "Read extracted Codex plans, final messages, touched files, or tool-call metadata through one canonical extraction surface.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail",
+          "aliasOf": "loo_codex_extract"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "plans",
+                "final_messages",
+                "touched_files",
+                "tool_calls"
+              ]
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_summary_leaves",
+        "description": "Read prepared-state status, cards, summary leaves, or bounded summary expansion through one canonical prepared-state surface.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail",
+          "aliasOf": "loo_prepared_state"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "view": {
+              "type": "string",
+              "enum": [
+                "status",
+                "cards",
+                "leaves",
+                "expand"
+              ]
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "ready",
+                "stale",
+                "partial",
+                "unknown",
+                "completed",
+                "blocked_missing_info",
+                "waiting_approval",
+                "watching_external_check",
+                "needs_resume",
+                "dirty_worktree_handoff",
+                "stale_or_partial",
+                "ready_for_review",
+                "unknown_lifecycle"
+              ]
+            },
+            "leaf_kind": {
+              "type": "string",
+              "enum": [
+                "user_prompt",
+                "assistant_message",
+                "proposed_plan",
+                "final_message",
+                "closeout",
+                "tool_call_metadata",
+                "event_metadata"
+              ]
+            },
+            "leaf_ref": {
+              "type": "string"
+            },
+            "max_depth": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20
+            },
+            "max_nodes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "token_budget": {
+              "type": "integer",
+              "minimum": 8,
+              "maximum": 8000
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_summary_expand",
+        "description": "Read prepared-state status, cards, summary leaves, or bounded summary expansion through one canonical prepared-state surface.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail",
+          "aliasOf": "loo_prepared_state"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "view": {
+              "type": "string",
+              "enum": [
+                "status",
+                "cards",
+                "leaves",
+                "expand"
+              ]
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "ready",
+                "stale",
+                "partial",
+                "unknown",
+                "completed",
+                "blocked_missing_info",
+                "waiting_approval",
+                "watching_external_check",
+                "needs_resume",
+                "dirty_worktree_handoff",
+                "stale_or_partial",
+                "ready_for_review",
+                "unknown_lifecycle"
+              ]
+            },
+            "leaf_kind": {
+              "type": "string",
+              "enum": [
+                "user_prompt",
+                "assistant_message",
+                "proposed_plan",
+                "final_message",
+                "closeout",
+                "tool_call_metadata",
+                "event_metadata"
+              ]
+            },
+            "leaf_ref": {
+              "type": "string"
+            },
+            "max_depth": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20
+            },
+            "max_nodes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "token_budget": {
+              "type": "integer",
+              "minimum": 8,
+              "maximum": 8000
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_prepared_state_status",
+        "description": "Read prepared-state status, cards, summary leaves, or bounded summary expansion through one canonical prepared-state surface.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail",
+          "aliasOf": "loo_prepared_state"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "view": {
+              "type": "string",
+              "enum": [
+                "status",
+                "cards",
+                "leaves",
+                "expand"
+              ]
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "ready",
+                "stale",
+                "partial",
+                "unknown",
+                "completed",
+                "blocked_missing_info",
+                "waiting_approval",
+                "watching_external_check",
+                "needs_resume",
+                "dirty_worktree_handoff",
+                "stale_or_partial",
+                "ready_for_review",
+                "unknown_lifecycle"
+              ]
+            },
+            "leaf_kind": {
+              "type": "string",
+              "enum": [
+                "user_prompt",
+                "assistant_message",
+                "proposed_plan",
+                "final_message",
+                "closeout",
+                "tool_call_metadata",
+                "event_metadata"
+              ]
+            },
+            "leaf_ref": {
+              "type": "string"
+            },
+            "max_depth": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20
+            },
+            "max_nodes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "token_budget": {
+              "type": "integer",
+              "minimum": 8,
+              "maximum": 8000
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_prepared_cards",
+        "description": "Read prepared-state status, cards, summary leaves, or bounded summary expansion through one canonical prepared-state surface.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail",
+          "aliasOf": "loo_prepared_state"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "view": {
+              "type": "string",
+              "enum": [
+                "status",
+                "cards",
+                "leaves",
+                "expand"
+              ]
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "ready",
+                "stale",
+                "partial",
+                "unknown",
+                "completed",
+                "blocked_missing_info",
+                "waiting_approval",
+                "watching_external_check",
+                "needs_resume",
+                "dirty_worktree_handoff",
+                "stale_or_partial",
+                "ready_for_review",
+                "unknown_lifecycle"
+              ]
+            },
+            "leaf_kind": {
+              "type": "string",
+              "enum": [
+                "user_prompt",
+                "assistant_message",
+                "proposed_plan",
+                "final_message",
+                "closeout",
+                "tool_call_metadata",
+                "event_metadata"
+              ]
+            },
+            "leaf_ref": {
+              "type": "string"
+            },
+            "max_depth": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20
+            },
+            "max_nodes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "token_budget": {
+              "type": "integer",
+              "minimum": 8,
+              "maximum": 8000
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_thread_map",
+        "description": "Read deterministic Codex and Eva operating-picture maps, inboxes, pins, GitHub items, or autonomy planning state through one canonical read-only surface.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail",
+          "aliasOf": "loo_operating_picture"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "thread_map",
+                "session_management_map",
+                "cockpit_inbox",
+                "collaboration_cockpit",
+                "collaboration_next_steps",
+                "runtime_desktop_visibility_status",
+                "active_thread_state",
+                "autonomy_tick",
+                "plan_state_pins",
+                "github_operating_items"
+              ]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "project": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "priority": {
+              "type": "string"
+            },
+            "blocker": {
+              "type": "string"
+            },
+            "priority_order": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "watcher_specs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_coherence_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_fallback_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_collaboration_proof_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "app_server_threads": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "plan_state_text": {
+              "type": "string"
+            },
+            "plan_state_path": {
+              "type": "string"
+            },
+            "github_records": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "include_green": {
+              "type": "boolean"
+            },
+            "now": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_session_management_map",
+        "description": "Read deterministic Codex and Eva operating-picture maps, inboxes, pins, GitHub items, or autonomy planning state through one canonical read-only surface.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail",
+          "aliasOf": "loo_operating_picture"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "thread_map",
+                "session_management_map",
+                "cockpit_inbox",
+                "collaboration_cockpit",
+                "collaboration_next_steps",
+                "runtime_desktop_visibility_status",
+                "active_thread_state",
+                "autonomy_tick",
+                "plan_state_pins",
+                "github_operating_items"
+              ]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "project": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "priority": {
+              "type": "string"
+            },
+            "blocker": {
+              "type": "string"
+            },
+            "priority_order": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "watcher_specs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_coherence_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_fallback_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_collaboration_proof_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "app_server_threads": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "plan_state_text": {
+              "type": "string"
+            },
+            "plan_state_path": {
+              "type": "string"
+            },
+            "github_records": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "include_green": {
+              "type": "boolean"
+            },
+            "now": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_cockpit_inbox",
+        "description": "Read deterministic Codex and Eva operating-picture maps, inboxes, pins, GitHub items, or autonomy planning state through one canonical read-only surface.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail",
+          "aliasOf": "loo_operating_picture"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "thread_map",
+                "session_management_map",
+                "cockpit_inbox",
+                "collaboration_cockpit",
+                "collaboration_next_steps",
+                "runtime_desktop_visibility_status",
+                "active_thread_state",
+                "autonomy_tick",
+                "plan_state_pins",
+                "github_operating_items"
+              ]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "project": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "priority": {
+              "type": "string"
+            },
+            "blocker": {
+              "type": "string"
+            },
+            "priority_order": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "watcher_specs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_coherence_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_fallback_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_collaboration_proof_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "app_server_threads": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "plan_state_text": {
+              "type": "string"
+            },
+            "plan_state_path": {
+              "type": "string"
+            },
+            "github_records": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "include_green": {
+              "type": "boolean"
+            },
+            "now": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_collaboration_cockpit",
+        "description": "Read deterministic Codex and Eva operating-picture maps, inboxes, pins, GitHub items, or autonomy planning state through one canonical read-only surface.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail",
+          "aliasOf": "loo_operating_picture"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "thread_map",
+                "session_management_map",
+                "cockpit_inbox",
+                "collaboration_cockpit",
+                "collaboration_next_steps",
+                "runtime_desktop_visibility_status",
+                "active_thread_state",
+                "autonomy_tick",
+                "plan_state_pins",
+                "github_operating_items"
+              ]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "project": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "priority": {
+              "type": "string"
+            },
+            "blocker": {
+              "type": "string"
+            },
+            "priority_order": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "watcher_specs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_coherence_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_fallback_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_collaboration_proof_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "app_server_threads": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "plan_state_text": {
+              "type": "string"
+            },
+            "plan_state_path": {
+              "type": "string"
+            },
+            "github_records": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "include_green": {
+              "type": "boolean"
+            },
+            "now": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_collaboration_next_steps",
+        "description": "Read deterministic Codex and Eva operating-picture maps, inboxes, pins, GitHub items, or autonomy planning state through one canonical read-only surface.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail",
+          "aliasOf": "loo_operating_picture"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "thread_map",
+                "session_management_map",
+                "cockpit_inbox",
+                "collaboration_cockpit",
+                "collaboration_next_steps",
+                "runtime_desktop_visibility_status",
+                "active_thread_state",
+                "autonomy_tick",
+                "plan_state_pins",
+                "github_operating_items"
+              ]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "project": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "priority": {
+              "type": "string"
+            },
+            "blocker": {
+              "type": "string"
+            },
+            "priority_order": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "watcher_specs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_coherence_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_fallback_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_collaboration_proof_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "app_server_threads": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "plan_state_text": {
+              "type": "string"
+            },
+            "plan_state_path": {
+              "type": "string"
+            },
+            "github_records": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "include_green": {
+              "type": "boolean"
+            },
+            "now": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_runtime_desktop_visibility_status",
+        "description": "Read deterministic Codex and Eva operating-picture maps, inboxes, pins, GitHub items, or autonomy planning state through one canonical read-only surface.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail",
+          "aliasOf": "loo_operating_picture"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "thread_map",
+                "session_management_map",
+                "cockpit_inbox",
+                "collaboration_cockpit",
+                "collaboration_next_steps",
+                "runtime_desktop_visibility_status",
+                "active_thread_state",
+                "autonomy_tick",
+                "plan_state_pins",
+                "github_operating_items"
+              ]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "project": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "priority": {
+              "type": "string"
+            },
+            "blocker": {
+              "type": "string"
+            },
+            "priority_order": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "watcher_specs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_coherence_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_fallback_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_collaboration_proof_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "app_server_threads": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "plan_state_text": {
+              "type": "string"
+            },
+            "plan_state_path": {
+              "type": "string"
+            },
+            "github_records": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "include_green": {
+              "type": "boolean"
+            },
+            "now": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_active_thread_state",
+        "description": "Read deterministic Codex and Eva operating-picture maps, inboxes, pins, GitHub items, or autonomy planning state through one canonical read-only surface.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail",
+          "aliasOf": "loo_operating_picture"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "thread_map",
+                "session_management_map",
+                "cockpit_inbox",
+                "collaboration_cockpit",
+                "collaboration_next_steps",
+                "runtime_desktop_visibility_status",
+                "active_thread_state",
+                "autonomy_tick",
+                "plan_state_pins",
+                "github_operating_items"
+              ]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "project": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "priority": {
+              "type": "string"
+            },
+            "blocker": {
+              "type": "string"
+            },
+            "priority_order": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "watcher_specs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_coherence_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_fallback_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_collaboration_proof_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "app_server_threads": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "plan_state_text": {
+              "type": "string"
+            },
+            "plan_state_path": {
+              "type": "string"
+            },
+            "github_records": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "include_green": {
+              "type": "boolean"
+            },
+            "now": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_autonomy_tick",
+        "description": "Read deterministic Codex and Eva operating-picture maps, inboxes, pins, GitHub items, or autonomy planning state through one canonical read-only surface.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail",
+          "aliasOf": "loo_operating_picture"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "thread_map",
+                "session_management_map",
+                "cockpit_inbox",
+                "collaboration_cockpit",
+                "collaboration_next_steps",
+                "runtime_desktop_visibility_status",
+                "active_thread_state",
+                "autonomy_tick",
+                "plan_state_pins",
+                "github_operating_items"
+              ]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "project": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "priority": {
+              "type": "string"
+            },
+            "blocker": {
+              "type": "string"
+            },
+            "priority_order": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "watcher_specs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_coherence_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_fallback_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_collaboration_proof_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "app_server_threads": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "plan_state_text": {
+              "type": "string"
+            },
+            "plan_state_path": {
+              "type": "string"
+            },
+            "github_records": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "include_green": {
+              "type": "boolean"
+            },
+            "now": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_plan_state_pins",
+        "description": "Read deterministic Codex and Eva operating-picture maps, inboxes, pins, GitHub items, or autonomy planning state through one canonical read-only surface.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail",
+          "aliasOf": "loo_operating_picture"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "thread_map",
+                "session_management_map",
+                "cockpit_inbox",
+                "collaboration_cockpit",
+                "collaboration_next_steps",
+                "runtime_desktop_visibility_status",
+                "active_thread_state",
+                "autonomy_tick",
+                "plan_state_pins",
+                "github_operating_items"
+              ]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "project": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "priority": {
+              "type": "string"
+            },
+            "blocker": {
+              "type": "string"
+            },
+            "priority_order": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "watcher_specs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_coherence_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_fallback_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_collaboration_proof_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "app_server_threads": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "plan_state_text": {
+              "type": "string"
+            },
+            "plan_state_path": {
+              "type": "string"
+            },
+            "github_records": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "include_green": {
+              "type": "boolean"
+            },
+            "now": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_github_operating_items",
+        "description": "Read deterministic Codex and Eva operating-picture maps, inboxes, pins, GitHub items, or autonomy planning state through one canonical read-only surface.",
+        "safety": {
+          "mode": "read_only",
+          "source": "structured_operating_inputs",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail",
+          "aliasOf": "loo_operating_picture"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "thread_map",
+                "session_management_map",
+                "cockpit_inbox",
+                "collaboration_cockpit",
+                "collaboration_next_steps",
+                "runtime_desktop_visibility_status",
+                "active_thread_state",
+                "autonomy_tick",
+                "plan_state_pins",
+                "github_operating_items"
+              ]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "project": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "priority": {
+              "type": "string"
+            },
+            "blocker": {
+              "type": "string"
+            },
+            "priority_order": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "watcher_specs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_coherence_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_fallback_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "desktop_collaboration_proof_reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "app_server_threads": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "plan_state_text": {
+              "type": "string"
+            },
+            "plan_state_path": {
+              "type": "string"
+            },
+            "github_records": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "include_green": {
+              "type": "boolean"
+            },
+            "now": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_desktop_collaboration_proof",
+        "description": "Read or validate desktop proof/check surfaces through one canonical proof surface without broad GUI mutation.",
+        "safety": {
+          "mode": "read_only",
+          "source": "desktop_fallback",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "proof_debug",
+          "aliasOf": "loo_desktop_proof"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "check": {
+              "type": "string",
+              "enum": [
+                "collaboration_proof",
+                "start_thread_post_create_proof",
+                "coherence",
+                "fallback_status",
+                "see",
+                "proof_report",
+                "live_proof_harness"
+              ]
+            },
+            "target_ref": {
+              "type": "string"
+            },
+            "target_thread_id": {
+              "type": "string"
+            },
+            "backend": {
+              "type": "string",
+              "enum": [
+                "direct",
+                "cua-driver",
+                "peekaboo"
+              ]
+            },
+            "target_app": {
+              "type": "string"
+            },
+            "target_window": {
+              "type": "string"
+            },
+            "action": {
+              "type": "string"
+            },
+            "action_hash": {
+              "type": "string"
+            },
+            "approval_packet": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "execute": {
+              "type": "boolean"
+            },
+            "now": {
+              "type": "string"
+            },
+            "created_thread_id": {
+              "type": "string"
+            },
+            "worker_thread_id": {
+              "type": "string"
+            },
+            "created_thread_ref": {
+              "type": "string"
+            },
+            "requested_title": {
+              "type": "string"
+            },
+            "alias": {
+              "type": "string"
+            },
+            "parent_thread_id": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "source_ref": {
+              "type": "string"
+            },
+            "refresh_kind": {
+              "type": "string",
+              "enum": [
+                "none",
+                "desktop_refresh",
+                "desktop_restart"
+              ]
+            },
+            "visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "before_visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "after_visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "action_evidence": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "include_app_server": {
+              "type": "boolean"
+            },
+            "include_visible_snapshot": {
+              "type": "boolean"
+            },
+            "include_snapshot": {
+              "type": "boolean"
+            },
+            "max_nodes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "max_chars": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20000
+            },
+            "coherence": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "observation": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "approval_ref": {
+              "type": "string"
+            },
+            "scratch_file_path": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_start_thread_post_create_proof",
+        "description": "Read or validate desktop proof/check surfaces through one canonical proof surface without broad GUI mutation.",
+        "safety": {
+          "mode": "read_only",
+          "source": "desktop_fallback",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "proof_debug",
+          "aliasOf": "loo_desktop_proof"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "check": {
+              "type": "string",
+              "enum": [
+                "collaboration_proof",
+                "start_thread_post_create_proof",
+                "coherence",
+                "fallback_status",
+                "see",
+                "proof_report",
+                "live_proof_harness"
+              ]
+            },
+            "target_ref": {
+              "type": "string"
+            },
+            "target_thread_id": {
+              "type": "string"
+            },
+            "backend": {
+              "type": "string",
+              "enum": [
+                "direct",
+                "cua-driver",
+                "peekaboo"
+              ]
+            },
+            "target_app": {
+              "type": "string"
+            },
+            "target_window": {
+              "type": "string"
+            },
+            "action": {
+              "type": "string"
+            },
+            "action_hash": {
+              "type": "string"
+            },
+            "approval_packet": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "execute": {
+              "type": "boolean"
+            },
+            "now": {
+              "type": "string"
+            },
+            "created_thread_id": {
+              "type": "string"
+            },
+            "worker_thread_id": {
+              "type": "string"
+            },
+            "created_thread_ref": {
+              "type": "string"
+            },
+            "requested_title": {
+              "type": "string"
+            },
+            "alias": {
+              "type": "string"
+            },
+            "parent_thread_id": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "source_ref": {
+              "type": "string"
+            },
+            "refresh_kind": {
+              "type": "string",
+              "enum": [
+                "none",
+                "desktop_refresh",
+                "desktop_restart"
+              ]
+            },
+            "visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "before_visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "after_visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "action_evidence": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "include_app_server": {
+              "type": "boolean"
+            },
+            "include_visible_snapshot": {
+              "type": "boolean"
+            },
+            "include_snapshot": {
+              "type": "boolean"
+            },
+            "max_nodes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "max_chars": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20000
+            },
+            "coherence": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "observation": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "approval_ref": {
+              "type": "string"
+            },
+            "scratch_file_path": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_desktop_coherence",
+        "description": "Read or validate desktop proof/check surfaces through one canonical proof surface without broad GUI mutation.",
+        "safety": {
+          "mode": "read_only",
+          "source": "desktop_fallback",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "proof_debug",
+          "aliasOf": "loo_desktop_proof"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "check": {
+              "type": "string",
+              "enum": [
+                "collaboration_proof",
+                "start_thread_post_create_proof",
+                "coherence",
+                "fallback_status",
+                "see",
+                "proof_report",
+                "live_proof_harness"
+              ]
+            },
+            "target_ref": {
+              "type": "string"
+            },
+            "target_thread_id": {
+              "type": "string"
+            },
+            "backend": {
+              "type": "string",
+              "enum": [
+                "direct",
+                "cua-driver",
+                "peekaboo"
+              ]
+            },
+            "target_app": {
+              "type": "string"
+            },
+            "target_window": {
+              "type": "string"
+            },
+            "action": {
+              "type": "string"
+            },
+            "action_hash": {
+              "type": "string"
+            },
+            "approval_packet": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "execute": {
+              "type": "boolean"
+            },
+            "now": {
+              "type": "string"
+            },
+            "created_thread_id": {
+              "type": "string"
+            },
+            "worker_thread_id": {
+              "type": "string"
+            },
+            "created_thread_ref": {
+              "type": "string"
+            },
+            "requested_title": {
+              "type": "string"
+            },
+            "alias": {
+              "type": "string"
+            },
+            "parent_thread_id": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "source_ref": {
+              "type": "string"
+            },
+            "refresh_kind": {
+              "type": "string",
+              "enum": [
+                "none",
+                "desktop_refresh",
+                "desktop_restart"
+              ]
+            },
+            "visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "before_visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "after_visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "action_evidence": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "include_app_server": {
+              "type": "boolean"
+            },
+            "include_visible_snapshot": {
+              "type": "boolean"
+            },
+            "include_snapshot": {
+              "type": "boolean"
+            },
+            "max_nodes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "max_chars": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20000
+            },
+            "coherence": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "observation": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "approval_ref": {
+              "type": "string"
+            },
+            "scratch_file_path": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_desktop_fallback_status",
+        "description": "Read or validate desktop proof/check surfaces through one canonical proof surface without broad GUI mutation.",
+        "safety": {
+          "mode": "read_only",
+          "source": "desktop_fallback",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "proof_debug",
+          "aliasOf": "loo_desktop_proof"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "check": {
+              "type": "string",
+              "enum": [
+                "collaboration_proof",
+                "start_thread_post_create_proof",
+                "coherence",
+                "fallback_status",
+                "see",
+                "proof_report",
+                "live_proof_harness"
+              ]
+            },
+            "target_ref": {
+              "type": "string"
+            },
+            "target_thread_id": {
+              "type": "string"
+            },
+            "backend": {
+              "type": "string",
+              "enum": [
+                "direct",
+                "cua-driver",
+                "peekaboo"
+              ]
+            },
+            "target_app": {
+              "type": "string"
+            },
+            "target_window": {
+              "type": "string"
+            },
+            "action": {
+              "type": "string"
+            },
+            "action_hash": {
+              "type": "string"
+            },
+            "approval_packet": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "execute": {
+              "type": "boolean"
+            },
+            "now": {
+              "type": "string"
+            },
+            "created_thread_id": {
+              "type": "string"
+            },
+            "worker_thread_id": {
+              "type": "string"
+            },
+            "created_thread_ref": {
+              "type": "string"
+            },
+            "requested_title": {
+              "type": "string"
+            },
+            "alias": {
+              "type": "string"
+            },
+            "parent_thread_id": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "source_ref": {
+              "type": "string"
+            },
+            "refresh_kind": {
+              "type": "string",
+              "enum": [
+                "none",
+                "desktop_refresh",
+                "desktop_restart"
+              ]
+            },
+            "visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "before_visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "after_visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "action_evidence": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "include_app_server": {
+              "type": "boolean"
+            },
+            "include_visible_snapshot": {
+              "type": "boolean"
+            },
+            "include_snapshot": {
+              "type": "boolean"
+            },
+            "max_nodes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "max_chars": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20000
+            },
+            "coherence": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "observation": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "approval_ref": {
+              "type": "string"
+            },
+            "scratch_file_path": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_desktop_see",
+        "description": "Read or validate desktop proof/check surfaces through one canonical proof surface without broad GUI mutation.",
+        "safety": {
+          "mode": "read_only",
+          "source": "desktop_fallback",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "proof_debug",
+          "aliasOf": "loo_desktop_proof"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "check": {
+              "type": "string",
+              "enum": [
+                "collaboration_proof",
+                "start_thread_post_create_proof",
+                "coherence",
+                "fallback_status",
+                "see",
+                "proof_report",
+                "live_proof_harness"
+              ]
+            },
+            "target_ref": {
+              "type": "string"
+            },
+            "target_thread_id": {
+              "type": "string"
+            },
+            "backend": {
+              "type": "string",
+              "enum": [
+                "direct",
+                "cua-driver",
+                "peekaboo"
+              ]
+            },
+            "target_app": {
+              "type": "string"
+            },
+            "target_window": {
+              "type": "string"
+            },
+            "action": {
+              "type": "string"
+            },
+            "action_hash": {
+              "type": "string"
+            },
+            "approval_packet": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "execute": {
+              "type": "boolean"
+            },
+            "now": {
+              "type": "string"
+            },
+            "created_thread_id": {
+              "type": "string"
+            },
+            "worker_thread_id": {
+              "type": "string"
+            },
+            "created_thread_ref": {
+              "type": "string"
+            },
+            "requested_title": {
+              "type": "string"
+            },
+            "alias": {
+              "type": "string"
+            },
+            "parent_thread_id": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "source_ref": {
+              "type": "string"
+            },
+            "refresh_kind": {
+              "type": "string",
+              "enum": [
+                "none",
+                "desktop_refresh",
+                "desktop_restart"
+              ]
+            },
+            "visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "before_visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "after_visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "action_evidence": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "include_app_server": {
+              "type": "boolean"
+            },
+            "include_visible_snapshot": {
+              "type": "boolean"
+            },
+            "include_snapshot": {
+              "type": "boolean"
+            },
+            "max_nodes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "max_chars": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20000
+            },
+            "coherence": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "observation": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "approval_ref": {
+              "type": "string"
+            },
+            "scratch_file_path": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_desktop_proof_report",
+        "description": "Read or validate desktop proof/check surfaces through one canonical proof surface without broad GUI mutation.",
+        "safety": {
+          "mode": "read_only",
+          "source": "desktop_fallback",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "proof_debug",
+          "aliasOf": "loo_desktop_proof"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "check": {
+              "type": "string",
+              "enum": [
+                "collaboration_proof",
+                "start_thread_post_create_proof",
+                "coherence",
+                "fallback_status",
+                "see",
+                "proof_report",
+                "live_proof_harness"
+              ]
+            },
+            "target_ref": {
+              "type": "string"
+            },
+            "target_thread_id": {
+              "type": "string"
+            },
+            "backend": {
+              "type": "string",
+              "enum": [
+                "direct",
+                "cua-driver",
+                "peekaboo"
+              ]
+            },
+            "target_app": {
+              "type": "string"
+            },
+            "target_window": {
+              "type": "string"
+            },
+            "action": {
+              "type": "string"
+            },
+            "action_hash": {
+              "type": "string"
+            },
+            "approval_packet": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "execute": {
+              "type": "boolean"
+            },
+            "now": {
+              "type": "string"
+            },
+            "created_thread_id": {
+              "type": "string"
+            },
+            "worker_thread_id": {
+              "type": "string"
+            },
+            "created_thread_ref": {
+              "type": "string"
+            },
+            "requested_title": {
+              "type": "string"
+            },
+            "alias": {
+              "type": "string"
+            },
+            "parent_thread_id": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "source_ref": {
+              "type": "string"
+            },
+            "refresh_kind": {
+              "type": "string",
+              "enum": [
+                "none",
+                "desktop_refresh",
+                "desktop_restart"
+              ]
+            },
+            "visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "before_visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "after_visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "action_evidence": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "include_app_server": {
+              "type": "boolean"
+            },
+            "include_visible_snapshot": {
+              "type": "boolean"
+            },
+            "include_snapshot": {
+              "type": "boolean"
+            },
+            "max_nodes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "max_chars": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20000
+            },
+            "coherence": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "observation": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "approval_ref": {
+              "type": "string"
+            },
+            "scratch_file_path": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_desktop_live_proof_harness",
+        "description": "Read or validate desktop proof/check surfaces through one canonical proof surface without broad GUI mutation.",
+        "safety": {
+          "mode": "read_only",
+          "source": "desktop_fallback",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "proof_debug",
+          "aliasOf": "loo_desktop_proof"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "check": {
+              "type": "string",
+              "enum": [
+                "collaboration_proof",
+                "start_thread_post_create_proof",
+                "coherence",
+                "fallback_status",
+                "see",
+                "proof_report",
+                "live_proof_harness"
+              ]
+            },
+            "target_ref": {
+              "type": "string"
+            },
+            "target_thread_id": {
+              "type": "string"
+            },
+            "backend": {
+              "type": "string",
+              "enum": [
+                "direct",
+                "cua-driver",
+                "peekaboo"
+              ]
+            },
+            "target_app": {
+              "type": "string"
+            },
+            "target_window": {
+              "type": "string"
+            },
+            "action": {
+              "type": "string"
+            },
+            "action_hash": {
+              "type": "string"
+            },
+            "approval_packet": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "execute": {
+              "type": "boolean"
+            },
+            "now": {
+              "type": "string"
+            },
+            "created_thread_id": {
+              "type": "string"
+            },
+            "worker_thread_id": {
+              "type": "string"
+            },
+            "created_thread_ref": {
+              "type": "string"
+            },
+            "requested_title": {
+              "type": "string"
+            },
+            "alias": {
+              "type": "string"
+            },
+            "parent_thread_id": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "thread_id": {
+              "type": "string"
+            },
+            "source_ref": {
+              "type": "string"
+            },
+            "refresh_kind": {
+              "type": "string",
+              "enum": [
+                "none",
+                "desktop_refresh",
+                "desktop_restart"
+              ]
+            },
+            "visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "before_visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "after_visible_map": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "action_evidence": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "include_app_server": {
+              "type": "boolean"
+            },
+            "include_visible_snapshot": {
+              "type": "boolean"
+            },
+            "include_snapshot": {
+              "type": "boolean"
+            },
+            "max_nodes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "max_chars": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20000
+            },
+            "coherence": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "observation": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "approval_ref": {
+              "type": "string"
+            },
+            "scratch_file_path": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
         "name": "lco_describe_ref",
         "description": "Describe a source-prefixed recall ref such as codex_thread:* or lcm_summary:*.",
         "safety": {
@@ -2512,6 +4797,9 @@
           "additionalProperties": false,
           "properties": {
             "source_ref": {
+              "type": "string"
+            },
+            "thread_id": {
               "type": "string"
             },
             "lcm_db_paths": {
@@ -2888,7 +5176,7 @@
         "legacyCompatiblePrefix": "loo_",
         "packageName": "lossless-openclaw-orchestrator",
         "compatibilityIssue": "#434",
-        "aliasPolicy": "`lco_*` is the forward public alias target for new user-facing tool names. The redirect alias registry can point an alias at any declared tool and can provide `kindDefaults`; caller arguments override those defaults at dispatch. The active registry contains only the eight tested public-facade `lco_*` aliases, each carrying `metadata.aliasOf`, while historical `loo_*` names stay backward compatible. Redirect aliases do not create separate coverage obligations."
+        "aliasPolicy": "`lco_*` is the forward public alias target for new user-facing tool names. The redirect alias registry can point an alias at any declared tool and can provide `kindDefaults`; caller arguments override those defaults at dispatch. The active registry contains eight public-facade `lco_*` aliases with execution tests, plus folded historical `loo_*` compatibility aliases for the C1 umbrella tools. Those historical names remain backward compatible through canonical umbrella dispatch. Each alias carries `metadata.aliasOf`; redirect aliases do not create separate coverage obligations."
       },
       "desktopFallback": {
         "normalFirstPath": "direct Codex protocol",
@@ -2916,7 +5204,7 @@
               "workflow_detail"
             ],
             "includesFacadeAliases": true,
-            "description": "Expose public-facade and workflow-detail tools, plus public-facade lco_* aliases."
+            "description": "Expose public-facade and workflow-detail tools, public-facade lco_* aliases, and compatibility aliases whose targets are in profile."
           },
           "all": {
             "tiers": [
@@ -2926,7 +5214,7 @@
               "internal_low_level"
             ],
             "includesFacadeAliases": true,
-            "description": "Expose the full LCO catalog, plus public-facade lco_* aliases."
+            "description": "Expose the full canonical LCO catalog, public-facade lco_* aliases, and folded historical loo_* compatibility aliases."
           }
         },
         "callPolicy": "LOO_TOOL_PROFILE filters tools/list and OpenClaw declarations only; hidden tools remain callable by exact name when invoked by a capable client."

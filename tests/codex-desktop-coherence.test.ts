@@ -482,10 +482,11 @@ test("MCP exposes #307 Codex Desktop coherence tool without performing live acti
       audit,
       codexClient: { request: async () => ({ ok: true }) }
     });
-    const tool = tools.find((candidate) => candidate.name === "loo_codex_desktop_coherence");
-    assert.ok(tool, "loo_codex_desktop_coherence should be registered");
+    const tool = tools.find((candidate) => candidate.name === "loo_desktop_proof");
+    assert.ok(tool, "canonical loo_desktop_proof should be registered");
 
     const report = await tool.execute({
+      check: "coherence",
       thread_id: "thr_cli",
       visible_map: visibleMapFixture({ desktopRef: null }),
       action_evidence: {
@@ -543,10 +544,11 @@ test("MCP generated coherence maps probe the requested app-server thread", async
         }
       }
     });
-    const tool = tools.find((candidate) => candidate.name === "loo_codex_desktop_coherence");
-    assert.ok(tool, "loo_codex_desktop_coherence should be registered");
+    const tool = tools.find((candidate) => candidate.name === "loo_desktop_proof");
+    assert.ok(tool, "canonical loo_desktop_proof should be registered");
 
     const report = await tool.execute({
+      check: "coherence",
       thread_id: "thr_outside_recent_list",
       include_app_server: true,
       include_visible_snapshot: false,

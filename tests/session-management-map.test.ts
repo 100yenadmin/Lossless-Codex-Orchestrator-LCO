@@ -213,9 +213,10 @@ test("session management map is available through MCP tools and CLI without raw 
       audit: createAuditStore(join(root, "audit.jsonl")),
       codexClient: { request: async () => ({ ok: true }) }
     });
-    const mapTool = tools.find((tool) => tool.name === "loo_codex_session_management_map");
+    const mapTool = tools.find((tool) => tool.name === "loo_operating_picture");
     assert.ok(mapTool);
     const toolMap = await mapTool.execute({
+      kind: "session_management_map",
       project: "lossless-openclaw-orchestrator",
       limit: 10,
       priority_order: ["urgent", "high", "medium", "low"]
