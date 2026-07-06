@@ -25,6 +25,23 @@ pass a relative --evidence-dir value from inside the evidence root for each gate
 Demo and judge inputs must come from a synthetic corpus or the committed
 retrieval goldens. Live-store content can never be public evidence.
 
+Direct CLI recall smokes should use bounded search arguments so temporarily
+locked local stores classify cleanly and completed slow safe-text queries are
+reported as setup/runtime blockers:
+
+```bash
+loo search --limit 10 --timeout-ms 5000 "<public-safe-query>"
+```
+
+If the public-safe query begins with flag-like words, pass `--` before the query
+text, for example `loo search --limit 10 -- --limit flaglikequery`.
+
+If the local derived-cache database is busy, the command returns a public-safe
+`database_busy` recovery packet. Treat that as a setup/runtime blocker for the
+direct CLI lane, not as proof of a product recall result. The synchronous
+SQLite query path does not claim a hard CPU-query interrupt; use this packet as
+bounded busy-lock proof plus slow-query classification.
+
 ## What It Proves
 
 - The runtime MCP registry and OpenClaw plugin manifest agree on canonical

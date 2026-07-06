@@ -97,6 +97,10 @@ import { fileURLToPath } from "node:url";
 
 const [, , command, ...args] = process.argv;
 const cliFilePath = fileURLToPath(import.meta.url);
+const DEFAULT_SEARCH_LIMIT = 10;
+const MAX_SEARCH_LIMIT = 100;
+const DEFAULT_RECALL_TIMEOUT_MS = 5_000;
+const MAX_RECALL_TIMEOUT_MS = 60_000;
 
 async function main() {
   if (!command) {
@@ -228,11 +232,19 @@ async function main() {
       printSearchHelp();
       return;
     }
-    const db = createDatabase();
+    const parsed = parseSearchArgs(args);
+    let db: ReturnType<typeof createDatabase> | null = null;
+    const started = performance.now();
     try {
-      console.log(JSON.stringify(searchSessions(db, { query: args.join(" "), limit: 10 }), null, 2));
+      db = createRecallCliDatabase(parsed.timeoutMs);
+      const results = searchSessions(db, { query: parsed.query, limit: parsed.limit, telemetry: false });
+      if (emitRecallTimeoutReportIfExceeded("search", started, { limit: parsed.limit, timeoutMs: parsed.timeoutMs })) return;
+      console.log(JSON.stringify(results, null, 2));
+    } catch (error) {
+      if (emitRecallDatabaseBusyReport(error, "search", { limit: parsed.limit, timeoutMs: parsed.timeoutMs })) return;
+      throw error;
     } finally {
-      db.close();
+      db?.close();
     }
     return;
   }
@@ -249,16 +261,24 @@ async function main() {
   if (command === "grep") {
     const parsed = parseRecallArgs(args);
     const query = requireQuery("grep", parsed.rest);
-    const db = createDatabase();
+    let db: ReturnType<typeof createDatabase> | null = null;
+    const started = performance.now();
     try {
-      console.log(JSON.stringify(grepRecall(db, {
+      db = createRecallCliDatabase(parsed.timeoutMs);
+      const result = grepRecall(db, {
         query,
         profile: parsed.profile,
         tokenBudget: parsed.tokenBudget,
-        lcmDbPaths: parsed.lcmDbPaths
-      }), null, 2));
+        lcmDbPaths: parsed.lcmDbPaths,
+        telemetry: false
+      });
+      if (emitRecallTimeoutReportIfExceeded("grep", started, { timeoutMs: parsed.timeoutMs })) return;
+      console.log(JSON.stringify(result, null, 2));
+    } catch (error) {
+      if (emitRecallDatabaseBusyReport(error, "grep", { timeoutMs: parsed.timeoutMs })) return;
+      throw error;
     } finally {
-      db.close();
+      db?.close();
     }
     return;
   }
@@ -266,33 +286,47 @@ async function main() {
     const parsed = parseRecallArgs(args);
     const sourceRef = parsed.rest[0];
     if (!sourceRef) throw new Error("describe requires a source ref");
-    const db = createDatabase();
+    let db: ReturnType<typeof createDatabase> | null = null;
+    const started = performance.now();
     try {
-      const description = describeRecallRef(db, { sourceRef, lcmDbPaths: parsed.lcmDbPaths });
+      db = createRecallCliDatabase(parsed.timeoutMs);
+      const description = describeRecallRef(db, { sourceRef, lcmDbPaths: parsed.lcmDbPaths, telemetry: false });
       if (!description) {
         console.log(JSON.stringify(createRecallRefNotFoundResult(db, sourceRef), null, 2));
         process.exitCode = 1;
         return;
       }
+      if (emitRecallTimeoutReportIfExceeded("describe", started, { timeoutMs: parsed.timeoutMs })) return;
       console.log(JSON.stringify(description, null, 2));
+    } catch (error) {
+      if (emitRecallDatabaseBusyReport(error, "describe", { timeoutMs: parsed.timeoutMs })) return;
+      throw error;
     } finally {
-      db.close();
+      db?.close();
     }
     return;
   }
   if (command === "expand-query") {
     const parsed = parseRecallArgs(args);
     const query = requireQuery("expand-query", parsed.rest);
-    const db = createDatabase();
+    let db: ReturnType<typeof createDatabase> | null = null;
+    const started = performance.now();
     try {
-      console.log(JSON.stringify(expandQuery(db, {
+      db = createRecallCliDatabase(parsed.timeoutMs);
+      const result = expandQuery(db, {
         query,
         profile: parsed.profile,
         tokenBudget: parsed.tokenBudget,
-        lcmDbPaths: parsed.lcmDbPaths
-      }), null, 2));
+        lcmDbPaths: parsed.lcmDbPaths,
+        telemetry: false
+      });
+      if (emitRecallTimeoutReportIfExceeded("expand-query", started, { timeoutMs: parsed.timeoutMs })) return;
+      console.log(JSON.stringify(result, null, 2));
+    } catch (error) {
+      if (emitRecallDatabaseBusyReport(error, "expand-query", { timeoutMs: parsed.timeoutMs })) return;
+      throw error;
     } finally {
-      db.close();
+      db?.close();
     }
     return;
   }
@@ -300,16 +334,24 @@ async function main() {
     const parsed = parseRecallArgs(args);
     const sourceRef = parsed.rest[0];
     if (!sourceRef) throw new Error("expand-ref requires a source ref");
-    const db = createDatabase();
+    let db: ReturnType<typeof createDatabase> | null = null;
+    const started = performance.now();
     try {
-      console.log(JSON.stringify(expandRecallRef(db, {
+      db = createRecallCliDatabase(parsed.timeoutMs);
+      const result = expandRecallRef(db, {
         sourceRef,
         profile: parsed.profile,
         tokenBudget: parsed.tokenBudget,
-        lcmDbPaths: parsed.lcmDbPaths
-      }), null, 2));
+        lcmDbPaths: parsed.lcmDbPaths,
+        telemetry: false
+      });
+      if (emitRecallTimeoutReportIfExceeded("expand-ref", started, { timeoutMs: parsed.timeoutMs })) return;
+      console.log(JSON.stringify(result, null, 2));
+    } catch (error) {
+      if (emitRecallDatabaseBusyReport(error, "expand-ref", { timeoutMs: parsed.timeoutMs })) return;
+      throw error;
     } finally {
-      db.close();
+      db?.close();
     }
     return;
   }
@@ -1049,12 +1091,12 @@ function mainUsageText(): string {
     "  loo index codex [--verify] [--max-files n] [--max-bytes-per-file n] [--max-events-per-file n] [roots...]",
     "  loo index bench --sessions n [--verify] (internal)",
     "  loo probe codex-sqlite [roots...]",
-    "  loo search <query>",
+    "  loo search [--limit n] [--timeout-ms ms] <query>",
     "  loo session-map [--project name] [--status value] [--priority value] [--blocker value] [--priority-order urgent,high,medium,low] [--limit n]",
-    "  loo grep [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <query>",
-    "  loo describe [--lcm-db path] <source-ref>",
-    "  loo expand-query [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <query>",
-    "  loo expand-ref [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] <source-ref>",
+    "  loo grep [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] [--timeout-ms ms] <query>",
+    "  loo describe [--lcm-db path] [--timeout-ms ms] <source-ref>",
+    "  loo expand-query [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] [--timeout-ms ms] <query>",
+    "  loo expand-ref [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] [--timeout-ms ms] <source-ref>",
     "  loo closeout dry-run [--thread-id id] [--limit n] [--include-unavailable]",
     "  loo hook closeout-capture --payload-file path|--payload-json json [--evidence-path path] [--strict]",
     "  loo hook state-prep [--thread-id id] [--target-ref ref] [--limit n] [--payload-file path|--payload-json json] [--evidence-path path] [--strict]",
@@ -1143,14 +1185,153 @@ function isCliUsageErrorMessage(message: string): boolean {
 function printSearchHelp(): void {
   console.log([
     "Usage:",
-    "  loo search <query>",
+    "  loo search [--limit n] [--timeout-ms ms] <query>",
     "",
     "Search indexed Codex sessions with bounded safe text.",
     "",
+    "Options:",
+    "  --limit n        Maximum results to return (default 10, max 100).",
+    "  --timeout-ms ms  SQLite busy timeout plus slow-query classifier (default 5000, max 60000).",
+    "  --               Treat remaining arguments as query text, even when they look like flags.",
+    "",
     "Safety boundary:",
     "  The help command does not open or query the local orchestrator database.",
-    "  Search results use source-prefixed refs and safe summaries rather than raw transcripts."
+    "  Search results use source-prefixed refs and safe summaries rather than raw transcripts.",
+    "  Busy or locked databases return a public-safe recovery packet instead of raw logs."
   ].join("\n"));
+}
+
+type ParsedSearchArgs = {
+  query: string;
+  limit: number;
+  timeoutMs: number;
+};
+
+function parseSearchArgs(input: string[]): ParsedSearchArgs {
+  const queryParts: string[] = [];
+  let limit = DEFAULT_SEARCH_LIMIT;
+  let timeoutMs = DEFAULT_RECALL_TIMEOUT_MS;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--limit") {
+      limit = parsePositiveInteger(input[++index], "--limit", MAX_SEARCH_LIMIT);
+      continue;
+    }
+    if (arg === "--timeout-ms") {
+      timeoutMs = parsePositiveInteger(input[++index], "--timeout-ms", MAX_RECALL_TIMEOUT_MS);
+      continue;
+    }
+    if (arg === "--") {
+      queryParts.push(...input.slice(index + 1));
+      break;
+    }
+    queryParts.push(arg);
+  }
+  const query = queryParts.join(" ").trim();
+  if (!query) throw new Error("search requires a query");
+  return { query, limit, timeoutMs };
+}
+
+function createRecallCliDatabase(timeoutMs: number): ReturnType<typeof createDatabase> {
+  return createDatabase({ maintenance: "schema-only", busyTimeoutMs: timeoutMs });
+}
+
+function emitRecallTimeoutReportIfExceeded(commandName: string, started: number, options: { limit?: number; timeoutMs: number }): boolean {
+  const elapsedMs = Math.round(performance.now() - started);
+  if (elapsedMs <= options.timeoutMs) return false;
+  console.log(JSON.stringify(createRecallTimeoutReport({
+    commandName,
+    elapsedMs,
+    limit: options.limit,
+    timeoutMs: options.timeoutMs
+  }), null, 2));
+  process.exitCode = 1;
+  return true;
+}
+
+function emitRecallDatabaseBusyReport(error: unknown, commandName: string, options: { limit?: number; timeoutMs: number }): boolean {
+  if (!isDatabaseBusyError(error)) return false;
+  console.log(JSON.stringify(createRecallDatabaseBusyReport({
+    commandName,
+    limit: options.limit,
+    timeoutMs: options.timeoutMs
+  }), null, 2));
+  process.exitCode = 1;
+  return true;
+}
+
+function isDatabaseBusyError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /\b(?:SQLITE_BUSY|database is locked|database is busy|database table is locked)\b/i.test(message);
+}
+
+function createRecallDatabaseBusyReport(options: { commandName: string; limit?: number; timeoutMs: number }): Record<string, unknown> {
+  const retryCommand = recallRetryCommand(options.commandName);
+  return {
+    schema: "lco.cli.recallStatus.v1",
+    ok: false,
+    code: "database_busy",
+    classification: "recoverable_setup_error",
+    publicSafe: true,
+    readOnly: true,
+    command: options.commandName,
+    resultLimit: options.limit ?? null,
+    busyTimeoutMs: options.timeoutMs,
+    sourceCoverage: { localIndex: "temporarily_unavailable" },
+    blockers: ["database_busy"],
+    nextSafeCommands: [
+      `Close or wait for overlapping LCO index/prep/search commands, then retry: ${retryCommand}`,
+      "Run loo doctor for public-safe readiness if the busy state persists."
+    ],
+    actionsPerformed: searchNoActionPerformed(),
+    privateDataExclusions: ["raw transcripts", "raw prompts", "SQLite rows", "local paths", "raw logs", "tokens", "cookies", "screenshots"],
+    proofBoundary: "This packet classifies a direct CLI search setup failure only. It does not read raw transcripts, run live Codex control, mutate a GUI, publish npm, or create a GitHub Release."
+  };
+}
+
+function recallRetryCommand(commandName: string): string {
+  if (commandName === "search") return "loo search --timeout-ms 5000 --limit 10 <query>";
+  if (commandName === "grep") return "loo grep --timeout-ms 5000 <query>";
+  if (commandName === "describe") return "loo describe --timeout-ms 5000 <source-ref>";
+  if (commandName === "expand-query") return "loo expand-query --timeout-ms 5000 <query>";
+  if (commandName === "expand-ref") return "loo expand-ref --timeout-ms 5000 <source-ref>";
+  return `loo ${commandName} --timeout-ms 5000`;
+}
+
+function createRecallTimeoutReport(options: { commandName: string; elapsedMs: number; limit?: number; timeoutMs: number }): Record<string, unknown> {
+  return {
+    schema: "lco.cli.recallStatus.v1",
+    ok: false,
+    code: "recall_timeout_exceeded",
+    classification: "recoverable_setup_error",
+    publicSafe: true,
+    readOnly: true,
+    command: options.commandName,
+    resultLimit: options.limit ?? null,
+    timeoutMs: options.timeoutMs,
+    elapsedMs: options.elapsedMs,
+    sourceCoverage: { localIndex: "slow_query" },
+    blockers: ["recall_timeout_exceeded"],
+    nextSafeCommands: [
+      "Retry with a narrower query or smaller --limit.",
+      "Run loo doctor for public-safe readiness if direct CLI search remains slow."
+    ],
+    actionsPerformed: searchNoActionPerformed(),
+    privateDataExclusions: ["raw transcripts", "raw prompts", "SQLite rows", "local paths", "raw logs", "tokens", "cookies", "screenshots"],
+    proofBoundary: "This packet classifies direct CLI search latency after a bounded safe-text query. It does not read raw transcripts, run live Codex control, mutate a GUI, publish npm, or create a GitHub Release."
+  };
+}
+
+function searchNoActionPerformed(): Record<string, boolean> {
+  return {
+    rawTranscriptRead: false,
+    sourceStoreMutation: false,
+    externalWrite: false,
+    liveControl: false,
+    guiMutation: false,
+    npmPublished: false,
+    githubReleaseCreated: false
+  };
 }
 
 function printOpenClawDogfoodHelp(): void {
@@ -2403,11 +2584,12 @@ function parseSessionMapArgs(input: string[]): {
   return parsed;
 }
 
-function parseRecallArgs(input: string[]): { rest: string[]; lcmDbPaths: string[]; profile?: RecallProfileName; tokenBudget?: number } {
+function parseRecallArgs(input: string[]): { rest: string[]; lcmDbPaths: string[]; profile?: RecallProfileName; tokenBudget?: number; timeoutMs: number } {
   const rest: string[] = [];
   const explicitLcmDbPaths: string[] = [];
   let profile: RecallProfileName | undefined;
   let tokenBudget: number | undefined;
+  let timeoutMs = DEFAULT_RECALL_TIMEOUT_MS;
   for (let index = 0; index < input.length; index += 1) {
     const arg = input[index]!;
     if (arg === "--lcm-db") {
@@ -2429,10 +2611,14 @@ function parseRecallArgs(input: string[]): { rest: string[]; lcmDbPaths: string[
       tokenBudget = parsed;
       continue;
     }
+    if (arg === "--timeout-ms") {
+      timeoutMs = parsePositiveInteger(input[++index], "--timeout-ms", MAX_RECALL_TIMEOUT_MS);
+      continue;
+    }
     rest.push(arg);
   }
   const lcmDbPaths = explicitLcmDbPaths.length > 0 ? explicitLcmDbPaths : configuredLcmPeerDbPaths();
-  return { rest, lcmDbPaths: [...new Set(lcmDbPaths)], profile, tokenBudget };
+  return { rest, lcmDbPaths: [...new Set(lcmDbPaths)], profile, tokenBudget, timeoutMs };
 }
 
 function parseRetrievalEvalArgs(input: string[]): (

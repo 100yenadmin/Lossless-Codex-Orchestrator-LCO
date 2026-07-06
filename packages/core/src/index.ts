@@ -55,11 +55,12 @@ export type {
 } from "./session-sanitizer.js";
 
 export type LooDatabase = NodeDatabaseSync;
-type DatabaseSyncConstructor = new (path: string, options?: { readOnly?: boolean }) => NodeDatabaseSync;
+type DatabaseSyncConstructor = new (path: string, options?: { readOnly?: boolean; timeout?: number }) => NodeDatabaseSync;
 export type DatabaseMaintenanceMode = "full" | "schema-only";
 export type CreateDatabaseOptions = {
   path?: string;
   maintenance?: DatabaseMaintenanceMode;
+  busyTimeoutMs?: number;
 };
 type CreateDatabasePathOptions = Omit<CreateDatabaseOptions, "path">;
 
@@ -2635,11 +2636,21 @@ export function createDatabase(dbPathOrOptions?: string | CreateDatabaseOptions,
   const maintenance = typeof dbPathOrOptions === "string"
     ? pathOptions?.maintenance ?? "full"
     : dbPathOrOptions?.maintenance ?? "full";
+  const busyTimeoutMs = typeof dbPathOrOptions === "string"
+    ? pathOptions?.busyTimeoutMs
+    : dbPathOrOptions?.busyTimeoutMs;
   mkdirSync(dirname(resolved), { recursive: true });
   const DatabaseSync = getDatabaseSync();
-  const db = new DatabaseSync(resolved);
+  const openOptions = databaseOpenOptions(busyTimeoutMs);
+  const db = openOptions ? new DatabaseSync(resolved, openOptions) : new DatabaseSync(resolved);
   migrate(db, { maintenance });
   return db;
+}
+
+function databaseOpenOptions(busyTimeoutMs?: number): { timeout?: number } | undefined {
+  if (busyTimeoutMs === undefined) return undefined;
+  if (!Number.isInteger(busyTimeoutMs) || busyTimeoutMs < 1) return undefined;
+  return { timeout: Math.min(busyTimeoutMs, 600_000) };
 }
 
 export function defaultDatabasePath(): string {

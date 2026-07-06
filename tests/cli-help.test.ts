@@ -410,7 +410,9 @@ test("loo search --help exits zero without querying the local index", () => {
     });
 
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    assert.match(result.stdout, /Usage:\n  loo search <query>/);
+    assert.match(result.stdout, /Usage:\n  loo search \[--limit n\] \[--timeout-ms ms\] <query>/);
+    assert.match(result.stdout, /--timeout-ms ms\s+SQLite busy timeout plus slow-query classifier/);
+    assert.match(result.stdout, /--\s+Treat remaining arguments as query text/);
     assert.match(result.stdout, /Search indexed Codex sessions/i);
     assert.doesNotMatch(result.stdout, /^\s*\[/);
     assert.equal(result.stderr.trim(), "");
