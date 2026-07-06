@@ -1491,6 +1491,7 @@ async function snakeCaseControlResult(value: Promise<any>) {
   const result = await value;
   const approvalPacket = result.live === false ? approvalPacketFromControlResult(result) : undefined;
   const proofState = result.proofState ? snakeCaseProofState(result.proofState) : undefined;
+  const turn = result.turn ? snakeCaseTurnResolution(result.turn) : undefined;
   return {
     ...result,
     thread_id: result.threadId,
@@ -1500,8 +1501,18 @@ async function snakeCaseControlResult(value: Promise<any>) {
     message_hash: result.messageHash,
     expected_turn_id: result.expectedTurnId,
     turn_status: result.status,
+    ...(turn ? { turn } : {}),
     ...(proofState ? { proof_state: proofState } : {}),
     ...(approvalPacket ? { approval_packet: approvalPacket } : {})
+  };
+}
+
+function snakeCaseTurnResolution(turn: any): Record<string, unknown> {
+  return {
+    ...turn,
+    ...(Array.isArray(turn.notificationMethods) ? { notification_methods: turn.notificationMethods } : {}),
+    ...(typeof turn.approvalRequestCount === "number" ? { approval_request_count: turn.approvalRequestCount } : {}),
+    ...(typeof turn.serverRequestCount === "number" ? { server_request_count: turn.serverRequestCount } : {})
   };
 }
 

@@ -40,7 +40,12 @@ const BASE_GATEWAY_SMOKE_TOOL_CALLS = [
   "loo_summary_expand",
   "loo_prepared_state_status",
   "loo_prepared_cards",
-  "loo_prepared_inbox"
+  "loo_prepared_inbox",
+  "lco_watchers",
+  "lco_codex_extract",
+  "lco_prepared_state",
+  "lco_operating_picture",
+  "lco_desktop_proof"
 ];
 
 const SUCCESSFUL_INVOCATION_TOOL_CALLS = [
@@ -105,7 +110,8 @@ const THREAD_BOUND_TOOL_ARG_SET = new Set([
   "loo_codex_tool_calls",
   "loo_closeout_dry_run",
   "loo_session_sanitizer",
-  "loo_codex_start_thread_post_create_proof"
+  "loo_codex_start_thread_post_create_proof",
+  "lco_desktop_proof"
 ]);
 
 export const DEFAULT_REQUIRED_TOOL_CALLS = BASE_GATEWAY_SMOKE_TOOL_CALLS;
@@ -427,7 +433,7 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
       broadGatewayScopeApproval: false
     },
     privateDataExclusions: PRIVATE_DATA_EXCLUSIONS,
-    proofBoundary: "This OpenClaw tool-call smoke proves public-safe gateway invocation of selected loo_* tools only. Dry-run proof trusts the plugin/server dry_run response plus audit/hash markers and is not an independent live-action disproof. Desktop fail-closed proof is bound to request-side dry_run:true where applicable plus allowlisted blocker/reason/proof-marker response evidence. It does not approve live Codex control, GUI mutation, npm publish, GitHub Release creation, channel delivery, broad gateway scope approval, Claude parity, or release-grade customer readiness.",
+    proofBoundary: "This OpenClaw tool-call smoke proves public-safe gateway invocation of selected lco_* and loo_* tools only. Dry-run proof trusts the plugin/server dry_run response plus audit/hash markers and is not an independent live-action disproof. Desktop fail-closed proof is bound to request-side dry_run:true where applicable plus allowlisted blocker/reason/proof-marker response evidence. It does not approve live Codex control, GUI mutation, npm publish, GitHub Release creation, channel delivery, broad gateway scope approval, Claude parity, or release-grade customer readiness.",
     nextAction: nextActionForBlockers(uniqueBlockers)
   };
 
@@ -916,6 +922,47 @@ function buildToolArgs(params: {
     return {
       ...(params.threadId ? { thread_id: params.threadId } : {}),
       limit: 5
+    };
+  }
+  if (params.toolName === "lco_watchers") {
+    return { action: "events", watch_id: "watch_tool_smoke_checks", limit: 5, now: TOOL_SMOKE_NOW };
+  }
+  if (params.toolName === "lco_codex_extract") {
+    return {
+      kind: "plans",
+      ...(params.threadId ? { thread_id: params.threadId } : {}),
+      limit: 3
+    };
+  }
+  if (params.toolName === "lco_prepared_state") {
+    return {
+      view: "status",
+      ...(params.threadId ? { thread_id: params.threadId } : {})
+    };
+  }
+  if (params.toolName === "lco_operating_picture") {
+    return {
+      kind: "active_thread_state",
+      ...smokeCollaborationFixtureArgs(params.threadId),
+      app_server_threads: smokeAppServerThreads(params.threadId)
+    };
+  }
+  if (params.toolName === "lco_desktop_proof") {
+    if (!params.threadId) return null;
+    return {
+      check: "coherence",
+      thread_id: params.threadId,
+      limit: 5,
+      include_app_server: true,
+      include_visible_snapshot: false,
+      action_evidence: {
+        action_kind: "codex_app_server",
+        action: "read-only gateway tool smoke",
+        dry_run: true,
+        live: false,
+        evidence_id: "ev_tool_smoke_desktop_coherence"
+      },
+      now: TOOL_SMOKE_NOW
     };
   }
   if (params.toolName === "loo_codex_control_dry_run") {

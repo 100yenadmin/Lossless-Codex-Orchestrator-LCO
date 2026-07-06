@@ -20,6 +20,19 @@ loo qa-lab tool-coverage \
 The command emits and writes `tool-coverage.json` with schema
 `lco.qaLab.toolCoverage.v1`.
 
+Release-captains must also capture the repeatable full gateway smoke before a
+full-surface release claim:
+
+```bash
+node ./dist/packages/cli/src/index.js openclaw tool-smoke --profile lco-full-gateway --session-key agent:main:lco-full-gateway --coverage full --thread-id <public-safe-thread-id> --query "<public-safe-query>" --evidence-path <evidence-dir>/<date>/m12-ga-qa-lab/tool-coverage/openclaw-tool-smoke-full.json --strict
+```
+
+This is the full 65-tool gateway smoke: the existing full gateway denominator
+plus the five C1 canonical umbrella calls `lco_watchers`,
+`lco_codex_extract`, `lco_prepared_state`, `lco_operating_picture`, and
+`lco_desktop_proof`. Folded compatibility aliases remain compatibility proof
+and do not create additional release-captain coverage rows.
+
 For a full QA Lab packet, create the run evidence root first, `cd` into it, and
 pass a relative --evidence-dir value from inside the evidence root for each gate.
 Demo and judge inputs must come from a synthetic corpus or the committed

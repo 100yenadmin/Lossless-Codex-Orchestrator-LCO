@@ -14,6 +14,13 @@ import {
 } from "../packages/cli/src/openclaw-tool-smoke.js";
 
 const tsxImport = createRequire(import.meta.url).resolve("tsx");
+const C1_UMBRELLA_TOOL_CALLS = [
+  "lco_watchers",
+  "lco_codex_extract",
+  "lco_prepared_state",
+  "lco_operating_picture",
+  "lco_desktop_proof"
+] as const;
 type DryRunOutputShape = "plain" | "content" | "details" | "both";
 
 function sleepSync(ms: number): void {
@@ -345,6 +352,26 @@ if (method === "tools.invoke") {
   }
   if (name === "loo_doctor") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { ok: true, localOnly: true, toolPrefix: "loo_*" } }));
+    process.exit(0);
+  }
+  if (name === "lco_watchers") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.watchers.events.v1", publicSafe: true, readOnly: true, sourceCoverage: { watcherSpecs: "ok", watcherObservations: "ok", attentionQueue: "ok" }, summary: { total: 1, returned: 1, triggered: 1, queueItems: 1 }, observations: [{ observationRef: "watcher_observation:50000000000000000000000000000005", watchId: "watch_tool_smoke_checks", targetRef: "codex_thread:thread-1", sourceRefs: ["codex_thread:thread-1", "watcher:watch_tool_smoke_checks"], reasonCodes: ["watcher_triggered"], confidence: 0.9 }], actionsPerformed: { derivedCacheWrite: false, sourceStoreMutation: false, externalWrite: false, liveControl: false, guiMutation: false, rawTranscriptRead: false } } }));
+    process.exit(0);
+  }
+  if (name === "lco_codex_extract") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: [{ sourceRef: "codex_thread:" + (toolArgs.thread_id || searchThreadId), threadId: toolArgs.thread_id || searchThreadId, count: 1, text: "super-secret-transcript-span" }] }));
+    process.exit(0);
+  }
+  if (name === "lco_prepared_state") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.preparedState.status.v1", publicSafe: true, readOnly: true, sourceCoverage: { summaryLeaves: "ok", preparedCards: "ok", preparedInboxItems: "ok", watcherObservations: "not_configured" }, targetCoverage: ${preparedTargetCoverageCode}, summary: { summaryLeaves: 1, cards: 1, inboxItems: 1, staleCards: 0, partialCards: 0, unknownCards: 0, lowConfidenceCards: 0 }, actionsPerformed: { derivedCacheWrite: false, sourceStoreMutation: false, externalWrite: false, liveControl: false, guiMutation: false, rawTranscriptRead: false } } }));
+    process.exit(0);
+  }
+  if (name === "lco_operating_picture") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.codex.activeThreadState.v1", publicSafe: true, readOnly: true, generatedAt: "2026-07-01T12:00:00.000Z", summary: { totalLanes: 1, returned: 1, running: 1, blocked: 0, needsApproval: 0, needsNudge: 0, stale: 0, waiting: 0, idle: 0, unknown: 0, lowConfidence: 0, attentionCovered: 1, attentionPartial: 0, attentionNeedsProbe: 0, attentionUnknown: 0, nextReadOnlyActions: 0 }, sourceCoverage: { indexedSession: "ok", cockpitInbox: "ok", watchers: "ok", codexAppServer: "ok", visibleCodexMap: "not_configured" }, items: [{ threadId: "codex_thread:thread-1", title: "Thread 1", state: "running", sessionState: "running", attention: { level: "low", urgencyScore: 10 }, freshness: { lastEventAt: "2026-07-01T11:59:00.000Z", ageSeconds: 60, stale: false }, nextAction: { kind: "inspect", confidence: 0.9, reason: "read-only smoke" }, confidence: 0.9, reasonCodes: ["active_state:running"], evidenceIds: ["ev_tool_smoke"], attentionCoverage: { status: "covered", confidence: 0.9, reasonCodes: ["attention_covered"], nextReadOnlyAction: null }, sourceCoverage: { indexedSession: "ok", cockpitInbox: "ok", watchers: "ok", codexAppServer: "ok", visibleCodexMap: "not_configured" } }], omitted: { count: 0, reason: "none" }, actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false, npmPublished: false, githubReleaseCreated: false } } }));
+    process.exit(0);
+  }
+  if (name === "lco_desktop_proof") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { publicSafe: true, readOnly: true, schema: "lco.codexDesktopCoherence.v1", state: "cli_visible", visibility: { cli: "proven", desktop: "not_seen" }, target: { threadId: toolArgs.thread_id || "thread-1", sourceRef: "codex_thread:" + (toolArgs.thread_id || "thread-1") }, actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false } } }));
     process.exit(0);
   }
   if (name === "loo_index_sessions") {
@@ -831,6 +858,10 @@ test("OpenClaw tool smoke invokes required loo tools through gateway call and wr
     });
     assert.equal(report.catalog.requiredToolsPresent, true);
     assert.deepEqual(report.invocations.map((call) => call.toolName), DEFAULT_REQUIRED_TOOL_CALLS);
+    for (const toolName of C1_UMBRELLA_TOOL_CALLS) {
+      assert.equal(DEFAULT_REQUIRED_TOOL_CALLS.includes(toolName), true, `${toolName} is part of the base gateway smoke`);
+      assert.equal(report.invocations.some((call) => call.toolName === toolName), true, `${toolName} was invoked`);
+    }
     assert.equal(report.invocations.find((call) => call.toolName === "loo_search_sessions")?.summary.sourceRefs?.[0], "codex_thread:thread-1");
     assert.equal(report.invocations.find((call) => call.toolName === "loo_describe_session")?.summary.threadId, "thread-1");
     assert.equal(report.invocations.find((call) => call.toolName === "loo_expand_query")?.summary.profile, "brief");
@@ -1049,6 +1080,9 @@ test("OpenClaw tool smoke CLI --coverage full selects the disposition matrix", (
   assert.equal(invokedToolNames.includes("loo_index_sessions"), true);
   assert.equal(invokedToolNames.includes("loo_lcm_peer_dbs"), true);
   assert.equal(invokedToolNames.includes("loo_desktop_proof_action"), true);
+  for (const toolName of C1_UMBRELLA_TOOL_CALLS) {
+    assert.equal(invokedToolNames.includes(toolName), true, `${toolName} was invoked by --coverage full`);
+  }
   assert.equal(existsSync(evidencePath), true);
   assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /super-secret-transcript-span|Harmless beta smoke|npm_/);
 });
