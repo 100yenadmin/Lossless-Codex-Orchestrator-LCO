@@ -1084,6 +1084,7 @@ export function filterLooToolsByProfile<T extends { metadata: LooToolSurfaceMeta
   const tiers = LOO_TOOL_PROFILE_TIERS[profile];
   return tools.filter((tool) => {
     if (!tiers.includes(tool.metadata.tier)) return false;
+    // Folded loo_* compatibility aliases are non-facade today; keep this guard so facade stays lco_* only if tiers change later.
     if (profile === "facade" && "name" in tool && typeof tool.name === "string" && tool.name.startsWith("loo_") && tool.metadata.aliasOf) {
       return false;
     }
