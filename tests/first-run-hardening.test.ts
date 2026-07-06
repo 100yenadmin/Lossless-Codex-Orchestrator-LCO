@@ -88,9 +88,10 @@ test("MCP server answers initialize and tools/list when DB startup is unavailabl
 
     server.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "loo_doctor", arguments: {} } })}\n`);
     const call = await readJsonRpcResponse(server, () => stdout, 3, () => stderr);
-    const structured = call.result?.structuredContent as { ok?: unknown; code?: unknown; message?: unknown; nextAction?: unknown } | undefined;
+    const structured = call.result?.structuredContent as { ok?: unknown; code?: unknown; retryable?: unknown; message?: unknown; nextAction?: unknown } | undefined;
     assert.equal(structured?.ok, false);
     assert.equal(structured?.code, "database_unavailable");
+    assert.equal(structured?.retryable, true);
     assert.match(String(structured?.message), /local LCO database is unavailable/i);
     assert.match(String(structured?.nextAction), /loo doctor/i);
     assert.equal(call.result?.content?.[0]?.type, "text");
@@ -118,7 +119,7 @@ test("MCP server answers initialize and tools/list when DB startup is unavailabl
   }
 });
 
-test("MCP server distinguishes non-database runtime startup failures", async () => {
+test("MCP server distinguishes audit-store startup failures from database failures", async () => {
   const root = mkdtempSync(join(tmpdir(), "loo-mcp-runtime-fail-"));
   const home = join(root, "home");
   mkdirSync(home);
@@ -152,10 +153,21 @@ test("MCP server distinguishes non-database runtime startup failures", async () 
 
     server.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "loo_doctor", arguments: {} } })}\n`);
     const call = await readJsonRpcResponse(server, () => stdout, 2, () => stderr);
-    const structured = call.result?.structuredContent as { ok?: unknown; code?: unknown; message?: unknown } | undefined;
+    const structured = call.result?.structuredContent as {
+      ok?: unknown;
+      code?: unknown;
+      retryable?: unknown;
+      message?: unknown;
+      nextAction?: unknown;
+      sourceCoverage?: { localIndex?: unknown; audit?: unknown };
+    } | undefined;
     assert.equal(structured?.ok, false);
-    assert.equal(structured?.code, "runtime_unavailable");
-    assert.match(String(structured?.message), /runtime setup is unavailable/i);
+    assert.equal(structured?.code, "audit_unavailable");
+    assert.equal(structured?.retryable, true);
+    assert.match(String(structured?.message), /audit store is unavailable/i);
+    assert.match(String(structured?.nextAction), /LOO_AUDIT_PATH/i);
+    assert.equal(structured?.sourceCoverage?.localIndex, "ok");
+    assert.equal(structured?.sourceCoverage?.audit, "unavailable");
     assert.doesNotMatch(`${stdout}\n${stderr}`, /\bat\s+|node:sqlite|ENOTDIR|\/Volumes\/LEXAR|\/Users\/|\/tmp\/loo-mcp-runtime-fail/);
     assert.equal(server.exitCode, null);
   } finally {
@@ -229,8 +241,14 @@ function findResponse(stdout: string, id: number): ReturnType<typeof JSON.parse>
   const lastNewlineIndex = stdout.lastIndexOf("\n");
   if (lastNewlineIndex === -1) return null;
   for (const line of stdout.slice(0, lastNewlineIndex).split("\n")) {
-    if (!line.trim()) continue;
-    const parsed = JSON.parse(line) as { id?: number };
+    const trimmed = line.trim();
+    if (!trimmed || !trimmed.startsWith("{") || !trimmed.endsWith("}")) continue;
+    let parsed: { id?: number };
+    try {
+      parsed = JSON.parse(trimmed) as { id?: number };
+    } catch {
+      continue;
+    }
     if (parsed.id === id) return parsed;
   }
   return null;

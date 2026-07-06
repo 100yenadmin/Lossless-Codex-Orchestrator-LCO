@@ -16,7 +16,7 @@ const toolProfile = parseLooToolProfile(process.env.LOO_TOOL_PROFILE, {
 });
 const toolDeclarations = createLooToolDeclarations({ includeAliases: true });
 const SERVER_VERSION = "1.0.0";
-type StartupFailure = ReturnType<typeof createDatabaseUnavailableResult> | ReturnType<typeof createStartupUnavailableResult>;
+type StartupFailure = ReturnType<typeof createStartupUnavailableResult>;
 type RuntimeState =
   | { ok: true; tools: LooTool[] }
   | { ok: false; failure: StartupFailure };
@@ -63,32 +63,49 @@ rl.on("line", async (line) => {
 function getRuntimeState(): RuntimeState {
   if (runtimeState) return runtimeState;
   const dbResult = createRuntimeDatabase();
-  if (!dbResult.ok) return { ok: false, failure: createDatabaseUnavailableResult() };
+  if (!dbResult.ok) return { ok: false, failure: createStartupUnavailableResult("database_unavailable") };
   const db = dbResult.db;
+  let audit: ReturnType<typeof createAuditStore>;
   try {
-    const audit = createAuditStore(process.env.LOO_AUDIT_PATH || `${process.env.HOME || "."}/.openclaw/lossless-openclaw-orchestrator/audit.jsonl`);
+    audit = createAuditStore(process.env.LOO_AUDIT_PATH || `${process.env.HOME || "."}/.openclaw/lossless-openclaw-orchestrator/audit.jsonl`);
+  } catch {
+    db.close();
+    return { ok: false, failure: createStartupUnavailableResult("audit_unavailable") };
+  }
+
+  let codexClient: ReturnType<typeof createCodexAppServerStdioClient>;
+  let codexReadClient: ReturnType<typeof createCodexAppServerStdioClient>;
+  try {
+    codexClient = createCodexAppServerStdioClient({
+      command: process.env.LOO_CODEX_BIN || "codex",
+      args: (process.env.LOO_CODEX_APP_SERVER_ARGS || "app-server --stdio").split(/\s+/).filter(Boolean),
+      surface: "control"
+    });
+    codexReadClient = createCodexAppServerStdioClient({
+      command: process.env.LOO_CODEX_BIN || "codex",
+      args: (process.env.LOO_CODEX_APP_SERVER_ARGS || "app-server --stdio").split(/\s+/).filter(Boolean),
+      surface: "read"
+    });
+  } catch {
+    db.close();
+    return { ok: false, failure: createStartupUnavailableResult("codex_client_unavailable") };
+  }
+
+  try {
     runtimeState = {
       ok: true,
       tools: createLooTools({
         db,
         audit,
         includeAliases: true,
-        codexClient: createCodexAppServerStdioClient({
-          command: process.env.LOO_CODEX_BIN || "codex",
-          args: (process.env.LOO_CODEX_APP_SERVER_ARGS || "app-server --stdio").split(/\s+/).filter(Boolean),
-          surface: "control"
-        }),
-        codexReadClient: createCodexAppServerStdioClient({
-          command: process.env.LOO_CODEX_BIN || "codex",
-          args: (process.env.LOO_CODEX_APP_SERVER_ARGS || "app-server --stdio").split(/\s+/).filter(Boolean),
-          surface: "read"
-        })
+        codexClient,
+        codexReadClient
       })
     };
     return runtimeState;
   } catch {
     db.close();
-    return { ok: false, failure: createStartupUnavailableResult() };
+    return { ok: false, failure: createStartupUnavailableResult("tool_registry_unavailable") };
   }
 }
 
@@ -100,18 +117,26 @@ function createRuntimeDatabase(): { ok: true; db: ReturnType<typeof createDataba
   }
 }
 
-function createDatabaseUnavailableResult() {
+type StartupFailureCode =
+  | "database_unavailable"
+  | "audit_unavailable"
+  | "codex_client_unavailable"
+  | "tool_registry_unavailable";
+
+function createStartupUnavailableResult(code: StartupFailureCode) {
+  const detail = startupFailureDetails(code);
   return {
     schema: "lco.mcp.startupStatus.v1",
     ok: false,
-    code: "database_unavailable",
+    code,
     classification: "recoverable_setup_error",
     publicSafe: true,
     readOnly: true,
-    message: "Local LCO database is unavailable during MCP startup.",
-    nextAction: "Run loo doctor in a shell with a writable HOME or set LOO_DB_PATH to a writable local database path, then retry the tool call.",
-    blockers: ["database_unavailable"],
-    sourceCoverage: { localIndex: "unavailable" },
+    retryable: true,
+    message: detail.message,
+    nextAction: detail.nextAction,
+    blockers: [code],
+    sourceCoverage: detail.sourceCoverage,
     actionsPerformed: {
       rawTranscriptRead: false,
       sourceStoreMutation: false,
@@ -122,34 +147,41 @@ function createDatabaseUnavailableResult() {
       githubReleaseCreated: false
     },
     privateDataExclusions: ["raw transcripts", "raw prompts", "SQLite rows", "local paths", "raw logs", "tokens", "cookies", "screenshots"],
-    proofBoundary: "This packet classifies MCP local database startup only. It does not read raw transcripts, run live Codex control, mutate a GUI, publish npm, or create a GitHub Release."
+    proofBoundary: "This packet classifies MCP local startup only. Startup failures are not cached, so transient setup errors may recover on the next tools/call. It does not read raw transcripts, run live Codex control, mutate a GUI, publish npm, or create a GitHub Release."
   };
 }
 
-function createStartupUnavailableResult() {
-  return {
-    schema: "lco.mcp.startupStatus.v1",
-    ok: false,
-    code: "runtime_unavailable",
-    classification: "recoverable_setup_error",
-    publicSafe: true,
-    readOnly: true,
-    message: "Local LCO MCP runtime setup is unavailable after database startup.",
-    nextAction: "Check that HOME and LOO_AUDIT_PATH are writable local paths and that LOO_CODEX_BIN/LOO_CODEX_APP_SERVER_ARGS are valid, then retry the tool call.",
-    blockers: ["runtime_unavailable"],
-    sourceCoverage: { localIndex: "available", runtimeSetup: "unavailable" },
-    actionsPerformed: {
-      rawTranscriptRead: false,
-      sourceStoreMutation: false,
-      externalWrite: false,
-      liveControl: false,
-      guiMutation: false,
-      npmPublished: false,
-      githubReleaseCreated: false
-    },
-    privateDataExclusions: ["raw transcripts", "raw prompts", "SQLite rows", "local paths", "raw logs", "tokens", "cookies", "screenshots"],
-    proofBoundary: "This packet classifies MCP local runtime setup after database startup only. It does not read raw transcripts, run live Codex control, mutate a GUI, publish npm, or create a GitHub Release."
-  };
+function startupFailureDetails(code: StartupFailureCode): {
+  message: string;
+  nextAction: string;
+  sourceCoverage: Record<string, string>;
+} {
+  switch (code) {
+    case "database_unavailable":
+      return {
+        message: "Local LCO database is unavailable during MCP startup.",
+        nextAction: "Run loo doctor in a shell with a writable HOME or set LOO_DB_PATH to a writable local database path, then retry the tool call.",
+        sourceCoverage: { localIndex: "unavailable" }
+      };
+    case "audit_unavailable":
+      return {
+        message: "Local LCO audit store is unavailable during MCP startup.",
+        nextAction: "Set LOO_AUDIT_PATH to a writable local JSONL audit path or repair the OpenClaw LCO config, then retry the tool call.",
+        sourceCoverage: { localIndex: "ok", audit: "unavailable" }
+      };
+    case "codex_client_unavailable":
+      return {
+        message: "Codex app-server client configuration is unavailable during MCP startup.",
+        nextAction: "Check LOO_CODEX_BIN and LOO_CODEX_APP_SERVER_ARGS, then retry the tool call.",
+        sourceCoverage: { localIndex: "ok", audit: "ok", codexAppServer: "unavailable" }
+      };
+    case "tool_registry_unavailable":
+      return {
+        message: "LCO MCP tool registry is unavailable during startup.",
+        nextAction: "Run loo doctor and npm run check from the installed package or repo, then retry the tool call.",
+        sourceCoverage: { localIndex: "ok", audit: "ok", toolRegistry: "unavailable" }
+      };
+  }
 }
 
 function sendToolResult(id: unknown, result: unknown): void {
