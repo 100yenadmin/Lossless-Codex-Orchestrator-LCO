@@ -237,7 +237,7 @@ rl.on("line", (line) => {
   const client = createCodexMcpStdioClient({
     command: process.execPath,
     args: ["-e", script, marker],
-    timeoutMs: 250,
+    timeoutMs: 1_000,
     surface: "control"
   });
 

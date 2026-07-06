@@ -7,7 +7,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { createDatabase } from "../packages/core/src/index.js";
-import { LOO_COMMAND_POLICY, createAuditStore, createCodexControl } from "../packages/adapters/src/index.js";
+import { LOO_COMMAND_POLICY, createAuditStore, createCodexControl, type CodexControlSequenceOptions, type CodexControlStep } from "../packages/adapters/src/index.js";
 import { createLooToolDeclarations, createLooTools, executeLooToolForOpenClaw } from "../packages/mcp-server/src/tools.js";
 
 test("Codex control requires dry-run audit before live message, steer, resume, or interrupt", async () => {
@@ -76,7 +76,7 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
         dryRun: false,
         approvalAuditId: dryRun.approvalAuditId
       }),
-      /same-connection control sequence/
+      /turn lifecycle proof/
     );
     assert.equal(calls.length, 0);
 
@@ -88,9 +88,19 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
           calls.push({ method, params });
           return { ok: true };
         },
-        requestSequence: async (steps) => {
+        requestSequenceUntilTurnResolved: async (steps: CodexControlStep[]) => {
           sequenceCalls.push(steps);
-          return steps.map((step) => ({ ok: true, method: step.method }));
+          return {
+            responses: steps.map((step) => ({ ok: true, method: step.method })),
+            turn: {
+              id: "turn_sequence_1",
+              status: "completed",
+              completed: true,
+              notificationMethods: ["turn/completed"],
+              approvalRequestCount: 0,
+              serverRequestCount: 0
+            }
+          };
         }
       }
     });
@@ -156,10 +166,20 @@ test("Codex control redacts live transport responses before returning them throu
     audit,
     client: {
       request: async () => ({ ok: true }),
-      requestSequence: async () => [
-        { ok: true },
-        { content: `authorization: ${homedir()}/secret sk-test_1234567890` }
-      ]
+      requestSequenceUntilTurnResolved: async () => ({
+        responses: [
+          { ok: true },
+          { content: `authorization: ${homedir()}/secret sk-test_1234567890` }
+        ],
+        turn: {
+          id: "turn_redacted_1",
+          status: "completed",
+          completed: true,
+          notificationMethods: ["turn/completed"],
+          approvalRequestCount: 0,
+          serverRequestCount: 0
+        }
+      })
     }
   });
 
@@ -172,9 +192,10 @@ test("Codex control redacts live transport responses before returning them throu
       approvalAuditId: dryRun.approvalAuditId
     });
 
-    assert.deepEqual(live.response, {
-      content: "authorization: <redacted-secret>"
-    });
+    assert.equal((live.response as any).content, "authorization: <redacted-secret>");
+    assert.equal((live.response as any).turn.id, "turn_redacted_1");
+    assert.equal((live.response as any).turn.status, "completed");
+    assert.equal(JSON.stringify(live.response).includes("sk-test"), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -187,9 +208,11 @@ test("Codex control rejects failed same-connection sequence responses before liv
     audit,
     client: {
       request: async () => ({ ok: true }),
-      requestSequence: async () => [
-        { ok: false, error: "thread/resume failed before load" }
-      ]
+      requestSequenceUntilTurnResolved: async () => ({
+        responses: [
+          { ok: false, error: "thread/resume failed before load" }
+        ]
+      })
     }
   });
 
@@ -213,6 +236,153 @@ test("Codex control rejects failed same-connection sequence responses before liv
   }
 });
 
+test("Codex live send waits for a real turn completion before returning success", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-control-turn-complete-"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const turnWaitInputs: unknown[] = [];
+  const control = createCodexControl({
+    audit,
+    client: {
+      request: async () => ({ ok: true }),
+      requestSequenceUntilTurnResolved: async (steps: CodexControlStep[], options: CodexControlSequenceOptions) => {
+        turnWaitInputs.push(options);
+        return {
+          responses: steps.map((step) => step.method === "turn/start"
+            ? { ok: true, result: { turn: { id: "turn_completed_1", status: "inProgress" } } }
+            : { ok: true, result: { thread: { id: "thr_1", loaded: true } } }),
+          turn: {
+            id: "turn_completed_1",
+            status: "completed",
+            completed: true,
+            notificationMethods: ["turn/started", "turn/completed"],
+            approvalRequestCount: 0,
+            serverRequestCount: 0
+          }
+        };
+      }
+    } as any
+  });
+
+  try {
+    const dryRun = await control.sendMessage({ threadId: "thr_1", message: "continue", dryRun: true });
+    const live = await control.sendMessage({
+      threadId: "thr_1",
+      message: "continue",
+      dryRun: false,
+      approvalAuditId: dryRun.approvalAuditId,
+      turnWaitMs: 25
+    } as any);
+
+    assert.equal(live.live, true);
+    assert.equal(live.status, "completed");
+    assert.equal(live.proofState.acceptedByTransport, true);
+    assert.equal(live.proofState.completed, true);
+    assert.equal(live.proofState.turnId, "turn_completed_1");
+    assert.equal(live.proofState.responseStatus, "completed");
+    assert.deepEqual(turnWaitInputs, [{
+      threadId: "thr_1",
+      expectedTurnId: undefined,
+      turnWaitMs: 25
+    }]);
+    assert.equal((live.response as any).turn.id, "turn_completed_1");
+    assert.equal((live.response as any).turn.status, "completed");
+    assert.equal((live.response as any).status, "completed");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Codex live send fails closed when the bounded turn wait expires", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-control-turn-timeout-"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const control = createCodexControl({
+    audit,
+    client: {
+      request: async () => ({ ok: true }),
+      requestSequenceUntilTurnResolved: async (steps: CodexControlStep[]) => ({
+        responses: steps.map((step) => step.method === "turn/start"
+          ? { ok: true, result: { turn: { id: "turn_hung_1", status: "inProgress" } } }
+          : { ok: true, result: { thread: { id: "thr_1", loaded: true } } }),
+        turn: {
+          id: "turn_hung_1",
+          status: "turn_started_unconfirmed",
+          completed: false,
+          notificationMethods: ["turn/started"],
+          approvalRequestCount: 0,
+          serverRequestCount: 0
+        }
+      })
+    } as any
+  });
+
+  try {
+    const dryRun = await control.sendMessage({ threadId: "thr_1", message: "continue", dryRun: true });
+    const live = await control.sendMessage({
+      threadId: "thr_1",
+      message: "continue",
+      dryRun: false,
+      approvalAuditId: dryRun.approvalAuditId,
+      turnWaitMs: 25
+    } as any);
+
+    assert.equal(live.live, true);
+    assert.equal(live.status, "turn_started_unconfirmed");
+    assert.equal(live.proofState.status, "turn_started_unconfirmed");
+    assert.equal(live.proofState.completed, false);
+    assert.equal(live.proofState.unverifiedPending, true);
+    assert.equal((live.response as any).turn.status, "turn_started_unconfirmed");
+    assert.equal((live.response as any).status, "turn_started_unconfirmed");
+    assert.equal(audit.tail().filter((record) => record.live).length, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Codex live send fails closed on a mid-turn transport error", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-control-turn-transport-error-"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const control = createCodexControl({
+    audit,
+    client: {
+      request: async () => ({ ok: true }),
+      requestSequenceUntilTurnResolved: async (steps: CodexControlStep[]) => ({
+        responses: steps.map((step) => step.method === "turn/start"
+          ? { ok: true, result: { turn: { id: "turn_transport_1", status: "inProgress" } } }
+          : { ok: true, result: { thread: { id: "thr_1", loaded: true } } }),
+        turn: {
+          id: "turn_transport_1",
+          status: "turn_transport_error",
+          completed: false,
+          notificationMethods: ["turn/started"],
+          approvalRequestCount: 0,
+          serverRequestCount: 0,
+          error: "stdio closed before turn resolved"
+        }
+      })
+    } as any
+  });
+
+  try {
+    const dryRun = await control.sendMessage({ threadId: "thr_1", message: "continue", dryRun: true });
+    const live = await control.sendMessage({
+      threadId: "thr_1",
+      message: "continue",
+      dryRun: false,
+      approvalAuditId: dryRun.approvalAuditId,
+      turnWaitMs: 25
+    } as any);
+
+    assert.equal(live.status, "turn_transport_error");
+    assert.equal(live.proofState.status, "turn_transport_error");
+    assert.equal(live.proofState.completed, false);
+    assert.match(live.proofState.callerInstruction, /failed closed/i);
+    assert.equal((live.response as any).turn.status, "turn_transport_error");
+    assert.equal(JSON.stringify(live).includes("stdio closed"), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Codex live send reports transport acceptance as unverified until follow-up proof", async () => {
   const root = mkdtempSync(join(tmpdir(), "loo-control-proof-state-"));
   const audit = createAuditStore(join(root, "audit.jsonl"));
@@ -220,9 +390,19 @@ test("Codex live send reports transport acceptance as unverified until follow-up
     audit,
     client: {
       request: async () => ({ ok: true }),
-      requestSequence: async (steps) => steps.map((step) => step.method === "turn/start"
-        ? { ok: true, result: { turn: { id: "turn_pending", status: "inProgress" } } }
-        : { ok: true, result: { thread: { id: "thr_1", loaded: true } } })
+      requestSequenceUntilTurnResolved: async (steps: CodexControlStep[]) => ({
+        responses: steps.map((step) => step.method === "turn/start"
+          ? { ok: true, result: { turn: { id: "turn_pending", status: "inProgress" } } }
+          : { ok: true, result: { thread: { id: "thr_1", loaded: true } } }),
+        turn: {
+          id: "turn_pending",
+          status: "turn_started_unconfirmed",
+          completed: false,
+          notificationMethods: ["turn/started"],
+          approvalRequestCount: 0,
+          serverRequestCount: 0
+        }
+      })
     }
   });
 
@@ -241,12 +421,12 @@ test("Codex live send reports transport acceptance as unverified until follow-up
     assert.equal(live.proofState.completed, false);
     assert.equal(live.proofState.persisted, false);
     assert.equal(live.proofState.unverifiedPending, true);
-    assert.equal(live.proofState.status, "unverified_pending");
+    assert.equal(live.proofState.status, "turn_started_unconfirmed");
     assert.equal(live.proofState.turnId, "turn_pending");
     assert.equal(live.proofState.nextProof?.tool, "loo_codex_app_server_threads");
     assert.equal(live.proofState.nextProof?.execute, false);
     assert.deepEqual(live.proofState.nextProof?.args, { read_thread_id: "thr_1", limit: 20 });
-    assert.match(live.proofState.callerInstruction, /Transport acceptance is not durable execution/i);
+    assert.match(live.proofState.callerInstruction, /failed closed/i);
     assert.equal(JSON.stringify(live).includes("continue"), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -260,9 +440,19 @@ test("Codex live send with completed transport status still needs durable follow
     audit,
     client: {
       request: async () => ({ ok: true }),
-      requestSequence: async (steps) => steps.map((step) => step.method === "turn/start"
-        ? { ok: true, result: { turn: { id: "turn_completed", status: "completed" } } }
-        : { ok: true, result: { thread: { id: "thr_1", loaded: true } } })
+      requestSequenceUntilTurnResolved: async (steps: CodexControlStep[]) => ({
+        responses: steps.map((step) => step.method === "turn/start"
+          ? { ok: true, result: { turn: { id: "turn_completed", status: "inProgress" } } }
+          : { ok: true, result: { thread: { id: "thr_1", loaded: true } } }),
+        turn: {
+          id: "turn_completed",
+          status: "completed",
+          completed: true,
+          notificationMethods: ["turn/completed"],
+          approvalRequestCount: 0,
+          serverRequestCount: 0
+        }
+      })
     }
   });
 

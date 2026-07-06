@@ -34,6 +34,16 @@ export type NotificationWaitResult = {
   serverRequests: JsonRpcServerRequest[];
 };
 
+export type JsonRpcTurnResolution = {
+  id?: string;
+  status: string | null;
+  completed: boolean;
+  notificationMethods: string[];
+  approvalRequestCount: number;
+  serverRequestCount: number;
+  error?: string;
+};
+
 export type CodexJsonRpcClientOptions = {
   timeoutMs?: number;
   surface?: CodexMethodSurface;
@@ -288,6 +298,42 @@ export function createCodexMcpStdioClient(options: {
       } finally {
         await client.close();
       }
+    },
+    async requestSequenceUntilTurnResolved(
+      steps: Array<{ method: string; params: Record<string, unknown> }>,
+      turnOptions: { threadId: string; expectedTurnId?: string; turnWaitMs: number }
+    ) {
+      const surface = options.surface ?? "control";
+      for (const step of steps) assertCodexMethodAllowed(step.method, surface);
+      const client = new CodexJsonRpcClient(
+        () => new LineProcessTransport(options.command ?? "codex", options.args ?? ["app-server", "--stdio"], options.timeoutMs),
+        { timeoutMs: options.timeoutMs, surface }
+      );
+      await client.connect();
+      try {
+        const responses: CodexJsonRpcResponse[] = [];
+        let turnId = turnOptions.expectedTurnId;
+        let latestStatus: string | null = null;
+        for (const step of steps) {
+          const response = await client.request(step.method, step.params);
+          responses.push(response);
+          const responseTurn = turnResolutionFromResponse(response, step.method);
+          turnId ??= responseTurn.id;
+          latestStatus = responseTurn.status ?? latestStatus;
+          if (!response.ok) break;
+        }
+        if (responses.some((response) => !response.ok)) {
+          return { responses };
+        }
+        const turn = await waitForJsonRpcTurnResolution(client, {
+          turnId,
+          initialStatus: latestStatus,
+          timeoutMs: turnOptions.turnWaitMs
+        });
+        return { responses, turn };
+      } finally {
+        await client.close();
+      }
     }
   };
 }
@@ -373,6 +419,134 @@ function serverRequestFromPayload(payload: Record<string, unknown>): JsonRpcServ
       ? payload.params as Record<string, unknown>
       : {}
   };
+}
+
+async function waitForJsonRpcTurnResolution(
+  client: CodexJsonRpcClient,
+  input: { turnId?: string; initialStatus: string | null; timeoutMs: number }
+): Promise<JsonRpcTurnResolution> {
+  if (!input.turnId) {
+    return {
+      status: "turn_id_missing",
+      completed: false,
+      notificationMethods: [],
+      approvalRequestCount: 0,
+      serverRequestCount: 0
+    };
+  }
+  const initialNormalized = normalizeTurnStatus(input.initialStatus);
+  if (turnStatusResolved(initialNormalized)) {
+    return {
+      id: input.turnId,
+      status: initialNormalized,
+      completed: initialNormalized === "completed",
+      notificationMethods: [],
+      approvalRequestCount: 0,
+      serverRequestCount: 0
+    };
+  }
+
+  let latestStatus = initialNormalized;
+  try {
+    const wait = await client.readNotificationsUntil((notification) => {
+      const turn = turnFromNotification(notification);
+      if (turn.id !== input.turnId) return false;
+      latestStatus = turn.status ?? latestStatus;
+      return turnStatusResolved(normalizeTurnStatus(latestStatus));
+    }, { timeoutMs: input.timeoutMs, stopOnServerRequest: true });
+    const notificationMethods = wait.notifications.map((notification) => notification.method);
+    const approvalRequestCount = wait.serverRequests.filter((request) => isApprovalRequest(request.method)).length;
+    if (wait.serverRequests.length > 0) {
+      return {
+        id: input.turnId,
+        status: "turn_server_request_unconfirmed",
+        completed: false,
+        notificationMethods,
+        approvalRequestCount,
+        serverRequestCount: wait.serverRequests.length
+      };
+    }
+    const normalized = normalizeTurnStatus(latestStatus);
+    if (wait.matched && normalized) {
+      return {
+        id: input.turnId,
+        status: normalized,
+        completed: normalized === "completed",
+        notificationMethods,
+        approvalRequestCount,
+        serverRequestCount: wait.serverRequests.length
+      };
+    }
+    return {
+      id: input.turnId,
+      status: "turn_started_unconfirmed",
+      completed: false,
+      notificationMethods,
+      approvalRequestCount,
+      serverRequestCount: wait.serverRequests.length
+    };
+  } catch (error) {
+    return {
+      id: input.turnId,
+      status: "turn_transport_error",
+      completed: false,
+      notificationMethods: [],
+      approvalRequestCount: 0,
+      serverRequestCount: 0,
+      error: String(redactValue(error instanceof Error ? error.message : error))
+    };
+  }
+}
+
+function turnResolutionFromResponse(response: CodexJsonRpcResponse, method: string): { id?: string; status: string | null } {
+  const result = objectField(response.result);
+  const turn = optionalObjectField(result.turn) ?? optionalObjectField((response as unknown as Record<string, unknown>).turn) ?? {};
+  return {
+    id: stringField(turn, "id"),
+    status: normalizeTurnStatus(stringField(turn, "status") ?? methodStatus(method))
+  };
+}
+
+function turnFromNotification(notification: JsonRpcNotification): { id?: string; status: string | null } {
+  const turn = optionalObjectField(notification.params.turn) ?? notification.params;
+  return {
+    id: stringField(turn, "id") ?? stringField(notification.params, "turnId"),
+    status: normalizeTurnStatus(stringField(turn, "status") ?? methodStatus(notification.method))
+  };
+}
+
+function methodStatus(method: string): string | null {
+  if (method === "turn/completed") return "completed";
+  if (method === "turn/failed") return "failed";
+  if (method === "turn/interrupted") return "interrupted";
+  if (method === "turn/cancelled" || method === "turn/canceled") return "cancelled";
+  if (method === "turn/started") return "running";
+  return null;
+}
+
+function turnStatusResolved(status: string | null): boolean {
+  return status === "completed" || status === "failed" || status === "interrupted" || status === "cancelled" || status === "canceled";
+}
+
+function normalizeTurnStatus(value: string | null | undefined): string | null {
+  if (!value) return null;
+  return value.trim().replace(/([a-z])([A-Z])/g, "$1_$2").replace(/[\s-]+/g, "_").toLowerCase();
+}
+
+function objectField(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function optionalObjectField(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function stringField(record: Record<string, unknown>, key: string): string | undefined {
+  return typeof record[key] === "string" && record[key] ? record[key] : undefined;
+}
+
+function isApprovalRequest(method: string): boolean {
+  return method === "applyPatchApproval" || method === "execCommandApproval" || /Approval$/.test(method);
 }
 
 function isLoopbackHost(hostname: string): boolean {

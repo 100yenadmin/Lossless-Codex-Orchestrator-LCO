@@ -215,16 +215,45 @@ export async function runLiveControlSmoke(options: LiveControlSmokeOptions): Pro
       audit: options.audit,
       client: {
         request: (method, params) => options.client.request(method, params),
-        requestSequence: async (steps) => {
+        requestSequenceUntilTurnResolved: async (steps, turnOptions) => {
           const responses = [];
+          let turnId = turnOptions.expectedTurnId;
           for (const step of steps) {
             const response = await options.client.request(step.method, step.params);
             responses.push(response);
             if (isFailedCodexResponse(response)) {
               throw new Error(`Codex control sequence step failed: ${step.method}`);
             }
+            turnId ??= extractTurnId(response) ?? undefined;
           }
-          return responses;
+          if (!turnId) {
+            return {
+              responses,
+              turn: {
+                status: "turn_id_missing",
+                completed: false,
+                notificationMethods: [],
+                approvalRequestCount: 0,
+                serverRequestCount: 0
+              }
+            };
+          }
+          const completion = await options.client.waitForTurnCompletion({
+            threadId: turnOptions.threadId,
+            turnId,
+            timeoutMs: turnOptions.turnWaitMs
+          });
+          return {
+            responses,
+            turn: {
+              id: turnId,
+              status: statusFromCompletion(completion),
+              completed: completion.completed && completion.status === "completed",
+              notificationMethods: completion.notificationMethods,
+              approvalRequestCount: completion.approvalRequestCount,
+              serverRequestCount: completion.serverRequestCount
+            }
+          };
         }
       }
     });
@@ -248,9 +277,17 @@ export async function runLiveControlSmoke(options: LiveControlSmokeOptions): Pro
       approvalAuditId: live.approvalAuditId,
       method: live.method ?? null
     };
-    const turnId = extractTurnId(live.response);
+    const turnId = live.turn?.id ?? extractTurnId(live.response);
     if (!turnId) throw new Error("live Codex control response did not include a turn id");
-    const completion = await options.client.waitForTurnCompletion({ threadId: target.threadId, turnId, timeoutMs });
+    const completion = live.turn
+      ? {
+          completed: live.turn.completed,
+          status: live.turn.status,
+          notificationMethods: live.turn.notificationMethods,
+          approvalRequestCount: live.turn.approvalRequestCount,
+          serverRequestCount: live.turn.serverRequestCount
+        }
+      : await options.client.waitForTurnCompletion({ threadId: target.threadId, turnId, timeoutMs });
     liveState = {
       ...liveState,
       completed: completion.completed,
@@ -361,6 +398,12 @@ function extractTurnId(response: unknown): string | null {
 
 function isFailedCodexResponse(value: unknown): boolean {
   return Boolean(value && typeof value === "object" && !Array.isArray(value) && (value as Record<string, unknown>).ok === false);
+}
+
+function statusFromCompletion(completion: LiveControlSmokeWaitResult): string {
+  if (completion.serverRequestCount > 0) return "turn_server_request_unconfirmed";
+  if (completion.completed) return completion.status ?? "completed";
+  return "turn_started_unconfirmed";
 }
 
 function unwrapResult(value: unknown): Record<string, unknown> {

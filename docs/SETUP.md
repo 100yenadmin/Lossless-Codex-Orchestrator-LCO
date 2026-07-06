@@ -309,6 +309,9 @@ Live start/send/resume results distinguish `accepted_by_transport`, `started`,
 `unverified_pending`, treat it as transport acceptance only and run the returned
 read-only `next_proof` tool call before claiming durable execution or local
 session persistence.
+Live send/turn-bound control waits are bounded; use `--turn-wait-ms` on smoke
+commands or `LOO_CODEX_TURN_WAIT_MS` for live tool calls when a shorter or
+longer local verification window is intentional.
 
 ### Agent Provenance Setup
 

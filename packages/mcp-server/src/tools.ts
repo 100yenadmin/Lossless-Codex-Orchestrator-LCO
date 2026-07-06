@@ -890,9 +890,9 @@ export function createLooTools(options: {
     }, (input) => snakeCaseControlResult(dispatchControl(control, input, true))),
     tool("loo_codex_start_thread", "Create a new Codex thread. Dry-run by default; live mode requires approval_audit_id and still needs follow-up proof before durability claims.", startControlSchema(), (input) => snakeCaseControlResult(control.startThread(startControlInput(input)))),
     tool("loo_codex_resume_thread", "Resume or rejoin a Codex thread. Live mode requires approval_audit_id.", controlSchema(), (input) => snakeCaseControlResult(control.resumeThread(controlInput(input)))),
-    tool("loo_codex_send_message", "Send a message to a Codex thread. Live mode requires approval_audit_id.", controlSchema(true), (input) => snakeCaseControlResult(control.sendMessage(messageControlInput(input)))),
-    tool("loo_codex_steer_thread", "Steer a running Codex thread. Live mode requires approval_audit_id and expected_turn_id.", controlSchema(true, true), (input) => snakeCaseControlResult(control.steerThread(messageControlInput(input, true)))),
-    tool("loo_codex_interrupt_thread", "Interrupt a Codex thread. Live mode requires approval_audit_id.", controlSchema(), (input) => snakeCaseControlResult(control.interruptThread(controlInput(input)))),
+    tool("loo_codex_send_message", "Send a message to a Codex thread. Live mode requires approval_audit_id and waits for bounded turn proof.", controlSchema(true, false, true), (input) => snakeCaseControlResult(control.sendMessage(messageControlInput(input, false, true)))),
+    tool("loo_codex_steer_thread", "Steer a running Codex thread. Live mode requires approval_audit_id and expected_turn_id.", controlSchema(true, true, true), (input) => snakeCaseControlResult(control.steerThread(messageControlInput(input, true, true)))),
+    tool("loo_codex_interrupt_thread", "Interrupt a Codex thread. Live mode requires approval_audit_id; expected_turn_id enables bounded turn proof.", controlSchema(false, true, true), (input) => snakeCaseControlResult(control.interruptThread(controlInput(input, false, true)))),
     tool("loo_desktop_act", "Dry-run desktop fallback action for CUA/Peekaboo; live requests return structured missing-proof blockers.", {
       backend: { type: "string", enum: ["direct", "cua-driver", "peekaboo"] },
       action: { type: "string" },
@@ -1408,11 +1408,12 @@ function dispatchControl(control: ReturnType<typeof createCodexControl>, input: 
   throw new Error(`Unsupported control action: ${action}`);
 }
 
-function controlSchema(message = false, expectedTurn = false): Record<string, unknown> {
+function controlSchema(message = false, expectedTurn = false, turnWait = false): Record<string, unknown> {
   return {
     thread_id: { type: "string" },
     ...(message ? { message: { type: "string" } } : {}),
     ...(expectedTurn ? { expected_turn_id: { type: "string" } } : {}),
+    ...(turnWait ? { turn_wait_ms: { type: "integer", minimum: 1, maximum: 600000 } } : {}),
     dry_run: { type: "boolean", default: true },
     approval_audit_id: { type: "string" }
   };
@@ -1425,10 +1426,11 @@ function startControlSchema(): Record<string, unknown> {
   };
 }
 
-function controlInput(input: Record<string, unknown>, message = false) {
+function controlInput(input: Record<string, unknown>, message = false, expectedTurn = false) {
   return {
     threadId: requiredString(input.thread_id, "thread_id"),
     ...(message ? { message: requiredString(input.message, "message") } : {}),
+    ...(expectedTurn ? { expectedTurnId: optionalString(input.expected_turn_id), turnWaitMs: optionalNumber(input.turn_wait_ms) } : {}),
     dryRun: input.dry_run !== false,
     approvalAuditId: optionalString(input.approval_audit_id)
   };
@@ -1441,11 +1443,12 @@ function startControlInput(input: Record<string, unknown>) {
   };
 }
 
-function messageControlInput(input: Record<string, unknown>, expectedTurn = false) {
+function messageControlInput(input: Record<string, unknown>, expectedTurn = false, turnWait = false) {
   return {
     threadId: requiredString(input.thread_id, "thread_id"),
     message: requiredString(input.message, "message"),
     ...(expectedTurn ? { expectedTurnId: requiredString(input.expected_turn_id, "expected_turn_id") } : {}),
+    ...(turnWait ? { turnWaitMs: optionalNumber(input.turn_wait_ms) } : {}),
     dryRun: input.dry_run !== false,
     approvalAuditId: optionalString(input.approval_audit_id)
   };
@@ -1462,6 +1465,8 @@ async function snakeCaseControlResult(value: Promise<any>) {
     approval_audit_id: result.approvalAuditId,
     params_hash: result.paramsHash,
     message_hash: result.messageHash,
+    expected_turn_id: result.expectedTurnId,
+    turn_status: result.status,
     ...(proofState ? { proof_state: proofState } : {}),
     ...(approvalPacket ? { approval_packet: approvalPacket } : {})
   };

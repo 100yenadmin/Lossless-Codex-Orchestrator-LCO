@@ -1254,7 +1254,7 @@
       },
       {
         "name": "loo_codex_send_message",
-        "description": "Send a message to a Codex thread. Live mode requires approval_audit_id.",
+        "description": "Send a message to a Codex thread. Live mode requires approval_audit_id and waits for bounded turn proof.",
         "safety": {
           "mode": "approval_gated_control",
           "source": "codex_direct",
@@ -1276,6 +1276,11 @@
             },
             "message": {
               "type": "string"
+            },
+            "turn_wait_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 600000
             },
             "dry_run": {
               "type": "boolean",
@@ -1315,6 +1320,11 @@
             "expected_turn_id": {
               "type": "string"
             },
+            "turn_wait_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 600000
+            },
             "dry_run": {
               "type": "boolean",
               "default": true
@@ -1327,7 +1337,7 @@
       },
       {
         "name": "loo_codex_interrupt_thread",
-        "description": "Interrupt a Codex thread. Live mode requires approval_audit_id.",
+        "description": "Interrupt a Codex thread. Live mode requires approval_audit_id; expected_turn_id enables bounded turn proof.",
         "safety": {
           "mode": "approval_gated_control",
           "source": "codex_direct",
@@ -1346,6 +1356,14 @@
           "properties": {
             "thread_id": {
               "type": "string"
+            },
+            "expected_turn_id": {
+              "type": "string"
+            },
+            "turn_wait_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 600000
             },
             "dry_run": {
               "type": "boolean",
