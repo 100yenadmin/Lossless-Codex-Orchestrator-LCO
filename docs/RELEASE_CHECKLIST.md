@@ -27,6 +27,11 @@ scenario, scorecard, preflight, bundle, and privacy reports into one blocker
 taxonomy. They do not publish npm, move `latest`, create a GitHub Release, run
 live Codex control, or mutate a GUI.
 
+When generating multiple gate reports for a candidate, create the dated evidence
+root first, `cd` into it, and pass a relative --evidence-dir value from inside
+the evidence root. Use synthetic corpus or committed retrieval-goldens data for
+demo commands; live-store content can never be public evidence.
+
 ## Claim Tiers
 
 Use the narrowest claim tier that the evidence proves:

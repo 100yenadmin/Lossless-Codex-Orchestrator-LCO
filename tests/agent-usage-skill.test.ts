@@ -83,10 +83,11 @@ test("OpenClaw agent usage skill starts normal operators from the compact public
     /proof_debug/,
     /internal_low_level/,
     /expert\s+tools remain explicit/i,
-    /#434/,
     /forward public\s+alias target/i,
-    /currently use `loo_\*`/i,
-    /backward-compatible aliases/i
+    /public facade also\s+exposes tested `lco_\*` aliases/i,
+    /backward-compatible/i,
+    /LOO_TOOL_PROFILE=facade\|standard\|all/i,
+    /LOO_TELEMETRY=1/i
   ]) {
     assert.match(skill, required);
   }
@@ -95,6 +96,8 @@ test("OpenClaw agent usage skill starts normal operators from the compact public
   assert.match(recommendedLoop, /workflow-detail fallbacks/i);
   assert.doesNotMatch(facade, /raw transcripts/i);
   assert.doesNotMatch(facade, /lco_\*/i);
+  assert.doesNotMatch(skill, /#434/);
+  assert.doesNotMatch(skill, /until\s+#434/i);
 });
 
 test("OpenClaw agent usage skill teaches the Desktop-first daily loop without widening claims", () => {

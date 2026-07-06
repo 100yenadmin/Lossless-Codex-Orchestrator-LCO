@@ -14,6 +14,13 @@ claim.
 - `VISION.md` is the product and eval truth.
 - This runbook is the release-operation truth for the beta train.
 - Evidence path: `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/<release-slug>/`.
+- For gate commands that create sibling report directories, create the dated
+  release evidence root first, `cd` into that root, and pass a relative --evidence-dir
+  value from inside the evidence root. This keeps generated manifests
+  relocatable and avoids release-captain path drift.
+- Demo output must use a synthetic corpus or the committed retrieval goldens.
+  Live-store content can never be public evidence; quote only counts,
+  classifications, refs, hashes, and blocker codes from public-safe reports.
 
 ## Branch And Release Cadence
 
@@ -47,9 +54,9 @@ Milestone 7 is tracked separately from the `0.1.x` reduced-scope beta train:
 milestone #8.
 
 A release candidate may keep using `--claim-scope
-codex-read-search-expand-dry-run` for maintenance betas. A future
-working-app claim must not reuse that reduced-scope proof. It must first pass
-the runtime proof lane from #157 through #162:
+codex-read-search-expand-dry-run` for maintenance betas. A working-app claim
+must not reuse that reduced-scope proof. It must pass the runtime proof lane
+from #157 through #162:
 
 - runtime-required scenarios from `evals/scenarios/v1.1`
 - `working-app-runtime-proof-review.json`

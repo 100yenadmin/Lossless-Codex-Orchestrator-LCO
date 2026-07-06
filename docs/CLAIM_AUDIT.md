@@ -50,8 +50,8 @@ and `evals/scenarios/v1/codex-native-compaction-capture-proposal-v1.json`.
 
 Milestone 7 introduces a stricter working-app target in
 [#156](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/156).
-The future runtime-proven claim is not satisfied by dry-run scenario packets
-alone. It requires all of these public-safe proof markers:
+The runtime-proven claim is not satisfied by dry-run scenario packets alone. It
+requires all of these public-safe proof markers:
 
 - installed OpenClaw gateway path invokes the required `loo_*` tools
 - one harmless Codex action is dry-run first and live second with a matching
@@ -98,6 +98,10 @@ to move a dist-tag.
 - GitHub CI and CodeQL proof markers match the release candidate SHA and have
   empty `warnings` arrays
 - Demo evidence under `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/`
+- Generate release gate reports from inside the dated evidence root with a relative --evidence-dir
+  value so the artifact manifests remain relocatable.
+- Use a synthetic corpus or committed retrieval goldens for demo output;
+  live-store content can never be public evidence.
 - High-context document/workflow scan evidence covering safety bypass review,
   retrieval quality review, packaging/install review, public-claim review, and
   local-agent usability review across README.md, `VISION.md`, release notes,

@@ -253,6 +253,10 @@ test("beta release runbook defines RC cadence and keeps main distinct from relea
     /main is the integration branch, not a release/i,
     /release candidate/i,
     /Release Context Freshness Scan/i,
+    /relative --evidence-dir/i,
+    /from inside the evidence root/i,
+    /synthetic corpus/i,
+    /live-store content can never be public evidence/i,
     /long-context release-review agent/i,
     /gpt-5\.4/i,
     /1M-context/i,
@@ -341,6 +345,8 @@ test("beta release runbook defines RC cadence and keeps main distinct from relea
     /github_ci_warnings_present/i,
     /codeql_warnings_present/i,
     /public release means both npm package publication and\s+GitHub Release creation/i,
+    /relative --evidence-dir/i,
+    /synthetic corpus/i,
     /single-surface maintenance\s+publication/i
   ]) {
     assert.match(read("docs/CLAIM_AUDIT.md"), required);

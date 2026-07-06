@@ -39,6 +39,33 @@ Install the beta train only when you explicitly want prerelease behavior:
 npm install -g lossless-openclaw-orchestrator@beta
 ```
 
+Fresh walkthrough proof for maintainers or release PRs should use an isolated npm prefix
+and a fresh LOO_DB_PATH so the result does not depend on the maintainer's
+global install or existing local database:
+
+```bash
+walkthrough_root="$(mktemp -d /tmp/lco-setup.XXXXXX)"
+export NPM_CONFIG_PREFIX="$walkthrough_root/npm-prefix"
+export PATH="$NPM_CONFIG_PREFIX/bin:$PATH"
+export LOO_DB_PATH="$walkthrough_root/orchestrator.sqlite"
+npm install -g lossless-openclaw-orchestrator@latest
+loo doctor --json
+```
+
+Before a candidate version is published, a release PR may use the local repo build
+as the registry package substitute and must say so in the PR body:
+
+```bash
+npm run build
+npm install -g "$PWD"
+loo doctor --json
+```
+
+On a never-indexed database, `loo doctor --json` can report the first-run
+classification `not_indexed_yet`. That is the expected prompt to run the index
+step below, not a broken install. If the `codexJsonlDrift` block appears after
+indexing, treat it as a bounded completeness caveat for the flagged files.
+
 Update later:
 
 ```bash
@@ -219,6 +246,13 @@ Run a tool smoke through OpenClaw Gateway:
 
 ```bash
 loo openclaw tool-smoke --profile lco-dogfood --required-tool loo_doctor --required-tool loo_search_sessions --strict
+```
+
+After a published install, combine the package, dogfood, and tool-smoke reports
+into one first-run classifier:
+
+```bash
+loo openclaw published-smoke --evidence-dir /tmp/lco-published-smoke --dogfood-report plugin-load.json --tool-smoke-report tool-smoke.json --strict
 ```
 
 If the gateway needs first-run setup, LCO reports classifications such as
@@ -446,8 +480,8 @@ OpenClaw gateway tool smoke reports credential or device blockers
 npm install reports `ENOVERSIONS` for a visible beta
 
 - First verify the package with `npm view lossless-openclaw-orchestrator@beta version dist.tarball --json`.
-- If the registry tarball is visible, use the guarded tarball fallback command
-  from `loo onboard status` or pass a public-safe npm install diagnostic to
+- If the registry tarball is visible, use the guarded npm selector-drift tarball fallback
+  command from `loo onboard status` or pass a public-safe npm install diagnostic to
   `loo openclaw published-smoke --npm-install-diagnostic-report <path>`.
 - Record blocker codes and fallback status only; do not paste raw npm stderr,
   auth config, or tokens into public evidence.

@@ -240,8 +240,8 @@ read raw transcripts, run live Codex control, mutate a GUI, publish npm, or
 create a GitHub Release.
 
 Milestone 7 runtime-required contracts live under `evals/scenarios/v1.1/`. Those
-contracts are not satisfied by `loo eval scenarios` dry-run output alone. Issue
-`#157` fails closed until `--runtime-proof-dir` contains public-safe
+contracts are not satisfied by `loo eval scenarios` dry-run output alone. The
+working-app scope fails closed unless `--runtime-proof-dir` contains public-safe
 `<scenario-id>.runtime-proof.json` markers for installed OpenClaw gateway proof,
 approved live Codex action proof, post-action refresh/reasoning proof, desktop
 collaboration proof when claimed, and connected local UI proof when claimed.
