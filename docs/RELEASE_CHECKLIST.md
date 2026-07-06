@@ -1,6 +1,6 @@
 # Release Checklist
 
-This checklist is the stable-release gate for Lossless OpenClaw Orchestrator.
+This checklist is the stable-release gate for Lossless Codex Orchestrator.
 It complements the beta runbook by naming the proof required before a release
 can be called generally ready. GitHub issues and PRs remain implementation
 truth; this file is the release proof contract.
@@ -8,13 +8,13 @@ truth; this file is the release proof contract.
 Run the machine-readable gate:
 
 ```bash
-loo release general-readiness \
+lco release general-readiness \
   --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/general-release-readiness \
   --fresh-npm-evidence published-package-smoke.json \
   --agent-dogfood-evidence openclaw-tool-smoke.json \
   --strict
 
-loo release ga-smoke \
+lco release ga-smoke \
   --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-ga-smoke \
   --package-version <version> \
   --candidate-sha <release-candidate-sha> \
@@ -26,6 +26,9 @@ separate release-status, finalization, published-smoke, dogfood, tool-smoke,
 scenario, scorecard, preflight, bundle, and privacy reports into one blocker
 taxonomy. They do not publish npm, move `latest`, create a GitHub Release, run
 live Codex control, or mutate a GUI.
+The maintained compatibility alias `loo release general-readiness` invokes the
+same gate for existing release automation; new release instructions should use
+`lco release general-readiness`.
 
 When generating multiple gate reports for a candidate, create the dated evidence
 root first, `cd` into it, and pass a relative --evidence-dir value from inside
@@ -58,9 +61,9 @@ Every beta, RC, and stable release must have public-safe evidence for:
 - `npm run check`
 - `npm pack --dry-run`
 - release preflight, bundle, demo-status, release-status, and scorecard sweep
-- post-publish `loo release finalization-status --strict` evidence showing npm
+- post-publish `lco release finalization-status --strict` evidence showing npm
   package/dist-tag, git tag, and GitHub Release all match the candidate SHA
-- `loo release ga-smoke --strict` evidence aggregating the individual release
+- `lco release ga-smoke --strict` evidence aggregating the individual release
   reports into one public-safe P0-P3 blocker taxonomy
 - README, VISION, release notes, claim audit, runbook, and skills truth scan
 - privacy scan showing no raw transcripts, raw prompts, SQLite DBs, screenshots,
@@ -74,7 +77,7 @@ For a stable/general release, the release must additionally prove:
 
 - fresh npm stable install from the registry, not a linked repo checkout or a
   beta/RC substitute
-- clean OpenClaw profile install/load with expected `loo_*` tools visible
+- clean OpenClaw profile install/load with expected `lco_*` tools visible
 - gateway invocation is ready, not merely `gateway_setup_required`
 - if fresh-profile gateway credentials are missing, published-smoke evidence
   must classify the blocker as setup-required and show token generation,
@@ -100,22 +103,27 @@ Do not move `latest` during prerelease or pre-stable lanes. Install stable relea
 with:
 
 ```bash
-npm install -g lossless-openclaw-orchestrator@latest
+npm install -g lossless-codex-orchestrator@latest
 ```
 
 Install beta releases with:
 
 ```bash
-npm install -g lossless-openclaw-orchestrator@beta
+npm install -g lossless-codex-orchestrator@beta
 ```
+
+The former package name `lossless-openclaw-orchestrator` remains maintained for
+at least two minor releases, but release proof should use the canonical
+`lossless-codex-orchestrator` package unless a compatibility check is being
+run deliberately.
 
 Move `latest` only as part of a separate stable-release issue after the
 pre-publish candidate gates pass and the release-status approval markers
 explicitly cover npm publication and GitHub Release creation. After publication,
-run `loo release finalization-status --expected-dist-tag latest
+run `lco release finalization-status --expected-dist-tag latest
 --expected-github-prerelease false --strict`, fresh npm `@latest`
-published-smoke, `loo release general-readiness --strict`, and
-`loo release ga-smoke --strict`; the stable issue is not complete until those
+published-smoke, `lco release general-readiness --strict`, and
+`lco release ga-smoke --strict`; the stable issue is not complete until those
 post-publish gates pass.
 
 ## Blocking Signals

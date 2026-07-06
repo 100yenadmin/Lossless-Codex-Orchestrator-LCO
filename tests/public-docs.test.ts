@@ -20,13 +20,13 @@ test("GA README is a public landing page with first-run setup path", () => {
     /## First Workflow/,
     /## OpenClaw And MCP/,
     /## Safety Boundaries/,
-    /npm install -g lossless-openclaw-orchestrator@latest/,
-    /loo doctor/,
-    /loo index codex/,
-    /loo search/,
-    /loo describe/,
-    /loo expand/,
-    /loo-mcp-server/,
+    /npm install -g lossless-codex-orchestrator@latest/,
+    /lco doctor/,
+    /lco index codex/,
+    /lco search/,
+    /lco describe/,
+    /lco expand/,
+    /lco-mcp-server/,
     /skills\/lossless-openclaw-orchestrator\/SKILL\.md/,
     /docs\/OPENCLAW_PLUGIN\.md/,
     /docs\/PRIVACY\.md/,
@@ -48,26 +48,26 @@ test("setup guide covers install, local indexing, OpenClaw, MCP, and troubleshoo
   for (const required of [
     /^# Setup Guide/m,
     /Node\.js 22/,
-    /npm install -g lossless-openclaw-orchestrator@latest/,
-    /LOO_DB_PATH/,
-    /LOO_LCM_DB_PATHS/,
+    /npm install -g lossless-codex-orchestrator@latest/,
+    /LCO_DB_PATH/,
+    /LCO_LCM_DB_PATHS/,
     /isolated npm prefix/i,
-    /fresh LOO_DB_PATH/i,
+    /fresh LCO_DB_PATH/i,
     /local repo build/i,
-    /loo doctor/,
+    /lco doctor/,
     /not_indexed_yet/,
     /codexJsonlDrift/,
-    /loo index codex/,
+    /lco index codex/,
     /~\/.codex\/sessions/,
     /~\/.codex\/archived_sessions/,
-    /loo search/,
-    /loo describe/,
-    /loo expand/,
-    /loo-mcp-server/,
+    /lco search/,
+    /lco describe/,
+    /lco expand/,
+    /lco-mcp-server/,
     /OpenClaw/,
-    /loo openclaw published-smoke/,
+    /lco openclaw published-smoke/,
     /npm selector.*tarball fallback/i,
-    /loo openclaw tool-smoke/,
+    /lco openclaw tool-smoke/,
     /CUA Driver is the preferred\/default\s+desktop fallback backend/i,
     /not bundled by LCO/i,
     /desktop-fallback readiness blocker/i,
@@ -93,7 +93,7 @@ test("public docs document index byte cap and fresh-user tarball recovery comman
   ] as const) {
     assert.match(content, /50\s*MB per-file index cap/i, `${surface} must name the default per-file cap`);
     assert.match(content, /--max-bytes-per-file/i, `${surface} must document the override flag`);
-    assert.match(content, /npm view lossless-openclaw-orchestrator@[a-z]+ dist\.tarball/i, `${surface} must show a raw npm tarball lookup`);
+    assert.match(content, /npm view lossless-codex-orchestrator@[a-z]+ dist\.tarball/i, `${surface} must show a raw npm tarball lookup`);
     assert.match(content, /npm install -g "\$tarball_url"/i, `${surface} must show a raw npm tarball install`);
   }
 });
@@ -138,8 +138,9 @@ test("public docs preserve release claim boundaries", () => {
     assert.match(publicDocs, required);
   }
 
-  assert.match(readme, /`lco_\*` is the\s+forward public alias target/i);
-  assert.match(readme, /currently\s+callable OpenClaw\/MCP tools still use the historical `loo_\*` runtime prefix/i);
+  assert.match(readme, /`lco_\*`/i);
+  assert.match(readme, /`loo`[\s\S]{0,180}compatibility/i);
+  assert.match(readme, /at least two minor releases/i);
   assert.match(readme, /CUA Driver as the preferred\/default desktop fallback backend/i);
   assert.match(readme, /externally installed, not bundled by LCO/i);
   assert.match(readme, /verify the launch entrypoint with `cua-driver mcp --help`/i);

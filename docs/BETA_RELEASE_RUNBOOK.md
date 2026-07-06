@@ -1,7 +1,7 @@
 # Beta Release Runbook
 
 This runbook is the operator contract for cutting a public beta of Lossless
-OpenClaw Orchestrator. It keeps feature integration, release candidates, and
+Codex Orchestrator. It keeps feature integration, release candidates, and
 actual publication separate so a merged PR does not become an accidental release
 claim.
 
@@ -120,7 +120,7 @@ node ./dist/packages/cli/src/index.js release demo-status --evidence-dir /Volume
 node ./dist/packages/cli/src/index.js release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --candidate-sha "$release_candidate_sha" --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --npm-publish-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/npm-approval.json --github-release-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-release-approval.json --github-ci-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-ci.json --codeql-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/codeql.json --strict
 ```
 
-If `loo index bench` is included in a release evidence packet, label it as an
+If `lco index bench` is included in a release evidence packet, label it as an
 internal maintainer benchmark. It is useful for regression triage but is not a
 public user-path or release-readiness claim by itself.
 
@@ -164,7 +164,7 @@ markers must block with `runtime_proof_missing:*`,
 Add `--scenario-id desktop-collaboration-action-bound-v1-1` or
 `--scenario-id connected-local-ui-proof-v1-1` only when the release copy claims
 desktop fallback or connected local UI behavior.
-When `--desktop-gui-required` is present, `loo release status --strict` also
+When `--desktop-gui-required` is present, `lco release status --strict` also
 requires `desktop-collaboration-action-bound-v1-1.runtime-proof.json` in
 `--runtime-proof-dir`; desktop GUI approval evidence alone is not enough. The
 runtime marker must include `action_hash` matching the approval `actionHash` so
@@ -211,7 +211,7 @@ exact `commitSha`, `status: "completed"`, `conclusion: "success"`, a run URL,
 `warnings: []`, and `rawSecretIncluded: false`. If a workflow log or GitHub UI
 shows action/runtime deprecation warnings such as CodeQL Action v3, a Node 20
 action runtime warning, or another soon-disabled workflow action major, record
-that text in `warnings`; `loo release status --strict` must remain blocked until
+that text in `warnings`; `lco release status --strict` must remain blocked until
 the warning is removed.
 
 If desktop GUI mutation is part of the release plan, rerun release status with
@@ -224,20 +224,20 @@ That proof marker must include `operation: "desktop_gui_mutation"`,
 `rawScreenshotIncluded: false`, and `rawSecretIncluded: false`.
 `actionHash` must be the exact SHA-256 hash of
 `JSON.stringify({ desktopBackend, targetApp, targetWindow, action })`, matching
-the value emitted by `loo desktop proof-report`. The matching desktop
+the value emitted by `lco desktop proof-report`. The matching desktop
 collaboration runtime proof marker must include the same value as `action_hash`.
 Diagnostic-only focus proofs such as `status_probe_only_no_action` and
 `not_measured` are not accepted for desktop GUI mutation approval.
 
 Before attempting a backend-specific live GUI proof, run
-`loo desktop live-proof-harness --evidence-dir <path> --backend cua-driver|peekaboo --target-app <app> --target-window <title> --action <action> --approval-ref <ref> --strict`
-or call `loo_desktop_live_proof_harness` through MCP/OpenClaw. The harness
+`lco desktop live-proof-harness --evidence-dir <path> --backend cua-driver|peekaboo --target-app <app> --target-window <title> --action <action> --approval-ref <ref> --strict`
+or call `lco_desktop_live_proof_harness` through MCP/OpenClaw. The harness
 writes `desktop-live-proof-harness.json` and fails closed until the proof plan
 has a GUI fallback backend, action-bound target fields, an approval reference,
 backend availability, and a stable no-focus status probe. The harness itself
 does not perform the GUI action or capture screenshots.
 
-Use `loo desktop proof-report --evidence-dir <path> --observation-file <path> --strict`
+Use `lco desktop proof-report --evidence-dir <path> --observation-file <path> --strict`
 to validate a supplied backend-specific observation and write
 `desktop-gui-proof-report.json`. When the observation passes all proof checks,
 the command also writes `desktop-gui-approval.json`. The proof-report command
@@ -250,13 +250,13 @@ The local OpenClaw gateway is a first-class beta user. First run metadata-only
 install/tool-declaration coverage from the candidate checkout:
 
 ```bash
-node ./dist/packages/cli/src/index.js openclaw dogfood --profile lco-dogfood --install-source . --link --required-tool loo_doctor --required-tool loo_search_sessions --required-tool loo_describe_session --required-tool loo_expand_session --required-tool loo_expand_query --required-tool loo_codex_plans --required-tool loo_codex_final_messages --required-tool loo_codex_thread_map --required-tool loo_codex_control_dry_run --evidence-path /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/openclaw-dogfood/plugin-load.json --strict
+node ./dist/packages/cli/src/index.js openclaw dogfood --profile lco-dogfood --install-source . --link --required-tool lco_doctor --required-tool lco_search_sessions --required-tool lco_describe_session --required-tool lco_expand_session --required-tool lco_expand_query --required-tool lco_codex_plans --required-tool lco_codex_final_messages --required-tool lco_codex_thread_map --required-tool lco_codex_control_dry_run --evidence-path /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/openclaw-dogfood/plugin-load.json --strict
 ```
 
 Use an isolated profile such as `lco-dogfood` for linked beta proof. Reusing the
 default OpenClaw profile can legitimately return an install error when the
 plugin is already present, while the plugin is still loaded and ready. In that
-case `loo openclaw dogfood` must record `installOutcome.status:
+case `lco openclaw dogfood` must record `installOutcome.status:
 "already_installed"`, `installOutcome.recognizedMarker:
 "openclaw_plugin_already_exists"`, public-safe `installOutcome.guidance`, and
 the warning `openclaw_plugin_already_installed_but_ready`, without storing raw
@@ -271,22 +271,22 @@ profile or remove `--force`.
 This command verifies:
 
 - plugin install/load status
-- declared `loo_*` tool coverage
+- declared `lco_*` tool coverage
 - structured install outcome diagnostics
 - public-safe evidence only
 
 Before the OpenClaw user path is called usable, also capture real OpenClaw
 gateway tool-call evidence or record an explicit blocker. That public-safe
-evidence must prove the gateway invoked `loo_doctor`, `loo_search_sessions`,
-`loo_describe_session`, `loo_expand_session`, `loo_expand_query`, `loo_codex_plans`,
-`loo_codex_final_messages`, `loo_codex_thread_map`, and
-`loo_codex_control_dry_run`, including dry-run control audit creation without
+evidence must prove the gateway invoked `lco_doctor`, `lco_search_sessions`,
+`lco_describe_session`, `lco_expand_session`, `lco_expand_query`, `lco_codex_plans`,
+`lco_codex_final_messages`, `lco_codex_thread_map`, and
+`lco_codex_control_dry_run`, including dry-run control audit creation without
 mutating a real Codex thread.
 
 Use the narrow gateway tool-call smoke for that proof:
 
 ```bash
-node ./dist/packages/cli/src/index.js openclaw tool-smoke --profile lco-dogfood --session-key agent:main:lco-dogfood --required-tool loo_doctor --required-tool loo_search_sessions --required-tool loo_describe_session --required-tool loo_expand_session --required-tool loo_expand_query --required-tool loo_codex_plans --required-tool loo_codex_final_messages --required-tool loo_codex_thread_map --required-tool loo_codex_control_dry_run --evidence-path /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/openclaw-dogfood/tool-smoke.json --strict
+node ./dist/packages/cli/src/index.js openclaw tool-smoke --profile lco-dogfood --session-key agent:main:lco-dogfood --required-tool lco_doctor --required-tool lco_search_sessions --required-tool lco_describe_session --required-tool lco_expand_session --required-tool lco_expand_query --required-tool lco_codex_plans --required-tool lco_codex_final_messages --required-tool lco_codex_thread_map --required-tool lco_codex_control_dry_run --evidence-path /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/openclaw-dogfood/tool-smoke.json --strict
 ```
 
 This command calls OpenClaw Gateway `tools.catalog` and `tools.invoke`, then
@@ -297,7 +297,7 @@ Codex transcript text, raw prompts, SQLite DBs, screenshots, tokens, or
 credentials.
 
 Fresh OpenClaw profiles can install and list the plugin before they are paired
-or credentialed for gateway tool calls. In that state `loo openclaw tool-smoke`
+or credentialed for gateway tool calls. In that state `lco openclaw tool-smoke`
 fails closed with `openclaw_gateway_credentials_required` plus the setup blocker
 `fresh_profile_gateway_credentials_required` and
 `setupStatus.classification: "gateway_setup_required"`. Use a provisioned
@@ -339,8 +339,11 @@ readiness. A stable candidate must also pass the deeper
 [Release Checklist](RELEASE_CHECKLIST.md).
 Run candidate gates before publication, then run fresh npm `@latest` and agent
 dogfood evidence after publication before closing the stable issue. The
-user-facing post-publish command is `loo release general-readiness`; the
+user-facing post-publish command is `lco release general-readiness`; the
 built-artifact form is:
+
+The maintained compatibility alias `loo release general-readiness` invokes the
+same gate for existing automation; new release evidence should use `lco`.
 
 ```bash
 node ./dist/packages/cli/src/index.js release general-readiness \
@@ -375,7 +378,7 @@ proven live send path.
 Publishing is separate from proving a release candidate.
 
 For this beta train, a public release means both the npm package surface and the
-GitHub Release surface. `loo release status --strict` intentionally requires
+GitHub Release surface. `lco release status --strict` intentionally requires
 both `operation: "npm_publish"` and `operation: "github_release"` approval
 markers before it can report `releaseReady: true`. A single-surface maintenance
 publication must stop and add planned-operation flags and tests before using
@@ -402,7 +405,7 @@ separate operations are actually approved and executed.
 
 ## npm dist-tag policy
 
-Record `npm dist-tag ls lossless-openclaw-orchestrator` in the release evidence
+Record `npm dist-tag ls lossless-codex-orchestrator` in the release evidence
 after every npm publication. Stable releases publish with
 `npm publish --tag latest`; public betas publish with `npm publish --tag beta`;
 release candidates publish with `npm publish --tag next`. The stable channel
@@ -430,8 +433,8 @@ Only after the approval gates are satisfied:
    `publishConfig.tag` is `latest` before publishing.
 5. Create the GitHub Release if the approval covers GitHub Release creation.
 6. Install from the published artifact and rerun the OpenClaw user-path smoke.
-   If `npm view lossless-openclaw-orchestrator@<version>` or
-   `npm view lossless-openclaw-orchestrator@<expected-dist-tag> version` proves
+   If `npm view lossless-codex-orchestrator@<version>` or
+   `npm view lossless-codex-orchestrator@<expected-dist-tag> version` proves
    the version is visible, but `npm install` fails with `ENOVERSIONS` or
    `ETARGET` and stderr says `with a date before ...`, classify the blocker as
    `npm_before_cutoff_drift`. This is an npm client selection cutoff, not proof
@@ -441,7 +444,7 @@ Only after the approval gates are satisfied:
    explicit future `--before=<ISO timestamp>` value, keep both logs in
    evidence, and do not record npm tokens or raw auth config.
    If the future `--before` retry still fails while
-   `npm view lossless-openclaw-orchestrator@<expected-dist-tag> dist.tarball`
+   `npm view lossless-codex-orchestrator@<expected-dist-tag> dist.tarball`
    returns the just-published package tarball, classify the blocker as
    `npm_selector_cutoff_drift` and run the post-publish smoke by installing that
    registry tarball URL. Keep the exact install, `--before` retry, tarball URL,
@@ -482,14 +485,14 @@ Stop and leave the release candidate unpublished if any of these occur:
   bypass, or release-grade enterprise security is claimed
 - CUA/Peekaboo readiness implies no-focus or mutation support that was not
   proven
-- the OpenClaw package installs but does not expose the expected `loo_*` tools
+- the OpenClaw package installs but does not expose the expected `lco_*` tools
 - GitHub CI or CodeQL code scanning is red, pending, or missing
 - GitHub CI or CodeQL evidence is for a different commit than the release
   candidate SHA
 - workflow/action deprecation warnings are present, including CodeQL Action v3
   or Node 20 action runtime warnings
 - the release plan omits either npm publication or GitHub Release creation
-  without a prior planned-operation contract change in `loo release status`
+  without a prior planned-operation contract change in `lco release status`
 - the release context freshness scan is missing, stale, or finds docs, workflows,
   skills, and runbooks that disagree with the current release gate
 - review threads contain valid actionable defects

@@ -118,8 +118,8 @@ test("scenario sweep rejects unsafe ids before writing evidence paths", () => {
 });
 
 test("VISION and README document the scenario runner command", () => {
-  assert.match(readFileSync("VISION.md", "utf8"), /loo eval scenarios/);
-  assert.match(readFileSync("README.md", "utf8"), /loo eval scenarios/);
+  assert.match(readFileSync("VISION.md", "utf8"), /lco eval scenarios/);
+  assert.match(readFileSync("README.md", "utf8"), /lco eval scenarios/);
   assert.match(readFileSync("README.md", "utf8"), /evals\/scenarios\/v1/);
 });
 

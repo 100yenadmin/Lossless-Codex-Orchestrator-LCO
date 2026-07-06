@@ -37,15 +37,15 @@ test("OpenClaw agent usage skill teaches bounded recall and approval-gated contr
     /Expand 1k\/4k/i,
     /Find plans, finals, and touched files/i,
     /Dry-run steer, send, or resume/i,
-    /loo_doctor/,
-    /loo_search_sessions/,
-    /loo_describe_session/,
-    /loo_expand_session/,
-    /loo_expand_query/,
-    /loo_codex_plans/,
-    /loo_codex_final_messages/,
-    /loo_codex_touched_files/,
-    /loo_codex_control_dry_run/,
+    /lco_doctor/,
+    /lco_search_sessions/,
+    /lco_describe_session/,
+    /lco_expand_session/,
+    /lco_expand_query/,
+    /lco_codex_plans/,
+    /lco_codex_final_messages/,
+    /lco_codex_touched_files/,
+    /lco_codex_control_dry_run/,
     /approval_audit_id/,
     /do not read raw transcripts/i,
     /public-safe summaries/i,
@@ -71,31 +71,30 @@ test("OpenClaw agent usage skill starts normal operators from the compact public
   const recommendedLoop = section(skill, "Recommended Agent Loop");
 
   for (const required of [
-    /loo_prepared_inbox/,
-    /loo_describe_ref/,
-    /loo_expand_query/,
-    /loo_recent_sessions/,
-    /loo_attention_inbox/,
-    /loo_project_digest/,
-    /loo_codex_control_dry_run/,
-    /loo_codex_resume_thread/,
+    /lco_prepared_inbox/,
+    /lco_describe_ref/,
+    /lco_expand_query/,
+    /lco_recent_sessions/,
+    /lco_attention_inbox/,
+    /lco_project_digest/,
+    /lco_codex_control_dry_run/,
+    /lco_codex_resume_thread/,
     /workflow_detail/,
     /proof_debug/,
     /internal_low_level/,
     /expert\s+tools remain explicit/i,
-    /forward public\s+alias target/i,
-    /public facade also\s+exposes tested `lco_\*` aliases/i,
-    /backward-compatible/i,
-    /LOO_TOOL_PROFILE=facade\|standard\|all/i,
-    /LOO_TELEMETRY=1/i
+    /historical `loo_\*` names remain maintained compatibility aliases/i,
+    /at least two minor releases/i,
+    /LCO_TOOL_PROFILE=facade\|standard\|all/i,
+    /LCO_TELEMETRY=1/i
   ]) {
     assert.match(skill, required);
   }
 
-  assert.match(recommendedLoop, /Start with `loo_prepared_inbox`/);
+  assert.match(recommendedLoop, /Start with `lco_prepared_inbox`/);
   assert.match(recommendedLoop, /workflow-detail fallbacks/i);
   assert.doesNotMatch(facade, /raw transcripts/i);
-  assert.doesNotMatch(facade, /lco_\*/i);
+  assert.doesNotMatch(facade, /loo_\*/i);
   assert.doesNotMatch(skill, /#434/);
   assert.doesNotMatch(skill, /until\s+#434/i);
 });
@@ -105,21 +104,21 @@ test("OpenClaw agent usage skill teaches the Desktop-first daily loop without wi
   const dailyLoop = section(skill, "Codex Desktop-First Daily Loop");
 
   for (const required of [
-    /loo_codex_app_server_status/,
-    /loo_codex_app_server_threads/,
-    /loo_visible_codex_map/,
-    /loo_codex_desktop_coherence/,
+    /lco_codex_app_server_status/,
+    /lco_codex_app_server_threads/,
+    /lco_visible_codex_map/,
+    /lco_codex_desktop_coherence/,
     /cli_visible/,
     /desktop_refresh_required/,
     /desktop_restart_required/,
     /unknown/,
     /proof gaps/i,
-    /loo_codex_desktop_fallback_status/,
+    /lco_codex_desktop_fallback_status/,
     /coherence_input_missing/,
-    /loo_codex_collaboration_cockpit/,
-    /loo_codex_runtime_desktop_visibility_status/,
-    /loo_codex_active_thread_state/,
-    /loo_codex_autonomy_tick/,
+    /lco_codex_collaboration_cockpit/,
+    /lco_codex_runtime_desktop_visibility_status/,
+    /lco_codex_active_thread_state/,
+    /lco_codex_autonomy_tick/,
     /needs_nudge/,
     /needs_approval/,
     /nextControlDryRun/,
