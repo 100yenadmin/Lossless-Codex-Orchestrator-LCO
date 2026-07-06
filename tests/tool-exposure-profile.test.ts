@@ -325,7 +325,12 @@ async function readMcpToolList(profile: string | undefined): Promise<Array<Pick<
       };
       const onStdout = (chunk: string) => {
         stdout += chunk;
-        const line = stdout.split("\n").find((candidate) => candidate.trim());
+        const newlineIndex = stdout.lastIndexOf("\n");
+        if (newlineIndex === -1) return;
+        const line = stdout
+          .slice(0, newlineIndex)
+          .split("\n")
+          .find((candidate) => candidate.trim());
         if (!line) return;
         cleanup();
         resolve(line);
