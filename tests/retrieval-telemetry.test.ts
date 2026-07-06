@@ -110,7 +110,7 @@ test("opt-in search telemetry correlates describe and expand follows with rank",
       resultRefsJson: string;
     }>;
     assert.equal(searchRows.length, 1);
-    assert.equal(searchRows[0]?.queryText, "search expansion telemetry harvest target");
+    assert.equal(searchRows[0]?.queryText, "");
     assert.match(searchRows[0]?.queryHash ?? "", /^[a-f0-9]{64}$/);
     assert.deepEqual(JSON.parse(searchRows[0]?.resultRefsJson ?? "[]").slice(0, 1), ["codex_thread:019f-telemetry-alpha"]);
 
@@ -357,7 +357,7 @@ test("direct expandSession telemetry records one expand follow without an intern
   }
 });
 
-test("LOO_TELEMETRY env direct expandSession records one expand follow without an internal describe follow", () => {
+test("LOO_TELEMETRY env without a telemetry session id records no shared-process follow rows", () => {
   const fixture = makeTelemetryFixture();
   const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
   const originalTelemetry = process.env.LOO_TELEMETRY;
@@ -381,8 +381,8 @@ test("LOO_TELEMETRY env direct expandSession records one expand follow without a
     const searchCount = (db.prepare("SELECT COUNT(*) AS count FROM telemetry_search_events").get() as { count: number }).count;
     const followRows = db.prepare("SELECT follow_kind AS followKind, COUNT(*) AS count FROM telemetry_follow_events GROUP BY follow_kind ORDER BY follow_kind").all()
       .map((row) => ({ ...(row as Record<string, unknown>) }));
-    assert.equal(searchCount, 1);
-    assert.deepEqual(followRows, [{ followKind: "expand", count: 1 }]);
+    assert.equal(searchCount, 0);
+    assert.deepEqual(followRows, []);
   } finally {
     if (originalTelemetry === undefined) {
       delete process.env.LOO_TELEMETRY;
@@ -501,19 +501,20 @@ test("retrieval telemetry harvest proposes local non-public-safe scenarios and p
     assert.equal(proposal.publicSafe, false);
     assert.equal(proposal.requiresManualCuration, true);
     assert.equal(proposal.doNotCommit, true);
-    assert.equal(proposal.rawQueryTextIncluded, true);
+    assert.equal(proposal.rawQueryTextIncluded, false);
     assert.deepEqual(proposal.scenarios, [{
       id: "harvested-query-1",
       publicSafe: false,
       requiresManualCuration: true,
       redactionRequired: true,
-      query: "search expansion telemetry harvest target",
+      query: `[redacted-query:${sha256("search expansion telemetry harvest target").slice(0, 12)}]`,
       queryHash: sha256("search expansion telemetry harvest target"),
       expectedSourceRefs: ["codex_thread:019f-telemetry-alpha"],
       observedRank: 1,
       followKinds: ["describe", "expand"],
       occurrenceCount: 2
     }]);
+    assert.doesNotMatch(readFileSync(proposalPath, "utf8"), /search expansion telemetry harvest target/);
 
     const metricsText = readFileSync(metricsPath, "utf8");
     assert.doesNotMatch(metricsText, /search expansion telemetry harvest target/);
@@ -537,7 +538,7 @@ test("retrieval telemetry harvest rejects private proposal output inside a git c
         metricsPath: join(fixture.root, "telemetry-metrics.json"),
         now: "2026-07-06T00:10:00.000Z"
       }),
-      /Telemetry harvest proposal files include private query text and must be written outside git checkouts/
+      /Telemetry harvest proposal files are private curation artifacts and must be written outside git checkouts/
     );
     assert.equal(existsSync(join(repoRoot, ".tmp-telemetry-harvest-proposal.json")), false);
   } finally {
@@ -562,7 +563,7 @@ test("retrieval telemetry harvest rejects symlinked proposal output into a git c
         metricsPath: join(fixture.root, "telemetry-metrics.json"),
         now: "2026-07-06T00:10:00.000Z"
       }),
-      /Telemetry harvest proposal files include private query text and must be written outside git checkouts/
+      /Telemetry harvest proposal files are private curation artifacts and must be written outside git checkouts/
     );
     assert.equal(existsSync(proposalPath), false);
   } finally {
@@ -610,7 +611,7 @@ test("retrieval telemetry follows require a matching telemetry session key", () 
       ORDER BY f.ts ASC
     `).all().map((row) => ({ ...(row as Record<string, unknown>) }));
     assert.deepEqual(rows, [{
-      queryText: "search expansion telemetry harvest target",
+      queryText: "",
       rankPosition: 1,
       followKind: "describe"
     }]);
@@ -648,6 +649,7 @@ test("public telemetry miss metrics do not expose stable per-query hashes", () =
     const proposalPath = join(fixture.root, "harvest-proposals.json");
     const metricsPath = join(fixture.root, "telemetry-metrics.json");
     const report = harvestRetrievalTelemetry(db, { proposalPath, metricsPath, now: "2026-07-06T00:10:00.000Z" });
+    const proposalText = readFileSync(proposalPath, "utf8");
     const metricsText = readFileSync(metricsPath, "utf8");
     const metrics = JSON.parse(metricsText) as { metrics?: { topMissQueries?: Array<Record<string, unknown>> } };
 
@@ -660,6 +662,7 @@ test("public telemetry miss metrics do not expose stable per-query hashes", () =
     assert.equal(metrics.metrics?.topMissQueries?.length, 1);
     assert.equal("queryHash" in (metrics.metrics?.topMissQueries?.[0] ?? {}), false);
     assert.match(String(metrics.metrics?.topMissQueries?.[0]?.missId), /^miss_\d+$/);
+    assert.doesNotMatch(proposalText, /ssn 1234|private miss query/);
     assert.doesNotMatch(metricsText, /ssn 1234|private miss query/);
     assert.doesNotMatch(metricsText, new RegExp(sha256(privateQuery)));
     assert.doesNotMatch(JSON.stringify(report.metrics), new RegExp(sha256(privateQuery)));

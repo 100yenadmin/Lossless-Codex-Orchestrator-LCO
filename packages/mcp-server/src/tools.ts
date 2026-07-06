@@ -301,7 +301,7 @@ export function createLooToolSurfaceSummary(): LooToolSurfaceSummary {
       ],
       mutationMode: "local_cache_write",
       mutationClasses: ["derived_cache"],
-      privacyBoundary: "When LOO_TELEMETRY=1, affected search/describe/expand tools may write opt-in local derived-cache telemetry. Query text stays in the local DB and proposal harvest file; public reports and metrics remain aggregate counts/ranks only."
+      privacyBoundary: "When LOO_TELEMETRY=1 and a telemetry session id is supplied, affected search/describe/expand tools may write opt-in local derived-cache telemetry. Raw query text is not stored in telemetry rows or harvest proposals; public reports and metrics remain aggregate counts/ranks/hashes/placeholders only."
     },
     proofBoundary: "This metadata defines recommended operator tiers only. It does not remove tools, hide expert/debug surfaces, loosen approvals, run live Codex control, mutate a GUI, publish npm, or create GitHub releases. Opt-in retrieval telemetry, when enabled, is limited to local derived-cache writes."
   };
@@ -445,37 +445,54 @@ export function createLooTools(options: {
     })),
     tool("loo_describe_session", "Describe one indexed Codex session by thread id.", {
       thread_id: { type: "string" },
-      telemetry_session_id: { type: "string" }
-    }, (input) => describeSession(options.db, requiredString(input.thread_id, "thread_id"), { telemetry: telemetryEnabled, telemetrySessionId: optionalString(input.telemetry_session_id) })),
+      telemetry_session_id: { type: "string" },
+      now: { type: "string" }
+    }, (input) => describeSession(options.db, requiredString(input.thread_id, "thread_id"), {
+      telemetry: telemetryEnabled,
+      telemetrySessionId: optionalString(input.telemetry_session_id),
+      now: optionalString(input.now)
+    })),
     tool("loo_describe_ref", "Describe a source-prefixed recall ref such as codex_thread:* or lcm_summary:*.", {
       source_ref: { type: "string" },
       lcm_db_paths: { type: "array", items: { type: "string" } },
-      telemetry_session_id: { type: "string" }
+      telemetry_session_id: { type: "string" },
+      now: { type: "string" }
     }, (input) => describeRecallRef(options.db, {
       sourceRef: requiredString(input.source_ref, "source_ref"),
       lcmDbPaths: optionalRoots(input.lcm_db_paths, configuredLcmPeerDbPaths()),
       telemetry: telemetryEnabled,
-      telemetrySessionId: optionalString(input.telemetry_session_id)
+      telemetrySessionId: optionalString(input.telemetry_session_id),
+      now: optionalString(input.now)
     })),
     tool("loo_expand_session", "Expand one indexed Codex session into a bounded evidence brief.", {
       thread_id: { type: "string" },
       profile: { type: "string", enum: ["metadata", "brief", "evidence"] },
       token_budget: { type: "integer", minimum: 20, maximum: 8000 },
-      telemetry_session_id: { type: "string" }
-    }, (input) => expandSession(options.db, { threadId: requiredString(input.thread_id, "thread_id"), profile: optionalProfile(input.profile), tokenBudget: optionalNumber(input.token_budget), telemetry: telemetryEnabled, telemetrySessionId: optionalString(input.telemetry_session_id) })),
+      telemetry_session_id: { type: "string" },
+      now: { type: "string" }
+    }, (input) => expandSession(options.db, {
+      threadId: requiredString(input.thread_id, "thread_id"),
+      profile: optionalProfile(input.profile),
+      tokenBudget: optionalNumber(input.token_budget),
+      telemetry: telemetryEnabled,
+      telemetrySessionId: optionalString(input.telemetry_session_id),
+      now: optionalString(input.now)
+    })),
     tool("loo_expand_query", "Search then expand the best matching Codex or LCM peer recall ref.", {
       query: { type: "string" },
       profile: { type: "string", enum: ["metadata", "brief", "evidence"] },
       token_budget: { type: "integer", minimum: 20, maximum: 8000 },
       lcm_db_paths: { type: "array", items: { type: "string" } },
-      telemetry_session_id: { type: "string" }
+      telemetry_session_id: { type: "string" },
+      now: { type: "string" }
     }, (input) => expandQuery(options.db, {
       query: requiredString(input.query, "query"),
       profile: optionalProfile(input.profile),
       tokenBudget: optionalNumber(input.token_budget),
       lcmDbPaths: optionalRoots(input.lcm_db_paths, configuredLcmPeerDbPaths()),
       telemetry: telemetryEnabled,
-      telemetrySessionId: optionalString(input.telemetry_session_id)
+      telemetrySessionId: optionalString(input.telemetry_session_id),
+      now: optionalString(input.now)
     })),
     tool("loo_summary_leaves", "List deterministic public-safe summary leaves over prepared Codex source ranges.", {
       thread_id: { type: "string" },

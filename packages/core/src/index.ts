@@ -2261,7 +2261,6 @@ const RETRIEVAL_TELEMETRY_WINDOW_MS = 15 * 60 * 1000;
 const RETRIEVAL_TELEMETRY_HARVEST_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
 const RETRIEVAL_TELEMETRY_HARVEST_MAX_ROWS = 1000;
 const RETRIEVAL_TELEMETRY_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
-const RETRIEVAL_TELEMETRY_PROCESS_SESSION_KEY = sha256Hex(`loo-telemetry-process:${process.pid}:${randomUUID()}`);
 const retrievalTelemetryLastPruneByDb = new WeakMap<object, number>();
 
 export type RecallSourceKind = "codex_thread" | "lcm_summary" | "claude_session";
@@ -2983,7 +2982,7 @@ export function migrate(db: LooDatabase): void {
     CREATE TABLE IF NOT EXISTS telemetry_search_events (
       id TEXT PRIMARY KEY,
       ts TEXT NOT NULL,
-      query_text TEXT NOT NULL,
+      query_text TEXT NOT NULL DEFAULT '',
       query_hash TEXT NOT NULL,
       telemetry_session_key TEXT,
       result_refs_json TEXT NOT NULL DEFAULT '[]',
@@ -8388,7 +8387,7 @@ function recordTelemetrySearchEventUnchecked(db: LooDatabase, options: {
   `).run(
     `tel_search_${randomUUID()}`,
     nowIso,
-    query,
+    "",
     sha256Hex(query),
     telemetrySessionKey,
     JSON.stringify(resultRefs),
@@ -8462,7 +8461,7 @@ function latestTelemetrySearchEventForRef(db: LooDatabase, sourceRef: string, no
 function retrievalTelemetrySessionKey(explicit?: string): string | null {
   const raw = explicit ?? process.env.LOO_TELEMETRY_SESSION_ID;
   const value = raw?.trim();
-  if (!value) return process.env.LOO_TELEMETRY?.trim() === "1" ? RETRIEVAL_TELEMETRY_PROCESS_SESSION_KEY : null;
+  if (!value) return null;
   return sha256Hex(value);
 }
 
@@ -13953,7 +13952,6 @@ export function expandQuery(db: LooDatabase, options: {
 }
 
 type TelemetryHarvestCandidate = {
-  queryText: string;
   queryHash: string;
   chosenRef: string;
   observedRank: number;
@@ -13970,7 +13968,6 @@ export function harvestRetrievalTelemetry(db: LooDatabase, options: RetrievalTel
   assertTelemetryHarvestProposalPathIsPrivate(options.proposalPath);
   const rows = db.prepare(`
     SELECT
-      s.query_text AS queryText,
       s.query_hash AS queryHash,
       f.chosen_ref AS chosenRef,
       f.rank_position AS rankPosition,
@@ -13983,11 +13980,10 @@ export function harvestRetrievalTelemetry(db: LooDatabase, options: RetrievalTel
       AND s.ts <= ?
       AND f.ts >= ?
       AND f.ts <= ?
-    GROUP BY s.query_hash, s.query_text, f.chosen_ref, f.rank_position, f.follow_kind
+    GROUP BY s.query_hash, f.chosen_ref, f.rank_position, f.follow_kind
     ORDER BY s.query_hash ASC, occurrenceCount DESC, f.rank_position ASC, f.chosen_ref ASC
     LIMIT ?
   `).all(sinceIso, generatedAt, sinceIso, generatedAt, maxRows) as Array<{
-    queryText: string;
     queryHash: string;
     chosenRef: string;
     rankPosition: number;
@@ -14023,7 +14019,6 @@ export function harvestRetrievalTelemetry(db: LooDatabase, options: RetrievalTel
       existing.followKinds.add(row.followKind);
     } else {
       byRef.set(row.chosenRef, {
-        queryText: row.queryText,
         queryHash: row.queryHash,
         chosenRef: row.chosenRef,
         observedRank: rank,
@@ -14047,7 +14042,7 @@ export function harvestRetrievalTelemetry(db: LooDatabase, options: RetrievalTel
     publicSafe: false,
     requiresManualCuration: true,
     redactionRequired: true,
-    query: candidate.queryText,
+    query: telemetryQueryPlaceholder(candidate.queryHash),
     queryHash: candidate.queryHash,
     expectedSourceRefs: [candidate.chosenRef],
     observedRank: candidate.observedRank,
@@ -14083,7 +14078,7 @@ export function harvestRetrievalTelemetry(db: LooDatabase, options: RetrievalTel
     publicSafe: false,
     requiresManualCuration: true,
     doNotCommit: true,
-    rawQueryTextIncluded: true,
+    rawQueryTextIncluded: false,
     generatedAt,
     source: "local_derived_cache",
     scenarios
@@ -14116,18 +14111,22 @@ export function harvestRetrievalTelemetry(db: LooDatabase, options: RetrievalTel
       "tokens, credentials, API keys, cookies",
       "private customer data"
     ],
-    proofBoundary: "Harvest proposals are local, not-public-safe curation inputs from opt-in derived-cache telemetry. The returned report and metrics contain aggregate counts, ranks, and ephemeral miss ids only; they do not commit scenarios, widen retrieval claims, mutate source stores, or create public evidence from query text.",
+    proofBoundary: "Harvest proposals are local, not-public-safe curation inputs from opt-in derived-cache telemetry. The returned report and metrics contain aggregate counts, ranks, hashes, placeholders, and ephemeral miss ids only; they do not commit scenarios, widen retrieval claims, mutate source stores, or create public evidence from query text.",
     nextAction: scenarios.length === 0
       ? "Run opt-in search and describe/expand flows before harvesting proposed retrieval scenarios."
       : "Manually review, redact, and curate proposed scenarios before adding anything to evals/."
   };
 }
 
+function telemetryQueryPlaceholder(queryHash: string): string {
+  return `[redacted-query:${queryHash.slice(0, 12)}]`;
+}
+
 function assertTelemetryHarvestProposalPathIsPrivate(proposalPath: string): void {
   const proposalDir = dirname(canonicalMaybeMissingPath(proposalPath));
   const gitRoot = nearestGitRoot(proposalDir);
   if (gitRoot) {
-    throw new Error("Telemetry harvest proposal files include private query text and must be written outside git checkouts");
+    throw new Error("Telemetry harvest proposal files are private curation artifacts and must be written outside git checkouts");
   }
 }
 

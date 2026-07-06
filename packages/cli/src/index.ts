@@ -1067,7 +1067,7 @@ function mainUsageText(): string {
     "  loo ui local-mac-search --evidence-dir path [--sample] [--strict]",
     "  loo eval retrieval --scenario-file path [--floor-file path] [--evidence-path path] [--now iso] [--strict]",
     "  loo eval retrieval --harvest path [--metrics-path path] [--now iso] [--strict]",
-    "    Harvest proposal files include private query text and must be written outside git checkouts.",
+    "    Harvest proposal files are private curation artifacts and must be written outside git checkouts.",
     "  loo eval scenarios --evidence-dir path [--scenario-dir path] [--runtime-proof-dir path] [--package-version version] [--candidate-sha sha] [--strict]",
     "  loo runtime issue-packet --evidence-dir path --failure-report path [--parent-issue #n] [--operating-loop #n] [--milestone name] [--now iso] [--strict]",
     "  loo release preflight [--evidence-dir path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--strict]",

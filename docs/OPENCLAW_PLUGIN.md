@@ -85,11 +85,12 @@ Safety details:
 - `LOO_TELEMETRY=1` enables opt-in search-to-describe/expand telemetry for
   search, grep, describe, and expand tools. The affected tools are classified
   as `local_cache_write`/`derived_cache` because they may write LCO-owned
-  telemetry rows. The default is off. If no `LOO_TELEMETRY_SESSION_ID` or
-  per-call session id is supplied, LCO uses a local per-process derived session
-  key so one-env-var telemetry does not silently no-op. Query text stays only in
-  the local DB and local `loo eval retrieval --harvest` proposal file; telemetry
-  rows are pruned to the 30-day harvest-retention window, harvest proposal files
+  telemetry rows. The default is off, and correlation requires an explicit
+  per-call `telemetry_session_id` or `LOO_TELEMETRY_SESSION_ID`. If no matching
+  recent search event exists in that session and correlation window, follow rows
+  are dropped fail-closed. Raw query text is not stored in telemetry rows or
+  harvest proposals; scenarios carry query hashes and redacted placeholders.
+  Rows are pruned to the 30-day harvest-retention window, harvest proposal files
   are rejected inside git checkouts, and public reports/metrics stay count and
   rank based without raw query text. `--metrics-path` is intentionally exempt
   from the private proposal-path guard because it writes only `publicSafe:true`

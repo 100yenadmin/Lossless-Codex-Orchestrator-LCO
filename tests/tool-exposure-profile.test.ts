@@ -145,7 +145,8 @@ test("tool surface summary documents exposure filtering as non-gating", () => {
   assert.equal(summary.retrievalTelemetry.defaultEnabled, false);
   assert.deepEqual(summary.retrievalTelemetry.mutationClasses, ["derived_cache"]);
   assert.ok(summary.retrievalTelemetry.affectedTools.includes("loo_expand_query"));
-  assert.match(summary.retrievalTelemetry.privacyBoundary, /query text.*local DB/i);
+  assert.match(summary.retrievalTelemetry.privacyBoundary, /Raw query text is not stored/i);
+  assert.match(summary.retrievalTelemetry.privacyBoundary, /telemetry session id/i);
 });
 
 function expectedBaseNamesForTiers(tiers: LooToolTier[]): string[] {
