@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, readSync, statSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, readSync, realpathSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -3420,25 +3420,9 @@ function recordLimitedFile(db: LooDatabase, result: IndexCodexResult, path: stri
 }
 
 function clearSourceFileIndex(db: LooDatabase, sourcePath: string): void {
-  const rows = db.prepare("SELECT rowid AS sessionRowid, thread_id AS threadId FROM codex_sessions WHERE source_path = ?").all(sourcePath) as Array<{ sessionRowid: number; threadId: string }>;
   db.exec("BEGIN");
   try {
-    const threadIds = rows.map((row) => String(row.threadId)).filter(Boolean);
-    deleteSummaryLeavesForThreadIds(db, threadIds);
-    const deletePreparedRanges = db.prepare("DELETE FROM prepared_source_ranges WHERE thread_id = ?");
-    const deletePreparedEvents = db.prepare("DELETE FROM prepared_source_events WHERE thread_id = ?");
-    const deleteThreadTitleAliases = db.prepare("DELETE FROM codex_thread_title_aliases WHERE thread_id = ?");
-    for (const row of rows) {
-      const threadId = String(row.threadId);
-      const sessionRowid = positiveSessionRowid(row.sessionRowid);
-      deleteCodexSafeTextFtsForSessionRowid(db, sessionRowid);
-      deleteCodexSearchFtsForSessionRowid(db, sessionRowid);
-      deletePreparedRanges.run(threadId);
-      deletePreparedEvents.run(threadId);
-      deleteThreadTitleAliases.run(threadId);
-    }
-    db.prepare("DELETE FROM codex_sessions WHERE source_path = ?").run(sourcePath);
-    db.prepare("DELETE FROM codex_source_files WHERE source_path = ?").run(sourcePath);
+    clearSourceFileIndexInsideTransaction(db, sourcePath);
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
@@ -3446,22 +3430,77 @@ function clearSourceFileIndex(db: LooDatabase, sourcePath: string): void {
   }
 }
 
+function clearSourceFileIndexInsideTransaction(db: LooDatabase, sourcePath: string): void {
+  const rows = db.prepare("SELECT rowid AS sessionRowid, thread_id AS threadId FROM codex_sessions WHERE source_path = ?").all(sourcePath) as Array<{ sessionRowid: number; threadId: string }>;
+  const threadIds = rows.map((row) => String(row.threadId)).filter(Boolean);
+  deleteSummaryLeavesForThreadIds(db, threadIds);
+  const deletePreparedRanges = db.prepare("DELETE FROM prepared_source_ranges WHERE thread_id = ?");
+  const deletePreparedEvents = db.prepare("DELETE FROM prepared_source_events WHERE thread_id = ?");
+  const deleteThreadTitleAliases = db.prepare("DELETE FROM codex_thread_title_aliases WHERE thread_id = ?");
+  for (const row of rows) {
+    const threadId = String(row.threadId);
+    const sessionRowid = positiveSessionRowid(row.sessionRowid);
+    deleteCodexSafeTextFtsForSessionRowid(db, sessionRowid);
+    deleteCodexSearchFtsForSessionRowid(db, sessionRowid);
+    deletePreparedRanges.run(threadId);
+    deletePreparedEvents.run(threadId);
+    deleteThreadTitleAliases.run(threadId);
+  }
+  db.prepare("DELETE FROM codex_sessions WHERE source_path = ?").run(sourcePath);
+  db.prepare("DELETE FROM codex_source_files WHERE source_path = ?").run(sourcePath);
+}
+
 function pruneMissingCodexSourceFiles(db: LooDatabase, roots: string[]): void {
-  const existingRoots = unique(roots.map((root) => resolve(root)).filter((root) => existsSync(root)));
+  const existingRoots = unique(roots.map(canonicalExistingPath).filter((root): root is string => root !== null));
   if (existingRoots.length === 0) return;
   const rows = db.prepare("SELECT source_path AS sourcePath FROM codex_source_files").all() as Array<{ sourcePath: string }>;
+  const missingSourcePaths: string[] = [];
   for (const row of rows) {
     const sourcePath = String(row.sourcePath ?? "");
     if (!sourcePath.endsWith(".jsonl")) continue;
     if (existsSync(sourcePath)) continue;
     if (!existingRoots.some((root) => sourcePathIsWithinRoot(sourcePath, root))) continue;
-    clearSourceFileIndex(db, sourcePath);
+    missingSourcePaths.push(sourcePath);
+  }
+  if (missingSourcePaths.length === 0) return;
+  db.exec("BEGIN");
+  try {
+    for (const sourcePath of missingSourcePaths) {
+      clearSourceFileIndexInsideTransaction(db, sourcePath);
+    }
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
   }
 }
 
 function sourcePathIsWithinRoot(sourcePath: string, root: string): boolean {
-  const relativePath = relative(root, resolve(sourcePath));
+  const relativePath = relative(root, canonicalMaybeMissingPath(sourcePath));
   return relativePath === "" || (relativePath.length > 0 && relativePath !== ".." && !relativePath.startsWith(`..${sep}`) && !isAbsolute(relativePath));
+}
+
+function canonicalExistingPath(path: string): string | null {
+  try {
+    return realpathSync.native(path);
+  } catch {
+    return existsSync(path) ? resolve(path) : null;
+  }
+}
+
+function canonicalMaybeMissingPath(path: string): string {
+  const resolvedPath = resolve(path);
+  const existingPath = canonicalExistingPath(resolvedPath);
+  if (existingPath) return existingPath;
+  const segments: string[] = [];
+  let cursor = resolvedPath;
+  while (cursor && dirname(cursor) !== cursor) {
+    segments.unshift(basename(cursor));
+    cursor = dirname(cursor);
+    const existingParent = canonicalExistingPath(cursor);
+    if (existingParent) return resolve(existingParent, ...segments);
+  }
+  return resolvedPath;
 }
 
 export function getSourceFileWatermark(db: LooDatabase, sourcePath: string): SourceFileWatermark | null {

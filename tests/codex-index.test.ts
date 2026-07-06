@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, utimesSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -301,6 +301,38 @@ test("index pruning removes deleted Codex source rows from drift status", () => 
     assert.equal(searchSessions(db, { query: "pruned source alias", limit: 5 }).some((result) => result.threadId === "019f-prune-delete"), false);
     assert.equal(getCodexJsonlDriftStatus(db).filesIndexed, 1);
     assert.equal(getCodexJsonlDriftStatus(db).filesWithDrift, 0);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("index pruning removes deleted source rows across symlink-equivalent roots", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-prune-symlink-roots-"));
+  const realSessions = join(root, "real-sessions");
+  const linkedSessions = join(root, "linked-sessions");
+  mkdirSync(realSessions, { recursive: true });
+  try {
+    symlinkSync(realSessions, linkedSessions, "dir");
+  } catch {
+    t.skip("filesystem does not allow directory symlinks in this environment");
+    return;
+  }
+  const sourcePath = join(linkedSessions, "rollout-2026-07-06T00-00-00-019f-prune-symlink.jsonl");
+  writeMinimalCodexSession(sourcePath, "019f-prune-symlink", "Prune symlink source row");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    assert.equal(indexCodexSessions(db, { roots: [linkedSessions], maxFiles: 10 }).indexedFiles, 1);
+    assert.equal((db.prepare("SELECT source_path AS sourcePath FROM codex_source_files").get() as { sourcePath: string }).sourcePath, sourcePath);
+
+    rmSync(join(realSessions, "rollout-2026-07-06T00-00-00-019f-prune-symlink.jsonl"), { force: true });
+    const pruned = indexCodexSessions(db, { roots: [realSessions], maxFiles: 10 });
+
+    assert.equal(pruned.errors.length, 0);
+    assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM codex_source_files").get() as { count: number }).count), 0);
+    assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM codex_sessions").get() as { count: number }).count), 0);
+    assert.equal(getCodexJsonlDriftStatus(db).filesIndexed, 0);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
