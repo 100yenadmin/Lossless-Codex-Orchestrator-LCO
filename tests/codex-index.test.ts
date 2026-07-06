@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, utimesSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import {
   describeSession,
   describeRecallRef,
   expandSession,
+  getCodexJsonlDriftStatus,
   getCodexFinalMessages,
   getCodexPlans,
   getCodexToolCalls,
@@ -27,6 +28,7 @@ import {
   writeSyntheticCodexCorpus,
   writeSyntheticCodexSession
 } from "./helpers/synthetic-codex.js";
+import * as searchModule from "../packages/core/src/search.js";
 
 function makeFixture() {
   const root = mkdtempSync(join(tmpdir(), "loo-codex-"));
@@ -203,6 +205,143 @@ test("maxFiles selects newest JSONL files first and reports dropped oldest candi
   }
 });
 
+test("search module does not export obsolete FTS maintenance helpers", () => {
+  assert.equal("upsertCodexSearchFtsForThread" in searchModule, false);
+  assert.equal("codexSearchFtsNeedsBackfill" in searchModule, false);
+});
+
+test("index pruning removes deleted Codex source rows from drift status", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-prune-sources-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const keepPath = join(sessions, "rollout-2026-07-06T00-00-00-019f-prune-keep.jsonl");
+  const deletePath = join(sessions, "rollout-2026-07-06T00-00-00-019f-prune-delete.jsonl");
+  writeMinimalCodexSession(keepPath, "019f-prune-keep", "Keep source row");
+  writeFileSync(deletePath, [
+    JSON.stringify({ timestamp: "2026-07-06T00:00:00.000Z", session_meta: { payload: { id: "019f-prune-delete" } } }),
+    "{not-json",
+    JSON.stringify({ timestamp: "2026-07-06T00:00:01.000Z", event_msg: { type: "thread_name", name: "Delete source row" } })
+  ].join("\n") + "\n");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    assert.equal(indexCodexSessions(db, { roots: [sessions], maxFiles: 10 }).indexedFiles, 2);
+    assert.equal(getCodexJsonlDriftStatus(db).filesIndexed, 2);
+    assert.equal(getCodexJsonlDriftStatus(db).filesWithDrift, 1);
+    const aliasReport = captureThreadTitleFinalizerHookPacket(db, {
+      thread_id: "019f-prune-delete",
+      cwd: root,
+      current_title: "Delete source row",
+      last_assistant_message: "Final: pruned source alias should disappear with its deleted JSONL."
+    });
+    assert.equal(aliasReport.aliasInserted, true);
+    assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM codex_thread_title_aliases WHERE thread_id = ?").get("019f-prune-delete") as { count: number }).count), 1);
+    assert.equal(searchSessions(db, { query: "pruned source alias", limit: 5 }).some((result) => result.threadId === "019f-prune-delete"), true);
+    db.prepare(`
+      INSERT INTO prepared_cards (
+        card_id, card_ref, target_ref, card_kind, title, objective, summary_text,
+        source_refs_json, source_range_refs_json, authority_coverage_json,
+        input_hash, extractor_version, privacy_class, confidence, freshness_at,
+        stale, state, reason_codes_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "prepared-card-prune-delete",
+      "prepared_card:019f-prune-delete:test",
+      "codex_thread:019f-prune-delete",
+      "session",
+      "Delete source row",
+      "Prune stale prepared state",
+      "Prepared state must disappear with the deleted JSONL source.",
+      JSON.stringify(["codex_thread:019f-prune-delete"]),
+      JSON.stringify([]),
+      JSON.stringify({ lco: "ok" }),
+      "hash-prune-delete",
+      "test",
+      "public_safe",
+      0.9,
+      "2026-07-06T00:00:02.000Z",
+      0,
+      "ready",
+      JSON.stringify([]),
+      "2026-07-06T00:00:02.000Z",
+      "2026-07-06T00:00:02.000Z"
+    );
+    db.prepare(`
+      INSERT INTO prepared_inbox_items (
+        item_id, card_ref, target_ref, urgency_score, state, reason_codes_json,
+        source_refs_json, execute_false, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "prepared-inbox-prune-delete",
+      "prepared_card:019f-prune-delete:test",
+      "codex_thread:019f-prune-delete",
+      0.5,
+      "ready",
+      JSON.stringify([]),
+      JSON.stringify(["codex_thread:019f-prune-delete"]),
+      1,
+      "2026-07-06T00:00:02.000Z",
+      "2026-07-06T00:00:02.000Z"
+    );
+    assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM prepared_cards WHERE card_id = ?").get("prepared-card-prune-delete") as { count: number }).count), 1);
+    assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM prepared_inbox_items WHERE item_id = ?").get("prepared-inbox-prune-delete") as { count: number }).count), 1);
+    assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM prepared_cards WHERE target_ref = ?").get("codex_thread:019f-prune-delete") as { count: number }).count) > 0, true);
+    assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM prepared_inbox_items WHERE target_ref = ?").get("codex_thread:019f-prune-delete") as { count: number }).count) > 0, true);
+
+    rmSync(deletePath, { force: true });
+    const pruned = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+
+    assert.equal(pruned.errors.length, 0);
+    assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM codex_source_files").get() as { count: number }).count), 1);
+    assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM codex_sessions").get() as { count: number }).count), 1);
+    assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM codex_thread_title_aliases WHERE thread_id = ?").get("019f-prune-delete") as { count: number }).count), 0);
+    assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM prepared_cards WHERE target_ref = ?").get("codex_thread:019f-prune-delete") as { count: number }).count), 0);
+    assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM prepared_inbox_items WHERE target_ref = ?").get("codex_thread:019f-prune-delete") as { count: number }).count), 0);
+    assert.equal(searchSessions(db, { query: "019f-prune-delete", limit: 5 }).length, 0);
+    assert.equal(searchSessions(db, { query: "pruned source alias", limit: 5 }).some((result) => result.threadId === "019f-prune-delete"), false);
+    assert.equal(getCodexJsonlDriftStatus(db).filesIndexed, 1);
+    assert.equal(getCodexJsonlDriftStatus(db).filesWithDrift, 0);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("index pruning removes deleted source rows across symlink-equivalent roots", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-prune-symlink-roots-"));
+  const realSessions = join(root, "real-sessions");
+  const linkedSessions = join(root, "linked-sessions");
+  mkdirSync(realSessions, { recursive: true });
+  try {
+    symlinkSync(realSessions, linkedSessions, "dir");
+  } catch (error) {
+    rmSync(root, { recursive: true, force: true });
+    const code = (error as NodeJS.ErrnoException)?.code;
+    if (code !== "EPERM" && code !== "ENOTSUP") throw error;
+    t.skip("filesystem does not allow directory symlinks in this environment");
+    return;
+  }
+  const sourcePath = join(linkedSessions, "rollout-2026-07-06T00-00-00-019f-prune-symlink.jsonl");
+  writeMinimalCodexSession(sourcePath, "019f-prune-symlink", "Prune symlink source row");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    assert.equal(indexCodexSessions(db, { roots: [linkedSessions], maxFiles: 10 }).indexedFiles, 1);
+    assert.equal((db.prepare("SELECT source_path AS sourcePath FROM codex_source_files").get() as { sourcePath: string }).sourcePath, sourcePath);
+
+    rmSync(join(realSessions, "rollout-2026-07-06T00-00-00-019f-prune-symlink.jsonl"), { force: true });
+    const pruned = indexCodexSessions(db, { roots: [realSessions], maxFiles: 10 });
+
+    assert.equal(pruned.errors.length, 0);
+    assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM codex_source_files").get() as { count: number }).count), 0);
+    assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM codex_sessions").get() as { count: number }).count), 0);
+    assert.equal(getCodexJsonlDriftStatus(db).filesIndexed, 0);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Codex FTS documents stay pinned to session rowids across cold index, reindex, and mutation", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-codex-fts-rowids-"));
   try {
@@ -225,6 +364,39 @@ test("Codex FTS documents stay pinned to session rowids across cold index, reind
       });
       const mutation = indexCodexSessions(db, { roots: [corpus.sessionsDir], maxFiles: 10 });
       assert.equal(mutation.indexedFiles, 1);
+      assertCodexFtsPinnedToSessionRowids(db);
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("migrate repairs legacy Codex FTS rowid drift without reindexing", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-migrate-fts-repair-"));
+  try {
+    const corpus = writeSyntheticCodexCorpus(root, 2);
+    const db = createDatabase(join(root, "orchestrator.sqlite"));
+    try {
+      indexCodexSessions(db, { roots: [corpus.sessionsDir], maxFiles: 10 });
+      const driftRow = db.prepare("SELECT rowid AS sessionRowid, thread_id AS threadId FROM codex_sessions ORDER BY rowid ASC LIMIT 1").get() as { sessionRowid: number; threadId: string };
+      const driftThreadId = driftRow.threadId;
+      db.prepare("DELETE FROM codex_safe_text_fts WHERE rowid = ?").run(driftRow.sessionRowid);
+      db.prepare("INSERT INTO codex_safe_text_fts (thread_id, content) VALUES (?, ?)").run(driftThreadId, "legacy unpinned safe text");
+      db.prepare("DELETE FROM codex_search_fts WHERE rowid = ?").run(driftRow.sessionRowid);
+      db.prepare(`
+        INSERT INTO codex_search_fts (thread_id, title, summary, plans, finals, touched_files, tool_meta, body)
+        VALUES (?, ?, '', '', '', '', '', ?)
+      `).run(driftThreadId, "legacy unpinned search title", "legacy unpinned search body");
+
+      const before = codexFtsRowidSnapshot(db).find((row) => row.threadId === driftThreadId);
+      assert.notEqual(before?.safeTextFtsRowid, before?.sessionRowid);
+      assert.notEqual(before?.searchFtsRowid, before?.sessionRowid);
+
+      migrate(db);
+
+      assert.equal(sqliteTableExists(db, "codex_safe_text_fts"), true);
       assertCodexFtsPinnedToSessionRowids(db);
     } finally {
       db.close();

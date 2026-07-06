@@ -24,6 +24,49 @@ file. The report is public-safe metadata only:
 `driftSummary` totals the same counts across affected files. Clean imports
 return an empty `driftReport` and zeroed `driftSummary`.
 
+`loo doctor`, `loo onboard status`, and related status tools expose the
+public-safe `CodexJsonlDriftStatus` contract for previously indexed data. Its
+top-level `state` is one of:
+
+- `clean`: indexed JSONL rows exist and no drift counters are present.
+- `drift_detected`: indexed rows exist and at least one indexed source reported
+  unknown event kinds, unparsed lines, or missing expected fields.
+- `not_indexed_yet`: the database is present, but no Codex JSONL source rows
+  have been indexed into LCO yet.
+- `unavailable`: the status could not be computed safely, usually because the
+  database is missing or a read failed.
+
+`availability` explains whether the status can be trusted:
+
+- `ready`: the indexed drift projection is available.
+- `database_missing`: the LCO database is not present yet.
+- `requires_index_run`: the database exists, but Codex JSONL projection data has
+  not been populated yet.
+- `read_error`: LCO could not read the projection tables.
+
+When `availability` is `requires_index_run`, `nextAction` contains the suggested
+local command for a bounded first index run:
+
+```bash
+loo index codex --max-files 500 "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
+```
+
+On non-POSIX shells, replace `$HOME` with the absolute home directory before
+running the command manually.
+
+That command is a local derived-cache write only; it does not mutate Codex source
+stores, run live control, or upload transcripts. The reason code
+`codex_jsonl_drift_projection_requires_index_run` means the status object is
+requesting that first projection pass rather than reporting parser drift.
+
+When `loo index codex` is later run with a narrower or different root set, LCO
+prunes indexed rows only for missing JSONL files that are still under the current
+canonical root set. It intentionally keeps rows for still-existing files outside
+the current roots. That fail-closed behavior avoids deleting a user's derived
+cache merely because they changed the index scope, but it means drift/status
+counts can include retained rows from earlier roots until the user intentionally
+reindexes or rebuilds the local LCO database.
+
 Known bookkeeping inner kinds such as token counts, reasoning markers, tool
 outputs, task lifecycle events, and patch markers are noise-gated. Unknown kinds
 are reported only when their payload appears to contain content-like strings the

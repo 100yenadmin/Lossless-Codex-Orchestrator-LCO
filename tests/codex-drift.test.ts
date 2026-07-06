@@ -109,6 +109,20 @@ test("legacy DB without drift projection reports first-run recovery instead of s
   }
 });
 
+test("migrated empty DB reports first-run recovery before any Codex JSONL index", () => {
+  withDb("loo-codex-drift-empty-db-", (db) => {
+    const status = getCodexJsonlDriftStatus(db);
+
+    assert.equal(status.state, "not_indexed_yet");
+    assert.equal(status.availability, "requires_index_run");
+    assert.equal(status.filesIndexed, 0);
+    assert.equal(status.filesWithDrift, 0);
+    assert.deepEqual(status.reasonCodes, ["codex_jsonl_drift_projection_requires_index_run"]);
+    assert.equal(status.nextAction, "loo index codex --max-files 500 \"$HOME/.codex/sessions\" \"$HOME/.codex/archived_sessions\"");
+    assert.doesNotMatch(JSON.stringify(status), /clean|ready|orchestrator\.sqlite|\/Volumes\/LEXAR|\/Users\//);
+  });
+});
+
 test("future Codex JSONL drift fixture reports reason-coded drift and still indexes parseable events", () => {
   withDb("loo-codex-drift-future-", (db) => {
     const indexed = indexCodexSessions(db, { roots: [join(fixtureRoot, "future-drift")], maxFiles: 10 });

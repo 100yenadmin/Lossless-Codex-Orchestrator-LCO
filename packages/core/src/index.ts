@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, readSync, statSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, readSync, realpathSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
-import { basename, delimiter, dirname, join, resolve } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { DatabaseSync as NodeDatabaseSync } from "node:sqlite";
 import {
   createSessionSanitizerRepairPlan,
@@ -15,7 +15,6 @@ import {
   CODEX_SEARCH_FTS_MIGRATION_ID,
   CODEX_SEARCH_FTS_TERM_CAP,
   CODEX_SEARCH_FTS_WEIGHTS,
-  codexSearchFtsNeedsBackfill,
   createSnippet,
   deleteCodexSearchFtsForSessionRowid,
   escapeLike,
@@ -2376,6 +2375,7 @@ export type RetrievalBaselineFloors = {
   engine?: string;
   scenarioSet?: string;
   scenarioCount?: number;
+  measuredAt?: string;
   overall: RetrievalBaselineMetricSet;
   families: Record<string, RetrievalBaselineMetricSet & { scenarioCount?: number }>;
 };
@@ -3006,20 +3006,15 @@ export function migrate(db: LooDatabase): void {
   ensureColumn(db, "codex_source_files", "jsonl_drift_unparsed_lines", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "codex_source_files", "jsonl_drift_missing_expected_fields_json", "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn(db, "codex_source_files", "jsonl_drift_reason_codes_json", "TEXT NOT NULL DEFAULT '[]'");
-  // Gate the relational backfill on "migration row missing OR count drift" so a
-  // crash between the rebuild and the ledger insert leaves the migration
-  // unrecorded and re-runnable. Record the ledger row only AFTER a successful
-  // rebuild, so the audit ledger never claims a backfill that did not complete.
+  // Gate FTS maintenance on rowid-pinning drift. The pinned-count check also
+  // detects count drift, so migration and index paths share one repair test.
   const codexSearchFtsMigrationRecorded = db
     .prepare("SELECT 1 FROM loo_schema_migrations WHERE migration_id = ?")
     .get(CODEX_SEARCH_FTS_MIGRATION_ID) !== undefined;
-  if (!codexSearchFtsMigrationRecorded || codexSearchFtsNeedsBackfill(db)) {
-    rebuildCodexSearchFts(db);
-    db.prepare("INSERT OR IGNORE INTO loo_schema_migrations (migration_id, applied_at, description) VALUES (?, datetime('now'), ?)").run(
-      CODEX_SEARCH_FTS_MIGRATION_ID,
-      "Additive field-weighted Codex search FTS table with relational backfill"
-    );
-  }
+  repairCodexFtsRowidPinning(db, {
+    forceSearchRepair: !codexSearchFtsMigrationRecorded,
+    recordSearchMigration: !codexSearchFtsMigrationRecorded
+  });
 }
 
 function ensureColumn(db: LooDatabase, table: string, column: string, definition: string): void {
@@ -3051,6 +3046,7 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
     result.skippedFiles += Math.max(0, fileSelection.droppedOldest.actual - fileSelection.droppedOldest.limit);
     result.limitedFiles.push(fileSelection.droppedOldest);
   }
+  pruneMissingCodexSourceFiles(db, options.roots, fileSelection.candidateFiles);
   repairCodexFtsRowidPinning(db);
   const seenThreads = new Set<string>();
   const summaryThreadsToMaterialize = new Set<string>();
@@ -3371,14 +3367,25 @@ function clearRemappedSourcePathSessions(db: LooDatabase, sourcePath: string, th
   db.prepare("DELETE FROM codex_sessions WHERE source_path = ? AND thread_id <> ?").run(sourcePath, threadId);
 }
 
-function repairCodexFtsRowidPinning(db: LooDatabase): void {
+type CodexFtsRowidPinningRepairOptions = {
+  forceSearchRepair?: boolean;
+  recordSearchMigration?: boolean;
+};
+
+function repairCodexFtsRowidPinning(db: LooDatabase, options: CodexFtsRowidPinningRepairOptions = {}): void {
   const repairSafeText = codexFtsRowidPinningNeedsRepair(db, "codex_safe_text_fts");
-  const repairSearch = codexFtsRowidPinningNeedsRepair(db, "codex_search_fts");
-  if (!repairSafeText && !repairSearch) return;
+  const repairSearch = options.forceSearchRepair === true || codexFtsRowidPinningNeedsRepair(db, "codex_search_fts");
+  if (!repairSafeText && !repairSearch && options.recordSearchMigration !== true) return;
   db.exec("BEGIN");
   try {
     if (repairSafeText) rebuildCodexSafeTextFts(db);
     if (repairSearch) rebuildCodexSearchFts(db);
+    if (options.recordSearchMigration === true) {
+      db.prepare("INSERT OR IGNORE INTO loo_schema_migrations (migration_id, applied_at, description) VALUES (?, datetime('now'), ?)").run(
+        CODEX_SEARCH_FTS_MIGRATION_ID,
+        "Additive field-weighted Codex search FTS table with relational backfill"
+      );
+    }
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
@@ -3414,28 +3421,92 @@ function recordLimitedFile(db: LooDatabase, result: IndexCodexResult, path: stri
 }
 
 function clearSourceFileIndex(db: LooDatabase, sourcePath: string): void {
-  const rows = db.prepare("SELECT rowid AS sessionRowid, thread_id AS threadId FROM codex_sessions WHERE source_path = ?").all(sourcePath) as Array<{ sessionRowid: number; threadId: string }>;
   db.exec("BEGIN");
   try {
-    const threadIds = rows.map((row) => String(row.threadId)).filter(Boolean);
-    deleteSummaryLeavesForThreadIds(db, threadIds);
-    const deletePreparedRanges = db.prepare("DELETE FROM prepared_source_ranges WHERE thread_id = ?");
-    const deletePreparedEvents = db.prepare("DELETE FROM prepared_source_events WHERE thread_id = ?");
-    for (const row of rows) {
-      const threadId = String(row.threadId);
-      const sessionRowid = positiveSessionRowid(row.sessionRowid);
-      deleteCodexSafeTextFtsForSessionRowid(db, sessionRowid);
-      deleteCodexSearchFtsForSessionRowid(db, sessionRowid);
-      deletePreparedRanges.run(threadId);
-      deletePreparedEvents.run(threadId);
-    }
-    db.prepare("DELETE FROM codex_sessions WHERE source_path = ?").run(sourcePath);
-    db.prepare("DELETE FROM codex_source_files WHERE source_path = ?").run(sourcePath);
+    clearSourceFileIndexInsideTransaction(db, sourcePath);
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
     throw error;
   }
+}
+
+function clearSourceFileIndexInsideTransaction(db: LooDatabase, sourcePath: string): void {
+  const rows = db.prepare("SELECT rowid AS sessionRowid, thread_id AS threadId FROM codex_sessions WHERE source_path = ?").all(sourcePath) as Array<{ sessionRowid: number; threadId: string }>;
+  const threadIds = rows.map((row) => String(row.threadId)).filter(Boolean);
+  deleteSummaryLeavesForThreadIds(db, threadIds);
+  const deletePreparedRanges = db.prepare("DELETE FROM prepared_source_ranges WHERE thread_id = ?");
+  const deletePreparedEvents = db.prepare("DELETE FROM prepared_source_events WHERE thread_id = ?");
+  const deleteThreadTitleAliases = db.prepare("DELETE FROM codex_thread_title_aliases WHERE thread_id = ?");
+  for (const row of rows) {
+    const threadId = String(row.threadId);
+    const sessionRowid = positiveSessionRowid(row.sessionRowid);
+    deleteCodexSafeTextFtsForSessionRowid(db, sessionRowid);
+    deleteCodexSearchFtsForSessionRowid(db, sessionRowid);
+    deletePreparedRanges.run(threadId);
+    deletePreparedEvents.run(threadId);
+    deleteThreadTitleAliases.run(threadId);
+  }
+  db.prepare("DELETE FROM codex_sessions WHERE source_path = ?").run(sourcePath);
+  db.prepare("DELETE FROM codex_source_files WHERE source_path = ?").run(sourcePath);
+}
+
+function pruneMissingCodexSourceFiles(db: LooDatabase, roots: string[], candidateFiles: string[]): void {
+  const existingRoots = unique(roots.map(canonicalExistingPath).filter((root): root is string => root !== null));
+  if (existingRoots.length === 0) return;
+  const currentResolvedPaths = new Set(candidateFiles.map((path) => resolve(path)));
+  const currentCanonicalPaths = new Set(candidateFiles.map(canonicalExistingPath).filter((path): path is string => path !== null));
+  const rows = db.prepare("SELECT source_path AS sourcePath FROM codex_source_files").all() as Array<{ sourcePath: string }>;
+  const missingSourcePaths: string[] = [];
+  for (const row of rows) {
+    const sourcePath = String(row.sourcePath ?? "");
+    if (!sourcePath.endsWith(".jsonl")) continue;
+    if (currentResolvedPaths.has(resolve(sourcePath))) continue;
+    const canonicalSourcePath = canonicalMaybeMissingPath(sourcePath);
+    if (currentCanonicalPaths.has(canonicalSourcePath)) continue;
+    if (existsSync(sourcePath)) continue;
+    if (!existingRoots.some((root) => canonicalPathIsWithinRoot(canonicalSourcePath, root))) continue;
+    missingSourcePaths.push(sourcePath);
+  }
+  if (missingSourcePaths.length === 0) return;
+  db.exec("BEGIN");
+  try {
+    for (const sourcePath of missingSourcePaths) {
+      clearSourceFileIndexInsideTransaction(db, sourcePath);
+    }
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+function canonicalPathIsWithinRoot(canonicalPath: string, root: string): boolean {
+  const relativePath = relative(root, canonicalPath);
+  return relativePath === "" || (relativePath.length > 0 && relativePath !== ".." && !relativePath.startsWith(`..${sep}`) && !isAbsolute(relativePath));
+}
+
+function canonicalExistingPath(path: string): string | null {
+  try {
+    return realpathSync.native(path);
+  } catch {
+    return null;
+  }
+}
+
+function canonicalMaybeMissingPath(path: string): string {
+  const resolvedPath = resolve(path);
+  const existingPath = canonicalExistingPath(resolvedPath);
+  if (existingPath) return existingPath;
+  const segments: string[] = [];
+  let cursor = resolvedPath;
+  while (cursor && dirname(cursor) !== cursor) {
+    segments.unshift(basename(cursor));
+    cursor = dirname(cursor);
+    const existingParent = canonicalExistingPath(cursor);
+    if (existingParent) return resolve(existingParent, ...segments);
+  }
+  return resolvedPath;
 }
 
 export function getSourceFileWatermark(db: LooDatabase, sourcePath: string): SourceFileWatermark | null {
@@ -4031,6 +4102,7 @@ export function getCodexJsonlDriftStatus(db: LooDatabase): CodexJsonlDriftStatus
       jsonl_drift_reason_codes_json AS reasonCodesJson
     FROM codex_source_files
   `).all() as Array<Record<string, unknown>>;
+  if (rows.length === 0) return emptyCodexJsonlDriftStatus("requires_index_run");
   const unknownEventKindCounts = new Map<string, number>();
   const missingExpectedFieldCounts = new Map<string, number>();
   const reasonCodes = new Set<string>();
@@ -13374,12 +13446,13 @@ export function grepRecall(db: LooDatabase, options: {
   profile?: RecallProfileName;
   tokenBudget?: number;
   lcmDbPaths?: string[];
+  now?: string;
 }): { query: string; profile: RecallProfile; matches: RecallSearchResult[] } {
   const query = options.query.trim();
   const limit = clamp(options.limit ?? 10, 1, 100);
   const profile = resolveRecallProfile(options.profile, options.tokenBudget);
   if (!query) return { query, profile, matches: [] };
-  const codexMatches: RecallSearchResult[] = searchSessions(db, { query, limit }).map((match) => ({
+  const codexMatches: RecallSearchResult[] = searchSessions(db, { query, limit, now: options.now }).map((match) => ({
     ...match,
     sourceKind: "codex_thread",
     sourceRef: codexThreadRef(match.threadId),
@@ -13572,7 +13645,7 @@ export function evaluateRetrievalBaselineScenarios(db: LooDatabase, options: {
   floors?: RetrievalBaselineFloors | null;
   now?: string;
 }): RetrievalBaselineReport {
-  const scenarios = options.scenarios.map((scenario) => evaluateRetrievalBaselineScenario(db, scenario));
+  const scenarios = options.scenarios.map((scenario) => evaluateRetrievalBaselineScenario(db, scenario, options.now));
   const overall = retrievalBaselineMetrics(scenarios);
   const families = retrievalBaselineFamilyMetrics(scenarios);
   const blockers = retrievalBaselineFloorBlockers(scenarios, overall, families, options.floors ?? null);
@@ -13603,11 +13676,11 @@ export function evaluateRetrievalBaselineScenarios(db: LooDatabase, options: {
   };
 }
 
-function evaluateRetrievalBaselineScenario(db: LooDatabase, scenario: RetrievalEvalScenario): RetrievalBaselineScenarioResult {
+function evaluateRetrievalBaselineScenario(db: LooDatabase, scenario: RetrievalEvalScenario, now?: string): RetrievalBaselineScenarioResult {
   const k = clamp(scenario.k ?? scenario.limit ?? 5, 1, 20);
   const limit = Math.max(5, k);
   const expectedSourceRefs = unique(scenario.expectedSourceRefs.filter(Boolean));
-  const matches = grepRecall(db, { query: scenario.query, limit }).matches;
+  const matches = grepRecall(db, { query: scenario.query, limit, now }).matches;
   const topRefs = matches.map((match) => match.sourceRef);
   const firstExpectedIndex = topRefs.findIndex((ref) => expectedSourceRefs.includes(ref));
   const firstExpectedRank = firstExpectedIndex >= 0 ? firstExpectedIndex + 1 : null;
@@ -14138,6 +14211,7 @@ type JsonlFileCandidate = {
 
 type JsonlFileSelection = {
   files: string[];
+  candidateFiles: string[];
   droppedOldest: LimitedCodexFile | null;
 };
 
@@ -14148,9 +14222,11 @@ function collectJsonlFiles(roots: string[], maxFiles: number): JsonlFileSelectio
     walk(root, candidates);
   }
   candidates.sort((left, right) => right.mtimeMs - left.mtimeMs || left.path.localeCompare(right.path));
+  const candidateFiles = candidates.map((candidate) => candidate.path);
   const files = candidates.slice(0, maxFiles).map((candidate) => candidate.path);
   return {
     files,
+    candidateFiles,
     droppedOldest: candidates.length > maxFiles
       ? {
           path: roots.length === 1 ? roots[0] : roots.join(delimiter),
