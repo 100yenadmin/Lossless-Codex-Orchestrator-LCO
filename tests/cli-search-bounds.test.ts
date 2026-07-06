@@ -155,7 +155,9 @@ test("loo index codex classifies locked databases without leaking local paths", 
     assert.equal(payload.command, "index codex");
     assert.equal(payload.actionsPerformed?.rawTranscriptRead, false);
     assert.equal(payload.actionsPerformed?.liveControl, false);
-    assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /\/Volumes\/LEXAR|\/Users\/|\/tmp\/|orchestrator\.sqlite|\.jsonl|PRIVATE_CANARY/);
+    const escapedRoot = root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const leakPattern = new RegExp(`${escapedRoot}|/Volumes/LEXAR|/Users/|/tmp/|orchestrator\\.sqlite|\\.jsonl|PRIVATE_CANARY`);
+    assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, leakPattern);
   } finally {
     if (locker) {
       try {

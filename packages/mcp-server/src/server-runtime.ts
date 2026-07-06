@@ -58,7 +58,14 @@ rl.on("line", async (line) => {
       send({ id: message.id, error: { code: -32601, message: `Unsupported method: ${message.method}` } });
     }
   } catch (error) {
-    send({ id: messageId, error: { code: -32000, message: error instanceof Error ? error.message : String(error) } });
+    process.stderr.write("MCP request error returned public-safe JSON-RPC error.\n");
+    send({
+      id: messageId,
+      error: {
+        code: -32000,
+        message: error instanceof SyntaxError ? "Invalid JSON-RPC JSON request." : "Internal error processing MCP request."
+      }
+    });
   }
 });
 
@@ -78,14 +85,16 @@ function getRuntimeState(): RuntimeState {
   let codexClient: ReturnType<typeof createCodexAppServerStdioClient>;
   let codexReadClient: ReturnType<typeof createCodexAppServerStdioClient>;
   try {
+    const codexCommand = process.env.LOO_CODEX_BIN || "codex";
+    const codexArgs = (process.env.LOO_CODEX_APP_SERVER_ARGS || "app-server --stdio").split(/\s+/).filter(Boolean);
     codexClient = createCodexAppServerStdioClient({
-      command: process.env.LOO_CODEX_BIN || "codex",
-      args: (process.env.LOO_CODEX_APP_SERVER_ARGS || "app-server --stdio").split(/\s+/).filter(Boolean),
+      command: codexCommand,
+      args: codexArgs,
       surface: "control"
     });
     codexReadClient = createCodexAppServerStdioClient({
-      command: process.env.LOO_CODEX_BIN || "codex",
-      args: (process.env.LOO_CODEX_APP_SERVER_ARGS || "app-server --stdio").split(/\s+/).filter(Boolean),
+      command: codexCommand,
+      args: codexArgs,
       surface: "read"
     });
   } catch {
