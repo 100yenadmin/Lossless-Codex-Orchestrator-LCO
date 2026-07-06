@@ -32,10 +32,11 @@ rl.on("line", async (line) => {
     if (message.method === "initialize") {
       send({ id: message.id, result: { protocolVersion: "2024-11-05", serverInfo: { name: "lossless-openclaw-orchestrator", version: SERVER_VERSION }, capabilities: { tools: {} } } });
     } else if (message.method === "tools/list") {
+      const runtime = getRuntimeState();
       send({
         id: message.id,
         result: {
-          runtimeStatus: createToolsListRuntimeStatus(),
+          startupStatus: runtime.ok ? createStartupReadyResult() : runtime.failure,
           tools: filterLooToolsByProfile(toolDeclarations, toolProfile)
             .map(({ name, description, metadata, inputSchema }) => ({ name, description, metadata, inputSchema }))
         }
@@ -110,18 +111,6 @@ function getRuntimeState(): RuntimeState {
   }
 }
 
-function createToolsListRuntimeStatus() {
-  return {
-    startup: "lazy",
-    database: "unchecked_until_tools_call",
-    failureSurface: "tools/call",
-    retryPolicy: {
-      failedStartupCached: false,
-      nextToolCallRechecksStartup: true
-    }
-  };
-}
-
 function createRuntimeDatabase(): { ok: true; db: ReturnType<typeof createDatabase> } | { ok: false } {
   try {
     return { ok: true, db: createDatabase({ maintenance: "schema-only" }) };
@@ -146,14 +135,11 @@ function createStartupUnavailableResult(code: StartupFailureCode) {
     publicSafe: true,
     readOnly: true,
     retryable: true,
+    retryPolicy: startupRetryPolicy(),
     message: detail.message,
     nextAction: detail.nextAction,
     blockers: [code],
     sourceCoverage: detail.sourceCoverage,
-    retryPolicy: {
-      failedStartupCached: false,
-      nextToolCallRechecksStartup: true
-    },
     actionsPerformed: {
       rawTranscriptRead: false,
       sourceStoreMutation: false,
@@ -165,6 +151,42 @@ function createStartupUnavailableResult(code: StartupFailureCode) {
     },
     privateDataExclusions: ["raw transcripts", "raw prompts", "SQLite rows", "local paths", "raw logs", "tokens", "cookies", "screenshots"],
     proofBoundary: "This packet classifies MCP local startup only. Startup failures are not cached, so transient setup errors may recover on the next tools/call. It does not read raw transcripts, run live Codex control, mutate a GUI, publish npm, or create a GitHub Release."
+  };
+}
+
+function createStartupReadyResult() {
+  return {
+    schema: "lco.mcp.startupStatus.v1",
+    ok: true,
+    code: "startup_ready",
+    classification: "ready",
+    publicSafe: true,
+    readOnly: true,
+    retryable: false,
+    retryPolicy: startupRetryPolicy(),
+    message: "Local LCO MCP runtime startup is ready.",
+    nextAction: "Call the listed loo_* tools through MCP as needed.",
+    blockers: [],
+    sourceCoverage: { localIndex: "ok", audit: "ok", toolRegistry: "ok" },
+    actionsPerformed: {
+      rawTranscriptRead: false,
+      sourceStoreMutation: false,
+      externalWrite: false,
+      liveControl: false,
+      guiMutation: false,
+      npmPublished: false,
+      githubReleaseCreated: false
+    },
+    privateDataExclusions: ["raw transcripts", "raw prompts", "SQLite rows", "local paths", "raw logs", "tokens", "cookies", "screenshots"],
+    proofBoundary: "This packet reports MCP local startup readiness only. It does not read raw transcripts, run live Codex control, mutate a GUI, publish npm, or create a GitHub Release."
+  };
+}
+
+function startupRetryPolicy() {
+  return {
+    negativeCache: false,
+    retryOn: "next_tools_list_or_tools_call",
+    persistentFailureCost: "A persistent startup failure re-attempts local startup on each tools/list or tools/call until the local setup is repaired."
   };
 }
 
