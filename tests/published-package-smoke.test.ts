@@ -833,6 +833,131 @@ test("published-smoke records npm selector drift with installable tarball fallba
   }
 });
 
+test("published-smoke classifies global loo PATH shadowing without failing proven package evidence", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-published-smoke-path-shadow-"));
+  try {
+    const dogfoodPath = join(dir, "dogfood.json");
+    const toolSmokePath = join(dir, "tool-smoke.json");
+    const binaryProbePath = join(dir, "binary-probe.json");
+    const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+    writeJson(dogfoodPath, {
+      ok: true,
+      dogfoodReady: true,
+      publicSafe: true,
+      targetPlugin: { id: "lossless-openclaw-orchestrator", enabled: true, loaded: true, toolCount: 30 },
+      requiredToolsPresent: true,
+      missingRequiredTools: [],
+      blockers: [],
+      installAttempted: true,
+      installOutcome: { status: "installed", exitStatus: 0 },
+      private: "/opt/homebrew/bin/loo reported an old version with raw npm output"
+    });
+    writeJson(toolSmokePath, {
+      ok: true,
+      toolSmokeReady: true,
+      publicSafe: true,
+      catalog: { requiredToolsPresent: true, missingRequiredTools: [], toolCount: 30 },
+      setupBlockers: [],
+      setupStatus: {
+        classification: "ready",
+        packageInstallLikelyOk: true,
+        recoverable: false,
+        retryAfterSetup: false,
+        doesNotIndicatePackageFailure: true
+      }
+    });
+    writeJson(binaryProbePath, {
+      kind: "loo_published_binary_probe_evidence",
+      publicSafe: true,
+      rawSecretIncluded: false,
+      expectedPackage: "lossless-openclaw-orchestrator",
+      expectedVersion: packageJson.version,
+      observedVersion: "1.2.6",
+      resolvedBinarySource: "global_path",
+      pathShadowed: true,
+      tarballBinaryVersion: packageJson.version,
+      packageJsonVersion: packageJson.version,
+      rawPath: "/opt/homebrew/bin/loo",
+      rawOutput: "private shell output should not leak"
+    });
+
+    const report = createPublishedPackageSmokeReport({
+      rootDir: new URL("..", import.meta.url).pathname,
+      dogfoodReportPath: dogfoodPath,
+      toolSmokeReportPath: toolSmokePath,
+      binaryProbeReportPath: binaryProbePath
+    });
+
+    assert.equal(report.ok, true);
+    assert.equal(report.packagePathOk, true);
+    assert.equal(report.publishedSmokeReady, true);
+    assert.equal(report.binaryProbeDiagnostic.provided, true);
+    assert.equal(report.binaryProbeDiagnostic.classification, "smoke_harness_path_shadow");
+    assert.equal(report.binaryProbeDiagnostic.packageInstallLikelyOk, true);
+    assert.equal(report.binaryProbeDiagnostic.observedVersion, "1.2.6");
+    assert.equal(report.binaryProbeDiagnostic.packageVersion, packageJson.version);
+    assert.equal(report.binaryProbeDiagnostic.tarballBinaryVersion, packageJson.version);
+    assert.equal(report.binaryProbeDiagnostic.resolvedBinarySource, "global_path");
+    assert.ok(report.binaryProbeDiagnostic.guidance.some((item) => item.includes("binary-probe tarball evidence")));
+    assert.ok(report.nextSafeCommands.some((command) => command.includes("npm view lossless-openclaw-orchestrator@")));
+    assert.doesNotMatch(JSON.stringify(report), /\/opt\/homebrew|private shell output|old version with raw npm output/i);
+
+    writeJson(binaryProbePath, {
+      kind: "loo_published_binary_probe_evidence",
+      publicSafe: true,
+      rawSecretIncluded: false,
+      expectedPackage: "lossless-openclaw-orchestrator",
+      expectedVersion: packageJson.version,
+      observedVersion: "1.2.6",
+      resolvedBinarySource: "global_path",
+      pathShadowed: true,
+      packageJsonVersion: packageJson.version
+    });
+    const selfAttestedReport = createPublishedPackageSmokeReport({
+      rootDir: new URL("..", import.meta.url).pathname,
+      dogfoodReportPath: dogfoodPath,
+      toolSmokeReportPath: toolSmokePath,
+      binaryProbeReportPath: binaryProbePath
+    });
+    assert.equal(selfAttestedReport.ok, false);
+    assert.equal(selfAttestedReport.packagePathOk, false);
+    assert.equal(selfAttestedReport.binaryProbeDiagnostic.classification, "candidate_binary_version_mismatch");
+    assert.equal(selfAttestedReport.binaryProbeDiagnostic.packageInstallLikelyOk, false);
+    assert.equal(selfAttestedReport.binaryProbeDiagnostic.tarballBinaryVersion, null);
+    assert.deepEqual(selfAttestedReport.blockers, ["binary_probe_candidate_version_mismatch"]);
+
+    writeJson(binaryProbePath, {
+      kind: "loo_published_binary_probe_evidence",
+      publicSafe: true,
+      rawSecretIncluded: false,
+      expectedPackage: "lossless-openclaw-orchestrator",
+      expectedVersion: packageJson.version,
+      observedVersion: "1.2.6",
+      resolvedBinarySource: "global_path",
+      pathShadowed: true,
+      tarballBinaryVersion: "1.2.6",
+      packageJsonVersion: packageJson.version,
+      rawPath: "/opt/homebrew/bin/loo",
+      rawOutput: "private shell output should not leak"
+    });
+    const mismatchedTarballReport = createPublishedPackageSmokeReport({
+      rootDir: new URL("..", import.meta.url).pathname,
+      dogfoodReportPath: dogfoodPath,
+      toolSmokeReportPath: toolSmokePath,
+      binaryProbeReportPath: binaryProbePath
+    });
+    assert.equal(mismatchedTarballReport.ok, false);
+    assert.equal(mismatchedTarballReport.packagePathOk, false);
+    assert.equal(mismatchedTarballReport.binaryProbeDiagnostic.classification, "candidate_binary_version_mismatch");
+    assert.equal(mismatchedTarballReport.binaryProbeDiagnostic.packageInstallLikelyOk, false);
+    assert.equal(mismatchedTarballReport.binaryProbeDiagnostic.tarballBinaryVersion, "1.2.6");
+    assert.deepEqual(mismatchedTarballReport.blockers, ["binary_probe_candidate_version_mismatch"]);
+    assert.doesNotMatch(JSON.stringify(mismatchedTarballReport), /\/opt\/homebrew|private shell output/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("published-smoke keeps package failure classification when selector drift lacks tarball fallback proof", () => {
   const dir = mkdtempSync(join(tmpdir(), "loo-published-smoke-selector-drift-unproved-"));
   try {
