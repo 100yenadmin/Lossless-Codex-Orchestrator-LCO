@@ -1,6 +1,6 @@
 {
   "name": "lossless-openclaw-orchestrator",
-  "version": "1.3.4",
+  "version": "1.3.5",
   "description": "Index, search, and prepare local Codex sessions for OpenClaw with approval-gated dry-run/control boundaries.",
   "type": "module",
   "license": "PolyForm-Noncommercial-1.0.0",
