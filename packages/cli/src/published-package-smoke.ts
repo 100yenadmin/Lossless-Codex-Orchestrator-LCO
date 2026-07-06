@@ -439,7 +439,7 @@ function readBinaryProbeDiagnostic(path: string | undefined, packageVersion: str
       tarballBinaryVersion,
       evidenceInputs,
       guidance: [
-        "The command runner resolved a non-candidate loo binary, but exact published tarball proof matched the package version; treat this as smoke harness PATH shadowing.",
+        "The command runner resolved a non-candidate loo binary, but binary-probe tarball evidence matched the package version; treat this as smoke harness PATH shadowing.",
         "Rerun product smoke from the exact published tarball or validate the resolved binary path before claiming a package version defect."
       ]
     };
