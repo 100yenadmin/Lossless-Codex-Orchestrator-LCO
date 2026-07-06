@@ -448,11 +448,32 @@ function collectSetupBlockers(
   setupBlockers: QaLabToolCoverageSetupBlocker[]
 ): void {
   if (!evidence.value || evidence.source === "manifest") return;
-  const status = readPath(evidence.value, ["setupStatus", "classification"]) ?? readPath(evidence.value, ["configuredGateway", "gatewaySetupClassification"]);
+  const status = evidence.source === "publishedSmoke"
+    ? publishedSmokeSetupStatus(evidence.value)
+    : readPath(evidence.value, ["setupStatus", "classification"]) ?? readPath(evidence.value, ["configuredGateway", "gatewaySetupClassification"]);
   if (typeof status === "string" && status !== "ready") {
     setupBlockers.push({ code: `${evidence.source}_setup_${status}`, source: evidence.source, detail: `${titleForSource(evidence.source)} reports setup status ${status}.`, allowed: false });
     addBlocker(blockers, "P2", `${evidence.source}_setup_not_ready`, evidence.source, `${titleForSource(evidence.source)} setup is not ready.`);
   }
+}
+
+function publishedSmokeSetupStatus(value: JsonRecord): unknown {
+  if (value.publishedSmokeReady === true && value.packagePathOk === true) return "ready";
+  const setupBlockers = readPath(value, ["setupBlockers"]);
+  const setupRequired = value.setupRequired === true || (Array.isArray(setupBlockers) && setupBlockers.length > 0);
+  const toolSmokeStatus = readPath(value, ["toolSmoke", "gatewaySetupClassification"]);
+  if (setupRequired) {
+    if (typeof toolSmokeStatus === "string" && toolSmokeStatus !== "ready") return toolSmokeStatus;
+    const recoveryStatus = readPath(value, ["setupRecovery", "classification"]);
+    if (typeof recoveryStatus === "string" && recoveryStatus !== "ready") return recoveryStatus;
+    return "setup_required";
+  }
+  if (value.publishedSmokeReady === false) {
+    if (typeof toolSmokeStatus === "string" && toolSmokeStatus !== "ready") return toolSmokeStatus;
+    return "not_ready";
+  }
+  if (value.packagePathOk === false || value.ok === false) return "package_path_not_ready";
+  return undefined;
 }
 
 function extractManifestToolNames(value: JsonRecord | null, invalidAliasNames: Set<string>): Set<string> | null {

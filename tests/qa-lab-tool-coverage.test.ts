@@ -72,6 +72,37 @@ function writeToolSmokeReport(dir: string, invokedTools: string[]): string {
   return path;
 }
 
+function writePublishedSmokeReport(dir: string, value: Record<string, unknown>): string {
+  const path = join(dir, "published-package-smoke.json");
+  writeJson(path, {
+    ok: true,
+    publishedSmokeReady: true,
+    packagePathOk: true,
+    publicSafe: true,
+    packageVersion,
+    candidateSha,
+    blockers: [],
+    setupRequired: false,
+    setupBlockers: [],
+    toolSmoke: {
+      toolSmokeReady: true,
+      gatewaySetupClassification: "ready",
+      packageInstallLikelyOk: true
+    },
+    configuredGateway: {
+      provided: false,
+      toolSmokeReady: false,
+      gatewaySetupClassification: "unknown",
+      packageInstallLikelyOk: false,
+      toolCount: 0,
+      invokedTools: []
+    },
+    actionsPerformed: noActions(),
+    ...value
+  });
+  return path;
+}
+
 test("qa-lab tool coverage passes strict full coverage only when every declared tool has product evidence", (t) => {
   const dir = makeTempDir(t, "loo-qa-tool-coverage-pass-");
   const toolSmokeReport = writeToolSmokeReport(dir, allDeclaredToolNames());
@@ -171,6 +202,81 @@ test("qa-lab tool coverage attributes invocations to their source report", (t) =
   assert.equal(report.ok, true);
   assert.equal(row?.invocationOk, true);
   assert.deepEqual(row?.evidenceRefs, ["openclaw-dogfood.json"]);
+});
+
+test("qa-lab tool coverage accepts ready published-smoke with separate configured gateway unknown", (t) => {
+  const dir = makeTempDir(t, "loo-qa-tool-coverage-published-ready-");
+  const toolSmokeReport = writeToolSmokeReport(dir, allDeclaredToolNames());
+  const publishedSmoke = writePublishedSmokeReport(dir, {
+    configuredGateway: {
+      provided: false,
+      toolSmokeReady: false,
+      gatewaySetupClassification: "unknown",
+      packageInstallLikelyOk: false,
+      toolCount: 0,
+      invokedTools: []
+    }
+  });
+
+  const report = createQaLabToolCoverageReport({
+    evidenceDir: dir,
+    packageVersion,
+    candidateSha,
+    toolSmokeReport,
+    publishedSmoke,
+    coveragePolicy: "full",
+    claimScope: "codex-read-search-expand-dry-run",
+    now: "2026-07-06T00:00:00.000Z"
+  });
+
+  assert.equal(report.ok, true);
+  assert.equal(report.evidenceIndex.publishedSmoke.status, "ready");
+  assert.equal(report.evidenceIndex.publishedSmoke.blockerCodes.length, 0);
+  assert.equal(report.setupBlockers.some((blocker) => blocker.source === "publishedSmoke"), false);
+  assert.equal(report.blockers.some((blocker) => blocker.code.startsWith("publishedSmoke_setup")), false);
+});
+
+test("qa-lab tool coverage still blocks published-smoke clean-profile setup-required evidence", (t) => {
+  const dir = makeTempDir(t, "loo-qa-tool-coverage-published-setup-");
+  const toolSmokeReport = writeToolSmokeReport(dir, allDeclaredToolNames());
+  const publishedSmoke = writePublishedSmokeReport(dir, {
+    publishedSmokeReady: false,
+    setupRequired: true,
+    setupBlockers: ["fresh_profile_gateway_credentials_required"],
+    toolSmoke: {
+      toolSmokeReady: false,
+      gatewaySetupClassification: "gateway_setup_required",
+      packageInstallLikelyOk: true
+    },
+    configuredGateway: {
+      provided: true,
+      toolSmokeReady: true,
+      gatewaySetupClassification: "ready",
+      packageInstallLikelyOk: true,
+      toolCount: 60,
+      invokedTools: ["loo_doctor", "loo_search_sessions"]
+    }
+  });
+
+  const report = createQaLabToolCoverageReport({
+    evidenceDir: dir,
+    packageVersion,
+    candidateSha,
+    toolSmokeReport,
+    publishedSmoke,
+    coveragePolicy: "full",
+    claimScope: "codex-read-search-expand-dry-run",
+    now: "2026-07-06T00:00:00.000Z"
+  });
+
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.some((blocker) => blocker.code === "publishedSmoke_setup_not_ready"));
+  assert.deepEqual(report.setupBlockers.filter((blocker) => blocker.source === "publishedSmoke"), [{
+    code: "publishedSmoke_setup_gateway_setup_required",
+    source: "publishedSmoke",
+    detail: "Published-package smoke report reports setup status gateway_setup_required.",
+    allowed: false
+  }]);
 });
 
 test("qa-lab tool coverage excludes lco aliases from declared-tool accounting", (t) => {
