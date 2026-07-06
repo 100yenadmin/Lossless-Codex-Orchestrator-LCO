@@ -6,7 +6,7 @@ import test, { type TestContext } from "node:test";
 import { createQaLabWorkflowReport, type QaLabWorkflowReport } from "../packages/cli/src/qa-lab-workflow.js";
 import { runLoo } from "./helpers/run-loo.js";
 
-const packageVersion = "1.2.5";
+const packageVersion = "1.3.0";
 const candidateSha = "20d913822d82cad0b5c565b3c9fd3cd527ac0e57";
 
 function makeTempDir(t: TestContext, prefix: string): string {

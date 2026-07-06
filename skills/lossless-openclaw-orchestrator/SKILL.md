@@ -45,10 +45,11 @@ Codex sessions through the installed `loo_*` tools.
   Use `nextControlDryRun` only as a non-executed dry-run handoff; treat
   low-confidence or conflicting states as inspect-first, never as approval to
   send or steer.
-- `LCO` is the public product abbreviation and `lco_*` is the forward public
-  alias target for new user-facing tool names. The installed OpenClaw/MCP tools
-  currently use `loo_*`; keep those calls for runnable examples until #434 ships
-  a tested alias layer, then keep `loo_*` as backward-compatible aliases.
+- For #434 continuity, `LCO` is the public product abbreviation and `lco_*` is
+  the forward public alias target for new user-facing tool names. Runnable
+  examples and the wider catalog currently use `loo_*`; the public facade also
+  exposes tested `lco_*` aliases for the eight normal operator tools, while
+  `loo_*` remains the set of backward-compatible aliases.
 
 ## Compact Public Facade
 
@@ -72,6 +73,10 @@ inspected instead of hidden behind a single magic command.
 ## Find Active Codex Sessions
 
 1. Call `loo_doctor` to confirm the local DB, Codex stores, and tool readiness.
+   If its `codexJsonlDrift` block reports drift, recall may be incomplete for
+   the flagged files: newer Codex event kinds are being observed that the
+   parser does not extract yet. Treat that as a caveat on completeness claims,
+   not an error.
 2. If the index is stale, call `loo_index_sessions` with bounded roots or limits.
 3. Call `loo_search_sessions` with a narrow query and a small limit.
 4. Prefer returned thread ids, source refs, status, latest timestamp, and safe

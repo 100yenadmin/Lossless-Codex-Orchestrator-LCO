@@ -14,7 +14,7 @@ import {
 import { createReleaseGaSmokeReport } from "../packages/cli/src/release-ga-smoke.js";
 import { runLoo } from "./helpers/run-loo.js";
 
-const packageVersion = "1.2.5";
+const packageVersion = "1.3.0";
 const candidateSha = "20d913822d82cad0b5c565b3c9fd3cd527ac0e57";
 
 function makeTempDir(t: TestContext, prefix: string): string {

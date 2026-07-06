@@ -11,7 +11,7 @@ import {
 import { runLoo } from "./helpers/run-loo.js";
 
 const candidateSha = "20d913822d82cad0b5c565b3c9fd3cd527ac0e57";
-const packageVersion = "1.2.5";
+const packageVersion = "1.3.0";
 
 function makeTempDir(t: TestContext, prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));

@@ -113,6 +113,10 @@ node ./dist/packages/cli/src/index.js release demo-status --evidence-dir /Volume
 node ./dist/packages/cli/src/index.js release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --candidate-sha "$release_candidate_sha" --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --npm-publish-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/npm-approval.json --github-release-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-release-approval.json --github-ci-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-ci.json --codeql-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/codeql.json --strict
 ```
 
+If `loo index bench` is included in a release evidence packet, label it as an
+internal maintainer benchmark. It is useful for regression triage but is not a
+public user-path or release-readiness claim by itself.
+
 If the release candidate intentionally excludes live Codex control and claims
 only read/search/describe/expand plus dry-run control, use this scope on every
 release gate instead of passing live-control evidence:
@@ -395,7 +399,7 @@ Record `npm dist-tag ls lossless-openclaw-orchestrator` in the release evidence
 after every npm publication. Stable releases publish with
 `npm publish --tag latest`; public betas publish with `npm publish --tag beta`;
 release candidates publish with `npm publish --tag next`. The stable channel
-target for this package version is `1.2.6`; npm `latest` must move only after
+target for this package version is `1.3.0`; npm `latest` must move only after
 the separate stable-promotion gate proves the exact candidate. Keep beta and
 other prereleases on prerelease tags. Do not publish a fake stable package just
 to move a dist-tag. Release candidates must publish with `npm publish --tag next`;

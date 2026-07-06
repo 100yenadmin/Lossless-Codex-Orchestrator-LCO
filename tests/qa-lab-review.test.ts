@@ -33,7 +33,7 @@ function writePassingRun(dir: string): string {
   writeJson(path, {
     schema: "lco.qaLab.run.v1",
     publicSafe: true,
-    packageVersion: "1.2.5",
+    packageVersion: "1.3.0",
     candidateSha: "20d913822d82cad0b5c565b3c9fd3cd527ac0e57",
     summary: {
       runId: "qa-run-public-safe-1",

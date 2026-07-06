@@ -48,6 +48,8 @@ LCO is a local-first orchestration layer for Codex-heavy work:
 - describes one session without exposing the whole transcript
 - expands only the evidence an agent needs, with token-budgeted profiles
 - exposes `loo_*` tools through MCP and the OpenClaw plugin
+- detects Codex JSONL format drift per file and surfaces it in `loo doctor`
+  as public-safe reason codes, so parser gaps are visible instead of silent
 - creates dry-run approval packets before Codex resume/send/steer/interrupt
 - reports Codex Desktop visibility and fallback readiness without GUI mutation
 - validates exact action-bound Desktop collaboration proof packets without executing them
@@ -189,11 +191,9 @@ The packaged agent playbook is
 [skills/lossless-openclaw-orchestrator/SKILL.md](skills/lossless-openclaw-orchestrator/SKILL.md).
 
 Naming policy: `LCO` is the public product abbreviation and `lco_*` is the
-forward public alias target for new user-facing tool names. The currently
-callable OpenClaw/MCP tools still use the historical `loo_*` runtime prefix, so
-examples that must run today continue to show `loo_*` until #434 lands a tested
-alias layer. Do not delete or silently rename the `loo_*` tools; keep them as
-backward-compatible aliases when `lco_*` aliases are added.
+forward public alias target for new user-facing tool names. The public facade
+now exposes tested `lco_*` aliases for the eight normal operator tools while
+the historical `loo_*` names remain backward compatible. The currently callable OpenClaw/MCP tools still use the historical `loo_*` runtime prefix for the full catalog. Runnable examples keep using `loo_*`; alias metadata points back to the `loo_*` target with `metadata.aliasOf`.
 
 ## OpenClaw And MCP
 
@@ -228,6 +228,11 @@ Verify the package and OpenClaw gateway path:
 loo openclaw dogfood --profile lco-dogfood --install-source lossless-openclaw-orchestrator@latest --required-tool loo_doctor --required-tool loo_search_sessions --strict
 loo openclaw tool-smoke --profile lco-dogfood --required-tool loo_doctor --required-tool loo_search_sessions --strict
 ```
+
+Tool exposure can be narrowed with `LOO_TOOL_PROFILE=facade|standard|all`.
+The default is `all`, preserving the full catalog. `facade` exposes the compact
+operator path plus its `lco_*` aliases; `standard` adds workflow-detail tools.
+Profile filtering affects tool listing and OpenClaw declarations only.
 
 OpenClaw gateway setup may require local credential, device-pairing, token, or
 scope approval steps before tool smoke can pass. LCO reports those as setup
@@ -331,6 +336,8 @@ describe, expand, prepared-state recall, OpenClaw/MCP tools, and
 approval-gated dry-run/control boundaries.
 
 The 1.2 prepared-state and summary-leaves lane is shipped in stable `1.2.6`.
+The `1.3.0` release candidate carries post-sprint feature hardening without
+widening the public claim boundary.
 Current launch-hardening proof is summarized in [VISION.md](VISION.md) and
 [docs/QA_LAB.md](docs/QA_LAB.md). Keep sprint and agent-operator details there,
 in [AGENTS.md](AGENTS.md), and in the packaged
