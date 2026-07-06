@@ -27,9 +27,10 @@ mounts LCO exactly as any generic MCP client does:
    proof) with the same approval-gated dry-run/control boundaries Codex and
    OpenClaw get.
 
-This is a first-class supported path: the generic-MCP mounting recipe is tested
-in the multi-client mounting section of [SETUP.md](SETUP.md). What it is not is
-a Hermes-native integration with Hermes-specific ergonomics.
+This is a first-class supported path: the generic-MCP mounting recipe is covered
+by the Claude Code, Cursor, generic MCP client, and Multi-client Mounting
+sections of [SETUP.md](SETUP.md). What it is not is a Hermes-native integration
+with Hermes-specific ergonomics.
 
 ## What is not claimed
 

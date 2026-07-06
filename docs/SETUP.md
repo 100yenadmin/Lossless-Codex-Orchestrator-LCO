@@ -302,6 +302,8 @@ operator path; `standard` adds workflow-detail tools. `LCO_TOOL_PROFILE=facade`
 is the right default for general agents, while `standard` and `all` are for
 expert workflows.
 
+### Multi-client Mounting
+
 Multiple clients can mount the same local store with a shared `LCO_DB_PATH`; it
 is one local recall DB. Use separate stores per client by giving each client its
 own `LCO_DB_PATH`. Shared-store behavior works, and per-client isolation is test-proven.

@@ -311,7 +311,8 @@ lco openclaw tool-smoke --profile lco-dogfood --required-tool lco_doctor --requi
 
 Tool exposure can be narrowed with `LCO_TOOL_PROFILE=facade|standard|all`.
 The default is `all`, preserving the full catalog. `facade` exposes the compact
-operator path plus its `lco_*` aliases; `standard` adds workflow-detail tools.
+operator path (`lco_*`) plus `loo_*` compatibility aliases; `standard` adds
+workflow-detail tools.
 Profile filtering affects tool listing and OpenClaw declarations only.
 
 See [docs/OPENCLAW_PLUGIN.md](docs/OPENCLAW_PLUGIN.md) for the full OpenClaw
