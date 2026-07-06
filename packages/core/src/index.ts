@@ -2261,6 +2261,7 @@ const RETRIEVAL_TELEMETRY_WINDOW_MS = 15 * 60 * 1000;
 const RETRIEVAL_TELEMETRY_HARVEST_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
 const RETRIEVAL_TELEMETRY_HARVEST_MAX_ROWS = 1000;
 const RETRIEVAL_TELEMETRY_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
+const RETRIEVAL_TELEMETRY_PRUNE_BATCH_SIZE = 5000;
 const retrievalTelemetryLastPruneByDb = new WeakMap<object, number>();
 
 export type RecallSourceKind = "codex_thread" | "lcm_summary" | "claude_session";
@@ -2434,6 +2435,9 @@ export type RetrievalTelemetryHarvestReport = {
     telemetrySearchEvents: number;
     telemetryFollowEvents: number;
     proposedScenarios: number;
+    sampledGroups: number;
+    maxRows: number;
+    sampleTruncated: boolean;
   };
   proposalFile: {
     written: boolean;
@@ -2451,6 +2455,11 @@ export type RetrievalTelemetryHarvestReport = {
 };
 
 export type RetrievalTelemetryMetrics = {
+  sample: {
+    sampledGroups: number;
+    maxRows: number;
+    sampleTruncated: boolean;
+  };
   rankDistribution: Record<string, number>;
   topMissQueries: Array<{
     missId: string;
@@ -2984,7 +2993,6 @@ export function migrate(db: LooDatabase): void {
       ts TEXT NOT NULL,
       query_text TEXT NOT NULL DEFAULT '',
       query_hash TEXT NOT NULL,
-      telemetry_session_key TEXT,
       result_refs_json TEXT NOT NULL DEFAULT '[]',
       matched_field_distribution_json TEXT NOT NULL DEFAULT '{}',
       engine_version TEXT NOT NULL
@@ -2992,7 +3000,6 @@ export function migrate(db: LooDatabase): void {
 
     CREATE INDEX IF NOT EXISTS telemetry_search_events_ts_idx ON telemetry_search_events(ts DESC);
     CREATE INDEX IF NOT EXISTS telemetry_search_events_query_hash_idx ON telemetry_search_events(query_hash, ts DESC);
-    CREATE INDEX IF NOT EXISTS telemetry_search_events_session_ts_idx ON telemetry_search_events(telemetry_session_key, ts DESC);
 
     CREATE TABLE IF NOT EXISTS telemetry_follow_events (
       id TEXT PRIMARY KEY,
@@ -8470,8 +8477,24 @@ function pruneRetrievalTelemetry(db: LooDatabase, nowIso: string): void {
   const lastPruneMs = retrievalTelemetryLastPruneByDb.get(db);
   if (lastPruneMs !== undefined && nowMs - lastPruneMs < RETRIEVAL_TELEMETRY_PRUNE_INTERVAL_MS) return;
   const cutoffIso = new Date(nowMs - RETRIEVAL_TELEMETRY_HARVEST_LOOKBACK_MS).toISOString();
-  db.prepare("DELETE FROM telemetry_follow_events WHERE ts < ?").run(cutoffIso);
-  db.prepare("DELETE FROM telemetry_search_events WHERE ts < ?").run(cutoffIso);
+  db.prepare(`
+    DELETE FROM telemetry_follow_events
+    WHERE rowid IN (
+      SELECT rowid FROM telemetry_follow_events
+      WHERE ts < ?
+      ORDER BY ts ASC
+      LIMIT ?
+    )
+  `).run(cutoffIso, RETRIEVAL_TELEMETRY_PRUNE_BATCH_SIZE);
+  db.prepare(`
+    DELETE FROM telemetry_search_events
+    WHERE rowid IN (
+      SELECT rowid FROM telemetry_search_events
+      WHERE ts < ?
+      ORDER BY ts ASC
+      LIMIT ?
+    )
+  `).run(cutoffIso, RETRIEVAL_TELEMETRY_PRUNE_BATCH_SIZE);
   retrievalTelemetryLastPruneByDb.set(db, nowMs);
 }
 
@@ -13966,7 +13989,7 @@ export function harvestRetrievalTelemetry(db: LooDatabase, options: RetrievalTel
   const maxRows = clamp(options.maxRows ?? RETRIEVAL_TELEMETRY_HARVEST_MAX_ROWS, 1, 10_000);
   const sinceIso = new Date(generatedAtMs - lookbackMs).toISOString();
   assertTelemetryHarvestProposalPathIsPrivate(options.proposalPath);
-  const rows = db.prepare(`
+  const sampledRows = db.prepare(`
     SELECT
       s.query_hash AS queryHash,
       f.chosen_ref AS chosenRef,
@@ -13981,15 +14004,17 @@ export function harvestRetrievalTelemetry(db: LooDatabase, options: RetrievalTel
       AND f.ts >= ?
       AND f.ts <= ?
     GROUP BY s.query_hash, f.chosen_ref, f.rank_position, f.follow_kind
-    ORDER BY s.query_hash ASC, occurrenceCount DESC, f.rank_position ASC, f.chosen_ref ASC
+    ORDER BY occurrenceCount DESC, f.rank_position ASC, s.query_hash ASC, f.chosen_ref ASC
     LIMIT ?
-  `).all(sinceIso, generatedAt, sinceIso, generatedAt, maxRows) as Array<{
+  `).all(sinceIso, generatedAt, sinceIso, generatedAt, maxRows + 1) as Array<{
     queryHash: string;
     chosenRef: string;
     rankPosition: number;
     followKind: RetrievalTelemetryFollowKind;
     occurrenceCount: number;
   }>;
+  const sampleTruncated = sampledRows.length > maxRows;
+  const rows = sampledRows.slice(0, maxRows);
   const countRow = db.prepare(`
     SELECT
       COUNT(DISTINCT s.id) AS telemetrySearchEvents,
@@ -14050,6 +14075,11 @@ export function harvestRetrievalTelemetry(db: LooDatabase, options: RetrievalTel
     occurrenceCount: candidate.occurrenceCount
   }));
   const metrics: RetrievalTelemetryMetrics = {
+    sample: {
+      sampledGroups: rows.length,
+      maxRows,
+      sampleTruncated
+    },
     rankDistribution: Object.fromEntries(Object.entries(rankDistribution).sort(([left], [right]) => Number(left) - Number(right))),
     topMissQueries: candidates
       .filter((candidate) => candidate.observedRank > 5)
@@ -14080,9 +14110,10 @@ export function harvestRetrievalTelemetry(db: LooDatabase, options: RetrievalTel
     doNotCommit: true,
     rawQueryTextIncluded: false,
     generatedAt,
-    source: "local_derived_cache",
-    scenarios
-  }, null, 2)}\n`);
+      source: "local_derived_cache",
+      sampleTruncated,
+      scenarios
+    }, null, 2)}\n`);
 
   return {
     schema: "lco.retrieval.telemetryHarvestReport.v1",
@@ -14091,7 +14122,10 @@ export function harvestRetrievalTelemetry(db: LooDatabase, options: RetrievalTel
     summary: {
       telemetrySearchEvents: searchEventCount,
       telemetryFollowEvents: followEventCount,
-      proposedScenarios: scenarios.length
+      proposedScenarios: scenarios.length,
+      sampledGroups: rows.length,
+      maxRows,
+      sampleTruncated
     },
     proposalFile: {
       written: true,
@@ -14111,8 +14145,10 @@ export function harvestRetrievalTelemetry(db: LooDatabase, options: RetrievalTel
       "tokens, credentials, API keys, cookies",
       "private customer data"
     ],
-    proofBoundary: "Harvest proposals are local, not-public-safe curation inputs from opt-in derived-cache telemetry. The returned report and metrics contain aggregate counts, ranks, hashes, placeholders, and ephemeral miss ids only; they do not commit scenarios, widen retrieval claims, mutate source stores, or create public evidence from query text.",
-    nextAction: scenarios.length === 0
+    proofBoundary: "Harvest proposals are local, not-public-safe curation inputs from opt-in derived-cache telemetry. The returned report and metrics contain aggregate counts, sampled ranks, hashes, placeholders, truncation markers, and ephemeral miss ids only; they do not commit scenarios, widen retrieval claims, mutate source stores, or create public evidence from query text.",
+    nextAction: sampleTruncated
+      ? "Increase maxRows or narrow the harvest window before curating proposed retrieval scenarios."
+      : scenarios.length === 0
       ? "Run opt-in search and describe/expand flows before harvesting proposed retrieval scenarios."
       : "Manually review, redact, and curate proposed scenarios before adding anything to evals/."
   };

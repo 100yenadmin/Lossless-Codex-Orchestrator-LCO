@@ -490,18 +490,22 @@ test("retrieval telemetry harvest proposes local non-public-safe scenarios and p
     assert.equal(report.proposalFile.requiresManualCuration, true);
     assert.equal(report.metricsFile?.publicSafe, true);
     assert.equal(report.summary.proposedScenarios, 1);
+    assert.equal(report.summary.sampledGroups, 2);
+    assert.equal(report.summary.sampleTruncated, false);
 
     const proposal = JSON.parse(readFileSync(proposalPath, "utf8")) as {
       publicSafe?: boolean;
       requiresManualCuration?: boolean;
       doNotCommit?: boolean;
       rawQueryTextIncluded?: boolean;
+      sampleTruncated?: boolean;
       scenarios?: Array<{ publicSafe?: boolean; requiresManualCuration?: boolean; redactionRequired?: boolean; query?: string; expectedSourceRefs?: string[]; observedRank?: number; followKinds?: string[]; occurrenceCount?: number }>;
     };
     assert.equal(proposal.publicSafe, false);
     assert.equal(proposal.requiresManualCuration, true);
     assert.equal(proposal.doNotCommit, true);
     assert.equal(proposal.rawQueryTextIncluded, false);
+    assert.equal(proposal.sampleTruncated, false);
     assert.deepEqual(proposal.scenarios, [{
       id: "harvested-query-1",
       publicSafe: false,
@@ -518,10 +522,68 @@ test("retrieval telemetry harvest proposes local non-public-safe scenarios and p
 
     const metricsText = readFileSync(metricsPath, "utf8");
     assert.doesNotMatch(metricsText, /search expansion telemetry harvest target/);
-    const metrics = JSON.parse(metricsText) as { publicSafe?: boolean; metrics?: { rankDistribution?: Record<string, number>; topMissQueries?: unknown[] } };
+    const metrics = JSON.parse(metricsText) as { publicSafe?: boolean; metrics?: { sample?: { sampledGroups?: number; sampleTruncated?: boolean }; rankDistribution?: Record<string, number>; topMissQueries?: unknown[] } };
     assert.equal(metrics.publicSafe, true);
+    assert.equal(metrics.metrics?.sample?.sampledGroups, 2);
+    assert.equal(metrics.metrics?.sample?.sampleTruncated, false);
     assert.deepEqual(metrics.metrics?.rankDistribution, { "1": 1 });
     assert.deepEqual(metrics.metrics?.topMissQueries, []);
+  } finally {
+    db.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("retrieval telemetry harvest reports sampled truncation instead of implying complete distributions", () => {
+  const fixture = makeTelemetryFixture();
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    for (let index = 0; index < 3; index += 1) {
+      db.prepare(`
+        INSERT INTO telemetry_search_events (
+          id, ts, query_text, query_hash, telemetry_session_key, result_refs_json, matched_field_distribution_json, engine_version
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        `sample-search-${index}`,
+        "2026-07-06T00:00:00.000Z",
+        "",
+        sha256(`sample query ${index}`),
+        sha256("sample-session"),
+        JSON.stringify([`codex_thread:sample-${index}`]),
+        "{}",
+        "test"
+      );
+      db.prepare(`
+        INSERT INTO telemetry_follow_events (
+          id, ts, search_event_id, chosen_ref, rank_position, follow_kind
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `).run(`sample-follow-${index}`, "2026-07-06T00:01:00.000Z", `sample-search-${index}`, `codex_thread:sample-${index}`, index + 1, "describe");
+    }
+
+    const proposalPath = join(fixture.root, "harvest-proposals.json");
+    const metricsPath = join(fixture.root, "telemetry-metrics.json");
+    const report = harvestRetrievalTelemetry(db, {
+      proposalPath,
+      metricsPath,
+      now: "2026-07-06T00:10:00.000Z",
+      maxRows: 2
+    });
+    const proposal = JSON.parse(readFileSync(proposalPath, "utf8")) as { sampleTruncated?: boolean; scenarios?: unknown[] };
+    const metrics = JSON.parse(readFileSync(metricsPath, "utf8")) as { metrics?: { sample?: { sampledGroups?: number; maxRows?: number; sampleTruncated?: boolean } } };
+
+    assert.equal(report.summary.telemetryFollowEvents, 3);
+    assert.equal(report.summary.proposedScenarios, 2);
+    assert.equal(report.summary.sampledGroups, 2);
+    assert.equal(report.summary.maxRows, 2);
+    assert.equal(report.summary.sampleTruncated, true);
+    assert.equal(proposal.sampleTruncated, true);
+    assert.equal(proposal.scenarios?.length, 2);
+    assert.deepEqual(metrics.metrics?.sample, {
+      sampledGroups: 2,
+      maxRows: 2,
+      sampleTruncated: true
+    });
+    assert.match(report.proofBoundary, /truncation markers/);
   } finally {
     db.close();
     rmSync(fixture.root, { recursive: true, force: true });
@@ -657,7 +719,10 @@ test("public telemetry miss metrics do not expose stable per-query hashes", () =
     assert.deepEqual(report.summary, {
       telemetrySearchEvents: 1,
       telemetryFollowEvents: 1,
-      proposedScenarios: 1
+      proposedScenarios: 1,
+      sampledGroups: 1,
+      maxRows: 1000,
+      sampleTruncated: false
     });
     assert.equal(metrics.metrics?.topMissQueries?.length, 1);
     assert.equal("queryHash" in (metrics.metrics?.topMissQueries?.[0] ?? {}), false);
@@ -666,6 +731,60 @@ test("public telemetry miss metrics do not expose stable per-query hashes", () =
     assert.doesNotMatch(metricsText, /ssn 1234|private miss query/);
     assert.doesNotMatch(metricsText, new RegExp(sha256(privateQuery)));
     assert.doesNotMatch(JSON.stringify(report.metrics), new RegExp(sha256(privateQuery)));
+  } finally {
+    db.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("retrieval telemetry prune is bounded on the first telemetry write after the retention window", () => {
+  const fixture = makeTelemetryFixture();
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [fixture.sessions], maxFiles: 10 });
+    const insertSearch = db.prepare(`
+      INSERT INTO telemetry_search_events (
+        id, ts, query_text, query_hash, telemetry_session_key, result_refs_json, matched_field_distribution_json, engine_version
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const insertFollow = db.prepare(`
+      INSERT INTO telemetry_follow_events (
+        id, ts, search_event_id, chosen_ref, rank_position, follow_kind
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    for (let index = 0; index < 5001; index += 1) {
+      insertSearch.run(
+        `old-search-${index}`,
+        "2026-01-01T00:00:00.000Z",
+        "",
+        sha256(`old query ${index}`),
+        sha256("old-session"),
+        JSON.stringify(["codex_thread:019f-telemetry-alpha"]),
+        "{}",
+        "test"
+      );
+      insertFollow.run(
+        `old-follow-${index}`,
+        "2026-01-01T00:01:00.000Z",
+        `old-search-${index}`,
+        "codex_thread:019f-telemetry-alpha",
+        1,
+        "describe"
+      );
+    }
+
+    searchSessions(db, {
+      query: "search expansion telemetry harvest target",
+      limit: 5,
+      telemetry: true,
+      telemetrySessionId: "new-session",
+      now: "2026-07-06T00:00:00.000Z"
+    });
+
+    const remainingOldSearch = db.prepare("SELECT COUNT(*) AS count FROM telemetry_search_events WHERE id LIKE 'old-search-%'").get() as { count: number };
+    const remainingOldFollow = db.prepare("SELECT COUNT(*) AS count FROM telemetry_follow_events WHERE id LIKE 'old-follow-%'").get() as { count: number };
+    assert.equal(remainingOldSearch.count, 1);
+    assert.equal(remainingOldFollow.count, 1);
   } finally {
     db.close();
     rmSync(fixture.root, { recursive: true, force: true });
