@@ -350,9 +350,9 @@ The stable public product is Codex-first local orchestration: index, search,
 describe, expand, prepared-state recall, OpenClaw/MCP tools, and
 approval-gated dry-run/control boundaries.
 
-Current stable: `1.3.1` has shipped with the 1.3 retrieval, indexing,
-doctor, setup, and day-one UX hardening while keeping the public claim boundary
-unchanged.
+Current stable: `1.3.2` has shipped with the 1.3 retrieval, indexing,
+doctor, setup, day-one UX hardening, and bounded direct CLI recall smoke
+hardening while keeping the public claim boundary unchanged.
 Since 1.2.x, the 1.2 prepared-state and summary-leaves lane has remained
 shipped as part of the stable product line.
 Current launch-hardening proof is summarized in [VISION.md](VISION.md) and
