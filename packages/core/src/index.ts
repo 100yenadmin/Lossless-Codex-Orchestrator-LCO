@@ -2262,6 +2262,7 @@ const RETRIEVAL_TELEMETRY_HARVEST_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
 const RETRIEVAL_TELEMETRY_HARVEST_MAX_ROWS = 1000;
 const RETRIEVAL_TELEMETRY_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
 const RETRIEVAL_TELEMETRY_PRUNE_BATCH_SIZE = 5000;
+const RETRIEVAL_TELEMETRY_CORRELATION_SEARCH_LIMIT = 50;
 const retrievalTelemetryLastPruneByDb = new WeakMap<object, number>();
 
 export type RecallSourceKind = "codex_thread" | "lcm_summary" | "claude_session";
@@ -8455,8 +8456,8 @@ function latestTelemetrySearchEventForRef(db: LooDatabase, sourceRef: string, no
     FROM telemetry_search_events
     WHERE telemetry_session_key = ? AND ts >= ? AND ts <= ?
     ORDER BY ts DESC, id DESC
-    LIMIT 50
-  `).all(telemetrySessionKey, sinceIso, nowIso) as Array<{ id: string; resultRefsJson: string }>;
+    LIMIT ?
+  `).all(telemetrySessionKey, sinceIso, nowIso, RETRIEVAL_TELEMETRY_CORRELATION_SEARCH_LIMIT) as Array<{ id: string; resultRefsJson: string }>;
   for (const row of rows) {
     const refs = parseStringArrayJson(row.resultRefsJson);
     const index = refs.indexOf(sourceRef);
@@ -14094,6 +14095,9 @@ export function harvestRetrievalTelemetry(db: LooDatabase, options: RetrievalTel
 
   if (options.metricsPath) {
     mkdirSync(dirname(options.metricsPath), { recursive: true });
+    // Metrics files are allowed in git checkouts because this schema is
+    // publicSafe aggregate output only. Do not add raw query text, query hashes,
+    // source refs, or local paths here without restoring a private path guard.
     writeFileSync(options.metricsPath, `${JSON.stringify({
       schema: "lco.retrieval.telemetryMetrics.v1",
       publicSafe: true,

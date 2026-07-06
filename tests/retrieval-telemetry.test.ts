@@ -683,6 +683,43 @@ test("retrieval telemetry follows require a matching telemetry session key", () 
   }
 });
 
+test("retrieval telemetry follow correlation fails closed beyond the bounded recent-search scan", () => {
+  const fixture = makeTelemetryFixture();
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [fixture.sessions], maxFiles: 10 });
+    searchSessions(db, {
+      query: "search expansion telemetry harvest target",
+      limit: 5,
+      telemetry: true,
+      telemetrySessionId: "noisy-session",
+      now: "2026-07-06T00:00:00.000Z"
+    });
+    for (let index = 0; index < 50; index += 1) {
+      searchSessions(db, {
+        query: `zzzz-no-match-noisy-telemetry-${index}`,
+        limit: 5,
+        telemetry: true,
+        telemetrySessionId: "noisy-session",
+        now: new Date(Date.parse("2026-07-06T00:00:01.000Z") + index * 1000).toISOString()
+      });
+    }
+
+    describeRecallRef(db, {
+      sourceRef: "codex_thread:019f-telemetry-alpha",
+      telemetry: true,
+      telemetrySessionId: "noisy-session",
+      now: "2026-07-06T00:01:10.000Z"
+    });
+
+    const followCount = db.prepare("SELECT COUNT(*) AS count FROM telemetry_follow_events").get() as { count: number };
+    assert.equal(followCount.count, 0);
+  } finally {
+    db.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("public telemetry miss metrics do not expose stable per-query hashes", () => {
   const fixture = makeTelemetryFixture();
   const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
