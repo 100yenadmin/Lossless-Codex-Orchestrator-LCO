@@ -342,9 +342,6 @@ dogfood evidence after publication before closing the stable issue. The
 user-facing post-publish command is `lco release general-readiness`; the
 built-artifact form is:
 
-The maintained compatibility alias `loo release general-readiness` invokes the
-same gate for existing automation; new release evidence should use `lco`.
-
 ```bash
 node ./dist/packages/cli/src/index.js release general-readiness \
   --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/general-release-readiness \
@@ -358,6 +355,9 @@ node ./dist/packages/cli/src/index.js release ga-smoke \
   --candidate-sha "$release_candidate_sha" \
   --strict
 ```
+
+The maintained compatibility alias `loo release general-readiness` invokes the
+same gate for existing automation; new release evidence should use `lco`.
 
 `ga-smoke` is the release-captain summary after the individual packets exist. It
 aggregates the release-status, finalization, published-smoke, OpenClaw dogfood
@@ -405,7 +405,7 @@ separate operations are actually approved and executed.
 
 ## npm dist-tag policy
 
-Record `npm dist-tag ls lossless-codex-orchestrator` in the release evidence
+Record `npm dist-tag ls lossless-openclaw-orchestrator` in the release evidence
 after every npm publication. Stable releases publish with
 `npm publish --tag latest`; public betas publish with `npm publish --tag beta`;
 release candidates publish with `npm publish --tag next`. The stable channel
@@ -433,8 +433,8 @@ Only after the approval gates are satisfied:
    `publishConfig.tag` is `latest` before publishing.
 5. Create the GitHub Release if the approval covers GitHub Release creation.
 6. Install from the published artifact and rerun the OpenClaw user-path smoke.
-   If `npm view lossless-codex-orchestrator@<version>` or
-   `npm view lossless-codex-orchestrator@<expected-dist-tag> version` proves
+   If `npm view lossless-openclaw-orchestrator@<version>` or
+   `npm view lossless-openclaw-orchestrator@<expected-dist-tag> version` proves
    the version is visible, but `npm install` fails with `ENOVERSIONS` or
    `ETARGET` and stderr says `with a date before ...`, classify the blocker as
    `npm_before_cutoff_drift`. This is an npm client selection cutoff, not proof
@@ -444,7 +444,7 @@ Only after the approval gates are satisfied:
    explicit future `--before=<ISO timestamp>` value, keep both logs in
    evidence, and do not record npm tokens or raw auth config.
    If the future `--before` retry still fails while
-   `npm view lossless-codex-orchestrator@<expected-dist-tag> dist.tarball`
+   `npm view lossless-openclaw-orchestrator@<expected-dist-tag> dist.tarball`
    returns the just-published package tarball, classify the blocker as
    `npm_selector_cutoff_drift` and run the post-publish smoke by installing that
    registry tarball URL. Keep the exact install, `--before` retry, tarball URL,

@@ -37,9 +37,10 @@ already work."
 **Naming.** As of 1.4.0 the canonical tool/env/bin surface is `lco_*` /
 `LCO_*` / `lco`; the `loo_*` / `LOO_*` / `loo` family is retained as maintained
 compat aliases for at least two minor releases. Both families invoke
-identically. The npm package is `lossless-codex-orchestrator`; the former
-`lossless-openclaw-orchestrator` remains published with a deprecation pointer
-for at least two minor releases.
+identically. The currently published npm package remains
+`lossless-openclaw-orchestrator` until the package-rename lane publishes
+`lossless-codex-orchestrator`; that package-name split is intentional for this
+docs lane and does not change the canonical `lco` command surface.
 
 **What tiering does not change.** The claim boundary is per capability, not per
 tier: a capability such as live control is only claimed on a tier once it has

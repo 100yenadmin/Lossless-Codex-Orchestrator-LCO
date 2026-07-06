@@ -20,7 +20,7 @@ test("GA README is a public landing page with first-run setup path", () => {
     /## First Workflow/,
     /## OpenClaw And MCP/,
     /## Privacy And Local Data/,
-    /npm install -g lossless-codex-orchestrator@latest/,
+    /npm install -g lossless-openclaw-orchestrator@latest/,
     /lco doctor/,
     /lco index codex/,
     /lco search/,
@@ -48,7 +48,7 @@ test("setup guide covers install, local indexing, OpenClaw, MCP, and troubleshoo
   for (const required of [
     /^# Setup Guide/m,
     /Node\.js 22/,
-    /npm install -g lossless-codex-orchestrator@latest/,
+    /npm install -g lossless-openclaw-orchestrator@latest/,
     /LCO_DB_PATH/,
     /LCO_LCM_DB_PATHS/,
     /isolated npm prefix/i,
@@ -93,7 +93,7 @@ test("public docs document index byte cap and fresh-user tarball recovery comman
   ] as const) {
     assert.match(content, /50\s*MB per-file index cap/i, `${surface} must name the default per-file cap`);
     assert.match(content, /--max-bytes-per-file/i, `${surface} must document the override flag`);
-    assert.match(content, /npm view lossless-codex-orchestrator@[a-z]+ dist\.tarball/i, `${surface} must show a raw npm tarball lookup`);
+    assert.match(content, /npm view lossless-openclaw-orchestrator@[a-z]+ dist\.tarball/i, `${surface} must show a raw npm tarball lookup`);
     assert.match(content, /npm install -g "\$tarball_url"/i, `${surface} must show a raw npm tarball install`);
   }
 });
@@ -142,7 +142,8 @@ test("public docs preserve release claim boundaries", () => {
   assert.match(readme, /`lco`, `lco-mcp-server`, and canonical `lco_\*` tools/i);
   assert.match(readme, /historical `loo`[\s\S]{0,180}compatibility aliases/i);
   assert.match(readme, /`loo-mcp-server`[\s\S]{0,180}compatibility aliases/i);
-  assert.match(readme, /lossless-openclaw-orchestrator[\s\S]{0,180}compatibility package/i);
+  assert.match(readme, /lossless-openclaw-orchestrator[\s\S]{0,180}current published npm package/i);
+  assert.match(readme, /package-rename lane[\s\S]{0,180}lossless-codex-orchestrator/i);
   assert.match(readme, /at least two minor releases/i);
   assert.match(readme, /Give your main agent a memory and command layer for all your Codex projects and threads\./i);
   assert.match(readme, /field-weighted FTS5 search/i);

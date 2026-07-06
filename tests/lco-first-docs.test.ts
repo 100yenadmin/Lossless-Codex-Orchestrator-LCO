@@ -23,7 +23,7 @@ test("public first-run docs are lco-first while preserving loo compatibility", (
   const mcpSetup = section(setup, "7. Connect MCP");
 
   for (const required of [
-    /npm install -g lossless-codex-orchestrator@latest/,
+    /npm install -g lossless-openclaw-orchestrator@latest/,
     /\blco doctor\b/,
     /\blco index codex\b/,
     /\blco search\b/,
@@ -40,7 +40,9 @@ test("public first-run docs are lco-first while preserving loo compatibility", (
 
   assert.doesNotMatch(firstWorkflow, /\bloo (?:search|describe|expand-ref|expand-query)\b/);
   assert.doesNotMatch(mcpSetup, /"command":\s*"loo-mcp-server"/);
-  assert.match(`${readme}\n${setup}`, /lossless-openclaw-orchestrator[\s\S]{0,180}maintained/i);
+  assert.doesNotMatch(`${readme}\n${setup}`, /npm install -g lossless-codex-orchestrator@(?:latest|beta)/);
+  assert.match(`${readme}\n${setup}`, /lossless-openclaw-orchestrator[\s\S]{0,180}current published npm package/i);
+  assert.match(`${readme}\n${setup}`, /package-rename lane[\s\S]{0,180}lossless-codex-orchestrator/i);
   assert.match(`${readme}\n${setup}`, /`loo`[\s\S]{0,180}compat/i);
   assert.match(`${readme}\n${setup}`, /`LOO_\*`[\s\S]{0,180}compat/i);
   assert.match(`${readme}\n${setup}`, /at least two minor releases/i);
