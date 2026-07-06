@@ -3105,12 +3105,11 @@ export function migrate(db: LooDatabase): void {
   ensureColumn(db, "telemetry_search_events", "telemetry_session_key", "TEXT");
   db.exec(`
     CREATE INDEX IF NOT EXISTS telemetry_search_events_session_ts_idx ON telemetry_search_events(telemetry_session_key, ts DESC);
-    CREATE INDEX IF NOT EXISTS telemetry_follow_events_ts_idx ON telemetry_follow_events(ts DESC);
     INSERT OR IGNORE INTO loo_schema_migrations (migration_id, applied_at, description)
     VALUES (
       '${RETRIEVAL_TELEMETRY_SESSION_KEY_MIGRATION_ID}',
       datetime('now'),
-      'Additive retrieval telemetry session-key column and hot pruning indexes'
+      'Additive retrieval telemetry session-key column and session timestamp index'
     );
   `);
   // Gate FTS maintenance on rowid-pinning drift. The pinned-count check also
@@ -14106,6 +14105,9 @@ export function harvestRetrievalTelemetry(db: LooDatabase, options: RetrievalTel
     }, null, 2)}\n`);
   }
 
+  // Re-check immediately before writing the private proposal artifact. This is
+  // an accidental-commit guard for local operators, not a sandbox boundary.
+  assertTelemetryHarvestProposalPathIsPrivate(options.proposalPath);
   mkdirSync(dirname(options.proposalPath), { recursive: true });
   writeFileSync(options.proposalPath, `${JSON.stringify({
     schema: "lco.retrieval.telemetryHarvest.v1",
