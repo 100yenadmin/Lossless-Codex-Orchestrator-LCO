@@ -76,7 +76,8 @@ test("release bundle writes public-safe local artifacts without publishing", () 
   assert.match(notes, /local Codex sessions/i);
   assert.match(notes, /No cloud sync/i);
   assert.doesNotMatch(notes, /Full Claude Code parity/i);
-  assert.doesNotMatch(notes, /\/Volumes\/LEXAR|\/Users\/lume/i);
+  // No absolute local filesystem paths from any contributor's machine.
+  assert.doesNotMatch(notes, /\/(Users|home)\/[a-z0-9._-]+\/|\/Volumes\/[A-Za-z0-9._-]+\//i);
 
   const manifest = JSON.parse(read(join(evidenceDir, "release-bundle.json"))) as {
     releasePreflight?: { releaseReady?: boolean };
