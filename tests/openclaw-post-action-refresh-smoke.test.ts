@@ -19,6 +19,7 @@ function writeLiveProofReport(path: string, overrides: Record<string, unknown> =
     ok: true,
     proofReady: true,
     publicSafe: true,
+    generatedAt: "2026-07-01T00:01:00.000Z",
     targetRef: TARGET_REF,
     dryRun: {
       approvalAuditId: "loo_audit_abcd1234",
@@ -32,7 +33,8 @@ function writeLiveProofReport(path: string, overrides: Record<string, unknown> =
       messageHash: "b".repeat(64),
       live: true,
       method: "turn/start",
-      turnStatus: "completed"
+      turnStatus: "completed",
+      actionObservedAt: "2026-07-01T00:01:00.000Z"
     },
     authorization: {
       approvalAuditIdUsed: "loo_audit_abcd1234",
@@ -50,9 +52,10 @@ function writeLiveProofReport(path: string, overrides: Record<string, unknown> =
   }, null, 2)}\n`);
 }
 
-function createFakeOpenClaw(dir: string, options: { rawExpansion?: boolean; staleSearchAndExpansion?: boolean; missingMapMarkers?: boolean; publicThreadMapShape?: boolean; missingMapStatus?: boolean } = {}): { bin: string; callsPath: string } {
+function createFakeOpenClaw(dir: string, options: { rawExpansion?: boolean; staleSearchAndExpansion?: boolean; staleRefreshTimestamp?: boolean; missingMapMarkers?: boolean; publicThreadMapShape?: boolean; missingMapStatus?: boolean } = {}): { bin: string; callsPath: string } {
   const callsPath = join(dir, "calls.jsonl");
   const bin = join(dir, "openclaw-refresh-fake.mjs");
+  const refreshedAt = options.staleRefreshTimestamp ? "2026-07-01T00:00:30.000Z" : "2026-07-01T00:02:00.000Z";
   const expansionText = options.rawExpansion
     ? "RAW_TRANSCRIPT: private raw session text"
     : "Safe post-action evidence bundle. Raw transcript omitted. Source refs preserved.";
@@ -62,7 +65,7 @@ function createFakeOpenClaw(dir: string, options: { rawExpansion?: boolean; stal
         threadId: "${TARGET_THREAD_ID}",
         title: "Gateway live smoke",
         summary: "Post-action safe summary delta marker",
-        updatedAt: "2026-07-01T00:02:00.000Z",
+        updatedAt: "${refreshedAt}",
         metadata: { status: ${options.missingMapStatus ? "null" : "\"active\""} }
       }]
     }`
@@ -74,7 +77,7 @@ function createFakeOpenClaw(dir: string, options: { rawExpansion?: boolean; stal
     : `{
       targetRef: "${TARGET_REF}",
       statusBucket: "active",
-      refreshedAt: "2026-07-01T00:02:00.000Z",
+      refreshedAt: "${refreshedAt}",
       sourceRefs: ["${TARGET_REF}"]
     }`;
   const searchResults = options.staleSearchAndExpansion
@@ -170,6 +173,8 @@ test("OpenClaw post-action refresh smoke proves safe reasoning through public to
     assert.equal(report.proofReady, true);
     assert.equal(report.targetRef, TARGET_REF);
     assert.equal(report.refresh.postActionRefresh, true);
+    assert.equal(report.liveProof.actionObservedAt, "2026-07-01T00:01:00.000Z");
+    assert.equal(report.refresh.refreshedAfterLiveAction, true);
     assert.equal(report.reasoning.agentReasoningNote.includes("safe summaries"), true);
     assert.deepEqual(report.reasoning.sourceRefs, [TARGET_REF]);
     assert.equal(report.actionsPerformed.liveCodexControlRun, false);
@@ -201,6 +206,36 @@ test("OpenClaw post-action refresh smoke proves safe reasoning through public to
     ]);
     assert.equal(calls[3]?.params.args?.thread_id, TARGET_THREAD_ID);
     assert.equal(calls[4]?.params.args?.profile, "brief");
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw post-action refresh smoke fails closed when the refresh predates the live action", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-refresh-smoke-live-order-"));
+  const evidenceDir = join(root, "evidence");
+  const liveProofReportPath = join(root, "openclaw-gateway-live-control-smoke-report.json");
+  writeLiveProofReport(liveProofReportPath);
+  const { bin, callsPath } = createFakeOpenClaw(root, { staleRefreshTimestamp: true });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+
+  try {
+    const report = runOpenClawPostActionRefreshSmoke({
+      openclawBin: bin,
+      evidenceDir,
+      liveProofReportPath,
+      threadId: TARGET_THREAD_ID,
+      now: "2026-07-01T00:03:00.000Z"
+    });
+
+    assert.equal(report.ok, false);
+    assert.equal(report.proofReady, false);
+    assert.equal(report.liveProof.actionObservedAt, "2026-07-01T00:01:00.000Z");
+    assert.equal(report.refresh.refreshedAfterLiveAction, false);
+    assert.match(report.blockers.join("\n"), /post_action_refresh_not_after_live_action/);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;
