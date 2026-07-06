@@ -410,10 +410,11 @@ function summarizeOutput(toolName: string, output: unknown, args: Record<string,
   if (threadId) summary.threadId = threadId;
   if (toolName === "loo_expand_session" && typeof args.token_budget === "number") summary.expansionBudget = args.token_budget;
   if (toolName === "loo_codex_control_dry_run") {
-    const live = readBooleanPath(output, ["live"]);
+    const controlOutput = isRecord(output) && isRecord(output.details) ? output.details : output;
+    const live = readBooleanPath(controlOutput, ["live"]);
     if (live !== undefined) summary.live = live;
-    summary.approvalAuditId = readStringPath(output, ["approvalAuditId"]) ?? readStringPath(output, ["approval_audit_id"]);
-    summary.paramsHash = readStringPath(output, ["paramsHash"]) ?? readStringPath(output, ["params_hash"]);
+    summary.approvalAuditId = readStringPath(controlOutput, ["approvalAuditId"]) ?? readStringPath(controlOutput, ["approval_audit_id"]);
+    summary.paramsHash = readStringPath(controlOutput, ["paramsHash"]) ?? readStringPath(controlOutput, ["params_hash"]);
   }
   return summary;
 }
