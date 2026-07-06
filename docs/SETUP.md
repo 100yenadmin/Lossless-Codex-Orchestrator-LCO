@@ -311,6 +311,8 @@ read-only `next_proof` tool call before claiming durable execution or local
 session persistence.
 Live resume only proves that the thread was rejoined/loaded by the transport;
 do not use resume by itself as durable turn execution proof.
+Resume reuses `thread/resume` with `excludeTurns:true`; it does not start a turn,
+so no bounded turn wait applies to resume alone.
 Live send/turn-bound control waits are bounded; use `--turn-wait-ms` on smoke
 commands or `LOO_CODEX_TURN_WAIT_MS` for live tool calls when a shorter or
 longer local verification window is intentional.
