@@ -91,6 +91,10 @@ with the matching `approval_audit_id`, then reads `loo_audit_tail` for
 public-safe audit metadata. Do not use it for broad gateway scope approval,
 generic live control, GUI mutation, or raw transcript inspection.
 
+Caveat: until #615 is verified, treat live-control send proof as provisional
+and keep release or working-app claims scoped to the separately proven control
+path evidence.
+
 For #159, consume the #158 report and refresh through public OpenClaw tools:
 
 ```bash

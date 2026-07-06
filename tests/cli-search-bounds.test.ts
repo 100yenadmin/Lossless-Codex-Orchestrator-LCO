@@ -114,6 +114,61 @@ test("loo search classifies locked databases without leaking local paths", () =>
   }
 });
 
+test("loo index codex classifies locked databases without leaking local paths", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-cli-index-locked-"));
+  let locker: DatabaseSync | null = null;
+  try {
+    const dbPath = join(root, "orchestrator.sqlite");
+    const sessions = join(root, "sessions");
+    mkdirSync(sessions, { recursive: true });
+    writeSession(
+      join(sessions, "locked-index.jsonl"),
+      "019f-index-locked",
+      "Locked index fixture",
+      "Final: locked index fixture complete. PRIVATE_CANARY_INDEX"
+    );
+    const db = createDatabase(dbPath);
+    db.close();
+
+    locker = new DatabaseSync(dbPath, { timeout: 1 });
+    locker.exec("PRAGMA locking_mode=EXCLUSIVE; BEGIN EXCLUSIVE; CREATE TABLE IF NOT EXISTS lock_hold (id INTEGER); INSERT INTO lock_hold VALUES (1);");
+
+    const result = runLoo(["index", "codex", "--timeout-ms", "50", "--max-files", "10", sessions], {
+      ...process.env,
+      LOO_DB_PATH: dbPath
+    }, 5_000);
+
+    assert.equal(result.status, 1, result.stderr || result.stdout);
+    assert.equal(result.stderr.trim(), "");
+    const payload = JSON.parse(result.stdout) as {
+      ok?: unknown;
+      code?: unknown;
+      classification?: unknown;
+      publicSafe?: unknown;
+      command?: unknown;
+      actionsPerformed?: Record<string, unknown>;
+    };
+    assert.equal(payload.ok, false);
+    assert.equal(payload.code, "database_busy");
+    assert.equal(payload.classification, "recoverable_setup_error");
+    assert.equal(payload.publicSafe, true);
+    assert.equal(payload.command, "index codex");
+    assert.equal(payload.actionsPerformed?.rawTranscriptRead, false);
+    assert.equal(payload.actionsPerformed?.liveControl, false);
+    assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /\/Volumes\/LEXAR|\/Users\/|\/tmp\/|orchestrator\.sqlite|\.jsonl|PRIVATE_CANARY/);
+  } finally {
+    if (locker) {
+      try {
+        locker.exec("ROLLBACK;");
+      } catch {
+        // The lock may already be released if the fixture failed before BEGIN.
+      }
+      locker.close();
+    }
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("loo search supports flag-like query text after the option delimiter", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-cli-search-delimiter-"));
   try {

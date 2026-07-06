@@ -73,7 +73,7 @@ The result is a staged recall loop:
 
 Requirements:
 
-- Node.js 22 or newer
+- Node.js 22.5 or newer
 - npm
 - local Codex session files, usually under `~/.codex/sessions`
 - OpenClaw Desktop/CLI if you want installed `loo_*` tools through OpenClaw
@@ -107,6 +107,10 @@ test -n "$tarball_url" && npm install -g "$tarball_url"
 ```
 
 That recovery path is a package-install diagnostic, not a broader product claim.
+
+If the `ETARGET` message says the requested package version must have a publish
+date before a specific time, check for a local npm `min-release-age`/`before`
+pin before treating it as registry drift.
 
 Full first-run instructions live in [docs/SETUP.md](docs/SETUP.md).
 

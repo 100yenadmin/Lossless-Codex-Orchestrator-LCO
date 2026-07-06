@@ -199,7 +199,10 @@ test("native OpenClaw plugin wrapper passes facade metadata to runtime tool defi
 test("always-on MCP and native plugin surfaces use bounded schema-only DB startup", () => {
   const pluginSource = readFileSync("packages/openclaw-plugin/src/index.ts", "utf8");
   const mcpServerSource = readFileSync("packages/mcp-server/src/server.ts", "utf8");
+  const mcpRuntimeSource = readFileSync("packages/mcp-server/src/server-runtime.ts", "utf8");
 
   assert.match(pluginSource, /createDatabase\(\{\s*maintenance:\s*"schema-only"\s*\}\)/);
-  assert.match(mcpServerSource, /createDatabase\(\{\s*maintenance:\s*"schema-only"\s*\}\)/);
+  assert.doesNotMatch(mcpServerSource, /createDatabase|core\/src\/index|node:sqlite/);
+  assert.match(mcpRuntimeSource, /createDatabase\(\{\s*maintenance:\s*"schema-only"\s*\}\)/);
+  assert.match(mcpRuntimeSource, /function getRuntimeState\(\)/);
 });

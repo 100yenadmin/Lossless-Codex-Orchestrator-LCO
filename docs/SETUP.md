@@ -11,7 +11,7 @@ workflows.
 
 ## 1. Requirements
 
-- Node.js 22 or newer
+- Node.js 22.5 or newer
 - npm
 - Codex CLI or Codex Desktop with local session files
 - OpenClaw Desktop/CLI when you want the installed OpenClaw plugin or gateway
