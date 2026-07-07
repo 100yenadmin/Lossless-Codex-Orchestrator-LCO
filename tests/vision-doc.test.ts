@@ -6,7 +6,7 @@ function read(path: string): string {
   return readFileSync(path, "utf8");
 }
 
-test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary contract", () => {
+test("VISION.md captures product, eval, dogfood, cadence, and capability-boundary contract", () => {
   assert.equal(existsSync("VISION.md"), true, "VISION.md must exist at the repo root");
   const vision = read("VISION.md");
   const readme = read("README.md");
@@ -14,7 +14,7 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
 
   for (const heading of [
     "## North Star",
-    "## Current Milestone: M12 Real-Product QA Lab And GA Release Gate",
+    "## Current Release Roadmap: 1.5 Coverage And Cockpit",
     "## Completed Proof: Working App Runtime",
     "## Primary User Stories",
     "## Orchestrator Product-Management Mode",
@@ -22,7 +22,7 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
     "## Eval Scenarios",
     "## Local OpenClaw Gateway Dogfood",
     "## Milestone Review Cadence",
-    "## Proof Boundary",
+    "## Capability Boundaries",
     "## Evidence Rules"
   ]) {
     assert.match(vision, new RegExp(heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
@@ -58,9 +58,15 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
     /agent handoff/i,
     /first-class OpenClaw agent usage skill/i,
     /M11 proved/i,
-    /M12 QA Lab/i,
+    /Milestone 13/i,
+    /1\.5 Coverage/i,
+    /Milestone 14/i,
+    /1\.6 Control Plane/i,
+    /Milestone 15/i,
+    /1\.7 Matrix Stretch/i,
+    /public release notes/i,
+    /M12 built[\s\S]+QA Lab/i,
     /lco qa-lab tool-coverage/i,
-    /34 canonical tools plus compatibility aliases/i,
     /1\.2 prepared-state tracker as completed proof/i,
     /What a local OpenClaw agent can do today/i,
     /Completed proof/i,
@@ -80,10 +86,10 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
     /issue comments or evidence summaries/i,
     /raw Codex JSONL files/i,
     /tokens, cookies, API keys, credentials/i,
-    /Full Claude Code parity/i,
-    /Cloud sync/i,
-    /Unattended desktop takeover/i,
-    /Release-grade enterprise security/i
+    /Claude Code adapter parity/i,
+    /Hosted or synced coordination/i,
+    /Unattended desktop automation/i,
+    /Enterprise security hardening/i
   ]) {
     assert.match(vision, required);
   }
@@ -123,18 +129,17 @@ test("VISION.md captures product, eval, dogfood, cadence, and proof-boundary con
   assert.equal(packageJson.files?.includes("VISION.md"), true, "npm package must include VISION.md because README links to it");
 });
 
-test("VISION.md distinguishes 0.1.x reduced-scope RCs from expanded live-control gates", () => {
+test("VISION.md distinguishes release-quality gates from runtime feature gates", () => {
   const vision = read("VISION.md");
 
-  assert.match(vision, /0\.1\.x/i);
-  assert.match(vision, /codex-read-search-expand-dry-run/i);
-  assert.match(vision, /live Codex control[\s\S]+excluded/i);
-  assert.match(vision, /GUI mutation[\s\S]+excluded/i);
-  assert.match(vision, /Claude parity[\s\S]+excluded/i);
-  assert.match(vision, /1\.0[\s\S]+approved live Codex control smoke/i);
+  assert.match(vision, /workflows the QA Lab actually proves/i);
+  assert.match(vision, /public release notes[\s\S]+user-facing changes/i);
+  assert.match(vision, /release doctrine[\s\S]+RELEASE_CHECKLIST/i);
+  assert.match(vision, /live control[\s\S]+desktop collaboration[\s\S]+adapter parity/i);
+  assert.match(vision, /approved live Codex control smoke/i);
   assert.match(vision, /Installed OpenClaw gateway path[\s\S]+approved live Codex action/i);
   assert.match(vision, /Post-action refresh[\s\S]+safe agent reasoning/i);
-  assert.match(vision, /codex-working-app-proof/i);
-  assert.match(vision, /expanded-scope[\s\S]+live Codex control/i);
-  assert.match(vision, /npm publish[\s\S]+GitHub Release[\s\S]+explicit/i);
+  assert.match(vision, /Runtime release profiles[\s\S]+fail-closed gates/i);
+  assert.match(vision, /dry-run packets alone/i);
+  assert.match(vision, /npm publish[\s\S]+GitHub Release[\s\S]+separate release actions/i);
 });

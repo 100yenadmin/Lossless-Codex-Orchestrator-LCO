@@ -327,8 +327,10 @@ A release candidate may be announced internally when all of these are true:
   release notes, claim audit, GitHub workflows, CLI release gates, docs,
   workflows, skills, and runbooks, plus the named adversarial scorecard lenses
 - OpenClaw dogfood has a current pass or an explicit blocker
-- README, `VISION.md`, release notes, and claim audit agree on the proof
-  boundary
+- README, `VISION.md`, public release notes, changelog, and claim audit agree on
+  the tested release scope. Public release notes stay customer/developer-facing;
+  capability boundaries and exclusions stay in claim audit, runbooks, QA Lab
+  evidence, and issue comments.
 - no public artifact contains raw Codex JSONL, local SQLite databases, raw
   prompts, screenshots, credentials, tokens, or private transcripts
 

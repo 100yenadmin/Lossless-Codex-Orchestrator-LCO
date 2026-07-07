@@ -11,12 +11,20 @@ const tsxImport = createRequire(import.meta.url).resolve("tsx");
 const packageVersion = JSON.parse(readFileSync("package.json", "utf8")).version as string;
 const releaseNotesFile = `RELEASE_NOTES_${packageVersion}.md`;
 const releaseNotesPath = `docs/releases/${releaseNotesFile}`;
+const internalReleaseNoteLanguage = /##\s*(?:Current Claim Scope|Proof Boundary|Explicit Non-Claims)|\bDo not claim:|approved_live_control_smoke_missing|codex-read-search-expand-dry-run|same proof boundary as beta\.35|No cloud sync|No unattended desktop takeover|No release-grade enterprise security/i;
+const stableLineReleaseNotes = [
+  "docs/releases/RELEASE_NOTES_1.4.0.md",
+  "docs/releases/RELEASE_NOTES_1.4.1.md",
+  "docs/releases/RELEASE_NOTES_1.4.2.md",
+  "docs/releases/RELEASE_NOTES_1.4.3.md",
+  "docs/releases/RELEASE_NOTES_1.4.4.md"
+];
 
 function read(path: string): string {
   return readFileSync(path, "utf8");
 }
 
-test("public beta release notes exist and preserve the proof boundary", () => {
+test("public release notes exist and stay customer-facing", () => {
   if (!existsSync(releaseNotesPath)) {
     assert.equal(packageVersion, "1.4.0", "only the lane-1 1.4.0 opener may rely on generated local draft notes");
     return;
@@ -25,13 +33,24 @@ test("public beta release notes exist and preserve the proof boundary", () => {
 
   assert.match(notes, new RegExp(packageVersion.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.match(notes, /local Codex sessions/i);
-  assert.match(notes, /approved_live_control_smoke_missing/);
-  assert.match(notes, /Claude Code.*adapter stub/i);
-  assert.match(notes, /No cloud sync/i);
-  assert.match(notes, /No unattended desktop takeover/i);
-  assert.match(notes, /No release-grade enterprise security/i);
-  assert.doesNotMatch(notes, /Full Claude Code parity/i);
+  assert.match(notes, /Highlights/i);
+  assert.match(notes, /Upgrade/i);
+  assert.match(notes, /Validation/i);
+  assert.doesNotMatch(notes, internalReleaseNoteLanguage);
   assert.doesNotMatch(notes, /\/Volumes\/LEXAR|\/Users\/lume/i);
+});
+
+test("1.4 stable-line release notes stay customer-facing", () => {
+  for (const file of stableLineReleaseNotes) {
+    assert.equal(existsSync(file), true, `${file} must exist`);
+    const notes = read(file);
+
+    assert.match(notes, /^# Release Notes 1\.4\.[0-9]+/m, file);
+    assert.match(notes, /What Changed|Highlights/i, file);
+    assert.match(notes, /Validation|Package Notes/i, file);
+    assert.doesNotMatch(notes, internalReleaseNoteLanguage, file);
+    assert.doesNotMatch(notes, /\/(Users|home)\/[a-z0-9._-]+\/|\/Volumes\/[A-Za-z0-9._-]+\//i, file);
+  }
 });
 
 test("release bundle writes public-safe local artifacts without publishing", () => {
@@ -71,11 +90,10 @@ test("release bundle writes public-safe local artifacts without publishing", () 
 
   const notes = read(join(evidenceDir, releaseNotesFile));
   // With committed release notes present, the bundle uses them (not the draft
-  // fallback); assert the real notes carry the proof boundary and stay public-safe.
-  assert.match(notes, /approved_live_control_smoke_missing/);
+  // fallback); assert the real notes stay customer-facing and public-safe.
   assert.match(notes, /local Codex sessions/i);
-  assert.match(notes, /No cloud sync/i);
-  assert.doesNotMatch(notes, /Full Claude Code parity/i);
+  assert.match(notes, /Upgrade/i);
+  assert.doesNotMatch(notes, internalReleaseNoteLanguage);
   // No absolute local filesystem paths from any contributor's machine.
   assert.doesNotMatch(notes, /\/(Users|home)\/[a-z0-9._-]+\/|\/Volumes\/[A-Za-z0-9._-]+\//i);
 

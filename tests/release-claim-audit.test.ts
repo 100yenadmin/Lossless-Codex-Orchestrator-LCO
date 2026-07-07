@@ -14,12 +14,13 @@ const packageVersion = JSON.parse(readFileSync("package.json", "utf8")).version 
 const documentedStableVersion = readFileSync("README.md", "utf8").match(/Current stable:\s+`([^`]+)`/i)?.[1] ?? packageVersion;
 const escapedDocumentedStableVersion = documentedStableVersion.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const releaseNotesPath = `docs/releases/RELEASE_NOTES_${documentedStableVersion}.md`;
+const internalReleaseNoteLanguage = /##\s*(?:Current Claim Scope|Proof Boundary|Explicit Non-Claims)|\bDo not claim:|approved_live_control_smoke_missing|codex-read-search-expand-dry-run|same proof boundary as beta\.35|No cloud sync|No unattended desktop takeover|No release-grade enterprise security/i;
 
 function read(path: string): string {
   return readFileSync(path, "utf8");
 }
 
-test("current release metadata ships desktop proof-action without widening claims", () => {
+test("current release metadata keeps public release notes customer-facing", () => {
   const packageJson = JSON.parse(read("package.json")) as { version?: string };
   const packageLock = JSON.parse(read("package-lock.json")) as { version?: string; packages?: Record<string, { version?: string }> };
   const rootPlugin = JSON.parse(read("openclaw.plugin.json")) as { version?: string };
@@ -33,24 +34,13 @@ test("current release metadata ships desktop proof-action without widening claim
   assert.equal(existsSync(releaseNotesPath), true, `${documentedStableVersion} release notes must exist`);
 
   const releaseNotes = read(releaseNotesPath);
-  assert.match(releaseNotes, /Codex-first local orchestration/i);
-  assert.match(releaseNotes, /#160/i);
-  assert.match(releaseNotes, /loo_desktop_proof_action/i);
-  assert.match(releaseNotes, /loo desktop proof-action/i);
-  assert.match(releaseNotes, /CUA Driver TextEdit scratch/i);
-  assert.match(releaseNotes, /exact backend, target app, target window, action hash, approval ref, permission state, scratch file path, and `execute: true`/i);
-  assert.match(releaseNotes, /generic gateway invocation without exact proof args fails closed/i);
-  assert.match(releaseNotes, /openclaw_tool_result_not_ok:<tool>/i);
-  assert.match(releaseNotes, /output\.details\.ok: false/i);
-  assert.match(releaseNotes, /same proof boundary as beta\.35/i);
-  assert.match(releaseNotes, /No automatic gateway authorization/i);
-  assert.match(releaseNotes, /no broad gateway scope approval/i);
-  assert.match(releaseNotes, /no prompt typing/i);
-  assert.match(releaseNotes, /no clicking/i);
-  assert.match(releaseNotes, /no arbitrary app control/i);
-  assert.match(releaseNotes, /no new live Codex control smoke/i);
-  assert.match(releaseNotes, /does not run generic GUI mutation/i);
-  assert.match(releaseNotes, /does not run Codex GUI mutation/i);
+  assert.match(releaseNotes, new RegExp(escapedDocumentedStableVersion));
+  assert.match(releaseNotes, /local Codex sessions/i);
+  assert.match(releaseNotes, /Highlights/i);
+  assert.match(releaseNotes, /Upgrade/i);
+  assert.match(releaseNotes, /Validation/i);
+  assert.match(releaseNotes, /npm install -g lossless-codex-orchestrator@latest/i);
+  assert.doesNotMatch(releaseNotes, internalReleaseNoteLanguage);
   assert.doesNotMatch(releaseNotes, /Full Claude Code parity|cloud sync supported|unattended desktop takeover supported|generic GUI mutation supported|Codex GUI mutation supported|connected local UI is release-ready/i);
 });
 
@@ -136,11 +126,9 @@ test("public docs include setup, MCP/OpenClaw, demo, and approval-boundary proof
 
 test("release status examples include live-control evidence alongside release approvals", () => {
   const runbook = read("docs/BETA_RELEASE_RUNBOOK.md");
-  const releaseNotes = read(releaseNotesPath);
 
   for (const [surface, content] of [
-    ["release runbook", runbook],
-    ["release notes", releaseNotes]
+    ["release runbook", runbook]
   ] as const) {
     assert.match(content, /release status[^\n]+--approved-live-control-evidence[^\n]+--npm-publish-approval-evidence[^\n]+--github-release-approval-evidence/i, surface);
     assert.match(content, /release status[^\n]+--candidate-sha[^\n]+--github-ci-evidence[^\n]+--codeql-evidence/i, surface);
@@ -151,8 +139,7 @@ test("release status examples include live-control evidence alongside release ap
 test("read-search-expand-dry-run release examples name the explicit claim scope before omitting live-control proof", () => {
   const surfaces = [
     ["claim audit", read("docs/CLAIM_AUDIT.md")],
-    ["release runbook", read("docs/BETA_RELEASE_RUNBOOK.md")],
-    ["release notes", read(releaseNotesPath)]
+    ["release runbook", read("docs/BETA_RELEASE_RUNBOOK.md")]
   ] as const;
 
   for (const [surface, content] of surfaces) {
@@ -215,9 +202,9 @@ test("README and VISION describe the current stable package without stale releas
 test("VISION keeps scratch-thread live smokes standing-approved without widening real-thread approval", () => {
   const vision = read("VISION.md");
   const claimAudit = read("docs/CLAIM_AUDIT.md");
-  const proofBoundarySection = vision.match(/## Proof Boundary[\s\S]*?(?=\n## Current Release Gates)/)?.[0] ?? "";
-  const doNotClaimSection = proofBoundarySection.match(/Do not claim:[\s\S]*?(?=\nApproval doctrine:)/)?.[0] ?? "";
-  const approvalDoctrineSection = proofBoundarySection.match(/Approval doctrine:[\s\S]*$/)?.[0] ?? "";
+  const capabilitySection = vision.match(/## Capability Boundaries[\s\S]*?(?=\n## Current Release Gates)/)?.[0] ?? "";
+  const futureRoadmapSection = capabilitySection.match(/Future roadmap candidates:[\s\S]*?(?=\nApproval doctrine:)/)?.[0] ?? "";
+  const approvalDoctrineSection = capabilitySection.match(/Approval doctrine:[\s\S]*$/)?.[0] ?? "";
 
   for (const [surface, content] of [
     ["VISION", vision],
@@ -232,7 +219,7 @@ test("VISION keeps scratch-thread live smokes standing-approved without widening
   }
 
   assert.match(approvalDoctrineSection, /scratch-thread live smokes[\s\S]{0,160}standing-approved/i);
-  assert.doesNotMatch(doNotClaimSection, /scratch-thread live smokes[\s\S]{0,160}standing-approved/i);
+  assert.doesNotMatch(futureRoadmapSection, /scratch-thread live smokes[\s\S]{0,160}standing-approved/i);
 });
 
 test("stable and prerelease package metadata pins the intended npm dist-tag", () => {

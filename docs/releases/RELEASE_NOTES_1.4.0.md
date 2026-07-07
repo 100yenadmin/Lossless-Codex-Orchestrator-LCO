@@ -4,8 +4,7 @@
 `lco` / `lco_*` / `LCO_*` and the package name `lossless-codex-orchestrator` as
 the canonical surface, while keeping every prior `loo` / `loo_*` / `LOO_*` name
 and the `lossless-openclaw-orchestrator` package working as maintained
-compatibility aliases. **No public claim boundary changes.** This remains
-Codex-first local orchestration.
+compatibility aliases. This remains Codex-first local orchestration.
 
 The rename reflects what the product is: a Codex orchestration engine with a
 runtime-neutral core, reachable from OpenClaw (tier 1), Hermes agents (tier 2),
@@ -54,37 +53,13 @@ and any generic MCP client (tier 3).
 - `docs/SETUP.md` adds per-client MCP mounting examples (Claude Code, Cursor, and
   generic clients) and a multi-client mounting note.
 
-## Current Claim Scope
+## Scope
 
-Claim scope: `codex-read-search-expand-dry-run` (unchanged from 1.3.x).
-
-Allowed stable claim:
-
-> Collaborate with local Codex sessions through OpenClaw — or any MCP client —
-> using local indexing, prepared-state recall, bounded expansion, and
-> approval-gated dry-run/control boundaries.
-
-The 1.4.0 identity release does **not** add a new live-control, GUI, parity,
-sync, customer-readiness, or enterprise-security claim. The live-send turn-proof
-and gateway-dispatch hardening shipped in 1.3.4/1.3.5 improved the *proof
-machinery* for control actions; they did not widen the shipped claim. Live
-control remains gated on a full send/resume/steer/interrupt matrix before any
-`codex-live-control` claim.
-
-## Proof Boundary
-
-Do not claim:
-
-- Full parity: Claude Code remains an adapter stub, not an adapter-equivalence claim.
-- No cloud sync.
-- No unattended desktop takeover.
-- No release-grade enterprise security.
-
-Live control stays fail-closed: without an approved live-control smoke for the
-exact target thread and harmless prompt, a stable release bundle records
-`approved_live_control_smoke_missing` as the blocker and does not claim live
-control. Scratch-thread live smokes remain a standing-approved class; real user
-threads still require exact-target approval.
+The identity release keeps the product centered on local Codex session
+orchestration: indexing, prepared-state recall, bounded expansion, and
+approval-gated command packets. The live-send turn-proof and gateway-dispatch
+hardening shipped in 1.3.4/1.3.5 remain available as safety infrastructure for
+future control-plane releases.
 
 ## Migration
 
@@ -94,11 +69,10 @@ threads still require exact-target approval.
   bin / `lco_*` tools / `LCO_*` env going forward. The local data directory is
   unchanged.
 
-## Release Gate Notes
+## Validation
 
 - Candidate packages: `lossless-codex-orchestrator@1.4.0` (new canonical) and
   `lossless-openclaw-orchestrator@1.4.0` (maintained compat, deprecated pointer).
 - Both install fresh from the registry and pass the published-artifact battery.
-- Claim scope `codex-read-search-expand-dry-run`; no widened claims.
 
 ---
