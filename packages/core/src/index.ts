@@ -7296,6 +7296,8 @@ function preparedLifecycleFromMetadata(
     closeoutState: normalizedMetadataMatchValue(metadata.closeoutState),
     planCompletionState: normalizedMetadataMatchValue(metadata.planCompletionState)
   };
+  // The truncated hash is identity metadata only. Lifecycle classification below
+  // always scans matchSignals, so long-tail metadata cannot be skipped by hash collisions.
   const metadataSignalHash = stableId(JSON.stringify({
     extractorVersion: PREPARED_CARD_EXTRACTOR_VERSION,
     normalization: "full-text-match/hash-truncated-512",

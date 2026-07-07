@@ -1710,6 +1710,34 @@ test("prepared cards promote semantic lifecycle states into card and inbox ranki
     assert.equal(approval.urgencyScore > completed.urgencyScore, true);
 
     const originalCompletedCardRef = completed.cardRef;
+    const collisionThreadId = "019f-life-hash-collision";
+    const sharedHashPrefix = "same-prefix ".repeat(80);
+    insertSummaryLeafRow(db, {
+      id: "b1000000000000000000000000000001",
+      threadId: collisionThreadId,
+      leafKind: "closeout",
+      confidence: 0.95
+    });
+    insertSessionMetadataRow(db, {
+      threadId: collisionThreadId,
+      priority: "high",
+      status: "ready",
+      nextAction: `${sharedHashPrefix} continue safely`
+    });
+    materializePreparedCards(db, { threadId: collisionThreadId });
+    const collisionBefore = getPreparedCards(db, { threadId: collisionThreadId }).cards[0]!;
+    assert.equal(collisionBefore.state, "ready");
+    insertSessionMetadataRow(db, {
+      threadId: collisionThreadId,
+      priority: "high",
+      status: "ready",
+      nextAction: `${sharedHashPrefix} approval required`
+    });
+    materializePreparedCards(db, { threadId: collisionThreadId });
+    const collisionAfter = getPreparedCards(db, { threadId: collisionThreadId }).cards[0]!;
+    assert.equal(collisionAfter.state, "waiting_approval");
+    assert.notEqual(collisionAfter.inputHash, collisionBefore.inputHash);
+
     insertSessionMetadataRow(db, {
       threadId: "019f-life-completed",
       status: "blocked",

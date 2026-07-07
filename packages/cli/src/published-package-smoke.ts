@@ -240,7 +240,7 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
     blockers,
     nextSafeCommands: uniqueStrings([
       ...npmInstallDiagnosticCommands(expectedPackage, npmInstallDiagnostic),
-      ...binaryProbeDiagnosticCommands(expectedPackage, binaryProbeDiagnostic),
+      ...binaryProbeDiagnosticCommands(expectedPackage, packageJson.version, binaryProbeDiagnostic),
       `npm view ${expectedPackage} version dist-tags --json`,
       `loo openclaw dogfood --profile lco-dogfood-published --install-source ${expectedPackage} --required-tool loo_doctor --required-tool loo_search_sessions --strict`,
       "loo openclaw tool-smoke --profile lco-dogfood-published --required-tool loo_doctor --required-tool loo_search_sessions --strict",
@@ -391,6 +391,7 @@ function npmInstallDiagnosticCommands(
 
 function binaryProbeDiagnosticCommands(
   expectedPackage: string,
+  packageVersion: string,
   diagnostic: PublishedPackageSmokeReport["binaryProbeDiagnostic"]
 ): string[] {
   const tarballLookup = `npm view ${expectedPackage} dist.tarball`;
@@ -398,7 +399,7 @@ function binaryProbeDiagnosticCommands(
   if (diagnostic.classification === "not_provided") {
     return [
       `${tarballLookup} --json`,
-      `${tarballExtractPrefix} && version="$(node "$tmp_dir/package/dist/packages/cli/src/index.js" --version)" && package_version="$(node -pe "require(process.argv[1]).version" "$tmp_dir/package/package.json")" && printf '{"kind":"loo_published_binary_probe_evidence","publicSafe":true,"rawSecretIncluded":false,"expectedVersion":"%s","observedVersion":"%s","resolvedBinarySource":"package_tarball","pathShadowed":false,"packageJsonVersion":"%s"}\\n' "$package_version" "$version" "$package_version" > binary-probe.json`,
+      `${tarballExtractPrefix} && version="$(node "$tmp_dir/package/dist/packages/cli/src/index.js" --version)" && package_version="$(node -pe "require(process.argv[1]).version" "$tmp_dir/package/package.json")" && printf '{"kind":"loo_published_binary_probe_evidence","publicSafe":true,"rawSecretIncluded":false,"expectedVersion":"%s","observedVersion":"%s","resolvedBinarySource":"package_tarball","pathShadowed":false,"packageJsonVersion":"%s"}\\n' "${packageVersion}" "$version" "$package_version" > binary-probe.json`,
       "loo openclaw published-smoke --dogfood-report dogfood.json --tool-smoke-report tool-smoke.json --binary-probe-report binary-probe.json --strict"
     ];
   }
