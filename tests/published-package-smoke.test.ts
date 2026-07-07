@@ -8,6 +8,7 @@ import test from "node:test";
 import { createPublishedPackageSmokeReport } from "../packages/cli/src/published-package-smoke.js";
 
 const tsxImport = createRequire(import.meta.url).resolve("tsx");
+const packageVersion = (JSON.parse(readFileSync("package.json", "utf8")) as { version: string }).version;
 
 function writeJson(path: string, value: unknown): void {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
@@ -214,7 +215,7 @@ test("published-smoke accepts the canonical lossless-codex package root", () => 
     mkdirSync(rootDir, { recursive: true });
     writeJson(join(rootDir, "package.json"), {
       name: "lossless-codex-orchestrator",
-      version: "1.4.1"
+      version: packageVersion
     });
     writeJson(dogfoodPath, {
       ok: true,
@@ -237,7 +238,7 @@ test("published-smoke accepts the canonical lossless-codex package root", () => 
     const report = createPublishedPackageSmokeReport({
       rootDir,
       evidenceDir,
-      registryVersion: "1.4.1",
+      registryVersion: packageVersion,
       dogfoodReportPath: dogfoodPath,
       toolSmokeReportPath: toolSmokePath,
       now: "2026-07-07T00:00:00.000Z"

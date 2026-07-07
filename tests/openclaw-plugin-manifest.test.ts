@@ -39,14 +39,14 @@ test("npm bin metadata is publish-normalized for the beta CLI entrypoints", () =
   }
 });
 
-test("package and OpenClaw manifests open the 1.4.1 train together", () => {
+test("package and OpenClaw manifests open the same release train together", () => {
   const pkg = readJson("package.json");
   const manifest = readJson("openclaw.plugin.json");
   const sourceManifest = readJson("packages/openclaw-plugin/openclaw.plugin.json");
 
-  assert.equal(pkg.version, "1.4.1");
-  assert.equal(manifest.version, "1.4.1");
-  assert.equal(sourceManifest.version, "1.4.1");
+  assert.equal(typeof pkg.version, "string");
+  assert.equal(manifest.version, pkg.version);
+  assert.equal(sourceManifest.version, pkg.version);
   assert.deepEqual(manifest.tools, { prefix: "lco_" });
   assert.deepEqual(sourceManifest.tools, { prefix: "lco_" });
 });

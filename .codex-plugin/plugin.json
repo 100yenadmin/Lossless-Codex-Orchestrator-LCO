@@ -1,6 +1,6 @@
 {
   "name": "lossless-openclaw-orchestrator",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "Index, search, and prepare local Codex sessions with LCO, including one-shot thread title aliases for easier recall.",
   "author": {
     "name": "100yenadmin",
