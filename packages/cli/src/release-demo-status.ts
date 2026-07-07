@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readlinkSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readlinkSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   excludedClaimsForScope,
@@ -191,8 +191,16 @@ export function createReleaseDemoStatus(options: ReleaseDemoStatusOptions): Rele
     ]
   };
 
+  assertSafeDemoStatusManifestPath(demoStatusManifestPath);
   writeFileSync(demoStatusManifestPath, `${JSON.stringify(report, null, 2)}\n`);
   return report;
+}
+
+function assertSafeDemoStatusManifestPath(path: string): void {
+  if (!existsSync(path)) return;
+  if (lstatSync(path).isSymbolicLink()) {
+    throw new Error("release-demo-status.json must be a regular evidence file, not a symlink");
+  }
 }
 
 function check(ok: boolean, detail: string): ReleaseDemoStatusCheck {

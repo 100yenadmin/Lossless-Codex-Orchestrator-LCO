@@ -52,7 +52,7 @@ function writeLiveProofReport(path: string, overrides: Record<string, unknown> =
   }, null, 2)}\n`);
 }
 
-function createFakeOpenClaw(dir: string, options: { rawExpansion?: boolean; staleSearchAndExpansion?: boolean; nestedTargetOnlyExpansion?: boolean; staleRefreshTimestamp?: boolean; missingMapMarkers?: boolean; publicThreadMapShape?: boolean; missingMapStatus?: boolean } = {}): { bin: string; callsPath: string } {
+function createFakeOpenClaw(dir: string, options: { rawExpansion?: boolean; staleSearchAndExpansion?: boolean; nestedTargetOnlyExpansion?: boolean; nestedTargetOnlyCoreOutputs?: boolean; staleRefreshTimestamp?: boolean; missingMapMarkers?: boolean; publicThreadMapShape?: boolean; missingMapStatus?: boolean } = {}): { bin: string; callsPath: string } {
   const callsPath = join(dir, "calls.jsonl");
   const bin = join(dir, "openclaw-refresh-fake.mjs");
   const refreshedAt = options.staleRefreshTimestamp ? "2026-07-01T00:00:30.000Z" : "2026-07-01T00:02:00.000Z";
@@ -80,25 +80,33 @@ function createFakeOpenClaw(dir: string, options: { rawExpansion?: boolean; stal
       refreshedAt: "${refreshedAt}",
       sourceRefs: ["${TARGET_REF}"]
     }`;
-  const searchResults = options.staleSearchAndExpansion
+  const searchResults = options.staleSearchAndExpansion || options.nestedTargetOnlyCoreOutputs
     ? `[
-        { sourceRef: "${OTHER_REF}", title: "Different thread", safeSummary: "Post-action safe summary delta marker", updatedAt: "2026-07-01T00:02:01.000Z" }
+        { sourceRef: "${OTHER_REF}", title: "Different thread", safeSummary: "Post-action safe summary delta marker", updatedAt: "2026-07-01T00:02:01.000Z", related: { sourceRef: "${TARGET_REF}" } }
       ]`
     : `[
         { sourceRef: "${TARGET_REF}", title: "Gateway live smoke", safeSummary: "Post-action safe summary delta marker", updatedAt: "2026-07-01T00:02:01.000Z" }
       ]`;
   const expandSourceRefs = options.staleSearchAndExpansion ? [`"${OTHER_REF}"`] : [`"${TARGET_REF}"`];
-  const threadMapResponse = `{ ok: true, output: ${threadMapOutput} }`;
+  const nestedCoreThreadMapOutput = `{
+      targetRef: "${OTHER_REF}",
+      statusBucket: "active",
+      refreshedAt: "${refreshedAt}",
+      sourceRefs: ["${OTHER_REF}"],
+      related: { sourceRef: "${TARGET_REF}", refreshedAt: "${refreshedAt}" }
+    }`;
+  const threadMapResponse = `{ ok: true, output: ${options.nestedTargetOnlyCoreOutputs ? nestedCoreThreadMapOutput : threadMapOutput} }`;
   const searchResponse = `{ ok: true, output: {
       query: "gateway live smoke acknowledged",
       results: ${searchResults}
     } }`;
   const describeResponse = `{ ok: true, output: {
-      sourceRef: "${TARGET_REF}",
+      sourceRef: "${options.nestedTargetOnlyCoreOutputs ? OTHER_REF : TARGET_REF}",
       status: "completed",
       safeSummary: "The selected Codex thread contains a post-action safe closeout marker.",
       finalAssistantMessage: "LCO gateway live smoke acknowledged.",
-      touchedFiles: []
+      touchedFiles: [],
+      related: { sourceRef: "${TARGET_REF}" }
     } }`;
   const expandOutput = options.nestedTargetOnlyExpansion
     ? `{
@@ -414,6 +422,33 @@ test("OpenClaw post-action refresh smoke rejects nested target refs inside wrong
 
     assert.equal(report.ok, false);
     assert.match(report.blockers.join("\n"), /post_action_refresh_expand_target_missing/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw post-action refresh smoke rejects nested target refs inside wrong core outputs", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-refresh-smoke-nested-core-"));
+  const liveProofReportPath = join(root, "openclaw-gateway-live-control-smoke-report.json");
+  writeLiveProofReport(liveProofReportPath);
+  const { bin, callsPath } = createFakeOpenClaw(root, { nestedTargetOnlyCoreOutputs: true });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+
+  try {
+    const report = runOpenClawPostActionRefreshSmoke({
+      openclawBin: bin,
+      evidenceDir: join(root, "evidence"),
+      liveProofReportPath,
+      threadId: TARGET_THREAD_ID
+    });
+
+    assert.equal(report.ok, false);
+    assert.match(report.blockers.join("\n"), /post_action_refresh_thread_map_target_missing/);
+    assert.match(report.blockers.join("\n"), /post_action_refresh_search_target_missing/);
+    assert.match(report.blockers.join("\n"), /post_action_refresh_describe_target_missing/);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;

@@ -444,7 +444,7 @@ export type PreparedCard = {
     watcherObservations: PreparedStateCoverage;
   };
   inputHash: string;
-  extractorVersion: "prepared-cards-v1";
+  extractorVersion: "prepared-cards-v2";
   privacyClass: "public_safe_metadata";
   confidence: number;
   freshnessAt: string | null;
@@ -2665,7 +2665,7 @@ const CODEX_RECOVERY_MAX_BYTES_PER_FILE = 1_073_741_824;
 const CODEX_RECOVERY_MAX_EVENTS_PER_FILE = 1_000_000;
 const PREPARED_SOURCE_EXTRACTOR_VERSION = "prepared-source-ranges-v1" as const;
 const SUMMARY_LEAF_EXTRACTOR_VERSION = "summary-leaves-v1" as const;
-const PREPARED_CARD_EXTRACTOR_VERSION = "prepared-cards-v1" as const;
+const PREPARED_CARD_EXTRACTOR_VERSION = "prepared-cards-v2" as const;
 const SUMMARY_LEAF_EDGE_DELETE_BATCH_SIZE = 400;
 const SUMMARY_LEAF_SOURCE_RANGE_REF_LIMIT = 50;
 const PREPARED_CARD_SOURCE_RANGE_REF_LIMIT = 50;
@@ -7296,7 +7296,11 @@ function preparedLifecycleFromMetadata(
     closeoutState: normalizedMetadataMatchValue(metadata.closeoutState),
     planCompletionState: normalizedMetadataMatchValue(metadata.planCompletionState)
   };
-  const metadataSignalHash = stableId(JSON.stringify(signals));
+  const metadataSignalHash = stableId(JSON.stringify({
+    extractorVersion: PREPARED_CARD_EXTRACTOR_VERSION,
+    normalization: "full-text-match/hash-truncated-512",
+    signals: truncateMetadataSignalsForHash(signals)
+  }));
   const nonBlockerText = [matchSignals.status, matchSignals.nextAction, matchSignals.closeoutState, matchSignals.planCompletionState].filter(Boolean).join(" ");
   const text = [nonBlockerText, matchSignals.blocker].filter(Boolean).join(" ");
   const sourceReasonCodes = Object.entries(signals)
@@ -7756,7 +7760,7 @@ function deriveThreadTitleSummary(value: string | null): string | null {
   const lowered = redacted.toLowerCase();
   const titleFinalizerPattern = /thread-title-finalize|title finalizer|title-finalizer/i;
   const threadTitleFinalizationPattern = /finaliz(?:e|es|ed|ing).{0,40}thread.{0,20}title|thread.{0,20}title.{0,40}finaliz/i;
-  const negatesTitleFinalizer = /\b(?:not|no|without|never)\b.{0,160}(?:thread-title-finalize|title finalizer|title-finalizer|finaliz(?:e|es|ed|ing).{0,40}thread.{0,20}title|thread.{0,20}title.{0,40}finaliz)/i.test(redacted);
+  const negatesTitleFinalizer = negatesTitleFinalizerSignal(redacted);
   if (
     (
       titleFinalizerPattern.test(redacted)
@@ -13548,11 +13552,22 @@ function hasRealBlocker(value: string | null): boolean {
 }
 
 function normalizedMetadataValue(value: string | null): string {
-  return truncate((value ?? "").trim().toLowerCase(), 512);
+  return (value ?? "").trim().toLowerCase();
 }
 
 function normalizedMetadataMatchValue(value: string | null): string {
   return (value ?? "").trim().toLowerCase();
+}
+
+function truncateMetadataSignalsForHash(signals: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(signals).map(([key, value]) => [key, truncate(value, 512)]));
+}
+
+function negatesTitleFinalizerSignal(value: string): boolean {
+  const titleFinalizerClausePattern = /thread-title-finalize|title finalizer|title-finalizer|finaliz(?:e|es|ed|ing).{0,40}thread.{0,20}title|thread.{0,20}title.{0,40}finaliz/i;
+  return value
+    .split(/[.!?;\n]+/)
+    .some((clause) => titleFinalizerClausePattern.test(clause) && /\b(?:not|no|without|never)\b/i.test(clause));
 }
 
 function compareUpdatedAtDesc(left: string | null, right: string | null): number {

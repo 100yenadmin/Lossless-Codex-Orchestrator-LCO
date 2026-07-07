@@ -178,9 +178,10 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
   const describeOutput = describe?.parsed ? unwrapToolOutput(unwrapGatewayPayload(describe.parsed)) : undefined;
   const expandOutput = expand?.parsed ? unwrapToolOutput(unwrapGatewayPayload(expand.parsed)) : undefined;
 
-  const targetThreadMapOutput = findTargetRecord(threadMapOutput, targetRef);
-  const targetSearchOutput = findTargetRecord(searchOutput, targetRef);
-  const targetDescribeOutput = findTargetRecord(describeOutput, targetRef);
+  const topLevelTargetSearch = { descendIntoRecords: false };
+  const targetThreadMapOutput = findTargetRecord(threadMapOutput, targetRef, topLevelTargetSearch);
+  const targetSearchOutput = findTargetRecord(searchOutput, targetRef, topLevelTargetSearch);
+  const targetDescribeOutput = findTargetRecord(describeOutput, targetRef, topLevelTargetSearch);
   const targetExpandOutput = findTargetRecord(expandOutput, targetRef, { descendIntoRecords: false });
   const sourceRefs = unique([targetThreadMapOutput, targetSearchOutput, targetDescribeOutput, targetExpandOutput]
     .flatMap((output) => output === undefined ? [] : collectSourceRefs(output)))
@@ -437,6 +438,7 @@ function collectSourceRefs(value: unknown): string[] {
 function findTargetRecord(value: unknown, targetRef: string, options: { descendIntoRecords?: boolean } = {}): unknown | undefined {
   const descendIntoRecords = options.descendIntoRecords ?? true;
   if (Array.isArray(value)) {
+    // The option gates object-field recursion only; arrays still expose each record's direct refs.
     for (const item of value) {
       const found = findTargetRecord(item, targetRef, options);
       if (found !== undefined) return found;
@@ -445,9 +447,19 @@ function findTargetRecord(value: unknown, targetRef: string, options: { descendI
   }
   if (!isRecord(value)) return undefined;
   if (directSourceRefs(value).includes(targetRef)) return value;
-  if (!descendIntoRecords) return undefined;
+  if (!descendIntoRecords) return findTargetRecordInTopLevelCollections(value, targetRef, options);
   for (const nested of Object.values(value)) {
     const found = findTargetRecord(nested, targetRef, options);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+function findTargetRecordInTopLevelCollections(value: Record<string, unknown>, targetRef: string, options: { descendIntoRecords?: boolean }): unknown | undefined {
+  for (const key of ["threads", "results", "items", "cards", "sessions"]) {
+    const collection = value[key];
+    if (!Array.isArray(collection)) continue;
+    const found = findTargetRecord(collection, targetRef, options);
     if (found !== undefined) return found;
   }
   return undefined;

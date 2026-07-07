@@ -76,10 +76,15 @@ test("local Mac search UI shell renders only safe summaries, refs, filters, and 
           `xoxb-${"1".repeat(12)}-${"2".repeat(12)}-${"a".repeat(24)}`,
           `glpat-${"F".repeat(24)}`,
           `sk-proj-${"G".repeat(24)}`,
+          `sk-${"N".repeat(12)}-`,
+          `glpat-${"O".repeat(23)}-`,
+          `AIza${"P".repeat(23)}_`,
           `AK${"IA"}${"I".repeat(16)}`,
           `AS${"IA"}${"J".repeat(16)}`,
           `AI${"za"}${"K".repeat(24)}`,
-          `aws_secret_access_key=${"L".repeat(40)}`
+          `aws_secret_access_key=${"L".repeat(39)}=`,
+          `aws_secret_access_key=${"Q".repeat(39)}+`,
+          `aws_secret_access_key=${"R".repeat(39)}/`
         ].join(" "),
         project: "lco",
         status: "active",
@@ -108,7 +113,7 @@ test("local Mac search UI shell renders only safe summaries, refs, filters, and 
   assert.doesNotMatch(shell.html, /npm_ABCDEFGHIJKLMNOPQRSTUVWX/);
   assert.doesNotMatch(
     `${shell.html}\n${JSON.stringify(shell.report)}`,
-    /npm_[A-Za-z0-9_]{16,}|github_pat_|gh[pousr]_?[A-Za-z0-9_]{16,}|xoxb-|glpat-|sk-proj-|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{20,}|aws_secret_access_key/i
+    /npm_[A-Za-z0-9_]{16,}|github_pat_|gh[pousr]_?[A-Za-z0-9_]{16,}|xoxb-|glpat-|sk-[A-Za-z0-9_-]{10,}|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{20,}|aws_secret_access_key/i
   );
 });
 

@@ -1119,7 +1119,7 @@ test("Codex start-thread post-create proof does not treat stale prepared card al
       watcherObservations: { status: "not_configured" }
     }),
     "44444444444444444444444444444444",
-    "prepared-cards-v1",
+    "prepared-cards-v2",
     "public_safe_metadata",
     0.42,
     "2026-07-04T09:00:00Z",
@@ -1224,7 +1224,7 @@ test("Codex start-thread post-create proof classifies indexed described persiste
       watcherObservations: { status: "not_configured" }
     }),
     "22222222222222222222222222222222",
-    "prepared-cards-v1",
+    "prepared-cards-v2",
     "public_safe_metadata",
     0.91,
     "2026-07-04T10:03:00Z",

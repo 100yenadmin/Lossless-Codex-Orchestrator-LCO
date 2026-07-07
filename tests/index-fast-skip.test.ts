@@ -817,7 +817,7 @@ test("NULL cached extractor versions in an existing database force backfill once
       assert.equal(row.metadata, "session-metadata-v4");
       assert.equal(row.preparedRanges, "prepared-source-ranges-v1");
       assert.equal(row.summaryLeaves, "summary-leaves-v1");
-      assert.equal(row.preparedCards, "prepared-cards-v1");
+      assert.equal(row.preparedCards, "prepared-cards-v2");
     } finally {
       db.close();
     }
