@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -66,6 +66,77 @@ function writeDemoStatusCanaryEvidence(dir: string): void {
   });
 }
 
+function writeReleaseGateProjectSkeleton(rootDir: string): void {
+  mkdirSync(join(rootDir, "dist/packages/openclaw-plugin/src"), { recursive: true });
+  mkdirSync(join(rootDir, "docs/releases"), { recursive: true });
+  writeFileSync(join(rootDir, "dist/packages/openclaw-plugin/src/index.js"), "export default {};\n");
+  writeJson(join(rootDir, "package.json"), {
+    name: "lossless-openclaw-orchestrator",
+    version: packageVersion,
+    description: "Index, search, and prepare local Codex sessions for OpenClaw with approval-gated dry-run/control boundaries.",
+    files: ["dist", "packages", "docs", "openclaw.plugin.json", "README.md", "LICENSE", "SECURITY.md"],
+    openclaw: {
+      extensions: ["./dist/packages/openclaw-plugin/src/index.js"],
+      compat: { pluginApi: ">=2026.6.8" },
+      build: { openclawVersion: ">=2026.6.8" }
+    }
+  });
+  writeJson(join(rootDir, "openclaw.plugin.json"), {
+    id: "lossless-openclaw-orchestrator",
+    name: "Lossless OpenClaw Orchestrator",
+    description: "Index, search, and prepare local Codex sessions for OpenClaw with approval-gated dry-run/control boundaries.",
+    version: packageVersion,
+    kind: "tool",
+    tools: { prefix: "lco_" },
+    mcp: { command: "lco-mcp-server", transport: "stdio" },
+    safety: {
+      localOnlyByDefault: true,
+      liveControlRequires: ["dry_run", "approval_audit_id"],
+      forbiddenClaims: ["Full Claude Code parity", "cloud sync", "unattended desktop takeover", "permission bypass"]
+    }
+  });
+  writeFileSync(join(rootDir, "README.md"), [
+    "# Lossless OpenClaw Orchestrator",
+    "docs/SETUP.md",
+    "npm install -g lossless-codex-orchestrator@latest",
+    "npm install -g lossless-openclaw-orchestrator@latest",
+    "loo index codex",
+    "loo-mcp-server",
+    "CONTRIBUTING.md",
+    "AGENTS.md",
+    "CODE_OF_CONDUCT.md",
+    "SECURITY.md",
+    "VISION.md",
+    "docs/OPENCLAW_PLUGIN.md",
+    "docs/PRIVACY.md",
+    "docs/releases/CHANGELOG.md",
+    "License",
+    "Give your main agent a memory and command layer for all your Codex projects and threads.",
+    "field-weighted FTS5 search",
+    "prepared cards",
+    "summary leaves",
+    "attention inbox",
+    "project digest",
+    "dry-run command packets",
+    "## OpenClaw And MCP"
+  ].join("\n"));
+  writeFileSync(join(rootDir, "docs/CLAIM_AUDIT.md"), [
+    "Forbidden Beta Claims",
+    "approved_live_control_smoke_missing",
+    "Full Claude Code parity",
+    "No cloud sync",
+    "No unattended desktop takeover",
+    "No permission bypass",
+    "release-grade enterprise security",
+    "generic GUI mutation"
+  ].join("\n"));
+  writeFileSync(join(rootDir, "docs/BETA_RELEASE_DEMO.md"), [
+    "100+ local Codex sessions",
+    "does not run live control"
+  ].join("\n"));
+  writeFileSync(join(rootDir, `docs/releases/RELEASE_NOTES_${packageVersion}.md`), `# Release ${packageVersion}\n`);
+}
+
 function assertLooOk(args: string[]): void {
   const result = runLoo(args);
   assert.equal(result.status, 0, result.stderr || result.stdout);
@@ -119,6 +190,8 @@ test("loo qa-lab privacy-scan writes a public-safe clean evidence report", (t) =
 
 test("release gate evidence reports are self-compatible with privacy scan", (t) => {
   const dir = makeTempDir(t, "loo-qa-privacy-release-gates-");
+  const rootDir = makeTempDir(t, "loo-qa-privacy-release-root-");
+  writeReleaseGateProjectSkeleton(rootDir);
   writeDemoStatusCanaryEvidence(dir);
 
   assertLooOk([
@@ -152,6 +225,8 @@ test("release gate evidence reports are self-compatible with privacy scan", (t) 
     dir,
     "--claim-scope",
     "codex-read-search-expand-dry-run",
+    "--root",
+    rootDir,
     "--strict"
   ]);
   assertLooOk([
@@ -170,6 +245,8 @@ test("release gate evidence reports are self-compatible with privacy scan", (t) 
     dir,
     "--claim-scope",
     "codex-read-search-expand-dry-run",
+    "--root",
+    rootDir,
     "--strict"
   ]);
   assertLooOk([
@@ -178,7 +255,9 @@ test("release gate evidence reports are self-compatible with privacy scan", (t) 
     "--evidence-dir",
     dir,
     "--claim-scope",
-    "codex-read-search-expand-dry-run"
+    "codex-read-search-expand-dry-run",
+    "--root",
+    rootDir
   ]);
 
   const result = runLoo([
