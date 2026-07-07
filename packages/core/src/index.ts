@@ -15153,6 +15153,7 @@ function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: num
       safeParts.push(clean);
       const rangeKind = textRangeKind(item);
       rangeKinds.add(rangeKind);
+      // Assistant finals must come from prose payloads, not tool-call envelopes.
       if (rangeKind === "assistant_message") assistantSafeParts.push(clean);
       const plans = extractPlans(clean);
       for (const plan of plans) session.plans.push(plan);
