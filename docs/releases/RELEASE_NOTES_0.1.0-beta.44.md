@@ -1,85 +1,16 @@
 # Release Notes 0.1.0-beta.44
 
-`0.1.0-beta.44` keeps the Codex-first local orchestration beta scope and
-publishes the #354 CLI help, parser-error, doctor-output, and release-evidence
-public-safety hygiene slice.
+0.1.0-beta.44 was an early beta release in the LCO historical archive. This page is kept concise for public changelog readers. Detailed engineering history lives in GitHub issues, pull requests, QA reports, and maintainer runbooks.
 
-## What Changed
+## Notes
 
-- Added top-level `loo --help` and `loo --version` handling so users and agents
-  can inspect the installed CLI without accidentally entering a command path.
-- Parser and runtime CLI errors now emit one-line public-safe messages without
-  stack traces, and known local path shapes are redacted before printing.
-- The redaction coverage now includes macOS paths with spaces, workspace roots,
-  Linux home/temp paths, and Windows-style local paths.
-- `loo doctor` no longer prints the raw local database path. It now reports
-  non-sensitive database status fields that preserve storage diagnostics without
-  leaking machine-local paths.
-- CLI usage-style errors consistently exit as usage failures while non-usage
-  runtime errors still fail closed.
-- Release scorecard wording now avoids stale beta publish instructions and keeps
-  the local-agent usability scorecard advisory rather than customer-ready.
-- #160 continues to ship `loo_desktop_proof_action` /
-  `loo desktop proof-action`, limited to one CUA Driver TextEdit scratch proof
-  path. The proof action still requires exact backend, target app, target window, action hash, approval ref, permission state, scratch file path, and `execute: true` before the backend can run. This release does not widen that GUI action surface.
-- #160 proves generic gateway invocation without exact proof args fails closed.
-- #160 keeps the OpenClaw tool-smoke hardening where a successful gateway
-  envelope with plugin `output.details.ok: false` is reported as
-  `openclaw_tool_result_not_ok:<tool>` rather than a passing tool call.
+- Part of the local Codex orchestration release train.
+- Focused on local indexing, OpenClaw and MCP integration, recall workflows, validation, packaging, or runtime polish for that release line.
+- For current usage, install the canonical package and run the first health check below.
 
-## Current Claim Scope
+## Current Install
 
-Allowed beta claim:
-
-> Codex-first beta through installed OpenClaw gateway for local Codex sessions,
-> including local indexing, search, describe, bounded expansion, dry-run control
-> envelopes, read-only cockpit/operating-picture cards, deterministic cockpit
-> replayability, public-safe scorecards, gateway-ready proof for core `loo_*`
-> workflows, read-only collaboration next-step planning packets, read-only
-> active-thread state classification, action-bound dry-run Desktop collaboration
-> proof packets, read-only runtime Desktop visibility status reporting, and
-> public-safe CLI help/diagnostic/error surfaces.
-
-This release does not widen the beta.43 live-control scope, GUI mutation scope,
-Claude adapter scope, P1 business-adapter scope, or stable/1.0 claim scope. The
-reduced-scope release claim remains `codex-read-search-expand-dry-run` unless a
-separate release status packet proves a broader claim.
-It uses the same proof boundary as beta.35 for #160 desktop proof-action and
-fallback status behavior.
-
-## Release Gate Notes
-
-- Evidence:
-  `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/2026-07-03/beta44-merged-main-gates/`.
-- PR #354 merged at `bb00050b471c751ff74d3dfbdea0ad8ab3af9d89`.
-- PR #354 gates passed:
-  - GitHub CI `test`
-  - CodeQL
-  - CodeRabbit approval/status context on the fixed current head
-  - evaOS review completed on the fixed current head
-  - current-head GitHub review threads resolved
-  - focused CLI/help/redaction/openclaw-tool-smoke/scorecard tests
-  - merged-main `npm run check`
-  - GitNexus incremental refresh on merged main
-- Working-app status example:
-  `loo release status --claim-scope codex-working-app-proof --runtime-proof-dir <path> --approved-live-control-evidence <path> --npm-publish-approval-evidence <path> --github-release-approval-evidence <path> --candidate-sha <sha> --github-ci-evidence <path> --codeql-evidence <path> --evidence-dir <path> --strict`
-- Reduced-scope status example:
-  `loo release status --claim-scope codex-read-search-expand-dry-run --npm-publish-approval-evidence <path> --github-release-approval-evidence <path> --candidate-sha <sha> --github-ci-evidence <path> --codeql-evidence <path> --evidence-dir <path> --strict`
-- Both status examples include the required `--evidence-dir <path>` flag.
-- If this candidate is published, npm `beta` points at `0.1.0-beta.44`.
-  `latest` is not promoted.
-- `approved_live_control_smoke_missing` remains the blocker when a working-app
-  claim is attempted without approved live-control smoke evidence.
-
-## Explicit Non-Claims
-
-No new live Codex control smoke is run by this release.
-It does not run generic GUI mutation and does not run Codex GUI mutation.
-No automatic gateway authorization.
-No broad gateway scope approval. No prompt typing. No clicking. No arbitrary app control.
-Claude Code remains an adapter stub, not an adapter-equivalence claim.
-Bundle/status checks do not publish to npm and do not create a GitHub Release.
-No release-grade enterprise security.
-No Claude Code parity, no Notion/support-control/Stripe/Company Brain P1
-adapter proof, no cloud sync, no unattended desktop takeover, no npm `latest`
-promotion, and no enterprise/customer-ready security is claimed.
+```bash
+npm install -g lossless-codex-orchestrator@latest
+lco doctor
+```

@@ -1,53 +1,16 @@
 # Release Notes 0.1.0-beta.0
 
-`lossless-openclaw-orchestrator` is a Codex-first public beta for indexing local Codex sessions, bounded recall, OpenClaw MCP tools, and approval-gated Codex controls.
+0.1.0-beta.0 was an early beta release in the LCO historical archive. This page is kept concise for public changelog readers. Detailed engineering history lives in GitHub issues, pull requests, QA reports, and maintainer runbooks.
 
-## Included
+## Notes
 
-- Local Codex JSONL indexing into a local SQLite database.
-- Search, describe, final-message, proposed-plan, touched-file, tool-call, and bounded expansion surfaces.
-- Read-only OpenClaw LCM peer recall through source-prefixed refs.
-- Direct Codex app-server diagnostics and approval-gated control tools.
-- CUA Driver and Peekaboo fallback readiness/diagnostic surfaces, with GUI action still dry-run-only.
-- OpenClaw plugin manifest and `loo_*` MCP server tools.
-- `loo release preflight` and `loo release bundle` for public-safe release evidence.
+- Part of the local Codex orchestration release train.
+- Focused on local indexing, OpenClaw and MCP integration, recall workflows, validation, packaging, or runtime polish for that release line.
+- For current usage, install the canonical package and run the first health check below.
 
-## Proof Boundary
-
-- `approved_live_control_smoke_missing` remains until a user provides a structured `loo_approved_live_control_smoke` JSON proof with `rawPromptIncluded: false`.
-- A read/search/expand/dry-run release candidate must use `--claim-scope codex-read-search-expand-dry-run`; those reports record live Codex control in `excludedClaims` instead of claiming approved live-control proof.
-- The bundled release artifact does not publish to npm.
-- The bundled release artifact does not create a GitHub Release.
-- Claude Code remains an adapter stub until storage and control paths are proven.
-- No cloud sync.
-- No unattended desktop takeover.
-- No permission bypass.
-- No release-grade enterprise security.
-
-## Release Gate
-
-Before publishing, run:
+## Current Install
 
 ```bash
-loo release preflight --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight --strict
+npm install -g lossless-codex-orchestrator@latest
+lco doctor
 ```
-
-For a local release artifact bundle without publishing:
-
-```bash
-loo release bundle --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-bundle
-```
-
-For a local release status packet without publishing, creating a GitHub Release, live Codex control, or desktop GUI mutation:
-
-```bash
-loo release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --candidate-sha <release-candidate-sha> --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --npm-publish-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/npm-approval.json --github-release-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-release-approval.json --github-ci-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-ci.json --codeql-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/codeql.json
-```
-
-For a release candidate that intentionally excludes live Codex control:
-
-```bash
-loo release status --claim-scope codex-read-search-expand-dry-run --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --candidate-sha <release-candidate-sha> --npm-publish-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/npm-approval.json --github-release-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-release-approval.json --github-ci-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-ci.json --codeql-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/codeql.json --strict
-```
-
-Do not attach raw Codex session JSONL, private SQLite databases, screenshots with secrets, credentials, or private transcripts to public release artifacts.

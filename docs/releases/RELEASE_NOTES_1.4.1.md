@@ -6,7 +6,6 @@ package's version reporting, flips public docs to the now-published
 the 1.4 identity line. This remains Codex-first local orchestration.
 
 ## What Changed
-
 - Fixed the new package (`lossless-codex-orchestrator`) reporting an `unknown`
   version from neutral working directories. The CLI package-root resolution now
   accepts both package names (`lossless-codex-orchestrator` and the compat
@@ -21,14 +20,12 @@ the 1.4 identity line. This remains Codex-first local orchestration.
 - README/VISION current-stable copy now reflects `1.4.1`.
 
 ## Scope
-
 This patch is about install identity, package metadata, public docs, and package
 contents. It keeps the product centered on local Codex session orchestration:
 indexing, prepared-state recall, bounded expansion, and approval-gated command
 packets.
 
 ## Validation
-
 - Candidate packages: `lossless-codex-orchestrator@1.4.1` (canonical) and
   `lossless-openclaw-orchestrator@1.4.1` (maintained compat).
 - Both packages should be published from the same source tree and verified from
