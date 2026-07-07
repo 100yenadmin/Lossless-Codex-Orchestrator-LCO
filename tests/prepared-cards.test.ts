@@ -1642,6 +1642,12 @@ test("prepared cards promote semantic lifecycle states into card and inbox ranki
         threadId: "019f-life-huge-tail",
         metadata: { status: "ready", nextAction: `Continue bounded evidence review. ${"padding ".repeat(120)}approval required` },
         expectedState: "waiting_approval"
+      },
+      {
+        id: "b0000000000000000000000000000000",
+        threadId: "019f-life-huge-middle",
+        metadata: { status: "ready", nextAction: `Continue bounded evidence review. ${"padding ".repeat(220)}approval required ${"tail ".repeat(220)}` },
+        expectedState: "waiting_approval"
       }
     ];
     for (const fixture of fixtures) {
@@ -1688,7 +1694,7 @@ test("prepared cards promote semantic lifecycle states into card and inbox ranki
     assert.ok(approval);
     assert.ok(completed);
     assert.ok(conflict);
-    assert.equal(cards.summary.partial, 7);
+    assert.equal(cards.summary.partial, 8);
     assert.equal(cards.summary.unknown, 1);
     assert.equal(cards.summary.completed, 1);
     assert.equal(blocked.state, "blocked_missing_info");

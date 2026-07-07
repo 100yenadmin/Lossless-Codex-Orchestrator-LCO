@@ -72,6 +72,7 @@ test("local Mac search UI shell renders only safe summaries, refs, filters, and 
           `ghu_${"C".repeat(24)}`,
           `ghs_${"D".repeat(24)}`,
           `ghr_${"E".repeat(24)}`,
+          `ghp${"M".repeat(24)}`,
           `xoxb-${"1".repeat(12)}-${"2".repeat(12)}-${"a".repeat(24)}`,
           `glpat-${"F".repeat(24)}`,
           `sk-proj-${"G".repeat(24)}`,
@@ -107,7 +108,7 @@ test("local Mac search UI shell renders only safe summaries, refs, filters, and 
   assert.doesNotMatch(shell.html, /npm_ABCDEFGHIJKLMNOPQRSTUVWX/);
   assert.doesNotMatch(
     `${shell.html}\n${JSON.stringify(shell.report)}`,
-    /npm_[A-Za-z0-9_]{16,}|github_pat_|ghp_|gho_|ghu_|ghs_|ghr_|xoxb-|glpat-|sk-proj-|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{20,}|aws_secret_access_key/i
+    /npm_[A-Za-z0-9_]{16,}|github_pat_|gh[pousr]_?[A-Za-z0-9_]{16,}|xoxb-|glpat-|sk-proj-|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{20,}|aws_secret_access_key/i
   );
 });
 

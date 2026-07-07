@@ -13552,13 +13552,7 @@ function normalizedMetadataValue(value: string | null): string {
 }
 
 function normalizedMetadataMatchValue(value: string | null): string {
-  return headTailWindow((value ?? "").trim().toLowerCase(), 2048);
-}
-
-function headTailWindow(value: string, maxLength: number): string {
-  if (value.length <= maxLength) return value;
-  const half = Math.floor(maxLength / 2);
-  return `${value.slice(0, half)} ${value.slice(-half)}`;
+  return (value ?? "").trim().toLowerCase();
 }
 
 function compareUpdatedAtDesc(left: string | null, right: string | null): number {
