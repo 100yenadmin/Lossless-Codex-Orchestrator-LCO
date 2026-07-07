@@ -1539,6 +1539,9 @@ async function snakeCaseControlResult(value: Promise<any>) {
     ...result,
     thread_id: result.threadId,
     created_thread_id: result.createdThreadId,
+    created_thread_candidate_id: result.createdThreadCandidateId,
+    created_thread_resumable: result.createdThreadResumable,
+    created_thread_durability: result.createdThreadDurability,
     approval_audit_id: result.approvalAuditId,
     params_hash: result.paramsHash,
     message_hash: result.messageHash,
@@ -1684,12 +1687,12 @@ async function createStartThreadPostCreateProof(options: {
       : indexFound
         ? "indexed"
         : appServerFound
-          ? "created_but_unindexed"
+          ? "created_but_unindexed_pending"
           : "unresolved_unknown";
   const reasonCodes = [
     appServerFound ? "read_only_app_server_signal" : "app_server_thread_missing",
     readProbeOk ? "read_probe_found_thread" : "read_probe_missing_or_failed",
-    indexFound ? "indexed_session_found" : "created_but_unindexed",
+    indexFound ? "indexed_session_found" : "created_but_unindexed_pending",
     described ? "indexed_description_available" : "indexed_description_missing",
     preparedCardAvailable ? "prepared_card_available" : "prepared_card_missing",
     preparedCardAvailable && !preparedCardCurrent ? "prepared_card_stale_or_not_ready" : null,

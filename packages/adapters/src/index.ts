@@ -620,6 +620,9 @@ export type ControlResult = {
   connectionScope?: "single_request" | "same_connection_sequence";
   loadedThreadReusable?: boolean;
   createdThreadId?: string;
+  createdThreadCandidateId?: string;
+  createdThreadResumable?: boolean;
+  createdThreadDurability?: "persisted" | "unverified_pending";
   expectedTurnId?: string;
   status?: string;
   turn?: CodexTurnResolution;
@@ -815,9 +818,18 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
       : await options.client.request(spec.method, spec.params);
     const response = responseWithTurnResolution(rawResponse, sequenceResult?.turn);
     const liveRecord = options.audit.append({ action: spec.action, target: spec.threadId, paramsHash, messageHash, live: true });
-    const createdThreadId = spec.createdThreadFromResponse ? extractControlThreadId(response) : undefined;
-    const proofThreadId = createdThreadId ?? spec.threadId;
+    const createdThreadCandidateId = spec.createdThreadFromResponse ? extractControlThreadId(response) : undefined;
+    const proofThreadId = createdThreadCandidateId ?? spec.threadId;
     const status = sequenceResult?.turn?.status ?? extractControlStatus(response) ?? undefined;
+    const proofState = liveProofState({
+      method: spec.method,
+      methodSequence,
+      threadId: proofThreadId,
+      response,
+      turnResolution: sequenceResult?.turn
+    });
+    const createdThreadResumable = spec.createdThreadFromResponse ? proofState.persisted === true : undefined;
+    const createdThreadId = spec.createdThreadFromResponse && createdThreadResumable ? createdThreadCandidateId : undefined;
     return {
       action: spec.action,
       threadId: spec.threadId,
@@ -830,16 +842,15 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
       connectionScope,
       loadedThreadReusable: spec.loadedThreadReusable,
       createdThreadId,
+      createdThreadCandidateId,
+      createdThreadResumable,
+      createdThreadDurability: spec.createdThreadFromResponse
+        ? createdThreadResumable ? "persisted" : "unverified_pending"
+        : undefined,
       expectedTurnId: spec.expectedTurnId,
       status,
       turn: sequenceResult?.turn ? publicTurnResolution(sequenceResult.turn) : undefined,
-      proofState: liveProofState({
-        method: spec.method,
-        methodSequence,
-        threadId: proofThreadId,
-        response,
-        turnResolution: sequenceResult?.turn
-      }),
+      proofState,
       response: sanitizeCodexControlResponse(response)
     };
   };

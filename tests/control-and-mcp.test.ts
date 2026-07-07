@@ -845,7 +845,9 @@ test("Codex start-thread workflow is dry-run first and live creation remains pen
     assert.equal(calls[0]?.method, "thread/start");
     assert.deepEqual(calls[0]?.params, {});
     assert.equal(live.live, true);
-    assert.equal(live.createdThreadId, "thr_created");
+    assert.equal(live.createdThreadId, undefined);
+    assert.equal(live.createdThreadCandidateId, "thr_created");
+    assert.equal(live.createdThreadResumable, false);
     assert.equal(live.proofState.acceptedByTransport, true);
     assert.equal(live.proofState.started, true);
     assert.equal(live.proofState.completed, false);
@@ -932,7 +934,7 @@ test("Codex start-thread post-create proof reports public-safe created-but-unind
     };
     assert.equal(proof.public_safe, true);
     assert.equal(proof.read_only, true);
-    assert.equal(proof.status, "created_but_unindexed");
+    assert.equal(proof.status, "created_but_unindexed_pending");
     assert.equal(proof.created_thread_ref, "codex_thread:thr_created");
     assert.equal(proof.parent_thread_ref, "codex_thread:thr_parent");
     assert.equal(proof.proof.app_server.found, true);
@@ -1004,7 +1006,7 @@ test("canonical desktop proof filters start-thread proof input to the allowed su
     }) as { public_safe?: boolean; status?: string };
     const serialized = JSON.stringify(proof);
     assert.equal(proof.public_safe, true);
-    assert.equal(proof.status, "created_but_unindexed");
+    assert.equal(proof.status, "created_but_unindexed_pending");
     assert.equal(serialized.includes(rawPathCanary), false);
     assert.equal(serialized.includes(secretCanary), false);
     assert.deepEqual(readCalls.map((call) => call.method), ["thread/list", "thread/read"]);
@@ -1059,7 +1061,7 @@ test("Codex start-thread post-create proof reads the full created thread id even
       reason_codes: string[];
     };
     assert.deepEqual(readCalls.map((call) => call.method), ["thread/list", "thread/read"]);
-    assert.equal(proof.status, "created_but_unindexed");
+    assert.equal(proof.status, "created_but_unindexed_pending");
     assert.equal(proof.proof.app_server.found, true);
     assert.equal(proof.proof.app_server.read_probe_ok, true);
     assert.equal(proof.proof.index.found, false);
@@ -1532,7 +1534,9 @@ test("MCP tool registry exposes lco-prefixed canonical tools with loo compatibil
       approval_audit_id: startDryRun.approval_audit_id
     }) as {
       live: boolean;
-      created_thread_id: string;
+      created_thread_id?: string;
+      created_thread_candidate_id: string;
+      created_thread_resumable: boolean;
       proof_state: {
         status: string;
         accepted_by_transport: boolean;
@@ -1544,7 +1548,9 @@ test("MCP tool registry exposes lco-prefixed canonical tools with loo compatibil
     };
     assert.equal(codexRequests.at(-1)?.method, "thread/start");
     assert.equal(startLive.live, true);
-    assert.equal(startLive.created_thread_id, "thr_created");
+    assert.equal(startLive.created_thread_id, undefined);
+    assert.equal(startLive.created_thread_candidate_id, "thr_created");
+    assert.equal(startLive.created_thread_resumable, false);
     assert.equal(startLive.proof_state.accepted_by_transport, true);
     assert.equal(startLive.proof_state.completed, false);
     assert.equal(startLive.proof_state.persisted, false);
