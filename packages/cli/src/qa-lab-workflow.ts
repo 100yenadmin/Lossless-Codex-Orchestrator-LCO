@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import { CANONICAL_PACKAGE_NAME, type SupportedPackageName } from "./package-identity.js";
 
 export type QaLabWorkflowSurface = "cli" | "mcp" | "openclaw-gateway" | "desktop-contract";
 export type QaLabWorkflowMode = "dry-run" | "live-approved";
@@ -54,7 +55,7 @@ export type QaLabWorkflowReport = {
   workflowRunReady: boolean;
   publicSafe: true;
   generatedAt: string;
-  packageName: "lossless-openclaw-orchestrator";
+  packageName: SupportedPackageName;
   packageVersion: string | null;
   candidateSha: string | null;
   scenarioId: string;
@@ -257,7 +258,7 @@ export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabW
     workflowRunReady,
     publicSafe: true,
     generatedAt: options.now ?? new Date().toISOString(),
-    packageName: "lossless-openclaw-orchestrator",
+    packageName: CANONICAL_PACKAGE_NAME,
     packageVersion: options.packageVersion ?? null,
     candidateSha: candidateShaValid ? options.candidateSha ?? null : null,
     scenarioId: options.scenarioId,

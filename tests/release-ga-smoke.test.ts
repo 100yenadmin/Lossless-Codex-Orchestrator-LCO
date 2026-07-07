@@ -7,7 +7,7 @@ import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 
 const tsxImport = createRequire(import.meta.url).resolve("tsx");
-const packageName = "lossless-openclaw-orchestrator";
+const packageName = "lossless-codex-orchestrator";
 const packageVersion = "1.2.4";
 const candidateSha = "0f8802f9fe198e50e20c9f0a3e5f5c85b9fcafb5";
 

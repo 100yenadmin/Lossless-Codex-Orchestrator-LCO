@@ -6,6 +6,7 @@ import {
   releaseClaimScopeRequiresWorkingAppRuntimeProof,
   type ReleaseClaimScope
 } from "./release-claim-scope.js";
+import { findSupportedPackageRoot, packageNameForRoot, type SupportedPackageName } from "./package-identity.js";
 import { validateWorkingAppRuntimeProof } from "./runtime-proof-gate.js";
 
 export type ScorecardSweepOptions = {
@@ -41,7 +42,7 @@ export type ScorecardSweepReport = {
   sweepReady: boolean;
   publicSafe: boolean;
   scorecardDeclarationReady: boolean;
-  packageName: "lossless-openclaw-orchestrator";
+  packageName: SupportedPackageName;
   packageVersion: string | null;
   candidateSha: string | null;
   generatedAt: string;
@@ -136,7 +137,7 @@ const DEFAULT_PRIVATE_DATA_EXCLUSIONS = [
 
 export function createScorecardSweep(options: ScorecardSweepOptions): ScorecardSweepReport {
   const evidenceDir = resolve(options.evidenceDir);
-  const packageRoot = options.rootDir ? resolve(options.rootDir) : findPackageRoot(dirname(fileURLToPath(import.meta.url))) ?? process.cwd();
+  const packageRoot = options.rootDir ? resolve(options.rootDir) : findSupportedPackageRoot(dirname(fileURLToPath(import.meta.url))) ?? process.cwd();
   const scorecardDir = options.scorecardDir ? resolve(options.scorecardDir) : join(packageRoot, "evals", "scorecards", "v1.0");
   const claimScope = normalizeReleaseClaimScope(options.claimScope);
   const requiredScorecardNames = requiredScorecardsForScope(claimScope);
@@ -166,7 +167,7 @@ export function createScorecardSweep(options: ScorecardSweepOptions): ScorecardS
     sweepReady: blockers.length === 0,
     publicSafe: rawEvidenceArtifacts.length === 0,
     scorecardDeclarationReady: scorecardDeclarationBlockers.length === 0,
-    packageName: "lossless-openclaw-orchestrator",
+    packageName: packageNameForRoot(packageRoot),
     packageVersion: options.packageVersion ?? null,
     candidateSha: options.candidateSha ?? null,
     generatedAt: options.now ?? new Date().toISOString(),
@@ -372,22 +373,4 @@ function stringValue(value: unknown): string {
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))].sort((left, right) => left.localeCompare(right));
-}
-
-function findPackageRoot(start: string): string | null {
-  let cursor = start;
-  while (true) {
-    const packageJsonPath = join(cursor, "package.json");
-    if (existsSync(packageJsonPath)) {
-      try {
-        const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { name?: string };
-        if (packageJson.name === "lossless-openclaw-orchestrator") return cursor;
-      } catch {
-        return null;
-      }
-    }
-    const parent = dirname(cursor);
-    if (parent === cursor) return null;
-    cursor = parent;
-  }
 }

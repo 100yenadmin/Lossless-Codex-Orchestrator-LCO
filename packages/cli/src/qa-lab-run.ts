@@ -5,6 +5,7 @@ import {
   releaseClaimScopeRequiresLiveControl,
   type ReleaseClaimScope
 } from "./release-claim-scope.js";
+import { CANONICAL_PACKAGE_NAME, type SupportedPackageName } from "./package-identity.js";
 
 export type QaLabRunSuite = "ga";
 export type QaLabRunArtifact = "published" | "candidate";
@@ -61,7 +62,7 @@ export type QaLabRunReport = {
   generatedAt: string;
   suite: QaLabRunSuite;
   artifact: QaLabRunArtifact;
-  packageName: "lossless-openclaw-orchestrator";
+  packageName: SupportedPackageName;
   packageVersion: string;
   candidateSha: string;
   claimScope: ReleaseClaimScope;
@@ -131,7 +132,7 @@ type LoadedEvidence = {
   invalidSeverity?: QaLabRunSeverity;
 };
 
-const PACKAGE_NAME = "lossless-openclaw-orchestrator";
+const PACKAGE_NAME = CANONICAL_PACKAGE_NAME;
 const SHA_PATTERN = /^[a-f0-9]{40}$/i;
 const SECRET_LIKE_PATTERN = /(npm_[A-Za-z0-9]{20,}|bearer\s+[A-Za-z0-9._-]{20,}|sk-[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i;
 const SECRET_LIKE_KEY_PATTERN = /^(authorization|cookie|set-cookie|x-api-key|api[_-]?key|token|access[_-]?token|refresh[_-]?token|secret|password)$/i;

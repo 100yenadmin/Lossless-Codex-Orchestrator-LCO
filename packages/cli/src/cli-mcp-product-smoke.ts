@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { CANONICAL_PACKAGE_NAME, type SupportedPackageName } from "./package-identity.js";
 
 export type CliMcpProductSmokeOptions = {
   evidenceDir?: string;
@@ -21,7 +22,7 @@ export type CliMcpProductSmokeReport = {
   localOnly: true;
   dryRun: true;
   generatedAt: string;
-  packageName: "lossless-openclaw-orchestrator";
+  packageName: SupportedPackageName;
   packageVersion: string;
   candidateSha: string | null;
   cliReady: boolean;
@@ -114,7 +115,7 @@ export async function createCliMcpProductSmokeReport(options: CliMcpProductSmoke
     localOnly: true,
     dryRun: true,
     generatedAt: options.now ?? new Date().toISOString(),
-    packageName: "lossless-openclaw-orchestrator",
+    packageName: CANONICAL_PACKAGE_NAME,
     packageVersion: options.packageVersion,
     candidateSha: options.candidateSha ?? null,
     cliReady,

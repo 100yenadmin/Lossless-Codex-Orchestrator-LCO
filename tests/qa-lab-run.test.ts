@@ -743,7 +743,7 @@ test("qa-lab run feeds release ga-smoke through judge and adversarial review rep
   writeJson(join(dir, "release-status.json"), {
     ok: true,
     releaseReady: true,
-    packageName: "lossless-openclaw-orchestrator",
+    packageName: "lossless-codex-orchestrator",
     packageVersion,
     candidateSha,
     claimScope: "codex-working-app-proof",
@@ -753,7 +753,7 @@ test("qa-lab run feeds release ga-smoke through judge and adversarial review rep
   writeJson(join(dir, "release-finalization-status.json"), {
     ok: true,
     finalized: true,
-    packageName: "lossless-openclaw-orchestrator",
+    packageName: "lossless-codex-orchestrator",
     packageVersion,
     candidateSha,
     expectedDistTag: "latest",

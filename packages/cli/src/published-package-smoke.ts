@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PACKAGE_NAME, type DistTag, type RegistryVersionMatchStatus, distTagForVersion, matchingRegistryStatus, mismatchedRegistryStatus } from "./dist-tag.js";
+import { type DistTag, type RegistryVersionMatchStatus, distTagForVersion, matchingRegistryStatus, mismatchedRegistryStatus } from "./dist-tag.js";
+import { SUPPORTED_PACKAGE_NAMES, findSupportedPackageRoot, isSupportedPackageName, packageNameForRoot } from "./package-identity.js";
 
 export type PublishedPackageSmokeOptions = {
   evidenceDir?: string;
@@ -139,10 +140,11 @@ const READINESS_SEMANTICS = Object.freeze({
 export function createPublishedPackageSmokeReport(options: PublishedPackageSmokeOptions): PublishedPackageSmokeReport {
   const rootDir = options.rootDir
     ? resolve(options.rootDir)
-    : findPackageRoot(dirname(fileURLToPath(import.meta.url))) ?? process.cwd();
+    : findSupportedPackageRoot(dirname(fileURLToPath(import.meta.url))) ?? process.cwd();
   const packageJson = readPackageJson(rootDir);
+  const packageName = packageNameForRoot(rootDir);
   const expectedDistTag = distTagForVersion(packageJson.version);
-  const expectedPackage = `${PACKAGE_NAME}@${expectedDistTag}`;
+  const expectedPackage = `${packageName}@${expectedDistTag}`;
   const dogfood = readJsonObject(options.dogfoodReportPath);
   const toolSmoke = readJsonObject(options.toolSmokeReportPath);
   const configuredToolSmoke = options.configuredToolSmokeReportPath ? readJsonObject(options.configuredToolSmokeReportPath) : null;
@@ -182,7 +184,7 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
     : "not_run";
   const binaryProbeDiagnostic = readBinaryProbeDiagnostic(options.binaryProbeReportPath, packageJson.version);
   const blockers = [
-    ...(packageJson.name === PACKAGE_NAME ? [] : ["package_name_mismatch"]),
+    ...(isSupportedPackageName(packageJson.name) ? [] : ["package_name_mismatch"]),
     ...(versionMatchStatus.endsWith("_mismatch") ? [`registry_${expectedDistTag}_version_mismatch`] : []),
     ...(dogfoodReady ? [] : ["openclaw_dogfood_not_ready"]),
     ...(requiredToolsPresent ? [] : ["openclaw_required_tools_missing"]),
@@ -236,7 +238,7 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
     blockers,
     nextSafeCommands: uniqueStrings([
       ...npmInstallDiagnosticCommands(expectedPackage, npmInstallDiagnostic),
-      ...binaryProbeDiagnosticCommands(packageJson.version, binaryProbeDiagnostic),
+      ...binaryProbeDiagnosticCommands(expectedPackage, binaryProbeDiagnostic),
       `npm view ${expectedPackage} version dist-tags --json`,
       `loo openclaw dogfood --profile lco-dogfood-published --install-source ${expectedPackage} --required-tool loo_doctor --required-tool loo_search_sessions --strict`,
       "loo openclaw tool-smoke --profile lco-dogfood-published --required-tool loo_doctor --required-tool loo_search_sessions --strict",
@@ -382,11 +384,11 @@ function npmInstallDiagnosticCommands(
 }
 
 function binaryProbeDiagnosticCommands(
-  packageVersion: string,
+  expectedPackage: string,
   diagnostic: PublishedPackageSmokeReport["binaryProbeDiagnostic"]
 ): string[] {
   if (diagnostic.classification !== "smoke_harness_path_shadow" && diagnostic.classification !== "candidate_binary_version_mismatch") return [];
-  const tarballLookup = `npm view ${PACKAGE_NAME}@${packageVersion} dist.tarball`;
+  const tarballLookup = `npm view ${expectedPackage} dist.tarball`;
   return [
     `${tarballLookup} --json`,
     `tarball_url="$(${tarballLookup})" && test -n "$tarball_url" && tmp_dir="$(mktemp -d)" && curl -fsSL "$tarball_url" -o "$tmp_dir/package.tgz" && tar -xzf "$tmp_dir/package.tgz" -C "$tmp_dir" && node "$tmp_dir/package/dist/packages/cli/src/index.js" --version`
@@ -521,7 +523,7 @@ function readNpmInstallDiagnostic(path: string | undefined): PublishedPackageSmo
   if (!publicSafe) return invalidNpmInstallDiagnostic(["invalid_or_non_public_safe_diagnostic"]);
   const suggestedRetry = publicSafeSuggestedRetry(readNestedString(payload, ["suggestedRetry"]));
   const registryTarballVisible = readNestedBoolean(payload, ["registryTarballVisible"])
-    || Boolean(suggestedRetry?.startsWith(`npm install https://registry.npmjs.org/${PACKAGE_NAME}/-/`));
+    || SUPPORTED_PACKAGE_NAMES.some((packageName) => suggestedRetry?.startsWith(`npm install https://registry.npmjs.org/${packageName}/-/`));
   const tarballFallbackInstallable = readNestedBoolean(payload, ["tarballFallbackInstallOk"])
     || readNestedBoolean(payload, ["tarballInstallOk"]);
   const trueUnpublishedVersion = readNestedBoolean(payload, ["trueUnpublishedVersion"]);
@@ -621,8 +623,10 @@ function invalidNpmInstallDiagnostic(evidenceInputs: string[]): PublishedPackage
 function publicSafeSuggestedRetry(value: string | null): string | null {
   if (!value) return null;
   if (/\/Users\/|\.npmrc|Bearer\s+|npm_[A-Za-z0-9]{20,}|token|password|secret/i.test(value)) return null;
-  if (value.startsWith(`npm install https://registry.npmjs.org/${PACKAGE_NAME}/-/`)) return value;
-  if (value.startsWith(`npm view ${PACKAGE_NAME}@`) && value.includes(" dist.tarball")) return value;
+  for (const packageName of SUPPORTED_PACKAGE_NAMES) {
+    if (value.startsWith(`npm install https://registry.npmjs.org/${packageName}/-/`)) return value;
+    if (value.startsWith(`npm view ${packageName}@`) && value.includes(" dist.tarball")) return value;
+  }
   return null;
 }
 
@@ -738,14 +742,4 @@ function readInvokedTools(input: Record<string, unknown>): string[] {
     .map((item) => item && typeof item === "object" && !Array.isArray(item) ? (item as Record<string, unknown>).toolName : null)
     .filter((tool): tool is string => typeof tool === "string" && /^loo_[a-z0-9_]+$/.test(tool));
   return [...new Set(tools)].slice(0, 20);
-}
-
-function findPackageRoot(start: string): string | null {
-  let cursor = start;
-  while (true) {
-    if (existsSync(join(cursor, "package.json"))) return cursor;
-    const parent = dirname(cursor);
-    if (parent === cursor) return null;
-    cursor = parent;
-  }
 }

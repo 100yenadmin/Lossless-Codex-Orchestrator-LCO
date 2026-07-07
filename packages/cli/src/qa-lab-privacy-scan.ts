@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readSync, readdirSync, writeFileSync } from "node:fs";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
+import { CANONICAL_PACKAGE_NAME, type SupportedPackageName } from "./package-identity.js";
 
 export type QaLabPrivacyScanOptions = {
   evidenceDir: string;
@@ -28,7 +29,7 @@ export type QaLabPrivacyScanReport = {
   ok: boolean;
   publicSafe: boolean;
   generatedAt: string;
-  packageName: "lossless-openclaw-orchestrator";
+  packageName: SupportedPackageName;
   packageVersion: string;
   candidateSha: string | null;
   scannedRootRef: "evidence-dir" | "scan-dir";
@@ -65,7 +66,7 @@ type ScanEntry = {
   scanned: boolean;
 };
 
-const PACKAGE_NAME = "lossless-openclaw-orchestrator";
+const PACKAGE_NAME = CANONICAL_PACKAGE_NAME;
 const SHA_PATTERN = /^[a-f0-9]{40}$/i;
 const MAX_SCAN_ENTRIES = 4096;
 const TEXT_SCAN_CHUNK_BYTES = 64 * 1024;
