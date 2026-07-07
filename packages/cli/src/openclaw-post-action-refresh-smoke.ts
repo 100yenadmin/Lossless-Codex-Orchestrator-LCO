@@ -438,9 +438,10 @@ function collectSourceRefs(value: unknown): string[] {
 function findTargetRecord(value: unknown, targetRef: string, options: { descendIntoRecords?: boolean } = {}): unknown | undefined {
   const descendIntoRecords = options.descendIntoRecords ?? true;
   if (Array.isArray(value)) {
-    // The option gates object-field recursion only; arrays still expose each record's direct refs.
     for (const item of value) {
-      const found = findTargetRecord(item, targetRef, options);
+      const found = descendIntoRecords
+        ? findTargetRecord(item, targetRef, options)
+        : findDirectTargetRecord(item, targetRef);
       if (found !== undefined) return found;
     }
     return undefined;
@@ -453,6 +454,10 @@ function findTargetRecord(value: unknown, targetRef: string, options: { descendI
     if (found !== undefined) return found;
   }
   return undefined;
+}
+
+function findDirectTargetRecord(value: unknown, targetRef: string): unknown | undefined {
+  return isRecord(value) && directSourceRefs(value).includes(targetRef) ? value : undefined;
 }
 
 function findTargetRecordInTopLevelCollections(value: Record<string, unknown>, targetRef: string, options: { descendIntoRecords?: boolean }): unknown | undefined {

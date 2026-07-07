@@ -375,6 +375,9 @@ test("published-smoke requires public-safe candidate binary probe evidence", () 
     assert.doesNotMatch(recoveryCommand, /\bprintf\b/);
     assert.match(recoveryCommand, /trap 'rm -rf "\$tmp_dir"' EXIT/);
     assert.match(recoveryCommand, /tarballBinaryVersion/);
+    assert.match(recoveryCommand, /test -n "\$version"/);
+    assert.match(recoveryCommand, /test -n "\$package_version"/);
+    assert.match(recoveryCommand, /test "\$version" = "\$package_version"/);
     assert.match(recoveryCommand, /"\$version" "\$package_version"/);
     assert.ok(recoveryCommand.includes(packageVersion));
   } finally {
