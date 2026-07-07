@@ -275,6 +275,52 @@ test("tool-only compacted sessions do not synthesize final messages", () => {
   }
 });
 
+test("assistant prose without final marker remains the fallback final", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-assistant-fallback-final-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const threadPath = join(sessions, "rollout-2026-07-07T00-02-00-019f-assistant-fallback-final.jsonl");
+  const assistantText = "I pushed the parser patch and will monitor the pull request.";
+  const lines = [
+    { timestamp: "2026-07-07T00:02:00Z", session_meta: { payload: { id: "019f-assistant-fallback-final" } } },
+    { timestamp: "2026-07-07T00:02:01Z", event_msg: { type: "thread_name", name: "Assistant fallback final extraction" } },
+    {
+      timestamp: "2026-07-07T00:02:02Z",
+      event_msg: {
+        type: "agent_message",
+        message: assistantText
+      }
+    },
+    {
+      timestamp: "2026-07-07T00:02:03Z",
+      response_item: {
+        type: "function_call_output",
+        call_id: "call_fallback_noise",
+        output: "Final: function output complete but must not become fallback final."
+      }
+    }
+  ];
+  writeFileSync(threadPath, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const result = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    assert.deepEqual(result.errors, []);
+
+    const final = getCodexFinalMessages(db, { threadId: "019f-assistant-fallback-final", limit: 5 })[0]?.text ?? "";
+    assert.equal(final, assistantText);
+
+    const searchRow = db.prepare("SELECT finals, body FROM codex_search_fts WHERE thread_id = ?").get("019f-assistant-fallback-final") as { finals: string; body: string } | undefined;
+    assert.ok(searchRow, "codex_search_fts row exists for assistant fallback fixture");
+    assert.equal(searchRow.finals, assistantText);
+    assert.match(searchRow.body, /function output/);
+    assert.doesNotMatch(searchRow.finals, /function output/);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("loo_codex_extract dispatches all canonical extraction kinds", async () => {
   const fixture = makeFixture();
   const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
