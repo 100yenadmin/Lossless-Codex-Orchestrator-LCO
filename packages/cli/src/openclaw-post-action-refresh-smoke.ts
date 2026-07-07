@@ -182,7 +182,7 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
   const targetThreadMapOutput = findTargetRecord(threadMapOutput, targetRef, topLevelTargetSearch);
   const targetSearchOutput = findTargetRecord(searchOutput, targetRef, topLevelTargetSearch);
   const targetDescribeOutput = findTargetRecord(describeOutput, targetRef, topLevelTargetSearch);
-  const targetExpandOutput = findTargetRecord(expandOutput, targetRef, { descendIntoRecords: false });
+  const targetExpandOutput = findTargetRecord(expandOutput, targetRef, topLevelTargetSearch);
   const sourceRefs = unique([targetThreadMapOutput, targetSearchOutput, targetDescribeOutput, targetExpandOutput]
     .flatMap((output) => output === undefined ? [] : collectSourceRefs(output)))
     .filter((ref) => ref.startsWith("codex_thread:"));

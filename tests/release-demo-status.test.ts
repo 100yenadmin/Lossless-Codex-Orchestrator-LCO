@@ -639,6 +639,34 @@ test("release demo-status refuses to write the manifest through a symlink", () =
   }
 });
 
+test("release demo-status refuses to write the manifest through a dangling symlink", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-manifest-dangling-"));
+  const outsideDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-missing-target-"));
+  const outsideFile = join(outsideDir, "missing-release-demo-status-target.json");
+  symlinkSync(outsideFile, join(evidenceDir, "release-demo-status.json"));
+
+  try {
+    const liveControlProof = writePassingDemoEvidence(evidenceDir);
+    const result = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "release",
+      "demo-status",
+      "--evidence-dir",
+      evidenceDir,
+      "--approved-live-control-evidence",
+      liveControlProof
+    ], { encoding: "utf8" });
+
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stderr}\n${result.stdout}`, /release-demo-status\.json/);
+    assert.equal(existsSync(outsideFile), false);
+  } finally {
+    unlinkSync(join(evidenceDir, "release-demo-status.json"));
+  }
+});
+
 test("release demo-status requires brief and evidence expansion refs to be distinct", () => {
   const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-distinct-expansions-"));
   const liveControlProof = writePassingDemoEvidence(evidenceDir);

@@ -197,8 +197,14 @@ export function createReleaseDemoStatus(options: ReleaseDemoStatusOptions): Rele
 }
 
 function assertSafeDemoStatusManifestPath(path: string): void {
-  if (!existsSync(path)) return;
-  if (lstatSync(path).isSymbolicLink()) {
+  let stat;
+  try {
+    stat = lstatSync(path);
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return;
+    throw error;
+  }
+  if (stat.isSymbolicLink()) {
     throw new Error("release-demo-status.json must be a regular evidence file, not a symlink");
   }
 }

@@ -27,7 +27,7 @@ const PRIVATE_RESULT_FIELDS = new Set([
   "video"
 ]);
 
-const SECRET_LIKE_PATTERN = /\b(?:npm_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}|gh[pousr]_?[A-Za-z0-9_]{16,}|sk-[A-Za-z0-9_-]{10,}|glpat-[A-Za-z0-9_-]{16,}|xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{20,}|aws[_-]?secret[_-]?access[_-]?key\s*[:=]\s*[A-Za-z0-9/+=]{40})(?![A-Za-z0-9_+/=-])/gi;
+const SECRET_LIKE_PATTERN = /\b(?:npm_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}|gh[pousr]_?[A-Za-z0-9_]{16,}|sk-[A-Za-z0-9_-]{10,}|glpat-[A-Za-z0-9_-]{16,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{20,}|(?:AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|aws[_-]?secret[_-]?access[_-]?key\s*[:=]\s*[A-Za-z0-9/+=]{40})(?![A-Za-z0-9_+/=-]))/gi;
 
 export type LocalMacSearchUiStatus = {
   platform?: string;
