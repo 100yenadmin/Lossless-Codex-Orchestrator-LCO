@@ -399,7 +399,7 @@ function binaryProbeDiagnosticCommands(
   if (diagnostic.classification === "not_provided") {
     return [
       `${tarballLookup} --json`,
-      recoverySubshellCommand(`${tarballExtractPrefix} && binary_probe_report="$tmp_dir/binary-probe.json" && version="$(node "$tmp_dir/package/dist/packages/cli/src/index.js" --version)" && package_version="$(node -pe "require(process.argv[1]).version" "$tmp_dir/package/package.json")" && test -n "$version" && test -n "$package_version" && test "$version" = "$package_version" && ${binaryProbeJsonWriteCommand(packageVersion)} && loo openclaw published-smoke --dogfood-report dogfood.json --tool-smoke-report tool-smoke.json --binary-probe-report "$binary_probe_report" --strict`)
+      recoverySubshellCommand(`dogfood_report="\${LCO_DOGFOOD_REPORT:?set LCO_DOGFOOD_REPORT to a fresh dogfood report path}" && tool_smoke_report="\${LCO_TOOL_SMOKE_REPORT:?set LCO_TOOL_SMOKE_REPORT to a fresh tool-smoke report path}" && ${tarballExtractPrefix} && binary_probe_report="$tmp_dir/binary-probe.json" && version="$(node "$tmp_dir/package/dist/packages/cli/src/index.js" --version)" && package_version="$(node -pe "require(process.argv[1]).version" "$tmp_dir/package/package.json")" && test -n "$version" && test -n "$package_version" && test "$version" = "$package_version" && ${binaryProbeJsonWriteCommand(packageVersion)} && loo openclaw published-smoke --dogfood-report "$dogfood_report" --tool-smoke-report "$tool_smoke_report" --binary-probe-report "$binary_probe_report" --strict`)
     ];
   }
   if (diagnostic.classification !== "smoke_harness_path_shadow" && diagnostic.classification !== "candidate_binary_version_mismatch") return [];
@@ -414,7 +414,7 @@ function recoverySubshellCommand(command: string): string {
 }
 
 function publishedPackageTarballExtractCommand(tarballLookup: string): string {
-  return `tarball_url="$(${tarballLookup})" && test -n "$tarball_url" && tmp_dir="$(mktemp -d)" && trap 'rm -rf "$tmp_dir"' EXIT && curl -fsSL "$tarball_url" -o "$tmp_dir/package.tgz" && tar -xzf "$tmp_dir/package.tgz" -C "$tmp_dir"`;
+  return `tarball_url="$(${tarballLookup})" && test -n "$tarball_url" && tmp_dir="$(mktemp -d)" && trap 'test -n "\${tmp_dir:-}" && rm -rf "$tmp_dir"' EXIT && curl -fsSL "$tarball_url" -o "$tmp_dir/package.tgz" && tar -xzf "$tmp_dir/package.tgz" -C "$tmp_dir"`;
 }
 
 function binaryProbeJsonWriteCommand(packageVersion: string): string {

@@ -466,6 +466,8 @@ function collectEvidenceFiles(root: string, current = root): Array<{ name: strin
         linkKind = "unknown";
       }
       try {
+        // Do not traverse symlinked evidence directories. They are reported
+        // and rejected as a single fail-closed artifact boundary.
         files.push({ name, linkTarget: readlinkSync(path).replace(/\\/g, "/"), linkKind });
       } catch {
         files.push({ name, linkKind });

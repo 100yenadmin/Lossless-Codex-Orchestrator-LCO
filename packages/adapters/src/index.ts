@@ -1074,6 +1074,8 @@ const TURN_NOTIFICATION_METHOD_ORDER = [
   "turn/completed",
   "turn/failed",
   "turn/interrupted",
+  // Codex has historically surfaced both spellings; keep the original
+  // double-l form before the single-l alias for deterministic compatibility.
   "turn/cancelled",
   "turn/canceled"
 ] as const;

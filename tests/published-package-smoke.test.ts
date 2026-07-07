@@ -371,6 +371,12 @@ test("published-smoke requires public-safe candidate binary probe evidence", () 
     const recoveryCommand = report.nextSafeCommands.find((command) => command.includes("binary_probe_report=") && command.includes("write-binary-probe.mjs"));
     assert.equal(typeof recoveryCommand, "string");
     assert.match(recoveryCommand, /^\(/);
+    assert.match(recoveryCommand, /LCO_DOGFOOD_REPORT/);
+    assert.match(recoveryCommand, /LCO_TOOL_SMOKE_REPORT/);
+    assert.match(recoveryCommand, /--dogfood-report "\$dogfood_report"/);
+    assert.match(recoveryCommand, /--tool-smoke-report "\$tool_smoke_report"/);
+    assert.doesNotMatch(recoveryCommand, /--dogfood-report dogfood\.json/);
+    assert.doesNotMatch(recoveryCommand, /--tool-smoke-report tool-smoke\.json/);
     assert.match(recoveryCommand, /package_version=/);
     assert.match(recoveryCommand, /JSON\.stringify/);
     assert.match(recoveryCommand, /process\.argv\.slice\(2\)/);
@@ -380,7 +386,7 @@ test("published-smoke requires public-safe candidate binary probe evidence", () 
     assert.match(recoveryCommand, /--binary-probe-report "\$binary_probe_report"/);
     assert.doesNotMatch(recoveryCommand, /node -e/);
     assert.doesNotMatch(recoveryCommand, /writeFileSync\('binary-probe\.json'/);
-    assert.match(recoveryCommand, /trap 'rm -rf "\$tmp_dir"' EXIT/);
+    assert.ok(recoveryCommand.includes("trap 'test -n \"${tmp_dir:-}\" && rm -rf \"$tmp_dir\"' EXIT"));
     assert.match(recoveryCommand, /tarballBinaryVersion/);
     assert.match(recoveryCommand, /test -n "\$version"/);
     assert.match(recoveryCommand, /test -n "\$package_version"/);
@@ -1195,7 +1201,7 @@ test("published-smoke classifies global loo PATH shadowing without failing prove
     assert.equal(report.binaryProbeDiagnostic.resolvedBinarySource, "global_path");
     assert.ok(report.binaryProbeDiagnostic.guidance.some((item) => item.includes("binary-probe tarball evidence")));
     assert.ok(report.nextSafeCommands.some((command) => command.includes("npm view lossless-openclaw-orchestrator@")));
-    assert.ok(report.nextSafeCommands.some((command) => command.includes("trap 'rm -rf \"$tmp_dir\"' EXIT")));
+    assert.ok(report.nextSafeCommands.some((command) => command.includes("trap 'test -n \"${tmp_dir:-}\" && rm -rf \"$tmp_dir\"' EXIT")));
     assert.doesNotMatch(JSON.stringify(report), /\/opt\/homebrew|private shell output|old version with raw npm output/i);
 
     writeJson(binaryProbePath, {
