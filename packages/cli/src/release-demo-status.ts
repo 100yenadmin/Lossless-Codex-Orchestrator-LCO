@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readlinkSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readlinkSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   excludedClaimsForScope,
@@ -205,18 +205,28 @@ function writeSafeDemoStatusManifest(path: string, contents: string): void {
     if (lstatSync(tempPath).isSymbolicLink()) {
       throw new Error("release-demo-status temporary manifest must not be a symlink");
     }
+    const tempStat = lstatSync(tempPath);
+    if (!tempStat.isFile()) {
+      throw new Error("release-demo-status temporary manifest must be a regular file");
+    }
     assertSafeDemoStatusManifestPath(path);
     renameSync(tempPath, path);
-    assertWrittenSafeDemoStatusManifestPath(path);
+    assertWrittenSafeDemoStatusManifestPath(path, { dev: tempStat.dev, ino: tempStat.ino });
   } finally {
     if (existsSync(tempPath)) unlinkSync(tempPath);
   }
 }
 
-function assertWrittenSafeDemoStatusManifestPath(path: string): void {
-  const stat = lstatSync(path);
-  if (stat.isSymbolicLink() || !stat.isFile()) {
-    throw new Error("release-demo-status.json must be a regular evidence file after write");
+function assertWrittenSafeDemoStatusManifestPath(path: string, expectedIdentity: { dev: number; ino: number }): void {
+  const noFollowFlag = "O_NOFOLLOW" in constants ? constants.O_NOFOLLOW : 0;
+  const fd = openSync(path, constants.O_RDONLY | noFollowFlag);
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || stat.dev !== expectedIdentity.dev || stat.ino !== expectedIdentity.ino) {
+      throw new Error("release-demo-status.json must be the same regular evidence file after write");
+    }
+  } finally {
+    closeSync(fd);
   }
 }
 

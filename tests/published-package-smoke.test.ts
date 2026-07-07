@@ -380,6 +380,8 @@ test("published-smoke requires public-safe candidate binary probe evidence", () 
     assert.doesNotMatch(recoveryCommand, /--dogfood-report dogfood\.json/);
     assert.doesNotMatch(recoveryCommand, /--tool-smoke-report tool-smoke\.json/);
     assert.match(recoveryCommand, /package_version=/);
+    assert.match(recoveryCommand, /resolved_binary_source="package_tarball"/);
+    assert.match(recoveryCommand, /path_shadowed="false"/);
     assert.match(recoveryCommand, /JSON\.stringify/);
     assert.match(recoveryCommand, /process\.argv\.at\(-1\)/);
     assert.match(recoveryCommand, /process\.argv\.slice\(2\)/);
@@ -395,7 +397,7 @@ test("published-smoke requires public-safe candidate binary probe evidence", () 
     assert.match(recoveryCommand, /test -n "\$version"/);
     assert.match(recoveryCommand, /test -n "\$package_version"/);
     assert.match(recoveryCommand, /test "\$version" = "\$package_version"/);
-    assert.match(recoveryCommand, /"\$binary_probe_report" .*"\$version" "\$package_version"/);
+    assert.match(recoveryCommand, /"\$binary_probe_report" .*"\$version" "\$package_version" "\$resolved_binary_source" "\$path_shadowed"/);
     assert.ok(recoveryCommand.includes(`'${packageVersion}'`));
     assert.ok(recoveryCommand.includes(packageVersion));
   } finally {

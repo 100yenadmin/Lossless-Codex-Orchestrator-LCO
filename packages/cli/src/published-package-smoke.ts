@@ -399,7 +399,7 @@ function binaryProbeDiagnosticCommands(
   if (diagnostic.classification === "not_provided") {
     return [
       `${tarballLookup} --json`,
-      recoverySubshellCommand(`dogfood_report="\${LCO_DOGFOOD_REPORT:?set LCO_DOGFOOD_REPORT to a fresh dogfood report path}" && tool_smoke_report="\${LCO_TOOL_SMOKE_REPORT:?set LCO_TOOL_SMOKE_REPORT to a fresh tool-smoke report path}" && evidence_dir="\${LCO_EVIDENCE_DIR:?set LCO_EVIDENCE_DIR to the evidence directory for published-smoke output}" && mkdir -p "$evidence_dir" && ${tarballExtractPrefix} && binary_probe_report="$evidence_dir/binary-probe.json" && version="$(node "$tmp_dir/package/dist/packages/cli/src/index.js" --version)" && package_version="$(node -pe "require(process.argv.at(-1)).version" "$tmp_dir/package/package.json")" && test -n "$version" && test -n "$package_version" && test "$version" = "$package_version" && ${binaryProbeJsonWriteCommand(packageVersion)} && loo openclaw published-smoke --dogfood-report "$dogfood_report" --tool-smoke-report "$tool_smoke_report" --binary-probe-report "$binary_probe_report" --evidence-dir "$evidence_dir" --strict`)
+      recoverySubshellCommand(`dogfood_report="\${LCO_DOGFOOD_REPORT:?set LCO_DOGFOOD_REPORT to a fresh dogfood report path}" && tool_smoke_report="\${LCO_TOOL_SMOKE_REPORT:?set LCO_TOOL_SMOKE_REPORT to a fresh tool-smoke report path}" && evidence_dir="\${LCO_EVIDENCE_DIR:?set LCO_EVIDENCE_DIR to the evidence directory for published-smoke output}" && mkdir -p "$evidence_dir" && ${tarballExtractPrefix} && binary_probe_report="$evidence_dir/binary-probe.json" && resolved_binary_source="package_tarball" && path_shadowed="false" && version="$(node "$tmp_dir/package/dist/packages/cli/src/index.js" --version)" && package_version="$(node -pe "require(process.argv.at(-1)).version" "$tmp_dir/package/package.json")" && test -n "$version" && test -n "$package_version" && test "$version" = "$package_version" && ${binaryProbeJsonWriteCommand(packageVersion)} && loo openclaw published-smoke --dogfood-report "$dogfood_report" --tool-smoke-report "$tool_smoke_report" --binary-probe-report "$binary_probe_report" --evidence-dir "$evidence_dir" --strict`)
     ];
   }
   if (diagnostic.classification !== "smoke_harness_path_shadow" && diagnostic.classification !== "candidate_binary_version_mismatch") return [];
@@ -421,11 +421,12 @@ function binaryProbeJsonWriteCommand(packageVersion: string): string {
   // This fragment is composed into a larger shell && chain; keep caller-owned literals shell-single-quoted.
   const writerLines = [
     "import { writeFileSync } from 'node:fs';",
-    "const [outPath, expectedVersion, observedVersion, packageJsonVersion] = process.argv.slice(2);",
-    "const tarballBinaryVersion = observedVersion === packageJsonVersion ? observedVersion : null;",
-    "writeFileSync(outPath, JSON.stringify({ kind: 'loo_published_binary_probe_evidence', publicSafe: true, rawSecretIncluded: false, expectedVersion, observedVersion, resolvedBinarySource: 'package_tarball', pathShadowed: false, tarballBinaryVersion, packageJsonVersion }) + '\\n');"
+    "const [outPath, expectedVersion, observedVersion, packageJsonVersion, resolvedBinarySource = 'package_tarball', pathShadowedValue = 'false'] = process.argv.slice(2);",
+    "const pathShadowed = pathShadowedValue === 'true';",
+    "const tarballBinaryVersion = resolvedBinarySource === 'package_tarball' && observedVersion === packageJsonVersion ? observedVersion : null;",
+    "writeFileSync(outPath, JSON.stringify({ kind: 'loo_published_binary_probe_evidence', publicSafe: true, rawSecretIncluded: false, expectedVersion, observedVersion, resolvedBinarySource, pathShadowed, tarballBinaryVersion, packageJsonVersion }) + '\\n');"
   ];
-  return `printf '%s\\n' ${writerLines.map(shellSingleQuote).join(" ")} > "$tmp_dir/write-binary-probe.mjs" && node "$tmp_dir/write-binary-probe.mjs" "$binary_probe_report" ${shellSingleQuote(packageVersion)} "$version" "$package_version"`;
+  return `printf '%s\\n' ${writerLines.map(shellSingleQuote).join(" ")} > "$tmp_dir/write-binary-probe.mjs" && node "$tmp_dir/write-binary-probe.mjs" "$binary_probe_report" ${shellSingleQuote(packageVersion)} "$version" "$package_version" "$resolved_binary_source" "$path_shadowed"`;
 }
 
 function shellSingleQuote(value: string): string {
