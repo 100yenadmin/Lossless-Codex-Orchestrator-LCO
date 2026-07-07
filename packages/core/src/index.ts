@@ -3479,6 +3479,7 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
     result.skippedFiles += Math.max(0, fileSelection.droppedOldest.actual - fileSelection.droppedOldest.limit);
     result.limitedFiles.push(fileSelection.droppedOldest);
   }
+  result.errors.push(...fileSelection.errors);
   pruneMissingCodexSourceFiles(db, options.roots, fileSelection.candidateFiles);
   repairCodexFtsRowidPinning(db);
   const seenThreads = new Set<string>();
@@ -14950,6 +14951,8 @@ export function createFindRecallReport(options: {
   const indexed = options.indexed ?? null;
   const results = options.recall.matches.slice(0, limit).map(sanitizeFindRecallResult);
   const localCodexSourceRead = indexed !== null;
+  const transcriptDerivedContentRead = localCodexSourceRead
+    || results.some((result) => result.reasonCodes.includes("event_content_fts_match"));
   return {
     schema: "lco.find.v1",
     ok: true,
@@ -14976,7 +14979,7 @@ export function createFindRecallReport(options: {
       externalWrite: false,
       liveControl: false,
       guiMutation: false,
-      rawTranscriptRead: localCodexSourceRead,
+      rawTranscriptRead: transcriptDerivedContentRead,
       rawTranscriptReturned: false,
       rawTranscriptUploaded: false
     },
@@ -14993,7 +14996,7 @@ function sanitizeFindRecallResult(match: RecallSearchResult, index: number): Fin
   const result: FindRecallResult = {
     rank: index + 1,
     sourceKind: match.sourceKind,
-    sourceRef: publicSafeFindText(match.sourceRef, 180),
+    sourceRef: publicSafeFindRef(match.sourceRef),
     title: nullableFindRecallText(match.title, 180),
     summary: nullableFindRecallText(match.summary, 260),
     updatedAt: nullableFindRecallText(match.updatedAt, 80),
@@ -15005,7 +15008,7 @@ function sanitizeFindRecallResult(match: RecallSearchResult, index: number): Fin
   if (match.summaryId) result.summaryId = publicSafeFindText(match.summaryId, 160);
   if (match.event) {
     result.event = {
-      eventRef: publicSafeFindText(match.event.eventRef, 180),
+      eventRef: publicSafeFindRef(match.event.eventRef),
       eventKind: publicSafeFindText(match.event.eventKind, 80),
       lineStart: match.event.lineStart,
       lineEnd: match.event.lineEnd,
@@ -15051,6 +15054,10 @@ function publicSafeFindText(value: string, maxChars: number): string {
     .replace(/\b\S+\.jsonl\b/g, "<redacted-source-file>")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function publicSafeFindRef(value: string): string {
+  return publicSafeFindText(value, Math.max(512, value.length + 64));
 }
 
 export function describeRecallRef(db: LooDatabase, options: { sourceRef: string; lcmDbPaths?: string[]; telemetry?: boolean; telemetrySessionId?: string; now?: string }): RecallDescription | null {
@@ -16177,13 +16184,19 @@ type JsonlFileSelection = {
   files: string[];
   candidateFiles: string[];
   droppedOldest: LimitedCodexFile | null;
+  errors: Array<{ path: string; message: string }>;
 };
 
 function collectJsonlFiles(roots: string[], maxFiles: number): JsonlFileSelection {
   const candidates: JsonlFileCandidate[] = [];
+  const errors: Array<{ path: string; message: string }> = [];
   for (const root of roots) {
     if (!existsSync(root)) continue;
-    walk(root, candidates);
+    try {
+      walk(root, candidates);
+    } catch (error) {
+      errors.push({ path: root, message: error instanceof Error ? error.message : String(error) });
+    }
   }
   candidates.sort((left, right) => right.mtimeMs - left.mtimeMs || left.path.localeCompare(right.path));
   const candidateFiles = candidates.map((candidate) => candidate.path);
@@ -16198,7 +16211,8 @@ function collectJsonlFiles(roots: string[], maxFiles: number): JsonlFileSelectio
           limit: maxFiles,
           actual: candidates.length
         }
-      : null
+      : null,
+    errors
   };
 }
 

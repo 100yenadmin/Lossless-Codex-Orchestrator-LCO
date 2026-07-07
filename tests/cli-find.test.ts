@@ -111,6 +111,34 @@ test("lco find report redacts JWT and AWS-shaped values", () => {
   assert.match(serialized, /<redacted-secret>/);
 });
 
+test("lco find report preserves public-safe refs for next commands and lineage", () => {
+  const longRef = `codex_thread:${"a".repeat(260)}`;
+  const report = createFindRecallReport({
+    query: "already indexed needle",
+    limit: 1,
+    indexed: null,
+    recall: {
+      query: "already indexed needle",
+      profile: "brief",
+      matches: [{
+        sourceKind: "codex_thread",
+        sourceRef: longRef,
+        title: "Already indexed",
+        summary: null,
+        updatedAt: null,
+        score: 1,
+        snippet: "Existing event-content FTS row matched without a fresh index pass.",
+        reasonCodes: ["event_content_fts_match"]
+      }]
+    }
+  });
+
+  assert.equal(report.results[0].sourceRef, longRef);
+  assert.equal(report.nextSafeCommands[0], `lco describe ${longRef}`);
+  assert.equal(report.actionsPerformed.localCodexSourceRead, false);
+  assert.equal(report.actionsPerformed.rawTranscriptRead, true);
+});
+
 test("lco_find MCP facade indexes then returns the same public-safe find packet", async () => {
   const root = mkdtempSync(join(tmpdir(), "lco-find-mcp-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
@@ -146,6 +174,42 @@ test("lco_find MCP facade indexes then returns the same public-safe find packet"
     assert.equal(payload.actionsPerformed.rawTranscriptRead, true);
     assert.equal(payload.actionsPerformed.rawTranscriptReturned, false);
     assert.doesNotMatch(JSON.stringify(payload), /\/Users\/|\/Volumes\/|\.jsonl|orchestrator\.sqlite|PRIVATE_FIND_CANARY|npm_SECRET_TOKEN/);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("lco_find MCP facade degrades safely when an index root is not a directory", async () => {
+  const root = mkdtempSync(join(tmpdir(), "lco-find-bad-root-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  try {
+    const badRoot = join(root, "not-a-directory.jsonl");
+    writeFileSync(badRoot, "not a directory");
+    const tools = createLooTools({
+      db,
+      audit,
+      codexClient: {
+        request: async () => ({ ok: true })
+      },
+      includeAliases: true
+    });
+    const findTool = tools.find((tool) => tool.name === "lco_find");
+
+    assert.ok(findTool);
+    const payload = await findTool.execute({
+      query: "needle",
+      roots: [badRoot]
+    }) as Record<string, any>;
+
+    assert.equal(payload.schema, "lco.find.v1");
+    assert.equal(payload.publicSafe, true);
+    assert.equal(payload.indexed.errors, 1);
+    assert.equal(payload.resultCount, 0);
+    assert.equal(payload.actionsPerformed.derivedCacheWrite, true);
+    assert.equal(payload.actionsPerformed.rawTranscriptReturned, false);
+    assert.doesNotMatch(JSON.stringify(payload), /not-a-directory\.jsonl|ENOTDIR|\/private|\/var|\/tmp|\/Users\/|\/Volumes\//);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
