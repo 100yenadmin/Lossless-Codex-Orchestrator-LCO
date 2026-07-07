@@ -68,11 +68,20 @@ Every beta, RC, and stable release must have public-safe evidence for:
   package/dist-tag, git tag, and GitHub Release all match the candidate SHA
 - `lco release ga-smoke --strict` evidence aggregating the individual release
   reports into one public-safe P0-P3 blocker taxonomy
-- README, VISION, release notes, claim audit, runbook, and skills truth scan
+- README, VISION, public release notes, changelog, claim audit, runbook, and
+  skills truth scan
 - privacy scan showing no raw transcripts, raw prompts, SQLite DBs, screenshots,
   tokens, cookies, credentials, or private customer data in public evidence
-- GitHub issue/tracker updates with evidence path and proof boundary
+- GitHub issue/tracker updates with evidence path, release scope, and next
+  action
 - no open PRs or release-blocking issues for the claimed tier
+
+Public release notes and changelog entries are customer/developer-facing. They
+should summarize highlights, changes, upgrade steps, validation, and links; do
+not add `Proof Boundary`, `Current Claim Scope`, `Explicit Non-Claims`, or
+`Do not claim` sections there. Keep capability boundaries, exclusions, and
+release-gate doctrine in this checklist, `docs/CLAIM_AUDIT.md`, QA Lab
+evidence, and tracker comments.
 
 ## Stable General Release
 

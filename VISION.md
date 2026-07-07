@@ -1,6 +1,6 @@
 # Lossless Codex Orchestrator Vision
 
-This document is the product and eval contract for the public release path. GitHub issues remain the implementation source of truth. This file defines what the product is trying to become, how agents should evaluate progress, and which claims remain outside the proof boundary.
+This document is the product and eval contract for the public release path. GitHub issues remain the implementation source of truth. This file defines what the product is trying to become, how agents should evaluate progress, and which roadmap lanes are active.
 
 ## North Star
 
@@ -43,51 +43,90 @@ identically. The current published npm package is
 That package-name compatibility does not change the canonical `lco` command
 surface.
 
-**What tiering does not change.** The claim boundary is per capability, not per
-tier: a capability such as live control is only claimed on a tier once it has
-real evidence on that tier. OpenClaw having a proof does not extend the claim to
+**What tiering does not change.** Capability evidence is per capability, not per
+tier: a capability such as live control is part of a tier only once it has real
+evidence on that tier. OpenClaw having a proof does not extend the capability to
 Hermes or generic MCP until each is independently proven.
 
-## Current Milestone: M12 Real-Product QA Lab And GA Release Gate
+## Current Release Roadmap: 1.5 Coverage And Cockpit
 
-The current release-readiness lane is Milestone 12: Real-Product QA Lab And GA Release Gate. GitHub tracker [#513](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/513) and children [#514](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/514)-[#522](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/522) own implementation truth; this file owns the product and eval boundary.
+Current stable: `1.4.4` shipped the 1.4 identity-line maintenance release. It
+keeps `lossless-codex-orchestrator` as the canonical npm package, keeps
+`lossless-openclaw-orchestrator` as a maintained compatibility package, and
+tightens published-package smoke so package readiness is tied to an executed
+candidate package binary instead of package metadata alone.
 
-Current stable: `1.4.4` is the shipped proof-gate hardening patch for the
-1.4 line. It keeps the public claim boundary unchanged while tightening
-published-smoke binary-probe recovery so package readiness requires an executed
-candidate package binary proof instead of package.json-only tarball metadata.
+The stable 1.0.0 through `1.4.4` packages are completed release lines. M11 proved
+the first scoped stable GA-assurance lane, and M12 built the
+release-assurance foundation: fresh npm install checks, OpenClaw gateway
+dogfood, QA Lab coverage, release aggregation, public-safe evidence rules, and
+per-tool product evidence requirements. Those gates remain mandatory for future
+release trains, but M12 is no longer the active product sprint.
 
-The stable 1.0.0, 1.1.0, 1.1.1, 1.1.2, 1.1.3, 1.1.4, 1.2.0, 1.2.1, 1.2.2, 1.2.3, 1.2.4, 1.2.5, 1.2.6, 1.3.1, 1.3.2, 1.3.3, 1.3.4, `1.3.5`, `1.4.0`, `1.4.1`, `1.4.2`, `1.4.3`, and `1.4.4` packages are scoped stable releases. M11 proved that 1.2.5 was installable, public-safe, and honest for its declared scope. The 1.3 and 1.4 lines carry the M12 feature, identity, recall, and hardening work forward without widening that claim boundary. M12 raises the bar for broad/global GA: catalog presence, unit tests, and partial gateway smoke are no longer sufficient. Every canonical declared `lco_*` tool needs tier-appropriate product evidence, and public facade tools must be exercised through OpenClaw gateway before a GA claim can include them. The historical 1.2.5 baseline had 60 declared `loo_*` tools and the release gateway smoke invoked 36/60; the C1 consolidation folds input-congruent read-only families into 34 canonical tools plus compatibility aliases, so QA Lab coverage now blocks on the canonical surface while old folded names prove backward compatibility only. The post-GA Desktop claim-validation lane [#306](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/306) records that Desktop-visible classification and fallback readiness/status are proven, while actual Codex GUI mutation remains excluded. Desktop parity [#307](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/307) added the coherence classifier; desktop fallback [#308](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/308) added the CUA-first and Peekaboo-secondary readiness report. The 1.1 collaboration cockpit [#309](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/309) is completed proof for read-only collaboration summaries and execute-false next steps, not the current active child-work list.
+Active release train:
 
-The Codex Autonomy Cockpit [#254](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/254) and Eva Operating Picture [#255](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/255) P0 lanes are completed beta foundation, not the current active child-work list. Completed P0 children include shared contracts [#256](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/256), source authority [#258](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/258), watcher/resume requests [#259](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/259), visible Codex map joins [#260](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/260), deterministic GitHub operating inputs [#264](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/264)/[#265](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/265), current-lane source balancing [#269](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/269), GitHub check-state fidelity [#270](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/270), cockpit card cleanup [#271](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/271), and end-to-end Eva cockpit dogfood [#272](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/272). The sprint brief remains the historical handoff for that P0 work: [docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md](docs/sprints/brief-lco-codex-autonomy-cockpit-sprint-2026-07-01.md).
+- **Milestone 13: LCO 1.5 Coverage & Cockpit Release Train.** Focus:
+  raw-content/event FTS coverage, session discovery gaps, public-safe output
+  validation, cockpit usability, distribution hardening, LCM-S recall, release
+  hygiene, and the public release-note cleanup tracked by
+  [#683](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/683).
+- **Milestone 14: LCO 1.6 Control Plane Release Train.** Focus: the next
+  control-plane release lane, including broader live-control matrix work only
+  when disposable/sacrificial targets and approval evidence are in place.
+- **Milestone 15: LCO 1.7 Matrix Stretch Release Train.** Focus: stretch
+  matrix coverage and future adapter/product expansion after the 1.5 and 1.6
+  release trains are stable.
 
-The core Codex recall, M9 handoff paths, Codex Autonomy Cockpit, Eva Operating Picture P0 paths, 1.1 Desktop collaboration cockpit paths, 1.2 prepared-state and summary-leaf paths, release metadata, package/gateway setup proof, docs truth, release gates, and public-safe scorecards are no longer the main product gap. The current gap is real-product launch assurance: prove the published product through actual CLI, MCP, OpenClaw plugin, OpenClaw gateway, local Codex session data, and sacrificial approved runtime lanes before broad rollout.
+Current target:
 
-The current target is:
+- Keep public release notes and changelog entries customer/developer-facing:
+  highlights, changes, upgrade steps, validation, and links. Internal release
+  doctrine belongs in [docs/CLAIM_AUDIT.md](docs/CLAIM_AUDIT.md),
+  [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md), QA Lab reports, issue
+  comments, and [docs/BETA_RELEASE_RUNBOOK.md](docs/BETA_RELEASE_RUNBOOK.md).
+- Finish the 1.5 coverage lane by landing event-content storage and raw-content
+  search coverage, then run the QA Lab and OpenClaw gateway evidence for the
+  exact surfaced features.
+- Treat `lco qa-lab tool-coverage --coverage-policy full --strict` as the
+  full-surface GA gate over the canonical tool surface. Missing product evidence
+  is a blocker unless release copy explicitly excludes that tool or workflow.
+- Integrate QA Lab run, tool coverage, judge review, adversarial review, and
+  privacy scan into `lco release ga-smoke` for each release.
+- Keep README, VISION, release notes, changelog, scorecards, and GitHub
+  milestones aligned before tagging or publishing a new stable release.
+- Keep the 1.2 prepared-state tracker as completed proof and product
+  foundation, not the active child-work list. The sprint brief remains the
+  historical architecture handoff:
+  [docs/sprints/brief-lco-1.2-prepared-state-summary-leaves-2026-07-03.md](docs/sprints/brief-lco-1.2-prepared-state-summary-leaves-2026-07-03.md).
+- Keep prepared state as advisory cache: cards, inbox items, and summary leaves
+  route an agent to source refs; they do not become authority for PR, CI,
+  release, runtime, or customer truth.
+- Preserve source ranges as the bridge from compact prepared cards and summary
+  leaves back to bounded original evidence.
+- Keep compaction capture honest: outside Codex, LCO records `compaction
+  observed` markers only. True summary capture waits for Codex-native sanitized
+  packet support, tracked in [docs/CODEX_NATIVE_COMPACTION_CAPTURE.md](docs/CODEX_NATIVE_COMPACTION_CAPTURE.md)
+  and the `codex-native-compaction-capture-proposal-v1` scenario.
+- Keep P0 operating-picture sources to LCO/Codex state, optional structured
+  GitHub items, and explicit `PLAN_STATE.md` pins; P1 source adapters such as
+  Notion, support-control, Company Brain, Stripe, dashboard/export, and model
+  summarization stay behind separate proof gates.
+- Use the [source authority profile](docs/SOURCE_AUTHORITY_PROFILE.md) to
+  distinguish "this source returned data" from "this source owns the current
+  truth"; unavailable or cache-only sources degrade claims to `unknown` or low
+  confidence.
 
-- Execute the M12 QA Lab tracker and children using public-safe evidence under `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/2026-07-05/m12-ga-qa-lab/`.
-- Treat `lco qa-lab tool-coverage --coverage-policy full --strict` as the first full-surface GA gate over the canonical tool surface. Missing product evidence is a blocker, not a warning, unless release copy explicitly excludes that tool/workflow.
-- Integrate QA Lab run, tool coverage, judge review, adversarial review, and privacy scan into `lco release ga-smoke` before any next broad GA claim.
-- Keep the launch claim scoped to local Codex prepared-state recall, search/describe/expand, summary leaves, prepared inbox/cards, OpenClaw gateway use, and approval-gated dry-run/control boundaries.
-- Fix or defer every P0-P3 launch finding with terminal disposition before calling the release globally ready.
-- Keep the 1.2 prepared-state tracker as completed proof, not the current active child-work list. The sprint brief remains the historical architecture handoff: [docs/sprints/brief-lco-1.2-prepared-state-summary-leaves-2026-07-03.md](docs/sprints/brief-lco-1.2-prepared-state-summary-leaves-2026-07-03.md).
-- Keep prepared state as advisory cache: cards, inbox items, and summary leaves route an agent to source refs; they do not become authority for PR/CI/release/runtime/customer truth.
-- Classify mutations explicitly: pure reads use empty `mutationClasses`, LCO-owned indexing/audit/prepared-state writes use `mode: "local_cache_write"` with `derived_cache`, and source-store, external-system, live-control, GUI, release, and npm mutations stay non-default.
-- Add source ranges and summary leaves as an additive DB layer behind the existing search/describe/expand tools instead of rewriting the current session-level DB in one migration. Source ranges are the first 1.2 proof slice; summary leaves sit on top as metadata-only routing/evidence cards with bounded DAG expansion.
-- Treat Codex compaction hooks outside Codex as marker capture only. True compaction-summary capture waits for Codex-native sanitized summary support. The proposal is [docs/CODEX_NATIVE_COMPACTION_CAPTURE.md](docs/CODEX_NATIVE_COMPACTION_CAPTURE.md) and its dry-run claim-audit contract is `codex-native-compaction-capture-proposal-v1`.
-- Keep model compaction opt-in and behind a later spike. It must not receive raw transcripts or current `safe_text` by default.
-- Keep README, VISION, release notes, and scorecards current so completed release gates are recorded as completed proof, not active work.
-- Treat #307/#308 as completed proof for Desktop-visible classification and fallback readiness/status, not as proof of Codex GUI mutation, prompt typing, clicking, refresh/restart automation, or unattended visible collaboration.
-- Treat the 1.1 collaboration cockpit as completed proof for `lco_codex_desktop_coherence`, `lco_codex_desktop_fallback_status`, `lco_codex_collaboration_cockpit`, `lco_codex_collaboration_next_steps`, `lco_codex_runtime_desktop_visibility_status`, `lco_codex_active_thread_state`, and `lco_codex_autonomy_tick`. The completed Desktop coherence states remain `cli_visible`, `desktop_visible`, `desktop_refresh_required`, `desktop_restart_required`, and `unknown`.
-- Use the Codex Autonomy Cockpit and Eva Operating Picture P0 tools as the foundation for tester workflows: recent sessions, compact session cards, deterministic cockpit inbox, watcher/resume-request packets, app-server status, visible Codex map joins, project digest, attention inbox, business pulse, explicit source coverage, and explicit source-authority coverage.
-- Keep `PLAN_STATE.md` demoted to bootloader, manual pins, approval boundaries, stop conditions, and exception ledger. It is not canonical current-state truth.
-- Keep P0 sources to LCO/Codex state, optional structured GitHub items, and explicit PLAN_STATE pins.
-- Keep P1 source adapters, including Notion, support-control, Company Brain, Stripe, dashboard/export, and model summarization, behind separate adapters and proof gates; P0 tools report those sources as `not_configured` instead of fabricating summaries.
-- Use the [source authority profile](docs/SOURCE_AUTHORITY_PROFILE.md) to distinguish "this source returned data" from "this source owns the current truth"; unavailable or cache-only sources must degrade claims to `unknown` or low confidence.
+Completed foundations include the Codex Autonomy Cockpit
+[#254](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/254),
+Eva Operating Picture P0 [#255](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/255),
+Desktop-visible classification and fallback readiness [#307](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/307)/[#308](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/308),
+and the read-only collaboration cockpit [#309](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/309).
+They remain product building blocks for 1.5+ testing rather than active sprint
+backlog. Completed Desktop coherence states are `cli_visible`,
+`desktop_visible`, `desktop_refresh_required`, `desktop_restart_required`, and
+`unknown`.
 
-The sprint remains Codex-first, local-first, read-only-first, and public-safe by default. It does not claim full business truth, customer readiness, Claude Code parity, remote sync, generic GUI mutation, unattended desktop control, permission bypass, or enterprise/customer-ready security. Future npm `latest` promotion and GitHub Release creation remain release gates, not assumptions. Desktop-visible classification and fallback readiness/status are proven by #307/#308; actual Codex GUI mutation remains excluded until a future action-bound proof gate records the exact backend, target, action hash, approval, and observation.
-
-What 1.2 should let a local OpenClaw agent do next:
+Prepared-state capabilities for a local OpenClaw agent:
 
 - Start from `lco_prepared_inbox` instead of rerunning broad search for every resume.
 - Inspect `lco_prepared_cards` for public-safe thread/project/blocker/next-action cards with source refs, freshness, confidence, privacy class, and authority coverage.
@@ -240,9 +279,9 @@ Versioned scorecards live under `evals/scorecards/v1.0/`. Use them as the shared
 - `local-mac-search-ui-review.json`
 - `working-app-runtime-proof-review.json`
 
-Run `lco scorecards sweep --claim-scope <scope> --evidence-dir <path> --strict` to materialize a public-safe sweep packet. Strict mode should fail closed while scorecards still have `example-not-run` scores, so the packet records remaining evidence gaps instead of converting examples into beta readiness claims. Reduced-scope beta sweeps use `codex-read-search-expand-dry-run`; working-app sweeps use `codex-working-app-proof` and keep runtime proof scorecards required.
+Run `lco scorecards sweep --claim-scope <scope> --evidence-dir <path> --strict` to materialize a public-safe sweep packet. Strict mode should fail closed while scorecards still have `example-not-run` scores, so the packet records remaining evidence gaps instead of converting examples into release-readiness claims. Release runbooks define the profile names for each train; runtime features keep runtime proof scorecards required.
 
-For implementation issues, copy `evals/scorecards/v1.0/issue-scorecard-update-template.md` into the GitHub issue or PR comment and fill in the failing test, minimal implementation, focused validation, OpenClaw gateway dogfood result, evidence path, proof boundary, and next action. This per-issue scorecard update template keeps issue comments compact while preserving the beta proof boundary.
+For implementation issues, copy `evals/scorecards/v1.0/issue-scorecard-update-template.md` into the GitHub issue or PR comment and fill in the failing test, minimal implementation, focused validation, OpenClaw gateway dogfood result, evidence path, release scope, and next action. This per-issue scorecard update template keeps issue comments compact while preserving the release evidence context.
 
 | Area | Target | Current proof field |
 | --- | --- | --- |
@@ -338,23 +377,23 @@ Review milestone state at three moments:
 - Before opening the next child issue when the remaining work could require live control, GUI mutation, npm publish, or GitHub Release creation.
 - Before closing a milestone or claiming beta readiness.
 
-Each review should update the relevant tracker issue with the current scorecard movement, evidence path, commands run, CI/review status, working/not-working list, proof boundary, and exact next action. If the next action crosses a stop condition, pause for explicit user approval instead of converting the approval gate into an implementation task.
+Each review should update the relevant tracker issue with the current scorecard movement, evidence path, commands run, CI/review status, working/not-working list, release scope, and exact next action. If the next action crosses a stop condition, pause for explicit user approval instead of converting the approval gate into an implementation task.
 
 Release candidates follow [docs/BETA_RELEASE_RUNBOOK.md](docs/BETA_RELEASE_RUNBOOK.md). `main` is the integration branch, not a release; npm publish and GitHub Release creation remain separate approval-gated operations.
 
-## Proof Boundary
+## Capability Boundaries
 
-Allowed stable 1.4.4 claim:
+Stable 1.4.4 product statement:
 
 > Collaborate with local Codex sessions through OpenClaw using local indexing, prepared-state recall, bounded expansion, and approval-gated dry-run/control boundaries.
 
-Do not claim:
+Future roadmap candidates:
 
-- Full Claude Code parity.
-- Cloud sync.
-- Unattended desktop takeover.
-- Codex permission or sandbox bypass.
-- Release-grade enterprise security.
+- Claude Code adapter parity.
+- Hosted or synced coordination across machines.
+- Unattended desktop automation.
+- Deeper Codex permission and sandbox integrations.
+- Enterprise security hardening.
 
 Approval doctrine:
 
@@ -362,11 +401,17 @@ Scratch-thread live smokes are standing-approved only when the harmless thread c
 
 ## Current Release Gates
 
-Release candidates should be scoped to the evidence they actually prove. `main` may be RC-ready for one claim scope while broader 1.0 work remains open.
+Release candidates should be limited to workflows the QA Lab actually proves.
+`main` may be ready for one release train while broader product work remains
+open. Public release notes should summarize user-facing changes, upgrade steps,
+and validation; detailed release doctrine belongs in
+[docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md),
+[docs/CLAIM_AUDIT.md](docs/CLAIM_AUDIT.md), QA Lab reports, and tracker issue
+comments.
 
-For `0.1.x` reduced-scope release candidates, the allowed claim scope is `codex-read-search-expand-dry-run` when the evidence proves Codex indexing, search, describe, bounded expansion, and dry-run control through CLI, MCP, or the OpenClaw gateway. In that scope, live Codex control is an excluded claim, GUI mutation is an excluded claim, and Claude parity is an excluded claim. Those exclusions must remain visible in release status, scorecards, docs, and issue updates instead of becoming hidden blockers.
-
-For Milestone 7, 1.0, or any expanded-scope release that claims live control, desktop collaboration, or adapter parity, the broader gates below must be proven from the public CLI, MCP, OpenClaw plugin, or approved desktop surface:
+For any release that includes live control, desktop collaboration, or adapter
+parity, the broader gates below must be proven from the public CLI, MCP,
+OpenClaw plugin, or approved desktop surface:
 
 - Local Codex indexing works on 100+ sessions with bounded limits.
 - Search, describe, plans, finals, touched files, tool metadata, and bounded expansion work.
@@ -383,7 +428,8 @@ For Milestone 7, 1.0, or any expanded-scope release that claims live control, de
 - Desktop GUI mutation claims require a backend-specific observation validated by `lco desktop proof-report` or `lco_desktop_proof_report`; the proof-report command itself must not perform the GUI action, release approval `actionHash` must match the exact backend/app/window/action tuple, and the desktop collaboration runtime marker `action_hash` must match that approval hash.
 - When a desktop proof-report observation is valid, the command writes both `desktop-gui-approval.json` and `desktop-collaboration-action-bound-v1-1.runtime-proof.json`; invalid or diagnostic-only observations must not emit the runtime proof marker.
 - Release preflight/status/bundle commands produce public-safe evidence.
-- npm publish and GitHub Release are separately and explicitly approved before execution.
+- npm publish and GitHub Release are separate release actions with their own
+  evidence.
 - Published-install proof may use a registry tarball fallback when npm dist-tag
   metadata exposes the just-published beta but semver install selection remains
   blocked by npm selector cutoff drift; this is packaging hardening evidence,
@@ -403,15 +449,11 @@ For Milestone 7, 1.0, or any expanded-scope release that claims live control, de
   until a separate dogfood packet proves install/load/tool invocation through
   the named clean profile.
 
-The `codex-working-app-proof` claim scope exists as a fail-closed release gate.
-It is not satisfied by dry-run packets. It requires approved live-control proof
-plus public-safe v1.1 runtime marker files for #158
-(`openclaw-gateway-live-codex-v1-1.runtime-proof.json`) and #159
-(`post-action-refresh-reasoning-v1-1.runtime-proof.json`) through
-`--runtime-proof-dir`. Until those markers exist, public release claims should
-keep using the reduced `codex-read-search-expand-dry-run` scope or the plain
-`codex-live-control` scope, and `codex-working-app-proof` must report
-`runtime_proof_missing:*` blockers.
+Runtime release profiles are fail-closed gates. They are not satisfied by
+dry-run packets alone; they require the matching public-safe runtime marker files
+and post-action refresh evidence for the exact workflow. Until those markers
+exist, release copy should stay on the workflows already proven by QA Lab and
+issue evidence.
 
 ## Evidence Rules
 
