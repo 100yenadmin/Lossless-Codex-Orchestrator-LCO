@@ -207,8 +207,16 @@ function writeSafeDemoStatusManifest(path: string, contents: string): void {
     }
     assertSafeDemoStatusManifestPath(path);
     renameSync(tempPath, path);
+    assertWrittenSafeDemoStatusManifestPath(path);
   } finally {
     if (existsSync(tempPath)) unlinkSync(tempPath);
+  }
+}
+
+function assertWrittenSafeDemoStatusManifestPath(path: string): void {
+  const stat = lstatSync(path);
+  if (stat.isSymbolicLink() || !stat.isFile()) {
+    throw new Error("release-demo-status.json must be a regular evidence file after write");
   }
 }
 
