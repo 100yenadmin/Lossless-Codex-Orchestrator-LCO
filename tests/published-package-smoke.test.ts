@@ -373,8 +373,10 @@ test("published-smoke requires public-safe candidate binary probe evidence", () 
     assert.match(recoveryCommand, /^\(/);
     assert.match(recoveryCommand, /LCO_DOGFOOD_REPORT/);
     assert.match(recoveryCommand, /LCO_TOOL_SMOKE_REPORT/);
+    assert.match(recoveryCommand, /LCO_EVIDENCE_DIR/);
     assert.match(recoveryCommand, /--dogfood-report "\$dogfood_report"/);
     assert.match(recoveryCommand, /--tool-smoke-report "\$tool_smoke_report"/);
+    assert.match(recoveryCommand, /--evidence-dir "\$evidence_dir"/);
     assert.doesNotMatch(recoveryCommand, /--dogfood-report dogfood\.json/);
     assert.doesNotMatch(recoveryCommand, /--tool-smoke-report tool-smoke\.json/);
     assert.match(recoveryCommand, /package_version=/);
