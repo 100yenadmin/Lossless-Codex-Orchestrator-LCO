@@ -267,7 +267,12 @@ async function main() {
     const started = performance.now();
     try {
       db = createRecallCliDatabase(parsed.timeoutMs);
-      const indexResult = parsed.index ? indexCodexSessions(db, { roots: defaultCodexRoots() }) : null;
+      let indexResult: ReturnType<typeof indexCodexSessions> | null = null;
+      if (parsed.index) {
+        console.error("LCO find: indexing local Codex sessions before recall...");
+        indexResult = indexCodexSessions(db, { roots: defaultCodexRoots() });
+        if (emitRecallTimeoutReportIfExceeded("find", started, { limit: parsed.limit, timeoutMs: parsed.timeoutMs })) return;
+      }
       const recall = grepRecall(db, {
         query: parsed.query,
         limit: parsed.limit,

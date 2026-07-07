@@ -15045,6 +15045,8 @@ function nullableFindRecallText(value: string | null | undefined, maxChars: numb
 function publicSafeFindText(value: string, maxChars: number): string {
   return publicSafeSearchText(value, maxChars)
     .replace(/\b(?:sk|npm|ghp|github|bearer|token|secret|cookie)[A-Za-z0-9_:-]{8,}\b/gi, "<redacted-secret>")
+    .replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g, "<redacted-secret>")
+    .replace(/\b(?:AKIA|ASIA)[A-Z0-9]{12,}\b/g, "<redacted-secret>")
     .replace(/\b[A-Z0-9_]*(?:TOKEN|SECRET|COOKIE|CANARY)[A-Z0-9_:-]*\b/g, "<redacted-secret>")
     .replace(/\b\S+\.jsonl\b/g, "<redacted-source-file>")
     .replace(/\s+/g, " ")

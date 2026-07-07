@@ -1,16 +1,16 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 
 import { createAuditStore } from "../packages/adapters/src/index.js";
-import { createDatabase } from "../packages/core/src/index.js";
+import { createDatabase, createFindRecallReport } from "../packages/core/src/index.js";
 import { createLooTools } from "../packages/mcp-server/src/tools.js";
 import { runLoo } from "./helpers/run-loo.js";
 
 function writeFindSession(path: string, threadId: string): void {
-  mkdirSync(join(path, ".."), { recursive: true });
+  mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, [
     JSON.stringify({ timestamp: "2026-07-08T00:00:00.000Z", session_meta: { payload: { id: threadId, cwd: "/Users/lume/private-find-worktree" } } }),
     JSON.stringify({ timestamp: "2026-07-08T00:00:01.000Z", event_msg: { type: "thread_name", name: "Find adoption wedge proof" } }),
@@ -36,7 +36,7 @@ test("lco find performs zero-config first-run indexing and renders public-safe h
     const result = runLoo(["find", "spotlight", "needle"], isolatedEnv(root), 10_000);
 
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    assert.equal(result.stderr.trim(), "");
+    assert.match(result.stderr, /indexing local Codex sessions/i);
     assert.equal(existsSync(dbPath), true);
     assert.match(result.stdout, /LCO Find/i);
     assert.match(result.stdout, /spotlight needle/i);
@@ -61,7 +61,7 @@ test("lco find --json returns a scriptable public-safe packet", () => {
     const result = runLoo(["find", "--json", "--limit", "3", "spotlight", "needle"], isolatedEnv(root), 10_000);
 
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    assert.equal(result.stderr.trim(), "");
+    assert.match(result.stderr, /indexing local Codex sessions/i);
     const payload = JSON.parse(result.stdout) as Record<string, any>;
     assert.equal(payload.schema, "lco.find.v1");
     assert.equal(payload.publicSafe, true);
@@ -83,6 +83,32 @@ test("lco find --json returns a scriptable public-safe packet", () => {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("lco find report redacts JWT and AWS-shaped values", () => {
+  const report = createFindRecallReport({
+    query: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signatureTOKEN123 AKIAABCDEFGHIJKLMNOP",
+    limit: 1,
+    indexed: null,
+    recall: {
+      query: "secrets",
+      profile: "brief",
+      matches: [{
+        sourceKind: "codex_thread",
+        sourceRef: "codex_thread:secret-redaction",
+        title: "Token redaction",
+        summary: null,
+        updatedAt: null,
+        score: 1,
+        snippet: "JWT eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signatureTOKEN123 AWS AKIAABCDEFGHIJKLMNOP",
+        reasonCodes: ["event_content_fts_match"]
+      }]
+    }
+  });
+
+  const serialized = JSON.stringify(report);
+  assert.doesNotMatch(serialized, /eyJhbGci|AKIAABCDEFGHIJKLMNOP/);
+  assert.match(serialized, /<redacted-secret>/);
 });
 
 test("lco_find MCP facade indexes then returns the same public-safe find packet", async () => {
