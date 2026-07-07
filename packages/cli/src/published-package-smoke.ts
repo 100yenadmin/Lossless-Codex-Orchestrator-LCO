@@ -394,18 +394,23 @@ function binaryProbeDiagnosticCommands(
   diagnostic: PublishedPackageSmokeReport["binaryProbeDiagnostic"]
 ): string[] {
   const tarballLookup = `npm view ${expectedPackage} dist.tarball`;
+  const tarballExtractPrefix = publishedPackageTarballExtractCommand(tarballLookup);
   if (diagnostic.classification === "not_provided") {
     return [
       `${tarballLookup} --json`,
-      `tarball_url="$(${tarballLookup})" && test -n "$tarball_url" && tmp_dir="$(mktemp -d)" && curl -fsSL "$tarball_url" -o "$tmp_dir/package.tgz" && tar -xzf "$tmp_dir/package.tgz" -C "$tmp_dir" && version="$(node "$tmp_dir/package/dist/packages/cli/src/index.js" --version)" && package_version="$(node -pe "require(process.argv[1]).version" "$tmp_dir/package/package.json")" && printf '{"kind":"loo_published_binary_probe_evidence","publicSafe":true,"rawSecretIncluded":false,"expectedVersion":"%s","observedVersion":"%s","resolvedBinarySource":"package_tarball","pathShadowed":false,"packageJsonVersion":"%s"}\\n' "$package_version" "$version" "$package_version" > binary-probe.json`,
+      `${tarballExtractPrefix} && version="$(node "$tmp_dir/package/dist/packages/cli/src/index.js" --version)" && package_version="$(node -pe "require(process.argv[1]).version" "$tmp_dir/package/package.json")" && printf '{"kind":"loo_published_binary_probe_evidence","publicSafe":true,"rawSecretIncluded":false,"expectedVersion":"%s","observedVersion":"%s","resolvedBinarySource":"package_tarball","pathShadowed":false,"packageJsonVersion":"%s"}\\n' "$package_version" "$version" "$package_version" > binary-probe.json`,
       "loo openclaw published-smoke --dogfood-report dogfood.json --tool-smoke-report tool-smoke.json --binary-probe-report binary-probe.json --strict"
     ];
   }
   if (diagnostic.classification !== "smoke_harness_path_shadow" && diagnostic.classification !== "candidate_binary_version_mismatch") return [];
   return [
     `${tarballLookup} --json`,
-    `tarball_url="$(${tarballLookup})" && test -n "$tarball_url" && tmp_dir="$(mktemp -d)" && curl -fsSL "$tarball_url" -o "$tmp_dir/package.tgz" && tar -xzf "$tmp_dir/package.tgz" -C "$tmp_dir" && node "$tmp_dir/package/dist/packages/cli/src/index.js" --version`
+    `${tarballExtractPrefix} && node "$tmp_dir/package/dist/packages/cli/src/index.js" --version`
   ];
+}
+
+function publishedPackageTarballExtractCommand(tarballLookup: string): string {
+  return `tarball_url="$(${tarballLookup})" && test -n "$tarball_url" && tmp_dir="$(mktemp -d)" && curl -fsSL "$tarball_url" -o "$tmp_dir/package.tgz" && tar -xzf "$tmp_dir/package.tgz" -C "$tmp_dir"`;
 }
 
 function binaryProbeBlockers(diagnostic: PublishedPackageSmokeReport["binaryProbeDiagnostic"]): string[] {

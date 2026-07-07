@@ -7289,15 +7289,22 @@ function preparedLifecycleFromMetadata(
     closeoutState: normalizedMetadataValue(metadata.closeoutState),
     planCompletionState: normalizedMetadataValue(metadata.planCompletionState)
   };
+  const matchSignals = {
+    status: normalizedMetadataMatchValue(metadata.status),
+    blocker: normalizedMetadataMatchValue(metadata.blocker),
+    nextAction: normalizedMetadataMatchValue(metadata.nextAction),
+    closeoutState: normalizedMetadataMatchValue(metadata.closeoutState),
+    planCompletionState: normalizedMetadataMatchValue(metadata.planCompletionState)
+  };
   const metadataSignalHash = stableId(JSON.stringify(signals));
-  const nonBlockerText = [signals.status, signals.nextAction, signals.closeoutState, signals.planCompletionState].filter(Boolean).join(" ");
-  const text = [nonBlockerText, signals.blocker].filter(Boolean).join(" ");
+  const nonBlockerText = [matchSignals.status, matchSignals.nextAction, matchSignals.closeoutState, matchSignals.planCompletionState].filter(Boolean).join(" ");
+  const text = [nonBlockerText, matchSignals.blocker].filter(Boolean).join(" ");
   const sourceReasonCodes = Object.entries(signals)
     .filter(([, value]) => value.length > 0)
     .map(([field]) => `lifecycle_signal:${field.replace(/[A-Z]/g, (match) => `_${match.toLowerCase()}`)}`);
-  const completedByStatus = lifecycleCompletionLike(signals.status);
-  const completedByCloseoutAndPlan = lifecycleCompletionLike(signals.closeoutState)
-    && lifecycleCompletionLike(signals.planCompletionState);
+  const completedByStatus = lifecycleCompletionLike(matchSignals.status);
+  const completedByCloseoutAndPlan = lifecycleCompletionLike(matchSignals.closeoutState)
+    && lifecycleCompletionLike(matchSignals.planCompletionState);
   const completed = completedByStatus || completedByCloseoutAndPlan;
   const dirtyHandoff = /\b(?:dirty[-_ ]?worktree|uncommitted|worktree[-_ ]?handoff|dirty[-_ ]?handoff|handoff[-_ ]?dirty|cleanup[-_ ]?required)\b/.test(text);
   const waitingApproval = /\b(?:waiting[-_ ]?(?:for[-_ ]?)?approval|needs[-_ ]?approval|requires[-_ ]?approval|approval[-_ ]?(?:required|needed|pending)|pending[-_ ]?approval|approval[-_ ]?gate|do[-_ ]?not[-_ ]?execute[-_ ]?without[-_ ]?explicit[-_ ]?approval)\b/.test(text);
@@ -7749,7 +7756,7 @@ function deriveThreadTitleSummary(value: string | null): string | null {
   const lowered = redacted.toLowerCase();
   const titleFinalizerPattern = /thread-title-finalize|title finalizer|title-finalizer/i;
   const threadTitleFinalizationPattern = /finaliz(?:e|es|ed|ing).{0,40}thread.{0,20}title|thread.{0,20}title.{0,40}finaliz/i;
-  const negatesTitleFinalizer = /\b(?:not|no|without|never)\b.{0,32}(?:thread-title-finalize|title finalizer|title-finalizer|finaliz(?:e|es|ed|ing).{0,40}thread.{0,20}title|thread.{0,20}title.{0,40}finaliz)/i.test(redacted);
+  const negatesTitleFinalizer = /\b(?:not|no|without|never)\b.{0,160}(?:thread-title-finalize|title finalizer|title-finalizer|finaliz(?:e|es|ed|ing).{0,40}thread.{0,20}title|thread.{0,20}title.{0,40}finaliz)/i.test(redacted);
   if (
     (
       titleFinalizerPattern.test(redacted)
@@ -13542,6 +13549,16 @@ function hasRealBlocker(value: string | null): boolean {
 
 function normalizedMetadataValue(value: string | null): string {
   return truncate((value ?? "").trim().toLowerCase(), 512);
+}
+
+function normalizedMetadataMatchValue(value: string | null): string {
+  return headTailWindow((value ?? "").trim().toLowerCase(), 2048);
+}
+
+function headTailWindow(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  const half = Math.floor(maxLength / 2);
+  return `${value.slice(0, half)} ${value.slice(-half)}`;
 }
 
 function compareUpdatedAtDesc(left: string | null, right: string | null): number {

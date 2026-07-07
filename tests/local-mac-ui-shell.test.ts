@@ -67,13 +67,18 @@ test("local Mac search UI shell renders only safe summaries, refs, filters, and 
           "Secrets must redact:",
           "npm_ABCDEFGHIJKLMNOPQRSTUVWX",
           `github_pat_${"A".repeat(36)}`,
+          `ghp_${"H".repeat(24)}`,
           `gho_${"B".repeat(24)}`,
           `ghu_${"C".repeat(24)}`,
           `ghs_${"D".repeat(24)}`,
           `ghr_${"E".repeat(24)}`,
           `xoxb-${"1".repeat(12)}-${"2".repeat(12)}-${"a".repeat(24)}`,
           `glpat-${"F".repeat(24)}`,
-          `sk-proj-${"G".repeat(24)}`
+          `sk-proj-${"G".repeat(24)}`,
+          `AK${"IA"}${"I".repeat(16)}`,
+          `AS${"IA"}${"J".repeat(16)}`,
+          `AI${"za"}${"K".repeat(24)}`,
+          `aws_secret_access_key=${"L".repeat(40)}`
         ].join(" "),
         project: "lco",
         status: "active",
@@ -102,7 +107,7 @@ test("local Mac search UI shell renders only safe summaries, refs, filters, and 
   assert.doesNotMatch(shell.html, /npm_ABCDEFGHIJKLMNOPQRSTUVWX/);
   assert.doesNotMatch(
     `${shell.html}\n${JSON.stringify(shell.report)}`,
-    /github_pat_|gho_|ghu_|ghs_|ghr_|xoxb-|glpat-|sk-proj-/i
+    /npm_[A-Za-z0-9_]{16,}|github_pat_|ghp_|gho_|ghu_|ghs_|ghr_|xoxb-|glpat-|sk-proj-|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{20,}|aws_secret_access_key/i
   );
 });
 

@@ -573,6 +573,43 @@ test("release demo-status rejects symlinked evidence directories without leaking
   }
 });
 
+test("release demo-status rejects unclassified symlinked evidence files without leaking targets", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-symlink-file-"));
+  const outsideDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-symlink-file-target-"));
+  try {
+    const liveControlProof = writePassingDemoEvidence(evidenceDir);
+    const outsideFile = join(outsideDir, "notes.txt");
+    writeFileSync(outsideFile, "private transcript-like evidence behind a benign extension");
+    symlinkSync(outsideFile, join(evidenceDir, "linked-note"));
+
+    const result = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "release",
+      "demo-status",
+      "--evidence-dir",
+      evidenceDir,
+      "--approved-live-control-evidence",
+      liveControlProof
+    ], { encoding: "utf8" });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const payload = JSON.parse(result.stdout) as {
+      demoReady?: boolean;
+      blockers?: string[];
+      rawSessionArtifacts?: Array<{ name: string; reason: string }>;
+    };
+    const serialized = `${result.stdout}\n${read(evidenceDir + "/release-demo-status.json")}`;
+    assert.equal(payload.demoReady, false);
+    assert.equal(payload.blockers?.includes("raw_session_artifacts_present"), true);
+    assert.deepEqual(payload.rawSessionArtifacts, [{ name: "linked-note", reason: "symlinked_artifact" }]);
+    assert.doesNotMatch(serialized, /notes\.txt|transcript-like|loo-release-demo-status-symlink-file-target/);
+  } finally {
+    unlinkSync(join(evidenceDir, "linked-note"));
+  }
+});
+
 test("release demo-status requires brief and evidence expansion refs to be distinct", () => {
   const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-distinct-expansions-"));
   const liveControlProof = writePassingDemoEvidence(evidenceDir);

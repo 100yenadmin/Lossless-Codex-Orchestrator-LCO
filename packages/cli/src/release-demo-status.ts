@@ -48,7 +48,7 @@ export type ReleaseDemoStatusReport = {
 
 type RawDemoArtifact = {
   name: string;
-  reason: "raw_codex_jsonl" | "sqlite_database" | "screenshot_or_image" | "video_capture" | "symlinked_directory";
+  reason: "raw_codex_jsonl" | "sqlite_database" | "screenshot_or_image" | "video_capture" | "symlinked_directory" | "symlinked_artifact";
 };
 
 type JsonReadResult = {
@@ -459,5 +459,6 @@ function rawArtifactForName(name: string, linkTarget?: string, linkKind?: "direc
     if (/\.(?:png|jpe?g|heic|webp)$/.test(normalizedLinkTarget)) return { name, reason: "screenshot_or_image" };
     if (/\.(?:mov|mp4|webm)$/.test(normalizedLinkTarget)) return { name, reason: "video_capture" };
   }
+  if (linkKind === "file" || linkKind === "unknown" || linkTarget) return { name, reason: "symlinked_artifact" };
   return null;
 }

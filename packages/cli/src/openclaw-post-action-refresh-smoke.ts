@@ -181,7 +181,7 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
   const targetThreadMapOutput = findTargetRecord(threadMapOutput, targetRef);
   const targetSearchOutput = findTargetRecord(searchOutput, targetRef);
   const targetDescribeOutput = findTargetRecord(describeOutput, targetRef);
-  const targetExpandOutput = findTargetTopLevelRecord(expandOutput, targetRef);
+  const targetExpandOutput = findTargetRecord(expandOutput, targetRef, { descendIntoRecords: false });
   const sourceRefs = unique([targetThreadMapOutput, targetSearchOutput, targetDescribeOutput, targetExpandOutput]
     .flatMap((output) => output === undefined ? [] : collectSourceRefs(output)))
     .filter((ref) => ref.startsWith("codex_thread:"));
@@ -434,33 +434,23 @@ function collectSourceRefs(value: unknown): string[] {
   });
 }
 
-function findTargetRecord(value: unknown, targetRef: string): unknown | undefined {
+function findTargetRecord(value: unknown, targetRef: string, options: { descendIntoRecords?: boolean } = {}): unknown | undefined {
+  const descendIntoRecords = options.descendIntoRecords ?? true;
   if (Array.isArray(value)) {
     for (const item of value) {
-      const found = findTargetRecord(item, targetRef);
+      const found = findTargetRecord(item, targetRef, options);
       if (found !== undefined) return found;
     }
     return undefined;
   }
   if (!isRecord(value)) return undefined;
   if (directSourceRefs(value).includes(targetRef)) return value;
+  if (!descendIntoRecords) return undefined;
   for (const nested of Object.values(value)) {
-    const found = findTargetRecord(nested, targetRef);
+    const found = findTargetRecord(nested, targetRef, options);
     if (found !== undefined) return found;
   }
   return undefined;
-}
-
-function findTargetTopLevelRecord(value: unknown, targetRef: string): unknown | undefined {
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const found = findTargetTopLevelRecord(item, targetRef);
-      if (found !== undefined) return found;
-    }
-    return undefined;
-  }
-  if (!isRecord(value)) return undefined;
-  return directSourceRefs(value).includes(targetRef) ? value : undefined;
 }
 
 function directSourceRefs(value: Record<string, unknown>): string[] {
