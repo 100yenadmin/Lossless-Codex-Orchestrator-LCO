@@ -411,7 +411,7 @@ function binaryProbeDiagnosticCommands(
 }
 
 function publishedPackageTarballExtractCommand(tarballLookup: string): string {
-  return `tarball_url="$(${tarballLookup})" && test -n "$tarball_url" && tmp_dir="$(mktemp -d)" && curl -fsSL "$tarball_url" -o "$tmp_dir/package.tgz" && tar -xzf "$tmp_dir/package.tgz" -C "$tmp_dir"`;
+  return `tarball_url="$(${tarballLookup})" && test -n "$tarball_url" && tmp_dir="$(mktemp -d)" && trap 'rm -rf "$tmp_dir"' EXIT && curl -fsSL "$tarball_url" -o "$tmp_dir/package.tgz" && tar -xzf "$tmp_dir/package.tgz" -C "$tmp_dir"`;
 }
 
 function binaryProbeJsonWriteCommand(packageVersion: string): string {

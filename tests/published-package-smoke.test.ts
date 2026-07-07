@@ -373,6 +373,7 @@ test("published-smoke requires public-safe candidate binary probe evidence", () 
     assert.match(recoveryCommand, /package_version=/);
     assert.match(recoveryCommand, /JSON\.stringify/);
     assert.doesNotMatch(recoveryCommand, /\bprintf\b/);
+    assert.match(recoveryCommand, /trap 'rm -rf "\$tmp_dir"' EXIT/);
     assert.match(recoveryCommand, /"\$version" "\$package_version"/);
     assert.ok(recoveryCommand.includes(packageVersion));
   } finally {
@@ -1100,6 +1101,7 @@ test("published-smoke classifies global loo PATH shadowing without failing prove
     assert.equal(report.binaryProbeDiagnostic.resolvedBinarySource, "global_path");
     assert.ok(report.binaryProbeDiagnostic.guidance.some((item) => item.includes("binary-probe tarball evidence")));
     assert.ok(report.nextSafeCommands.some((command) => command.includes("npm view lossless-openclaw-orchestrator@")));
+    assert.ok(report.nextSafeCommands.some((command) => command.includes("trap 'rm -rf \"$tmp_dir\"' EXIT")));
     assert.doesNotMatch(JSON.stringify(report), /\/opt\/homebrew|private shell output|old version with raw npm output/i);
 
     writeJson(binaryProbePath, {

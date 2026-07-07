@@ -13558,7 +13558,9 @@ function normalizedMetadataValue(value: string | null): string {
 }
 
 function normalizedMetadataMatchValue(value: string | null): string {
-  return (value ?? "").trim().toLowerCase();
+  // Keep lifecycle matching as a separate call site from hash/display normalization
+  // so future truncation changes cannot silently constrain semantic state scans.
+  return normalizedMetadataValue(value);
 }
 
 function truncateMetadataSignalsForHash(signals: Record<string, string>): Record<string, string> {
