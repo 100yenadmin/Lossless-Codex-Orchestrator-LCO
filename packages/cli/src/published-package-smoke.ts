@@ -414,13 +414,13 @@ function publishedPackageTarballExtractCommand(tarballLookup: string): string {
 }
 
 function binaryProbeJsonWriteCommand(packageVersion: string): string {
-  const writer = [
-    "const fs = require('node:fs');",
-    "const [outPath, expectedVersion, observedVersion, packageJsonVersion] = process.argv.slice(1);",
+  const writerLines = [
+    "import { writeFileSync } from 'node:fs';",
+    "const [outPath, expectedVersion, observedVersion, packageJsonVersion] = process.argv.slice(2);",
     "const tarballBinaryVersion = observedVersion === packageJsonVersion ? observedVersion : null;",
-    "fs.writeFileSync(outPath, JSON.stringify({ kind: 'loo_published_binary_probe_evidence', publicSafe: true, rawSecretIncluded: false, expectedVersion, observedVersion, resolvedBinarySource: 'package_tarball', pathShadowed: false, tarballBinaryVersion, packageJsonVersion }) + '\\n');"
-  ].join(" ");
-  return `node -e ${shellSingleQuote(writer)} "$binary_probe_report" ${shellSingleQuote(packageVersion)} "$version" "$package_version"`;
+    "writeFileSync(outPath, JSON.stringify({ kind: 'loo_published_binary_probe_evidence', publicSafe: true, rawSecretIncluded: false, expectedVersion, observedVersion, resolvedBinarySource: 'package_tarball', pathShadowed: false, tarballBinaryVersion, packageJsonVersion }) + '\\n');"
+  ];
+  return `printf '%s\\n' ${writerLines.map(shellSingleQuote).join(" ")} > "$tmp_dir/write-binary-probe.mjs" && node "$tmp_dir/write-binary-probe.mjs" "$binary_probe_report" ${shellSingleQuote(packageVersion)} "$version" "$package_version"`;
 }
 
 function shellSingleQuote(value: string): string {

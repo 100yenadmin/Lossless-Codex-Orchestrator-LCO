@@ -7303,7 +7303,7 @@ function preparedLifecycleFromMetadata(
   }));
   const nonBlockerText = [matchSignals.status, matchSignals.nextAction, matchSignals.closeoutState, matchSignals.planCompletionState].filter(Boolean).join(" ");
   const text = [nonBlockerText, matchSignals.blocker].filter(Boolean).join(" ");
-  const sourceReasonCodes = Object.entries(signals)
+  const sourceReasonCodes = Object.entries(matchSignals)
     .filter(([, value]) => value.length > 0)
     .map(([field]) => `lifecycle_signal:${field.replace(/[A-Z]/g, (match) => `_${match.toLowerCase()}`)}`);
   const completedByStatus = lifecycleCompletionLike(matchSignals.status);
