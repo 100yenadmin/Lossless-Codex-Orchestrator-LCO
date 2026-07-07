@@ -40,6 +40,7 @@ import {
   getCodexThreadMap,
   getCodexTouchedFiles,
   getCodexToolCalls,
+  getCodexEventContentStatus,
   getCodexJsonlDriftStatus,
   getRecentSessions,
   getSummaryLeaves,
@@ -1083,6 +1084,7 @@ export function createLooTools(options: {
       localOnly: true,
       toolPrefix: "lco_*",
       codexJsonlDrift: getCodexJsonlDriftStatus(options.db),
+      codexEventContent: getCodexEventContentStatus(options.db),
       codex: codexTransportStatus({ command: readEnvWithFallback("CODEX_BIN", "codex") }),
       lcmPeers: probeLcmPeerDbs(configuredLcmPeerDbPaths()),
       desktopFallbacks: desktopFallbackDiagnostics({ probe: options.desktopProbe })
