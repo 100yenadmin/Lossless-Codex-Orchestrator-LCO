@@ -29,13 +29,14 @@ Common local Codex roots:
 Install the stable public package:
 
 ```bash
-npm install -g lossless-openclaw-orchestrator@latest
+npm install -g lossless-codex-orchestrator@latest
 lco doctor
 ```
 
-The current published npm package name is still
-`lossless-openclaw-orchestrator` until the package-rename lane ships. It
-installs the canonical `lco` CLI and `lco-mcp-server`.
+`lossless-codex-orchestrator` is the current published npm package name. The
+deprecated compat package `lossless-openclaw-orchestrator` remains maintained
+for existing automation and points at the same canonical `lco` CLI and
+`lco-mcp-server`.
 
 The historical `loo`, `loo-mcp-server`, and `LOO_*` names remain maintained
 compatibility aliases for at least two minor releases.
@@ -43,7 +44,7 @@ compatibility aliases for at least two minor releases.
 Install the beta train only when you explicitly want prerelease behavior:
 
 ```bash
-npm install -g lossless-openclaw-orchestrator@beta
+npm install -g lossless-codex-orchestrator@beta
 ```
 
 Fresh walkthrough proof for maintainers or release PRs should use an isolated npm prefix
@@ -55,7 +56,7 @@ walkthrough_root="$(mktemp -d /tmp/lco-setup.XXXXXX)"
 export NPM_CONFIG_PREFIX="$walkthrough_root/npm-prefix"
 export PATH="$NPM_CONFIG_PREFIX/bin:$PATH"
 export LCO_DB_PATH="$walkthrough_root/orchestrator.sqlite"
-npm install -g lossless-openclaw-orchestrator@latest
+npm install -g lossless-codex-orchestrator@latest
 lco doctor --json
 ```
 
@@ -78,20 +79,20 @@ such as `ENOVERSIONS` or `ETARGET`, use the npm selector-drift tarball fallback
 with raw commands:
 
 ```bash
-tarball_url="$(npm view lossless-openclaw-orchestrator@latest dist.tarball)"
+tarball_url="$(npm view lossless-codex-orchestrator@latest dist.tarball)"
 test -n "$tarball_url" && npm install -g "$tarball_url"
 ```
 
 Update later:
 
 ```bash
-npm update -g lossless-openclaw-orchestrator
+npm update -g lossless-codex-orchestrator
 ```
 
 Uninstall:
 
 ```bash
-npm uninstall -g lossless-openclaw-orchestrator
+npm uninstall -g lossless-codex-orchestrator
 ```
 
 Uninstalling the package does not delete your local LCO database.
@@ -318,14 +319,14 @@ canonical `LCO_*` env names.
 Install the plugin from npm:
 
 ```bash
-openclaw plugins install lossless-openclaw-orchestrator@latest
+openclaw plugins install lossless-codex-orchestrator@latest
 openclaw plugins list --json
 ```
 
 Run a public-safe plugin readiness check:
 
 ```bash
-lco openclaw dogfood --profile lco-dogfood --install-source lossless-openclaw-orchestrator@latest --required-tool lco_doctor --required-tool lco_search_sessions --strict
+lco openclaw dogfood --profile lco-dogfood --install-source lossless-codex-orchestrator@latest --required-tool lco_doctor --required-tool lco_search_sessions --strict
 ```
 
 Run a tool smoke through OpenClaw Gateway:
@@ -559,7 +560,7 @@ Search returns no results
 OpenClaw plugin installs but tools are missing
 
 - Run `openclaw plugins list --json`.
-- Run `lco openclaw dogfood --profile lco-dogfood --install-source lossless-openclaw-orchestrator@latest --required-tool lco_doctor --required-tool lco_search_sessions --strict`.
+- Run `lco openclaw dogfood --profile lco-dogfood --install-source lossless-codex-orchestrator@latest --required-tool lco_doctor --required-tool lco_search_sessions --strict`.
 - Check [docs/OPENCLAW_PLUGIN.md](OPENCLAW_PLUGIN.md).
 
 OpenClaw gateway tool smoke reports credential or device blockers
@@ -574,11 +575,11 @@ OpenClaw gateway tool smoke reports credential or device blockers
 
 npm install reports `ENOVERSIONS` for a visible beta
 
-- First verify the package with `npm view lossless-openclaw-orchestrator@beta dist.tarball`.
+- First verify the package with `npm view lossless-codex-orchestrator@beta dist.tarball`.
 - If the registry tarball is visible, install directly with:
 
   ```bash
-  tarball_url="$(npm view lossless-openclaw-orchestrator@beta dist.tarball)"
+  tarball_url="$(npm view lossless-codex-orchestrator@beta dist.tarball)"
   test -n "$tarball_url" && npm install -g "$tarball_url"
   ```
 

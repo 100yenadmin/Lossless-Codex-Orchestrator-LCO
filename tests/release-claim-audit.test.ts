@@ -186,12 +186,12 @@ test("npm dist-tag policy is explicit for stable, beta, and rc channels", () => 
     assert.doesNotMatch(content, /latest[\s\S]{0,200}(?:follows|point at|resolves to)[\s\S]{0,120}newest public beta/i, `${surface} must not imply latest follows the newest beta`);
   }
 
-  assert.match(readme, /npm install -g lossless-openclaw-orchestrator@latest/i);
-  assert.match(readme, /npm install -g lossless-openclaw-orchestrator@beta/i);
+  assert.match(readme, /npm install -g lossless-codex-orchestrator@latest/i);
+  assert.match(readme, /npm install -g lossless-codex-orchestrator@beta/i);
   assert.match(readme, /`latest` is the stable public channel/i);
   assert.match(readme, /`beta` is the active prerelease train/i);
-  assert.match(setup, /npm install -g lossless-openclaw-orchestrator@latest/i);
-  assert.match(runbook, /npm dist-tag ls lossless-openclaw-orchestrator/i);
+  assert.match(setup, /npm install -g lossless-codex-orchestrator@latest/i);
+  assert.match(runbook, /npm dist-tag ls lossless-codex-orchestrator/i);
   assert.match(runbook, /npm `latest` must move only after/i);
 });
 
@@ -201,7 +201,7 @@ test("README and VISION describe the current stable package without stale releas
 
   assert.match(readme, new RegExp("Current stable:\\s+`" + escapedDocumentedStableVersion + "`", "i"));
   assert.match(readme, new RegExp("`" + escapedDocumentedStableVersion + "`[\\s\\S]{0,240}shipped", "i"));
-  assert.match(readme, /npm install -g lossless-openclaw-orchestrator@latest/i);
+  assert.match(readme, /npm install -g lossless-codex-orchestrator@latest/i);
   assert.match(readme, /`latest` is the stable public channel/i);
   assert.match(readme, /Stable today:[\s\S]{0,240}prepared cards/i);
   assert.match(readme, /Since 1\.2\.x[\s\S]{0,120}1\.2 prepared-state and summary-leaves lane/i);
@@ -958,7 +958,7 @@ function writeProjectSkeleton(rootDir: string, overrides: { readme?: string; run
   writeFileSync(join(rootDir, "README.md"), overrides.readme ?? [
     "# Lossless OpenClaw Orchestrator",
     "docs/SETUP.md",
-    "npm install -g lossless-openclaw-orchestrator@latest",
+    "npm install -g lossless-codex-orchestrator@latest",
     "loo index codex",
     "loo-mcp-server",
     "lco-mcp-server",

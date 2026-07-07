@@ -14,15 +14,15 @@ transcripts every time.
 
 ![Lossless Codex Orchestrator showing session cards, project memory, and agent command tools](https://raw.githubusercontent.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/main/assets/readme/hero.png)
 
-[![npm latest](https://img.shields.io/npm/v/lossless-openclaw-orchestrator/latest?label=npm%20latest)](https://www.npmjs.com/package/lossless-openclaw-orchestrator)
-[![npm beta](https://img.shields.io/npm/v/lossless-openclaw-orchestrator/beta?label=npm%20beta)](https://www.npmjs.com/package/lossless-openclaw-orchestrator)
+[![npm latest](https://img.shields.io/npm/v/lossless-codex-orchestrator/latest?label=npm%20latest)](https://www.npmjs.com/package/lossless-codex-orchestrator)
+[![npm beta](https://img.shields.io/npm/v/lossless-codex-orchestrator/beta?label=npm%20beta)](https://www.npmjs.com/package/lossless-codex-orchestrator)
 [![CI](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/actions/workflows/ci.yml/badge.svg)](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/actions/workflows/codeql.yml/badge.svg)](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/actions/workflows/codeql.yml)
 [![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)](LICENSE)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](CONTRIBUTING.md)
 
 ```bash
-npm install -g lossless-openclaw-orchestrator@latest
+npm install -g lossless-codex-orchestrator@latest
 lco doctor
 lco index codex --max-files 500 "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
 ```
@@ -140,15 +140,15 @@ Requirements:
 Stable install:
 
 ```bash
-npm install -g lossless-openclaw-orchestrator@latest
+npm install -g lossless-codex-orchestrator@latest
 lco doctor
 ```
 
-The current published npm package name is still
-`lossless-openclaw-orchestrator` until the package-rename lane ships. It
-installs the canonical `lco` CLI and `lco-mcp-server`. The historical `loo`,
-`loo-mcp-server`, and `LOO_*` env names remain maintained compatibility aliases
-for at least two minor releases.
+`lossless-codex-orchestrator` is the current published npm package name. The
+deprecated compat package `lossless-openclaw-orchestrator` remains maintained
+for existing automation and points at the same `lco` CLI and `lco-mcp-server`.
+The historical `loo`, `loo-mcp-server`, and `LOO_*` env names remain maintained
+compatibility aliases for at least two minor releases.
 
 ```bash
 loo index codex "$HOME/.codex/sessions"
@@ -158,12 +158,12 @@ loo-mcp-server
 Beta train, when you explicitly want the newest prerelease:
 
 ```bash
-npm install -g lossless-openclaw-orchestrator@beta
+npm install -g lossless-codex-orchestrator@beta
 ```
 
 Package channels:
 
-- Current stable: `1.3.5` has shipped on npm `latest`.
+- Current stable: `1.4.1` is the stable patch release shipped on npm `latest`.
 - `latest` is the stable public channel.
 - `beta` is the active prerelease train.
 - `next` is reserved for release candidates.
@@ -173,7 +173,7 @@ error such as `ENOVERSIONS` or `ETARGET`, use the npm selector-drift tarball
 fallback with raw npm commands a fresh shell can run:
 
 ```bash
-tarball_url="$(npm view lossless-openclaw-orchestrator@latest dist.tarball)"
+tarball_url="$(npm view lossless-codex-orchestrator@latest dist.tarball)"
 test -n "$tarball_url" && npm install -g "$tarball_url"
 ```
 
@@ -298,14 +298,14 @@ Typical MCP client entry:
 Install the OpenClaw plugin from npm:
 
 ```bash
-openclaw plugins install lossless-openclaw-orchestrator@latest
+openclaw plugins install lossless-codex-orchestrator@latest
 openclaw plugins list --json
 ```
 
 Smoke the OpenClaw path:
 
 ```bash
-lco openclaw dogfood --profile lco-dogfood --install-source lossless-openclaw-orchestrator@latest --required-tool lco_doctor --required-tool lco_search_sessions --strict
+lco openclaw dogfood --profile lco-dogfood --install-source lossless-codex-orchestrator@latest --required-tool lco_doctor --required-tool lco_search_sessions --strict
 lco openclaw tool-smoke --profile lco-dogfood --required-tool lco_doctor --required-tool lco_search_sessions --strict
 ```
 
@@ -385,8 +385,9 @@ rereading huge Codex transcripts. The historical architecture handoff remains in
 The 1.4 identity work makes `lco`, `lco-mcp-server`, `lco_*`, and `LCO_*` the
 canonical command and tool names, with `loo`, `loo-mcp-server`, `loo_*`, and
 `LOO_*` retained as compatibility aliases for at least two minor releases. The
-currently published npm package remains `lossless-openclaw-orchestrator` until
-the separate package-rename lane publishes `lossless-codex-orchestrator`.
+current npm package is `lossless-codex-orchestrator`; the deprecated compat
+package `lossless-openclaw-orchestrator` remains maintained for existing
+automation.
 
 For the full product direction, read [VISION.md](VISION.md).
 

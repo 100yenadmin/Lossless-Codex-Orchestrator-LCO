@@ -81,7 +81,7 @@ const forbiddenClaims = [
 
 const readmePublicDocsRequiredPatterns = [
   /docs\/SETUP\.md/i,
-  /npm install -g lossless-openclaw-orchestrator@latest/i,
+  /npm install -g lossless-codex-orchestrator@latest/i,
   /loo index codex/i,
   /loo-mcp-server/i,
   /CONTRIBUTING\.md/i,
