@@ -4,7 +4,6 @@
 the merged #643 and #640 fixes. This remains Codex-first local orchestration.
 
 ## What Changed
-
 - Raised default Codex JSONL indexing caps from the old small-file defaults to
   better cover long autonomous sessions.
 - Persisted and surfaced limited/skipped Codex files in the local LCO database,
@@ -19,13 +18,11 @@ the merged #643 and #640 fixes. This remains Codex-first local orchestration.
   CLI calls still return JSON `[]` on stdout and leave stderr empty.
 
 ## Scope
-
 This patch improves search and indexing usability for local Codex sessions.
 Raw-content FTS and embeddings remain on the 1.5 roadmap as larger recall
 improvements.
 
 ## Validation
-
 - #643 focused tests covered index-cap persistence, warnings, doctor health, and
   public-safe output boundaries.
 - #640 focused tests covered search help, zero-result machine output, bounded
@@ -35,7 +32,6 @@ improvements.
   the release prep PR merges.
 
 ## Package Notes
-
 - Candidate packages: `lossless-codex-orchestrator@1.4.3` (canonical) and
   `lossless-openclaw-orchestrator@1.4.3` (maintained compat).
 - Both packages should be published from the same source tree and verified from

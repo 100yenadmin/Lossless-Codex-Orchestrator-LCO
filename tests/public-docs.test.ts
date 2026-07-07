@@ -216,3 +216,20 @@ test("current docs do not present closed issue references as pending work", () =
     assert.doesNotMatch(currentDocs, forbidden);
   }
 });
+
+test("public changelog links only customer-facing release notes", () => {
+  const changelog = read("docs/releases/CHANGELOG.md");
+  const linkedNotes = [...changelog.matchAll(/\]\((RELEASE_NOTES_[^)]+\.md)\)/g)].map(
+    (match) => `docs/releases/${match[1]}`
+  );
+
+  assert.ok(linkedNotes.length > 0, "public changelog must link release notes");
+
+  const internalReleaseNoteLanguage =
+    /##\s*(?:Current Claim Scope|Stable Claim Scope|Proof Boundary|Explicit Non-Claims|Release Gates?|Release Gate Notes)|\bDo not claim:|approved_live_control_smoke_missing|codex-read-search-expand-dry-run|same proof boundary as beta\.35|No cloud sync|No unattended desktop takeover|No release-grade enterprise security|\bclaim(?:ed|s|ing|-conditional|\s+scope|\s+scoped|\s+boundary)?\b|\bproof(?:-action|\s+boundary|\s+gate|\s+gates|\s+path|\s+packet|\s+packets)?\b/i;
+
+  for (const file of linkedNotes) {
+    assert.equal(existsSync(file), true, `${file} must exist`);
+    assert.doesNotMatch(read(file), internalReleaseNoteLanguage, file);
+  }
+});

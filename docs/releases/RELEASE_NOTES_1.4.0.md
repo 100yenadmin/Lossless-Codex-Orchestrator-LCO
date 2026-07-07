@@ -11,7 +11,6 @@ runtime-neutral core, reachable from OpenClaw (tier 1), Hermes agents (tier 2),
 and any generic MCP client (tier 3).
 
 ## What Changed
-
 ### Canonical `lco` surface (with full `loo` compatibility)
 
 - MCP/OpenClaw tools are now canonically `lco_*`; every historical `loo_*` name
@@ -54,15 +53,13 @@ and any generic MCP client (tier 3).
   generic clients) and a multi-client mounting note.
 
 ## Scope
-
 The identity release keeps the product centered on local Codex session
 orchestration: indexing, prepared-state recall, bounded expansion, and
-approval-gated command packets. The live-send turn-proof and gateway-dispatch
+approval-gated command packets. The live-send turn-validation and gateway-dispatch
 hardening shipped in 1.3.4/1.3.5 remain available as safety infrastructure for
 future control-plane releases.
 
 ## Migration
-
 - Nothing is required: `loo`, `loo-mcp-server`, `loo_*` tools, `LOO_*` env vars,
   and `npm i lossless-openclaw-orchestrator` all continue to work.
 - Recommended: switch install to `lossless-codex-orchestrator` and use the `lco`
@@ -70,7 +67,6 @@ future control-plane releases.
   unchanged.
 
 ## Validation
-
 - Candidate packages: `lossless-codex-orchestrator@1.4.0` (new canonical) and
   `lossless-openclaw-orchestrator@1.4.0` (maintained compat, deprecated pointer).
 - Both install fresh from the registry and pass the published-artifact battery.
