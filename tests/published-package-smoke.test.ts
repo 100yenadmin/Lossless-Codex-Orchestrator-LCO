@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { createOpenClawDogfoodReport } from "../packages/cli/src/openclaw-dogfood.js";
 import { createPublishedPackageSmokeReport } from "../packages/cli/src/published-package-smoke.js";
 
 const tsxImport = createRequire(import.meta.url).resolve("tsx");
@@ -24,6 +25,20 @@ function writeValidBinaryProbe(path: string, version = packageVersion): void {
     resolvedBinarySource: "package_exec",
     pathShadowed: false,
     packageJsonVersion: version
+  });
+}
+
+function writeReadyToolSmoke(path: string): void {
+  writeJson(path, {
+    ok: true,
+    toolSmokeReady: true,
+    setupStatus: {
+      classification: "ready",
+      packageInstallLikelyOk: true
+    },
+    setupBlockers: [],
+    catalog: { toolCount: 34 },
+    invocations: [{ toolName: "lco_doctor", ok: true }]
   });
 }
 
@@ -325,6 +340,90 @@ test("published-smoke rejects self-attested dogfood readiness without an accepta
   }
 });
 
+test("published-smoke accepts install outcomes emitted by the OpenClaw dogfood producer", () => {
+  const cases: Array<{
+    name: string;
+    installInput: Partial<Parameters<typeof createOpenClawDogfoodReport>[0]>;
+    expectedStatus: string;
+  }> = [
+    {
+      name: "installed",
+      installInput: { installAttempted: true, installExitStatus: 0 },
+      expectedStatus: "installed"
+    },
+    {
+      name: "already-installed",
+      installInput: {
+        installAttempted: true,
+        installExitStatus: 1,
+        installStdout: "plugin already exists: lossless-openclaw-orchestrator"
+      },
+      expectedStatus: "already_installed"
+    },
+    {
+      name: "link-force-unsupported",
+      installInput: {
+        installAttempted: true,
+        installExitStatus: 1,
+        installStderr: "error: --force is not supported with --link"
+      },
+      expectedStatus: "link_force_unsupported"
+    }
+  ];
+
+  for (const fixture of cases) {
+    const dir = mkdtempSync(join(tmpdir(), `lco-published-smoke-dogfood-contract-${fixture.name}-`));
+    try {
+      const rootDir = join(dir, "package");
+      const dogfoodPath = join(dir, "dogfood.json");
+      const toolSmokePath = join(dir, "tool-smoke.json");
+      const binaryProbePath = join(dir, "binary-probe.json");
+      mkdirSync(rootDir, { recursive: true });
+      writeJson(join(rootDir, "package.json"), {
+        name: "lossless-codex-orchestrator",
+        version: packageVersion
+      });
+      writeValidBinaryProbe(binaryProbePath);
+      writeReadyToolSmoke(toolSmokePath);
+      const dogfoodReport = createOpenClawDogfoodReport({
+        pluginListExitStatus: 0,
+        pluginListStdout: JSON.stringify({
+          plugins: [{
+            id: "lossless-openclaw-orchestrator",
+            enabled: true,
+            status: "loaded",
+            toolNames: [
+              "loo_search_sessions",
+              "loo_describe_session",
+              "loo_expand_query",
+              "loo_codex_control_dry_run"
+            ]
+          }]
+        }),
+        ...fixture.installInput
+      });
+      assert.equal(dogfoodReport.dogfoodReady, true);
+      assert.equal(dogfoodReport.installOutcome.status, fixture.expectedStatus);
+      writeJson(dogfoodPath, dogfoodReport);
+
+      const report = createPublishedPackageSmokeReport({
+        rootDir,
+        dogfoodReportPath: dogfoodPath,
+        toolSmokeReportPath: toolSmokePath,
+        binaryProbeReportPath: binaryProbePath,
+        now: "2026-07-07T00:00:00.000Z"
+      });
+
+      assert.equal(report.ok, true, `${fixture.name}: ${report.blockers.join(", ")}`);
+      assert.equal(report.dogfood.installOutcomeStatus, fixture.expectedStatus);
+      assert.equal(report.dogfood.dogfoodReady, true);
+      assert.deepEqual(report.blockers, []);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
 test("published-smoke requires public-safe candidate binary probe evidence", () => {
   const dir = mkdtempSync(join(tmpdir(), "lco-published-smoke-binary-required-"));
   try {
@@ -428,6 +527,46 @@ test("published-smoke requires public-safe candidate binary probe evidence", () 
     assert.ok(recoveryCommand.includes(packageVersion));
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("published-smoke recovery tarball lookup follows beta and next dist tags", () => {
+  for (const fixture of [
+    { version: "1.4.4-beta.1", distTag: "beta" },
+    { version: "1.4.4-rc.1", distTag: "next" }
+  ]) {
+    const dir = mkdtempSync(join(tmpdir(), `lco-published-smoke-recovery-${fixture.distTag}-`));
+    try {
+      const rootDir = join(dir, "package");
+      const dogfoodPath = join(dir, "dogfood.json");
+      const toolSmokePath = join(dir, "tool-smoke.json");
+      mkdirSync(rootDir, { recursive: true });
+      writeJson(join(rootDir, "package.json"), {
+        name: "lossless-codex-orchestrator",
+        version: fixture.version
+      });
+      writeJson(dogfoodPath, {
+        ok: true,
+        dogfoodReady: true,
+        requiredToolsPresent: true,
+        installOutcome: { status: "installed" }
+      });
+      writeReadyToolSmoke(toolSmokePath);
+
+      const report = createPublishedPackageSmokeReport({
+        rootDir,
+        dogfoodReportPath: dogfoodPath,
+        toolSmokeReportPath: toolSmokePath,
+        now: "2026-07-07T00:00:00.000Z"
+      });
+      const recoveryCommand = report.nextSafeCommands.find((command) => command.includes("binary_probe_report=") && command.includes("write-binary-probe.mjs"));
+      assert.equal(typeof recoveryCommand, "string", fixture.distTag);
+      assert.match(recoveryCommand, new RegExp(`npm view lossless-codex-orchestrator@${fixture.distTag} dist --json`));
+      assert.match(recoveryCommand, /verify-tarball-integrity\.mjs/);
+      assert.match(recoveryCommand, /test -f "\$tmp_dir\/package\/package\.json"/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
 });
 
