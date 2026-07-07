@@ -13560,9 +13560,14 @@ function normalizedMetadataMatchValue(value: string | null): string {
 
 function negatesTitleFinalizerSignal(value: string): boolean {
   const titleFinalizerClausePattern = /thread-title-finalize|title finalizer|title-finalizer|finaliz(?:e|es|ed|ing).{0,40}thread.{0,20}title|thread.{0,20}title.{0,40}finaliz/i;
+  const negationPattern = /\b(?:not|no|without|never)\b/i;
   return value
     .split(/[.!?;\n]+/)
-    .some((clause) => titleFinalizerClausePattern.test(clause) && /\b(?:not|no|without|never)\b/i.test(clause));
+    .some((clause) => {
+      const titleMatch = titleFinalizerClausePattern.exec(clause);
+      const negationMatch = negationPattern.exec(clause);
+      return Boolean(titleMatch && negationMatch && negationMatch.index <= titleMatch.index);
+    });
 }
 
 function compareUpdatedAtDesc(left: string | null, right: string | null): number {

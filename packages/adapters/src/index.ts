@@ -1083,6 +1083,8 @@ const TURN_NOTIFICATION_METHOD_ORDER = [
 function compareTurnNotificationMethods(left: string, right: string): number {
   const leftIndex = TURN_NOTIFICATION_METHOD_ORDER.indexOf(left as typeof TURN_NOTIFICATION_METHOD_ORDER[number]);
   const rightIndex = TURN_NOTIFICATION_METHOD_ORDER.indexOf(right as typeof TURN_NOTIFICATION_METHOD_ORDER[number]);
+  // Public turn summaries expose this deterministic order: known lifecycle
+  // notifications first, then unknown future methods sorted lexicographically.
   if (leftIndex !== -1 || rightIndex !== -1) {
     if (leftIndex === -1) return 1;
     if (rightIndex === -1) return -1;

@@ -395,11 +395,13 @@ function binaryProbeDiagnosticCommands(
   diagnostic: PublishedPackageSmokeReport["binaryProbeDiagnostic"]
 ): string[] {
   const tarballLookup = `npm view ${expectedPackage} dist.tarball`;
-  const tarballExtractPrefix = publishedPackageTarballExtractCommand(tarballLookup);
+  const tarballExtractPrefix = publishedPackageTarballExtractCommand(expectedPackage);
   if (diagnostic.classification === "not_provided") {
+    const binaryProbePath = "$LCO_EVIDENCE_DIR/binary-probe.json";
     return [
       `${tarballLookup} --json`,
-      recoverySubshellCommand(`dogfood_report="\${LCO_DOGFOOD_REPORT:?set LCO_DOGFOOD_REPORT to a fresh dogfood report path}" && tool_smoke_report="\${LCO_TOOL_SMOKE_REPORT:?set LCO_TOOL_SMOKE_REPORT to a fresh tool-smoke report path}" && evidence_dir="\${LCO_EVIDENCE_DIR:?set LCO_EVIDENCE_DIR to the evidence directory for published-smoke output}" && mkdir -p "$evidence_dir" && ${tarballExtractPrefix} && binary_probe_report="$evidence_dir/binary-probe.json" && package_version="$(node -pe "require(process.argv.at(-1)).version" "$tmp_dir/package/package.json")" && tarball_binary_version="$(node "$tmp_dir/package/dist/packages/cli/src/index.js" --version)" && test -n "$package_version" && test -n "$tarball_binary_version" && test "$tarball_binary_version" = "$package_version" && resolved_binary_source="package_tarball" && path_shadowed="false" && version="$tarball_binary_version" && path_binary="$(command -v loo || true)" && if test -n "$path_binary"; then path_version="$(loo --version 2>/dev/null || true)"; if test "$path_version" = "$package_version"; then resolved_binary_source="package_exec"; version="$path_version"; else resolved_binary_source="global_path"; path_shadowed="true"; version="$path_version"; fi; fi && test -n "$version" && ${binaryProbeJsonWriteCommand(packageVersion)} && node "$tmp_dir/package/dist/packages/cli/src/index.js" openclaw published-smoke --dogfood-report "$dogfood_report" --tool-smoke-report "$tool_smoke_report" --binary-probe-report "$binary_probe_report" --evidence-dir "$evidence_dir" --strict`)
+      recoverySubshellCommand(`dogfood_report="\${LCO_DOGFOOD_REPORT:?set LCO_DOGFOOD_REPORT to a fresh dogfood report path}" && tool_smoke_report="\${LCO_TOOL_SMOKE_REPORT:?set LCO_TOOL_SMOKE_REPORT to a fresh tool-smoke report path}" && evidence_dir="\${LCO_EVIDENCE_DIR:?set LCO_EVIDENCE_DIR to the evidence directory for published-smoke output}" && mkdir -p "$evidence_dir" && ${tarballExtractPrefix} && binary_probe_report="$evidence_dir/binary-probe.json" && package_version="$(node -pe "require(process.argv.at(-1)).version" "$tmp_dir/package/package.json")" && tarball_binary_version="$(node "$tmp_dir/package/dist/packages/cli/src/index.js" --version)" && test -n "$package_version" && test -n "$tarball_binary_version" && test "$tarball_binary_version" = "$package_version" && resolved_binary_source="package_tarball" && path_shadowed="false" && version="$tarball_binary_version" && path_binary="$(command -v loo || true)" && if test -n "$path_binary"; then path_version="$(loo --version 2>/dev/null || true)"; if test "$path_version" = "$package_version"; then resolved_binary_source="package_exec"; version="$path_version"; else resolved_binary_source="global_path"; path_shadowed="true"; version="$path_version"; fi; fi && test -n "$version" && ${binaryProbeJsonWriteCommand(packageVersion)}`),
+      `loo openclaw published-smoke --dogfood-report "$LCO_DOGFOOD_REPORT" --tool-smoke-report "$LCO_TOOL_SMOKE_REPORT" --binary-probe-report "${binaryProbePath}" --evidence-dir "$LCO_EVIDENCE_DIR" --strict`
     ];
   }
   if (diagnostic.classification !== "smoke_harness_path_shadow" && diagnostic.classification !== "candidate_binary_version_mismatch") return [];
@@ -413,8 +415,50 @@ function recoverySubshellCommand(command: string): string {
   return `(${command})`;
 }
 
-function publishedPackageTarballExtractCommand(tarballLookup: string): string {
-  return `tarball_url="$(${tarballLookup})" && test -n "$tarball_url" && tmp_dir="$(mktemp -d)" && trap 'test -n "\${tmp_dir:-}" && rm -rf "$tmp_dir"' EXIT && curl -fsSL "$tarball_url" -o "$tmp_dir/package.tgz" && tar -xzf "$tmp_dir/package.tgz" -C "$tmp_dir"`;
+function publishedPackageTarballExtractCommand(expectedPackage: string): string {
+  const metadataLookup = `npm view ${expectedPackage} dist --json`;
+  return [
+    `tmp_dir="$(mktemp -d)"`,
+    `trap 'test -n "\${tmp_dir:-}" && rm -rf "$tmp_dir"' EXIT`,
+    `${metadataLookup} > "$tmp_dir/npm-dist.json"`,
+    npmDistMetadataReaderCommand(),
+    `node "$tmp_dir/read-npm-dist.mjs" "$tmp_dir/npm-dist.json" "$tmp_dir/tarball-url.txt" "$tmp_dir/integrity.txt"`,
+    `tarball_url="$(cat "$tmp_dir/tarball-url.txt")"`,
+    `integrity="$(cat "$tmp_dir/integrity.txt")"`,
+    `test -n "$tarball_url"`,
+    `test -n "$integrity"`,
+    `curl -fsSL "$tarball_url" -o "$tmp_dir/package.tgz"`,
+    npmTarballIntegrityVerifierCommand(),
+    `node "$tmp_dir/verify-tarball-integrity.mjs" "$tmp_dir/package.tgz" "$integrity"`,
+    `tar -xzf "$tmp_dir/package.tgz" -C "$tmp_dir"`
+  ].join(" && ");
+}
+
+function npmDistMetadataReaderCommand(): string {
+  const lines = [
+    "import { readFileSync, writeFileSync } from 'node:fs';",
+    "const [metadataPath, tarballOut, integrityOut] = process.argv.slice(2);",
+    "const metadata = JSON.parse(readFileSync(metadataPath, 'utf8'));",
+    "const tarball = typeof metadata.tarball === 'string' ? metadata.tarball : typeof metadata.dist?.tarball === 'string' ? metadata.dist.tarball : '';",
+    "const integrity = typeof metadata.integrity === 'string' ? metadata.integrity : typeof metadata.dist?.integrity === 'string' ? metadata.dist.integrity : '';",
+    "if (!tarball || !integrity) process.exit(1);",
+    "writeFileSync(tarballOut, `${tarball}\\n`);",
+    "writeFileSync(integrityOut, `${integrity}\\n`);"
+  ];
+  return `printf '%s\\n' ${lines.map(shellSingleQuote).join(" ")} > "$tmp_dir/read-npm-dist.mjs"`;
+}
+
+function npmTarballIntegrityVerifierCommand(): string {
+  const lines = [
+    "import { createHash } from 'node:crypto';",
+    "import { readFileSync } from 'node:fs';",
+    "const [tarballPath, integrity] = process.argv.slice(2);",
+    "const match = /^sha512-([A-Za-z0-9+/=]+)$/.exec(integrity ?? '');",
+    "if (!match) process.exit(1);",
+    "const actual = createHash('sha512').update(readFileSync(tarballPath)).digest('base64');",
+    "if (actual !== match[1]) process.exit(1);"
+  ];
+  return `printf '%s\\n' ${lines.map(shellSingleQuote).join(" ")} > "$tmp_dir/verify-tarball-integrity.mjs"`;
 }
 
 function binaryProbeJsonWriteCommand(packageVersion: string): string {

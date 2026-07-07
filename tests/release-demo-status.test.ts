@@ -639,6 +639,16 @@ test("release demo-status refuses to write the manifest through a symlink", () =
   }
 });
 
+test("release demo-status manifest writer revalidates the final path without following symlinks", () => {
+  const source = read("packages/cli/src/release-demo-status.ts");
+
+  assert.match(source, /const pathStat = lstatSync\(path\);/);
+  assert.match(source, /pathStat\.isSymbolicLink\(\)/);
+  assert.match(source, /pathStat\.dev !== expectedIdentity\.dev/);
+  assert.match(source, /pathStat\.ino !== expectedIdentity\.ino/);
+  assert.match(source, /constants\.O_RDONLY \| noFollowFlag/);
+});
+
 test("release demo-status refuses to write the manifest through a dangling symlink", () => {
   const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-manifest-dangling-"));
   const outsideDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-missing-target-"));

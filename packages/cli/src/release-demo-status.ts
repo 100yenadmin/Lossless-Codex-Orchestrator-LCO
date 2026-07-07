@@ -218,11 +218,15 @@ function writeSafeDemoStatusManifest(path: string, contents: string): void {
 }
 
 function assertWrittenSafeDemoStatusManifestPath(path: string, expectedIdentity: { dev: number; ino: number }): void {
+  const pathStat = lstatSync(path);
+  if (pathStat.isSymbolicLink() || !pathStat.isFile() || pathStat.dev !== expectedIdentity.dev || pathStat.ino !== expectedIdentity.ino) {
+    throw new Error("release-demo-status.json must be the same regular evidence file after write");
+  }
   const noFollowFlag = "O_NOFOLLOW" in constants ? constants.O_NOFOLLOW : 0;
   const fd = openSync(path, constants.O_RDONLY | noFollowFlag);
   try {
     const stat = fstatSync(fd);
-    if (!stat.isFile() || stat.dev !== expectedIdentity.dev || stat.ino !== expectedIdentity.ino) {
+    if (!stat.isFile() || stat.dev !== expectedIdentity.dev || stat.ino !== expectedIdentity.ino || stat.dev !== pathStat.dev || stat.ino !== pathStat.ino) {
       throw new Error("release-demo-status.json must be the same regular evidence file after write");
     }
   } finally {

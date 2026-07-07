@@ -313,6 +313,17 @@ test("thread title finalizer does not collapse benign thread-name requests to th
       assert.equal(unrelatedNegationBeforeAffirmedFinalizer.title.state, "ready");
       assert.equal(unrelatedNegationBeforeAffirmedFinalizer.title.summary, "Codex thread title finalizer");
       assert.match(unrelatedNegationBeforeAffirmedFinalizer.title.suggestedTitle ?? "", /thread title finalizer/i);
+
+      const affirmedFinalizerWithTrailingNegation = captureThreadTitleFinalizerHookPacket(db, {
+        thread_id: "019f-title-finalizer-affirmed-trailing-negation",
+        cwd: "/Volumes/LEXAR/repos/lossless-openclaw-orchestrator",
+        current_title: "hook shipped",
+        last_assistant_message: "Shipped the LCO hook and finalized thread title, not related to billing."
+      });
+      assert.equal(affirmedFinalizerWithTrailingNegation.publicSafe, true);
+      assert.equal(affirmedFinalizerWithTrailingNegation.title.state, "ready");
+      assert.equal(affirmedFinalizerWithTrailingNegation.title.summary, "Codex thread title finalizer");
+      assert.match(affirmedFinalizerWithTrailingNegation.title.suggestedTitle ?? "", /thread title finalizer/i);
     } finally {
       db.close();
     }
