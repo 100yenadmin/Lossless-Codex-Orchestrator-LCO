@@ -504,6 +504,8 @@ test("published-smoke requires public-safe candidate binary probe evidence", () 
     assert.match(recoveryCommand, /resolved_binary_source="global_path"/);
     assert.match(recoveryCommand, /path_shadowed="true"/);
     assert.match(recoveryCommand, /JSON\.stringify/);
+    assert.match(recoveryCommand, /tarballVersionSource/);
+    assert.match(recoveryCommand, /package_json_metadata/);
     assert.match(recoveryCommand, /process\.argv\.at\(-1\)/);
     assert.match(recoveryCommand, /process\.argv\.slice\(2\)/);
     assert.match(recoveryCommand, /mkdir -p "\$evidence_dir"/);
@@ -517,6 +519,7 @@ test("published-smoke requires public-safe candidate binary probe evidence", () 
     assert.doesNotMatch(recoveryCommand, /writeFileSync\('binary-probe\.json'/);
     assert.ok(recoveryCommand.includes("trap 'test -n \"${tmp_dir:-}\" && rm -rf \"$tmp_dir\"' EXIT"));
     assert.match(recoveryCommand, /tarballBinaryVersion/);
+    assert.match(recoveryCommand, /tarballVersionSource/);
     assert.match(recoveryCommand, /tarball_binary_version="\$package_version"/);
     assert.match(recoveryCommand, /test -n "\$tarball_binary_version"/);
     assert.match(recoveryCommand, /test -n "\$package_version"/);
@@ -648,6 +651,8 @@ test("published-smoke requires tarball binary version for package-tarball candid
     assert.equal(tarballMarkerReport.packagePathOk, true);
     assert.equal(tarballMarkerReport.binaryProbeDiagnostic.classification, "valid_candidate_binary");
     assert.equal(tarballMarkerReport.binaryProbeDiagnostic.tarballBinaryVersion, packageVersion);
+    assert.equal(tarballMarkerReport.binaryProbeDiagnostic.tarballVersionSource, "package_json_metadata");
+    assert.ok(tarballMarkerReport.binaryProbeDiagnostic.guidance.some((item) => item.includes("package.json metadata")));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1370,8 +1375,9 @@ test("published-smoke classifies global loo PATH shadowing without failing prove
     assert.equal(report.binaryProbeDiagnostic.observedVersion, "1.2.6");
     assert.equal(report.binaryProbeDiagnostic.packageVersion, packageJson.version);
     assert.equal(report.binaryProbeDiagnostic.tarballBinaryVersion, packageJson.version);
+    assert.equal(report.binaryProbeDiagnostic.tarballVersionSource, "package_json_metadata");
     assert.equal(report.binaryProbeDiagnostic.resolvedBinarySource, "global_path");
-    assert.ok(report.binaryProbeDiagnostic.guidance.some((item) => item.includes("binary-probe tarball evidence")));
+    assert.ok(report.binaryProbeDiagnostic.guidance.some((item) => item.includes("binary-probe tarball package.json metadata")));
     assert.ok(report.nextSafeCommands.some((command) => command.includes("npm view lossless-openclaw-orchestrator@")));
     assert.ok(report.nextSafeCommands.some((command) => command.includes("trap 'test -n \"${tmp_dir:-}\" && rm -rf \"$tmp_dir\"' EXIT")));
     assert.doesNotMatch(JSON.stringify(report), /\/opt\/homebrew|private shell output|old version with raw npm output/i);

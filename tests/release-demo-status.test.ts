@@ -651,6 +651,8 @@ test("release demo-status manifest writer revalidates the final path without fol
   assert.match(source, /postOpenPathStat\.isSymbolicLink\(\)/);
   assert.match(source, /stat\.dev !== postOpenPathStat\.dev/);
   assert.match(source, /stat\.ino !== postOpenPathStat\.ino/);
+  assert.match(source, /function assertNoSymlinkAncestors\(path: string\)/);
+  assert.match(source, /lstatSync\(current\)\.isSymbolicLink\(\)/);
 });
 
 test("release demo-status refuses to write the manifest through a dangling symlink", () => {
@@ -701,10 +703,40 @@ test("release demo-status refuses to write the manifest through a symlinked evid
     ], { encoding: "utf8" });
 
     assert.notEqual(result.status, 0);
-    assert.match(`${result.stderr}\n${result.stdout}`, /parent directory must not be a symlink/);
+    assert.match(`${result.stderr}\n${result.stdout}`, /parent directories must not include symlinks/);
     assert.equal(existsSync(join(realEvidenceDir, "release-demo-status.json")), false);
   } finally {
     unlinkSync(linkDir);
+  }
+});
+
+test("release demo-status refuses to write the manifest through a symlinked ancestor directory", () => {
+  const rootDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-ancestor-root-"));
+  const realParentDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-ancestor-real-"));
+  const linkParentDir = join(rootDir, "linked-parent");
+  const evidenceDir = join(linkParentDir, "evidence");
+  symlinkSync(realParentDir, linkParentDir);
+  mkdirSync(join(realParentDir, "evidence"), { recursive: true });
+
+  try {
+    const liveControlProof = writePassingDemoEvidence(evidenceDir);
+    const result = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "release",
+      "demo-status",
+      "--evidence-dir",
+      evidenceDir,
+      "--approved-live-control-evidence",
+      liveControlProof
+    ], { encoding: "utf8" });
+
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stderr}\n${result.stdout}`, /parent directories must not include symlinks/);
+    assert.equal(existsSync(join(evidenceDir, "release-demo-status.json")), false);
+  } finally {
+    unlinkSync(linkParentDir);
   }
 });
 

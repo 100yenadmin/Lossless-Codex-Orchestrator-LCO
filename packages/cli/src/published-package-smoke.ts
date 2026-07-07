@@ -114,6 +114,7 @@ export type PublishedPackageSmokeReport = {
     observedVersion: string | null;
     packageVersion: string;
     tarballBinaryVersion: string | null;
+    tarballVersionSource: "package_json_metadata" | null;
     evidenceInputs: string[];
     guidance: string[];
   };
@@ -469,7 +470,8 @@ function binaryProbeJsonWriteCommand(packageVersion: string): string {
     "const [outPath, expectedVersion, observedVersion, packageJsonVersion, resolvedBinarySource = 'package_tarball', pathShadowedValue = 'false', tarballBinaryVersionValue = ''] = process.argv.slice(2);",
     "const pathShadowed = pathShadowedValue === 'true';",
     "const tarballBinaryVersion = tarballBinaryVersionValue || (resolvedBinarySource === 'package_tarball' && observedVersion === packageJsonVersion ? observedVersion : null);",
-    "writeFileSync(outPath, JSON.stringify({ kind: 'loo_published_binary_probe_evidence', publicSafe: true, rawSecretIncluded: false, expectedVersion, observedVersion, resolvedBinarySource, pathShadowed, tarballBinaryVersion, packageJsonVersion }) + '\\n');"
+    "const tarballVersionSource = tarballBinaryVersion ? 'package_json_metadata' : null;",
+    "writeFileSync(outPath, JSON.stringify({ kind: 'loo_published_binary_probe_evidence', publicSafe: true, rawSecretIncluded: false, expectedVersion, observedVersion, resolvedBinarySource, pathShadowed, tarballBinaryVersion, tarballVersionSource, packageJsonVersion }) + '\\n');"
   ];
   return `printf '%s\\n' ${writerLines.map(shellSingleQuote).join(" ")} > "$tmp_dir/write-binary-probe.mjs" && node "$tmp_dir/write-binary-probe.mjs" "$binary_probe_report" ${shellSingleQuote(packageVersion)} "$version" "$package_version" "$resolved_binary_source" "$path_shadowed" "$tarball_binary_version"`;
 }
@@ -495,6 +497,7 @@ function readBinaryProbeDiagnostic(path: string | undefined, packageVersion: str
       observedVersion: null,
       packageVersion,
       tarballBinaryVersion: null,
+      tarballVersionSource: null,
       evidenceInputs: [],
       guidance: ["Provide --binary-probe-report evidence that attributes the resolved loo binary to the candidate package before claiming package-path readiness."]
     };
@@ -505,13 +508,15 @@ function readBinaryProbeDiagnostic(path: string | undefined, packageVersion: str
   const observedVersion = safeVersionString(readNestedString(payload, ["observedVersion"]));
   const expectedVersion = safeVersionString(readNestedString(payload, ["expectedVersion"])) ?? packageVersion;
   const tarballBinaryVersion = safeVersionString(readNestedString(payload, ["tarballBinaryVersion"]));
+  const tarballVersionSource = readTarballVersionSource(payload, tarballBinaryVersion);
   const pathShadowed = readNestedBoolean(payload, ["pathShadowed"]);
   const resolvedBinarySource = readResolvedBinarySource(payload);
   const tarballMatches = tarballBinaryVersion === packageVersion;
   const evidenceInputs = [
     "binary_probe",
     pathShadowed ? "path_shadowed" : null,
-    tarballMatches ? "candidate_tarball_version_match" : null
+    tarballMatches ? "candidate_tarball_version_match" : null,
+    tarballMatches && tarballVersionSource === "package_json_metadata" ? "candidate_tarball_package_json_metadata" : null
   ].filter((item): item is string => Boolean(item));
 
   if (pathShadowed && tarballMatches) {
@@ -523,9 +528,10 @@ function readBinaryProbeDiagnostic(path: string | undefined, packageVersion: str
       observedVersion,
       packageVersion,
       tarballBinaryVersion,
+      tarballVersionSource,
       evidenceInputs,
       guidance: [
-        "The command runner resolved a non-candidate loo binary, but binary-probe tarball evidence matched the package version; treat this as smoke harness PATH shadowing.",
+        "The command runner resolved a non-candidate loo binary, but binary-probe tarball package.json metadata matched the package version; treat this as smoke harness PATH shadowing.",
         "Rerun product smoke from the exact published tarball or validate the resolved binary path before claiming a package version defect."
       ]
     };
@@ -548,8 +554,13 @@ function readBinaryProbeDiagnostic(path: string | undefined, packageVersion: str
       observedVersion,
       packageVersion,
       tarballBinaryVersion,
+      tarballVersionSource,
       evidenceInputs: uniqueStrings([...evidenceInputs, "candidate_binary_version_match"]),
-      guidance: ["The resolved binary was attributed to the candidate package and reported the expected version."]
+      guidance: [
+        packageTarballCandidate
+          ? "The candidate tarball package.json metadata matched the expected version; this proves tarball attribution, not an executed binary self-report."
+          : "The resolved binary was attributed to the candidate package and reported the expected version."
+      ]
     };
   }
 
@@ -561,6 +572,7 @@ function readBinaryProbeDiagnostic(path: string | undefined, packageVersion: str
     observedVersion,
     packageVersion,
     tarballBinaryVersion,
+    tarballVersionSource,
     evidenceInputs,
     guidance: [
       "The binary probe did not prove the candidate package version; keep package readiness fail-closed until exact tarball or package-scoped binary proof passes."
@@ -580,9 +592,16 @@ function invalidBinaryProbeDiagnostic(
     observedVersion: null,
     packageVersion,
     tarballBinaryVersion: null,
+    tarballVersionSource: null,
     evidenceInputs,
     guidance: ["The binary probe report was absent, malformed, or not public-safe; keep package readiness fail-closed if this probe is required for the claim."]
   };
+}
+
+function readTarballVersionSource(input: Record<string, unknown>, tarballBinaryVersion: string | null): PublishedPackageSmokeReport["binaryProbeDiagnostic"]["tarballVersionSource"] {
+  const value = readNestedString(input, ["tarballVersionSource"]);
+  if (value === "package_json_metadata") return value;
+  return tarballBinaryVersion ? "package_json_metadata" : null;
 }
 
 function readResolvedBinarySource(input: Record<string, unknown>): PublishedPackageSmokeReport["binaryProbeDiagnostic"]["resolvedBinarySource"] {

@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readlinkSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   excludedClaimsForScope,
@@ -244,10 +245,7 @@ function assertWrittenSafeDemoStatusManifestPath(path: string, expectedIdentity:
 }
 
 function assertSafeDemoStatusManifestPath(path: string): void {
-  const parent = dirname(path);
-  if (lstatSync(parent).isSymbolicLink()) {
-    throw new Error("release-demo-status.json parent directory must not be a symlink");
-  }
+  assertNoSymlinkAncestors(path);
   let stat;
   try {
     stat = lstatSync(path);
@@ -257,6 +255,23 @@ function assertSafeDemoStatusManifestPath(path: string): void {
   }
   if (stat.isSymbolicLink()) {
     throw new Error("release-demo-status.json must be a regular evidence file, not a symlink");
+  }
+}
+
+function assertNoSymlinkAncestors(path: string): void {
+  const tmpRoot = resolve(tmpdir());
+  let current = dirname(path);
+  while (true) {
+    // macOS temp paths normally live under /var, which is itself a system
+    // symlink. Stop at the temp root so tests and temp evidence keep working
+    // while user-controlled evidence ancestors below it are still checked.
+    if (resolve(current) === tmpRoot) return;
+    if (lstatSync(current).isSymbolicLink()) {
+      throw new Error("release-demo-status.json parent directories must not include symlinks");
+    }
+    const parent = dirname(current);
+    if (parent === current) return;
+    current = parent;
   }
 }
 
