@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, readlinkSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readlinkSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   excludedClaimsForScope,
@@ -191,9 +191,23 @@ export function createReleaseDemoStatus(options: ReleaseDemoStatusOptions): Rele
     ]
   };
 
-  assertSafeDemoStatusManifestPath(demoStatusManifestPath);
-  writeFileSync(demoStatusManifestPath, `${JSON.stringify(report, null, 2)}\n`);
+  writeSafeDemoStatusManifest(demoStatusManifestPath, `${JSON.stringify(report, null, 2)}\n`);
   return report;
+}
+
+function writeSafeDemoStatusManifest(path: string, contents: string): void {
+  assertSafeDemoStatusManifestPath(path);
+  const parent = dirname(path);
+  const tempPath = join(parent, `.${basename(path)}.${process.pid}.${Date.now()}.tmp`);
+  try {
+    writeFileSync(tempPath, contents, { flag: "wx" });
+    if (lstatSync(tempPath).isSymbolicLink()) {
+      throw new Error("release-demo-status temporary manifest must not be a symlink");
+    }
+    renameSync(tempPath, path);
+  } finally {
+    if (existsSync(tempPath)) unlinkSync(tempPath);
+  }
 }
 
 function assertSafeDemoStatusManifestPath(path: string): void {
