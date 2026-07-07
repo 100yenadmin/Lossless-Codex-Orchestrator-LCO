@@ -12,7 +12,7 @@ can use. Your agent can find the right project, understand what happened, see
 what is blocked, prepare the next action, and keep moving without rereading huge
 transcripts every time.
 
-![Lossless Codex Orchestrator showing session cards, project memory, and agent command tools](assets/readme/hero.png)
+![Lossless Codex Orchestrator showing session cards, project memory, and agent command tools](https://raw.githubusercontent.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/main/assets/readme/hero.png)
 
 [![npm latest](https://img.shields.io/npm/v/lossless-openclaw-orchestrator/latest?label=npm%20latest)](https://www.npmjs.com/package/lossless-openclaw-orchestrator)
 [![npm beta](https://img.shields.io/npm/v/lossless-openclaw-orchestrator/beta?label=npm%20beta)](https://www.npmjs.com/package/lossless-openclaw-orchestrator)
