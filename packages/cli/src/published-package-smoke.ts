@@ -401,7 +401,7 @@ function binaryProbeDiagnosticCommands(
     const binaryProbePath = "$LCO_EVIDENCE_DIR/binary-probe.json";
     return [
       `${tarballLookup} --json`,
-      recoverySubshellCommand(`dogfood_report="\${LCO_DOGFOOD_REPORT:?set LCO_DOGFOOD_REPORT to a fresh dogfood report path}" && tool_smoke_report="\${LCO_TOOL_SMOKE_REPORT:?set LCO_TOOL_SMOKE_REPORT to a fresh tool-smoke report path}" && evidence_dir="\${LCO_EVIDENCE_DIR:?set LCO_EVIDENCE_DIR to the evidence directory for published-smoke output}" && mkdir -p "$evidence_dir" && ${tarballExtractPrefix} && binary_probe_report="$evidence_dir/binary-probe.json" && package_version="$(node -pe "require(process.argv.at(-1)).version" "$tmp_dir/package/package.json")" && tarball_binary_version="$package_version" && test -n "$package_version" && test -n "$tarball_binary_version" && test "$tarball_binary_version" = "$package_version" && resolved_binary_source="package_tarball" && path_shadowed="false" && version="$tarball_binary_version" && path_binary="$(command -v loo || true)" && if test -n "$path_binary"; then path_version="$(loo --version 2>/dev/null || true)"; if test "$path_version" = "$package_version"; then resolved_binary_source="package_exec"; version="$path_version"; else resolved_binary_source="global_path"; path_shadowed="true"; version="$path_version"; fi; fi && test -n "$version" && ${binaryProbeJsonWriteCommand(packageVersion)}`),
+      recoverySubshellCommand(`dogfood_report="\${LCO_DOGFOOD_REPORT:?set LCO_DOGFOOD_REPORT to a fresh dogfood report path}" && tool_smoke_report="\${LCO_TOOL_SMOKE_REPORT:?set LCO_TOOL_SMOKE_REPORT to a fresh tool-smoke report path}" && evidence_dir="\${LCO_EVIDENCE_DIR:?set LCO_EVIDENCE_DIR to the evidence directory for published-smoke output}" && mkdir -p "$evidence_dir" && ${tarballExtractPrefix} && binary_probe_report="$evidence_dir/binary-probe.json" && package_version="$(node -pe "require(process.argv.at(-1)).version" "$tmp_dir/package/package.json")" && tarball_binary_version="$package_version" && test -n "$package_version" && test -n "$tarball_binary_version" && test "$tarball_binary_version" = "$package_version" && resolved_binary_source="package_tarball" && path_shadowed="false" && version="$tarball_binary_version" && test -n "$version" && ${binaryProbeJsonWriteCommand(packageVersion)}`),
       `loo openclaw published-smoke --dogfood-report "$LCO_DOGFOOD_REPORT" --tool-smoke-report "$LCO_TOOL_SMOKE_REPORT" --binary-probe-report "${binaryProbePath}" --evidence-dir "$LCO_EVIDENCE_DIR" --strict`
     ];
   }
@@ -482,7 +482,8 @@ function shellSingleQuote(value: string): string {
 
 function binaryProbeBlockers(diagnostic: PublishedPackageSmokeReport["binaryProbeDiagnostic"]): string[] {
   if (!diagnostic.provided || diagnostic.classification === "not_provided") return ["binary_probe_missing"];
-  if (diagnostic.classification === "valid_candidate_binary" || diagnostic.classification === "smoke_harness_path_shadow") return [];
+  if (diagnostic.classification === "valid_candidate_binary") return [];
+  if (diagnostic.classification === "smoke_harness_path_shadow") return ["binary_probe_path_shadow"];
   if (diagnostic.classification === "candidate_binary_version_mismatch") return ["binary_probe_candidate_version_mismatch"];
   return ["binary_probe_invalid"];
 }
@@ -508,7 +509,7 @@ function readBinaryProbeDiagnostic(path: string | undefined, packageVersion: str
   const observedVersion = safeVersionString(readNestedString(payload, ["observedVersion"]));
   const expectedVersion = safeVersionString(readNestedString(payload, ["expectedVersion"])) ?? packageVersion;
   const tarballBinaryVersion = safeVersionString(readNestedString(payload, ["tarballBinaryVersion"]));
-  const tarballVersionSource = readTarballVersionSource(payload, tarballBinaryVersion);
+  const tarballVersionSource = readTarballVersionSource(payload);
   const pathShadowed = readNestedBoolean(payload, ["pathShadowed"]);
   const resolvedBinarySource = readResolvedBinarySource(payload);
   const tarballMatches = tarballBinaryVersion === packageVersion;
@@ -523,7 +524,7 @@ function readBinaryProbeDiagnostic(path: string | undefined, packageVersion: str
     return {
       provided: true,
       classification: "smoke_harness_path_shadow",
-      packageInstallLikelyOk: true,
+      packageInstallLikelyOk: false,
       resolvedBinarySource,
       observedVersion,
       packageVersion,
@@ -531,8 +532,8 @@ function readBinaryProbeDiagnostic(path: string | undefined, packageVersion: str
       tarballVersionSource,
       evidenceInputs,
       guidance: [
-        "The command runner resolved a non-candidate loo binary, but binary-probe tarball package.json metadata matched the package version; treat this as smoke harness PATH shadowing.",
-        "Rerun product smoke from the exact published tarball or validate the resolved binary path before claiming a package version defect."
+        "The command runner resolved a non-candidate loo binary; treat this as smoke harness PATH shadowing, not package-path readiness.",
+        "Rerun product smoke from the exact published tarball or fix PATH before claiming package readiness."
       ]
     };
   }
@@ -598,10 +599,10 @@ function invalidBinaryProbeDiagnostic(
   };
 }
 
-function readTarballVersionSource(input: Record<string, unknown>, tarballBinaryVersion: string | null): PublishedPackageSmokeReport["binaryProbeDiagnostic"]["tarballVersionSource"] {
+function readTarballVersionSource(input: Record<string, unknown>): PublishedPackageSmokeReport["binaryProbeDiagnostic"]["tarballVersionSource"] {
   const value = readNestedString(input, ["tarballVersionSource"]);
   if (value === "package_json_metadata") return value;
-  return tarballBinaryVersion ? "package_json_metadata" : null;
+  return null;
 }
 
 function readResolvedBinarySource(input: Record<string, unknown>): PublishedPackageSmokeReport["binaryProbeDiagnostic"]["resolvedBinarySource"] {

@@ -652,6 +652,8 @@ test("release demo-status manifest writer revalidates the final path without fol
   assert.match(source, /stat\.dev !== postOpenPathStat\.dev/);
   assert.match(source, /stat\.ino !== postOpenPathStat\.ino/);
   assert.match(source, /function assertNoSymlinkAncestors\(path: string\)/);
+  assert.match(source, /const tmpRoot = resolve\(tmpdir\(\)\);/);
+  assert.match(source, /resolve\(current\) === tmpRoot/);
   assert.match(source, /lstatSync\(current\)\.isSymbolicLink\(\)/);
 });
 
