@@ -169,6 +169,60 @@ test("indexes Codex sessions with plans, finals, touched files, and search text"
   }
 });
 
+test("compacted and tool output text cannot overwrite assistant final messages", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-finals-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const threadPath = join(sessions, "rollout-2026-07-07T00-00-00-019f-compact-final.jsonl");
+  const lines = [
+    { timestamp: "2026-07-07T00:00:00Z", session_meta: { payload: { id: "019f-compact-final" } } },
+    { timestamp: "2026-07-07T00:00:01Z", event_msg: { type: "thread_name", name: "Compacted final extraction" } },
+    {
+      timestamp: "2026-07-07T00:00:02Z",
+      event_msg: {
+        type: "agent_message",
+        message: "Final: real assistant closeout complete. Next action: open the recall PR."
+      }
+    },
+    {
+      timestamp: "2026-07-07T00:00:03Z",
+      type: "compacted",
+      payload: {
+        output: "Chunk ID: fb085b Wall time: 0.0000 seconds Process exited with code 0 Summary: tool compaction output complete."
+      }
+    },
+    {
+      timestamp: "2026-07-07T00:00:04Z",
+      response_item: {
+        type: "function_call_output",
+        call_id: "call_noise",
+        output: "Final: noisy function output complete and should stay out of finals."
+      }
+    }
+  ];
+  writeFileSync(threadPath, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const result = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    assert.deepEqual(result.errors, []);
+
+    const final = getCodexFinalMessages(db, { threadId: "019f-compact-final", limit: 5 })[0]?.text ?? "";
+    assert.match(final, /real assistant closeout complete/);
+    assert.doesNotMatch(final, /Chunk ID/);
+    assert.doesNotMatch(final, /function output/);
+
+    const searchRow = db.prepare("SELECT finals, body FROM codex_search_fts WHERE thread_id = ?").get("019f-compact-final") as { finals: string; body: string };
+    assert.match(searchRow.finals, /real assistant closeout complete/);
+    assert.doesNotMatch(searchRow.finals, /Chunk ID/);
+    assert.doesNotMatch(searchRow.finals, /function output/);
+    assert.match(searchRow.body, /Chunk ID/);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("loo_codex_extract dispatches all canonical extraction kinds", async () => {
   const fixture = makeFixture();
   const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));

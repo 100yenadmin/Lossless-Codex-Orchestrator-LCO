@@ -15086,6 +15086,7 @@ function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: num
 
   const drift = emptyCodexJsonlDriftAccumulator();
   const safeParts: string[] = [];
+  const assistantSafeParts: string[] = [];
   const touched = new Set<string>();
   const records = jsonlLineRecords(text, options.lineNumberOffset ?? 0, options.byteOffset ?? 0);
   const sourceHash = options.sourceHash ?? stableId(text);
@@ -15150,11 +15151,13 @@ function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: num
       const clean = redactSafeString(normalizeText(payload));
       if (!clean) continue;
       safeParts.push(clean);
-      rangeKinds.add(textRangeKind(item));
+      const rangeKind = textRangeKind(item);
+      rangeKinds.add(rangeKind);
+      if (rangeKind === "assistant_message") assistantSafeParts.push(clean);
       const plans = extractPlans(clean);
       for (const plan of plans) session.plans.push(plan);
       if (plans.length > 0) rangeKinds.add("proposed_plan");
-      const finalMessage = isLikelyFinal(clean);
+      const finalMessage = rangeKind === "assistant_message" && isLikelyFinal(clean);
       if (finalMessage) {
         session.finalMessage = clean;
         session.finalMessageExplicit = true;
@@ -15186,7 +15189,7 @@ function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: num
 
   session.touchedFiles = [...touched].sort();
   session.safeText = safeParts.join("\n").slice(0, CODEX_SAFE_TEXT_CHAR_LIMIT);
-  session.finalMessage ??= lastAssistantText(safeParts);
+  session.finalMessage ??= lastAssistantText(assistantSafeParts);
   session.title ??= session.finalMessage ? truncate(session.finalMessage, 80) : session.threadId;
   session.updatedAt ??= new Date().toISOString();
   session.createdAt ??= session.updatedAt;
