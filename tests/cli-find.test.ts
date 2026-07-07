@@ -125,3 +125,33 @@ test("lco_find MCP facade indexes then returns the same public-safe find packet"
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("lco_find rejects missing query before any derived-cache index write", async () => {
+  const root = mkdtempSync(join(tmpdir(), "lco-find-missing-query-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  try {
+    const sessions = join(root, ".codex", "sessions");
+    writeFindSession(join(sessions, "rollout-2026-07-08T00-00-00-019f-find-missing-query.jsonl"), "019f-find-missing-query");
+    const tools = createLooTools({
+      db,
+      audit,
+      codexClient: {
+        request: async () => ({ ok: true })
+      },
+      includeAliases: true
+    });
+    const findTool = tools.find((tool) => tool.name === "lco_find");
+
+    assert.ok(findTool);
+    assert.throws(
+      () => findTool.execute({ roots: [sessions] }),
+      /query is required/
+    );
+    const row = db.prepare("SELECT COUNT(*) AS count FROM codex_sessions").get() as { count: number };
+    assert.equal(row.count, 0);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

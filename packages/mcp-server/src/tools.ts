@@ -510,6 +510,7 @@ export function createLooTools(options: {
     }, (input) => {
       const limit = optionalBoundedInteger(input.limit, 1, 100) ?? 10;
       const shouldIndex = optionalBoolean(input.index) !== false;
+      const query = requiredString(input.query, "query");
       const indexed = shouldIndex
         ? indexCodexSessions(options.db, {
           roots: optionalRoots(input.roots, defaultCodexRoots()),
@@ -518,7 +519,6 @@ export function createLooTools(options: {
           maxEventsPerFile: optionalNumber(input.max_events_per_file)
         })
         : null;
-      const query = requiredString(input.query, "query");
       return createFindRecallReport({
         query,
         limit,

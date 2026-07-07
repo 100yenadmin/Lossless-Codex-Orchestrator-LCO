@@ -864,8 +864,8 @@ test("OpenClaw tool smoke invokes required loo tools through gateway call and wr
     assert.deepEqual(report.invocations.map((call) => call.toolName), DEFAULT_REQUIRED_TOOL_CALLS);
     for (const toolName of C1_UMBRELLA_TOOL_CALLS) {
       assert.equal(DEFAULT_REQUIRED_TOOL_CALLS.includes(toolName), true, `${toolName} is part of the base gateway smoke`);
-    assert.equal(report.invocations.some((call) => call.toolName === toolName), true, `${toolName} was invoked`);
-  }
+      assert.equal(report.invocations.some((call) => call.toolName === toolName), true, `${toolName} was invoked`);
+    }
     assert.equal(report.invocations.find((call) => call.toolName === "loo_find")?.summary.sourceRefs?.[0], "codex_thread:thread-1");
     assert.equal(report.invocations.find((call) => call.toolName === "loo_search_sessions")?.summary.sourceRefs?.[0], "codex_thread:thread-1");
     assert.equal(report.invocations.find((call) => call.toolName === "loo_describe_session")?.summary.threadId, "thread-1");
