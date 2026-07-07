@@ -2410,6 +2410,7 @@ export type RetrievalEvalScenario = {
   query: string;
   expectedSourceRefs: string[];
   expansionQueries?: string[];
+  requires?: string[];
   limit?: number;
   k?: number;
   family?: string;
@@ -2481,6 +2482,8 @@ export type RetrievalBaselineScenarioResult = {
   query: string;
   expectedSourceRefs: string[];
   k: number;
+  requires: string[];
+  skipped: boolean;
   hitAt1: boolean;
   hitAt5: boolean;
   hitAtK: boolean;
@@ -2497,6 +2500,7 @@ export type RetrievalBaselineReport = {
   strategy: "field-weighted-fts-ranking";
   metrics: {
     scenarioCount: number;
+    skippedScenarioCount: number;
     overall: RetrievalBaselineMetricSet;
     families: Record<string, RetrievalBaselineMetricSet & { scenarioCount: number }>;
   };
@@ -14702,18 +14706,22 @@ export function evaluateRetrievalBaselineScenarios(db: LooDatabase, options: {
   scenarios: RetrievalEvalScenario[];
   floors?: RetrievalBaselineFloors | null;
   now?: string;
+  availableCapabilities?: string[];
 }): RetrievalBaselineReport {
-  const scenarios = options.scenarios.map((scenario) => evaluateRetrievalBaselineScenario(db, scenario, options.now));
-  const overall = retrievalBaselineMetrics(scenarios);
-  const families = retrievalBaselineFamilyMetrics(scenarios);
-  const blockers = retrievalBaselineFloorBlockers(scenarios, overall, families, options.floors ?? null);
+  const availableCapabilities = new Set((options.availableCapabilities ?? []).map((capability) => capability.trim()).filter(Boolean));
+  const scenarios = options.scenarios.map((scenario) => evaluateRetrievalBaselineScenario(db, scenario, options.now, availableCapabilities));
+  const scoredScenarios = scenarios.filter((scenario) => !scenario.skipped);
+  const overall = retrievalBaselineMetrics(scoredScenarios);
+  const families = retrievalBaselineFamilyMetrics(scoredScenarios);
+  const blockers = retrievalBaselineFloorBlockers(scoredScenarios, overall, families, options.floors ?? null);
   return {
     ok: blockers.length === 0,
     publicSafe: true,
     generatedAt: options.now ?? new Date().toISOString(),
     strategy: "field-weighted-fts-ranking",
     metrics: {
-      scenarioCount: scenarios.length,
+      scenarioCount: scoredScenarios.length,
+      skippedScenarioCount: scenarios.length - scoredScenarios.length,
       overall,
       families
     },
@@ -14734,10 +14742,36 @@ export function evaluateRetrievalBaselineScenarios(db: LooDatabase, options: {
   };
 }
 
-function evaluateRetrievalBaselineScenario(db: LooDatabase, scenario: RetrievalEvalScenario, now?: string): RetrievalBaselineScenarioResult {
+function evaluateRetrievalBaselineScenario(
+  db: LooDatabase,
+  scenario: RetrievalEvalScenario,
+  now: string | undefined,
+  availableCapabilities: Set<string>
+): RetrievalBaselineScenarioResult {
   const k = clamp(scenario.k ?? scenario.limit ?? 5, 1, 20);
   const limit = Math.max(5, k);
   const expectedSourceRefs = unique(scenario.expectedSourceRefs.filter(Boolean));
+  const requires = unique((scenario.requires ?? []).map((capability) => capability.trim()).filter(Boolean));
+  const missingRequirements = requires.filter((capability) => !availableCapabilities.has(capability));
+  if (missingRequirements.length > 0) {
+    return {
+      id: scenario.id,
+      family: scenario.family?.trim() || "uncategorized",
+      rationale: scenario.rationale?.trim() || null,
+      query: scenario.query,
+      expectedSourceRefs,
+      k,
+      requires,
+      skipped: true,
+      hitAt1: false,
+      hitAt5: false,
+      hitAtK: false,
+      firstExpectedRank: null,
+      reciprocalRank: 0,
+      topRefs: [],
+      reasonCodes: missingRequirements.map((capability) => `requires:${capability}`)
+    };
+  }
   const matches = grepRecall(db, { query: scenario.query, limit, now }).matches;
   const topRefs = matches.map((match) => match.sourceRef);
   const firstExpectedIndex = topRefs.findIndex((ref) => expectedSourceRefs.includes(ref));
@@ -14758,6 +14792,8 @@ function evaluateRetrievalBaselineScenario(db: LooDatabase, scenario: RetrievalE
     query: scenario.query,
     expectedSourceRefs,
     k,
+    requires,
+    skipped: false,
     hitAt1: firstExpectedRank !== null && firstExpectedRank <= 1,
     hitAt5: firstExpectedRank !== null && firstExpectedRank <= 5,
     hitAtK: firstExpectedRank !== null && firstExpectedRank <= k,

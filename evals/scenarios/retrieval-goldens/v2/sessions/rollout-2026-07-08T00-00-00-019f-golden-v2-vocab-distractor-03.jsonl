@@ -1,0 +1,5 @@
+{"timestamp":"2026-07-08T00:25:00.000Z","session_meta":{"payload":{"id":"019f-golden-v2-vocab-distractor-03","cwd":"/workspace/lco-goldens-v2","model":"gpt-5.5","git":{"branch":"150-goldens-v2","commit_hash":"goldensv2fixture"}}}}
+{"timestamp":"2026-07-08T00:25:00.000Z","event_msg":{"type":"thread_name","name":"V2 distractor broad vocabulary note 03"}}
+{"timestamp":"2026-07-08T00:25:00.000Z","response_item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Distractor mentions nearby vocabulary but omits screen-recording consent preflight."}]}}
+{"timestamp":"2026-07-08T00:25:00.000Z","response_item":{"type":"function_call","call_id":"019f-golden-v2-vocab-distractor-03-tool","name":"functions.exec_command","arguments":"{\"cmd\":\"sed -n '1,120p' packages/evals/retrieval-v2/019f-golden-v2-vocab-distractor-03.ts\"}"}}
+{"timestamp":"2026-07-08T00:25:00.000Z","event_msg":{"type":"agent_message","message":"Closeout note for 019f-golden-v2-vocab-distractor-03: public-safe retrieval fixture indexed."}}

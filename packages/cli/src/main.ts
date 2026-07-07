@@ -2930,11 +2930,15 @@ function normalizeRetrievalScenario(value: unknown): Parameters<typeof evaluateR
   const expansionQueries = Array.isArray(record.expansionQueries)
     ? record.expansionQueries.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
     : [];
+  const requires = Array.isArray(record.requires)
+    ? record.requires.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
   return {
     id: requiredJsonString(record.id, "id"),
     query: requiredJsonString(record.query, "query"),
     expectedSourceRefs,
     expansionQueries,
+    requires,
     limit: optionalJsonPositiveInteger(record.limit, "limit", 100),
     k: optionalJsonPositiveInteger(record.k, "k", 100),
     family: typeof record.family === "string" ? record.family.trim() : undefined,
