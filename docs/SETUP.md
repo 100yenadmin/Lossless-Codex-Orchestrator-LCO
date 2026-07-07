@@ -362,7 +362,10 @@ Strict package-path readiness now requires a public-safe `--binary-probe-report`
 that attributes the resolved `lco`/`loo` binary to the candidate package. If the
 report is missing, `published-smoke` emits a recovery command that builds
 `binary-probe.json` under your chosen evidence directory without storing raw npm
-or gateway logs.
+or gateway logs. Before running that emitted recovery command, export or set
+`LCO_DOGFOOD_REPORT`, `LCO_TOOL_SMOKE_REPORT`, and `LCO_EVIDENCE_DIR` to the
+fresh public-safe dogfood report, tool-smoke report, and evidence directory you
+want the command to use.
 
 If the gateway needs first-run setup, LCO reports classifications such as
 `credential_required`, `device_pairing_required`, `scope_upgrade_required`,
