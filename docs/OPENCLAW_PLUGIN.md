@@ -51,8 +51,8 @@ Recommended OpenClaw configuration should expose the `lco_*` tools and keep live
 Tool declarations include a `metadata.tier` value so agents can distinguish the
 compact operator path from detail, proof, and low-level recovery surfaces:
 
-- `public_facade`: the normal 8-tool operator path:
-  `lco_prepared_inbox`, `lco_describe_ref`, `lco_expand_query`,
+- `public_facade`: the normal 9-tool operator path:
+  `lco_find`, `lco_prepared_inbox`, `lco_describe_ref`, `lco_expand_query`,
   `lco_recent_sessions`, `lco_attention_inbox`, `lco_project_digest`,
   `lco_codex_control_dry_run`, and `lco_codex_resume_thread`.
 - `workflow_detail`: supporting read/detail/setup/control tools that a facade

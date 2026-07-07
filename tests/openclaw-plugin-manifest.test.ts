@@ -123,9 +123,9 @@ test("OpenClaw plugin contracts classify every tool into an operator surface tie
   const publicFacade = baseDeclarations
     .filter((declaration) => declaration.metadata?.tier === "public_facade")
     .sort((left, right) => Number(left.metadata?.operatorPathRank) - Number(right.metadata?.operatorPathRank));
-  assert.equal(publicFacade.length >= 6 && publicFacade.length <= 8, true, "public facade must stay compact");
+  assert.equal(publicFacade.length >= 6 && publicFacade.length <= 9, true, "public facade must stay compact");
   assert.deepEqual(publicFacade.map((declaration) => declaration.name), generatedToolSurface.publicFacadeTools);
-  assert.deepEqual(publicFacade.map((declaration) => declaration.metadata?.operatorPathRank), [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.deepEqual(publicFacade.map((declaration) => declaration.metadata?.operatorPathRank), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
   for (const declaration of publicFacade) {
     assert.equal(typeof declaration.metadata?.operatorPathRole, "string", `${declaration.name} must describe its facade role`);
   }
@@ -133,7 +133,7 @@ test("OpenClaw plugin contracts classify every tool into an operator surface tie
   const lcoAliases = aliases.filter((declaration) => declaration.name.startsWith("lco_"));
   const compatibilityAliases = aliases.filter((declaration) => declaration.name.startsWith("loo_"));
   assert.deepEqual(lcoAliases, []);
-  assert.equal(compatibilityAliases.length, 65);
+  assert.equal(compatibilityAliases.length, 66);
   for (const alias of compatibilityAliases) {
     assert.equal(baseDeclarations.some((declaration) => declaration.name === alias.metadata?.aliasOf), true);
   }

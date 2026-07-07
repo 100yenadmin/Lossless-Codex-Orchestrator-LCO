@@ -35,6 +35,7 @@
   "contracts": {
     "tools": [
       "lco_index_sessions",
+      "lco_find",
       "lco_search_sessions",
       "lco_grep",
       "lco_describe_ref",
@@ -69,6 +70,7 @@
       "lco_permissions",
       "lco_audit_tail",
       "loo_index_sessions",
+      "loo_find",
       "loo_search_sessions",
       "loo_grep",
       "loo_describe_ref",
@@ -153,6 +155,61 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "roots": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "max_files": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100000
+            },
+            "max_bytes_per_file": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1073741824
+            },
+            "max_events_per_file": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000
+            }
+          }
+        }
+      },
+      {
+        "name": "lco_find",
+        "description": "Find local Codex work from one query; indexes local Codex files first unless index is false.",
+        "safety": {
+          "mode": "local_cache_write",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": [
+            "derived_cache"
+          ]
+        },
+        "metadata": {
+          "tier": "public_facade",
+          "operatorPathRank": 1,
+          "operatorPathRole": "Find local Codex work from one query with a bounded first-run index pass and public-safe refs."
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "query": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "index": {
+              "type": "boolean"
+            },
             "roots": {
               "type": "array",
               "items": {
@@ -286,7 +343,7 @@
         },
         "metadata": {
           "tier": "public_facade",
-          "operatorPathRank": 2,
+          "operatorPathRank": 3,
           "operatorPathRole": "Look up a specific session or source ref after the inbox identifies it."
         },
         "inputSchema": {
@@ -370,7 +427,7 @@
         },
         "metadata": {
           "tier": "public_facade",
-          "operatorPathRank": 3,
+          "operatorPathRank": 4,
           "operatorPathRole": "Expand one bounded evidence brief from a query when the ref is not known."
         },
         "inputSchema": {
@@ -419,7 +476,7 @@
         },
         "metadata": {
           "tier": "public_facade",
-          "operatorPathRank": 1,
+          "operatorPathRank": 2,
           "operatorPathRole": "Start from the compact prepared-state operating picture."
         },
         "inputSchema": {
@@ -532,7 +589,7 @@
         },
         "metadata": {
           "tier": "public_facade",
-          "operatorPathRank": 4,
+          "operatorPathRank": 5,
           "operatorPathRole": "Refresh recent or active session cards after reads or approved actions."
         },
         "inputSchema": {
@@ -770,7 +827,7 @@
         },
         "metadata": {
           "tier": "public_facade",
-          "operatorPathRank": 6,
+          "operatorPathRank": 7,
           "operatorPathRole": "Create a bounded provenance and handoff digest from available operating inputs."
         },
         "inputSchema": {
@@ -821,7 +878,7 @@
         },
         "metadata": {
           "tier": "public_facade",
-          "operatorPathRank": 5,
+          "operatorPathRank": 6,
           "operatorPathRole": "Review the compact attention queue before choosing a next action."
         },
         "inputSchema": {
@@ -1186,7 +1243,7 @@
         },
         "metadata": {
           "tier": "public_facade",
-          "operatorPathRank": 7,
+          "operatorPathRank": 8,
           "operatorPathRole": "Create the exact dry-run action packet and approval hashes before live control."
         },
         "inputSchema": {
@@ -1258,7 +1315,7 @@
         },
         "metadata": {
           "tier": "public_facade",
-          "operatorPathRank": 8,
+          "operatorPathRank": 9,
           "operatorPathRole": "Run the approved resume action only after a matching dry-run audit id."
         },
         "inputSchema": {
@@ -1780,6 +1837,62 @@
         }
       },
       {
+        "name": "loo_find",
+        "description": "Find local Codex work from one query; indexes local Codex files first unless index is false.",
+        "safety": {
+          "mode": "local_cache_write",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": [
+            "derived_cache"
+          ]
+        },
+        "metadata": {
+          "tier": "public_facade",
+          "operatorPathRank": 1,
+          "operatorPathRole": "Find local Codex work from one query with a bounded first-run index pass and public-safe refs.",
+          "aliasOf": "lco_find"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "query": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "index": {
+              "type": "boolean"
+            },
+            "roots": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "max_files": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100000
+            },
+            "max_bytes_per_file": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1073741824
+            },
+            "max_events_per_file": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000
+            }
+          }
+        }
+      },
+      {
         "name": "loo_search_sessions",
         "description": "Search indexed Codex sessions with bounded safe text.",
         "safety": {
@@ -1890,7 +2003,7 @@
         },
         "metadata": {
           "tier": "public_facade",
-          "operatorPathRank": 2,
+          "operatorPathRank": 3,
           "operatorPathRole": "Look up a specific session or source ref after the inbox identifies it.",
           "aliasOf": "lco_describe_ref"
         },
@@ -1976,7 +2089,7 @@
         },
         "metadata": {
           "tier": "public_facade",
-          "operatorPathRank": 3,
+          "operatorPathRank": 4,
           "operatorPathRole": "Expand one bounded evidence brief from a query when the ref is not known.",
           "aliasOf": "lco_expand_query"
         },
@@ -2111,7 +2224,7 @@
         },
         "metadata": {
           "tier": "public_facade",
-          "operatorPathRank": 1,
+          "operatorPathRank": 2,
           "operatorPathRole": "Start from the compact prepared-state operating picture.",
           "aliasOf": "lco_prepared_inbox"
         },
@@ -2141,7 +2254,7 @@
         },
         "metadata": {
           "tier": "public_facade",
-          "operatorPathRank": 4,
+          "operatorPathRank": 5,
           "operatorPathRole": "Refresh recent or active session cards after reads or approved actions.",
           "aliasOf": "lco_recent_sessions"
         },
@@ -2497,7 +2610,7 @@
         },
         "metadata": {
           "tier": "public_facade",
-          "operatorPathRank": 6,
+          "operatorPathRank": 7,
           "operatorPathRole": "Create a bounded provenance and handoff digest from available operating inputs.",
           "aliasOf": "lco_project_digest"
         },
@@ -2549,7 +2662,7 @@
         },
         "metadata": {
           "tier": "public_facade",
-          "operatorPathRank": 5,
+          "operatorPathRank": 6,
           "operatorPathRole": "Review the compact attention queue before choosing a next action.",
           "aliasOf": "lco_attention_inbox"
         },
@@ -2809,7 +2922,7 @@
         },
         "metadata": {
           "tier": "public_facade",
-          "operatorPathRank": 7,
+          "operatorPathRank": 8,
           "operatorPathRole": "Create the exact dry-run action packet and approval hashes before live control.",
           "aliasOf": "lco_codex_control_dry_run"
         },
@@ -2883,7 +2996,7 @@
         },
         "metadata": {
           "tier": "public_facade",
-          "operatorPathRank": 8,
+          "operatorPathRank": 9,
           "operatorPathRole": "Run the approved resume action only after a matching dry-run audit id.",
           "aliasOf": "lco_codex_resume_thread"
         },
@@ -3384,7 +3497,7 @@
         },
         "metadata": {
           "tier": "public_facade",
-          "operatorPathRank": 2,
+          "operatorPathRank": 3,
           "operatorPathRole": "Look up a specific session or source ref after the inbox identifies it.",
           "aliasOf": "lco_describe_ref"
         },
@@ -6463,6 +6576,7 @@
         "internal_low_level"
       ],
       "publicFacadeTools": [
+        "lco_find",
         "lco_prepared_inbox",
         "lco_describe_ref",
         "lco_expand_query",

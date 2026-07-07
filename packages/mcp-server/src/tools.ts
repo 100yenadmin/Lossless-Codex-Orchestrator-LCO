@@ -11,6 +11,7 @@ import {
   createCodexCollaborationNextSteps,
   createCodexCollaborationCockpit,
   createCodexRuntimeDesktopVisibilityStatus,
+  createFindRecallReport,
   createCodexThreadNotFoundResult,
   describeSession,
   describeRecallRef,
@@ -161,28 +162,33 @@ export const LOO_TOOL_PROFILE_TIERS: Record<LooToolProfile, LooToolTier[]> = {
 
 export const LOO_TOOL_SURFACE: Record<string, LooToolSurfaceMetadata> = {
   lco_index_sessions: { tier: "workflow_detail" },
+  lco_find: {
+    tier: "public_facade",
+    operatorPathRank: 1,
+    operatorPathRole: "Find local Codex work from one query with a bounded first-run index pass and public-safe refs."
+  },
   lco_search_sessions: { tier: "workflow_detail" },
   lco_grep: { tier: "workflow_detail" },
   lco_describe_ref: {
     tier: "public_facade",
-    operatorPathRank: 2,
+    operatorPathRank: 3,
     operatorPathRole: "Look up a specific session or source ref after the inbox identifies it."
   },
   lco_expand_session: { tier: "workflow_detail" },
   lco_expand_query: {
     tier: "public_facade",
-    operatorPathRank: 3,
+    operatorPathRank: 4,
     operatorPathRole: "Expand one bounded evidence brief from a query when the ref is not known."
   },
   lco_prepared_state: { tier: "workflow_detail" },
   lco_prepared_inbox: {
     tier: "public_facade",
-    operatorPathRank: 1,
+    operatorPathRank: 2,
     operatorPathRole: "Start from the compact prepared-state operating picture."
   },
   lco_recent_sessions: {
     tier: "public_facade",
-    operatorPathRank: 4,
+    operatorPathRank: 5,
     operatorPathRole: "Refresh recent or active session cards after reads or approved actions."
   },
   lco_watchers: { tier: "workflow_detail" },
@@ -192,12 +198,12 @@ export const LOO_TOOL_SURFACE: Record<string, LooToolSurfaceMetadata> = {
   lco_operating_picture: { tier: "workflow_detail" },
   lco_project_digest: {
     tier: "public_facade",
-    operatorPathRank: 6,
+    operatorPathRank: 7,
     operatorPathRole: "Create a bounded provenance and handoff digest from available operating inputs."
   },
   lco_attention_inbox: {
     tier: "public_facade",
-    operatorPathRank: 5,
+    operatorPathRank: 6,
     operatorPathRole: "Review the compact attention queue before choosing a next action."
   },
   lco_business_pulse: { tier: "workflow_detail" },
@@ -208,13 +214,13 @@ export const LOO_TOOL_SURFACE: Record<string, LooToolSurfaceMetadata> = {
   lco_lcm_peer_dbs: { tier: "internal_low_level" },
   lco_codex_control_dry_run: {
     tier: "public_facade",
-    operatorPathRank: 7,
+    operatorPathRank: 8,
     operatorPathRole: "Create the exact dry-run action packet and approval hashes before live control."
   },
   lco_codex_start_thread: { tier: "workflow_detail" },
   lco_codex_resume_thread: {
     tier: "public_facade",
-    operatorPathRank: 8,
+    operatorPathRank: 9,
     operatorPathRole: "Run the approved resume action only after a matching dry-run audit id."
   },
   lco_codex_send_message: { tier: "workflow_detail" },
@@ -493,6 +499,38 @@ export function createLooTools(options: {
       maxBytesPerFile: optionalNumber(input.max_bytes_per_file),
       maxEventsPerFile: optionalNumber(input.max_events_per_file)
     }))),
+    tool("lco_find", "Find local Codex work from one query; indexes local Codex files first unless index is false.", {
+      query: { type: "string" },
+      limit: { type: "integer", minimum: 1, maximum: 100 },
+      index: { type: "boolean" },
+      roots: { type: "array", items: { type: "string" } },
+      max_files: { type: "integer", minimum: 1, maximum: 100000 },
+      max_bytes_per_file: { type: "integer", minimum: 1, maximum: 1073741824 },
+      max_events_per_file: { type: "integer", minimum: 1, maximum: 1000000 }
+    }, (input) => {
+      const limit = optionalBoundedInteger(input.limit, 1, 100) ?? 10;
+      const shouldIndex = optionalBoolean(input.index) !== false;
+      const indexed = shouldIndex
+        ? indexCodexSessions(options.db, {
+          roots: optionalRoots(input.roots, defaultCodexRoots()),
+          maxFiles: optionalNumber(input.max_files),
+          maxBytesPerFile: optionalNumber(input.max_bytes_per_file),
+          maxEventsPerFile: optionalNumber(input.max_events_per_file)
+        })
+        : null;
+      const query = requiredString(input.query, "query");
+      return createFindRecallReport({
+        query,
+        limit,
+        indexed,
+        recall: grepRecall(options.db, {
+          query,
+          limit,
+          profile: "brief",
+          telemetry: false
+        })
+      });
+    }),
     tool("lco_search_sessions", "Search indexed Codex sessions with bounded safe text.", {
       query: { type: "string" },
       limit: { type: "integer", minimum: 1, maximum: 100 },

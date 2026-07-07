@@ -2428,6 +2428,61 @@ export type GrepRecallResult = {
   reasonCodes?: string[];
 };
 
+export type FindRecallReport = {
+  schema: "lco.find.v1";
+  ok: boolean;
+  publicSafe: true;
+  query: string;
+  limit: number;
+  indexed: {
+    attempted: boolean;
+    indexedFiles: number;
+    skippedFiles: number;
+    indexedThreads: number;
+    indexedEvents: number;
+    limitedFiles: number;
+    warnings: number;
+    errors: number;
+  };
+  resultCount: number;
+  results: FindRecallResult[];
+  nextSafeCommands: string[];
+  actionsPerformed: {
+    derivedCacheWrite: boolean;
+    localCodexSourceRead: boolean;
+    sourceStoreMutation: false;
+    externalWrite: false;
+    liveControl: false;
+    guiMutation: false;
+    rawTranscriptRead: boolean;
+    rawTranscriptReturned: false;
+    rawTranscriptUploaded: false;
+  };
+  reasonCodes: string[];
+};
+
+export type FindRecallResult = {
+  rank: number;
+  sourceKind: RecallSearchResult["sourceKind"];
+  sourceRef: string;
+  title: string | null;
+  summary: string | null;
+  updatedAt: string | null;
+  snippet: string;
+  threadId?: string;
+  sessionId?: string;
+  summaryId?: string;
+  event?: {
+    eventRef: string;
+    eventKind: string;
+    lineStart: number;
+    lineEnd: number;
+    ordinal: number;
+    sourceStatus: string;
+  };
+  reasonCodes: string[];
+};
+
 export type RecallDescription = {
   sourceKind: RecallSourceKind;
   sourceRef: string;
@@ -14882,6 +14937,118 @@ export function grepRecall(db: LooDatabase, options: {
   }
   const reasonCodes = unique(eventSearch.reasonCodes);
   return reasonCodes.length > 0 ? { query, profile, matches, reasonCodes } : { query, profile, matches };
+}
+
+export function createFindRecallReport(options: {
+  query: string;
+  limit?: number;
+  recall: GrepRecallResult;
+  indexed?: IndexCodexResult | null;
+}): FindRecallReport {
+  const requestedLimit = options.limit ?? (options.recall.matches.length || 10);
+  const limit = clamp(requestedLimit, 1, 100);
+  const indexed = options.indexed ?? null;
+  const results = options.recall.matches.slice(0, limit).map(sanitizeFindRecallResult);
+  const localCodexSourceRead = indexed !== null;
+  return {
+    schema: "lco.find.v1",
+    ok: true,
+    publicSafe: true,
+    query: publicSafeFindText(options.query, 180),
+    limit,
+    indexed: {
+      attempted: localCodexSourceRead,
+      indexedFiles: indexed?.indexedFiles ?? 0,
+      skippedFiles: indexed?.skippedFiles ?? 0,
+      indexedThreads: indexed?.indexedThreads ?? 0,
+      indexedEvents: indexed?.indexedEvents ?? 0,
+      limitedFiles: indexed?.limitedFiles.length ?? 0,
+      warnings: indexed?.warnings.length ?? 0,
+      errors: indexed?.errors.length ?? 0
+    },
+    resultCount: results.length,
+    results,
+    nextSafeCommands: findRecallNextSafeCommands(options.query, results),
+    actionsPerformed: {
+      derivedCacheWrite: localCodexSourceRead,
+      localCodexSourceRead,
+      sourceStoreMutation: false,
+      externalWrite: false,
+      liveControl: false,
+      guiMutation: false,
+      rawTranscriptRead: localCodexSourceRead,
+      rawTranscriptReturned: false,
+      rawTranscriptUploaded: false
+    },
+    reasonCodes: unique([
+      "find_command",
+      localCodexSourceRead ? "incremental_index_attempted" : "index_skipped_by_flag",
+      results.some((result) => result.reasonCodes.includes("event_content_fts_match")) ? "event_content_results_available" : "",
+      results.length === 0 ? "no_matches" : ""
+    ].filter(Boolean))
+  };
+}
+
+function sanitizeFindRecallResult(match: RecallSearchResult, index: number): FindRecallResult {
+  const result: FindRecallResult = {
+    rank: index + 1,
+    sourceKind: match.sourceKind,
+    sourceRef: publicSafeFindText(match.sourceRef, 180),
+    title: nullableFindRecallText(match.title, 180),
+    summary: nullableFindRecallText(match.summary, 260),
+    updatedAt: nullableFindRecallText(match.updatedAt, 80),
+    snippet: publicSafeFindText(match.snippet, 360),
+    reasonCodes: unique(match.reasonCodes ?? [])
+  };
+  if (match.threadId) result.threadId = publicSafeFindText(match.threadId, 160);
+  if (match.sessionId) result.sessionId = publicSafeFindText(match.sessionId, 160);
+  if (match.summaryId) result.summaryId = publicSafeFindText(match.summaryId, 160);
+  if (match.event) {
+    result.event = {
+      eventRef: publicSafeFindText(match.event.eventRef, 180),
+      eventKind: publicSafeFindText(match.event.eventKind, 80),
+      lineStart: match.event.lineStart,
+      lineEnd: match.event.lineEnd,
+      ordinal: match.event.ordinal,
+      sourceStatus: publicSafeFindText(match.event.sourceStatus, 80)
+    };
+  }
+  return result;
+}
+
+function findRecallNextSafeCommands(query: string, results: FindRecallResult[]): string[] {
+  if (results.length === 0) {
+    return [
+      `lco grep ${shellQuoteFindRecallForDisplay(query)}`,
+      "lco index codex --verify"
+    ];
+  }
+  const firstRef = results[0]!.sourceRef;
+  return [
+    `lco describe ${firstRef}`,
+    `lco expand-ref --profile brief ${firstRef}`,
+    `lco grep ${shellQuoteFindRecallForDisplay(query)}`
+  ];
+}
+
+function shellQuoteFindRecallForDisplay(value: string): string {
+  const sanitized = publicSafeFindText(value, 180);
+  if (/^[A-Za-z0-9._:@/-]+$/.test(sanitized)) return sanitized;
+  return `"${sanitized.replace(/["\\]/g, "\\$&")}"`;
+}
+
+function nullableFindRecallText(value: string | null | undefined, maxChars: number): string | null {
+  if (!value) return null;
+  return publicSafeFindText(value, maxChars);
+}
+
+function publicSafeFindText(value: string, maxChars: number): string {
+  return publicSafeSearchText(value, maxChars)
+    .replace(/\b(?:sk|npm|ghp|github|bearer|token|secret|cookie)[A-Za-z0-9_:-]{8,}\b/gi, "<redacted-secret>")
+    .replace(/\b[A-Z0-9_]*(?:TOKEN|SECRET|COOKIE|CANARY)[A-Z0-9_:-]*\b/g, "<redacted-secret>")
+    .replace(/\b\S+\.jsonl\b/g, "<redacted-source-file>")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export function describeRecallRef(db: LooDatabase, options: { sourceRef: string; lcmDbPaths?: string[]; telemetry?: boolean; telemetrySessionId?: string; now?: string }): RecallDescription | null {

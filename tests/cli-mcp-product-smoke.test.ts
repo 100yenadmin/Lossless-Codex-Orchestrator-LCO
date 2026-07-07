@@ -82,6 +82,7 @@ test("loo qa-lab cli-mcp-smoke proves CLI help plus MCP tools/list and tools/cal
     writeFakeCli(cliBin);
     writeFakeMcpServer(mcpBin, [
       "lco_doctor",
+      "lco_find",
       "lco_prepared_inbox",
       "lco_describe_ref",
       "lco_expand_query"
@@ -148,7 +149,7 @@ test("loo qa-lab cli-mcp-smoke proves CLI help plus MCP tools/list and tools/cal
     assert.equal(report.cliReady, true);
     assert.equal(report.mcpReady, true);
     assert.equal(report.mcpToolsCallReady, true);
-    assert.equal(report.toolsListed, 4);
+    assert.equal(report.toolsListed, 5);
     assert.deepEqual(report.toolCallProbe, {
       toolName: "lco_doctor",
       ok: true,

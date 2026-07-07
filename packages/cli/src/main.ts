@@ -18,6 +18,7 @@ import {
   configuredLcmPeerDbPaths,
   createCloseoutEnvelopeReport,
   createDatabase,
+  createFindRecallReport,
   createRecallRefNotFoundResult,
   createIndexedSessionSanitizerRepairPlan,
   createIndexedSessionSanitizerReport,
@@ -42,6 +43,7 @@ import {
   searchSessions,
   type CloseoutHookCaptureInput,
   type CompactionMarkerHookInput,
+  type FindRecallReport,
   type RecallProfileName,
   type RetrievalBaselineFloors,
   type StatePrepHookInput,
@@ -253,6 +255,39 @@ async function main() {
   if (command === "probe" && args[0] === "codex-sqlite") {
     const roots = args.slice(1);
     console.log(JSON.stringify(probeCodexSqliteStores(roots.length ? roots : [join(resolveHomeDir(), ".codex")]), null, 2));
+    return;
+  }
+  if (command === "find") {
+    if (isBareHelpInvocation(args)) {
+      printFindHelp();
+      return;
+    }
+    const parsed = parseFindArgs(args);
+    let db: ReturnType<typeof createDatabase> | null = null;
+    const started = performance.now();
+    try {
+      db = createRecallCliDatabase(parsed.timeoutMs);
+      const indexResult = parsed.index ? indexCodexSessions(db, { roots: defaultCodexRoots() }) : null;
+      const recall = grepRecall(db, {
+        query: parsed.query,
+        limit: parsed.limit,
+        profile: "brief",
+        telemetry: false
+      });
+      if (emitRecallTimeoutReportIfExceeded("find", started, { limit: parsed.limit, timeoutMs: parsed.timeoutMs })) return;
+      const report = createFindRecallReport({
+        query: parsed.query,
+        limit: parsed.limit,
+        recall,
+        indexed: indexResult
+      });
+      console.log(parsed.json ? JSON.stringify(report, null, 2) : renderFindReport(report));
+    } catch (error) {
+      if (emitRecallDatabaseBusyReport(error, "find", { limit: parsed.limit, timeoutMs: parsed.timeoutMs })) return;
+      throw error;
+    } finally {
+      db?.close();
+    }
     return;
   }
   if (command === "search") {
@@ -1126,6 +1161,7 @@ function mainUsageText(): string {
     "  loo index bench --sessions n [--verify] (internal)",
     "  loo maintenance --drop-event-content [--timeout-ms ms] [--strict]",
     "  loo probe codex-sqlite [roots...]",
+    "  loo find [--json] [--limit n] [--timeout-ms ms] [--no-index] <query>",
     "  loo search [--limit n] [--timeout-ms ms] <query>",
     "  loo session-map [--project name] [--status value] [--priority value] [--blocker value] [--priority-order urgent,high,medium,low] [--limit n]",
     "  loo grep [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] [--timeout-ms ms] <query>",
@@ -1222,6 +1258,94 @@ function parseMaintenanceDropEventContentArgs(input: string[]): { timeoutMs: num
     throw new Error(`Unknown maintenance --drop-event-content option: ${arg}`);
   }
   return { timeoutMs };
+}
+
+function printFindHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo/lco find [--json] [--limit n] [--timeout-ms ms] [--no-index] <query>",
+    "",
+    "Find matching local Codex and recall records with one first-minute command.",
+    "By default this runs an incremental local Codex index pass, then renders compact public-safe results.",
+    "",
+    "Options:",
+    "  --json           Emit the public-safe machine packet instead of human text.",
+    "  --limit n        Maximum results to return (default 10, max 100).",
+    "  --timeout-ms ms  SQLite busy timeout plus slow-query classifier (default 5000, max 60000).",
+    "  --no-index       Skip the incremental first-run index pass and search the existing local DB.",
+    "  --               Treat remaining arguments as query text, even when they look like flags.",
+    "",
+    "Output:",
+    "  Shows ranked refs, titles, snippets, and next commands without local paths or raw transcript dumps."
+  ].join("\n"));
+}
+
+type ParsedFindArgs = {
+  query: string;
+  limit: number;
+  timeoutMs: number;
+  json: boolean;
+  index: boolean;
+};
+
+function parseFindArgs(input: string[]): ParsedFindArgs {
+  const queryParts: string[] = [];
+  let limit = DEFAULT_SEARCH_LIMIT;
+  let timeoutMs = DEFAULT_RECALL_TIMEOUT_MS;
+  let json = false;
+  let index = true;
+  for (let cursor = 0; cursor < input.length; cursor += 1) {
+    const arg = input[cursor]!;
+    if (arg === "--json") {
+      json = true;
+      continue;
+    }
+    if (arg === "--no-index") {
+      index = false;
+      continue;
+    }
+    if (arg === "--limit") {
+      limit = parsePositiveInteger(input[++cursor], "--limit", MAX_SEARCH_LIMIT);
+      continue;
+    }
+    if (arg === "--timeout-ms") {
+      timeoutMs = parsePositiveInteger(input[++cursor], "--timeout-ms", MAX_RECALL_TIMEOUT_MS);
+      continue;
+    }
+    if (arg === "--") {
+      queryParts.push(...input.slice(cursor + 1));
+      break;
+    }
+    queryParts.push(arg);
+  }
+  const query = queryParts.join(" ").trim();
+  if (!query) throw new Error("find requires a query");
+  return { query, limit, timeoutMs, json, index };
+}
+
+function renderFindReport(report: FindRecallReport): string {
+  const lines = [
+    `LCO Find: ${report.query}`,
+    `Results: ${report.resultCount} | Indexed: ${report.indexed.indexedFiles} files, ${report.indexed.skippedFiles} unchanged`
+  ];
+  if (report.results.length === 0) {
+    lines.push("", "No matches found.", ...report.nextSafeCommands.map((command) => `- ${command}`));
+    return lines.join("\n");
+  }
+  report.results.forEach((result) => {
+    lines.push(
+      "",
+      `${result.rank}. ${result.title ?? "Untitled session"}`,
+      `   ${result.sourceRef}`,
+      `   ${result.snippet}`
+    );
+    if (result.event) {
+      lines.push(`   event: ${result.event.eventRef} (${result.event.eventKind} line ${result.event.lineStart}-${result.event.lineEnd})`);
+    }
+  });
+  lines.push("", "Next:");
+  report.nextSafeCommands.forEach((command) => lines.push(`- ${command}`));
+  return lines.join("\n");
 }
 
 function printSearchHelp(): void {

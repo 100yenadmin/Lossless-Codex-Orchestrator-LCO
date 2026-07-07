@@ -71,6 +71,7 @@ type ToolCallProbe = {
 
 const DEFAULT_REQUIRED_TOOLS = [
   "lco_doctor",
+  "lco_find",
   "lco_prepared_inbox",
   "lco_describe_ref",
   "lco_expand_query"

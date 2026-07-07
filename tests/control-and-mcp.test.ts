@@ -1385,6 +1385,7 @@ test("MCP tool registry exposes lco-prefixed canonical tools with loo compatibil
     const declaredToolNames = createLooToolDeclarations().map((tool) => tool.name).sort();
     assert.deepEqual(declaredToolNames, toolNames);
     assert.equal(toolNames.includes("lco_index_sessions"), true);
+    assert.equal(toolNames.includes("lco_find"), true);
     assert.equal(toolNames.includes("lco_grep"), true);
     assert.equal(toolNames.includes("lco_search_sessions"), true);
     assert.equal(toolNames.includes("lco_describe_ref"), true);
@@ -1399,6 +1400,8 @@ test("MCP tool registry exposes lco-prefixed canonical tools with loo compatibil
     }
     assert.equal(LOO_COMMAND_POLICY.lco_index_sessions.mode, "local_cache_write");
     assert.deepEqual(LOO_COMMAND_POLICY.lco_index_sessions.mutationClasses, ["derived_cache"]);
+    assert.equal(LOO_COMMAND_POLICY.lco_find.mode, "local_cache_write");
+    assert.deepEqual(LOO_COMMAND_POLICY.lco_find.mutationClasses, ["derived_cache"]);
     for (const telemetryAwareTool of [
       "lco_search_sessions",
       "lco_grep",
@@ -1708,9 +1711,12 @@ test("MCP stdio tools/list exposes facade metadata in the runtime catalog", asyn
     const tools = (response.result as { tools?: Array<{ name?: string; metadata?: { tier?: string; operatorPathRank?: number } }> }).tools ?? [];
     const preparedInbox = tools.find((tool) => tool.name === "loo_prepared_inbox");
     const debugTool = tools.find((tool) => tool.name === "loo_session_sanitizer");
+    const findTool = tools.find((tool) => tool.name === "loo_find");
 
+    assert.equal(findTool?.metadata?.tier, "public_facade");
+    assert.equal(findTool?.metadata?.operatorPathRank, 1);
     assert.equal(preparedInbox?.metadata?.tier, "public_facade");
-    assert.equal(preparedInbox?.metadata?.operatorPathRank, 1);
+    assert.equal(preparedInbox?.metadata?.operatorPathRank, 2);
     assert.equal(debugTool?.metadata?.tier, "proof_debug");
   } finally {
     server.kill();
