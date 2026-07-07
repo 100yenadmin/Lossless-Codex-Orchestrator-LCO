@@ -116,6 +116,17 @@ test("indexing stores redacted per-event content and pins event FTS rowids", () 
         WHERE f.rowid IS NULL
       `).get() as { count: number };
       assert.equal(unpinned.count, 0);
+
+      const firstRow = db.prepare(`
+        SELECT rowid AS rowid, event_id AS eventId
+        FROM codex_event_content
+        WHERE thread_id = ?
+        ORDER BY ordinal ASC
+        LIMIT 1
+      `).get(threadId) as { rowid: number; eventId: string };
+      db.prepare("DELETE FROM codex_event_content WHERE event_id = ?").run(firstRow.eventId);
+      const staleFts = db.prepare("SELECT COUNT(*) AS count FROM codex_event_content_fts WHERE rowid = ?").get(firstRow.rowid) as { count: number };
+      assert.equal(staleFts.count, 0);
     } finally {
       db.close();
     }
@@ -232,6 +243,22 @@ test("doctor health reports event-content coverage and database size accounting"
     assert.ok(health.codexEventContent.size.eventContentBytes > 0);
     assert.ok(health.codexEventContent.size.eventContentFtsRows >= 4);
     assert.doesNotMatch(JSON.stringify(health.codexEventContent), /\/Volumes\/LEXAR|\/Users\/|private-worktree/);
+
+    const partialDb = createDatabase(dbPath);
+    try {
+      partialDb.prepare(`
+        DELETE FROM codex_event_content
+        WHERE event_id = (
+          SELECT event_id FROM codex_event_content ORDER BY ordinal ASC LIMIT 1
+        )
+      `).run();
+    } finally {
+      partialDb.close();
+    }
+    const partialHealth = readCodexIndexHealthStatusFromPath(dbPath) as Record<string, any>;
+    assert.equal(partialHealth.codexEventContent.state, "partial");
+    assert.equal(partialHealth.codexEventContent.availability, "requires_index_run");
+    assert.ok(partialHealth.codexEventContent.reasonCodes.includes("codex_event_content_backfill_partial"));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

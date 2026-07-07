@@ -2923,7 +2923,7 @@ export function migrate(db: LooDatabase, options: { maintenance?: DatabaseMainte
       (
         '2026-07-08-codex-event-content-store',
         datetime('now'),
-        'Additive redacted Codex event-content table and content-backed FTS index'
+        'Additive redacted Codex event-content table and content-backed FTS index; existing corpora backfill on next index run'
       ),
       (
         '${RETRIEVAL_TELEMETRY_MIGRATION_ID}',
@@ -2995,6 +2995,23 @@ export function migrate(db: LooDatabase, options: { maintenance?: DatabaseMainte
       content_rowid = 'rowid',
       tokenize = 'unicode61'
     );
+
+    CREATE TRIGGER IF NOT EXISTS codex_event_content_ai AFTER INSERT ON codex_event_content BEGIN
+      INSERT INTO codex_event_content_fts(rowid, event_id, thread_id, event_text)
+      VALUES (new.rowid, new.event_id, new.thread_id, new.event_text);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS codex_event_content_ad AFTER DELETE ON codex_event_content BEGIN
+      INSERT INTO codex_event_content_fts(codex_event_content_fts, rowid, event_id, thread_id, event_text)
+      VALUES('delete', old.rowid, old.event_id, old.thread_id, old.event_text);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS codex_event_content_au AFTER UPDATE ON codex_event_content BEGIN
+      INSERT INTO codex_event_content_fts(codex_event_content_fts, rowid, event_id, thread_id, event_text)
+      VALUES('delete', old.rowid, old.event_id, old.thread_id, old.event_text);
+      INSERT INTO codex_event_content_fts(rowid, event_id, thread_id, event_text)
+      VALUES (new.rowid, new.event_id, new.thread_id, new.event_text);
+    END;
 
     CREATE TABLE IF NOT EXISTS prepared_source_ranges (
       range_id TEXT PRIMARY KEY,
@@ -3656,18 +3673,7 @@ function insertCodexSafeTextFtsForSessionRowid(db: LooDatabase, sessionRowid: nu
   db.prepare("INSERT INTO codex_safe_text_fts (rowid, thread_id, content) VALUES (?, ?, ?)").run(sessionRowid, threadId, safeText);
 }
 
-function deleteCodexEventContentFtsForRowid(db: LooDatabase, rowid: number): void {
-  db.prepare("DELETE FROM codex_event_content_fts WHERE rowid = ?").run(rowid);
-}
-
 function deleteCodexEventContentRows(db: LooDatabase, whereSql: string, ...params: Array<string | number>): void {
-  const rows = db.prepare(`
-    SELECT rowid AS rowid
-    FROM codex_event_content
-    WHERE ${whereSql}
-  `).all(...params) as Array<{ rowid: number }>;
-  const deleteFts = db.prepare("DELETE FROM codex_event_content_fts WHERE rowid = ?");
-  for (const row of rows) deleteFts.run(positiveSessionRowid(row.rowid));
   db.prepare(`DELETE FROM codex_event_content WHERE ${whereSql}`).run(...params);
 }
 
@@ -3707,8 +3713,6 @@ type CodexEventContentInput = {
 };
 
 function upsertCodexEventContent(db: LooDatabase, input: CodexEventContentInput): void {
-  const existing = db.prepare("SELECT rowid AS rowid FROM codex_event_content WHERE event_id = ?").get(input.eventId) as { rowid: number } | undefined;
-  if (existing) deleteCodexEventContentFtsForRowid(db, positiveSessionRowid(existing.rowid));
   db.prepare(`
     INSERT INTO codex_event_content (
       event_id, event_ref, thread_id, source_ref, source_path_ref, source_hash, content_hash,
@@ -3760,14 +3764,6 @@ function upsertCodexEventContent(db: LooDatabase, input: CodexEventContentInput)
     input.privacyClass,
     input.now,
     input.now
-  );
-  const row = db.prepare("SELECT rowid AS rowid FROM codex_event_content WHERE event_id = ?").get(input.eventId) as { rowid: number } | undefined;
-  if (!row) throw new Error(`Missing codex_event_content row for event ${input.eventId}`);
-  db.prepare("INSERT INTO codex_event_content_fts (rowid, event_id, thread_id, event_text) VALUES (?, ?, ?, ?)").run(
-    positiveSessionRowid(row.rowid),
-    input.eventId,
-    input.threadId,
-    input.eventText
   );
 }
 
@@ -4834,12 +4830,13 @@ export function getCodexEventContentStatus(db: LooDatabase, dbPath?: string): Co
   if (totalEvents === 0) return emptyCodexEventContentStatus("requires_index_run", dbPath);
   const coveragePct = Number(((eventsWithContent / totalEvents) * 100).toFixed(2));
   const state: CodexEventContentStatus["state"] = eventsWithContent >= totalEvents ? "ready" : "partial";
+  const availability: CodexEventContentStatus["availability"] = state === "ready" ? "ready" : "requires_index_run";
   return {
     schema: "lco.codexEventContent.status.v1",
     publicSafe: true,
     readOnly: true,
     state,
-    availability: "ready",
+    availability,
     coverage: {
       totalEvents,
       eventsWithContent,
@@ -4970,15 +4967,17 @@ function emptyCodexEventContentStatus(availability: CodexEventContentStatus["ava
 }
 
 function sqliteMainFileBytes(db: LooDatabase | null, dbPath?: string): number {
-  if (dbPath && existsSync(dbPath)) return statSync(dbPath).size;
-  if (!db) return 0;
-  try {
-    const pageCount = Number((db.prepare("PRAGMA page_count").get() as Record<string, unknown> | undefined)?.page_count ?? 0);
-    const pageSize = Number((db.prepare("PRAGMA page_size").get() as Record<string, unknown> | undefined)?.page_size ?? 0);
-    return Math.max(0, pageCount * pageSize);
-  } catch {
-    return 0;
+  if (db) {
+    try {
+      const pageCount = Number((db.prepare("PRAGMA page_count").get() as Record<string, unknown> | undefined)?.page_count ?? 0);
+      const pageSize = Number((db.prepare("PRAGMA page_size").get() as Record<string, unknown> | undefined)?.page_size ?? 0);
+      return Math.max(0, pageCount * pageSize);
+    } catch {
+      return 0;
+    }
   }
+  if (dbPath && existsSync(dbPath)) return statSync(dbPath).size;
+  return 0;
 }
 
 function missingCodexJsonlDriftStatus(): CodexJsonlDriftStatus {
