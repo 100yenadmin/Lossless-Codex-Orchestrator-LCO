@@ -418,3 +418,9 @@ For contributor workflow details, use [CONTRIBUTING.md](CONTRIBUTING.md).
 Current source and current npm-published versions are source-available under the
 [PolyForm Noncommercial License 1.0.0](LICENSE). Noncommercial use is permitted
 under those terms.
+
+**Using LCO yourself — including at work — is fine and encouraged.** Embedding LCO inside a product or
+service that you sell requires a commercial license (standard terms: 5% of the embedding product's
+pricing, or negotiated). Plain-language guide:
+[docs/COMMERCIAL_LICENSING.md](docs/COMMERCIAL_LICENSING.md) — or just email
+**support@electricsheephq.com**.
