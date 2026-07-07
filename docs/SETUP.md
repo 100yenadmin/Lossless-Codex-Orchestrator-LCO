@@ -151,15 +151,24 @@ Then check readiness:
 lco doctor
 ```
 
-The index stores metadata, source refs, extraction fields, and safe searchable
-text. Raw transcripts remain in the local Codex store.
+The index stores metadata, source refs, extraction fields, and prepared safe
+text for session-card search. Raw transcripts remain in the local Codex store.
+If you remember a content phrase, use `lco grep` or `lco expand-query` instead
+of treating `lco search` as raw-content search.
 
 ## 5. Run The First Recall Loop
 
-Search:
+Search title, metadata, aliases, and session-card signals:
 
 ```bash
 lco search "proposed plan billing bridge"
+```
+
+Search remembered content phrases:
+
+```bash
+lco grep "aurora ledger checkpoint"
+lco expand-query "aurora ledger checkpoint"
 ```
 
 Describe a result:

@@ -59,8 +59,10 @@ picture over local Codex work.
 **Project and thread memory**
 
 - Indexes local Codex sessions into a local SQLite database.
-- Uses field-weighted FTS5 search over titles, summaries, proposed plans, final
-  messages, touched files, tool metadata, and searchable body text.
+- Uses field-weighted FTS5 search for session-card discovery over titles,
+  summaries, proposed plans, final messages, touched files, tool metadata, and
+  prepared safe text. For remembered content phrases, use `lco grep` or
+  `lco expand-query`.
 - Blends relevance, recency, identifier matching, and query fallback so agents
   can find "the billing bridge plan" or "the PR that touched auth" without the
   exact thread id.
@@ -219,11 +221,14 @@ lco onboard status --strict
 
 ## First Workflow 🧭
 
-Search for a Codex thread:
+Search for a Codex thread by title, metadata, or session-card signal:
 
 ```bash
 lco search "billing bridge proposed plan"
 ```
+
+If you remember a phrase from the thread content instead of the thread card,
+use `lco grep "<phrase>"` or `lco expand-query "<phrase>"`.
 
 Describe a result:
 

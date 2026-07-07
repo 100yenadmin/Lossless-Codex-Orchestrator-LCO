@@ -38,13 +38,16 @@ pass a relative --evidence-dir value from inside the evidence root for each gate
 Demo and judge inputs must come from a synthetic corpus or the committed
 retrieval goldens. Live-store content can never be public evidence.
 
-Direct CLI recall smokes should use bounded search arguments so temporarily
-locked local stores classify cleanly and completed slow safe-text queries are
-reported as setup/runtime blockers:
+Direct CLI recall smokes for title/metadata session-card discovery should use
+bounded search arguments so temporarily locked local stores classify cleanly and
+completed slow safe-text queries are reported as setup/runtime blockers:
 
 ```bash
 lco search --limit 10 --timeout-ms 5000 "<public-safe-query>"
 ```
+
+For content phrase recall, smoke `lco grep` or `lco expand-query` with the same
+public-safe query instead of treating `lco search` as raw-content search.
 
 If the public-safe query begins with flag-like words, pass `--` before the query
 text, for example `lco search --limit 10 -- --limit flaglikequery`.

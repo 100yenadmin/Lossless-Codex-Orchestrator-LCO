@@ -53,6 +53,41 @@ test("loo search supports bounded limit and timeout arguments on a large fixture
   }
 });
 
+test("loo search zero results points content queries to grep and expand-query", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-cli-search-empty-hint-"));
+  try {
+    const dbPath = join(root, "orchestrator.sqlite");
+    const sessions = join(root, "sessions");
+    mkdirSync(sessions, { recursive: true });
+    writeSession(
+      join(sessions, "empty-hint.jsonl"),
+      "019f-search-empty-hint",
+      "Session-card search fixture",
+      "Final: bounded card search fixture complete."
+    );
+    const db = createDatabase(dbPath);
+    try {
+      indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    } finally {
+      db.close();
+    }
+
+    const result = runLoo(["search", "--limit", "5", "unmatched content phrase"], {
+      ...process.env,
+      LOO_DB_PATH: dbPath
+    }, 5_000);
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(result.stdout.trim(), "[]");
+    assert.match(result.stderr, /No title\/metadata session-card matches/i);
+    assert.match(result.stderr, /loo grep/);
+    assert.match(result.stderr, /loo expand-query/);
+    assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /\/Volumes\/LEXAR|\/Users\/|\/tmp\/|orchestrator\.sqlite|\.jsonl/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("loo search classifies locked databases without leaking local paths", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-cli-search-locked-"));
   let locker: DatabaseSync | null = null;
