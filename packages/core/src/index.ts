@@ -7049,7 +7049,12 @@ function preparedTargetCardCoverage(card: PreparedCard): PreparedStateCoverage {
 }
 
 function preparedCardStateHasFreshTargetCoverage(state: PreparedCardState): boolean {
-  return state === "ready" || state === "completed" || state === "ready_for_review" || state === "watching_external_check";
+  return state === "ready"
+    || state === "completed"
+    || state === "ready_for_review"
+    || state === "watching_external_check"
+    || state === "needs_resume"
+    || state === "dirty_worktree_handoff";
 }
 
 function countPreparedTargetRows(db: LooDatabase, sql: string, ...params: Array<string | number>): number {

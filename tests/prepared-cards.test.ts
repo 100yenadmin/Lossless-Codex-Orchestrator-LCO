@@ -1786,7 +1786,7 @@ test("prepared cards promote semantic lifecycle states into card and inbox ranki
   }
 });
 
-test("prepared targeted coverage downgrades blocked and approval-waiting cards", () => {
+test("prepared targeted coverage downgrades blocked states while preserving fresh action states", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-prepared-card-attention-coverage-"));
   const sessions = join(root, "sessions");
   mkdirSync(sessions, { recursive: true });
@@ -1796,12 +1796,16 @@ test("prepared targeted coverage downgrades blocked and approval-waiting cards",
     const blockedThreadId = "019f-life-coverage-blocked";
     const reviewThreadId = "019f-life-coverage-review";
     const ciWatchThreadId = "019f-life-coverage-ci-watch";
+    const resumeThreadId = "019f-life-coverage-resume";
+    const dirtyThreadId = "019f-life-coverage-dirty";
     writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-03-00-019f-life-coverage-approval.jsonl"), waitingThreadId, "Waiting approval coverage");
     writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-03-01-019f-life-coverage-blocked.jsonl"), blockedThreadId, "Blocked coverage");
     writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-03-02-019f-life-coverage-review.jsonl"), reviewThreadId, "Review coverage");
     writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-03-03-019f-life-coverage-ci-watch.jsonl"), ciWatchThreadId, "CI watch coverage");
+    writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-03-04-019f-life-coverage-resume.jsonl"), resumeThreadId, "Resume coverage");
+    writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-03-05-019f-life-coverage-dirty.jsonl"), dirtyThreadId, "Dirty handoff coverage");
     indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
-    for (const [index, fixture] of [
+    for (const fixture of [
       {
         threadId: waitingThreadId,
         metadata: { status: "waiting approval", nextAction: "Wait for explicit approval before live control" }
@@ -1817,8 +1821,16 @@ test("prepared targeted coverage downgrades blocked and approval-waiting cards",
       {
         threadId: ciWatchThreadId,
         metadata: { status: "waiting", blocker: "CI checks pending", nextAction: "Watch CI checks and report when green" }
+      },
+      {
+        threadId: resumeThreadId,
+        metadata: { status: "paused", nextAction: "Resume session after the long-running monitor" }
+      },
+      {
+        threadId: dirtyThreadId,
+        metadata: { status: "handoff", nextAction: "Clean dirty worktree handoff before closeout" }
       }
-    ].entries()) {
+    ]) {
       insertSessionMetadataRow(db, {
         threadId: fixture.threadId,
         priority: "high",
@@ -1840,7 +1852,7 @@ test("prepared targeted coverage downgrades blocked and approval-waiting cards",
       assert.equal(status.targetCoverage?.reasonCodes.includes("partial_prepared_state"), true);
       assert.equal(status.targetCoverage?.reasonCodes.includes("prepared_state_ready"), false);
     }
-    for (const threadId of [reviewThreadId, ciWatchThreadId]) {
+    for (const threadId of [reviewThreadId, ciWatchThreadId, resumeThreadId, dirtyThreadId]) {
       const status = getPreparedStateStatus(db, { threadId }) as ReturnType<typeof getPreparedStateStatus> & {
         targetCoverage?: {
           status: string;
