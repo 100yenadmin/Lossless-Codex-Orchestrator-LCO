@@ -139,6 +139,31 @@ lco index codex --max-files 100000 --max-bytes-per-file 1073741824 --max-events-
 Files beyond those ceilings remain a future streaming-importer lane; LCO reports
 them instead of silently treating the index as complete.
 
+### Event-Content Cache Control
+
+LCO stores a local derived event-content cache to make content recall faster and
+more precise. It does not change Codex source files. To disable new event-content
+writes while keeping session metadata, prepared ranges, plans, finals, touched
+files, and normal indexing intact:
+
+```bash
+export LCO_EVENT_CONTENT=disabled
+lco index codex "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
+```
+
+To drop the existing derived event-content cache and FTS rows:
+
+```bash
+lco maintenance --drop-event-content
+```
+
+To rebuild it, unset the opt-out and index again:
+
+```bash
+unset LCO_EVENT_CONTENT
+lco index codex "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
+```
+
 For a smaller smoke:
 
 ```bash
@@ -581,6 +606,12 @@ Search returns no results
 
 - Run `lco index codex --max-files 500 "$HOME/.codex/sessions"`.
 - Confirm `LCO_DB_PATH` points at the same database for index and search.
+
+Event-content cache uses too much local disk
+
+- Temporarily disable new event-content writes with `export LCO_EVENT_CONTENT=disabled`.
+- Drop the derived event-content cache with `lco maintenance --drop-event-content`.
+- Unset `LCO_EVENT_CONTENT` and re-run `lco index codex` when you want to rebuild deeper recall.
 
 OpenClaw plugin installs but tools are missing
 

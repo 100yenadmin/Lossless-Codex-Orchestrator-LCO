@@ -670,6 +670,18 @@ test("loo runtime issue-packet --help exits zero with no-external-write boundary
   assert.equal(result.stderr.trim(), "");
 });
 
+test("loo maintenance --drop-event-content --help exits zero with cache-only boundary", () => {
+  const result = runLoo(["maintenance", "--drop-event-content", "--help"]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Usage:\n  loo maintenance --drop-event-content \[--timeout-ms ms\] \[--strict\]/);
+  assert.match(result.stdout, /--timeout-ms ms\s+SQLite busy timeout/);
+  assert.match(result.stdout, /derived Codex event-content cache/i);
+  assert.match(result.stdout, /does not touch Codex source stores/i);
+  assert.match(result.stdout, /prepared source ranges/i);
+  assert.equal(result.stderr.trim(), "");
+});
+
 test("loo qa-lab judge --help exits zero with deterministic review boundary", () => {
   const result = runLoo(["qa-lab", "judge", "--help"]);
 
