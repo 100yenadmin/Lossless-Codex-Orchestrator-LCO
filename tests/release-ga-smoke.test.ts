@@ -340,6 +340,9 @@ test("release ga-smoke writes one public-safe ready packet from existing evidenc
   assert.equal(report.evidenceIndex.qaLabLiveControlMatrix?.status, "ready");
   assert.equal(report.evidenceIndex.qaLabJudgeReview?.status, "ready");
   assert.equal(report.evidenceIndex.qaLabAdversarialReview?.status, "ready");
+  const publishedSmokeCommand = report.nextSafeCommands.find((command) => command.includes("loo openclaw published-smoke"));
+  assert.ok(publishedSmokeCommand);
+  assert.match(publishedSmokeCommand, /--binary-probe-report binary-probe\.json/);
   const matrixCommand = report.nextSafeCommands.find((command) => command.includes("loo qa-lab live-control-matrix"));
   assert.ok(matrixCommand);
   assert.match(matrixCommand, /--claim-scope codex-live-control/);

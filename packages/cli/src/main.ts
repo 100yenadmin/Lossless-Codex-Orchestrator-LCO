@@ -381,7 +381,7 @@ async function main() {
       return;
     }
     const parsed = parseHookCaptureArgs(args.slice(1));
-    const db = createDatabase();
+    const db = createHookSidecarDatabase();
     try {
       const report = captureCloseoutHookPacket(db, parsed.payload);
       writeHookEvidence(parsed.evidencePath, report);
@@ -398,7 +398,7 @@ async function main() {
       return;
     }
     const parsed = parseHookStatePrepArgs(args.slice(1));
-    const db = createDatabase();
+    const db = createHookSidecarDatabase();
     try {
       const report = runStatePrepHook(db, parsed.payload);
       writeHookEvidence(parsed.evidencePath, report);
@@ -415,7 +415,7 @@ async function main() {
       return;
     }
     const parsed = parseHookCompactionCaptureArgs(args.slice(1));
-    const db = createDatabase();
+    const db = createHookSidecarDatabase();
     try {
       const report = captureCompactionMarkerHookPacket(db, parsed.payload);
       writeHookEvidence(parsed.evidencePath, report);
@@ -432,7 +432,7 @@ async function main() {
       return;
     }
     const parsed = parseHookThreadTitleFinalizeArgs(args.slice(1));
-    const db = createDatabase();
+    const db = createHookSidecarDatabase();
     try {
       const report = captureThreadTitleFinalizerHookPacket(db, parsed.payload);
       writeHookEvidence(parsed.evidencePath, report);
@@ -1236,6 +1236,10 @@ function parseSearchArgs(input: string[]): ParsedSearchArgs {
 
 function createRecallCliDatabase(timeoutMs: number): ReturnType<typeof createDatabase> {
   return createDatabase({ maintenance: "schema-only", busyTimeoutMs: timeoutMs });
+}
+
+function createHookSidecarDatabase(): ReturnType<typeof createDatabase> {
+  return createDatabase({ maintenance: "schema-only" });
 }
 
 function emitRecallTimeoutReportIfExceeded(commandName: string, started: number, options: { limit?: number; timeoutMs: number }): boolean {

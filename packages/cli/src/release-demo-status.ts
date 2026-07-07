@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readlinkSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   excludedClaimsForScope,
@@ -48,7 +48,7 @@ export type ReleaseDemoStatusReport = {
 
 type RawDemoArtifact = {
   name: string;
-  reason: "raw_codex_jsonl" | "sqlite_database" | "screenshot_or_image" | "video_capture";
+  reason: "raw_codex_jsonl" | "sqlite_database" | "screenshot_or_image" | "video_capture" | "symlinked_directory";
 };
 
 type JsonReadResult = {
@@ -409,32 +409,55 @@ function isSafeFingerprint(value: string | undefined | null): boolean {
 
 function scanRawDemoArtifacts(evidenceDir: string): RawDemoArtifact[] {
   if (!existsSync(evidenceDir)) return [];
-  return collectEvidenceFileNames(evidenceDir)
-    .map((name) => rawArtifactForName(name))
+  return collectEvidenceFiles(evidenceDir)
+    .map((file) => rawArtifactForName(file.name, file.linkTarget, file.linkKind))
     .filter((entry): entry is RawDemoArtifact => entry !== null)
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
-function collectEvidenceFileNames(root: string, current = root): string[] {
-  const names: string[] = [];
+function collectEvidenceFiles(root: string, current = root): Array<{ name: string; linkTarget?: string; linkKind?: "directory" | "file" | "unknown" }> {
+  const files: Array<{ name: string; linkTarget?: string; linkKind?: "directory" | "file" | "unknown" }> = [];
   for (const entry of readdirSync(current, { withFileTypes: true })) {
     const path = join(current, entry.name);
     if (entry.isDirectory()) {
-      names.push(...collectEvidenceFileNames(root, path));
+      files.push(...collectEvidenceFiles(root, path));
     } else if (entry.isFile()) {
-      names.push(relative(root, path).replace(/\\/g, "/"));
+      files.push({ name: relative(root, path).replace(/\\/g, "/") });
+    } else if (entry.isSymbolicLink()) {
+      const name = relative(root, path).replace(/\\/g, "/");
+      let linkKind: "directory" | "file" | "unknown" = "unknown";
+      try {
+        const linked = statSync(path);
+        if (linked.isDirectory()) linkKind = "directory";
+        else if (linked.isFile()) linkKind = "file";
+      } catch {
+        linkKind = "unknown";
+      }
+      try {
+        files.push({ name, linkTarget: readlinkSync(path).replace(/\\/g, "/"), linkKind });
+      } catch {
+        files.push({ name, linkKind });
+      }
     }
   }
-  return names;
+  return files;
 }
 
-function rawArtifactForName(name: string): RawDemoArtifact | null {
+function rawArtifactForName(name: string, linkTarget?: string, linkKind?: "directory" | "file" | "unknown"): RawDemoArtifact | null {
   if (name === "release-demo-status.json") return null;
   const normalizedName = name.toLowerCase();
+  const normalizedLinkTarget = linkTarget?.toLowerCase() ?? "";
   const extension = extname(name).toLowerCase();
+  if (linkKind === "directory") return { name, reason: "symlinked_directory" };
   if (/\.jsonl(?:\.(?:gz|zip|zst|br|xz))?$/.test(normalizedName)) return { name, reason: "raw_codex_jsonl" };
-  if (/(?:\.sqlite3?|\.db)(?:-(?:wal|shm|journal))?$/.test(normalizedName)) return { name, reason: "sqlite_database" };
+  if (/(?:\.sqlite3?|\.db)(?:-(?:wal|shm|journal))?(?:\.(?:gz|zip|zst|br|xz))?$/.test(normalizedName)) return { name, reason: "sqlite_database" };
   if (extension === ".png" || extension === ".jpg" || extension === ".jpeg" || extension === ".heic" || extension === ".webp") return { name, reason: "screenshot_or_image" };
   if (extension === ".mov" || extension === ".mp4" || extension === ".webm") return { name, reason: "video_capture" };
+  if (linkTarget) {
+    if (/\.jsonl(?:\.(?:gz|zip|zst|br|xz))?$/.test(normalizedLinkTarget)) return { name, reason: "raw_codex_jsonl" };
+    if (/(?:\.sqlite3?|\.db)(?:-(?:wal|shm|journal))?(?:\.(?:gz|zip|zst|br|xz))?$/.test(normalizedLinkTarget)) return { name, reason: "sqlite_database" };
+    if (/\.(?:png|jpe?g|heic|webp)$/.test(normalizedLinkTarget)) return { name, reason: "screenshot_or_image" };
+    if (/\.(?:mov|mp4|webm)$/.test(normalizedLinkTarget)) return { name, reason: "video_capture" };
+  }
   return null;
 }

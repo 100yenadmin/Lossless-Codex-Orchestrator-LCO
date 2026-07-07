@@ -52,7 +52,7 @@ function writeLiveProofReport(path: string, overrides: Record<string, unknown> =
   }, null, 2)}\n`);
 }
 
-function createFakeOpenClaw(dir: string, options: { rawExpansion?: boolean; staleSearchAndExpansion?: boolean; staleRefreshTimestamp?: boolean; missingMapMarkers?: boolean; publicThreadMapShape?: boolean; missingMapStatus?: boolean } = {}): { bin: string; callsPath: string } {
+function createFakeOpenClaw(dir: string, options: { rawExpansion?: boolean; staleSearchAndExpansion?: boolean; nestedTargetOnlyExpansion?: boolean; staleRefreshTimestamp?: boolean; missingMapMarkers?: boolean; publicThreadMapShape?: boolean; missingMapStatus?: boolean } = {}): { bin: string; callsPath: string } {
   const callsPath = join(dir, "calls.jsonl");
   const bin = join(dir, "openclaw-refresh-fake.mjs");
   const refreshedAt = options.staleRefreshTimestamp ? "2026-07-01T00:00:30.000Z" : "2026-07-01T00:02:00.000Z";
@@ -100,12 +100,21 @@ function createFakeOpenClaw(dir: string, options: { rawExpansion?: boolean; stal
       finalAssistantMessage: "LCO gateway live smoke acknowledged.",
       touchedFiles: []
     } }`;
-  const expandResponse = `{ ok: true, output: {
+  const expandOutput = options.nestedTargetOnlyExpansion
+    ? `{
+      sourceRefs: ["${OTHER_REF}"],
+      profile: "brief",
+      tokenBudget: 1000,
+      text: "${expansionText}",
+      related: { sourceRef: "${TARGET_REF}", note: "nested target mention must not prove the expanded target" }
+    }`
+    : `{
       sourceRefs: [${expandSourceRefs.join(", ")}],
       profile: "brief",
       tokenBudget: 1000,
       text: "${expansionText}"
-    } }`;
+    }`;
+  const expandResponse = `{ ok: true, output: ${expandOutput} }`;
   writeFileSync(bin, `#!/usr/bin/env node
 import { appendFileSync } from "node:fs";
 const args = process.argv.slice(2);
@@ -379,6 +388,31 @@ test("OpenClaw post-action refresh smoke binds refresh evidence to the target th
 
     assert.equal(report.ok, false);
     assert.match(report.blockers.join("\n"), /post_action_refresh_search_target_missing/);
+    assert.match(report.blockers.join("\n"), /post_action_refresh_expand_target_missing/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw post-action refresh smoke rejects nested target refs inside wrong expansion output", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-refresh-smoke-nested-expand-"));
+  const liveProofReportPath = join(root, "openclaw-gateway-live-control-smoke-report.json");
+  writeLiveProofReport(liveProofReportPath);
+  const { bin, callsPath } = createFakeOpenClaw(root, { nestedTargetOnlyExpansion: true });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+
+  try {
+    const report = runOpenClawPostActionRefreshSmoke({
+      openclawBin: bin,
+      evidenceDir: join(root, "evidence"),
+      liveProofReportPath,
+      threadId: TARGET_THREAD_ID
+    });
+
+    assert.equal(report.ok, false);
     assert.match(report.blockers.join("\n"), /post_action_refresh_expand_target_missing/);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;

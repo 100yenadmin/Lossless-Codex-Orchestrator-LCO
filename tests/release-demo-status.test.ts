@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -470,6 +470,7 @@ test("release demo-status rejects SQLite sidecar evidence artifacts", () => {
   writeFileSync(join(evidenceDir, "orchestrator.sqlite-wal"), "private pages");
   writeFileSync(join(evidenceDir, "orchestrator.sqlite-shm"), "private pages");
   writeFileSync(join(evidenceDir, "orchestrator.db-journal"), "private pages");
+  writeFileSync(join(evidenceDir, "orchestrator.sqlite.gz"), "compressed private database");
 
   const result = spawnSync(process.execPath, [
     "--import",
@@ -494,8 +495,82 @@ test("release demo-status rejects SQLite sidecar evidence artifacts", () => {
   assert.deepEqual(payload.rawSessionArtifacts, [
     { name: "orchestrator.db-journal", reason: "sqlite_database" },
     { name: "orchestrator.sqlite-shm", reason: "sqlite_database" },
-    { name: "orchestrator.sqlite-wal", reason: "sqlite_database" }
+    { name: "orchestrator.sqlite-wal", reason: "sqlite_database" },
+    { name: "orchestrator.sqlite.gz", reason: "sqlite_database" }
   ]);
+});
+
+test("release demo-status rejects symlinked raw evidence artifacts without leaking targets", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-symlink-"));
+  const outsideDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-symlink-target-"));
+  try {
+    const liveControlProof = writePassingDemoEvidence(evidenceDir);
+    const outsideDb = join(outsideDir, "private-session.sqlite");
+    writeFileSync(outsideDb, "private pages");
+    symlinkSync(outsideDb, join(evidenceDir, "linked-artifact"));
+
+    const result = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "release",
+      "demo-status",
+      "--evidence-dir",
+      evidenceDir,
+      "--approved-live-control-evidence",
+      liveControlProof
+    ], { encoding: "utf8" });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const payload = JSON.parse(result.stdout) as {
+      demoReady?: boolean;
+      blockers?: string[];
+      rawSessionArtifacts?: Array<{ name: string; reason: string }>;
+    };
+    const serialized = `${result.stdout}\n${read(evidenceDir + "/release-demo-status.json")}`;
+    assert.equal(payload.demoReady, false);
+    assert.equal(payload.blockers?.includes("raw_session_artifacts_present"), true);
+    assert.deepEqual(payload.rawSessionArtifacts, [{ name: "linked-artifact", reason: "sqlite_database" }]);
+    assert.doesNotMatch(serialized, /private-session\.sqlite|loo-release-demo-status-symlink-target/);
+  } finally {
+    unlinkSync(join(evidenceDir, "linked-artifact"));
+  }
+});
+
+test("release demo-status rejects symlinked evidence directories without leaking targets", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-symlink-dir-"));
+  const outsideDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-symlink-dir-target-"));
+  try {
+    const liveControlProof = writePassingDemoEvidence(evidenceDir);
+    writeFileSync(join(outsideDir, "session.jsonl"), "{}\n");
+    symlinkSync(outsideDir, join(evidenceDir, "linked-cache"));
+
+    const result = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "release",
+      "demo-status",
+      "--evidence-dir",
+      evidenceDir,
+      "--approved-live-control-evidence",
+      liveControlProof
+    ], { encoding: "utf8" });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const payload = JSON.parse(result.stdout) as {
+      demoReady?: boolean;
+      blockers?: string[];
+      rawSessionArtifacts?: Array<{ name: string; reason: string }>;
+    };
+    const serialized = `${result.stdout}\n${read(evidenceDir + "/release-demo-status.json")}`;
+    assert.equal(payload.demoReady, false);
+    assert.equal(payload.blockers?.includes("raw_session_artifacts_present"), true);
+    assert.deepEqual(payload.rawSessionArtifacts, [{ name: "linked-cache", reason: "symlinked_directory" }]);
+    assert.doesNotMatch(serialized, /session\.jsonl|loo-release-demo-status-symlink-dir-target/);
+  } finally {
+    unlinkSync(join(evidenceDir, "linked-cache"));
+  }
 });
 
 test("release demo-status requires brief and evidence expansion refs to be distinct", () => {

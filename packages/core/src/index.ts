@@ -7049,11 +7049,7 @@ function preparedTargetCardCoverage(card: PreparedCard): PreparedStateCoverage {
 }
 
 function preparedCardStateHasFreshTargetCoverage(state: PreparedCardState): boolean {
-  return state !== "stale"
-    && state !== "partial"
-    && state !== "stale_or_partial"
-    && state !== "unknown"
-    && state !== "unknown_lifecycle";
+  return state === "ready" || state === "completed";
 }
 
 function countPreparedTargetRows(db: LooDatabase, sql: string, ...params: Array<string | number>): number {
@@ -7379,7 +7375,7 @@ function preparedLifecycleFromMetadata(
   }
   return {
     state: "ready",
-    reasonCodes: unique(["semantic_lifecycle", "lifecycle:unknown_lifecycle", "lifecycle_signal_missing"]),
+    reasonCodes: unique(["semantic_lifecycle", "lifecycle:ready_without_lifecycle_signal", "lifecycle_signal_missing"]),
     metadataSignalHash
   };
 }
@@ -7751,10 +7747,21 @@ function deriveThreadTitleSummary(value: string | null): string | null {
   if (!value) return null;
   const redacted = redactHookStringUnbounded(value);
   const lowered = redacted.toLowerCase();
+  const titleFinalizerPattern = /thread-title-finalize|title finalizer|title-finalizer/i;
+  const threadTitleFinalizationPattern = /finaliz(?:e|es|ed|ing).{0,40}thread.{0,20}title|thread.{0,20}title.{0,40}finaliz/i;
+  const negatesTitleFinalizer = /\b(?:not|no|without|never)\b.{0,32}(?:thread-title-finalize|title finalizer|title-finalizer|finaliz(?:e|es|ed|ing).{0,40}thread.{0,20}title|thread.{0,20}title.{0,40}finaliz)/i.test(redacted);
   if (
-    /thread-title-finalize|title finalizer|title-finalizer/i.test(redacted)
-    || /finaliz(?:e|es|ed|ing).{0,40}thread.{0,20}title/i.test(redacted)
-    || /thread.{0,20}title.{0,40}finaliz/i.test(redacted)
+    (
+      titleFinalizerPattern.test(redacted)
+      && !negatesTitleFinalizer
+    )
+    || (
+      /\b(?:implemented|built|added|installed|wired|enabled|created|shipped)\b/i.test(redacted)
+      && /\b(?:codex|lco)\b/i.test(redacted)
+      && /\b(?:hook|plugin)\b/i.test(redacted)
+      && threadTitleFinalizationPattern.test(redacted)
+      && !negatesTitleFinalizer
+    )
   ) {
     return "Codex thread title finalizer";
   }
@@ -13534,7 +13541,7 @@ function hasRealBlocker(value: string | null): boolean {
 }
 
 function normalizedMetadataValue(value: string | null): string {
-  return (value ?? "").trim().toLowerCase();
+  return truncate((value ?? "").trim().toLowerCase(), 512);
 }
 
 function compareUpdatedAtDesc(left: string | null, right: string | null): number {

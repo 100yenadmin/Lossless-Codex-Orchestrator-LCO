@@ -151,6 +151,7 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
   const dogfoodReady = dogfood.ok === true && dogfood.dogfoodReady === true;
   const requiredToolsPresent = dogfood.requiredToolsPresent === true;
   const installOutcomeStatus = readNestedString(dogfood, ["installOutcome", "status"]) || "unknown";
+  const installOutcomeProven = isAcceptableDogfoodInstallOutcome(installOutcomeStatus);
   const toolSmokeReady = toolSmoke.ok === true && toolSmoke.toolSmokeReady === true;
   const gatewaySetupClassification = readGatewaySetupClassification(toolSmoke);
   const packageInstallLikelyOk = readNestedBoolean(toolSmoke, ["setupStatus", "packageInstallLikelyOk"]);
@@ -187,6 +188,7 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
     ...(isSupportedPackageName(packageJson.name) ? [] : ["package_name_mismatch"]),
     ...(versionMatchStatus.endsWith("_mismatch") ? [`registry_${expectedDistTag}_version_mismatch`] : []),
     ...(dogfoodReady ? [] : ["openclaw_dogfood_not_ready"]),
+    ...(installOutcomeProven ? [] : ["openclaw_dogfood_install_outcome_unproven"]),
     ...(requiredToolsPresent ? [] : ["openclaw_required_tools_missing"]),
     ...(!toolSmokeReady && !setupRequired ? ["openclaw_tool_smoke_not_ready"] : []),
     ...(setupRequired && !packageInstallLikelyOk ? ["openclaw_gateway_setup_not_package_safe"] : []),
@@ -263,6 +265,10 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
   };
   if (options.evidenceDir) writePublishedPackageSmokeReport(report, options.evidenceDir);
   return report;
+}
+
+function isAcceptableDogfoodInstallOutcome(status: string): boolean {
+  return status === "installed" || status === "already_installed" || status === "link_force_unsupported";
 }
 
 export function writePublishedPackageSmokeReport(report: PublishedPackageSmokeReport, evidenceDir: string): string {
@@ -387,8 +393,15 @@ function binaryProbeDiagnosticCommands(
   expectedPackage: string,
   diagnostic: PublishedPackageSmokeReport["binaryProbeDiagnostic"]
 ): string[] {
-  if (diagnostic.classification !== "smoke_harness_path_shadow" && diagnostic.classification !== "candidate_binary_version_mismatch") return [];
   const tarballLookup = `npm view ${expectedPackage} dist.tarball`;
+  if (diagnostic.classification === "not_provided") {
+    return [
+      `${tarballLookup} --json`,
+      `tarball_url="$(${tarballLookup})" && test -n "$tarball_url" && tmp_dir="$(mktemp -d)" && curl -fsSL "$tarball_url" -o "$tmp_dir/package.tgz" && tar -xzf "$tmp_dir/package.tgz" -C "$tmp_dir" && version="$(node "$tmp_dir/package/dist/packages/cli/src/index.js" --version)" && package_version="$(node -pe "require(process.argv[1]).version" "$tmp_dir/package/package.json")" && printf '{"kind":"loo_published_binary_probe_evidence","publicSafe":true,"rawSecretIncluded":false,"expectedVersion":"%s","observedVersion":"%s","resolvedBinarySource":"package_tarball","pathShadowed":false,"packageJsonVersion":"%s"}\\n' "$package_version" "$version" "$package_version" > binary-probe.json`,
+      "loo openclaw published-smoke --dogfood-report dogfood.json --tool-smoke-report tool-smoke.json --binary-probe-report binary-probe.json --strict"
+    ];
+  }
+  if (diagnostic.classification !== "smoke_harness_path_shadow" && diagnostic.classification !== "candidate_binary_version_mismatch") return [];
   return [
     `${tarballLookup} --json`,
     `tarball_url="$(${tarballLookup})" && test -n "$tarball_url" && tmp_dir="$(mktemp -d)" && curl -fsSL "$tarball_url" -o "$tmp_dir/package.tgz" && tar -xzf "$tmp_dir/package.tgz" -C "$tmp_dir" && node "$tmp_dir/package/dist/packages/cli/src/index.js" --version`
@@ -396,7 +409,8 @@ function binaryProbeDiagnosticCommands(
 }
 
 function binaryProbeBlockers(diagnostic: PublishedPackageSmokeReport["binaryProbeDiagnostic"]): string[] {
-  if (!diagnostic.provided || diagnostic.classification === "not_provided" || diagnostic.classification === "valid_candidate_binary" || diagnostic.classification === "smoke_harness_path_shadow") return [];
+  if (!diagnostic.provided || diagnostic.classification === "not_provided") return ["binary_probe_missing"];
+  if (diagnostic.classification === "valid_candidate_binary" || diagnostic.classification === "smoke_harness_path_shadow") return [];
   if (diagnostic.classification === "candidate_binary_version_mismatch") return ["binary_probe_candidate_version_mismatch"];
   return ["binary_probe_invalid"];
 }
@@ -412,7 +426,7 @@ function readBinaryProbeDiagnostic(path: string | undefined, packageVersion: str
       packageVersion,
       tarballBinaryVersion: null,
       evidenceInputs: [],
-      guidance: []
+      guidance: ["Provide --binary-probe-report evidence that attributes the resolved loo binary to the candidate package before claiming package-path readiness."]
     };
   }
   const payload = readJsonObject(path);

@@ -251,6 +251,39 @@ test("thread title finalizer does not collapse benign thread-name requests to th
       assert.equal(report.title.state, "ready");
       assert.notEqual(report.title.summary, "Codex thread title finalizer");
       assert.match(report.title.suggestedTitle ?? "", /payments/i);
+
+      const unrelatedFinalize = captureThreadTitleFinalizerHookPacket(db, {
+        thread_id: "019f-title-finalizer-unrelated",
+        cwd: "/Volumes/LEXAR/repos/lossless-openclaw-orchestrator",
+        current_title: "billing review",
+        last_assistant_message: "Finalized the customer billing thread title after invoice review; no LCO hook work was involved."
+      });
+      assert.equal(unrelatedFinalize.publicSafe, true);
+      assert.equal(unrelatedFinalize.title.state, "ready");
+      assert.notEqual(unrelatedFinalize.title.summary, "Codex thread title finalizer");
+      assert.doesNotMatch(unrelatedFinalize.title.suggestedTitle ?? "", /thread title finalizer/i);
+
+      const negatedDirectPhrase = captureThreadTitleFinalizerHookPacket(db, {
+        thread_id: "019f-title-finalizer-negated",
+        cwd: "/Volumes/LEXAR/repos/lossless-openclaw-orchestrator",
+        current_title: "billing title cleanup",
+        last_assistant_message: "This was not title finalizer work; it was only a customer billing title cleanup."
+      });
+      assert.equal(negatedDirectPhrase.publicSafe, true);
+      assert.equal(negatedDirectPhrase.title.state, "ready");
+      assert.notEqual(negatedDirectPhrase.title.summary, "Codex thread title finalizer");
+      assert.doesNotMatch(negatedDirectPhrase.title.suggestedTitle ?? "", /thread title finalizer/i);
+
+      const negatedImplementationPhrase = captureThreadTitleFinalizerHookPacket(db, {
+        thread_id: "019f-title-finalizer-negated-implementation",
+        cwd: "/Volumes/LEXAR/repos/lossless-openclaw-orchestrator",
+        current_title: "hook cleanup",
+        last_assistant_message: "Implemented LCO hook cleanup, not finalizing thread title; no title finalizer work shipped."
+      });
+      assert.equal(negatedImplementationPhrase.publicSafe, true);
+      assert.equal(negatedImplementationPhrase.title.state, "ready");
+      assert.notEqual(negatedImplementationPhrase.title.summary, "Codex thread title finalizer");
+      assert.doesNotMatch(negatedImplementationPhrase.title.suggestedTitle ?? "", /thread title finalizer/i);
     } finally {
       db.close();
     }

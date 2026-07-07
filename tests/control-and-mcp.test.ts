@@ -98,7 +98,7 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
               id: "turn_sequence_1",
               status: "completed",
               completed: true,
-              notificationMethods: ["turn/completed"],
+              notificationMethods: ["turn/started", "turn/completed", "turn/started"],
               approvalRequestCount: 0,
               serverRequestCount: 0
             }
@@ -118,6 +118,7 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
       approvalAuditId: sequenceDryRun.approvalAuditId
     });
     assert.equal(live.live, true);
+    assert.deepEqual((live.response as any).turn.notificationMethods, ["turn/completed", "turn/started"]);
     assert.deepEqual(live.methodSequence, ["thread/resume", "turn/start"]);
     assert.deepEqual(sequenceCalls[0]?.map((step) => step.method), ["thread/resume", "turn/start"]);
     assert.deepEqual(sequenceCalls[0]?.[0]?.params, { threadId: "thr_1", excludeTurns: true });
@@ -411,7 +412,7 @@ test("OpenClaw plugin wrapper preserves async turn fidelity for live send", asyn
     assert.equal(live.turn?.id, "turn_plugin_wrapper");
     assert.equal(live.turn?.status, "completed");
     assert.equal(live.turn?.completed, true);
-    assert.deepEqual(live.turn?.notification_methods, ["turn/started", "turn/completed"]);
+    assert.deepEqual(live.turn?.notification_methods, ["turn/completed", "turn/started"]);
     assert.equal(live.proof_state?.completed, true);
     assert.equal(live.proof_state?.turn_id, "turn_plugin_wrapper");
     assert.equal(live.proof_state?.response_status, "completed");

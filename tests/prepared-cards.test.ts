@@ -1636,6 +1636,12 @@ test("prepared cards promote semantic lifecycle states into card and inbox ranki
         threadId: "019f-life-verify-ci-note",
         metadata: { status: "ready", nextAction: "Verify CI notes were copied to release evidence" },
         expectedState: "ready"
+      },
+      {
+        id: "af000000000000000000000000000000",
+        threadId: "019f-life-huge-tail",
+        metadata: { status: "ready", nextAction: `Continue bounded evidence review. ${"padding ".repeat(120)}approval required` },
+        expectedState: "ready"
       }
     ];
     for (const fixture of fixtures) {
@@ -1663,6 +1669,7 @@ test("prepared cards promote semantic lifecycle states into card and inbox ranki
       assert.equal(card.reasonCodes.includes("semantic_lifecycle"), true);
       if (fixture.expectedState === "ready") {
         assert.equal(card.reasonCodes.includes("lifecycle_signal_missing"), true);
+        assert.equal(card.reasonCodes.includes("lifecycle:unknown_lifecycle"), false);
       } else {
         assert.equal(card.reasonCodes.includes(`lifecycle:${fixture.expectedState}`), true);
       }
@@ -1707,6 +1714,54 @@ test("prepared cards promote semantic lifecycle states into card and inbox ranki
     const rematerialized = getPreparedCards(db, { threadId: "019f-life-completed" }).cards[0]!;
     assert.equal(rematerialized.state, "blocked_missing_info");
     assert.notEqual(rematerialized.cardRef, originalCompletedCardRef);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared targeted coverage downgrades blocked and approval-waiting cards", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-card-attention-coverage-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const waitingThreadId = "019f-life-coverage-approval";
+    const blockedThreadId = "019f-life-coverage-blocked";
+    writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-03-00-019f-life-coverage-approval.jsonl"), waitingThreadId, "Waiting approval coverage");
+    writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-03-01-019f-life-coverage-blocked.jsonl"), blockedThreadId, "Blocked coverage");
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    for (const [index, fixture] of [
+      {
+        threadId: waitingThreadId,
+        metadata: { status: "waiting approval", nextAction: "Wait for explicit approval before live control" }
+      },
+      {
+        threadId: blockedThreadId,
+        metadata: { status: "blocked", blocker: "missing user input", nextAction: "Ask for the missing context" }
+      }
+    ].entries()) {
+      insertSessionMetadataRow(db, {
+        threadId: fixture.threadId,
+        priority: "high",
+        ...fixture.metadata
+      });
+    }
+
+    materializePreparedCards(db);
+    for (const threadId of [waitingThreadId, blockedThreadId]) {
+      const status = getPreparedStateStatus(db, { threadId }) as ReturnType<typeof getPreparedStateStatus> & {
+        targetCoverage?: {
+          status: string;
+          sourceCoverage: Record<string, string>;
+          reasonCodes: string[];
+        } | null;
+      };
+      assert.equal(status.targetCoverage?.sourceCoverage.preparedCards, "partial");
+      assert.equal(status.targetCoverage?.status, "partial");
+      assert.equal(status.targetCoverage?.reasonCodes.includes("partial_prepared_state"), true);
+      assert.equal(status.targetCoverage?.reasonCodes.includes("prepared_state_ready"), false);
+    }
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });

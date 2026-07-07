@@ -62,7 +62,19 @@ test("local Mac search UI shell renders only safe summaries, refs, filters, and 
       {
         title: "Codex release thread",
         sourceRef: "codex_thread:abc123",
-        safeSummary: "Public-safe summary with no private transcript text and npm_ABCDEFGHIJKLMNOPQRSTUVWX redacted.",
+        safeSummary: [
+          "Public-safe summary with no private transcript text.",
+          "Secrets must redact:",
+          "npm_ABCDEFGHIJKLMNOPQRSTUVWX",
+          `github_pat_${"A".repeat(36)}`,
+          `gho_${"B".repeat(24)}`,
+          `ghu_${"C".repeat(24)}`,
+          `ghs_${"D".repeat(24)}`,
+          `ghr_${"E".repeat(24)}`,
+          `xoxb-${"1".repeat(12)}-${"2".repeat(12)}-${"a".repeat(24)}`,
+          `glpat-${"F".repeat(24)}`,
+          `sk-proj-${"G".repeat(24)}`
+        ].join(" "),
         project: "lco",
         status: "active",
         priority: "high",
@@ -88,6 +100,10 @@ test("local Mac search UI shell renders only safe summaries, refs, filters, and 
   assert.match(shell.html, /brief/);
   assert.doesNotMatch(shell.html, /PRIVATE_TRANSCRIPT_SHOULD_NOT_RENDER/);
   assert.doesNotMatch(shell.html, /npm_ABCDEFGHIJKLMNOPQRSTUVWX/);
+  assert.doesNotMatch(
+    `${shell.html}\n${JSON.stringify(shell.report)}`,
+    /github_pat_|gho_|ghu_|ghs_|ghr_|xoxb-|glpat-|sk-proj-/i
+  );
 });
 
 test("local Mac search UI shell omits unsafe refs from rendered and copied output", () => {

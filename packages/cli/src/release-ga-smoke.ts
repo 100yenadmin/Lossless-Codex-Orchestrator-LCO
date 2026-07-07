@@ -865,7 +865,7 @@ function nextSafeCommands(options: ReleaseGaSmokeOptions): string[] {
   return [
     `loo release status --evidence-dir ${evidenceDir} --candidate-sha ${candidateSha} --strict`,
     `loo release finalization-status --evidence-dir ${evidenceDir} --candidate-sha ${candidateSha} --package-version ${packageVersion} --npm-publish-evidence npm-publish.json --git-tag-evidence git-tag.json --github-release-evidence github-release.json --strict`,
-    `loo openclaw published-smoke --evidence-dir ${evidenceDir} --dogfood-report openclaw-dogfood.json --tool-smoke-report openclaw-tool-smoke.json --registry-version ${packageVersion} --gateway-ready-strict`,
+    `loo openclaw published-smoke --evidence-dir ${evidenceDir} --dogfood-report openclaw-dogfood.json --tool-smoke-report openclaw-tool-smoke.json --binary-probe-report binary-probe.json --registry-version ${packageVersion} --gateway-ready-strict`,
     `loo qa-lab run --suite ga --artifact published --package-version ${packageVersion} --candidate-sha ${candidateSha} --evidence-dir ${evidenceDir} --strict`,
     `loo qa-lab tool-coverage --evidence-dir ${evidenceDir} --package-version ${packageVersion} --candidate-sha ${candidateSha} --coverage-policy full --strict`,
     liveControlMatrixCommand,
