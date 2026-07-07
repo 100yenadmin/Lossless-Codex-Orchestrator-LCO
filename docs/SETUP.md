@@ -355,8 +355,17 @@ After a published install, combine the package, dogfood, and tool-smoke reports
 into one first-run classifier:
 
 ```bash
-lco openclaw published-smoke --evidence-dir /tmp/lco-published-smoke --dogfood-report plugin-load.json --tool-smoke-report tool-smoke.json --strict
+lco openclaw published-smoke --evidence-dir /tmp/lco-published-smoke --dogfood-report plugin-load.json --tool-smoke-report tool-smoke.json --binary-probe-report binary-probe.json --strict
 ```
+
+Strict package-path readiness now requires a public-safe `--binary-probe-report`
+that attributes the resolved `lco`/`loo` binary to the candidate package. If the
+report is missing, `published-smoke` emits a recovery command that builds
+`binary-probe.json` under your chosen evidence directory without storing raw npm
+or gateway logs. Before running that emitted recovery command, export or set
+`LCO_DOGFOOD_REPORT`, `LCO_TOOL_SMOKE_REPORT`, and `LCO_EVIDENCE_DIR` to the
+fresh public-safe dogfood report, tool-smoke report, and evidence directory you
+want the command to use.
 
 If the gateway needs first-run setup, LCO reports classifications such as
 `credential_required`, `device_pairing_required`, `scope_upgrade_required`,
@@ -584,6 +593,9 @@ OpenClaw gateway tool smoke reports credential or device blockers
 - Treat this as first-run gateway setup, not a package failure.
 - In `lco openclaw published-smoke`, `ok`/`packagePathOk` prove package-path
   health only. `publishedSmokeReady` is the clean-profile gateway-ready claim.
+- Strict package-path readiness also requires `--binary-probe-report`; use the
+  recovery command emitted by `published-smoke` to create a public-safe
+  `binary-probe.json` under the evidence directory.
 - A configured gateway proof is useful local evidence, but it does not satisfy
   fresh-profile gateway readiness.
 - Use the recovery commands returned by `lco openclaw published-smoke` or

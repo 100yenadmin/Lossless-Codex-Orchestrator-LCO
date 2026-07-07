@@ -381,7 +381,7 @@ async function main() {
       return;
     }
     const parsed = parseHookCaptureArgs(args.slice(1));
-    const db = createDatabase();
+    const db = createHookSidecarDatabase();
     try {
       const report = captureCloseoutHookPacket(db, parsed.payload);
       writeHookEvidence(parsed.evidencePath, report);
@@ -398,7 +398,7 @@ async function main() {
       return;
     }
     const parsed = parseHookStatePrepArgs(args.slice(1));
-    const db = createDatabase();
+    const db = createHookSidecarDatabase();
     try {
       const report = runStatePrepHook(db, parsed.payload);
       writeHookEvidence(parsed.evidencePath, report);
@@ -415,7 +415,7 @@ async function main() {
       return;
     }
     const parsed = parseHookCompactionCaptureArgs(args.slice(1));
-    const db = createDatabase();
+    const db = createHookSidecarDatabase();
     try {
       const report = captureCompactionMarkerHookPacket(db, parsed.payload);
       writeHookEvidence(parsed.evidencePath, report);
@@ -432,7 +432,7 @@ async function main() {
       return;
     }
     const parsed = parseHookThreadTitleFinalizeArgs(args.slice(1));
-    const db = createDatabase();
+    const db = createHookSidecarDatabase();
     try {
       const report = captureThreadTitleFinalizerHookPacket(db, parsed.payload);
       writeHookEvidence(parsed.evidencePath, report);
@@ -1238,6 +1238,10 @@ function createRecallCliDatabase(timeoutMs: number): ReturnType<typeof createDat
   return createDatabase({ maintenance: "schema-only", busyTimeoutMs: timeoutMs });
 }
 
+function createHookSidecarDatabase(timeoutMs = DEFAULT_RECALL_TIMEOUT_MS): ReturnType<typeof createDatabase> {
+  return createDatabase({ maintenance: "schema-only", busyTimeoutMs: timeoutMs });
+}
+
 function emitRecallTimeoutReportIfExceeded(commandName: string, started: number, options: { limit?: number; timeoutMs: number }): boolean {
   const elapsedMs = Math.round(performance.now() - started);
   if (elapsedMs <= options.timeoutMs) return false;
@@ -1834,7 +1838,7 @@ function printOpenClawPublishedSmokeHelp(): void {
     "This command consumes sanitized reports from `loo openclaw dogfood` and `loo openclaw tool-smoke`.",
     "Optional `--configured-tool-smoke-report` records a separately named configured-profile gateway proof without marking the fresh published profile ready.",
     "Optional `--npm-install-diagnostic-report` records public-safe npm selector drift and tarball fallback proof without storing raw npm output.",
-    "Optional `--binary-probe-report` records public-safe candidate-binary attribution and classifies global `loo` PATH shadowing separately from package defects.",
+    "`--binary-probe-report` records public-safe candidate-binary attribution and classifies global `loo` PATH shadowing separately from package defects; strict package-path readiness requires it.",
     "",
     "Strict mode:",
     "  --strict exits non-zero only when ok/packagePathOk is false; it is package-path strict.",

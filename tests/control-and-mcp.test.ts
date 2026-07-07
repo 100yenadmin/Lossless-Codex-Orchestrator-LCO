@@ -98,7 +98,7 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
               id: "turn_sequence_1",
               status: "completed",
               completed: true,
-              notificationMethods: ["turn/completed"],
+              notificationMethods: ["turn/queued", "turn/started", "turn/completed", "turn/paused", "turn/started"],
               approvalRequestCount: 0,
               serverRequestCount: 0
             }
@@ -118,6 +118,8 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
       approvalAuditId: sequenceDryRun.approvalAuditId
     });
     assert.equal(live.live, true);
+    // Public turn output is deterministic by explicit lifecycle order, with unknown methods sorted after known lifecycle notifications.
+    assert.deepEqual((live.response as any).turn.notificationMethods, ["turn/started", "turn/completed", "turn/paused", "turn/queued"]);
     assert.deepEqual(live.methodSequence, ["thread/resume", "turn/start"]);
     assert.deepEqual(sequenceCalls[0]?.map((step) => step.method), ["thread/resume", "turn/start"]);
     assert.deepEqual(sequenceCalls[0]?.[0]?.params, { threadId: "thr_1", excludeTurns: true });
@@ -1118,7 +1120,7 @@ test("Codex start-thread post-create proof does not treat stale prepared card al
       watcherObservations: { status: "not_configured" }
     }),
     "44444444444444444444444444444444",
-    "prepared-cards-v1",
+    "prepared-cards-v2",
     "public_safe_metadata",
     0.42,
     "2026-07-04T09:00:00Z",
@@ -1223,7 +1225,7 @@ test("Codex start-thread post-create proof classifies indexed described persiste
       watcherObservations: { status: "not_configured" }
     }),
     "22222222222222222222222222222222",
-    "prepared-cards-v1",
+    "prepared-cards-v2",
     "public_safe_metadata",
     0.91,
     "2026-07-04T10:03:00Z",

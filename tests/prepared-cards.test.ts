@@ -340,7 +340,7 @@ function insertPreparedCardRow(
       watcherObservations: { status: "not_configured" }
     }),
     input.id,
-    "prepared-cards-v1",
+    "prepared-cards-v2",
     "public_safe_metadata",
     input.confidence ?? 0.9,
     "2026-07-03T00:00:00.000Z",
@@ -805,7 +805,7 @@ test("prepared card and inbox outputs reject encoded unsafe native subagent resu
         watcherObservations: { status: "not_configured" }
       }),
       "55555555555555555555555555555555",
-      "prepared-cards-v1",
+      "prepared-cards-v2",
       "public_safe_metadata",
       0.88,
       "2026-07-04T11:40:00Z",
@@ -990,7 +990,7 @@ test("prepared status and card reads keep inbox coverage and omitted ranges inde
         watcherObservations: { status: "not_configured" }
       }),
       "60000000000000000000000000000006",
-      "prepared-cards-v1",
+      "prepared-cards-v2",
       "public_safe_metadata",
       0.9,
       "2026-07-03T00:00:00.000Z",
@@ -1636,6 +1636,18 @@ test("prepared cards promote semantic lifecycle states into card and inbox ranki
         threadId: "019f-life-verify-ci-note",
         metadata: { status: "ready", nextAction: "Verify CI notes were copied to release evidence" },
         expectedState: "ready"
+      },
+      {
+        id: "af000000000000000000000000000000",
+        threadId: "019f-life-huge-tail",
+        metadata: { status: "ready", nextAction: `Continue bounded evidence review. ${"padding ".repeat(120)}approval required` },
+        expectedState: "waiting_approval"
+      },
+      {
+        id: "b0000000000000000000000000000000",
+        threadId: "019f-life-huge-middle",
+        metadata: { status: "ready", nextAction: `Continue bounded evidence review. ${"padding ".repeat(220)}approval required ${"tail ".repeat(220)}` },
+        expectedState: "waiting_approval"
       }
     ];
     for (const fixture of fixtures) {
@@ -1663,8 +1675,13 @@ test("prepared cards promote semantic lifecycle states into card and inbox ranki
       assert.equal(card.reasonCodes.includes("semantic_lifecycle"), true);
       if (fixture.expectedState === "ready") {
         assert.equal(card.reasonCodes.includes("lifecycle_signal_missing"), true);
+        assert.equal(card.reasonCodes.includes("lifecycle:ready_without_lifecycle_signal"), true);
+        assert.equal(card.reasonCodes.filter((code) => code === "lifecycle_signal_missing").length, 1);
+        assert.equal(card.reasonCodes.filter((code) => code === "lifecycle:ready_without_lifecycle_signal").length, 1);
+        assert.equal(card.reasonCodes.includes("lifecycle:unknown_lifecycle"), false);
       } else {
         assert.equal(card.reasonCodes.includes(`lifecycle:${fixture.expectedState}`), true);
+        assert.equal(card.reasonCodes.includes("lifecycle:ready_without_lifecycle_signal"), false);
       }
       assert.equal(card.reasonCodes.includes("summary_leaves_ready"), true);
       assert.equal(card.summaryText.includes("Lifecycle:"), false);
@@ -1681,7 +1698,7 @@ test("prepared cards promote semantic lifecycle states into card and inbox ranki
     assert.ok(approval);
     assert.ok(completed);
     assert.ok(conflict);
-    assert.equal(cards.summary.partial, 6);
+    assert.equal(cards.summary.partial, 8);
     assert.equal(cards.summary.unknown, 1);
     assert.equal(cards.summary.completed, 1);
     assert.equal(blocked.state, "blocked_missing_info");
@@ -1697,6 +1714,62 @@ test("prepared cards promote semantic lifecycle states into card and inbox ranki
     assert.equal(approval.urgencyScore > completed.urgencyScore, true);
 
     const originalCompletedCardRef = completed.cardRef;
+    const collisionThreadId = "019f-life-hash-collision";
+    const sharedHashPrefix = "same-prefix ".repeat(80);
+    insertSummaryLeafRow(db, {
+      id: "b1000000000000000000000000000001",
+      threadId: collisionThreadId,
+      leafKind: "closeout",
+      confidence: 0.95
+    });
+    insertSessionMetadataRow(db, {
+      threadId: collisionThreadId,
+      priority: "high",
+      status: "ready",
+      nextAction: `${sharedHashPrefix} continue safely`
+    });
+    materializePreparedCards(db, { threadId: collisionThreadId });
+    const collisionBefore = getPreparedCards(db, { threadId: collisionThreadId }).cards[0]!;
+    assert.equal(collisionBefore.state, "ready");
+    insertSessionMetadataRow(db, {
+      threadId: collisionThreadId,
+      priority: "high",
+      status: "ready",
+      nextAction: `${sharedHashPrefix} approval required`
+    });
+    materializePreparedCards(db, { threadId: collisionThreadId });
+    const collisionAfter = getPreparedCards(db, { threadId: collisionThreadId }).cards[0]!;
+    assert.equal(collisionAfter.state, "waiting_approval");
+    assert.notEqual(collisionAfter.inputHash, collisionBefore.inputHash);
+
+    const longTailThreadId = "019f-life-long-tail-ready";
+    const longTailPrefix = "ready-prefix ".repeat(80);
+    insertSummaryLeafRow(db, {
+      id: "b1000000000000000000000000000002",
+      threadId: longTailThreadId,
+      leafKind: "closeout",
+      confidence: 0.95
+    });
+    insertSessionMetadataRow(db, {
+      threadId: longTailThreadId,
+      priority: "high",
+      status: "ready",
+      nextAction: `${longTailPrefix} continue safely through lane alpha`
+    });
+    materializePreparedCards(db, { threadId: longTailThreadId });
+    const longTailBefore = getPreparedCards(db, { threadId: longTailThreadId }).cards[0]!;
+    assert.equal(longTailBefore.state, "ready");
+    insertSessionMetadataRow(db, {
+      threadId: longTailThreadId,
+      priority: "high",
+      status: "ready",
+      nextAction: `${longTailPrefix} continue safely through lane beta`
+    });
+    materializePreparedCards(db, { threadId: longTailThreadId });
+    const longTailAfter = getPreparedCards(db, { threadId: longTailThreadId }).cards[0]!;
+    assert.equal(longTailAfter.state, "ready");
+    assert.notEqual(longTailAfter.inputHash, longTailBefore.inputHash);
+
     insertSessionMetadataRow(db, {
       threadId: "019f-life-completed",
       status: "blocked",
@@ -1707,6 +1780,91 @@ test("prepared cards promote semantic lifecycle states into card and inbox ranki
     const rematerialized = getPreparedCards(db, { threadId: "019f-life-completed" }).cards[0]!;
     assert.equal(rematerialized.state, "blocked_missing_info");
     assert.notEqual(rematerialized.cardRef, originalCompletedCardRef);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared targeted coverage downgrades blocked and dirty states while preserving fresh action states", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-card-attention-coverage-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const waitingThreadId = "019f-life-coverage-approval";
+    const blockedThreadId = "019f-life-coverage-blocked";
+    const reviewThreadId = "019f-life-coverage-review";
+    const ciWatchThreadId = "019f-life-coverage-ci-watch";
+    const resumeThreadId = "019f-life-coverage-resume";
+    const dirtyThreadId = "019f-life-coverage-dirty";
+    writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-03-00-019f-life-coverage-approval.jsonl"), waitingThreadId, "Waiting approval coverage");
+    writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-03-01-019f-life-coverage-blocked.jsonl"), blockedThreadId, "Blocked coverage");
+    writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-03-02-019f-life-coverage-review.jsonl"), reviewThreadId, "Review coverage");
+    writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-03-03-019f-life-coverage-ci-watch.jsonl"), ciWatchThreadId, "CI watch coverage");
+    writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-03-04-019f-life-coverage-resume.jsonl"), resumeThreadId, "Resume coverage");
+    writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-03-05-019f-life-coverage-dirty.jsonl"), dirtyThreadId, "Dirty handoff coverage");
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    for (const fixture of [
+      {
+        threadId: waitingThreadId,
+        metadata: { status: "waiting approval", nextAction: "Wait for explicit approval before live control" }
+      },
+      {
+        threadId: blockedThreadId,
+        metadata: { status: "blocked", blocker: "missing user input", nextAction: "Ask for the missing context" }
+      },
+      {
+        threadId: reviewThreadId,
+        metadata: { status: "ready for review", nextAction: "Review bounded evidence before merge" }
+      },
+      {
+        threadId: ciWatchThreadId,
+        metadata: { status: "waiting", blocker: "CI checks pending", nextAction: "Watch CI checks and report when green" }
+      },
+      {
+        threadId: resumeThreadId,
+        metadata: { status: "paused", nextAction: "Resume session after the long-running monitor" }
+      },
+      {
+        threadId: dirtyThreadId,
+        metadata: { status: "handoff", nextAction: "Clean dirty worktree handoff before closeout" }
+      }
+    ]) {
+      insertSessionMetadataRow(db, {
+        threadId: fixture.threadId,
+        priority: "high",
+        ...fixture.metadata
+      });
+    }
+
+    materializePreparedCards(db);
+    for (const threadId of [waitingThreadId, blockedThreadId, dirtyThreadId]) {
+      const status = getPreparedStateStatus(db, { threadId }) as ReturnType<typeof getPreparedStateStatus> & {
+        targetCoverage?: {
+          status: string;
+          sourceCoverage: Record<string, string>;
+          reasonCodes: string[];
+        } | null;
+      };
+      assert.equal(status.targetCoverage?.sourceCoverage.preparedCards, "partial");
+      assert.equal(status.targetCoverage?.status, "partial");
+      assert.equal(status.targetCoverage?.reasonCodes.includes("partial_prepared_state"), true);
+      assert.equal(status.targetCoverage?.reasonCodes.includes("prepared_state_ready"), false);
+    }
+    for (const threadId of [reviewThreadId, ciWatchThreadId, resumeThreadId]) {
+      const status = getPreparedStateStatus(db, { threadId }) as ReturnType<typeof getPreparedStateStatus> & {
+        targetCoverage?: {
+          status: string;
+          sourceCoverage: Record<string, string>;
+          reasonCodes: string[];
+        } | null;
+      };
+      assert.equal(status.targetCoverage?.sourceCoverage.preparedCards, "ok");
+      assert.equal(status.targetCoverage?.status, "ready");
+      assert.equal(status.targetCoverage?.reasonCodes.includes("prepared_state_ready"), true);
+      assert.equal(status.targetCoverage?.reasonCodes.includes("partial_prepared_state"), false);
+    }
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -1737,7 +1895,7 @@ test("prepared card reports filter unsafe cached rows without leaking canaries",
       0,
       JSON.stringify({ summaryLeaves: { status: "ok" } }),
       "40000000000000000000000000000004",
-      "prepared-cards-v1",
+      "prepared-cards-v2",
       "public_safe_metadata",
       0.9,
       "2026-07-03T00:00:00.000Z",

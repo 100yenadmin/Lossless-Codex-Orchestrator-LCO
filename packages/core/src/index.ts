@@ -444,7 +444,7 @@ export type PreparedCard = {
     watcherObservations: PreparedStateCoverage;
   };
   inputHash: string;
-  extractorVersion: "prepared-cards-v1";
+  extractorVersion: "prepared-cards-v2";
   privacyClass: "public_safe_metadata";
   confidence: number;
   freshnessAt: string | null;
@@ -2665,7 +2665,7 @@ const CODEX_RECOVERY_MAX_BYTES_PER_FILE = 1_073_741_824;
 const CODEX_RECOVERY_MAX_EVENTS_PER_FILE = 1_000_000;
 const PREPARED_SOURCE_EXTRACTOR_VERSION = "prepared-source-ranges-v1" as const;
 const SUMMARY_LEAF_EXTRACTOR_VERSION = "summary-leaves-v1" as const;
-const PREPARED_CARD_EXTRACTOR_VERSION = "prepared-cards-v1" as const;
+const PREPARED_CARD_EXTRACTOR_VERSION = "prepared-cards-v2" as const;
 const SUMMARY_LEAF_EDGE_DELETE_BATCH_SIZE = 400;
 const SUMMARY_LEAF_SOURCE_RANGE_REF_LIMIT = 50;
 const PREPARED_CARD_SOURCE_RANGE_REF_LIMIT = 50;
@@ -7049,11 +7049,11 @@ function preparedTargetCardCoverage(card: PreparedCard): PreparedStateCoverage {
 }
 
 function preparedCardStateHasFreshTargetCoverage(state: PreparedCardState): boolean {
-  return state !== "stale"
-    && state !== "partial"
-    && state !== "stale_or_partial"
-    && state !== "unknown"
-    && state !== "unknown_lifecycle";
+  return state === "ready"
+    || state === "completed"
+    || state === "ready_for_review"
+    || state === "watching_external_check"
+    || state === "needs_resume";
 }
 
 function countPreparedTargetRows(db: LooDatabase, sql: string, ...params: Array<string | number>): number {
@@ -7286,22 +7286,26 @@ function preparedLifecycleFromMetadata(
   metadata: SessionMetadata,
   evidenceState: PreparedCardState
 ): { state: PreparedCardState; reasonCodes: string[]; metadataSignalHash: string } {
-  const signals = {
-    status: normalizedMetadataValue(metadata.status),
-    blocker: normalizedMetadataValue(metadata.blocker),
-    nextAction: normalizedMetadataValue(metadata.nextAction),
-    closeoutState: normalizedMetadataValue(metadata.closeoutState),
-    planCompletionState: normalizedMetadataValue(metadata.planCompletionState)
+  const matchSignals = {
+    status: normalizedMetadataMatchValue(metadata.status),
+    blocker: normalizedMetadataMatchValue(metadata.blocker),
+    nextAction: normalizedMetadataMatchValue(metadata.nextAction),
+    closeoutState: normalizedMetadataMatchValue(metadata.closeoutState),
+    planCompletionState: normalizedMetadataMatchValue(metadata.planCompletionState)
   };
-  const metadataSignalHash = stableId(JSON.stringify(signals));
-  const nonBlockerText = [signals.status, signals.nextAction, signals.closeoutState, signals.planCompletionState].filter(Boolean).join(" ");
-  const text = [nonBlockerText, signals.blocker].filter(Boolean).join(" ");
-  const sourceReasonCodes = Object.entries(signals)
+  const metadataSignalHash = stableId(JSON.stringify({
+    extractorVersion: PREPARED_CARD_EXTRACTOR_VERSION,
+    normalization: "match-signals",
+    signals: matchSignals
+  }));
+  const nonBlockerText = [matchSignals.status, matchSignals.nextAction, matchSignals.closeoutState, matchSignals.planCompletionState].filter(Boolean).join(" ");
+  const text = [nonBlockerText, matchSignals.blocker].filter(Boolean).join(" ");
+  const sourceReasonCodes = Object.entries(matchSignals)
     .filter(([, value]) => value.length > 0)
     .map(([field]) => `lifecycle_signal:${field.replace(/[A-Z]/g, (match) => `_${match.toLowerCase()}`)}`);
-  const completedByStatus = lifecycleCompletionLike(signals.status);
-  const completedByCloseoutAndPlan = lifecycleCompletionLike(signals.closeoutState)
-    && lifecycleCompletionLike(signals.planCompletionState);
+  const completedByStatus = lifecycleCompletionLike(matchSignals.status);
+  const completedByCloseoutAndPlan = lifecycleCompletionLike(matchSignals.closeoutState)
+    && lifecycleCompletionLike(matchSignals.planCompletionState);
   const completed = completedByStatus || completedByCloseoutAndPlan;
   const dirtyHandoff = /\b(?:dirty[-_ ]?worktree|uncommitted|worktree[-_ ]?handoff|dirty[-_ ]?handoff|handoff[-_ ]?dirty|cleanup[-_ ]?required)\b/.test(text);
   const waitingApproval = /\b(?:waiting[-_ ]?(?:for[-_ ]?)?approval|needs[-_ ]?approval|requires[-_ ]?approval|approval[-_ ]?(?:required|needed|pending)|pending[-_ ]?approval|approval[-_ ]?gate|do[-_ ]?not[-_ ]?execute[-_ ]?without[-_ ]?explicit[-_ ]?approval)\b/.test(text);
@@ -7379,7 +7383,7 @@ function preparedLifecycleFromMetadata(
   }
   return {
     state: "ready",
-    reasonCodes: unique(["semantic_lifecycle", "lifecycle:unknown_lifecycle", "lifecycle_signal_missing"]),
+    reasonCodes: unique(["semantic_lifecycle", "lifecycle:ready_without_lifecycle_signal", "lifecycle_signal_missing"]),
     metadataSignalHash
   };
 }
@@ -7747,14 +7751,34 @@ function latestThreadTitleUserMessage(input: ThreadTitleFinalizerInput): string 
   return null;
 }
 
+const THREAD_TITLE_FINALIZER_DIRECT_SIGNAL_SOURCE = String.raw`thread-title-finalize|title finalizer|title-finalizer`;
+const THREAD_TITLE_FINALIZATION_SIGNAL_SOURCE = String.raw`finaliz(?:e|es|ed|ing).{0,40}thread.{0,20}title|thread.{0,20}title.{0,40}finaliz`;
+const THREAD_TITLE_FINALIZER_DIRECT_PATTERN = new RegExp(THREAD_TITLE_FINALIZER_DIRECT_SIGNAL_SOURCE, "i");
+const THREAD_TITLE_FINALIZATION_PATTERN = new RegExp(THREAD_TITLE_FINALIZATION_SIGNAL_SOURCE, "i");
+const THREAD_TITLE_FINALIZER_SIGNAL_PATTERN = new RegExp(
+  `${THREAD_TITLE_FINALIZER_DIRECT_SIGNAL_SOURCE}|${THREAD_TITLE_FINALIZATION_SIGNAL_SOURCE}`,
+  "i"
+);
+const THREAD_TITLE_FINALIZER_LEADING_NEGATION_PATTERN = /\b(?:not|no|without|never)\b/i;
+const THREAD_TITLE_FINALIZER_TRAILING_NEGATION_PATTERN = /\b(?:work|feature|hook|plugin|change|lane|it|this|that|was|were|is|are|has|have|had|did|does|do|will|would|can|could|should)\b.{0,40}\b(?:not|never)\b.{0,24}\b(?:ship|shipped|implemented|built|added|installed|wired|enabled|created|live|available|done)\b/i;
+
 function deriveThreadTitleSummary(value: string | null): string | null {
   if (!value) return null;
   const redacted = redactHookStringUnbounded(value);
   const lowered = redacted.toLowerCase();
+  const negatesTitleFinalizer = negatesTitleFinalizerSignal(redacted);
   if (
-    /thread-title-finalize|title finalizer|title-finalizer/i.test(redacted)
-    || /finaliz(?:e|es|ed|ing).{0,40}thread.{0,20}title/i.test(redacted)
-    || /thread.{0,20}title.{0,40}finaliz/i.test(redacted)
+    (
+      THREAD_TITLE_FINALIZER_DIRECT_PATTERN.test(redacted)
+      && !negatesTitleFinalizer
+    )
+    || (
+      /\b(?:implemented|built|added|installed|wired|enabled|created|shipped)\b/i.test(redacted)
+      && /\b(?:codex|lco)\b/i.test(redacted)
+      && /\b(?:hook|plugin)\b/i.test(redacted)
+      && THREAD_TITLE_FINALIZATION_PATTERN.test(redacted)
+      && !negatesTitleFinalizer
+    )
   ) {
     return "Codex thread title finalizer";
   }
@@ -7764,7 +7788,9 @@ function deriveThreadTitleSummary(value: string | null): string | null {
   const line = redacted
     .split(/\r?\n/)
     .map((part) => part.trim())
-    .find((part) => part.length >= 12 && !/^[-*]?\s*(status|blocker|owner|priority|source refs?)\s*:/i.test(part));
+    .find((part) => part.length >= 12
+      && !/^[-*]?\s*(status|blocker|owner|priority|source refs?)\s*:/i.test(part)
+      && !(negatesTitleFinalizer && THREAD_TITLE_FINALIZER_SIGNAL_PATTERN.test(part)));
   if (!line) return null;
   const withoutLabels = line
     .replace(/^[-*]?\s*(final|summary|task|next action|implemented|complete|done)\s*:?\s*/i, "")
@@ -13535,6 +13561,25 @@ function hasRealBlocker(value: string | null): boolean {
 
 function normalizedMetadataValue(value: string | null): string {
   return (value ?? "").trim().toLowerCase();
+}
+
+function normalizedMetadataMatchValue(value: string | null): string {
+  // Keep lifecycle matching as a separate call site from hash/display normalization
+  // so future truncation changes cannot silently constrain semantic state scans.
+  return normalizedMetadataValue(value);
+}
+
+function negatesTitleFinalizerSignal(value: string): boolean {
+  return value
+    .split(/[.!?;\n]+/)
+    .some((clause) => {
+      const titleMatch = THREAD_TITLE_FINALIZER_SIGNAL_PATTERN.exec(clause);
+      if (!titleMatch) return false;
+      const negationMatch = THREAD_TITLE_FINALIZER_LEADING_NEGATION_PATTERN.exec(clause);
+      if (negationMatch && negationMatch.index <= titleMatch.index) return true;
+      const trailing = clause.slice(titleMatch.index + titleMatch[0].length);
+      return THREAD_TITLE_FINALIZER_TRAILING_NEGATION_PATTERN.test(trailing);
+    });
 }
 
 function compareUpdatedAtDesc(left: string | null, right: string | null): number {

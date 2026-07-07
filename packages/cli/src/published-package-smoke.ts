@@ -114,6 +114,7 @@ export type PublishedPackageSmokeReport = {
     observedVersion: string | null;
     packageVersion: string;
     tarballBinaryVersion: string | null;
+    tarballVersionSource: "package_json_metadata" | null;
     evidenceInputs: string[];
     guidance: string[];
   };
@@ -151,6 +152,7 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
   const dogfoodReady = dogfood.ok === true && dogfood.dogfoodReady === true;
   const requiredToolsPresent = dogfood.requiredToolsPresent === true;
   const installOutcomeStatus = readNestedString(dogfood, ["installOutcome", "status"]) || "unknown";
+  const installOutcomeProven = isAcceptableDogfoodInstallOutcome(installOutcomeStatus);
   const toolSmokeReady = toolSmoke.ok === true && toolSmoke.toolSmokeReady === true;
   const gatewaySetupClassification = readGatewaySetupClassification(toolSmoke);
   const packageInstallLikelyOk = readNestedBoolean(toolSmoke, ["setupStatus", "packageInstallLikelyOk"]);
@@ -187,6 +189,7 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
     ...(isSupportedPackageName(packageJson.name) ? [] : ["package_name_mismatch"]),
     ...(versionMatchStatus.endsWith("_mismatch") ? [`registry_${expectedDistTag}_version_mismatch`] : []),
     ...(dogfoodReady ? [] : ["openclaw_dogfood_not_ready"]),
+    ...(installOutcomeProven ? [] : ["openclaw_dogfood_install_outcome_unproven"]),
     ...(requiredToolsPresent ? [] : ["openclaw_required_tools_missing"]),
     ...(!toolSmokeReady && !setupRequired ? ["openclaw_tool_smoke_not_ready"] : []),
     ...(setupRequired && !packageInstallLikelyOk ? ["openclaw_gateway_setup_not_package_safe"] : []),
@@ -238,7 +241,7 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
     blockers,
     nextSafeCommands: uniqueStrings([
       ...npmInstallDiagnosticCommands(expectedPackage, npmInstallDiagnostic),
-      ...binaryProbeDiagnosticCommands(expectedPackage, binaryProbeDiagnostic),
+      ...binaryProbeDiagnosticCommands(expectedPackage, packageJson.version, binaryProbeDiagnostic),
       `npm view ${expectedPackage} version dist-tags --json`,
       `loo openclaw dogfood --profile lco-dogfood-published --install-source ${expectedPackage} --required-tool loo_doctor --required-tool loo_search_sessions --strict`,
       "loo openclaw tool-smoke --profile lco-dogfood-published --required-tool loo_doctor --required-tool loo_search_sessions --strict",
@@ -263,6 +266,10 @@ export function createPublishedPackageSmokeReport(options: PublishedPackageSmoke
   };
   if (options.evidenceDir) writePublishedPackageSmokeReport(report, options.evidenceDir);
   return report;
+}
+
+function isAcceptableDogfoodInstallOutcome(status: string): boolean {
+  return status === "installed" || status === "already_installed" || status === "link_force_unsupported";
 }
 
 export function writePublishedPackageSmokeReport(report: PublishedPackageSmokeReport, evidenceDir: string): string {
@@ -385,18 +392,100 @@ function npmInstallDiagnosticCommands(
 
 function binaryProbeDiagnosticCommands(
   expectedPackage: string,
+  packageVersion: string,
   diagnostic: PublishedPackageSmokeReport["binaryProbeDiagnostic"]
 ): string[] {
-  if (diagnostic.classification !== "smoke_harness_path_shadow" && diagnostic.classification !== "candidate_binary_version_mismatch") return [];
   const tarballLookup = `npm view ${expectedPackage} dist.tarball`;
+  const tarballExtractPrefix = publishedPackageTarballExtractCommand(expectedPackage);
+  if (diagnostic.classification === "not_provided") {
+    const binaryProbePath = "$LCO_EVIDENCE_DIR/binary-probe.json";
+    return [
+      `${tarballLookup} --json`,
+      recoverySubshellCommand(`: "\${LCO_DOGFOOD_REPORT:?set LCO_DOGFOOD_REPORT to a fresh dogfood report path}" && : "\${LCO_TOOL_SMOKE_REPORT:?set LCO_TOOL_SMOKE_REPORT to a fresh tool-smoke report path}" && evidence_dir="\${LCO_EVIDENCE_DIR:?set LCO_EVIDENCE_DIR to the evidence directory for published-smoke output}" && mkdir -p "$evidence_dir" && ${tarballExtractPrefix} && binary_probe_report="$evidence_dir/binary-probe.json" && package_version="$(node -pe "require(process.argv.at(-1)).version" "$tmp_dir/package/package.json")" && candidate_binary_path="$tmp_dir/package/dist/packages/cli/src/index.js" && test -f "$candidate_binary_path" && version="$(node "$candidate_binary_path" --version)" && tarball_binary_version="" && test -n "$package_version" && test -n "$version" && test "$version" = "$package_version" && resolved_binary_source="package_exec" && path_shadowed="false" && ${binaryProbeJsonWriteCommand(packageVersion)}`),
+      `loo openclaw published-smoke --dogfood-report "$LCO_DOGFOOD_REPORT" --tool-smoke-report "$LCO_TOOL_SMOKE_REPORT" --binary-probe-report "${binaryProbePath}" --evidence-dir "$LCO_EVIDENCE_DIR" --strict`
+    ];
+  }
+  if (diagnostic.classification !== "smoke_harness_path_shadow" && diagnostic.classification !== "candidate_binary_version_mismatch") return [];
   return [
     `${tarballLookup} --json`,
-    `tarball_url="$(${tarballLookup})" && test -n "$tarball_url" && tmp_dir="$(mktemp -d)" && curl -fsSL "$tarball_url" -o "$tmp_dir/package.tgz" && tar -xzf "$tmp_dir/package.tgz" -C "$tmp_dir" && node "$tmp_dir/package/dist/packages/cli/src/index.js" --version`
+    recoverySubshellCommand(`${tarballExtractPrefix} && node -pe "require(process.argv.at(-1)).version" "$tmp_dir/package/package.json"`)
   ];
 }
 
+function recoverySubshellCommand(command: string): string {
+  return `(${command})`;
+}
+
+function publishedPackageTarballExtractCommand(expectedPackage: string): string {
+  const metadataLookup = `npm view ${expectedPackage} dist --json`;
+  return [
+    `tmp_dir="$(mktemp -d)"`,
+    `trap 'test -n "\${tmp_dir:-}" && rm -rf "$tmp_dir"' EXIT`,
+    `${metadataLookup} > "$tmp_dir/npm-dist.json"`,
+    npmDistMetadataReaderCommand(),
+    `node "$tmp_dir/read-npm-dist.mjs" "$tmp_dir/npm-dist.json" "$tmp_dir/tarball-url.txt" "$tmp_dir/integrity.txt"`,
+    `tarball_url="$(cat "$tmp_dir/tarball-url.txt")"`,
+    `integrity="$(cat "$tmp_dir/integrity.txt")"`,
+    `test -n "$tarball_url"`,
+    `test -n "$integrity"`,
+    `curl -fsSL "$tarball_url" -o "$tmp_dir/package.tgz"`,
+    npmTarballIntegrityVerifierCommand(),
+    `node "$tmp_dir/verify-tarball-integrity.mjs" "$tmp_dir/package.tgz" "$integrity"`,
+    `tar -xzf "$tmp_dir/package.tgz" -C "$tmp_dir"`,
+    `test -f "$tmp_dir/package/package.json"`
+  ].join(" && ");
+}
+
+function npmDistMetadataReaderCommand(): string {
+  const lines = [
+    "import { readFileSync, writeFileSync } from 'node:fs';",
+    "const [metadataPath, tarballOut, integrityOut] = process.argv.slice(2);",
+    "const metadata = JSON.parse(readFileSync(metadataPath, 'utf8'));",
+    "const tarball = typeof metadata.tarball === 'string' ? metadata.tarball : typeof metadata.dist?.tarball === 'string' ? metadata.dist.tarball : '';",
+    "const integrity = typeof metadata.integrity === 'string' ? metadata.integrity : typeof metadata.dist?.integrity === 'string' ? metadata.dist.integrity : '';",
+    "if (!tarball || !integrity) process.exit(1);",
+    "writeFileSync(tarballOut, `${tarball}\\n`);",
+    "writeFileSync(integrityOut, `${integrity}\\n`);"
+  ];
+  return `printf '%s\\n' ${lines.map(shellSingleQuote).join(" ")} > "$tmp_dir/read-npm-dist.mjs"`;
+}
+
+function npmTarballIntegrityVerifierCommand(): string {
+  const lines = [
+    "import { createHash } from 'node:crypto';",
+    "import { readFileSync } from 'node:fs';",
+    "const [tarballPath, integrity] = process.argv.slice(2);",
+    "const match = /^sha512-([A-Za-z0-9+/=]+)$/.exec(integrity ?? '');",
+    "if (!match) process.exit(1);",
+    "const actual = createHash('sha512').update(readFileSync(tarballPath)).digest('base64');",
+    "if (actual !== match[1]) process.exit(1);"
+  ];
+  return `printf '%s\\n' ${lines.map(shellSingleQuote).join(" ")} > "$tmp_dir/verify-tarball-integrity.mjs"`;
+}
+
+function binaryProbeJsonWriteCommand(packageVersion: string): string {
+  const safePackageVersion = safeVersionString(packageVersion);
+  if (!safePackageVersion) return "printf '%s\\n' 'unsupported package version for binary probe recovery' >&2 && exit 1";
+  // This fragment is composed into a larger shell && chain; keep caller-owned literals shell-single-quoted.
+  const writerLines = [
+    "import { writeFileSync } from 'node:fs';",
+    "const [outPath, expectedVersion, observedVersion, packageJsonVersion, resolvedBinarySource = 'package_tarball', pathShadowedValue = 'false', tarballBinaryVersionValue = ''] = process.argv.slice(2);",
+    "const pathShadowed = pathShadowedValue === 'true';",
+    "const tarballBinaryVersion = tarballBinaryVersionValue || (resolvedBinarySource === 'package_tarball' && observedVersion === packageJsonVersion ? observedVersion : null);",
+    "const tarballVersionSource = resolvedBinarySource === 'package_tarball' && tarballBinaryVersion ? 'package_json_metadata' : null;",
+    "writeFileSync(outPath, JSON.stringify({ kind: 'loo_published_binary_probe_evidence', publicSafe: true, rawSecretIncluded: false, expectedVersion, observedVersion, resolvedBinarySource, pathShadowed, tarballBinaryVersion, tarballVersionSource, packageJsonVersion }) + '\\n');"
+  ];
+  return `printf '%s\\n' ${writerLines.map(shellSingleQuote).join(" ")} > "$tmp_dir/write-binary-probe.mjs" && node "$tmp_dir/write-binary-probe.mjs" "$binary_probe_report" ${shellSingleQuote(safePackageVersion)} "$version" "$package_version" "$resolved_binary_source" "$path_shadowed" "$tarball_binary_version"`;
+}
+
+function shellSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\"'\"'")}'`;
+}
+
 function binaryProbeBlockers(diagnostic: PublishedPackageSmokeReport["binaryProbeDiagnostic"]): string[] {
-  if (!diagnostic.provided || diagnostic.classification === "not_provided" || diagnostic.classification === "valid_candidate_binary" || diagnostic.classification === "smoke_harness_path_shadow") return [];
+  if (!diagnostic.provided || diagnostic.classification === "not_provided") return ["binary_probe_missing"];
+  if (diagnostic.classification === "valid_candidate_binary") return [];
+  if (diagnostic.classification === "smoke_harness_path_shadow") return ["binary_probe_path_shadow"];
   if (diagnostic.classification === "candidate_binary_version_mismatch") return ["binary_probe_candidate_version_mismatch"];
   return ["binary_probe_invalid"];
 }
@@ -411,8 +500,9 @@ function readBinaryProbeDiagnostic(path: string | undefined, packageVersion: str
       observedVersion: null,
       packageVersion,
       tarballBinaryVersion: null,
+      tarballVersionSource: null,
       evidenceInputs: [],
-      guidance: []
+      guidance: ["Provide --binary-probe-report evidence that attributes the resolved loo binary to the candidate package before claiming package-path readiness."]
     };
   }
   const payload = readJsonObject(path);
@@ -421,33 +511,40 @@ function readBinaryProbeDiagnostic(path: string | undefined, packageVersion: str
   const observedVersion = safeVersionString(readNestedString(payload, ["observedVersion"]));
   const expectedVersion = safeVersionString(readNestedString(payload, ["expectedVersion"])) ?? packageVersion;
   const tarballBinaryVersion = safeVersionString(readNestedString(payload, ["tarballBinaryVersion"]));
+  const tarballVersionSource = readTarballVersionSource(payload);
   const pathShadowed = readNestedBoolean(payload, ["pathShadowed"]);
   const resolvedBinarySource = readResolvedBinarySource(payload);
   const tarballMatches = tarballBinaryVersion === packageVersion;
   const evidenceInputs = [
     "binary_probe",
     pathShadowed ? "path_shadowed" : null,
-    tarballMatches ? "candidate_tarball_version_match" : null
+    tarballMatches ? "candidate_tarball_version_match" : null,
+    tarballMatches && tarballVersionSource === "package_json_metadata" ? "candidate_tarball_package_json_metadata" : null
   ].filter((item): item is string => Boolean(item));
 
   if (pathShadowed && tarballMatches) {
     return {
       provided: true,
       classification: "smoke_harness_path_shadow",
-      packageInstallLikelyOk: true,
+      packageInstallLikelyOk: false,
       resolvedBinarySource,
       observedVersion,
       packageVersion,
       tarballBinaryVersion,
+      tarballVersionSource,
       evidenceInputs,
       guidance: [
-        "The command runner resolved a non-candidate loo binary, but binary-probe tarball evidence matched the package version; treat this as smoke harness PATH shadowing.",
-        "Rerun product smoke from the exact published tarball or validate the resolved binary path before claiming a package version defect."
+        "The command runner resolved a non-candidate loo binary; treat this as smoke harness PATH shadowing, not package-path readiness.",
+        "Rerun product smoke from the exact published tarball or fix PATH before claiming package readiness."
       ]
     };
   }
 
-  if (!pathShadowed && expectedVersion === packageVersion && observedVersion === packageVersion && (resolvedBinarySource === "package_tarball" || resolvedBinarySource === "package_exec")) {
+  const packageExecCandidate = resolvedBinarySource === "package_exec"
+    && expectedVersion === packageVersion
+    && observedVersion === packageVersion;
+
+  if (!pathShadowed && packageExecCandidate) {
     return {
       provided: true,
       classification: "valid_candidate_binary",
@@ -456,8 +553,11 @@ function readBinaryProbeDiagnostic(path: string | undefined, packageVersion: str
       observedVersion,
       packageVersion,
       tarballBinaryVersion,
+      tarballVersionSource,
       evidenceInputs: uniqueStrings([...evidenceInputs, "candidate_binary_version_match"]),
-      guidance: ["The resolved binary was attributed to the candidate package and reported the expected version."]
+      guidance: [
+        "The resolved binary was attributed to the candidate package and reported the expected version."
+      ]
     };
   }
 
@@ -469,6 +569,7 @@ function readBinaryProbeDiagnostic(path: string | undefined, packageVersion: str
     observedVersion,
     packageVersion,
     tarballBinaryVersion,
+    tarballVersionSource,
     evidenceInputs,
     guidance: [
       "The binary probe did not prove the candidate package version; keep package readiness fail-closed until exact tarball or package-scoped binary proof passes."
@@ -488,9 +589,16 @@ function invalidBinaryProbeDiagnostic(
     observedVersion: null,
     packageVersion,
     tarballBinaryVersion: null,
+    tarballVersionSource: null,
     evidenceInputs,
     guidance: ["The binary probe report was absent, malformed, or not public-safe; keep package readiness fail-closed if this probe is required for the claim."]
   };
+}
+
+function readTarballVersionSource(input: Record<string, unknown>): PublishedPackageSmokeReport["binaryProbeDiagnostic"]["tarballVersionSource"] {
+  const value = readNestedString(input, ["tarballVersionSource"]);
+  if (value === "package_json_metadata") return value;
+  return null;
 }
 
 function readResolvedBinarySource(input: Record<string, unknown>): PublishedPackageSmokeReport["binaryProbeDiagnostic"]["resolvedBinarySource"] {

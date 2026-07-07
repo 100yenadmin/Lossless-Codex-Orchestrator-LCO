@@ -18,6 +18,13 @@ const rawTranscriptPath = "/Users/lume/.codex/sessions/2026/07/04/raw-thread.jso
 const rawToken = "npm_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456";
 const tsxImport = createRequire(import.meta.url).resolve("tsx");
 
+test("hook sidecar CLI database opens inherit bounded busy timeout posture", () => {
+  const source = readFileSync("packages/cli/src/main.ts", "utf8");
+
+  assert.match(source, /function createHookSidecarDatabase\(timeoutMs = DEFAULT_RECALL_TIMEOUT_MS\)/);
+  assert.match(source, /return createDatabase\(\{ maintenance: "schema-only", busyTimeoutMs: timeoutMs \}\);/);
+});
+
 function closeoutMessage(): string {
   return [
     "Final: hook sidecar capture complete.",
@@ -251,6 +258,83 @@ test("thread title finalizer does not collapse benign thread-name requests to th
       assert.equal(report.title.state, "ready");
       assert.notEqual(report.title.summary, "Codex thread title finalizer");
       assert.match(report.title.suggestedTitle ?? "", /payments/i);
+
+      const unrelatedFinalize = captureThreadTitleFinalizerHookPacket(db, {
+        thread_id: "019f-title-finalizer-unrelated",
+        cwd: "/Volumes/LEXAR/repos/lossless-openclaw-orchestrator",
+        current_title: "billing review",
+        last_assistant_message: "Finalized the customer billing thread title after invoice review; no LCO hook work was involved."
+      });
+      assert.equal(unrelatedFinalize.publicSafe, true);
+      assert.equal(unrelatedFinalize.title.state, "ready");
+      assert.notEqual(unrelatedFinalize.title.summary, "Codex thread title finalizer");
+      assert.doesNotMatch(unrelatedFinalize.title.suggestedTitle ?? "", /thread title finalizer/i);
+
+      const negatedDirectPhrase = captureThreadTitleFinalizerHookPacket(db, {
+        thread_id: "019f-title-finalizer-negated",
+        cwd: "/Volumes/LEXAR/repos/lossless-openclaw-orchestrator",
+        current_title: "billing title cleanup",
+        last_assistant_message: "This was not title finalizer work; it was only a customer billing title cleanup."
+      });
+      assert.equal(negatedDirectPhrase.publicSafe, true);
+      assert.equal(negatedDirectPhrase.title.state, "ready");
+      assert.notEqual(negatedDirectPhrase.title.summary, "Codex thread title finalizer");
+      assert.doesNotMatch(negatedDirectPhrase.title.suggestedTitle ?? "", /thread title finalizer/i);
+
+      const negatedImplementationPhrase = captureThreadTitleFinalizerHookPacket(db, {
+        thread_id: "019f-title-finalizer-negated-implementation",
+        cwd: "/Volumes/LEXAR/repos/lossless-openclaw-orchestrator",
+        current_title: "hook cleanup",
+        last_assistant_message: "Implemented LCO hook cleanup, not finalizing thread title; no title finalizer work shipped."
+      });
+      assert.equal(negatedImplementationPhrase.publicSafe, true);
+      assert.equal(negatedImplementationPhrase.title.state, "ready");
+      assert.notEqual(negatedImplementationPhrase.title.summary, "Codex thread title finalizer");
+      assert.doesNotMatch(negatedImplementationPhrase.title.suggestedTitle ?? "", /thread title finalizer/i);
+
+      const trailingNegatedShippedPhrase = captureThreadTitleFinalizerHookPacket(db, {
+        thread_id: "019f-title-finalizer-trailing-negated-shipped",
+        cwd: "/Volumes/LEXAR/repos/lossless-openclaw-orchestrator",
+        current_title: "hook cleanup",
+        last_assistant_message: "Thread title finalizer was not shipped in this PR."
+      });
+      assert.equal(trailingNegatedShippedPhrase.publicSafe, true);
+      assert.equal(trailingNegatedShippedPhrase.title.state, "insufficient_signal");
+      assert.notEqual(trailingNegatedShippedPhrase.title.summary, "Codex thread title finalizer");
+      assert.doesNotMatch(trailingNegatedShippedPhrase.title.suggestedTitle ?? "", /thread title finalizer/i);
+
+      const longNegatedPhrase = captureThreadTitleFinalizerHookPacket(db, {
+        thread_id: "019f-title-finalizer-negated-long",
+        cwd: "/Volumes/LEXAR/repos/lossless-openclaw-orchestrator",
+        current_title: "hook cleanup",
+        last_assistant_message: `Implemented LCO hook cleanup, not ${"scope note ".repeat(8)}finalizing thread title; no finalizer shipped.`
+      });
+      assert.equal(longNegatedPhrase.publicSafe, true);
+      assert.equal(longNegatedPhrase.title.state, "ready");
+      assert.notEqual(longNegatedPhrase.title.summary, "Codex thread title finalizer");
+      assert.doesNotMatch(longNegatedPhrase.title.suggestedTitle ?? "", /thread title finalizer/i);
+
+      const unrelatedNegationBeforeAffirmedFinalizer = captureThreadTitleFinalizerHookPacket(db, {
+        thread_id: "019f-title-finalizer-unrelated-negation-before-affirmed",
+        cwd: "/Volumes/LEXAR/repos/lossless-openclaw-orchestrator",
+        current_title: "hook shipped",
+        last_assistant_message: "Shipped the LCO hook. Not related to billing. The thread title finalizer is now live."
+      });
+      assert.equal(unrelatedNegationBeforeAffirmedFinalizer.publicSafe, true);
+      assert.equal(unrelatedNegationBeforeAffirmedFinalizer.title.state, "ready");
+      assert.equal(unrelatedNegationBeforeAffirmedFinalizer.title.summary, "Codex thread title finalizer");
+      assert.match(unrelatedNegationBeforeAffirmedFinalizer.title.suggestedTitle ?? "", /thread title finalizer/i);
+
+      const affirmedFinalizerWithTrailingNegation = captureThreadTitleFinalizerHookPacket(db, {
+        thread_id: "019f-title-finalizer-affirmed-trailing-negation",
+        cwd: "/Volumes/LEXAR/repos/lossless-openclaw-orchestrator",
+        current_title: "hook shipped",
+        last_assistant_message: "Shipped the LCO hook and finalized thread title, not related to billing."
+      });
+      assert.equal(affirmedFinalizerWithTrailingNegation.publicSafe, true);
+      assert.equal(affirmedFinalizerWithTrailingNegation.title.state, "ready");
+      assert.equal(affirmedFinalizerWithTrailingNegation.title.summary, "Codex thread title finalizer");
+      assert.match(affirmedFinalizerWithTrailingNegation.title.suggestedTitle ?? "", /thread title finalizer/i);
     } finally {
       db.close();
     }

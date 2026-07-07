@@ -1,5 +1,7 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, extname, isAbsolute, join, relative, resolve } from "node:path";
+import { randomBytes } from "node:crypto";
+import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readlinkSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   excludedClaimsForScope,
   liveControlExcludedDetail,
@@ -48,7 +50,7 @@ export type ReleaseDemoStatusReport = {
 
 type RawDemoArtifact = {
   name: string;
-  reason: "raw_codex_jsonl" | "sqlite_database" | "screenshot_or_image" | "video_capture";
+  reason: "raw_codex_jsonl" | "sqlite_database" | "screenshot_or_image" | "video_capture" | "symlinked_directory" | "symlinked_artifact";
 };
 
 type JsonReadResult = {
@@ -191,8 +193,86 @@ export function createReleaseDemoStatus(options: ReleaseDemoStatusOptions): Rele
     ]
   };
 
-  writeFileSync(demoStatusManifestPath, `${JSON.stringify(report, null, 2)}\n`);
+  writeSafeDemoStatusManifest(demoStatusManifestPath, `${JSON.stringify(report, null, 2)}\n`);
   return report;
+}
+
+function writeSafeDemoStatusManifest(path: string, contents: string): void {
+  assertSafeDemoStatusManifestPath(path);
+  const parent = dirname(path);
+  const tempPath = join(parent, `.${basename(path)}.${process.pid}.${Date.now()}.${randomBytes(4).toString("hex")}.tmp`);
+  try {
+    writeFileSync(tempPath, contents, { flag: "wx" });
+    if (lstatSync(tempPath).isSymbolicLink()) {
+      throw new Error("release-demo-status temporary manifest must not be a symlink");
+    }
+    const tempStat = lstatSync(tempPath);
+    if (!tempStat.isFile()) {
+      throw new Error("release-demo-status temporary manifest must be a regular file");
+    }
+    assertSafeDemoStatusManifestPath(path);
+    renameSync(tempPath, path);
+    assertWrittenSafeDemoStatusManifestPath(path, { dev: tempStat.dev, ino: tempStat.ino });
+  } finally {
+    if (existsSync(tempPath)) unlinkSync(tempPath);
+  }
+}
+
+function assertWrittenSafeDemoStatusManifestPath(path: string, expectedIdentity: { dev: number; ino: number }): void {
+  const pathStat = lstatSync(path);
+  if (pathStat.isSymbolicLink() || !pathStat.isFile() || pathStat.dev !== expectedIdentity.dev || pathStat.ino !== expectedIdentity.ino) {
+    throw new Error("release-demo-status.json must be the same regular evidence file after write");
+  }
+  const noFollowFlag = "O_NOFOLLOW" in constants ? constants.O_NOFOLLOW : 0;
+  const fd = openSync(path, constants.O_RDONLY | noFollowFlag);
+  try {
+    const stat = fstatSync(fd);
+    const postOpenPathStat = lstatSync(path);
+    if (postOpenPathStat.isSymbolicLink()
+      || !postOpenPathStat.isFile()
+      || !stat.isFile()
+      || stat.dev !== expectedIdentity.dev
+      || stat.ino !== expectedIdentity.ino
+      || stat.dev !== pathStat.dev
+      || stat.ino !== pathStat.ino
+      || stat.dev !== postOpenPathStat.dev
+      || stat.ino !== postOpenPathStat.ino) {
+      throw new Error("release-demo-status.json must be the same regular evidence file after write");
+    }
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function assertSafeDemoStatusManifestPath(path: string): void {
+  assertNoSymlinkAncestors(path);
+  let stat;
+  try {
+    stat = lstatSync(path);
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return;
+    throw error;
+  }
+  if (stat.isSymbolicLink()) {
+    throw new Error("release-demo-status.json must be a regular evidence file, not a symlink");
+  }
+}
+
+function assertNoSymlinkAncestors(path: string): void {
+  const tmpRoot = resolve(tmpdir());
+  let current = dirname(path);
+  while (true) {
+    // macOS temp paths normally live under /var, which is itself a system
+    // symlink. Stop at the temp root so tests and temp evidence keep working
+    // while user-controlled evidence ancestors below it are still checked.
+    if (resolve(current) === tmpRoot) return;
+    if (lstatSync(current).isSymbolicLink()) {
+      throw new Error("release-demo-status.json parent directories must not include symlinks");
+    }
+    const parent = dirname(current);
+    if (parent === current) return;
+    current = parent;
+  }
 }
 
 function check(ok: boolean, detail: string): ReleaseDemoStatusCheck {
@@ -409,32 +489,58 @@ function isSafeFingerprint(value: string | undefined | null): boolean {
 
 function scanRawDemoArtifacts(evidenceDir: string): RawDemoArtifact[] {
   if (!existsSync(evidenceDir)) return [];
-  return collectEvidenceFileNames(evidenceDir)
-    .map((name) => rawArtifactForName(name))
+  return collectEvidenceFiles(evidenceDir)
+    .map((file) => rawArtifactForName(file.name, file.linkTarget, file.linkKind))
     .filter((entry): entry is RawDemoArtifact => entry !== null)
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
-function collectEvidenceFileNames(root: string, current = root): string[] {
-  const names: string[] = [];
+function collectEvidenceFiles(root: string, current = root): Array<{ name: string; linkTarget?: string; linkKind?: "directory" | "file" | "unknown" }> {
+  const files: Array<{ name: string; linkTarget?: string; linkKind?: "directory" | "file" | "unknown" }> = [];
   for (const entry of readdirSync(current, { withFileTypes: true })) {
     const path = join(current, entry.name);
     if (entry.isDirectory()) {
-      names.push(...collectEvidenceFileNames(root, path));
+      files.push(...collectEvidenceFiles(root, path));
     } else if (entry.isFile()) {
-      names.push(relative(root, path).replace(/\\/g, "/"));
+      files.push({ name: relative(root, path).replace(/\\/g, "/") });
+    } else if (entry.isSymbolicLink()) {
+      const name = relative(root, path).replace(/\\/g, "/");
+      let linkKind: "directory" | "file" | "unknown" = "unknown";
+      try {
+        const linked = statSync(path);
+        if (linked.isDirectory()) linkKind = "directory";
+        else if (linked.isFile()) linkKind = "file";
+      } catch {
+        linkKind = "unknown";
+      }
+      try {
+        // Do not traverse symlinked evidence directories. They are reported
+        // and rejected as a single fail-closed artifact boundary.
+        files.push({ name, linkTarget: readlinkSync(path).replace(/\\/g, "/"), linkKind });
+      } catch {
+        files.push({ name, linkKind });
+      }
     }
   }
-  return names;
+  return files;
 }
 
-function rawArtifactForName(name: string): RawDemoArtifact | null {
+function rawArtifactForName(name: string, linkTarget?: string, linkKind?: "directory" | "file" | "unknown"): RawDemoArtifact | null {
   if (name === "release-demo-status.json") return null;
   const normalizedName = name.toLowerCase();
+  const normalizedLinkTarget = linkTarget?.toLowerCase() ?? "";
   const extension = extname(name).toLowerCase();
+  if (linkKind === "directory") return { name, reason: "symlinked_directory" };
   if (/\.jsonl(?:\.(?:gz|zip|zst|br|xz))?$/.test(normalizedName)) return { name, reason: "raw_codex_jsonl" };
-  if (/(?:\.sqlite3?|\.db)(?:-(?:wal|shm|journal))?$/.test(normalizedName)) return { name, reason: "sqlite_database" };
+  if (/(?:\.sqlite3?|\.db)(?:-(?:wal|shm|journal))?(?:\.(?:gz|zip|zst|br|xz))?$/.test(normalizedName)) return { name, reason: "sqlite_database" };
   if (extension === ".png" || extension === ".jpg" || extension === ".jpeg" || extension === ".heic" || extension === ".webp") return { name, reason: "screenshot_or_image" };
   if (extension === ".mov" || extension === ".mp4" || extension === ".webm") return { name, reason: "video_capture" };
+  if (linkTarget) {
+    if (/\.jsonl(?:\.(?:gz|zip|zst|br|xz))?$/.test(normalizedLinkTarget)) return { name, reason: "raw_codex_jsonl" };
+    if (/(?:\.sqlite3?|\.db)(?:-(?:wal|shm|journal))?(?:\.(?:gz|zip|zst|br|xz))?$/.test(normalizedLinkTarget)) return { name, reason: "sqlite_database" };
+    if (/\.(?:png|jpe?g|heic|webp)$/.test(normalizedLinkTarget)) return { name, reason: "screenshot_or_image" };
+    if (/\.(?:mov|mp4|webm)$/.test(normalizedLinkTarget)) return { name, reason: "video_capture" };
+  }
+  if (linkKind === "file" || linkKind === "unknown" || linkTarget) return { name, reason: "symlinked_artifact" };
   return null;
 }

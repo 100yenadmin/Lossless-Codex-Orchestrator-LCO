@@ -1062,10 +1062,35 @@ function publicTurnResolution(turn: CodexTurnResolution): CodexTurnResolution {
     ...(turn.id ? { id: turn.id } : {}),
     status: turn.status,
     completed: turn.completed,
-    notificationMethods: [...new Set(turn.notificationMethods)],
+    notificationMethods: [...new Set(turn.notificationMethods)].sort(compareTurnNotificationMethods),
     approvalRequestCount: turn.approvalRequestCount,
     serverRequestCount: turn.serverRequestCount
   };
+}
+
+const TURN_NOTIFICATION_METHOD_ORDER = [
+  "thread/started",
+  "turn/started",
+  "turn/completed",
+  "turn/failed",
+  "turn/interrupted",
+  // Codex has historically surfaced both spellings; keep the original
+  // double-l form before the single-l alias for deterministic compatibility.
+  "turn/cancelled",
+  "turn/canceled"
+] as const;
+
+function compareTurnNotificationMethods(left: string, right: string): number {
+  const leftIndex = TURN_NOTIFICATION_METHOD_ORDER.indexOf(left as typeof TURN_NOTIFICATION_METHOD_ORDER[number]);
+  const rightIndex = TURN_NOTIFICATION_METHOD_ORDER.indexOf(right as typeof TURN_NOTIFICATION_METHOD_ORDER[number]);
+  // Public turn summaries expose this deterministic order: known lifecycle
+  // notifications first, then unknown future methods sorted lexicographically.
+  if (leftIndex !== -1 || rightIndex !== -1) {
+    if (leftIndex === -1) return 1;
+    if (rightIndex === -1) return -1;
+    return leftIndex - rightIndex;
+  }
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function resolveCodexTurnWaitMs(value?: number): number {

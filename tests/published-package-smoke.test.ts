@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { createOpenClawDogfoodReport } from "../packages/cli/src/openclaw-dogfood.js";
 import { createPublishedPackageSmokeReport } from "../packages/cli/src/published-package-smoke.js";
 
 const tsxImport = createRequire(import.meta.url).resolve("tsx");
@@ -12,6 +13,33 @@ const packageVersion = (JSON.parse(readFileSync("package.json", "utf8")) as { ve
 
 function writeJson(path: string, value: unknown): void {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function writeValidBinaryProbe(path: string, version = packageVersion): void {
+  writeJson(path, {
+    kind: "loo_published_binary_probe_evidence",
+    publicSafe: true,
+    rawSecretIncluded: false,
+    expectedVersion: version,
+    observedVersion: version,
+    resolvedBinarySource: "package_exec",
+    pathShadowed: false,
+    packageJsonVersion: version
+  });
+}
+
+function writeReadyToolSmoke(path: string): void {
+  writeJson(path, {
+    ok: true,
+    toolSmokeReady: true,
+    setupStatus: {
+      classification: "ready",
+      packageInstallLikelyOk: true
+    },
+    setupBlockers: [],
+    catalog: { toolCount: 34 },
+    invocations: [{ toolName: "lco_doctor", ok: true }]
+  });
 }
 
 function expectedDistTag(version: string): "beta" | "next" | "latest" {
@@ -40,7 +68,9 @@ test("loo openclaw published-smoke summarizes install and gateway setup without 
     const evidenceDir = join(dir, "evidence");
     const dogfoodPath = join(dir, "dogfood.json");
     const toolSmokePath = join(dir, "tool-smoke.json");
+    const binaryProbePath = join(dir, "binary-probe.json");
     const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+    writeValidBinaryProbe(binaryProbePath, packageJson.version);
     writeJson(dogfoodPath, {
       ok: true,
       dogfoodReady: true,
@@ -89,6 +119,8 @@ test("loo openclaw published-smoke summarizes install and gateway setup without 
       dogfoodPath,
       "--tool-smoke-report",
       toolSmokePath,
+      "--binary-probe-report",
+      binaryProbePath,
       "--strict"
     ], {
       cwd: new URL("..", import.meta.url),
@@ -184,6 +216,8 @@ test("loo openclaw published-smoke summarizes install and gateway setup without 
       dogfoodPath,
       "--tool-smoke-report",
       toolSmokePath,
+      "--binary-probe-report",
+      binaryProbePath,
       "--gateway-ready-strict"
     ], {
       cwd: new URL("..", import.meta.url),
@@ -212,7 +246,9 @@ test("published-smoke accepts the canonical lossless-codex package root", () => 
     const evidenceDir = join(dir, "evidence");
     const dogfoodPath = join(dir, "dogfood.json");
     const toolSmokePath = join(dir, "tool-smoke.json");
+    const binaryProbePath = join(dir, "binary-probe.json");
     mkdirSync(rootDir, { recursive: true });
+    writeValidBinaryProbe(binaryProbePath);
     writeJson(join(rootDir, "package.json"), {
       name: "lossless-codex-orchestrator",
       version: packageVersion
@@ -241,6 +277,7 @@ test("published-smoke accepts the canonical lossless-codex package root", () => 
       registryVersion: packageVersion,
       dogfoodReportPath: dogfoodPath,
       toolSmokeReportPath: toolSmokePath,
+      binaryProbeReportPath: binaryProbePath,
       now: "2026-07-07T00:00:00.000Z"
     });
 
@@ -255,13 +292,437 @@ test("published-smoke accepts the canonical lossless-codex package root", () => 
   }
 });
 
+test("published-smoke rejects self-attested dogfood readiness without an acceptable install outcome", () => {
+  const dir = mkdtempSync(join(tmpdir(), "lco-published-smoke-install-outcome-"));
+  try {
+    const rootDir = join(dir, "package");
+    const dogfoodPath = join(dir, "dogfood.json");
+    const toolSmokePath = join(dir, "tool-smoke.json");
+    const binaryProbePath = join(dir, "binary-probe.json");
+    mkdirSync(rootDir, { recursive: true });
+    writeValidBinaryProbe(binaryProbePath);
+    writeJson(join(rootDir, "package.json"), {
+      name: "lossless-codex-orchestrator",
+      version: packageVersion
+    });
+    writeJson(dogfoodPath, {
+      ok: true,
+      dogfoodReady: true,
+      requiredToolsPresent: true,
+      installOutcome: { status: "unknown" }
+    });
+    writeJson(toolSmokePath, {
+      ok: true,
+      toolSmokeReady: true,
+      setupStatus: {
+        classification: "ready",
+        packageInstallLikelyOk: true
+      },
+      setupBlockers: [],
+      catalog: { toolCount: 34 },
+      invocations: [{ toolName: "lco_doctor", ok: true }]
+    });
+
+    const report = createPublishedPackageSmokeReport({
+      rootDir,
+      dogfoodReportPath: dogfoodPath,
+      toolSmokeReportPath: toolSmokePath,
+      binaryProbeReportPath: binaryProbePath,
+      now: "2026-07-07T00:00:00.000Z"
+    });
+
+    assert.equal(report.ok, false);
+    assert.equal(report.packagePathOk, false);
+    assert.deepEqual(report.blockers, ["openclaw_dogfood_install_outcome_unproven"]);
+    assert.equal(report.setupRecovery.classification, "package_failure_or_unknown");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("published-smoke accepts install outcomes emitted by the OpenClaw dogfood producer", () => {
+  const cases: Array<{
+    name: string;
+    installInput: Partial<Parameters<typeof createOpenClawDogfoodReport>[0]>;
+    expectedStatus: string;
+  }> = [
+    {
+      name: "installed",
+      installInput: { installAttempted: true, installExitStatus: 0 },
+      expectedStatus: "installed"
+    },
+    {
+      name: "already-installed",
+      installInput: {
+        installAttempted: true,
+        installExitStatus: 1,
+        installStdout: "plugin already exists: lossless-openclaw-orchestrator"
+      },
+      expectedStatus: "already_installed"
+    },
+    {
+      name: "link-force-unsupported",
+      installInput: {
+        installAttempted: true,
+        installExitStatus: 1,
+        installStderr: "error: --force is not supported with --link"
+      },
+      expectedStatus: "link_force_unsupported"
+    }
+  ];
+
+  for (const fixture of cases) {
+    const dir = mkdtempSync(join(tmpdir(), `lco-published-smoke-dogfood-contract-${fixture.name}-`));
+    try {
+      const rootDir = join(dir, "package");
+      const dogfoodPath = join(dir, "dogfood.json");
+      const toolSmokePath = join(dir, "tool-smoke.json");
+      const binaryProbePath = join(dir, "binary-probe.json");
+      mkdirSync(rootDir, { recursive: true });
+      writeJson(join(rootDir, "package.json"), {
+        name: "lossless-codex-orchestrator",
+        version: packageVersion
+      });
+      writeValidBinaryProbe(binaryProbePath);
+      writeReadyToolSmoke(toolSmokePath);
+      const dogfoodReport = createOpenClawDogfoodReport({
+        pluginListExitStatus: 0,
+        pluginListStdout: JSON.stringify({
+          plugins: [{
+            id: "lossless-openclaw-orchestrator",
+            enabled: true,
+            status: "loaded",
+            toolNames: [
+              "loo_search_sessions",
+              "loo_describe_session",
+              "loo_expand_query",
+              "loo_codex_control_dry_run"
+            ]
+          }]
+        }),
+        ...fixture.installInput
+      });
+      assert.equal(dogfoodReport.dogfoodReady, true);
+      assert.equal(dogfoodReport.installOutcome.status, fixture.expectedStatus);
+      writeJson(dogfoodPath, dogfoodReport);
+
+      const report = createPublishedPackageSmokeReport({
+        rootDir,
+        dogfoodReportPath: dogfoodPath,
+        toolSmokeReportPath: toolSmokePath,
+        binaryProbeReportPath: binaryProbePath,
+        now: "2026-07-07T00:00:00.000Z"
+      });
+
+      assert.equal(report.ok, true, `${fixture.name}: ${report.blockers.join(", ")}`);
+      assert.equal(report.dogfood.installOutcomeStatus, fixture.expectedStatus);
+      assert.equal(report.dogfood.dogfoodReady, true);
+      assert.deepEqual(report.blockers, []);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test("published-smoke requires public-safe candidate binary probe evidence", () => {
+  const dir = mkdtempSync(join(tmpdir(), "lco-published-smoke-binary-required-"));
+  try {
+    const rootDir = join(dir, "package");
+    const dogfoodPath = join(dir, "dogfood.json");
+    const toolSmokePath = join(dir, "tool-smoke.json");
+    mkdirSync(rootDir, { recursive: true });
+    writeJson(join(rootDir, "package.json"), {
+      name: "lossless-codex-orchestrator",
+      version: packageVersion
+    });
+    writeJson(dogfoodPath, {
+      ok: true,
+      dogfoodReady: true,
+      requiredToolsPresent: true,
+      installOutcome: { status: "installed" }
+    });
+    writeJson(toolSmokePath, {
+      ok: true,
+      toolSmokeReady: true,
+      setupStatus: {
+        classification: "ready",
+        packageInstallLikelyOk: true
+      },
+      setupBlockers: [],
+      catalog: { toolCount: 34 },
+      invocations: [{ toolName: "lco_doctor", ok: true }]
+    });
+
+    const report = createPublishedPackageSmokeReport({
+      rootDir,
+      dogfoodReportPath: dogfoodPath,
+      toolSmokeReportPath: toolSmokePath,
+      now: "2026-07-07T00:00:00.000Z"
+    });
+
+    assert.equal(report.ok, false);
+    assert.equal(report.packagePathOk, false);
+    assert.equal(report.binaryProbeDiagnostic.provided, false);
+    assert.equal(report.binaryProbeDiagnostic.classification, "not_provided");
+    assert.deepEqual(report.blockers, ["binary_probe_missing"]);
+    assert.ok(report.nextSafeCommands.some((command) => command.includes("--binary-probe-report")));
+    assert.doesNotMatch(report.nextSafeCommands.join("\n"), /"<version>"/);
+    const recoveryCommand = report.nextSafeCommands.find((command) => command.includes("binary_probe_report=") && command.includes("write-binary-probe.mjs"));
+    const recoveryRerunCommand = report.nextSafeCommands.find((command) => command.includes("openclaw published-smoke") && command.includes("$LCO_EVIDENCE_DIR/binary-probe.json"));
+    assert.equal(typeof recoveryCommand, "string");
+    assert.equal(typeof recoveryRerunCommand, "string");
+    assert.match(recoveryCommand, /^\(/);
+    assert.match(recoveryCommand, /LCO_DOGFOOD_REPORT/);
+    assert.match(recoveryCommand, /LCO_TOOL_SMOKE_REPORT/);
+    assert.match(recoveryCommand, /LCO_EVIDENCE_DIR/);
+    assert.match(recoveryRerunCommand, /--dogfood-report "\$LCO_DOGFOOD_REPORT"/);
+    assert.match(recoveryRerunCommand, /--tool-smoke-report "\$LCO_TOOL_SMOKE_REPORT"/);
+    assert.match(recoveryRerunCommand, /--evidence-dir "\$LCO_EVIDENCE_DIR"/);
+    assert.doesNotMatch(recoveryCommand, /--dogfood-report dogfood\.json/);
+    assert.doesNotMatch(recoveryCommand, /--tool-smoke-report tool-smoke\.json/);
+    assert.match(recoveryCommand, /npm view lossless-codex-orchestrator@latest dist --json/);
+    assert.match(recoveryCommand, /read-npm-dist\.mjs/);
+    assert.match(recoveryCommand, /verify-tarball-integrity\.mjs/);
+    assert.match(recoveryCommand, /createHash/);
+    assert.match(recoveryCommand, /sha512/);
+    assert.match(recoveryCommand, /\^sha512-/);
+    assert.match(recoveryCommand, /tarball_url="\$\(cat "\$tmp_dir\/tarball-url\.txt"\)"/);
+    assert.match(recoveryCommand, /integrity="\$\(cat "\$tmp_dir\/integrity\.txt"\)"/);
+    assert.ok(recoveryCommand.indexOf("verify-tarball-integrity.mjs") < recoveryCommand.indexOf("tar -xzf"));
+    assert.ok(recoveryCommand.indexOf("tar -xzf") < recoveryCommand.indexOf("test -f"));
+    assert.match(recoveryCommand, /test -f "\$tmp_dir\/package\/package\.json"/);
+    assert.ok(recoveryCommand.indexOf("tar -xzf") < recoveryCommand.indexOf("package.json"));
+    assert.match(recoveryCommand, /candidate_binary_path="\$tmp_dir\/package\/dist\/packages\/cli\/src\/index\.js"/);
+    assert.match(recoveryCommand, /test -f "\$candidate_binary_path"/);
+    assert.match(recoveryCommand, /version="\$\(node "\$candidate_binary_path" --version\)"/);
+    assert.match(recoveryCommand, /node -pe "require\(process\.argv\.at\(-1\)\)\.version" "\$tmp_dir\/package\/package\.json"/);
+    assert.match(recoveryCommand, /package_version=/);
+    assert.match(recoveryCommand, /tarball_binary_version=""/);
+    assert.match(recoveryCommand, /resolved_binary_source="package_exec"/);
+    assert.match(recoveryCommand, /path_shadowed="false"/);
+    assert.doesNotMatch(recoveryCommand, /command -v loo/);
+    assert.doesNotMatch(recoveryCommand, /loo --version/);
+    assert.doesNotMatch(recoveryCommand, /resolved_binary_source="package_tarball"/);
+    assert.doesNotMatch(recoveryCommand, /resolved_binary_source="global_path"/);
+    assert.match(recoveryCommand, /JSON\.stringify/);
+    assert.match(recoveryCommand, /tarballVersionSource/);
+    assert.match(recoveryCommand, /process\.argv\.at\(-1\)/);
+    assert.match(recoveryCommand, /process\.argv\.slice\(2\)/);
+    assert.match(recoveryCommand, /mkdir -p "\$evidence_dir"/);
+    assert.match(recoveryCommand, /binary_probe_report="\$evidence_dir\/binary-probe\.json"/);
+    assert.match(recoveryCommand, /printf '%s\\n'/);
+    assert.match(recoveryCommand, /node "\$tmp_dir\/write-binary-probe\.mjs"/);
+    assert.match(recoveryRerunCommand, /--binary-probe-report "\$LCO_EVIDENCE_DIR\/binary-probe\.json"/);
+    assert.doesNotMatch(recoveryCommand, /node -e/);
+    assert.doesNotMatch(recoveryCommand, /openclaw published-smoke/);
+    assert.doesNotMatch(recoveryCommand, /&& loo openclaw published-smoke/);
+    assert.doesNotMatch(recoveryCommand, /writeFileSync\('binary-probe\.json'/);
+    assert.ok(recoveryCommand.includes("trap 'test -n \"${tmp_dir:-}\" && rm -rf \"$tmp_dir\"' EXIT"));
+    assert.match(recoveryCommand, /tarballBinaryVersion/);
+    assert.match(recoveryCommand, /tarballVersionSource/);
+    assert.match(recoveryCommand, /tarball_binary_version=""/);
+    assert.match(recoveryCommand, /test -n "\$package_version"/);
+    assert.match(recoveryCommand, /test "\$version" = "\$package_version"/);
+    assert.match(recoveryCommand, /test -n "\$version"/);
+    assert.match(recoveryCommand, /"\$binary_probe_report" .*"\$version" "\$package_version" "\$resolved_binary_source" "\$path_shadowed" "\$tarball_binary_version"/);
+    assert.ok(recoveryCommand.includes(`'${packageVersion}'`));
+    assert.ok(recoveryCommand.includes(packageVersion));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("published-smoke recovery tarball lookup follows beta and next dist tags", () => {
+  for (const fixture of [
+    { version: "1.4.4-beta.1", distTag: "beta" },
+    { version: "1.4.4-rc.1", distTag: "next" }
+  ]) {
+    const dir = mkdtempSync(join(tmpdir(), `lco-published-smoke-recovery-${fixture.distTag}-`));
+    try {
+      const rootDir = join(dir, "package");
+      const dogfoodPath = join(dir, "dogfood.json");
+      const toolSmokePath = join(dir, "tool-smoke.json");
+      mkdirSync(rootDir, { recursive: true });
+      writeJson(join(rootDir, "package.json"), {
+        name: "lossless-codex-orchestrator",
+        version: fixture.version
+      });
+      writeJson(dogfoodPath, {
+        ok: true,
+        dogfoodReady: true,
+        requiredToolsPresent: true,
+        installOutcome: { status: "installed" }
+      });
+      writeReadyToolSmoke(toolSmokePath);
+
+      const report = createPublishedPackageSmokeReport({
+        rootDir,
+        dogfoodReportPath: dogfoodPath,
+        toolSmokeReportPath: toolSmokePath,
+        now: "2026-07-07T00:00:00.000Z"
+      });
+      const recoveryCommand = report.nextSafeCommands.find((command) => command.includes("binary_probe_report=") && command.includes("write-binary-probe.mjs"));
+      assert.equal(typeof recoveryCommand, "string", fixture.distTag);
+      assert.match(recoveryCommand, new RegExp(`npm view lossless-codex-orchestrator@${fixture.distTag} dist --json`));
+      assert.match(recoveryCommand, /verify-tarball-integrity\.mjs/);
+      assert.match(recoveryCommand, /test -f "\$tmp_dir\/package\/package\.json"/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test("published-smoke requires tarball binary version for package-tarball candidate evidence", () => {
+  const dir = mkdtempSync(join(tmpdir(), "lco-published-smoke-tarball-proof-"));
+  try {
+    const rootDir = join(dir, "package");
+    const dogfoodPath = join(dir, "dogfood.json");
+    const toolSmokePath = join(dir, "tool-smoke.json");
+    const binaryProbePath = join(dir, "binary-probe.json");
+    mkdirSync(rootDir, { recursive: true });
+    writeJson(join(rootDir, "package.json"), {
+      name: "lossless-codex-orchestrator",
+      version: packageVersion
+    });
+    writeJson(dogfoodPath, {
+      ok: true,
+      dogfoodReady: true,
+      requiredToolsPresent: true,
+      installOutcome: { status: "installed" }
+    });
+    writeJson(toolSmokePath, {
+      ok: true,
+      toolSmokeReady: true,
+      setupStatus: {
+        classification: "ready",
+        packageInstallLikelyOk: true
+      },
+      setupBlockers: [],
+      catalog: { toolCount: 34 },
+      invocations: [{ toolName: "lco_doctor", ok: true }]
+    });
+    writeJson(binaryProbePath, {
+      kind: "loo_published_binary_probe_evidence",
+      publicSafe: true,
+      rawSecretIncluded: false,
+      expectedVersion: packageVersion,
+      observedVersion: packageVersion,
+      resolvedBinarySource: "package_tarball",
+      pathShadowed: false,
+      packageJsonVersion: packageVersion
+    });
+
+    const missingTarballMarkerReport = createPublishedPackageSmokeReport({
+      rootDir,
+      dogfoodReportPath: dogfoodPath,
+      toolSmokeReportPath: toolSmokePath,
+      binaryProbeReportPath: binaryProbePath,
+      now: "2026-07-07T00:00:00.000Z"
+    });
+
+    assert.equal(missingTarballMarkerReport.ok, false);
+    assert.equal(missingTarballMarkerReport.packagePathOk, false);
+    assert.equal(missingTarballMarkerReport.binaryProbeDiagnostic.classification, "candidate_binary_version_mismatch");
+    assert.equal(missingTarballMarkerReport.binaryProbeDiagnostic.tarballBinaryVersion, null);
+    assert.deepEqual(missingTarballMarkerReport.blockers, ["binary_probe_candidate_version_mismatch"]);
+
+    writeJson(binaryProbePath, {
+      kind: "loo_published_binary_probe_evidence",
+      publicSafe: true,
+      rawSecretIncluded: false,
+      expectedVersion: packageVersion,
+      observedVersion: packageVersion,
+      resolvedBinarySource: "package_tarball",
+      pathShadowed: false,
+      tarballBinaryVersion: packageVersion,
+      packageJsonVersion: packageVersion
+    });
+
+    const missingTarballSourceReport = createPublishedPackageSmokeReport({
+      rootDir,
+      dogfoodReportPath: dogfoodPath,
+      toolSmokeReportPath: toolSmokePath,
+      binaryProbeReportPath: binaryProbePath,
+      now: "2026-07-07T00:00:00.000Z"
+    });
+
+    assert.equal(missingTarballSourceReport.ok, false);
+    assert.equal(missingTarballSourceReport.packagePathOk, false);
+    assert.equal(missingTarballSourceReport.binaryProbeDiagnostic.classification, "candidate_binary_version_mismatch");
+    assert.equal(missingTarballSourceReport.binaryProbeDiagnostic.tarballBinaryVersion, packageVersion);
+    assert.equal(missingTarballSourceReport.binaryProbeDiagnostic.tarballVersionSource, null);
+    assert.doesNotMatch(JSON.stringify(missingTarballSourceReport.binaryProbeDiagnostic.evidenceInputs), /candidate_tarball_package_json_metadata/);
+    assert.deepEqual(missingTarballSourceReport.blockers, ["binary_probe_candidate_version_mismatch"]);
+
+    writeJson(binaryProbePath, {
+      kind: "loo_published_binary_probe_evidence",
+      publicSafe: true,
+      rawSecretIncluded: false,
+      expectedVersion: packageVersion,
+      observedVersion: packageVersion,
+      resolvedBinarySource: "package_tarball",
+      pathShadowed: false,
+      tarballBinaryVersion: packageVersion,
+      tarballVersionSource: "package_json_metadata",
+      packageJsonVersion: packageVersion
+    });
+
+    const tarballMarkerReport = createPublishedPackageSmokeReport({
+      rootDir,
+      dogfoodReportPath: dogfoodPath,
+      toolSmokeReportPath: toolSmokePath,
+      binaryProbeReportPath: binaryProbePath,
+      now: "2026-07-07T00:00:00.000Z"
+    });
+
+    assert.equal(tarballMarkerReport.ok, false);
+    assert.equal(tarballMarkerReport.packagePathOk, false);
+    assert.equal(tarballMarkerReport.binaryProbeDiagnostic.classification, "candidate_binary_version_mismatch");
+    assert.equal(tarballMarkerReport.binaryProbeDiagnostic.tarballBinaryVersion, packageVersion);
+    assert.equal(tarballMarkerReport.binaryProbeDiagnostic.tarballVersionSource, "package_json_metadata");
+    assert.equal(tarballMarkerReport.binaryProbeDiagnostic.packageInstallLikelyOk, false);
+    assert.deepEqual(tarballMarkerReport.blockers, ["binary_probe_candidate_version_mismatch"]);
+
+    writeJson(binaryProbePath, {
+      kind: "loo_published_binary_probe_evidence",
+      publicSafe: true,
+      rawSecretIncluded: false,
+      expectedVersion: packageVersion,
+      observedVersion: packageVersion,
+      resolvedBinarySource: "package_exec",
+      pathShadowed: false,
+      packageJsonVersion: packageVersion
+    });
+
+    const packageExecReport = createPublishedPackageSmokeReport({
+      rootDir,
+      dogfoodReportPath: dogfoodPath,
+      toolSmokeReportPath: toolSmokePath,
+      binaryProbeReportPath: binaryProbePath,
+      now: "2026-07-07T00:00:00.000Z"
+    });
+
+    assert.equal(packageExecReport.ok, true);
+    assert.equal(packageExecReport.packagePathOk, true);
+    assert.equal(packageExecReport.binaryProbeDiagnostic.classification, "valid_candidate_binary");
+    assert.equal(packageExecReport.binaryProbeDiagnostic.packageInstallLikelyOk, true);
+    assert.equal(packageExecReport.binaryProbeDiagnostic.resolvedBinarySource, "package_exec");
+    assert.equal(packageExecReport.binaryProbeDiagnostic.tarballBinaryVersion, null);
+    assert.equal(packageExecReport.binaryProbeDiagnostic.tarballVersionSource, null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("loo openclaw published-smoke --gateway-ready-strict exits zero when clean profile gateway is ready", () => {
   const dir = mkdtempSync(join(tmpdir(), "loo-published-smoke-gateway-ready-"));
   try {
     const evidenceDir = join(dir, "evidence");
     const dogfoodPath = join(dir, "dogfood.json");
     const toolSmokePath = join(dir, "tool-smoke.json");
+    const binaryProbePath = join(dir, "binary-probe.json");
     const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+    writeValidBinaryProbe(binaryProbePath, packageJson.version);
     writeJson(dogfoodPath, {
       ok: true,
       dogfoodReady: true,
@@ -307,6 +768,8 @@ test("loo openclaw published-smoke --gateway-ready-strict exits zero when clean 
       dogfoodPath,
       "--tool-smoke-report",
       toolSmokePath,
+      "--binary-probe-report",
+      binaryProbePath,
       "--gateway-ready-strict"
     ], {
       cwd: new URL("..", import.meta.url),
@@ -339,7 +802,9 @@ test("published-smoke rejects legacy beta registry evidence for non-beta candida
     const evidenceDir = join(dir, "evidence");
     const dogfoodPath = join(dir, "dogfood.json");
     const toolSmokePath = join(dir, "tool-smoke.json");
+    const binaryProbePath = join(dir, "binary-probe.json");
     const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+    writeValidBinaryProbe(binaryProbePath, packageJson.version);
     writeJson(dogfoodPath, {
       ok: true,
       dogfoodReady: true,
@@ -384,6 +849,8 @@ test("published-smoke rejects legacy beta registry evidence for non-beta candida
       dogfoodPath,
       "--tool-smoke-report",
       toolSmokePath,
+      "--binary-probe-report",
+      binaryProbePath,
       "--strict"
     ], {
       cwd: new URL("..", import.meta.url),
@@ -418,7 +885,9 @@ test("published-smoke reports configured gateway proof separately from fresh-pro
     const dogfoodPath = join(dir, "dogfood.json");
     const toolSmokePath = join(dir, "tool-smoke-fresh.json");
     const configuredToolSmokePath = join(dir, "tool-smoke-configured.json");
+    const binaryProbePath = join(dir, "binary-probe.json");
     const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+    writeValidBinaryProbe(binaryProbePath, packageJson.version);
     writeJson(dogfoodPath, {
       ok: true,
       dogfoodReady: true,
@@ -479,6 +948,8 @@ test("published-smoke reports configured gateway proof separately from fresh-pro
       toolSmokePath,
       "--configured-tool-smoke-report",
       configuredToolSmokePath,
+      "--binary-probe-report",
+      binaryProbePath,
       "--strict"
     ], {
       cwd: new URL("..", import.meta.url),
@@ -541,7 +1012,9 @@ test("published-smoke emits clean-profile setup recovery classifications", () =>
   const dir = mkdtempSync(join(tmpdir(), "loo-published-smoke-setup-recovery-"));
   try {
     const dogfoodPath = join(dir, "dogfood.json");
+    const binaryProbePath = join(dir, "binary-probe.json");
     const fakeNpmTokenCanary = `npm_${"a".repeat(24)}`;
+    writeValidBinaryProbe(binaryProbePath);
     writeJson(dogfoodPath, {
       ok: true,
       dogfoodReady: true,
@@ -604,7 +1077,8 @@ test("published-smoke emits clean-profile setup recovery classifications", () =>
       const report = createPublishedPackageSmokeReport({
         rootDir: new URL("..", import.meta.url).pathname,
         dogfoodReportPath: dogfoodPath,
-        toolSmokeReportPath: toolSmokePath
+        toolSmokeReportPath: toolSmokePath,
+        binaryProbeReportPath: binaryProbePath
       });
 
       assert.equal(report.ok, true);
@@ -659,7 +1133,8 @@ test("published-smoke emits clean-profile setup recovery classifications", () =>
     const multiBlockerReport = createPublishedPackageSmokeReport({
       rootDir: new URL("..", import.meta.url).pathname,
       dogfoodReportPath: dogfoodPath,
-      toolSmokeReportPath: multiBlockerToolSmokePath
+      toolSmokeReportPath: multiBlockerToolSmokePath,
+      binaryProbeReportPath: binaryProbePath
     });
     assert.equal(multiBlockerReport.setupRecovery.classification, "credential_required");
     assert.deepEqual(multiBlockerReport.setupRecovery.requiredSetup, [
@@ -696,7 +1171,8 @@ test("published-smoke emits clean-profile setup recovery classifications", () =>
     const readyReport = createPublishedPackageSmokeReport({
       rootDir: new URL("..", import.meta.url).pathname,
       dogfoodReportPath: dogfoodPath,
-      toolSmokeReportPath: readyToolSmokePath
+      toolSmokeReportPath: readyToolSmokePath,
+      binaryProbeReportPath: binaryProbePath
     });
     assert.equal(readyReport.setupRecovery.classification, "ready");
     assert.equal(readyReport.setupRecovery.ready, true);
@@ -723,7 +1199,8 @@ test("published-smoke emits clean-profile setup recovery classifications", () =>
     const readyUnknownReport = createPublishedPackageSmokeReport({
       rootDir: new URL("..", import.meta.url).pathname,
       dogfoodReportPath: dogfoodPath,
-      toolSmokeReportPath: readyUnknownToolSmokePath
+      toolSmokeReportPath: readyUnknownToolSmokePath,
+      binaryProbeReportPath: binaryProbePath
     });
     assert.equal(readyUnknownReport.publishedSmokeReady, true);
     assert.equal(readyUnknownReport.setupRecovery.classification, "ready");
@@ -741,7 +1218,8 @@ test("published-smoke emits clean-profile setup recovery classifications", () =>
     const packagePathFailureWithReadyToolSmokeReport = createPublishedPackageSmokeReport({
       rootDir: new URL("..", import.meta.url).pathname,
       dogfoodReportPath: failedDogfoodPath,
-      toolSmokeReportPath: readyToolSmokePath
+      toolSmokeReportPath: readyToolSmokePath,
+      binaryProbeReportPath: binaryProbePath
     });
     assert.equal(packagePathFailureWithReadyToolSmokeReport.packagePathOk, false);
     assert.equal(packagePathFailureWithReadyToolSmokeReport.setupRecovery.classification, "package_failure_or_unknown");
@@ -774,7 +1252,8 @@ test("published-smoke emits clean-profile setup recovery classifications", () =>
     const packageFailureReport = createPublishedPackageSmokeReport({
       rootDir: new URL("..", import.meta.url).pathname,
       dogfoodReportPath: dogfoodPath,
-      toolSmokeReportPath: packageFailureToolSmokePath
+      toolSmokeReportPath: packageFailureToolSmokePath,
+      binaryProbeReportPath: binaryProbePath
     });
     assert.equal(packageFailureReport.setupRecovery.classification, "package_failure_or_unknown");
     assert.equal(packageFailureReport.setupRecovery.packageInstallLikelyOk, false);
@@ -799,7 +1278,8 @@ test("published-smoke emits clean-profile setup recovery classifications", () =>
     const packageFailurePrecedenceReport = createPublishedPackageSmokeReport({
       rootDir: new URL("..", import.meta.url).pathname,
       dogfoodReportPath: dogfoodPath,
-      toolSmokeReportPath: packageFailurePrecedenceToolSmokePath
+      toolSmokeReportPath: packageFailurePrecedenceToolSmokePath,
+      binaryProbeReportPath: binaryProbePath
     });
     assert.equal(packageFailurePrecedenceReport.setupRecovery.classification, "package_failure_or_unknown");
     assert.equal(packageFailurePrecedenceReport.setupRecovery.retryAfterSetup, false);
@@ -821,7 +1301,9 @@ test("published-smoke records npm selector drift with installable tarball fallba
     const dogfoodPath = join(dir, "dogfood.json");
     const toolSmokePath = join(dir, "tool-smoke.json");
     const npmInstallDiagnosticPath = join(dir, "npm-install-diagnostic.json");
+    const binaryProbePath = join(dir, "binary-probe.json");
     const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+    writeValidBinaryProbe(binaryProbePath, packageJson.version);
     writeJson(dogfoodPath, {
       ok: true,
       dogfoodReady: true,
@@ -863,7 +1345,8 @@ test("published-smoke records npm selector drift with installable tarball fallba
       rootDir: new URL("..", import.meta.url).pathname,
       dogfoodReportPath: dogfoodPath,
       toolSmokeReportPath: toolSmokePath,
-      npmInstallDiagnosticReportPath: npmInstallDiagnosticPath
+      npmInstallDiagnosticReportPath: npmInstallDiagnosticPath,
+      binaryProbeReportPath: binaryProbePath
     });
 
     assert.equal(report.ok, true);
@@ -884,7 +1367,7 @@ test("published-smoke records npm selector drift with installable tarball fallba
   }
 });
 
-test("published-smoke classifies global loo PATH shadowing without failing proven package evidence", () => {
+test("published-smoke blocks global loo PATH shadowing even with tarball metadata evidence", () => {
   const dir = mkdtempSync(join(tmpdir(), "loo-published-smoke-path-shadow-"));
   try {
     const dogfoodPath = join(dir, "dogfood.json");
@@ -927,6 +1410,7 @@ test("published-smoke classifies global loo PATH shadowing without failing prove
       resolvedBinarySource: "global_path",
       pathShadowed: true,
       tarballBinaryVersion: packageJson.version,
+      tarballVersionSource: "package_json_metadata",
       packageJsonVersion: packageJson.version,
       rawPath: "/opt/homebrew/bin/loo",
       rawOutput: "private shell output should not leak"
@@ -939,18 +1423,21 @@ test("published-smoke classifies global loo PATH shadowing without failing prove
       binaryProbeReportPath: binaryProbePath
     });
 
-    assert.equal(report.ok, true);
-    assert.equal(report.packagePathOk, true);
-    assert.equal(report.publishedSmokeReady, true);
+    assert.equal(report.ok, false);
+    assert.equal(report.packagePathOk, false);
+    assert.equal(report.publishedSmokeReady, false);
     assert.equal(report.binaryProbeDiagnostic.provided, true);
     assert.equal(report.binaryProbeDiagnostic.classification, "smoke_harness_path_shadow");
-    assert.equal(report.binaryProbeDiagnostic.packageInstallLikelyOk, true);
+    assert.equal(report.binaryProbeDiagnostic.packageInstallLikelyOk, false);
     assert.equal(report.binaryProbeDiagnostic.observedVersion, "1.2.6");
     assert.equal(report.binaryProbeDiagnostic.packageVersion, packageJson.version);
     assert.equal(report.binaryProbeDiagnostic.tarballBinaryVersion, packageJson.version);
+    assert.equal(report.binaryProbeDiagnostic.tarballVersionSource, "package_json_metadata");
     assert.equal(report.binaryProbeDiagnostic.resolvedBinarySource, "global_path");
-    assert.ok(report.binaryProbeDiagnostic.guidance.some((item) => item.includes("binary-probe tarball evidence")));
+    assert.deepEqual(report.blockers, ["binary_probe_path_shadow"]);
+    assert.ok(report.binaryProbeDiagnostic.guidance.some((item) => item.includes("PATH shadowing")));
     assert.ok(report.nextSafeCommands.some((command) => command.includes("npm view lossless-openclaw-orchestrator@")));
+    assert.ok(report.nextSafeCommands.some((command) => command.includes("trap 'test -n \"${tmp_dir:-}\" && rm -rf \"$tmp_dir\"' EXIT")));
     assert.doesNotMatch(JSON.stringify(report), /\/opt\/homebrew|private shell output|old version with raw npm output/i);
 
     writeJson(binaryProbePath, {
@@ -1015,6 +1502,8 @@ test("published-smoke keeps package failure classification when selector drift l
     const dogfoodPath = join(dir, "dogfood.json");
     const toolSmokePath = join(dir, "tool-smoke.json");
     const npmInstallDiagnosticPath = join(dir, "npm-install-diagnostic.json");
+    const binaryProbePath = join(dir, "binary-probe.json");
+    writeValidBinaryProbe(binaryProbePath);
     writeJson(dogfoodPath, {
       ok: false,
       dogfoodReady: false,
@@ -1054,7 +1543,8 @@ test("published-smoke keeps package failure classification when selector drift l
       rootDir: new URL("..", import.meta.url).pathname,
       dogfoodReportPath: dogfoodPath,
       toolSmokeReportPath: toolSmokePath,
-      npmInstallDiagnosticReportPath: npmInstallDiagnosticPath
+      npmInstallDiagnosticReportPath: npmInstallDiagnosticPath,
+      binaryProbeReportPath: binaryProbePath
     });
 
     assert.equal(report.ok, false);

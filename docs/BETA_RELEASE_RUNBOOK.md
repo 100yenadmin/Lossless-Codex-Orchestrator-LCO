@@ -364,6 +364,11 @@ aggregates the release-status, finalization, published-smoke, OpenClaw dogfood
 and tool-smoke, scenario sweep, scorecard sweep, preflight, bundle, and privacy
 reports into one P0-P3 blocker taxonomy without running hidden gates. This
 post-publish gate is intentionally stricter than a beta first-run classifier:
+strict `published-smoke` evidence must include a public-safe
+`--binary-probe-report` so package-path readiness is bound to the candidate
+package binary instead of a shadowed global command. The emitted recovery
+command writes `binary-probe.json` under the chosen evidence directory when the
+report is missing.
 `gateway_setup_required` can be acceptable beta onboarding evidence, but it is
 not enough for a stable/general readiness claim unless the release explicitly
 allows setup-required profiles and configured-gateway proof is clean. The stable

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -470,6 +470,7 @@ test("release demo-status rejects SQLite sidecar evidence artifacts", () => {
   writeFileSync(join(evidenceDir, "orchestrator.sqlite-wal"), "private pages");
   writeFileSync(join(evidenceDir, "orchestrator.sqlite-shm"), "private pages");
   writeFileSync(join(evidenceDir, "orchestrator.db-journal"), "private pages");
+  writeFileSync(join(evidenceDir, "orchestrator.sqlite.gz"), "compressed private database");
 
   const result = spawnSync(process.execPath, [
     "--import",
@@ -494,8 +495,251 @@ test("release demo-status rejects SQLite sidecar evidence artifacts", () => {
   assert.deepEqual(payload.rawSessionArtifacts, [
     { name: "orchestrator.db-journal", reason: "sqlite_database" },
     { name: "orchestrator.sqlite-shm", reason: "sqlite_database" },
-    { name: "orchestrator.sqlite-wal", reason: "sqlite_database" }
+    { name: "orchestrator.sqlite-wal", reason: "sqlite_database" },
+    { name: "orchestrator.sqlite.gz", reason: "sqlite_database" }
   ]);
+});
+
+test("release demo-status rejects symlinked raw evidence artifacts without leaking targets", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-symlink-"));
+  const outsideDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-symlink-target-"));
+  try {
+    const liveControlProof = writePassingDemoEvidence(evidenceDir);
+    const outsideDb = join(outsideDir, "private-session.sqlite");
+    writeFileSync(outsideDb, "private pages");
+    symlinkSync(outsideDb, join(evidenceDir, "linked-artifact"));
+
+    const result = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "release",
+      "demo-status",
+      "--evidence-dir",
+      evidenceDir,
+      "--approved-live-control-evidence",
+      liveControlProof
+    ], { encoding: "utf8" });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const payload = JSON.parse(result.stdout) as {
+      demoReady?: boolean;
+      blockers?: string[];
+      rawSessionArtifacts?: Array<{ name: string; reason: string }>;
+    };
+    const serialized = `${result.stdout}\n${read(evidenceDir + "/release-demo-status.json")}`;
+    assert.equal(payload.demoReady, false);
+    assert.equal(payload.blockers?.includes("raw_session_artifacts_present"), true);
+    assert.deepEqual(payload.rawSessionArtifacts, [{ name: "linked-artifact", reason: "sqlite_database" }]);
+    assert.doesNotMatch(serialized, /private-session\.sqlite|loo-release-demo-status-symlink-target/);
+  } finally {
+    unlinkSync(join(evidenceDir, "linked-artifact"));
+  }
+});
+
+test("release demo-status rejects symlinked evidence directories without leaking targets", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-symlink-dir-"));
+  const outsideDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-symlink-dir-target-"));
+  try {
+    const liveControlProof = writePassingDemoEvidence(evidenceDir);
+    writeFileSync(join(outsideDir, "session.jsonl"), "{}\n");
+    symlinkSync(outsideDir, join(evidenceDir, "linked-cache"));
+
+    const result = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "release",
+      "demo-status",
+      "--evidence-dir",
+      evidenceDir,
+      "--approved-live-control-evidence",
+      liveControlProof
+    ], { encoding: "utf8" });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const payload = JSON.parse(result.stdout) as {
+      demoReady?: boolean;
+      blockers?: string[];
+      rawSessionArtifacts?: Array<{ name: string; reason: string }>;
+    };
+    const serialized = `${result.stdout}\n${read(evidenceDir + "/release-demo-status.json")}`;
+    assert.equal(payload.demoReady, false);
+    assert.equal(payload.blockers?.includes("raw_session_artifacts_present"), true);
+    assert.deepEqual(payload.rawSessionArtifacts, [{ name: "linked-cache", reason: "symlinked_directory" }]);
+    assert.doesNotMatch(serialized, /session\.jsonl|loo-release-demo-status-symlink-dir-target/);
+  } finally {
+    unlinkSync(join(evidenceDir, "linked-cache"));
+  }
+});
+
+test("release demo-status rejects unclassified symlinked evidence files without leaking targets", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-symlink-file-"));
+  const outsideDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-symlink-file-target-"));
+  try {
+    const liveControlProof = writePassingDemoEvidence(evidenceDir);
+    const outsideFile = join(outsideDir, "notes.txt");
+    writeFileSync(outsideFile, "private transcript-like evidence behind a benign extension");
+    symlinkSync(outsideFile, join(evidenceDir, "linked-note"));
+
+    const result = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "release",
+      "demo-status",
+      "--evidence-dir",
+      evidenceDir,
+      "--approved-live-control-evidence",
+      liveControlProof
+    ], { encoding: "utf8" });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const payload = JSON.parse(result.stdout) as {
+      demoReady?: boolean;
+      blockers?: string[];
+      rawSessionArtifacts?: Array<{ name: string; reason: string }>;
+    };
+    const serialized = `${result.stdout}\n${read(evidenceDir + "/release-demo-status.json")}`;
+    assert.equal(payload.demoReady, false);
+    assert.equal(payload.blockers?.includes("raw_session_artifacts_present"), true);
+    assert.deepEqual(payload.rawSessionArtifacts, [{ name: "linked-note", reason: "symlinked_artifact" }]);
+    assert.doesNotMatch(serialized, /notes\.txt|transcript-like|loo-release-demo-status-symlink-file-target/);
+  } finally {
+    unlinkSync(join(evidenceDir, "linked-note"));
+  }
+});
+
+test("release demo-status refuses to write the manifest through a symlink", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-manifest-symlink-"));
+  const outsideDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-manifest-target-"));
+  const outsideFile = join(outsideDir, "release-demo-status-target.json");
+  writeFileSync(outsideFile, "outside target must not be overwritten");
+  symlinkSync(outsideFile, join(evidenceDir, "release-demo-status.json"));
+
+  try {
+    const liveControlProof = writePassingDemoEvidence(evidenceDir);
+    const result = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "release",
+      "demo-status",
+      "--evidence-dir",
+      evidenceDir,
+      "--approved-live-control-evidence",
+      liveControlProof
+    ], { encoding: "utf8" });
+
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stderr}\n${result.stdout}`, /release-demo-status\.json/);
+    assert.equal(read(outsideFile), "outside target must not be overwritten");
+  } finally {
+    unlinkSync(join(evidenceDir, "release-demo-status.json"));
+  }
+});
+
+test("release demo-status manifest writer revalidates the final path without following symlinks", () => {
+  const source = read("packages/cli/src/release-demo-status.ts");
+
+  assert.match(source, /const pathStat = lstatSync\(path\);/);
+  assert.match(source, /pathStat\.isSymbolicLink\(\)/);
+  assert.match(source, /pathStat\.dev !== expectedIdentity\.dev/);
+  assert.match(source, /pathStat\.ino !== expectedIdentity\.ino/);
+  assert.match(source, /constants\.O_RDONLY \| noFollowFlag/);
+  assert.match(source, /const postOpenPathStat = lstatSync\(path\);/);
+  assert.match(source, /postOpenPathStat\.isSymbolicLink\(\)/);
+  assert.match(source, /stat\.dev !== postOpenPathStat\.dev/);
+  assert.match(source, /stat\.ino !== postOpenPathStat\.ino/);
+  assert.match(source, /function assertNoSymlinkAncestors\(path: string\)/);
+  assert.match(source, /const tmpRoot = resolve\(tmpdir\(\)\);/);
+  assert.match(source, /resolve\(current\) === tmpRoot/);
+  assert.match(source, /lstatSync\(current\)\.isSymbolicLink\(\)/);
+});
+
+test("release demo-status refuses to write the manifest through a dangling symlink", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-manifest-dangling-"));
+  const outsideDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-missing-target-"));
+  const outsideFile = join(outsideDir, "missing-release-demo-status-target.json");
+  symlinkSync(outsideFile, join(evidenceDir, "release-demo-status.json"));
+
+  try {
+    const liveControlProof = writePassingDemoEvidence(evidenceDir);
+    const result = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "release",
+      "demo-status",
+      "--evidence-dir",
+      evidenceDir,
+      "--approved-live-control-evidence",
+      liveControlProof
+    ], { encoding: "utf8" });
+
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stderr}\n${result.stdout}`, /release-demo-status\.json/);
+    assert.equal(existsSync(outsideFile), false);
+  } finally {
+    unlinkSync(join(evidenceDir, "release-demo-status.json"));
+  }
+});
+
+test("release demo-status refuses to write the manifest through a symlinked evidence directory", () => {
+  const realEvidenceDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-real-evidence-"));
+  const linkDir = `${realEvidenceDir}-link`;
+  symlinkSync(realEvidenceDir, linkDir);
+
+  try {
+    const liveControlProof = writePassingDemoEvidence(realEvidenceDir);
+    const result = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "release",
+      "demo-status",
+      "--evidence-dir",
+      linkDir,
+      "--approved-live-control-evidence",
+      liveControlProof
+    ], { encoding: "utf8" });
+
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stderr}\n${result.stdout}`, /parent directories must not include symlinks/);
+    assert.equal(existsSync(join(realEvidenceDir, "release-demo-status.json")), false);
+  } finally {
+    unlinkSync(linkDir);
+  }
+});
+
+test("release demo-status refuses to write the manifest through a symlinked ancestor directory", () => {
+  const rootDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-ancestor-root-"));
+  const realParentDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-ancestor-real-"));
+  const linkParentDir = join(rootDir, "linked-parent");
+  const evidenceDir = join(linkParentDir, "evidence");
+  symlinkSync(realParentDir, linkParentDir);
+  mkdirSync(join(realParentDir, "evidence"), { recursive: true });
+
+  try {
+    const liveControlProof = writePassingDemoEvidence(evidenceDir);
+    const result = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "release",
+      "demo-status",
+      "--evidence-dir",
+      evidenceDir,
+      "--approved-live-control-evidence",
+      liveControlProof
+    ], { encoding: "utf8" });
+
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stderr}\n${result.stdout}`, /parent directories must not include symlinks/);
+    assert.equal(existsSync(join(evidenceDir, "release-demo-status.json")), false);
+  } finally {
+    unlinkSync(linkParentDir);
+  }
 });
 
 test("release demo-status requires brief and evidence expansion refs to be distinct", () => {

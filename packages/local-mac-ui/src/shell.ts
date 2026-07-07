@@ -27,6 +27,8 @@ const PRIVATE_RESULT_FIELDS = new Set([
   "video"
 ]);
 
+const SECRET_LIKE_PATTERN = /\b(?:npm_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}|gh[pousr]_?[A-Za-z0-9_]{16,}|sk-[A-Za-z0-9_-]{10,}|glpat-[A-Za-z0-9_-]{16,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{20,}|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|aws[_-]?secret[_-]?access[_-]?key\s*[:=]\s*[A-Za-z0-9/+=]{40,})/gi;
+
 export type LocalMacSearchUiStatus = {
   platform?: string;
   localDbAvailable: boolean;
@@ -380,7 +382,7 @@ function sanitizeStatus(value: string): string {
 function safeText(value: unknown, maxLength = 160): string {
   const text = typeof value === "string" ? value : "";
   return text
-    .replace(/\b(npm|ghp|sk)-?[A-Za-z0-9_]{16,}\b/g, "[redacted-token]")
+    .replace(SECRET_LIKE_PATTERN, "[redacted-token]")
     .replace(/\bBearer\s+[A-Za-z0-9._-]+/gi, "Bearer [redacted]")
     .replace(/\s+/g, " ")
     .trim()

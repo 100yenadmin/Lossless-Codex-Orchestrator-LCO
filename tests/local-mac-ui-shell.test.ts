@@ -62,7 +62,33 @@ test("local Mac search UI shell renders only safe summaries, refs, filters, and 
       {
         title: "Codex release thread",
         sourceRef: "codex_thread:abc123",
-        safeSummary: "Public-safe summary with no private transcript text and npm_ABCDEFGHIJKLMNOPQRSTUVWX redacted.",
+        safeSummary: [
+          "Public-safe summary with no private transcript text.",
+          "Secrets must redact:",
+          "npm_ABCDEFGHIJKLMNOPQRSTUVWX",
+          `npm_${"S".repeat(16)}+`,
+          `github_pat_${"A".repeat(36)}`,
+          `ghp_${"H".repeat(24)}`,
+          `gho_${"B".repeat(24)}`,
+          `ghu_${"C".repeat(24)}`,
+          `ghs_${"D".repeat(24)}`,
+          `ghr_${"E".repeat(24)}`,
+          `ghp${"M".repeat(24)}`,
+          `xoxb-${"1".repeat(12)}-${"2".repeat(12)}-${"a".repeat(24)}`,
+          `glpat-${"F".repeat(24)}`,
+          `sk-proj-${"G".repeat(24)}`,
+          `sk-${"T".repeat(12)}=`,
+          `sk-${"N".repeat(12)}-`,
+          `glpat-${"O".repeat(23)}-`,
+          `AIza${"P".repeat(23)}_`,
+          `AK${"IA"}${"I".repeat(16)}`,
+          `AS${"IA"}${"J".repeat(16)}`,
+          `AI${"za"}${"K".repeat(24)}`,
+          `aws_secret_access_key=${"L".repeat(39)}=`,
+          `aws_secret_access_key=${"Q".repeat(39)}+`,
+          `aws_secret_access_key=${"R".repeat(39)}/`,
+          `aws_secret_access_key=${"Z".repeat(41)}`
+        ].join(" "),
         project: "lco",
         status: "active",
         priority: "high",
@@ -88,6 +114,10 @@ test("local Mac search UI shell renders only safe summaries, refs, filters, and 
   assert.match(shell.html, /brief/);
   assert.doesNotMatch(shell.html, /PRIVATE_TRANSCRIPT_SHOULD_NOT_RENDER/);
   assert.doesNotMatch(shell.html, /npm_ABCDEFGHIJKLMNOPQRSTUVWX/);
+  assert.doesNotMatch(
+    `${shell.html}\n${JSON.stringify(shell.report)}`,
+    /npm_[A-Za-z0-9_]{16,}|github_pat_|gh[pousr]_?[A-Za-z0-9_]{16,}|xoxb-|glpat-|sk-[A-Za-z0-9_-]{10,}|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{20,}|aws_secret_access_key/i
+  );
 });
 
 test("local Mac search UI shell omits unsafe refs from rendered and copied output", () => {
