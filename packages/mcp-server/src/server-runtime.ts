@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAuditStore, createCodexAppServerStdioClient } from "../../adapters/src/index.js";
-import { createDatabase } from "../../core/src/index.js";
+import { createDatabase, defaultDatabasePath } from "../../core/src/index.js";
 import { readEnv, readEnvWithFallback, resolveHomeDir } from "../../runtime/src/env.js";
 import {
   createLooToolDeclarations,
@@ -77,6 +77,7 @@ function getRuntimeState(): RuntimeState {
   const dbResult = createRuntimeDatabase();
   if (!dbResult.ok) return { ok: false, failure: createStartupUnavailableResult("database_unavailable") };
   const db = dbResult.db;
+  const dbPath = dbResult.dbPath;
   let audit: ReturnType<typeof createAuditStore>;
   try {
     audit = createAuditStore(readEnv("AUDIT_PATH") || join(resolveHomeDir(), ".openclaw", "lossless-openclaw-orchestrator", "audit.jsonl"));
@@ -104,6 +105,7 @@ function getRuntimeState(): RuntimeState {
       ok: true,
       tools: createLooTools({
         db,
+        dbPath,
         audit,
         includeAliases: true,
         codexClient,
@@ -117,9 +119,10 @@ function getRuntimeState(): RuntimeState {
   }
 }
 
-function createRuntimeDatabase(): { ok: true; db: ReturnType<typeof createDatabase> } | { ok: false } {
+function createRuntimeDatabase(): { ok: true; db: ReturnType<typeof createDatabase>; dbPath: string } | { ok: false } {
   try {
-    return { ok: true, db: createDatabase({ maintenance: "schema-only" }) };
+    const dbPath = defaultDatabasePath();
+    return { ok: true, db: createDatabase({ maintenance: "schema-only" }), dbPath };
   } catch {
     return { ok: false };
   }

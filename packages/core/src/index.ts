@@ -4831,6 +4831,8 @@ export function getCodexEventContentStatus(db: LooDatabase, dbPath?: string): Co
   const coveragePct = Number(((eventsWithContent / totalEvents) * 100).toFixed(2));
   const state: CodexEventContentStatus["state"] = eventsWithContent >= totalEvents ? "ready" : "partial";
   const availability: CodexEventContentStatus["availability"] = state === "ready" ? "ready" : "requires_index_run";
+  const dbBytes = sqliteMainFileBytes(db, dbPath);
+  const walBytes = sqliteWalFileBytes(dbPath);
   return {
     schema: "lco.codexEventContent.status.v1",
     publicSafe: true,
@@ -4843,14 +4845,16 @@ export function getCodexEventContentStatus(db: LooDatabase, dbPath?: string): Co
       coveragePct
     },
     size: {
-      dbBytes: sqliteMainFileBytes(db, dbPath),
-      walBytes: dbPath && existsSync(`${dbPath}-wal`) ? statSync(`${dbPath}-wal`).size : 0,
+      dbBytes,
+      walBytes,
       eventContentBytes: Number(row.eventContentBytes ?? 0),
       eventContentFtsRows: Number(row.eventContentFtsRows ?? 0)
     },
     reasonCodes: unique([
       "codex_event_content_store",
-      state === "partial" ? "codex_event_content_backfill_partial" : "codex_event_content_coverage_ready"
+      state === "partial" ? "codex_event_content_backfill_partial" : "codex_event_content_coverage_ready",
+      dbBytes === 0 ? "codex_event_content_db_size_unavailable" : "",
+      dbPath ? "" : "codex_event_content_wal_size_path_unavailable"
     ]),
     lastIndexedAt: nullableString(row.lastIndexedAt)
   };
@@ -4942,6 +4946,8 @@ function emptyCodexIndexLimitStatus(availability: CodexIndexLimitStatus["availab
 
 function emptyCodexEventContentStatus(availability: CodexEventContentStatus["availability"], dbPath?: string): CodexEventContentStatus {
   const requiresIndexRun = availability === "requires_index_run" || availability === "database_missing";
+  const dbBytes = sqliteMainFileBytes(null, dbPath);
+  const walBytes = sqliteWalFileBytes(dbPath);
   return {
     schema: "lco.codexEventContent.status.v1",
     publicSafe: true,
@@ -4954,14 +4960,18 @@ function emptyCodexEventContentStatus(availability: CodexEventContentStatus["ava
       coveragePct: 0
     },
     size: {
-      dbBytes: sqliteMainFileBytes(null, dbPath),
-      walBytes: dbPath && existsSync(`${dbPath}-wal`) ? statSync(`${dbPath}-wal`).size : 0,
+      dbBytes,
+      walBytes,
       eventContentBytes: 0,
       eventContentFtsRows: 0
     },
-    reasonCodes: requiresIndexRun
-      ? ["codex_event_content_projection_requires_index_run"]
-      : ["codex_event_content_status_unavailable"],
+    reasonCodes: unique([
+      requiresIndexRun
+        ? "codex_event_content_projection_requires_index_run"
+        : "codex_event_content_status_unavailable",
+      availability !== "database_missing" && dbPath && dbBytes === 0 ? "codex_event_content_db_size_unavailable" : "",
+      dbPath ? "" : "codex_event_content_wal_size_path_unavailable"
+    ]),
     lastIndexedAt: null
   };
 }
@@ -4978,6 +4988,12 @@ function sqliteMainFileBytes(db: LooDatabase | null, dbPath?: string): number {
   }
   if (dbPath && existsSync(dbPath)) return statSync(dbPath).size;
   return 0;
+}
+
+function sqliteWalFileBytes(dbPath?: string): number {
+  if (!dbPath) return 0;
+  const walPath = `${dbPath}-wal`;
+  return existsSync(walPath) ? statSync(walPath).size : 0;
 }
 
 function missingCodexJsonlDriftStatus(): CodexJsonlDriftStatus {
@@ -14625,11 +14641,24 @@ function searchCodexEventContent(db: LooDatabase, options: { query: string; limi
 }
 
 function collapseEventMatchesBySourceRef(matches: RecallSearchResult[]): RecallSearchResult[] {
-  const bySourceRef = new Map<string, RecallSearchResult>();
+  const bySourceRef = new Map<string, { match: RecallSearchResult; suppressed: number }>();
   for (const match of matches) {
-    if (!bySourceRef.has(match.sourceRef)) bySourceRef.set(match.sourceRef, match);
+    const existing = bySourceRef.get(match.sourceRef);
+    if (!existing) {
+      bySourceRef.set(match.sourceRef, { match, suppressed: 0 });
+      continue;
+    }
+    existing.suppressed += 1;
   }
-  return [...bySourceRef.values()];
+  return [...bySourceRef.values()].map(({ match, suppressed }) => suppressed > 0
+    ? {
+        ...match,
+        reasonCodes: unique([
+          ...(match.reasonCodes ?? []),
+          "event_content_best_per_thread"
+        ])
+      }
+    : match);
 }
 
 export function grepRecall(db: LooDatabase, options: {
