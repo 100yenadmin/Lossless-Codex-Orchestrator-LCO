@@ -175,7 +175,7 @@ export type CodexIndexLimitStatus = {
   state: "clean" | "limited" | "not_indexed_yet" | "unavailable";
   availability: "ready" | "database_missing" | "requires_index_run" | "read_error";
   docsRef: "docs/SETUP.md#4-index-local-codex-sessions";
-  indexLimits: {
+  defaultIndexLimits: {
     maxBytesPerFile: number;
     maxEventsPerFile: number;
   };
@@ -185,6 +185,11 @@ export type CodexIndexLimitStatus = {
   nextSafeCommands: string[];
   reasonCodes: string[];
   lastObservedAt: string | null;
+};
+
+export type CodexIndexHealthStatus = {
+  codexJsonlDrift: CodexJsonlDriftStatus;
+  codexIndexLimits: CodexIndexLimitStatus;
 };
 
 export type IndexCodexResult = {
@@ -2656,8 +2661,8 @@ type PreparedSourceRangeDraft = {
 
 const DEFAULT_CODEX_MAX_BYTES_PER_FILE = 256 * 1024 * 1024;
 const DEFAULT_CODEX_MAX_EVENTS_PER_FILE = 200_000;
-const MAX_CODEX_MAX_BYTES_PER_FILE = 1_073_741_824;
-const MAX_CODEX_MAX_EVENTS_PER_FILE = 1_000_000;
+const CODEX_RECOVERY_MAX_BYTES_PER_FILE = 1_073_741_824;
+const CODEX_RECOVERY_MAX_EVENTS_PER_FILE = 1_000_000;
 const PREPARED_SOURCE_EXTRACTOR_VERSION = "prepared-source-ranges-v1" as const;
 const SUMMARY_LEAF_EXTRACTOR_VERSION = "summary-leaves-v1" as const;
 const PREPARED_CARD_EXTRACTOR_VERSION = "prepared-cards-v1" as const;
@@ -2666,7 +2671,7 @@ const SUMMARY_LEAF_SOURCE_RANGE_REF_LIMIT = 50;
 const PREPARED_CARD_SOURCE_RANGE_REF_LIMIT = 50;
 const CODEX_JSONL_DRIFT_INDEX_NEXT_ACTION = "loo index codex --max-files 500 \"$HOME/.codex/sessions\" \"$HOME/.codex/archived_sessions\"";
 const CODEX_JSONL_DRIFT_MISSING_DB_NEXT_ACTION = "loo index codex \"$HOME/.codex/sessions\"";
-const CODEX_INDEX_LIMIT_RECOVERY_COMMAND = `loo index codex --max-files 100000 --max-bytes-per-file ${MAX_CODEX_MAX_BYTES_PER_FILE} --max-events-per-file ${MAX_CODEX_MAX_EVENTS_PER_FILE} "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"`;
+const CODEX_INDEX_LIMIT_RECOVERY_COMMAND = `loo index codex --max-files 100000 --max-bytes-per-file ${CODEX_RECOVERY_MAX_BYTES_PER_FILE} --max-events-per-file ${CODEX_RECOVERY_MAX_EVENTS_PER_FILE} "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"`;
 
 export function createDatabase(dbPath?: string): LooDatabase;
 export function createDatabase(options: CreateDatabaseOptions): LooDatabase;
@@ -3671,7 +3676,7 @@ function createCodexIndexLimitWarnings(limitedFiles: LimitedCodexFile[]): CodexI
     limitedFiles: limitedFiles.length,
     skippedFiles: countCodexIndexLimitSkippedFiles(limitedFiles),
     reasons: summarizeCodexIndexLimitReasons(limitedFiles),
-    nextSafeCommands: codexIndexLimitNextSafeCommands(limitedFiles),
+    nextSafeCommands: codexIndexLimitNextSafeCommands(true),
     proofBoundary: "Warning output contains counts, limits, and recovery commands only. It does not expose raw transcript text, raw source paths, screenshots, tokens, cookies, or mutate Codex source stores."
   }];
 }
@@ -3700,8 +3705,8 @@ function summarizeCodexIndexLimitReasons(files: LimitedCodexFile[]): CodexIndexL
   return [...summaries.values()].sort((left, right) => left.reason.localeCompare(right.reason));
 }
 
-function codexIndexLimitNextSafeCommands(files: LimitedCodexFile[]): string[] {
-  return files.length > 0 ? [CODEX_INDEX_LIMIT_RECOVERY_COMMAND] : [];
+function codexIndexLimitNextSafeCommands(hasLimitedFileEvidence: boolean): string[] {
+  return hasLimitedFileEvidence ? [CODEX_INDEX_LIMIT_RECOVERY_COMMAND] : [];
 }
 
 function clearSourceFileIndex(db: LooDatabase, sourcePath: string): void {
@@ -4441,13 +4446,7 @@ export function getCodexJsonlDriftStatus(db: LooDatabase): CodexJsonlDriftStatus
 }
 
 export function readCodexJsonlDriftStatusFromPath(dbPath = defaultDatabasePath()): CodexJsonlDriftStatus {
-  if (!existsSync(dbPath)) {
-    return {
-      ...emptyCodexJsonlDriftStatus("requires_index_run"),
-      nextAction: CODEX_JSONL_DRIFT_MISSING_DB_NEXT_ACTION,
-      reasonCodes: ["codex_jsonl_drift_database_missing", "codex_jsonl_drift_projection_requires_index_run"]
-    };
-  }
+  if (!existsSync(dbPath)) return missingCodexJsonlDriftStatus();
   const DatabaseSync = getDatabaseSync();
   let db: LooDatabase | null = null;
   try {
@@ -4456,6 +4455,32 @@ export function readCodexJsonlDriftStatusFromPath(dbPath = defaultDatabasePath()
     return getCodexJsonlDriftStatus(db);
   } catch {
     return emptyCodexJsonlDriftStatus("read_error");
+  } finally {
+    db?.close();
+  }
+}
+
+export function readCodexIndexHealthStatusFromPath(dbPath = defaultDatabasePath()): CodexIndexHealthStatus {
+  if (!existsSync(dbPath)) {
+    return {
+      codexJsonlDrift: missingCodexJsonlDriftStatus(),
+      codexIndexLimits: emptyCodexIndexLimitStatus("requires_index_run")
+    };
+  }
+  const DatabaseSync = getDatabaseSync();
+  let db: LooDatabase | null = null;
+  try {
+    db = new DatabaseSync(dbPath, { readOnly: true });
+    db.exec("PRAGMA query_only = ON");
+    return {
+      codexJsonlDrift: getCodexJsonlDriftStatus(db),
+      codexIndexLimits: getCodexIndexLimitStatus(db)
+    };
+  } catch {
+    return {
+      codexJsonlDrift: emptyCodexJsonlDriftStatus("read_error"),
+      codexIndexLimits: emptyCodexIndexLimitStatus("read_error")
+    };
   } finally {
     db?.close();
   }
@@ -4479,6 +4504,8 @@ export function getCodexIndexLimitStatus(db: LooDatabase): CodexIndexLimitStatus
     limit: Math.max(0, Math.floor(Number(row.limitValue ?? 0) || 0)),
     actual: Math.max(0, Math.floor(Number(row.actualValue ?? 0) || 0))
   })).filter((file) => file.reason !== null) as LimitedCodexFile[];
+  const unknownReasonRows = limitedRows.length - limitedFiles.length;
+  const hasLimitedFileEvidence = limitedRows.length > 0;
   const lastObservedAt = limitedRows
     .map((row) => nullableString(row.observedAt))
     .filter((value): value is string => Boolean(value))
@@ -4488,18 +4515,20 @@ export function getCodexIndexLimitStatus(db: LooDatabase): CodexIndexLimitStatus
     schema: "lco.codexIndexLimits.status.v1",
     publicSafe: true,
     readOnly: true,
-    state: limitedFiles.length > 0 ? "limited" : "clean",
+    state: hasLimitedFileEvidence ? "limited" : "clean",
     availability: "ready",
     docsRef: "docs/SETUP.md#4-index-local-codex-sessions",
-    indexLimits: {
+    defaultIndexLimits: {
       maxBytesPerFile: DEFAULT_CODEX_MAX_BYTES_PER_FILE,
       maxEventsPerFile: DEFAULT_CODEX_MAX_EVENTS_PER_FILE
     },
-    limitedFiles: limitedFiles.length,
-    skippedFiles: limitedFiles.length,
+    limitedFiles: limitedRows.length,
+    skippedFiles: limitedRows.length,
     reasons: summarizeCodexIndexLimitReasons(limitedFiles),
-    nextSafeCommands: codexIndexLimitNextSafeCommands(limitedFiles),
-    reasonCodes: limitedFiles.length > 0 ? ["codex_index_limited_files_skipped"] : [],
+    nextSafeCommands: codexIndexLimitNextSafeCommands(hasLimitedFileEvidence),
+    reasonCodes: hasLimitedFileEvidence
+      ? ["codex_index_limited_files_skipped", ...(unknownReasonRows > 0 ? ["codex_index_limited_unknown_reason"] : [])]
+      : [],
     lastObservedAt
   };
 }
@@ -4528,7 +4557,7 @@ function emptyCodexIndexLimitStatus(availability: CodexIndexLimitStatus["availab
     state: requiresIndexRun ? "not_indexed_yet" : "unavailable",
     availability,
     docsRef: "docs/SETUP.md#4-index-local-codex-sessions",
-    indexLimits: {
+    defaultIndexLimits: {
       maxBytesPerFile: DEFAULT_CODEX_MAX_BYTES_PER_FILE,
       maxEventsPerFile: DEFAULT_CODEX_MAX_EVENTS_PER_FILE
     },
@@ -4538,6 +4567,14 @@ function emptyCodexIndexLimitStatus(availability: CodexIndexLimitStatus["availab
     nextSafeCommands: requiresIndexRun ? [CODEX_JSONL_DRIFT_INDEX_NEXT_ACTION] : [],
     reasonCodes: requiresIndexRun ? ["codex_index_limits_projection_requires_index_run"] : [],
     lastObservedAt: null
+  };
+}
+
+function missingCodexJsonlDriftStatus(): CodexJsonlDriftStatus {
+  return {
+    ...emptyCodexJsonlDriftStatus("requires_index_run"),
+    nextAction: CODEX_JSONL_DRIFT_MISSING_DB_NEXT_ACTION,
+    reasonCodes: ["codex_jsonl_drift_database_missing", "codex_jsonl_drift_projection_requires_index_run"]
   };
 }
 

@@ -36,8 +36,7 @@ import {
   indexCodexSessions,
   probeCodexSqliteStores,
   probeLcmPeerDbs,
-  readCodexJsonlDriftStatusFromPath,
-  readCodexIndexLimitStatusFromPath,
+  readCodexIndexHealthStatusFromPath,
   runStatePrepHook,
   searchSessions,
   type CloseoutHookCaptureInput,
@@ -138,6 +137,7 @@ async function main() {
     return;
   }
   if (command === "doctor") {
+    const codexIndexHealth = readCodexIndexHealthStatusFromPath(defaultDatabasePath());
     console.log(JSON.stringify({
       ok: true,
       database: {
@@ -146,8 +146,7 @@ async function main() {
         location: "local"
       },
       localOnly: true,
-      codexJsonlDrift: readCodexJsonlDriftStatusFromPath(defaultDatabasePath()),
-      codexIndexLimits: readCodexIndexLimitStatusFromPath(defaultDatabasePath()),
+      ...codexIndexHealth,
       codex: codexTransportStatus({ command: readEnvWithFallback("CODEX_BIN", "codex") }),
       lcmPeers: probeLcmPeerDbs(configuredLcmPeerDbPaths()),
       desktopFallbacks: desktopFallbackDiagnostics()

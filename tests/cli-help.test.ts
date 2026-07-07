@@ -179,6 +179,7 @@ test("loo doctor reports capped Codex index skips without leaking local paths", 
         state?: string;
         limitedFiles?: number;
         skippedFiles?: number;
+        defaultIndexLimits?: { maxBytesPerFile: number; maxEventsPerFile: number };
         reasons?: Array<{ reason: string; count: number; limit: number; maxActual: number }>;
         nextSafeCommands?: string[];
       };
@@ -186,6 +187,10 @@ test("loo doctor reports capped Codex index skips without leaking local paths", 
     assert.equal(report.codexIndexLimits?.state, "limited");
     assert.equal(report.codexIndexLimits?.limitedFiles, 1);
     assert.equal(report.codexIndexLimits?.skippedFiles, 1);
+    assert.deepEqual(report.codexIndexLimits?.defaultIndexLimits, {
+      maxBytesPerFile: 256 * 1024 * 1024,
+      maxEventsPerFile: 200_000
+    });
     assert.deepEqual(report.codexIndexLimits?.reasons, [{
       reason: "max_events_per_file",
       count: 1,
