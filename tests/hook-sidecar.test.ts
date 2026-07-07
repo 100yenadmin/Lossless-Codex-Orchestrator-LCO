@@ -292,6 +292,17 @@ test("thread title finalizer does not collapse benign thread-name requests to th
       assert.notEqual(negatedImplementationPhrase.title.summary, "Codex thread title finalizer");
       assert.doesNotMatch(negatedImplementationPhrase.title.suggestedTitle ?? "", /thread title finalizer/i);
 
+      const trailingNegatedShippedPhrase = captureThreadTitleFinalizerHookPacket(db, {
+        thread_id: "019f-title-finalizer-trailing-negated-shipped",
+        cwd: "/Volumes/LEXAR/repos/lossless-openclaw-orchestrator",
+        current_title: "hook cleanup",
+        last_assistant_message: "Thread title finalizer was not shipped in this PR."
+      });
+      assert.equal(trailingNegatedShippedPhrase.publicSafe, true);
+      assert.equal(trailingNegatedShippedPhrase.title.state, "insufficient_signal");
+      assert.notEqual(trailingNegatedShippedPhrase.title.summary, "Codex thread title finalizer");
+      assert.doesNotMatch(trailingNegatedShippedPhrase.title.suggestedTitle ?? "", /thread title finalizer/i);
+
       const longNegatedPhrase = captureThreadTitleFinalizerHookPacket(db, {
         thread_id: "019f-title-finalizer-negated-long",
         cwd: "/Volumes/LEXAR/repos/lossless-openclaw-orchestrator",

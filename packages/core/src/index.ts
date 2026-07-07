@@ -7751,23 +7751,32 @@ function latestThreadTitleUserMessage(input: ThreadTitleFinalizerInput): string 
   return null;
 }
 
+const THREAD_TITLE_FINALIZER_DIRECT_SIGNAL_SOURCE = String.raw`thread-title-finalize|title finalizer|title-finalizer`;
+const THREAD_TITLE_FINALIZATION_SIGNAL_SOURCE = String.raw`finaliz(?:e|es|ed|ing).{0,40}thread.{0,20}title|thread.{0,20}title.{0,40}finaliz`;
+const THREAD_TITLE_FINALIZER_DIRECT_PATTERN = new RegExp(THREAD_TITLE_FINALIZER_DIRECT_SIGNAL_SOURCE, "i");
+const THREAD_TITLE_FINALIZATION_PATTERN = new RegExp(THREAD_TITLE_FINALIZATION_SIGNAL_SOURCE, "i");
+const THREAD_TITLE_FINALIZER_SIGNAL_PATTERN = new RegExp(
+  `${THREAD_TITLE_FINALIZER_DIRECT_SIGNAL_SOURCE}|${THREAD_TITLE_FINALIZATION_SIGNAL_SOURCE}`,
+  "i"
+);
+const THREAD_TITLE_FINALIZER_LEADING_NEGATION_PATTERN = /\b(?:not|no|without|never)\b/i;
+const THREAD_TITLE_FINALIZER_TRAILING_NEGATION_PATTERN = /\b(?:work|feature|hook|plugin|change|lane|it|this|that|was|were|is|are|has|have|had|did|does|do|will|would|can|could|should)\b.{0,40}\b(?:not|never)\b.{0,24}\b(?:ship|shipped|implemented|built|added|installed|wired|enabled|created|live|available|done)\b/i;
+
 function deriveThreadTitleSummary(value: string | null): string | null {
   if (!value) return null;
   const redacted = redactHookStringUnbounded(value);
   const lowered = redacted.toLowerCase();
-  const titleFinalizerPattern = /thread-title-finalize|title finalizer|title-finalizer/i;
-  const threadTitleFinalizationPattern = /finaliz(?:e|es|ed|ing).{0,40}thread.{0,20}title|thread.{0,20}title.{0,40}finaliz/i;
   const negatesTitleFinalizer = negatesTitleFinalizerSignal(redacted);
   if (
     (
-      titleFinalizerPattern.test(redacted)
+      THREAD_TITLE_FINALIZER_DIRECT_PATTERN.test(redacted)
       && !negatesTitleFinalizer
     )
     || (
       /\b(?:implemented|built|added|installed|wired|enabled|created|shipped)\b/i.test(redacted)
       && /\b(?:codex|lco)\b/i.test(redacted)
       && /\b(?:hook|plugin)\b/i.test(redacted)
-      && threadTitleFinalizationPattern.test(redacted)
+      && THREAD_TITLE_FINALIZATION_PATTERN.test(redacted)
       && !negatesTitleFinalizer
     )
   ) {
@@ -7779,7 +7788,9 @@ function deriveThreadTitleSummary(value: string | null): string | null {
   const line = redacted
     .split(/\r?\n/)
     .map((part) => part.trim())
-    .find((part) => part.length >= 12 && !/^[-*]?\s*(status|blocker|owner|priority|source refs?)\s*:/i.test(part));
+    .find((part) => part.length >= 12
+      && !/^[-*]?\s*(status|blocker|owner|priority|source refs?)\s*:/i.test(part)
+      && !(negatesTitleFinalizer && THREAD_TITLE_FINALIZER_SIGNAL_PATTERN.test(part)));
   if (!line) return null;
   const withoutLabels = line
     .replace(/^[-*]?\s*(final|summary|task|next action|implemented|complete|done)\s*:?\s*/i, "")
@@ -13559,14 +13570,15 @@ function normalizedMetadataMatchValue(value: string | null): string {
 }
 
 function negatesTitleFinalizerSignal(value: string): boolean {
-  const titleFinalizerClausePattern = /thread-title-finalize|title finalizer|title-finalizer|finaliz(?:e|es|ed|ing).{0,40}thread.{0,20}title|thread.{0,20}title.{0,40}finaliz/i;
-  const negationPattern = /\b(?:not|no|without|never)\b/i;
   return value
     .split(/[.!?;\n]+/)
     .some((clause) => {
-      const titleMatch = titleFinalizerClausePattern.exec(clause);
-      const negationMatch = negationPattern.exec(clause);
-      return Boolean(titleMatch && negationMatch && negationMatch.index <= titleMatch.index);
+      const titleMatch = THREAD_TITLE_FINALIZER_SIGNAL_PATTERN.exec(clause);
+      if (!titleMatch) return false;
+      const negationMatch = THREAD_TITLE_FINALIZER_LEADING_NEGATION_PATTERN.exec(clause);
+      if (negationMatch && negationMatch.index <= titleMatch.index) return true;
+      const trailing = clause.slice(titleMatch.index + titleMatch[0].length);
+      return THREAD_TITLE_FINALIZER_TRAILING_NEGATION_PATTERN.test(trailing);
     });
 }
 
