@@ -430,7 +430,8 @@ function publishedPackageTarballExtractCommand(expectedPackage: string): string 
     `curl -fsSL "$tarball_url" -o "$tmp_dir/package.tgz"`,
     npmTarballIntegrityVerifierCommand(),
     `node "$tmp_dir/verify-tarball-integrity.mjs" "$tmp_dir/package.tgz" "$integrity"`,
-    `tar -xzf "$tmp_dir/package.tgz" -C "$tmp_dir"`
+    `tar -xzf "$tmp_dir/package.tgz" -C "$tmp_dir"`,
+    `test -f "$tmp_dir/package/package.json"`
   ].join(" && ");
 }
 

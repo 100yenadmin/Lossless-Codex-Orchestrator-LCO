@@ -647,6 +647,10 @@ test("release demo-status manifest writer revalidates the final path without fol
   assert.match(source, /pathStat\.dev !== expectedIdentity\.dev/);
   assert.match(source, /pathStat\.ino !== expectedIdentity\.ino/);
   assert.match(source, /constants\.O_RDONLY \| noFollowFlag/);
+  assert.match(source, /const postOpenPathStat = lstatSync\(path\);/);
+  assert.match(source, /postOpenPathStat\.isSymbolicLink\(\)/);
+  assert.match(source, /stat\.dev !== postOpenPathStat\.dev/);
+  assert.match(source, /stat\.ino !== postOpenPathStat\.ino/);
 });
 
 test("release demo-status refuses to write the manifest through a dangling symlink", () => {

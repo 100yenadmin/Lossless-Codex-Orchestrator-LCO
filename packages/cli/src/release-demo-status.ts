@@ -226,7 +226,16 @@ function assertWrittenSafeDemoStatusManifestPath(path: string, expectedIdentity:
   const fd = openSync(path, constants.O_RDONLY | noFollowFlag);
   try {
     const stat = fstatSync(fd);
-    if (!stat.isFile() || stat.dev !== expectedIdentity.dev || stat.ino !== expectedIdentity.ino || stat.dev !== pathStat.dev || stat.ino !== pathStat.ino) {
+    const postOpenPathStat = lstatSync(path);
+    if (postOpenPathStat.isSymbolicLink()
+      || !postOpenPathStat.isFile()
+      || !stat.isFile()
+      || stat.dev !== expectedIdentity.dev
+      || stat.ino !== expectedIdentity.ino
+      || stat.dev !== pathStat.dev
+      || stat.ino !== pathStat.ino
+      || stat.dev !== postOpenPathStat.dev
+      || stat.ino !== postOpenPathStat.ino) {
       throw new Error("release-demo-status.json must be the same regular evidence file after write");
     }
   } finally {

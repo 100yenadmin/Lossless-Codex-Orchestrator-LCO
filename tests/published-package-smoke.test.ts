@@ -390,6 +390,8 @@ test("published-smoke requires public-safe candidate binary probe evidence", () 
     assert.match(recoveryCommand, /tarball_url="\$\(cat "\$tmp_dir\/tarball-url\.txt"\)"/);
     assert.match(recoveryCommand, /integrity="\$\(cat "\$tmp_dir\/integrity\.txt"\)"/);
     assert.ok(recoveryCommand.indexOf("verify-tarball-integrity.mjs") < recoveryCommand.indexOf("tar -xzf"));
+    assert.ok(recoveryCommand.indexOf("tar -xzf") < recoveryCommand.indexOf("test -f"));
+    assert.match(recoveryCommand, /test -f "\$tmp_dir\/package\/package\.json"/);
     assert.ok(recoveryCommand.indexOf("tar -xzf") < recoveryCommand.indexOf("package.json"));
     assert.doesNotMatch(recoveryCommand, /dist\/packages\/cli\/src\/index\.js" --version/);
     assert.match(recoveryCommand, /node -pe "require\(process\.argv\.at\(-1\)\)\.version" "\$tmp_dir\/package\/package\.json"/);
