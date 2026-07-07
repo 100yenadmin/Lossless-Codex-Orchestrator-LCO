@@ -2584,6 +2584,9 @@ const threadStatusLabels = [
 ];
 const threadStatusLabelSet = new Set(threadStatusLabels.map((label) => label.toLowerCase()));
 const threadSectionLabels = new Set(["pinned", "projects", "chats", "recent", "show more"]);
+// Codex Desktop currently groups visible sessions under these sidebar headers.
+// Keep this as the single source for parser guards so product renames fail in one place.
+const threadProjectHeaderLabels = new Set(["codex", "vantage"]);
 const threadControlLabels = new Set(["archive chat", "automation folders", "automations", "unarchive chat", "pin chat", "unpin chat", "continue", "copy", "copy message", "new chat", "new thread", "search", "settings", "send", "plugins"]);
 const threadControlPrefixLabels = ["archive chat", "automation folders", "automations", "pin chat", "unarchive chat", "unpin chat"];
 const threadTimePattern = /^(?:now|yesterday|\d+\s?(?:s|m|h|d|w|mo|y))$/i;
@@ -2641,6 +2644,8 @@ function visibleThreadMapFromSnapshot(snapshot: DesktopSnapshotStatus): VisibleC
   const acceptedElementFingerprints = new Set<string>();
   let currentProject: string | undefined;
   let inProjects = false;
+  let structuralCandidatesSkipped = 0;
+  let degenerateCandidatesSkipped = 0;
   for (const element of snapshot.elements) {
     if (threads.length >= snapshot.maxNodes) break;
     const elementFingerprint = sidebarChildFingerprint(element);
@@ -2652,7 +2657,15 @@ function visibleThreadMapFromSnapshot(snapshot: DesktopSnapshotStatus): VisibleC
       inProjects = lowered === "projects" || inProjects;
       continue;
     }
+    if (isStructuralSidebarLabel(lowered)) {
+      structuralCandidatesSkipped += 1;
+      continue;
+    }
     if (inProjects && isStaticThreadRole(element.role) && looksLikeProjectHeader(rawLabel)) {
+      currentProject = capTextValue(rawLabel, 160);
+      continue;
+    }
+    if (isStaticThreadRole(element.role) && threadProjectHeaderLabels.has(lowered)) {
       currentProject = capTextValue(rawLabel, 160);
       continue;
     }
@@ -2660,11 +2673,15 @@ function visibleThreadMapFromSnapshot(snapshot: DesktopSnapshotStatus): VisibleC
       ? sidebarThreadCandidateFromChildText(snapshot.elements, element)
       : null;
     if (isThreadControlLabel(lowered) && !childCandidate) continue;
+    if (isDegenerateThreadCandidate(element) && !childCandidate) {
+      degenerateCandidatesSkipped += 1;
+      continue;
+    }
     if (childCandidate?.titleElementFingerprint && acceptedElementFingerprints.has(childCandidate.titleElementFingerprint)) continue;
     const split = childCandidate?.split ?? splitThreadTitleStatus(rawLabel);
     if (!split.title || isThreadControlLabel(split.title.toLowerCase())) continue;
     if (!isVisibleSidebarCandidateTitle({ title: split.title, rawLabel, element, childCandidate: Boolean(childCandidate), split })) continue;
-    if (split.title.length < 3 || ["codex", "vantage"].includes(split.title.toLowerCase())) continue;
+    if (split.title.length < 3 || isKnownThreadProjectHeader(split.title)) continue;
     const visibleId = visibleThreadId({ index: threads.length, title: split.title, sourceElementId: element.elementId });
     if (seen.has(visibleId)) continue;
     seen.add(visibleId);
@@ -2695,7 +2712,11 @@ function visibleThreadMapFromSnapshot(snapshot: DesktopSnapshotStatus): VisibleC
     count: threads.length,
     maxItems: snapshot.maxNodes,
     threads,
-    warnings: snapshot.truncated ? ["Snapshot was truncated before thread-map extraction; rerun with a larger bounded max_nodes value if more visible rows are needed."] : []
+    warnings: [
+      ...(snapshot.truncated ? ["Snapshot was truncated before thread-map extraction; rerun with a larger bounded max_nodes value if more visible rows are needed."] : []),
+      ...(structuralCandidatesSkipped ? [`Skipped ${structuralCandidatesSkipped} structural sidebar candidate(s) while extracting visible Codex threads.`] : []),
+      ...(degenerateCandidatesSkipped ? [`Skipped ${degenerateCandidatesSkipped} degenerate sidebar candidate(s) while extracting visible Codex threads.`] : [])
+    ]
   };
 }
 
@@ -2716,10 +2737,11 @@ function sidebarThreadCandidateFromChildText(
   if (!children.length) return null;
   const updatedLabel = children.map((child) => child.label?.trim()).find((label): label is string => Boolean(label && threadTimePattern.test(label)))
     ?? splitThreadTitleStatus(row.label ?? "").updatedLabel;
+  const statusLabel = children.map((child) => child.label?.trim()).find((label): label is string => Boolean(label && threadStatusLabelSet.has(label.toLowerCase())));
   const titleChild = children.find((child) => looksLikeSidebarThreadTitle(child.label ?? ""));
   const title = titleChild?.label?.trim();
   if (!title) return null;
-  const rawLabel = [title, updatedLabel].filter(Boolean).join(" ");
+  const rawLabel = [title, statusLabel, updatedLabel].filter(Boolean).join(" ");
   return {
     split: splitThreadTitleStatus(rawLabel),
     rawLabel,
@@ -2735,6 +2757,20 @@ function looksLikeSidebarThreadTitle(label: string): boolean {
   const lowered = trimmed.toLowerCase();
   if (threadSectionLabels.has(lowered) || isThreadControlLabel(lowered) || threadTimePattern.test(lowered) || threadStatusLabelSet.has(lowered)) return false;
   return !/[\\/]/.test(trimmed) && !trimmed.includes("<redacted-");
+}
+
+function isStructuralSidebarLabel(lowered: string): boolean {
+  if (lowered === "scheduled task folders") return true;
+  return false;
+}
+
+function isKnownThreadProjectHeader(label: string): boolean {
+  return threadProjectHeaderLabels.has(label.trim().toLowerCase());
+}
+
+function isDegenerateThreadCandidate(element: DesktopSnapshotElement): boolean {
+  if (!element.bounds) return false;
+  return element.bounds.height <= 1 || element.bounds.width <= 1;
 }
 
 function isVisibleSidebarCandidateTitle({

@@ -1792,6 +1792,91 @@ test("Peekaboo visible Codex thread map rejects status-only sidebar child labels
   assert.equal(threads.some((thread) => thread.title === "Status is not the title"), true);
 });
 
+test("Peekaboo visible Codex thread map ignores scheduled containers and reconstructs visible running rows", async () => {
+  const status = await desktopSee({
+    backend: "peekaboo",
+    includeSnapshot: true,
+    probe: {
+      commandStatus: () => ({ available: true, command: "peekaboo", version: "Peekaboo 3.2.2" }),
+      activeApplication: () => "Codex",
+      commandOutput: (command: string, args: string[] = []) => {
+        if (args[0] === "permissions") {
+          return { status: 0, command, stdout: JSON.stringify({ success: true, data: { permissions: [] } }) };
+        }
+        return {
+          status: 0,
+          command,
+          stdout: JSON.stringify({
+            success: true,
+            data: {
+              application_name: "Codex",
+              ui_elements: [
+                { id: "scheduled-group", role: "AXGroup", label: "Scheduled task folders", bounds: { x: 171, y: 198, width: 300, height: 763 } },
+                { id: "scheduled-button", role: "AXButton", label: "Scheduled 2", bounds: { x: 181, y: 257, width: 265, height: 1 }, is_actionable: true },
+                { id: "project-codex", role: "AXStaticText", label: "Codex", bounds: { x: 182, y: 300, width: 120, height: 18 } },
+                { id: "row-matt", role: "AXButton", label: "Unpin chat Archive chat 31m", bounds: { x: 181, y: 330, width: 265, height: 48 }, is_actionable: true },
+                { id: "title-matt", role: "AXStaticText", label: "Matt Bailey customer sent i...", bounds: { x: 206, y: 340, width: 190, height: 18 } },
+                { id: "status-matt", role: "AXStaticText", label: "Thinking", bounds: { x: 206, y: 360, width: 70, height: 18 } },
+                { id: "time-matt", role: "AXStaticText", label: "31m", bounds: { x: 401, y: 340, width: 28, height: 18 } },
+                { id: "row-zcli", role: "AXButton", label: "Unpin chat Archive chat 46m", bounds: { x: 181, y: 390, width: 265, height: 48 }, is_actionable: true },
+                { id: "title-zcli", role: "AXStaticText", label: "Zcli OpenWiki review", bounds: { x: 206, y: 400, width: 180, height: 18 } },
+                { id: "time-zcli", role: "AXStaticText", label: "46m", bounds: { x: 401, y: 400, width: 28, height: 18 } }
+              ]
+            }
+          })
+        };
+      }
+    }
+  });
+
+  const threads = status.visibleCodex?.threadMap?.threads ?? [];
+  const titles = threads.map((thread) => thread.title);
+  assert.deepEqual(titles, ["Matt Bailey customer sent i...", "Zcli OpenWiki review"]);
+  assert.equal(threads[0]?.status, "Thinking");
+  assert.equal(threads[0]?.updatedLabel, "31m");
+  assert.equal(threads[0]?.project, "Codex");
+  assert.equal(threads.some((thread) => thread.rawTitle === "Scheduled task folders"), false);
+  assert.equal(threads.some((thread) => thread.rawTitle === "Scheduled 2"), false);
+  assert.match(
+    status.visibleCodex?.threadMap?.warnings?.join("\n") ?? "",
+    /Skipped 1 structural sidebar candidate\(s\).*Skipped 1 degenerate sidebar candidate\(s\)/s
+  );
+});
+
+test("Peekaboo visible Codex thread map keeps a normal thread named Scheduled", async () => {
+  const status = await desktopSee({
+    backend: "peekaboo",
+    includeSnapshot: true,
+    probe: {
+      commandStatus: () => ({ available: true, command: "peekaboo", version: "Peekaboo 3.2.2" }),
+      activeApplication: () => "Codex",
+      commandOutput: (command: string, args: string[] = []) => {
+        if (args[0] === "permissions") {
+          return { status: 0, command, stdout: JSON.stringify({ success: true, data: { permissions: [] } }) };
+        }
+        return {
+          status: 0,
+          command,
+          stdout: JSON.stringify({
+            success: true,
+            data: {
+              application_name: "Codex",
+              ui_elements: [
+                { id: "thread-scheduled", role: "AXButton", label: "Scheduled 14m", bounds: { x: 181, y: 330, width: 265, height: 48 }, is_actionable: true }
+              ]
+            }
+          })
+        };
+      }
+    }
+  });
+
+  const threads = status.visibleCodex?.threadMap?.threads ?? [];
+  assert.equal(threads.length, 1);
+  assert.equal(threads[0]?.title, "Scheduled");
+  assert.equal(threads[0]?.updatedLabel, "14m");
+});
+
 test("Peekaboo visible Codex windows inventory is derived from guarded Codex snapshots", async () => {
   const status = await desktopSee({
     backend: "peekaboo",
