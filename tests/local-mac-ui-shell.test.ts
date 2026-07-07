@@ -86,7 +86,8 @@ test("local Mac search UI shell renders only safe summaries, refs, filters, and 
           `AI${"za"}${"K".repeat(24)}`,
           `aws_secret_access_key=${"L".repeat(39)}=`,
           `aws_secret_access_key=${"Q".repeat(39)}+`,
-          `aws_secret_access_key=${"R".repeat(39)}/`
+          `aws_secret_access_key=${"R".repeat(39)}/`,
+          `aws_secret_access_key=${"Z".repeat(41)}`
         ].join(" "),
         project: "lco",
         status: "active",

@@ -382,7 +382,8 @@ test("published-smoke requires public-safe candidate binary probe evidence", () 
     assert.match(recoveryCommand, /package_version=/);
     assert.match(recoveryCommand, /JSON\.stringify/);
     assert.match(recoveryCommand, /process\.argv\.slice\(2\)/);
-    assert.match(recoveryCommand, /binary_probe_report="\$tmp_dir\/binary-probe\.json"/);
+    assert.match(recoveryCommand, /mkdir -p "\$evidence_dir"/);
+    assert.match(recoveryCommand, /binary_probe_report="\$evidence_dir\/binary-probe\.json"/);
     assert.match(recoveryCommand, /printf '%s\\n'/);
     assert.match(recoveryCommand, /node "\$tmp_dir\/write-binary-probe\.mjs"/);
     assert.match(recoveryCommand, /--binary-probe-report "\$binary_probe_report"/);

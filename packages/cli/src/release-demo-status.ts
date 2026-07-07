@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readlinkSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import {
@@ -198,7 +199,7 @@ export function createReleaseDemoStatus(options: ReleaseDemoStatusOptions): Rele
 function writeSafeDemoStatusManifest(path: string, contents: string): void {
   assertSafeDemoStatusManifestPath(path);
   const parent = dirname(path);
-  const tempPath = join(parent, `.${basename(path)}.${process.pid}.${Date.now()}.tmp`);
+  const tempPath = join(parent, `.${basename(path)}.${process.pid}.${Date.now()}.${randomBytes(4).toString("hex")}.tmp`);
   try {
     writeFileSync(tempPath, contents, { flag: "wx" });
     if (lstatSync(tempPath).isSymbolicLink()) {
