@@ -458,3 +458,26 @@ Implementation caveats:
 - Codex ACP historical tool-call replay gap, closed: https://github.com/agentclientprotocol/codex-acp/issues/206
 - Goose registry/authMethods issue, closed: https://github.com/aaif-goose/goose/issues/7026
 - Goose ACP usage propagation issue, closed: https://github.com/aaif-goose/goose/issues/8132
+
+---
+
+## DECISION (ADR) — recorded 2026-07-08 by the orchestrator, per owner-approved roadmap process
+
+**WRAP.** The TargetAdapter seam (EPIC #673 F1) proceeds as designed — per-target transports behind one
+interface, with LCO's proof machinery (dry-run packet → HMAC-bound `approval_audit_id` → bounded
+turn-wait → post-action refresh) as the invariant contract ABOVE every transport. ACP becomes ONE
+transport implementation among others, not the control plane's identity.
+
+Rationale (from the mapping above):
+1. ACP does not standardize LCO's differentiating proof primitives — ADOPT would either dilute the audit
+   contract to ACP's common denominator or reimplement it locally anyway (WRAP with extra migration risk).
+2. ACP is control/replay, not a transcript/index API — the importer half of every TargetAdapter stays
+   bespoke regardless, so ADOPT never collapses the seam.
+3. Codex stays NATIVE (steer/interrupt live proof requires turn-binding ACP lacks; no regression risk to
+   the proven lane).
+4. Protocol #2 for the F1 two-protocol validation is **Claude-native** (`claude -p --resume` / Agent SDK)
+   — maximum protocol diversity for validating the seam (app-server JSON-RPC vs CLI/SDK). An **ACP
+   generic adapter is the fast-follow third transport** (targets Gemini/Copilot/Goose et al. without
+   per-agent glue), scheduled opportunistically in 1.6.0/1.7.0.
+5. Kill criteria stand as written: if ACP RFDs land stable turn-ids/audit-metadata hooks, or a needed
+   target ships ACP-only, revisit ADOPT at the 1.7.0 boundary.
