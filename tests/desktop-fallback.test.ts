@@ -1837,6 +1837,44 @@ test("Peekaboo visible Codex thread map ignores scheduled containers and reconst
   assert.equal(threads[0]?.project, "Codex");
   assert.equal(threads.some((thread) => thread.rawTitle === "Scheduled task folders"), false);
   assert.equal(threads.some((thread) => thread.rawTitle === "Scheduled 2"), false);
+  assert.match(
+    status.visibleCodex?.threadMap?.warnings?.join("\n") ?? "",
+    /Skipped 1 structural sidebar candidate\(s\).*Skipped 1 degenerate sidebar candidate\(s\)/s
+  );
+});
+
+test("Peekaboo visible Codex thread map keeps a normal thread named Scheduled", async () => {
+  const status = await desktopSee({
+    backend: "peekaboo",
+    includeSnapshot: true,
+    probe: {
+      commandStatus: () => ({ available: true, command: "peekaboo", version: "Peekaboo 3.2.2" }),
+      activeApplication: () => "Codex",
+      commandOutput: (command: string, args: string[] = []) => {
+        if (args[0] === "permissions") {
+          return { status: 0, command, stdout: JSON.stringify({ success: true, data: { permissions: [] } }) };
+        }
+        return {
+          status: 0,
+          command,
+          stdout: JSON.stringify({
+            success: true,
+            data: {
+              application_name: "Codex",
+              ui_elements: [
+                { id: "thread-scheduled", role: "AXButton", label: "Scheduled 14m", bounds: { x: 181, y: 330, width: 265, height: 48 }, is_actionable: true }
+              ]
+            }
+          })
+        };
+      }
+    }
+  });
+
+  const threads = status.visibleCodex?.threadMap?.threads ?? [];
+  assert.equal(threads.length, 1);
+  assert.equal(threads[0]?.title, "Scheduled");
+  assert.equal(threads[0]?.updatedLabel, "14m");
 });
 
 test("Peekaboo visible Codex windows inventory is derived from guarded Codex snapshots", async () => {

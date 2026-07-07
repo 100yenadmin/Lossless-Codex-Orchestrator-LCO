@@ -2573,6 +2573,8 @@ const threadStatusLabels = [
 ];
 const threadStatusLabelSet = new Set(threadStatusLabels.map((label) => label.toLowerCase()));
 const threadSectionLabels = new Set(["pinned", "projects", "chats", "recent", "show more"]);
+// Codex Desktop currently groups visible sessions under these sidebar headers.
+// Keep this as the single source for parser guards so product renames fail in one place.
 const threadProjectHeaderLabels = new Set(["codex", "vantage"]);
 const threadControlLabels = new Set(["archive chat", "automation folders", "automations", "unarchive chat", "pin chat", "unpin chat", "continue", "copy", "copy message", "new chat", "new thread", "search", "settings", "send", "plugins"]);
 const threadControlPrefixLabels = ["archive chat", "automation folders", "automations", "pin chat", "unarchive chat", "unpin chat"];
@@ -2668,7 +2670,7 @@ function visibleThreadMapFromSnapshot(snapshot: DesktopSnapshotStatus): VisibleC
     const split = childCandidate?.split ?? splitThreadTitleStatus(rawLabel);
     if (!split.title || isThreadControlLabel(split.title.toLowerCase())) continue;
     if (!isVisibleSidebarCandidateTitle({ title: split.title, rawLabel, element, childCandidate: Boolean(childCandidate), split })) continue;
-    if (split.title.length < 3 || ["codex", "vantage"].includes(split.title.toLowerCase())) continue;
+    if (split.title.length < 3 || isKnownThreadProjectHeader(split.title)) continue;
     const visibleId = visibleThreadId({ index: threads.length, title: split.title, sourceElementId: element.elementId });
     if (seen.has(visibleId)) continue;
     seen.add(visibleId);
@@ -2748,8 +2750,11 @@ function looksLikeSidebarThreadTitle(label: string): boolean {
 
 function isStructuralSidebarLabel(lowered: string): boolean {
   if (lowered === "scheduled task folders") return true;
-  if (/^scheduled(?:\s+\d+)?$/.test(lowered)) return true;
   return false;
+}
+
+function isKnownThreadProjectHeader(label: string): boolean {
+  return threadProjectHeaderLabels.has(label.trim().toLowerCase());
 }
 
 function isDegenerateThreadCandidate(element: DesktopSnapshotElement): boolean {
