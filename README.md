@@ -165,7 +165,7 @@ npm install -g lossless-codex-orchestrator@beta
 
 Package channels:
 
-- Current stable: `1.4.3` is the stable patch release shipped on npm `latest`.
+- Current stable: `1.4.4` is the stable proof-gate hardening patch shipped on npm `latest`.
 - `latest` is the stable public channel.
 - `beta` is the active prerelease train.
 - `next` is reserved for release candidates.
