@@ -14,6 +14,8 @@ import type { RetrievalBaselineFloors } from "../packages/core/src/index.js";
 
 const scenarioFile = "evals/scenarios/retrieval-goldens/v1/goldens.json";
 const floorFile = "evals/scenarios/retrieval-goldens/v1/baseline-floors.json";
+const v2ScenarioFile = "evals/scenarios/retrieval-goldens/v2/goldens.json";
+const v2FloorFile = "evals/scenarios/retrieval-goldens/v2/baseline-floors.json";
 
 test("retrieval goldens preserve the recorded field-weighted FTS floors", () => {
   const payload = readJson(scenarioFile) as RetrievalGoldenPayload;
@@ -76,6 +78,93 @@ test("retrieval goldens preserve the recorded field-weighted FTS floors", () => 
       .filter((scenario) => scenario.family === "multi_term_cap")
       .every((scenario) => !scenario.reasonCodes.includes("query_terms_truncated")), true);
     assert.equal(report.scenarios.every((scenario) => scenario.topRefs.every((ref) => ref.startsWith("codex_thread:"))), true);
+    assert.doesNotMatch(JSON.stringify(report), /<proposed_plan>|Final:/);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("retrieval goldens v2 preserve an unsaturated baseline and skip future event-FTS cases", () => {
+  const payload = readJson(v2ScenarioFile) as RetrievalGoldenPayload;
+  const floors = readJson(v2FloorFile) as RetrievalBaselineFloors;
+  const scenarioDir = dirname(resolve(v2ScenarioFile));
+  const fixtureRoots = payload.codexRoots.map((root) => resolve(scenarioDir, root));
+  const activeScenarios = payload.scenarios.filter((scenario) => !(scenario.requires ?? []).includes("event-fts"));
+  const eventFtsScenarios = payload.scenarios.filter((scenario) => (scenario.requires ?? []).includes("event-fts"));
+
+  assert.equal(payload.schema, "lco.retrievalGoldens.v2");
+  assert.equal(payload.scenarios.length >= 40 && payload.scenarios.length <= 80, true);
+  assert.deepEqual(payload.codexRoots, ["./sessions"]);
+  assert.equal(floors.scenarioSet, "retrieval-goldens/v2");
+  assert.equal(floors.scenarioCount, activeScenarios.length);
+  assert.equal(eventFtsScenarios.length >= 5, true);
+  assert.equal(activeScenarios.length >= 35, true);
+  assert.equal(fixtureRoots.length, 1);
+  assert.match(fixtureRoots[0]!, /evals\/scenarios\/retrieval-goldens\/v2\/sessions$/);
+  assert.equal(existsSync(fixtureRoots[0]!), true);
+  assert.equal(readdirSync(fixtureRoots[0]!).filter((name) => name.endsWith(".jsonl")).length >= 40, true);
+
+  const expectedFamilies = new Set([
+    "near_duplicate_distractor",
+    "vocabulary_mismatch",
+    "cross_session",
+    "long_session_dilution"
+  ]);
+  for (const family of expectedFamilies) {
+    assert.equal(activeScenarios.some((scenario) => scenario.family === family), true, family);
+    assert.equal(floors.families[family]?.scenarioCount, activeScenarios.filter((scenario) => scenario.family === family).length, family);
+  }
+  assert.equal(activeScenarios
+    .filter((scenario) => scenario.family === "vocabulary_mismatch")
+    .every((scenario) => (scenario.expansionQueries ?? []).length > 0), true);
+
+  for (const scenario of payload.scenarios) {
+    assert.equal(typeof scenario.id, "string");
+    assert.equal(typeof scenario.family, "string");
+    assert.equal(typeof scenario.rationale, "string");
+    assert.equal(typeof scenario.query, "string");
+    assert.equal(Number.isInteger(scenario.k), true);
+    assert.equal(Array.isArray(scenario.expectedSourceRefs), true);
+    assert.equal(scenario.expectedSourceRefs.length > 0, true);
+    assert.equal((scenario.requires ?? []).every((item) => typeof item === "string"), true);
+    assert.equal((scenario.expansionQueries ?? []).every((item) => typeof item === "string"), true);
+  }
+
+  const root = mkdtempSync(join(tmpdir(), "loo-retrieval-goldens-v2-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const indexed = indexCodexSessions(db, { roots: fixtureRoots, maxFiles: 200 });
+    assert.equal(indexed.errors.length, 0);
+    assert.equal(indexed.indexedThreads >= 40, true);
+
+    const report = evaluateRetrievalBaselineScenarios(db, {
+      scenarios: payload.scenarios,
+      floors,
+      now: floors.measuredAt
+    });
+
+    assert.equal(report.ok, true, report.blockers.join("\n"));
+    assert.equal(report.strategy, "field-weighted-fts-ranking");
+    assert.equal(report.metrics.scenarioCount, activeScenarios.length);
+    assert.equal(report.metrics.skippedScenarioCount, eventFtsScenarios.length);
+    assert.equal(report.scenarios.filter((scenario) => scenario.skipped).length, eventFtsScenarios.length);
+    assert.equal(report.metrics.overall.hitAt1 >= floors.overall.hitAt1, true);
+    assert.equal(report.metrics.overall.hitAt5 >= floors.overall.hitAt5, true);
+    assert.equal(report.metrics.overall.mrr >= floors.overall.mrr, true);
+    assert.equal(report.metrics.overall.hitAt1 >= 0.6 && report.metrics.overall.hitAt1 <= 0.85, true);
+    assert.equal(report.metrics.overall.hitAt1 < 1, true);
+    for (const [family, familyFloors] of Object.entries(floors.families)) {
+      assert.equal(report.metrics.families[family]?.hitAt1 >= familyFloors.hitAt1, true, family);
+      assert.equal(report.metrics.families[family]?.hitAt5 >= familyFloors.hitAt5, true, family);
+      assert.equal(report.metrics.families[family]?.mrr >= familyFloors.mrr, true, family);
+    }
+    assert.equal(report.scenarios
+      .filter((scenario) => scenario.skipped)
+      .every((scenario) => scenario.reasonCodes.includes("requires:event-fts")), true);
+    assert.equal(report.scenarios
+      .filter((scenario) => !scenario.skipped)
+      .every((scenario) => scenario.topRefs.every((ref) => ref.startsWith("codex_thread:"))), true);
     assert.doesNotMatch(JSON.stringify(report), /<proposed_plan>|Final:/);
   } finally {
     db.close();
@@ -182,7 +271,7 @@ function readJson(path: string): any {
 }
 
 type RetrievalGoldenPayload = {
-  schema: "lco.retrievalGoldens.v1";
+  schema: "lco.retrievalGoldens.v1" | "lco.retrievalGoldens.v2";
   codexRoots: string[];
   scenarios: Array<{
     id: string;
@@ -190,6 +279,8 @@ type RetrievalGoldenPayload = {
     rationale: string;
     query: string;
     expectedSourceRefs: string[];
+    expansionQueries?: string[];
+    requires?: string[];
     k: number;
   }>;
 };

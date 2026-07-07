@@ -1,0 +1,506 @@
+{
+  "schema": "lco.retrievalGoldens.v2",
+  "scenarioVersion": "2.0",
+  "scenarioSet": "retrieval-goldens/v2",
+  "codexRoots": [
+    "./sessions"
+  ],
+  "maxFiles": 200,
+  "scenarios": [
+    {
+      "id": "near-01",
+      "family": "near_duplicate_distractor",
+      "query": "aurora invoice checksum rollback",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-near-01"
+      ],
+      "k": 5,
+      "rationale": "Near-duplicate sessions share domain terms; the expected source carries the exact synthetic fact."
+    },
+    {
+      "id": "near-02",
+      "family": "near_duplicate_distractor",
+      "query": "borealis queue sentinel waiver",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-near-02"
+      ],
+      "k": 5,
+      "rationale": "Near-duplicate sessions share domain terms; the expected source carries the exact synthetic fact."
+    },
+    {
+      "id": "near-03",
+      "family": "near_duplicate_distractor",
+      "query": "cobalt adapter manifest quorum",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-near-03"
+      ],
+      "k": 5,
+      "rationale": "Near-duplicate sessions share domain terms; the expected source carries the exact synthetic fact."
+    },
+    {
+      "id": "near-04",
+      "family": "near_duplicate_distractor",
+      "query": "delta packet scrubber escrow",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-near-04"
+      ],
+      "k": 5,
+      "rationale": "Near-duplicate sessions share domain terms; the expected source carries the exact synthetic fact."
+    },
+    {
+      "id": "near-05",
+      "family": "near_duplicate_distractor",
+      "query": "ember routing cache pledge",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-near-05"
+      ],
+      "k": 5,
+      "rationale": "Near-duplicate sessions share domain terms; the expected source carries the exact synthetic fact."
+    },
+    {
+      "id": "near-06",
+      "family": "near_duplicate_distractor",
+      "query": "frost relay budget braid",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-near-06"
+      ],
+      "k": 5,
+      "rationale": "Near-duplicate sessions share domain terms; the expected source carries the exact synthetic fact."
+    },
+    {
+      "id": "near-07",
+      "family": "near_duplicate_distractor",
+      "query": "harbor mirror ledger bracket",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-near-07"
+      ],
+      "k": 5,
+      "rationale": "Near-duplicate sessions share domain terms; the expected source carries the exact synthetic fact."
+    },
+    {
+      "id": "near-08",
+      "family": "near_duplicate_distractor",
+      "query": "ion sponsor docket lantern",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-near-08"
+      ],
+      "k": 5,
+      "rationale": "Near-duplicate sessions share domain terms; the expected source carries the exact synthetic fact."
+    },
+    {
+      "id": "near-09",
+      "family": "near_duplicate_distractor",
+      "query": "juniper consent marker repair",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-near-09"
+      ],
+      "k": 5,
+      "rationale": "Near-duplicate sessions share domain terms; the expected source carries the exact synthetic fact."
+    },
+    {
+      "id": "near-10",
+      "family": "near_duplicate_distractor",
+      "query": "krypton audit braid freezer",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-near-10"
+      ],
+      "k": 5,
+      "rationale": "Near-duplicate sessions share domain terms; the expected source carries the exact synthetic fact."
+    },
+    {
+      "id": "vocab-01",
+      "family": "vocabulary_mismatch",
+      "query": "stalled signup handoff notifies owner",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-vocab-01"
+      ],
+      "expansionQueries": [
+        "blocked onboarding alert steward"
+      ],
+      "k": 5,
+      "rationale": "Vocabulary-mismatch scenario includes expansionQueries so future expansion/rerank work can recover the intended source."
+    },
+    {
+      "id": "vocab-02",
+      "family": "vocabulary_mismatch",
+      "query": "billing pause reminder after failed renewal",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-vocab-02"
+      ],
+      "expansionQueries": [
+        "subscription hold dunning nudge"
+      ],
+      "k": 5,
+      "rationale": "Vocabulary-mismatch scenario includes expansionQueries so future expansion/rerank work can recover the intended source."
+    },
+    {
+      "id": "vocab-03",
+      "family": "vocabulary_mismatch",
+      "query": "desktop permission prompt before capture",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-vocab-03"
+      ],
+      "expansionQueries": [
+        "screen-recording consent preflight"
+      ],
+      "k": 5,
+      "rationale": "Vocabulary-mismatch scenario includes expansionQueries so future expansion/rerank work can recover the intended source."
+    },
+    {
+      "id": "vocab-04",
+      "family": "vocabulary_mismatch",
+      "query": "handover summary for interrupted review",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-vocab-04"
+      ],
+      "expansionQueries": [
+        "continuation brief for paused inspection"
+      ],
+      "k": 5,
+      "rationale": "Vocabulary-mismatch scenario includes expansionQueries so future expansion/rerank work can recover the intended source."
+    },
+    {
+      "id": "vocab-05",
+      "family": "vocabulary_mismatch",
+      "query": "agent forgot earlier cache decision",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-vocab-05"
+      ],
+      "expansionQueries": [
+        "memory lineage verdict"
+      ],
+      "k": 5,
+      "rationale": "Vocabulary-mismatch scenario includes expansionQueries so future expansion/rerank work can recover the intended source."
+    },
+    {
+      "id": "vocab-06",
+      "family": "vocabulary_mismatch",
+      "query": "slow search needs synonym bridge",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-vocab-06"
+      ],
+      "expansionQueries": [
+        "recall expansion bridge"
+      ],
+      "k": 5,
+      "rationale": "Vocabulary-mismatch scenario includes expansionQueries so future expansion/rerank work can recover the intended source."
+    },
+    {
+      "id": "vocab-07",
+      "family": "vocabulary_mismatch",
+      "query": "operator wants task breadcrumb trail",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-vocab-07"
+      ],
+      "expansionQueries": [
+        "handoff provenance ledger"
+      ],
+      "k": 5,
+      "rationale": "Vocabulary-mismatch scenario includes expansionQueries so future expansion/rerank work can recover the intended source."
+    },
+    {
+      "id": "vocab-08",
+      "family": "vocabulary_mismatch",
+      "query": "user asks where proof bundle lives",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-vocab-08"
+      ],
+      "expansionQueries": [
+        "evidence packet locator"
+      ],
+      "k": 5,
+      "rationale": "Vocabulary-mismatch scenario includes expansionQueries so future expansion/rerank work can recover the intended source."
+    },
+    {
+      "id": "vocab-09",
+      "family": "vocabulary_mismatch",
+      "query": "reviewer requests exact failure cause",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-vocab-09"
+      ],
+      "expansionQueries": [
+        "root-cause blocker taxonomy"
+      ],
+      "k": 5,
+      "rationale": "Vocabulary-mismatch scenario includes expansionQueries so future expansion/rerank work can recover the intended source."
+    },
+    {
+      "id": "vocab-10",
+      "family": "vocabulary_mismatch",
+      "query": "planner needs adjacent work surfaced",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-vocab-10"
+      ],
+      "expansionQueries": [
+        "neighbor lane discovery"
+      ],
+      "k": 5,
+      "rationale": "Vocabulary-mismatch scenario includes expansionQueries so future expansion/rerank work can recover the intended source."
+    },
+    {
+      "id": "cross-01",
+      "family": "cross_session",
+      "query": "release train proof battery handoff",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-cross-01"
+      ],
+      "k": 5,
+      "rationale": "Cross-session query has multiple plausible lexical matches; the target is the intended sibling-session source."
+    },
+    {
+      "id": "cross-02",
+      "family": "cross_session",
+      "query": "support queue triage closure marker",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-cross-02"
+      ],
+      "k": 5,
+      "rationale": "Cross-session query has multiple plausible lexical matches; the target is the intended sibling-session source."
+    },
+    {
+      "id": "cross-03",
+      "family": "cross_session",
+      "query": "billing bridge scenario owner note",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-cross-03"
+      ],
+      "k": 5,
+      "rationale": "Cross-session query has multiple plausible lexical matches; the target is the intended sibling-session source."
+    },
+    {
+      "id": "cross-04",
+      "family": "cross_session",
+      "query": "runtime watchdog cleanup cadence",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-cross-04"
+      ],
+      "k": 5,
+      "rationale": "Cross-session query has multiple plausible lexical matches; the target is the intended sibling-session source."
+    },
+    {
+      "id": "cross-05",
+      "family": "cross_session",
+      "query": "installer drift proof snapshot",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-cross-05"
+      ],
+      "k": 5,
+      "rationale": "Cross-session query has multiple plausible lexical matches; the target is the intended sibling-session source."
+    },
+    {
+      "id": "cross-06",
+      "family": "cross_session",
+      "query": "adapter review matrix decision",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-cross-06"
+      ],
+      "k": 5,
+      "rationale": "Cross-session query has multiple plausible lexical matches; the target is the intended sibling-session source."
+    },
+    {
+      "id": "cross-07",
+      "family": "cross_session",
+      "query": "onboarding route packet checksum",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-cross-07"
+      ],
+      "k": 5,
+      "rationale": "Cross-session query has multiple plausible lexical matches; the target is the intended sibling-session source."
+    },
+    {
+      "id": "cross-08",
+      "family": "cross_session",
+      "query": "sprint ledger sibling dependency",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-cross-08"
+      ],
+      "k": 5,
+      "rationale": "Cross-session query has multiple plausible lexical matches; the target is the intended sibling-session source."
+    },
+    {
+      "id": "cross-09",
+      "family": "cross_session",
+      "query": "handoff queue stale evidence row",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-cross-09"
+      ],
+      "k": 5,
+      "rationale": "Cross-session query has multiple plausible lexical matches; the target is the intended sibling-session source."
+    },
+    {
+      "id": "cross-10",
+      "family": "cross_session",
+      "query": "roadmap shard parallel gate",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-cross-10"
+      ],
+      "k": 5,
+      "rationale": "Cross-session query has multiple plausible lexical matches; the target is the intended sibling-session source."
+    },
+    {
+      "id": "long-01",
+      "family": "long_session_dilution",
+      "query": "quiet archive checksum verdict",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-long-01"
+      ],
+      "k": 5,
+      "rationale": "Long-session dilution buries the target phrase inside a large synthetic session body."
+    },
+    {
+      "id": "long-02",
+      "family": "long_session_dilution",
+      "query": "manual approval retry envelope",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-long-02"
+      ],
+      "k": 5,
+      "rationale": "Long-session dilution buries the target phrase inside a large synthetic session body."
+    },
+    {
+      "id": "long-03",
+      "family": "long_session_dilution",
+      "query": "control plane breadcrumb stitch",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-long-03"
+      ],
+      "k": 5,
+      "rationale": "Long-session dilution buries the target phrase inside a large synthetic session body."
+    },
+    {
+      "id": "long-04",
+      "family": "long_session_dilution",
+      "query": "storage hygiene cold offload",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-long-04"
+      ],
+      "k": 5,
+      "rationale": "Long-session dilution buries the target phrase inside a large synthetic session body."
+    },
+    {
+      "id": "long-05",
+      "family": "long_session_dilution",
+      "query": "review thread terminal disposition",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-long-05"
+      ],
+      "k": 5,
+      "rationale": "Long-session dilution buries the target phrase inside a large synthetic session body."
+    },
+    {
+      "id": "long-06",
+      "family": "long_session_dilution",
+      "query": "fresh install selector fallback",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-long-06"
+      ],
+      "k": 5,
+      "rationale": "Long-session dilution buries the target phrase inside a large synthetic session body."
+    },
+    {
+      "id": "long-07",
+      "family": "long_session_dilution",
+      "query": "watch mode external gate",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-long-07"
+      ],
+      "k": 5,
+      "rationale": "Long-session dilution buries the target phrase inside a large synthetic session body."
+    },
+    {
+      "id": "long-08",
+      "family": "long_session_dilution",
+      "query": "privacy scan fixture exclusion",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-long-08"
+      ],
+      "k": 5,
+      "rationale": "Long-session dilution buries the target phrase inside a large synthetic session body."
+    },
+    {
+      "id": "long-09",
+      "family": "long_session_dilution",
+      "query": "scorecard rubric threshold note",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-long-09"
+      ],
+      "k": 5,
+      "rationale": "Long-session dilution buries the target phrase inside a large synthetic session body."
+    },
+    {
+      "id": "long-10",
+      "family": "long_session_dilution",
+      "query": "command facade narrow mount",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-long-10"
+      ],
+      "k": 5,
+      "rationale": "Long-session dilution buries the target phrase inside a large synthetic session body."
+    },
+    {
+      "id": "event-01",
+      "family": "event_granular",
+      "query": "turn seventeen refund toggle isolation",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-event-01"
+      ],
+      "requires": [
+        "event-fts"
+      ],
+      "k": 5,
+      "rationale": "Future event-content FTS should score this turn-level target; the current baseline harness skips it until event-fts exists."
+    },
+    {
+      "id": "event-02",
+      "family": "event_granular",
+      "query": "turn twenty one stale lock annotation",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-event-02"
+      ],
+      "requires": [
+        "event-fts"
+      ],
+      "k": 5,
+      "rationale": "Future event-content FTS should score this turn-level target; the current baseline harness skips it until event-fts exists."
+    },
+    {
+      "id": "event-03",
+      "family": "event_granular",
+      "query": "turn nine clipboard denial breadcrumb",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-event-03"
+      ],
+      "requires": [
+        "event-fts"
+      ],
+      "k": 5,
+      "rationale": "Future event-content FTS should score this turn-level target; the current baseline harness skips it until event-fts exists."
+    },
+    {
+      "id": "event-04",
+      "family": "event_granular",
+      "query": "turn thirty two release watcher pulse",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-event-04"
+      ],
+      "requires": [
+        "event-fts"
+      ],
+      "k": 5,
+      "rationale": "Future event-content FTS should score this turn-level target; the current baseline harness skips it until event-fts exists."
+    },
+    {
+      "id": "event-05",
+      "family": "event_granular",
+      "query": "turn eleven command packet echo",
+      "expectedSourceRefs": [
+        "codex_thread:019f-golden-v2-event-05"
+      ],
+      "requires": [
+        "event-fts"
+      ],
+      "k": 5,
+      "rationale": "Future event-content FTS should score this turn-level target; the current baseline harness skips it until event-fts exists."
+    }
+  ]
+}

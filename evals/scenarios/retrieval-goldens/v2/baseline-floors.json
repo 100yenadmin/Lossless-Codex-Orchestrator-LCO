@@ -1,0 +1,44 @@
+{
+  "schema": "lco.retrievalBaselineFloors.v1",
+  "engine": "field-weighted-fts-ranking",
+  "scenarioSet": "retrieval-goldens/v2",
+  "scenarioCount": 40,
+  "skippedScenarioCount": 5,
+  "measuredAt": "2026-07-08T00:00:00.000Z",
+  "overall": {
+    "hitAt1": 0.65,
+    "hitAt5": 0.9,
+    "mrr": 0.770833
+  },
+  "families": {
+    "cross_session": {
+      "scenarioCount": 10,
+      "hitAt1": 0.7,
+      "hitAt5": 1,
+      "mrr": 0.85
+    },
+    "long_session_dilution": {
+      "scenarioCount": 10,
+      "hitAt1": 0.7,
+      "hitAt5": 1,
+      "mrr": 0.85
+    },
+    "near_duplicate_distractor": {
+      "scenarioCount": 10,
+      "hitAt1": 0.8,
+      "hitAt5": 1,
+      "mrr": 0.9
+    },
+    "vocabulary_mismatch": {
+      "scenarioCount": 10,
+      "hitAt1": 0.4,
+      "hitAt5": 0.6,
+      "mrr": 0.483333
+    }
+  },
+  "notes": [
+    "Floors record the current field-weighted FTS ranking engine against the unsaturated v2 retrieval goldens.",
+    "Scenarios requiring event-fts are present in goldens.json but skipped until event-content FTS is available.",
+    "Vocabulary-mismatch scenarios include expansionQueries for future expansion/rerank evaluation."
+  ]
+}

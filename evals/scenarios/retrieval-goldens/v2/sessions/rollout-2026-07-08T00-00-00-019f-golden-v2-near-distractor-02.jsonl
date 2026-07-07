@@ -1,0 +1,5 @@
+{"timestamp":"2026-07-08T00:03:00.000Z","session_meta":{"payload":{"id":"019f-golden-v2-near-distractor-02","cwd":"/workspace/lco-goldens-v2","model":"gpt-5.5","git":{"branch":"150-goldens-v2","commit_hash":"goldensv2fixture"}}}}
+{"timestamp":"2026-07-08T00:03:00.000Z","event_msg":{"type":"thread_name","name":"V2 distractor borealis queue sentinel window"}}
+{"timestamp":"2026-07-08T00:03:00.000Z","response_item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Distractor note says borealis queue sentinel window, not waiver."}]}}
+{"timestamp":"2026-07-08T00:03:00.000Z","response_item":{"type":"function_call","call_id":"019f-golden-v2-near-distractor-02-tool","name":"functions.exec_command","arguments":"{\"cmd\":\"sed -n '1,120p' packages/evals/retrieval-v2/019f-golden-v2-near-distractor-02.ts\"}"}}
+{"timestamp":"2026-07-08T00:03:00.000Z","event_msg":{"type":"agent_message","message":"Closeout note for 019f-golden-v2-near-distractor-02: public-safe retrieval fixture indexed."}}

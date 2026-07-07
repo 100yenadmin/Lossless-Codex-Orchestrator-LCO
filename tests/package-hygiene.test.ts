@@ -35,6 +35,8 @@ test("npm package keeps public eval scenario and scorecard examples without raw 
   for (const required of [
     "evals/scenarios/v1/session-map-triage.json",
     "evals/scenarios/retrieval-goldens/v1/goldens.json",
+    "evals/scenarios/retrieval-goldens/v2/goldens.json",
+    "evals/scenarios/retrieval-goldens/v2/baseline-floors.json",
     "evals/scorecards/v1.0/public-claim-review.json",
     "evals/scorecards/v1.0/issue-scorecard-update-template.md"
   ]) {
@@ -42,4 +44,5 @@ test("npm package keeps public eval scenario and scorecard examples without raw 
   }
 
   assert.equal(files.some((file) => file.startsWith("evals/scenarios/retrieval-goldens/v1/sessions/")), false);
+  assert.equal(files.some((file) => file.startsWith("evals/scenarios/retrieval-goldens/v2/sessions/")), false);
 });
