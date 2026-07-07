@@ -219,7 +219,22 @@ test("Codex control redacts live transport responses before returning them throu
       requestSequenceUntilTurnResolved: async () => ({
         responses: [
           { ok: true },
-          { content: `authorization: ${homedir()}/secret sk-test_1234567890` }
+          {
+            content: `authorization: ${homedir()}/secret sk-test_1234567890`,
+            result: {
+              thread: {
+                id: "thr_1",
+                title: "Safe title",
+                status: "running",
+                preview: "PRIVATE_TRANSCRIPT_PREVIEW",
+                path: "/Volumes/LEXAR/private/session.jsonl",
+                cwd: `${homedir()}/project`,
+                runtimeWorkspaceRoots: ["/Volumes/LEXAR/private/workspace"],
+                instructionSources: [{ path: `${homedir()}/.codex/AGENTS.md` }],
+                turns: [{ role: "user", content: "PRIVATE_TRANSCRIPT_TURN" }]
+              }
+            }
+          }
         ],
         turn: {
           id: "turn_redacted_1",
@@ -245,7 +260,63 @@ test("Codex control redacts live transport responses before returning them throu
     assert.equal((live.response as any).content, "authorization: <redacted-secret>");
     assert.equal((live.response as any).turn.id, "turn_redacted_1");
     assert.equal((live.response as any).turn.status, "completed");
-    assert.equal(JSON.stringify(live.response).includes("sk-test"), false);
+    const serialized = JSON.stringify(live.response);
+    assert.equal(serialized.includes("sk-test"), false);
+    for (const forbidden of ["preview", "path", "cwd", "runtimeWorkspaceRoots", "instructionSources", "turns"]) {
+      assert.equal(serialized.includes(forbidden), false, `live response leaked forbidden key ${forbidden}`);
+    }
+    assert.equal(serialized.includes("/Volumes/LEXAR"), false);
+    assert.equal(serialized.includes("PRIVATE_TRANSCRIPT"), false);
+    assert.equal((live.response as any).result.thread.id, "thr_1");
+    assert.equal((live.response as any).result.thread.title, "Safe title");
+    assert.equal((live.response as any).result.thread.status, "running");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Codex resume control omits transcript-adjacent app-server thread fields", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-control-resume-redaction-"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const control = createCodexControl({
+    audit,
+    client: {
+      request: async () => ({
+        ok: true,
+        result: {
+          thread: {
+            id: "thr_resume_1",
+            title: "Resume target",
+            status: "running",
+            preview: "PRIVATE_TRANSCRIPT_PREVIEW",
+            path: "/Volumes/LEXAR/private/session.jsonl",
+            cwd: `${homedir()}/project`,
+            runtimeWorkspaceRoots: ["/Volumes/LEXAR/private/workspace"],
+            instructionSources: [{ path: `${homedir()}/.codex/AGENTS.md` }],
+            turns: [{ role: "user", content: "PRIVATE_TRANSCRIPT_TURN" }]
+          }
+        }
+      })
+    }
+  });
+
+  try {
+    const dryRun = await control.resumeThread({ threadId: "thr_resume_1", dryRun: true });
+    const live = await control.resumeThread({
+      threadId: "thr_resume_1",
+      dryRun: false,
+      approvalAuditId: dryRun.approvalAuditId
+    });
+
+    const serialized = JSON.stringify(live.response);
+    for (const forbidden of ["preview", "path", "cwd", "runtimeWorkspaceRoots", "instructionSources", "turns"]) {
+      assert.equal(serialized.includes(forbidden), false, `live response leaked forbidden key ${forbidden}`);
+    }
+    assert.equal(serialized.includes("/Volumes/LEXAR"), false);
+    assert.equal(serialized.includes("PRIVATE_TRANSCRIPT"), false);
+    assert.equal((live.response as any).result.thread.id, "thr_resume_1");
+    assert.equal((live.response as any).result.thread.title, "Resume target");
+    assert.equal((live.response as any).result.thread.status, "running");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

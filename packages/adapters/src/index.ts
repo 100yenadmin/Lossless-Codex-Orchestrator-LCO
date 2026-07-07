@@ -840,7 +840,7 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
         response,
         turnResolution: sequenceResult?.turn
       }),
-      response: redactValue(response)
+      response: sanitizeCodexControlResponse(response)
     };
   };
 
@@ -1055,6 +1055,30 @@ function responseWithTurnResolution(response: unknown, turn: CodexTurnResolution
   };
   if (turn.status) next.status = turn.status;
   return next;
+}
+
+const CODEX_CONTROL_RESPONSE_FORBIDDEN_KEYS = new Set([
+  "cwd",
+  "instructionSources",
+  "path",
+  "preview",
+  "runtimeWorkspaceRoots",
+  "turns"
+]);
+
+function sanitizeCodexControlResponse(response: unknown): unknown {
+  return sanitizeCodexControlResponseValue(redactValue(response));
+}
+
+function sanitizeCodexControlResponseValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item) => sanitizeCodexControlResponseValue(item));
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value)
+      .filter(([key]) => !CODEX_CONTROL_RESPONSE_FORBIDDEN_KEYS.has(key))
+      .map(([key, item]) => [key, sanitizeCodexControlResponseValue(item)]);
+    return Object.fromEntries(entries);
+  }
+  return value;
 }
 
 function publicTurnResolution(turn: CodexTurnResolution): CodexTurnResolution {
