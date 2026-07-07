@@ -147,7 +147,8 @@ test("public docs preserve release claim boundaries", () => {
   assert.match(readme, /deprecated compat package[\s\S]{0,180}lossless-openclaw-orchestrator/i);
   assert.match(readme, /at least two minor releases/i);
   assert.match(readme, /Give your main agent a memory and command layer for all your Codex projects and threads\./i);
-  assert.match(readme, /field-weighted FTS5 search/i);
+  assert.match(readme, /field-weighted FTS5 search[\s\S]{0,80}session-card discovery/i);
+  assert.match(readme, /remembered content phrases[\s\S]{0,120}`lco grep`[\s\S]{0,120}`lco expand-query`/i);
   assert.match(readme, /prepared cards/i);
   assert.match(readme, /summary leaves/i);
   assert.match(readme, /attention inbox/i);

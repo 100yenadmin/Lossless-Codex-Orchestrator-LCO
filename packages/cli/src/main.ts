@@ -246,6 +246,9 @@ async function main() {
       db = createRecallCliDatabase(parsed.timeoutMs);
       const results = searchSessions(db, { query: parsed.query, limit: parsed.limit, telemetry: false });
       if (emitRecallTimeoutReportIfExceeded("search", started, { limit: parsed.limit, timeoutMs: parsed.timeoutMs })) return;
+      if (results.length === 0 && shouldEmitInteractiveSearchEmptyGuidance()) {
+        console.error(searchEmptyGuidanceText());
+      }
       console.log(JSON.stringify(results, null, 2));
     } catch (error) {
       if (emitRecallDatabaseBusyReport(error, "search", { limit: parsed.limit, timeoutMs: parsed.timeoutMs })) return;
@@ -1170,9 +1173,11 @@ function isCliUsageErrorMessage(message: string): boolean {
 function printSearchHelp(): void {
   console.log([
     "Usage:",
-    "  loo search [--limit n] [--timeout-ms ms] <query>",
+    "  loo/lco search [--limit n] [--timeout-ms ms] <query>",
     "",
-    "Search indexed Codex sessions with bounded safe text.",
+    "Run title/metadata session-card search over indexed Codex sessions.",
+    "Use this for thread names, aliases, refs, summaries, files, and prepared-state signals.",
+    "For content phrases, use `loo grep` or `loo expand-query`; the `lco` alias is equivalent.",
     "",
     "Options:",
     "  --limit n        Maximum results to return (default 10, max 100).",
@@ -1182,8 +1187,20 @@ function printSearchHelp(): void {
     "Safety boundary:",
     "  The help command does not open or query the local orchestrator database.",
     "  Search results use source-prefixed refs and safe summaries rather than raw transcripts.",
+    "  Use grep/expand-query for content recall instead of treating `search` as raw-content FTS.",
     "  Busy or locked databases return a public-safe recovery packet instead of raw logs."
   ].join("\n"));
+}
+
+function searchEmptyGuidanceText(): string {
+  return [
+    "No title/metadata session-card matches.",
+    "For content phrase recall, try `loo grep <query>` or `loo expand-query <query>`; `lco` aliases are equivalent."
+  ].join(" ");
+}
+
+function shouldEmitInteractiveSearchEmptyGuidance(): boolean {
+  return Boolean(process.stdout.isTTY && process.stderr.isTTY);
 }
 
 type ParsedSearchArgs = {
