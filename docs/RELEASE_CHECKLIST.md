@@ -61,6 +61,9 @@ Every beta, RC, and stable release must have public-safe evidence for:
 - `npm run check`
 - `npm pack --dry-run`
 - release preflight, bundle, demo-status, release-status, and scorecard sweep
+- `lco openclaw published-smoke --strict` with a public-safe
+  `--binary-probe-report` that proves the candidate package binary rather than
+  a shadowed global `lco`/`loo` command
 - post-publish `lco release finalization-status --strict` evidence showing npm
   package/dist-tag, git tag, and GitHub Release all match the candidate SHA
 - `lco release ga-smoke --strict` evidence aggregating the individual release

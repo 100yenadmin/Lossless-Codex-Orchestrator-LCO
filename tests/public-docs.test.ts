@@ -66,6 +66,7 @@ test("setup guide covers install, local indexing, OpenClaw, MCP, and troubleshoo
     /lco-mcp-server/,
     /OpenClaw/,
     /lco openclaw published-smoke/,
+    /--binary-probe-report binary-probe\.json/,
     /npm selector.*tarball fallback/i,
     /lco openclaw tool-smoke/,
     /CUA Driver is the preferred\/default\s+desktop fallback backend/i,

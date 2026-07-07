@@ -1838,7 +1838,7 @@ function printOpenClawPublishedSmokeHelp(): void {
     "This command consumes sanitized reports from `loo openclaw dogfood` and `loo openclaw tool-smoke`.",
     "Optional `--configured-tool-smoke-report` records a separately named configured-profile gateway proof without marking the fresh published profile ready.",
     "Optional `--npm-install-diagnostic-report` records public-safe npm selector drift and tarball fallback proof without storing raw npm output.",
-    "Optional `--binary-probe-report` records public-safe candidate-binary attribution and classifies global `loo` PATH shadowing separately from package defects.",
+    "`--binary-probe-report` records public-safe candidate-binary attribution and classifies global `loo` PATH shadowing separately from package defects; strict package-path readiness requires it.",
     "",
     "Strict mode:",
     "  --strict exits non-zero only when ok/packagePathOk is false; it is package-path strict.",

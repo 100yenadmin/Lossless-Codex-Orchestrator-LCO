@@ -205,6 +205,7 @@ function writeSafeDemoStatusManifest(path: string, contents: string): void {
     if (lstatSync(tempPath).isSymbolicLink()) {
       throw new Error("release-demo-status temporary manifest must not be a symlink");
     }
+    assertSafeDemoStatusManifestPath(path);
     renameSync(tempPath, path);
   } finally {
     if (existsSync(tempPath)) unlinkSync(tempPath);

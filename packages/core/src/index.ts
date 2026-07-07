@@ -7286,13 +7286,6 @@ function preparedLifecycleFromMetadata(
   metadata: SessionMetadata,
   evidenceState: PreparedCardState
 ): { state: PreparedCardState; reasonCodes: string[]; metadataSignalHash: string } {
-  const signals = {
-    status: normalizedMetadataValue(metadata.status),
-    blocker: normalizedMetadataValue(metadata.blocker),
-    nextAction: normalizedMetadataValue(metadata.nextAction),
-    closeoutState: normalizedMetadataValue(metadata.closeoutState),
-    planCompletionState: normalizedMetadataValue(metadata.planCompletionState)
-  };
   const matchSignals = {
     status: normalizedMetadataMatchValue(metadata.status),
     blocker: normalizedMetadataMatchValue(metadata.blocker),
@@ -7302,8 +7295,8 @@ function preparedLifecycleFromMetadata(
   };
   const metadataSignalHash = stableId(JSON.stringify({
     extractorVersion: PREPARED_CARD_EXTRACTOR_VERSION,
-    normalization: "full-text-match/hash-full-signals",
-    signals
+    normalization: "match-signals",
+    signals: matchSignals
   }));
   const nonBlockerText = [matchSignals.status, matchSignals.nextAction, matchSignals.closeoutState, matchSignals.planCompletionState].filter(Boolean).join(" ");
   const text = [nonBlockerText, matchSignals.blocker].filter(Boolean).join(" ");
