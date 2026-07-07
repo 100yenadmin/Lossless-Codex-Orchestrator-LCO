@@ -1,5 +1,5 @@
 import { existsSync, lstatSync, mkdirSync, readlinkSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { basename, extname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   excludedClaimsForScope,
   liveControlExcludedDetail,
@@ -197,6 +197,10 @@ export function createReleaseDemoStatus(options: ReleaseDemoStatusOptions): Rele
 }
 
 function assertSafeDemoStatusManifestPath(path: string): void {
+  const parent = dirname(path);
+  if (lstatSync(parent).isSymbolicLink()) {
+    throw new Error("release-demo-status.json parent directory must not be a symlink");
+  }
   let stat;
   try {
     stat = lstatSync(path);
