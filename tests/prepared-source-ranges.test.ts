@@ -94,6 +94,7 @@ test("prepared-state migration adds additive shadow tables to an existing 1.1-st
       "codex_thread_title_aliases",
       "telemetry_search_events",
       "telemetry_follow_events",
+      "codex_event_content",
       "codex_search_fts"
     ]) {
       assert.equal(tables.has(table), true, `${table} exists`);
@@ -108,6 +109,7 @@ test("prepared-state migration adds additive shadow tables to an existing 1.1-st
       "2026-07-04-prepared-card-source-range-omissions",
       "2026-07-05-thread-title-aliases",
       "2026-07-06-index-fast-skip-and-hot-path-indexes",
+      "2026-07-08-codex-event-content-store",
       "2026-07-06-retrieval-telemetry",
       "2026-07-06-retrieval-telemetry-session-key",
       "2026-07-06-codex-search-fts"

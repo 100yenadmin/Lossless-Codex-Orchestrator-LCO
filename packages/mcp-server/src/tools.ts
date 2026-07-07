@@ -40,6 +40,7 @@ import {
   getCodexThreadMap,
   getCodexTouchedFiles,
   getCodexToolCalls,
+  getCodexEventContentStatus,
   getCodexJsonlDriftStatus,
   getRecentSessions,
   getSummaryLeaves,
@@ -469,6 +470,7 @@ function isRecordValue(value: unknown): value is Record<string, unknown> {
 
 export function createLooTools(options: {
   db: LooDatabase;
+  dbPath?: string;
   audit: AuditStore;
   codexClient: CodexClient;
   codexReadClient?: CodexClient;
@@ -1083,6 +1085,7 @@ export function createLooTools(options: {
       localOnly: true,
       toolPrefix: "lco_*",
       codexJsonlDrift: getCodexJsonlDriftStatus(options.db),
+      codexEventContent: getCodexEventContentStatus(options.db, options.dbPath),
       codex: codexTransportStatus({ command: readEnvWithFallback("CODEX_BIN", "codex") }),
       lcmPeers: probeLcmPeerDbs(configuredLcmPeerDbPaths()),
       desktopFallbacks: desktopFallbackDiagnostics({ probe: options.desktopProbe })
