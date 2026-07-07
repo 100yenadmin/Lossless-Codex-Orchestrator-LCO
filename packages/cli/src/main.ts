@@ -246,7 +246,7 @@ async function main() {
       db = createRecallCliDatabase(parsed.timeoutMs);
       const results = searchSessions(db, { query: parsed.query, limit: parsed.limit, telemetry: false });
       if (emitRecallTimeoutReportIfExceeded("search", started, { limit: parsed.limit, timeoutMs: parsed.timeoutMs })) return;
-      if (results.length === 0) {
+      if (results.length === 0 && shouldEmitInteractiveSearchEmptyGuidance()) {
         console.error(searchEmptyGuidanceText());
       }
       console.log(JSON.stringify(results, null, 2));
@@ -1173,7 +1173,7 @@ function isCliUsageErrorMessage(message: string): boolean {
 function printSearchHelp(): void {
   console.log([
     "Usage:",
-    "  loo search [--limit n] [--timeout-ms ms] <query>",
+    "  loo/lco search [--limit n] [--timeout-ms ms] <query>",
     "",
     "Run title/metadata session-card search over indexed Codex sessions.",
     "Use this for thread names, aliases, refs, summaries, files, and prepared-state signals.",
@@ -1197,6 +1197,10 @@ function searchEmptyGuidanceText(): string {
     "No title/metadata session-card matches.",
     "For content phrase recall, try `loo grep <query>` or `loo expand-query <query>`; `lco` aliases are equivalent."
   ].join(" ");
+}
+
+function shouldEmitInteractiveSearchEmptyGuidance(): boolean {
+  return Boolean(process.stdout.isTTY && process.stderr.isTTY);
 }
 
 type ParsedSearchArgs = {

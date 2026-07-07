@@ -53,7 +53,7 @@ test("loo search supports bounded limit and timeout arguments on a large fixture
   }
 });
 
-test("loo search zero results points content queries to grep and expand-query", () => {
+test("loo search zero results keeps machine output clean", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-cli-search-empty-hint-"));
   try {
     const dbPath = join(root, "orchestrator.sqlite");
@@ -79,9 +79,7 @@ test("loo search zero results points content queries to grep and expand-query", 
 
     assert.equal(result.status, 0, result.stderr || result.stdout);
     assert.equal(result.stdout.trim(), "[]");
-    assert.match(result.stderr, /No title\/metadata session-card matches/i);
-    assert.match(result.stderr, /loo grep/);
-    assert.match(result.stderr, /loo expand-query/);
+    assert.equal(result.stderr.trim(), "");
     assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /\/Volumes\/LEXAR|\/Users\/|\/tmp\/|orchestrator\.sqlite|\.jsonl/);
   } finally {
     rmSync(root, { recursive: true, force: true });
