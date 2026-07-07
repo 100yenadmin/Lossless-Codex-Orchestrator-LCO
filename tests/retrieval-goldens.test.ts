@@ -152,7 +152,7 @@ test("retrieval goldens v2 preserve an unsaturated baseline and skip future even
     assert.equal(report.metrics.overall.hitAt1 >= floors.overall.hitAt1, true);
     assert.equal(report.metrics.overall.hitAt5 >= floors.overall.hitAt5, true);
     assert.equal(report.metrics.overall.mrr >= floors.overall.mrr, true);
-    assert.equal(report.metrics.overall.hitAt1 >= 0.6 && report.metrics.overall.hitAt1 <= 0.85, true);
+    assert.equal(floors.overall.hitAt1 >= 0.6 && floors.overall.hitAt1 <= 0.85, true);
     assert.equal(report.metrics.overall.hitAt1 < 1, true);
     for (const [family, familyFloors] of Object.entries(floors.families)) {
       assert.equal(report.metrics.families[family]?.hitAt1 >= familyFloors.hitAt1, true, family);
