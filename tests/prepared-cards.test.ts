@@ -1794,8 +1794,12 @@ test("prepared targeted coverage downgrades blocked and approval-waiting cards",
   try {
     const waitingThreadId = "019f-life-coverage-approval";
     const blockedThreadId = "019f-life-coverage-blocked";
+    const reviewThreadId = "019f-life-coverage-review";
+    const ciWatchThreadId = "019f-life-coverage-ci-watch";
     writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-03-00-019f-life-coverage-approval.jsonl"), waitingThreadId, "Waiting approval coverage");
     writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-03-01-019f-life-coverage-blocked.jsonl"), blockedThreadId, "Blocked coverage");
+    writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-03-02-019f-life-coverage-review.jsonl"), reviewThreadId, "Review coverage");
+    writePreparedCardJsonl(join(sessions, "rollout-2026-07-04T00-03-03-019f-life-coverage-ci-watch.jsonl"), ciWatchThreadId, "CI watch coverage");
     indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
     for (const [index, fixture] of [
       {
@@ -1805,6 +1809,14 @@ test("prepared targeted coverage downgrades blocked and approval-waiting cards",
       {
         threadId: blockedThreadId,
         metadata: { status: "blocked", blocker: "missing user input", nextAction: "Ask for the missing context" }
+      },
+      {
+        threadId: reviewThreadId,
+        metadata: { status: "ready for review", nextAction: "Review bounded evidence before merge" }
+      },
+      {
+        threadId: ciWatchThreadId,
+        metadata: { status: "waiting", blocker: "CI checks pending", nextAction: "Watch CI checks and report when green" }
       }
     ].entries()) {
       insertSessionMetadataRow(db, {
@@ -1827,6 +1839,19 @@ test("prepared targeted coverage downgrades blocked and approval-waiting cards",
       assert.equal(status.targetCoverage?.status, "partial");
       assert.equal(status.targetCoverage?.reasonCodes.includes("partial_prepared_state"), true);
       assert.equal(status.targetCoverage?.reasonCodes.includes("prepared_state_ready"), false);
+    }
+    for (const threadId of [reviewThreadId, ciWatchThreadId]) {
+      const status = getPreparedStateStatus(db, { threadId }) as ReturnType<typeof getPreparedStateStatus> & {
+        targetCoverage?: {
+          status: string;
+          sourceCoverage: Record<string, string>;
+          reasonCodes: string[];
+        } | null;
+      };
+      assert.equal(status.targetCoverage?.sourceCoverage.preparedCards, "ok");
+      assert.equal(status.targetCoverage?.status, "ready");
+      assert.equal(status.targetCoverage?.reasonCodes.includes("prepared_state_ready"), true);
+      assert.equal(status.targetCoverage?.reasonCodes.includes("partial_prepared_state"), false);
     }
   } finally {
     db.close();
