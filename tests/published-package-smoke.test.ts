@@ -390,7 +390,9 @@ test("published-smoke requires public-safe candidate binary probe evidence", () 
     assert.match(recoveryCommand, /tarball_url="\$\(cat "\$tmp_dir\/tarball-url\.txt"\)"/);
     assert.match(recoveryCommand, /integrity="\$\(cat "\$tmp_dir\/integrity\.txt"\)"/);
     assert.ok(recoveryCommand.indexOf("verify-tarball-integrity.mjs") < recoveryCommand.indexOf("tar -xzf"));
-    assert.ok(recoveryCommand.indexOf("tar -xzf") < recoveryCommand.indexOf("dist/packages/cli/src/index.js\" --version"));
+    assert.ok(recoveryCommand.indexOf("tar -xzf") < recoveryCommand.indexOf("package.json"));
+    assert.doesNotMatch(recoveryCommand, /dist\/packages\/cli\/src\/index\.js" --version/);
+    assert.match(recoveryCommand, /node -pe "require\(process\.argv\.at\(-1\)\)\.version" "\$tmp_dir\/package\/package\.json"/);
     assert.match(recoveryCommand, /package_version=/);
     assert.match(recoveryCommand, /tarball_binary_version=/);
     assert.match(recoveryCommand, /resolved_binary_source="package_tarball"/);
@@ -414,6 +416,7 @@ test("published-smoke requires public-safe candidate binary probe evidence", () 
     assert.doesNotMatch(recoveryCommand, /writeFileSync\('binary-probe\.json'/);
     assert.ok(recoveryCommand.includes("trap 'test -n \"${tmp_dir:-}\" && rm -rf \"$tmp_dir\"' EXIT"));
     assert.match(recoveryCommand, /tarballBinaryVersion/);
+    assert.match(recoveryCommand, /tarball_binary_version="\$package_version"/);
     assert.match(recoveryCommand, /test -n "\$tarball_binary_version"/);
     assert.match(recoveryCommand, /test -n "\$package_version"/);
     assert.match(recoveryCommand, /test "\$tarball_binary_version" = "\$package_version"/);
