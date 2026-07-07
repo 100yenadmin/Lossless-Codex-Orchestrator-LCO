@@ -204,6 +204,45 @@ test("append-delta preserves prior event content and adds one FTS-backed row", (
   }
 });
 
+test("unchanged-file fast-skip reindexes when event-content hash parity drifts", () => {
+  const root = mkdtempSync(join(tmpdir(), "lco-event-content-hash-parity-"));
+  try {
+    const sessionsDir = join(root, "sessions");
+    const threadId = "019f-event-content-hash-parity";
+    const file = join(sessionsDir, "rollout-2026-07-08T00-00-00-019f-event-content-hash-parity.jsonl");
+    writeEventContentSession(file, {
+      threadId,
+      phrase: "Hash parity drift should force a repair index."
+    });
+    const db = createDatabase(join(root, "orchestrator.sqlite"));
+    try {
+      assert.equal(indexCodexSessions(db, { roots: [sessionsDir], maxFiles: 10 }).indexedFiles, 1);
+      db.prepare(`
+        UPDATE codex_event_content
+        SET content_hash = '00000000000000000000000000000000'
+        WHERE event_id = (
+          SELECT event_id FROM codex_event_content WHERE thread_id = ? ORDER BY ordinal ASC LIMIT 1
+        )
+      `).run(threadId);
+      const repair = indexCodexSessions(db, { roots: [sessionsDir], maxFiles: 10 });
+      assert.equal(repair.indexedFiles, 1);
+      assert.equal(repair.skippedFiles, 0);
+      const mismatches = db.prepare(`
+        SELECT COUNT(*) AS count
+        FROM prepared_source_events p
+        JOIN codex_event_content c ON c.event_id = p.event_id
+        WHERE p.thread_id = ?
+          AND (c.source_hash <> p.source_hash OR c.content_hash <> p.content_hash)
+      `).get(threadId) as { count: number };
+      assert.equal(mismatches.count, 0);
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("grep returns an event-granular durable hit after the source JSONL is removed", () => {
   const root = mkdtempSync(join(tmpdir(), "lco-event-content-durable-grep-"));
   try {
@@ -234,6 +273,39 @@ test("grep returns an event-granular durable hit after the source JSONL is remov
       assert.ok(rotatedMatch?.reasonCodes?.includes("source_rotated"));
       assert.match(rotatedMatch?.snippet ?? "", /\[per-event\].*\[recall\].*\[survives\]/);
     } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("grep reports event-content FTS query errors while preserving session fallback", () => {
+  const root = mkdtempSync(join(tmpdir(), "lco-event-content-fts-error-"));
+  try {
+    const sessionsDir = join(root, "sessions");
+    const threadId = "019f-event-content-fts-error";
+    const file = join(sessionsDir, "rollout-2026-07-08T00-00-00-019f-event-content-fts-error.jsonl");
+    writeEventContentSession(file, {
+      threadId,
+      phrase: "FTS failure fallback phrase remains searchable from safe text."
+    });
+    const db = createDatabase(join(root, "orchestrator.sqlite"));
+    const originalPrepare = db.prepare;
+    try {
+      assert.equal(indexCodexSessions(db, { roots: [sessionsDir], maxFiles: 10 }).indexedFiles, 1);
+      (db as unknown as { prepare: LooDatabase["prepare"] }).prepare = ((sql: string) => {
+        if (sql.includes("FROM codex_event_content_fts") && sql.includes("MATCH ?")) {
+          throw new Error("synthetic event FTS failure");
+        }
+        return originalPrepare.call(db, sql);
+      }) as LooDatabase["prepare"];
+      const grep = grepRecall(db, { query: "FTS failure fallback phrase", limit: 5 }) as Record<string, any>;
+      assert.ok(grep.reasonCodes?.includes("event_content_fts_query_error"));
+      assert.equal(grep.matches[0]?.sourceRef, `codex_thread:${threadId}`);
+      assert.equal(grep.matches[0]?.event, undefined);
+    } finally {
+      (db as unknown as { prepare: LooDatabase["prepare"] }).prepare = originalPrepare;
       db.close();
     }
   } finally {

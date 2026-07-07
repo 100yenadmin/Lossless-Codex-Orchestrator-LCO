@@ -2385,6 +2385,13 @@ export type RecallSearchResult = {
   };
 };
 
+export type GrepRecallResult = {
+  query: string;
+  profile: RecallProfile;
+  matches: RecallSearchResult[];
+  reasonCodes?: string[];
+};
+
 export type RecallDescription = {
   sourceKind: RecallSourceKind;
   sourceRef: string;
@@ -4129,13 +4136,22 @@ function sourceFileEventContentCurrent(db: LooDatabase, sourcePath: string): boo
     SELECT
       (SELECT COUNT(*) FROM codex_sessions WHERE source_path = ?) AS currentSessions,
       (SELECT COUNT(*) FROM prepared_source_events WHERE source_path_ref = ?) AS preparedEvents,
-      (SELECT COUNT(*) FROM codex_event_content WHERE source_path_ref = ?) AS contentEvents
-  `).get(sourcePath, sourcePathRef, sourcePathRef) as { currentSessions: number; preparedEvents: number; contentEvents: number } | undefined;
+      (SELECT COUNT(*) FROM codex_event_content WHERE source_path_ref = ?) AS contentEvents,
+      (
+        SELECT COUNT(*)
+        FROM prepared_source_events p
+        JOIN codex_event_content c ON c.event_id = p.event_id
+        WHERE p.source_path_ref = ?
+          AND c.source_hash = p.source_hash
+          AND c.content_hash = p.content_hash
+      ) AS matchingContentEvents
+  `).get(sourcePath, sourcePathRef, sourcePathRef, sourcePathRef) as { currentSessions: number; preparedEvents: number; contentEvents: number; matchingContentEvents: number } | undefined;
   const currentSessions = Number(row?.currentSessions ?? 0);
   const preparedEvents = Number(row?.preparedEvents ?? 0);
   const contentEvents = Number(row?.contentEvents ?? 0);
+  const matchingContentEvents = Number(row?.matchingContentEvents ?? 0);
   if (currentSessions === 0 && preparedEvents === 0 && contentEvents === 0) return true;
-  return preparedEvents > 0 && contentEvents === preparedEvents;
+  return preparedEvents > 0 && contentEvents === preparedEvents && matchingContentEvents === preparedEvents;
 }
 
 function sourceFileHasRecordedJsonlDrift(db: LooDatabase, sourcePath: string): boolean {
@@ -14571,11 +14587,11 @@ export function probeLcmPeerDbs(paths = configuredLcmPeerDbPaths()): { peers: Lc
   return { peers: paths.map((path) => probeLcmPeerDb(path)) };
 }
 
-function searchCodexEventContent(db: LooDatabase, options: { query: string; limit: number }): RecallSearchResult[] {
+function searchCodexEventContent(db: LooDatabase, options: { query: string; limit: number }): { matches: RecallSearchResult[]; reasonCodes: string[] } {
   const query = options.query.trim();
-  if (!query || !tableExists(db, "codex_event_content") || !tableExists(db, "codex_event_content_fts")) return [];
+  if (!query || !tableExists(db, "codex_event_content") || !tableExists(db, "codex_event_content_fts")) return { matches: [], reasonCodes: [] };
   const terms = safeFtsTerms(query);
-  if (terms.length === 0) return [];
+  if (terms.length === 0) return { matches: [], reasonCodes: [] };
   let rows: Array<Record<string, unknown>>;
   try {
     rows = db.prepare(`
@@ -14604,9 +14620,9 @@ function searchCodexEventContent(db: LooDatabase, options: { query: string; limi
       LIMIT ?
     `).all(terms.join(" "), options.limit) as Array<Record<string, unknown>>;
   } catch {
-    return [];
+    return { matches: [], reasonCodes: ["event_content_fts_query_error"] };
   }
-  return rows.map((row, index) => {
+  return { matches: rows.map((row, index) => {
     const threadId = String(row.threadId);
     const sourcePath = String(row.sourcePath ?? "");
     const sourceStatus = sourcePath && existsSync(sourcePath) ? "source_available" : "source_rotated";
@@ -14637,7 +14653,7 @@ function searchCodexEventContent(db: LooDatabase, options: { query: string; limi
         sourceStatus
       }
     };
-  });
+  }), reasonCodes: [] };
 }
 
 function collapseEventMatchesBySourceRef(matches: RecallSearchResult[]): RecallSearchResult[] {
@@ -14670,7 +14686,7 @@ export function grepRecall(db: LooDatabase, options: {
   telemetry?: boolean;
   telemetrySessionId?: string;
   now?: string;
-}): { query: string; profile: RecallProfile; matches: RecallSearchResult[] } {
+}): GrepRecallResult {
   const query = options.query.trim();
   const limit = clamp(options.limit ?? 10, 1, 100);
   const profile = resolveRecallProfile(options.profile, options.tokenBudget);
@@ -14681,7 +14697,8 @@ export function grepRecall(db: LooDatabase, options: {
     sourceRef: codexThreadRef(match.threadId),
     threadId: match.threadId
   }));
-  const eventMatches = collapseEventMatchesBySourceRef(searchCodexEventContent(db, { query, limit }));
+  const eventSearch = searchCodexEventContent(db, { query, limit });
+  const eventMatches = collapseEventMatchesBySourceRef(eventSearch.matches);
   const eventSessionRefs = new Set(eventMatches.map((match) => match.sourceRef));
   const codexMatches = [
     ...eventMatches,
@@ -14698,7 +14715,8 @@ export function grepRecall(db: LooDatabase, options: {
       now: options.now
     });
   }
-  return { query, profile, matches };
+  const reasonCodes = unique(eventSearch.reasonCodes);
+  return reasonCodes.length > 0 ? { query, profile, matches, reasonCodes } : { query, profile, matches };
 }
 
 export function describeRecallRef(db: LooDatabase, options: { sourceRef: string; lcmDbPaths?: string[]; telemetry?: boolean; telemetrySessionId?: string; now?: string }): RecallDescription | null {
