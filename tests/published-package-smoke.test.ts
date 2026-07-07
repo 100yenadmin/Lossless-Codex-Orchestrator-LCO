@@ -492,19 +492,20 @@ test("published-smoke requires public-safe candidate binary probe evidence", () 
     assert.ok(recoveryCommand.indexOf("tar -xzf") < recoveryCommand.indexOf("test -f"));
     assert.match(recoveryCommand, /test -f "\$tmp_dir\/package\/package\.json"/);
     assert.ok(recoveryCommand.indexOf("tar -xzf") < recoveryCommand.indexOf("package.json"));
-    assert.doesNotMatch(recoveryCommand, /dist\/packages\/cli\/src\/index\.js" --version/);
+    assert.match(recoveryCommand, /candidate_binary_path="\$tmp_dir\/package\/dist\/packages\/cli\/src\/index\.js"/);
+    assert.match(recoveryCommand, /test -f "\$candidate_binary_path"/);
+    assert.match(recoveryCommand, /version="\$\(node "\$candidate_binary_path" --version\)"/);
     assert.match(recoveryCommand, /node -pe "require\(process\.argv\.at\(-1\)\)\.version" "\$tmp_dir\/package\/package\.json"/);
     assert.match(recoveryCommand, /package_version=/);
-    assert.match(recoveryCommand, /tarball_binary_version=/);
-    assert.match(recoveryCommand, /resolved_binary_source="package_tarball"/);
+    assert.match(recoveryCommand, /tarball_binary_version=""/);
+    assert.match(recoveryCommand, /resolved_binary_source="package_exec"/);
     assert.match(recoveryCommand, /path_shadowed="false"/);
     assert.doesNotMatch(recoveryCommand, /command -v loo/);
     assert.doesNotMatch(recoveryCommand, /loo --version/);
-    assert.doesNotMatch(recoveryCommand, /resolved_binary_source="package_exec"/);
+    assert.doesNotMatch(recoveryCommand, /resolved_binary_source="package_tarball"/);
     assert.doesNotMatch(recoveryCommand, /resolved_binary_source="global_path"/);
     assert.match(recoveryCommand, /JSON\.stringify/);
     assert.match(recoveryCommand, /tarballVersionSource/);
-    assert.match(recoveryCommand, /package_json_metadata/);
     assert.match(recoveryCommand, /process\.argv\.at\(-1\)/);
     assert.match(recoveryCommand, /process\.argv\.slice\(2\)/);
     assert.match(recoveryCommand, /mkdir -p "\$evidence_dir"/);
@@ -519,10 +520,9 @@ test("published-smoke requires public-safe candidate binary probe evidence", () 
     assert.ok(recoveryCommand.includes("trap 'test -n \"${tmp_dir:-}\" && rm -rf \"$tmp_dir\"' EXIT"));
     assert.match(recoveryCommand, /tarballBinaryVersion/);
     assert.match(recoveryCommand, /tarballVersionSource/);
-    assert.match(recoveryCommand, /tarball_binary_version="\$package_version"/);
-    assert.match(recoveryCommand, /test -n "\$tarball_binary_version"/);
+    assert.match(recoveryCommand, /tarball_binary_version=""/);
     assert.match(recoveryCommand, /test -n "\$package_version"/);
-    assert.match(recoveryCommand, /test "\$tarball_binary_version" = "\$package_version"/);
+    assert.match(recoveryCommand, /test "\$version" = "\$package_version"/);
     assert.match(recoveryCommand, /test -n "\$version"/);
     assert.match(recoveryCommand, /"\$binary_probe_report" .*"\$version" "\$package_version" "\$resolved_binary_source" "\$path_shadowed" "\$tarball_binary_version"/);
     assert.ok(recoveryCommand.includes(`'${packageVersion}'`));
@@ -646,12 +646,13 @@ test("published-smoke requires tarball binary version for package-tarball candid
       now: "2026-07-07T00:00:00.000Z"
     });
 
-    assert.equal(missingTarballSourceReport.ok, true);
-    assert.equal(missingTarballSourceReport.packagePathOk, true);
-    assert.equal(missingTarballSourceReport.binaryProbeDiagnostic.classification, "valid_candidate_binary");
+    assert.equal(missingTarballSourceReport.ok, false);
+    assert.equal(missingTarballSourceReport.packagePathOk, false);
+    assert.equal(missingTarballSourceReport.binaryProbeDiagnostic.classification, "candidate_binary_version_mismatch");
     assert.equal(missingTarballSourceReport.binaryProbeDiagnostic.tarballBinaryVersion, packageVersion);
     assert.equal(missingTarballSourceReport.binaryProbeDiagnostic.tarballVersionSource, null);
     assert.doesNotMatch(JSON.stringify(missingTarballSourceReport.binaryProbeDiagnostic.evidenceInputs), /candidate_tarball_package_json_metadata/);
+    assert.deepEqual(missingTarballSourceReport.blockers, ["binary_probe_candidate_version_mismatch"]);
 
     writeJson(binaryProbePath, {
       kind: "loo_published_binary_probe_evidence",
@@ -674,12 +675,40 @@ test("published-smoke requires tarball binary version for package-tarball candid
       now: "2026-07-07T00:00:00.000Z"
     });
 
-    assert.equal(tarballMarkerReport.ok, true);
-    assert.equal(tarballMarkerReport.packagePathOk, true);
-    assert.equal(tarballMarkerReport.binaryProbeDiagnostic.classification, "valid_candidate_binary");
+    assert.equal(tarballMarkerReport.ok, false);
+    assert.equal(tarballMarkerReport.packagePathOk, false);
+    assert.equal(tarballMarkerReport.binaryProbeDiagnostic.classification, "candidate_binary_version_mismatch");
     assert.equal(tarballMarkerReport.binaryProbeDiagnostic.tarballBinaryVersion, packageVersion);
     assert.equal(tarballMarkerReport.binaryProbeDiagnostic.tarballVersionSource, "package_json_metadata");
-    assert.ok(tarballMarkerReport.binaryProbeDiagnostic.guidance.some((item) => item.includes("package.json metadata")));
+    assert.equal(tarballMarkerReport.binaryProbeDiagnostic.packageInstallLikelyOk, false);
+    assert.deepEqual(tarballMarkerReport.blockers, ["binary_probe_candidate_version_mismatch"]);
+
+    writeJson(binaryProbePath, {
+      kind: "loo_published_binary_probe_evidence",
+      publicSafe: true,
+      rawSecretIncluded: false,
+      expectedVersion: packageVersion,
+      observedVersion: packageVersion,
+      resolvedBinarySource: "package_exec",
+      pathShadowed: false,
+      packageJsonVersion: packageVersion
+    });
+
+    const packageExecReport = createPublishedPackageSmokeReport({
+      rootDir,
+      dogfoodReportPath: dogfoodPath,
+      toolSmokeReportPath: toolSmokePath,
+      binaryProbeReportPath: binaryProbePath,
+      now: "2026-07-07T00:00:00.000Z"
+    });
+
+    assert.equal(packageExecReport.ok, true);
+    assert.equal(packageExecReport.packagePathOk, true);
+    assert.equal(packageExecReport.binaryProbeDiagnostic.classification, "valid_candidate_binary");
+    assert.equal(packageExecReport.binaryProbeDiagnostic.packageInstallLikelyOk, true);
+    assert.equal(packageExecReport.binaryProbeDiagnostic.resolvedBinarySource, "package_exec");
+    assert.equal(packageExecReport.binaryProbeDiagnostic.tarballBinaryVersion, null);
+    assert.equal(packageExecReport.binaryProbeDiagnostic.tarballVersionSource, null);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
