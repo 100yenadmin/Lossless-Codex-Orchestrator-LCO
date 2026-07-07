@@ -257,7 +257,7 @@ Expected dogfood checks:
 - Prefer an isolated OpenClaw profile, such as `lco-dogfood`, for linked beta proof so an existing default-profile install does not masquerade as a product failure.
 - Treat `openclaw_gateway_credentials_required` on a fresh profile as first-run setup, not a package defect: `lco openclaw tool-smoke` must emit `setupStatus.classification: "gateway_setup_required"` plus `setupBlockers`/`setupGuidance`; use a provisioned profile, pass a scoped gateway token, or complete local profile/device pairing before claiming gateway tool-smoke failure.
 - Record structured `installOutcome.status` and `installOutcome.guidance` for linked installs, including `installed`, `already_installed`, `link_force_unsupported`, or `failed`, without storing raw OpenClaw stdout/stderr or local profile paths.
-- Call read-only tools such as `lco_doctor`, `lco_index_sessions`, `lco_search_sessions`, `lco_describe_session`, `lco_expand_session`, `lco_expand_query`, `lco_codex_plans`, and `lco_codex_final_messages`.
+- Call read-only tools such as `lco_doctor`, `lco_index_sessions`, `lco_search_sessions`, `lco_describe_session`, `lco_expand_session`, `lco_expand_query`, and `lco_codex_extract` with the relevant `kind`.
 - For approval-gated tools, distinguish catalog exposure from proof-ready invocation. A generic `tools.invoke` call that reaches the tool but returns `ok:false` is fail-closed evidence, not a successful feature proof.
 - Verify dry-run control tools produce audit ids without mutating a real Codex thread.
 - Confirm evidence contains counts, refs, hashes, statuses, and redacted metadata only.
@@ -287,12 +287,12 @@ For implementation issues, copy `evals/scorecards/v1.0/issue-scorecard-update-te
 | Area | Target | Current proof field |
 | --- | --- | --- |
 | Codex indexing | 100+ local sessions indexed with bounded file, byte, and event limits | session count, event count, `errors`, `limitedFiles` |
-| Session map | Agent can list useful active/recent sessions without raw transcript reads | `lco_codex_thread_map` evidence |
+| Session map | Agent can list useful active/recent sessions without raw transcript reads | `lco_operating_picture` with `kind: "thread_map"` evidence |
 | Orchestrator leverage | Roadmap priority favors highest signal per token for managing many sessions | `orchestrator-leverage-prioritization.json` score movement |
 | Search quality | Known plan/final queries return expected sessions in top results | query, refs, top-k hits |
 | Bounded expansion | 1k and 4k briefs preserve metadata, plans, finals, touched files, and safe summaries | expansion profile, token budget, omitted markers |
-| Final-message extraction | Final assistant/status messages are searchable and attributable | `lco_codex_final_messages` evidence |
-| Proposed-plan extraction | Proposed plans are extracted without leaking unrelated raw transcript spans | `lco_codex_plans` evidence |
+| Final-message extraction | Final assistant/status messages are searchable and attributable | `lco_codex_extract` with `kind: "final_messages"` evidence |
+| Proposed-plan extraction | Proposed plans are extracted without leaking unrelated raw transcript spans | `lco_codex_extract` with `kind: "plans"` evidence |
 | Touched-file extraction | Touched files remain visible or accurately omitted in bounded briefs | file count, omitted marker |
 | Control safety | Live actions fail closed without matching dry-run and `approval_audit_id` | control tests and audit evidence |
 | Desktop fallback readiness | CUA/Peekaboo report honest readiness without overclaiming action support; missing coherence returns an actionable `coherence_input_missing` handoff | `lco_codex_desktop_fallback_status` / `lco_desktop_see` evidence |

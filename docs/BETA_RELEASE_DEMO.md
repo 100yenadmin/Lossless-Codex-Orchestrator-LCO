@@ -32,9 +32,9 @@ node dist/packages/cli/src/index.js search "final message"
 
 MCP/OpenClaw:
 
-- `lco_codex_plans`
-- `lco_codex_final_messages`
-- `lco_codex_thread_map`
+- `lco_codex_extract` with `kind: "plans"`
+- `lco_codex_extract` with `kind: "final_messages"`
+- `lco_operating_picture` with `kind: "thread_map"`
 
 The expected proof is that searches return bounded safe-text refs such as `codex_thread:*`, not raw transcript dumps.
 
