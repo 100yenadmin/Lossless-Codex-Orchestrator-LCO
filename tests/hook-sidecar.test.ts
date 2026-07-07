@@ -18,6 +18,13 @@ const rawTranscriptPath = "/Users/lume/.codex/sessions/2026/07/04/raw-thread.jso
 const rawToken = "npm_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456";
 const tsxImport = createRequire(import.meta.url).resolve("tsx");
 
+test("hook sidecar CLI database opens inherit bounded busy timeout posture", () => {
+  const source = readFileSync("packages/cli/src/main.ts", "utf8");
+
+  assert.match(source, /function createHookSidecarDatabase\(timeoutMs = DEFAULT_RECALL_TIMEOUT_MS\)/);
+  assert.match(source, /return createDatabase\(\{ maintenance: "schema-only", busyTimeoutMs: timeoutMs \}\);/);
+});
+
 function closeoutMessage(): string {
   return [
     "Final: hook sidecar capture complete.",

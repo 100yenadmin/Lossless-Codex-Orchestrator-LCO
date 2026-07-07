@@ -399,7 +399,7 @@ function binaryProbeDiagnosticCommands(
   if (diagnostic.classification === "not_provided") {
     return [
       `${tarballLookup} --json`,
-      `${tarballExtractPrefix} && version="$(node "$tmp_dir/package/dist/packages/cli/src/index.js" --version)" && package_version="$(node -pe "require(process.argv[1]).version" "$tmp_dir/package/package.json")" && printf '{"kind":"loo_published_binary_probe_evidence","publicSafe":true,"rawSecretIncluded":false,"expectedVersion":"%s","observedVersion":"%s","resolvedBinarySource":"package_tarball","pathShadowed":false,"packageJsonVersion":"%s"}\\n' "${packageVersion}" "$version" "$package_version" > binary-probe.json`,
+      `${tarballExtractPrefix} && version="$(node "$tmp_dir/package/dist/packages/cli/src/index.js" --version)" && package_version="$(node -pe "require(process.argv[1]).version" "$tmp_dir/package/package.json")" && ${binaryProbeJsonWriteCommand(packageVersion)}`,
       "loo openclaw published-smoke --dogfood-report dogfood.json --tool-smoke-report tool-smoke.json --binary-probe-report binary-probe.json --strict"
     ];
   }
@@ -412,6 +412,19 @@ function binaryProbeDiagnosticCommands(
 
 function publishedPackageTarballExtractCommand(tarballLookup: string): string {
   return `tarball_url="$(${tarballLookup})" && test -n "$tarball_url" && tmp_dir="$(mktemp -d)" && curl -fsSL "$tarball_url" -o "$tmp_dir/package.tgz" && tar -xzf "$tmp_dir/package.tgz" -C "$tmp_dir"`;
+}
+
+function binaryProbeJsonWriteCommand(packageVersion: string): string {
+  const writer = [
+    "const fs = require('node:fs');",
+    "const [expectedVersion, observedVersion, packageJsonVersion] = process.argv.slice(1);",
+    "fs.writeFileSync('binary-probe.json', JSON.stringify({ kind: 'loo_published_binary_probe_evidence', publicSafe: true, rawSecretIncluded: false, expectedVersion, observedVersion, resolvedBinarySource: 'package_tarball', pathShadowed: false, packageJsonVersion }) + '\\n');"
+  ].join(" ");
+  return `node -e ${shellSingleQuote(writer)} ${shellSingleQuote(packageVersion)} "$version" "$package_version"`;
+}
+
+function shellSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\"'\"'")}'`;
 }
 
 function binaryProbeBlockers(diagnostic: PublishedPackageSmokeReport["binaryProbeDiagnostic"]): string[] {

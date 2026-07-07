@@ -1238,8 +1238,8 @@ function createRecallCliDatabase(timeoutMs: number): ReturnType<typeof createDat
   return createDatabase({ maintenance: "schema-only", busyTimeoutMs: timeoutMs });
 }
 
-function createHookSidecarDatabase(): ReturnType<typeof createDatabase> {
-  return createDatabase({ maintenance: "schema-only" });
+function createHookSidecarDatabase(timeoutMs = DEFAULT_RECALL_TIMEOUT_MS): ReturnType<typeof createDatabase> {
+  return createDatabase({ maintenance: "schema-only", busyTimeoutMs: timeoutMs });
 }
 
 function emitRecallTimeoutReportIfExceeded(commandName: string, started: number, options: { limit?: number; timeoutMs: number }): boolean {
