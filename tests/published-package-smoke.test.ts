@@ -374,8 +374,92 @@ test("published-smoke requires public-safe candidate binary probe evidence", () 
     assert.match(recoveryCommand, /JSON\.stringify/);
     assert.doesNotMatch(recoveryCommand, /\bprintf\b/);
     assert.match(recoveryCommand, /trap 'rm -rf "\$tmp_dir"' EXIT/);
+    assert.match(recoveryCommand, /tarballBinaryVersion/);
     assert.match(recoveryCommand, /"\$version" "\$package_version"/);
     assert.ok(recoveryCommand.includes(packageVersion));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("published-smoke requires tarball binary version for package-tarball candidate evidence", () => {
+  const dir = mkdtempSync(join(tmpdir(), "lco-published-smoke-tarball-proof-"));
+  try {
+    const rootDir = join(dir, "package");
+    const dogfoodPath = join(dir, "dogfood.json");
+    const toolSmokePath = join(dir, "tool-smoke.json");
+    const binaryProbePath = join(dir, "binary-probe.json");
+    mkdirSync(rootDir, { recursive: true });
+    writeJson(join(rootDir, "package.json"), {
+      name: "lossless-codex-orchestrator",
+      version: packageVersion
+    });
+    writeJson(dogfoodPath, {
+      ok: true,
+      dogfoodReady: true,
+      requiredToolsPresent: true,
+      installOutcome: { status: "installed" }
+    });
+    writeJson(toolSmokePath, {
+      ok: true,
+      toolSmokeReady: true,
+      setupStatus: {
+        classification: "ready",
+        packageInstallLikelyOk: true
+      },
+      setupBlockers: [],
+      catalog: { toolCount: 34 },
+      invocations: [{ toolName: "lco_doctor", ok: true }]
+    });
+    writeJson(binaryProbePath, {
+      kind: "loo_published_binary_probe_evidence",
+      publicSafe: true,
+      rawSecretIncluded: false,
+      expectedVersion: packageVersion,
+      observedVersion: packageVersion,
+      resolvedBinarySource: "package_tarball",
+      pathShadowed: false,
+      packageJsonVersion: packageVersion
+    });
+
+    const missingTarballMarkerReport = createPublishedPackageSmokeReport({
+      rootDir,
+      dogfoodReportPath: dogfoodPath,
+      toolSmokeReportPath: toolSmokePath,
+      binaryProbeReportPath: binaryProbePath,
+      now: "2026-07-07T00:00:00.000Z"
+    });
+
+    assert.equal(missingTarballMarkerReport.ok, false);
+    assert.equal(missingTarballMarkerReport.packagePathOk, false);
+    assert.equal(missingTarballMarkerReport.binaryProbeDiagnostic.classification, "candidate_binary_version_mismatch");
+    assert.equal(missingTarballMarkerReport.binaryProbeDiagnostic.tarballBinaryVersion, null);
+    assert.deepEqual(missingTarballMarkerReport.blockers, ["binary_probe_candidate_version_mismatch"]);
+
+    writeJson(binaryProbePath, {
+      kind: "loo_published_binary_probe_evidence",
+      publicSafe: true,
+      rawSecretIncluded: false,
+      expectedVersion: packageVersion,
+      observedVersion: packageVersion,
+      resolvedBinarySource: "package_tarball",
+      pathShadowed: false,
+      tarballBinaryVersion: packageVersion,
+      packageJsonVersion: packageVersion
+    });
+
+    const tarballMarkerReport = createPublishedPackageSmokeReport({
+      rootDir,
+      dogfoodReportPath: dogfoodPath,
+      toolSmokeReportPath: toolSmokePath,
+      binaryProbeReportPath: binaryProbePath,
+      now: "2026-07-07T00:00:00.000Z"
+    });
+
+    assert.equal(tarballMarkerReport.ok, true);
+    assert.equal(tarballMarkerReport.packagePathOk, true);
+    assert.equal(tarballMarkerReport.binaryProbeDiagnostic.classification, "valid_candidate_binary");
+    assert.equal(tarballMarkerReport.binaryProbeDiagnostic.tarballBinaryVersion, packageVersion);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

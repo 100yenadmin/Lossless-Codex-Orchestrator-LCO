@@ -418,7 +418,7 @@ function binaryProbeJsonWriteCommand(packageVersion: string): string {
   const writer = [
     "const fs = require('node:fs');",
     "const [expectedVersion, observedVersion, packageJsonVersion] = process.argv.slice(1);",
-    "fs.writeFileSync('binary-probe.json', JSON.stringify({ kind: 'loo_published_binary_probe_evidence', publicSafe: true, rawSecretIncluded: false, expectedVersion, observedVersion, resolvedBinarySource: 'package_tarball', pathShadowed: false, packageJsonVersion }) + '\\n');"
+    "fs.writeFileSync('binary-probe.json', JSON.stringify({ kind: 'loo_published_binary_probe_evidence', publicSafe: true, rawSecretIncluded: false, expectedVersion, observedVersion, resolvedBinarySource: 'package_tarball', pathShadowed: false, tarballBinaryVersion: observedVersion, packageJsonVersion }) + '\\n');"
   ].join(" ");
   return `node -e ${shellSingleQuote(writer)} ${shellSingleQuote(packageVersion)} "$version" "$package_version"`;
 }
@@ -480,7 +480,15 @@ function readBinaryProbeDiagnostic(path: string | undefined, packageVersion: str
     };
   }
 
-  if (!pathShadowed && expectedVersion === packageVersion && observedVersion === packageVersion && (resolvedBinarySource === "package_tarball" || resolvedBinarySource === "package_exec")) {
+  const packageTarballCandidate = resolvedBinarySource === "package_tarball"
+    && tarballMatches
+    && expectedVersion === packageVersion
+    && observedVersion === packageVersion;
+  const packageExecCandidate = resolvedBinarySource === "package_exec"
+    && expectedVersion === packageVersion
+    && observedVersion === packageVersion;
+
+  if (!pathShadowed && (packageTarballCandidate || packageExecCandidate)) {
     return {
       provided: true,
       classification: "valid_candidate_binary",

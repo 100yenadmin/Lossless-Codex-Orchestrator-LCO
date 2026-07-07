@@ -1676,9 +1676,12 @@ test("prepared cards promote semantic lifecycle states into card and inbox ranki
       if (fixture.expectedState === "ready") {
         assert.equal(card.reasonCodes.includes("lifecycle_signal_missing"), true);
         assert.equal(card.reasonCodes.includes("lifecycle:ready_without_lifecycle_signal"), true);
+        assert.equal(card.reasonCodes.filter((code) => code === "lifecycle_signal_missing").length, 1);
+        assert.equal(card.reasonCodes.filter((code) => code === "lifecycle:ready_without_lifecycle_signal").length, 1);
         assert.equal(card.reasonCodes.includes("lifecycle:unknown_lifecycle"), false);
       } else {
         assert.equal(card.reasonCodes.includes(`lifecycle:${fixture.expectedState}`), true);
+        assert.equal(card.reasonCodes.includes("lifecycle:ready_without_lifecycle_signal"), false);
       }
       assert.equal(card.reasonCodes.includes("summary_leaves_ready"), true);
       assert.equal(card.summaryText.includes("Lifecycle:"), false);

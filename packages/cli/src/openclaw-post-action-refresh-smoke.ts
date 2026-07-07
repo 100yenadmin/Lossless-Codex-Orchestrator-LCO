@@ -456,8 +456,7 @@ function findTargetRecord(value: unknown, targetRef: string, options: { descendI
 }
 
 function findTargetRecordInTopLevelCollections(value: Record<string, unknown>, targetRef: string, options: { descendIntoRecords?: boolean }): unknown | undefined {
-  for (const key of ["threads", "results", "items", "cards", "sessions"]) {
-    const collection = value[key];
+  for (const collection of Object.values(value)) {
     if (!Array.isArray(collection)) continue;
     const found = findTargetRecord(collection, targetRef, options);
     if (found !== undefined) return found;
