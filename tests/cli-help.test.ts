@@ -146,6 +146,65 @@ test("loo doctor omits local database paths from public-safe output", () => {
   }
 });
 
+test("loo doctor reports capped Codex index skips without leaking local paths", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-doctor-index-limits-"));
+  try {
+    const dbPath = join(root, "orchestrator.sqlite");
+    const sessions = join(root, "sessions");
+    mkdirSync(sessions, { recursive: true });
+    writeFileSync(
+      join(sessions, "oversized.jsonl"),
+      [
+        { timestamp: "2026-07-06T13:00:00.000Z", session_meta: { payload: { id: "019f-doctor-index-limit" } } },
+        { timestamp: "2026-07-06T13:00:01.000Z", event_msg: { type: "thread_name", name: "Doctor index limit canary" } },
+        { timestamp: "2026-07-06T13:00:02.000Z", event_msg: { type: "agent_message", message: "Final: Doctor index limit canary complete." } }
+      ].map((line) => JSON.stringify(line)).join("\n") + "\n"
+    );
+    const db = createDatabase(dbPath);
+    try {
+      const indexed = indexCodexSessions(db, { roots: [sessions], maxFiles: 10, maxEventsPerFile: 2 });
+      assert.equal(indexed.skippedFiles, 1);
+    } finally {
+      db.close();
+    }
+
+    const result = runLoo(["doctor"], {
+      ...process.env,
+      LOO_DB_PATH: dbPath
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const report = JSON.parse(result.stdout) as {
+      codexIndexLimits?: {
+        state?: string;
+        limitedFiles?: number;
+        skippedFiles?: number;
+        defaultIndexLimits?: { maxBytesPerFile: number; maxEventsPerFile: number };
+        reasons?: Array<{ reason: string; count: number; limit: number; maxActual: number }>;
+        nextSafeCommands?: string[];
+      };
+    };
+    assert.equal(report.codexIndexLimits?.state, "limited");
+    assert.equal(report.codexIndexLimits?.limitedFiles, 1);
+    assert.equal(report.codexIndexLimits?.skippedFiles, 1);
+    assert.deepEqual(report.codexIndexLimits?.defaultIndexLimits, {
+      maxBytesPerFile: 256 * 1024 * 1024,
+      maxEventsPerFile: 200_000
+    });
+    assert.deepEqual(report.codexIndexLimits?.reasons, [{
+      reason: "max_events_per_file",
+      count: 1,
+      limit: 2,
+      maxActual: 3
+    }]);
+    assert.match(report.codexIndexLimits?.nextSafeCommands?.join("\n") ?? "", /--max-events-per-file 1000000/);
+    assert.doesNotMatch(result.stdout, /oversized\.jsonl|orchestrator\.sqlite|\/Volumes\/LEXAR|\/Users\/|\/var\/|\/tmp\//);
+    assert.equal(result.stderr.trim(), "");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("loo describe exits nonzero with structured ref_not_found JSON for unknown refs", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-describe-not-found-"));
   try {

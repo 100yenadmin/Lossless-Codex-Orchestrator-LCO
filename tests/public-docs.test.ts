@@ -91,8 +91,9 @@ test("public docs document index byte cap and fresh-user tarball recovery comman
     ["README", readme],
     ["setup guide", setup]
   ] as const) {
-    assert.match(content, /50\s*MB per-file index cap/i, `${surface} must name the default per-file cap`);
+    assert.match(content, /256\s*MB\s*\/\s*200,000-event per-file index cap/i, `${surface} must name the default per-file cap`);
     assert.match(content, /--max-bytes-per-file/i, `${surface} must document the override flag`);
+    assert.match(content, /--max-events-per-file/i, `${surface} must document the event override flag`);
     assert.match(content, /npm view lossless-codex-orchestrator@[a-z]+ dist\.tarball/i, `${surface} must show a raw npm tarball lookup`);
     assert.match(content, /npm install -g "\$tarball_url"/i, `${surface} must show a raw npm tarball install`);
   }

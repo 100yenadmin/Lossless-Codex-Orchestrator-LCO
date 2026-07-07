@@ -9,6 +9,7 @@ import { createAuditStore } from "../packages/adapters/src/index.js";
 import {
   createDatabase,
   defaultCodexRoots,
+  getCodexIndexLimitStatus,
   getSourceFileWatermark,
   indexCodexSessions,
   probeCodexSqliteStores,
@@ -151,7 +152,7 @@ test("skips Codex JSONL files that exceed byte or event ceilings without indexin
   }
 });
 
-test("honors raised maxEventsPerFile above the default parser guard", () => {
+test("default maxEventsPerFile indexes sessions above the former 50k parser guard", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-importer-raised-event-cap-"));
   const sessions = join(root, "sessions");
   mkdirSync(sessions, { recursive: true });
@@ -172,12 +173,13 @@ test("honors raised maxEventsPerFile above the default parser guard", () => {
     const indexed = indexCodexSessions(db, {
       roots: [sessions],
       maxFiles: 10,
-      maxBytesPerFile: 20_000_000,
-      maxEventsPerFile: totalEvents
+      maxBytesPerFile: 20_000_000
     });
+    assert.equal(indexed.indexLimits.maxEventsPerFile, 200_000);
     assert.equal(indexed.indexedFiles, 1);
     assert.equal(indexed.indexedEvents, totalEvents);
     assert.deepEqual(indexed.limitedFiles, []);
+    assert.deepEqual(indexed.warnings, []);
     assert.equal(searchSessions(db, { query: "Raised cap title past default parser guard", limit: 5 }).length, 1);
   } finally {
     db.close();
@@ -208,8 +210,13 @@ test("clears previously indexed Codex evidence when a source file exceeds a late
       limit: 2,
       actual: 3
     }]);
+    assert.equal(getCodexIndexLimitStatus(db).state, "limited");
     assert.equal(searchSessions(db, { query: "Stale ceiling marker", limit: 5 }).length, 0);
     assert.equal(getSourceFileWatermark(db, sourcePath), null);
+
+    const widened = indexCodexSessions(db, { roots: [sessions], maxFiles: 10, maxEventsPerFile: 10, verify: true });
+    assert.equal(widened.indexedFiles, 1);
+    assert.equal(getCodexIndexLimitStatus(db).state, "clean");
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
