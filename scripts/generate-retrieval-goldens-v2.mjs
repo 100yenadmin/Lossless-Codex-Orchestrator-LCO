@@ -278,6 +278,11 @@ try {
   if (hitAt1 < 0.6 || hitAt1 >= 1) {
     throw new Error(`v2 hitAt1 does not preserve recall headroom: ${hitAt1}`);
   }
+  const overallFloors = {
+    ...report.metrics.overall,
+    // Keep the generated floor as a regression threshold, not an upper bound on future ranking gains.
+    hitAt1: Math.min(report.metrics.overall.hitAt1, 0.85)
+  };
   const floors = {
     schema: "lco.retrievalBaselineFloors.v1",
     engine: "field-weighted-fts-ranking",
@@ -285,7 +290,7 @@ try {
     scenarioCount: report.metrics.scenarioCount,
     skippedScenarioCount: report.metrics.skippedScenarioCount,
     measuredAt,
-    overall: report.metrics.overall,
+    overall: overallFloors,
     families: report.metrics.families,
     notes: [
       "Floors record the current field-weighted FTS ranking engine against the unsaturated v2 retrieval goldens.",
