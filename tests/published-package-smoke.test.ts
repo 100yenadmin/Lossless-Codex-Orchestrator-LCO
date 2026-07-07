@@ -368,17 +368,20 @@ test("published-smoke requires public-safe candidate binary probe evidence", () 
     assert.deepEqual(report.blockers, ["binary_probe_missing"]);
     assert.ok(report.nextSafeCommands.some((command) => command.includes("--binary-probe-report")));
     assert.doesNotMatch(report.nextSafeCommands.join("\n"), /"<version>"/);
-    const recoveryCommand = report.nextSafeCommands.find((command) => command.includes("binary-probe.json") && command.includes("node -e"));
+    const recoveryCommand = report.nextSafeCommands.find((command) => command.includes("binary_probe_report=") && command.includes("node -e"));
     assert.equal(typeof recoveryCommand, "string");
     assert.match(recoveryCommand, /package_version=/);
     assert.match(recoveryCommand, /JSON\.stringify/);
+    assert.match(recoveryCommand, /binary_probe_report="\$tmp_dir\/binary-probe\.json"/);
+    assert.match(recoveryCommand, /--binary-probe-report "\$binary_probe_report"/);
     assert.doesNotMatch(recoveryCommand, /\bprintf\b/);
+    assert.doesNotMatch(recoveryCommand, /writeFileSync\('binary-probe\.json'/);
     assert.match(recoveryCommand, /trap 'rm -rf "\$tmp_dir"' EXIT/);
     assert.match(recoveryCommand, /tarballBinaryVersion/);
     assert.match(recoveryCommand, /test -n "\$version"/);
     assert.match(recoveryCommand, /test -n "\$package_version"/);
     assert.match(recoveryCommand, /test "\$version" = "\$package_version"/);
-    assert.match(recoveryCommand, /"\$version" "\$package_version"/);
+    assert.match(recoveryCommand, /"\$binary_probe_report" .*"\$version" "\$package_version"/);
     assert.ok(recoveryCommand.includes(packageVersion));
   } finally {
     rmSync(dir, { recursive: true, force: true });

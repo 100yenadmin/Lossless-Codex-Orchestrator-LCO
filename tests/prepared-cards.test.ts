@@ -1742,6 +1742,34 @@ test("prepared cards promote semantic lifecycle states into card and inbox ranki
     assert.equal(collisionAfter.state, "waiting_approval");
     assert.notEqual(collisionAfter.inputHash, collisionBefore.inputHash);
 
+    const longTailThreadId = "019f-life-long-tail-ready";
+    const longTailPrefix = "ready-prefix ".repeat(80);
+    insertSummaryLeafRow(db, {
+      id: "b1000000000000000000000000000002",
+      threadId: longTailThreadId,
+      leafKind: "closeout",
+      confidence: 0.95
+    });
+    insertSessionMetadataRow(db, {
+      threadId: longTailThreadId,
+      priority: "high",
+      status: "ready",
+      nextAction: `${longTailPrefix} continue safely through lane alpha`
+    });
+    materializePreparedCards(db, { threadId: longTailThreadId });
+    const longTailBefore = getPreparedCards(db, { threadId: longTailThreadId }).cards[0]!;
+    assert.equal(longTailBefore.state, "ready");
+    insertSessionMetadataRow(db, {
+      threadId: longTailThreadId,
+      priority: "high",
+      status: "ready",
+      nextAction: `${longTailPrefix} continue safely through lane beta`
+    });
+    materializePreparedCards(db, { threadId: longTailThreadId });
+    const longTailAfter = getPreparedCards(db, { threadId: longTailThreadId }).cards[0]!;
+    assert.equal(longTailAfter.state, "ready");
+    assert.notEqual(longTailAfter.inputHash, longTailBefore.inputHash);
+
     insertSessionMetadataRow(db, {
       threadId: "019f-life-completed",
       status: "blocked",

@@ -7296,12 +7296,10 @@ function preparedLifecycleFromMetadata(
     closeoutState: normalizedMetadataMatchValue(metadata.closeoutState),
     planCompletionState: normalizedMetadataMatchValue(metadata.planCompletionState)
   };
-  // The truncated hash is identity metadata only. Lifecycle classification below
-  // always scans matchSignals, so long-tail metadata cannot be skipped by hash collisions.
   const metadataSignalHash = stableId(JSON.stringify({
     extractorVersion: PREPARED_CARD_EXTRACTOR_VERSION,
-    normalization: "full-text-match/hash-truncated-512",
-    signals: truncateMetadataSignalsForHash(signals)
+    normalization: "full-text-match/hash-full-signals",
+    signals
   }));
   const nonBlockerText = [matchSignals.status, matchSignals.nextAction, matchSignals.closeoutState, matchSignals.planCompletionState].filter(Boolean).join(" ");
   const text = [nonBlockerText, matchSignals.blocker].filter(Boolean).join(" ");
@@ -13561,10 +13559,6 @@ function normalizedMetadataMatchValue(value: string | null): string {
   // Keep lifecycle matching as a separate call site from hash/display normalization
   // so future truncation changes cannot silently constrain semantic state scans.
   return normalizedMetadataValue(value);
-}
-
-function truncateMetadataSignalsForHash(signals: Record<string, string>): Record<string, string> {
-  return Object.fromEntries(Object.entries(signals).map(([key, value]) => [key, truncate(value, 512)]));
 }
 
 function negatesTitleFinalizerSignal(value: string): boolean {
