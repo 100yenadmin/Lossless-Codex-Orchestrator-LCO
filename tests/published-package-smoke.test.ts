@@ -380,8 +380,14 @@ test("published-smoke requires public-safe candidate binary probe evidence", () 
     assert.doesNotMatch(recoveryCommand, /--dogfood-report dogfood\.json/);
     assert.doesNotMatch(recoveryCommand, /--tool-smoke-report tool-smoke\.json/);
     assert.match(recoveryCommand, /package_version=/);
+    assert.match(recoveryCommand, /tarball_binary_version=/);
     assert.match(recoveryCommand, /resolved_binary_source="package_tarball"/);
     assert.match(recoveryCommand, /path_shadowed="false"/);
+    assert.match(recoveryCommand, /path_binary="\$\(command -v loo \|\| true\)"/);
+    assert.match(recoveryCommand, /path_version="\$\(loo --version 2>\/dev\/null \|\| true\)"/);
+    assert.match(recoveryCommand, /resolved_binary_source="package_exec"/);
+    assert.match(recoveryCommand, /resolved_binary_source="global_path"/);
+    assert.match(recoveryCommand, /path_shadowed="true"/);
     assert.match(recoveryCommand, /JSON\.stringify/);
     assert.match(recoveryCommand, /process\.argv\.at\(-1\)/);
     assert.match(recoveryCommand, /process\.argv\.slice\(2\)/);
@@ -389,15 +395,18 @@ test("published-smoke requires public-safe candidate binary probe evidence", () 
     assert.match(recoveryCommand, /binary_probe_report="\$evidence_dir\/binary-probe\.json"/);
     assert.match(recoveryCommand, /printf '%s\\n'/);
     assert.match(recoveryCommand, /node "\$tmp_dir\/write-binary-probe\.mjs"/);
+    assert.match(recoveryCommand, /node "\$tmp_dir\/package\/dist\/packages\/cli\/src\/index\.js" openclaw published-smoke/);
     assert.match(recoveryCommand, /--binary-probe-report "\$binary_probe_report"/);
     assert.doesNotMatch(recoveryCommand, /node -e/);
+    assert.doesNotMatch(recoveryCommand, /&& loo openclaw published-smoke/);
     assert.doesNotMatch(recoveryCommand, /writeFileSync\('binary-probe\.json'/);
     assert.ok(recoveryCommand.includes("trap 'test -n \"${tmp_dir:-}\" && rm -rf \"$tmp_dir\"' EXIT"));
     assert.match(recoveryCommand, /tarballBinaryVersion/);
-    assert.match(recoveryCommand, /test -n "\$version"/);
+    assert.match(recoveryCommand, /test -n "\$tarball_binary_version"/);
     assert.match(recoveryCommand, /test -n "\$package_version"/);
-    assert.match(recoveryCommand, /test "\$version" = "\$package_version"/);
-    assert.match(recoveryCommand, /"\$binary_probe_report" .*"\$version" "\$package_version" "\$resolved_binary_source" "\$path_shadowed"/);
+    assert.match(recoveryCommand, /test "\$tarball_binary_version" = "\$package_version"/);
+    assert.match(recoveryCommand, /test -n "\$version"/);
+    assert.match(recoveryCommand, /"\$binary_probe_report" .*"\$version" "\$package_version" "\$resolved_binary_source" "\$path_shadowed" "\$tarball_binary_version"/);
     assert.ok(recoveryCommand.includes(`'${packageVersion}'`));
     assert.ok(recoveryCommand.includes(packageVersion));
   } finally {
