@@ -11,7 +11,7 @@ const tsxImport = createRequire(import.meta.url).resolve("tsx");
 const packageVersion = JSON.parse(readFileSync("package.json", "utf8")).version as string;
 const releaseNotesFile = `RELEASE_NOTES_${packageVersion}.md`;
 const releaseNotesPath = `docs/releases/${releaseNotesFile}`;
-const internalReleaseNoteLanguage = /##\s*(?:Current Claim Scope|Proof Boundary|Explicit Non-Claims)|\bDo not claim:|approved_live_control_smoke_missing|codex-read-search-expand-dry-run|same proof boundary as beta\.35|No cloud sync|No unattended desktop takeover|No release-grade enterprise security/i;
+const internalReleaseNoteLanguage = /##\s*(?:Current Claim Scope|Proof Boundary|Explicit Non-Claims)|\b(?:Claim scope|Do not claim|Proof boundary):|approved_live_control_smoke_missing|codex-read-search-expand-dry-run|same proof boundary as beta\.35|No cloud sync|No unattended desktop takeover|No release-grade enterprise security|do not claim release readiness/i;
 const stableLineReleaseNotes = [
   "docs/releases/RELEASE_NOTES_1.4.0.md",
   "docs/releases/RELEASE_NOTES_1.4.1.md",
@@ -174,6 +174,7 @@ test("release bundle generates local draft notes when committed version notes ar
   const report = createReleaseBundle({ evidenceDir: join(rootDir, "evidence"), rootDir });
   assert.equal(report.releaseNotesPath, "RELEASE_NOTES_9.9.9-test.0.md");
   const notes = read(join(rootDir, "evidence", "RELEASE_NOTES_9.9.9-test.0.md"));
-  assert.match(notes, /local draft notes/i);
-  assert.match(notes, /do not publish to npm/i);
+  assert.match(notes, /generated locally/i);
+  assert.match(notes, /Publication/i);
+  assert.doesNotMatch(notes, internalReleaseNoteLanguage);
 });

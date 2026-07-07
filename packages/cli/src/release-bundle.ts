@@ -94,18 +94,32 @@ export function createReleaseBundle(options: ReleaseBundleOptions): ReleaseBundl
 }
 
 function createDraftReleaseNotes(preflight: ReleasePreflightReport): string {
-  const blockers = preflight.blockers.length ? preflight.blockers : ["none"];
+  const packageName = preflight.packageName ?? "lossless-codex-orchestrator";
   return [
-    `# Lossless OpenClaw Orchestrator ${preflight.packageVersion} Draft Release Notes`,
+    `# Release Notes ${preflight.packageVersion} (Draft)`,
     "",
-    "These local draft notes were generated for a release evidence bundle before committed release notes exist.",
-    "They do not publish to npm, do not create a GitHub Release, do not update the changelog, and do not claim release readiness.",
+    "These draft notes were generated locally because committed release notes do not exist yet.",
+    "Replace this draft with customer- and developer-facing notes before publishing.",
     "",
-    `- Claim scope: ${preflight.claimScope}`,
-    `- Release ready: ${preflight.releaseReady ? "true" : "false"}`,
-    `- Blockers: ${blockers.join(", ")}`,
-    `- npm published: false`,
-    `- GitHub Release created: false`,
+    "## Highlights",
+    "- Maintenance update for local Codex session orchestration.",
+    "- Final highlights should be written from the merged release PRs.",
+    "",
+    "## Upgrade",
+    "```bash",
+    `npm install -g ${packageName}@latest`,
+    "lco doctor",
+    "```",
+    "",
+    "## Validation",
+    preflight.releaseReady
+      ? "- Release validation is complete in the local evidence bundle."
+      : "- Release validation is still in progress.",
+    "- See `release-bundle.json` and `release-preflight.json` for operator gate details.",
+    "",
+    "## Publication",
+    "- npm package publication: pending.",
+    "- GitHub Release creation: pending.",
     ""
   ].join("\n");
 }
