@@ -169,6 +169,158 @@ test("indexes Codex sessions with plans, finals, touched files, and search text"
   }
 });
 
+test("compacted and tool output text cannot overwrite assistant final messages", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-finals-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const threadPath = join(sessions, "rollout-2026-07-07T00-00-00-019f-compact-final.jsonl");
+  const lines = [
+    { timestamp: "2026-07-07T00:00:00Z", session_meta: { payload: { id: "019f-compact-final" } } },
+    { timestamp: "2026-07-07T00:00:01Z", event_msg: { type: "thread_name", name: "Compacted final extraction" } },
+    {
+      timestamp: "2026-07-07T00:00:01.500Z",
+      type: "compacted",
+      payload: {
+        output: "Chunk ID: preface Wall time: 0.0000 seconds Process exited with code 0 Summary: pre-final compaction output complete."
+      }
+    },
+    {
+      timestamp: "2026-07-07T00:00:02Z",
+      event_msg: {
+        type: "agent_message",
+        message: "Final: real assistant closeout complete. Next action: open the recall PR."
+      }
+    },
+    {
+      timestamp: "2026-07-07T00:00:03Z",
+      type: "compacted",
+      payload: {
+        output: "Chunk ID: fb085b Wall time: 0.0000 seconds Process exited with code 0 Summary: tool compaction output complete."
+      }
+    },
+    {
+      timestamp: "2026-07-07T00:00:04Z",
+      response_item: {
+        type: "function_call_output",
+        call_id: "call_noise",
+        output: "Final: noisy function output complete and should stay out of finals."
+      }
+    }
+  ];
+  writeFileSync(threadPath, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const result = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    assert.deepEqual(result.errors, []);
+
+    const final = getCodexFinalMessages(db, { threadId: "019f-compact-final", limit: 5 })[0]?.text ?? "";
+    assert.match(final, /real assistant closeout complete/);
+    assert.doesNotMatch(final, /Chunk ID/);
+    assert.doesNotMatch(final, /function output/);
+
+    const searchRow = db.prepare("SELECT finals, body FROM codex_search_fts WHERE thread_id = ?").get("019f-compact-final") as { finals: string; body: string } | undefined;
+    assert.ok(searchRow, "codex_search_fts row exists for compacted final fixture");
+    assert.match(searchRow.finals, /real assistant closeout complete/);
+    assert.doesNotMatch(searchRow.finals, /Chunk ID/);
+    assert.doesNotMatch(searchRow.finals, /function output/);
+    assert.match(searchRow.body, /Chunk ID/);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("tool-only compacted sessions do not synthesize final messages", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-no-assistant-final-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const threadPath = join(sessions, "rollout-2026-07-07T00-01-00-019f-tool-only-final.jsonl");
+  const lines = [
+    { timestamp: "2026-07-07T00:01:00Z", session_meta: { payload: { id: "019f-tool-only-final" } } },
+    { timestamp: "2026-07-07T00:01:01Z", event_msg: { type: "thread_name", name: "Tool-only compacted final extraction" } },
+    {
+      timestamp: "2026-07-07T00:01:02Z",
+      type: "compacted",
+      payload: {
+        output: "Chunk ID: solo Wall time: 0.0000 seconds Process exited with code 0 Summary: compacted tool output complete."
+      }
+    },
+    {
+      timestamp: "2026-07-07T00:01:03Z",
+      response_item: {
+        type: "function_call_output",
+        call_id: "call_tool_only_noise",
+        output: "Final: function output complete but no assistant final exists."
+      }
+    }
+  ];
+  writeFileSync(threadPath, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const result = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    assert.deepEqual(result.errors, []);
+
+    assert.deepEqual(getCodexFinalMessages(db, { threadId: "019f-tool-only-final", limit: 5 }), []);
+
+    const searchRow = db.prepare("SELECT finals, body FROM codex_search_fts WHERE thread_id = ?").get("019f-tool-only-final") as { finals: string; body: string } | undefined;
+    assert.ok(searchRow, "codex_search_fts row exists for tool-only fixture");
+    assert.equal(searchRow.finals, "");
+    assert.match(searchRow.body, /Chunk ID/);
+    assert.match(searchRow.body, /function output/);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("assistant prose without final marker remains the fallback final", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-assistant-fallback-final-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const threadPath = join(sessions, "rollout-2026-07-07T00-02-00-019f-assistant-fallback-final.jsonl");
+  const assistantText = "I pushed the parser patch and will monitor the pull request.";
+  const lines = [
+    { timestamp: "2026-07-07T00:02:00Z", session_meta: { payload: { id: "019f-assistant-fallback-final" } } },
+    { timestamp: "2026-07-07T00:02:01Z", event_msg: { type: "thread_name", name: "Assistant fallback final extraction" } },
+    {
+      timestamp: "2026-07-07T00:02:02Z",
+      event_msg: {
+        type: "agent_message",
+        message: assistantText
+      }
+    },
+    {
+      timestamp: "2026-07-07T00:02:03Z",
+      response_item: {
+        type: "function_call_output",
+        call_id: "call_fallback_noise",
+        output: "Final: function output complete but must not become fallback final."
+      }
+    }
+  ];
+  writeFileSync(threadPath, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const result = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    assert.deepEqual(result.errors, []);
+
+    const final = getCodexFinalMessages(db, { threadId: "019f-assistant-fallback-final", limit: 5 })[0]?.text ?? "";
+    assert.equal(final, assistantText);
+
+    const searchRow = db.prepare("SELECT finals, body FROM codex_search_fts WHERE thread_id = ?").get("019f-assistant-fallback-final") as { finals: string; body: string } | undefined;
+    assert.ok(searchRow, "codex_search_fts row exists for assistant fallback fixture");
+    assert.equal(searchRow.finals, assistantText);
+    assert.match(searchRow.body, /function output/);
+    assert.doesNotMatch(searchRow.finals, /function output/);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("loo_codex_extract dispatches all canonical extraction kinds", async () => {
   const fixture = makeFixture();
   const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
