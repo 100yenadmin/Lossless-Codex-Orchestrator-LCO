@@ -6,6 +6,7 @@ import { PREPARED_CARD_STATES } from "../../core/src/index.js";
 
 const BASE_GATEWAY_SMOKE_TOOL_CALLS = [
   "loo_doctor",
+  "loo_find",
   "loo_search_sessions",
   "loo_codex_thread_map",
   "loo_describe_session",
@@ -503,7 +504,7 @@ function buildAgentReasoning(
 ): OpenClawToolSmokeReport["agentReasoning"] | undefined {
   if (blockers.length > 0) return undefined;
   const byTool = new Map(invocations.map((invocation) => [invocation.toolName, invocation]));
-  const search = byTool.get("loo_search_sessions");
+  const search = byTool.get("loo_find") ?? byTool.get("loo_search_sessions");
   const describe = byTool.get("loo_describe_session");
   const preparedCards = byTool.get("loo_prepared_cards");
   const preparedInbox = byTool.get("loo_prepared_inbox");
@@ -770,6 +771,7 @@ function buildToolArgs(params: {
   tokenBudget: number;
   desktopFallbackCoherence?: "fixture" | "omit";
 }): Record<string, unknown> | null {
+  if (params.toolName === "loo_find") return { query: params.query, limit: 3, index: false };
   if (params.toolName === "loo_search_sessions") return { query: params.query, limit: 3 };
   if (params.toolName === "loo_index_sessions") {
     return {

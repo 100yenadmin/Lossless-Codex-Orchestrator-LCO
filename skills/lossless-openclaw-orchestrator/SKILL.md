@@ -64,15 +64,16 @@ Codex sessions through the installed `lco_*` tools.
 
 Normal agents should start here:
 
-1. `lco_prepared_inbox` for the prepared-state operating picture.
-2. `lco_describe_ref` for the specific source ref or Codex thread.
-3. `lco_expand_query` for one bounded evidence brief when the ref is not known.
-4. `lco_recent_sessions` to refresh recent or active cards after a read or
+1. `lco_find` for first-run local indexing and public-safe matches from one query.
+2. `lco_prepared_inbox` for the prepared-state operating picture.
+3. `lco_describe_ref` for the specific source ref or Codex thread.
+4. `lco_expand_query` for one bounded evidence brief when the ref is not known.
+5. `lco_recent_sessions` to refresh recent or active cards after a read or
    approved action.
-5. `lco_attention_inbox` for the compact attention queue.
-6. `lco_project_digest` for bounded provenance and handoff.
-7. `lco_codex_control_dry_run` for exact action hashes and approval packet.
-8. `lco_codex_resume_thread` only after the matching dry-run approval id.
+6. `lco_attention_inbox` for the compact attention queue.
+7. `lco_project_digest` for bounded provenance and handoff.
+8. `lco_codex_control_dry_run` for exact action hashes and approval packet.
+9. `lco_codex_resume_thread` only after the matching dry-run approval id.
 
 Use `workflow_detail`, `proof_debug`, and `internal_low_level` tools only when
 the facade output or a proof/debug task gives you a specific reason. Expert
@@ -166,7 +167,8 @@ Typical live tools after approval are `lco_codex_resume_thread`,
 
 ## Recommended Agent Loop
 
-1. Start with `lco_prepared_inbox`.
+1. Start with `lco_find` when the user gives a query, or `lco_prepared_inbox`
+   when the user asks what needs attention.
 2. Use `lco_describe_ref` for the selected inbox/source ref.
 3. When resuming a known Codex thread, use `lco_prepared_state_status` with
    `thread_id`; treat `targetCoverage.status=source_present_not_indexed` or

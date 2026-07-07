@@ -71,6 +71,7 @@ test("OpenClaw agent usage skill starts normal operators from the compact public
   const recommendedLoop = section(skill, "Recommended Agent Loop");
 
   for (const required of [
+    /lco_find/,
     /lco_prepared_inbox/,
     /lco_describe_ref/,
     /lco_expand_query/,
@@ -91,7 +92,8 @@ test("OpenClaw agent usage skill starts normal operators from the compact public
     assert.match(skill, required);
   }
 
-  assert.match(recommendedLoop, /Start with `lco_prepared_inbox`/);
+  assert.match(recommendedLoop, /Start with `lco_find` when the user gives a query/);
+  assert.match(recommendedLoop, /`lco_prepared_inbox`\s+when the user asks what needs attention/);
   assert.match(recommendedLoop, /workflow-detail fallbacks/i);
   assert.doesNotMatch(facade, /raw transcripts/i);
   assert.doesNotMatch(facade, /loo_\*/i);

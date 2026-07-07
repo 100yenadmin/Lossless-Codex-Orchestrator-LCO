@@ -68,11 +68,12 @@ test("lco-prefixed tools are the canonical base declarations for every tier", ()
   const baseDeclarations = createLooToolDeclarations({ profile: "all", includeAliases: false });
   const publicFacadeNames = createLooToolSurfaceSummary().publicFacadeTools;
 
-  assert.equal(baseDeclarations.length, 34);
+  assert.equal(baseDeclarations.length, 35);
   assert.equal(baseDeclarations.every((tool) => tool.name.startsWith("lco_")), true);
   assert.equal(baseDeclarations.some((tool) => tool.name.startsWith("loo_")), false);
   assert.equal(baseDeclarations.some((tool) => tool.metadata.aliasOf), false);
   assert.deepEqual(publicFacadeNames, [
+    "lco_find",
     "lco_prepared_inbox",
     "lco_describe_ref",
     "lco_expand_query",
@@ -147,9 +148,9 @@ test("C1 lco canonical umbrellas replace folded read-only leaf tools while prese
     assert.deepEqual(byName.get(compatName)?.safety, byName.get(targetName)?.safety);
   }
 
-  assert.equal(baseDeclarations.length, 34);
+  assert.equal(baseDeclarations.length, 35);
   assert.equal(aliasedDeclarations.filter((tool) => tool.name.startsWith("lco_") && tool.metadata.aliasOf).length, 0);
-  assert.equal(aliasedDeclarations.filter((tool) => tool.name.startsWith("loo_") && tool.metadata.aliasOf).length, 65);
+  assert.equal(aliasedDeclarations.filter((tool) => tool.name.startsWith("loo_") && tool.metadata.aliasOf).length, 66);
 });
 
 test("redirect aliases target any declared tool and merge kind defaults before caller args", async () => {
@@ -328,6 +329,8 @@ function sampleInputForTarget(targetName: string, root: string): Record<string, 
   switch (targetName) {
     case "lco_index_sessions":
       return { roots: [join(root, "missing-codex-root")], max_files: 1 };
+    case "lco_find":
+      return { query: "not found", limit: 1, index: false };
     case "lco_search_sessions":
     case "lco_grep":
     case "lco_expand_query":

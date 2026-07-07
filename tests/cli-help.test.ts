@@ -484,6 +484,28 @@ test("loo search --help exits zero without querying the local index", () => {
   }
 });
 
+test("loo find --help exits zero with first-run search guidance", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-find-help-"));
+  const dbPath = join(root, "orchestrator.sqlite");
+  try {
+    const result = runLoo(["find", "--help"], {
+      ...process.env,
+      LOO_DB_PATH: dbPath
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /Usage:\n  loo\/lco find \[--json\] \[--limit n\] \[--timeout-ms ms\] \[--no-index\] <query>/);
+    assert.match(result.stdout, /first-minute command/i);
+    assert.match(result.stdout, /incremental local Codex index pass/i);
+    assert.match(result.stdout, /--json\s+Emit/);
+    assert.match(result.stdout, /--no-index\s+Skip/);
+    assert.equal(result.stderr.trim(), "");
+    assert.equal(existsSync(dbPath), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("loo search treats --help as query text when it is not the only argument", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-search-query-help-"));
   try {

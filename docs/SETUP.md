@@ -178,20 +178,27 @@ lco doctor
 
 The index stores metadata, source refs, extraction fields, and prepared safe
 text for session-card search. Raw transcripts remain in the local Codex store.
-If you remember a content phrase, use `lco grep` or `lco expand-query` instead
-of treating `lco search` as raw-content search.
+If you want one command that indexes and searches on first use, start with
+`lco find`.
 
 ## 5. Run The First Recall Loop
 
-Search title, metadata, aliases, and session-card signals:
+Find a thread or remembered content phrase:
+
+```bash
+lco find "proposed plan billing bridge"
+```
+
+Use JSON for scripts or agent harnesses:
+
+```bash
+lco find --json "proposed plan billing bridge"
+```
+
+Use lower-level recall commands when you want a specific surface:
 
 ```bash
 lco search "proposed plan billing bridge"
-```
-
-Search remembered content phrases:
-
-```bash
 lco grep "aurora ledger checkpoint"
 lco expand-query "aurora ledger checkpoint"
 ```

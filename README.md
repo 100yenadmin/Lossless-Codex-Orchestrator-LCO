@@ -24,7 +24,7 @@ transcripts every time.
 ```bash
 npm install -g lossless-codex-orchestrator@latest
 lco doctor
-lco index codex --max-files 500 "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
+lco find "billing bridge"
 ```
 
 If this helps your main agent stay on top of Codex work, a star helps other
@@ -231,14 +231,22 @@ lco onboard status --strict
 
 ## First Workflow 🧭
 
-Search for a Codex thread by title, metadata, or session-card signal:
+Find the work you remember. `lco find` runs a local incremental index pass on
+first use, then searches titles, metadata, prepared cards, summaries, and
+event-level content snippets:
 
 ```bash
-lco search "billing bridge proposed plan"
+lco find "billing bridge proposed plan"
 ```
 
-If you remember a phrase from the thread content instead of the thread card,
-use `lco grep "<phrase>"` or `lco expand-query "<phrase>"`.
+Use JSON when you want the same result shape in scripts or agent harnesses:
+
+```bash
+lco find --json "billing bridge proposed plan"
+```
+
+For lower-level recall, use `lco search` for title/session-card discovery and
+`lco grep` or `lco expand-query` for content-oriented recall.
 
 Describe a result:
 
@@ -262,14 +270,15 @@ For an agent or MCP client, start with the normal operator path:
 
 | Step | Tool | What your agent gets |
 | --- | --- | --- |
-| 1 | `lco_prepared_inbox` | The best starting view of work that needs attention. |
-| 2 | `lco_describe_ref` | Details for a selected thread, card, leaf, or source ref. |
-| 3 | `lco_expand_query` | A bounded brief when the exact ref is unknown. |
-| 4 | `lco_recent_sessions` | Recent and active Codex work as compact cards. |
-| 5 | `lco_attention_inbox` | Blocked, waiting, stale, approval-needed, or ready-for-review work. |
-| 6 | `lco_project_digest` | A project-level handoff brief. |
-| 7 | `lco_codex_control_dry_run` | A preview packet for the exact Codex action. |
-| 8 | `lco_codex_resume_thread` | Resume a Codex thread after the dry-run packet is approved. |
+| 1 | `lco_find` | First-run local indexing plus public-safe session/content matches from one query. |
+| 2 | `lco_prepared_inbox` | The best starting view of work that needs attention. |
+| 3 | `lco_describe_ref` | Details for a selected thread, card, leaf, or source ref. |
+| 4 | `lco_expand_query` | A bounded brief when the exact ref is unknown. |
+| 5 | `lco_recent_sessions` | Recent and active Codex work as compact cards. |
+| 6 | `lco_attention_inbox` | Blocked, waiting, stale, approval-needed, or ready-for-review work. |
+| 7 | `lco_project_digest` | A project-level handoff brief. |
+| 8 | `lco_codex_control_dry_run` | A preview packet for the exact Codex action. |
+| 9 | `lco_codex_resume_thread` | Resume a Codex thread after the dry-run packet is approved. |
 
 The packaged agent playbook is
 [skills/lossless-openclaw-orchestrator/SKILL.md](skills/lossless-openclaw-orchestrator/SKILL.md).

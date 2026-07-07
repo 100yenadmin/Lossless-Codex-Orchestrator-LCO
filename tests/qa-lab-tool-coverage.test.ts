@@ -121,14 +121,14 @@ test("qa-lab tool coverage passes strict full coverage only when every declared 
   assert.equal(report.ok, true);
   assert.equal(report.qaLabToolCoverageReady, true);
   assert.equal(report.publicSafe, true);
-  assert.equal(report.declaredToolCount, 34);
+  assert.equal(report.declaredToolCount, 35);
   assert.deepEqual(report.tierCounts, {
-    public_facade: 8,
+    public_facade: 9,
     workflow_detail: 15,
     proof_debug: 8,
     internal_low_level: 3
   });
-  assert.equal(report.invocationCoverage.invokedDeclaredTools, 34);
+  assert.equal(report.invocationCoverage.invokedDeclaredTools, 35);
   assert.equal(report.invocationCoverage.missingDeclaredTools.length, 0);
   assert.equal(report.blockers.length, 0);
   assert.equal(report.actionsPerformed.liveCodexControlRun, false);
@@ -156,7 +156,7 @@ test("qa-lab tool coverage fails strict for default gateway evidence when non-fa
 
   assert.equal(report.ok, false);
   assert.equal(report.qaLabToolCoverageReady, false);
-  assert.equal(report.invocationCoverage.totalDeclaredTools, 34);
+  assert.equal(report.invocationCoverage.totalDeclaredTools, 35);
   assert.equal(report.invocationCoverage.invokedDeclaredTools < report.invocationCoverage.totalDeclaredTools, true);
   assert.equal(report.invocationCoverage.missingDeclaredTools.length > 0, true);
   assert.ok(report.blockers.some((blocker) => blocker.code === "declared_tool_product_evidence_missing"));
@@ -396,8 +396,8 @@ test("qa-lab tool coverage credits folded legacy aliases to their canonical umbr
   });
 
   assert.equal(report.ok, true, JSON.stringify(report.blockers, null, 2));
-  assert.equal(report.declaredToolCount, 34);
-  assert.equal(report.invocationCoverage.invokedDeclaredTools, 34);
+  assert.equal(report.declaredToolCount, 35);
+  assert.equal(report.invocationCoverage.invokedDeclaredTools, 35);
   for (const umbrella of ["lco_watchers", "lco_codex_extract", "lco_prepared_state", "lco_operating_picture", "lco_desktop_proof"]) {
     const row = report.toolRows.find((item) => item.name === umbrella);
     assert.equal(row?.coverageStatus, "covered", `${umbrella} should be covered through a folded legacy alias`);

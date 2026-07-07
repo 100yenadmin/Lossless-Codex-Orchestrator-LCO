@@ -354,6 +354,10 @@ if (method === "tools.invoke") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { ok: true, localOnly: true, toolPrefix: "loo_*" } }));
     process.exit(0);
   }
+  if (name === "loo_find") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.find.v1", ok: true, publicSafe: true, query: toolArgs.query || "Proposed plan", limit: toolArgs.limit || 3, indexed: { attempted: false, indexedFiles: 0, skippedFiles: 0, indexedThreads: 0, indexedEvents: 0, limitedFiles: 0, warnings: 0, errors: 0 }, resultCount: 1, results: [{ rank: 1, sourceKind: "codex_thread", sourceRef: "codex_thread:" + searchThreadId, title: "Thread 1", summary: "public-safe summary", updatedAt: "2026-07-01T12:00:00.000Z", snippet: "public-safe find snippet", threadId: searchThreadId, reasonCodes: ["event_content_fts_match"] }], nextSafeCommands: ["lco describe codex_thread:" + searchThreadId], actionsPerformed: { derivedCacheWrite: false, localCodexSourceRead: false, sourceStoreMutation: false, externalWrite: false, liveControl: false, guiMutation: false, rawTranscriptRead: false, rawTranscriptReturned: false, rawTranscriptUploaded: false }, reasonCodes: ["find_command", "index_skipped_by_flag"] } }));
+    process.exit(0);
+  }
   if (name === "lco_watchers") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.watchers.events.v1", publicSafe: true, readOnly: true, sourceCoverage: { watcherSpecs: "ok", watcherObservations: "ok", attentionQueue: "ok" }, summary: { total: 1, returned: 1, triggered: 1, queueItems: 1 }, observations: [{ observationRef: "watcher_observation:50000000000000000000000000000005", watchId: "watch_tool_smoke_checks", targetRef: "codex_thread:thread-1", sourceRefs: ["codex_thread:thread-1", "watcher:watch_tool_smoke_checks"], reasonCodes: ["watcher_triggered"], confidence: 0.9 }], actionsPerformed: { derivedCacheWrite: false, sourceStoreMutation: false, externalWrite: false, liveControl: false, guiMutation: false, rawTranscriptRead: false } } }));
     process.exit(0);
@@ -862,6 +866,7 @@ test("OpenClaw tool smoke invokes required loo tools through gateway call and wr
       assert.equal(DEFAULT_REQUIRED_TOOL_CALLS.includes(toolName), true, `${toolName} is part of the base gateway smoke`);
       assert.equal(report.invocations.some((call) => call.toolName === toolName), true, `${toolName} was invoked`);
     }
+    assert.equal(report.invocations.find((call) => call.toolName === "loo_find")?.summary.sourceRefs?.[0], "codex_thread:thread-1");
     assert.equal(report.invocations.find((call) => call.toolName === "loo_search_sessions")?.summary.sourceRefs?.[0], "codex_thread:thread-1");
     assert.equal(report.invocations.find((call) => call.toolName === "loo_describe_session")?.summary.threadId, "thread-1");
     assert.equal(report.invocations.find((call) => call.toolName === "loo_expand_query")?.summary.profile, "brief");
