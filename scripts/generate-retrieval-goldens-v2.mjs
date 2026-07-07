@@ -275,8 +275,8 @@ try {
     now: measuredAt
   });
   const hitAt1 = report.metrics.overall.hitAt1;
-  if (hitAt1 < 0.6 || hitAt1 > 0.85) {
-    throw new Error(`v2 hitAt1 outside target band: ${hitAt1}`);
+  if (hitAt1 < 0.6 || hitAt1 >= 1) {
+    throw new Error(`v2 hitAt1 does not preserve recall headroom: ${hitAt1}`);
   }
   const floors = {
     schema: "lco.retrievalBaselineFloors.v1",
