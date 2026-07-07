@@ -219,7 +219,17 @@ test("VISION.md routes milestone sweeps and issue updates to scorecard v1 exampl
   assert.match(vision, /working-app-runtime-proof-review\.json/);
   assert.match(runbook, /evals\/scorecards\/v1\.0/);
   assert.doesNotMatch(readme, /evals\/scorecards\/v1\.0/);
-  assert.equal(packageJson.files?.includes("evals"), true, "npm package must include versioned scorecard examples");
+  assert.equal(
+    packageJson.files?.includes("evals/scorecards/v1.0/*.json"),
+    true,
+    "npm package must include versioned scorecard JSON examples"
+  );
+  assert.equal(
+    packageJson.files?.includes("evals/scorecards/v1.0/*.md"),
+    true,
+    "npm package must include versioned scorecard markdown examples"
+  );
+  assert.equal(packageJson.files?.includes("evals"), false, "npm package must not publish the full eval tree");
 
   const template = read(join(scorecardDir, "issue-scorecard-update-template.md"));
   for (const required of [
