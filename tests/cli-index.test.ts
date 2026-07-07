@@ -98,6 +98,64 @@ test("CLI index codex forwards byte and event ceilings", () => {
   }
 });
 
+test("CLI index codex surfaces cap skip warnings with recovery commands", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-cli-index-warnings-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const sessionPath = join(sessions, "rollout-2026-06-28T00-00-00-019f-cli-warning.jsonl");
+  writeJsonl(sessionPath, "019f-cli-warning", "CLI cap warning");
+
+  try {
+    const result = spawnSync(process.execPath, [
+      "--import",
+      "tsx",
+      "packages/cli/src/index.ts",
+      "index",
+      "codex",
+      "--max-files",
+      "10",
+      "--max-bytes-per-file",
+      "100000",
+      "--max-events-per-file",
+      "2",
+      sessions
+    ], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        LOO_DB_PATH: join(root, "orchestrator.sqlite")
+      }
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout) as {
+      indexLimits: { maxBytesPerFile: number; maxEventsPerFile: number };
+      warnings: Array<{
+        code: string;
+        limitedFiles: number;
+        skippedFiles: number;
+        reasons: Array<{ reason: string; count: number; limit: number; maxActual: number }>;
+        nextSafeCommands: string[];
+      }>;
+    };
+    assert.deepEqual(payload.indexLimits, { maxBytesPerFile: 100000, maxEventsPerFile: 2 });
+    assert.equal(payload.warnings[0]?.code, "codex_index_limited_files_skipped");
+    assert.equal(payload.warnings[0]?.limitedFiles, 1);
+    assert.equal(payload.warnings[0]?.skippedFiles, 1);
+    assert.deepEqual(payload.warnings[0]?.reasons, [{
+      reason: "max_events_per_file",
+      count: 1,
+      limit: 2,
+      maxActual: 3
+    }]);
+    assert.match(payload.warnings[0]?.nextSafeCommands.join("\n") ?? "", /--max-events-per-file 1000000/);
+    assert.doesNotMatch(JSON.stringify(payload.warnings), /\/Volumes\/|\/Users\/|\/var\/|\.jsonl/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("CLI index codex accepts --verify for full-content unchanged checks", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-cli-index-verify-"));
   const sessions = join(root, "sessions");

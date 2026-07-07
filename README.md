@@ -198,9 +198,11 @@ Index local Codex sessions:
 lco index codex --max-files 500 "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
 ```
 
-The importer applies a 50 MB per-file index cap so one oversized JSONL cannot
-dominate a first run. Use `--max-bytes-per-file <bytes>` only when you
-intentionally want to widen that local indexing window.
+The importer applies a 256 MB / 200,000-event per-file index cap so one
+oversized JSONL cannot dominate a first run. If `lco index codex` reports
+`codex_index_limited_files_skipped`, use `--max-bytes-per-file <bytes>` and
+`--max-events-per-file <events>` only when you intentionally want to widen that
+local indexing window.
 
 Optional: allow recall from one or more OpenClaw LCM peer databases:
 

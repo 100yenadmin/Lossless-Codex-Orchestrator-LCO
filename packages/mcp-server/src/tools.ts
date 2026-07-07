@@ -1206,6 +1206,7 @@ function publicSafeIndexCodexResult(result: ReturnType<typeof indexCodexSessions
     mutationClasses: result.mutationClasses,
     indexedFiles: result.indexedFiles,
     appendDeltaIndexedFiles: result.appendDeltaIndexedFiles,
+    indexLimits: result.indexLimits,
     skippedFiles: result.skippedFiles,
     indexedThreads: result.indexedThreads,
     indexedEvents: result.indexedEvents,
@@ -1215,6 +1216,7 @@ function publicSafeIndexCodexResult(result: ReturnType<typeof indexCodexSessions
       limit: file.limit,
       actual: file.actual
     })),
+    warnings: result.warnings,
     errors: result.errors.map((error, index) => ({
       errorRef: `codex_index_error:${index + 1}`,
       message: publicSafeDiagnosticText(error.message, error.path)

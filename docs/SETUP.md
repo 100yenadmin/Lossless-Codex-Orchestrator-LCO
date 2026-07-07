@@ -128,9 +128,16 @@ Run a bounded first import:
 lco index codex --max-files 500 "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
 ```
 
-The default importer applies a 50 MB per-file index cap. Use
-`--max-bytes-per-file <bytes>` only for an intentional local override when you
-need to index larger Codex JSONL files.
+The default importer applies a 256 MB / 200,000-event per-file index cap. If a
+plain index run reports `codex_index_limited_files_skipped`, re-run with
+intentional local-only overrides:
+
+```bash
+lco index codex --max-files 100000 --max-bytes-per-file 1073741824 --max-events-per-file 1000000 "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
+```
+
+Files beyond those ceilings remain a future streaming-importer lane; LCO reports
+them instead of silently treating the index as complete.
 
 For a smaller smoke:
 
