@@ -10,6 +10,7 @@ import {
   type ReleaseClaimScope,
   type ReleaseExcludedClaim
 } from "./release-claim-scope.js";
+import { findSupportedPackageRoot } from "./package-identity.js";
 import { validateWorkingAppRuntimeProof } from "./runtime-proof-gate.js";
 
 export type ReleasePreflightOptions = {
@@ -121,7 +122,7 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
   const liveControlRequired = releaseClaimScopeRequiresLiveControl(claimScope);
   const workingAppRuntimeProofRequired = releaseClaimScopeRequiresWorkingAppRuntimeProof(claimScope);
   const excludedClaims = excludedClaimsForScope(claimScope);
-  const packageRoot = options.rootDir ? resolve(options.rootDir) : findPackageRoot(dirname(fileURLToPath(import.meta.url))) ?? process.cwd();
+  const packageRoot = options.rootDir ? resolve(options.rootDir) : findSupportedPackageRoot(dirname(fileURLToPath(import.meta.url))) ?? process.cwd();
   const packageJsonRead = readJson(packageRoot, "package.json");
   const packageJson = packageJsonRead.value as {
     name?: string;
@@ -279,24 +280,6 @@ function packageFilesIncludePath(files: string[] | undefined, path: string): boo
 
 function normalizePackagePath(path: string): string {
   return path.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "");
-}
-
-function findPackageRoot(start: string): string | null {
-  let cursor = start;
-  while (true) {
-    const packageJsonPath = join(cursor, "package.json");
-    if (existsSync(packageJsonPath)) {
-      try {
-        const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { name?: string };
-        if (packageJson.name === "lossless-openclaw-orchestrator") return cursor;
-      } catch {
-        return null;
-      }
-    }
-    const parent = dirname(cursor);
-    if (parent === cursor) return null;
-    cursor = parent;
-  }
 }
 
 function scanEvidenceArtifacts(evidenceDir: string | undefined): EvidenceScanResult {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -199,6 +199,56 @@ test("loo openclaw published-smoke summarizes install and gateway setup without 
     assert.equal(gatewayReadyReport.ok, true);
     assert.equal(gatewayReadyReport.packagePathOk, true);
     assert.equal(gatewayReadyReport.publishedSmokeReady, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("published-smoke accepts the canonical lossless-codex package root", () => {
+  const dir = mkdtempSync(join(tmpdir(), "lco-published-smoke-canonical-"));
+  try {
+    const rootDir = join(dir, "package");
+    const evidenceDir = join(dir, "evidence");
+    const dogfoodPath = join(dir, "dogfood.json");
+    const toolSmokePath = join(dir, "tool-smoke.json");
+    mkdirSync(rootDir, { recursive: true });
+    writeJson(join(rootDir, "package.json"), {
+      name: "lossless-codex-orchestrator",
+      version: "1.4.1"
+    });
+    writeJson(dogfoodPath, {
+      ok: true,
+      dogfoodReady: true,
+      requiredToolsPresent: true,
+      installOutcome: { status: "installed" }
+    });
+    writeJson(toolSmokePath, {
+      ok: true,
+      toolSmokeReady: true,
+      setupStatus: {
+        classification: "ready",
+        packageInstallLikelyOk: true
+      },
+      setupBlockers: [],
+      catalog: { toolCount: 34 },
+      invocations: [{ toolName: "lco_doctor", ok: true }]
+    });
+
+    const report = createPublishedPackageSmokeReport({
+      rootDir,
+      evidenceDir,
+      registryVersion: "1.4.1",
+      dogfoodReportPath: dogfoodPath,
+      toolSmokeReportPath: toolSmokePath,
+      now: "2026-07-07T00:00:00.000Z"
+    });
+
+    assert.equal(report.ok, true, report.blockers.join(", "));
+    assert.equal(report.packageName, "lossless-codex-orchestrator");
+    assert.equal(report.expectedPackage, "lossless-codex-orchestrator@latest");
+    assert.equal(report.versionMatchStatus, "matches_registry_latest");
+    assert.deepEqual(report.blockers, []);
+    assert.equal(existsSync(join(evidenceDir, "published-package-smoke.json")), true);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

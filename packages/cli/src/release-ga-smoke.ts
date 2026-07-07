@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { normalizeReleaseClaimScope, releaseClaimScopeRequiresLiveControl, type ReleaseClaimScope } from "./release-claim-scope.js";
+import { CANONICAL_PACKAGE_NAME, type SupportedPackageName } from "./package-identity.js";
 
 const REQUIRED_LIVE_CONTROL_ACTIONS = ["send", "resume", "steer", "interrupt"] as const;
 
@@ -65,7 +66,7 @@ export type ReleaseGaSmokeReport = {
   ok: boolean;
   gaSmokeReady: boolean;
   generatedAt: string;
-  packageName: "lossless-openclaw-orchestrator";
+  packageName: SupportedPackageName;
   packageVersion: string;
   candidateSha: string;
   claimScope: ReleaseClaimScope;
@@ -137,7 +138,7 @@ type LoadedEvidence = {
 
 type JsonRecord = Record<string, unknown>;
 
-const PACKAGE_NAME = "lossless-openclaw-orchestrator";
+const PACKAGE_NAME = CANONICAL_PACKAGE_NAME;
 const SHA_PATTERN = /^[a-f0-9]{40}$/i;
 const SECRET_LIKE_PATTERN = /(npm_[A-Za-z0-9]{20,}|bearer\s+[A-Za-z0-9._-]{20,}|sk-[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i;
 const SECRET_LIKE_KEY_PATTERN = /^(authorization|cookie|set-cookie|x-api-key|api[_-]?key|token)$/i;

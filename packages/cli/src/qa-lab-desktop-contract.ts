@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { CANONICAL_PACKAGE_NAME, type SupportedPackageName } from "./package-identity.js";
 
 export type QaLabDesktopContractOptions = {
   readinessReport?: string | JsonRecord;
@@ -20,7 +21,7 @@ export type QaLabDesktopContractReport = {
   ok: boolean;
   desktopContractReady: boolean;
   generatedAt: string;
-  packageName: "lossless-openclaw-orchestrator";
+  packageName: SupportedPackageName;
   packageVersion: string | null;
   candidateSha: string | null;
   publicSafe: true;
@@ -80,7 +81,7 @@ type LoadedEvidence = {
   optional: boolean;
 };
 
-const PACKAGE_NAME = "lossless-openclaw-orchestrator";
+const PACKAGE_NAME = CANONICAL_PACKAGE_NAME;
 const SHA_PATTERN = /^[a-f0-9]{40}$/i;
 const MAX_EVIDENCE_SCAN_DEPTH = 64;
 const MAX_EVIDENCE_SCAN_ENTRIES = 2048;

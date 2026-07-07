@@ -8,6 +8,7 @@ import {
   isUnknownLcoAliasName
 } from "../../mcp-server/src/tools.js";
 import { normalizeReleaseClaimScope, type ReleaseClaimScope } from "./release-claim-scope.js";
+import { CANONICAL_PACKAGE_NAME, findSupportedPackageRoot, type SupportedPackageName } from "./package-identity.js";
 
 export type QaLabCoveragePolicy = "full" | "facade";
 export type QaLabToolTier = "public_facade" | "workflow_detail" | "proof_debug" | "internal_low_level";
@@ -78,7 +79,7 @@ export type QaLabToolCoverageReport = {
   qaLabToolCoverageReady: boolean;
   publicSafe: boolean;
   generatedAt: string;
-  packageName: "lossless-openclaw-orchestrator";
+  packageName: SupportedPackageName;
   packageVersion: string | null;
   candidateSha: string | null;
   claimScope: ReleaseClaimScope;
@@ -143,7 +144,7 @@ type ToolInvocation = {
   evidenceRef: string;
 };
 
-const PACKAGE_NAME = "lossless-openclaw-orchestrator";
+const PACKAGE_NAME = CANONICAL_PACKAGE_NAME;
 const SHA_PATTERN = /^[a-f0-9]{40}$/i;
 const LOO_TOOL_NAME_PATTERN = /^(?:loo|lco)_[a-z0-9_]+$/;
 const SECRET_LIKE_PATTERN = /(npm_[A-Za-z0-9]{20,}|bearer\s+[A-Za-z0-9._-]{20,}|sk-[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i;
@@ -643,32 +644,14 @@ function evidenceStatus(evidence: LoadedEvidence, blockerCodes: string[]): QaLab
 
 function defaultManifestPath(): string | undefined {
   const roots = uniqueStrings([
-    packageRootFor(process.cwd()),
-    packageRootFor(dirname(fileURLToPath(import.meta.url)))
+    findSupportedPackageRoot(process.cwd()),
+    findSupportedPackageRoot(dirname(fileURLToPath(import.meta.url)))
   ].filter((root): root is string => Boolean(root)));
   for (const root of roots) {
     const candidate = join(root, "openclaw.plugin.json");
     if (existsSync(candidate)) return candidate;
   }
   return undefined;
-}
-
-function packageRootFor(start: string): string | undefined {
-  let cursor = resolve(start);
-  while (true) {
-    const packageJsonPath = join(cursor, "package.json");
-    if (existsSync(packageJsonPath)) {
-      try {
-        const parsed = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { name?: unknown };
-        if (parsed.name === PACKAGE_NAME) return cursor;
-      } catch {
-        return undefined;
-      }
-    }
-    const parent = dirname(cursor);
-    if (parent === cursor) return undefined;
-    cursor = parent;
-  }
 }
 
 function evidenceRef(path: string, evidenceDir: string): string {

@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { runReleasePreflight, type ReleasePreflightReport } from "./release-preflight.js";
+import { findSupportedPackageRoot } from "./package-identity.js";
 import type { ReleaseClaimScope, ReleaseExcludedClaim } from "./release-claim-scope.js";
 
 export type ReleaseBundleOptions = {
@@ -38,7 +39,7 @@ export type ReleaseBundleReport = {
 
 export function createReleaseBundle(options: ReleaseBundleOptions): ReleaseBundleReport {
   const evidenceDir = resolve(options.evidenceDir);
-  const packageRoot = options.rootDir ? resolve(options.rootDir) : findPackageRoot(dirname(fileURLToPath(import.meta.url))) ?? process.cwd();
+  const packageRoot = options.rootDir ? resolve(options.rootDir) : findSupportedPackageRoot(dirname(fileURLToPath(import.meta.url))) ?? process.cwd();
   const bundleManifestName = "release-bundle.json";
 
   mkdirSync(evidenceDir, { recursive: true });
@@ -107,22 +108,4 @@ function createDraftReleaseNotes(preflight: ReleasePreflightReport): string {
     `- GitHub Release created: false`,
     ""
   ].join("\n");
-}
-
-function findPackageRoot(start: string): string | null {
-  let cursor = start;
-  while (true) {
-    const packageJsonPath = join(cursor, "package.json");
-    if (existsSync(packageJsonPath)) {
-      try {
-        const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { name?: string };
-        if (packageJson.name === "lossless-openclaw-orchestrator") return cursor;
-      } catch {
-        return null;
-      }
-    }
-    const parent = dirname(cursor);
-    if (parent === cursor) return null;
-    cursor = parent;
-  }
 }

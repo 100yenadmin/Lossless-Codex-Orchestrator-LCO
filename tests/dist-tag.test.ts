@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  CANONICAL_PACKAGE_NAME,
+  LEGACY_PACKAGE_NAME,
   PACKAGE_NAME,
+  SUPPORTED_PACKAGE_NAMES,
   distTagForVersion,
   matchingRegistryStatus,
   mismatchedRegistryStatus,
@@ -9,7 +12,10 @@ import {
 } from "../packages/cli/src/dist-tag.js";
 
 test("shared dist-tag helpers keep beta rc and stable registry semantics consistent", () => {
-  assert.equal(PACKAGE_NAME, "lossless-openclaw-orchestrator");
+  assert.equal(PACKAGE_NAME, "lossless-codex-orchestrator");
+  assert.equal(CANONICAL_PACKAGE_NAME, "lossless-codex-orchestrator");
+  assert.equal(LEGACY_PACKAGE_NAME, "lossless-openclaw-orchestrator");
+  assert.deepEqual(SUPPORTED_PACKAGE_NAMES, ["lossless-codex-orchestrator", "lossless-openclaw-orchestrator"]);
   assert.equal(distTagForVersion("0.1.0-beta.35"), "beta");
   assert.equal(distTagForVersion("1.0.0-rc.1"), "next");
   assert.equal(distTagForVersion("1.0.0"), "latest");

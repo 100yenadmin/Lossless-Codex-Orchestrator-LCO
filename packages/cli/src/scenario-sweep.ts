@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
+import { CANONICAL_PACKAGE_NAME, type SupportedPackageName } from "./package-identity.js";
 
 export type ScenarioSweepOptions = {
   evidenceDir: string;
@@ -51,7 +52,7 @@ export type ScenarioSweepReport = {
   ok: boolean;
   scenarioReady: boolean;
   publicSafe: boolean;
-  packageName: "lossless-openclaw-orchestrator";
+  packageName: SupportedPackageName;
   packageVersion: string | null;
   candidateSha: string | null;
   generatedAt: string;
@@ -211,7 +212,7 @@ export function createScenarioSweep(options: ScenarioSweepOptions): ScenarioSwee
     ok: blockers.length === 0,
     scenarioReady: blockers.length === 0,
     publicSafe: rawEvidenceArtifacts.length === 0 && secretLikeEvidenceFindings.length === 0 && runtimeProofUnsafeBlockers.length === 0,
-    packageName: "lossless-openclaw-orchestrator",
+    packageName: CANONICAL_PACKAGE_NAME,
     packageVersion: options.packageVersion ?? null,
     candidateSha: options.candidateSha ?? null,
     generatedAt: options.now ?? new Date().toISOString(),

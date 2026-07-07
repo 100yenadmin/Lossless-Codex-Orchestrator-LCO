@@ -82,6 +82,7 @@ import { createScenarioSweep } from "./scenario-sweep.js";
 import { createRuntimeProofIssuePacket } from "./runtime-issue-packet.js";
 import { createOnboardingStatusReport, writeOnboardingStatusReport } from "./onboarding-status.js";
 import { createRuntimeSweepSummary } from "./runtime-sweep-summary.js";
+import { readPackageVersionFromRoots } from "./package-identity.js";
 import { normalizeReleaseClaimScope, type ReleaseClaimScope } from "./release-claim-scope.js";
 import { AppServerLiveControlSmokeClient, runLiveControlSmoke } from "./live-control-smoke.js";
 import {
@@ -1144,32 +1145,7 @@ function mainUsageText(): string {
 }
 
 function readCliPackageVersion(): string {
-  const packageRoot = findCliPackageRoot(dirname(cliFilePath)) ?? findCliPackageRoot(process.cwd());
-  if (!packageRoot) return "unknown";
-  try {
-    const parsed = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as { version?: unknown };
-    return typeof parsed.version === "string" ? parsed.version : "unknown";
-  } catch {
-    return "unknown";
-  }
-}
-
-function findCliPackageRoot(start: string): string | null {
-  let cursor = start;
-  while (true) {
-    const packageJsonPath = join(cursor, "package.json");
-    if (existsSync(packageJsonPath)) {
-      try {
-        const parsed = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { name?: unknown };
-        if (parsed.name === "lossless-openclaw-orchestrator") return cursor;
-      } catch {
-        // Keep walking: a malformed ancestor package.json should not hide the real CLI package root.
-      }
-    }
-    const parent = dirname(cursor);
-    if (parent === cursor) return null;
-    cursor = parent;
-  }
+  return readPackageVersionFromRoots([dirname(cliFilePath), process.cwd()]);
 }
 
 function sanitizeCliErrorMessage(message: string): string {

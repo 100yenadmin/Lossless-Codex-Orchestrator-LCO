@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type DistTag, type RegistryVersionMatchStatus, distTagForVersion, matchingRegistryStatus, mismatchedRegistryStatus } from "./dist-tag.js";
+import { findSupportedPackageRoot, packageNameForRoot } from "./package-identity.js";
 
 export type OnboardingCheck = {
   id: string;
@@ -99,7 +100,7 @@ export function createOnboardingStatusReport(options: {
 } = {}): OnboardingStatusReport {
   const rootDir = options.rootDir
     ? resolve(options.rootDir)
-    : findPackageRoot(dirname(fileURLToPath(import.meta.url))) ?? process.cwd();
+    : findSupportedPackageRoot(dirname(fileURLToPath(import.meta.url))) ?? process.cwd();
   const packageJson = readPackageJson(rootDir);
   const manifest = readOpenClawManifest(rootDir);
   const declaredTools = manifest.tools;
@@ -108,7 +109,7 @@ export function createOnboardingStatusReport(options: {
   const requiredFiles = REQUIRED_FILES.map(([id, path]) => checkPath(rootDir, id, path, true));
   const sourceEntrypoints = SOURCE_ENTRYPOINTS.map(([id, path]) => checkPath(rootDir, id, path, true));
   const packageEntrypoints = packageEntrypointsFromPackage(rootDir, packageJson);
-  const installRecovery = createInstallRecoveryCommands(packageJson.version);
+  const installRecovery = createInstallRecoveryCommands(packageJson.version, packageNameForRoot(rootDir));
   const postInstallSelfCheck = createPostInstallSelfCheck(packageJson, installRecovery, {
     registryVersion: options.registryVersion,
     registryBetaVersion: options.registryBetaVersion,
@@ -189,9 +190,9 @@ function checkPath(rootDir: string, id: string, path: string, required: boolean)
   };
 }
 
-function createInstallRecoveryCommands(packageVersion: string): OnboardingStatusReport["installRecovery"] {
+function createInstallRecoveryCommands(packageVersion: string, packageName: string): OnboardingStatusReport["installRecovery"] {
   const expectedDistTag = distTagForVersion(packageVersion);
-  const publishedPackage = `lossless-openclaw-orchestrator@${expectedDistTag}`;
+  const publishedPackage = `${packageName}@${expectedDistTag}`;
   const cleanProfile = "lco-dogfood-published";
   const tarballLookup = `npm view ${publishedPackage} dist.tarball`;
   const guardedTarball = `tarball_url="$(${tarballLookup})" && test -n "$tarball_url"`;
@@ -351,24 +352,6 @@ function manifestBlockers(manifest: OpenClawManifestRead): string[] {
 
 function normalizePackagePath(path: string): string {
   return path.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "");
-}
-
-function findPackageRoot(start: string): string | null {
-  let cursor = start;
-  while (true) {
-    const packageJsonPath = join(cursor, "package.json");
-    if (existsSync(packageJsonPath)) {
-      try {
-        const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { name?: string };
-        if (packageJson.name === "lossless-openclaw-orchestrator") return cursor;
-      } catch {
-        return null;
-      }
-    }
-    const parent = dirname(cursor);
-    if (parent === cursor) return null;
-    cursor = parent;
-  }
 }
 
 function isStringRecord(value: unknown): value is Record<string, string> {

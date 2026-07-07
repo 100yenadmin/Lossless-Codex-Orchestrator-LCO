@@ -1,4 +1,8 @@
-export const PACKAGE_NAME = "lossless-openclaw-orchestrator";
+import { CANONICAL_PACKAGE_NAME } from "./package-identity.js";
+
+export { CANONICAL_PACKAGE_NAME, LEGACY_PACKAGE_NAME, SUPPORTED_PACKAGE_NAMES } from "./package-identity.js";
+
+export const PACKAGE_NAME = CANONICAL_PACKAGE_NAME;
 
 export type DistTag = "beta" | "next" | "latest";
 export type RegistryMatchStatus = `matches_registry_${DistTag}`;
