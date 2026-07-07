@@ -17,8 +17,8 @@ The first app shell reads from public-safe `lco_*` surfaces:
 - `lco_describe_session` for metadata and safe summaries.
 - `lco_describe_ref` for source-prefixed refs such as `codex_thread:*` and `lcm_summary:*`.
 - `lco_expand_query` for bounded brief or evidence profiles.
-- `lco_codex_thread_map` for active, blocked, needs-expansion, archive, fork, and resume lanes.
-- `lco_codex_plans`, `lco_codex_final_messages`, and `lco_codex_touched_files` for cited detail views.
+- `lco_operating_picture` with `kind: "thread_map"` for active, blocked, needs-expansion, archive, fork, and resume lanes.
+- `lco_codex_extract` with `kind: "plans"`, `kind: "final_messages"`, and `kind: "touched_files"` for cited detail views.
 - `lco_doctor`, `lco_permissions`, and `lco_desktop_see` for status surfaces.
 
 The UI may display copied source refs such as `codex_thread:*`, `codex_event:*`, and `lcm_summary:*`. Copy actions copy refs and public-safe summaries only. They must not copy raw prompts, raw transcript spans, local SQLite rows, screenshots, tokens, cookies, API keys, or credentials.

@@ -112,11 +112,11 @@ inspected instead of hidden behind a single magic command.
 
 Use the Codex detail tools instead of expanding entire sessions:
 
-- `lco_codex_plans` for proposed-plan blocks and plan refs.
-- `lco_codex_final_messages` for latest final assistant messages.
-- `lco_codex_touched_files` for files likely touched by the session.
-- `lco_codex_tool_calls` when tool metadata matters, without reading full tool
-  call payloads.
+- `lco_codex_extract` with `kind: "plans"` for proposed-plan blocks and plan refs.
+- `lco_codex_extract` with `kind: "final_messages"` for latest final assistant messages.
+- `lco_codex_extract` with `kind: "touched_files"` for files likely touched by the session.
+- `lco_codex_extract` with `kind: "tool_calls"` when tool metadata matters,
+  without reading full tool call payloads.
 - `lco_codex_session_management_map` when the agent needs the session-management
   view before recommending archive, fork, resume, or handoff.
 
@@ -179,8 +179,7 @@ Typical live tools after approval are `lco_codex_resume_thread`,
 5. Use `lco_recent_sessions`, `lco_attention_inbox`, or `lco_project_digest`
    to refresh the operating picture or handoff.
 6. Use `lco_doctor`, `lco_search_sessions`, `lco_describe_session`,
-   `lco_expand_session`, `lco_codex_plans`, `lco_codex_final_messages`, and
-   `lco_codex_touched_files`
+   `lco_expand_session`, and `lco_codex_extract`
    only as workflow-detail fallbacks when the facade cannot answer the task.
 7. Optionally run `lco_codex_desktop_coherence` when the user asks whether the
    same work is visible in Codex Desktop

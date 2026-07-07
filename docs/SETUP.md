@@ -223,10 +223,10 @@ lco expand-query --profile brief --token-budget 1000 "billing bridge"
 
 Look up detail fields through MCP/OpenClaw tools when available:
 
-- `lco_codex_plans`
-- `lco_codex_final_messages`
-- `lco_codex_touched_files`
-- `lco_codex_tool_calls`
+- `lco_codex_extract` with `kind: "plans"`
+- `lco_codex_extract` with `kind: "final_messages"`
+- `lco_codex_extract` with `kind: "touched_files"`
+- `lco_codex_extract` with `kind: "tool_calls"`
 
 ## 6. Enable Codex Thread Title Aliases
 
@@ -427,8 +427,8 @@ The safe loop is:
 1. `lco_doctor`
 2. `lco_search_sessions`
 3. `lco_describe_session` or `lco_describe_ref`
-4. `lco_codex_plans`, `lco_codex_final_messages`, and
-   `lco_codex_touched_files`
+4. `lco_codex_extract` with `kind: "plans"`, `kind: "final_messages"`, and
+   `kind: "touched_files"`
 5. `lco_expand_session` or `lco_expand_query`
 6. `lco_codex_control_dry_run` only when action is needed
 7. `lco_codex_start_thread` only after dry-run approval when a new Codex thread
