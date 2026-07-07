@@ -98,6 +98,7 @@ export type IndexCodexOptions = {
   maxBytesPerFile?: number;
   maxEventsPerFile?: number;
   verify?: boolean;
+  eventContent?: boolean;
 };
 
 export type LimitedCodexFile = {
@@ -191,8 +192,8 @@ export type CodexEventContentStatus = {
   schema: "lco.codexEventContent.status.v1";
   publicSafe: true;
   readOnly: true;
-  state: "ready" | "partial" | "not_indexed_yet" | "unavailable";
-  availability: "ready" | "database_missing" | "requires_index_run" | "read_error";
+  state: "ready" | "partial" | "disabled" | "dropped" | "not_indexed_yet" | "unavailable";
+  availability: "ready" | "disabled" | "database_missing" | "requires_index_run" | "read_error";
   coverage: {
     totalEvents: number;
     eventsWithContent: number;
@@ -234,6 +235,41 @@ export type IndexCodexResult = {
   errors: Array<{ path: string; message: string }>;
   driftReport: CodexJsonlDriftReport[];
   driftSummary: CodexJsonlDriftSummary;
+};
+
+export type CodexEventContentDropReport = {
+  schema: "lco.codexEventContent.drop.v1";
+  ok: true;
+  publicSafe: true;
+  readOnly: false;
+  mutationClasses: ["derived_cache"];
+  before: {
+    eventContentRows: number;
+    eventContentFtsRows: number;
+    eventContentBytes: number;
+    dbBytes: number;
+    walBytes: number;
+  };
+  after: {
+    eventContentRows: number;
+    eventContentFtsRows: number;
+    eventContentBytes: number;
+    dbBytes: number;
+    walBytes: number;
+  };
+  delta: {
+    eventContentRows: number;
+    eventContentFtsRows: number;
+    eventContentBytes: number;
+    dbBytes: number;
+  };
+  preserved: {
+    codexSessions: number;
+    preparedSourceEvents: number;
+    preparedSourceRanges: number;
+  };
+  nextSafeCommands: string[];
+  reasonCodes: string[];
 };
 
 export type SourceFileWatermark = {
@@ -2713,6 +2749,7 @@ const DEFAULT_CODEX_MAX_EVENTS_PER_FILE = 200_000;
 const CODEX_RECOVERY_MAX_BYTES_PER_FILE = 1_073_741_824;
 const CODEX_RECOVERY_MAX_EVENTS_PER_FILE = 1_000_000;
 const CODEX_EVENT_CONTENT_CHAR_LIMIT = 8000;
+const CODEX_EVENT_CONTENT_REBUILD_COMMAND = 'loo index codex "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"';
 const PREPARED_SOURCE_EXTRACTOR_VERSION = "prepared-source-ranges-v1" as const;
 const SUMMARY_LEAF_EXTRACTOR_VERSION = "summary-leaves-v1" as const;
 const PREPARED_CARD_EXTRACTOR_VERSION = "prepared-cards-v2" as const;
@@ -2752,6 +2789,11 @@ function databaseOpenOptions(busyTimeoutMs?: number): { timeout?: number } | und
 
 export function defaultDatabasePath(): string {
   return readEnv("DB_PATH") || join(resolveHomeDir(), ".openclaw", "lossless-openclaw-orchestrator", "orchestrator.sqlite");
+}
+
+export function codexEventContentEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  const value = readEnv("EVENT_CONTENT", env)?.trim().toLowerCase();
+  return !value || !["0", "false", "no", "off", "disabled"].includes(value);
 }
 
 export function defaultCodexRoots(home = resolveHomeDir()): string[] {
@@ -3358,6 +3400,7 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
   const maxBytesPerFile = positiveLimit(options.maxBytesPerFile, DEFAULT_CODEX_MAX_BYTES_PER_FILE, "maxBytesPerFile");
   const maxEventsPerFile = positiveLimit(options.maxEventsPerFile, DEFAULT_CODEX_MAX_EVENTS_PER_FILE, "maxEventsPerFile");
   const verify = options.verify === true;
+  const eventContentEnabled = options.eventContent ?? codexEventContentEnabled();
   const result: IndexCodexResult = {
     publicSafe: false,
     readOnly: false,
@@ -3398,12 +3441,12 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
       const mtimeMs = Math.trunc(stat.mtimeMs);
       const sameWatermark = Boolean(watermark && watermark.size === stat.size && watermark.mtimeMs === mtimeMs);
       const extractorStateCurrent = watermark ? sourceFileExtractorStateIsCurrent(watermark) : false;
-      const eventContentCurrent = watermark ? sourceFileEventContentCurrent(db, path) : false;
+      const eventContentCurrent = !eventContentEnabled || (watermark ? sourceFileEventContentCurrent(db, path) : false);
       if (sameWatermark && extractorStateCurrent && eventContentCurrent && !verify) {
         result.skippedFiles += 1;
         continue;
       }
-      if (watermark && extractorStateCurrent && eventContentCurrent && !verify && stat.size > watermark.size) {
+      if (eventContentEnabled && watermark && extractorStateCurrent && eventContentCurrent && !verify && stat.size > watermark.size) {
         const appendDelta = tryIndexCodexAppendDelta(db, path, stat, watermark, maxEventsPerFile);
         if (appendDelta) {
           result.indexedFiles += 1;
@@ -3427,7 +3470,7 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
         continue;
       }
       const session = parseCodexJsonl(path, text, maxEventsPerFile);
-      upsertSession(db, path, text, session, { size: stat.size, mtimeMs });
+      upsertSession(db, path, text, session, { size: stat.size, mtimeMs }, { eventContentEnabled });
       result.indexedFiles += 1;
       result.indexedEvents += session.eventCount;
       if (session.driftReport) recordCodexJsonlDriftReport(result, session.driftReport);
@@ -4829,7 +4872,9 @@ export function readCodexIndexHealthStatusFromPath(dbPath = defaultDatabasePath(
 
 export function getCodexEventContentStatus(db: LooDatabase, dbPath?: string): CodexEventContentStatus {
   if (!tableExists(db, "prepared_source_events") || !tableExists(db, "codex_event_content")) {
-    return emptyCodexEventContentStatus("requires_index_run", dbPath);
+    return codexEventContentEnabled()
+      ? emptyCodexEventContentStatus("requires_index_run", dbPath)
+      : emptyCodexEventContentStatus("disabled", dbPath);
   }
   const row = db.prepare(`
     SELECT
@@ -4847,9 +4892,40 @@ export function getCodexEventContentStatus(db: LooDatabase, dbPath?: string): Co
   };
   const totalEvents = Number(row.totalEvents ?? 0);
   const eventsWithContent = Number(row.eventsWithContent ?? 0);
+  const disabled = !codexEventContentEnabled();
+  if (disabled) {
+    const dbBytes = sqliteMainFileBytes(db, dbPath);
+    const walBytes = sqliteWalFileBytes(dbPath);
+    return {
+      schema: "lco.codexEventContent.status.v1",
+      publicSafe: true,
+      readOnly: true,
+      state: "disabled",
+      availability: "disabled",
+      coverage: {
+        totalEvents,
+        eventsWithContent,
+        coveragePct: totalEvents > 0 ? Number(((eventsWithContent / totalEvents) * 100).toFixed(2)) : 0
+      },
+      size: {
+        dbBytes,
+        walBytes,
+        eventContentBytes: Number(row.eventContentBytes ?? 0),
+        eventContentFtsRows: Number(row.eventContentFtsRows ?? 0)
+      },
+      reasonCodes: unique([
+        "codex_event_content_store",
+        "codex_event_content_disabled_by_env",
+        totalEvents === 0 ? "codex_event_content_projection_requires_index_run" : "",
+        dbBytes === 0 ? "codex_event_content_db_size_unavailable" : "",
+        dbPath ? "" : "codex_event_content_wal_size_path_unavailable"
+      ]),
+      lastIndexedAt: nullableString(row.lastIndexedAt)
+    };
+  }
   if (totalEvents === 0) return emptyCodexEventContentStatus("requires_index_run", dbPath);
   const coveragePct = Number(((eventsWithContent / totalEvents) * 100).toFixed(2));
-  const state: CodexEventContentStatus["state"] = eventsWithContent >= totalEvents ? "ready" : "partial";
+  const state: CodexEventContentStatus["state"] = eventsWithContent === 0 ? "dropped" : eventsWithContent >= totalEvents ? "ready" : "partial";
   const availability: CodexEventContentStatus["availability"] = state === "ready" ? "ready" : "requires_index_run";
   const dbBytes = sqliteMainFileBytes(db, dbPath);
   const walBytes = sqliteWalFileBytes(dbPath);
@@ -4872,12 +4948,96 @@ export function getCodexEventContentStatus(db: LooDatabase, dbPath?: string): Co
     },
     reasonCodes: unique([
       "codex_event_content_store",
-      state === "partial" ? "codex_event_content_backfill_partial" : "codex_event_content_coverage_ready",
+      state === "partial" ? "codex_event_content_backfill_partial" : "",
+      state === "dropped" ? "codex_event_content_cache_dropped" : "",
+      state === "ready" ? "codex_event_content_coverage_ready" : "",
       dbBytes === 0 ? "codex_event_content_db_size_unavailable" : "",
       dbPath ? "" : "codex_event_content_wal_size_path_unavailable"
     ]),
     lastIndexedAt: nullableString(row.lastIndexedAt)
   };
+}
+
+export function dropCodexEventContentCache(db: LooDatabase, options: { dbPath?: string } = {}): CodexEventContentDropReport {
+  const before = codexEventContentCacheSnapshot(db, options.dbPath);
+  db.exec("BEGIN");
+  try {
+    if (tableExists(db, "codex_event_content")) {
+      db.prepare("DELETE FROM codex_event_content").run();
+    }
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+  const after = codexEventContentCacheSnapshot(db, options.dbPath);
+  return {
+    schema: "lco.codexEventContent.drop.v1",
+    ok: true,
+    publicSafe: true,
+    readOnly: false,
+    mutationClasses: ["derived_cache"],
+    before: {
+      eventContentRows: before.eventContentRows,
+      eventContentFtsRows: before.eventContentFtsRows,
+      eventContentBytes: before.eventContentBytes,
+      dbBytes: before.dbBytes,
+      walBytes: before.walBytes
+    },
+    after: {
+      eventContentRows: after.eventContentRows,
+      eventContentFtsRows: after.eventContentFtsRows,
+      eventContentBytes: after.eventContentBytes,
+      dbBytes: after.dbBytes,
+      walBytes: after.walBytes
+    },
+    delta: {
+      eventContentRows: before.eventContentRows - after.eventContentRows,
+      eventContentFtsRows: before.eventContentFtsRows - after.eventContentFtsRows,
+      eventContentBytes: before.eventContentBytes - after.eventContentBytes,
+      dbBytes: before.dbBytes - after.dbBytes
+    },
+    preserved: {
+      codexSessions: after.codexSessions,
+      preparedSourceEvents: after.preparedSourceEvents,
+      preparedSourceRanges: after.preparedSourceRanges
+    },
+    nextSafeCommands: [CODEX_EVENT_CONTENT_REBUILD_COMMAND],
+    reasonCodes: unique([
+      "codex_event_content_cache_dropped",
+      before.eventContentRows === 0 ? "codex_event_content_cache_already_empty" : "",
+      "derived_cache_only"
+    ])
+  };
+}
+
+function codexEventContentCacheSnapshot(db: LooDatabase, dbPath?: string): {
+  codexSessions: number;
+  preparedSourceEvents: number;
+  preparedSourceRanges: number;
+  eventContentRows: number;
+  eventContentFtsRows: number;
+  eventContentBytes: number;
+  dbBytes: number;
+  walBytes: number;
+} {
+  return {
+    codexSessions: countTableRowsIfExists(db, "codex_sessions"),
+    preparedSourceEvents: countTableRowsIfExists(db, "prepared_source_events"),
+    preparedSourceRanges: countTableRowsIfExists(db, "prepared_source_ranges"),
+    eventContentRows: countTableRowsIfExists(db, "codex_event_content"),
+    eventContentFtsRows: countTableRowsIfExists(db, "codex_event_content_fts"),
+    eventContentBytes: tableExists(db, "codex_event_content")
+      ? Number((db.prepare("SELECT COALESCE(SUM(length(event_text)), 0) AS bytes FROM codex_event_content").get() as { bytes: number }).bytes)
+      : 0,
+    dbBytes: sqliteMainFileBytes(db, dbPath),
+    walBytes: sqliteWalFileBytes(dbPath)
+  };
+}
+
+function countTableRowsIfExists(db: LooDatabase, tableName: string): number {
+  if (!tableExists(db, tableName)) return 0;
+  return Number((db.prepare(`SELECT COUNT(*) AS count FROM ${tableName}`).get() as { count: number }).count);
 }
 
 export function getCodexIndexLimitStatus(db: LooDatabase): CodexIndexLimitStatus {
@@ -4972,7 +5132,7 @@ function emptyCodexEventContentStatus(availability: CodexEventContentStatus["ava
     schema: "lco.codexEventContent.status.v1",
     publicSafe: true,
     readOnly: true,
-    state: requiresIndexRun ? "not_indexed_yet" : "unavailable",
+    state: availability === "disabled" ? "disabled" : requiresIndexRun ? "not_indexed_yet" : "unavailable",
     availability,
     coverage: {
       totalEvents: 0,
@@ -4986,7 +5146,8 @@ function emptyCodexEventContentStatus(availability: CodexEventContentStatus["ava
       eventContentFtsRows: 0
     },
     reasonCodes: unique([
-      requiresIndexRun
+      availability === "disabled" ? "codex_event_content_disabled_by_env" : "",
+      availability === "disabled" ? "" : requiresIndexRun
         ? "codex_event_content_projection_requires_index_run"
         : "codex_event_content_status_unavailable",
       availability !== "database_missing" && dbPath && dbBytes === 0 ? "codex_event_content_db_size_unavailable" : "",
@@ -16557,13 +16718,14 @@ function upsertSession(
   rawText: string,
   session: ImportedSession,
   stat: { size: number; mtimeMs: number },
-  options: { sourceRef?: string; rangeReasonCodes?: string[] } = {}
+  options: { sourceRef?: string; rangeReasonCodes?: string[]; eventContentEnabled?: boolean } = {}
 ): void {
   const now = new Date().toISOString();
   const sourceHash = stableId(rawText);
   const sourcePathRef = publicSourcePathRef(sourcePath);
   const preparedSourceRef = options.sourceRef ?? codexThreadRef(session.threadId);
   const rangeReasonCodes = unique(options.rangeReasonCodes ?? []);
+  const writeEventContent = options.eventContentEnabled ?? true;
   const driftReport = session.driftReport;
   const driftUnknownEventKindsJson = JSON.stringify(driftReport?.unknownEventKinds ?? []);
   const driftUnparsedLines = driftReport?.unparsedLines ?? 0;
@@ -16761,16 +16923,18 @@ function upsertSession(
         JSON.stringify({ rangeCount: event.ranges.length }),
         now
       );
-      upsertCodexEventContentForDraft(db, {
-        event,
-        eventId,
-        threadId: session.threadId,
-        sourceRef: preparedSourceRef,
-        sourcePathRef: event.sourcePathRef,
-        sourceHash: event.sourceHash,
-        privacyClass: "public_safe_metadata",
-        now
-      });
+      if (writeEventContent) {
+        upsertCodexEventContentForDraft(db, {
+          event,
+          eventId,
+          threadId: session.threadId,
+          sourceRef: preparedSourceRef,
+          sourcePathRef: event.sourcePathRef,
+          sourceHash: event.sourceHash,
+          privacyClass: "public_safe_metadata",
+          now
+        });
+      }
       for (const range of event.ranges) {
         insertPreparedRange.run(
           range.rangeRef.slice("codex_range:".length),

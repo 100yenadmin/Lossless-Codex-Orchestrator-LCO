@@ -206,6 +206,16 @@ oversized JSONL cannot dominate a first run. If `lco index codex` reports
 `--max-events-per-file <events>` only when you intentionally want to widen that
 local indexing window.
 
+The per-event content cache is local derived data used for deeper recall. If you
+need to pause that cache or reclaim space, use:
+
+```bash
+export LCO_EVENT_CONTENT=disabled
+lco maintenance --drop-event-content
+```
+
+Re-enable by unsetting `LCO_EVENT_CONTENT` and running `lco index codex` again.
+
 Optional: allow recall from one or more OpenClaw LCM peer databases:
 
 ```bash

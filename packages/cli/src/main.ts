@@ -25,6 +25,7 @@ import {
   defaultDatabasePath,
   describeRecallRef,
   describeSession,
+  dropCodexEventContentCache,
   evaluateRetrievalBaselineScenarios,
   evaluateRetrievalScenarios,
   expandQuery,
@@ -218,6 +219,26 @@ async function main() {
       }), null, 2));
     } catch (error) {
       if (emitRecallDatabaseBusyReport(error, "index codex", { timeoutMs: parsed.timeoutMs })) return;
+      throw error;
+    } finally {
+      db?.close();
+    }
+    return;
+  }
+  if (command === "maintenance" && args[0] === "--drop-event-content") {
+    const extraArgs = args.slice(1);
+    if (hasHelpFlag(extraArgs)) {
+      printMaintenanceDropEventContentHelp();
+      return;
+    }
+    const parsed = parseMaintenanceDropEventContentArgs(extraArgs);
+    let db: ReturnType<typeof createDatabase> | null = null;
+    try {
+      const dbPath = defaultDatabasePath();
+      db = createDatabase({ path: dbPath, maintenance: "schema-only", busyTimeoutMs: parsed.timeoutMs });
+      console.log(JSON.stringify(dropCodexEventContentCache(db, { dbPath }), null, 2));
+    } catch (error) {
+      if (emitRecallDatabaseBusyReport(error, "maintenance --drop-event-content", { timeoutMs: parsed.timeoutMs })) return;
       throw error;
     } finally {
       db?.close();
@@ -1103,6 +1124,7 @@ function mainUsageText(): string {
     "  loo desktop proof-action --evidence-dir path --backend cua-driver --target-app TextEdit --target-window lco-desktop-proof.txt --action \"launch_app TextEdit scratch window\" --action-hash hash --approval-ref ref --approval-file path --permission-state state --scratch-file path --execute [--strict]",
     "  loo index codex [--verify] [--max-files n] [--max-bytes-per-file n] [--max-events-per-file n] [roots...]",
     "  loo index bench --sessions n [--verify] (internal)",
+    "  loo maintenance --drop-event-content [--timeout-ms ms] [--strict]",
     "  loo probe codex-sqlite [roots...]",
     "  loo search [--limit n] [--timeout-ms ms] <query>",
     "  loo session-map [--project name] [--status value] [--priority value] [--blocker value] [--priority-order urgent,high,medium,low] [--limit n]",
@@ -1164,10 +1186,42 @@ function sanitizeCliErrorMessage(message: string): string {
 
 function isCliUsageErrorMessage(message: string): boolean {
   return /^Unknown .+ option: /.test(message)
+    || /^Unknown maintenance --drop-event-content option: /.test(message)
     || /^Unknown release claim scope: /.test(message)
     || /^Invalid --[\w-]+: /.test(message)
     || / requires (?:a value|a path|a number|a positive integer|an integer|--[\w-]+)/.test(message)
     || /^--[\w-]+ must be /.test(message);
+}
+
+function printMaintenanceDropEventContentHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo maintenance --drop-event-content [--timeout-ms ms] [--strict]",
+    "",
+    "Drop only the derived Codex event-content cache and its FTS rows from the local LCO database.",
+    "",
+    "Options:",
+    "  --timeout-ms ms   SQLite busy timeout for the maintenance operation.",
+    "  --strict          Reserved for release gates; this command is fail-closed by default.",
+    "",
+    "Safety boundary:",
+    "  This command does not touch Codex source stores, raw JSONL, session metadata, prepared source ranges, plans, finals, touched files, or audit records.",
+    "  It prints a public-safe JSON report with cache counts and the next safe rebuild command."
+  ].join("\n"));
+}
+
+function parseMaintenanceDropEventContentArgs(input: string[]): { timeoutMs: number } {
+  let timeoutMs = DEFAULT_RECALL_TIMEOUT_MS;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index];
+    if (arg === "--strict") continue;
+    if (arg === "--timeout-ms") {
+      timeoutMs = parsePositiveInteger(input[++index], "--timeout-ms", MAX_RECALL_TIMEOUT_MS);
+      continue;
+    }
+    throw new Error(`Unknown maintenance --drop-event-content option: ${arg}`);
+  }
+  return { timeoutMs };
 }
 
 function printSearchHelp(): void {

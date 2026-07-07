@@ -84,9 +84,10 @@ Current target:
   doctrine belongs in [docs/CLAIM_AUDIT.md](docs/CLAIM_AUDIT.md),
   [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md), QA Lab reports, issue
   comments, and [docs/BETA_RELEASE_RUNBOOK.md](docs/BETA_RELEASE_RUNBOOK.md).
-- Finish the 1.5 coverage lane by landing event-content storage and raw-content
-  search coverage, then run the QA Lab and OpenClaw gateway evidence for the
-  exact surfaced features.
+- Finish the 1.5 coverage lane by landing event-content storage, the
+  event-content opt-out/drop-cache escape hatch, and raw-content search
+  coverage, then run the QA Lab and OpenClaw gateway evidence for the exact
+  surfaced features.
 - Treat `lco qa-lab tool-coverage --coverage-policy full --strict` as the
   full-surface GA gate over the canonical tool surface. Missing product evidence
   is a blocker unless release copy explicitly excludes that tool or workflow.

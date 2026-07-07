@@ -7,6 +7,8 @@ import test from "node:test";
 import { createAuditStore } from "../packages/adapters/src/index.js";
 import {
   createDatabase,
+  dropCodexEventContentCache,
+  getCodexEventContentStatus,
   grepRecall,
   indexCodexSessions,
   readCodexIndexHealthStatusFromPath,
@@ -149,6 +151,54 @@ test("indexing stores redacted per-event content and pins event FTS rowids", () 
       db.close();
     }
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("event-content opt-out preserves session metadata and prepared source ranges", () => {
+  const root = mkdtempSync(join(tmpdir(), "lco-event-content-opt-out-"));
+  const previousCanonical = process.env.LCO_EVENT_CONTENT;
+  const previousCompat = process.env.LOO_EVENT_CONTENT;
+  process.env.LCO_EVENT_CONTENT = "disabled";
+  delete process.env.LOO_EVENT_CONTENT;
+  try {
+    const sessionsDir = join(root, "sessions");
+    const dbPath = join(root, "orchestrator.sqlite");
+    const threadId = "019f-event-content-opt-out";
+    writeEventContentSession(join(sessionsDir, "rollout-2026-07-08T00-00-00-019f-event-content-opt-out.jsonl"), {
+      threadId,
+      phrase: "Opt out keeps metadata but skips event content rows."
+    });
+    const db = createDatabase(dbPath);
+    try {
+      const indexed = indexCodexSessions(db, { roots: [sessionsDir], maxFiles: 10 });
+      assert.equal(indexed.indexedFiles, 1);
+      assert.equal(indexed.errors.length, 0);
+      assert.equal(countRows(db, "codex_sessions"), 1);
+      assert.ok(countRows(db, "prepared_source_events") > 0);
+      assert.ok(countRows(db, "prepared_source_ranges") > 0);
+      assert.equal(countRows(db, "codex_event_content"), 0);
+      assert.equal(countRows(db, "codex_event_content_fts"), 0);
+
+      const grep = grepRecall(db, { query: "Opt out keeps metadata", limit: 5 }) as Record<string, any>;
+      assert.equal(grep.matches[0]?.sourceRef, `codex_thread:${threadId}`);
+      assert.equal(grep.matches[0]?.event, undefined);
+
+      const status = getCodexEventContentStatus(db, dbPath) as Record<string, any>;
+      assert.equal(status.state, "disabled");
+      assert.equal(status.availability, "disabled");
+      assert.equal(status.coverage.totalEvents, 4);
+      assert.equal(status.coverage.eventsWithContent, 0);
+      assert.ok(status.reasonCodes.includes("codex_event_content_disabled_by_env"));
+      assert.doesNotMatch(JSON.stringify(status), /\/Volumes\/|\/Users\/|private-worktree|Opt out keeps metadata/);
+    } finally {
+      db.close();
+    }
+  } finally {
+    if (previousCanonical === undefined) delete process.env.LCO_EVENT_CONTENT;
+    else process.env.LCO_EVENT_CONTENT = previousCanonical;
+    if (previousCompat === undefined) delete process.env.LOO_EVENT_CONTENT;
+    else process.env.LOO_EVENT_CONTENT = previousCompat;
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -408,6 +458,64 @@ test("doctor health reports event-content coverage and database size accounting"
     assert.equal(partialHealth.codexEventContent.state, "partial");
     assert.equal(partialHealth.codexEventContent.availability, "requires_index_run");
     assert.ok(partialHealth.codexEventContent.reasonCodes.includes("codex_event_content_backfill_partial"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("dropCodexEventContentCache removes only derived event content cache", () => {
+  const root = mkdtempSync(join(tmpdir(), "lco-event-content-drop-"));
+  try {
+    const sessionsDir = join(root, "sessions");
+    const dbPath = join(root, "orchestrator.sqlite");
+    writeEventContentSession(join(sessionsDir, "rollout-2026-07-08T00-00-00-019f-event-content-drop.jsonl"), {
+      threadId: "019f-event-content-drop",
+      phrase: "Drop event content cache keeps session metadata."
+    });
+    const db = createDatabase(dbPath);
+    try {
+      assert.equal(indexCodexSessions(db, { roots: [sessionsDir], maxFiles: 10 }).indexedFiles, 1);
+      const sessionsBefore = countRows(db, "codex_sessions");
+      const preparedEventsBefore = countRows(db, "prepared_source_events");
+      const preparedRangesBefore = countRows(db, "prepared_source_ranges");
+      const eventContentBefore = countRows(db, "codex_event_content");
+      assert.ok(eventContentBefore > 0);
+
+      const report = dropCodexEventContentCache(db, { dbPath }) as Record<string, any>;
+      assert.equal(report.schema, "lco.codexEventContent.drop.v1");
+      assert.equal(report.ok, true);
+      assert.equal(report.publicSafe, true);
+      assert.equal(report.readOnly, false);
+      assert.deepEqual(report.mutationClasses, ["derived_cache"]);
+      assert.equal(report.before.eventContentRows, eventContentBefore);
+      assert.equal(report.after.eventContentRows, 0);
+      assert.equal(report.after.eventContentFtsRows, 0);
+      assert.equal(report.preserved.codexSessions, sessionsBefore);
+      assert.equal(report.preserved.preparedSourceEvents, preparedEventsBefore);
+      assert.equal(report.preserved.preparedSourceRanges, preparedRangesBefore);
+      assert.match(report.nextSafeCommands.join("\n"), /loo index codex/);
+      assert.doesNotMatch(JSON.stringify(report), /\/Volumes\/|\/Users\/|private-worktree|Drop event content cache/);
+
+      assert.equal(countRows(db, "codex_sessions"), sessionsBefore);
+      assert.equal(countRows(db, "prepared_source_events"), preparedEventsBefore);
+      assert.equal(countRows(db, "prepared_source_ranges"), preparedRangesBefore);
+      assert.equal(countRows(db, "codex_event_content"), 0);
+      assert.equal(countRows(db, "codex_event_content_fts"), 0);
+
+      const status = getCodexEventContentStatus(db, dbPath) as Record<string, any>;
+      assert.equal(status.state, "dropped");
+      assert.equal(status.availability, "requires_index_run");
+      assert.ok(status.reasonCodes.includes("codex_event_content_cache_dropped"));
+
+      const rebuilt = indexCodexSessions(db, { roots: [sessionsDir], maxFiles: 10, verify: true });
+      assert.equal(rebuilt.indexedFiles, 1);
+      assert.equal(countRows(db, "codex_event_content"), eventContentBefore);
+      const rebuiltStatus = getCodexEventContentStatus(db, dbPath) as Record<string, any>;
+      assert.equal(rebuiltStatus.state, "ready");
+      assert.equal(rebuiltStatus.availability, "ready");
+    } finally {
+      db.close();
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
