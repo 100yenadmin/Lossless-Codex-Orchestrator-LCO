@@ -394,6 +394,7 @@ test("published-smoke requires public-safe candidate binary probe evidence", () 
     assert.match(recoveryCommand, /test -n "\$package_version"/);
     assert.match(recoveryCommand, /test "\$version" = "\$package_version"/);
     assert.match(recoveryCommand, /"\$binary_probe_report" .*"\$version" "\$package_version"/);
+    assert.ok(recoveryCommand.includes(`'${packageVersion}'`));
     assert.ok(recoveryCommand.includes(packageVersion));
   } finally {
     rmSync(dir, { recursive: true, force: true });

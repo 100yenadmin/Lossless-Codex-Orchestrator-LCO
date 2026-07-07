@@ -7053,8 +7053,7 @@ function preparedCardStateHasFreshTargetCoverage(state: PreparedCardState): bool
     || state === "completed"
     || state === "ready_for_review"
     || state === "watching_external_check"
-    || state === "needs_resume"
-    || state === "dirty_worktree_handoff";
+    || state === "needs_resume";
 }
 
 function countPreparedTargetRows(db: LooDatabase, sql: string, ...params: Array<string | number>): number {

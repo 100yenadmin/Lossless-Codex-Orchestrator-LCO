@@ -418,6 +418,7 @@ function publishedPackageTarballExtractCommand(tarballLookup: string): string {
 }
 
 function binaryProbeJsonWriteCommand(packageVersion: string): string {
+  // This fragment is composed into a larger shell && chain; keep caller-owned literals shell-single-quoted.
   const writerLines = [
     "import { writeFileSync } from 'node:fs';",
     "const [outPath, expectedVersion, observedVersion, packageJsonVersion] = process.argv.slice(2);",

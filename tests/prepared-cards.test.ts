@@ -1786,7 +1786,7 @@ test("prepared cards promote semantic lifecycle states into card and inbox ranki
   }
 });
 
-test("prepared targeted coverage downgrades blocked states while preserving fresh action states", () => {
+test("prepared targeted coverage downgrades blocked and dirty states while preserving fresh action states", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-prepared-card-attention-coverage-"));
   const sessions = join(root, "sessions");
   mkdirSync(sessions, { recursive: true });
@@ -1839,7 +1839,7 @@ test("prepared targeted coverage downgrades blocked states while preserving fres
     }
 
     materializePreparedCards(db);
-    for (const threadId of [waitingThreadId, blockedThreadId]) {
+    for (const threadId of [waitingThreadId, blockedThreadId, dirtyThreadId]) {
       const status = getPreparedStateStatus(db, { threadId }) as ReturnType<typeof getPreparedStateStatus> & {
         targetCoverage?: {
           status: string;
@@ -1852,7 +1852,7 @@ test("prepared targeted coverage downgrades blocked states while preserving fres
       assert.equal(status.targetCoverage?.reasonCodes.includes("partial_prepared_state"), true);
       assert.equal(status.targetCoverage?.reasonCodes.includes("prepared_state_ready"), false);
     }
-    for (const threadId of [reviewThreadId, ciWatchThreadId, resumeThreadId, dirtyThreadId]) {
+    for (const threadId of [reviewThreadId, ciWatchThreadId, resumeThreadId]) {
       const status = getPreparedStateStatus(db, { threadId }) as ReturnType<typeof getPreparedStateStatus> & {
         targetCoverage?: {
           status: string;
