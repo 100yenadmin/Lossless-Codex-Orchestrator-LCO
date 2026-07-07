@@ -370,6 +370,7 @@ test("published-smoke requires public-safe candidate binary probe evidence", () 
     assert.doesNotMatch(report.nextSafeCommands.join("\n"), /"<version>"/);
     const recoveryCommand = report.nextSafeCommands.find((command) => command.includes("binary_probe_report=") && command.includes("write-binary-probe.mjs"));
     assert.equal(typeof recoveryCommand, "string");
+    assert.match(recoveryCommand, /^\(/);
     assert.match(recoveryCommand, /package_version=/);
     assert.match(recoveryCommand, /JSON\.stringify/);
     assert.match(recoveryCommand, /process\.argv\.slice\(2\)/);

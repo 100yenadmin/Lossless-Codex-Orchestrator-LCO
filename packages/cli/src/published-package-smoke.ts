@@ -399,14 +399,18 @@ function binaryProbeDiagnosticCommands(
   if (diagnostic.classification === "not_provided") {
     return [
       `${tarballLookup} --json`,
-      `${tarballExtractPrefix} && binary_probe_report="$tmp_dir/binary-probe.json" && version="$(node "$tmp_dir/package/dist/packages/cli/src/index.js" --version)" && package_version="$(node -pe "require(process.argv[1]).version" "$tmp_dir/package/package.json")" && test -n "$version" && test -n "$package_version" && test "$version" = "$package_version" && ${binaryProbeJsonWriteCommand(packageVersion)} && loo openclaw published-smoke --dogfood-report dogfood.json --tool-smoke-report tool-smoke.json --binary-probe-report "$binary_probe_report" --strict`
+      recoverySubshellCommand(`${tarballExtractPrefix} && binary_probe_report="$tmp_dir/binary-probe.json" && version="$(node "$tmp_dir/package/dist/packages/cli/src/index.js" --version)" && package_version="$(node -pe "require(process.argv[1]).version" "$tmp_dir/package/package.json")" && test -n "$version" && test -n "$package_version" && test "$version" = "$package_version" && ${binaryProbeJsonWriteCommand(packageVersion)} && loo openclaw published-smoke --dogfood-report dogfood.json --tool-smoke-report tool-smoke.json --binary-probe-report "$binary_probe_report" --strict`)
     ];
   }
   if (diagnostic.classification !== "smoke_harness_path_shadow" && diagnostic.classification !== "candidate_binary_version_mismatch") return [];
   return [
     `${tarballLookup} --json`,
-    `${tarballExtractPrefix} && node "$tmp_dir/package/dist/packages/cli/src/index.js" --version`
+    recoverySubshellCommand(`${tarballExtractPrefix} && node "$tmp_dir/package/dist/packages/cli/src/index.js" --version`)
   ];
+}
+
+function recoverySubshellCommand(command: string): string {
+  return `(${command})`;
 }
 
 function publishedPackageTarballExtractCommand(tarballLookup: string): string {
