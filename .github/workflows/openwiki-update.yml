@@ -1,0 +1,135 @@
+name: OpenWiki Docs Update
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "OpenWiki command to run."
+        type: choice
+        options:
+          - update
+          - init
+        default: update
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  OPENWIKI_REPOSITORY: 100yenadmin/openwiki
+  OPENWIKI_REF: 7bff0df61700709575bd154f3ac66b4927c6d137
+  OPENWIKI_PROVIDER: anthropic
+  OPENWIKI_MODEL_ID: GLM-5.2
+  ANTHROPIC_BASE_URL: https://api.z.ai/api/anthropic
+  OPENWIKI_OUTPUT_DIR: openwiki
+
+jobs:
+  update-openwiki:
+    name: Update OpenWiki docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout LCO
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+
+      - name: Checkout OpenWiki runner
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          repository: ${{ env.OPENWIKI_REPOSITORY }}
+          ref: ${{ env.OPENWIKI_REF }}
+          path: ${{ runner.temp }}/openwiki-runner
+
+      - name: Build OpenWiki runner
+        working-directory: ${{ runner.temp }}/openwiki-runner
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm run build
+
+      - name: Run OpenWiki docs update
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ZAI_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ env.ANTHROPIC_BASE_URL }}
+          COMMAND: ${{ inputs.command }}
+          OPENWIKI_PROVIDER: ${{ env.OPENWIKI_PROVIDER }}
+          OPENWIKI_MODEL_ID: ${{ env.OPENWIKI_MODEL_ID }}
+          OPENWIKI_OUTPUT_DIR: ${{ env.OPENWIKI_OUTPUT_DIR }}
+        run: |
+          if [ "${COMMAND}" = "init" ]; then
+            node "${RUNNER_TEMP}/openwiki-runner/dist/cli.js" --init --print --no-agent-instructions --modelId "${OPENWIKI_MODEL_ID}"
+          else
+            node "${RUNNER_TEMP}/openwiki-runner/dist/cli.js" --update --print --no-agent-instructions --modelId "${OPENWIKI_MODEL_ID}"
+          fi
+
+      - name: Record public run metadata
+        env:
+          OPENWIKI_REF: ${{ env.OPENWIKI_REF }}
+        run: |
+          mkdir -p openwiki/_metadata
+          node <<'NODE'
+          const crypto = require("node:crypto");
+          const fs = require("node:fs");
+          const path = require("node:path");
+
+          function listFiles(dir) {
+            if (!fs.existsSync(dir)) return [];
+            return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+              const fullPath = path.join(dir, entry.name);
+              if (entry.isDirectory()) return listFiles(fullPath);
+              if (!entry.isFile()) return [];
+              return [fullPath];
+            });
+          }
+
+          const files = listFiles("openwiki")
+            .filter((file) => path.normalize(file) !== path.normalize("openwiki/_metadata/workflow-run.json"))
+            .sort();
+          const digest = crypto.createHash("sha256");
+          for (const file of files) {
+            const relativePath = file.split(path.sep).join("/");
+            digest.update(relativePath);
+            digest.update("\0");
+            digest.update(fs.readFileSync(file));
+            digest.update("\0");
+          }
+          fs.writeFileSync(
+            "openwiki/_metadata/workflow-run.json",
+            `${JSON.stringify(
+              {
+                provider: "zai",
+                provider_route: "anthropic-compatible",
+                base_url: "https://api.z.ai/api/anthropic",
+                model: "GLM-5.2",
+                workflow: "openwiki-update",
+                run_id: process.env.GITHUB_RUN_ID,
+                run_attempt: process.env.GITHUB_RUN_ATTEMPT,
+                source: "manual_dispatch",
+                openwiki_ref: process.env.OPENWIKI_REF,
+                openwiki_content_sha256: digest.digest("hex"),
+                openwiki_content_file_count: files.length
+              },
+              null,
+              2
+            )}\n`
+          );
+          NODE
+
+      - name: Guard OpenWiki-only diff
+        run: node scripts/guard-openwiki-diff.mjs
+
+      - name: Open docs PR
+        uses: peter-evans/create-pull-request@c5a7806660adbe173f04e3e038b0ccdcd758773c
+        with:
+          branch: automation/openwiki-update
+          title: "docs: update OpenWiki orientation"
+          commit-message: "docs: update OpenWiki orientation"
+          body: |
+            Manual OpenWiki update run.
+
+            Provider/model: Z.AI GLM-5.2.
+            OpenWiki runner: 100yenadmin/openwiki@7bff0df61700709575bd154f3ac66b4927c6d137.
+            Scope: openwiki/** only.
+            This workflow records public run metadata only; provider credentials are not written to the repository.
+          add-paths: |
+            openwiki/**
+          delete-branch: true
