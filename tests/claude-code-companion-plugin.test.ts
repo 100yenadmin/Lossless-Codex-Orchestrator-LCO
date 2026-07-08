@@ -112,6 +112,24 @@ test("frontmatterField treats field names as literals", () => {
   assert.equal(frontmatterField(content, "na+e"), undefined);
 });
 
+test("lco-find wrapper rejects empty queries before calling lco or npx", () => {
+  const dir = mkdtempSync(join(tmpdir(), "lco-find-wrapper-empty-"));
+  const binDir = join(dir, "bin");
+  const logPath = join(dir, "calls.jsonl");
+
+  try {
+    mkdirExecutableBin(binDir);
+    writeFileSync(logPath, "");
+    const result = runFindWrapper(binDir, logPath, []);
+
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /Usage: lco-find <query>/);
+    assert.deepEqual(readLog(logPath), []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("lco-find wrapper prefers lco and forwards argv and exit code", () => {
   const dir = mkdtempSync(join(tmpdir(), "lco-find-wrapper-"));
   const binDir = join(dir, "bin");
