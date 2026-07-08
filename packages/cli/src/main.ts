@@ -282,12 +282,15 @@ async function main() {
     try {
       const dbPath = defaultDatabasePath();
       db = createDatabase({ path: dbPath, maintenance: "schema-only", busyTimeoutMs: parsed.timeoutMs });
-      console.log(JSON.stringify(runDatabaseMaintenance(db, {
+      const report = runDatabaseMaintenance(db, {
         dbPath,
         checkpoint: parsed.checkpoint,
         analyze: parsed.analyze,
-        vacuum: parsed.vacuum
-      }), null, 2));
+        vacuum: parsed.vacuum,
+        strict: parsed.strict
+      });
+      console.log(JSON.stringify(report, null, 2));
+      if (parsed.strict && !report.ok) process.exitCode = 1;
     } catch (error) {
       if (emitRecallDatabaseBusyReport(error, "maintenance", { timeoutMs: parsed.timeoutMs })) return;
       throw error;
@@ -1308,14 +1311,18 @@ function printMaintenanceHelp(): void {
   ].join("\n"));
 }
 
-function parseMaintenanceArgs(input: string[]): { checkpoint: boolean; analyze: boolean; vacuum: boolean; timeoutMs: number } {
+function parseMaintenanceArgs(input: string[]): { checkpoint: boolean; analyze: boolean; vacuum: boolean; timeoutMs: number; strict: boolean } {
   let timeoutMs = DEFAULT_RECALL_TIMEOUT_MS;
   let checkpoint = true;
   let analyze = true;
   let vacuum = false;
+  let strict = false;
   for (let index = 0; index < input.length; index += 1) {
     const arg = input[index];
-    if (arg === "--strict") continue;
+    if (arg === "--strict") {
+      strict = true;
+      continue;
+    }
     if (arg === "--checkpoint") {
       checkpoint = true;
       continue;
@@ -1334,7 +1341,7 @@ function parseMaintenanceArgs(input: string[]): { checkpoint: boolean; analyze: 
     }
     throw new Error(`Unknown maintenance option: ${arg}`);
   }
-  return { checkpoint, analyze, vacuum, timeoutMs };
+  return { checkpoint, analyze, vacuum, timeoutMs, strict };
 }
 
 function printMaintenanceDropEventContentHelp(): void {

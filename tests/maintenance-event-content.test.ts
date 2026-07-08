@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { createDatabase, indexCodexSessions, type LooDatabase } from "../packages/core/src/index.js";
+import { createDatabase, indexCodexSessions, runDatabaseMaintenance, type LooDatabase } from "../packages/core/src/index.js";
 import { runLoo } from "./helpers/run-loo.js";
 
 function writeMaintenanceSession(path: string, threadId: string): void {
@@ -109,6 +109,7 @@ test("CLI maintenance checkpoints and analyzes the local derived-cache database"
     assert.equal(report.ok, true);
     assert.equal(report.publicSafe, true);
     assert.equal(report.readOnly, false);
+    assert.equal(report.strictMode, false);
     assert.deepEqual(report.mutationClasses, ["derived_cache"]);
     assert.equal(report.actionsPerformed.checkpoint, true);
     assert.equal(report.actionsPerformed.analyze, true);
@@ -120,6 +121,62 @@ test("CLI maintenance checkpoints and analyzes the local derived-cache database"
     assert.match(report.nextSafeCommands.join("\n"), /loo doctor/);
     assert.ok(report.reasonCodes.includes("database_checkpoint_truncate_completed"));
     assert.ok(report.reasonCodes.includes("database_analyze_completed"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("CLI maintenance --vacuum --strict runs VACUUM only after the path-backed free-space guard", () => {
+  const root = mkdtempSync(join(tmpdir(), "lco-maintenance-vacuum-"));
+  try {
+    const dbPath = join(root, "orchestrator.sqlite");
+    const db = createDatabase(dbPath);
+    db.close();
+
+    const result = runLoo(["maintenance", "--vacuum", "--strict", "--timeout-ms", "5000"], {
+      ...process.env,
+      LCO_DB_PATH: dbPath
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(result.stderr, "");
+    assert.doesNotMatch(result.stdout, /\/Users\/|\/Volumes\/|orchestrator\.sqlite/);
+    const report = JSON.parse(result.stdout) as Record<string, any>;
+    assert.equal(report.schema, "lco.databaseMaintenance.v1");
+    assert.equal(report.ok, true);
+    assert.equal(report.strictMode, true);
+    assert.equal(report.actionsPerformed.vacuum, true);
+    assert.deepEqual(
+      report.operations.filter((operation: Record<string, any>) => operation.name === "vacuum"),
+      [{ name: "vacuum", ok: true }]
+    );
+    assert.ok(report.reasonCodes.includes("database_vacuum_completed"));
+    assert.equal(report.reasonCodes.includes("database_maintenance_strict_blocker"), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("core maintenance skips strict VACUUM when free-space state is unavailable", () => {
+  const root = mkdtempSync(join(tmpdir(), "lco-maintenance-vacuum-unavailable-"));
+  try {
+    const db = createDatabase(join(root, "orchestrator.sqlite"));
+    try {
+      const report = runDatabaseMaintenance(db, {
+        checkpoint: false,
+        analyze: false,
+        vacuum: true,
+        strict: true
+      });
+      assert.equal(report.ok, false);
+      assert.equal(report.strictMode, true);
+      assert.equal(report.actionsPerformed.vacuum, false);
+      assert.deepEqual(report.operations, [{ name: "vacuum", ok: true, skipped: true, reason: "free_space_unavailable" }]);
+      assert.ok(report.reasonCodes.includes("database_vacuum_skipped_free_space_unavailable"));
+      assert.ok(report.reasonCodes.includes("database_maintenance_strict_blocker"));
+    } finally {
+      db.close();
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

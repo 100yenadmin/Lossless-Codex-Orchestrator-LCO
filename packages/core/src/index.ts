@@ -238,9 +238,10 @@ export type DatabaseStorageStatus = {
 
 export type DatabaseMaintenanceReport = {
   schema: "lco.databaseMaintenance.v1";
-  ok: true;
+  ok: boolean;
   publicSafe: true;
   readOnly: false;
+  strictMode: boolean;
   mutationClasses: ["derived_cache"];
   actionsPerformed: {
     checkpoint: boolean;
@@ -5526,11 +5527,12 @@ export function getDatabaseStorageStatus(
 
 export function runDatabaseMaintenance(
   db: LooDatabase,
-  options: { dbPath?: string; checkpoint?: boolean; analyze?: boolean; vacuum?: boolean } = {}
+  options: { dbPath?: string; checkpoint?: boolean; analyze?: boolean; vacuum?: boolean; strict?: boolean } = {}
 ): DatabaseMaintenanceReport {
   const checkpoint = options.checkpoint ?? true;
   const analyze = options.analyze ?? true;
   const vacuum = options.vacuum ?? false;
+  const strictMode = options.strict ?? false;
   const before = getDatabaseStorageStatus(db, options.dbPath);
   const operations: DatabaseMaintenanceReport["operations"] = [];
 
@@ -5548,7 +5550,9 @@ export function runDatabaseMaintenance(
   if (vacuum) {
     const freeBytes = options.dbPath ? availableFilesystemBytes(dirname(options.dbPath)) : null;
     const requiredBytes = Math.max(before.size.dbBytes * 2, 64 * 1024 * 1024);
-    if (freeBytes !== null && freeBytes < requiredBytes) {
+    if (freeBytes === null) {
+      operations.push({ name: "vacuum", ok: true, skipped: true, reason: "free_space_unavailable" });
+    } else if (freeBytes < requiredBytes) {
       operations.push({ name: "vacuum", ok: true, skipped: true, reason: "insufficient_free_space" });
     } else {
       db.exec("VACUUM");
@@ -5558,11 +5562,14 @@ export function runDatabaseMaintenance(
   }
 
   const after = getDatabaseStorageStatus(db, options.dbPath);
+  const skippedOperations = operations.filter((operation) => operation.skipped);
+  const strictBlocked = strictMode && skippedOperations.length > 0;
   return {
     schema: "lco.databaseMaintenance.v1",
-    ok: true,
+    ok: !strictBlocked,
     publicSafe: true,
     readOnly: false,
+    strictMode,
     mutationClasses: ["derived_cache"],
     actionsPerformed: {
       checkpoint,
@@ -5577,7 +5584,8 @@ export function runDatabaseMaintenance(
       checkpoint ? "database_checkpoint_truncate_completed" : "",
       analyze ? "database_analyze_completed" : "",
       vacuumPerformed ? "database_vacuum_completed" : "",
-      vacuum && !vacuumPerformed ? "database_vacuum_skipped" : "",
+      ...skippedOperations.map((operation) => `database_${operation.name}_skipped_${operation.reason ?? "unknown"}`),
+      strictBlocked ? "database_maintenance_strict_blocker" : "",
       "derived_cache_only"
     ])
   };
