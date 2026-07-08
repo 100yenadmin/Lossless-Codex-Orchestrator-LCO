@@ -470,6 +470,7 @@ test("MCP doctor and desktop tools expose CUA diagnostics while desktop act stay
         }>;
       };
     };
+    assert.equal(Object.hasOwn(doctorResult, "databaseStorage"), false);
     assert.equal(doctorResult.database.storage.schema, "lco.databaseStorage.status.v1");
     assert.equal(doctorResult.database.storage.publicSafe, true);
     assert.equal(doctorResult.database.storage.readOnly, true);

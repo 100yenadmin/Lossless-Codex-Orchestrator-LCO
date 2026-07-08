@@ -1160,7 +1160,6 @@ export function createLooTools(options: {
           location: "local",
           storage: databaseStorage
         },
-        databaseStorage,
         codexJsonlDrift: getCodexJsonlDriftStatus(options.db),
         codexEventContent: getCodexEventContentStatus(options.db, options.dbPath),
         codex: codexTransportStatus({ command: readEnvWithFallback("CODEX_BIN", "codex") }),

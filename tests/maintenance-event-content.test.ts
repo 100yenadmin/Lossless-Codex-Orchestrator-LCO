@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { createDatabase, indexCodexSessions, runDatabaseMaintenance, type LooDatabase } from "../packages/core/src/index.js";
+import { createDatabase, getDatabaseStorageStatus, indexCodexSessions, runDatabaseMaintenance, type LooDatabase } from "../packages/core/src/index.js";
 import { runLoo } from "./helpers/run-loo.js";
 
 function writeMaintenanceSession(path: string, threadId: string): void {
@@ -18,6 +18,22 @@ function writeMaintenanceSession(path: string, threadId: string): void {
 
 function countRows(db: LooDatabase, tableName: string): number {
   return Number((db.prepare(`SELECT COUNT(*) AS count FROM ${tableName}`).get() as { count: number }).count);
+}
+
+function fakeMaintenanceDb(checkpointRow: Record<string, unknown>): LooDatabase {
+  return {
+    prepare(sql: string) {
+      return {
+        get() {
+          if (sql === "PRAGMA wal_checkpoint(TRUNCATE)") return checkpointRow;
+          if (sql === "PRAGMA page_count") return { page_count: 1 };
+          if (sql === "PRAGMA page_size") return { page_size: 4096 };
+          return {};
+        }
+      };
+    },
+    exec() {}
+  } as unknown as LooDatabase;
 }
 
 test("CLI maintenance --drop-event-content removes only the derived event-content cache", () => {
@@ -180,4 +196,41 @@ test("core maintenance skips strict VACUUM when free-space state is unavailable"
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("core storage and maintenance reason codes do not include empty strings", () => {
+  const root = mkdtempSync(join(tmpdir(), "lco-maintenance-reasons-"));
+  try {
+    const db = createDatabase(join(root, "orchestrator.sqlite"));
+    try {
+      const status = getDatabaseStorageStatus(db);
+      const report = runDatabaseMaintenance(db, {
+        checkpoint: false,
+        analyze: false,
+        vacuum: false,
+        strict: true
+      });
+      assert.equal(status.reasonCodes.includes(""), false);
+      assert.equal(report.reasonCodes.includes(""), false);
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("core maintenance reports busy WAL checkpoint failures instead of claiming success", () => {
+  const db = fakeMaintenanceDb({ busy: 1, log: 10, checkpointed: 5 });
+  const report = runDatabaseMaintenance(db, {
+    checkpoint: true,
+    analyze: false,
+    vacuum: false,
+    strict: true
+  });
+  assert.equal(report.ok, false);
+  assert.deepEqual(report.operations, [{ name: "wal_checkpoint_truncate", ok: false, reason: "busy" }]);
+  assert.equal(report.reasonCodes.includes("database_checkpoint_truncate_completed"), false);
+  assert.ok(report.reasonCodes.includes("database_wal_checkpoint_truncate_failed_busy"));
+  assert.ok(report.reasonCodes.includes("database_maintenance_strict_blocker"));
 });

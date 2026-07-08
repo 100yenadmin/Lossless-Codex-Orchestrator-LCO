@@ -5520,7 +5520,7 @@ export function getDatabaseStorageStatus(
       dbBytes >= thresholds.dbBytes ? "database_storage_db_size_maintenance_recommended" : "",
       walBytes >= thresholds.walBytes ? "database_storage_wal_size_maintenance_recommended" : "",
       totalBytes >= thresholds.totalBytes ? "database_storage_total_size_maintenance_recommended" : ""
-    ]),
+    ].filter(Boolean)),
     nextSafeCommands: maintenanceRecommended ? ["loo maintenance --timeout-ms 60000", "loo doctor"] : []
   };
 }
@@ -5537,8 +5537,14 @@ export function runDatabaseMaintenance(
   const operations: DatabaseMaintenanceReport["operations"] = [];
 
   if (checkpoint) {
-    db.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get();
-    operations.push({ name: "wal_checkpoint_truncate", ok: true });
+    const checkpointRow = db.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get() as Record<string, unknown> | undefined;
+    const busy = Number(checkpointRow?.busy ?? 0);
+    const ok = Number.isFinite(busy) && busy === 0;
+    operations.push({
+      name: "wal_checkpoint_truncate",
+      ok,
+      ...(ok ? {} : { reason: "busy" })
+    });
   }
 
   if (analyze) {
@@ -5563,10 +5569,12 @@ export function runDatabaseMaintenance(
 
   const after = getDatabaseStorageStatus(db, options.dbPath);
   const skippedOperations = operations.filter((operation) => operation.skipped);
-  const strictBlocked = strictMode && skippedOperations.length > 0;
+  const failedOperations = operations.filter((operation) => operation.ok === false);
+  const strictBlocked = strictMode && (skippedOperations.length > 0 || failedOperations.length > 0);
+  const checkpointOperation = operations.find((operation) => operation.name === "wal_checkpoint_truncate");
   return {
     schema: "lco.databaseMaintenance.v1",
-    ok: !strictBlocked,
+    ok: failedOperations.length === 0 && !strictBlocked,
     publicSafe: true,
     readOnly: false,
     strictMode,
@@ -5581,13 +5589,14 @@ export function runDatabaseMaintenance(
     operations,
     nextSafeCommands: ["loo doctor"],
     reasonCodes: unique([
-      checkpoint ? "database_checkpoint_truncate_completed" : "",
+      checkpointOperation?.ok ? "database_checkpoint_truncate_completed" : "",
+      ...failedOperations.map((operation) => `database_${operation.name}_failed_${operation.reason ?? "unknown"}`),
       analyze ? "database_analyze_completed" : "",
       vacuumPerformed ? "database_vacuum_completed" : "",
       ...skippedOperations.map((operation) => `database_${operation.name}_skipped_${operation.reason ?? "unknown"}`),
       strictBlocked ? "database_maintenance_strict_blocker" : "",
       "derived_cache_only"
-    ])
+    ].filter(Boolean))
   };
 }
 
