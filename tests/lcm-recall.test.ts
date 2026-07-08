@@ -18,6 +18,39 @@ import {
   probeLcmPeerDbs
 } from "../packages/core/src/index.js";
 
+function createLcmPeerSchema(lcm: DatabaseSync): void {
+  lcm.exec(`
+    CREATE TABLE conversations (
+      conversation_id INTEGER PRIMARY KEY,
+      title TEXT,
+      session_key TEXT,
+      created_at TEXT,
+      updated_at TEXT
+    );
+    CREATE TABLE summaries (
+      summary_id TEXT PRIMARY KEY,
+      conversation_id INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      depth INTEGER NOT NULL,
+      content TEXT NOT NULL,
+      token_count INTEGER NOT NULL,
+      file_ids TEXT,
+      earliest_at TEXT,
+      latest_at TEXT,
+      descendant_count INTEGER,
+      created_at TEXT,
+      model TEXT
+    );
+    CREATE TABLE summary_parents (
+      summary_id TEXT NOT NULL,
+      parent_summary_id TEXT NOT NULL,
+      ordinal INTEGER NOT NULL,
+      PRIMARY KEY (summary_id, parent_summary_id)
+    );
+    CREATE VIRTUAL TABLE summaries_fts USING fts5(summary_id UNINDEXED, content, tokenize = 'unicode61');
+  `);
+}
+
 function makeRecallFixture() {
   const root = mkdtempSync(join(tmpdir(), "loo-lcm-recall-"));
   const sessions = join(root, "sessions");
@@ -49,30 +82,7 @@ function makeRecallFixture() {
   const lcmPath = join(root, "lcm-peer.sqlite");
   const lcm = new DatabaseSync(lcmPath);
   try {
-    lcm.exec(`
-      CREATE TABLE conversations (
-        conversation_id INTEGER PRIMARY KEY,
-        title TEXT,
-        session_key TEXT,
-        created_at TEXT,
-        updated_at TEXT
-      );
-      CREATE TABLE summaries (
-        summary_id TEXT PRIMARY KEY,
-        conversation_id INTEGER NOT NULL,
-        kind TEXT NOT NULL,
-        depth INTEGER NOT NULL,
-        content TEXT NOT NULL,
-        token_count INTEGER NOT NULL,
-        file_ids TEXT,
-        earliest_at TEXT,
-        latest_at TEXT,
-        descendant_count INTEGER,
-        created_at TEXT,
-        model TEXT
-      );
-      CREATE VIRTUAL TABLE summaries_fts USING fts5(summary_id UNINDEXED, content, tokenize = 'unicode61');
-    `);
+    createLcmPeerSchema(lcm);
     lcm.prepare("INSERT INTO conversations (conversation_id, title, session_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(
       42,
       "OpenClaw peer memory",
@@ -88,8 +98,8 @@ function makeRecallFixture() {
     `).run(
       "sum_peer_recall",
       42,
-      "leaf",
-      0,
+      "condensed",
+      1,
       "Peer recall summary links OpenClaw LCM to Codex without merging stores. It mentions /Users/lume/private, ~/private/notes.md, /home/lume/private, /tmp/lcm-peer.sqlite, and authorization: Bearer sk-test_1234567890 so safe outputs must redact secrets.",
       44,
       JSON.stringify(["packages/core/src/index.ts"]),
@@ -98,6 +108,59 @@ function makeRecallFixture() {
       0,
       "2026-06-28T00:11:00Z",
       "gpt-5.5"
+    );
+    lcm.prepare(`
+      INSERT INTO summaries (
+        summary_id, conversation_id, kind, depth, content, token_count, file_ids,
+        earliest_at, latest_at, descendant_count, created_at, model
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "sum_peer_leaf_prompt",
+      42,
+      "leaf",
+      0,
+      "User asked how OpenClaw should recall Codex sessions without rereading raw tool-call payloads.",
+      18,
+      JSON.stringify([]),
+      "2026-06-28T00:01:00Z",
+      "2026-06-28T00:02:00Z",
+      0,
+      "2026-06-28T00:03:00Z",
+      "gpt-5.5"
+    );
+    lcm.prepare(`
+      INSERT INTO summaries (
+        summary_id, conversation_id, kind, depth, content, token_count, file_ids,
+        earliest_at, latest_at, descendant_count, created_at, model
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "sum_peer_leaf_plan",
+      42,
+      "leaf",
+      0,
+      "Assistant proposed a public-safe recall adapter with source refs, bounded expansion, and no source-store mutation.",
+      20,
+      JSON.stringify([]),
+      "2026-06-28T00:04:00Z",
+      "2026-06-28T00:05:00Z",
+      0,
+      "2026-06-28T00:06:00Z",
+      "gpt-5.5"
+    );
+    lcm.prepare("INSERT INTO summary_parents (summary_id, parent_summary_id, ordinal) VALUES (?, ?, ?)").run(
+      "sum_peer_recall",
+      "sum_peer_leaf_prompt",
+      0
+    );
+    lcm.prepare("INSERT INTO summary_parents (summary_id, parent_summary_id, ordinal) VALUES (?, ?, ?)").run(
+      "sum_peer_recall",
+      "sum_peer_leaf_plan",
+      1
+    );
+    lcm.prepare("INSERT INTO summary_parents (summary_id, parent_summary_id, ordinal) VALUES (?, ?, ?)").run(
+      "sum_peer_leaf_plan",
+      "sum_peer_recall",
+      0
     );
     lcm.prepare("INSERT INTO summaries_fts (summary_id, content) VALUES (?, ?)").run(
       "sum_peer_recall",
@@ -108,6 +171,76 @@ function makeRecallFixture() {
   }
 
   return { root, sessions, lcmPath };
+}
+
+type DagFixture = {
+  root: string;
+  lcmPath: string;
+  addSummary: (summaryId: string, content: string, options?: { kind?: string; depth?: number; ordinal?: number }) => void;
+  addParent: (summaryId: string, parentSummaryId: string, ordinal: number) => void;
+  close: () => void;
+};
+
+function makeDagFixture(): DagFixture {
+  const root = mkdtempSync(join(tmpdir(), "loo-lcm-dag-"));
+  const lcmPath = join(root, "lcm-peer.sqlite");
+  const lcm = new DatabaseSync(lcmPath);
+  createLcmPeerSchema(lcm);
+  lcm.prepare("INSERT INTO conversations (conversation_id, title, session_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(
+    314,
+    "LCM DAG guard fixture",
+    "dag-guard",
+    "2026-07-08T00:00:00Z",
+    "2026-07-08T00:01:00Z"
+  );
+  const insertSummary = lcm.prepare(`
+    INSERT INTO summaries (
+      summary_id, conversation_id, kind, depth, content, token_count, file_ids,
+      earliest_at, latest_at, descendant_count, created_at, model
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const insertFts = lcm.prepare("INSERT INTO summaries_fts (summary_id, content) VALUES (?, ?)");
+  const insertParent = lcm.prepare("INSERT INTO summary_parents (summary_id, parent_summary_id, ordinal) VALUES (?, ?, ?)");
+
+  return {
+    root,
+    lcmPath,
+    addSummary(summaryId, content, options = {}) {
+      insertSummary.run(
+        summaryId,
+        314,
+        options.kind ?? "condensed",
+        options.depth ?? 0,
+        content,
+        Math.max(1, Math.ceil(content.length / 4)),
+        JSON.stringify([]),
+        "2026-07-08T00:00:00Z",
+        "2026-07-08T00:01:00Z",
+        0,
+        "2026-07-08T00:02:00Z",
+        "gpt-5.5"
+      );
+      insertFts.run(summaryId, content);
+    },
+    addParent(summaryId, parentSummaryId, ordinal) {
+      insertParent.run(summaryId, parentSummaryId, ordinal);
+    },
+    close() {
+      lcm.close();
+    }
+  };
+}
+
+function expandDagFixtureSummary(fixture: { root: string; lcmPath: string }, query: string, profile: "brief" | "evidence" = "evidence") {
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    const lcmRef = grepRecall(db, { query, lcmDbPaths: [fixture.lcmPath], limit: 5 })
+      .matches.find((match) => match.sourceKind === "lcm_summary")?.sourceRef;
+    assert.ok(lcmRef?.startsWith("lcm_summary:"));
+    return expandRecallRef(db, { sourceRef: lcmRef, lcmDbPaths: [fixture.lcmPath], profile });
+  } finally {
+    db.close();
+  }
 }
 
 function peerDbState(path: string) {
@@ -134,7 +267,7 @@ test("grep -> describe -> expand_query preserves Codex and read-only LCM source 
     assert.equal(peers.peers[0]?.supported, true);
     assert.equal(peers.peers[0]?.readOnly, true);
     assert.equal(peers.peers[0]?.queryOnly, true);
-    assert.equal(peers.peers[0]?.summaryCount, 1);
+    assert.equal(peers.peers[0]?.summaryCount, 3);
     assert.match(peers.peers[0]?.path ?? "", /^<redacted-local-path>\/lcm-peer-[a-f0-9]{12}\.sqlite$/);
     assert.notEqual(peers.peers[0]?.path, fixture.lcmPath);
 
@@ -207,6 +340,165 @@ test("grep -> describe -> expand_query preserves Codex and read-only LCM source 
   } finally {
     db.close();
     rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM summary expansion walks summary_parents DAG without raw peer data", () => {
+  const fixture = makeRecallFixture();
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    const lcmRef = grepRecall(db, { query: "OpenClaw LCM", lcmDbPaths: [fixture.lcmPath], limit: 5 })
+      .matches.find((match) => match.sourceKind === "lcm_summary")?.sourceRef;
+    assert.ok(lcmRef?.startsWith("lcm_summary:"));
+
+    const expanded = expandRecallRef(db, { sourceRef: lcmRef, lcmDbPaths: [fixture.lcmPath], profile: "brief" });
+    assert.equal(expanded.sourceKind, "lcm_summary");
+    assert.equal(expanded.summaryId, "sum_peer_recall");
+    assert.match(expanded.text, /Source summaries:/);
+    assert.match(expanded.text, /sum_peer_leaf_prompt/);
+    assert.match(expanded.text, /sum_peer_leaf_plan/);
+    assert.match(expanded.text, /User asked how OpenClaw should recall Codex sessions/);
+    assert.match(expanded.text, /Assistant proposed a public-safe recall adapter/);
+    assert.match(expanded.text, /lcm_summary_dag_cycle_omitted/);
+    assert.doesNotMatch(expanded.text, /\/Users\/|\/Volumes\/|\/tmp\/|~\/|sk-test_1234567890|Bearer sk-test/);
+  } finally {
+    db.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM summary expansion reports depth cap without walking beyond max depth", () => {
+  const fixture = makeDagFixture();
+  try {
+    fixture.addSummary("sum_depth_root", "Depth cap root summary for LCM DAG guard proof.");
+    for (let index = 1; index <= 5; index += 1) {
+      fixture.addSummary(
+        `sum_depth_${index}`,
+        `Depth cap child ${index} should ${index > 4 ? "not appear" : "remain bounded"} in source summaries.`,
+        { depth: index }
+      );
+    }
+    fixture.addParent("sum_depth_root", "sum_depth_1", 0);
+    fixture.addParent("sum_depth_1", "sum_depth_2", 0);
+    fixture.addParent("sum_depth_2", "sum_depth_3", 0);
+    fixture.addParent("sum_depth_3", "sum_depth_4", 0);
+    fixture.addParent("sum_depth_4", "sum_depth_5", 0);
+    fixture.close();
+
+    const expanded = expandDagFixtureSummary(fixture, "Depth cap root");
+    assert.match(expanded.text, /sum_depth_4/);
+    assert.doesNotMatch(expanded.text, /sum_depth_5|child 5 should not appear/);
+    assert.match(expanded.text, /lcm_summary_dag_depth_cap/);
+    assert.doesNotMatch(expanded.text, /lcm_summary_dag_node_cap|lcm_summary_dag_truncated/);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM summary expansion reports node cap and truncation when source DAG is too wide", () => {
+  const fixture = makeDagFixture();
+  try {
+    fixture.addSummary("sum_node_root", "Node cap root summary for LCM DAG guard proof.");
+    for (let index = 1; index <= 13; index += 1) {
+      fixture.addSummary(`sum_node_${index}`, `Node cap child ${index} summary.`);
+      fixture.addParent("sum_node_root", `sum_node_${index}`, index);
+    }
+    fixture.close();
+
+    const expanded = expandDagFixtureSummary(fixture, "Node cap root");
+    assert.match(expanded.text, /sum_node_12/);
+    assert.doesNotMatch(expanded.text, /sum_node_13|Node cap child 13/);
+    assert.match(expanded.text, /lcm_summary_dag_node_cap/);
+    assert.match(expanded.text, /lcm_summary_dag_truncated/);
+    assert.doesNotMatch(expanded.text, /lcm_summary_dag_depth_cap/);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM summary expansion reports missing child refs while preserving available sources", () => {
+  const fixture = makeDagFixture();
+  try {
+    fixture.addSummary("sum_missing_root", "Missing child root summary for LCM DAG guard proof.");
+    fixture.addSummary("sum_missing_present", "Available child should still appear when a sibling ref is missing.");
+    fixture.addParent("sum_missing_root", "sum_missing_absent", 0);
+    fixture.addParent("sum_missing_root", "sum_missing_present", 1);
+    fixture.close();
+
+    const expanded = expandDagFixtureSummary(fixture, "Missing child root");
+    assert.match(expanded.text, /sum_missing_present/);
+    assert.doesNotMatch(expanded.text, /sum_missing_absent/);
+    assert.match(expanded.text, /lcm_summary_dag_missing_child/);
+    assert.doesNotMatch(expanded.text, /lcm_summary_dag_node_cap|lcm_summary_dag_depth_cap/);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM summary expansion preserves DAG omission markers when root content is long", () => {
+  const fixture = makeDagFixture();
+  try {
+    fixture.addSummary("sum_long_root", `Long omission root ${"budget filler ".repeat(700)}`);
+    fixture.addParent("sum_long_root", "sum_long_missing_child", 0);
+    fixture.close();
+
+    const expanded = expandDagFixtureSummary(fixture, "Long omission root", "brief");
+    assert.match(expanded.text, /Omissions: lcm_summary_dag_missing_child/);
+    assert.doesNotMatch(expanded.text, /sum_long_missing_child|\/Users\/|\/Volumes\/|\/tmp\//);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM summary expansion falls back when optional summary_parents table is missing", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-lcm-truncated-peer-"));
+  const lcmPath = join(root, "lcm-peer.sqlite");
+  const lcm = new DatabaseSync(lcmPath);
+  try {
+    lcm.exec(`
+      CREATE TABLE summaries (
+        summary_id TEXT PRIMARY KEY,
+        conversation_id INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        depth INTEGER NOT NULL,
+        content TEXT NOT NULL,
+        token_count INTEGER NOT NULL,
+        created_at TEXT,
+        latest_at TEXT,
+        model TEXT
+      );
+    `);
+    lcm.prepare(`
+      INSERT INTO summaries (
+        summary_id, conversation_id, kind, depth, content, token_count, created_at, latest_at, model
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "sum_truncated_peer",
+      7,
+      "leaf",
+      0,
+      "Truncated LCM peer recall summary remains expandable without optional DAG tables.",
+      12,
+      "2026-07-08T00:00:00Z",
+      "2026-07-08T00:01:00Z",
+      "gpt-5.5"
+    );
+  } finally {
+    lcm.close();
+  }
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const lcmRef = grepRecall(db, { query: "Truncated LCM peer", lcmDbPaths: [lcmPath], limit: 5 })
+      .matches.find((match) => match.sourceKind === "lcm_summary")?.sourceRef;
+    assert.ok(lcmRef?.startsWith("lcm_summary:"));
+    const expanded = expandRecallRef(db, { sourceRef: lcmRef, lcmDbPaths: [lcmPath], profile: "brief" });
+    assert.match(expanded.text, /Truncated LCM peer recall summary/);
+    assert.doesNotMatch(expanded.text, /Source summaries:/);
+    assert.doesNotMatch(expanded.text, /lcm-peer\.sqlite|\/Users\/|\/Volumes\/|\/tmp\//);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

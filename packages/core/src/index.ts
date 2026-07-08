@@ -2891,6 +2891,12 @@ type LcmSummaryRecord = {
   sourcePath: string;
 };
 
+type LcmSummaryExpansion = {
+  root: LcmSummaryRecord;
+  sourceSummaries: LcmSummaryRecord[];
+  reasonCodes: string[];
+};
+
 type ImportedSession = {
   threadId: string;
   title: string | null;
@@ -2988,6 +2994,8 @@ const DATABASE_MAINTENANCE_TOTAL_BYTES_THRESHOLD = 768 * 1024 * 1024;
 const CODEX_JSONL_DRIFT_INDEX_NEXT_ACTION = "loo index codex --max-files 500 \"$HOME/.codex/sessions\" \"$HOME/.codex/archived_sessions\"";
 const CODEX_JSONL_DRIFT_MISSING_DB_NEXT_ACTION = "loo index codex \"$HOME/.codex/sessions\"";
 const CODEX_INDEX_LIMIT_RECOVERY_COMMAND = `loo index codex --max-files 100000 --max-bytes-per-file ${CODEX_RECOVERY_MAX_BYTES_PER_FILE} --max-events-per-file ${CODEX_RECOVERY_MAX_EVENTS_PER_FILE} "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"`;
+const LCM_SUMMARY_DAG_MAX_NODES = 12;
+const LCM_SUMMARY_DAG_MAX_DEPTH = 4;
 const CLAUDE_INDEX_LIMIT_RECOVERY_COMMAND = `loo index claude --max-files 100000 --max-bytes-per-file ${CODEX_RECOVERY_MAX_BYTES_PER_FILE} --max-events-per-file ${CODEX_RECOVERY_MAX_EVENTS_PER_FILE} "$HOME/.claude/projects"`;
 
 export function createDatabase(dbPath?: string): LooDatabase;
@@ -16153,8 +16161,9 @@ export function expandRecallRef(db: LooDatabase, options: {
     });
     return result;
   }
-  const summary = getLcmSummaryByRef(options.lcmDbPaths ?? [], parsed.dbHash, parsed.id);
-  if (!summary) throw new Error(`Unknown LCM summary ref: ${options.sourceRef}`);
+  const expansion = getLcmSummaryExpansionByRef(options.lcmDbPaths ?? [], parsed.dbHash, parsed.id);
+  if (!expansion) throw new Error(`Unknown LCM summary ref: ${options.sourceRef}`);
+  const summary = expansion.root;
   const profile = resolveRecallProfile(options.profile, options.tokenBudget);
   const metadata = [
     `Summary ID: ${summary.summaryId}`,
@@ -16168,9 +16177,14 @@ export function expandRecallRef(db: LooDatabase, options: {
     summary.updatedAt ? `Updated: ${summary.updatedAt}` : null,
     `Source ref: ${publicSourcePathRef(summary.sourcePath)}`
   ].filter(Boolean).join("\n");
+  const sourceSummaryText = formatLcmSourceSummaries(expansion, profile);
+  const omissionLine = formatLcmOmissionsLine(expansion.reasonCodes);
   const text = profile.name === "metadata"
     ? metadata
-    : truncateByApproxTokens(`${metadata}\n\nContent:\n${publicSafeText(summary.content, profile.tokenBudget * 6)}`, profile.tokenBudget);
+    : truncateLcmSummaryExpansionText([
+      `${metadata}\n\nContent:\n${publicSafeText(summary.content, profile.tokenBudget * 6)}`,
+      sourceSummaryText
+    ].filter(Boolean).join("\n\n"), profile.tokenBudget, omissionLine);
   const result: ExpandRecallResult = {
     sourceKind: "lcm_summary",
     sourceRef: lcmSummaryRef(summary.sourcePath, summary.summaryId),
@@ -16187,6 +16201,36 @@ export function expandRecallRef(db: LooDatabase, options: {
     now: options.now
   });
   return result;
+}
+
+function formatLcmSourceSummaries(expansion: LcmSummaryExpansion, profile: RecallProfile): string {
+  if (profile.name === "metadata" || expansion.sourceSummaries.length === 0) return "";
+  const perSummaryBudget = Math.max(80, Math.floor((profile.tokenBudget * 6) / Math.max(1, expansion.sourceSummaries.length + 1)));
+  const lines = expansion.sourceSummaries.map((summary, index) => {
+    const labelParts = [
+      `${index + 1}. ${publicSafeText(summary.summaryId, 120)}`,
+      summary.kind ? `kind=${publicSafeText(summary.kind, 60)}` : null,
+      summary.depth !== null ? `depth=${summary.depth}` : null,
+      summary.tokenCount !== null ? `tokens=${summary.tokenCount}` : null
+    ].filter(Boolean).join(" ");
+    return `${labelParts}\n${publicSafeText(summary.content, perSummaryBudget)}`;
+  });
+  const omissionLine = formatLcmOmissionsLine(expansion.reasonCodes);
+  if (omissionLine) lines.push(omissionLine);
+  return ["Source summaries:", ...lines].join("\n");
+}
+
+function formatLcmOmissionsLine(reasonCodes: string[]): string {
+  const omissions = reasonCodes.filter((reason) => reason !== "lcm_summary_dag_unavailable");
+  return omissions.length > 0 ? `Omissions: ${omissions.join(", ")}` : "";
+}
+
+function truncateLcmSummaryExpansionText(text: string, tokenBudget: number, requiredTail: string): string {
+  if (!requiredTail) return truncateByApproxTokens(text, tokenBudget);
+  const tailTokenBudget = Math.ceil((requiredTail.length + 8) / 4);
+  const bodyBudget = Math.max(1, tokenBudget - tailTokenBudget);
+  const truncated = truncateByApproxTokens(text, bodyBudget);
+  return truncated.includes(requiredTail) ? truncated : `${truncated}\n\n${requiredTail}`;
 }
 
 export function expandQuery(db: LooDatabase, options: {
@@ -16821,29 +16865,100 @@ function getLcmSummaryByRef(paths: string[], dbHash: string, summaryId: string):
   try {
     db = openLcmPeerDb(path);
     if (!tableExists(db, "summaries")) return null;
-    const hasConversations = tableExists(db, "conversations");
-    const row = db.prepare(`
-      SELECT
-        s.summary_id AS summaryId,
-        s.conversation_id AS conversationId,
-        ${hasConversations ? "c.title" : "NULL"} AS conversationTitle,
-        s.kind,
-        s.depth,
-        s.content,
-        s.token_count AS tokenCount,
-        s.model,
-        s.created_at AS createdAt,
-        COALESCE(s.latest_at, s.created_at${hasConversations ? ", c.updated_at" : ""}) AS updatedAt
-      FROM summaries s
-      ${hasConversations ? "LEFT JOIN conversations c ON c.conversation_id = s.conversation_id" : ""}
-      WHERE s.summary_id = ?
-    `).get(summaryId) as Record<string, unknown> | undefined;
-    return row ? lcmSummaryRecord(path, row) : null;
+    return getLcmSummaryRecordFromDb(db, path, summaryId);
   } catch {
     return null;
   } finally {
     db?.close();
   }
+}
+
+function getLcmSummaryExpansionByRef(paths: string[], dbHash: string, summaryId: string): LcmSummaryExpansion | null {
+  const path = normalizePeerPaths(paths).find((candidate) => lcmPeerHash(candidate) === dbHash);
+  if (!path) return null;
+  let db: LooDatabase | null = null;
+  try {
+    db = openLcmPeerDb(path);
+    if (!tableExists(db, "summaries")) return null;
+    const root = getLcmSummaryRecordFromDb(db, path, summaryId);
+    if (!root) return null;
+    return {
+      root,
+      ...walkLcmSummarySources(db, path, summaryId)
+    };
+  } catch {
+    return null;
+  } finally {
+    db?.close();
+  }
+}
+
+function getLcmSummaryRecordFromDb(db: LooDatabase, path: string, summaryId: string): LcmSummaryRecord | null {
+  const hasConversations = tableExists(db, "conversations");
+  const row = db.prepare(`
+    SELECT
+      s.summary_id AS summaryId,
+      s.conversation_id AS conversationId,
+      ${hasConversations ? "c.title" : "NULL"} AS conversationTitle,
+      s.kind,
+      s.depth,
+      s.content,
+      s.token_count AS tokenCount,
+      s.model,
+      s.created_at AS createdAt,
+      COALESCE(s.latest_at, s.created_at${hasConversations ? ", c.updated_at" : ""}) AS updatedAt
+    FROM summaries s
+    ${hasConversations ? "LEFT JOIN conversations c ON c.conversation_id = s.conversation_id" : ""}
+    WHERE s.summary_id = ?
+  `).get(summaryId) as Record<string, unknown> | undefined;
+  return row ? lcmSummaryRecord(path, row) : null;
+}
+
+function walkLcmSummarySources(db: LooDatabase, path: string, summaryId: string): Pick<LcmSummaryExpansion, "sourceSummaries" | "reasonCodes"> {
+  if (!tableExists(db, "summary_parents")) return { sourceSummaries: [], reasonCodes: ["lcm_summary_dag_unavailable"] };
+  const sourceSummaries: LcmSummaryRecord[] = [];
+  const reasonCodes: string[] = [];
+  const seen = new Set([summaryId]);
+  const queue: Array<{ summaryId: string; depth: number }> = [{ summaryId, depth: 0 }];
+  try {
+    while (queue.length > 0 && sourceSummaries.length < LCM_SUMMARY_DAG_MAX_NODES) {
+      const current = queue.shift()!;
+      if (current.depth >= LCM_SUMMARY_DAG_MAX_DEPTH) {
+        reasonCodes.push("lcm_summary_dag_depth_cap");
+        continue;
+      }
+      const rows = db.prepare(`
+        SELECT parent_summary_id AS summaryId
+        FROM summary_parents
+        WHERE summary_id = ?
+        ORDER BY ordinal ASC, parent_summary_id ASC
+      `).all(current.summaryId) as Array<{ summaryId: string }>;
+      for (const row of rows) {
+        if (sourceSummaries.length >= LCM_SUMMARY_DAG_MAX_NODES) {
+          reasonCodes.push("lcm_summary_dag_node_cap");
+          break;
+        }
+        const childId = String(row.summaryId ?? "");
+        if (!childId) continue;
+        if (seen.has(childId)) {
+          reasonCodes.push("lcm_summary_dag_cycle_omitted");
+          continue;
+        }
+        seen.add(childId);
+        const child = getLcmSummaryRecordFromDb(db, path, childId);
+        if (!child) {
+          reasonCodes.push("lcm_summary_dag_missing_child");
+          continue;
+        }
+        sourceSummaries.push(child);
+        queue.push({ summaryId: child.summaryId, depth: current.depth + 1 });
+      }
+    }
+    if (queue.length > 0) reasonCodes.push("lcm_summary_dag_truncated");
+  } catch {
+    return { sourceSummaries: [], reasonCodes: ["lcm_summary_dag_unavailable"] };
+  }
+  return { sourceSummaries, reasonCodes: unique(reasonCodes) };
 }
 
 function lcmSummaryRecord(path: string, row: Record<string, unknown>): LcmSummaryRecord {
