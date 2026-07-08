@@ -526,7 +526,7 @@ export const PREPARED_CARD_STATES = [
   "unknown_lifecycle"
 ] as const;
 export type PreparedCardState = (typeof PREPARED_CARD_STATES)[number];
-export type PreparedCardKind = "codex_session";
+export type PreparedCardKind = "codex_session" | "claude_session";
 export type PreparedStateCoverage = "ok" | "partial" | "not_configured" | "unknown";
 
 export type PreparedCard = {
@@ -6598,6 +6598,11 @@ function materializePreparedCardsForAllThreads(db: LooDatabase): PreparedCardMat
       summary.inboxItems += threadSummary.inboxItems;
       summary.skippedUnsafeRows += threadSummary.skippedUnsafeRows;
     }
+    const claudeSummary = materializePreparedCardsForClaudeSessions(db, generatedAt);
+    summary.summaryLeaves += claudeSummary.summaryLeaves;
+    summary.cards += claudeSummary.cards;
+    summary.inboxItems += claudeSummary.inboxItems;
+    summary.skippedUnsafeRows += claudeSummary.skippedUnsafeRows;
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
@@ -6631,56 +6636,7 @@ function materializePreparedCardsForThread(
     : null;
   deletePreparedCardsForTargetRefs(db, [targetRef]);
   if (card) {
-    db.prepare(`
-      INSERT INTO prepared_cards (
-        card_id, card_ref, target_ref, card_kind, title, objective, summary_text, blocker, next_action,
-        source_refs_json, source_range_refs_json, source_range_refs_omitted, authority_coverage_json,
-        input_hash, extractor_version, privacy_class, confidence, freshness_at,
-        stale, state, reason_codes_json, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      card.cardId,
-      card.cardRef,
-      card.targetRef,
-      card.cardKind,
-      card.title,
-      card.objective ?? "",
-      card.summaryText,
-      card.blocker,
-      card.nextAction,
-      JSON.stringify(card.sourceRefs),
-      JSON.stringify(card.sourceRangeRefs),
-      card.sourceRangeRefsOmitted,
-      JSON.stringify(card.authorityCoverage),
-      card.inputHash,
-      PREPARED_CARD_EXTRACTOR_VERSION,
-      "public_safe_metadata",
-      card.confidence,
-      card.freshnessAt,
-      card.stale ? 1 : 0,
-      card.state,
-      JSON.stringify(card.reasonCodes),
-      generatedAt,
-      generatedAt
-    );
-    const inbox = preparedInboxItemFromCard(card);
-    db.prepare(`
-      INSERT INTO prepared_inbox_items (
-        item_id, card_ref, target_ref, urgency_score, state, reason_codes_json,
-        source_refs_json, execute_false, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      inbox.itemRef,
-      inbox.cardRef,
-      inbox.targetRef,
-      inbox.urgencyScore,
-      inbox.state,
-      JSON.stringify(inbox.reasonCodes),
-      JSON.stringify(inbox.sourceRefs),
-      1,
-      generatedAt,
-      generatedAt
-    );
+    insertPreparedCardAndInbox(db, card, generatedAt);
   }
   return {
     summaryLeaves: leavesReport.summary.total,
@@ -6688,6 +6644,217 @@ function materializePreparedCardsForThread(
     inboxItems: card ? 1 : 0,
     skippedUnsafeRows: leavesReport.omitted.filteredUnsafeRows
   };
+}
+
+function insertPreparedCardAndInbox(db: LooDatabase, card: PreparedCardDraft, generatedAt: string): void {
+  db.prepare(`
+    INSERT INTO prepared_cards (
+      card_id, card_ref, target_ref, card_kind, title, objective, summary_text, blocker, next_action,
+      source_refs_json, source_range_refs_json, source_range_refs_omitted, authority_coverage_json,
+      input_hash, extractor_version, privacy_class, confidence, freshness_at,
+      stale, state, reason_codes_json, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    card.cardId,
+    card.cardRef,
+    card.targetRef,
+    card.cardKind,
+    card.title,
+    card.objective ?? "",
+    card.summaryText,
+    card.blocker,
+    card.nextAction,
+    JSON.stringify(card.sourceRefs),
+    JSON.stringify(card.sourceRangeRefs),
+    card.sourceRangeRefsOmitted,
+    JSON.stringify(card.authorityCoverage),
+    card.inputHash,
+    PREPARED_CARD_EXTRACTOR_VERSION,
+    "public_safe_metadata",
+    card.confidence,
+    card.freshnessAt,
+    card.stale ? 1 : 0,
+    card.state,
+    JSON.stringify(card.reasonCodes),
+    generatedAt,
+    generatedAt
+  );
+  const inbox = preparedInboxItemFromCard(card);
+  db.prepare(`
+    INSERT INTO prepared_inbox_items (
+      item_id, card_ref, target_ref, urgency_score, state, reason_codes_json,
+      source_refs_json, execute_false, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    inbox.itemRef,
+    inbox.cardRef,
+    inbox.targetRef,
+    inbox.urgencyScore,
+    inbox.state,
+    JSON.stringify(inbox.reasonCodes),
+    JSON.stringify(inbox.sourceRefs),
+    1,
+    generatedAt,
+    generatedAt
+  );
+}
+
+type ClaudePreparedSessionRow = {
+  sessionId: string;
+  title: string | null;
+  project: string | null;
+  status: string | null;
+  sourcePath: string;
+  updatedAt: string | null;
+  safeSummary: string | null;
+  safeText: string | null;
+  sourceRefsJson: string;
+  indexedAt: string;
+};
+
+function materializePreparedCardsForClaudeSessions(db: LooDatabase, generatedAt: string): PreparedCardMaterializationReport["summary"] {
+  const rows = db.prepare(`
+    SELECT
+      session_id AS sessionId,
+      title,
+      project,
+      status,
+      source_path AS sourcePath,
+      updated_at AS updatedAt,
+      safe_summary AS safeSummary,
+      safe_text AS safeText,
+      source_refs_json AS sourceRefsJson,
+      indexed_at AS indexedAt
+    FROM claude_sessions
+    ORDER BY COALESCE(updated_at, indexed_at) DESC, session_id ASC
+  `).all() as ClaudePreparedSessionRow[];
+  const targetRefs = unique(rows.map((row) => claudeSessionRef(safeClaudeSessionId(String(row.sessionId ?? "")))).filter(isPublicPreparedSourceRef));
+  const existingRows = db.prepare(`
+    SELECT target_ref AS targetRef
+    FROM prepared_cards
+    WHERE target_ref GLOB 'claude_session:*'
+      AND extractor_version = ?
+      AND privacy_class = 'public_safe_metadata'
+  `).all(PREPARED_CARD_EXTRACTOR_VERSION) as Array<{ targetRef: string }>;
+  const activeTargetRefs = new Set(targetRefs);
+  const staleTargetRefs = existingRows.map((row) => String(row.targetRef ?? "")).filter((ref) => isPublicPreparedSourceRef(ref) && !activeTargetRefs.has(ref));
+  deletePreparedCardsForTargetRefs(db, [...targetRefs, ...staleTargetRefs]);
+
+  const summary = {
+    summaryLeaves: 0,
+    cards: 0,
+    inboxItems: 0,
+    skippedUnsafeRows: 0
+  };
+  for (const row of rows) {
+    const card = buildPreparedClaudeCardDraft(db, row);
+    if (!card) {
+      summary.skippedUnsafeRows += 1;
+      continue;
+    }
+    insertPreparedCardAndInbox(db, card, generatedAt);
+    summary.cards += 1;
+    summary.inboxItems += 1;
+  }
+  return summary;
+}
+
+function buildPreparedClaudeCardDraft(db: LooDatabase, row: ClaudePreparedSessionRow): PreparedCardDraft | null {
+  const sessionId = safeClaudeSessionId(String(row.sessionId ?? ""));
+  const targetRef = claudeSessionRef(sessionId);
+  if (!isPublicPreparedSourceRef(targetRef)) return null;
+
+  const sourceRefs = unique([
+    targetRef,
+    row.sourcePath,
+    ...parseSourceRefsJson(row.sourceRefsJson)
+  ].filter((ref): ref is string => typeof ref === "string" && ref.trim().length > 0))
+    .filter(isPublicPreparedSourceRef)
+    .slice(0, 40);
+  if (sourceRefs.length === 0) return null;
+
+  const title = cleanPreparedCardField(row.title ?? row.project ?? sessionId, {
+    fallback: sessionId,
+    maxChars: 160,
+    role: "title"
+  });
+  const summaryText = cleanPreparedCardField(claudePreparedCardSummarySource(row), {
+    fallback: "Claude Code session indexed for local read/recall.",
+    maxChars: 320,
+    role: "summary"
+  });
+  const freshnessAt = latestIso([row.updatedAt, row.indexedAt]);
+  const watcherObservationsStatus = watcherObservationCoverageForTarget(db, targetRef);
+  const authorityCoverage: PreparedCard["authorityCoverage"] = {
+    summaryLeaves: {
+      status: "not_configured",
+      leafCount: 0,
+      rangeCount: 0
+    },
+    sessionMetadata: {
+      status: "ok"
+    },
+    watcherObservations: {
+      status: watcherObservationsStatus
+    }
+  };
+  const state: PreparedCardState = "ready";
+  const reasonCodes = unique([
+    "claude_session_indexed",
+    "metadata_only",
+    "summary_leaves_not_configured",
+    watcherObservationsStatus === "not_configured" ? "watcher_not_configured" : "watcher_observations_available",
+    title.cleaned || summaryText.cleaned ? "presentation_cleaned" : "",
+    title.lowConfidence || summaryText.lowConfidence ? "presentation_low_confidence" : ""
+  ].filter(Boolean));
+  const confidence = title.lowConfidence || summaryText.lowConfidence ? 0.49 : 0.72;
+  const inputHash = stableId(JSON.stringify({
+    targetRef,
+    title: title.text,
+    summaryText: summaryText.text,
+    sourceRefs,
+    status: row.status,
+    freshnessAt,
+    watcherObservationsStatus,
+    extractorVersion: PREPARED_CARD_EXTRACTOR_VERSION
+  }));
+  const cardId = stableId(`prepared-card:${targetRef}:${inputHash}`);
+  return {
+    schema: "lco.prepared.card.v1",
+    cardId,
+    cardRef: `prepared_card:${cardId}`,
+    targetRef,
+    cardKind: "claude_session",
+    title: title.text,
+    objective: null,
+    summaryText: summaryText.text,
+    blocker: null,
+    nextAction: "Use bounded Claude recall before acting on this session.",
+    sourceRefs,
+    sourceRangeRefs: [],
+    sourceRangeRefsOmitted: 0,
+    authorityCoverage,
+    sourceCoverage: preparedCardSourceCoverage(authorityCoverage),
+    inputHash,
+    extractorVersion: PREPARED_CARD_EXTRACTOR_VERSION,
+    privacyClass: "public_safe_metadata",
+    confidence,
+    freshnessAt,
+    stale: false,
+    state,
+    reasonCodes: confidence < 0.5 ? unique([...reasonCodes, "low_confidence"]) : reasonCodes
+  };
+}
+
+function claudePreparedCardSummarySource(row: ClaudePreparedSessionRow): string {
+  const candidates = [row.safeSummary, row.safeText]
+    .flatMap((value) => typeof value === "string" ? value.split(/\r?\n/) : [])
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const preferred = [...candidates].reverse().find((line) =>
+    /\b(?:summary|final|handoff|closeout|complete|completed|ready|marker)\b/i.test(line)
+  );
+  return preferred ?? candidates.at(-1) ?? row.title ?? "Claude Code session indexed for local read/recall.";
 }
 
 export function getPreparedStateStatus(db: LooDatabase, options: PreparedStateStatusOptions = {}): PreparedStateStatusReport {
@@ -7882,7 +8049,7 @@ function publicPreparedCardFromRow(row: PreparedCardRow): PreparedCard | null {
     schema: "lco.prepared.card.v1",
     cardRef: row.cardRef,
     targetRef: row.targetRef,
-    cardKind: "codex_session",
+    cardKind: row.cardKind as PreparedCardKind,
     title: publicSafeText(row.title, 160),
     objective: row.objective?.trim() ? publicSafeText(row.objective, 260) : null,
     summaryText: publicSafeText(row.summaryText, 320),
@@ -8016,7 +8183,7 @@ function isPublicPreparedCardRow(
 ): boolean {
   return /^prepared_card:[0-9a-f]{32}$/.test(row.cardRef)
     && isPublicPreparedSourceRef(row.targetRef)
-    && row.cardKind === "codex_session"
+    && (row.cardKind === "codex_session" || row.cardKind === "claude_session")
     && row.extractorVersion === PREPARED_CARD_EXTRACTOR_VERSION
     && row.privacyClass === "public_safe_metadata"
     && /^[0-9a-f]{32}$/.test(row.inputHash)
@@ -8434,8 +8601,21 @@ function isPreparedCardState(value: string): value is PreparedCardState {
 function isPublicPreparedSourceRef(value: string): boolean {
   if (value.startsWith("codex_thread:")) return isPublicSummaryThreadId(value.slice("codex_thread:".length));
   if (value.startsWith("codex_subagent_result:")) return isPublicCodexSubagentResultRef(value);
+  if (value.startsWith("claude_session:")) return isPublicClaudeSessionRef(value);
+  if (value.startsWith("claude_source:")) return /^claude_source:[0-9a-f]{16}$/.test(value);
   if (value.startsWith("summary_leaf:")) return isPublicSummaryLeafRef(value);
   return false;
+}
+
+function isPublicClaudeSessionRef(value: string): boolean {
+  const encodedId = value.slice("claude_session:".length);
+  if (!encodedId || encodedId.length > 160 || !/^[A-Za-z0-9._~%-]+$/.test(encodedId)) return false;
+  try {
+    const decodedId = decodeURIComponent(encodedId);
+    return safeClaudeSessionId(decodedId) === decodedId && !looksSensitiveRefLike(decodedId);
+  } catch {
+    return false;
+  }
 }
 
 function isPublicCodexSubagentResultRef(value: string): boolean {

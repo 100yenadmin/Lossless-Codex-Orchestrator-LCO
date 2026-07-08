@@ -10,6 +10,7 @@ import {
   getPreparedCards,
   getPreparedInbox,
   getPreparedStateStatus,
+  indexClaudeSessions,
   indexCodexSessions,
   indexNativeCodexSubagentResults,
   materializePreparedCards,
@@ -43,6 +44,30 @@ function writePreparedCardJsonl(path: string, threadId: string, title: string): 
       }
     },
     { timestamp: "2026-07-03T00:00:05Z", event_msg: { type: "agent_message", message: "Final: prepared card proof complete. Closeout State: done." } }
+  ];
+  writeFileSync(path, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+}
+
+function writePreparedClaudeJsonl(path: string, sessionId: string): void {
+  const rawToken = `npm_${"d".repeat(32)}`;
+  const lines = [
+    {
+      type: "user",
+      sessionId,
+      uuid: `${sessionId}-user-1`,
+      timestamp: "2026-07-08T08:00:00.000Z",
+      message: {
+        role: "user",
+        content: `Claude prepared cards target should stay public-safe without leaking ${rawToken} or /Users/lume/private/claude-prep.jsonl.`
+      }
+    },
+    {
+      type: "summary",
+      sessionId,
+      uuid: `${sessionId}-summary-1`,
+      timestamp: "2026-07-08T08:01:00.000Z",
+      summary: "Claude prepared card marker gives Eva a compact advisory handoff."
+    }
   ];
   writeFileSync(path, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
 }
@@ -441,6 +466,58 @@ test("prepared cards materialize public-safe advisory cards and inbox entries", 
     assert.equal(inbox.items[0]!.targetRef, card.targetRef);
     assert.equal(inbox.items[0]!.sourceRefs.some((ref) => /^summary_leaf:[0-9a-f]{32}$/.test(ref)), true);
     assert.equal(inbox.items[0]!.execute, false);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared cards materialize Claude sessions as public-safe advisory cards", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-claude-cards-"));
+  const projectRoot = join(root, ".claude", "projects", "-Volumes-LEXAR-repos-lco");
+  mkdirSync(projectRoot, { recursive: true });
+  const sessionId = "claude-prepared-card-1";
+  writePreparedClaudeJsonl(join(projectRoot, "claude-prepared-private.jsonl"), sessionId);
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const indexed = indexClaudeSessions(db, { roots: [join(root, ".claude", "projects")], maxFiles: 10 });
+    assert.equal(indexed.indexedSessions, 1);
+
+    const materialized = materializePreparedCards(db);
+    assert.equal(materialized.summary.cards, 1);
+    assert.equal(materialized.summary.inboxItems, 1);
+
+    const status = getPreparedStateStatus(db);
+    assert.equal(status.summary.cards, 1);
+    assert.equal(status.summary.inboxItems, 1);
+    assert.equal(status.sourceCoverage.preparedCards, "ok");
+    assert.equal(status.sourceCoverage.preparedInboxItems, "ok");
+
+    const cards = getPreparedCards(db, { limit: 10 });
+    const card = cards.cards[0]!;
+    assert.equal(cards.summary.total, 1);
+    assert.equal(card.targetRef, `claude_session:${sessionId}`);
+    assert.equal(card.cardKind, "claude_session");
+    assert.equal(card.sourceCoverage.summaryLeaves, "not_configured");
+    assert.equal(card.authorityCoverage.sessionMetadata.status, "ok");
+    assert.equal(card.state, "ready");
+    assert.match(card.summaryText, /Claude prepared card marker/i);
+    assert.equal(card.sourceRefs.includes(`claude_session:${sessionId}`), true);
+    assert.equal(card.sourceRefs.some((ref) => ref.startsWith("claude_source:")), true);
+    assert.deepEqual(card.sourceRangeRefs, []);
+
+    const inbox = getPreparedInbox(db, { limit: 10 });
+    assert.equal(inbox.summary.total, 1);
+    assert.equal(inbox.items[0]?.targetRef, `claude_session:${sessionId}`);
+    assert.equal(inbox.items[0]?.execute, false);
+
+    const serialized = JSON.stringify({ materialized, status, cards, inbox });
+    assert.equal(serialized.includes("/Users/lume"), false);
+    assert.equal(serialized.includes("/Volumes/LEXAR"), false);
+    assert.equal(serialized.includes("claude-prepared-private.jsonl"), false);
+    assert.equal(serialized.includes("claude-prep.jsonl"), false);
+    assert.equal(serialized.includes("npm_"), false);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
