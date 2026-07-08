@@ -278,7 +278,7 @@
       },
       {
         "name": "lco_grep",
-        "description": "Search Codex index and optional read-only OpenClaw LCM peer DBs with source-prefixed refs.",
+        "description": "Search Codex, imported Claude Code recall, and optional read-only OpenClaw LCM peer DBs with source-prefixed refs such as codex_thread:*, claude_session:*, and lcm_summary:*.",
         "safety": {
           "mode": "local_cache_write",
           "source": "local_index",
@@ -332,7 +332,7 @@
       },
       {
         "name": "lco_describe_ref",
-        "description": "Describe a source-prefixed recall ref such as codex_thread:* or lcm_summary:*.",
+        "description": "Describe a source-prefixed recall ref such as codex_thread:*, claude_session:*, or lcm_summary:*.",
         "safety": {
           "mode": "local_cache_write",
           "source": "local_index",
@@ -416,7 +416,7 @@
       },
       {
         "name": "lco_expand_query",
-        "description": "Search then expand the best matching Codex or LCM peer recall ref.",
+        "description": "Search then expand the best matching Codex, imported Claude Code, or LCM peer recall ref.",
         "safety": {
           "mode": "local_cache_write",
           "source": "local_index",
@@ -1937,7 +1937,7 @@
       },
       {
         "name": "loo_grep",
-        "description": "Search Codex index and optional read-only OpenClaw LCM peer DBs with source-prefixed refs.",
+        "description": "Search Codex, imported Claude Code recall, and optional read-only OpenClaw LCM peer DBs with source-prefixed refs such as codex_thread:*, claude_session:*, and lcm_summary:*.",
         "safety": {
           "mode": "local_cache_write",
           "source": "local_index",
@@ -1992,7 +1992,7 @@
       },
       {
         "name": "loo_describe_ref",
-        "description": "Describe a source-prefixed recall ref such as codex_thread:* or lcm_summary:*.",
+        "description": "Describe a source-prefixed recall ref such as codex_thread:*, claude_session:*, or lcm_summary:*.",
         "safety": {
           "mode": "local_cache_write",
           "source": "local_index",
@@ -2078,7 +2078,7 @@
       },
       {
         "name": "loo_expand_query",
-        "description": "Search then expand the best matching Codex or LCM peer recall ref.",
+        "description": "Search then expand the best matching Codex, imported Claude Code, or LCM peer recall ref.",
         "safety": {
           "mode": "local_cache_write",
           "source": "local_index",
@@ -3486,7 +3486,7 @@
       },
       {
         "name": "loo_describe_session",
-        "description": "Describe a source-prefixed recall ref such as codex_thread:* or lcm_summary:*.",
+        "description": "Describe a source-prefixed recall ref such as codex_thread:*, claude_session:*, or lcm_summary:*.",
         "safety": {
           "mode": "local_cache_write",
           "source": "local_index",

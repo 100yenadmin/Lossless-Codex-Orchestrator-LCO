@@ -556,7 +556,7 @@ export function createLooTools(options: {
         telemetrySessionId: optionalString(input.telemetry_session_id)
       });
     }),
-    tool("lco_grep", "Search Codex index and optional read-only OpenClaw LCM peer DBs with source-prefixed refs.", {
+    tool("lco_grep", "Search Codex, imported Claude Code recall, and optional read-only OpenClaw LCM peer DBs with source-prefixed refs such as codex_thread:*, claude_session:*, and lcm_summary:*.", {
       query: { type: "string" },
       limit: { type: "integer", minimum: 1, maximum: 100 },
       profile: { type: "string", enum: ["metadata", "brief", "evidence"] },
@@ -574,7 +574,7 @@ export function createLooTools(options: {
       telemetrySessionId: optionalString(input.telemetry_session_id),
       now: optionalString(input.now)
     })),
-    tool("lco_describe_ref", "Describe a source-prefixed recall ref such as codex_thread:* or lcm_summary:*.", {
+    tool("lco_describe_ref", "Describe a source-prefixed recall ref such as codex_thread:*, claude_session:*, or lcm_summary:*.", {
       source_ref: { type: "string" },
       thread_id: { type: "string" },
       lcm_db_paths: { type: "array", items: { type: "string" } },
@@ -604,7 +604,7 @@ export function createLooTools(options: {
       telemetrySessionId: optionalString(input.telemetry_session_id),
       now: optionalString(input.now)
     })),
-    tool("lco_expand_query", "Search then expand the best matching Codex or LCM peer recall ref.", {
+    tool("lco_expand_query", "Search then expand the best matching Codex, imported Claude Code, or LCM peer recall ref.", {
       query: { type: "string" },
       profile: { type: "string", enum: ["metadata", "brief", "evidence"] },
       token_budget: { type: "integer", minimum: 20, maximum: 8000 },

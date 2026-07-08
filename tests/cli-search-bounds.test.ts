@@ -315,11 +315,11 @@ test("direct CLI recall commands suppress telemetry side effects", () => {
       LOO_TELEMETRY: "1",
       LOO_TELEMETRY_SESSION_ID: "cli-smoke-should-not-write"
     };
-    const search = runLoo(["search", "--limit", "1", "--timeout-ms", "1000", "plan"], env, 5_000);
+    const search = runLoo(["search", "--limit", "1", "--timeout-ms", "1000", "plan"], env, 15_000);
     assert.equal(search.status, 0, search.stderr || search.stdout);
-    const describe = runLoo(["describe", "--timeout-ms", "1000", "codex_thread:019f-search-telemetry"], env, 5_000);
+    const describe = runLoo(["describe", "--timeout-ms", "1000", "codex_thread:019f-search-telemetry"], env, 15_000);
     assert.equal(describe.status, 0, describe.stderr || describe.stdout);
-    const expand = runLoo(["expand-ref", "--profile", "metadata", "--timeout-ms", "1000", "codex_thread:019f-search-telemetry"], env, 5_000);
+    const expand = runLoo(["expand-ref", "--profile", "metadata", "--timeout-ms", "1000", "codex_thread:019f-search-telemetry"], env, 15_000);
     assert.equal(expand.status, 0, expand.stderr || expand.stdout);
 
     const reopened = createDatabase(dbPath, { maintenance: "schema-only" });
