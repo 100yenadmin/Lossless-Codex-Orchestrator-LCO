@@ -22,7 +22,7 @@ export function createOpenClawPluginManifest({ packageVersion }) {
     id: "lossless-openclaw-orchestrator",
     name: "Lossless OpenClaw Orchestrator",
     description:
-      "Collaborate with local Codex sessions through OpenClaw using local indexing, prepared-state recall, bounded expansion, and approval-gated dry-run/control boundaries.",
+      "Collaborate with local Codex sessions through OpenClaw using local indexing, prepared-state recall, bounded expansion, approval-gated dry-runs, and optional Codex controls.",
     version: packageVersion,
     kind: "tool",
     tools: {
@@ -42,12 +42,6 @@ export function createOpenClawPluginManifest({ packageVersion }) {
       liveControlRequires: [
         "dry_run",
         "approval_audit_id"
-      ],
-      forbiddenClaims: [
-        "Full Claude Code parity",
-        "cloud sync",
-        "unattended desktop takeover",
-        "permission bypass"
       ]
     },
     activation: {

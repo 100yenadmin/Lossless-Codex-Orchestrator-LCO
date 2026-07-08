@@ -382,7 +382,7 @@ test("beta release runbook defines RC cadence and keeps main distinct from relea
   }
 });
 
-test("OpenClaw plugin manifest is packageable and matches the beta safety boundary", () => {
+test("OpenClaw plugin manifest is packageable and keeps public metadata customer-facing", () => {
   assert.equal(existsSync("openclaw.plugin.json"), true, "root OpenClaw plugin manifest must exist");
   assert.equal(existsSync("packages/openclaw-plugin/openclaw.plugin.json"), true, "OpenClaw plugin manifest must exist");
   assert.equal(existsSync("packages/openclaw-plugin/package.json"), false, "nested plugin source must not shadow the root package install source");
@@ -418,6 +418,9 @@ test("OpenClaw plugin manifest is packageable and matches the beta safety bounda
 
   assert.equal(packageJson.name, "lossless-openclaw-orchestrator");
   assert.equal(packageJson.type, "module");
+  assert.match(packageJson.description ?? "", /approval-gated dry-runs/i);
+  assert.match(packageJson.description ?? "", /optional Codex controls/i);
+  assert.doesNotMatch(packageJson.description ?? "", /proof boundary|claim scope|do not claim|forbidden claims|control boundaries/i);
   assert.equal(packageJson.files?.includes("openclaw.plugin.json"), true);
   assert.deepEqual(packageJson.openclaw?.extensions, ["./dist/packages/openclaw-plugin/src/index.js"]);
   assert.equal(packageJson.openclaw?.runtimeExtensions, undefined);
@@ -431,8 +434,10 @@ test("OpenClaw plugin manifest is packageable and matches the beta safety bounda
   assert.deepEqual([...expectedPolicyTools.map((tool) => tool.name)].sort(), Object.keys(LOO_COMMAND_POLICY).sort());
   assert.equal(manifest.name, "Lossless OpenClaw Orchestrator");
   assert.match(manifest.description ?? "", /local Codex sessions/i);
-  assert.match(manifest.description ?? "", /approval-gated dry-run\/control boundaries/i);
+  assert.match(manifest.description ?? "", /approval-gated dry-runs/i);
+  assert.match(manifest.description ?? "", /optional Codex controls/i);
   assert.doesNotMatch(manifest.description ?? "", /Claude Code remotely/i);
+  assert.doesNotMatch(manifest.description ?? "", /proof boundary|claim scope|do not claim|forbidden claims/i);
   assert.equal(manifest.mcp?.command, "lco-mcp-server");
   assert.equal(manifest.mcp?.transport, "stdio");
   assert.equal(manifest.tools?.prefix, "lco_");
@@ -444,12 +449,8 @@ test("OpenClaw plugin manifest is packageable and matches the beta safety bounda
   assert.deepEqual(sourceManifest.contracts?.toolDeclarations, expectedTools);
   assert.equal(manifest.safety?.localOnlyByDefault, true);
   assert.deepEqual(manifest.safety?.liveControlRequires, ["dry_run", "approval_audit_id"]);
-  assert.deepEqual(manifest.safety?.forbiddenClaims, [
-    "Full Claude Code parity",
-    "cloud sync",
-    "unattended desktop takeover",
-    "permission bypass"
-  ]);
+  assert.equal(manifest.safety?.forbiddenClaims, undefined);
+  assert.doesNotMatch(JSON.stringify({ manifest, sourceManifest }), /Full Claude Code parity|cloud sync|unattended desktop takeover|permission bypass|forbiddenClaims/i);
 });
 
 test("release preflight writes a public-safe artifact manifest without hiding live-control blockers", () => {
@@ -936,7 +937,7 @@ function writeProjectSkeleton(rootDir: string, overrides: { readme?: string; run
   writeFileSync(join(rootDir, "package.json"), JSON.stringify({
     name: "lossless-openclaw-orchestrator",
     version: "0.1.0-beta.0",
-    description: "Index, search, and prepare local Codex sessions for OpenClaw with approval-gated dry-run/control boundaries.",
+    description: "Index, search, and prepare local Codex sessions for OpenClaw with approval-gated dry-runs and optional Codex controls.",
     files: overrides.packageFiles ?? ["dist", "packages", "docs", "openclaw.plugin.json", "README.md", "LICENSE", "SECURITY.md"],
     openclaw: {
       extensions: ["./dist/packages/openclaw-plugin/src/index.js"],
@@ -987,7 +988,7 @@ function writeProjectSkeleton(rootDir: string, overrides: { readme?: string; run
   const manifest = JSON.stringify({
     id: "lossless-openclaw-orchestrator",
     name: "Lossless OpenClaw Orchestrator",
-    description: "Index, search, and prepare local Codex sessions for OpenClaw with approval-gated dry-run/control boundaries.",
+    description: "Index, search, and prepare local Codex sessions for OpenClaw with approval-gated dry-runs and optional Codex controls.",
     mcp: { command: "lco-mcp-server", transport: "stdio" },
     tools: { prefix: "lco_" },
     configSchema: { type: "object", additionalProperties: false, properties: {} },
@@ -995,13 +996,7 @@ function writeProjectSkeleton(rootDir: string, overrides: { readme?: string; run
     contracts: { tools: tools.map((tool) => tool.name), toolDeclarations: tools },
     safety: {
       localOnlyByDefault: true,
-      liveControlRequires: ["dry_run", "approval_audit_id"],
-      forbiddenClaims: [
-        "Full Claude Code parity",
-        "cloud sync",
-        "unattended desktop takeover",
-        "permission bypass"
-      ]
+      liveControlRequires: ["dry_run", "approval_audit_id"]
     }
   });
   writeFileSync(join(rootDir, "openclaw.plugin.json"), manifest);

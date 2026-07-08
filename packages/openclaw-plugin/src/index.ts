@@ -21,7 +21,7 @@ import {
 export const pluginMetadata = {
   id: "lossless-openclaw-orchestrator",
   name: "Lossless OpenClaw Orchestrator",
-  description: "Collaborate with local Codex sessions through OpenClaw using local indexing, prepared-state recall, bounded expansion, and approval-gated dry-run/control boundaries.",
+  description: "Collaborate with local Codex sessions through OpenClaw using local indexing, prepared-state recall, bounded expansion, approval-gated dry-runs, and optional Codex controls.",
   kind: "tool",
   mcp: {
     command: "lco-mcp-server",
@@ -34,8 +34,7 @@ export const pluginMetadata = {
   },
   safety: {
     localOnlyByDefault: true,
-    liveControlRequires: ["dry_run", "approval_audit_id"],
-    forbiddenClaims: ["Full Claude Code parity", "cloud sync", "unattended desktop takeover", "bypasses Codex permissions"]
+    liveControlRequires: ["dry_run", "approval_audit_id"]
   }
 };
 
