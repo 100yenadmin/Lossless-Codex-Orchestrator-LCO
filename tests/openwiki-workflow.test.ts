@@ -30,19 +30,25 @@ test("manual OpenWiki workflow is docs-only, Z.AI-gated, and PR-based", () => {
   assert.match(workflow, /pull-requests:\s*write/);
   assert.doesNotMatch(workflow, /actions:\s*write|issues:\s*write|packages:\s*write/);
 
-  assert.match(workflow, /ZAI_API_KEY:\s*\$\{\{\s*secrets\.ZAI_API_KEY\s*\}\}/);
-  assert.match(workflow, /OPENWIKI_PROVIDER:\s*zai/);
-  assert.match(workflow, /OPENWIKI_MODEL_ID:\s*glm-5\.2/);
+  assert.match(workflow, /ANTHROPIC_API_KEY:\s*\$\{\{\s*secrets\.ZAI_API_KEY\s*\}\}/);
+  assert.match(workflow, /ANTHROPIC_BASE_URL:\s*https:\/\/api\.z\.ai\/api\/anthropic/);
+  assert.match(workflow, /OPENWIKI_PROVIDER:\s*anthropic/);
+  assert.match(workflow, /OPENWIKI_MODEL_ID:\s*GLM-5\.2/);
   assert.match(workflow, /OPENWIKI_OUTPUT_DIR:\s*openwiki/);
-  assert.match(workflow, /OPENWIKI_REPOSITORY:\s*langchain-ai\/openwiki/);
-  assert.match(workflow, /OPENWIKI_REF:\s*[a-f0-9]{40}/);
-  assert.doesNotMatch(workflow, /OPENAI_API_KEY|ANTHROPIC_API_KEY|OPENROUTER|FIREWORKS/i);
+  assert.match(workflow, /OPENWIKI_REPOSITORY:\s*100yenadmin\/openwiki/);
+  assert.match(workflow, /OPENWIKI_REF:\s*7bff0df61700709575bd154f3ac66b4927c6d137/);
+  assert.doesNotMatch(workflow, /OPENAI_API_KEY|OPENROUTER|FIREWORKS/i);
+  assert.doesNotMatch(workflow, /OPENWIKI_PROVIDER:\s*zai/);
+  assert.doesNotMatch(workflow, /ZAI_API_KEY:\s*\$\{\{\s*secrets\.ZAI_API_KEY\s*\}\}/);
 
   assert.match(workflow, /repository:\s*\$\{\{\s*env\.OPENWIKI_REPOSITORY\s*\}\}/);
   assert.match(workflow, /ref:\s*\$\{\{\s*env\.OPENWIKI_REF\s*\}\}/);
   assert.match(workflow, /COMMAND:\s*\$\{\{\s*inputs\.command\s*\}\}/);
   assert.match(workflow, /if \[ "\$\{COMMAND\}" = "init" \]/);
   assert.doesNotMatch(workflow, /if \[ "\$\{\{\s*inputs\.command\s*\}\}" = "init" \]/);
+  assert.match(workflow, /--update --print --no-agent-instructions --modelId/);
+  assert.match(workflow, /--init --print --no-agent-instructions --modelId/);
+  assert.doesNotMatch(workflow, /prompt='Update the LCO OpenWiki orientation docs/);
 
   assert.match(workflow, /node scripts\/guard-openwiki-diff\.mjs/);
   assert.match(workflow, /actions\/checkout@[a-f0-9]{40}/);
@@ -53,6 +59,8 @@ test("manual OpenWiki workflow is docs-only, Z.AI-gated, and PR-based", () => {
   assert.match(workflow, /provider/i);
   assert.match(workflow, /model/i);
   assert.match(workflow, /manual_dispatch/i);
+  assert.match(workflow, /provider_route:\s*"anthropic-compatible"/);
+  assert.match(workflow, /base_url:\s*"https:\/\/api\.z\.ai\/api\/anthropic"/);
   assert.match(workflow, /openwiki_ref:\s*process\.env\.OPENWIKI_REF/);
   assert.match(workflow, /openwiki_content_sha256:\s*digest\.digest\("hex"\)/);
   assert.match(workflow, /openwiki_content_file_count:\s*files\.length/);

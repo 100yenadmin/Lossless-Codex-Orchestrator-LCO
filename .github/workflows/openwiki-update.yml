@@ -16,10 +16,11 @@ permissions:
   pull-requests: write
 
 env:
-  OPENWIKI_REPOSITORY: langchain-ai/openwiki
-  OPENWIKI_REF: 39493ef8e11a2757870eaabcff904c768d0984e5
-  OPENWIKI_PROVIDER: zai
-  OPENWIKI_MODEL_ID: glm-5.2
+  OPENWIKI_REPOSITORY: 100yenadmin/openwiki
+  OPENWIKI_REF: 7bff0df61700709575bd154f3ac66b4927c6d137
+  OPENWIKI_PROVIDER: anthropic
+  OPENWIKI_MODEL_ID: GLM-5.2
+  ANTHROPIC_BASE_URL: https://api.z.ai/api/anthropic
   OPENWIKI_OUTPUT_DIR: openwiki
 
 jobs:
@@ -30,15 +31,6 @@ jobs:
     steps:
       - name: Checkout LCO
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
-
-      - name: Require Z.AI key
-        env:
-          ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
-        run: |
-          if [ -z "${ZAI_API_KEY}" ]; then
-            echo "::error::ZAI_API_KEY secret is required for manual OpenWiki docs updates."
-            exit 1
-          fi
 
       - name: Checkout OpenWiki runner
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
@@ -56,17 +48,17 @@ jobs:
 
       - name: Run OpenWiki docs update
         env:
-          ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ZAI_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ env.ANTHROPIC_BASE_URL }}
           COMMAND: ${{ inputs.command }}
           OPENWIKI_PROVIDER: ${{ env.OPENWIKI_PROVIDER }}
           OPENWIKI_MODEL_ID: ${{ env.OPENWIKI_MODEL_ID }}
           OPENWIKI_OUTPUT_DIR: ${{ env.OPENWIKI_OUTPUT_DIR }}
         run: |
-          prompt='Update the LCO OpenWiki orientation docs. Write only openwiki/**. Do not edit AGENTS.md, CLAUDE.md, source, runtime config, workflow files, package metadata, or unrelated docs. Avoid todo-list tools; return concise completion notes.'
           if [ "${COMMAND}" = "init" ]; then
-            node "${RUNNER_TEMP}/openwiki-runner/dist/cli.js" --init --modelId "${OPENWIKI_MODEL_ID}" "${prompt}"
+            node "${RUNNER_TEMP}/openwiki-runner/dist/cli.js" --init --print --no-agent-instructions --modelId "${OPENWIKI_MODEL_ID}"
           else
-            node "${RUNNER_TEMP}/openwiki-runner/dist/cli.js" --update --modelId "${OPENWIKI_MODEL_ID}" "${prompt}"
+            node "${RUNNER_TEMP}/openwiki-runner/dist/cli.js" --update --print --no-agent-instructions --modelId "${OPENWIKI_MODEL_ID}"
           fi
 
       - name: Record public run metadata
@@ -105,7 +97,9 @@ jobs:
             `${JSON.stringify(
               {
                 provider: "zai",
-                model: "glm-5.2",
+                provider_route: "anthropic-compatible",
+                base_url: "https://api.z.ai/api/anthropic",
+                model: "GLM-5.2",
                 workflow: "openwiki-update",
                 run_id: process.env.GITHUB_RUN_ID,
                 run_attempt: process.env.GITHUB_RUN_ATTEMPT,
@@ -133,6 +127,7 @@ jobs:
             Manual OpenWiki update run.
 
             Provider/model: Z.AI GLM-5.2.
+            OpenWiki runner: 100yenadmin/openwiki@7bff0df61700709575bd154f3ac66b4927c6d137.
             Scope: openwiki/** only.
             This workflow records public run metadata only; provider credentials are not written to the repository.
           add-paths: |
