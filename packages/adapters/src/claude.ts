@@ -60,11 +60,21 @@ export type ClaudeDryRunStatus = {
 };
 
 export function probeClaudeDryRunAvailability(command = "claude"): ClaudeDryRunAvailability {
-  const result = spawnSync(command, ["--version"], { encoding: "utf8", timeout: 2_000 });
+  const normalizedCommand = command.trim();
+  if (normalizedCommand !== "claude") {
+    return {
+      available: false,
+      command: "claude",
+      version: null,
+      error: "Unsupported Claude CLI probe command.",
+      unsupportedReason: "Only the claude CLI command is allowed for dry-run availability probing."
+    };
+  }
+  const result = spawnSync("claude", ["--version"], { encoding: "utf8", timeout: 2_000 });
   if (result.error) {
     return {
       available: false,
-      command,
+      command: "claude",
       version: null,
       error: result.error.message
     };
@@ -72,16 +82,18 @@ export function probeClaudeDryRunAvailability(command = "claude"): ClaudeDryRunA
   if (result.status !== 0) {
     return {
       available: false,
-      command,
+      command: "claude",
       version: null,
       error: result.stderr || `Claude command exited with status ${result.status}`
     };
   }
+  const version = (result.stdout || result.stderr || "").trim() || null;
   return {
     available: true,
-    command,
-    version: (result.stdout || result.stderr || "").trim() || null,
-    error: null
+    command: "claude",
+    version,
+    error: null,
+    unsupportedReason: unsupportedClaudeVersionReason(version)
   };
 }
 
@@ -100,11 +112,12 @@ export function createClaudeDryRunControl(options: { audit: ClaudeControlAuditSt
 
   return {
     status(): ClaudeDryRunStatus {
+      const state = claudeDryRunState(availability);
       return {
         schema: "lco.claude.dryRunControlStatus.v1",
         publicSafe: true,
         target: "claude_code",
-        state: claudeDryRunState(availability),
+        state,
         liveControlProven: false,
         command: availability,
         methodPolicy: {
@@ -117,9 +130,7 @@ export function createClaudeDryRunControl(options: { audit: ClaudeControlAuditSt
           guiMutationRun: false,
           settingsMutationRun: false
         },
-        nextSafeAction: availability.available
-          ? "Use resumePrompt with dryRun:true to mint an LCO audit packet without invoking Claude Code."
-          : "Install or configure the Claude Code CLI before dry-run packet generation."
+        nextSafeAction: nextClaudeDryRunAction(state)
       };
     },
     async resumePrompt(input: { sessionId: string; prompt: string; dryRun?: boolean; approvalAuditId?: string }) {
@@ -188,5 +199,20 @@ function claudeDryRunState(availability: ClaudeDryRunAvailability): ClaudeDryRun
 function safeClaudeSessionRef(sessionId: string): string {
   const normalized = sessionId.startsWith("claude_session:") ? sessionId.slice("claude_session:".length) : sessionId;
   if (/^[A-Za-z0-9._-]{1,128}$/.test(normalized)) return `claude_session:${normalized}`;
-  return `claude_session:${createHash("sha256").update(normalized).digest("hex").slice(0, 16)}`;
+  throw new Error(`Invalid Claude session id: ${createHash("sha256").update(normalized).digest("hex").slice(0, 16)}`);
+}
+
+function nextClaudeDryRunAction(state: ClaudeDryRunState): string {
+  if (state === "dry_run_only") return "Use resumePrompt with dryRun:true to mint an LCO audit packet without invoking Claude Code.";
+  if (state === "unsupported") return "Upgrade, install, or configure a supported Claude Code CLI before dry-run packet generation.";
+  return "Install or configure the Claude Code CLI before dry-run packet generation.";
+}
+
+function unsupportedClaudeVersionReason(version: string | null): string | null {
+  if (!version) return null;
+  const match = version.match(/(?:Claude(?:\s+Code)?\s*)?(\d+)\.(\d+)\.(\d+)/i);
+  if (!match) return null;
+  const major = Number(match[1]);
+  if (Number.isFinite(major) && major < 1) return "Claude CLI version is below minimum supported 1.0.0 for dry-run validation.";
+  return null;
 }

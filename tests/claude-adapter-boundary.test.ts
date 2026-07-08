@@ -3,7 +3,12 @@ import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 import { assertTargetMethodAllowed } from "../packages/adapters/src/index.js";
-import { CLAUDE_TARGET_METHOD_POLICY, createClaudeCodeAdapter, createClaudeDryRunControl } from "../packages/adapters/src/claude.js";
+import {
+  CLAUDE_TARGET_METHOD_POLICY,
+  createClaudeCodeAdapter,
+  createClaudeDryRunControl,
+  probeClaudeDryRunAvailability
+} from "../packages/adapters/src/claude.js";
 
 function read(path: string): string {
   return readFileSync(path, "utf8");
@@ -159,4 +164,84 @@ test("Claude dry-run status reports not_configured and redacts local diagnostics
   assert.equal(status.command.available, false);
   assert.equal(status.command.error, "missing ~/.claude/private-config with <redacted-secret>");
   assert.doesNotMatch(JSON.stringify(status), /\/Users\/lume|sk-test_/);
+});
+
+test("Claude availability probe refuses non-allowlisted commands before reporting readiness", () => {
+  const availability = probeClaudeDryRunAvailability("/bin/echo");
+
+  assert.equal(availability.available, false);
+  assert.equal(availability.command, "claude");
+  assert.match(availability.unsupportedReason ?? "", /only the claude cli command/i);
+  assert.doesNotMatch(JSON.stringify(availability), /\/bin\/echo/);
+});
+
+test("Claude dry-run status reports unsupported and redacts all diagnostics", () => {
+  const control = createClaudeDryRunControl({
+    availability: {
+      available: true,
+      command: "claude",
+      version: "Claude Code 0.1.0 from /Users/lume/bin with sk-test_1234567890abcdef",
+      error: null,
+      unsupportedReason: "Claude CLI from C:\\Users\\lume\\bin is below minimum with sk-test_abcdef1234567890"
+    },
+    audit: {
+      path: "memory",
+      fingerprintText(value) {
+        return value;
+      },
+      fingerprintValue(value) {
+        return JSON.stringify(value);
+      },
+      append(record) {
+        return { id: "unused", createdAt: new Date().toISOString(), ...record };
+      },
+      find() {
+        return null;
+      }
+    }
+  });
+
+  const status = control.status();
+  assert.equal(status.state, "unsupported");
+  assert.equal(status.command.available, true);
+  assert.match(status.command.version ?? "", /Claude Code 0\.1\.0/);
+  assert.match(status.command.unsupportedReason ?? "", /below minimum/);
+  assert.match(status.nextSafeAction, /upgrade|install|configure/i);
+  assert.doesNotMatch(status.nextSafeAction, /resumePrompt/i);
+  assert.doesNotMatch(JSON.stringify(status), /\/Users\/lume|C:\\Users\\lume|sk-test_/);
+});
+
+test("Claude dry-run resume fails closed for invalid session ids", async () => {
+  const control = createClaudeDryRunControl({
+    availability: {
+      available: true,
+      command: "claude",
+      version: "Claude Code 1.0.0",
+      error: null
+    },
+    audit: {
+      path: "memory",
+      fingerprintText(value) {
+        return value;
+      },
+      fingerprintValue(value) {
+        return JSON.stringify(value);
+      },
+      append(record) {
+        return { id: "unused", createdAt: new Date().toISOString(), ...record };
+      },
+      find() {
+        return null;
+      }
+    }
+  });
+
+  await assert.rejects(
+    () => control.resumePrompt({
+      sessionId: "../../private session",
+      prompt: "This should not produce an audit packet.",
+      dryRun: true
+    }),
+    /Invalid Claude session id/
+  );
 });
