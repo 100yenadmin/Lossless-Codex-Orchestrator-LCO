@@ -14,6 +14,17 @@ function violationPaths(output: string): string[] {
     .map((line) => line.slice(2));
 }
 
+function workflowStepBlock(workflow: string, stepName: string): string {
+  const blocks = workflow.split(/\n(?=\s+- name: )/);
+  const escapedStepName = stepName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const stepPattern = new RegExp(`^\\s+- name: ${escapedStepName}\\s*$`, "m");
+  const matches = blocks.filter((candidate) => stepPattern.test(candidate));
+  assert.equal(matches.length, 1, `expected exactly one workflow step: ${stepName}`);
+  const match = matches[0];
+  assert.ok(match, `workflow step not found: ${stepName}`);
+  return match;
+}
+
 test("manual OpenWiki workflow is docs-only, Z.AI-gated, and PR-based", () => {
   const workflowPath = ".github/workflows/openwiki-update.yml";
   assert.equal(existsSync(workflowPath), true, "OpenWiki workflow must exist");
@@ -62,6 +73,20 @@ test("manual OpenWiki workflow is docs-only, Z.AI-gated, and PR-based", () => {
   assert.match(workflow, /--init --print --no-agent-instructions --modelId/);
   assert.match(workflow, /rm -rf "\$\{OPENWIKI_RUNNER_PATH\}" "\$\{OPENWIKI_RUNNER_DIR\}"/);
   assert.match(workflow, /node scripts\/normalize-openwiki-output\.mjs/);
+  assert.match(workflow, /id:\s*openwiki_changes/);
+  assert.match(workflow, /node scripts\/detect-openwiki-real-changes\.mjs --github-output/);
+  assert.match(
+    workflowStepBlock(workflow, "Record public run metadata"),
+    /if:\s*steps\.openwiki_changes\.outputs\.has_changes == 'true'/
+  );
+  assert.match(
+    workflowStepBlock(workflow, "Guard OpenWiki-only diff"),
+    /if:\s*steps\.openwiki_changes\.outputs\.has_changes == 'true'/
+  );
+  assert.match(
+    workflowStepBlock(workflow, "Open docs PR"),
+    /if:\s*steps\.openwiki_changes\.outputs\.has_changes == 'true'/
+  );
   assert.doesNotMatch(workflow, /path:\s*\$\{\{\s*runner\.temp\s*\}\}/);
   assert.doesNotMatch(workflow, /prompt='Update the LCO OpenWiki orientation docs/);
 
