@@ -33,9 +33,17 @@ jobs:
       - name: Checkout LCO
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
+          fetch-depth: 0
           persist-credentials: false
 
+      - name: Decide OpenWiki update need
+        id: openwiki_should_run
+        env:
+          COMMAND: ${{ inputs.command }}
+        run: node scripts/should-run-openwiki-update.mjs --github-output
+
       - name: Checkout OpenWiki runner
+        if: steps.openwiki_should_run.outputs.should_run == 'true'
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           repository: ${{ env.OPENWIKI_REPOSITORY }}
@@ -44,6 +52,7 @@ jobs:
           persist-credentials: false
 
       - name: Build OpenWiki runner
+        if: steps.openwiki_should_run.outputs.should_run == 'true'
         working-directory: ${{ env.OPENWIKI_RUNNER_DIR }}
         run: |
           corepack enable
@@ -51,6 +60,7 @@ jobs:
           pnpm run build
 
       - name: Move OpenWiki runner outside workspace
+        if: steps.openwiki_should_run.outputs.should_run == 'true'
         env:
           OPENWIKI_RUNNER_DIR: ${{ env.OPENWIKI_RUNNER_DIR }}
         run: |
@@ -58,6 +68,7 @@ jobs:
           mv "${OPENWIKI_RUNNER_DIR}" "${RUNNER_TEMP}/openwiki-runner"
 
       - name: Run OpenWiki docs update
+        if: steps.openwiki_should_run.outputs.should_run == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ZAI_API_KEY }}
           ANTHROPIC_BASE_URL: ${{ env.ANTHROPIC_BASE_URL }}
@@ -74,20 +85,23 @@ jobs:
           fi
 
       - name: Remove OpenWiki runner checkout
+        if: steps.openwiki_should_run.outputs.should_run == 'true'
         env:
           OPENWIKI_RUNNER_DIR: ${{ env.OPENWIKI_RUNNER_DIR }}
           OPENWIKI_RUNNER_PATH: ${{ runner.temp }}/openwiki-runner
         run: rm -rf "${OPENWIKI_RUNNER_PATH}" "${OPENWIKI_RUNNER_DIR}"
 
       - name: Normalize OpenWiki output path
+        if: steps.openwiki_should_run.outputs.should_run == 'true'
         run: node scripts/normalize-openwiki-output.mjs
 
       - name: Detect OpenWiki content changes
+        if: steps.openwiki_should_run.outputs.should_run == 'true'
         id: openwiki_changes
         run: node scripts/detect-openwiki-real-changes.mjs --github-output
 
       - name: Record public run metadata
-        if: steps.openwiki_changes.outputs.has_changes == 'true'
+        if: steps.openwiki_should_run.outputs.should_run == 'true' && steps.openwiki_changes.outputs.has_changes == 'true'
         env:
           OPENWIKI_REF: ${{ env.OPENWIKI_REF }}
         run: |
@@ -141,11 +155,11 @@ jobs:
           NODE
 
       - name: Guard OpenWiki-only diff
-        if: steps.openwiki_changes.outputs.has_changes == 'true'
+        if: steps.openwiki_should_run.outputs.should_run == 'true' && steps.openwiki_changes.outputs.has_changes == 'true'
         run: node scripts/guard-openwiki-diff.mjs
 
       - name: Open docs PR
-        if: steps.openwiki_changes.outputs.has_changes == 'true'
+        if: steps.openwiki_should_run.outputs.should_run == 'true' && steps.openwiki_changes.outputs.has_changes == 'true'
         uses: peter-evans/create-pull-request@c5a7806660adbe173f04e3e038b0ccdcd758773c
         with:
           branch: automation/openwiki-update
