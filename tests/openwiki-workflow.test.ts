@@ -46,14 +46,15 @@ test("manual OpenWiki workflow is docs-only, Z.AI-gated, and PR-based", () => {
   assert.match(workflow, /ref:\s*\$\{\{\s*env\.OPENWIKI_REF\s*\}\}/);
   assert.match(workflow, /path:\s*\$\{\{\s*env\.OPENWIKI_RUNNER_DIR\s*\}\}/);
   assert.match(workflow, /working-directory:\s*\$\{\{\s*env\.OPENWIKI_RUNNER_DIR\s*\}\}/);
+  assert.match(workflow, /mv "\$\{OPENWIKI_RUNNER_DIR\}" "\$\{RUNNER_TEMP\}\/openwiki-runner"/);
+  assert.match(workflow, /OPENWIKI_RUNNER_PATH:\s*\$\{\{\s*runner\.temp\s*\}\}\/openwiki-runner/);
   assert.match(workflow, /COMMAND:\s*\$\{\{\s*inputs\.command\s*\}\}/);
   assert.match(workflow, /if \[ "\$\{COMMAND\}" = "init" \]/);
   assert.doesNotMatch(workflow, /if \[ "\$\{\{\s*inputs\.command\s*\}\}" = "init" \]/);
   assert.match(workflow, /--update --print --no-agent-instructions --modelId/);
   assert.match(workflow, /--init --print --no-agent-instructions --modelId/);
-  assert.match(workflow, /rm -rf "\$\{OPENWIKI_RUNNER_DIR\}"/);
-  assert.doesNotMatch(workflow, /RUNNER_TEMP\/openwiki-runner/);
-  assert.doesNotMatch(workflow, /\$\{\{\s*runner\.temp\s*\}\}/);
+  assert.match(workflow, /rm -rf "\$\{OPENWIKI_RUNNER_PATH\}" "\$\{OPENWIKI_RUNNER_DIR\}"/);
+  assert.doesNotMatch(workflow, /path:\s*\$\{\{\s*runner\.temp\s*\}\}/);
   assert.doesNotMatch(workflow, /prompt='Update the LCO OpenWiki orientation docs/);
 
   assert.match(workflow, /node scripts\/guard-openwiki-diff\.mjs/);
