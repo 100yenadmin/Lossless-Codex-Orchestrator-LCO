@@ -6,7 +6,19 @@ First-run user setup lives in [`docs/SETUP.md`](SETUP.md). This page is the
 operator reference for how the packaged OpenClaw plugin is shaped and how to
 verify it.
 
-The root npm package is the OpenClaw install source. Its packageable plugin manifest is `openclaw.plugin.json`, and `package.json` points OpenClaw at the TypeScript source plus the compiled runtime entry `dist/packages/openclaw-plugin/src/index.js` for package installs.
+The root npm package is the OpenClaw install source. Its packageable plugin
+manifest is `openclaw.plugin.json`, and `package.json` points OpenClaw at the
+TypeScript source plus the compiled runtime entry
+`dist/packages/openclaw-plugin/src/index.js` for package installs.
+
+The root manifest and `packages/openclaw-plugin/openclaw.plugin.json` are
+generated from one source of truth. After changing tool declarations, package
+metadata, or manifest static fields, run:
+
+```bash
+npm run openclaw:manifest
+npm run openclaw:manifest:check
+```
 
 The installed plugin declares native `lco_*` tool wrappers backed by the same local registry used by the MCP server. The package also ships the MCP server for clients that connect over stdio:
 
