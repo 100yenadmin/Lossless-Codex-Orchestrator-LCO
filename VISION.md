@@ -50,13 +50,14 @@ Hermes or generic MCP until each is independently proven.
 
 ## Current Release Roadmap: 1.5 Coverage And Cockpit
 
-Current stable: `1.4.4` shipped the 1.4 identity-line maintenance release. It
-keeps `lossless-codex-orchestrator` as the canonical npm package, keeps
-`lossless-openclaw-orchestrator` as a maintained compatibility package, and
-tightens published-package smoke so package readiness is tied to an executed
-candidate package binary instead of package metadata alone.
+Current stable: `1.4.5` shipped the 1.4 identity-line maintenance patch. It keeps
+`lossless-codex-orchestrator` as the canonical npm package, keeps
+`lossless-openclaw-orchestrator` as a maintained compatibility package, fixes
+Codex Desktop visible-thread parsing for Scheduled containers, and keeps public
+docs aligned with the canonical `lco_codex_extract` / `lco_operating_picture`
+tool surfaces.
 
-The stable 1.0.0 through `1.4.4` packages are completed release lines. M11 proved
+The stable 1.0.0 through `1.4.5` packages are completed release lines. M11 proved
 the first scoped stable GA-assurance lane, and M12 built the
 release-assurance foundation: fresh npm install checks, OpenClaw gateway
 dogfood, QA Lab coverage, release aggregation, public-safe evidence rules, and
@@ -384,7 +385,7 @@ Release candidates follow [docs/BETA_RELEASE_RUNBOOK.md](docs/BETA_RELEASE_RUNBO
 
 ## Capability Boundaries
 
-Stable 1.4.4 product statement:
+Stable 1.4.5 product statement:
 
 > Collaborate with local Codex sessions through OpenClaw using local indexing, prepared-state recall, bounded expansion, and approval-gated dry-run/control boundaries.
 
