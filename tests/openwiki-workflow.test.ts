@@ -16,9 +16,13 @@ function violationPaths(output: string): string[] {
 
 function workflowStepBlock(workflow: string, stepName: string): string {
   const blocks = workflow.split(/\n(?=\s+- name: )/);
-  const block = blocks.find((candidate) => candidate.includes(`- name: ${stepName}`));
-  assert.ok(block, `workflow step not found: ${stepName}`);
-  return block;
+  const escapedStepName = stepName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const stepPattern = new RegExp(`^\\s+- name: ${escapedStepName}\\s*$`, "m");
+  const matches = blocks.filter((candidate) => stepPattern.test(candidate));
+  assert.equal(matches.length, 1, `expected exactly one workflow step: ${stepName}`);
+  const match = matches[0];
+  assert.ok(match, `workflow step not found: ${stepName}`);
+  return match;
 }
 
 test("manual OpenWiki workflow is docs-only, Z.AI-gated, and PR-based", () => {

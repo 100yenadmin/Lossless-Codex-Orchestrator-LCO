@@ -14,29 +14,53 @@ function unquotePath(path) {
 }
 
 function decodeGitQuotedPath(path) {
-  return path.replace(/\\(?:([0-7]{1,3})|(.))/g, (_match, octal, escaped) => {
-    if (octal) {
-      return String.fromCharCode(Number.parseInt(octal, 8));
+  const bytes = [];
+
+  for (let index = 0; index < path.length; index += 1) {
+    const char = path[index];
+    if (char !== "\\") {
+      bytes.push(...Buffer.from(char));
+      continue;
     }
+
+    const rest = path.slice(index + 1);
+    const octal = rest.match(/^[0-7]{1,3}/u)?.[0];
+    if (octal) {
+      bytes.push(Number.parseInt(octal, 8));
+      index += octal.length;
+      continue;
+    }
+
+    const escaped = rest[0] ?? "";
+    index += 1;
     switch (escaped) {
       case "a":
-        return "\x07";
+        bytes.push(0x07);
+        break;
       case "b":
-        return "\b";
+        bytes.push(0x08);
+        break;
       case "f":
-        return "\f";
+        bytes.push(0x0c);
+        break;
       case "n":
-        return "\n";
+        bytes.push(0x0a);
+        break;
       case "r":
-        return "\r";
+        bytes.push(0x0d);
+        break;
       case "t":
-        return "\t";
+        bytes.push(0x09);
+        break;
       case "v":
-        return "\v";
+        bytes.push(0x0b);
+        break;
       default:
-        return escaped;
+        bytes.push(...Buffer.from(escaped));
     }
-  });
+  }
+
+  return Buffer.from(bytes).toString("utf8");
 }
 
 function changedPathsFromPorcelain(output) {
@@ -76,7 +100,8 @@ function isAllowedOpenWikiPath(path) {
 
 function writeGitHubOutput(values) {
   if (!process.env.GITHUB_OUTPUT) {
-    return;
+    console.error("--github-output was requested, but GITHUB_OUTPUT is not set");
+    process.exit(1);
   }
 
   appendFileSync(
