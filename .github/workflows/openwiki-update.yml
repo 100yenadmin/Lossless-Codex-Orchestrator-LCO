@@ -76,6 +76,14 @@ jobs:
           OPENWIKI_RUNNER_PATH: ${{ runner.temp }}/openwiki-runner
         run: rm -rf "${OPENWIKI_RUNNER_PATH}" "${OPENWIKI_RUNNER_DIR}"
 
+      - name: Normalize OpenWiki output path
+        run: |
+          if [ -d penwiki ]; then
+            mkdir -p openwiki
+            cp -a penwiki/. openwiki/
+            rm -rf penwiki
+          fi
+
       - name: Record public run metadata
         env:
           OPENWIKI_REF: ${{ env.OPENWIKI_REF }}
