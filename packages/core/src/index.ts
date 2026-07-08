@@ -1007,6 +1007,77 @@ export type IndexClaudeSessionInventoryResult = {
   rejectedSessions: ClaudeSessionInventoryRejected[];
 };
 
+export type ClaudeCodeEventKind =
+  | "user_message"
+  | "assistant_message"
+  | "tool_use"
+  | "tool_result"
+  | "summary"
+  | "metadata"
+  | "unknown";
+
+export type ClaudeCodeSourceRange = {
+  eventRef: string;
+  rangeRef: string;
+  eventKind: ClaudeCodeEventKind;
+  lineStart: number;
+  lineEnd: number;
+  byteStart: number;
+  byteEnd: number;
+  ordinal: number;
+  observedAt: string | null;
+  privacyClass: "public_safe_metadata";
+  confidence: number;
+  reasonCodes: string[];
+};
+
+export type ClaudeCodeParseOmissionReason =
+  | "invalid_json_line"
+  | "tool_payload_omitted"
+  | "raw_result_payload_omitted"
+  | "unknown_event_kind"
+  | "safe_text_truncated";
+
+export type ClaudeCodeParseOmission = {
+  reason: ClaudeCodeParseOmissionReason;
+  count: number;
+};
+
+export type ClaudeCodeParseError = {
+  lineNumber: number;
+  reason: "invalid_json";
+};
+
+export type ParsedClaudeCodeSession = {
+  sourceKind: "claude_session";
+  sessionId: string;
+  sourceRef: string;
+  sourcePathRef: string;
+  projectSlug: string | null;
+  title: string | null;
+  updatedAt: string | null;
+  eventCount: number;
+  eventCounts: {
+    userMessages: number;
+    assistantMessages: number;
+    toolUses: number;
+    toolResults: number;
+    summaries: number;
+    metadata: number;
+    unknown: number;
+  };
+  sourceRanges: ClaudeCodeSourceRange[];
+  safeText: string;
+  omissions: ClaudeCodeParseOmission[];
+  parseErrors: ClaudeCodeParseError[];
+  privacyClass: "public_safe_metadata";
+  confidence: number;
+  freshness: {
+    updatedAt: string | null;
+    stale: boolean;
+  };
+};
+
 export type NativeCodexSubagentResultFixture = Record<string, unknown> & {
   resultId?: string;
   id?: string;
@@ -3557,6 +3628,210 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
   result.indexedThreads = seenThreads.size;
   result.warnings = createCodexIndexLimitWarnings(result.limitedFiles);
   return result;
+}
+
+export function parseClaudeCodeJsonl(sourcePath: string, text: string): ParsedClaudeCodeSession {
+  const records = jsonlLineRecords(text);
+  const sourcePathRef = publicClaudeSourcePathRef(sourcePath);
+  const sourceHash = stableId(text);
+  const projectSlug = safeClaudeProjectSlug(sourcePath);
+  const safeParts: string[] = [];
+  const sourceRanges: ClaudeCodeSourceRange[] = [];
+  const parseErrors: ClaudeCodeParseError[] = [];
+  const omissions = new Map<ClaudeCodeParseOmissionReason, number>();
+  const eventCounts: ParsedClaudeCodeSession["eventCounts"] = {
+    userMessages: 0,
+    assistantMessages: 0,
+    toolUses: 0,
+    toolResults: 0,
+    summaries: 0,
+    metadata: 0,
+    unknown: 0
+  };
+  let sessionId: string | null = null;
+  let updatedAt: string | null = null;
+
+  for (let i = 0; i < records.length; i += 1) {
+    const record = records[i]!;
+    let item: any;
+    try {
+      item = JSON.parse(record.text);
+    } catch {
+      parseErrors.push({ lineNumber: record.lineNumber, reason: "invalid_json" });
+      incrementClaudeOmission(omissions, "invalid_json_line");
+      continue;
+    }
+    const parsedEvent = parseClaudeCodeEvent(item);
+    sessionId ??= safeClaudeCodeSessionIdFromItem(item);
+    updatedAt = parsedEvent.observedAt ?? updatedAt;
+    if (parsedEvent.safeParts.length > 0) safeParts.push(...parsedEvent.safeParts);
+    eventCounts.userMessages += parsedEvent.kind === "user_message" ? 1 : 0;
+    eventCounts.assistantMessages += parsedEvent.kind === "assistant_message" ? 1 : 0;
+    eventCounts.toolUses += parsedEvent.toolUses;
+    eventCounts.toolResults += parsedEvent.toolResults;
+    eventCounts.summaries += parsedEvent.kind === "summary" ? 1 : 0;
+    eventCounts.metadata += parsedEvent.kind === "metadata" ? 1 : 0;
+    eventCounts.unknown += parsedEvent.kind === "unknown" ? 1 : 0;
+    for (const reason of parsedEvent.omissions) incrementClaudeOmission(omissions, reason);
+    const contentHash = stableId(record.text);
+    const eventId = stableId(`${sourcePathRef}:${sourceHash}:${i}:${record.lineNumber}:${parsedEvent.kind}:${contentHash}`);
+    const eventRef = `claude_event:${eventId}`;
+    sourceRanges.push({
+      eventRef,
+      rangeRef: `claude_range:${stableId(`${eventRef}:${parsedEvent.kind}`)}`,
+      eventKind: parsedEvent.kind,
+      lineStart: record.lineNumber,
+      lineEnd: record.lineNumber,
+      byteStart: record.byteStart,
+      byteEnd: record.byteEnd,
+      ordinal: i,
+      observedAt: parsedEvent.observedAt,
+      privacyClass: "public_safe_metadata",
+      confidence: parsedEvent.kind === "unknown" ? 0.35 : 0.9,
+      reasonCodes: claudeCodeRangeReasonCodes(parsedEvent)
+    });
+  }
+
+  const safeSessionId = sessionId ?? `claude_${stableId(sourcePath).slice(0, 16)}`;
+  const safeTextRaw = unique(safeParts.map((part) => normalizeText(part)).filter(Boolean)).join("\n");
+  const safeText = publicSafeText(safeTextRaw, CODEX_SAFE_TEXT_CHAR_LIMIT);
+  if (safeTextRaw.length > safeText.length) incrementClaudeOmission(omissions, "safe_text_truncated");
+  const title = firstClaudeTitle(safeParts);
+  return {
+    sourceKind: "claude_session",
+    sessionId: safeSessionId,
+    sourceRef: claudeSessionRef(safeSessionId),
+    sourcePathRef,
+    projectSlug,
+    title,
+    updatedAt,
+    eventCount: sourceRanges.length,
+    eventCounts,
+    sourceRanges,
+    safeText,
+    omissions: [...omissions.entries()].map(([reason, count]) => ({ reason, count })).sort((a, b) => a.reason.localeCompare(b.reason)),
+    parseErrors,
+    privacyClass: "public_safe_metadata",
+    confidence: parseErrors.length > 0 || eventCounts.unknown > 0 ? 0.7 : 0.9,
+    freshness: {
+      updatedAt,
+      stale: false
+    }
+  };
+}
+
+type ParsedClaudeCodeEvent = {
+  kind: ClaudeCodeEventKind;
+  observedAt: string | null;
+  safeParts: string[];
+  toolUses: number;
+  toolResults: number;
+  omissions: ClaudeCodeParseOmissionReason[];
+};
+
+function parseClaudeCodeEvent(item: any): ParsedClaudeCodeEvent {
+  const type = publicSafeIdentifier(stringOrNull(item?.type) ?? "") ?? "";
+  const role = publicSafeIdentifier(stringOrNull(item?.message?.role) ?? "") ?? "";
+  const observedAt = stringOrNull(item?.timestamp ?? item?.created_at ?? item?.createdAt);
+  const safeParts: string[] = [];
+  const omissions: ClaudeCodeParseOmissionReason[] = [];
+  let toolUses = 0;
+  let toolResults = 0;
+  let sawToolResult = false;
+
+  if (typeof item?.toolUseResult === "object" && item.toolUseResult !== null) {
+    sawToolResult = true;
+    toolResults = 1;
+    omissions.push("raw_result_payload_omitted");
+  }
+
+  const messageContent = item?.message?.content;
+  const contentItems = Array.isArray(messageContent) ? messageContent : [];
+  for (const part of contentItems) {
+    if (!part || typeof part !== "object") continue;
+    const partType = stringOrNull((part as { type?: unknown }).type);
+    if (partType === "text") {
+      const textPart = nullablePublicSafeString((part as { text?: unknown }).text, 2000);
+      if (textPart) safeParts.push(textPart);
+      continue;
+    }
+    if (partType === "tool_use") {
+      toolUses += 1;
+      omissions.push("tool_payload_omitted");
+      const name = publicSafeToolName(stringOrNull((part as { name?: unknown }).name) ?? "unknown");
+      safeParts.push(`Tool use: ${name}`);
+      continue;
+    }
+    if (partType === "tool_result") {
+      if (!sawToolResult) {
+        toolResults += 1;
+        sawToolResult = true;
+      }
+      omissions.push("raw_result_payload_omitted");
+      safeParts.push("Tool result omitted");
+    }
+  }
+
+  if (typeof messageContent === "string") {
+    const textPart = publicSafeText(messageContent, 2000);
+    if (textPart) safeParts.push(textPart);
+  }
+
+  const summary = nullablePublicSafeString(item?.summary, 2000);
+  if (summary) safeParts.push(summary);
+
+  let kind: ClaudeCodeEventKind = "unknown";
+  if (type === "summary" || summary) kind = "summary";
+  else if (toolResults > 0 && role !== "assistant") kind = "tool_result";
+  else if (role === "assistant" || type === "assistant") kind = "assistant_message";
+  else if (role === "user" || type === "user") kind = "user_message";
+  else if (type === "system" || type === "metadata") kind = "metadata";
+  if (kind === "unknown") omissions.push("unknown_event_kind");
+
+  return {
+    kind,
+    observedAt,
+    safeParts,
+    toolUses,
+    toolResults,
+    omissions
+  };
+}
+
+function safeClaudeCodeSessionIdFromItem(item: any): string | null {
+  const raw = stringOrNull(item?.sessionId ?? item?.session_id ?? item?.conversationId ?? item?.conversation_id);
+  return raw ? safeClaudeSessionId(raw) : null;
+}
+
+function publicClaudeSourcePathRef(sourcePath: string): string {
+  return `claude_source:${stableId(sourcePath).slice(0, 16)}`;
+}
+
+function safeClaudeProjectSlug(sourcePath: string): string | null {
+  const slug = basename(dirname(sourcePath));
+  if (!slug || slug === "." || slug === sep) return null;
+  if (/^-?(?:Users|Volumes|home|root|private|tmp|var|[A-Za-z])-/.test(slug) || looksSensitiveRefLike(slug)) {
+    return `claude_project_${stableId(slug).slice(0, 16)}`;
+  }
+  return publicSafeText(slug, 120) || null;
+}
+
+function incrementClaudeOmission(omissions: Map<ClaudeCodeParseOmissionReason, number>, reason: ClaudeCodeParseOmissionReason): void {
+  omissions.set(reason, (omissions.get(reason) ?? 0) + 1);
+}
+
+function claudeCodeRangeReasonCodes(event: ParsedClaudeCodeEvent): string[] {
+  return unique([
+    `claude_${event.kind}`,
+    event.toolUses > 0 ? "tool_use_metadata_only" : "",
+    event.toolResults > 0 ? "tool_result_payload_omitted" : "",
+    ...event.omissions.map((reason) => `omission_${reason}`)
+  ].filter(Boolean));
+}
+
+function firstClaudeTitle(parts: string[]): string | null {
+  const first = parts.find((part) => part.trim().length > 0);
+  return first ? publicSafeText(first, 80) : null;
 }
 
 const CLAUDE_FORBIDDEN_FIXTURE_FIELDS = [
