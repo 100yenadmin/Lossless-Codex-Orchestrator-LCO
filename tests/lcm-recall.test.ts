@@ -18,6 +18,39 @@ import {
   probeLcmPeerDbs
 } from "../packages/core/src/index.js";
 
+function createLcmPeerSchema(lcm: DatabaseSync): void {
+  lcm.exec(`
+    CREATE TABLE conversations (
+      conversation_id INTEGER PRIMARY KEY,
+      title TEXT,
+      session_key TEXT,
+      created_at TEXT,
+      updated_at TEXT
+    );
+    CREATE TABLE summaries (
+      summary_id TEXT PRIMARY KEY,
+      conversation_id INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      depth INTEGER NOT NULL,
+      content TEXT NOT NULL,
+      token_count INTEGER NOT NULL,
+      file_ids TEXT,
+      earliest_at TEXT,
+      latest_at TEXT,
+      descendant_count INTEGER,
+      created_at TEXT,
+      model TEXT
+    );
+    CREATE TABLE summary_parents (
+      summary_id TEXT NOT NULL,
+      parent_summary_id TEXT NOT NULL,
+      ordinal INTEGER NOT NULL,
+      PRIMARY KEY (summary_id, parent_summary_id)
+    );
+    CREATE VIRTUAL TABLE summaries_fts USING fts5(summary_id UNINDEXED, content, tokenize = 'unicode61');
+  `);
+}
+
 function makeRecallFixture() {
   const root = mkdtempSync(join(tmpdir(), "loo-lcm-recall-"));
   const sessions = join(root, "sessions");
@@ -49,36 +82,7 @@ function makeRecallFixture() {
   const lcmPath = join(root, "lcm-peer.sqlite");
   const lcm = new DatabaseSync(lcmPath);
   try {
-    lcm.exec(`
-      CREATE TABLE conversations (
-        conversation_id INTEGER PRIMARY KEY,
-        title TEXT,
-        session_key TEXT,
-        created_at TEXT,
-        updated_at TEXT
-      );
-      CREATE TABLE summaries (
-        summary_id TEXT PRIMARY KEY,
-        conversation_id INTEGER NOT NULL,
-        kind TEXT NOT NULL,
-        depth INTEGER NOT NULL,
-        content TEXT NOT NULL,
-        token_count INTEGER NOT NULL,
-        file_ids TEXT,
-        earliest_at TEXT,
-        latest_at TEXT,
-        descendant_count INTEGER,
-        created_at TEXT,
-        model TEXT
-      );
-      CREATE TABLE summary_parents (
-        summary_id TEXT NOT NULL,
-        parent_summary_id TEXT NOT NULL,
-        ordinal INTEGER NOT NULL,
-        PRIMARY KEY (summary_id, parent_summary_id)
-      );
-      CREATE VIRTUAL TABLE summaries_fts USING fts5(summary_id UNINDEXED, content, tokenize = 'unicode61');
-    `);
+    createLcmPeerSchema(lcm);
     lcm.prepare("INSERT INTO conversations (conversation_id, title, session_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(
       42,
       "OpenClaw peer memory",
@@ -181,36 +185,7 @@ function makeDagFixture(): DagFixture {
   const root = mkdtempSync(join(tmpdir(), "loo-lcm-dag-"));
   const lcmPath = join(root, "lcm-peer.sqlite");
   const lcm = new DatabaseSync(lcmPath);
-  lcm.exec(`
-    CREATE TABLE conversations (
-      conversation_id INTEGER PRIMARY KEY,
-      title TEXT,
-      session_key TEXT,
-      created_at TEXT,
-      updated_at TEXT
-    );
-    CREATE TABLE summaries (
-      summary_id TEXT PRIMARY KEY,
-      conversation_id INTEGER NOT NULL,
-      kind TEXT NOT NULL,
-      depth INTEGER NOT NULL,
-      content TEXT NOT NULL,
-      token_count INTEGER NOT NULL,
-      file_ids TEXT,
-      earliest_at TEXT,
-      latest_at TEXT,
-      descendant_count INTEGER,
-      created_at TEXT,
-      model TEXT
-    );
-    CREATE TABLE summary_parents (
-      summary_id TEXT NOT NULL,
-      parent_summary_id TEXT NOT NULL,
-      ordinal INTEGER NOT NULL,
-      PRIMARY KEY (summary_id, parent_summary_id)
-    );
-    CREATE VIRTUAL TABLE summaries_fts USING fts5(summary_id UNINDEXED, content, tokenize = 'unicode61');
-  `);
+  createLcmPeerSchema(lcm);
   lcm.prepare("INSERT INTO conversations (conversation_id, title, session_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(
     314,
     "LCM DAG guard fixture",
