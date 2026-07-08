@@ -19,6 +19,7 @@ import {
   createCloseoutEnvelopeReport,
   createDatabase,
   createFindRecallReport,
+  createRecallIndexSummary,
   createRecallRefNotFoundResult,
   createIndexedSessionSanitizerRepairPlan,
   createIndexedSessionSanitizerReport,
@@ -288,10 +289,12 @@ async function main() {
     const started = performance.now();
     try {
       db = createRecallCliDatabase(parsed.timeoutMs);
-      let indexResult: ReturnType<typeof indexCodexSessions> | null = null;
+      let indexResult: ReturnType<typeof createRecallIndexSummary> | null = null;
       if (parsed.index) {
-        console.error("LCO find: indexing local Codex sessions before recall...");
-        indexResult = indexCodexSessions(db, { roots: defaultCodexRoots() });
+        console.error("LCO find: indexing local Codex and Claude sessions before recall...");
+        const codex = indexCodexSessions(db, { roots: defaultCodexRoots() });
+        const claude = indexClaudeSessions(db, { roots: defaultClaudeRoots() });
+        indexResult = createRecallIndexSummary({ codex, claude });
         if (emitRecallTimeoutReportIfExceeded("find", started, { limit: parsed.limit, timeoutMs: parsed.timeoutMs })) return;
       }
       const recall = grepRecall(db, {
@@ -1292,8 +1295,8 @@ function printFindHelp(): void {
     "Usage:",
     "  loo/lco find [--json] [--limit n] [--timeout-ms ms] [--no-index] <query>",
     "",
-    "Find matching local Codex and recall records with one first-minute command.",
-    "By default this runs an incremental local Codex index pass, then renders compact public-safe results.",
+    "Find matching local Codex, Claude Code, and recall records with one first-minute command.",
+    "By default this runs incremental local Codex and Claude Code index passes, then renders compact public-safe results.",
     "",
     "Options:",
     "  --json           Emit the public-safe machine packet instead of human text.",

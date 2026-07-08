@@ -270,6 +270,24 @@ export type IndexClaudeResult = {
   errors: Array<{ path: string; message: string }>;
 };
 
+export type RecallIndexSourceKind = "codex" | "claude";
+
+export type RecallIndexSummary = {
+  publicSafe: true;
+  readOnly: false;
+  mutationClasses: ["derived_cache"];
+  attempted: boolean;
+  sourceKinds: RecallIndexSourceKind[];
+  indexedFiles: number;
+  skippedFiles: number;
+  indexedThreads: number;
+  indexedSessions: number;
+  indexedEvents: number;
+  limitedFiles: number;
+  warnings: number;
+  errors: number;
+};
+
 export type CodexEventContentDropReport = {
   schema: "lco.codexEventContent.drop.v1";
   ok: true;
@@ -2540,9 +2558,11 @@ export type FindRecallReport = {
   limit: number;
   indexed: {
     attempted: boolean;
+    sourceKinds: RecallIndexSourceKind[];
     indexedFiles: number;
     skippedFiles: number;
     indexedThreads: number;
+    indexedSessions: number;
     indexedEvents: number;
     limitedFiles: number;
     warnings: number;
@@ -2553,7 +2573,9 @@ export type FindRecallReport = {
   nextSafeCommands: string[];
   actionsPerformed: {
     derivedCacheWrite: boolean;
+    localRecallSourceRead: boolean;
     localCodexSourceRead: boolean;
+    localClaudeSourceRead: boolean;
     sourceStoreMutation: false;
     externalWrite: false;
     liveControl: false;
@@ -15426,18 +15448,51 @@ export function grepRecall(db: LooDatabase, options: {
   return reasonCodes.length > 0 ? { query, profile, matches, reasonCodes } : { query, profile, matches };
 }
 
+export function createRecallIndexSummary(options: {
+  codex?: IndexCodexResult | null;
+  claude?: IndexClaudeResult | null;
+}): RecallIndexSummary {
+  const sourceKinds: RecallIndexSourceKind[] = [];
+  if (options.codex) sourceKinds.push("codex");
+  if (options.claude) sourceKinds.push("claude");
+  return {
+    publicSafe: true,
+    readOnly: false,
+    mutationClasses: ["derived_cache"],
+    attempted: sourceKinds.length > 0,
+    sourceKinds,
+    indexedFiles: (options.codex?.indexedFiles ?? 0) + (options.claude?.indexedFiles ?? 0),
+    skippedFiles: (options.codex?.skippedFiles ?? 0) + (options.claude?.skippedFiles ?? 0),
+    indexedThreads: options.codex?.indexedThreads ?? 0,
+    indexedSessions: options.claude?.indexedSessions ?? 0,
+    indexedEvents: (options.codex?.indexedEvents ?? 0) + (options.claude?.indexedEvents ?? 0),
+    limitedFiles: (options.codex?.limitedFiles.length ?? 0) + (options.claude?.limitedFiles.length ?? 0),
+    warnings: (options.codex?.warnings.length ?? 0) + (options.claude?.warnings.length ?? 0),
+    errors: (options.codex?.errors.length ?? 0) + (options.claude?.errors.length ?? 0)
+  };
+}
+
+function normalizeRecallIndexSummary(indexed: IndexCodexResult | IndexClaudeResult | RecallIndexSummary | null): RecallIndexSummary | null {
+  if (!indexed) return null;
+  if ("sourceKinds" in indexed) return indexed;
+  if ("indexedThreads" in indexed) return createRecallIndexSummary({ codex: indexed });
+  return createRecallIndexSummary({ claude: indexed });
+}
+
 export function createFindRecallReport(options: {
   query: string;
   limit?: number;
   recall: GrepRecallResult;
-  indexed?: IndexCodexResult | null;
+  indexed?: IndexCodexResult | IndexClaudeResult | RecallIndexSummary | null;
 }): FindRecallReport {
   const requestedLimit = options.limit ?? (options.recall.matches.length || 10);
   const limit = clamp(requestedLimit, 1, 100);
-  const indexed = options.indexed ?? null;
+  const indexed = normalizeRecallIndexSummary(options.indexed ?? null);
   const results = options.recall.matches.slice(0, limit).map(sanitizeFindRecallResult);
-  const localCodexSourceRead = indexed !== null;
-  const transcriptDerivedContentRead = localCodexSourceRead
+  const localRecallSourceRead = indexed?.attempted ?? false;
+  const localCodexSourceRead = Boolean(indexed?.sourceKinds.includes("codex"));
+  const localClaudeSourceRead = Boolean(indexed?.sourceKinds.includes("claude"));
+  const transcriptDerivedContentRead = localRecallSourceRead
     || results.some((result) => result.reasonCodes.includes("event_content_fts_match"));
   return {
     schema: "lco.find.v1",
@@ -15446,21 +15501,25 @@ export function createFindRecallReport(options: {
     query: publicSafeFindText(options.query, 180),
     limit,
     indexed: {
-      attempted: localCodexSourceRead,
+      attempted: localRecallSourceRead,
+      sourceKinds: indexed?.sourceKinds ?? [],
       indexedFiles: indexed?.indexedFiles ?? 0,
       skippedFiles: indexed?.skippedFiles ?? 0,
       indexedThreads: indexed?.indexedThreads ?? 0,
+      indexedSessions: indexed?.indexedSessions ?? 0,
       indexedEvents: indexed?.indexedEvents ?? 0,
-      limitedFiles: indexed?.limitedFiles.length ?? 0,
-      warnings: indexed?.warnings.length ?? 0,
-      errors: indexed?.errors.length ?? 0
+      limitedFiles: indexed?.limitedFiles ?? 0,
+      warnings: indexed?.warnings ?? 0,
+      errors: indexed?.errors ?? 0
     },
     resultCount: results.length,
     results,
     nextSafeCommands: findRecallNextSafeCommands(options.query, results),
     actionsPerformed: {
-      derivedCacheWrite: localCodexSourceRead,
+      derivedCacheWrite: localRecallSourceRead,
+      localRecallSourceRead,
       localCodexSourceRead,
+      localClaudeSourceRead,
       sourceStoreMutation: false,
       externalWrite: false,
       liveControl: false,
@@ -15471,7 +15530,9 @@ export function createFindRecallReport(options: {
     },
     reasonCodes: unique([
       "find_command",
-      localCodexSourceRead ? "incremental_index_attempted" : "index_skipped_by_flag",
+      localRecallSourceRead ? "incremental_index_attempted" : "index_skipped_by_flag",
+      localCodexSourceRead ? "codex_index_attempted" : "",
+      localClaudeSourceRead ? "claude_index_attempted" : "",
       results.some((result) => result.reasonCodes.includes("event_content_fts_match")) ? "event_content_results_available" : "",
       results.length === 0 ? "no_matches" : ""
     ].filter(Boolean))

@@ -108,6 +108,76 @@ test("MCP and OpenClaw-facing recall tools discover and route imported Claude se
   }
 });
 
+test("lco_index_sessions MCP facade imports Claude sessions for agent-facing recall", async () => {
+  const root = mkdtempSync(join(tmpdir(), "lco-claude-index-mcp-"));
+  const projectRoot = join(root, ".claude", "projects", "-Volumes-LEXAR-repos-lco");
+  mkdirSync(projectRoot, { recursive: true });
+  const sessionPath = join(projectRoot, "claude-index-mcp-private-session.jsonl");
+  const rawToken = `ghp_${"c".repeat(36)}`;
+  writeJsonl(sessionPath, [
+    {
+      type: "user",
+      sessionId: "claude-index-mcp-1",
+      uuid: "user-1",
+      timestamp: "2026-07-08T07:00:00.000Z",
+      message: {
+        role: "user",
+        content: `MCP index should import Claude recall marker without leaking ${rawToken} or /Volumes/LEXAR/private/claude-index.jsonl.`
+      }
+    },
+    {
+      type: "summary",
+      sessionId: "claude-index-mcp-1",
+      uuid: "summary-1",
+      timestamp: "2026-07-08T07:01:00.000Z",
+      summary: "Claude MCP index marker for agent-facing first-run recall."
+    }
+  ]);
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const tools = createLooTools({
+      db,
+      audit: createAuditStore(join(root, "audit.jsonl")),
+      codexClient: { request: async () => ({ ok: true }) },
+      includeAliases: true
+    });
+    const byName = new Map(tools.map((tool) => [tool.name, tool]));
+
+    const indexed = await executeLooToolForOpenClaw(requiredTool(byName, "lco_index_sessions"), {
+      target: "claude",
+      roots: [join(root, ".claude", "projects")],
+      max_files: 10
+    }) as Record<string, any>;
+
+    assert.equal(indexed.publicSafe, true);
+    assert.deepEqual(indexed.mutationClasses, ["derived_cache"]);
+    assert.deepEqual(indexed.sourceKinds, ["claude"]);
+    assert.equal(indexed.indexedFiles, 1);
+    assert.equal(indexed.indexedSessions, 1);
+    assert.equal(indexed.actionsPerformed.derivedCacheWrite, true);
+    assert.equal(indexed.actionsPerformed.sourceStoreMutation, false);
+    assert.equal(indexed.actionsPerformed.liveControl, false);
+
+    const grep = await executeLooToolForOpenClaw(requiredTool(byName, "lco_grep"), {
+      query: "Claude MCP index marker",
+      limit: 3,
+      profile: "brief"
+    }) as { matches?: Array<{ sourceKind?: string; sourceRef?: string }> };
+    assert.equal(grep.matches?.[0]?.sourceKind, "claude_session");
+    assert.equal(grep.matches?.[0]?.sourceRef, "claude_session:claude-index-mcp-1");
+
+    const serialized = JSON.stringify({ indexed, grep });
+    assert.equal(serialized.includes(rawToken), false);
+    assert.equal(serialized.includes("/Volumes/LEXAR"), false);
+    assert.equal(serialized.includes("claude-index-mcp-private-session.jsonl"), false);
+    assert.equal(serialized.includes("claude-index.jsonl"), false);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 function requiredTool<T extends { name: string }>(tools: Map<string, T>, name: string): T {
   const tool = tools.get(name);
   assert.ok(tool, `${name} must exist`);
