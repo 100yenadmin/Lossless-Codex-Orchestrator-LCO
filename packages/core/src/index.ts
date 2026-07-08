@@ -3781,7 +3781,7 @@ function parseClaudeCodeEvent(item: any): ParsedClaudeCodeEvent {
   if (summary) safeParts.push(summary);
 
   let kind: ClaudeCodeEventKind = "unknown";
-  if (type === "summary" || summary) kind = "summary";
+  if (type === "summary") kind = "summary";
   else if (toolResults > 0 && role !== "assistant") kind = "tool_result";
   else if (role === "assistant" || type === "assistant") kind = "assistant_message";
   else if (role === "user" || type === "user") kind = "user_message";
@@ -16369,7 +16369,7 @@ function claudeSessionRef(sessionId: string): string {
 function safeClaudeSessionId(value: string): string {
   const trimmed = value.trim();
   const redacted = redactSafeString(trimmed);
-  if (trimmed && redacted === trimmed && /^[A-Za-z0-9._-]{1,96}$/.test(trimmed)) return trimmed;
+  if (trimmed && redacted === trimmed && !looksSensitiveRefLike(trimmed) && /^[A-Za-z0-9._-]{1,96}$/.test(trimmed)) return trimmed;
   return `claude_${stableId(trimmed).slice(0, 16)}`;
 }
 
@@ -17855,6 +17855,10 @@ function normalizeText(text: string): string {
 function redactSafeString(value: string): string {
   let redacted = value.replace(/\/Users\/[^/\s"'`)]+/g, "~");
   redacted = redacted.replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "<redacted-secret>");
+  redacted = redacted.replace(/\bnpm_[A-Za-z0-9]{10,}\b/g, "<redacted-secret>");
+  redacted = redacted.replace(/\bgithub_pat_[A-Za-z0-9_]{10,}\b/g, "<redacted-secret>");
+  redacted = redacted.replace(/\bgh[pousr]_[A-Za-z0-9_]{10,}\b/g, "<redacted-secret>");
+  redacted = redacted.replace(/\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g, "<redacted-secret>");
   redacted = redacted.replace(/sk-[A-Za-z0-9_-]{10,}/g, "<redacted-secret>");
   redacted = redacted.replace(/PRIVATE_CANARY[A-Za-z0-9_:-]*/g, "<redacted-secret>");
   redacted = redacted.replace(/(Bearer\s+)[A-Za-z0-9._-]{10,}/gi, "$1<redacted-secret>");

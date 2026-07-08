@@ -118,6 +118,67 @@ test("Claude Code JSONL parser reports malformed rows without leaking their text
   assert.equal(serialized.includes("not json"), false);
 });
 
+test("Claude Code JSONL parser hashes token-shaped session ids and redacts extracted token text", () => {
+  const rawToken = `npm_${"a".repeat(32)}`;
+  const jsonl = JSON.stringify({
+    type: "user",
+    sessionId: rawToken,
+    uuid: "user-token-1",
+    timestamp: "2026-07-08T05:35:00.000Z",
+    message: {
+      role: "user",
+      content: `Do not leak this package token ${rawToken}.`
+    }
+  });
+
+  const parsed = parseClaudeCodeJsonl(SOURCE_PATH, jsonl);
+  const serialized = JSON.stringify(parsed);
+
+  assert.match(parsed.sessionId, /^claude_[a-f0-9]{16}$/);
+  assert.equal(parsed.sourceRef, `claude_session:${parsed.sessionId}`);
+  assert.equal(serialized.includes(rawToken), false);
+  assert.equal(parsed.safeText.includes("<redacted-secret>"), true);
+});
+
+test("Claude Code JSONL parser preserves structural event kinds when summary text is incidental", () => {
+  const jsonl = [
+    JSON.stringify({
+      type: "assistant",
+      sessionId: "claude-summary-edge",
+      uuid: "assistant-summary-edge",
+      timestamp: "2026-07-08T05:36:00.000Z",
+      summary: "Sidecar summary field for UI display, not a summary event.",
+      message: {
+        role: "assistant",
+        content: [
+          { type: "text", text: "I will inspect the session map." },
+          { type: "tool_use", id: "toolu_summary_edge", name: "Read", input: { file_path: "/Users/lume/private/session.jsonl" } }
+        ]
+      }
+    }),
+    JSON.stringify({
+      type: "user",
+      sessionId: "claude-summary-edge",
+      uuid: "tool-result-summary-edge",
+      parentUuid: "assistant-summary-edge",
+      timestamp: "2026-07-08T05:37:00.000Z",
+      summary: "Result sidecar summary field.",
+      message: {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "toolu_summary_edge", content: "raw result omitted" }]
+      }
+    })
+  ].join("\n");
+
+  const parsed = parseClaudeCodeJsonl(SOURCE_PATH, jsonl);
+
+  assert.equal(parsed.eventCounts.summaries, 0);
+  assert.equal(parsed.eventCounts.assistantMessages, 1);
+  assert.equal(parsed.eventCounts.toolResults, 1);
+  assert.equal(parsed.sourceRanges[0]?.eventKind, "assistant_message");
+  assert.equal(parsed.sourceRanges[1]?.eventKind, "tool_result");
+});
+
 test("Claude Code JSONL parser keeps attachment and rich-content records structure-only", () => {
   const rawSecret = "npm_abcdefghijklmnopqrstuvwxyz123456";
   const jsonl = [
