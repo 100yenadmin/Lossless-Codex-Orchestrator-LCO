@@ -1,6 +1,6 @@
 # Operations
 
-This page covers release engineering, QA Lab, CI, and the proof-boundary contract that gates every LCO release.
+This page covers release engineering, QA Lab, CI, and the release-readiness checks that gate every LCO release.
 
 ## Release Truth
 
