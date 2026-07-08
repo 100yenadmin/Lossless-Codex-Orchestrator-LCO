@@ -81,11 +81,27 @@ function createLoggingStub(path: string, bin: "lco" | "npx"): void {
   writeExecutable(
     path,
     `#!${process.execPath}
-import { appendFileSync } from "node:fs";
+const { appendFileSync } = require("node:fs");
 appendFileSync(process.env.LCO_TEST_LOG, JSON.stringify({ bin: ${JSON.stringify(bin)}, argv: process.argv.slice(2) }) + "\\n");
 process.exit(Number(process.env.${exitVar} ?? "0"));
 `
   );
+}
+
+function assertLoggingStubRuns(path: string, logPath: string, bin: "lco" | "npx"): void {
+  writeFileSync(logPath, "");
+  const result = spawnSync(path, ["stub-sanity"], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      LCO_TEST_LOG: logPath,
+      LCO_TEST_LCO_EXIT: "0",
+      LCO_TEST_NPX_EXIT: "0"
+    }
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(readLog(logPath), [{ bin, argv: ["stub-sanity"] }]);
+  writeFileSync(logPath, "");
 }
 
 test("frontmatterField treats field names as literals", () => {
@@ -106,6 +122,8 @@ test("lco-find wrapper prefers lco and forwards argv and exit code", () => {
     mkdirExecutableBin(binDir);
     createLoggingStub(join(binDir, "lco"), "lco");
     createLoggingStub(join(binDir, "npx"), "npx");
+    assertLoggingStubRuns(join(binDir, "lco"), logPath, "lco");
+    assertLoggingStubRuns(join(binDir, "npx"), logPath, "npx");
 
     const result = runFindWrapper(binDir, logPath, ["needle", "with space"], { lco: 7, npx: 0 });
 
@@ -127,6 +145,7 @@ test("lco-find wrapper falls back to npx when lco is missing", () => {
     mkdirExecutableBin(binDir);
     writeFileSync(logPath, "");
     createLoggingStub(join(binDir, "npx"), "npx");
+    assertLoggingStubRuns(join(binDir, "npx"), logPath, "npx");
 
     const result = runFindWrapper(binDir, logPath, ["memory", "hook"], { npx: 13 });
 
@@ -195,6 +214,7 @@ test("Claude Code companion plugin is namespaced and packageable", () => {
     );
     assert.equal(containsCommandTokens(content, ["/plugin", "install", "lco-recall@lco"]), true);
     assert.doesNotMatch(content, /\/codex:lco|\/codex:find/i);
+    assert.doesNotMatch(content, /\/lco-recall:find/i);
     assert.doesNotMatch(content, /Full Claude Code parity/i);
   }
 

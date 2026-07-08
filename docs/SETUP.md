@@ -313,9 +313,9 @@ separate local recall companion:
 /plugin install lco-recall@lco
 ```
 
-Use `/lco-recall:find` for public-safe local recall. If a running Claude Code
-session does not show the skill immediately, reload plugins or start a fresh
-session after installation.
+Use the user-invocable `find` skill for public-safe local recall. If a running
+Claude Code session does not show the skill immediately, reload plugins or start
+a fresh session after installation.
 
 ### Cursor
 

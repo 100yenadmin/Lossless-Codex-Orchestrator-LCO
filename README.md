@@ -309,8 +309,8 @@ recall companion:
 /plugin install lco-recall@lco
 ```
 
-The companion exposes `/lco-recall:find` for local recall and leaves Codex
-command ownership with `codex-plugin-cc`.
+The companion provides a user-invocable `find` skill for local recall and
+leaves Codex command ownership with `codex-plugin-cc`.
 
 ## OpenClaw And MCP
 
