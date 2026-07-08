@@ -66,14 +66,14 @@ function writePreparedClaudeJsonl(path: string, sessionId: string): void {
         content: `Claude prepared cards target should stay public-safe without leaking ${rawToken} or /Users/lume/private/claude-prep.jsonl.`
       }
     },
-	    {
-	      type: "summary",
-	      sessionId,
-	      uuid: `${sessionId}-summary-1`,
-	      timestamp: "2026-07-08T08:01:00.000Z",
-	      summary: `Claude prepared card marker gives Eva a compact advisory handoff while hiding ghp_${"e".repeat(36)} and /Users/lume/private/claude-summary.md.`
-	    }
-	  ];
+    {
+      type: "summary",
+      sessionId,
+      uuid: `${sessionId}-summary-1`,
+      timestamp: "2026-07-08T08:01:00.000Z",
+      summary: `Claude prepared card marker gives Eva a compact advisory handoff while hiding ghp_${"e".repeat(36)} and /Users/lume/private/claude-summary.md.`
+    }
+  ];
   writeFileSync(path, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
 }
 
@@ -507,9 +507,9 @@ test("prepared cards materialize Claude sessions as public-safe advisory cards",
     assert.equal(card.sourceCoverage.summaryLeaves, "not_configured");
     assert.equal(card.authorityCoverage.sessionMetadata.status, "ok");
     assert.equal(card.state, "ready");
-	    assert.match(card.summaryText, /Claude prepared card marker/i);
-	    assert.doesNotMatch(card.summaryText, /ghp_|claude-summary\.md|\/Users\/lume/);
-	    assert.equal(card.sourceRefs.includes(`claude_session:${sessionId}`), true);
+    assert.match(card.summaryText, /Claude prepared card marker/i);
+    assert.doesNotMatch(card.summaryText, /ghp_|claude-summary\.md|\/Users\/lume/);
+    assert.equal(card.sourceRefs.includes(`claude_session:${sessionId}`), true);
     assert.equal(card.sourceRefs.some((ref) => ref.startsWith("claude_source:")), true);
     assert.deepEqual(card.sourceRangeRefs, []);
 
@@ -522,14 +522,14 @@ test("prepared cards materialize Claude sessions as public-safe advisory cards",
     assert.equal(serialized.includes("/Users/lume"), false);
     assert.equal(serialized.includes("/Volumes/LEXAR"), false);
     assert.equal(serialized.includes("claude-prepared-private.jsonl"), false);
-	    assert.equal(serialized.includes("claude-prep.jsonl"), false);
-	    assert.equal(serialized.includes("claude-summary.md"), false);
-	    assert.equal(serialized.includes("npm_"), false);
-	    assert.equal(serialized.includes("ghp_"), false);
-	  } finally {
+    assert.equal(serialized.includes("claude-prep.jsonl"), false);
+    assert.equal(serialized.includes("claude-summary.md"), false);
+    assert.equal(serialized.includes("npm_"), false);
+    assert.equal(serialized.includes("ghp_"), false);
+  } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
-	  }
+  }
 });
 
 test("prepared Claude cards use a readable fallback title when title and project are absent", () => {

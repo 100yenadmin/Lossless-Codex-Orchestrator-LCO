@@ -6739,11 +6739,11 @@ function materializePreparedCardsForClaudeSessions(db: LooDatabase, generatedAt:
       AND privacy_class = 'public_safe_metadata'
   `).all(PREPARED_CARD_EXTRACTOR_VERSION) as Array<{ targetRef: string }>;
   const activeTargetRefs = new Set(targetRefs);
-	  const staleTargetRefs = existingRows.map((row) => String(row.targetRef ?? "")).filter((ref) => isPublicPreparedSourceRef(ref) && !activeTargetRefs.has(ref));
+  const staleTargetRefs = existingRows.map((row) => String(row.targetRef ?? "")).filter((ref) => isPublicPreparedSourceRef(ref) && !activeTargetRefs.has(ref));
   // Delete-before-reinsert is safe because the caller keeps the whole
   // materialization pass inside one SQLite transaction. Keep Claude refresh
   // transactional if this is later made incremental.
-	  deletePreparedCardsForTargetRefs(db, [...targetRefs, ...staleTargetRefs]);
+  deletePreparedCardsForTargetRefs(db, [...targetRefs, ...staleTargetRefs]);
 
   const summary = {
     summaryLeaves: 0,
