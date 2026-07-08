@@ -40,7 +40,7 @@ function decodeGitQuotedPath(path) {
 function changedPathsFromPorcelain(output) {
   return output
     .split(/\r?\n/)
-    .map((line) => line.trim())
+    .map((line) => line.replace(/\r$/, ""))
     .filter(Boolean)
     .flatMap((line) => {
       const raw = line.slice(3).trim();
