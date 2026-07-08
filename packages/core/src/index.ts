@@ -6746,12 +6746,17 @@ function materializePreparedCardsForClaudeSessions(db: LooDatabase, generatedAt:
     inboxItems: 0,
     skippedUnsafeRows: 0
   };
+  const cardsByTargetRef = new Map<string, PreparedCardDraft>();
   for (const row of rows) {
     const card = buildPreparedClaudeCardDraft(db, row);
     if (!card) {
       summary.skippedUnsafeRows += 1;
       continue;
     }
+    if (cardsByTargetRef.has(card.targetRef)) continue;
+    cardsByTargetRef.set(card.targetRef, card);
+  }
+  for (const card of cardsByTargetRef.values()) {
     insertPreparedCardAndInbox(db, card, generatedAt);
     summary.cards += 1;
     summary.inboxItems += 1;

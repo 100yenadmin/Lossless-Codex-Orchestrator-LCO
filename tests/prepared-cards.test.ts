@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -20,6 +21,10 @@ import { createLooToolDeclarations, createLooTools } from "../packages/mcp-serve
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as { DatabaseSync: new (path: string) => ReturnType<typeof createDatabase> };
+
+function testStableId(input: string): string {
+  return createHash("sha256").update(input).digest("hex").slice(0, 32);
+}
 
 function writePreparedCardJsonl(path: string, threadId: string, title: string): void {
   const lines = [
@@ -521,6 +526,64 @@ test("prepared cards materialize Claude sessions as public-safe advisory cards",
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared cards dedupe Claude rows that normalize to the same session ref", () => {
+  const db = createDatabase(":memory:");
+  try {
+    const rawUnsafeId = "/Users/lume/private/claude-session.jsonl";
+    const normalizedId = `claude_${testStableId(rawUnsafeId).slice(0, 16)}`;
+    const firstSourceRef = `claude_source:${testStableId("first-source").slice(0, 16)}`;
+    const secondSourceRef = `claude_source:${testStableId("second-source").slice(0, 16)}`;
+    const insert = db.prepare(`
+      INSERT INTO claude_sessions (
+        session_id, title, project, workspace_hint, status, source_path, updated_at,
+        safe_summary, safe_text, source_refs_json, indexed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    insert.run(
+      rawUnsafeId,
+      "Unsafe legacy Claude row",
+      "legacy",
+      null,
+      "indexed",
+      firstSourceRef,
+      "2026-07-08T09:00:00.000Z",
+      "Older Claude prepared card marker.",
+      "Older Claude prepared card marker.",
+      JSON.stringify([firstSourceRef]),
+      "2026-07-08T09:00:01.000Z"
+    );
+    insert.run(
+      normalizedId,
+      "Normalized Claude row",
+      "legacy",
+      null,
+      "indexed",
+      secondSourceRef,
+      "2026-07-08T09:01:00.000Z",
+      "Newer Claude prepared card marker.",
+      "Newer Claude prepared card marker.",
+      JSON.stringify([secondSourceRef]),
+      "2026-07-08T09:01:01.000Z"
+    );
+
+    const materialized = materializePreparedCards(db);
+    assert.equal(materialized.summary.cards, 1);
+    assert.equal(materialized.summary.inboxItems, 1);
+    const cards = getPreparedCards(db, { limit: 10 });
+    assert.equal(cards.summary.total, 1);
+    assert.equal(cards.cards[0]?.targetRef, `claude_session:${normalizedId}`);
+    assert.match(cards.cards[0]?.summaryText ?? "", /Newer Claude prepared card marker/i);
+    const inbox = getPreparedInbox(db, { limit: 10 });
+    assert.equal(inbox.summary.total, 1);
+    assert.equal(inbox.items[0]?.targetRef, `claude_session:${normalizedId}`);
+    const serialized = JSON.stringify({ cards, inbox });
+    assert.doesNotMatch(serialized, /\/Users\/lume/);
+    assert.doesNotMatch(serialized, /claude-session\.jsonl/);
+  } finally {
+    db.close();
   }
 });
 
