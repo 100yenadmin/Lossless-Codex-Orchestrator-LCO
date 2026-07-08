@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 
 function read(path: string): string {
@@ -11,7 +14,7 @@ function readJson<T>(path: string): T {
 }
 
 function frontmatterField(content: string, field: string): string | undefined {
-  const match = content.match(new RegExp(`^${field}:\\s*(.+)$`, "m"));
+  const match = content.match(new RegExp(`^${escapeRegex(field)}:\\s*(.+)$`, "m"));
   return match?.[1]?.trim();
 }
 
@@ -41,6 +44,103 @@ function containsCommandTokens(content: string, tokens: string[]): boolean {
       return true;
     });
 }
+
+function writeExecutable(path: string, body: string): void {
+  writeFileSync(path, body);
+  chmodSync(path, 0o755);
+}
+
+function mkdirExecutableBin(path: string): void {
+  mkdirSync(path);
+}
+
+function readLog(path: string): Array<{ bin: string; argv: string[] }> {
+  return read(path)
+    .trim()
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as { bin: string; argv: string[] });
+}
+
+function runFindWrapper(binDir: string, logPath: string, args: string[], exits: { lco?: number; npx?: number } = {}) {
+  return spawnSync(process.execPath, ["plugins/lco-recall/scripts/lco-find.mjs", ...args], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      LCO_TEST_LOG: logPath,
+      LCO_TEST_LCO_EXIT: String(exits.lco ?? 0),
+      LCO_TEST_NPX_EXIT: String(exits.npx ?? 0),
+      PATH: binDir
+    }
+  });
+}
+
+function createLoggingStub(path: string, bin: "lco" | "npx"): void {
+  const exitVar = bin === "lco" ? "LCO_TEST_LCO_EXIT" : "LCO_TEST_NPX_EXIT";
+  writeExecutable(
+    path,
+    `#!${process.execPath}
+import { appendFileSync } from "node:fs";
+appendFileSync(process.env.LCO_TEST_LOG, JSON.stringify({ bin: ${JSON.stringify(bin)}, argv: process.argv.slice(2) }) + "\\n");
+process.exit(Number(process.env.${exitVar} ?? "0"));
+`
+  );
+}
+
+test("frontmatterField treats field names as literals", () => {
+  const content = "name: find\nna.e: literal\n";
+
+  assert.equal(frontmatterField(content, "name"), "find");
+  assert.equal(frontmatterField(content, "na.e"), "literal");
+  assert.equal(frontmatterField(content, "na+e"), undefined);
+});
+
+test("lco-find wrapper prefers lco and forwards argv and exit code", () => {
+  const dir = mkdtempSync(join(tmpdir(), "lco-find-wrapper-"));
+  const binDir = join(dir, "bin");
+  const logPath = join(dir, "calls.jsonl");
+
+  try {
+    writeFileSync(logPath, "");
+    mkdirExecutableBin(binDir);
+    createLoggingStub(join(binDir, "lco"), "lco");
+    createLoggingStub(join(binDir, "npx"), "npx");
+
+    const result = runFindWrapper(binDir, logPath, ["needle", "with space"], { lco: 7, npx: 0 });
+
+    assert.equal(result.status, 7);
+    assert.deepEqual(readLog(logPath), [
+      { bin: "lco", argv: ["find", "--json", "needle", "with space"] }
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("lco-find wrapper falls back to npx when lco is missing", () => {
+  const dir = mkdtempSync(join(tmpdir(), "lco-find-wrapper-"));
+  const binDir = join(dir, "bin");
+  const logPath = join(dir, "calls.jsonl");
+
+  try {
+    mkdirExecutableBin(binDir);
+    writeFileSync(logPath, "");
+    createLoggingStub(join(binDir, "npx"), "npx");
+
+    const result = runFindWrapper(binDir, logPath, ["memory", "hook"], { npx: 13 });
+
+    assert.equal(result.status, 13);
+    assert.deepEqual(readLog(logPath), [
+      {
+        bin: "npx",
+        argv: ["--yes", "lossless-codex-orchestrator@latest", "find", "--json", "memory", "hook"]
+      }
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test("Claude Code companion plugin is namespaced and packageable", () => {
   const packageJson = readJson<{ files?: string[] }>("package.json");
