@@ -12525,7 +12525,7 @@ export function createVisibleCodexSessionMap(db: LooDatabase, options: {
   now?: string;
 } = {}): VisibleCodexSessionMapReport {
   const limit = clamp(options.limit ?? 50, 1, 500);
-  const cards = getRecentSessions(db, { scope: "all", limit: 500, includeCards: true }).cards;
+  const cards = getRecentSessions(db, { scope: "all", limit: 500, includeCards: true, now: options.now }).cards;
   const cardsByThreadId = new Map(cards.map((card) => [bareCodexThreadId(card.threadId), card]));
   const cardsByTitle = groupedByNormalizedTitle(cards.map((card) => ({ title: card.title, card })));
   const appThreads = (options.appServerThreads?.threads ?? []).map(publicAppServerThreadSignal);

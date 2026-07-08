@@ -317,6 +317,7 @@ test("visible Codex map joins public-safe visible app-server and indexed session
     }
   ], ({ db, rawPathCanary }) => {
     const map = createVisibleCodexSessionMap(db, {
+      now: "2026-07-01T10:00:00.000Z",
       visibleCodex: {
         threadMap: {
           threads: [
@@ -397,6 +398,53 @@ test("visible Codex map joins public-safe visible app-server and indexed session
     assert.equal(visible.sessionCardRef, "codex_thread:thr_visible");
     assert.equal(visible.confidence >= 0.75, true);
     assert.deepEqual(visible.ambiguity, []);
+    const staleMap = createVisibleCodexSessionMap(db, {
+      now: "2026-07-20T10:00:00.000Z",
+      visibleCodex: {
+        threadMap: {
+          threads: [{
+            visibleId: "visible-1",
+            title: "Visible safe title",
+            rawTitle: "Visible safe title Running 2h",
+            status: "Running",
+            updatedLabel: "2h",
+            titleHash: "unused",
+            confidence: "high",
+            source: "peekaboo_snapshot"
+          }]
+        }
+      },
+      appServerThreads: {
+        schema: "lco.codex.appServerThreads.v1",
+        publicSafe: true,
+        readOnly: true,
+        generatedAt: "2026-07-20T10:00:00.000Z",
+        sourceCoverage: { codexAppServer: "ok" },
+        threads: [{
+          appServerRef: "codex_app_thread:thr_visible",
+          threadId: "thr_visible",
+          titleSanitized: "Visible safe title",
+          titleHash: "test",
+          status: "active",
+          loaded: true,
+          updatedAt: "2026-07-01T09:00:00.000Z",
+          sourceRef: "codex_thread:thr_visible",
+          confidence: 0.9
+        }],
+        loadedThreadRefs: ["codex_app_thread:thr_visible"],
+        loadedSignalSource: "same_connection",
+        errors: [],
+        actionsPerformed: {
+          liveCodexControlRun: false,
+          desktopGuiActionRun: false,
+          rawTranscriptRead: false
+        },
+        proofBoundary: "test"
+      }
+    });
+    const staleVisible = staleMap.items.find((item) => item.desktopRef === "visible-1");
+    assert.ok(staleVisible);
+    assert.equal(staleVisible.confidence < visible.confidence, true);
     const ambiguous = map.items.find((item) => item.desktopRef === "visible-ambiguous");
     assert.ok(ambiguous);
     assert.equal(ambiguous.sourceRef, "codex_thread:thr_duplicate_b");
