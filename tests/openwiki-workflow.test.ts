@@ -37,7 +37,7 @@ test("manual OpenWiki workflow is docs-only, Z.AI-gated, and PR-based", () => {
   assert.match(workflow, /OPENWIKI_OUTPUT_DIR:\s*openwiki/);
   assert.match(workflow, /OPENWIKI_RUNNER_DIR:\s*\.openwiki-runner/);
   assert.match(workflow, /OPENWIKI_REPOSITORY:\s*100yenadmin\/openwiki/);
-  assert.match(workflow, /OPENWIKI_REF:\s*7bff0df61700709575bd154f3ac66b4927c6d137/);
+  assert.match(workflow, /OPENWIKI_REF:\s*99c32b44cf1bcc5dbc35de54d28084205edd9816/);
   assert.doesNotMatch(workflow, /OPENAI_API_KEY|OPENROUTER|FIREWORKS/i);
   assert.doesNotMatch(workflow, /OPENWIKI_PROVIDER:\s*zai/);
   assert.doesNotMatch(workflow, /ZAI_API_KEY:\s*\$\{\{\s*secrets\.ZAI_API_KEY\s*\}\}/);
