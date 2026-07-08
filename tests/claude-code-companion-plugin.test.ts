@@ -15,15 +15,31 @@ function frontmatterField(content: string, field: string): string | undefined {
   return match?.[1]?.trim();
 }
 
-function containsWords(content: string, words: string[]): boolean {
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function containsWordsInOrder(content: string, words: string[]): boolean {
   const normalized = content.toLowerCase();
-  return words.every((word) => normalized.includes(word.toLowerCase()));
+  const pattern = words
+    .map((word) => `\\b${escapeRegex(word.toLowerCase())}\\b`)
+    .join("[\\s\\S]*");
+  return new RegExp(pattern).test(normalized);
 }
 
 function containsCommandTokens(content: string, tokens: string[]): boolean {
   return content
     .split(/\r?\n/)
-    .some((line) => tokens.every((token) => line.toLowerCase().includes(token.toLowerCase())));
+    .some((line) => {
+      const parts = line.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      let cursor = 0;
+      for (const token of tokens.map((item) => item.toLowerCase())) {
+        const next = parts.indexOf(token, cursor);
+        if (next < 0) return false;
+        cursor = next + 1;
+      }
+      return true;
+    });
 }
 
 test("Claude Code companion plugin is namespaced and packageable", () => {
@@ -52,7 +68,7 @@ test("Claude Code companion plugin is namespaced and packageable", () => {
   assert.equal(marketplace.plugins?.[0]?.source, "./plugins/lco-recall");
 
   assert.equal(plugin.name, "lco-recall");
-  assert.equal(containsWords(plugin.description ?? "", ["Codex", "orchestrator", "recall"]), true);
+  assert.equal(containsWordsInOrder(plugin.description ?? "", ["Codex", "orchestrator", "recall"]), true);
 
   assert.equal(frontmatterField(skill, "name"), "find");
   assert.equal(containsCommandTokens(skill, ["lco", "find", "--json"]), true);
@@ -69,7 +85,7 @@ test("Claude Code companion plugin is namespaced and packageable", () => {
     ["SETUP", setup]
   ] as const) {
     assert.equal(
-      containsWords(content, ["codex-plugin-cc"]),
+      containsWordsInOrder(content, ["codex-plugin-cc"]),
       true,
       `${surface} must position alongside codex-plugin-cc`
     );
@@ -82,7 +98,7 @@ test("Claude Code companion plugin is namespaced and packageable", () => {
     assert.doesNotMatch(content, /Full Claude Code parity/i);
   }
 
-  assert.equal(containsWords(claimAudit, ["Codex", "Claude", "recall"]), true);
-  assert.equal(containsWords(claimAudit, ["cross", "harness", "recall"]), true);
-  assert.equal(containsWords(claimAudit, ["audit", "control"]), true);
+  assert.equal(containsWordsInOrder(claimAudit, ["Codex", "Claude", "recall"]), true);
+  assert.equal(containsWordsInOrder(claimAudit, ["cross", "harness", "recall"]), true);
+  assert.equal(containsWordsInOrder(claimAudit, ["audit", "control"]), true);
 });
