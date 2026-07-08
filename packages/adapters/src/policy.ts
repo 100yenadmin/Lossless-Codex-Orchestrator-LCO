@@ -1,5 +1,15 @@
 export type CodexMethodSurface = "generic" | "read" | "control" | "smoke_setup";
 
+export type TargetMethodSurface = CodexMethodSurface;
+
+export type TargetMethodPolicy = {
+  targetName: string;
+  readMethods: Set<string>;
+  controlMethods: Set<string>;
+  forbiddenMethods: Set<string>;
+  smokeSetupMethods?: Set<string>;
+};
+
 export const CODEX_READ_METHODS = new Set([
   "initialize",
   "remoteControl/status/read",
@@ -84,6 +94,14 @@ export const CODEX_FORBIDDEN_METHODS = new Set([
   "feedback/upload",
   "externalAgentConfig/import"
 ]);
+
+export const CODEX_TARGET_METHOD_POLICY: TargetMethodPolicy = {
+  targetName: "Codex",
+  readMethods: CODEX_READ_METHODS,
+  controlMethods: CODEX_CONTROL_METHODS,
+  forbiddenMethods: CODEX_FORBIDDEN_METHODS,
+  smokeSetupMethods: new Set(["thread/start"])
+};
 
 export type LooCommandMode = "read_only" | "local_cache_write" | "approval_gated_control" | "dry_run_only";
 export type LooCommandSource = "local_index" | "structured_operating_inputs" | "codex_direct" | "desktop_fallback" | "audit";
@@ -172,14 +190,18 @@ export const LOO_COMMAND_POLICY: Record<string, LooCommandSafety> = {
 };
 
 export function assertCodexMethodAllowed(method: string, surface: CodexMethodSurface = "generic"): void {
-  if (surface === "smoke_setup" && method === "thread/start") return;
-  if (CODEX_FORBIDDEN_METHODS.has(method)) {
-    throw new Error(`Codex method ${method} is forbidden on the ${surface} surface`);
+  assertTargetMethodAllowed(CODEX_TARGET_METHOD_POLICY, method, surface);
+}
+
+export function assertTargetMethodAllowed(policy: TargetMethodPolicy, method: string, surface: TargetMethodSurface = "generic"): void {
+  if (surface === "smoke_setup" && policy.smokeSetupMethods?.has(method)) return;
+  if (policy.forbiddenMethods.has(method)) {
+    throw new Error(`${policy.targetName} method ${method} is forbidden on the ${surface} surface`);
   }
-  if (CODEX_READ_METHODS.has(method)) return;
-  if (CODEX_CONTROL_METHODS.has(method)) {
+  if (policy.readMethods.has(method)) return;
+  if (policy.controlMethods.has(method)) {
     if (surface === "control" || surface === "smoke_setup") return;
-    throw new Error(`Codex method ${method} is not allowed on generic Codex surfaces`);
+    throw new Error(`${policy.targetName} method ${method} is not allowed on generic ${policy.targetName} surfaces`);
   }
-  throw new Error(`Codex method ${method} is not allowlisted on the ${surface} surface`);
+  throw new Error(`${policy.targetName} method ${method} is not allowlisted on the ${surface} surface`);
 }
