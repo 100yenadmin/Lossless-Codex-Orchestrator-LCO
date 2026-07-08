@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { codexTransportStatus } from "./codex-jsonrpc.js";
-import { CODEX_CONTROL_METHODS, CODEX_FORBIDDEN_METHODS, CODEX_READ_METHODS, assertCodexMethodAllowed } from "./policy.js";
+import { CODEX_CONTROL_METHODS, CODEX_FORBIDDEN_METHODS, CODEX_READ_METHODS, CODEX_TARGET_METHOD_POLICY, assertCodexMethodAllowed, assertTargetMethodAllowed, type TargetMethodPolicy } from "./policy.js";
 import { redactValue } from "./redaction.js";
 import { readEnv, readEnvWithFallback, resolveHomeDir } from "../../runtime/src/env.js";
 
@@ -667,6 +667,29 @@ export type ControlProofState = {
 export type AuditStore = ReturnType<typeof createAuditStore>;
 type ControlAuditStore = Pick<AuditStore, "path" | "append" | "find" | "fingerprintText" | "fingerprintValue">;
 
+export type TargetControlExecuteSpec = {
+  action: string;
+  method: string;
+  threadId: string;
+  params: Record<string, unknown>;
+  steps?: CodexControlStep[];
+  message?: string;
+  dryRun?: boolean;
+  approvalAuditId?: string;
+  loadedThreadReusable?: boolean;
+  createdThreadFromResponse?: boolean;
+  expectedTurnId?: string;
+  turnResolution?: {
+    expectedTurnId?: string;
+    turnWaitMs?: number;
+  };
+};
+
+export type TargetControl = {
+  targetName: string;
+  execute(spec: TargetControlExecuteSpec): Promise<ControlResult>;
+};
+
 export type AuditRecord = {
   id: string;
   action: string;
@@ -730,28 +753,12 @@ export function createAuditStore(path: string) {
   };
 }
 
-export function createCodexControl(options: { audit: ControlAuditStore; client: CodexClient }) {
-  const execute = async (spec: {
-    action: string;
-    method: string;
-    threadId: string;
-    params: Record<string, unknown>;
-    steps?: CodexControlStep[];
-    message?: string;
-    dryRun?: boolean;
-    approvalAuditId?: string;
-    loadedThreadReusable?: boolean;
-    createdThreadFromResponse?: boolean;
-    expectedTurnId?: string;
-    turnResolution?: {
-      expectedTurnId?: string;
-      turnWaitMs?: number;
-    };
-  }): Promise<ControlResult> => {
-    assertCodexMethodAllowed(spec.method, "control");
+export function createTargetControl(options: { targetName: string; methodPolicy: TargetMethodPolicy; audit: ControlAuditStore; client: CodexClient }): TargetControl {
+  const execute = async (spec: TargetControlExecuteSpec): Promise<ControlResult> => {
+    assertTargetMethodAllowed(options.methodPolicy, spec.method, "control");
     const steps = spec.steps?.length ? spec.steps : [{ method: spec.method, params: spec.params }];
     const methodSequence = steps.map((step) => step.method);
-    for (const step of steps) assertCodexMethodAllowed(step.method, "control");
+    for (const step of steps) assertTargetMethodAllowed(options.methodPolicy, step.method, "control");
     const requiresSequence = steps.length > 1 || Boolean(spec.turnResolution);
     const connectionScope = requiresSequence ? "same_connection_sequence" : "single_request";
     const paramsHash = options.audit.fingerprintValue({
@@ -788,7 +795,7 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
     }
 
     if (!spec.approvalAuditId) {
-      throw new Error("approval_audit_id is required for live Codex control actions");
+      throw new Error(`approval_audit_id is required for live ${options.targetName} control actions`);
     }
     const previous = options.audit.find(spec.approvalAuditId);
     if (!previous) {
@@ -855,9 +862,20 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
     };
   };
 
+  return { targetName: options.targetName, execute };
+}
+
+export function createCodexControl(options: { audit: ControlAuditStore; client: CodexClient }) {
+  const target = createTargetControl({
+    targetName: "Codex",
+    methodPolicy: CODEX_TARGET_METHOD_POLICY,
+    audit: options.audit,
+    client: options.client
+  });
+
   return {
     startThread(input: { dryRun?: boolean; approvalAuditId?: string } = {}) {
-      return execute({
+      return target.execute({
         action: "codex_start_thread",
         method: "thread/start",
         threadId: "new_thread",
@@ -870,7 +888,7 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
     sendMessage(input: { threadId: string; message: string; dryRun?: boolean; approvalAuditId?: string; turnWaitMs?: number }) {
       const resumeParams = { threadId: input.threadId, excludeTurns: true };
       const turnStartParams = { threadId: input.threadId, input: [{ type: "text", text: input.message }] };
-      return execute({
+      return target.execute({
         action: "codex_send_message",
         method: "turn/start",
         threadId: input.threadId,
@@ -889,7 +907,7 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
       });
     },
     resumeThread(input: { threadId: string; dryRun?: boolean; approvalAuditId?: string }) {
-      return execute({
+      return target.execute({
         action: "codex_resume_thread",
         method: "thread/resume",
         threadId: input.threadId,
@@ -901,7 +919,7 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
     },
     steerThread(input: { threadId: string; message: string; expectedTurnId?: string; dryRun?: boolean; approvalAuditId?: string; turnWaitMs?: number }) {
       if (!input.expectedTurnId) throw new Error("expected_turn_id is required for steer actions");
-      return execute({
+      return target.execute({
         action: "codex_steer_thread",
         method: "turn/steer",
         threadId: input.threadId,
@@ -917,7 +935,7 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
       });
     },
     interruptThread(input: { threadId: string; expectedTurnId?: string; dryRun?: boolean; approvalAuditId?: string; turnWaitMs?: number }) {
-      return execute({
+      return target.execute({
         action: "codex_interrupt_thread",
         method: "turn/interrupt",
         threadId: input.threadId,

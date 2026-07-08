@@ -7,6 +7,7 @@ import test from "node:test";
 
 import {
   CODEX_CONTROL_METHODS,
+  CODEX_TARGET_METHOD_POLICY,
   CODEX_TURN_NOTIFICATION_METHOD_STATUS,
   CodexJsonRpcClient,
   LineProcessTransport,
@@ -15,6 +16,7 @@ import {
   codexTransportStatus,
   createCodexMcpStdioClient,
   createCodexControl,
+  createTargetControl,
   redactValue
 } from "../packages/adapters/src/index.js";
 
@@ -356,6 +358,67 @@ test("Codex control checks method policy before live transport calls", async () 
     assert.equal(requestCalled, false);
   } finally {
     if (removed) CODEX_CONTROL_METHODS.add("turn/start");
+  }
+});
+
+test("TargetAdapter executor preserves Codex dry-run audit and policy fail-closed behavior", async () => {
+  let requestCalled = false;
+  let auditRecord: any = null;
+  const target = createTargetControl({
+    targetName: "Codex",
+    methodPolicy: CODEX_TARGET_METHOD_POLICY,
+    audit: {
+      path: "memory",
+      fingerprintText(value) {
+        return `test-text-${value}`;
+      },
+      fingerprintValue(value) {
+        return `test-params-${JSON.stringify(value)}`;
+      },
+      append(record) {
+        auditRecord = { id: "loo_audit_target", createdAt: new Date().toISOString(), ...record };
+        return auditRecord;
+      },
+      find(id) {
+        return auditRecord?.id === id ? auditRecord : null;
+      }
+    },
+    client: {
+      request: async () => {
+        requestCalled = true;
+        return { ok: true };
+      }
+    }
+  });
+
+  const dryRun = await target.execute({
+    action: "codex_resume_thread",
+    method: "thread/resume",
+    threadId: "thr_1",
+    dryRun: true,
+    params: { threadId: "thr_1", excludeTurns: true }
+  });
+
+  assert.equal(dryRun.live, false);
+  assert.equal(dryRun.approvalAuditId, "loo_audit_target");
+  assert.equal(requestCalled, false);
+
+  const removed = CODEX_CONTROL_METHODS.delete("thread/resume");
+  try {
+    await assert.rejects(
+      () => target.execute({
+        action: "codex_resume_thread",
+        method: "thread/resume",
+        threadId: "thr_1",
+        dryRun: false,
+        approvalAuditId: dryRun.approvalAuditId,
+        params: { threadId: "thr_1", excludeTurns: true }
+      }),
+      /not allowlisted/
+    );
+    assert.equal(requestCalled, false);
+  } finally {
+    if (removed) CODEX_CONTROL_METHODS.add("thread/resume");
   }
 });
 
