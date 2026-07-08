@@ -45,6 +45,13 @@ test("manual OpenWiki workflow is docs-only, Z.AI-gated, and PR-based", () => {
   assert.match(workflow, /repository:\s*\$\{\{\s*env\.OPENWIKI_REPOSITORY\s*\}\}/);
   assert.match(workflow, /ref:\s*\$\{\{\s*env\.OPENWIKI_REF\s*\}\}/);
   assert.match(workflow, /path:\s*\$\{\{\s*env\.OPENWIKI_RUNNER_DIR\s*\}\}/);
+  const checkoutBlocks = workflow
+    .split(/\n(?=\s+- name: )/)
+    .filter((block) => /uses:\s*actions\/checkout@[a-f0-9]{40}/.test(block));
+  assert.ok(checkoutBlocks.length >= 2, "workflow must include the LCO and OpenWiki checkout steps");
+  for (const block of checkoutBlocks) {
+    assert.match(block, /persist-credentials:\s*false/);
+  }
   assert.match(workflow, /working-directory:\s*\$\{\{\s*env\.OPENWIKI_RUNNER_DIR\s*\}\}/);
   assert.match(workflow, /mv "\$\{OPENWIKI_RUNNER_DIR\}" "\$\{RUNNER_TEMP\}\/openwiki-runner"/);
   assert.match(workflow, /OPENWIKI_RUNNER_PATH:\s*\$\{\{\s*runner\.temp\s*\}\}\/openwiki-runner/);
