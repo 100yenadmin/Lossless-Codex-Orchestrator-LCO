@@ -54,9 +54,7 @@ test("manual OpenWiki workflow is docs-only, Z.AI-gated, and PR-based", () => {
   assert.match(workflow, /--update --print --no-agent-instructions --modelId/);
   assert.match(workflow, /--init --print --no-agent-instructions --modelId/);
   assert.match(workflow, /rm -rf "\$\{OPENWIKI_RUNNER_PATH\}" "\$\{OPENWIKI_RUNNER_DIR\}"/);
-  assert.match(workflow, /if \[ -d penwiki \]; then/);
-  assert.match(workflow, /cp -a penwiki\/\. openwiki\//);
-  assert.match(workflow, /rm -rf penwiki/);
+  assert.match(workflow, /node scripts\/normalize-openwiki-output\.mjs/);
   assert.doesNotMatch(workflow, /path:\s*\$\{\{\s*runner\.temp\s*\}\}/);
   assert.doesNotMatch(workflow, /prompt='Update the LCO OpenWiki orientation docs/);
 

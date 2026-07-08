@@ -77,12 +77,7 @@ jobs:
         run: rm -rf "${OPENWIKI_RUNNER_PATH}" "${OPENWIKI_RUNNER_DIR}"
 
       - name: Normalize OpenWiki output path
-        run: |
-          if [ -d penwiki ]; then
-            mkdir -p openwiki
-            cp -a penwiki/. openwiki/
-            rm -rf penwiki
-          fi
+        run: node scripts/normalize-openwiki-output.mjs
 
       - name: Record public run metadata
         env:
