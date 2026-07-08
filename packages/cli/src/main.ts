@@ -42,6 +42,7 @@ import {
   probeCodexSqliteStores,
   probeLcmPeerDbs,
   readCodexIndexHealthStatusFromPath,
+  runDatabaseMaintenance,
   runStatePrepHook,
   searchSessions,
   type CloseoutHookCaptureInput,
@@ -144,15 +145,17 @@ async function main() {
   }
   if (command === "doctor") {
     const codexIndexHealth = readCodexIndexHealthStatusFromPath(defaultDatabasePath());
+    const { databaseStorage, ...healthWithoutDatabaseStorage } = codexIndexHealth;
     console.log(JSON.stringify({
       ok: true,
       database: {
         configured: Boolean(readEnv("DB_PATH")),
         activePresent: existsSync(defaultDatabasePath()),
-        location: "local"
+        location: "local",
+        storage: databaseStorage
       },
       localOnly: true,
-      ...codexIndexHealth,
+      ...healthWithoutDatabaseStorage,
       codex: codexTransportStatus({ command: readEnvWithFallback("CODEX_BIN", "codex") }),
       lcmPeers: probeLcmPeerDbs(configuredLcmPeerDbPaths()),
       desktopFallbacks: desktopFallbackDiagnostics()
@@ -263,6 +266,33 @@ async function main() {
       console.log(JSON.stringify(dropCodexEventContentCache(db, { dbPath }), null, 2));
     } catch (error) {
       if (emitRecallDatabaseBusyReport(error, "maintenance --drop-event-content", { timeoutMs: parsed.timeoutMs })) return;
+      throw error;
+    } finally {
+      db?.close();
+    }
+    return;
+  }
+  if (command === "maintenance") {
+    if (hasHelpFlag(args)) {
+      printMaintenanceHelp();
+      return;
+    }
+    const parsed = parseMaintenanceArgs(args);
+    let db: ReturnType<typeof createDatabase> | null = null;
+    try {
+      const dbPath = defaultDatabasePath();
+      db = createDatabase({ path: dbPath, maintenance: "schema-only", busyTimeoutMs: parsed.timeoutMs });
+      const report = runDatabaseMaintenance(db, {
+        dbPath,
+        checkpoint: parsed.checkpoint,
+        analyze: parsed.analyze,
+        vacuum: parsed.vacuum,
+        strict: parsed.strict
+      });
+      console.log(JSON.stringify(report, null, 2));
+      if (parsed.strict && !report.ok) process.exitCode = 1;
+    } catch (error) {
+      if (emitRecallDatabaseBusyReport(error, "maintenance", { timeoutMs: parsed.timeoutMs })) return;
       throw error;
     } finally {
       db?.close();
@@ -1189,6 +1219,7 @@ function mainUsageText(): string {
     "  loo index codex [--verify] [--max-files n] [--max-bytes-per-file n] [--max-events-per-file n] [roots...]",
     "  loo index claude [--max-files n] [--max-bytes-per-file n] [--max-events-per-file n] [roots...]",
     "  loo index bench --sessions n [--verify] (internal)",
+    "  loo maintenance [--checkpoint|--no-checkpoint] [--analyze|--no-analyze] [--vacuum] [--timeout-ms ms] [--strict]",
     "  loo maintenance --drop-event-content [--timeout-ms ms] [--strict]",
     "  loo probe codex-sqlite [roots...]",
     "  loo find [--json] [--limit n] [--timeout-ms ms] [--no-index] <query>",
@@ -1252,11 +1283,75 @@ function sanitizeCliErrorMessage(message: string): string {
 
 function isCliUsageErrorMessage(message: string): boolean {
   return /^Unknown .+ option: /.test(message)
+    || /^Unknown maintenance option: /.test(message)
     || /^Unknown maintenance --drop-event-content option: /.test(message)
     || /^Unknown release claim scope: /.test(message)
     || /^Invalid --[\w-]+: /.test(message)
     || / requires (?:a value|a path|a number|a positive integer|an integer|--[\w-]+)/.test(message)
     || /^--[\w-]+ must be /.test(message);
+}
+
+function printMaintenanceHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo maintenance [--checkpoint] [--analyze] [--vacuum] [--timeout-ms ms] [--strict]",
+    "",
+    "Checkpoint and analyze the local LCO derived-cache database. VACUUM is optional and guarded by a free-space check.",
+    "",
+    "Options:",
+    "  --checkpoint     Run PRAGMA wal_checkpoint(TRUNCATE). Enabled by default.",
+    "  --no-checkpoint  Skip PRAGMA wal_checkpoint(TRUNCATE).",
+    "  --analyze        Run ANALYZE. Enabled by default.",
+    "  --no-analyze     Skip ANALYZE.",
+    "  --vacuum         Also run VACUUM when enough free space is observable.",
+    "  --timeout-ms ms  SQLite busy timeout for the maintenance operation.",
+    "  --strict         Reserved for release gates; this command is fail-closed by default.",
+    "",
+    "Safety boundary:",
+    "  This command writes only LCO-owned derived-cache SQLite maintenance state.",
+    "  It does not touch Codex source stores, raw JSONL, external services, or live controls."
+  ].join("\n"));
+}
+
+function parseMaintenanceArgs(input: string[]): { checkpoint: boolean; analyze: boolean; vacuum: boolean; timeoutMs: number; strict: boolean } {
+  let timeoutMs = DEFAULT_RECALL_TIMEOUT_MS;
+  let checkpoint = true;
+  let analyze = true;
+  let vacuum = false;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index];
+    if (arg === "--strict") {
+      strict = true;
+      continue;
+    }
+    if (arg === "--checkpoint") {
+      checkpoint = true;
+      continue;
+    }
+    if (arg === "--no-checkpoint") {
+      checkpoint = false;
+      continue;
+    }
+    if (arg === "--analyze") {
+      analyze = true;
+      continue;
+    }
+    if (arg === "--no-analyze") {
+      analyze = false;
+      continue;
+    }
+    if (arg === "--vacuum") {
+      vacuum = true;
+      continue;
+    }
+    if (arg === "--timeout-ms") {
+      timeoutMs = parsePositiveInteger(input[++index], "--timeout-ms", MAX_RECALL_TIMEOUT_MS);
+      continue;
+    }
+    throw new Error(`Unknown maintenance option: ${arg}`);
+  }
+  return { checkpoint, analyze, vacuum, timeoutMs, strict };
 }
 
 function printMaintenanceDropEventContentHelp(): void {

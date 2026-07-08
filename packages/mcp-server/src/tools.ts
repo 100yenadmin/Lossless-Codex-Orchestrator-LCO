@@ -1,4 +1,4 @@
-import { readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 
 import {
@@ -21,6 +21,7 @@ import {
   createIndexedSessionSanitizerReport,
   createIndexedSessionSanitizerRepairPlan,
   createRecallRefNotFoundResult,
+  defaultDatabasePath,
   expandSession,
   expandQuery,
   expandSummaryLeaves,
@@ -45,6 +46,7 @@ import {
   getCodexToolCalls,
   getCodexEventContentStatus,
   getCodexJsonlDriftStatus,
+  getDatabaseStorageStatus,
   getRecentSessions,
   getSummaryLeaves,
   grepRecall,
@@ -1149,16 +1151,26 @@ export function createLooTools(options: {
         probe: options.desktopProbe
       });
     }),
-    tool("lco_doctor", "Read local orchestrator health.", {}, () => ({
-      ok: true,
-      localOnly: true,
-      toolPrefix: "lco_*",
-      codexJsonlDrift: getCodexJsonlDriftStatus(options.db),
-      codexEventContent: getCodexEventContentStatus(options.db, options.dbPath),
-      codex: codexTransportStatus({ command: readEnvWithFallback("CODEX_BIN", "codex") }),
-      lcmPeers: probeLcmPeerDbs(configuredLcmPeerDbPaths()),
-      desktopFallbacks: desktopFallbackDiagnostics({ probe: options.desktopProbe })
-    })),
+    tool("lco_doctor", "Read local orchestrator health.", {}, () => {
+      const databaseStorage = getDatabaseStorageStatus(options.db, options.dbPath);
+      const activeDbPath = options.dbPath ?? defaultDatabasePath();
+      return {
+        ok: true,
+        localOnly: true,
+        toolPrefix: "lco_*",
+        database: {
+          configured: Boolean(readEnv("DB_PATH")),
+          activePresent: existsSync(activeDbPath),
+          location: "local",
+          storage: databaseStorage
+        },
+        codexJsonlDrift: getCodexJsonlDriftStatus(options.db),
+        codexEventContent: getCodexEventContentStatus(options.db, options.dbPath),
+        codex: codexTransportStatus({ command: readEnvWithFallback("CODEX_BIN", "codex") }),
+        lcmPeers: probeLcmPeerDbs(configuredLcmPeerDbPaths()),
+        desktopFallbacks: desktopFallbackDiagnostics({ probe: options.desktopProbe })
+      };
+    }),
     tool("lco_permissions", "Read safety posture for live controls.", {}, () => ({
       liveControlRequires: ["dry_run", "approval_audit_id"],
       uploadsLocalText: false,
