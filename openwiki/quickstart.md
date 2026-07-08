@@ -19,8 +19,10 @@ Welcome to the **Lossless Codex Orchestrator (LCO)** — a local-first memory an
 ```bash
 npm install -g lossless-codex-orchestrator@latest
 lco doctor
-lco index codex --max-files 500 "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
+lco find "billing bridge"
 ```
+
+`lco find` runs an incremental Codex and Claude Code index pass on first use, then searches titles, metadata, prepared cards, summaries, and event-level content snippets in one step. Use `lco search` and `lco grep` for lower-level recall control.
 
 Requirements: Node.js 22.5+, npm, local Codex session files (typically `~/.codex/sessions`). Claude Code sessions (typically `~/.claude/`) can also be indexed via `lco index claude`.
 
@@ -29,16 +31,21 @@ Requirements: Node.js 22.5+, npm, local Codex session files (typically `~/.codex
 ## First Recall Loop
 
 ```bash
-# Search title, metadata, aliases, and session-card signals
-lco search "proposed plan billing bridge"
+# One-step index + search across Codex and Claude Code
+lco find "proposed plan billing bridge"
 
-# Search remembered content phrases
-lco grep "aurora ledger checkpoint"
+# JSON output for scripts and agent harnesses
+lco find --json "proposed plan billing bridge"
 
-# Describe a result
+# Lower-level recall control
+lco search "proposed plan billing bridge"   # title, metadata, aliases, session-card signals
+lco grep "aurora ledger checkpoint"         # remembered content phrases
+```
+
+Describe a result or expand a bounded brief:
+
+```bash
 lco describe codex_thread:<thread-id>
-
-# Expand a bounded brief
 lco expand-ref --profile brief --token-budget 1000 codex_thread:<thread-id>
 ```
 
@@ -72,6 +79,7 @@ All `LCO_*` env names have `LOO_*` compatibility fallbacks. See `packages/runtim
 | MCP server tool registry | `packages/mcp-server/src/tools.ts` |
 | CLI dispatch | `packages/cli/src/main.ts` |
 | OpenClaw plugin entry | `packages/openclaw-plugin/src/index.ts` |
+| Claude Code recall companion | `plugins/lco-recall/` |
 | Runtime env helpers | `packages/runtime/src/env.ts` |
 | Agent skill playbook | `skills/lossless-openclaw-orchestrator/SKILL.md` |
 
@@ -79,9 +87,9 @@ All `LCO_*` env names have `LOO_*` compatibility fallbacks. See `packages/runtim
 
 - **LCO is local-only.** It does not cloud-sync, upload raw transcripts, or merge Codex transcripts into OpenClaw LCM.
 - **Live Codex control is approval-gated.** Every resume/send/steer/interrupt requires a matching dry-run packet and `approval_audit_id`.
-- **Claude Code is read/recall only.** As of 1.5.0, local Claude Code JSONL can be indexed via `lco index claude` and surfaced through the same describe/expand/prepared-card workflow as Codex (`claude_session:*` refs). Live control, settings mutation, GUI mutation, and full adapter parity remain future work. See `docs/CLAUDE_ADAPTER_BOUNDARY.md`.
+- **Claude Code is read/recall only.** As of 1.5.0, local Claude Code JSONL can be indexed via `lco index claude` and surfaced through the same describe/expand/prepared-card workflow as Codex (`claude_session:*` refs). Claude Code users who already run `codex-plugin-cc` can add LCO as a separate recall companion via `/plugin install lco-recall@lco`, which provides a user-invocable `find` skill. Live control, settings mutation, GUI mutation, and full adapter parity remain future work. See `docs/CLAUDE_ADAPTER_BOUNDARY.md`.
 - **Codex JSONL drift** is reported by `lco doctor` as a bounded completeness caveat, not an error. See `docs/CODEX_JSONL_DRIFT.md`.
-- **`lco search` is not raw-content search.** For remembered content phrases, use `lco grep` or `lco expand-query`.
+- **`lco search` is not raw-content search.** For remembered content phrases, use `lco grep` or `lco expand-query`. `lco find` covers both session-card discovery and content snippets in one step.
 
 ## Further Reading
 

@@ -4,10 +4,10 @@
   "base_url": "https://api.z.ai/api/anthropic",
   "model": "GLM-5.2",
   "workflow": "openwiki-update",
-  "run_id": "28971682179",
+  "run_id": "28972257444",
   "run_attempt": "1",
   "source": "manual_dispatch",
   "openwiki_ref": "99c32b44cf1bcc5dbc35de54d28084205edd9816",
-  "openwiki_content_sha256": "181964fddda099176996da85a1090e96204be3badc6421cf20b7e6a0847bbdbd",
+  "openwiki_content_sha256": "6948ccac69dfa2cd980aa1d55bf528cc203e1aaa2f20aa8792c28e903ec2fc6e",
   "openwiki_content_file_count": 7
 }

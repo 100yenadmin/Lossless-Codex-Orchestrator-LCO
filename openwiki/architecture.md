@@ -9,10 +9,12 @@ packages/
   core/         — SQLite database, Codex JSONL indexer, FTS5 search, prepared state, summary leaves
   adapters/     — Codex JSON-RPC client, desktop backend, method policy, redaction, audit store
   mcp-server/   — MCP tool registry (35 canonical lco_* tools plus loo_* compatibility aliases), tool tiers, alias management
-  cli/          — CLI dispatch, release/QA gates, smoke harnesses, onboarding
+  cli/          — CLI dispatch (`lco find`, search, describe, expand), release/QA gates, smoke harnesses, onboarding
   openclaw-plugin/ — OpenClaw plugin entry (defineToolPlugin wrapper)
   runtime/      — Env helpers, Node.js version guard
   local-mac-ui/ — macOS local search UI shell (CUA/Peekaboo integration)
+plugins/
+  lco-recall/   — Claude Code recall companion plugin (user-invocable `find` skill, npx fallback)
 ```
 
 ### Dependency flow
