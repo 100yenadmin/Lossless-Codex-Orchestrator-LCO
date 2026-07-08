@@ -86,6 +86,7 @@ test("OpenWiki diff guard accepts only openwiki paths", () => {
   const safe = spawnSync("node", ["scripts/guard-openwiki-diff.mjs", "--stdin"], {
     input:
       "?? openwiki/index.md\n" +
+      " M openwiki/modified.md\n" +
       "A  openwiki/_metadata/workflow-run.json\n" +
       "R  openwiki/old.md -> openwiki/new.md\n" +
       '?? "openwiki/path with spaces.md"\n' +
@@ -97,6 +98,7 @@ test("OpenWiki diff guard accepts only openwiki paths", () => {
   const unsafe = spawnSync("node", ["scripts/guard-openwiki-diff.mjs", "--stdin"], {
     input:
       "?? openwiki/index.md\n" +
+      " M README.md\n" +
       "A  README.md\n" +
       "M  .github/workflows/ci.yml\n" +
       "R  openwiki/a.md -> package.json\n" +
