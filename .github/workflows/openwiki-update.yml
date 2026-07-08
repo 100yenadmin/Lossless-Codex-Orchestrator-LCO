@@ -1,0 +1,108 @@
+name: OpenWiki Docs Update
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "OpenWiki command to run."
+        type: choice
+        options:
+          - update
+          - init
+        default: update
+      openwiki_repository:
+        description: "OpenWiki runner repository. Use a reviewed Z.AI-capable fork/ref until upstream support is settled."
+        required: true
+        default: langchain-ai/openwiki
+      openwiki_ref:
+        description: "OpenWiki runner ref. Keep this pointed at a reviewed Z.AI-capable ref."
+        required: true
+        default: main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  OPENWIKI_PROVIDER: zai
+  OPENWIKI_MODEL_ID: glm-5.2
+  OPENWIKI_OUTPUT_DIR: openwiki
+
+jobs:
+  update-openwiki:
+    name: Update OpenWiki docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout LCO
+        uses: actions/checkout@v7
+
+      - name: Require Z.AI key
+        env:
+          ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
+        run: |
+          if [ -z "${ZAI_API_KEY}" ]; then
+            echo "::error::ZAI_API_KEY secret is required for manual OpenWiki docs updates."
+            exit 1
+          fi
+
+      - name: Checkout OpenWiki runner
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.openwiki_repository }}
+          ref: ${{ inputs.openwiki_ref }}
+          path: ${{ runner.temp }}/openwiki-runner
+
+      - name: Build OpenWiki runner
+        working-directory: ${{ runner.temp }}/openwiki-runner
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm run build
+
+      - name: Run OpenWiki docs update
+        env:
+          ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
+          OPENWIKI_PROVIDER: ${{ env.OPENWIKI_PROVIDER }}
+          OPENWIKI_MODEL_ID: ${{ env.OPENWIKI_MODEL_ID }}
+          OPENWIKI_OUTPUT_DIR: ${{ env.OPENWIKI_OUTPUT_DIR }}
+        run: |
+          prompt='Update the LCO OpenWiki orientation docs. Write only openwiki/**. Do not edit AGENTS.md, CLAUDE.md, source, runtime config, workflow files, package metadata, or unrelated docs. Avoid todo-list tools; return concise completion notes.'
+          if [ "${{ inputs.command }}" = "init" ]; then
+            node "${RUNNER_TEMP}/openwiki-runner/dist/cli.js" --init --modelId "${OPENWIKI_MODEL_ID}" "${prompt}"
+          else
+            node "${RUNNER_TEMP}/openwiki-runner/dist/cli.js" --update --modelId "${OPENWIKI_MODEL_ID}" "${prompt}"
+          fi
+
+      - name: Record public run metadata
+        run: |
+          mkdir -p openwiki/_metadata
+          cat > openwiki/_metadata/workflow-run.json <<EOF
+          {
+            "provider": "zai",
+            "model": "glm-5.2",
+            "workflow": "openwiki-update",
+            "run_id": "${GITHUB_RUN_ID}",
+            "run_attempt": "${GITHUB_RUN_ATTEMPT}",
+            "source": "manual_dispatch"
+          }
+          EOF
+
+      - name: Guard OpenWiki-only diff
+        run: node scripts/guard-openwiki-diff.mjs
+
+      - name: Open docs PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: automation/openwiki-update
+          title: "docs: update OpenWiki orientation"
+          commit-message: "docs: update OpenWiki orientation"
+          body: |
+            Manual OpenWiki update run.
+
+            Provider/model: Z.AI GLM-5.2.
+            Scope: openwiki/** only.
+            This workflow records public run metadata only; provider credentials are not written to the repository.
+          add-paths: |
+            openwiki/**
+          delete-branch: true
