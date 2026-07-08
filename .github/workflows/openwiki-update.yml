@@ -17,7 +17,7 @@ permissions:
 
 env:
   OPENWIKI_REPOSITORY: 100yenadmin/openwiki
-  OPENWIKI_REF: 7bff0df61700709575bd154f3ac66b4927c6d137
+  OPENWIKI_REF: 99c32b44cf1bcc5dbc35de54d28084205edd9816
   OPENWIKI_PROVIDER: anthropic
   OPENWIKI_MODEL_ID: GLM-5.2
   ANTHROPIC_BASE_URL: https://api.z.ai/api/anthropic
@@ -134,7 +134,7 @@ jobs:
             Manual OpenWiki update run.
 
             Provider/model: Z.AI GLM-5.2.
-            OpenWiki runner: 100yenadmin/openwiki@7bff0df61700709575bd154f3ac66b4927c6d137.
+            OpenWiki runner: 100yenadmin/openwiki@99c32b44cf1bcc5dbc35de54d28084205edd9816.
             Scope: openwiki/** only.
             This workflow records public run metadata only; provider credentials are not written to the repository.
           add-paths: |
