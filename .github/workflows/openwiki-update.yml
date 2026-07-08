@@ -22,6 +22,7 @@ env:
   OPENWIKI_MODEL_ID: GLM-5.2
   ANTHROPIC_BASE_URL: https://api.z.ai/api/anthropic
   OPENWIKI_OUTPUT_DIR: openwiki
+  OPENWIKI_RUNNER_DIR: .openwiki-runner
 
 jobs:
   update-openwiki:
@@ -37,10 +38,10 @@ jobs:
         with:
           repository: ${{ env.OPENWIKI_REPOSITORY }}
           ref: ${{ env.OPENWIKI_REF }}
-          path: ${{ runner.temp }}/openwiki-runner
+          path: ${{ env.OPENWIKI_RUNNER_DIR }}
 
       - name: Build OpenWiki runner
-        working-directory: ${{ runner.temp }}/openwiki-runner
+        working-directory: ${{ env.OPENWIKI_RUNNER_DIR }}
         run: |
           corepack enable
           pnpm install --frozen-lockfile
@@ -54,12 +55,18 @@ jobs:
           OPENWIKI_PROVIDER: ${{ env.OPENWIKI_PROVIDER }}
           OPENWIKI_MODEL_ID: ${{ env.OPENWIKI_MODEL_ID }}
           OPENWIKI_OUTPUT_DIR: ${{ env.OPENWIKI_OUTPUT_DIR }}
+          OPENWIKI_RUNNER_DIR: ${{ env.OPENWIKI_RUNNER_DIR }}
         run: |
           if [ "${COMMAND}" = "init" ]; then
-            node "${RUNNER_TEMP}/openwiki-runner/dist/cli.js" --init --print --no-agent-instructions --modelId "${OPENWIKI_MODEL_ID}"
+            node "${OPENWIKI_RUNNER_DIR}/dist/cli.js" --init --print --no-agent-instructions --modelId "${OPENWIKI_MODEL_ID}"
           else
-            node "${RUNNER_TEMP}/openwiki-runner/dist/cli.js" --update --print --no-agent-instructions --modelId "${OPENWIKI_MODEL_ID}"
+            node "${OPENWIKI_RUNNER_DIR}/dist/cli.js" --update --print --no-agent-instructions --modelId "${OPENWIKI_MODEL_ID}"
           fi
+
+      - name: Remove OpenWiki runner checkout
+        env:
+          OPENWIKI_RUNNER_DIR: ${{ env.OPENWIKI_RUNNER_DIR }}
+        run: rm -rf "${OPENWIKI_RUNNER_DIR}"
 
       - name: Record public run metadata
         env:
