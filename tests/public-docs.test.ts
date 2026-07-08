@@ -188,6 +188,39 @@ test("release-captain docs include repeatable full gateway coverage smoke", () =
   assert.match(releaseDocs, /lco_desktop_proof/);
 });
 
+test("control-plane threat model stays in operator docs, not public release notes", () => {
+  assert.equal(existsSync("docs/CONTROL_PLANE_THREAT_MODEL.md"), true);
+  const threatModel = read("docs/CONTROL_PLANE_THREAT_MODEL.md");
+  const checklist = read("docs/RELEASE_CHECKLIST.md");
+  const changelog = read("docs/releases/CHANGELOG.md");
+  const linkedNotes = [...changelog.matchAll(/\]\((RELEASE_NOTES_[^)]+\.md)\)/g)].map(
+    (match) => `docs/releases/${match[1]}`
+  );
+
+  for (const required of [
+    /^# Control Plane Threat Model/m,
+    /operator-facing/i,
+    /token scope/i,
+    /local binding/i,
+    /database and cache blast radius/i,
+    /gateway-token leakage/i,
+    /approval audit semantics/i,
+    /scratch-session doctrine/i,
+    /rollback handles/i
+  ]) {
+    assert.match(threatModel, required);
+  }
+
+  assert.match(checklist, /docs\/CONTROL_PLANE_THREAT_MODEL\.md/);
+  assert.match(checklist, /control-plane threat model/i);
+
+  const operatorOnlyLanguage =
+    /gateway-token leakage|database and cache blast radius|scratch-session doctrine|rollback handles|approval audit semantics/i;
+  for (const file of linkedNotes) {
+    assert.doesNotMatch(read(file), operatorOnlyLanguage, file);
+  }
+});
+
 test("current docs do not present closed issue references as pending work", () => {
   const currentDocs = [
     "README.md",

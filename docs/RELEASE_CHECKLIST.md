@@ -83,6 +83,13 @@ not add `Proof Boundary`, `Current Claim Scope`, `Explicit Non-Claims`, or
 release-gate doctrine in this checklist, `docs/CLAIM_AUDIT.md`, QA Lab
 evidence, and tracker comments.
 
+Before a release leans on control-plane or agent-to-agent driving language,
+review the control-plane threat model in the operator-facing
+[Control Plane Threat Model](CONTROL_PLANE_THREAT_MODEL.md)
+(`docs/CONTROL_PLANE_THREAT_MODEL.md`) and confirm any token, approval-audit,
+cache, scratch-session, or rollback concerns are represented in the release
+issue and QA evidence rather than in public release notes.
+
 ## Stable General Release
 
 For a stable/general release, the release must additionally prove:
