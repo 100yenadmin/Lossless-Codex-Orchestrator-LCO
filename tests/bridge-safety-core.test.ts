@@ -7,6 +7,7 @@ import test from "node:test";
 
 import {
   CODEX_CONTROL_METHODS,
+  CODEX_TARGET_METHOD_POLICY,
   CODEX_TURN_NOTIFICATION_METHOD_STATUS,
   CodexJsonRpcClient,
   LineProcessTransport,
@@ -15,6 +16,7 @@ import {
   codexTransportStatus,
   createCodexMcpStdioClient,
   createCodexControl,
+  createTargetControl,
   redactValue
 } from "../packages/adapters/src/index.js";
 
@@ -358,6 +360,96 @@ test("Codex control checks method policy before live transport calls", async () 
     if (removed) CODEX_CONTROL_METHODS.add("turn/start");
   }
 });
+
+test("TargetAdapter executor preserves Codex dry-run audit and policy fail-closed behavior", async () => {
+  let requestCalled = false;
+  let auditRecord: any = null;
+  const target = createTargetControl({
+    targetName: "Codex",
+    methodPolicy: CODEX_TARGET_METHOD_POLICY,
+    audit: {
+      path: "memory",
+      fingerprintText(value) {
+        return `test-text-${value}`;
+      },
+      fingerprintValue(value) {
+        return `test-params-${JSON.stringify(value)}`;
+      },
+      append(record) {
+        auditRecord = { id: "loo_audit_target", createdAt: new Date().toISOString(), ...record };
+        return auditRecord;
+      },
+      find(id) {
+        return auditRecord?.id === id ? auditRecord : null;
+      }
+    },
+    client: {
+      request: async () => {
+        requestCalled = true;
+        return { ok: true };
+      }
+    }
+  });
+
+  const dryRun = await target.execute({
+    action: "codex_resume_thread",
+    method: "thread/resume",
+    threadId: "thr_1",
+    dryRun: true,
+    params: { threadId: "thr_1", excludeTurns: true }
+  });
+
+  assert.equal(dryRun.live, false);
+  assert.equal(dryRun.approvalAuditId, "loo_audit_target");
+  assert.equal(requestCalled, false);
+
+  const blockedTarget = createTargetControl({
+    targetName: "Codex",
+    methodPolicy: {
+      ...CODEX_TARGET_METHOD_POLICY,
+      controlMethods: new Set([...CODEX_CONTROL_METHODS].filter((method) => method !== "thread/resume"))
+    },
+    audit: targetAuditFromRecord(() => auditRecord),
+    client: {
+      request: async () => {
+        requestCalled = true;
+        return { ok: true };
+      }
+    }
+  });
+
+  await assert.rejects(
+    () => blockedTarget.execute({
+      action: "codex_resume_thread",
+      method: "thread/resume",
+      threadId: "thr_1",
+      dryRun: false,
+      approvalAuditId: dryRun.approvalAuditId,
+      params: { threadId: "thr_1", excludeTurns: true }
+    }),
+    /not allowlisted/
+  );
+  assert.equal(requestCalled, false);
+});
+
+function targetAuditFromRecord(readRecord: () => any) {
+  return {
+    path: "memory",
+    fingerprintText(value: string) {
+      return `test-text-${value}`;
+    },
+    fingerprintValue(value: unknown) {
+      return `test-params-${JSON.stringify(value)}`;
+    },
+    append(record: any) {
+      return { id: "loo_audit_unused", createdAt: new Date().toISOString(), ...record };
+    },
+    find(id: string) {
+      const record = readRecord();
+      return record?.id === id ? record : null;
+    }
+  };
+}
 
 test("loopback WebSocket config rejects credentials, non-loopback, paths, and non-ws schemes", () => {
   assert.deepEqual(buildLoopbackWebSocketConfig("ws://127.0.0.1:4567"), { url: "ws://127.0.0.1:4567/" });
