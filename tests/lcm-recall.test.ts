@@ -71,6 +71,12 @@ function makeRecallFixture() {
         created_at TEXT,
         model TEXT
       );
+      CREATE TABLE summary_parents (
+        summary_id TEXT NOT NULL,
+        parent_summary_id TEXT NOT NULL,
+        ordinal INTEGER NOT NULL,
+        PRIMARY KEY (summary_id, parent_summary_id)
+      );
       CREATE VIRTUAL TABLE summaries_fts USING fts5(summary_id UNINDEXED, content, tokenize = 'unicode61');
     `);
     lcm.prepare("INSERT INTO conversations (conversation_id, title, session_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(
@@ -88,8 +94,8 @@ function makeRecallFixture() {
     `).run(
       "sum_peer_recall",
       42,
-      "leaf",
-      0,
+      "condensed",
+      1,
       "Peer recall summary links OpenClaw LCM to Codex without merging stores. It mentions /Users/lume/private, ~/private/notes.md, /home/lume/private, /tmp/lcm-peer.sqlite, and authorization: Bearer sk-test_1234567890 so safe outputs must redact secrets.",
       44,
       JSON.stringify(["packages/core/src/index.ts"]),
@@ -98,6 +104,59 @@ function makeRecallFixture() {
       0,
       "2026-06-28T00:11:00Z",
       "gpt-5.5"
+    );
+    lcm.prepare(`
+      INSERT INTO summaries (
+        summary_id, conversation_id, kind, depth, content, token_count, file_ids,
+        earliest_at, latest_at, descendant_count, created_at, model
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "sum_peer_leaf_prompt",
+      42,
+      "leaf",
+      0,
+      "User asked how OpenClaw should recall Codex sessions without rereading raw tool-call payloads.",
+      18,
+      JSON.stringify([]),
+      "2026-06-28T00:01:00Z",
+      "2026-06-28T00:02:00Z",
+      0,
+      "2026-06-28T00:03:00Z",
+      "gpt-5.5"
+    );
+    lcm.prepare(`
+      INSERT INTO summaries (
+        summary_id, conversation_id, kind, depth, content, token_count, file_ids,
+        earliest_at, latest_at, descendant_count, created_at, model
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "sum_peer_leaf_plan",
+      42,
+      "leaf",
+      0,
+      "Assistant proposed a public-safe recall adapter with source refs, bounded expansion, and no source-store mutation.",
+      20,
+      JSON.stringify([]),
+      "2026-06-28T00:04:00Z",
+      "2026-06-28T00:05:00Z",
+      0,
+      "2026-06-28T00:06:00Z",
+      "gpt-5.5"
+    );
+    lcm.prepare("INSERT INTO summary_parents (summary_id, parent_summary_id, ordinal) VALUES (?, ?, ?)").run(
+      "sum_peer_recall",
+      "sum_peer_leaf_prompt",
+      0
+    );
+    lcm.prepare("INSERT INTO summary_parents (summary_id, parent_summary_id, ordinal) VALUES (?, ?, ?)").run(
+      "sum_peer_recall",
+      "sum_peer_leaf_plan",
+      1
+    );
+    lcm.prepare("INSERT INTO summary_parents (summary_id, parent_summary_id, ordinal) VALUES (?, ?, ?)").run(
+      "sum_peer_leaf_plan",
+      "sum_peer_recall",
+      0
     );
     lcm.prepare("INSERT INTO summaries_fts (summary_id, content) VALUES (?, ?)").run(
       "sum_peer_recall",
@@ -134,7 +193,7 @@ test("grep -> describe -> expand_query preserves Codex and read-only LCM source 
     assert.equal(peers.peers[0]?.supported, true);
     assert.equal(peers.peers[0]?.readOnly, true);
     assert.equal(peers.peers[0]?.queryOnly, true);
-    assert.equal(peers.peers[0]?.summaryCount, 1);
+    assert.equal(peers.peers[0]?.summaryCount, 3);
     assert.match(peers.peers[0]?.path ?? "", /^<redacted-local-path>\/lcm-peer-[a-f0-9]{12}\.sqlite$/);
     assert.notEqual(peers.peers[0]?.path, fixture.lcmPath);
 
@@ -207,6 +266,82 @@ test("grep -> describe -> expand_query preserves Codex and read-only LCM source 
   } finally {
     db.close();
     rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM summary expansion walks summary_parents DAG without raw peer data", () => {
+  const fixture = makeRecallFixture();
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    const lcmRef = grepRecall(db, { query: "OpenClaw LCM", lcmDbPaths: [fixture.lcmPath], limit: 5 })
+      .matches.find((match) => match.sourceKind === "lcm_summary")?.sourceRef;
+    assert.ok(lcmRef?.startsWith("lcm_summary:"));
+
+    const expanded = expandRecallRef(db, { sourceRef: lcmRef, lcmDbPaths: [fixture.lcmPath], profile: "brief" });
+    assert.equal(expanded.sourceKind, "lcm_summary");
+    assert.equal(expanded.summaryId, "sum_peer_recall");
+    assert.match(expanded.text, /Source summaries:/);
+    assert.match(expanded.text, /sum_peer_leaf_prompt/);
+    assert.match(expanded.text, /sum_peer_leaf_plan/);
+    assert.match(expanded.text, /User asked how OpenClaw should recall Codex sessions/);
+    assert.match(expanded.text, /Assistant proposed a public-safe recall adapter/);
+    assert.match(expanded.text, /lcm_summary_dag_cycle_omitted/);
+    assert.doesNotMatch(expanded.text, /\/Users\/|\/Volumes\/|\/tmp\/|~\/|sk-test_1234567890|Bearer sk-test/);
+  } finally {
+    db.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM summary expansion falls back when optional summary_parents table is missing", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-lcm-truncated-peer-"));
+  const lcmPath = join(root, "lcm-peer.sqlite");
+  const lcm = new DatabaseSync(lcmPath);
+  try {
+    lcm.exec(`
+      CREATE TABLE summaries (
+        summary_id TEXT PRIMARY KEY,
+        conversation_id INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        depth INTEGER NOT NULL,
+        content TEXT NOT NULL,
+        token_count INTEGER NOT NULL,
+        created_at TEXT,
+        latest_at TEXT,
+        model TEXT
+      );
+    `);
+    lcm.prepare(`
+      INSERT INTO summaries (
+        summary_id, conversation_id, kind, depth, content, token_count, created_at, latest_at, model
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "sum_truncated_peer",
+      7,
+      "leaf",
+      0,
+      "Truncated LCM peer recall summary remains expandable without optional DAG tables.",
+      12,
+      "2026-07-08T00:00:00Z",
+      "2026-07-08T00:01:00Z",
+      "gpt-5.5"
+    );
+  } finally {
+    lcm.close();
+  }
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const lcmRef = grepRecall(db, { query: "Truncated LCM peer", lcmDbPaths: [lcmPath], limit: 5 })
+      .matches.find((match) => match.sourceKind === "lcm_summary")?.sourceRef;
+    assert.ok(lcmRef?.startsWith("lcm_summary:"));
+    const expanded = expandRecallRef(db, { sourceRef: lcmRef, lcmDbPaths: [lcmPath], profile: "brief" });
+    assert.match(expanded.text, /Truncated LCM peer recall summary/);
+    assert.doesNotMatch(expanded.text, /Source summaries:/);
+    assert.doesNotMatch(expanded.text, /lcm-peer\.sqlite|\/Users\/|\/Volumes\/|\/tmp\//);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
