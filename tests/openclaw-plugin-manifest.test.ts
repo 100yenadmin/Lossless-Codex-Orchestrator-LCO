@@ -8,6 +8,10 @@ import {
   createLooToolSurfaceSummary,
   isLooToolAlias
 } from "../packages/mcp-server/src/tools.js";
+import {
+  createOpenClawPluginManifest,
+  OPENCLAW_MANIFEST_PATHS
+} from "../scripts/sync-openclaw-manifests.mjs";
 
 const PLUGIN_ENTRY = "./dist/packages/openclaw-plugin/src/index.js";
 const PACKAGE_BINS = {
@@ -49,6 +53,20 @@ test("package and OpenClaw manifests open the same release train together", () =
   assert.equal(sourceManifest.version, pkg.version);
   assert.deepEqual(manifest.tools, { prefix: "lco_" });
   assert.deepEqual(sourceManifest.tools, { prefix: "lco_" });
+});
+
+test("OpenClaw manifests are generated from one source of truth", () => {
+  const pkg = readJson("package.json");
+  const expectedManifest = createOpenClawPluginManifest({ packageVersion: String(pkg.version) });
+  const manifest = readJson("openclaw.plugin.json");
+  const sourceManifest = readJson("packages/openclaw-plugin/openclaw.plugin.json");
+
+  assert.deepEqual(OPENCLAW_MANIFEST_PATHS, [
+    "openclaw.plugin.json",
+    "packages/openclaw-plugin/openclaw.plugin.json"
+  ]);
+  assert.deepEqual(manifest, expectedManifest);
+  assert.deepEqual(sourceManifest, expectedManifest);
 });
 
 test("Codex plugin bundle installs the thread title finalizer hook without adding an agent tool", () => {
