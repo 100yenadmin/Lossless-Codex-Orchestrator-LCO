@@ -237,6 +237,39 @@ export type IndexCodexResult = {
   driftSummary: CodexJsonlDriftSummary;
 };
 
+export type IndexClaudeOptions = {
+  roots: string[];
+  maxFiles?: number;
+  maxBytesPerFile?: number;
+  maxEventsPerFile?: number;
+};
+
+export type ClaudeIndexLimitWarning = {
+  code: "claude_index_limited_files_skipped";
+  message: string;
+  limitedFiles: number;
+  skippedFiles: number;
+  reasons: CodexIndexLimitReasonSummary[];
+  nextSafeCommands: string[];
+};
+
+export type IndexClaudeResult = {
+  publicSafe: true;
+  readOnly: false;
+  mutationClasses: ["derived_cache"];
+  indexedFiles: number;
+  indexLimits: {
+    maxBytesPerFile: number;
+    maxEventsPerFile: number;
+  };
+  skippedFiles: number;
+  indexedSessions: number;
+  indexedEvents: number;
+  limitedFiles: LimitedCodexFile[];
+  warnings: ClaudeIndexLimitWarning[];
+  errors: Array<{ path: string; message: string }>;
+};
+
 export type CodexEventContentDropReport = {
   schema: "lco.codexEventContent.drop.v1";
   ok: true;
@@ -2885,6 +2918,7 @@ const PREPARED_CARD_SOURCE_RANGE_REF_LIMIT = 50;
 const CODEX_JSONL_DRIFT_INDEX_NEXT_ACTION = "loo index codex --max-files 500 \"$HOME/.codex/sessions\" \"$HOME/.codex/archived_sessions\"";
 const CODEX_JSONL_DRIFT_MISSING_DB_NEXT_ACTION = "loo index codex \"$HOME/.codex/sessions\"";
 const CODEX_INDEX_LIMIT_RECOVERY_COMMAND = `loo index codex --max-files 100000 --max-bytes-per-file ${CODEX_RECOVERY_MAX_BYTES_PER_FILE} --max-events-per-file ${CODEX_RECOVERY_MAX_EVENTS_PER_FILE} "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"`;
+const CLAUDE_INDEX_LIMIT_RECOVERY_COMMAND = `loo index claude --max-files 100000 --max-bytes-per-file ${CODEX_RECOVERY_MAX_BYTES_PER_FILE} --max-events-per-file ${CODEX_RECOVERY_MAX_EVENTS_PER_FILE} "$HOME/.claude/projects"`;
 
 export function createDatabase(dbPath?: string): LooDatabase;
 export function createDatabase(options: CreateDatabaseOptions): LooDatabase;
@@ -2927,6 +2961,10 @@ export function defaultCodexRoots(home = resolveHomeDir()): string[] {
     join(home, ".codex", "sessions"),
     join(home, ".codex", "archived_sessions")
   ];
+}
+
+export function defaultClaudeRoots(home = resolveHomeDir()): string[] {
+  return [join(home, ".claude", "projects")];
 }
 
 export function configuredLcmPeerDbPaths(raw = readEnv("LCM_DB_PATHS") ?? ""): string[] {
@@ -3718,6 +3756,176 @@ export function parseClaudeCodeJsonl(sourcePath: string, text: string): ParsedCl
       stale: false
     }
   };
+}
+
+export function indexClaudeSessions(db: LooDatabase, options: IndexClaudeOptions): IndexClaudeResult {
+  const fileSelection = collectJsonlFiles(options.roots, options.maxFiles ?? 10_000);
+  const maxBytesPerFile = positiveLimit(options.maxBytesPerFile, DEFAULT_CODEX_MAX_BYTES_PER_FILE, "maxBytesPerFile");
+  const maxEventsPerFile = positiveLimit(options.maxEventsPerFile, DEFAULT_CODEX_MAX_EVENTS_PER_FILE, "maxEventsPerFile");
+  const result: IndexClaudeResult = {
+    publicSafe: true,
+    readOnly: false,
+    mutationClasses: ["derived_cache"],
+    indexedFiles: 0,
+    indexLimits: {
+      maxBytesPerFile,
+      maxEventsPerFile
+    },
+    skippedFiles: 0,
+    indexedSessions: 0,
+    indexedEvents: 0,
+    limitedFiles: [],
+    warnings: [],
+    errors: []
+  };
+
+  if (fileSelection.droppedOldest) {
+    const dropped = publicSafeClaudeLimitedFile(fileSelection.droppedOldest);
+    result.skippedFiles += Math.max(0, dropped.actual - dropped.limit);
+    result.limitedFiles.push(dropped);
+  }
+  result.errors.push(...fileSelection.errors.map((error) => ({
+    path: publicClaudeSourcePathRef(error.path),
+    message: publicSafeText(error.message, 500)
+  })));
+
+  const seenSessions = new Set<string>();
+  for (const path of fileSelection.files) {
+    try {
+      const sourcePathRef = publicClaudeSourcePathRef(path);
+      const stat = statSync(path);
+      if (stat.size > maxBytesPerFile) {
+        recordLimitedClaudeFile(db, result, sourcePathRef, "max_bytes_per_file", maxBytesPerFile, stat.size);
+        continue;
+      }
+      const text = readFileSync(path, "utf8");
+      const parsed = parseClaudeCodeJsonl(path, text);
+      if (parsed.eventCount > maxEventsPerFile) {
+        recordLimitedClaudeFile(db, result, parsed.sourcePathRef, "max_events_per_file", maxEventsPerFile, parsed.eventCount);
+        continue;
+      }
+      upsertParsedClaudeCodeSession(db, parsed);
+      result.indexedFiles += 1;
+      result.indexedEvents += parsed.eventCount;
+      seenSessions.add(parsed.sessionId);
+      for (const parseError of parsed.parseErrors) {
+        result.errors.push({
+          path: parsed.sourcePathRef,
+          message: `invalid_json_line:${parseError.lineNumber}`
+        });
+      }
+    } catch (error) {
+      result.errors.push({
+        path: publicClaudeSourcePathRef(path),
+        message: publicSafeText(error instanceof Error ? error.message : String(error), 500)
+      });
+    }
+  }
+
+  result.indexedSessions = seenSessions.size;
+  result.warnings = createClaudeIndexLimitWarnings(result.limitedFiles);
+  return result;
+}
+
+function upsertParsedClaudeCodeSession(db: LooDatabase, parsed: ParsedClaudeCodeSession, now = new Date().toISOString()): void {
+  const sourceRefs = unique([
+    parsed.sourceRef,
+    parsed.sourcePathRef,
+    ...parsed.sourceRanges.map((range) => range.rangeRef).slice(0, 50)
+  ]);
+  const safeSummary = publicSafeText(parsed.safeText || parsed.title || "", 4000);
+  const ftsContent = [
+    parsed.title,
+    parsed.projectSlug ? `Project: ${parsed.projectSlug}` : null,
+    safeSummary,
+    sourceRefs.join(" ")
+  ].filter(Boolean).join("\n");
+
+  db.exec("BEGIN");
+  try {
+    clearRemappedClaudeSourcePathSessions(db, parsed.sourcePathRef, parsed.sessionId);
+    db.prepare("DELETE FROM claude_safe_text_fts WHERE session_id = ?").run(parsed.sessionId);
+    db.prepare("DELETE FROM claude_sessions WHERE session_id = ?").run(parsed.sessionId);
+    db.prepare(`
+      INSERT INTO claude_sessions (
+        session_id, title, project, workspace_hint, status, source_path, updated_at,
+        safe_summary, safe_text, source_refs_json, indexed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      parsed.sessionId,
+      parsed.title,
+      parsed.projectSlug,
+      null,
+      "indexed",
+      parsed.sourcePathRef,
+      parsed.updatedAt,
+      safeSummary,
+      publicSafeText(parsed.safeText, CODEX_SAFE_TEXT_CHAR_LIMIT),
+      JSON.stringify(sourceRefs),
+      now
+    );
+    db.prepare("INSERT INTO claude_safe_text_fts (session_id, content) VALUES (?, ?)").run(parsed.sessionId, ftsContent);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+function clearRemappedClaudeSourcePathSessions(db: LooDatabase, sourcePathRef: string, sessionId: string): void {
+  const rows = db.prepare("SELECT session_id AS sessionId FROM claude_sessions WHERE source_path = ? AND session_id <> ?").all(sourcePathRef, sessionId) as Array<{ sessionId: string }>;
+  if (rows.length === 0) return;
+  const deleteFts = db.prepare("DELETE FROM claude_safe_text_fts WHERE session_id = ?");
+  const deleteSession = db.prepare("DELETE FROM claude_sessions WHERE session_id = ?");
+  for (const row of rows) {
+    deleteFts.run(row.sessionId);
+    deleteSession.run(row.sessionId);
+  }
+}
+
+function clearClaudeSessionsForSourcePathRef(db: LooDatabase, sourcePathRef: string): void {
+  const rows = db.prepare("SELECT session_id AS sessionId FROM claude_sessions WHERE source_path = ?").all(sourcePathRef) as Array<{ sessionId: string }>;
+  if (rows.length === 0) return;
+  const deleteFts = db.prepare("DELETE FROM claude_safe_text_fts WHERE session_id = ?");
+  const deleteSession = db.prepare("DELETE FROM claude_sessions WHERE session_id = ?");
+  for (const row of rows) {
+    deleteFts.run(row.sessionId);
+    deleteSession.run(row.sessionId);
+  }
+}
+
+function recordLimitedClaudeFile(
+  db: LooDatabase,
+  result: IndexClaudeResult,
+  sourcePathRef: string,
+  reason: LimitedCodexFile["reason"],
+  limit: number,
+  actual: number
+): void {
+  clearClaudeSessionsForSourcePathRef(db, sourcePathRef);
+  result.skippedFiles += 1;
+  result.limitedFiles.push({ path: sourcePathRef, reason, limit, actual });
+}
+
+function publicSafeClaudeLimitedFile(file: LimitedCodexFile): LimitedCodexFile {
+  return {
+    path: publicClaudeSourcePathRef(file.path),
+    reason: file.reason,
+    limit: file.limit,
+    actual: file.actual
+  };
+}
+
+function createClaudeIndexLimitWarnings(limitedFiles: LimitedCodexFile[]): ClaudeIndexLimitWarning[] {
+  if (limitedFiles.length === 0) return [];
+  return [{
+    code: "claude_index_limited_files_skipped",
+    message: "Some Claude Code JSONL session files were skipped by index caps. Re-run with intentional local-only overrides to include capped files.",
+    limitedFiles: limitedFiles.length,
+    skippedFiles: countCodexIndexLimitSkippedFiles(limitedFiles),
+    reasons: summarizeCodexIndexLimitReasons(limitedFiles),
+    nextSafeCommands: [CLAUDE_INDEX_LIMIT_RECOVERY_COMMAND]
+  }];
 }
 
 type ParsedClaudeCodeEvent = {
@@ -10082,6 +10290,9 @@ export function describeClaudeSessionInventory(db: LooDatabase, sessionId: strin
 }
 
 function formatClaudeSessionInventoryMetadata(description: ClaudeSessionInventoryDescription): string {
+  const sourceRef = description.sourcePath.startsWith("claude_source:")
+    ? description.sourcePath
+    : publicSourcePathRef(description.sourcePath);
   return [
     `Claude session ID: ${description.sessionId}`,
     `Ref: ${description.sourceRef}`,
@@ -10090,9 +10301,9 @@ function formatClaudeSessionInventoryMetadata(description: ClaudeSessionInventor
     description.workspaceHint ? `Workspace: ${publicSafeText(description.workspaceHint, 500)}` : null,
     description.status ? `Status: ${description.status}` : null,
     description.updatedAt ? `Updated: ${description.updatedAt}` : null,
-    `Source ref: ${publicSourcePathRef(description.sourcePath)}`,
+    `Source ref: ${sourceRef}`,
     description.sourceRefs.length ? `Source refs: ${description.sourceRefs.map((ref) => publicSafeText(ref, 180)).join(", ")}` : null,
-    "Proof boundary: read-only Claude metadata fixture inventory only; no private transcript content, live control, GUI mutation, parity, or cloud sync proof."
+    "Public-safe Claude recall metadata only; no private transcript content is returned."
   ].filter(Boolean).join("\n");
 }
 

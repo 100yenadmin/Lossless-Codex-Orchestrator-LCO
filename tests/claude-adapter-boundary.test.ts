@@ -15,9 +15,14 @@ test("Claude adapter boundary inventory exists without claiming parity", () => {
 
   assert.match(boundary, /#163/);
   assert.match(boundary, /#166/);
+  assert.match(boundary, /#707/);
+  assert.match(boundary, /#710/);
   assert.match(boundary, /indexClaudeSessionInventory/);
+  assert.match(boundary, /indexClaudeSessions/);
+  assert.match(boundary, /lco index claude/);
   assert.match(boundary, /claude_session:\*/);
   assert.match(boundary, /metadata-only fixture inventory is proven/i);
+  assert.match(boundary, /local Claude Code JSONL read\/recall/i);
   assert.match(boundary, /read-only session inventory/i);
   assert.match(boundary, /first adapter proof step/i);
   assert.match(boundary, /storage path/i);
@@ -26,13 +31,13 @@ test("Claude adapter boundary inventory exists without claiming parity", () => {
   assert.match(boundary, /https:\/\/docs\.anthropic\.com\/en\/docs\/claude-code\/cli-reference/);
   assert.match(boundary, /https:\/\/docs\.anthropic\.com\/en\/docs\/claude-code\/mcp/);
   assert.match(boundary, /https:\/\/docs\.anthropic\.com\/en\/docs\/claude-code\/hooks/);
-  assert.match(boundary, /does not prove Claude Code indexing, control, parity, GUI mutation, or cloud sync/i);
+  assert.match(boundary, /Claude live control, settings mutation, GUI\s+mutation, cloud sync, and adapter parity remain future adapter work/i);
   assert.doesNotMatch(boundary, /full Claude Code parity|control Claude Code remotely|unattended Claude takeover/i);
 
   const readme = read("README.md");
   assert.doesNotMatch(readme, /CLAUDE_ADAPTER_BOUNDARY\.md|Early adapter research|Claude Code support is an adapter stub|full Claude Code parity|cloud sync/i);
   assert.match(vision, /CLAUDE_ADAPTER_BOUNDARY\.md/);
-  assert.match(vision, /Claude metadata fixture inventory/i);
+  assert.match(vision, /Claude read\/recall separate from parity/i);
 });
 
 test("Claude adapter stub exposes proof boundary metadata", () => {

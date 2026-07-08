@@ -110,7 +110,8 @@ test("public docs include setup, MCP/OpenClaw, demo, and approval-boundary proof
   for (const required of [
     new RegExp(`Allowed Stable ${escapedDocumentedStableVersion} Claim`, "i"),
     /Forbidden beta claims/i,
-    /Claude Code.*adapter stub/i,
+    /Claude Code local JSONL read\/recall/i,
+    /lco index claude/i,
     /No cloud sync/i,
     /No unattended desktop takeover/i,
     /No permission bypass/i,
@@ -121,7 +122,8 @@ test("public docs include setup, MCP/OpenClaw, demo, and approval-boundary proof
   }
   assert.match(claimAudit, /lco release preflight[^\n]+--strict/i);
   assert.match(claudeBoundary, /read-only session inventory/i);
-  assert.match(claudeBoundary, /does not prove Claude Code indexing, control, parity, GUI mutation, or cloud sync/i);
+  assert.match(claudeBoundary, /lco index claude/i);
+  assert.match(claudeBoundary, /Claude live control, settings mutation, GUI\s+mutation, cloud sync, and adapter parity remain future adapter work/i);
   assert.doesNotMatch(claudeBoundary, /full Claude Code parity|control Claude Code remotely|unattended Claude takeover/i);
 });
 

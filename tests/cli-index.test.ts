@@ -13,6 +13,14 @@ function writeJsonl(path: string, threadId: string, title: string): void {
   ].join("\n") + "\n");
 }
 
+function runLoo(args: string[], env: NodeJS.ProcessEnv): ReturnType<typeof spawnSync> {
+  return spawnSync(process.execPath, ["--import", "tsx", "packages/cli/src/index.ts", ...args], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env
+  });
+}
+
 test("CLI index codex supports bounded --max-files smoke runs", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-cli-index-"));
   const sessions = join(root, "sessions");
@@ -44,6 +52,70 @@ test("CLI index codex supports bounded --max-files smoke runs", () => {
     assert.equal(payload.indexedFiles, 1);
     assert.equal(payload.indexedThreads, 1);
     assert.deepEqual(payload.errors, []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("CLI index claude supports grep describe expand product recall", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-cli-index-claude-"));
+  const projectRoot = join(root, ".claude", "projects", "-Volumes-LEXAR-repos-lco");
+  mkdirSync(projectRoot, { recursive: true });
+  writeFileSync(join(projectRoot, "claude-cli-session.jsonl"), [
+    JSON.stringify({
+      type: "user",
+      sessionId: "claude-cli-import",
+      timestamp: "2026-07-08T07:00:00.000Z",
+      message: {
+        role: "user",
+        content: "Please prove the Claude CLI import recall path works without exposing /Users/lume/private/session.jsonl."
+      }
+    }),
+    JSON.stringify({
+      type: "assistant",
+      sessionId: "claude-cli-import",
+      timestamp: "2026-07-08T07:01:00.000Z",
+      message: {
+        role: "assistant",
+        content: "Claude CLI import recall path is indexed for grep describe expand."
+      }
+    })
+  ].join("\n") + "\n");
+  const env = {
+    ...process.env,
+    LOO_DB_PATH: join(root, "orchestrator.sqlite")
+  };
+
+  try {
+    const index = runLoo(["index", "claude", "--max-files", "10", join(root, ".claude", "projects")], env);
+    assert.equal(index.status, 0, index.stderr);
+    const indexPayload = JSON.parse(index.stdout) as { publicSafe: boolean; indexedFiles: number; indexedSessions: number; errors: unknown[] };
+    assert.equal(indexPayload.publicSafe, true);
+    assert.equal(indexPayload.indexedFiles, 1);
+    assert.equal(indexPayload.indexedSessions, 1);
+    assert.deepEqual(indexPayload.errors, []);
+
+    const grep = runLoo(["grep", "Claude", "CLI", "import", "recall", "path"], env);
+    assert.equal(grep.status, 0, grep.stderr);
+    const grepPayload = JSON.parse(grep.stdout) as { matches: Array<{ sourceRef: string; sourceKind: string }> };
+    assert.equal(grepPayload.matches[0]?.sourceKind, "claude_session");
+    assert.equal(grepPayload.matches[0]?.sourceRef, "claude_session:claude-cli-import");
+
+    const describe = runLoo(["describe", "claude_session:claude-cli-import"], env);
+    assert.equal(describe.status, 0, describe.stderr);
+    const describePayload = JSON.parse(describe.stdout) as { sourceKind: string; sourcePath: string };
+    assert.equal(describePayload.sourceKind, "claude_session");
+    assert.equal(describePayload.sourcePath.startsWith("claude_source:"), true);
+
+    const expand = runLoo(["expand-ref", "--profile", "brief", "claude_session:claude-cli-import"], env);
+    assert.equal(expand.status, 0, expand.stderr);
+    const expandPayload = JSON.parse(expand.stdout) as { text: string };
+    const serialized = JSON.stringify({ indexPayload, grepPayload, describePayload, expandPayload });
+    assert.match(expandPayload.text, /Claude CLI import recall path/);
+    assert.equal(serialized.includes("/Users/lume"), false);
+    assert.equal(serialized.includes("/Volumes/LEXAR"), false);
+    assert.equal(serialized.includes("claude-cli-session.jsonl"), false);
+    assert.equal(serialized.includes("session.jsonl"), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
