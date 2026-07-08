@@ -154,7 +154,7 @@ When Codex Desktop collaboration is not directly visible, LCO provides:
 
 The full agent-facing playbook is in [`skills/lossless-openclaw-orchestrator/SKILL.md`](../skills/lossless-openclaw-orchestrator/SKILL.md). Key principles:
 
-1. Start with the compact public facade (8 tools).
+1. Start with the compact public facade (9 tools).
 2. Prefer `lco_*` describe/expand/extract tools over reading raw transcripts.
 3. Keep LCO local-only unless the user explicitly exports a public-safe report.
 4. Preserve Codex approval and sandbox gates.

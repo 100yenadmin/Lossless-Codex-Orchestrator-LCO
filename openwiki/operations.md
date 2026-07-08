@@ -172,7 +172,7 @@ CodeQL: `.github/workflows/codeql.yml`.
 
 ## Versioning
 
-- Current version: `1.4.4` (in `package.json`).
+- Current version: `1.4.5` (in `package.json`).
 - Changelog: `docs/releases/CHANGELOG.md` — one line per released version, newest first.
 - Release notes: `docs/releases/RELEASE_NOTES_<version>.md`.
 - The `prepare` script runs `npm run build` before publish.
