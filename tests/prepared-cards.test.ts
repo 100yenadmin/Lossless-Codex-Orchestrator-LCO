@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -10,6 +11,7 @@ import {
   getPreparedCards,
   getPreparedInbox,
   getPreparedStateStatus,
+  indexClaudeSessions,
   indexCodexSessions,
   indexNativeCodexSubagentResults,
   materializePreparedCards,
@@ -19,6 +21,10 @@ import { createLooToolDeclarations, createLooTools } from "../packages/mcp-serve
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as { DatabaseSync: new (path: string) => ReturnType<typeof createDatabase> };
+
+function testStableId(input: string): string {
+  return createHash("sha256").update(input).digest("hex").slice(0, 32);
+}
 
 function writePreparedCardJsonl(path: string, threadId: string, title: string): void {
   const lines = [
@@ -43,6 +49,30 @@ function writePreparedCardJsonl(path: string, threadId: string, title: string): 
       }
     },
     { timestamp: "2026-07-03T00:00:05Z", event_msg: { type: "agent_message", message: "Final: prepared card proof complete. Closeout State: done." } }
+  ];
+  writeFileSync(path, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+}
+
+function writePreparedClaudeJsonl(path: string, sessionId: string): void {
+  const rawToken = `npm_${"d".repeat(32)}`;
+  const lines = [
+    {
+      type: "user",
+      sessionId,
+      uuid: `${sessionId}-user-1`,
+      timestamp: "2026-07-08T08:00:00.000Z",
+      message: {
+        role: "user",
+        content: `Claude prepared cards target should stay public-safe without leaking ${rawToken} or /Users/lume/private/claude-prep.jsonl.`
+      }
+    },
+    {
+      type: "summary",
+      sessionId,
+      uuid: `${sessionId}-summary-1`,
+      timestamp: "2026-07-08T08:01:00.000Z",
+      summary: `Claude prepared card marker gives Eva a compact advisory handoff while hiding ghp_${"e".repeat(36)} and /Users/lume/private/claude-summary.md.`
+    }
   ];
   writeFileSync(path, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
 }
@@ -444,6 +474,264 @@ test("prepared cards materialize public-safe advisory cards and inbox entries", 
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared cards materialize Claude sessions as public-safe advisory cards", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-claude-cards-"));
+  const projectRoot = join(root, ".claude", "projects", "-Volumes-LEXAR-repos-lco");
+  mkdirSync(projectRoot, { recursive: true });
+  const sessionId = "claude-prepared-card-1";
+  writePreparedClaudeJsonl(join(projectRoot, "claude-prepared-private.jsonl"), sessionId);
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const indexed = indexClaudeSessions(db, { roots: [join(root, ".claude", "projects")], maxFiles: 10 });
+    assert.equal(indexed.indexedSessions, 1);
+
+    const materialized = materializePreparedCards(db);
+    assert.equal(materialized.summary.summaryLeaves, 0);
+    assert.equal(materialized.summary.cards, 1);
+    assert.equal(materialized.summary.inboxItems, 1);
+
+    const status = getPreparedStateStatus(db);
+    assert.equal(status.summary.cards, 1);
+    assert.equal(status.summary.inboxItems, 1);
+    assert.equal(status.sourceCoverage.preparedCards, "ok");
+    assert.equal(status.sourceCoverage.preparedInboxItems, "ok");
+
+    const cards = getPreparedCards(db, { limit: 10 });
+    const card = cards.cards[0]!;
+    assert.equal(cards.summary.total, 1);
+    assert.equal(card.targetRef, `claude_session:${sessionId}`);
+    assert.equal(card.cardKind, "claude_session");
+    assert.equal(card.sourceCoverage.summaryLeaves, "not_configured");
+    assert.equal(card.authorityCoverage.sessionMetadata.status, "ok");
+    assert.equal(card.state, "ready");
+    assert.match(card.summaryText, /Claude prepared cards target/i);
+    assert.doesNotMatch(card.summaryText, /ghp_|claude-summary\.md|\/Users\/lume/);
+    assert.equal(card.sourceRefs.includes(`claude_session:${sessionId}`), true);
+    assert.equal(card.sourceRefs.some((ref) => ref.startsWith("claude_source:")), true);
+    assert.deepEqual(card.sourceRangeRefs, []);
+
+    const inbox = getPreparedInbox(db, { limit: 10 });
+    assert.equal(inbox.summary.total, 1);
+    assert.equal(inbox.items[0]?.targetRef, `claude_session:${sessionId}`);
+    assert.equal(inbox.items[0]?.execute, false);
+
+    const serialized = JSON.stringify({ materialized, status, cards, inbox });
+    assert.equal(serialized.includes("/Users/lume"), false);
+    assert.equal(serialized.includes("/Volumes/LEXAR"), false);
+    assert.equal(serialized.includes("claude-prepared-private.jsonl"), false);
+    assert.equal(serialized.includes("claude-prep.jsonl"), false);
+    assert.equal(serialized.includes("claude-summary.md"), false);
+    assert.equal(serialized.includes("npm_"), false);
+    assert.equal(serialized.includes("ghp_"), false);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepared Claude cards use a readable fallback title when title and project are absent", () => {
+  const db = createDatabase(":memory:");
+  try {
+    const sourceRef = `claude_source:${testStableId("readable-title-fallback-source").slice(0, 16)}`;
+    db.prepare(`
+      INSERT INTO claude_sessions (
+        session_id, title, project, workspace_hint, status, source_path, updated_at,
+        safe_summary, safe_text, source_refs_json, indexed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "claude-readable-title-fallback",
+      null,
+      null,
+      null,
+      "indexed",
+      sourceRef,
+      "2026-07-08T09:07:00.000Z",
+      "Readable fallback summary.",
+      "Readable fallback safe text.",
+      JSON.stringify([sourceRef]),
+      "2026-07-08T09:07:01.000Z"
+    );
+
+    const materialized = materializePreparedCards(db);
+    assert.equal(materialized.summary.cards, 1);
+    const cards = getPreparedCards(db, { limit: 10 });
+    assert.equal(cards.summary.total, 1);
+    assert.equal(cards.cards[0]?.title, "Claude Code session");
+    assert.doesNotMatch(cards.cards[0]?.title ?? "", /claude-readable-title-fallback/);
+  } finally {
+    db.close();
+  }
+});
+
+test("prepared cards dedupe Claude rows that normalize to the same session ref", () => {
+  const db = createDatabase(":memory:");
+  try {
+    const rawUnsafeId = "/Users/lume/private/claude-session.jsonl";
+    const normalizedId = `claude_${testStableId(rawUnsafeId).slice(0, 16)}`;
+    const firstSourceRef = `claude_source:${testStableId("first-source").slice(0, 16)}`;
+    const secondSourceRef = `claude_source:${testStableId("second-source").slice(0, 16)}`;
+    const insert = db.prepare(`
+      INSERT INTO claude_sessions (
+        session_id, title, project, workspace_hint, status, source_path, updated_at,
+        safe_summary, safe_text, source_refs_json, indexed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    insert.run(
+      rawUnsafeId,
+      "Unsafe legacy Claude row",
+      "legacy",
+      null,
+      "indexed",
+      firstSourceRef,
+      "2026-07-08T09:00:00.000Z",
+      "Older Claude prepared card marker.",
+      "Older Claude prepared card marker.",
+      JSON.stringify([firstSourceRef]),
+      "2026-07-08T09:00:01.000Z"
+    );
+    insert.run(
+      normalizedId,
+      "Normalized Claude row",
+      "legacy",
+      null,
+      "indexed",
+      secondSourceRef,
+      "2026-07-08T09:01:00.000Z",
+      "Newer Claude prepared card marker.",
+      "Newer Claude prepared card marker.",
+      JSON.stringify([secondSourceRef]),
+      "2026-07-08T09:01:01.000Z"
+    );
+
+    const materialized = materializePreparedCards(db);
+    assert.equal(materialized.summary.cards, 1);
+    assert.equal(materialized.summary.inboxItems, 1);
+    const cards = getPreparedCards(db, { limit: 10 });
+    assert.equal(cards.summary.total, 1);
+    assert.equal(cards.cards[0]?.targetRef, `claude_session:${normalizedId}`);
+    assert.match(cards.cards[0]?.summaryText ?? "", /Newer Claude prepared card marker/i);
+    const inbox = getPreparedInbox(db, { limit: 10 });
+    assert.equal(inbox.summary.total, 1);
+    assert.equal(inbox.items[0]?.targetRef, `claude_session:${normalizedId}`);
+    const serialized = JSON.stringify({ cards, inbox });
+    assert.doesNotMatch(serialized, /\/Users\/lume/);
+    assert.doesNotMatch(serialized, /claude-session\.jsonl/);
+  } finally {
+    db.close();
+  }
+});
+
+test("prepared Claude card materialization removes stale cards and inbox items", () => {
+  const db = createDatabase(":memory:");
+  try {
+    const sessionId = "claude-stale-cleanup";
+    const sourceRef = `claude_source:${testStableId("stale-cleanup-source").slice(0, 16)}`;
+    db.prepare(`
+      INSERT INTO claude_sessions (
+        session_id, title, project, workspace_hint, status, source_path, updated_at,
+        safe_summary, safe_text, source_refs_json, indexed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      sessionId,
+      "Claude stale cleanup",
+      "cleanup-project",
+      null,
+      "indexed",
+      sourceRef,
+      "2026-07-08T09:03:00.000Z",
+      "Claude stale cleanup summary.",
+      "Claude stale cleanup safe text.",
+      JSON.stringify([sourceRef]),
+      "2026-07-08T09:03:01.000Z"
+    );
+
+    const first = materializePreparedCards(db);
+    assert.equal(first.summary.cards, 1);
+    assert.equal(first.summary.inboxItems, 1);
+    assert.equal(getPreparedCards(db, { limit: 10 }).summary.total, 1);
+    assert.equal(getPreparedInbox(db, { limit: 10 }).summary.total, 1);
+
+    db.prepare("DELETE FROM claude_sessions WHERE session_id = ?").run(sessionId);
+    const second = materializePreparedCards(db);
+    assert.equal(second.summary.cards, 0);
+    assert.equal(second.summary.inboxItems, 0);
+    assert.equal(getPreparedCards(db, { limit: 10 }).summary.total, 0);
+    assert.equal(getPreparedInbox(db, { limit: 10 }).summary.total, 0);
+  } finally {
+    db.close();
+  }
+});
+
+test("prepared Claude card summary fallback avoids arbitrary transcript tail", () => {
+  const db = createDatabase(":memory:");
+  try {
+    const sourceRef = `claude_source:${testStableId("summary-fallback-source").slice(0, 16)}`;
+    db.prepare(`
+      INSERT INTO claude_sessions (
+        session_id, title, project, workspace_hint, status, source_path, updated_at,
+        safe_summary, safe_text, source_refs_json, indexed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "claude-summary-fallback",
+      "Stable Claude summary title",
+      "fallback-project",
+      null,
+      "indexed",
+      sourceRef,
+      "2026-07-08T09:05:00.000Z",
+      null,
+      "Initial operator request.\nMiddle implementation detail.\ntrailing partial fragment",
+      JSON.stringify([sourceRef]),
+      "2026-07-08T09:05:01.000Z"
+    );
+
+    const materialized = materializePreparedCards(db);
+    assert.equal(materialized.summary.cards, 1);
+    const cards = getPreparedCards(db, { limit: 10 });
+    assert.equal(cards.summary.total, 1);
+    assert.equal(cards.cards[0]?.summaryText, "Stable Claude summary title");
+    assert.doesNotMatch(cards.cards[0]?.summaryText ?? "", /trailing partial fragment/i);
+  } finally {
+    db.close();
+  }
+});
+
+test("prepared Claude card summary prefers stable summary over transcript keyword traps", () => {
+  const db = createDatabase(":memory:");
+  try {
+    const sourceRef = `claude_source:${testStableId("summary-keyword-trap-source").slice(0, 16)}`;
+    db.prepare(`
+      INSERT INTO claude_sessions (
+        session_id, title, project, workspace_hint, status, source_path, updated_at,
+        safe_summary, safe_text, source_refs_json, indexed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "claude-summary-keyword-trap",
+      "Claude keyword trap title",
+      "fallback-project",
+      null,
+      "indexed",
+      sourceRef,
+      "2026-07-08T09:06:00.000Z",
+      "Stable operator context.\nFinal ready marker that should not replace the first summary.",
+      "Initial operator request.\nMiddle implementation detail.\nThe build is not complete yet but ready for another pass.",
+      JSON.stringify([sourceRef]),
+      "2026-07-08T09:06:01.000Z"
+    );
+
+    const materialized = materializePreparedCards(db);
+    assert.equal(materialized.summary.cards, 1);
+    const cards = getPreparedCards(db, { limit: 10 });
+    assert.equal(cards.summary.total, 1);
+    assert.equal(cards.cards[0]?.summaryText, "Stable operator context.");
+    assert.doesNotMatch(cards.cards[0]?.summaryText ?? "", /Final ready marker/i);
+    assert.doesNotMatch(cards.cards[0]?.summaryText ?? "", /not complete yet/i);
+  } finally {
+    db.close();
   }
 });
 
