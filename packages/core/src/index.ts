@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, readSync, realpathSync, statfsSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
@@ -2124,6 +2124,7 @@ export type SessionDiffOptions = {
   threadId?: string;
   targetRef?: string;
   cursor?: string;
+  cursorSigningKey?: string;
   limit?: number;
   tokenBudget?: number;
   now?: string;
@@ -11284,6 +11285,9 @@ export function getWatcherEvents(db: LooDatabase, options: WatcherEventsOptions 
 type SessionDiffCursorPayload = {
   schema: "lco.session.diff.cursor.v1";
   issuedAt: string;
+  watermarkAt: string;
+  watermarkChangeKind: SessionDiffChangeKind | null;
+  watermarkChangeRef: string | null;
   threadId: string | null;
   targetRef: string | null;
   snapshot: SessionDiffSnapshot;
@@ -11310,6 +11314,12 @@ type SessionDiffCandidate = SessionDiffChange & {
   approxTokens: number;
 };
 
+type SessionDiffCursorWatermark = {
+  changedAt: string;
+  changeKind: SessionDiffChangeKind | null;
+  changeRef: string | null;
+};
+
 type SessionDiffSafeCounts = {
   raw: number;
   safe: number;
@@ -11322,8 +11332,10 @@ export function getSessionDiff(db: LooDatabase, options: SessionDiffOptions = {}
   const threadId = optionalPublicThreadId(options.threadId);
   const explicitTargetRef = options.targetRef ? publicSafeRefLike(options.targetRef, "target") : null;
   const targetRef = threadId ? codexThreadRef(threadId) : explicitTargetRef;
-  const cursor = parseSessionDiffCursor(options.cursor);
-  const cursorAt = cursor.payload?.issuedAt ?? "1970-01-01T00:00:00.000Z";
+  const cursorSigningKey = sessionDiffCursorSigningKey(options.cursorSigningKey);
+  const cursor = parseSessionDiffCursor(options.cursor, cursorSigningKey);
+  const cursorWatermark = sessionDiffCursorWatermark(cursor.payload);
+  const cursorAt = cursorWatermark.changedAt;
   const snapshot = createSessionDiffSnapshot(db, { threadId, targetRef });
   const cursorReasonCodes = [...cursor.reasonCodes];
   let cursorStatus: SessionDiffCursorStatus = options.cursor ? cursor.status : "none";
@@ -11357,7 +11369,8 @@ export function getSessionDiff(db: LooDatabase, options: SessionDiffOptions = {}
     ...preparedCardResult.changes,
     ...inboxResult.changes,
     ...watcherResult.changes
-  ].sort((left, right) => left.changedAt.localeCompare(right.changedAt)
+  ].filter((candidate) => sessionDiffCandidateAfterCursor(candidate, cursorWatermark))
+    .sort((left, right) => left.changedAt.localeCompare(right.changedAt)
     || left.changeKind.localeCompare(right.changeKind)
     || left.changeRef.localeCompare(right.changeRef));
 
@@ -11365,14 +11378,15 @@ export function getSessionDiff(db: LooDatabase, options: SessionDiffOptions = {}
   let approxTokens = 0;
   let tokenBudgetCount = 0;
   let limitCount = 0;
-  for (const candidate of candidates) {
+  for (let index = 0; index < candidates.length; index += 1) {
+    const candidate = candidates[index]!;
     if (selected.length >= limit) {
-      limitCount += 1;
-      continue;
+      limitCount = candidates.length - index;
+      break;
     }
-    if (approxTokens + candidate.approxTokens > tokenBudget) {
-      tokenBudgetCount += 1;
-      continue;
+    if (approxTokens + candidate.approxTokens > tokenBudget && selected.length > 0) {
+      tokenBudgetCount = candidates.length - index;
+      break;
     }
     approxTokens += candidate.approxTokens;
     const { approxTokens: _approxTokens, ...change } = candidate;
@@ -11389,13 +11403,23 @@ export function getSessionDiff(db: LooDatabase, options: SessionDiffOptions = {}
     tokenBudgetCount > 0 ? "token_budget" : null,
     filteredUnsafeRows > 0 ? "filtered_unsafe_rows" : null
   ].filter((reason): reason is "limit" | "token_budget" | "filtered_unsafe_rows" => Boolean(reason));
+  const nextWatermark = sessionDiffNextWatermark({
+    selected,
+    candidates,
+    filteredUnsafeRows,
+    generatedAt,
+    cursorWatermark
+  });
   const nextCursor = encodeSessionDiffCursor({
     schema: "lco.session.diff.cursor.v1",
     issuedAt: generatedAt,
+    watermarkAt: nextWatermark.changedAt,
+    watermarkChangeKind: nextWatermark.changeKind,
+    watermarkChangeRef: nextWatermark.changeRef,
     threadId: threadId ?? null,
     targetRef: targetRef ?? null,
     snapshot
-  });
+  }, cursorSigningKey);
   return {
     schema: "lco.session.diff.v1",
     publicSafe: true,
@@ -11426,11 +11450,11 @@ export function getSessionDiff(db: LooDatabase, options: SessionDiffOptions = {}
       totalChanges: candidates.length,
       returned: selected.length,
       changedSourceEvents: sourceEventsChanged,
-      changedSourceRanges: sourceRangeResult.changedRows,
-      changedSummaryLeaves: summaryLeafResult.changedRows,
-      changedPreparedCards: preparedCardResult.changedRows,
-      changedInboxItems: inboxResult.changedRows,
-      changedWatcherObservations: watcherResult.changedRows,
+      changedSourceRanges: candidates.filter((change) => change.changeKind === "source_range").length,
+      changedSummaryLeaves: candidates.filter((change) => change.changeKind === "summary_leaf").length,
+      changedPreparedCards: candidates.filter((change) => change.changeKind === "prepared_card").length,
+      changedInboxItems: candidates.filter((change) => change.changeKind === "prepared_inbox_item").length,
+      changedWatcherObservations: candidates.filter((change) => change.changeKind === "watcher_observation").length,
       lowConfidence: selected.filter((change) => change.confidence < 0.5).length
     },
     limits: {
@@ -11448,7 +11472,7 @@ export function getSessionDiff(db: LooDatabase, options: SessionDiffOptions = {}
     },
     nextSafeCommands: sessionDiffNextSafeCommands(cursorStatus),
     actionsPerformed: preparedCardReadActions(),
-    proofBoundary: "Session diff reads only public-safe LCO derived-cache rows and opaque cursor hashes. It does not open raw JSONL or SQLite source stores, expose transcript paths/text, write cache rows, run live control, mutate GUI, write external systems, publish npm, or create GitHub releases."
+    proofBoundary: "Session diff reads only public-safe LCO derived-cache rows and signed opaque cursor hashes. It does not open raw JSONL or SQLite source stores, expose transcript paths/text, write cache rows, run live control, mutate GUI, write external systems, publish npm, or create GitHub releases."
   };
 }
 
@@ -11459,25 +11483,41 @@ function optionalPublicThreadId(value: string | undefined): string | undefined {
   return undefined;
 }
 
-function encodeSessionDiffCursor(payload: SessionDiffCursorPayload): string {
-  return `lco_cursor_${Buffer.from(canonicalJsonString(payload)).toString("base64url")}`;
+function encodeSessionDiffCursor(payload: SessionDiffCursorPayload, signingKey: string | null): string {
+  const encodedPayload = Buffer.from(canonicalJsonString(payload)).toString("base64url");
+  if (!signingKey) return `lco_cursor_${encodedPayload}`;
+  return `lco_cursor_${encodedPayload}.${sessionDiffCursorSignature(encodedPayload, signingKey)}`;
 }
 
-function parseSessionDiffCursor(cursor: string | undefined): SessionDiffCursorParseResult {
+function parseSessionDiffCursor(cursor: string | undefined, signingKey: string | null): SessionDiffCursorParseResult {
   if (!cursor) return { status: "accepted", payload: null, reasonCodes: [] };
   if (!cursor.startsWith("lco_cursor_")) {
     return { status: "invalid", payload: null, reasonCodes: ["cursor_prefix_invalid"] };
   }
   try {
-    const parsed = JSON.parse(Buffer.from(cursor.slice("lco_cursor_".length), "base64url").toString("utf8")) as unknown;
+    const encodedWithSignature = cursor.slice("lco_cursor_".length);
+    const [encodedPayload, suppliedSignature] = encodedWithSignature.split(".", 2);
+    if (!encodedPayload) return { status: "invalid", payload: null, reasonCodes: ["cursor_payload_invalid"] };
+    if (signingKey) {
+      if (!suppliedSignature) return { status: "invalid", payload: null, reasonCodes: ["cursor_signature_missing"] };
+      if (!sessionDiffCursorSignatureMatches(encodedPayload, suppliedSignature, signingKey)) {
+        return { status: "invalid", payload: null, reasonCodes: ["cursor_signature_invalid"] };
+      }
+    }
+    const parsed = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")) as unknown;
     if (!isObjectRecord(parsed) || parsed.schema !== "lco.session.diff.cursor.v1") {
       return { status: "invalid", payload: null, reasonCodes: ["cursor_schema_invalid"] };
     }
     const issuedAt = typeof parsed.issuedAt === "string" ? publicIsoTimestamp(parsed.issuedAt) : null;
+    const watermarkAt = typeof parsed.watermarkAt === "string" ? publicIsoTimestamp(parsed.watermarkAt) : issuedAt;
+    const watermarkChangeKind = sessionDiffCursorChangeKind(parsed.watermarkChangeKind);
+    const watermarkChangeRef = typeof parsed.watermarkChangeRef === "string" && /^session_diff:[0-9a-f]{32}$/.test(parsed.watermarkChangeRef)
+      ? parsed.watermarkChangeRef
+      : null;
     const threadId = typeof parsed.threadId === "string" ? optionalPublicThreadId(parsed.threadId) ?? null : null;
     const targetRef = typeof parsed.targetRef === "string" ? publicSafeRefLike(parsed.targetRef, "target") : null;
     const snapshotValue = isObjectRecord(parsed.snapshot) ? parsed.snapshot : null;
-    if (!issuedAt || !snapshotValue) {
+    if (!issuedAt || !watermarkAt || !snapshotValue) {
       return { status: "invalid", payload: null, reasonCodes: ["cursor_payload_invalid"] };
     }
     const snapshot = sanitizeSessionDiffSnapshot(snapshotValue);
@@ -11487,6 +11527,9 @@ function parseSessionDiffCursor(cursor: string | undefined): SessionDiffCursorPa
       payload: {
         schema: "lco.session.diff.cursor.v1",
         issuedAt,
+        watermarkAt,
+        watermarkChangeKind,
+        watermarkChangeRef,
         threadId,
         targetRef,
         snapshot
@@ -11496,6 +11539,81 @@ function parseSessionDiffCursor(cursor: string | undefined): SessionDiffCursorPa
   } catch {
     return { status: "invalid", payload: null, reasonCodes: ["cursor_decode_failed"] };
   }
+}
+
+function sessionDiffCursorSigningKey(explicitKey: string | undefined): string | null {
+  const key = explicitKey?.trim() || readEnv("SESSION_DIFF_CURSOR_KEY")?.trim();
+  if (key && key.length >= 16) return key;
+  return stableId(`session-diff-cursor:${resolveHomeDir()}`);
+}
+
+function sessionDiffCursorSignature(encodedPayload: string, signingKey: string): string {
+  return createHmac("sha256", signingKey).update(encodedPayload).digest("base64url");
+}
+
+function sessionDiffCursorSignatureMatches(encodedPayload: string, suppliedSignature: string, signingKey: string): boolean {
+  const expected = sessionDiffCursorSignature(encodedPayload, signingKey);
+  try {
+    const expectedBuffer = Buffer.from(expected);
+    const suppliedBuffer = Buffer.from(suppliedSignature);
+    return expectedBuffer.length === suppliedBuffer.length && timingSafeEqual(expectedBuffer, suppliedBuffer);
+  } catch {
+    return false;
+  }
+}
+
+function sessionDiffCursorChangeKind(value: unknown): SessionDiffChangeKind | null {
+  return value === "source_range"
+    || value === "summary_leaf"
+    || value === "prepared_card"
+    || value === "prepared_inbox_item"
+    || value === "watcher_observation"
+    ? value
+    : null;
+}
+
+function sessionDiffCursorWatermark(payload: SessionDiffCursorPayload | null): SessionDiffCursorWatermark {
+  return {
+    changedAt: payload?.watermarkAt ?? payload?.issuedAt ?? "1970-01-01T00:00:00.000Z",
+    changeKind: payload?.watermarkChangeKind ?? null,
+    changeRef: payload?.watermarkChangeRef ?? null
+  };
+}
+
+function sessionDiffCandidateAfterCursor(candidate: SessionDiffCandidate, watermark: SessionDiffCursorWatermark): boolean {
+  const timeComparison = candidate.changedAt.localeCompare(watermark.changedAt);
+  if (timeComparison > 0) return true;
+  if (timeComparison < 0) return false;
+  if (!watermark.changeKind || !watermark.changeRef) return false;
+  const kindComparison = candidate.changeKind.localeCompare(watermark.changeKind);
+  if (kindComparison > 0) return true;
+  if (kindComparison < 0) return false;
+  return candidate.changeRef.localeCompare(watermark.changeRef) > 0;
+}
+
+function sessionDiffNextWatermark(input: {
+  selected: SessionDiffChange[];
+  candidates: SessionDiffCandidate[];
+  filteredUnsafeRows: number;
+  generatedAt: string;
+  cursorWatermark: SessionDiffCursorWatermark;
+}): SessionDiffCursorWatermark {
+  const lastSelected = input.selected.at(-1);
+  if (lastSelected) {
+    return {
+      changedAt: lastSelected.changedAt,
+      changeKind: lastSelected.changeKind,
+      changeRef: lastSelected.changeRef
+    };
+  }
+  if (input.candidates.length === 0 && input.filteredUnsafeRows === 0) {
+    return {
+      changedAt: input.generatedAt,
+      changeKind: null,
+      changeRef: null
+    };
+  }
+  return input.cursorWatermark;
 }
 
 function sanitizeSessionDiffSnapshot(value: Record<string, unknown>): SessionDiffSnapshot | null {
@@ -11586,8 +11704,8 @@ function sessionDiffWhereSql(
       clauses.push("thread_id = ?");
       params.push(target.threadId);
     } else if (targetRef) {
-      clauses.push("source_refs_json LIKE ?");
-      params.push(`%${targetRef}%`);
+      clauses.push("source_refs_json LIKE ? ESCAPE '\\'");
+      params.push(`%"${escapeLike(targetRef)}"%`);
     }
   } else if (table === "prepared_cards" || table === "prepared_inbox_items" || table === "watcher_observations") {
     if (targetRef) {
@@ -11624,7 +11742,7 @@ function countChangedSessionDiffRows(
   target: { threadId?: string; targetRef?: string | null }
 ): number {
   const base = sessionDiffWhereSql(table, target);
-  const where = base.where ? `${base.where} AND ${changedColumn} > ?` : `WHERE ${changedColumn} > ?`;
+  const where = base.where ? `${base.where} AND ${changedColumn} >= ?` : `WHERE ${changedColumn} >= ?`;
   return Number((db.prepare(`SELECT COUNT(*) AS count FROM ${table} ${where}`).get(...base.params, cursorAt) as { count: number }).count ?? 0);
 }
 
@@ -11633,7 +11751,7 @@ function collectChangedSourceRanges(
   input: { threadId?: string; targetRef?: string | null; cursorAt: string }
 ): { counts: SessionDiffSafeCounts; changedRows: number; filteredUnsafeRows: number; changes: SessionDiffCandidate[] } {
   const base = sessionDiffWhereSql("prepared_source_ranges", input);
-  const where = base.where ? `${base.where} AND created_at > ?` : "WHERE created_at > ?";
+  const where = base.where ? `${base.where} AND created_at >= ?` : "WHERE created_at >= ?";
   const rows = db.prepare(`
     SELECT
       range_ref AS rangeRef,
@@ -11698,7 +11816,7 @@ function collectChangedSummaryLeaves(
   input: { threadId?: string; targetRef?: string | null; cursorAt: string }
 ): { counts: SessionDiffSafeCounts; changedRows: number; filteredUnsafeRows: number; changes: SessionDiffCandidate[] } {
   const base = sessionDiffWhereSql("summary_leaves", input);
-  const where = base.where ? `${base.where} AND created_at > ?` : "WHERE created_at > ?";
+  const where = base.where ? `${base.where} AND created_at >= ?` : "WHERE created_at >= ?";
   const rows = db.prepare(`
     SELECT
       leaf_ref AS leafRef,
@@ -11759,7 +11877,7 @@ function collectChangedPreparedCards(
   input: { threadId?: string; targetRef?: string | null; cursorAt: string }
 ): { counts: SessionDiffSafeCounts; changedRows: number; filteredUnsafeRows: number; changes: SessionDiffCandidate[] } {
   const base = sessionDiffWhereSql("prepared_cards", input);
-  const where = base.where ? `${base.where} AND updated_at > ?` : "WHERE updated_at > ?";
+  const where = base.where ? `${base.where} AND updated_at >= ?` : "WHERE updated_at >= ?";
   const rows = db.prepare(`
     SELECT
       card_ref AS cardRef,
@@ -11825,7 +11943,7 @@ function collectChangedPreparedInboxItems(
   input: { threadId?: string; targetRef?: string | null; cursorAt: string }
 ): { counts: SessionDiffSafeCounts; changedRows: number; filteredUnsafeRows: number; changes: SessionDiffCandidate[] } {
   const base = sessionDiffWhereSql("prepared_inbox_items", input);
-  const where = base.where ? `${base.where} AND updated_at > ?` : "WHERE updated_at > ?";
+  const where = base.where ? `${base.where} AND updated_at >= ?` : "WHERE updated_at >= ?";
   const rows = db.prepare(`
     SELECT
       item_id AS itemRef,
@@ -11879,7 +11997,7 @@ function collectChangedWatcherObservations(
   input: { targetRef?: string | null; cursorAt: string }
 ): { counts: SessionDiffSafeCounts; changedRows: number; filteredUnsafeRows: number; changes: SessionDiffCandidate[] } {
   const base = sessionDiffWhereSql("watcher_observations", input);
-  const where = base.where ? `${base.where} AND observed_at > ?` : "WHERE observed_at > ?";
+  const where = base.where ? `${base.where} AND observed_at >= ?` : "WHERE observed_at >= ?";
   const rows = db.prepare(`
     SELECT
       observation_id AS observationId,

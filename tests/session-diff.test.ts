@@ -399,6 +399,123 @@ test("session diff enforces token budget with omission markers", () => {
   });
 });
 
+test("session diff cursor drains omitted changes instead of advancing past them", () => {
+  withSessionDiffDb((db) => {
+    const threadId = "019f-session-diff-drain";
+    insertSession(db, threadId);
+    for (let index = 0; index < 5; index += 1) {
+      const range = insertPreparedRange(db, {
+        threadId,
+        ordinal: index + 1,
+        createdAt: `2026-07-09T00:0${index}:00.000Z`
+      });
+      insertSummaryLeaf(db, {
+        threadId,
+        ordinal: index + 1,
+        sourceRangeRef: range,
+        summaryText: `Drainable public-safe summary ${index}`,
+        createdAt: `2026-07-09T00:0${index}:01.000Z`
+      });
+    }
+
+    const firstPage = getSessionDiff(db, {
+      threadId,
+      now: "2026-07-09T00:10:00.000Z",
+      limit: 2,
+      tokenBudget: 800
+    });
+    assert.equal(firstPage.omitted.reasons.includes("limit"), true);
+    const firstRefs = new Set(firstPage.changes.map((change) => change.changeRef));
+
+    const secondPage = getSessionDiff(db, {
+      threadId,
+      cursor: firstPage.cursor.nextCursor,
+      now: "2026-07-09T00:11:00.000Z",
+      limit: 20,
+      tokenBudget: 8000
+    });
+    assert.equal(secondPage.cursor.status, "accepted");
+    assert.ok(secondPage.summary.returned > 0);
+    assert.ok(secondPage.changes.every((change) => !firstRefs.has(change.changeRef)));
+    assert.ok(secondPage.changes.some((change) => change.changedAt < firstPage.generatedAt));
+  });
+});
+
+test("session diff target-ref matching does not overmatch prefix-colliding summary leaves", () => {
+  withSessionDiffDb((db) => {
+    const shortThreadId = "abc";
+    const longThreadId = "abcdef";
+    insertSession(db, shortThreadId);
+    insertSession(db, longThreadId);
+    const shortRange = insertPreparedRange(db, {
+      threadId: shortThreadId,
+      ordinal: 1,
+      createdAt: "2026-07-09T00:01:00.000Z"
+    });
+    const longRange = insertPreparedRange(db, {
+      threadId: longThreadId,
+      ordinal: 1,
+      createdAt: "2026-07-09T00:01:00.000Z"
+    });
+    insertSummaryLeaf(db, {
+      threadId: shortThreadId,
+      ordinal: 1,
+      sourceRangeRef: shortRange,
+      summaryText: "Short thread leaf",
+      createdAt: "2026-07-09T00:01:01.000Z"
+    });
+    insertSummaryLeaf(db, {
+      threadId: longThreadId,
+      ordinal: 1,
+      sourceRangeRef: longRange,
+      summaryText: "Long prefix-colliding thread leaf",
+      createdAt: "2026-07-09T00:01:01.000Z"
+    });
+
+    const diff = getSessionDiff(db, {
+      targetRef: `codex_thread:${shortThreadId}`,
+      now: "2026-07-09T00:02:00.000Z",
+      limit: 20,
+      tokenBudget: 2000
+    });
+
+    const leafChanges = diff.changes.filter((change) => change.changeKind === "summary_leaf");
+    assert.equal(leafChanges.length, 1);
+    assert.equal(leafChanges[0]?.threadId, shortThreadId);
+    assert.equal(diff.summary.changedSummaryLeaves, 1);
+  });
+});
+
+test("session diff rejects tampered signed cursors", () => {
+  withSessionDiffDb((db) => {
+    const threadId = "019f-session-diff-signed";
+    const cursorSigningKey = "test-session-diff-cursor-key";
+    insertSession(db, threadId);
+    insertPreparedRange(db, { threadId, ordinal: 1, createdAt: "2026-07-09T00:00:00.000Z" });
+    const baseline = getSessionDiff(db, {
+      threadId,
+      now: "2026-07-09T00:01:00.000Z",
+      cursorSigningKey
+    });
+    const [, encodedPayload, signature] = baseline.cursor.nextCursor.match(/^lco_cursor_([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)$/) ?? [];
+    assert.ok(encodedPayload);
+    assert.ok(signature);
+    const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")) as Record<string, unknown>;
+    payload.issuedAt = "1970-01-01T00:00:00.000Z";
+    const tamperedCursor = `lco_cursor_${Buffer.from(JSON.stringify(payload)).toString("base64url")}.${signature}`;
+
+    const diff = getSessionDiff(db, {
+      threadId,
+      cursor: tamperedCursor,
+      now: "2026-07-09T00:02:00.000Z",
+      cursorSigningKey
+    });
+
+    assert.equal(diff.cursor.status, "invalid");
+    assert.ok(diff.cursor.reasonCodes.includes("cursor_signature_invalid"));
+  });
+});
+
 test("session diff is exposed through MCP/OpenClaw declarations and legacy alias", () => {
   withSessionDiffDb((db) => {
     const threadId = "019f-session-diff-tool";
