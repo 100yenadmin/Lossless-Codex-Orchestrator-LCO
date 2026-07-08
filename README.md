@@ -165,7 +165,7 @@ npm install -g lossless-codex-orchestrator@beta
 
 Package channels:
 
-- Current stable: `1.4.5` shipped the stable maintenance patch for Codex Desktop visible-thread parsing and canonical tool-name docs.
+- Current stable: `1.5.0` shipped the Coverage & Cockpit release: Claude Code read/recall, Claude prepared cards, the Claude Code recall companion plugin, LCM summary DAG expansion, database maintenance doctoring, OpenWiki orientation updates, and public metadata cleanup.
 - `latest` is the stable public channel.
 - `beta` is the active prerelease train.
 - `next` is reserved for release candidates.

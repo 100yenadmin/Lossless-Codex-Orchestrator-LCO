@@ -1,10 +1,10 @@
 # Public Claim Audit
 
-## Allowed Stable 1.4.5 Claim
+## Allowed Stable 1.5.0 Claim
 
-Collaborate with local Codex sessions through OpenClaw using local indexing, prepared-state recall, bounded expansion, and approval-gated dry-run/control boundaries.
+Collaborate with local Codex and Claude Code session context through OpenClaw/MCP using local indexing, prepared-state recall, bounded expansion, and approval-gated dry-run/control boundaries.
 
-This claim is limited to the Codex stable path that has tests and local smoke coverage: indexing, search, describe, prepared-state cards/inbox, summary leaves, bounded expansion, read-only LCM peer recall, Codex direct protocol diagnostics, dry-run approval audits, and read-only CUA/Peekaboo readiness.
+This claim covers the stable local recall path with tests and smoke coverage: Codex indexing/search/describe/expand, Claude Code read/recall and `claude_session:*` refs, prepared-state cards/inbox, summary leaves, bounded expansion, read-only LCM peer DAG expansion, Codex direct protocol diagnostics, dry-run approval audits, and read-only CUA/Peekaboo readiness.
 
 Scratch-thread live smokes are standing-approved only when the prompt is
 harmless, the thread created by the smoke is disposable, and the evidence stays
@@ -85,7 +85,7 @@ blockers instead of allowing a working-app claim.
 
 Install stable releases through the `latest` dist-tag, public betas through the
 `beta` dist-tag, and release candidates through `next`. The stable channel
-target for this package version is `1.4.5`; npm `latest` must move only after
+target for this package version is `1.5.0`; npm `latest` must move only after
 the separate stable-promotion gate proves the exact candidate. Keep beta and
 other prereleases on prerelease tags. Do not publish a fake stable package just
 to move a dist-tag.
