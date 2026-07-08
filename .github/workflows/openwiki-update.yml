@@ -47,6 +47,13 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm run build
 
+      - name: Move OpenWiki runner outside workspace
+        env:
+          OPENWIKI_RUNNER_DIR: ${{ env.OPENWIKI_RUNNER_DIR }}
+        run: |
+          rm -rf "${RUNNER_TEMP}/openwiki-runner"
+          mv "${OPENWIKI_RUNNER_DIR}" "${RUNNER_TEMP}/openwiki-runner"
+
       - name: Run OpenWiki docs update
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ZAI_API_KEY }}
@@ -55,18 +62,19 @@ jobs:
           OPENWIKI_PROVIDER: ${{ env.OPENWIKI_PROVIDER }}
           OPENWIKI_MODEL_ID: ${{ env.OPENWIKI_MODEL_ID }}
           OPENWIKI_OUTPUT_DIR: ${{ env.OPENWIKI_OUTPUT_DIR }}
-          OPENWIKI_RUNNER_DIR: ${{ env.OPENWIKI_RUNNER_DIR }}
+          OPENWIKI_RUNNER_PATH: ${{ runner.temp }}/openwiki-runner
         run: |
           if [ "${COMMAND}" = "init" ]; then
-            node "${OPENWIKI_RUNNER_DIR}/dist/cli.js" --init --print --no-agent-instructions --modelId "${OPENWIKI_MODEL_ID}"
+            node "${OPENWIKI_RUNNER_PATH}/dist/cli.js" --init --print --no-agent-instructions --modelId "${OPENWIKI_MODEL_ID}"
           else
-            node "${OPENWIKI_RUNNER_DIR}/dist/cli.js" --update --print --no-agent-instructions --modelId "${OPENWIKI_MODEL_ID}"
+            node "${OPENWIKI_RUNNER_PATH}/dist/cli.js" --update --print --no-agent-instructions --modelId "${OPENWIKI_MODEL_ID}"
           fi
 
       - name: Remove OpenWiki runner checkout
         env:
           OPENWIKI_RUNNER_DIR: ${{ env.OPENWIKI_RUNNER_DIR }}
-        run: rm -rf "${OPENWIKI_RUNNER_DIR}"
+          OPENWIKI_RUNNER_PATH: ${{ runner.temp }}/openwiki-runner
+        run: rm -rf "${OPENWIKI_RUNNER_PATH}" "${OPENWIKI_RUNNER_DIR}"
 
       - name: Record public run metadata
         env:
