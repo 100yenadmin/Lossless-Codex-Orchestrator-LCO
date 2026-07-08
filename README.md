@@ -301,6 +301,17 @@ LCO is OpenClaw-first because that is where the product has been dogfooded, but
 the useful layer is broader: one local Codex memory and command surface that any
 agent harness can call through CLI or MCP.
 
+Claude Code users who already run `codex-plugin-cc` can add LCO as a separate
+recall companion:
+
+```text
+/plugin marketplace add 100yenadmin/Lossless-Codex-Orchestrator-LCO
+/plugin install lco-recall@lco
+```
+
+The companion provides a user-invocable `find` skill for local recall and
+leaves Codex command ownership with `codex-plugin-cc`.
+
 ## OpenClaw And MCP
 
 Run the MCP server directly:

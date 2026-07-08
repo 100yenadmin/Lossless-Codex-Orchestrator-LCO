@@ -48,10 +48,12 @@
     "node": ">=22.5.0"
   },
   "files": [
+    ".claude-plugin",
     ".codex-plugin",
     "dist",
     "hooks",
     "packages",
+    "plugins",
     "docs",
     "evals/scenarios/v1/*.json",
     "evals/scenarios/v1/*.md",

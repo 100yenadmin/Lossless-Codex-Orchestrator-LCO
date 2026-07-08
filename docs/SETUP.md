@@ -305,6 +305,18 @@ lco serve
 }
 ```
 
+If your Claude Code setup already uses `codex-plugin-cc`, install LCO as a
+separate local recall companion:
+
+```text
+/plugin marketplace add 100yenadmin/Lossless-Codex-Orchestrator-LCO
+/plugin install lco-recall@lco
+```
+
+Use the user-invocable `find` skill for public-safe local recall. If a running
+Claude Code session does not show the skill immediately, reload plugins or start
+a fresh session after installation.
+
 ### Cursor
 
 Add the same server entry to Cursor's MCP configuration:
@@ -666,7 +678,7 @@ Live control is blocked
 Setup proves local install, local index, and optional MCP/OpenClaw tool
 exposure. It does not prove:
 
-- full Claude Code parity
+- Claude Code control or settings parity
 - no cloud sync
 - no unattended desktop takeover
 - no permission bypass

@@ -1,0 +1,11 @@
+{
+  "name": "lco",
+  "description": "Lossless Codex Orchestrator companion plugins for local recall.",
+  "plugins": [
+    {
+      "name": "lco-recall",
+      "source": "./plugins/lco-recall",
+      "description": "Search local LCO recall from Claude Code without taking over codex-plugin-cc commands."
+    }
+  ]
+}
