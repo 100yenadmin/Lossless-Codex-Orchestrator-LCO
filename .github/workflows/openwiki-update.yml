@@ -32,6 +32,8 @@ jobs:
     steps:
       - name: Checkout LCO
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
 
       - name: Checkout OpenWiki runner
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
@@ -39,6 +41,7 @@ jobs:
           repository: ${{ env.OPENWIKI_REPOSITORY }}
           ref: ${{ env.OPENWIKI_REF }}
           path: ${{ env.OPENWIKI_RUNNER_DIR }}
+          persist-credentials: false
 
       - name: Build OpenWiki runner
         working-directory: ${{ env.OPENWIKI_RUNNER_DIR }}
