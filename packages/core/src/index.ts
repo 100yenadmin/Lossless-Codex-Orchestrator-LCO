@@ -6852,14 +6852,16 @@ function buildPreparedClaudeCardDraft(db: LooDatabase, row: ClaudePreparedSessio
 }
 
 function claudePreparedCardSummarySource(row: ClaudePreparedSessionRow): string {
-  const candidates = [row.safeSummary, row.safeText]
-    .flatMap((value) => typeof value === "string" ? value.split(/\r?\n/) : [])
+  const summaryLines = typeof row.safeSummary === "string" ? row.safeSummary.split(/\r?\n/) : [];
+  const textLines = typeof row.safeText === "string" ? row.safeText.split(/\r?\n/) : [];
+  const candidates = [...summaryLines, ...textLines]
     .map((line) => line.trim())
     .filter(Boolean);
   const preferred = [...candidates].reverse().find((line) =>
     /\b(?:summary|final|handoff|closeout|complete|completed|ready|marker)\b/i.test(line)
   );
-  return preferred ?? candidates.at(-1) ?? row.title ?? "Claude Code session indexed for local read/recall.";
+  const stableSummary = summaryLines.map((line) => line.trim()).find(Boolean);
+  return preferred ?? stableSummary ?? row.title ?? candidates[0] ?? "Claude Code session indexed for local read/recall.";
 }
 
 export function getPreparedStateStatus(db: LooDatabase, options: PreparedStateStatusOptions = {}): PreparedStateStatusReport {

@@ -587,6 +587,40 @@ test("prepared cards dedupe Claude rows that normalize to the same session ref",
   }
 });
 
+test("prepared Claude card summary fallback avoids arbitrary transcript tail", () => {
+  const db = createDatabase(":memory:");
+  try {
+    const sourceRef = `claude_source:${testStableId("summary-fallback-source").slice(0, 16)}`;
+    db.prepare(`
+      INSERT INTO claude_sessions (
+        session_id, title, project, workspace_hint, status, source_path, updated_at,
+        safe_summary, safe_text, source_refs_json, indexed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "claude-summary-fallback",
+      "Stable Claude summary title",
+      "fallback-project",
+      null,
+      "indexed",
+      sourceRef,
+      "2026-07-08T09:05:00.000Z",
+      null,
+      "Initial operator request.\nMiddle implementation detail.\ntrailing partial fragment",
+      JSON.stringify([sourceRef]),
+      "2026-07-08T09:05:01.000Z"
+    );
+
+    const materialized = materializePreparedCards(db);
+    assert.equal(materialized.summary.cards, 1);
+    const cards = getPreparedCards(db, { limit: 10 });
+    assert.equal(cards.summary.total, 1);
+    assert.equal(cards.cards[0]?.summaryText, "Stable Claude summary title");
+    assert.doesNotMatch(cards.cards[0]?.summaryText ?? "", /trailing partial fragment/i);
+  } finally {
+    db.close();
+  }
+});
+
 test("prepared cards carry real objective blocker next action and fresh renamed title", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-prepared-work-state-"));
   const sessions = join(root, "sessions");
