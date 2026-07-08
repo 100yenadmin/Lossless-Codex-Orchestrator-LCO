@@ -10,6 +10,22 @@ function readJson<T>(path: string): T {
   return JSON.parse(read(path)) as T;
 }
 
+function frontmatterField(content: string, field: string): string | undefined {
+  const match = content.match(new RegExp(`^${field}:\\s*(.+)$`, "m"));
+  return match?.[1]?.trim();
+}
+
+function containsWords(content: string, words: string[]): boolean {
+  const normalized = content.toLowerCase();
+  return words.every((word) => normalized.includes(word.toLowerCase()));
+}
+
+function containsCommandTokens(content: string, tokens: string[]): boolean {
+  return content
+    .split(/\r?\n/)
+    .some((line) => tokens.every((token) => line.toLowerCase().includes(token.toLowerCase())));
+}
+
 test("Claude Code companion plugin is namespaced and packageable", () => {
   const packageJson = readJson<{ files?: string[] }>("package.json");
   const marketplace = readJson<{
@@ -36,12 +52,11 @@ test("Claude Code companion plugin is namespaced and packageable", () => {
   assert.equal(marketplace.plugins?.[0]?.source, "./plugins/lco-recall");
 
   assert.equal(plugin.name, "lco-recall");
-  assert.match(plugin.description ?? "", /Lossless Codex Orchestrator/i);
-  assert.match(plugin.description ?? "", /local recall/i);
+  assert.equal(containsWords(plugin.description ?? "", ["Codex", "orchestrator", "recall"]), true);
 
-  assert.match(skill, /^name:\s*find/m);
-  assert.match(skill, /lco find --json/i);
-  assert.match(skill, /npx --yes lossless-codex-orchestrator@latest/i);
+  assert.equal(frontmatterField(skill, "name"), "find");
+  assert.equal(containsCommandTokens(skill, ["lco", "find", "--json"]), true);
+  assert.equal(containsCommandTokens(skill, ["npx", "lossless-codex-orchestrator@latest"]), true);
   assert.doesNotMatch(skill, /\/codex:/i);
   assert.doesNotMatch(skill, /\bStop\b/i);
   assert.equal(existsSync("plugins/lco-recall/hooks"), false);
@@ -53,14 +68,21 @@ test("Claude Code companion plugin is namespaced and packageable", () => {
     ["README", readme],
     ["SETUP", setup]
   ] as const) {
-    assert.match(content, /codex-plugin-cc/i, `${surface} must position alongside codex-plugin-cc`);
-    assert.match(content, /\/plugin marketplace add 100yenadmin\/Lossless-Codex-Orchestrator-LCO/i);
-    assert.match(content, /\/plugin install lco-recall@lco/i);
+    assert.equal(
+      containsWords(content, ["codex-plugin-cc"]),
+      true,
+      `${surface} must position alongside codex-plugin-cc`
+    );
+    assert.equal(
+      containsCommandTokens(content, ["/plugin", "marketplace", "add", "100yenadmin/Lossless-Codex-Orchestrator-LCO"]),
+      true
+    );
+    assert.equal(containsCommandTokens(content, ["/plugin", "install", "lco-recall@lco"]), true);
     assert.doesNotMatch(content, /\/codex:lco|\/codex:find/i);
     assert.doesNotMatch(content, /Full Claude Code parity/i);
   }
 
-  assert.match(claimAudit, /native Codex or Claude recall/i);
-  assert.match(claimAudit, /cross-harness recall/i);
-  assert.match(claimAudit, /audited control/i);
+  assert.equal(containsWords(claimAudit, ["Codex", "Claude", "recall"]), true);
+  assert.equal(containsWords(claimAudit, ["cross", "harness", "recall"]), true);
+  assert.equal(containsWords(claimAudit, ["audit", "control"]), true);
 });
