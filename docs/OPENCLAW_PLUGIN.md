@@ -149,3 +149,7 @@ Safety details:
 Claude Code read/recall support is available through `lco index claude` and
 `claude_session:*` refs. Claude live control, GUI mutation, settings/session
 mutation, and adapter parity remain future work.
+Claude Code dry-run adapter validation is available for the 1.6 control-plane
+seam as a dry-run only TargetAdapter status/audit path; it reports
+`dry_run_only`, `not_configured`, or `unsupported` instead of pretending live
+Claude readiness.
