@@ -15803,12 +15803,13 @@ export function expandRecallRef(db: LooDatabase, options: {
     `Source ref: ${publicSourcePathRef(summary.sourcePath)}`
   ].filter(Boolean).join("\n");
   const sourceSummaryText = formatLcmSourceSummaries(expansion, profile);
+  const omissionLine = formatLcmOmissionsLine(expansion.reasonCodes);
   const text = profile.name === "metadata"
     ? metadata
-    : truncateByApproxTokens([
+    : truncateLcmSummaryExpansionText([
       `${metadata}\n\nContent:\n${publicSafeText(summary.content, profile.tokenBudget * 6)}`,
       sourceSummaryText
-    ].filter(Boolean).join("\n\n"), profile.tokenBudget);
+    ].filter(Boolean).join("\n\n"), profile.tokenBudget, omissionLine);
   const result: ExpandRecallResult = {
     sourceKind: "lcm_summary",
     sourceRef: lcmSummaryRef(summary.sourcePath, summary.summaryId),
@@ -15839,9 +15840,22 @@ function formatLcmSourceSummaries(expansion: LcmSummaryExpansion, profile: Recal
     ].filter(Boolean).join(" ");
     return `${labelParts}\n${publicSafeText(summary.content, perSummaryBudget)}`;
   });
-  const omissions = expansion.reasonCodes.filter((reason) => reason !== "lcm_summary_dag_unavailable");
-  if (omissions.length > 0) lines.push(`Omissions: ${unique(omissions).join(", ")}`);
+  const omissionLine = formatLcmOmissionsLine(expansion.reasonCodes);
+  if (omissionLine) lines.push(omissionLine);
   return ["Source summaries:", ...lines].join("\n");
+}
+
+function formatLcmOmissionsLine(reasonCodes: string[]): string {
+  const omissions = reasonCodes.filter((reason) => reason !== "lcm_summary_dag_unavailable");
+  return omissions.length > 0 ? `Omissions: ${omissions.join(", ")}` : "";
+}
+
+function truncateLcmSummaryExpansionText(text: string, tokenBudget: number, requiredTail: string): string {
+  if (!requiredTail) return truncateByApproxTokens(text, tokenBudget);
+  const tailTokenBudget = Math.ceil((requiredTail.length + 8) / 4);
+  const bodyBudget = Math.max(1, tokenBudget - tailTokenBudget);
+  const truncated = truncateByApproxTokens(text, bodyBudget);
+  return truncated.includes(requiredTail) ? truncated : `${truncated}\n\n${requiredTail}`;
 }
 
 export function expandQuery(db: LooDatabase, options: {

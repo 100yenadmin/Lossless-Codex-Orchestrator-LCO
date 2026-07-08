@@ -256,13 +256,13 @@ function makeDagFixture(): DagFixture {
   };
 }
 
-function expandDagFixtureSummary(fixture: { root: string; lcmPath: string }, query: string) {
+function expandDagFixtureSummary(fixture: { root: string; lcmPath: string }, query: string, profile: "brief" | "evidence" = "evidence") {
   const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
   try {
     const lcmRef = grepRecall(db, { query, lcmDbPaths: [fixture.lcmPath], limit: 5 })
       .matches.find((match) => match.sourceKind === "lcm_summary")?.sourceRef;
     assert.ok(lcmRef?.startsWith("lcm_summary:"));
-    return expandRecallRef(db, { sourceRef: lcmRef, lcmDbPaths: [fixture.lcmPath], profile: "evidence" });
+    return expandRecallRef(db, { sourceRef: lcmRef, lcmDbPaths: [fixture.lcmPath], profile });
   } finally {
     db.close();
   }
@@ -455,6 +455,21 @@ test("LCM summary expansion reports missing child refs while preserving availabl
     assert.doesNotMatch(expanded.text, /sum_missing_absent/);
     assert.match(expanded.text, /lcm_summary_dag_missing_child/);
     assert.doesNotMatch(expanded.text, /lcm_summary_dag_node_cap|lcm_summary_dag_depth_cap/);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM summary expansion preserves DAG omission markers when root content is long", () => {
+  const fixture = makeDagFixture();
+  try {
+    fixture.addSummary("sum_long_root", `Long omission root ${"budget filler ".repeat(700)}`);
+    fixture.addParent("sum_long_root", "sum_long_missing_child", 0);
+    fixture.close();
+
+    const expanded = expandDagFixtureSummary(fixture, "Long omission root", "brief");
+    assert.match(expanded.text, /Omissions: lcm_summary_dag_missing_child/);
+    assert.doesNotMatch(expanded.text, /sum_long_missing_child|\/Users\/|\/Volumes\/|\/tmp\//);
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
