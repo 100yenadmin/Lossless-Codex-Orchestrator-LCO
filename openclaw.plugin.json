@@ -36,6 +36,7 @@
       "lco_expand_session",
       "lco_expand_query",
       "lco_prepared_inbox",
+      "lco_session_diff",
       "lco_prepared_state",
       "lco_recent_sessions",
       "lco_watchers",
@@ -72,6 +73,7 @@
       "loo_expand_query",
       "loo_prepared_state",
       "loo_prepared_inbox",
+      "loo_session_diff",
       "loo_recent_sessions",
       "loo_watchers",
       "loo_codex_app_server_status",
@@ -512,6 +514,48 @@
               "type": "integer",
               "minimum": 1,
               "maximum": 200
+            }
+          }
+        }
+      },
+      {
+        "name": "lco_session_diff",
+        "description": "Read token-bounded public-safe changes since an opaque session-diff cursor.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail",
+          "operatorPathRole": "Inspect what changed since a previous opaque cursor before drive/control planning."
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "thread_id": {
+              "type": "string"
+            },
+            "target_ref": {
+              "type": "string"
+            },
+            "cursor": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "token_budget": {
+              "type": "integer",
+              "minimum": 20,
+              "maximum": 8000
+            },
+            "now": {
+              "type": "string"
             }
           }
         }
@@ -2289,6 +2333,49 @@
               "type": "integer",
               "minimum": 1,
               "maximum": 200
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_session_diff",
+        "description": "Read token-bounded public-safe changes since an opaque session-diff cursor.",
+        "safety": {
+          "mode": "read_only",
+          "source": "local_index",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "workflow_detail",
+          "operatorPathRole": "Inspect what changed since a previous opaque cursor before drive/control planning.",
+          "aliasOf": "lco_session_diff"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "thread_id": {
+              "type": "string"
+            },
+            "target_ref": {
+              "type": "string"
+            },
+            "cursor": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "token_budget": {
+              "type": "integer",
+              "minimum": 20,
+              "maximum": 8000
+            },
+            "now": {
+              "type": "string"
             }
           }
         }

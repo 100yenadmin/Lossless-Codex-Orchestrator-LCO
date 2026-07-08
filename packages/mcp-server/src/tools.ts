@@ -28,6 +28,7 @@ import {
   getPreparedCards,
   getPreparedInbox,
   getPreparedStateStatus,
+  getSessionDiff,
   PREPARED_CARD_STATES,
   getWatcherEvents,
   createPlanStatePinsReport,
@@ -190,6 +191,10 @@ export const LOO_TOOL_SURFACE: Record<string, LooToolSurfaceMetadata> = {
     tier: "public_facade",
     operatorPathRank: 2,
     operatorPathRole: "Start from the compact prepared-state operating picture."
+  },
+  lco_session_diff: {
+    tier: "workflow_detail",
+    operatorPathRole: "Inspect what changed since a previous opaque cursor before drive/control planning."
   },
   lco_recent_sessions: {
     tier: "public_facade",
@@ -659,6 +664,21 @@ export function createLooTools(options: {
     }, (input) => getPreparedInbox(options.db, {
       threadId: optionalString(input.thread_id),
       limit: optionalNumber(input.limit)
+    })),
+    tool("lco_session_diff", "Read token-bounded public-safe changes since an opaque session-diff cursor.", {
+      thread_id: { type: "string" },
+      target_ref: { type: "string" },
+      cursor: { type: "string" },
+      limit: { type: "integer", minimum: 1, maximum: 500 },
+      token_budget: { type: "integer", minimum: 20, maximum: 8000 },
+      now: { type: "string" }
+    }, (input) => getSessionDiff(options.db, {
+      threadId: optionalString(input.thread_id),
+      targetRef: optionalString(input.target_ref),
+      cursor: optionalString(input.cursor),
+      limit: optionalNumber(input.limit),
+      tokenBudget: optionalNumber(input.token_budget),
+      now: optionalString(input.now)
     })),
     tool("lco_prepared_state", "Read prepared-state status, cards, summary leaves, or bounded summary expansion through one canonical prepared-state surface.", {
       view: { type: "string", enum: ["status", "cards", "leaves", "expand"] },
