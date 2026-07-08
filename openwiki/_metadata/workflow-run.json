@@ -1,0 +1,13 @@
+{
+  "provider": "zai",
+  "provider_route": "anthropic-compatible",
+  "base_url": "https://api.z.ai/api/anthropic",
+  "model": "GLM-5.2",
+  "workflow": "openwiki-update",
+  "run_id": "28954683542",
+  "run_attempt": "1",
+  "source": "manual_dispatch",
+  "openwiki_ref": "99c32b44cf1bcc5dbc35de54d28084205edd9816",
+  "openwiki_content_sha256": "623e915beb7e2e3f26a7f93a207531fa0842d7083a66a3bbb62d7350d83a06b1",
+  "openwiki_content_file_count": 7
+}

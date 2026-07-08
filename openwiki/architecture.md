@@ -8,7 +8,7 @@ LCO is a TypeScript monorepo compiled to a single npm package. All source compil
 packages/
   core/         — SQLite database, Codex JSONL indexer, FTS5 search, prepared state, summary leaves
   adapters/     — Codex JSON-RPC client, desktop backend, method policy, redaction, audit store
-  mcp-server/   — MCP tool registry (34 canonical lco_* tools plus loo_* compatibility aliases), tool tiers, alias management
+  mcp-server/   — MCP tool registry (35 canonical lco_* tools plus loo_* compatibility aliases), tool tiers, alias management
   cli/          — CLI dispatch, release/QA gates, smoke harnesses, onboarding
   openclaw-plugin/ — OpenClaw plugin entry (defineToolPlugin wrapper)
   runtime/      — Env helpers, Node.js version guard
@@ -105,19 +105,20 @@ Redacts credential strings and generic `/Users/<name>` paths (converted to `~/..
 - `tools.ts` — Defines the full `LooTool` registry via `createLooTools()`. Each tool has a `name`, `description`, `safety` contract, `metadata.tier`, and `inputSchema`.
 - `server.ts` / `server-runtime.ts` — MCP stdio server with `initialize`, `tools/list`, `tools/call`.
 - Tool tiers: `public_facade`, `workflow_detail`, `proof_debug`, `internal_low_level`.
-- `LCO_TOOL_PROFILE` filters listing: `facade` (8 tools), `standard` (+workflow_detail), `all` (full catalog, default).
+- `LCO_TOOL_PROFILE` filters listing: `facade` (9 tools), `standard` (+workflow_detail), `all` (full catalog, default).
 - `loo_*` names are maintained compatibility aliases for `lco_*` tools.
 
-### Compact Public Facade (8 tools)
+### Compact Public Facade (9 tools)
 
-1. `lco_prepared_inbox` — Execute-false attention inbox.
-2. `lco_describe_ref` — Describe a source-prefixed ref.
-3. `lco_expand_query` — Bounded evidence brief by query.
-4. `lco_recent_sessions` — Recent/active session cards.
-5. `lco_attention_inbox` — Compact attention queue.
-6. `lco_project_digest` — Project-level handoff brief.
-7. `lco_codex_control_dry_run` — Exact action hashes and approval packet.
-8. `lco_codex_resume_thread` — Live resume after matching dry-run approval.
+1. `lco_find` — First-run local indexing plus public-safe session/content matches from one query.
+2. `lco_prepared_inbox` — Execute-false attention inbox.
+3. `lco_describe_ref` — Describe a source-prefixed ref.
+4. `lco_expand_query` — Bounded evidence brief by query.
+5. `lco_recent_sessions` — Recent/active session cards.
+6. `lco_attention_inbox` — Compact attention queue.
+7. `lco_project_digest` — Project-level handoff brief.
+8. `lco_codex_control_dry_run` — Exact action hashes and approval packet.
+9. `lco_codex_resume_thread` — Live resume after matching dry-run approval.
 
 ## CLI (`packages/cli/src/`)
 
