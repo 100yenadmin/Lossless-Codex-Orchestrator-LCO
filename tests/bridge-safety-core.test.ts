@@ -403,24 +403,53 @@ test("TargetAdapter executor preserves Codex dry-run audit and policy fail-close
   assert.equal(dryRun.approvalAuditId, "loo_audit_target");
   assert.equal(requestCalled, false);
 
-  const removed = CODEX_CONTROL_METHODS.delete("thread/resume");
-  try {
-    await assert.rejects(
-      () => target.execute({
-        action: "codex_resume_thread",
-        method: "thread/resume",
-        threadId: "thr_1",
-        dryRun: false,
-        approvalAuditId: dryRun.approvalAuditId,
-        params: { threadId: "thr_1", excludeTurns: true }
-      }),
-      /not allowlisted/
-    );
-    assert.equal(requestCalled, false);
-  } finally {
-    if (removed) CODEX_CONTROL_METHODS.add("thread/resume");
-  }
+  const blockedTarget = createTargetControl({
+    targetName: "Codex",
+    methodPolicy: {
+      ...CODEX_TARGET_METHOD_POLICY,
+      controlMethods: new Set([...CODEX_CONTROL_METHODS].filter((method) => method !== "thread/resume"))
+    },
+    audit: targetAuditFromRecord(() => auditRecord),
+    client: {
+      request: async () => {
+        requestCalled = true;
+        return { ok: true };
+      }
+    }
+  });
+
+  await assert.rejects(
+    () => blockedTarget.execute({
+      action: "codex_resume_thread",
+      method: "thread/resume",
+      threadId: "thr_1",
+      dryRun: false,
+      approvalAuditId: dryRun.approvalAuditId,
+      params: { threadId: "thr_1", excludeTurns: true }
+    }),
+    /not allowlisted/
+  );
+  assert.equal(requestCalled, false);
 });
+
+function targetAuditFromRecord(readRecord: () => any) {
+  return {
+    path: "memory",
+    fingerprintText(value: string) {
+      return `test-text-${value}`;
+    },
+    fingerprintValue(value: unknown) {
+      return `test-params-${JSON.stringify(value)}`;
+    },
+    append(record: any) {
+      return { id: "loo_audit_unused", createdAt: new Date().toISOString(), ...record };
+    },
+    find(id: string) {
+      const record = readRecord();
+      return record?.id === id ? record : null;
+    }
+  };
+}
 
 test("loopback WebSocket config rejects credentials, non-loopback, paths, and non-ws schemes", () => {
   assert.deepEqual(buildLoopbackWebSocketConfig("ws://127.0.0.1:4567"), { url: "ws://127.0.0.1:4567/" });
