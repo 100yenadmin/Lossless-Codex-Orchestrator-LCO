@@ -1,0 +1,8 @@
+{
+  "name": "lco-recall",
+  "version": "0.1.0",
+  "description": "Lossless Codex Orchestrator local recall companion for Claude Code.",
+  "author": {
+    "name": "Lossless Codex Orchestrator"
+  }
+}

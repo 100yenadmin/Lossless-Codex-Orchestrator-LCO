@@ -32,6 +32,10 @@ post-action refresh working-app loop.
 
 Claude Code local JSONL read/recall is in the 1.5 line through `lco index claude` and `claude_session:*` refs. Public docs must not imply Claude Code control parity, GUI mutation, cloud sync, or settings/session mutation until those adapter paths are proven.
 
+If native Codex or Claude recall appears in those tools, LCO still provides
+cross-harness recall, local prepared state, and audited control boundaries
+across the orchestrator surfaces that share the same local index.
+
 ## Current Proof Boundary
 
 - Codex session import/search/recall and extraction are covered by fixture tests and local smoke.
