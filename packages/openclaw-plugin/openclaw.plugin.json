@@ -139,7 +139,7 @@
     "toolDeclarations": [
       {
         "name": "lco_index_sessions",
-        "description": "Index local Codex session JSONL files into the local orchestrator database.",
+        "description": "Index local Codex and Claude Code session JSONL files into the local orchestrator database.",
         "safety": {
           "mode": "local_cache_write",
           "source": "local_index",
@@ -155,7 +155,21 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "target": {
+              "type": "string",
+              "enum": [
+                "codex",
+                "claude",
+                "all"
+              ]
+            },
             "roots": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "claude_roots": {
               "type": "array",
               "items": {
                 "type": "string"
@@ -181,7 +195,7 @@
       },
       {
         "name": "lco_find",
-        "description": "Find local Codex work from one query; indexes local Codex files first unless index is false.",
+        "description": "Find local Codex and Claude Code work from one query; indexes local recall sources first unless index is false.",
         "safety": {
           "mode": "local_cache_write",
           "source": "local_index",
@@ -210,7 +224,21 @@
             "index": {
               "type": "boolean"
             },
+            "index_target": {
+              "type": "string",
+              "enum": [
+                "codex",
+                "claude",
+                "all"
+              ]
+            },
             "roots": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "claude_roots": {
               "type": "array",
               "items": {
                 "type": "string"
@@ -1795,7 +1823,7 @@
       },
       {
         "name": "loo_index_sessions",
-        "description": "Index local Codex session JSONL files into the local orchestrator database.",
+        "description": "Index local Codex and Claude Code session JSONL files into the local orchestrator database.",
         "safety": {
           "mode": "local_cache_write",
           "source": "local_index",
@@ -1812,7 +1840,21 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "target": {
+              "type": "string",
+              "enum": [
+                "codex",
+                "claude",
+                "all"
+              ]
+            },
             "roots": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "claude_roots": {
               "type": "array",
               "items": {
                 "type": "string"
@@ -1838,7 +1880,7 @@
       },
       {
         "name": "loo_find",
-        "description": "Find local Codex work from one query; indexes local Codex files first unless index is false.",
+        "description": "Find local Codex and Claude Code work from one query; indexes local recall sources first unless index is false.",
         "safety": {
           "mode": "local_cache_write",
           "source": "local_index",
@@ -1868,7 +1910,21 @@
             "index": {
               "type": "boolean"
             },
+            "index_target": {
+              "type": "string",
+              "enum": [
+                "codex",
+                "claude",
+                "all"
+              ]
+            },
             "roots": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "claude_roots": {
               "type": "array",
               "items": {
                 "type": "string"

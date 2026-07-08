@@ -19,6 +19,29 @@ function writeFindSession(path: string, threadId: string): void {
   ].join("\n") + "\n");
 }
 
+function writeClaudeFindSession(path: string, sessionId: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, [
+    JSON.stringify({
+      type: "user",
+      sessionId,
+      uuid: `${sessionId}-user-1`,
+      timestamp: "2026-07-08T00:10:00.000Z",
+      message: {
+        role: "user",
+        content: "Claude find adoption wedge should surface from zero-config first-run indexing without raw prompt dumps."
+      }
+    }),
+    JSON.stringify({
+      type: "summary",
+      sessionId,
+      uuid: `${sessionId}-summary-1`,
+      timestamp: "2026-07-08T00:11:00.000Z",
+      summary: "Claude zero config find marker appears in local recall."
+    })
+  ].join("\n") + "\n");
+}
+
 function isolatedEnv(home: string): NodeJS.ProcessEnv {
   const env = { ...process.env, HOME: home, USERPROFILE: home };
   delete env.LCO_DB_PATH;
@@ -36,7 +59,7 @@ test("lco find performs zero-config first-run indexing and renders public-safe h
     const result = runLoo(["find", "spotlight", "needle"], isolatedEnv(root), 10_000);
 
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    assert.match(result.stderr, /indexing local Codex sessions/i);
+    assert.match(result.stderr, /indexing local Codex and Claude sessions/i);
     assert.equal(existsSync(dbPath), true);
     assert.match(result.stdout, /LCO Find/i);
     assert.match(result.stdout, /spotlight needle/i);
@@ -61,7 +84,7 @@ test("lco find --json returns a scriptable public-safe packet", () => {
     const result = runLoo(["find", "--json", "--limit", "3", "spotlight", "needle"], isolatedEnv(root), 10_000);
 
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    assert.match(result.stderr, /indexing local Codex sessions/i);
+    assert.match(result.stderr, /indexing local Codex and Claude sessions/i);
     const payload = JSON.parse(result.stdout) as Record<string, any>;
     assert.equal(payload.schema, "lco.find.v1");
     assert.equal(payload.publicSafe, true);
@@ -80,6 +103,38 @@ test("lco find --json returns a scriptable public-safe packet", () => {
     assert.deepEqual(payload.actionsPerformed.rawTranscriptRead, true);
     assert.deepEqual(payload.actionsPerformed.rawTranscriptReturned, false);
     assert.doesNotMatch(result.stdout, /\/Users\/|\/Volumes\/|\.jsonl|orchestrator\.sqlite|PRIVATE_FIND_CANARY|npm_SECRET_TOKEN/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("lco find performs zero-config first-run Claude indexing when only Claude sessions exist", () => {
+  const root = mkdtempSync(join(tmpdir(), "lco-find-claude-first-run-"));
+  try {
+    const claudeProject = join(root, ".claude", "projects", "-Volumes-LEXAR-repos-lco");
+    const dbPath = join(root, ".openclaw", "lossless-openclaw-orchestrator", "orchestrator.sqlite");
+    writeClaudeFindSession(join(claudeProject, "claude-find-private-session.jsonl"), "claude-find-first-run");
+
+    const result = runLoo(["find", "--json", "Claude", "zero", "config", "find", "marker"], isolatedEnv(root), 10_000);
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stderr, /indexing local Codex and Claude sessions/i);
+    assert.equal(existsSync(dbPath), true);
+    const payload = JSON.parse(result.stdout) as Record<string, any>;
+    assert.equal(payload.schema, "lco.find.v1");
+    assert.equal(payload.publicSafe, true);
+    assert.deepEqual(payload.indexed.sourceKinds, ["codex", "claude"]);
+    assert.equal(payload.indexed.indexedFiles, 1);
+    assert.equal(payload.indexed.indexedThreads, 0);
+    assert.equal(payload.indexed.indexedSessions, 1);
+    assert.equal(payload.results[0].sourceKind, "claude_session");
+    assert.equal(payload.results[0].sourceRef, "claude_session:claude-find-first-run");
+    assert.match(payload.results[0].snippet, /\[?Claude\]?.*\[?zero\]?.*\[?config\]?.*\[?find\]?.*\[?marker\]?/i);
+    assert.equal(payload.actionsPerformed.localRecallSourceRead, true);
+    assert.equal(payload.actionsPerformed.localClaudeSourceRead, true);
+    assert.equal(payload.actionsPerformed.localCodexSourceRead, true);
+    assert.equal(payload.actionsPerformed.rawTranscriptReturned, false);
+    assert.doesNotMatch(result.stdout, /\/Users\/|\/Volumes\/|\.jsonl|orchestrator\.sqlite|private-session/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

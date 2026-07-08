@@ -496,7 +496,7 @@ test("loo find --help exits zero with first-run search guidance", () => {
     assert.equal(result.status, 0, result.stderr || result.stdout);
     assert.match(result.stdout, /Usage:\n  loo\/lco find \[--json\] \[--limit n\] \[--timeout-ms ms\] \[--no-index\] <query>/);
     assert.match(result.stdout, /first-minute command/i);
-    assert.match(result.stdout, /incremental local Codex index pass/i);
+    assert.match(result.stdout, /incremental local Codex and Claude Code index passes/i);
     assert.match(result.stdout, /--json\s+Emit/);
     assert.match(result.stdout, /--no-index\s+Skip/);
     assert.equal(result.stderr.trim(), "");

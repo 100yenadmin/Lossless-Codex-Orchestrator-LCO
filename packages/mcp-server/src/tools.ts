@@ -12,9 +12,11 @@ import {
   createCodexCollaborationCockpit,
   createCodexRuntimeDesktopVisibilityStatus,
   createFindRecallReport,
+  createRecallIndexSummary,
   createCodexThreadNotFoundResult,
   describeSession,
   describeRecallRef,
+  defaultClaudeRoots,
   defaultCodexRoots,
   createIndexedSessionSanitizerReport,
   createIndexedSessionSanitizerRepairPlan,
@@ -46,6 +48,7 @@ import {
   getRecentSessions,
   getSummaryLeaves,
   grepRecall,
+  indexClaudeSessions,
   indexCodexSessions,
   probeLcmPeerDbs,
   probeCodexSqliteStores,
@@ -488,30 +491,16 @@ export function createLooTools(options: {
   const codexReadClient = options.codexReadClient ?? options.codexClient;
   const telemetryEnabled = options.telemetryEnabled ?? readEnv("TELEMETRY") === "1";
   const tools: LooTool[] = [
-    tool("lco_index_sessions", "Index local Codex session JSONL files into the local orchestrator database.", {
+    tool("lco_index_sessions", "Index local Codex and Claude Code session JSONL files into the local orchestrator database.", {
+      target: { type: "string", enum: ["codex", "claude", "all"] },
       roots: { type: "array", items: { type: "string" } },
-      max_files: { type: "integer", minimum: 1, maximum: 100000 },
-      max_bytes_per_file: { type: "integer", minimum: 1, maximum: 1073741824 },
-      max_events_per_file: { type: "integer", minimum: 1, maximum: 1000000 }
-    }, (input) => publicSafeIndexCodexResult(indexCodexSessions(options.db, {
-      roots: optionalRoots(input.roots, defaultCodexRoots()),
-      maxFiles: optionalNumber(input.max_files),
-      maxBytesPerFile: optionalNumber(input.max_bytes_per_file),
-      maxEventsPerFile: optionalNumber(input.max_events_per_file)
-    }))),
-    tool("lco_find", "Find local Codex work from one query; indexes local Codex files first unless index is false.", {
-      query: { type: "string" },
-      limit: { type: "integer", minimum: 1, maximum: 100 },
-      index: { type: "boolean" },
-      roots: { type: "array", items: { type: "string" } },
+      claude_roots: { type: "array", items: { type: "string" } },
       max_files: { type: "integer", minimum: 1, maximum: 100000 },
       max_bytes_per_file: { type: "integer", minimum: 1, maximum: 1073741824 },
       max_events_per_file: { type: "integer", minimum: 1, maximum: 1000000 }
     }, (input) => {
-      const limit = optionalBoundedInteger(input.limit, 1, 100) ?? 10;
-      const shouldIndex = optionalBoolean(input.index) !== false;
-      const query = requiredString(input.query, "query");
-      const indexed = shouldIndex
+      const target = optionalRecallIndexTarget(input.target, "codex");
+      const codex = target === "codex" || target === "all"
         ? indexCodexSessions(options.db, {
           roots: optionalRoots(input.roots, defaultCodexRoots()),
           maxFiles: optionalNumber(input.max_files),
@@ -519,6 +508,48 @@ export function createLooTools(options: {
           maxEventsPerFile: optionalNumber(input.max_events_per_file)
         })
         : null;
+      const claude = target === "claude" || target === "all"
+        ? indexClaudeSessions(options.db, {
+          roots: optionalRoots(target === "claude" ? input.roots : input.claude_roots, defaultClaudeRoots()),
+          maxFiles: optionalNumber(input.max_files),
+          maxBytesPerFile: optionalNumber(input.max_bytes_per_file),
+          maxEventsPerFile: optionalNumber(input.max_events_per_file)
+        })
+        : null;
+      return publicSafeIndexRecallResult({ target, codex, claude });
+    }),
+    tool("lco_find", "Find local Codex and Claude Code work from one query; indexes local recall sources first unless index is false.", {
+      query: { type: "string" },
+      limit: { type: "integer", minimum: 1, maximum: 100 },
+      index: { type: "boolean" },
+      index_target: { type: "string", enum: ["codex", "claude", "all"] },
+      roots: { type: "array", items: { type: "string" } },
+      claude_roots: { type: "array", items: { type: "string" } },
+      max_files: { type: "integer", minimum: 1, maximum: 100000 },
+      max_bytes_per_file: { type: "integer", minimum: 1, maximum: 1073741824 },
+      max_events_per_file: { type: "integer", minimum: 1, maximum: 1000000 }
+    }, (input) => {
+      const limit = optionalBoundedInteger(input.limit, 1, 100) ?? 10;
+      const shouldIndex = optionalBoolean(input.index) !== false;
+      const query = requiredString(input.query, "query");
+      const indexTarget = optionalRecallIndexTarget(input.index_target, input.roots !== undefined && input.claude_roots === undefined ? "codex" : "all");
+      const codex = shouldIndex && (indexTarget === "codex" || indexTarget === "all")
+        ? indexCodexSessions(options.db, {
+          roots: optionalRoots(input.roots, defaultCodexRoots()),
+          maxFiles: optionalNumber(input.max_files),
+          maxBytesPerFile: optionalNumber(input.max_bytes_per_file),
+          maxEventsPerFile: optionalNumber(input.max_events_per_file)
+        })
+        : null;
+      const claude = shouldIndex && (indexTarget === "claude" || indexTarget === "all")
+        ? indexClaudeSessions(options.db, {
+          roots: optionalRoots(input.claude_roots, defaultClaudeRoots()),
+          maxFiles: optionalNumber(input.max_files),
+          maxBytesPerFile: optionalNumber(input.max_bytes_per_file),
+          maxEventsPerFile: optionalNumber(input.max_events_per_file)
+        })
+        : null;
+      const indexed = shouldIndex ? createRecallIndexSummary({ codex, claude }) : null;
       return createFindRecallReport({
         query,
         limit,
@@ -1274,6 +1305,69 @@ function publicSafeIndexCodexResult(result: ReturnType<typeof indexCodexSessions
   };
 }
 
+function publicSafeIndexRecallResult(options: {
+  target: "codex" | "claude" | "all";
+  codex: ReturnType<typeof indexCodexSessions> | null;
+  claude: ReturnType<typeof indexClaudeSessions> | null;
+}) {
+  const summary = createRecallIndexSummary({ codex: options.codex, claude: options.claude });
+  const limitedFiles = [
+    ...(options.codex?.limitedFiles.map((file, index) => ({
+      fileRef: `codex_index_limited_file:${index + 1}`,
+      reason: file.reason,
+      limit: file.limit,
+      actual: file.actual
+    })) ?? []),
+    ...(options.claude?.limitedFiles.map((file, index) => ({
+      fileRef: `claude_index_limited_file:${index + 1}`,
+      reason: file.reason,
+      limit: file.limit,
+      actual: file.actual
+    })) ?? [])
+  ];
+  const errors = [
+    ...(options.codex?.errors.map((error, index) => ({
+      errorRef: `codex_index_error:${index + 1}`,
+      message: publicSafeDiagnosticText(error.message, error.path)
+    })) ?? []),
+    ...(options.claude?.errors.map((error, index) => ({
+      errorRef: `claude_index_error:${index + 1}`,
+      message: publicSafeDiagnosticText(error.message, error.path)
+    })) ?? [])
+  ];
+  return {
+    publicSafe: true,
+    readOnly: false,
+    mutationClasses: summary.mutationClasses,
+    target: options.target,
+    sourceKinds: summary.sourceKinds,
+    indexedFiles: summary.indexedFiles,
+    skippedFiles: summary.skippedFiles,
+    indexedThreads: summary.indexedThreads,
+    indexedSessions: summary.indexedSessions,
+    indexedEvents: summary.indexedEvents,
+    indexLimits: {
+      codex: options.codex?.indexLimits ?? null,
+      claude: options.claude?.indexLimits ?? null
+    },
+    limitedFiles,
+    warnings: [
+      ...(options.codex?.warnings ?? []),
+      ...(options.claude?.warnings ?? [])
+    ],
+    errors,
+    actionsPerformed: {
+      derivedCacheWrite: true,
+      sourceStoreMutation: false,
+      externalWrite: false,
+      liveControl: false,
+      guiMutation: false,
+      rawTranscriptRead: false
+    },
+    proofBoundary: "Indexing writes only LCO-owned derived-cache rows. MCP/OpenClaw output omits raw source paths and does not mutate Codex or Claude source stores, run live control, mutate desktop GUI state, write external systems, publish npm, or create GitHub releases."
+  };
+}
+
 function publicSafeLocalPath(path: string, fallbackBasename: string): string {
   if (!rawLocalPathLike(path)) return path;
   return `<redacted-local-path>/${publicSafeBasename(path, fallbackBasename)}`;
@@ -1897,6 +1991,13 @@ function optionalSummaryLeafKind(value: unknown): SummaryLeafKind | undefined {
     || value === "event_metadata"
   ) return value;
   throw new Error("leaf_kind must be user_prompt, assistant_message, proposed_plan, final_message, closeout, tool_call_metadata, or event_metadata");
+}
+
+function optionalRecallIndexTarget(value: unknown, fallback: "codex" | "claude" | "all"): "codex" | "claude" | "all" {
+  const target = optionalString(value);
+  if (!target) return fallback;
+  if (target === "codex" || target === "claude" || target === "all") return target;
+  throw new Error("target must be codex, claude, or all");
 }
 
 function requiredPreparedStateView(value: unknown): "status" | "cards" | "leaves" | "expand" {
