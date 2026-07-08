@@ -490,6 +490,7 @@ test("prepared cards materialize Claude sessions as public-safe advisory cards",
     assert.equal(indexed.indexedSessions, 1);
 
     const materialized = materializePreparedCards(db);
+    assert.equal(materialized.summary.summaryLeaves, 0);
     assert.equal(materialized.summary.cards, 1);
     assert.equal(materialized.summary.inboxItems, 1);
 
@@ -507,7 +508,7 @@ test("prepared cards materialize Claude sessions as public-safe advisory cards",
     assert.equal(card.sourceCoverage.summaryLeaves, "not_configured");
     assert.equal(card.authorityCoverage.sessionMetadata.status, "ok");
     assert.equal(card.state, "ready");
-    assert.match(card.summaryText, /Claude prepared card marker/i);
+    assert.match(card.summaryText, /Claude prepared cards target/i);
     assert.doesNotMatch(card.summaryText, /ghp_|claude-summary\.md|\/Users\/lume/);
     assert.equal(card.sourceRefs.includes(`claude_session:${sessionId}`), true);
     assert.equal(card.sourceRefs.some((ref) => ref.startsWith("claude_source:")), true);
@@ -624,6 +625,47 @@ test("prepared cards dedupe Claude rows that normalize to the same session ref",
   }
 });
 
+test("prepared Claude card materialization removes stale cards and inbox items", () => {
+  const db = createDatabase(":memory:");
+  try {
+    const sessionId = "claude-stale-cleanup";
+    const sourceRef = `claude_source:${testStableId("stale-cleanup-source").slice(0, 16)}`;
+    db.prepare(`
+      INSERT INTO claude_sessions (
+        session_id, title, project, workspace_hint, status, source_path, updated_at,
+        safe_summary, safe_text, source_refs_json, indexed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      sessionId,
+      "Claude stale cleanup",
+      "cleanup-project",
+      null,
+      "indexed",
+      sourceRef,
+      "2026-07-08T09:03:00.000Z",
+      "Claude stale cleanup summary.",
+      "Claude stale cleanup safe text.",
+      JSON.stringify([sourceRef]),
+      "2026-07-08T09:03:01.000Z"
+    );
+
+    const first = materializePreparedCards(db);
+    assert.equal(first.summary.cards, 1);
+    assert.equal(first.summary.inboxItems, 1);
+    assert.equal(getPreparedCards(db, { limit: 10 }).summary.total, 1);
+    assert.equal(getPreparedInbox(db, { limit: 10 }).summary.total, 1);
+
+    db.prepare("DELETE FROM claude_sessions WHERE session_id = ?").run(sessionId);
+    const second = materializePreparedCards(db);
+    assert.equal(second.summary.cards, 0);
+    assert.equal(second.summary.inboxItems, 0);
+    assert.equal(getPreparedCards(db, { limit: 10 }).summary.total, 0);
+    assert.equal(getPreparedInbox(db, { limit: 10 }).summary.total, 0);
+  } finally {
+    db.close();
+  }
+});
+
 test("prepared Claude card summary fallback avoids arbitrary transcript tail", () => {
   const db = createDatabase(":memory:");
   try {
@@ -675,7 +717,7 @@ test("prepared Claude card summary prefers stable summary over transcript keywor
       "indexed",
       sourceRef,
       "2026-07-08T09:06:00.000Z",
-      "Stable Claude summary handoff.",
+      "Stable operator context.\nFinal ready marker that should not replace the first summary.",
       "Initial operator request.\nMiddle implementation detail.\nThe build is not complete yet but ready for another pass.",
       JSON.stringify([sourceRef]),
       "2026-07-08T09:06:01.000Z"
@@ -685,7 +727,8 @@ test("prepared Claude card summary prefers stable summary over transcript keywor
     assert.equal(materialized.summary.cards, 1);
     const cards = getPreparedCards(db, { limit: 10 });
     assert.equal(cards.summary.total, 1);
-    assert.equal(cards.cards[0]?.summaryText, "Stable Claude summary handoff.");
+    assert.equal(cards.cards[0]?.summaryText, "Stable operator context.");
+    assert.doesNotMatch(cards.cards[0]?.summaryText ?? "", /Final ready marker/i);
     assert.doesNotMatch(cards.cards[0]?.summaryText ?? "", /not complete yet/i);
   } finally {
     db.close();

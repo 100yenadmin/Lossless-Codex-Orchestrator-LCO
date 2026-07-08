@@ -6584,6 +6584,8 @@ function materializePreparedCardsForAllThreads(db: LooDatabase): PreparedCardMat
     ORDER BY threadId ASC
   `).all(SUMMARY_LEAF_EXTRACTOR_VERSION, PREPARED_CARD_EXTRACTOR_VERSION) as Array<{ threadId: string }>;
   const summary = {
+    // Claude prepared cards are metadata-only in this adapter: they materialize
+    // cards and inbox items, but do not synthesize SummaryLeaf rows.
     summaryLeaves: 0,
     cards: 0,
     inboxItems: 0,
@@ -6783,11 +6785,11 @@ function buildPreparedClaudeCardDraft(db: LooDatabase, row: ClaudePreparedSessio
     .slice(0, 40);
   if (sourceRefs.length === 0) return null;
 
-	  const title = cleanPreparedCardField(row.title ?? row.project ?? "Claude Code session", {
-	    fallback: "Claude Code session",
-	    maxChars: 160,
-	    role: "title"
-	  });
+  const title = cleanPreparedCardField(row.title ?? row.project ?? "Claude Code session", {
+    fallback: "Claude Code session",
+    maxChars: 160,
+    role: "title"
+  });
   const summaryText = cleanPreparedCardField(claudePreparedCardSummarySource(row), {
     fallback: "Claude Code session indexed for local read/recall.",
     maxChars: 320,
@@ -6865,11 +6867,11 @@ function claudePreparedCardSummarySource(row: ClaudePreparedSessionRow): string 
   const textCandidates = textLines
     .map((line) => line.trim())
     .filter(Boolean);
-  const preferred = [...summaryCandidates].reverse().find((line) =>
+  const stableSummary = summaryCandidates[0];
+  const preferredText = textCandidates.find((line) =>
     /\b(?:summary|final|handoff|closeout|complete|completed|ready|marker)\b/i.test(line)
   );
-  const stableSummary = summaryCandidates[0];
-  return preferred ?? stableSummary ?? row.title ?? textCandidates[0] ?? "Claude Code session indexed for local read/recall.";
+  return stableSummary ?? row.title ?? preferredText ?? textCandidates[0] ?? "Claude Code session indexed for local read/recall.";
 }
 
 export function getPreparedStateStatus(db: LooDatabase, options: PreparedStateStatusOptions = {}): PreparedStateStatusReport {
