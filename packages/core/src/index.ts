@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, readSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, readSync, realpathSync, statfsSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -210,9 +210,53 @@ export type CodexEventContentStatus = {
 };
 
 export type CodexIndexHealthStatus = {
+  databaseStorage: DatabaseStorageStatus;
   codexJsonlDrift: CodexJsonlDriftStatus;
   codexIndexLimits: CodexIndexLimitStatus;
   codexEventContent: CodexEventContentStatus;
+};
+
+export type DatabaseStorageStatus = {
+  schema: "lco.databaseStorage.status.v1";
+  publicSafe: true;
+  readOnly: true;
+  state: "ready" | "missing" | "maintenance_recommended" | "unavailable";
+  size: {
+    dbBytes: number;
+    walBytes: number;
+    totalBytes: number;
+  };
+  thresholds: {
+    dbBytes: number;
+    walBytes: number;
+    totalBytes: number;
+  };
+  maintenanceRecommended: boolean;
+  reasonCodes: string[];
+  nextSafeCommands: string[];
+};
+
+export type DatabaseMaintenanceReport = {
+  schema: "lco.databaseMaintenance.v1";
+  ok: true;
+  publicSafe: true;
+  readOnly: false;
+  mutationClasses: ["derived_cache"];
+  actionsPerformed: {
+    checkpoint: boolean;
+    analyze: boolean;
+    vacuum: boolean;
+  };
+  before: DatabaseStorageStatus;
+  after: DatabaseStorageStatus;
+  operations: Array<{
+    name: "wal_checkpoint_truncate" | "analyze" | "vacuum";
+    ok: boolean;
+    skipped?: boolean;
+    reason?: string;
+  }>;
+  nextSafeCommands: string[];
+  reasonCodes: string[];
 };
 
 export type IndexCodexResult = {
@@ -2937,6 +2981,9 @@ const PREPARED_CARD_EXTRACTOR_VERSION = "prepared-cards-v2" as const;
 const SUMMARY_LEAF_EDGE_DELETE_BATCH_SIZE = 400;
 const SUMMARY_LEAF_SOURCE_RANGE_REF_LIMIT = 50;
 const PREPARED_CARD_SOURCE_RANGE_REF_LIMIT = 50;
+const DATABASE_MAINTENANCE_DB_BYTES_THRESHOLD = 512 * 1024 * 1024;
+const DATABASE_MAINTENANCE_WAL_BYTES_THRESHOLD = 32 * 1024 * 1024;
+const DATABASE_MAINTENANCE_TOTAL_BYTES_THRESHOLD = 768 * 1024 * 1024;
 const CODEX_JSONL_DRIFT_INDEX_NEXT_ACTION = "loo index codex --max-files 500 \"$HOME/.codex/sessions\" \"$HOME/.codex/archived_sessions\"";
 const CODEX_JSONL_DRIFT_MISSING_DB_NEXT_ACTION = "loo index codex \"$HOME/.codex/sessions\"";
 const CODEX_INDEX_LIMIT_RECOVERY_COMMAND = `loo index codex --max-files 100000 --max-bytes-per-file ${CODEX_RECOVERY_MAX_BYTES_PER_FILE} --max-events-per-file ${CODEX_RECOVERY_MAX_EVENTS_PER_FILE} "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"`;
@@ -5405,6 +5452,7 @@ export function readCodexJsonlDriftStatusFromPath(dbPath = defaultDatabasePath()
 export function readCodexIndexHealthStatusFromPath(dbPath = defaultDatabasePath()): CodexIndexHealthStatus {
   if (!existsSync(dbPath)) {
     return {
+      databaseStorage: getDatabaseStorageStatus(null, dbPath),
       codexJsonlDrift: missingCodexJsonlDriftStatus(),
       codexIndexLimits: emptyCodexIndexLimitStatus("requires_index_run"),
       codexEventContent: emptyCodexEventContentStatus("database_missing")
@@ -5416,12 +5464,14 @@ export function readCodexIndexHealthStatusFromPath(dbPath = defaultDatabasePath(
     db = new DatabaseSync(dbPath, { readOnly: true });
     db.exec("PRAGMA query_only = ON");
     return {
+      databaseStorage: getDatabaseStorageStatus(db, dbPath),
       codexJsonlDrift: getCodexJsonlDriftStatus(db),
       codexIndexLimits: getCodexIndexLimitStatus(db),
       codexEventContent: getCodexEventContentStatus(db, dbPath)
     };
   } catch {
     return {
+      databaseStorage: getDatabaseStorageStatus(null, dbPath, { unavailable: true }),
       codexJsonlDrift: emptyCodexJsonlDriftStatus("read_error"),
       codexIndexLimits: emptyCodexIndexLimitStatus("read_error"),
       codexEventContent: emptyCodexEventContentStatus("read_error")
@@ -5429,6 +5479,108 @@ export function readCodexIndexHealthStatusFromPath(dbPath = defaultDatabasePath(
   } finally {
     db?.close();
   }
+}
+
+export function getDatabaseStorageStatus(
+  db: LooDatabase | null,
+  dbPath?: string,
+  options: { unavailable?: boolean } = {}
+): DatabaseStorageStatus {
+  const dbBytes = sqliteMainFileBytes(db, dbPath);
+  const walBytes = sqliteWalFileBytes(dbPath);
+  const totalBytes = dbBytes + walBytes;
+  const missing = !db && dbPath ? !existsSync(dbPath) : !db && !dbPath;
+  const thresholds = {
+    dbBytes: DATABASE_MAINTENANCE_DB_BYTES_THRESHOLD,
+    walBytes: DATABASE_MAINTENANCE_WAL_BYTES_THRESHOLD,
+    totalBytes: DATABASE_MAINTENANCE_TOTAL_BYTES_THRESHOLD
+  };
+  const maintenanceRecommended = !missing && !options.unavailable && (
+    dbBytes >= thresholds.dbBytes
+    || walBytes >= thresholds.walBytes
+    || totalBytes >= thresholds.totalBytes
+  );
+  return {
+    schema: "lco.databaseStorage.status.v1",
+    publicSafe: true,
+    readOnly: true,
+    state: options.unavailable ? "unavailable" : missing ? "missing" : maintenanceRecommended ? "maintenance_recommended" : "ready",
+    size: {
+      dbBytes,
+      walBytes,
+      totalBytes
+    },
+    thresholds,
+    maintenanceRecommended,
+    reasonCodes: unique([
+      options.unavailable ? "database_storage_status_unavailable" : "",
+      missing ? "database_storage_missing" : "",
+      !missing && !maintenanceRecommended && !options.unavailable ? "database_storage_ready" : "",
+      dbBytes >= thresholds.dbBytes ? "database_storage_db_size_maintenance_recommended" : "",
+      walBytes >= thresholds.walBytes ? "database_storage_wal_size_maintenance_recommended" : "",
+      totalBytes >= thresholds.totalBytes ? "database_storage_total_size_maintenance_recommended" : ""
+    ]),
+    nextSafeCommands: maintenanceRecommended ? ["loo maintenance --timeout-ms 60000", "loo doctor"] : []
+  };
+}
+
+export function runDatabaseMaintenance(
+  db: LooDatabase,
+  options: { dbPath?: string; checkpoint?: boolean; analyze?: boolean; vacuum?: boolean } = {}
+): DatabaseMaintenanceReport {
+  const checkpoint = options.checkpoint ?? true;
+  const analyze = options.analyze ?? true;
+  const vacuum = options.vacuum ?? false;
+  const before = getDatabaseStorageStatus(db, options.dbPath);
+  const operations: DatabaseMaintenanceReport["operations"] = [];
+
+  if (checkpoint) {
+    db.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get();
+    operations.push({ name: "wal_checkpoint_truncate", ok: true });
+  }
+
+  if (analyze) {
+    db.exec("ANALYZE");
+    operations.push({ name: "analyze", ok: true });
+  }
+
+  let vacuumPerformed = false;
+  if (vacuum) {
+    const freeBytes = options.dbPath ? availableFilesystemBytes(dirname(options.dbPath)) : null;
+    const requiredBytes = Math.max(before.size.dbBytes * 2, 64 * 1024 * 1024);
+    if (freeBytes !== null && freeBytes < requiredBytes) {
+      operations.push({ name: "vacuum", ok: true, skipped: true, reason: "insufficient_free_space" });
+    } else {
+      db.exec("VACUUM");
+      vacuumPerformed = true;
+      operations.push({ name: "vacuum", ok: true });
+    }
+  }
+
+  const after = getDatabaseStorageStatus(db, options.dbPath);
+  return {
+    schema: "lco.databaseMaintenance.v1",
+    ok: true,
+    publicSafe: true,
+    readOnly: false,
+    mutationClasses: ["derived_cache"],
+    actionsPerformed: {
+      checkpoint,
+      analyze,
+      vacuum: vacuumPerformed
+    },
+    before,
+    after,
+    operations,
+    nextSafeCommands: ["loo doctor"],
+    reasonCodes: unique([
+      checkpoint ? "database_checkpoint_truncate_completed" : "",
+      analyze ? "database_analyze_completed" : "",
+      vacuumPerformed ? "database_vacuum_completed" : "",
+      vacuum && !vacuumPerformed ? "database_vacuum_skipped" : "",
+      "derived_cache_only"
+    ])
+  };
 }
 
 export function getCodexEventContentStatus(db: LooDatabase, dbPath?: string): CodexEventContentStatus {
@@ -5736,6 +5888,15 @@ function sqliteWalFileBytes(dbPath?: string): number {
   if (!dbPath) return 0;
   const walPath = `${dbPath}-wal`;
   return existsSync(walPath) ? statSync(walPath).size : 0;
+}
+
+function availableFilesystemBytes(path: string): number | null {
+  try {
+    const stats = statfsSync(path);
+    return Number(stats.bavail) * Number(stats.bsize);
+  } catch {
+    return null;
+  }
 }
 
 function missingCodexJsonlDriftStatus(): CodexJsonlDriftStatus {

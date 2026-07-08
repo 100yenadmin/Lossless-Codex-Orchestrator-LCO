@@ -129,15 +129,44 @@ test("loo doctor omits local database paths from public-safe output", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-doctor-"));
   try {
     const dbPath = join(root, "orchestrator.sqlite");
+    const db = createDatabase(dbPath);
+    db.close();
     const result = runLoo(["doctor"], {
       ...process.env,
       LOO_DB_PATH: dbPath
     });
 
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    const report = JSON.parse(result.stdout) as { dbPath?: unknown; database?: { configured?: unknown; activePresent?: unknown; location?: unknown } };
+    const report = JSON.parse(result.stdout) as {
+      dbPath?: unknown;
+      database?: {
+        configured?: unknown;
+        activePresent?: unknown;
+        location?: unknown;
+        storage?: {
+          schema?: string;
+          publicSafe?: boolean;
+          readOnly?: boolean;
+          state?: string;
+          size?: { dbBytes?: number; walBytes?: number; totalBytes?: number };
+          maintenanceRecommended?: boolean;
+          nextSafeCommands?: string[];
+        };
+      };
+    };
     assert.equal(Object.hasOwn(report, "dbPath"), false);
-    assert.deepEqual(report.database, { configured: true, activePresent: false, location: "local" });
+    assert.equal(report.database?.configured, true);
+    assert.equal(report.database?.activePresent, true);
+    assert.equal(report.database?.location, "local");
+    assert.equal(report.database?.storage?.schema, "lco.databaseStorage.status.v1");
+    assert.equal(report.database?.storage?.publicSafe, true);
+    assert.equal(report.database?.storage?.readOnly, true);
+    assert.equal(report.database?.storage?.state, "ready");
+    assert.ok((report.database?.storage?.size?.dbBytes ?? 0) > 0);
+    assert.ok((report.database?.storage?.size?.walBytes ?? -1) >= 0);
+    assert.ok((report.database?.storage?.size?.totalBytes ?? 0) >= (report.database?.storage?.size?.dbBytes ?? 0));
+    assert.equal(report.database?.storage?.maintenanceRecommended, false);
+    assert.deepEqual(report.database?.storage?.nextSafeCommands, []);
     assert.doesNotMatch(result.stdout, new RegExp(dbPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     assert.doesNotMatch(result.stdout, /orchestrator\.sqlite/);
     assert.equal(result.stderr.trim(), "");
@@ -269,7 +298,12 @@ test("loo doctor reports missing DB as read-only first-run not_indexed_yet guida
 
     assert.equal(result.status, 0, result.stderr || result.stdout);
     const report = JSON.parse(result.stdout) as {
-      database?: { configured?: unknown; activePresent?: unknown; location?: unknown };
+      database?: {
+        configured?: unknown;
+        activePresent?: unknown;
+        location?: unknown;
+        storage?: { schema?: string; state?: string; maintenanceRecommended?: boolean };
+      };
       codexJsonlDrift?: {
         state?: unknown;
         availability?: unknown;
@@ -277,7 +311,12 @@ test("loo doctor reports missing DB as read-only first-run not_indexed_yet guida
         readOnly?: unknown;
       };
     };
-    assert.deepEqual(report.database, { configured: true, activePresent: false, location: "local" });
+    assert.equal(report.database?.configured, true);
+    assert.equal(report.database?.activePresent, false);
+    assert.equal(report.database?.location, "local");
+    assert.equal(report.database?.storage?.schema, "lco.databaseStorage.status.v1");
+    assert.equal(report.database?.storage?.state, "missing");
+    assert.equal(report.database?.storage?.maintenanceRecommended, false);
     assert.equal(report.codexJsonlDrift?.state, "not_indexed_yet");
     assert.equal(report.codexJsonlDrift?.availability, "requires_index_run");
     assert.equal(report.codexJsonlDrift?.nextAction, "loo index codex \"$HOME/.codex/sessions\"");

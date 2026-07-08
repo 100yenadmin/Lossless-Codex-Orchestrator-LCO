@@ -62,3 +62,65 @@ test("CLI maintenance --drop-event-content removes only the derived event-conten
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("CLI maintenance checkpoints and analyzes the local derived-cache database", () => {
+  const root = mkdtempSync(join(tmpdir(), "lco-maintenance-storage-"));
+  try {
+    const dbPath = join(root, "orchestrator.sqlite");
+    const db = createDatabase(dbPath);
+    try {
+      db.prepare(`
+        INSERT INTO codex_sessions (
+          thread_id, title, cwd, model, branch, git_sha, source_path,
+          created_at, updated_at, summary, final_message, safe_text,
+          event_count, tool_call_count, indexed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        "019f-maintenance-storage",
+        "Maintenance storage canary",
+        "/Users/lume/private-worktree",
+        "gpt-5.5",
+        null,
+        null,
+        join(root, "private.jsonl"),
+        "2026-07-08T00:00:00.000Z",
+        "2026-07-08T00:00:00.000Z",
+        "maintenance storage canary",
+        "Maintenance storage final.",
+        "Maintenance storage safe text.",
+        1,
+        0,
+        "2026-07-08T00:00:00.000Z"
+      );
+    } finally {
+      db.close();
+    }
+
+    const result = runLoo(["maintenance", "--timeout-ms", "5000"], {
+      ...process.env,
+      LCO_DB_PATH: dbPath
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(result.stderr, "");
+    assert.doesNotMatch(result.stdout, /\/Users\/|\/Volumes\/|private-worktree|private\.jsonl|Maintenance storage/);
+    const report = JSON.parse(result.stdout) as Record<string, any>;
+    assert.equal(report.schema, "lco.databaseMaintenance.v1");
+    assert.equal(report.ok, true);
+    assert.equal(report.publicSafe, true);
+    assert.equal(report.readOnly, false);
+    assert.deepEqual(report.mutationClasses, ["derived_cache"]);
+    assert.equal(report.actionsPerformed.checkpoint, true);
+    assert.equal(report.actionsPerformed.analyze, true);
+    assert.equal(report.actionsPerformed.vacuum, false);
+    assert.equal(report.before.schema, "lco.databaseStorage.status.v1");
+    assert.equal(report.after.schema, "lco.databaseStorage.status.v1");
+    assert.ok(report.before.size.dbBytes > 0);
+    assert.ok(report.after.size.dbBytes > 0);
+    assert.match(report.nextSafeCommands.join("\n"), /loo doctor/);
+    assert.ok(report.reasonCodes.includes("database_checkpoint_truncate_completed"));
+    assert.ok(report.reasonCodes.includes("database_analyze_completed"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

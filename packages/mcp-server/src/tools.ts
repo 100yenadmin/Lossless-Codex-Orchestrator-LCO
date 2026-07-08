@@ -45,6 +45,7 @@ import {
   getCodexToolCalls,
   getCodexEventContentStatus,
   getCodexJsonlDriftStatus,
+  getDatabaseStorageStatus,
   getRecentSessions,
   getSummaryLeaves,
   grepRecall,
@@ -1149,16 +1150,24 @@ export function createLooTools(options: {
         probe: options.desktopProbe
       });
     }),
-    tool("lco_doctor", "Read local orchestrator health.", {}, () => ({
-      ok: true,
-      localOnly: true,
-      toolPrefix: "lco_*",
-      codexJsonlDrift: getCodexJsonlDriftStatus(options.db),
-      codexEventContent: getCodexEventContentStatus(options.db, options.dbPath),
-      codex: codexTransportStatus({ command: readEnvWithFallback("CODEX_BIN", "codex") }),
-      lcmPeers: probeLcmPeerDbs(configuredLcmPeerDbPaths()),
-      desktopFallbacks: desktopFallbackDiagnostics({ probe: options.desktopProbe })
-    })),
+    tool("lco_doctor", "Read local orchestrator health.", {}, () => {
+      const databaseStorage = getDatabaseStorageStatus(options.db, options.dbPath);
+      return {
+        ok: true,
+        localOnly: true,
+        toolPrefix: "lco_*",
+        database: {
+          location: "local",
+          storage: databaseStorage
+        },
+        databaseStorage,
+        codexJsonlDrift: getCodexJsonlDriftStatus(options.db),
+        codexEventContent: getCodexEventContentStatus(options.db, options.dbPath),
+        codex: codexTransportStatus({ command: readEnvWithFallback("CODEX_BIN", "codex") }),
+        lcmPeers: probeLcmPeerDbs(configuredLcmPeerDbPaths()),
+        desktopFallbacks: desktopFallbackDiagnostics({ probe: options.desktopProbe })
+      };
+    }),
     tool("lco_permissions", "Read safety posture for live controls.", {}, () => ({
       liveControlRequires: ["dry_run", "approval_audit_id"],
       uploadsLocalText: false,

@@ -426,10 +426,12 @@ test("CLI desktop live-proof-harness fails closed for direct backend without run
 
 test("MCP doctor and desktop tools expose CUA diagnostics while desktop act stays dry-run-only", async () => {
   const root = mkdtempSync(join(tmpdir(), "loo-desktop-"));
-  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  const dbPath = join(root, "orchestrator.sqlite");
+  const db = createDatabase(dbPath);
   const audit = createAuditStore(join(root, "audit.jsonl"));
   const tools = createLooTools({
     db,
+    dbPath,
     audit,
     codexClient: { request: async () => ({ ok: true }) },
     desktopProbe: {
@@ -442,6 +444,16 @@ test("MCP doctor and desktop tools expose CUA diagnostics while desktop act stay
     const doctor = tools.find((tool) => tool.name === "loo_doctor");
     assert.ok(doctor);
     const doctorResult = await doctor.execute({}) as {
+      database: {
+        storage: {
+          schema: string;
+          publicSafe: boolean;
+          readOnly: boolean;
+          state: string;
+          maintenanceRecommended: boolean;
+          size: { dbBytes: number; walBytes: number };
+        };
+      };
       codexJsonlDrift: {
         publicSafe: boolean;
         readOnly: boolean;
@@ -458,6 +470,13 @@ test("MCP doctor and desktop tools expose CUA diagnostics while desktop act stay
         }>;
       };
     };
+    assert.equal(doctorResult.database.storage.schema, "lco.databaseStorage.status.v1");
+    assert.equal(doctorResult.database.storage.publicSafe, true);
+    assert.equal(doctorResult.database.storage.readOnly, true);
+    assert.equal(doctorResult.database.storage.state, "ready");
+    assert.equal(doctorResult.database.storage.maintenanceRecommended, false);
+    assert.ok(doctorResult.database.storage.size.dbBytes > 0);
+    assert.ok(doctorResult.database.storage.size.walBytes >= 0);
     assert.deepEqual({
       publicSafe: doctorResult.codexJsonlDrift.publicSafe,
       readOnly: doctorResult.codexJsonlDrift.readOnly,
