@@ -317,6 +317,7 @@ test("visible Codex map joins public-safe visible app-server and indexed session
     }
   ], ({ db, rawPathCanary }) => {
     const map = createVisibleCodexSessionMap(db, {
+      now: "2026-07-01T10:00:00.000Z",
       visibleCodex: {
         threadMap: {
           threads: [
