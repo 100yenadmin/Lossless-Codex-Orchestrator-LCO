@@ -70,9 +70,55 @@ jobs:
           fi
 
       - name: Record public run metadata
+        env:
+          OPENWIKI_REF: ${{ env.OPENWIKI_REF }}
         run: |
           mkdir -p openwiki/_metadata
-          node -e 'const fs = require("node:fs"); fs.writeFileSync("openwiki/_metadata/workflow-run.json", `${JSON.stringify({ provider: "zai", model: "glm-5.2", workflow: "openwiki-update", run_id: process.env.GITHUB_RUN_ID, run_attempt: process.env.GITHUB_RUN_ATTEMPT, source: "manual_dispatch" }, null, 2)}\n`);'
+          node <<'NODE'
+          const crypto = require("node:crypto");
+          const fs = require("node:fs");
+          const path = require("node:path");
+
+          function listFiles(dir) {
+            if (!fs.existsSync(dir)) return [];
+            return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+              const fullPath = path.join(dir, entry.name);
+              if (entry.isDirectory()) return listFiles(fullPath);
+              if (!entry.isFile()) return [];
+              return [fullPath];
+            });
+          }
+
+          const files = listFiles("openwiki")
+            .filter((file) => path.normalize(file) !== path.normalize("openwiki/_metadata/workflow-run.json"))
+            .sort();
+          const digest = crypto.createHash("sha256");
+          for (const file of files) {
+            const relativePath = file.split(path.sep).join("/");
+            digest.update(relativePath);
+            digest.update("\0");
+            digest.update(fs.readFileSync(file));
+            digest.update("\0");
+          }
+          fs.writeFileSync(
+            "openwiki/_metadata/workflow-run.json",
+            `${JSON.stringify(
+              {
+                provider: "zai",
+                model: "glm-5.2",
+                workflow: "openwiki-update",
+                run_id: process.env.GITHUB_RUN_ID,
+                run_attempt: process.env.GITHUB_RUN_ATTEMPT,
+                source: "manual_dispatch",
+                openwiki_ref: process.env.OPENWIKI_REF,
+                openwiki_content_sha256: digest.digest("hex"),
+                openwiki_content_file_count: files.length
+              },
+              null,
+              2
+            )}\n`
+          );
+          NODE
 
       - name: Guard OpenWiki-only diff
         run: node scripts/guard-openwiki-diff.mjs

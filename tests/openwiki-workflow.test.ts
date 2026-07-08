@@ -7,6 +7,13 @@ function read(path: string): string {
   return readFileSync(path, "utf8");
 }
 
+function violationPaths(output: string): string[] {
+  return output
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("- "))
+    .map((line) => line.slice(2));
+}
+
 test("manual OpenWiki workflow is docs-only, Z.AI-gated, and PR-based", () => {
   const workflowPath = ".github/workflows/openwiki-update.yml";
   assert.equal(existsSync(workflowPath), true, "OpenWiki workflow must exist");
@@ -16,8 +23,8 @@ test("manual OpenWiki workflow is docs-only, Z.AI-gated, and PR-based", () => {
   assert.match(workflow, /workflow_dispatch:/);
   assert.doesNotMatch(workflow, /\bschedule:/);
   assert.doesNotMatch(workflow, /\bcron:/);
-  assert.doesNotMatch(workflow, /openwiki_repository:/);
-  assert.doesNotMatch(workflow, /openwiki_ref:/);
+  assert.doesNotMatch(workflow, /^\s+openwiki_repository:\s*$/m);
+  assert.doesNotMatch(workflow, /^\s+openwiki_ref:\s*$/m);
 
   assert.match(workflow, /contents:\s*write/);
   assert.match(workflow, /pull-requests:\s*write/);
@@ -46,25 +53,47 @@ test("manual OpenWiki workflow is docs-only, Z.AI-gated, and PR-based", () => {
   assert.match(workflow, /provider/i);
   assert.match(workflow, /model/i);
   assert.match(workflow, /manual_dispatch/i);
+  assert.match(workflow, /openwiki_ref:\s*process\.env\.OPENWIKI_REF/);
+  assert.match(workflow, /openwiki_content_sha256:\s*digest\.digest\("hex"\)/);
+  assert.match(workflow, /openwiki_content_file_count:\s*files\.length/);
+  assert.match(workflow, /crypto\.createHash\("sha256"\)/);
   assert.doesNotMatch(workflow, /cat\s+>\s+openwiki\/_metadata\/workflow-run\.json\s+<<EOF/);
 });
 
 test("OpenWiki diff guard accepts only openwiki paths", () => {
   assert.equal(existsSync("scripts/guard-openwiki-diff.mjs"), true, "diff guard must exist");
 
+  const guard = read("scripts/guard-openwiki-diff.mjs");
+  assert.doesNotMatch(guard, /GITHUB_SHA/);
+  assert.doesNotMatch(guard, /diff",\s*"--name-only/);
+
   const safe = spawnSync("node", ["scripts/guard-openwiki-diff.mjs", "--stdin"], {
-    input: "?? openwiki/index.md\nA  openwiki/_metadata/workflow-run.json\nR  openwiki/old.md -> openwiki/new.md\n",
+    input:
+      "?? openwiki/index.md\n" +
+      "A  openwiki/_metadata/workflow-run.json\n" +
+      "R  openwiki/old.md -> openwiki/new.md\n" +
+      '?? "openwiki/path with spaces.md"\n' +
+      'A  "openwiki/quoted\\040octal.md"\n',
     encoding: "utf8"
   });
   assert.equal(safe.status, 0, safe.stderr || safe.stdout);
 
   const unsafe = spawnSync("node", ["scripts/guard-openwiki-diff.mjs", "--stdin"], {
-    input: "?? openwiki/index.md\nA  README.md\nM  .github/workflows/ci.yml\nR  openwiki/a.md -> package.json\n?? openwiki/../AGENTS.md\n",
+    input:
+      "?? openwiki/index.md\n" +
+      "A  README.md\n" +
+      "M  .github/workflows/ci.yml\n" +
+      "R  openwiki/a.md -> package.json\n" +
+      "?? openwiki/../AGENTS.md\n" +
+      '?? "openwiki/\\\\..\\\\secret.md"\n',
     encoding: "utf8"
   });
   assert.notEqual(unsafe.status, 0, "unsafe paths must fail closed");
-  assert.match(`${unsafe.stdout}\n${unsafe.stderr}`, /README\.md/);
-  assert.match(`${unsafe.stdout}\n${unsafe.stderr}`, /\.github\/workflows\/ci\.yml/);
-  assert.match(`${unsafe.stdout}\n${unsafe.stderr}`, /package\.json/);
-  assert.match(`${unsafe.stdout}\n${unsafe.stderr}`, /openwiki\/\.\.\/AGENTS\.md/);
+  assert.deepEqual(violationPaths(`${unsafe.stdout}\n${unsafe.stderr}`), [
+    "README.md",
+    ".github/workflows/ci.yml",
+    "package.json",
+    "openwiki/../AGENTS.md",
+    "openwiki//../secret.md"
+  ]);
 });

@@ -3,7 +3,38 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
 function unquotePath(path) {
-  return path.replace(/^"|"$/g, "");
+  const trimmed = path.trim();
+  if (!trimmed.startsWith('"') || !trimmed.endsWith('"')) {
+    return trimmed;
+  }
+
+  return decodeGitQuotedPath(trimmed.slice(1, -1));
+}
+
+function decodeGitQuotedPath(path) {
+  return path.replace(/\\(?:([0-7]{1,3})|(.))/g, (_match, octal, escaped) => {
+    if (octal) {
+      return String.fromCharCode(Number.parseInt(octal, 8));
+    }
+    switch (escaped) {
+      case "a":
+        return "\x07";
+      case "b":
+        return "\b";
+      case "f":
+        return "\f";
+      case "n":
+        return "\n";
+      case "r":
+        return "\r";
+      case "t":
+        return "\t";
+      case "v":
+        return "\v";
+      default:
+        return escaped;
+    }
+  });
 }
 
 function changedPathsFromPorcelain(output) {
@@ -34,19 +65,7 @@ function gitOutput(args, allowFailure = false) {
 }
 
 function currentChangedPaths() {
-  const baseSha = process.env.GITHUB_SHA || "HEAD";
-  return [
-    ...changedPathsFromPorcelain(gitOutput(["status", "--porcelain", "--untracked-files=all"])),
-    ...changedPathsFromNameOnly(gitOutput(["diff", "--name-only", "--cached", "--"], true)),
-    ...changedPathsFromNameOnly(gitOutput(["diff", "--name-only", baseSha, "--"], true))
-  ];
-}
-
-function changedPathsFromNameOnly(output) {
-  return output
-    .split(/\r?\n/)
-    .map((line) => unquotePath(line.trim()))
-    .filter(Boolean);
+  return changedPathsFromPorcelain(gitOutput(["status", "--porcelain", "--untracked-files=all"]));
 }
 
 function normalizePath(path) {
