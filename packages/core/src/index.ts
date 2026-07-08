@@ -6539,6 +6539,8 @@ export function materializePreparedCards(db: LooDatabase, options: { threadId?: 
   let summary: PreparedCardMaterializationReport["summary"];
   db.exec("BEGIN");
   try {
+    // threadId is intentionally Codex-only here; Claude session cards refresh in
+    // the no-thread path so caller-supplied Codex thread refreshes stay bounded.
     summary = materializePreparedCardsForThread(db, options.threadId, generatedAt);
     db.exec("COMMIT");
   } catch (error) {
@@ -6737,8 +6739,11 @@ function materializePreparedCardsForClaudeSessions(db: LooDatabase, generatedAt:
       AND privacy_class = 'public_safe_metadata'
   `).all(PREPARED_CARD_EXTRACTOR_VERSION) as Array<{ targetRef: string }>;
   const activeTargetRefs = new Set(targetRefs);
-  const staleTargetRefs = existingRows.map((row) => String(row.targetRef ?? "")).filter((ref) => isPublicPreparedSourceRef(ref) && !activeTargetRefs.has(ref));
-  deletePreparedCardsForTargetRefs(db, [...targetRefs, ...staleTargetRefs]);
+	  const staleTargetRefs = existingRows.map((row) => String(row.targetRef ?? "")).filter((ref) => isPublicPreparedSourceRef(ref) && !activeTargetRefs.has(ref));
+  // Delete-before-reinsert is safe because the caller keeps the whole
+  // materialization pass inside one SQLite transaction. Keep Claude refresh
+  // transactional if this is later made incremental.
+	  deletePreparedCardsForTargetRefs(db, [...targetRefs, ...staleTargetRefs]);
 
   const summary = {
     summaryLeaves: 0,
@@ -6778,11 +6783,11 @@ function buildPreparedClaudeCardDraft(db: LooDatabase, row: ClaudePreparedSessio
     .slice(0, 40);
   if (sourceRefs.length === 0) return null;
 
-  const title = cleanPreparedCardField(row.title ?? row.project ?? sessionId, {
-    fallback: sessionId,
-    maxChars: 160,
-    role: "title"
-  });
+	  const title = cleanPreparedCardField(row.title ?? row.project ?? "Claude Code session", {
+	    fallback: "Claude Code session",
+	    maxChars: 160,
+	    role: "title"
+	  });
   const summaryText = cleanPreparedCardField(claudePreparedCardSummarySource(row), {
     fallback: "Claude Code session indexed for local read/recall.",
     maxChars: 320,
