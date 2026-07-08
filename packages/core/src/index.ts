@@ -16543,8 +16543,7 @@ function walkLcmSummarySources(db: LooDatabase, path: string, summaryId: string)
         FROM summary_parents
         WHERE summary_id = ?
         ORDER BY ordinal ASC, parent_summary_id ASC
-        LIMIT ?
-      `).all(current.summaryId, LCM_SUMMARY_DAG_MAX_NODES + 1) as Array<{ summaryId: string }>;
+      `).all(current.summaryId) as Array<{ summaryId: string }>;
       for (const row of rows) {
         if (sourceSummaries.length >= LCM_SUMMARY_DAG_MAX_NODES) {
           reasonCodes.push("lcm_summary_dag_node_cap");

@@ -169,6 +169,105 @@ function makeRecallFixture() {
   return { root, sessions, lcmPath };
 }
 
+type DagFixture = {
+  root: string;
+  lcmPath: string;
+  addSummary: (summaryId: string, content: string, options?: { kind?: string; depth?: number; ordinal?: number }) => void;
+  addParent: (summaryId: string, parentSummaryId: string, ordinal: number) => void;
+  close: () => void;
+};
+
+function makeDagFixture(): DagFixture {
+  const root = mkdtempSync(join(tmpdir(), "loo-lcm-dag-"));
+  const lcmPath = join(root, "lcm-peer.sqlite");
+  const lcm = new DatabaseSync(lcmPath);
+  lcm.exec(`
+    CREATE TABLE conversations (
+      conversation_id INTEGER PRIMARY KEY,
+      title TEXT,
+      session_key TEXT,
+      created_at TEXT,
+      updated_at TEXT
+    );
+    CREATE TABLE summaries (
+      summary_id TEXT PRIMARY KEY,
+      conversation_id INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      depth INTEGER NOT NULL,
+      content TEXT NOT NULL,
+      token_count INTEGER NOT NULL,
+      file_ids TEXT,
+      earliest_at TEXT,
+      latest_at TEXT,
+      descendant_count INTEGER,
+      created_at TEXT,
+      model TEXT
+    );
+    CREATE TABLE summary_parents (
+      summary_id TEXT NOT NULL,
+      parent_summary_id TEXT NOT NULL,
+      ordinal INTEGER NOT NULL,
+      PRIMARY KEY (summary_id, parent_summary_id)
+    );
+    CREATE VIRTUAL TABLE summaries_fts USING fts5(summary_id UNINDEXED, content, tokenize = 'unicode61');
+  `);
+  lcm.prepare("INSERT INTO conversations (conversation_id, title, session_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(
+    314,
+    "LCM DAG guard fixture",
+    "dag-guard",
+    "2026-07-08T00:00:00Z",
+    "2026-07-08T00:01:00Z"
+  );
+  const insertSummary = lcm.prepare(`
+    INSERT INTO summaries (
+      summary_id, conversation_id, kind, depth, content, token_count, file_ids,
+      earliest_at, latest_at, descendant_count, created_at, model
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const insertFts = lcm.prepare("INSERT INTO summaries_fts (summary_id, content) VALUES (?, ?)");
+  const insertParent = lcm.prepare("INSERT INTO summary_parents (summary_id, parent_summary_id, ordinal) VALUES (?, ?, ?)");
+
+  return {
+    root,
+    lcmPath,
+    addSummary(summaryId, content, options = {}) {
+      insertSummary.run(
+        summaryId,
+        314,
+        options.kind ?? "condensed",
+        options.depth ?? 0,
+        content,
+        Math.max(1, Math.ceil(content.length / 4)),
+        JSON.stringify([]),
+        "2026-07-08T00:00:00Z",
+        "2026-07-08T00:01:00Z",
+        0,
+        "2026-07-08T00:02:00Z",
+        "gpt-5.5"
+      );
+      insertFts.run(summaryId, content);
+    },
+    addParent(summaryId, parentSummaryId, ordinal) {
+      insertParent.run(summaryId, parentSummaryId, ordinal);
+    },
+    close() {
+      lcm.close();
+    }
+  };
+}
+
+function expandDagFixtureSummary(fixture: { root: string; lcmPath: string }, query: string) {
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    const lcmRef = grepRecall(db, { query, lcmDbPaths: [fixture.lcmPath], limit: 5 })
+      .matches.find((match) => match.sourceKind === "lcm_summary")?.sourceRef;
+    assert.ok(lcmRef?.startsWith("lcm_summary:"));
+    return expandRecallRef(db, { sourceRef: lcmRef, lcmDbPaths: [fixture.lcmPath], profile: "evidence" });
+  } finally {
+    db.close();
+  }
+}
+
 function peerDbState(path: string) {
   const beforeStat = statSync(path);
   const hash = createHash("sha256").update(readFileSync(path)).digest("hex");
@@ -289,6 +388,74 @@ test("LCM summary expansion walks summary_parents DAG without raw peer data", ()
     assert.doesNotMatch(expanded.text, /\/Users\/|\/Volumes\/|\/tmp\/|~\/|sk-test_1234567890|Bearer sk-test/);
   } finally {
     db.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM summary expansion reports depth cap without walking beyond max depth", () => {
+  const fixture = makeDagFixture();
+  try {
+    fixture.addSummary("sum_depth_root", "Depth cap root summary for LCM DAG guard proof.");
+    for (let index = 1; index <= 5; index += 1) {
+      fixture.addSummary(
+        `sum_depth_${index}`,
+        `Depth cap child ${index} should ${index > 4 ? "not appear" : "remain bounded"} in source summaries.`,
+        { depth: index }
+      );
+    }
+    fixture.addParent("sum_depth_root", "sum_depth_1", 0);
+    fixture.addParent("sum_depth_1", "sum_depth_2", 0);
+    fixture.addParent("sum_depth_2", "sum_depth_3", 0);
+    fixture.addParent("sum_depth_3", "sum_depth_4", 0);
+    fixture.addParent("sum_depth_4", "sum_depth_5", 0);
+    fixture.close();
+
+    const expanded = expandDagFixtureSummary(fixture, "Depth cap root");
+    assert.match(expanded.text, /sum_depth_4/);
+    assert.doesNotMatch(expanded.text, /sum_depth_5|child 5 should not appear/);
+    assert.match(expanded.text, /lcm_summary_dag_depth_cap/);
+    assert.doesNotMatch(expanded.text, /lcm_summary_dag_node_cap|lcm_summary_dag_truncated/);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM summary expansion reports node cap and truncation when source DAG is too wide", () => {
+  const fixture = makeDagFixture();
+  try {
+    fixture.addSummary("sum_node_root", "Node cap root summary for LCM DAG guard proof.");
+    for (let index = 1; index <= 13; index += 1) {
+      fixture.addSummary(`sum_node_${index}`, `Node cap child ${index} summary.`);
+      fixture.addParent("sum_node_root", `sum_node_${index}`, index);
+    }
+    fixture.close();
+
+    const expanded = expandDagFixtureSummary(fixture, "Node cap root");
+    assert.match(expanded.text, /sum_node_12/);
+    assert.doesNotMatch(expanded.text, /sum_node_13|Node cap child 13/);
+    assert.match(expanded.text, /lcm_summary_dag_node_cap/);
+    assert.match(expanded.text, /lcm_summary_dag_truncated/);
+    assert.doesNotMatch(expanded.text, /lcm_summary_dag_depth_cap/);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM summary expansion reports missing child refs while preserving available sources", () => {
+  const fixture = makeDagFixture();
+  try {
+    fixture.addSummary("sum_missing_root", "Missing child root summary for LCM DAG guard proof.");
+    fixture.addSummary("sum_missing_present", "Available child should still appear when a sibling ref is missing.");
+    fixture.addParent("sum_missing_root", "sum_missing_absent", 0);
+    fixture.addParent("sum_missing_root", "sum_missing_present", 1);
+    fixture.close();
+
+    const expanded = expandDagFixtureSummary(fixture, "Missing child root");
+    assert.match(expanded.text, /sum_missing_present/);
+    assert.doesNotMatch(expanded.text, /sum_missing_absent/);
+    assert.match(expanded.text, /lcm_summary_dag_missing_child/);
+    assert.doesNotMatch(expanded.text, /lcm_summary_dag_node_cap|lcm_summary_dag_depth_cap/);
+  } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });
