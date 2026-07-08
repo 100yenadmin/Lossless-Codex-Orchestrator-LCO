@@ -6,12 +6,12 @@ Issues:
   initial adapter boundary inventory.
 - [#707](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/707)
   Claude Code format mapping and public-safe parser foundation.
+- [#710](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/710)
+  Claude Code local JSONL importer and storage foundation.
 
-This inventory keeps the Claude Code lane honest. LCO may prepare a future
-adapter behind the same local index, safe-summary recall, and approval/audit
-patterns as Codex.
-
-This document does not prove Claude Code indexing, control, parity, GUI mutation, or cloud sync.
+This inventory keeps the Claude Code lane honest. LCO can now import local
+Claude Code JSONL into the same public-safe recall flow as Codex, while live
+control and parity remain separate adapter work.
 
 ## Public Source Inventory
 
@@ -66,6 +66,7 @@ Allowed for the next proof:
 - read-only capability detection
 - public-safe storage/config inventory
 - explicit fixture import with redacted data
+- local JSONL import into LCO-owned public-safe recall tables
 - no live Claude prompt send, no GUI action, no remote-control action
 
 Disallowed for the next proof:
@@ -93,9 +94,8 @@ It adds `indexClaudeSessionInventory` for explicit redacted fixtures and
 `claude_session:*` refs that can be routed through the same recall
 `grep -> describe -> expand` boundary as Codex and LCM refs.
 
-Metadata-only fixture inventory is proven. Local Claude Code transcript
-discovery, broad Claude indexing, live Claude control, Claude GUI mutation,
-MCP control, hooks mutation, cloud sync, and parity remain unproven.
+Metadata-only fixture inventory is proven. Local Claude Code JSONL read/recall
+now continues under the 1.5 importer lane.
 
 ## 1.5 Parser Foundation
 
@@ -111,18 +111,15 @@ discovery or database import:
   filenames, raw ids, and raw transcript rows are omitted or redacted by
   default.
 
-This parser foundation is not yet the full `~/.claude/projects` importer. The
-next implementation slice should add discovery, watermarks, storage projection,
-CLI wiring, and live proof over copied local fixtures.
+## 1.5 Importer Foundation
 
-## Proof Boundary
+The 1.5 read/recall lane now adds local filesystem import:
 
-The fixture lane is complete when the repo contains this inventory,
-claim-audit tests, and the #166 fixture proof for read-only metadata refs. The
-1.5 parser lane is complete when #707 adds the format mapping, parser tests,
-and public-safe parser implementation.
+- `indexClaudeSessions(db, { roots })` discovers and imports local Claude Code
+  JSONL files into `claude_sessions` and `claude_safe_text_fts`.
+- `lco index claude [roots...]` exposes the same importer from the CLI.
+- Grep, describe, and expand can route imported `claude_session:*` refs without
+  returning raw transcript paths or raw rows.
 
-These issues do not prove broad Claude Code indexing, control, parity, GUI
-mutation, or cloud sync.
-
-This parser foundation does not prove Claude Code indexing, control, parity, GUI mutation, or cloud sync.
+This is a read/recall foundation. Claude live control, settings mutation, GUI
+mutation, cloud sync, and adapter parity remain future adapter work.

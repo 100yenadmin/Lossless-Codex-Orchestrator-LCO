@@ -22,6 +22,7 @@ import {
   createRecallRefNotFoundResult,
   createIndexedSessionSanitizerRepairPlan,
   createIndexedSessionSanitizerReport,
+  defaultClaudeRoots,
   defaultCodexRoots,
   defaultDatabasePath,
   describeRecallRef,
@@ -35,6 +36,7 @@ import {
   getCodexSessionManagementMap,
   grepRecall,
   harvestRetrievalTelemetry,
+  indexClaudeSessions,
   indexCodexSessions,
   probeCodexSqliteStores,
   probeLcmPeerDbs,
@@ -221,6 +223,25 @@ async function main() {
       }), null, 2));
     } catch (error) {
       if (emitRecallDatabaseBusyReport(error, "index codex", { timeoutMs: parsed.timeoutMs })) return;
+      throw error;
+    } finally {
+      db?.close();
+    }
+    return;
+  }
+  if (command === "index" && args[0] === "claude") {
+    const parsed = parseIndexClaudeArgs(args.slice(1));
+    let db: ReturnType<typeof createDatabase> | null = null;
+    try {
+      db = createDatabase({ busyTimeoutMs: parsed.timeoutMs });
+      console.log(JSON.stringify(indexClaudeSessions(db, {
+        roots: parsed.roots.length ? parsed.roots : defaultClaudeRoots(),
+        maxFiles: parsed.maxFiles,
+        maxBytesPerFile: parsed.maxBytesPerFile,
+        maxEventsPerFile: parsed.maxEventsPerFile
+      }), null, 2));
+    } catch (error) {
+      if (emitRecallDatabaseBusyReport(error, "index claude", { timeoutMs: parsed.timeoutMs })) return;
       throw error;
     } finally {
       db?.close();
@@ -1163,6 +1184,7 @@ function mainUsageText(): string {
     "  loo desktop live-proof-harness --evidence-dir path [--backend direct|cua-driver|peekaboo] [--target-app app] [--target-window title] [--action text] [--approval-ref ref] [--scratch-file path] [--strict]",
     "  loo desktop proof-action --evidence-dir path --backend cua-driver --target-app TextEdit --target-window lco-desktop-proof.txt --action \"launch_app TextEdit scratch window\" --action-hash hash --approval-ref ref --approval-file path --permission-state state --scratch-file path --execute [--strict]",
     "  loo index codex [--verify] [--max-files n] [--max-bytes-per-file n] [--max-events-per-file n] [roots...]",
+    "  loo index claude [--max-files n] [--max-bytes-per-file n] [--max-events-per-file n] [roots...]",
     "  loo index bench --sessions n [--verify] (internal)",
     "  loo maintenance --drop-event-content [--timeout-ms ms] [--strict]",
     "  loo probe codex-sqlite [roots...]",
@@ -3181,6 +3203,36 @@ function parseIndexCodexArgs(input: string[]): { roots: string[]; maxFiles?: num
     roots.push(arg);
   }
   return { roots, maxFiles, maxBytesPerFile, maxEventsPerFile, timeoutMs, verify };
+}
+
+function parseIndexClaudeArgs(input: string[]): { roots: string[]; maxFiles?: number; maxBytesPerFile?: number; maxEventsPerFile?: number; timeoutMs: number } {
+  const roots: string[] = [];
+  let maxFiles: number | undefined;
+  let maxBytesPerFile: number | undefined;
+  let maxEventsPerFile: number | undefined;
+  let timeoutMs = DEFAULT_RECALL_TIMEOUT_MS;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--max-files") {
+      maxFiles = parsePositiveInteger(input[++index], "--max-files", 100000);
+      continue;
+    }
+    if (arg === "--max-bytes-per-file") {
+      maxBytesPerFile = parsePositiveInteger(input[++index], "--max-bytes-per-file", 1073741824);
+      continue;
+    }
+    if (arg === "--max-events-per-file") {
+      maxEventsPerFile = parsePositiveInteger(input[++index], "--max-events-per-file", 1000000);
+      continue;
+    }
+    if (arg === "--timeout-ms") {
+      timeoutMs = parsePositiveInteger(input[++index], "--timeout-ms", MAX_RECALL_TIMEOUT_MS);
+      continue;
+    }
+    if (arg.startsWith("--")) throw new Error(`Unknown index claude option: ${arg}`);
+    roots.push(arg);
+  }
+  return { roots, maxFiles, maxBytesPerFile, maxEventsPerFile, timeoutMs };
 }
 
 function parseIndexBenchArgs(input: string[]): { sessions: number; verify?: boolean } {

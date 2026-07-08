@@ -30,7 +30,7 @@ post-action refresh working-app loop.
 - No generic GUI mutation.
 - No release-grade enterprise security claim.
 
-Claude Code is an adapter stub in this beta. Public docs may mention the stub, but must not imply Claude Code session indexing or control parity until storage and control paths are proven.
+Claude Code local JSONL read/recall is in the 1.5 line through `lco index claude` and `claude_session:*` refs. Public docs must not imply Claude Code control parity, GUI mutation, cloud sync, or settings/session mutation until those adapter paths are proven.
 
 ## Current Proof Boundary
 

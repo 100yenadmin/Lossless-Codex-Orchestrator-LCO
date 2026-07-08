@@ -45,12 +45,18 @@ The parser treats these as unsafe by default:
 Future importer PRs may persist hashed ids or counters, but public output should
 remain ref-based and public-safe.
 
-## Next Implementation Slices
+## Importer Slice
 
-1. Add filesystem discovery and DB import for synthetic and copied-local Claude
+Issue #710 adds the first real local importer on top of this parser:
+
+1. `indexClaudeSessions` discovers `.jsonl` files under configured Claude
    project roots.
-2. Project parsed sessions into `claude_sessions`, `claude_safe_text_fts`, and
-   the event-content/prepared-state substrate.
-3. Wire `lco index claude` and zero-config first-run discovery.
-4. Add OpenClaw/MCP QA Lab coverage for `claude_session:*` describe, expand,
-   and search paths.
+2. Parsed sessions are projected into `claude_sessions` and
+   `claude_safe_text_fts` using opaque `claude_source:*` refs.
+3. `lco index claude [roots...]` exposes the importer from the CLI.
+4. Existing `grep`, `describe`, and `expand-ref` commands can route
+   `claude_session:*` refs alongside Codex and LCM refs.
+
+The importer stores public-safe recall text and metadata only. Control,
+settings mutation, GUI action, and Claude adapter parity remain separate
+adapter work.

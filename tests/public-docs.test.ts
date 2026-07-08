@@ -134,7 +134,8 @@ test("public docs preserve release claim boundaries", () => {
   for (const required of [
     /local Codex/i,
     /local SQLite/i,
-    /Claude Code.*adapter stub/i,
+    /Claude Code local JSONL read\/recall/i,
+    /lco index claude/i,
     /no cloud sync/i,
     /no unattended desktop takeover/i,
     /no permission bypass/i,
