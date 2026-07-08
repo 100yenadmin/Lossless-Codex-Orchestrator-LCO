@@ -1,12 +1,12 @@
 # Quickstart
 
-Welcome to the **Lossless Codex Orchestrator (LCO)** — a local-first memory and command layer for Codex-heavy workflows. LCO indexes your local Codex session JSONL files into a local SQLite database so an orchestrator agent (OpenClaw, Hermes, Cursor, or any MCP client) can search, describe, expand, and dry-run control Codex threads without rereading massive transcripts.
+Welcome to the **Lossless Codex Orchestrator (LCO)** — a local-first memory and command layer for Codex and Claude Code workflows. LCO indexes your local Codex (and optionally Claude Code) session JSONL files into a local SQLite database so an orchestrator agent (OpenClaw, Hermes, Cursor, or any MCP client) can search, describe, expand, and dry-run control Codex threads without rereading massive transcripts.
 
 ## What LCO Does
 
 | Capability | Description |
 | --- | --- |
-| **Index** | Parses local Codex JSONL sessions into field-weighted FTS5 search with safe-text extraction. |
+| **Index** | Parses local Codex and Claude Code JSONL sessions into field-weighted FTS5 search with safe-text extraction. |
 | **Search & Recall** | Session-card discovery via `lco search`; content-phrase recall via `lco grep` and `lco expand-query`. |
 | **Prepared State** | Deterministic prepared cards, inbox, and lifecycle states (completed, waiting, blocked, stale, etc.). |
 | **Bounded Expansion** | 1k-token briefs and 4k-token evidence bundles instead of loading entire transcripts. |
@@ -22,7 +22,7 @@ lco doctor
 lco index codex --max-files 500 "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
 ```
 
-Requirements: Node.js 22.5+, npm, local Codex session files (typically `~/.codex/sessions`).
+Requirements: Node.js 22.5+, npm, local Codex session files (typically `~/.codex/sessions`). Claude Code sessions (typically `~/.claude/`) can also be indexed via `lco index claude`.
 
 `lossless-codex-orchestrator` is the current published package name. The deprecated compat package `lossless-openclaw-orchestrator` and the historical `loo`/`LOO_*` CLI/env aliases remain maintained.
 
@@ -79,7 +79,7 @@ All `LCO_*` env names have `LOO_*` compatibility fallbacks. See `packages/runtim
 
 - **LCO is local-only.** It does not cloud-sync, upload raw transcripts, or merge Codex transcripts into OpenClaw LCM.
 - **Live Codex control is approval-gated.** Every resume/send/steer/interrupt requires a matching dry-run packet and `approval_audit_id`.
-- **Claude Code is adapter-stub only** in the current beta. Use Codex-first claims.
+- **Claude Code is read/recall only.** As of 1.5.0, local Claude Code JSONL can be indexed via `lco index claude` and surfaced through the same describe/expand/prepared-card workflow as Codex (`claude_session:*` refs). Live control, settings mutation, GUI mutation, and full adapter parity remain future work. See `docs/CLAUDE_ADAPTER_BOUNDARY.md`.
 - **Codex JSONL drift** is reported by `lco doctor` as a bounded completeness caveat, not an error. See `docs/CODEX_JSONL_DRIFT.md`.
 - **`lco search` is not raw-content search.** For remembered content phrases, use `lco grep` or `lco expand-query`.
 
