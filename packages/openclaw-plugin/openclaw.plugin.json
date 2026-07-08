@@ -1,7 +1,7 @@
 {
   "id": "lossless-openclaw-orchestrator",
   "name": "Lossless OpenClaw Orchestrator",
-  "description": "Collaborate with local Codex sessions through OpenClaw using local indexing, prepared-state recall, bounded expansion, and approval-gated dry-run/control boundaries.",
+  "description": "Collaborate with local Codex sessions through OpenClaw using local indexing, prepared-state recall, bounded expansion, approval-gated dry-runs, and optional Codex controls.",
   "version": "1.4.5",
   "kind": "tool",
   "tools": {
@@ -21,12 +21,6 @@
     "liveControlRequires": [
       "dry_run",
       "approval_audit_id"
-    ],
-    "forbiddenClaims": [
-      "Full Claude Code parity",
-      "cloud sync",
-      "unattended desktop takeover",
-      "permission bypass"
     ]
   },
   "activation": {
