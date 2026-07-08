@@ -142,6 +142,30 @@ test("CLI maintenance checkpoints and analyzes the local derived-cache database"
   }
 });
 
+test("CLI maintenance can explicitly skip default checkpoint and analyze actions", () => {
+  const root = mkdtempSync(join(tmpdir(), "lco-maintenance-skip-defaults-"));
+  try {
+    const dbPath = join(root, "orchestrator.sqlite");
+    const db = createDatabase(dbPath);
+    db.close();
+
+    const result = runLoo(["maintenance", "--no-checkpoint", "--no-analyze", "--strict", "--timeout-ms", "5000"], {
+      ...process.env,
+      LCO_DB_PATH: dbPath
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const report = JSON.parse(result.stdout) as Record<string, any>;
+    assert.equal(report.actionsPerformed.checkpoint, false);
+    assert.equal(report.actionsPerformed.analyze, false);
+    assert.deepEqual(report.operations, []);
+    assert.equal(report.reasonCodes.includes("database_checkpoint_truncate_completed"), false);
+    assert.equal(report.reasonCodes.includes("database_analyze_completed"), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("CLI maintenance --vacuum --strict runs VACUUM only after the path-backed free-space guard", () => {
   const root = mkdtempSync(join(tmpdir(), "lco-maintenance-vacuum-"));
   try {

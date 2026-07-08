@@ -1,4 +1,4 @@
-import { readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 
 import {
@@ -21,6 +21,7 @@ import {
   createIndexedSessionSanitizerReport,
   createIndexedSessionSanitizerRepairPlan,
   createRecallRefNotFoundResult,
+  defaultDatabasePath,
   expandSession,
   expandQuery,
   expandSummaryLeaves,
@@ -1152,11 +1153,14 @@ export function createLooTools(options: {
     }),
     tool("lco_doctor", "Read local orchestrator health.", {}, () => {
       const databaseStorage = getDatabaseStorageStatus(options.db, options.dbPath);
+      const activeDbPath = options.dbPath ?? defaultDatabasePath();
       return {
         ok: true,
         localOnly: true,
         toolPrefix: "lco_*",
         database: {
+          configured: Boolean(readEnv("DB_PATH")),
+          activePresent: existsSync(activeDbPath),
           location: "local",
           storage: databaseStorage
         },

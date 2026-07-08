@@ -1219,7 +1219,7 @@ function mainUsageText(): string {
     "  loo index codex [--verify] [--max-files n] [--max-bytes-per-file n] [--max-events-per-file n] [roots...]",
     "  loo index claude [--max-files n] [--max-bytes-per-file n] [--max-events-per-file n] [roots...]",
     "  loo index bench --sessions n [--verify] (internal)",
-    "  loo maintenance [--checkpoint] [--analyze] [--vacuum] [--timeout-ms ms] [--strict]",
+    "  loo maintenance [--checkpoint|--no-checkpoint] [--analyze|--no-analyze] [--vacuum] [--timeout-ms ms] [--strict]",
     "  loo maintenance --drop-event-content [--timeout-ms ms] [--strict]",
     "  loo probe codex-sqlite [roots...]",
     "  loo find [--json] [--limit n] [--timeout-ms ms] [--no-index] <query>",
@@ -1300,7 +1300,9 @@ function printMaintenanceHelp(): void {
     "",
     "Options:",
     "  --checkpoint     Run PRAGMA wal_checkpoint(TRUNCATE). Enabled by default.",
+    "  --no-checkpoint  Skip PRAGMA wal_checkpoint(TRUNCATE).",
     "  --analyze        Run ANALYZE. Enabled by default.",
+    "  --no-analyze     Skip ANALYZE.",
     "  --vacuum         Also run VACUUM when enough free space is observable.",
     "  --timeout-ms ms  SQLite busy timeout for the maintenance operation.",
     "  --strict         Reserved for release gates; this command is fail-closed by default.",
@@ -1327,8 +1329,16 @@ function parseMaintenanceArgs(input: string[]): { checkpoint: boolean; analyze: 
       checkpoint = true;
       continue;
     }
+    if (arg === "--no-checkpoint") {
+      checkpoint = false;
+      continue;
+    }
     if (arg === "--analyze") {
       analyze = true;
+      continue;
+    }
+    if (arg === "--no-analyze") {
+      analyze = false;
       continue;
     }
     if (arg === "--vacuum") {

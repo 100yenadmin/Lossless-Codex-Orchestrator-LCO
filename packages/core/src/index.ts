@@ -5555,7 +5555,7 @@ export function runDatabaseMaintenance(
   let vacuumPerformed = false;
   if (vacuum) {
     const freeBytes = options.dbPath ? availableFilesystemBytes(dirname(options.dbPath)) : null;
-    const requiredBytes = Math.max(before.size.dbBytes * 2, 64 * 1024 * 1024);
+    const requiredBytes = Math.max(before.size.totalBytes * 2, 64 * 1024 * 1024);
     if (freeBytes === null) {
       operations.push({ name: "vacuum", ok: true, skipped: true, reason: "free_space_unavailable" });
     } else if (freeBytes < requiredBytes) {
@@ -5909,8 +5909,8 @@ function sqliteWalFileBytes(dbPath?: string): number {
 
 function availableFilesystemBytes(path: string): number | null {
   try {
-    const stats = statfsSync(path);
-    return Number(stats.bavail) * Number(stats.bsize);
+    const stats = statfsSync(path, { bigint: true });
+    return Number(stats.bavail * stats.bsize);
   } catch {
     return null;
   }
