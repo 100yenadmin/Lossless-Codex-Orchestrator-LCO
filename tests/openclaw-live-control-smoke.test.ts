@@ -39,6 +39,40 @@ test("OpenClaw live-control smoke keeps explicit gateway credentials out of Open
   }
 });
 
+test("OpenClaw live-control smoke rejects plaintext remote gateway URLs before sending a token", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-remote-ws-"));
+  try {
+    const report = runOpenClawGatewayLiveControlSmoke({
+      gatewayUrl: "ws://gateway.example.test:18789",
+      token: "must-not-leave-process",
+      evidenceDir: join(root, "evidence"),
+      threadId: "backend-thread",
+      action: "send"
+    });
+    assert.equal(report.ok, false);
+    assert.ok(report.blockers.includes("openclaw_live_gateway_url_insecure"));
+    assert.equal(report.actionsPerformed.liveCodexControlRun, false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw live-control smoke fails closed when a scoped token has no explicit gateway URL", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-token-only-"));
+  try {
+    const report = runOpenClawGatewayLiveControlSmoke({
+      token: "must-not-enter-argv",
+      evidenceDir: join(root, "evidence"),
+      threadId: "backend-thread",
+      action: "send"
+    });
+    assert.equal(report.ok, false);
+    assert.ok(report.blockers.includes("openclaw_live_gateway_token_requires_url"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 function createFakeOpenClaw(dir: string, options: {
   auditDetailsEnvelope?: boolean;
   liveResponseMissingOk?: boolean;
@@ -53,6 +87,7 @@ function createFakeOpenClaw(dir: string, options: {
   steerMethod?: string;
   interruptMethod?: string;
   mismatchedExpectedTurnId?: boolean;
+  staleLiveAuditId?: boolean;
 } = {}): { bin: string; callsPath: string } {
   const callsPath = join(dir, "calls.jsonl");
   const bin = join(dir, "openclaw-live-fake.mjs");
@@ -87,7 +122,7 @@ function createFakeOpenClaw(dir: string, options: {
       auditPath: "metadata-only",
       records: [
         { id: "${DRY_RUN_AUDIT_ID}", live: false, paramsHash: "${PARAMS_HASH}" },
-        { id: "${LIVE_AUDIT_ID}", live: true, paramsHash: "${PARAMS_HASH}" }
+        { id: "${options.staleLiveAuditId ? "loo_audit_deadbeef" : LIVE_AUDIT_ID}", live: true, paramsHash: "${PARAMS_HASH}" }
       ]
     }`;
   const auditTailResponse = options.auditDetailsEnvelope
@@ -733,6 +768,29 @@ test("OpenClaw live-control smoke accepts audit tail records from tool details e
     assert.equal(report.audit.matchingDryRunRecord, true);
     assert.equal(report.audit.matchingLiveRecord, true);
     assert.deepEqual(report.blockers, []);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw live-control smoke rejects a stale live audit record with the same params hash", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-smoke-stale-audit-"));
+  const evidenceDir = join(root, "evidence");
+  const { bin, callsPath } = createFakeOpenClaw(root, { staleLiveAuditId: true });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawGatewayLiveControlSmoke({
+      openclawBin: bin,
+      evidenceDir,
+      threadId: "thr_gateway_live",
+      action: "send"
+    });
+    assert.equal(report.ok, false);
+    assert.equal(report.audit.matchingLiveRecord, false);
+    assert.ok(report.blockers.includes("openclaw_live_audit_tail_missing_live_record"));
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;

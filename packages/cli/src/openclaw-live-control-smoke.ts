@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { callGatewayBackendJson } from "./openclaw-tool-smoke.js";
+import { validateOpenClawGatewayRoute } from "./openclaw-gateway-route.js";
 
 export type OpenClawGatewayLiveControlSmokeOptions = {
   openclawBin?: string;
@@ -146,11 +147,15 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
   const controlMessage = actionMessage(action, message);
   const targetRef = `codex_thread:${options.threadId}`;
   const blockers: string[] = [];
+  const gatewayRoute = validateOpenClawGatewayRoute(options.gatewayUrl, gatewayToken);
+  if (!gatewayRoute.ok) blockers.push(`openclaw_live_${gatewayRoute.code}`);
 
-  const catalog = callGatewayJson(openclawBin, baseArgs, gatewayOptions, "tools.catalog", {}, callOptions);
-  const catalogTools = catalog.status === 0 && catalog.parsed !== undefined ? extractCatalogToolNames(unwrapGatewayPayload(catalog.parsed)) : [];
-  blockers.push(...gatewayCallBlockers(catalog, "openclaw_live_catalog_failed"));
-  blockers.push(...requiredTools.filter((tool) => !catalogTools.includes(tool)).map((tool) => `openclaw_live_catalog_missing_tool:${tool}`));
+  const catalog = blockers.length === 0
+    ? callGatewayJson(openclawBin, baseArgs, gatewayOptions, "tools.catalog", {}, callOptions)
+    : null;
+  const catalogTools = catalog?.status === 0 && catalog.parsed !== undefined ? extractCatalogToolNames(unwrapGatewayPayload(catalog.parsed)) : [];
+  blockers.push(...(catalog ? gatewayCallBlockers(catalog, "openclaw_live_catalog_failed") : []));
+  if (catalog) blockers.push(...requiredTools.filter((tool) => !catalogTools.includes(tool)).map((tool) => `openclaw_live_catalog_missing_tool:${tool}`));
 
   const dryRun = blockers.length === 0
     ? callGatewayJson(openclawBin, baseArgs, gatewayOptions, "tools.invoke", {
@@ -205,7 +210,7 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
     record.id === dryRunSummary.approvalAuditId && record.live === false && record.paramsHash === dryRunSummary.paramsHash
   ));
   const matchingLiveRecord = Boolean(liveSummary.paramsHash && auditRecords.some((record) =>
-    record.live === true && record.paramsHash === liveSummary.paramsHash
+    record.id === liveSummary.approvalAuditId && record.live === true && record.paramsHash === liveSummary.paramsHash
   ));
   if (auditTail && !matchingDryRunRecord) blockers.push("openclaw_live_audit_tail_missing_dry_run_record");
   if (auditTail && !matchingLiveRecord) blockers.push("openclaw_live_audit_tail_missing_live_record");
