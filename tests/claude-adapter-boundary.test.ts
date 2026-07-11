@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,6 +14,7 @@ import {
   claudeVersionProbeInvocation,
   createClaudeCodeAdapter,
   createClaudeDryRunControl,
+  disposeClaudeProbeTreeKiller,
   probeClaudeDryRunAvailability,
   unsupportedClaudeVersionReason
 } from "../packages/adapters/src/claude.js";
@@ -347,6 +349,15 @@ test("Claude availability probe resolves the fixed command through cmd.exe on Wi
     assert.equal(claudeProbeTreeTerminationInvocation("win32", 4242, hostileRoot)?.command, "C:\\Windows\\System32\\taskkill.exe");
   }
   assert.equal(claudeProbeTreeTerminationInvocation("darwin", 4242), null);
+});
+
+test("Claude probe tree-killer cleanup safely absorbs an asynchronous spawn failure", async () => {
+  const missingKiller = spawn(join(tmpdir(), "lco-definitely-missing-tree-killer"), [], {
+    stdio: "ignore"
+  });
+  disposeClaudeProbeTreeKiller(missingKiller);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(missingKiller.pid, undefined);
 });
 
 test("Claude version parser accepts semver metadata and rejects old or unparseable versions", () => {

@@ -126,9 +126,7 @@ function runClaudeVersionProbe(invocation: {
       clearTimeout(timeout);
       clearTimeout(hardDeadline);
       if (killerFallback) clearTimeout(killerFallback);
-      treeKiller?.removeAllListeners();
-      treeKiller?.kill("SIGKILL");
-      treeKiller?.unref();
+      disposeClaudeProbeTreeKiller(treeKiller);
       resolve({
         error: spawnError,
         status: code,
@@ -192,7 +190,7 @@ function runClaudeVersionProbe(invocation: {
     hardDeadline = setTimeout(() => {
       timedOut = true;
       terminateTree();
-      treeKiller?.kill("SIGKILL");
+      disposeClaudeProbeTreeKiller(treeKiller);
       child.kill("SIGKILL");
       child.stdout.destroy();
       child.stderr.destroy();
@@ -201,6 +199,15 @@ function runClaudeVersionProbe(invocation: {
     }, 3_250);
     child.once("close", settle);
   });
+}
+
+export function disposeClaudeProbeTreeKiller(treeKiller: ReturnType<typeof spawn> | null): void {
+  if (!treeKiller) return;
+  treeKiller.removeAllListeners("close");
+  treeKiller.removeAllListeners("error");
+  treeKiller.once("error", () => {});
+  if (treeKiller.pid !== undefined && !treeKiller.killed) treeKiller.kill("SIGKILL");
+  treeKiller.unref();
 }
 
 export function claudeVersionProbeInvocation(
