@@ -1870,7 +1870,6 @@ test("prepared-card all-thread refresh batches work-state lookup families", () =
       if (
         /^\s*SELECT\b/i.test(sql)
         && /\bFROM\s+(?:prepared_source_events|codex_plans|attention_queue|codex_touched_files)\b/i.test(sql)
-        && (!/\bFROM\s+codex_plans\b/i.test(sql) || /\btext\s*,\s*ordinal\b/i.test(sql))
       ) {
         trackedStatements.push(sql);
       }
