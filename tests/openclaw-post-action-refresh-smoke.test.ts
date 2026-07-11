@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,11 +8,89 @@ import test from "node:test";
 import { pathToFileURL } from "node:url";
 import { runOpenClawPostActionRefreshSmoke } from "../packages/cli/src/openclaw-post-action-refresh-smoke.js";
 import { createScenarioSweep } from "../packages/cli/src/scenario-sweep.js";
+import { startFakeGatewayBackend } from "./helpers/fake-gateway-backend.js";
 
 const tsxImport = pathToFileURL(createRequire(import.meta.url).resolve("tsx")).href;
 const TARGET_THREAD_ID = "thr_gateway_live";
 const TARGET_REF = `codex_thread:${TARGET_THREAD_ID}`;
 const OTHER_REF = "codex_thread:other";
+
+test("OpenClaw post-action refresh keeps explicit gateway credentials out of OpenClaw argv", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-refresh-backend-"));
+  const evidenceDir = join(root, "evidence");
+  const liveProofReportPath = join(root, "openclaw-gateway-live-control-smoke-report.json");
+  writeLiveProofReport(liveProofReportPath, { targetRef: "codex_thread:backend-thread" });
+  const { server, port, capturePath } = startFakeGatewayBackend(root);
+  try {
+    const report = runOpenClawPostActionRefreshSmoke({
+      openclawBin: join(root, "must-not-run-openclaw"),
+      gatewayUrl: `ws://127.0.0.1:${port}`,
+      token: "scoped-refresh-token",
+      evidenceDir,
+      liveProofReportPath,
+      threadId: "backend-thread",
+      now: "2026-07-01T00:03:00.000Z"
+    });
+
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.equal(report.command, "loo backend-gateway tools.catalog/tools.invoke --json --params <redacted>");
+    assert.doesNotMatch(readFileSync(capturePath, "utf8"), /scoped-refresh-token/);
+  } finally {
+    server.kill("SIGTERM");
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw post-action refresh rejects plaintext remote gateway URLs before sending a token", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-refresh-remote-ws-"));
+  const liveProofReportPath = join(root, "live-proof.json");
+  writeLiveProofReport(liveProofReportPath, { targetRef: "codex_thread:backend-thread" });
+  try {
+    const report = runOpenClawPostActionRefreshSmoke({
+      gatewayUrl: "ws://gateway.example.test:18789",
+      token: "must-not-leave-process",
+      evidenceDir: join(root, "evidence"),
+      liveProofReportPath,
+      threadId: "backend-thread"
+    });
+    assert.equal(report.ok, false);
+    assert.ok(report.blockers.includes("post_action_refresh_gateway_url_insecure"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw post-action refresh preserves ambient configured-profile token auth without argv exposure", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-refresh-profile-token-"));
+  const evidenceDir = join(root, "evidence");
+  const liveProofReportPath = join(root, "live-proof.json");
+  writeLiveProofReport(liveProofReportPath);
+  const { bin, callsPath } = createFakeOpenClaw(root);
+  const previousCalls = process.env.OPENCLAW_FAKE_CALLS;
+  const previousToken = process.env.OPENCLAW_GATEWAY_TOKEN;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  process.env.OPENCLAW_GATEWAY_TOKEN = "ambient-profile-token";
+  try {
+    const report = runOpenClawPostActionRefreshSmoke({
+      openclawBin: bin,
+      profile: "lco-refresh-profile",
+      evidenceDir,
+      liveProofReportPath,
+      threadId: TARGET_THREAD_ID,
+      now: "2026-07-01T00:03:00.000Z"
+    });
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { args: string[]; hasTokenEnv: boolean });
+    assert.equal(calls.every((call) => call.hasTokenEnv), true);
+    assert.equal(calls.some((call) => call.args.includes("--token") || call.args.includes("ambient-profile-token")), false);
+  } finally {
+    if (previousCalls === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previousCalls;
+    if (previousToken === undefined) delete process.env.OPENCLAW_GATEWAY_TOKEN;
+    else process.env.OPENCLAW_GATEWAY_TOKEN = previousToken;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 function writeLiveProofReport(path: string, overrides: Record<string, unknown> = {}): void {
   writeFileSync(path, `${JSON.stringify({
@@ -544,7 +622,7 @@ test("OpenClaw post-action refresh smoke requires target timestamp and status ma
   }
 });
 
-test("OpenClaw post-action refresh smoke keeps gateway token out of process argv", () => {
+test("OpenClaw post-action refresh smoke rejects token-only auth without putting it in process argv", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-openclaw-refresh-smoke-token-"));
   const evidenceDir = join(root, "evidence");
   const liveProofReportPath = join(root, "openclaw-gateway-live-control-smoke-report.json");
@@ -562,14 +640,9 @@ test("OpenClaw post-action refresh smoke keeps gateway token out of process argv
       token: "unit-test-token-never-in-argv"
     });
 
-    assert.equal(report.ok, true);
-    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { args: string[]; hasTokenEnv: boolean; params: { idempotencyKey?: string } });
-    assert.equal(calls.every((call) => call.hasTokenEnv), true);
-    assert.equal(calls.some((call) => call.args.includes("--token")), false);
-    assert.equal(calls.some((call) => call.args.includes("unit-test-token-never-in-argv")), false);
-    const idempotencyKeys = calls.slice(1).map((call) => call.params.idempotencyKey);
-    assert.equal(idempotencyKeys.every((key) => typeof key === "string" && key.includes(TARGET_THREAD_ID)), true);
-    assert.equal(idempotencyKeys.some((key) => key === `loo-post-action-search-${TARGET_THREAD_ID}`), false);
+    assert.equal(report.ok, false);
+    assert.ok(report.blockers.includes("post_action_refresh_gateway_token_requires_url"));
+    assert.equal(existsSync(callsPath), false);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;

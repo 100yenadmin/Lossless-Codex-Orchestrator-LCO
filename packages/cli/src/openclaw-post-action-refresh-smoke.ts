@@ -2,6 +2,8 @@ import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { callGatewayBackendJson } from "./openclaw-tool-smoke.js";
+import { validateOpenClawGatewayRoute } from "./openclaw-gateway-route.js";
 
 export type OpenClawPostActionRefreshSmokeOptions = {
   openclawBin?: string;
@@ -101,12 +103,19 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
     ...(options.profile ? ["--profile", options.profile] : [])
   ];
   const gatewayTimeoutMs = options.gatewayTimeoutMs ?? 120_000;
-  const gatewayOptions = [
+  const gatewayToken = options.token || (options.gatewayUrl ? process.env.OPENCLAW_GATEWAY_TOKEN : undefined);
+  const usesBackendGateway = Boolean(options.gatewayUrl && gatewayToken && gatewayToken !== "__OPENCLAW_REDACTED__");
+  const gatewayOptions = usesBackendGateway ? [] : [
     ...(options.gatewayUrl ? ["--url", options.gatewayUrl] : []),
     "--timeout",
     String(gatewayTimeoutMs)
   ];
-  const callOptions = { timeoutMs: gatewayTimeoutMs, env: options.token ? { OPENCLAW_GATEWAY_TOKEN: options.token } : undefined };
+  const callOptions = {
+    timeoutMs: gatewayTimeoutMs,
+    env: options.token ? { OPENCLAW_GATEWAY_TOKEN: options.token } : undefined,
+    backendUrl: options.gatewayUrl,
+    token: gatewayToken
+  };
   const sessionKey = options.sessionKey || "agent:main:lco-post-action-refresh-smoke";
   const targetRef = `codex_thread:${options.threadId}`;
   const query = options.query || DEFAULT_QUERY;
@@ -114,14 +123,18 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
   const tokenBudget = options.tokenBudget ?? 1000;
   const idempotencyNonce = sanitizeId(`${options.now ?? new Date().toISOString()}-${randomUUID()}`);
   const blockers: string[] = [];
+  const gatewayRoute = validateOpenClawGatewayRoute(options.gatewayUrl, gatewayToken);
+  if (!gatewayRoute.ok) blockers.push(`post_action_refresh_${gatewayRoute.code}`);
 
   const liveProof = readLiveProof(options.liveProofReportPath, targetRef);
   blockers.push(...liveProof.blockers);
 
-  const catalog = callGatewayJson(openclawBin, baseArgs, gatewayOptions, "tools.catalog", {}, callOptions);
-  const catalogTools = catalog.status === 0 && catalog.parsed !== undefined ? extractCatalogToolNames(unwrapGatewayPayload(catalog.parsed)) : [];
-  blockers.push(...gatewayCallBlockers(catalog, "post_action_refresh_catalog_failed"));
-  blockers.push(...REQUIRED_TOOLS.filter((tool) => !catalogTools.includes(tool)).map((tool) => `post_action_refresh_catalog_missing_tool:${tool}`));
+  const catalog = blockers.length === 0
+    ? callGatewayJson(openclawBin, baseArgs, gatewayOptions, "tools.catalog", {}, callOptions)
+    : null;
+  const catalogTools = catalog?.status === 0 && catalog.parsed !== undefined ? extractCatalogToolNames(unwrapGatewayPayload(catalog.parsed)) : [];
+  blockers.push(...(catalog ? gatewayCallBlockers(catalog, "post_action_refresh_catalog_failed") : []));
+  if (catalog) blockers.push(...REQUIRED_TOOLS.filter((tool) => !catalogTools.includes(tool)).map((tool) => `post_action_refresh_catalog_missing_tool:${tool}`));
 
   const threadMap = blockers.length === 0
     ? callGatewayJson(openclawBin, baseArgs, gatewayOptions, "tools.invoke", {
@@ -218,7 +231,9 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
     proofReady,
     publicSafe: !containsRawPrivate,
     generatedAt: options.now ?? new Date().toISOString(),
-    command: `${sanitizeCommandBinary(openclawBin)} ${[...baseArgs, "gateway", "call", "tools.invoke", "--json", "--params", "<redacted>"].join(" ")}`,
+    command: usesBackendGateway
+      ? "loo backend-gateway tools.catalog/tools.invoke --json --params <redacted>"
+      : `${sanitizeCommandBinary(openclawBin)} ${[...baseArgs, "gateway", "call", "tools.invoke", "--json", "--params", "<redacted>"].join(" ")}`,
     requiredTools: REQUIRED_TOOLS,
     targetRef,
     liveProof: {
@@ -317,8 +332,11 @@ function callGatewayJson(
   gatewayOptions: string[],
   method: string,
   params: unknown,
-  options: { env?: Record<string, string>; timeoutMs?: number } = {}
+  options: { env?: Record<string, string>; timeoutMs?: number; backendUrl?: string; token?: string } = {}
 ): GatewayCallResult {
+  if (options.backendUrl && options.token && options.token !== "__OPENCLAW_REDACTED__") {
+    return callGatewayBackendJson(options.backendUrl, options.token, method, params, options.timeoutMs ?? 120_000);
+  }
   const call = spawnSync(openclawBin, [
     ...baseArgs,
     "gateway",

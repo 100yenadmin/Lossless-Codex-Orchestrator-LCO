@@ -1,6 +1,9 @@
 import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
+import { callGatewayBackendJson } from "./openclaw-tool-smoke.js";
+import { validateOpenClawGatewayRoute } from "./openclaw-gateway-route.js";
 
 export type OpenClawGatewayLiveControlSmokeOptions = {
   openclawBin?: string;
@@ -120,10 +123,10 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
   ];
   const gatewayTimeoutMs = options.gatewayTimeoutMs ?? 120_000;
   const turnWaitMs = options.turnWaitMs;
-  const gatewayToken = options.token || process.env.OPENCLAW_GATEWAY_TOKEN;
-  const gatewayOptions = [
+  const gatewayToken = options.token || (options.gatewayUrl ? process.env.OPENCLAW_GATEWAY_TOKEN : undefined);
+  const usesBackendGateway = Boolean(options.gatewayUrl && gatewayToken && gatewayToken !== "__OPENCLAW_REDACTED__");
+  const gatewayOptions = usesBackendGateway ? [] : [
     ...(options.gatewayUrl ? ["--url", options.gatewayUrl] : []),
-    ...gatewayTokenArgs(gatewayToken),
     "--timeout",
     String(gatewayTimeoutMs)
   ];
@@ -132,7 +135,9 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
     env: {
       ...(options.token ? { OPENCLAW_GATEWAY_TOKEN: options.token } : {}),
       ...(turnWaitMs ? { LCO_CODEX_TURN_WAIT_MS: String(turnWaitMs) } : {})
-    }
+    },
+    backendUrl: options.gatewayUrl,
+    token: gatewayToken
   };
   const sessionKey = options.sessionKey || "agent:main:lco-live-control-smoke";
   const action = normalizeAction(options.action);
@@ -142,12 +147,17 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
   const message = options.message ?? DEFAULT_MESSAGE;
   const controlMessage = actionMessage(action, message);
   const targetRef = `codex_thread:${options.threadId}`;
+  const runNonce = randomUUID();
   const blockers: string[] = [];
+  const gatewayRoute = validateOpenClawGatewayRoute(options.gatewayUrl, gatewayToken);
+  if (!gatewayRoute.ok) blockers.push(`openclaw_live_${gatewayRoute.code}`);
 
-  const catalog = callGatewayJson(openclawBin, baseArgs, gatewayOptions, "tools.catalog", {}, callOptions);
-  const catalogTools = catalog.status === 0 && catalog.parsed !== undefined ? extractCatalogToolNames(unwrapGatewayPayload(catalog.parsed)) : [];
-  blockers.push(...gatewayCallBlockers(catalog, "openclaw_live_catalog_failed"));
-  blockers.push(...requiredTools.filter((tool) => !catalogTools.includes(tool)).map((tool) => `openclaw_live_catalog_missing_tool:${tool}`));
+  const catalog = blockers.length === 0
+    ? callGatewayJson(openclawBin, baseArgs, gatewayOptions, "tools.catalog", {}, callOptions)
+    : null;
+  const catalogTools = catalog?.status === 0 && catalog.parsed !== undefined ? extractCatalogToolNames(unwrapGatewayPayload(catalog.parsed)) : [];
+  blockers.push(...(catalog ? gatewayCallBlockers(catalog, "openclaw_live_catalog_failed") : []));
+  if (catalog) blockers.push(...requiredTools.filter((tool) => !catalogTools.includes(tool)).map((tool) => `openclaw_live_catalog_missing_tool:${tool}`));
 
   const dryRun = blockers.length === 0
     ? callGatewayJson(openclawBin, baseArgs, gatewayOptions, "tools.invoke", {
@@ -155,7 +165,7 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
       args: liveDryRunArgs(action, options.threadId, controlMessage, expectedTurnId),
       sessionKey,
       confirm: false,
-      idempotencyKey: `loo-live-smoke-dry-run-${action}-${options.threadId}`
+      idempotencyKey: `loo-live-smoke-dry-run-${action}-${options.threadId}-${runNonce}`
     }, callOptions)
     : null;
   blockers.push(...(dryRun ? gatewayCallBlockers(dryRun, "openclaw_live_dry_run_failed") : []));
@@ -168,7 +178,7 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
       args: liveArgs(action, options.threadId, controlMessage, dryRunSummary.approvalAuditId, expectedTurnId, turnWaitMs),
       sessionKey,
       confirm: false,
-      idempotencyKey: `loo-live-smoke-${action}-${options.threadId}-${dryRunSummary.approvalAuditId}`
+      idempotencyKey: `loo-live-smoke-${action}-${options.threadId}-${dryRunSummary.approvalAuditId}-${runNonce}`
     }, callOptions)
     : null;
   blockers.push(...(live ? gatewayCallBlockers(live, "openclaw_live_control_failed") : []));
@@ -192,7 +202,7 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
       args: { limit: 20 },
       sessionKey,
       confirm: false,
-      idempotencyKey: `loo-live-smoke-audit-tail-${action}-${options.threadId}`
+      idempotencyKey: `loo-live-smoke-audit-tail-${action}-${options.threadId}-${runNonce}`
     }, callOptions)
     : null;
   blockers.push(...(auditTail ? gatewayCallBlockers(auditTail, "openclaw_live_audit_tail_failed") : []));
@@ -202,7 +212,7 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
     record.id === dryRunSummary.approvalAuditId && record.live === false && record.paramsHash === dryRunSummary.paramsHash
   ));
   const matchingLiveRecord = Boolean(liveSummary.paramsHash && auditRecords.some((record) =>
-    record.live === true && record.paramsHash === liveSummary.paramsHash
+    record.id === liveSummary.approvalAuditId && record.live === true && record.paramsHash === liveSummary.paramsHash
   ));
   if (auditTail && !matchingDryRunRecord) blockers.push("openclaw_live_audit_tail_missing_dry_run_record");
   if (auditTail && !matchingLiveRecord) blockers.push("openclaw_live_audit_tail_missing_live_record");
@@ -215,7 +225,9 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
     proofReady: uniqueBlockers.length === 0,
     publicSafe: true,
     generatedAt: options.now ?? new Date().toISOString(),
-    command: `${sanitizeCommandBinary(openclawBin)} ${[...baseArgs, "gateway", "call", "tools.invoke", "--json", "--params", "<redacted>"].join(" ")}`,
+    command: usesBackendGateway
+      ? "loo backend-gateway tools.catalog/tools.invoke --json --params <redacted>"
+      : `${sanitizeCommandBinary(openclawBin)} ${[...baseArgs, "gateway", "call", "tools.invoke", "--json", "--params", "<redacted>"].join(" ")}`,
     action,
     requiredTools,
     targetRef,
@@ -403,8 +415,11 @@ function callGatewayJson(
   gatewayOptions: string[],
   method: string,
   params: unknown,
-  options: { env?: Record<string, string>; timeoutMs?: number } = {}
+  options: { env?: Record<string, string>; timeoutMs?: number; backendUrl?: string; token?: string } = {}
 ): GatewayCallResult {
+  if (options.backendUrl && options.token && options.token !== "__OPENCLAW_REDACTED__") {
+    return callGatewayBackendJson(options.backendUrl, options.token, method, params, options.timeoutMs ?? 120_000);
+  }
   const call = spawnSync(openclawBin, [
     ...baseArgs,
     "gateway",
@@ -439,11 +454,6 @@ function gatewayCallBlockers(call: GatewayCallResult, fallback: string): string[
   const payload = unwrapGatewayPayload(call.parsed);
   if (isRecord(payload) && payload.ok === false) return [`${fallback}:tool_not_ok`];
   return [];
-}
-
-function gatewayTokenArgs(token: string | undefined): string[] {
-  if (!token || token === "__OPENCLAW_REDACTED__") return [];
-  return ["--token", token];
 }
 
 function gatewayProcessTimeoutMs(timeoutMs: number): number {

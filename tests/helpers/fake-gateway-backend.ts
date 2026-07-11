@@ -137,6 +137,14 @@ server.on("upgrade", (req, socket) => {
           "loo_codex_final_messages",
           "loo_codex_touched_files",
           "loo_codex_control_dry_run",
+          "loo_codex_send_message",
+          "loo_codex_resume_thread",
+          "loo_codex_steer_thread",
+          "loo_codex_interrupt_thread",
+          "loo_audit_tail",
+          "loo_codex_thread_map",
+          "loo_describe_session",
+          "loo_expand_query",
           "loo_drive"
         ];
         socket.write(encodeFrame({ type: "res", id: message.id, ok: true, payload: { tools: names.map((name) => ({ name })) } }));
@@ -146,15 +154,30 @@ server.on("upgrade", (req, socket) => {
         const name = message.params.name;
         const args = message.params.args || {};
         let output = { ok: true, localOnly: true };
-        if (name === "loo_search_sessions") output = [{ sourceRef: "codex_thread:backend-thread", threadId: "backend-thread", score: 10 }];
+        if (name === "loo_search_sessions") output = [{ sourceRef: "codex_thread:backend-thread", threadId: "backend-thread", score: 10, safeSummary: "Post-action safe summary delta marker" }];
         if (name === "loo_describe_ref") output = { sourceRef: args.source_ref, threadId: "backend-thread" };
         if (name === "loo_expand_session") output = { sourceRef: "codex_thread:backend-thread", threadId: args.thread_id };
         if (name === "loo_codex_plans" || name === "loo_codex_final_messages") output = [{ sourceRef: "codex_thread:backend-thread" }];
         if (name === "loo_codex_touched_files") output = { files: [], count: 0 };
         if (name === "loo_codex_control_dry_run") output = {
           content: [{ type: "text", text: "redacted dry-run packet" }],
-          details: { live: false, approvalAuditId: "loo_audit_backend_control", paramsHash: "backend-control-params" }
+          details: {
+            live: false,
+            approvalAuditId: "loo_audit_bacced01",
+            paramsHash: "a".repeat(64),
+            messageHash: "b".repeat(64),
+            expectedTurnId: args.expected_turn_id,
+            expected_turn_id: args.expected_turn_id
+          }
         };
+        if (name === "loo_codex_send_message") output = { content: [{ type: "text", text: "redacted live packet" }], details: { live: true, approvalAuditId: "loo_audit_feed1234", paramsHash: "a".repeat(64), messageHash: "b".repeat(64), method: "turn/start", turn_status: "completed", proof_state: { completed: true }, response: { ok: true, turn: { status: "completed" } } } };
+        if (name === "loo_codex_resume_thread") output = { content: [{ type: "text", text: "redacted live packet" }], details: { live: true, approvalAuditId: "loo_audit_feed1234", paramsHash: "a".repeat(64), method: "thread/resume", response: { ok: true } } };
+        if (name === "loo_codex_steer_thread") output = { content: [{ type: "text", text: "redacted live packet" }], details: { live: true, approvalAuditId: "loo_audit_feed1234", paramsHash: "a".repeat(64), messageHash: "b".repeat(64), method: "turn/steer", expectedTurnId: args.expected_turn_id, response: { ok: true } } };
+        if (name === "loo_codex_interrupt_thread") output = { content: [{ type: "text", text: "redacted live packet" }], details: { live: true, approvalAuditId: "loo_audit_feed1234", paramsHash: "a".repeat(64), method: "turn/interrupt", expectedTurnId: args.expected_turn_id, response: { ok: true } } };
+        if (name === "loo_audit_tail") output = { records: [{ id: "loo_audit_bacced01", live: false, paramsHash: "a".repeat(64) }, { id: "loo_audit_feed1234", live: true, paramsHash: "a".repeat(64) }] };
+        if (name === "loo_codex_thread_map") output = { targetRef: "codex_thread:backend-thread", statusBucket: "active", refreshedAt: "2026-07-01T00:02:00.000Z", sourceRefs: ["codex_thread:backend-thread"] };
+        if (name === "loo_describe_session") output = { sourceRef: "codex_thread:backend-thread", safeSummary: "Post-action safe summary delta marker" };
+        if (name === "loo_expand_query") output = { sourceRefs: ["codex_thread:backend-thread"], profile: "brief", text: "Safe post-action evidence bundle." };
         if (name === "loo_drive") output = {
           content: [{ type: "text", text: "redacted drive packet" }],
           details: {
