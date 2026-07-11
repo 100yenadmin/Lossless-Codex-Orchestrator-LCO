@@ -1394,6 +1394,7 @@ test("MCP tool registry exposes lco-prefixed canonical tools with loo compatibil
     assert.equal(toolNames.includes("lco_closeout_dry_run"), true);
     assert.equal(toolNames.includes("lco_codex_start_thread"), true);
     assert.equal(toolNames.includes("lco_codex_send_message"), true);
+    assert.equal(toolNames.includes("lco_drive"), true);
     assert.equal(toolNames.includes("lco_desktop_proof"), true);
     assert.deepEqual(toolNames.filter((name) => !LOO_COMMAND_POLICY[name]), []);
     for (const declaration of createLooToolDeclarations()) {
@@ -1423,6 +1424,8 @@ test("MCP tool registry exposes lco-prefixed canonical tools with loo compatibil
     assert.equal(LOO_COMMAND_POLICY.lco_index_sessions.mutationClasses.includes("live_control"), false);
     assert.equal(LOO_COMMAND_POLICY.lco_codex_control_dry_run.mode, "local_cache_write");
     assert.deepEqual(LOO_COMMAND_POLICY.lco_codex_control_dry_run.mutationClasses, ["derived_cache"]);
+    assert.equal(LOO_COMMAND_POLICY.lco_drive.mode, "local_cache_write");
+    assert.deepEqual(LOO_COMMAND_POLICY.lco_drive.mutationClasses, ["derived_cache"]);
     assert.deepEqual(LOO_COMMAND_POLICY.lco_codex_start_thread.mutationClasses, ["derived_cache", "live_control"]);
     assert.deepEqual(LOO_COMMAND_POLICY.lco_watchers.mutationClasses, []);
     assert.deepEqual(LOO_COMMAND_POLICY.lco_codex_send_message.mutationClasses, ["derived_cache", "live_control"]);
@@ -1508,6 +1511,33 @@ test("MCP tool registry exposes lco-prefixed canonical tools with loo compatibil
     assert.equal(genericDryRun.message_hash, audit.fingerprintText("continue"));
     assert.notEqual(genericDryRun.message_hash, sha256("continue"));
     assert.equal(genericDryRun.message_hash, dryRun.message_hash);
+
+    const driveTool = tools.find((tool) => tool.name === "lco_drive");
+    assert.ok(driveTool);
+    const driveRequestCount = codexRequests.length;
+    const driveReport = await driveTool.execute({
+      reviewer: "claude",
+      driver: "codex",
+      target_ref: "codex_thread:thr_1",
+      objective: "Review safely.",
+      surface: "mcp",
+      max_turns: 4,
+      token_budget: 1000,
+      timeout_ms: 120000,
+      cost_ceiling_usd: 1
+    }) as {
+      schema: string;
+      status: string;
+      surface: string;
+      dryRun: { live: boolean };
+      actionsPerformed: { liveControl: boolean };
+    };
+    assert.equal(driveReport.schema, "lco.drive.report.v1");
+    assert.equal(driveReport.status, "dry_run_ready");
+    assert.equal(driveReport.surface, "mcp");
+    assert.equal(driveReport.dryRun.live, false);
+    assert.equal(driveReport.actionsPerformed.liveControl, false);
+    assert.equal(codexRequests.length, driveRequestCount);
 
     const startTool = tools.find((tool) => tool.name === "lco_codex_start_thread");
     assert.ok(startTool);
@@ -1644,7 +1674,7 @@ test("MCP tool registry exposes lco-prefixed canonical tools with loo compatibil
 
     const auditTailTool = tools.find((tool) => tool.name === "lco_audit_tail");
     assert.ok(auditTailTool);
-    const auditTail = await auditTailTool.execute({ limit: 5 }) as {
+    const auditTail = await auditTailTool.execute({ limit: 10 }) as {
       auditPath: string;
       auditRef: string;
       records: Array<{ id: string; paramsHash: string; messageHash?: string }>;

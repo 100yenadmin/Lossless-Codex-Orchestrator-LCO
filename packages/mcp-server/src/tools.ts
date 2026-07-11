@@ -73,6 +73,7 @@ import {
   createCodexAppServerThreadsReport,
   codexTransportStatus,
   createCodexControl,
+  createDriveReport,
   createCodexDesktopCollaborationProof,
   createCodexDesktopFallbackReport,
   createDesktopGuiProofReport,
@@ -86,9 +87,12 @@ import {
   type AuditStore,
   type DesktopBackend,
   type CodexClient,
+  type DriveHarness,
+  type DriveSurface,
   type DesktopProbe,
   type LooCommandSafety
 } from "../../adapters/src/index.js";
+import { probeClaudeDryRunAvailability } from "../../adapters/src/claude.js";
 import { readEnv, readEnvWithFallback, resolveHomeDir } from "../../runtime/src/env.js";
 
 export type LooTool = {
@@ -225,11 +229,12 @@ export const LOO_TOOL_SURFACE: Record<string, LooToolSurfaceMetadata> = {
   lco_session_sanitizer: { tier: "proof_debug" },
   lco_codex_sqlite_stores: { tier: "internal_low_level" },
   lco_lcm_peer_dbs: { tier: "internal_low_level" },
-  lco_codex_control_dry_run: {
+  lco_drive: {
     tier: "public_facade",
     operatorPathRank: 8,
-    operatorPathRole: "Create the exact dry-run action packet and approval hashes before live control."
+    operatorPathRole: "Create a bounded review-then-drive plan and real target-adapter dry-run audit packet."
   },
+  lco_codex_control_dry_run: { tier: "workflow_detail" },
   lco_codex_start_thread: { tier: "workflow_detail" },
   lco_codex_resume_thread: {
     tier: "public_facade",
@@ -1033,6 +1038,41 @@ export function createLooTools(options: {
     tool("lco_lcm_peer_dbs", "Probe configured OpenClaw LCM peer DBs read-only.", {
       lcm_db_paths: { type: "array", items: { type: "string" } }
     }, (input) => probeLcmPeerDbs(optionalRoots(input.lcm_db_paths, configuredLcmPeerDbPaths()))),
+    tool("lco_drive", "Create a bounded review-then-drive plan and target-adapter dry-run packet under local audit.", {
+      reviewer: { type: "string", enum: ["codex", "claude"] },
+      driver: { type: "string", enum: ["codex", "claude"] },
+      target_ref: { type: "string" },
+      objective: { type: "string" },
+      surface: { type: "string", enum: ["mcp", "openclaw-gateway"] },
+      max_turns: { type: "integer", minimum: 1, maximum: 20 },
+      token_budget: { type: "integer", minimum: 100, maximum: 8000 },
+      timeout_ms: { type: "integer", minimum: 1000, maximum: 600000 },
+      cost_ceiling_usd: { type: "number", minimum: 0, maximum: 100 },
+      dry_run: { type: "boolean", enum: [true] },
+      now: { type: "string" }
+    }, async (input) => {
+      if (input.dry_run === false) throw new Error("lco_drive live mode is not supported in 1.6");
+      const reviewer = driveHarness(input.reviewer, "reviewer");
+      const driver = driveHarness(input.driver, "driver");
+      const surface = driveSurface(input.surface);
+      const claudeAvailability = driver === "claude"
+        ? await probeClaudeDryRunAvailability("claude", { trustedPath: process.env.PATH })
+        : undefined;
+      return createDriveReport({
+        reviewer,
+        driver,
+        targetRef: requiredString(input.target_ref, "target_ref"),
+        objective: requiredString(input.objective, "objective"),
+        surface,
+        maxTurns: optionalNumber(input.max_turns),
+        tokenBudget: optionalNumber(input.token_budget),
+        timeoutMs: optionalNumber(input.timeout_ms),
+        costCeilingUsd: optionalNumber(input.cost_ceiling_usd),
+        audit: options.audit,
+        ...(claudeAvailability ? { claudeAvailability } : {}),
+        now: optionalString(input.now)
+      });
+    }),
     tool("lco_codex_control_dry_run", "Create a dry-run audit id for a Codex control action.", {
       action: { type: "string", enum: ["start", "send", "resume", "steer", "interrupt"] },
       thread_id: { type: "string" },
@@ -1635,6 +1675,18 @@ function dispatchControl(control: ReturnType<typeof createCodexControl>, input: 
   if (action === "steer") return control.steerThread(common);
   if (action === "interrupt") return control.interruptThread(common);
   throw new Error(`Unsupported control action: ${action}`);
+}
+
+function driveHarness(value: unknown, field: string): DriveHarness {
+  const harness = requiredString(value, field);
+  if (harness === "codex" || harness === "claude") return harness;
+  throw new Error(`${field} must be codex or claude`);
+}
+
+function driveSurface(value: unknown): DriveSurface {
+  const surface = optionalString(value) ?? "mcp";
+  if (surface === "mcp" || surface === "openclaw-gateway") return surface;
+  throw new Error("surface must be mcp or openclaw-gateway");
 }
 
 function controlSchema(message = false, expectedTurn = false, turnWait = false): Record<string, unknown> {

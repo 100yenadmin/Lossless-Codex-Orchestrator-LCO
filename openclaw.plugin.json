@@ -52,6 +52,7 @@
       "lco_session_sanitizer",
       "lco_codex_sqlite_stores",
       "lco_lcm_peer_dbs",
+      "lco_drive",
       "lco_codex_control_dry_run",
       "lco_codex_start_thread",
       "lco_codex_resume_thread",
@@ -88,6 +89,7 @@
       "loo_session_sanitizer",
       "loo_codex_sqlite_stores",
       "loo_lcm_peer_dbs",
+      "loo_drive",
       "loo_codex_control_dry_run",
       "loo_codex_start_thread",
       "loo_codex_resume_thread",
@@ -1298,8 +1300,8 @@
         }
       },
       {
-        "name": "lco_codex_control_dry_run",
-        "description": "Create a dry-run audit id for a Codex control action.",
+        "name": "lco_drive",
+        "description": "Create a bounded review-then-drive plan and target-adapter dry-run packet under local audit.",
         "safety": {
           "mode": "local_cache_write",
           "source": "audit",
@@ -1311,7 +1313,84 @@
         "metadata": {
           "tier": "public_facade",
           "operatorPathRank": 8,
-          "operatorPathRole": "Create the exact dry-run action packet and approval hashes before live control."
+          "operatorPathRole": "Create a bounded review-then-drive plan and real target-adapter dry-run audit packet."
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "reviewer": {
+              "type": "string",
+              "enum": [
+                "codex",
+                "claude"
+              ]
+            },
+            "driver": {
+              "type": "string",
+              "enum": [
+                "codex",
+                "claude"
+              ]
+            },
+            "target_ref": {
+              "type": "string"
+            },
+            "objective": {
+              "type": "string"
+            },
+            "surface": {
+              "type": "string",
+              "enum": [
+                "mcp",
+                "openclaw-gateway"
+              ]
+            },
+            "max_turns": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20
+            },
+            "token_budget": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 8000
+            },
+            "timeout_ms": {
+              "type": "integer",
+              "minimum": 1000,
+              "maximum": 600000
+            },
+            "cost_ceiling_usd": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "dry_run": {
+              "type": "boolean",
+              "enum": [
+                true
+              ]
+            },
+            "now": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "lco_codex_control_dry_run",
+        "description": "Create a dry-run audit id for a Codex control action.",
+        "safety": {
+          "mode": "local_cache_write",
+          "source": "audit",
+          "requiresApproval": false,
+          "mutationClasses": [
+            "derived_cache"
+          ]
+        },
+        "metadata": {
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -3049,8 +3128,8 @@
         }
       },
       {
-        "name": "loo_codex_control_dry_run",
-        "description": "Create a dry-run audit id for a Codex control action.",
+        "name": "loo_drive",
+        "description": "Create a bounded review-then-drive plan and target-adapter dry-run packet under local audit.",
         "safety": {
           "mode": "local_cache_write",
           "source": "audit",
@@ -3062,7 +3141,85 @@
         "metadata": {
           "tier": "public_facade",
           "operatorPathRank": 8,
-          "operatorPathRole": "Create the exact dry-run action packet and approval hashes before live control.",
+          "operatorPathRole": "Create a bounded review-then-drive plan and real target-adapter dry-run audit packet.",
+          "aliasOf": "lco_drive"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "reviewer": {
+              "type": "string",
+              "enum": [
+                "codex",
+                "claude"
+              ]
+            },
+            "driver": {
+              "type": "string",
+              "enum": [
+                "codex",
+                "claude"
+              ]
+            },
+            "target_ref": {
+              "type": "string"
+            },
+            "objective": {
+              "type": "string"
+            },
+            "surface": {
+              "type": "string",
+              "enum": [
+                "mcp",
+                "openclaw-gateway"
+              ]
+            },
+            "max_turns": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20
+            },
+            "token_budget": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 8000
+            },
+            "timeout_ms": {
+              "type": "integer",
+              "minimum": 1000,
+              "maximum": 600000
+            },
+            "cost_ceiling_usd": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "dry_run": {
+              "type": "boolean",
+              "enum": [
+                true
+              ]
+            },
+            "now": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_control_dry_run",
+        "description": "Create a dry-run audit id for a Codex control action.",
+        "safety": {
+          "mode": "local_cache_write",
+          "source": "audit",
+          "requiresApproval": false,
+          "mutationClasses": [
+            "derived_cache"
+          ]
+        },
+        "metadata": {
+          "tier": "workflow_detail",
           "aliasOf": "lco_codex_control_dry_run"
         },
         "inputSchema": {
@@ -6722,7 +6879,7 @@
         "lco_recent_sessions",
         "lco_attention_inbox",
         "lco_project_digest",
-        "lco_codex_control_dry_run",
+        "lco_drive",
         "lco_codex_resume_thread"
       ],
       "namingPolicy": {
