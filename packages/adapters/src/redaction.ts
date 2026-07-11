@@ -7,6 +7,23 @@ const SECRET_PATTERNS: Array<[RegExp, string]> = [
   [/(\bauthorization\s*:\s*)[^\r\n]+/gi, "$1<redacted-secret>"]
 ];
 
+const DIAGNOSTIC_SECRET_PATTERNS: Array<[RegExp, string]> = [
+  [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "<redacted-secret>"],
+  [/\bnpm_[A-Za-z0-9_]{20,}\b/g, "<redacted-secret>"],
+  [/\bgithub_pat_[A-Za-z0-9_]{20,}\b/g, "<redacted-secret>"],
+  [/\bgh[pousr]_[A-Za-z0-9_]{20,}\b/g, "<redacted-secret>"],
+  [/\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, "<redacted-secret>"],
+  [/(\baws_secret_access_key\s*[=:]\s*)[A-Za-z0-9/+]{32,}/gi, "$1<redacted-secret>"],
+  [/\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g, "<redacted-secret>"],
+  [/\bglpat-[A-Za-z0-9_-]{20,}\b/g, "<redacted-secret>"],
+  [/\bAIza[0-9A-Za-z_-]{20,}\b/g, "<redacted-secret>"],
+  [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, "<redacted-secret>"],
+  [/(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+:[^\s/@]+@/gi, "$1<redacted-secret>@"]
+];
+
+const DIAGNOSTIC_LOCAL_PATH_PATTERN = /(?:~\/|\/(?:Volumes|Users|home|root|private|tmp)\/|\/var\/folders\/)[^\s"',)\]}]+/g;
+const DIAGNOSTIC_WINDOWS_PATH_PATTERN = /[A-Za-z]:\\[^\s"',)\]}]+/g;
+
 const GENERIC_HOME_PATTERN = /\/Users\/[^/\s]+/g;
 const CLAUDE_UNIX_HOME_PATTERN = /(?:\/(?:Users|home)\/[^/\s]+|\/root(?=\/|\s|$))/gi;
 const CLAUDE_WINDOWS_HOME_PATTERN = /(?:[A-Za-z]:|\\\\[^\\/\s]+)[\\/](?:Users|Profiles|home)[\\/][^\\/\s]+/gi;
@@ -19,6 +36,16 @@ export function redactString(value: string): string {
   let redacted = value.replaceAll(homedir(), "~");
   redacted = redacted.replace(GENERIC_HOME_PATTERN, "~");
   for (const [pattern, replacement] of SECRET_PATTERNS) {
+    redacted = redacted.replace(pattern, replacement);
+  }
+  return redacted;
+}
+
+export function redactDiagnosticString(value: string): string {
+  let redacted = redactString(value)
+    .replace(DIAGNOSTIC_LOCAL_PATH_PATTERN, "<redacted-local-path>")
+    .replace(DIAGNOSTIC_WINDOWS_PATH_PATTERN, "<redacted-local-path>");
+  for (const [pattern, replacement] of DIAGNOSTIC_SECRET_PATTERNS) {
     redacted = redacted.replace(pattern, replacement);
   }
   return redacted;

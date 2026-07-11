@@ -112,6 +112,11 @@ picture over local Codex work.
   actions so the target and action can be reviewed before live execution.
 - For live Codex actions, the packet can include the exact target, action,
   message hash, and approval id your main agent should show before it moves.
+- Pins the currently supported live Codex control path to `approvalPolicy=never`
+  and a read-only, no-network sandbox; LCO does not inherit or widen a thread's
+  ambient runtime permissions. Active-turn steer and interrupt fail closed
+  unless the same-connection resume response proves that posture is already in
+  effect.
 - Adds hook-sidecar commands for closeout capture, state prep, compaction marker
   capture, and thread title aliases.
 

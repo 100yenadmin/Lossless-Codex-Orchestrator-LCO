@@ -122,8 +122,18 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
     assert.deepEqual((live.response as any).turn.notificationMethods, ["turn/started", "turn/completed", "turn/paused", "turn/queued"]);
     assert.deepEqual(live.methodSequence, ["thread/resume", "turn/start"]);
     assert.deepEqual(sequenceCalls[0]?.map((step) => step.method), ["thread/resume", "turn/start"]);
-    assert.deepEqual(sequenceCalls[0]?.[0]?.params, { threadId: "thr_1", excludeTurns: true });
-    assert.deepEqual(sequenceCalls[0]?.[1]?.params, { threadId: "thr_1", input: [{ type: "text", text: "continue" }] });
+    assert.deepEqual(sequenceCalls[0]?.[0]?.params, {
+      threadId: "thr_1",
+      excludeTurns: true,
+      approvalPolicy: "never",
+      sandbox: "read-only"
+    });
+    assert.deepEqual(sequenceCalls[0]?.[1]?.params, {
+      threadId: "thr_1",
+      input: [{ type: "text", text: "continue" }],
+      approvalPolicy: "never",
+      sandboxPolicy: { type: "readOnly", networkAccess: false }
+    });
     assert.deepEqual(sequenceOptions[0], { threadId: "thr_1", expectedTurnId: undefined, turnWaitMs: 120_000 });
     await assert.rejects(
       () => sequenceControl.sendMessage({
@@ -142,6 +152,12 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
     assert.equal(resumeDryRun.messageHash, undefined);
     await control.resumeThread({ threadId: "thr_1", dryRun: false, approvalAuditId: resumeDryRun.approvalAuditId });
     assert.equal(calls[0]?.method, "thread/resume");
+    assert.deepEqual(calls[0]?.params, {
+      threadId: "thr_1",
+      excludeTurns: true,
+      approvalPolicy: "never",
+      sandbox: "read-only"
+    });
 
     assert.throws(
       () => control.steerThread({ threadId: "thr_1", message: "focus on tests", dryRun: true }),
@@ -173,13 +189,20 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
     });
     assert.equal(sequenceSteerLive.method, "turn/steer");
     assert.equal(sequenceSteerLive.connectionScope, "same_connection_sequence");
-    assert.deepEqual(sequenceCalls[1]?.map((step) => step.method), ["turn/steer"]);
-    assert.deepEqual(sequenceCalls[1]?.[0]?.params, { threadId: "thr_1", expectedTurnId: "turn_1", input: [{ type: "text", text: "focus on tests" }] });
-    assert.deepEqual(sequenceOptions[1], { threadId: "thr_1", expectedTurnId: "turn_1", turnWaitMs: 250 });
+    assert.deepEqual(sequenceCalls[1]?.map((step) => step.method), ["thread/resume", "turn/steer"]);
+    assert.deepEqual(sequenceCalls[1]?.[0]?.params, {
+      threadId: "thr_1",
+      excludeTurns: true,
+      approvalPolicy: "never",
+      sandbox: "read-only"
+    });
+    assert.deepEqual(sequenceCalls[1]?.[1]?.params, { threadId: "thr_1", expectedTurnId: "turn_1", input: [{ type: "text", text: "focus on tests" }] });
+    assert.deepEqual(sequenceOptions[1], { threadId: "thr_1", expectedTurnId: "turn_1", turnWaitMs: 250, requireSafeActiveRuntime: true });
 
-    const interruptDryRun = await control.interruptThread({ threadId: "thr_1", dryRun: true });
-    await control.interruptThread({ threadId: "thr_1", dryRun: false, approvalAuditId: interruptDryRun.approvalAuditId });
-    assert.equal(calls[1]?.method, "turn/interrupt");
+    assert.throws(
+      () => control.interruptThread({ threadId: "thr_1", dryRun: true }),
+      /expected_turn_id is required/
+    );
 
     const boundInterruptDryRun = await control.interruptThread({ threadId: "thr_1", expectedTurnId: "turn_1", dryRun: true });
     await assert.rejects(
@@ -201,9 +224,15 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
     });
     assert.equal(sequenceInterruptLive.method, "turn/interrupt");
     assert.equal(sequenceInterruptLive.connectionScope, "same_connection_sequence");
-    assert.deepEqual(sequenceCalls[2]?.map((step) => step.method), ["turn/interrupt"]);
-    assert.deepEqual(sequenceCalls[2]?.[0]?.params, { threadId: "thr_1", expectedTurnId: "turn_1" });
-    assert.deepEqual(sequenceOptions[2], { threadId: "thr_1", expectedTurnId: "turn_1", turnWaitMs: 500 });
+    assert.deepEqual(sequenceCalls[2]?.map((step) => step.method), ["thread/resume", "turn/interrupt"]);
+    assert.deepEqual(sequenceCalls[2]?.[0]?.params, {
+      threadId: "thr_1",
+      excludeTurns: true,
+      approvalPolicy: "never",
+      sandbox: "read-only"
+    });
+    assert.deepEqual(sequenceCalls[2]?.[1]?.params, { threadId: "thr_1", turnId: "turn_1" });
+    assert.deepEqual(sequenceOptions[2], { threadId: "thr_1", expectedTurnId: "turn_1", turnWaitMs: 500, requireSafeActiveRuntime: true });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -558,7 +587,7 @@ test("Codex live send fails closed on a mid-turn transport error", async () => {
           notificationMethods: ["turn/started"],
           approvalRequestCount: 0,
           serverRequestCount: 0,
-          error: "stdio closed before turn resolved"
+          error: `authorization: ${homedir()}/secret sk-test_1234567890`
         }
       })
     } as any
@@ -579,7 +608,10 @@ test("Codex live send fails closed on a mid-turn transport error", async () => {
     assert.equal(live.proofState.completed, false);
     assert.match(live.proofState.callerInstruction, /failed closed/i);
     assert.equal((live.response as any).turn.status, "turn_transport_error");
-    assert.equal(JSON.stringify(live).includes("stdio closed"), false);
+    assert.equal((live.response as any).turn.error, "authorization: <redacted-secret>");
+    assert.equal(live.turn?.error, "authorization: <redacted-secret>");
+    assert.equal(JSON.stringify(live).includes("sk-test_1234567890"), false);
+    assert.equal(JSON.stringify(live).includes(`${homedir()}/secret`), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -693,18 +725,22 @@ test("Codex steer and interrupt use bounded turn waits for resolved, timeout, an
 
         assert.equal(live.live, true);
         assert.equal(live.status, status);
-        assert.deepEqual(sequenceCalls[0]?.map((step) => step.method), [action.method]);
+        assert.deepEqual(sequenceCalls[0]?.map((step) => step.method), ["thread/resume", action.method]);
         assert.deepEqual(turnWaitInputs, [{
           threadId: "thr_1",
           expectedTurnId: action.expectedTurnId,
-          turnWaitMs: 25
+          turnWaitMs: 25,
+          requireSafeActiveRuntime: true
         }]);
         assert.equal(live.proofState.turnId, action.expectedTurnId);
         assert.equal(live.proofState.responseStatus, status);
         assert.equal(live.proofState.status, scenario.proofStatus(action));
         assert.equal((live.response as any).turn.status, status);
         assert.equal((live.response as any).status, status);
-        assert.equal(JSON.stringify(live).includes("stdio closed"), false);
+        assert.equal(
+          live.turn?.error,
+          status === "turn_transport_error" ? "stdio closed before turn resolved" : undefined
+        );
       } finally {
         rmSync(root, { recursive: true, force: true });
       }
@@ -843,7 +879,11 @@ test("Codex start-thread workflow is dry-run first and live creation remains pen
       approvalAuditId: dryRun.approvalAuditId
     });
     assert.equal(calls[0]?.method, "thread/start");
-    assert.deepEqual(calls[0]?.params, {});
+    assert.deepEqual(calls[0]?.params, {
+      approvalPolicy: "never",
+      sandbox: "read-only",
+      ephemeral: false
+    });
     assert.equal(live.live, true);
     assert.equal(live.createdThreadId, undefined);
     assert.equal(live.createdThreadCandidateId, "thr_created");

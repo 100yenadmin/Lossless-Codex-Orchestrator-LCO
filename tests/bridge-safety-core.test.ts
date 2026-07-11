@@ -17,6 +17,7 @@ import {
   createCodexMcpStdioClient,
   createCodexControl,
   createTargetControl,
+  redactDiagnosticString,
   redactValue
 } from "../packages/adapters/src/index.js";
 
@@ -75,6 +76,14 @@ test("redacts local paths and common credential shapes from shareable envelopes"
       Authorization: "<redacted-secret>"
     }
   });
+});
+
+test("strict diagnostic redaction removes external paths, provider tokens, JWTs, and URI credentials", () => {
+  const value = "failed at /Volumes/LEXAR/customers/acme/token with npm_12345678901234567890 github_pat_12345678901234567890 AKIA1234567890ABCDEF postgres://admin:SuperSecret123@db.example.com/prod eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signatureTOKEN123";
+  assert.equal(
+    redactDiagnosticString(value),
+    "failed at <redacted-local-path> with <redacted-secret> <redacted-secret> <redacted-secret> postgres://<redacted-secret>@db.example.com/prod <redacted-secret>"
+  );
 });
 
 test("Codex method policy blocks generic mutation passthrough but allows approved control surface methods", () => {
@@ -298,6 +307,7 @@ rl.on("line", (line) => {
     process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: payload.id, result: { turn: { id: "turn_1" } } }) + "\\n");
   }
 });
+
 `;
   const client = createCodexMcpStdioClient({
     command: process.execPath,
@@ -318,6 +328,92 @@ rl.on("line", (line) => {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("Codex stdio sequence fails closed before active-turn control when resume reports an unsafe runtime", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-test-active-runtime-"));
+  const marker = join(root, "steer-marker");
+  const script = `
+const fs = require("node:fs");
+const readline = require("node:readline");
+const marker = process.argv[1];
+const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+rl.on("line", (line) => {
+  const payload = JSON.parse(line);
+  if (payload.method === "initialize") {
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: payload.id, result: {} }) + "\\n");
+    return;
+  }
+  if (payload.method === "thread/resume") {
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: payload.id, result: {
+      thread: { id: "thr_1" },
+      approvalPolicy: "never",
+      sandbox: { type: "dangerFullAccess" }
+    } }) + "\\n");
+    return;
+  }
+  if (payload.method === "turn/steer") {
+    fs.writeFileSync(marker, "sent");
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: payload.id, result: {} }) + "\\n");
+  }
+});
+`;
+  const client = createCodexMcpStdioClient({
+    command: process.execPath,
+    args: ["-e", script, marker],
+    timeoutMs: 1_000,
+    surface: "control"
+  });
+
+  try {
+    const result = await client.requestSequenceUntilTurnResolved?.([
+      { method: "thread/resume", params: { threadId: "thr_1", approvalPolicy: "never", sandbox: "read-only" } },
+      { method: "turn/steer", params: { threadId: "thr_1", expectedTurnId: "turn_1", input: [{ type: "text", text: "continue" }] } }
+    ], { threadId: "thr_1", expectedTurnId: "turn_1", turnWaitMs: 1_000, requireSafeActiveRuntime: true });
+    assert.equal(result?.responses.length, 2);
+    assert.equal((result?.responses[1] as { ok?: boolean } | undefined)?.ok, false);
+    assert.match(String((result?.responses[1] as { error?: string } | undefined)?.error ?? ""), /safe runtime posture was not proven/);
+    assert.equal(existsSync(marker), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Codex stdio turn resolution surfaces a strictly redacted terminal error", async () => {
+  const script = `
+const readline = require("node:readline");
+const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+rl.on("line", (line) => {
+  const payload = JSON.parse(line);
+  if (payload.method === "initialize") {
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: payload.id, result: {} }) + "\\n");
+    return;
+  }
+  if (payload.method === "thread/resume") {
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: payload.id, result: { thread: { id: "thr_1" } } }) + "\\n");
+    return;
+  }
+  if (payload.method === "turn/start") {
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: payload.id, result: { turn: { id: "turn_1", status: "inProgress" } } }) + "\\n");
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", method: "turn/completed", params: { threadId: "thr_1", turn: { id: "turn_1", status: "failed", error: { message: "failed at /Volumes/LEXAR/customers/acme/token with npm_12345678901234567890 github_pat_12345678901234567890 AKIA1234567890ABCDEF postgres://admin:SuperSecret123@db.example.com/prod eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signatureTOKEN123" } } } }) + "\\n");
+  }
+});
+`;
+  const client = createCodexMcpStdioClient({
+    command: process.execPath,
+    args: ["-e", script],
+    timeoutMs: 1_000,
+    surface: "control"
+  });
+
+  const result = await client.requestSequenceUntilTurnResolved?.([
+    { method: "thread/resume", params: { threadId: "thr_1", excludeTurns: true } },
+    { method: "turn/start", params: { threadId: "thr_1", input: [{ type: "text", text: "continue" }] } }
+  ], { threadId: "thr_1", turnWaitMs: 1_000 });
+
+  assert.equal(result?.turn?.status, "failed");
+  assert.equal(result?.turn?.completed, false);
+  assert.equal(result?.turn?.error, "Codex turn failed; diagnostic text redacted");
 });
 
 test("Codex control checks method policy before live transport calls", async () => {

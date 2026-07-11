@@ -490,10 +490,24 @@ Live start/send/steer/interrupt results distinguish `accepted_by_transport`,
 `unverified_pending`, treat it as transport acceptance only and run the returned
 read-only `next_proof` tool call before claiming durable execution or local
 session persistence.
+
+The supported live-control path pins every start/resume/send/steer/interrupt
+request to `approvalPolicy=never` and a read-only, no-network sandbox. It does
+not inherit or widen a thread's ambient runtime permissions. Steer and
+interrupt first rejoin the exact target on the same app-server connection, and
+both require `expected_turn_id`. Because Codex can retain the active turn's
+existing permissions when rejoining a running thread, LCO requires the resume
+response to prove the fixed posture before it sends steer or interrupt; an
+unproven or wider posture fails closed. Interrupt maps the binding to Codex's
+current `turnId` protocol field.
+
 Live resume only proves that the thread was rejoined/loaded by the transport;
 do not use resume by itself as durable turn execution proof.
-Resume reuses `thread/resume` with `excludeTurns:true`; it does not start a turn,
-so no bounded turn wait applies to resume alone.
+
+Resume reuses `thread/resume` with `excludeTurns:true` plus the fixed safe
+runtime posture; it does not start a turn, so no bounded turn wait applies to
+resume alone.
+
 Live send/turn-bound control waits are bounded; use `--turn-wait-ms` on smoke
 commands or `LOO_CODEX_TURN_WAIT_MS` for live tool calls when a shorter or
 longer local verification window is intentional.
