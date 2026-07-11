@@ -1870,6 +1870,7 @@ test("prepared-card all-thread refresh batches work-state lookup families", () =
       if (
         /^\s*SELECT\b/i.test(sql)
         && /\bFROM\s+(?:prepared_source_events|codex_plans|attention_queue|codex_touched_files)\b/i.test(sql)
+        && (!/\bFROM\s+codex_plans\b/i.test(sql) || /\btext\s*,\s*ordinal\b/i.test(sql))
       ) {
         trackedStatements.push(sql);
       }
@@ -1901,6 +1902,98 @@ test("prepared-card all-thread refresh batches work-state lookup families", () =
     assert.ok(whitespaceLatestPlanCard);
     assert.equal(whitespaceLatestPlanCard.reasonCodes.includes("from_latest_plan"), false);
     assert.equal(whitespaceLatestPlanCard.objective, null);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Codex indexing batches prepared-card work-state lookups across changed threads", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-card-index-batch-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const threadCount = 24;
+  for (let index = 0; index < threadCount; index += 1) {
+    const suffix = index.toString(16).padStart(2, "0");
+    const threadId = `019f-prepared-index-batch-${suffix}`;
+    writePreparedCardJsonl(
+      join(sessions, `rollout-2026-07-06T00-00-${suffix}-${threadId}.jsonl`),
+      threadId,
+      `Prepared indexing batch ${index}`
+    );
+  }
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    const originalPrepare = db.prepare.bind(db);
+    const trackedStatements: string[] = [];
+    db.prepare = ((sql: string) => {
+      if (
+        /^\s*SELECT\b/i.test(sql)
+        && /\bFROM\s+(?:prepared_source_events|codex_plans|attention_queue|codex_touched_files)\b/i.test(sql)
+        && (!/\bFROM\s+codex_plans\b/i.test(sql) || /\btext\s*,\s*ordinal\b/i.test(sql))
+      ) {
+        trackedStatements.push(sql);
+      }
+      return originalPrepare(sql);
+    }) as typeof db.prepare;
+
+    const result = indexCodexSessions(db, { roots: [sessions], maxFiles: threadCount });
+    assert.equal(result.indexedFiles, threadCount);
+    assert.equal(result.errors.length, 0);
+    assert.deepEqual(result.preparedMaterialization, {
+      requestedThreads: threadCount,
+      completedThreads: threadCount,
+      pendingThreads: 0
+    });
+    assert.equal(getPreparedCards(db, { limit: threadCount }).summary.total, threadCount);
+    const trackedLookupCounts = trackedStatements.reduce<Record<string, number>>((counts, sql) => {
+      const table = sql.match(/\bFROM\s+(prepared_source_events|codex_plans|attention_queue|codex_touched_files)\b/i)?.[1]?.toLowerCase();
+      if (table) counts[table] = (counts[table] ?? 0) + 1;
+      return counts;
+    }, {});
+    assert.deepEqual(trackedLookupCounts, {
+      attention_queue: 1,
+      codex_plans: 1,
+      codex_touched_files: 1,
+      prepared_source_events: 1
+    });
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Codex indexing reports incomplete prepared-card materialization", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-card-index-partial-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const threadId = "019f-prepared-index-partial";
+  writePreparedCardJsonl(
+    join(sessions, `rollout-2026-07-06T00-00-00-${threadId}.jsonl`),
+    threadId,
+    "Prepared indexing partial"
+  );
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    db.exec(`
+      CREATE TRIGGER fail_index_prepared_card_insert
+      BEFORE INSERT ON prepared_cards
+      WHEN NEW.target_ref = 'codex_thread:${threadId}'
+      BEGIN
+        SELECT RAISE(ABORT, 'forced indexed prepared card failure');
+      END;
+    `);
+
+    const result = indexCodexSessions(db, { roots: [sessions], maxFiles: 1 });
+    assert.equal(result.indexedFiles, 1);
+    assert.equal(result.errors.length, 1);
+    assert.deepEqual(result.preparedMaterialization, {
+      requestedThreads: 1,
+      completedThreads: 0,
+      pendingThreads: 1
+    });
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });

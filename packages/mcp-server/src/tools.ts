@@ -1379,6 +1379,7 @@ function publicSafeIndexCodexResult(result: ReturnType<typeof indexCodexSessions
     skippedFiles: result.skippedFiles,
     indexedThreads: result.indexedThreads,
     indexedEvents: result.indexedEvents,
+    preparedMaterialization: result.preparedMaterialization,
     limitedFiles: result.limitedFiles.map((file, index) => ({
       fileRef: `codex_index_limited_file:${index + 1}`,
       reason: file.reason,
