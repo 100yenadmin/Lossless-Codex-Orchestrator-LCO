@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { createDriveReport } from "../packages/adapters/src/drive.js";
 import type { AuditRecord } from "../packages/adapters/src/index.js";
+import { runLoo } from "./helpers/run-loo.js";
 
 function auditStub() {
   const records: AuditRecord[] = [];
@@ -137,4 +141,51 @@ test("drive mints a Claude dry-run packet when the supported adapter is availabl
   assert.equal(report.dryRun.live, false);
   assert.equal(report.controllerMatrix.find((row) => row.controller === "mcp")?.status, "dry_run_available");
   assert.equal(report.controllerMatrix.find((row) => row.controller === "openclaw")?.status, "dry_run_available");
+});
+
+test("loo drive help exposes the bounded dry-run contract", () => {
+  const result = runLoo(["drive", "--help"], process.env, 5_000);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /--reviewer codex\|claude/);
+  assert.match(result.stdout, /--driver codex\|claude/);
+  assert.match(result.stdout, /--max-turns/);
+  assert.match(result.stdout, /--cost-ceiling-usd/);
+  assert.match(result.stdout, /dry-run/i);
+});
+
+test("loo drive emits a public-safe Codex dry-run report", () => {
+  const root = mkdtempSync(join(tmpdir(), "lco-drive-cli-"));
+  try {
+    const objective = "Review the bounded CLI fixture.";
+    const result = runLoo([
+      "drive",
+      "--reviewer", "claude",
+      "--driver", "codex",
+      "--target-ref", "codex_thread:thread-1",
+      "--objective", objective,
+      "--audit-path", join(root, "audit.jsonl"),
+      "--dry-run"
+    ], process.env, 5_000);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const report = JSON.parse(result.stdout) as { schema?: string; status?: string; dryRun?: { live?: boolean } };
+    assert.equal(report.schema, "lco.drive.report.v1");
+    assert.equal(report.status, "dry_run_ready");
+    assert.equal(report.dryRun?.live, false);
+    assert.doesNotMatch(result.stdout, /bounded CLI fixture/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("loo drive rejects live requests before audit mutation", () => {
+  const result = runLoo([
+    "drive",
+    "--reviewer", "codex",
+    "--driver", "codex",
+    "--target-ref", "codex_thread:thread-1",
+    "--objective", "Review safely.",
+    "--live"
+  ], process.env, 5_000);
+  assert.equal(result.status, 2, result.stderr || result.stdout);
+  assert.match(result.stderr, /live.*not supported|unknown drive option/i);
 });
