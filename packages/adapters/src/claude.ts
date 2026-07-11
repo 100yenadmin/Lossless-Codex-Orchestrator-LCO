@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { win32 as win32Path } from "node:path";
 import { createTargetControl, type AuditRecord } from "./index.js";
 import { type TargetMethodPolicy } from "./policy.js";
 import { redactClaudeValue } from "./redaction.js";
@@ -69,15 +70,44 @@ export function probeClaudeDryRunAvailability(command = "claude"): ClaudeDryRunA
       available: false,
       command: "claude",
       version: null,
-      error: "Unsupported Claude CLI probe command.",
-      unsupportedReason: "Only the claude CLI command is allowed for dry-run availability probing."
+      error: "Only the claude CLI command is allowed for dry-run availability probing.",
+      unsupportedReason: null
     };
   }
   // This exported out-of-band probe intentionally uses the caller's trusted
-  // PATH, never a shell. Request/status handlers must inject its sanitized
-  // result instead of invoking the synchronous probe themselves.
-  const result = spawnSync("claude", ["--version"], { encoding: "utf8", timeout: 2_000, shell: false });
+  // PATH. Windows uses a fixed system cmd.exe from a trusted System32 cwd so
+  // checkout-local claude.cmd/bat shadows are never considered. Request/status
+  // handlers must inject its sanitized result instead of invoking the
+  // synchronous probe themselves.
+  const invocation = claudeVersionProbeInvocation();
+  const result = spawnSync(invocation.command, invocation.args, {
+    encoding: "utf8",
+    timeout: 2_000,
+    shell: false,
+    cwd: invocation.cwd
+  });
   return claudeAvailabilityFromProbeResult(result);
+}
+
+export function claudeVersionProbeInvocation(
+  platform: NodeJS.Platform = process.platform,
+  systemRoot = process.env.SystemRoot
+): { command: string; args: string[]; cwd: string | undefined } {
+  if (platform === "win32") {
+    const rawRoot = systemRoot?.trim() || "C:\\Windows";
+    const safeRoot = win32Path.isAbsolute(rawRoot)
+      && !rawRoot.split(/[\\/]+/).includes("..")
+      && !/[<>"|?*\r\n]/.test(rawRoot)
+      ? win32Path.normalize(rawRoot)
+      : "C:\\Windows";
+    const system32 = win32Path.join(safeRoot, "System32");
+    return {
+      command: win32Path.join(system32, "cmd.exe"),
+      args: ["/d", "/s", "/c", "claude --version"],
+      cwd: system32
+    };
+  }
+  return { command: "claude", args: ["--version"], cwd: undefined };
 }
 
 export function claudeAvailabilityFromProbeResult(result: ClaudeVersionProbeResult): ClaudeDryRunAvailability {

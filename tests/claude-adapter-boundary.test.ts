@@ -7,6 +7,7 @@ import { assertTargetMethodAllowed } from "../packages/adapters/src/index.js";
 import {
   CLAUDE_TARGET_METHOD_POLICY,
   claudeAvailabilityFromProbeResult,
+  claudeVersionProbeInvocation,
   createClaudeCodeAdapter,
   createClaudeDryRunControl,
   probeClaudeDryRunAvailability,
@@ -264,8 +265,27 @@ test("Claude availability probe refuses non-allowlisted commands before reportin
 
   assert.equal(availability.available, false);
   assert.equal(availability.command, "claude");
-  assert.match(availability.unsupportedReason ?? "", /only the claude cli command/i);
+  assert.equal(availability.unsupportedReason ?? null, null);
+  assert.match(availability.error ?? "", /only the claude cli command/i);
+  assert.equal(createClaudeDryRunControl({ audit: auditStub(), availability }).status().state, "not_configured");
   assert.doesNotMatch(JSON.stringify(availability), /\/bin\/echo/);
+});
+
+test("Claude availability probe resolves the fixed command through cmd.exe on Windows", () => {
+  assert.deepEqual(claudeVersionProbeInvocation("win32", "D:\\Windows"), {
+    command: "D:\\Windows\\System32\\cmd.exe",
+    args: ["/d", "/s", "/c", "claude --version"],
+    cwd: "D:\\Windows\\System32"
+  });
+  assert.deepEqual(claudeVersionProbeInvocation("darwin"), {
+    command: "claude",
+    args: ["--version"],
+    cwd: undefined
+  });
+  const windows = claudeVersionProbeInvocation("win32", "C:\\Windows");
+  assert.match(windows.command, /^[A-Za-z]:\\Windows\\System32\\cmd\.exe$/i);
+  assert.equal(windows.cwd, "C:\\Windows\\System32");
+  assert.doesNotMatch(`${windows.command} ${windows.cwd}`, /checkout|worktree|repo/i);
 });
 
 test("Claude version parser classifies old and unparseable CLI versions as unsupported", () => {
@@ -299,6 +319,15 @@ test("Claude probe result classification covers missing binary nonzero and unsup
   });
   assert.equal(nonzero.available, false);
   assert.match(nonzero.error ?? "", /permission denied/);
+
+  const sensitiveNonzero = claudeAvailabilityFromProbeResult({
+    error: undefined,
+    status: 1,
+    stdout: "",
+    stderr: "Bearer sensitive-token from /Users/alice/.claude and C:\\Users\\bob\\.claude"
+  });
+  assert.equal(sensitiveNonzero.available, false);
+  assert.doesNotMatch(JSON.stringify(sensitiveNonzero), /sensitive-token|\/Users\/alice|C:\\Users\\bob/);
 
   const timedOut = claudeAvailabilityFromProbeResult({
     error: undefined,
