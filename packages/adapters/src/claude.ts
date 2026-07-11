@@ -46,6 +46,7 @@ type ClaudeVersionProbeResult = {
   stderr: string | Buffer;
   signal?: NodeJS.Signals | null;
   timedOut?: boolean;
+  outputLimitExceeded?: boolean;
 };
 
 export type ClaudeDryRunStatus = {
@@ -111,9 +112,11 @@ function runClaudeVersionProbe(invocation: {
     let outputBytes = 0;
     let spawnError: Error | undefined;
     let timedOut = false;
+    let outputLimitExceeded = false;
     let terminationStarted = false;
     let settled = false;
     let treeKiller: ReturnType<typeof spawn> | null = null;
+    let killerFallback: NodeJS.Timeout | null = null;
     let timeout: NodeJS.Timeout;
     let hardDeadline: NodeJS.Timeout;
 
@@ -122,13 +125,18 @@ function runClaudeVersionProbe(invocation: {
       settled = true;
       clearTimeout(timeout);
       clearTimeout(hardDeadline);
+      if (killerFallback) clearTimeout(killerFallback);
+      treeKiller?.removeAllListeners();
+      treeKiller?.kill("SIGKILL");
+      treeKiller?.unref();
       resolve({
         error: spawnError,
         status: code,
         stdout: Buffer.concat(stdout),
         stderr: Buffer.concat(stderr),
         signal,
-        timedOut
+        timedOut,
+        outputLimitExceeded
       });
     };
 
@@ -143,14 +151,16 @@ function runClaudeVersionProbe(invocation: {
           windowsHide: true,
           stdio: "ignore"
         });
+        treeKiller.unref();
         const killDirectChild = () => child.kill("SIGKILL");
-        const killerFallback = setTimeout(killDirectChild, 750);
+        killerFallback = setTimeout(killDirectChild, 750);
+        killerFallback.unref();
         treeKiller.once("error", () => {
-          clearTimeout(killerFallback);
+          if (killerFallback) clearTimeout(killerFallback);
           killDirectChild();
         });
         treeKiller.once("close", () => {
-          clearTimeout(killerFallback);
+          if (killerFallback) clearTimeout(killerFallback);
           killDirectChild();
         });
         return;
@@ -165,7 +175,10 @@ function runClaudeVersionProbe(invocation: {
       const value = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       outputBytes += value.length;
       if (outputBytes <= 64 * 1024) chunks.push(value);
-      else terminateTree();
+      else {
+        outputLimitExceeded = true;
+        terminateTree();
+      }
     };
     child.stdout.on("data", (chunk) => capture(stdout, chunk));
     child.stderr.on("data", (chunk) => capture(stderr, chunk));
@@ -228,6 +241,14 @@ function safeWindowsSystemRoot(systemRoot: string | undefined): string {
 export function claudeAvailabilityFromProbeResult(result: ClaudeVersionProbeResult): ClaudeDryRunAvailability {
   const stdout = typeof result.stdout === "string" ? result.stdout : result.stdout?.toString("utf8") ?? "";
   const stderr = typeof result.stderr === "string" ? result.stderr : result.stderr?.toString("utf8") ?? "";
+  if (result.outputLimitExceeded) {
+    return sanitizeClaudeAvailability({
+      available: false,
+      command: "claude",
+      version: null,
+      error: "Claude availability probe output exceeded the safety limit."
+    });
+  }
   if (result.timedOut) {
     return sanitizeClaudeAvailability({
       available: false,

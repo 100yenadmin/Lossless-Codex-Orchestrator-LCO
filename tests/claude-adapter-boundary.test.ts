@@ -303,6 +303,25 @@ test("Claude availability probe kills a timeout-resistant CLI within its bound",
   }
 });
 
+test("Claude availability probe fails closed when version output exceeds its bound", async () => {
+  if (process.platform === "win32") return;
+  const root = mkdtempSync(join(tmpdir(), "lco-claude-probe-output-"));
+  const fakeClaude = join(root, "claude");
+  writeFileSync(fakeClaude, [
+    `#!${process.execPath}`,
+    "process.stdout.write('Claude Code 1.2.3\\n' + 'x'.repeat(70 * 1024));"
+  ].join("\n"));
+  chmodSync(fakeClaude, 0o755);
+  try {
+    const availability = await probeClaudeDryRunAvailability("claude", { trustedPath: root });
+    assert.equal(availability.available, false);
+    assert.match(availability.error ?? "", /output.*limit/i);
+    assert.equal(createClaudeDryRunControl({ audit: auditStub(), availability }).status().state, "not_configured");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Claude availability probe resolves the fixed command through cmd.exe on Windows", () => {
   assert.deepEqual(claudeVersionProbeInvocation("win32", "D:\\Windows"), {
     command: "C:\\Windows\\System32\\cmd.exe",
@@ -398,6 +417,16 @@ test("Claude probe result classification covers missing binary nonzero and unsup
   assert.equal(externallyTerminated.available, false);
   assert.match(externallyTerminated.error ?? "", /terminated by SIGTERM/i);
   assert.doesNotMatch(externallyTerminated.error ?? "", /timed out/i);
+
+  const outputOverflow = claudeAvailabilityFromProbeResult({
+    error: undefined,
+    status: 0,
+    outputLimitExceeded: true,
+    stdout: "Claude Code 1.2.3",
+    stderr: ""
+  });
+  assert.equal(outputOverflow.available, false);
+  assert.match(outputOverflow.error ?? "", /output.*limit/i);
 
   const oldVersion = claudeAvailabilityFromProbeResult({
     error: undefined,
