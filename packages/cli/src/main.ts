@@ -402,6 +402,7 @@ async function main() {
     } catch (error) {
       if (!isSessionDiffSetupError(error)) throw error;
       console.log(JSON.stringify(createSessionDiffSetupRequiredReport("cli"), null, 2));
+      process.exitCode = 1;
     } finally {
       db.close();
     }

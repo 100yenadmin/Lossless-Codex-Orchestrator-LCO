@@ -11580,8 +11580,7 @@ const SESSION_DIFF_SOURCE_RANGE_CURSOR_KEY_SQL = "session_diff_key";
 export function isSessionDiffSetupError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   return /^Session diff cursor signing key is required(?:;|$)/.test(error.message)
-    || /^Audit fingerprint key is (?:invalid|unavailable)(?:$|:)/.test(error.message)
-    || /^(?:EACCES|EPERM|EISDIR|ENOTDIR):/.test(error.message);
+    || /^Audit fingerprint key is (?:invalid|unavailable)(?:$|:)/.test(error.message);
 }
 
 export function createSessionDiffSetupRequiredReport(surface: "cli" | "mcp"): SessionDiffSetupReport {

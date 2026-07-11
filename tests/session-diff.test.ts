@@ -1915,8 +1915,7 @@ test("session diff tool returns path-free setup guidance for missing or invalid 
   try {
     for (const fingerprintTextIfConfigured of [
       () => null,
-      () => { throw new Error("Audit fingerprint key is invalid: /Users/lume/private/audit.jsonl.key"); },
-      () => { throw new Error("EACCES: permission denied, open /Users/lume/private/audit.jsonl.key"); }
+      () => { throw new Error("Audit fingerprint key is invalid: /Users/lume/private/audit.jsonl.key"); }
     ]) {
       const tools = createLooTools({
         db,
@@ -1967,7 +1966,7 @@ test("session diff CLI returns structured setup guidance when no signing key is 
   delete env.LOO_SESSION_DIFF_CURSOR_KEY;
   try {
     const result = runLoo(["session-diff"], env);
-    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.status, 1, result.stderr);
     const response = JSON.parse(result.stdout) as {
       schema?: string;
       publicSafe?: boolean;
@@ -1983,6 +1982,46 @@ test("session diff CLI returns structured setup guidance when no signing key is 
     assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /\bat\s+|\/Users\/|\/Volumes\/|lco-session-diff-cli-setup-/);
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("session diff MCP tool rethrows unrelated database EACCES with a configured signing key", async () => {
+  const previousLcoKey = process.env.LCO_SESSION_DIFF_CURSOR_KEY;
+  const previousLooKey = process.env.LOO_SESSION_DIFF_CURSOR_KEY;
+  process.env.LCO_SESSION_DIFF_CURSOR_KEY = TEST_CURSOR_SIGNING_KEY;
+  delete process.env.LOO_SESSION_DIFF_CURSOR_KEY;
+  try {
+    const databaseError = new Error("EACCES: permission denied, open /Users/lume/private/orchestrator.sqlite");
+    const db = {
+      prepare() {
+        throw databaseError;
+      }
+    } as unknown as ReturnType<typeof createDatabase>;
+    const tools = createLooTools({
+      db,
+      audit: {
+        path: "test",
+        append() { throw new Error("not used"); },
+        find() { return null; },
+        tail() { return []; },
+        fingerprintText() { throw new Error("not used"); },
+        fingerprintTextIfConfigured() { throw new Error("configured key must bypass audit fallback"); },
+        fingerprintValue() { throw new Error("not used"); }
+      },
+      codexClient: { async request() { throw new Error("not used"); } }
+    });
+    const tool = tools.find((entry) => entry.name === "lco_session_diff");
+    assert.ok(tool);
+
+    await assert.rejects(
+      executeLooToolForOpenClaw(tool, {}),
+      (error: unknown) => error === databaseError
+    );
+  } finally {
+    if (previousLcoKey === undefined) delete process.env.LCO_SESSION_DIFF_CURSOR_KEY;
+    else process.env.LCO_SESSION_DIFF_CURSOR_KEY = previousLcoKey;
+    if (previousLooKey === undefined) delete process.env.LOO_SESSION_DIFF_CURSOR_KEY;
+    else process.env.LOO_SESSION_DIFF_CURSOR_KEY = previousLooKey;
   }
 });
 
