@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -39,6 +39,16 @@ function writePreparedJsonl(path: string, threadId: string, title: string, extra
   ];
   writeFileSync(path, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
 }
+
+test("Codex indexing reuses the source hash after reading a changed file", () => {
+  const source = readFileSync("packages/core/src/index.ts", "utf8");
+  const changedFileBranch = source.slice(
+    source.indexOf("const sourceHash = stableId(text);"),
+    source.indexOf("upsertSession(db, path, text, session")
+  );
+  assert.equal((changedFileBranch.match(/stableId\(text\)/g) ?? []).length, 1);
+  assert.equal((changedFileBranch.match(/watermark\.pathHash === sourceHash/g) ?? []).length, 2);
+});
 
 test("prepared-state migration adds additive shadow tables to an existing 1.1-style DB", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-prepared-migration-"));
@@ -111,6 +121,9 @@ test("prepared-state migration adds additive shadow tables to an existing 1.1-st
       "2026-07-06-index-fast-skip-and-hot-path-indexes",
       "2026-07-08-codex-event-content-store",
       "2026-07-06-retrieval-telemetry",
+      "2026-07-11-session-diff-cursor-indexes",
+      "2026-07-11-source-integrity-generation",
+      "2026-07-11-session-diff-persisted-key",
       "2026-07-06-retrieval-telemetry-session-key",
       "2026-07-06-codex-search-fts"
     ];

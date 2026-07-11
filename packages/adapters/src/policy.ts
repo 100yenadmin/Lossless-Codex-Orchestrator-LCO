@@ -161,6 +161,7 @@ export const LOO_COMMAND_POLICY: Record<string, LooCommandSafety> = {
   lco_expand_query: localCacheWrite("local_index"),
   lco_prepared_state: readOnly("local_index"),
   lco_prepared_inbox: readOnly("local_index"),
+  lco_session_diff: readOnly("local_index"),
   lco_recent_sessions: readOnly("local_index"),
   lco_watchers: readOnly("structured_operating_inputs"),
   lco_codex_app_server_status: readOnly("codex_direct"),

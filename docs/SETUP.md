@@ -120,6 +120,18 @@ export LCO_LCM_DB_PATHS="$HOME/.openclaw/lcm.db"
 LCM peer DBs are opened read-only. LCO does not merge raw Codex transcripts into
 OpenClaw LCM.
 
+Session diff uses signed opaque cursors. If your profile has not yet created a
+local audit key through an approved dry-run control workflow, provide a stable
+local secret to the CLI, MCP server, or OpenClaw gateway as
+`LCO_SESSION_DIFF_CURSOR_KEY`. Use at least 16 characters, keep the value in
+your normal local secret store, and reuse the same value so cursors remain valid
+across process restarts. Do not commit it to an MCP configuration or repository.
+Reports expose only the safe key source (`environment`, `audit_fallback`, or
+`explicit`), never the key or audit path. If you rely on `audit_fallback`, keep
+the same audit profile/path; changing it intentionally invalidates earlier
+cursors. Prefer the environment-backed secret when cursors must survive profile
+or audit-path changes.
+
 ## 4. Index Local Codex Sessions
 
 Run a bounded first import:
@@ -625,6 +637,19 @@ Search returns no results
 
 - Run `lco index codex --max-files 500 "$HOME/.codex/sessions"`.
 - Confirm `LCO_DB_PATH` points at the same database for index and search.
+
+`lco session-diff` reports that a cursor signing key is required
+
+- Set `LCO_SESSION_DIFF_CURSOR_KEY` from your local secret store and keep it
+  stable across CLI, MCP, and OpenClaw restarts.
+- Alternatively, initialize LCO's local audit key through an approved dry-run
+  control workflow; session diff reads that existing key without creating files.
+- If LCO reports an invalid audit key, do not silently regenerate or weaken the
+  64-hex-character validation. Back up the invalid local key, then either set a
+  stable `LCO_SESSION_DIFF_CURSOR_KEY` or deliberately replace the audit key
+  through the approved dry-run setup workflow. Replacing either key makes
+  earlier session-diff cursors invalid.
+- Do not paste the key into issue reports, QA evidence, or committed config.
 
 Event-content cache uses too much local disk
 

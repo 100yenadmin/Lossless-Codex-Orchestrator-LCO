@@ -2,6 +2,7 @@
 import {
   codexTransportStatus,
   createAuditStore,
+  deriveAuditSubkeyIfConfigured,
   desktopActDryRun,
   desktopFallbackDiagnostics,
   desktopSee,
@@ -23,6 +24,7 @@ import {
   createRecallRefNotFoundResult,
   createIndexedSessionSanitizerRepairPlan,
   createIndexedSessionSanitizerReport,
+  createSessionDiffSetupRequiredReport,
   defaultClaudeRoots,
   defaultCodexRoots,
   defaultDatabasePath,
@@ -35,13 +37,16 @@ import {
   expandRecallRef,
   getCodexThreadMap,
   getCodexSessionManagementMap,
+  getSessionDiff,
   grepRecall,
   harvestRetrievalTelemetry,
   indexClaudeSessions,
   indexCodexSessions,
+  isSessionDiffSetupError,
   probeCodexSqliteStores,
   probeLcmPeerDbs,
   readCodexIndexHealthStatusFromPath,
+  resolveSessionDiffCursorKey,
   runDatabaseMaintenance,
   runStatePrepHook,
   searchSessions,
@@ -378,6 +383,26 @@ async function main() {
     const db = createDatabase();
     try {
       console.log(JSON.stringify(getCodexSessionManagementMap(db, parsed), null, 2));
+    } finally {
+      db.close();
+    }
+    return;
+  }
+  if (command === "session-diff") {
+    const parsed = parseSessionDiffArgs(args);
+    const db = createDatabase();
+    try {
+      const auditPath = readEnv("AUDIT_PATH") || join(resolveHomeDir(), ".openclaw", "lossless-openclaw-orchestrator", "audit.jsonl");
+      const configuredKey = readEnv("SESSION_DIFF_CURSOR_KEY");
+      const auditFallbackKey = configuredKey ? null : deriveAuditSubkeyIfConfigured(auditPath, "lco_session_diff_cursor_v1");
+      console.log(JSON.stringify(getSessionDiff(db, {
+        ...parsed,
+        ...resolveSessionDiffCursorKey(configuredKey, auditFallbackKey)
+      }), null, 2));
+    } catch (error) {
+      if (!isSessionDiffSetupError(error)) throw error;
+      console.log(JSON.stringify(createSessionDiffSetupRequiredReport("cli"), null, 2));
+      process.exitCode = 1;
     } finally {
       db.close();
     }
@@ -1225,6 +1250,7 @@ function mainUsageText(): string {
     "  loo find [--json] [--limit n] [--timeout-ms ms] [--no-index] <query>",
     "  loo search [--limit n] [--timeout-ms ms] <query>",
     "  loo session-map [--project name] [--status value] [--priority value] [--blocker value] [--priority-order urgent,high,medium,low] [--limit n]",
+    "  loo session-diff [--thread-id id|--target-ref ref] [--cursor cursor] [--limit n] [--token-budget n] [--now iso]",
     "  loo grep [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] [--timeout-ms ms] <query>",
     "  loo describe [--lcm-db path] [--timeout-ms ms] <source-ref>",
     "  loo expand-query [--lcm-db path] [--profile metadata|brief|evidence] [--token-budget n] [--timeout-ms ms] <query>",
@@ -2897,6 +2923,36 @@ function parseSessionMapArgs(input: string[]): {
       parsed.limit = parsePositiveInteger(input[++index], "--limit", 500);
     } else {
       throw new Error(`Unknown session-map option: ${arg}`);
+    }
+  }
+  return parsed;
+}
+
+function parseSessionDiffArgs(input: string[]): {
+  threadId?: string;
+  targetRef?: string;
+  cursor?: string;
+  limit?: number;
+  tokenBudget?: number;
+  now?: string;
+} {
+  const parsed: ReturnType<typeof parseSessionDiffArgs> = {};
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--thread-id") {
+      parsed.threadId = requireOptionValue(input[++index], arg);
+    } else if (arg === "--target-ref") {
+      parsed.targetRef = requireOptionValue(input[++index], arg);
+    } else if (arg === "--cursor") {
+      parsed.cursor = requireOptionValue(input[++index], arg);
+    } else if (arg === "--limit") {
+      parsed.limit = parsePositiveInteger(input[++index], "--limit", 500);
+    } else if (arg === "--token-budget") {
+      parsed.tokenBudget = parsePositiveInteger(input[++index], "--token-budget", 8000);
+    } else if (arg === "--now") {
+      parsed.now = requireOptionValue(input[++index], arg);
+    } else {
+      throw new Error(`Unknown session-diff option: ${arg}`);
     }
   }
   return parsed;

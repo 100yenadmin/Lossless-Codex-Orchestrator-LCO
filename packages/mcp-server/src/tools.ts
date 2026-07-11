@@ -11,6 +11,7 @@ import {
   createCodexCollaborationNextSteps,
   createCodexCollaborationCockpit,
   createCodexRuntimeDesktopVisibilityStatus,
+  createSessionDiffSetupRequiredReport,
   createFindRecallReport,
   createRecallIndexSummary,
   createCodexThreadNotFoundResult,
@@ -28,6 +29,7 @@ import {
   getPreparedCards,
   getPreparedInbox,
   getPreparedStateStatus,
+  getSessionDiff,
   PREPARED_CARD_STATES,
   getWatcherEvents,
   createPlanStatePinsReport,
@@ -52,8 +54,10 @@ import {
   grepRecall,
   indexClaudeSessions,
   indexCodexSessions,
+  isSessionDiffSetupError,
   probeLcmPeerDbs,
   probeCodexSqliteStores,
+  resolveSessionDiffCursorKey,
   type LooDatabase,
   type AppServerThreadsInput,
   type VisibleCodexInput,
@@ -190,6 +194,10 @@ export const LOO_TOOL_SURFACE: Record<string, LooToolSurfaceMetadata> = {
     tier: "public_facade",
     operatorPathRank: 2,
     operatorPathRole: "Start from the compact prepared-state operating picture."
+  },
+  lco_session_diff: {
+    tier: "workflow_detail",
+    operatorPathRole: "Inspect what changed since a previous opaque cursor before drive/control planning."
   },
   lco_recent_sessions: {
     tier: "public_facade",
@@ -381,6 +389,12 @@ const metadataOnlyAudit: AuditStore = {
   fingerprintText() {
     return "metadata-only";
   },
+  fingerprintTextIfConfigured() {
+    return null;
+  },
+  deriveSubkeyIfConfigured() {
+    return null;
+  },
   fingerprintValue() {
     return "metadata-only";
   }
@@ -417,6 +431,25 @@ export async function executeLooToolForOpenClaw(tool: LooTool, input: Record<str
   }
 }
 
+function sessionDiffToolResult(db: LooDatabase, audit: AuditStore, input: Record<string, unknown>): unknown {
+  try {
+    const configuredKey = readEnv("SESSION_DIFF_CURSOR_KEY");
+    const auditFallbackKey = configuredKey ? null : audit.deriveSubkeyIfConfigured?.("lco_session_diff_cursor_v1") ?? null;
+    return getSessionDiff(db, {
+      threadId: optionalString(input.thread_id),
+      targetRef: optionalString(input.target_ref),
+      cursor: optionalString(input.cursor),
+      ...resolveSessionDiffCursorKey(configuredKey, auditFallbackKey),
+      limit: optionalNumber(input.limit),
+      tokenBudget: optionalNumber(input.token_budget),
+      now: optionalString(input.now)
+    });
+  } catch (error) {
+    if (!isSessionDiffSetupError(error)) throw error;
+    return createSessionDiffSetupRequiredReport("mcp");
+  }
+}
+
 function validateOpenClawToolInput(schema: Record<string, unknown>, input: Record<string, unknown>): string | null {
   // Shallow top-level guard for OpenClaw's plugin boundary. Top-level arrays
   // with primitive item schemas are checked here; nested fixture objects are
@@ -442,6 +475,12 @@ function validateOpenClawToolInput(schema: Record<string, unknown>, input: Recor
     }
     const enumValues = Array.isArray(property.enum) ? property.enum : undefined;
     if (enumValues && !enumValues.includes(value)) return `${publicSafeInputField(key)} is not supported`;
+    if (expectedType === "string" && typeof value === "string") {
+      const minLength = typeof property.minLength === "number" ? property.minLength : undefined;
+      const maxLength = typeof property.maxLength === "number" ? property.maxLength : undefined;
+      if (minLength !== undefined && value.length < minLength) return `${publicSafeInputField(key)} is below minimum length`;
+      if (maxLength !== undefined && value.length > maxLength) return `${publicSafeInputField(key)} is above maximum length`;
+    }
     if (expectedType === "array" && Array.isArray(value)) {
       const items = isRecordValue(property.items) ? property.items : undefined;
       const itemType = typeof items?.type === "string" ? items.type : undefined;
@@ -660,6 +699,14 @@ export function createLooTools(options: {
       threadId: optionalString(input.thread_id),
       limit: optionalNumber(input.limit)
     })),
+    tool("lco_session_diff", "Read token-bounded public-safe changes since an opaque session-diff cursor.", {
+      thread_id: { type: "string" },
+      target_ref: { type: "string" },
+      cursor: { type: "string", maxLength: 16_384 },
+      limit: { type: "integer", minimum: 1, maximum: 500 },
+      token_budget: { type: "integer", minimum: 20, maximum: 8000 },
+      now: { type: "string" }
+    }, (input) => sessionDiffToolResult(options.db, options.audit, input)),
     tool("lco_prepared_state", "Read prepared-state status, cards, summary leaves, or bounded summary expansion through one canonical prepared-state surface.", {
       view: { type: "string", enum: ["status", "cards", "leaves", "expand"] },
       thread_id: { type: "string" },
