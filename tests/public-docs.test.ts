@@ -221,6 +221,52 @@ test("control-plane threat model stays in operator docs, not public release note
   }
 });
 
+test("dual-name npm rollback runbook is operator-facing and linked from release gates", () => {
+  const runbookPath = "docs/RELEASE_ROLLBACK.md";
+  assert.equal(existsSync(runbookPath), true, "operator rollback runbook must exist");
+  const runbook = read(runbookPath);
+  const checklist = read("docs/RELEASE_CHECKLIST.md");
+  const betaRunbook = read("docs/BETA_RELEASE_RUNBOOK.md");
+  const changelog = read("docs/releases/CHANGELOG.md");
+  const linkedNotes = [...changelog.matchAll(/\]\((RELEASE_NOTES_[^)]+\.md)\)/g)].map(
+    (match) => `docs/releases/${match[1]}`
+  );
+
+  for (const required of [
+    /^# Release Rollback Runbook/m,
+    /operator-facing/i,
+    /lossless-codex-orchestrator/,
+    /lossless-openclaw-orchestrator/,
+    /dual-name npm release/i,
+    /npm dist-tag add/,
+    /npm dist-tag rm/,
+    /npm deprecate/,
+    /npm view .*dist-tags/i,
+    /security find-generic-password/,
+    /NPM_CONFIG_USERCONFIG/,
+    /mktemp/,
+    /GitHub Release/i,
+    /fresh install verification/i,
+    /lco openclaw published-smoke/,
+    /lco release finalization-status/
+  ]) {
+    assert.match(runbook, required);
+  }
+
+  assert.match(checklist, /docs\/RELEASE_ROLLBACK\.md/);
+  assert.match(checklist, /Release Rollback Runbook/i);
+  assert.match(betaRunbook, /docs\/RELEASE_ROLLBACK\.md/);
+  assert.match(betaRunbook, /Release Rollback Runbook/i);
+
+  const privateLeakPattern =
+    /npm_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|Bearer\s+[A-Za-z0-9._-]{10,}|\/Users\/|\/Volumes\/|\.npmrc\s*=/i;
+  assert.doesNotMatch(runbook, privateLeakPattern);
+
+  for (const file of linkedNotes) {
+    assert.doesNotMatch(read(file), /RELEASE_ROLLBACK|Release Rollback Runbook|dist-tag correction/i, file);
+  }
+});
+
 test("current docs do not present closed issue references as pending work", () => {
   const currentDocs = [
     "README.md",

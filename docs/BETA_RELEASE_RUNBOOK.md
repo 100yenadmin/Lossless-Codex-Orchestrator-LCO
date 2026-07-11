@@ -13,6 +13,9 @@ claim.
   work.
 - `VISION.md` is the product and eval truth.
 - This runbook is the release-operation truth for the beta train.
+- Rollbacks, dist-tag corrections, and dual-name package repairs are handled in
+  the operator-facing [Release Rollback Runbook](RELEASE_ROLLBACK.md)
+  (`docs/RELEASE_ROLLBACK.md`).
 - Evidence path: `/Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/<release-slug>/`.
 - For gate commands that create sibling report directories, create the dated
   release evidence root first, `cd` into that root, and pass a relative --evidence-dir
