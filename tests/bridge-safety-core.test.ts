@@ -78,11 +78,11 @@ test("redacts local paths and common credential shapes from shareable envelopes"
   });
 });
 
-test("strict diagnostic redaction removes external paths, provider tokens, JWTs, and URI credentials", () => {
-  const value = "failed at /Volumes/LEXAR/customers/acme/token with npm_12345678901234567890 github_pat_12345678901234567890 AKIA1234567890ABCDEF postgres://admin:SuperSecret123@db.example.com/prod eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signatureTOKEN123";
+test("strict diagnostic redaction removes host/container paths, provider tokens, JWTs, and URI credentials", () => {
+  const value = "failed at /Volumes/LEXAR/customers/acme/token and /workspace/private/session.jsonl with npm_12345678901234567890 github_pat_12345678901234567890 AKIA1234567890ABCDEF postgres://admin:SuperSecret123@db.example.com/prod eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signatureTOKEN123";
   assert.equal(
     redactDiagnosticString(value),
-    "failed at <redacted-local-path> with <redacted-secret> <redacted-secret> <redacted-secret> postgres://<redacted-secret>@db.example.com/prod <redacted-secret>"
+    "failed at <redacted-local-path> and <redacted-local-path> with <redacted-secret> <redacted-secret> <redacted-secret> postgres://<redacted-secret>@db.example.com/prod <redacted-secret>"
   );
 });
 
@@ -357,6 +357,7 @@ rl.on("line", (line) => {
     process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: payload.id, result: {} }) + "\\n");
   }
 });
+
 `;
   const client = createCodexMcpStdioClient({
     command: process.execPath,
@@ -377,6 +378,67 @@ rl.on("line", (line) => {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("Codex stdio sequence permits active-turn control when resume proves the generated 0.144 safe runtime shape", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-test-safe-active-runtime-"));
+  const marker = join(root, "steer-marker");
+  const script = `
+const fs = require("node:fs");
+const readline = require("node:readline");
+const marker = process.argv[1];
+const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+rl.on("line", (line) => {
+  const payload = JSON.parse(line);
+  if (payload.method === "initialize") {
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: payload.id, result: {} }) + "\\n");
+    return;
+  }
+  if (payload.method === "thread/resume") {
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: payload.id, result: {
+      thread: { id: "thr_1" },
+      approvalPolicy: "never",
+      sandbox: { type: "readOnly", networkAccess: false }
+    } }) + "\\n");
+    return;
+  }
+  if (payload.method === "turn/steer") {
+    fs.writeFileSync(marker, "sent");
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: payload.id, result: { turn: { id: "turn_1", status: "inProgress" } } }) + "\\n");
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", method: "turn/completed", params: { threadId: "thr_1", turn: { id: "turn_1", status: "completed" } } }) + "\\n");
+  }
+});
+`;
+  const client = createCodexMcpStdioClient({
+    command: process.execPath,
+    args: ["-e", script, marker],
+    timeoutMs: 1_000,
+    surface: "control"
+  });
+
+  try {
+    const result = await client.requestSequenceUntilTurnResolved?.([
+      { method: "thread/resume", params: { threadId: "thr_1", approvalPolicy: "never", sandbox: "read-only" } },
+      { method: "turn/steer", params: { threadId: "thr_1", expectedTurnId: "turn_1", input: [{ type: "text", text: "continue" }] } }
+    ], { threadId: "thr_1", expectedTurnId: "turn_1", turnWaitMs: 1_000, requireSafeActiveRuntime: true });
+    assert.equal(result?.responses.length, 2);
+    assert.equal((result?.responses[1] as { ok?: boolean } | undefined)?.ok, true);
+    assert.equal(result?.turn?.status, "completed");
+    assert.equal(existsSync(marker), true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Codex stdio sequence rejects a safe-runtime requirement unless thread/resume is first", async () => {
+  const client = createCodexMcpStdioClient({ command: process.execPath, args: ["-e", ""], timeoutMs: 1_000, surface: "control" });
+  await assert.rejects(
+    () => client.requestSequenceUntilTurnResolved?.([
+      { method: "turn/steer", params: { threadId: "thr_1", expectedTurnId: "turn_1", input: [{ type: "text", text: "continue" }] } },
+      { method: "thread/resume", params: { threadId: "thr_1" } }
+    ], { threadId: "thr_1", expectedTurnId: "turn_1", turnWaitMs: 1_000, requireSafeActiveRuntime: true }),
+    /requires thread\/resume as the first sequence step/
+  );
 });
 
 test("Codex stdio turn resolution surfaces a strictly redacted terminal error", async () => {

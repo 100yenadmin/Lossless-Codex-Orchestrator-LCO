@@ -314,6 +314,9 @@ export function createCodexMcpStdioClient(options: {
     ) {
       const surface = options.surface ?? "control";
       for (const step of steps) assertCodexMethodAllowed(step.method, surface);
+      if (turnOptions.requireSafeActiveRuntime && steps[0]?.method !== "thread/resume") {
+        throw new Error("Codex safe active-runtime proof requires thread/resume as the first sequence step");
+      }
       const client = new CodexJsonRpcClient(
         () => new LineProcessTransport(options.command ?? "codex", options.args ?? ["app-server", "--stdio"], options.timeoutMs),
         { timeoutMs: options.timeoutMs, surface }

@@ -21,7 +21,7 @@ const DIAGNOSTIC_SECRET_PATTERNS: Array<[RegExp, string]> = [
   [/(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+:[^\s/@]+@/gi, "$1<redacted-secret>@"]
 ];
 
-const DIAGNOSTIC_LOCAL_PATH_PATTERN = /(?:~\/|\/(?:Volumes|Users|home|root|private|tmp)\/|\/var\/folders\/)[^\s"',)\]}]+/g;
+const DIAGNOSTIC_LOCAL_PATH_PATTERN = /(?:~\/|\/(?:Volumes|Users|home|root|private|tmp|workspace|workspaces|mnt|data|opt|srv|etc)\/|\/var\/folders\/)[^\s"',)\]}]+/g;
 const DIAGNOSTIC_WINDOWS_PATH_PATTERN = /[A-Za-z]:\\[^\s"',)\]}]+/g;
 
 const GENERIC_HOME_PATTERN = /\/Users\/[^/\s]+/g;
