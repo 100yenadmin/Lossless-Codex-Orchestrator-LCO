@@ -141,7 +141,9 @@ test("drive rejects secret-shaped target identifiers before writing an audit pac
     "codex_thread:github_pat_abcdefghijklmnopqrstuvwxyz",
     "codex_thread:npm_abcdefghijklmnopqrstuvwxyz",
     "codex_thread:AKIAABCDEFGHIJKLMNOP",
-    "codex_thread:xoxb-abcdefghijklmnop"
+    "codex_thread:xoxb-abcdefghijklmnop",
+    "codex_thread:glpat-abcdefghijklmnopqrstuvwx",
+    "codex_thread:eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature123"
   ]) {
     const audit = auditStub();
     await assert.rejects(

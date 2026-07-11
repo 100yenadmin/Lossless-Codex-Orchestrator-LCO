@@ -258,7 +258,7 @@ function boundedNumber(value: number, min: number, max: number, name: string): n
 }
 
 function looksSensitive(value: string): boolean {
-  return /(?:\bBearer\s+|\bsk-[A-Za-z0-9_-]{8,}|\bgh[pousr]_[A-Za-z0-9_]{10,}|\bgithub_pat_[A-Za-z0-9_]{10,}|\bnpm_[A-Za-z0-9_]{10,}|\b(?:AKIA|ASIA)[A-Z0-9]{16}|\bxox[abprs]-[A-Za-z0-9-]{10,}|\bAIza[0-9A-Za-z_-]{20,}|\/Users\/|\/home\/|[A-Za-z]:\\Users\\|-----BEGIN [A-Z ]+PRIVATE KEY-----)/i.test(value);
+  return /(?:\bBearer\s+|\bsk-[A-Za-z0-9_-]{8,}|\bgh[pousr]_[A-Za-z0-9_]{10,}|\bgithub_pat_[A-Za-z0-9_]{10,}|\bnpm_[A-Za-z0-9_]{10,}|\b(?:AKIA|ASIA)[A-Z0-9]{16}|\bxox[abprs]-[A-Za-z0-9-]{10,}|\bglpat-[A-Za-z0-9_-]{20,}|\bAIza[0-9A-Za-z_-]{20,}|\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|\/Users\/|\/home\/|[A-Za-z]:\\Users\\|-----BEGIN [A-Z ]+PRIVATE KEY-----)/i.test(value);
 }
 
 function validIso(value: string | undefined): string | null {

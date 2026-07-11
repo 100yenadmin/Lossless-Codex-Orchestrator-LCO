@@ -1522,7 +1522,6 @@ test("MCP tool registry exposes lco-prefixed canonical tools with loo compatibil
       driver: "codex",
       target_ref: "codex_thread:thr_1",
       objective: "Review safely.",
-      surface: "mcp",
       max_turns: 4,
       token_budget: 1000,
       timeout_ms: 120000,
