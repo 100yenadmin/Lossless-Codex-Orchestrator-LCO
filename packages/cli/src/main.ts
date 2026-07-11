@@ -1868,7 +1868,7 @@ function printOpenClawToolSmokeHelp(): void {
     "",
     "Safety boundary:",
     "  The command invokes selected tools through OpenClaw Gateway and stores only public-safe summaries.",
-    "  An explicit --token requires --gateway-url. OPENCLAW_GATEWAY_TOKEN may satisfy a configured profile SecretRef; with --gateway-url it uses the backend route.",
+    "  An explicit --token requires --gateway-url. OPENCLAW_GATEWAY_TOKEN may satisfy a configured profile SecretRef; plaintext remote ws:// is rejected.",
     "  loo_codex_control_dry_run remains dry-run only; the command does not run live Codex control.",
     "  It does not mutate a desktop GUI, does not publish npm, does not create a GitHub Release, does not deliver messages, and does not approve broad gateway scope."
   ].join("\n"));
