@@ -141,3 +141,6 @@ Capability probing is a separate explicit action: a caller may run
 `probeClaudeDryRunAvailability()` deliberately and inject its sanitized result,
 but an omitted probe reports `not_configured` rather than resolving `claude`
 through ambient `PATH` during a status read.
+The probe uses a bounded synchronous subprocess and therefore must run outside
+an orchestration request or event-loop path; `status()` never invokes it, even
+when a legacy probe callback is supplied.

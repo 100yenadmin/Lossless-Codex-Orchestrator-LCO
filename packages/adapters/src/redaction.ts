@@ -8,7 +8,7 @@ const SECRET_PATTERNS: Array<[RegExp, string]> = [
 ];
 
 const GENERIC_UNIX_HOME_PATTERN = /\/(?:Users|home)\/[^/\s]+/g;
-const GENERIC_WINDOWS_HOME_PATTERN = /(?:[A-Za-z]:|\\\\[^\\/\s]+)[\\/]Users[\\/][^\\/\s]+/gi;
+const GENERIC_WINDOWS_HOME_PATTERN = /(?:[A-Za-z]:|\\\\[^\\/\s]+)[\\/](?:Users|Profiles|home)[\\/][^\\/\s]+/gi;
 
 export function redactString(value: string): string {
   let redacted = value.replaceAll(homedir(), "~");

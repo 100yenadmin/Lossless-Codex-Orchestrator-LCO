@@ -39,7 +39,9 @@ type ClaudeControlAuditStore = {
   find(id: string): AuditRecord | null;
 };
 
-type ClaudeVersionProbeResult = Pick<ReturnType<typeof spawnSync>, "error" | "status" | "stdout" | "stderr">;
+type ClaudeVersionProbeResult = Pick<ReturnType<typeof spawnSync>, "error" | "status" | "stdout" | "stderr"> & {
+  signal?: ReturnType<typeof spawnSync>["signal"];
+};
 
 export type ClaudeDryRunStatus = {
   schema: "lco.claude.dryRunControlStatus.v1";
@@ -79,6 +81,16 @@ export function probeClaudeDryRunAvailability(command = "claude"): ClaudeDryRunA
 export function claudeAvailabilityFromProbeResult(result: ClaudeVersionProbeResult): ClaudeDryRunAvailability {
   const stdout = typeof result.stdout === "string" ? result.stdout : result.stdout?.toString("utf8") ?? "";
   const stderr = typeof result.stderr === "string" ? result.stderr : result.stderr?.toString("utf8") ?? "";
+  if (result.status === null && result.signal) {
+    return {
+      available: false,
+      command: "claude",
+      version: null,
+      error: result.signal === "SIGTERM"
+        ? "Claude availability probe timed out."
+        : `Claude availability probe terminated by ${result.signal}.`
+    };
+  }
   if (result.error) {
     return {
       available: false,
@@ -108,21 +120,16 @@ export function claudeAvailabilityFromProbeResult(result: ClaudeVersionProbeResu
 export function createClaudeDryRunControl(options: {
   audit: ClaudeControlAuditStore;
   availability?: ClaudeDryRunAvailability;
+  /** @deprecated Status reads never execute probes. Probe out of band and inject availability instead. */
   probeAvailability?: () => ClaudeDryRunAvailability;
 }) {
-  let availability: ClaudeDryRunAvailability | null = options.availability ? sanitizeClaudeAvailability(options.availability) : null;
-  const getAvailability = (): ClaudeDryRunAvailability => {
-    availability ??= sanitizeClaudeAvailability(options.probeAvailability
-      ? options.probeAvailability()
-      : {
-          available: false,
-          command: "claude",
-          version: null,
-          error: "Claude availability probe was not requested.",
-          unsupportedReason: null
-        });
-    return availability;
-  };
+  const availability = sanitizeClaudeAvailability(options.availability ?? {
+    available: false,
+    command: "claude",
+    version: null,
+    error: "Claude availability probe was not requested.",
+    unsupportedReason: null
+  });
   const target = createTargetControl({
     targetName: "Claude Code",
     methodPolicy: CLAUDE_TARGET_METHOD_POLICY,
@@ -136,7 +143,7 @@ export function createClaudeDryRunControl(options: {
 
   return {
     status(): ClaudeDryRunStatus {
-      const currentAvailability = getAvailability();
+      const currentAvailability = availability;
       const state = claudeDryRunState(currentAvailability);
       return {
         schema: "lco.claude.dryRunControlStatus.v1",

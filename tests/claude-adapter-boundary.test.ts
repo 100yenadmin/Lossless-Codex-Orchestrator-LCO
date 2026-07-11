@@ -136,6 +136,7 @@ test("Claude dry-run adapter uses TargetAdapter policy without live control", as
   });
 
   assert.equal(dryRun.live, false);
+  assert.equal(dryRun.proofState.status, "dry_run");
   assert.equal(dryRun.threadId, "claude_session:claude-session-1");
   assert.equal(dryRun.action, "claude_resume_prompt");
   assert.equal(dryRun.method, "claude/print/resume");
@@ -186,7 +187,24 @@ test("Claude dry-run status reports not_configured and redacts local diagnostics
   assert.doesNotMatch(JSON.stringify(status), /\/Users\/lume|sk-test_/);
 });
 
-test("Claude dry-run status does not probe the external CLI unless explicitly injected", () => {
+test("Claude dry-run status never invokes an injected synchronous probe callback", () => {
+  let probeCount = 0;
+  const control = createClaudeDryRunControl({
+    audit: auditStub(),
+    probeAvailability() {
+      probeCount += 1;
+      throw new Error("status must not execute a synchronous CLI probe");
+    }
+  });
+
+  const status = control.status();
+  assert.equal(probeCount, 0);
+  assert.equal(status.state, "not_configured");
+  assert.equal(status.command.available, false);
+  assert.equal(status.command.error, "Claude availability probe was not requested.");
+});
+
+test("Claude dry-run status reports not_configured when availability is omitted", () => {
   const control = createClaudeDryRunControl({ audit: auditStub() });
 
   const status = control.status();
@@ -196,17 +214,20 @@ test("Claude dry-run status does not probe the external CLI unless explicitly in
   assert.match(status.nextSafeAction, /install|configure/i);
 });
 
-test("Claude diagnostics redact Linux mixed-case Windows forward-slash and UNC home paths", () => {
+test("Claude diagnostics redact Unix Users Profiles drive-home and UNC profile paths", () => {
   const redacted = redactString([
     "linux /home/alice/private",
     "windows c:\\users\\bob\\private",
     "forward C:/Users/carol/private",
-    "unc \\\\server\\Users\\dave\\private"
+    "unc \\\\server\\Users\\dave\\private",
+    "profiles D:\\Profiles\\erin\\private",
+    "drive home E:/home/frank/private",
+    "unc profiles \\\\server\\Profiles\\grace\\private"
   ].join(" | "));
 
-  assert.doesNotMatch(redacted, /alice|bob|carol|dave/);
-  assert.doesNotMatch(redacted, /\/home\/|[A-Za-z]:[\\/]users[\\/]|\\\\server\\Users\\/i);
-  assert.equal((redacted.match(/~/g) ?? []).length, 4);
+  assert.doesNotMatch(redacted, /alice|bob|carol|dave|erin|frank|grace/);
+  assert.doesNotMatch(redacted, /\/home\/|[A-Za-z]:[\\/](?:users|profiles|home)[\\/]|\\\\server\\(?:Users|Profiles)\\/i);
+  assert.equal((redacted.match(/~/g) ?? []).length, 7);
 });
 
 test("Claude availability probe refuses non-allowlisted commands before reporting readiness", () => {
@@ -246,6 +267,16 @@ test("Claude probe result classification covers missing binary nonzero and unsup
   assert.equal(nonzero.available, false);
   assert.match(nonzero.error ?? "", /permission denied/);
 
+  const timedOut = claudeAvailabilityFromProbeResult({
+    error: undefined,
+    status: null,
+    signal: "SIGTERM",
+    stdout: "",
+    stderr: ""
+  });
+  assert.equal(timedOut.available, false);
+  assert.match(timedOut.error ?? "", /timed out/i);
+
   const oldVersion = claudeAvailabilityFromProbeResult({
     error: undefined,
     status: 0,
@@ -265,7 +296,7 @@ test("Claude probe result classification covers missing binary nonzero and unsup
   assert.match(unknownVersion.unsupportedReason ?? "", /could not be parsed/i);
 });
 
-test("Claude dry-run control construction is side-effect-free and lazy-caches availability", () => {
+test("Claude dry-run control construction and status remain side-effect-free", () => {
   let probeCount = 0;
   const control = createClaudeDryRunControl({
     audit: auditStub(),
@@ -282,12 +313,12 @@ test("Claude dry-run control construction is side-effect-free and lazy-caches av
 
   assert.equal(probeCount, 0);
   const firstStatus = control.status();
-  assert.equal(probeCount, 1);
+  assert.equal(probeCount, 0);
   assert.equal(firstStatus.state, "not_configured");
-  assert.equal(firstStatus.command.error, "spawn claude ENOENT ~/private");
+  assert.equal(firstStatus.command.error, "Claude availability probe was not requested.");
   assert.doesNotMatch(JSON.stringify(firstStatus), /\/Users\/lume/);
   const secondStatus = control.status();
-  assert.equal(probeCount, 1);
+  assert.equal(probeCount, 0);
   assert.deepEqual(secondStatus.command, firstStatus.command);
 });
 
