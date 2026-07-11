@@ -300,6 +300,15 @@ test("Claude diagnostics redact Unix Users Profiles drive-home and UNC profile p
     assert.equal(spacedRedacted, "failed <redacted-path>");
     assert.doesNotMatch(spacedRedacted, /Customer|Name|Data|private|server/i);
   }
+  for (const punctuatedPath of [
+    "failed /Volumes/Customer:Name/private/file",
+    "failed /Volumes/Customer(Name)/private/file",
+    "failed /Volumes/Customer,Name/private/file",
+    "failed /Volumes/Customer;Name/private/file",
+    "failed //server/share/private/file"
+  ]) {
+    assert.equal(redactClaudeString(punctuatedPath), "failed <redacted-path>");
+  }
 });
 
 test("Claude dry-run packet minting rejects not-configured and unsupported states", async () => {
@@ -445,6 +454,7 @@ test("Claude probe settlement does not cut short an active tree killer", () => {
   const source = read("packages/adapters/src/claude.ts");
   const settleBlock = source.slice(source.indexOf("const settle ="), source.indexOf("const terminateTree ="));
   assert.doesNotMatch(settleBlock, /disposeClaudeProbeTreeKiller/);
+  assert.match(settleBlock, /!treeKiller\s*\|\|\s*treeKillerCompleted/);
   const hardDeadlineBlock = source.slice(source.indexOf("hardDeadline = setTimeout"), source.indexOf("child.once(\"close\""));
   assert.match(hardDeadlineBlock, /disposeClaudeProbeTreeKiller\(treeKiller\)/);
   assert.match(hardDeadlineBlock, /spawnSync/);
@@ -651,6 +661,16 @@ test("Claude dry-run derives unsupported state from injected version output", as
     audit: auditStub()
   });
   assert.equal(malformedAvailability.status().state, "not_configured");
+  const contradictoryAvailability = createClaudeDryRunControl({
+    availability: {
+      available: true,
+      command: "claude",
+      version: "Claude Code 1.0.0",
+      error: "spawn claude ENOENT"
+    },
+    audit: auditStub()
+  });
+  assert.equal(contradictoryAvailability.status().state, "not_configured");
   for (const command of ["", "not-claude", "/tmp/fake-wrapper"]) {
     const noncanonicalAvailability = createClaudeDryRunControl({
       availability: {

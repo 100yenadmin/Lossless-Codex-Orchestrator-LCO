@@ -116,6 +116,7 @@ function runClaudeVersionProbe(invocation: {
     let terminationStarted = false;
     let settled = false;
     let treeKiller: ReturnType<typeof spawn> | null = null;
+    let treeKillerCompleted = false;
     let timeout: NodeJS.Timeout;
     let hardDeadline: NodeJS.Timeout;
 
@@ -123,7 +124,7 @@ function runClaudeVersionProbe(invocation: {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
-      clearTimeout(hardDeadline);
+      if (!treeKiller || treeKillerCompleted) clearTimeout(hardDeadline);
       resolve({
         error: spawnError,
         status: code,
@@ -147,7 +148,9 @@ function runClaudeVersionProbe(invocation: {
           stdio: "ignore"
         });
         monitorClaudeProbeTreeKiller(treeKiller, () => {
+          treeKillerCompleted = true;
           child.kill("SIGKILL");
+          if (settled) clearTimeout(hardDeadline);
         });
         return;
       }
@@ -430,7 +433,12 @@ export function createClaudeCodeAdapter() {
 
 function sanitizeClaudeAvailability(input: ClaudeDryRunAvailability): ClaudeDryRunAvailability {
   const canonicalCommand = input.command === "claude";
-  const available = input.available === true && canonicalCommand;
+  const normalizedError = input.error === null
+    ? null
+    : input.error === undefined
+      ? "Claude availability status omitted an explicit probe result."
+      : String(redactClaudeValue(input.error));
+  const available = input.available === true && canonicalCommand && normalizedError === null;
   const version = canonicalCommand && input.version !== null ? String(redactClaudeValue(input.version)) : null;
   const derivedUnsupportedReason = available
     ? version
@@ -445,7 +453,7 @@ function sanitizeClaudeAvailability(input: ClaudeDryRunAvailability): ClaudeDryR
     command: "claude",
     version,
     error: canonicalCommand
-      ? input.error === null ? null : String(redactClaudeValue(input.error))
+      ? normalizedError
       : "Claude availability status used a noncanonical command.",
     unsupportedReason: canonicalCommand ? suppliedUnsupportedReason ?? derivedUnsupportedReason : null
   };
