@@ -2451,6 +2451,7 @@ function printOpenClawPostActionRefreshSmokeHelp(): void {
     "",
     "Safety boundary:",
     "  The command requires a #158 live-control proof report for the same thread.",
+    "  Run loo_index_sessions after the live action before this read-only proof; stale or missing refreshedAt evidence fails closed.",
     "  An explicit --token requires --gateway-url. OPENCLAW_GATEWAY_TOKEN may satisfy a configured profile SecretRef; plaintext remote ws:// is rejected.",
     "  It invokes only read/recall tools: loo_codex_thread_map, loo_search_sessions, loo_describe_session, and loo_expand_query.",
     "  Evidence contains source refs, safe summary deltas, bounded profile metadata, omitted markers, and a safe reasoning note only.",

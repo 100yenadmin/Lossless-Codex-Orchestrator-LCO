@@ -200,7 +200,9 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
     .flatMap((output) => output === undefined ? [] : collectSourceRefs(output)))
     .filter((ref) => ref.startsWith("codex_thread:"));
 
-  const refreshedAt = targetThreadMapOutput ? firstString(targetThreadMapOutput, ["refreshedAt", "refreshed_at"]) : null;
+  const refreshedAt = isRecord(targetThreadMapOutput)
+    ? directString(targetThreadMapOutput, ["refreshedAt", "refreshed_at"])
+    : null;
   const statusBucket = targetThreadMapOutput ? firstString(targetThreadMapOutput, ["statusBucket", "status_bucket", "status"]) ?? (refreshedAt ? "refreshed" : null) : null;
   const safeSummaryDelta = hasTargetSafeSummaryDelta(targetSearchOutput, targetDescribeOutput, query);
   const boundedExpansionProfile = targetExpandOutput ? firstString(targetExpandOutput, ["profile"]) || expandProfile : null;
@@ -223,6 +225,10 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
   }
 
   const uniqueBlockers = unique(blockers);
+  const needsExternalIndexRefresh = uniqueBlockers.some((blocker) =>
+    blocker === "post_action_refresh_timestamp_missing"
+    || blocker === "post_action_refresh_not_after_live_action"
+  );
   const reportPath = join(options.evidenceDir, "post-action-refresh-reasoning-report.json");
   const runtimeProofPath = join(options.evidenceDir, `${SCENARIO_ID}.runtime-proof.json`);
   const proofReady = uniqueBlockers.length === 0;
@@ -271,6 +277,8 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
     proofBoundary: "This proves one public-tool post-action refresh and safe reasoning loop for a named Codex thread only; it does not prove continuous sync, cloud sync, raw transcript ingestion, or unattended orchestration.",
     nextAction: proofReady
       ? "Run the v1.1 scenario sweep with the #158 and #159 runtime proof markers, then continue the #172 proof packet."
+      : needsExternalIndexRefresh
+      ? "Run loo_index_sessions after the live action, wait for its preparedMaterialization pendingThreads count to reach zero, then rerun this read-only post-action refresh smoke."
       : "Resolve the listed post-action refresh blockers before claiming #159 runtime proof."
   };
   writeJson(reportPath, report);
@@ -544,6 +552,14 @@ function parseTimestamp(value: string): number | null {
 function firstString(value: unknown, keys: string[]): string | null {
   const found = findStrings(value, keys)[0];
   return found ?? null;
+}
+
+function directString(value: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const candidate = value[key];
+    if (typeof candidate === "string" && candidate) return candidate;
+  }
+  return null;
 }
 
 function findStrings(value: unknown, keys: string[]): string[] {
