@@ -39,7 +39,7 @@ test("drive creates a bounded Codex dry-run packet without exposing objective te
     driver: "codex",
     targetRef: "codex_thread:thread-1",
     objective,
-    surface: "cli",
+    invocationSurface: "cli",
     audit: auditStub(),
     now: "2026-07-11T00:00:00.000Z"
   });
@@ -69,7 +69,7 @@ test("drive creates a bounded Codex dry-run packet without exposing objective te
     });
     assert.equal(step.freshness.state, "fresh");
     assert.equal(step.freshness.generatedAt, "2026-07-11T00:00:00.000Z");
-    assert.equal(step.freshness.expiresAt, "2026-07-11T00:02:00.000Z");
+    assert.equal(step.freshness.expiresAt, "2026-07-11T00:15:00.000Z");
     assert.equal(typeof step.approval.required, "boolean");
   }
   const liveStep = report.drivePlan.steps.find((step) => step.kind === "live");
@@ -132,16 +132,38 @@ test("drive rejects target namespaces that do not match the driver", async () =>
 });
 
 test("drive rejects secret-shaped target identifiers before writing an audit packet", async () => {
-  await assert.rejects(
-    () => createDriveReport({
-      reviewer: "codex",
-      driver: "codex",
-      targetRef: "codex_thread:sk-abcdefgh",
-      objective: "Review safely.",
-      audit: auditStub()
-    }),
-    /target ref contains restricted secret/i
-  );
+  for (const targetRef of [
+    "codex_thread:sk-abcdefgh",
+    "codex_thread:ghp_abcdefghijklmnopqrstuvwxyz1234567890",
+    "codex_thread:github_pat_abcdefghijklmnopqrstuvwxyz",
+    "codex_thread:npm_abcdefghijklmnopqrstuvwxyz",
+    "codex_thread:AKIAABCDEFGHIJKLMNOP",
+    "codex_thread:xoxb-abcdefghijklmnop"
+  ]) {
+    await assert.rejects(
+      () => createDriveReport({
+        reviewer: "codex",
+        driver: "codex",
+        targetRef,
+        objective: "Review safely.",
+        audit: auditStub()
+      }),
+      /target ref contains restricted secret/i
+    );
+  }
+});
+
+test("drive marks mismatched deterministic and audit clocks invalid instead of fresh", async () => {
+  const report = await createDriveReport({
+    reviewer: "codex",
+    driver: "codex",
+    targetRef: "codex_thread:thread-1",
+    objective: "Review safely.",
+    audit: auditStub(),
+    now: "2020-01-01T00:00:00.000Z"
+  });
+  assert.ok(report.drivePlan.steps.every((step) => step.freshness.state === "invalid"));
+  assert.ok(report.drivePlan.steps.every((step) => step.approval.state !== "bound_pending_confirmation"));
 });
 
 test("drive returns a public-safe blocked report when Claude is unavailable", async () => {
@@ -172,7 +194,7 @@ test("drive mints a Claude dry-run packet when the supported adapter is availabl
     driver: "claude",
     targetRef: "claude_session:session-1",
     objective: "Review safely.",
-    surface: "mcp",
+    invocationSurface: "mcp",
     audit: auditStub(),
     claudeAvailability: {
       available: true,
@@ -189,6 +211,12 @@ test("drive mints a Claude dry-run packet when the supported adapter is availabl
   assert.equal(report.controllerMatrix.find((row) => row.controller === "mcp")?.status, "dry_run_available");
   assert.equal(report.controllerMatrix.find((row) => row.controller === "cli")?.status, "not_probed");
   assert.equal(report.controllerMatrix.find((row) => row.controller === "openclaw")?.status, "not_probed");
+  const liveStep = report.drivePlan.steps.find((step) => step.kind === "live");
+  const confirmStep = report.drivePlan.steps.find((step) => step.kind === "confirm");
+  assert.equal(confirmStep?.state, "blocked");
+  assert.equal(confirmStep?.approval.state, "blocked");
+  assert.equal(liveStep?.approval.state, "blocked");
+  assert.equal(liveStep?.approval.approvalAuditId, null);
 });
 
 test("loo drive help exposes the bounded dry-run contract", () => {
@@ -242,7 +270,8 @@ test("loo drive classifies runner-level input validation as usage errors", () =>
   for (const args of [
     ["--reviewer", "codex", "--driver", "claude", "--target-ref", "codex_thread:thread-1", "--objective", "Review safely."],
     ["--reviewer", "codex", "--driver", "codex", "--target-ref", "codex_thread:sk-abcdefgh", "--objective", "Review safely."],
-    ["--reviewer", "codex", "--driver", "codex", "--target-ref", "codex_thread:thread-1", "--objective", "Review safely.", "--now", "invalid"]
+    ["--reviewer", "codex", "--driver", "codex", "--target-ref", "codex_thread:thread-1", "--objective", "Review safely.", "--now", "invalid"],
+    ["--reviewer", "codex", "--driver", "codex", "--target-ref", "codex_thread:thread-1", "--objective", "Review safely.", "--surface", "openclaw-gateway"]
   ]) {
     const result = runLoo(["drive", ...args], process.env, 5_000);
     assert.equal(result.status, 2, result.stderr || result.stdout);

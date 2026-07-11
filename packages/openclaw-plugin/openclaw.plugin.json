@@ -1339,13 +1339,6 @@
             "objective": {
               "type": "string"
             },
-            "surface": {
-              "type": "string",
-              "enum": [
-                "mcp",
-                "openclaw-gateway"
-              ]
-            },
             "max_turns": {
               "type": "integer",
               "minimum": 1,
@@ -3167,13 +3160,6 @@
             },
             "objective": {
               "type": "string"
-            },
-            "surface": {
-              "type": "string",
-              "enum": [
-                "mcp",
-                "openclaw-gateway"
-              ]
             },
             "max_turns": {
               "type": "integer",

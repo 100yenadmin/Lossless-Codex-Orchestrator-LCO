@@ -240,7 +240,6 @@ export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabW
             driver: "codex",
             target_ref: `codex_thread:${selectedThreadId}`,
             objective: "Review the selected public-safe session and prepare the next bounded action.",
-            surface: "openclaw-gateway",
             max_turns: 4,
             token_budget: DEFAULT_TOKEN_BUDGET,
             timeout_ms: 120_000,

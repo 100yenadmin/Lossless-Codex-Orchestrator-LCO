@@ -635,7 +635,7 @@ async function main() {
       driver: parsed.driver,
       targetRef: parsed.targetRef,
       objective: parsed.objective,
-      surface: parsed.surface,
+      invocationSurface: "cli",
       maxTurns: parsed.maxTurns,
       tokenBudget: parsed.tokenBudget,
       timeoutMs: parsed.timeoutMs,
@@ -1346,6 +1346,7 @@ function isCliUsageErrorMessage(message: string): boolean {
     || /^Unknown maintenance --drop-event-content option: /.test(message)
     || /^Unknown release claim scope: /.test(message)
     || /^Invalid --[\w-]+: /.test(message)
+    || /^--[\w-]+ requires /.test(message)
     || / requires (?:a value|a path|a number|a positive integer|an integer|--[\w-]+)/.test(message)
     || /^--[\w-]+ must be /.test(message);
 }
@@ -1370,7 +1371,7 @@ function printDriveHelp(): void {
     "  loo drive --reviewer codex|claude --driver codex|claude --target-ref ref --objective text [options]",
     "",
     "Options:",
-    "  --surface cli|mcp|openclaw-gateway  Controller surface recorded in the report (default: cli).",
+    "  --surface cli                       Explicit CLI provenance marker (default: cli).",
     "  --max-turns 1..20                   Planned turn ceiling (default: 4).",
     "  --token-budget 100..8000            Planned output ceiling (default: 1000).",
     "  --timeout-ms 1000..600000           Planned time ceiling (default: 120000).",
@@ -1463,8 +1464,8 @@ function parseDriveHarness(value: string, flag: string): DriveHarness {
 }
 
 function parseDriveSurface(value: string, flag: string): DriveSurface {
-  if (value === "cli" || value === "mcp" || value === "openclaw-gateway") return value;
-  throw new Error(`${flag} requires cli, mcp, or openclaw-gateway`);
+  if (value === "cli") return value;
+  throw new Error(`${flag} requires cli when invoked through the CLI`);
 }
 
 function printMaintenanceHelp(): void {

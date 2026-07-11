@@ -88,7 +88,6 @@ import {
   type DesktopBackend,
   type CodexClient,
   type DriveHarness,
-  type DriveSurface,
   type DesktopProbe,
   type LooCommandSafety
 } from "../../adapters/src/index.js";
@@ -532,6 +531,7 @@ export function createLooTools(options: {
   desktopProbe?: DesktopProbe;
   includeAliases?: boolean;
   telemetryEnabled?: boolean;
+  invocationSurface?: "mcp" | "openclaw-gateway";
 }): LooTool[] {
   const control = createCodexControl({ audit: options.audit, client: options.codexClient });
   const codexReadClient = options.codexReadClient ?? options.codexClient;
@@ -1043,7 +1043,6 @@ export function createLooTools(options: {
       driver: { type: "string", enum: ["codex", "claude"] },
       target_ref: { type: "string" },
       objective: { type: "string" },
-      surface: { type: "string", enum: ["mcp", "openclaw-gateway"] },
       max_turns: { type: "integer", minimum: 1, maximum: 20 },
       token_budget: { type: "integer", minimum: 100, maximum: 8000 },
       timeout_ms: { type: "integer", minimum: 1000, maximum: 600000 },
@@ -1054,7 +1053,6 @@ export function createLooTools(options: {
       if (input.dry_run === false) throw new Error("lco_drive live mode is not supported in 1.6");
       const reviewer = driveHarness(input.reviewer, "reviewer");
       const driver = driveHarness(input.driver, "driver");
-      const surface = driveSurface(input.surface);
       const claudeAvailability = driver === "claude"
         ? await probeClaudeDryRunAvailability("claude", { trustedPath: process.env.PATH })
         : undefined;
@@ -1063,7 +1061,7 @@ export function createLooTools(options: {
         driver,
         targetRef: requiredString(input.target_ref, "target_ref"),
         objective: requiredString(input.objective, "objective"),
-        surface,
+        invocationSurface: options.invocationSurface ?? "mcp",
         maxTurns: optionalNumber(input.max_turns),
         tokenBudget: optionalNumber(input.token_budget),
         timeoutMs: optionalNumber(input.timeout_ms),
@@ -1681,12 +1679,6 @@ function driveHarness(value: unknown, field: string): DriveHarness {
   const harness = requiredString(value, field);
   if (harness === "codex" || harness === "claude") return harness;
   throw new Error(`${field} must be codex or claude`);
-}
-
-function driveSurface(value: unknown): DriveSurface {
-  const surface = optionalString(value) ?? "mcp";
-  if (surface === "mcp" || surface === "openclaw-gateway") return surface;
-  throw new Error("surface must be mcp or openclaw-gateway");
 }
 
 function controlSchema(message = false, expectedTurn = false, turnWait = false): Record<string, unknown> {

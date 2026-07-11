@@ -1,5 +1,5 @@
 import type { AuditRecord } from "./index.js";
-import { createCodexControl } from "./index.js";
+import { CODEX_CONTROL_DRY_RUN_TTL_MS, createCodexControl } from "./index.js";
 import {
   createClaudeDryRunControl,
   type ClaudeDryRunAvailability
@@ -22,7 +22,7 @@ export type DriveOptions = {
   driver: DriveHarness;
   targetRef: string;
   objective: string;
-  surface?: DriveSurface;
+  invocationSurface?: DriveSurface;
   maxTurns?: number;
   tokenBudget?: number;
   timeoutMs?: number;
@@ -71,9 +71,10 @@ export type DriveReport = {
         costCeilingUsd: number;
       };
       freshness: {
-        state: "fresh";
+        state: "fresh" | "expired" | "invalid" | "not_applicable";
         generatedAt: string;
-        expiresAt: string;
+        issuedAt: string | null;
+        expiresAt: string | null;
       };
       approval: {
         required: boolean;
@@ -139,6 +140,8 @@ export async function createDriveReport(options: DriveOptions): Promise<DriveRep
     : input.driver === "codex"
       ? await createCodexDriveDryRun(input, options.audit)
       : await createClaudeDriveDryRun(input, options.audit);
+  const dryRunRecord = dryRunResult ? options.audit.find(dryRunResult.approvalAuditId) : null;
+  const evaluatedAt = options.now === undefined ? new Date().toISOString() : input.generatedAt;
   const status = dryRunResult ? "dry_run_ready" as const : "blocked" as const;
   return {
     schema: "lco.drive.report.v1",
@@ -164,7 +167,7 @@ export async function createDriveReport(options: DriveOptions): Promise<DriveRep
     },
     drivePlan: {
       schema: "lco.drive.plan.v1",
-      steps: drivePlanSteps(input, dryRunResult)
+      steps: drivePlanSteps(input, dryRunResult, dryRunRecord, evaluatedAt)
     },
     dryRun: {
       available: Boolean(dryRunResult),
@@ -191,7 +194,9 @@ export async function createDriveReport(options: DriveOptions): Promise<DriveRep
       externalWrite: false
     },
     nextSafeCommands: status === "dry_run_ready"
-      ? ["Review the dry-run hashes and approval audit id before any separately approved sacrificial live-control step."]
+      ? input.driver === "codex"
+        ? ["Review the dry-run hashes and approval audit id before any separately approved sacrificial live-control step."]
+        : ["Review the Claude dry-run hashes. Claude live control remains unsupported in this release."]
       : [blockedClaudeState?.nextSafeAction ?? "Resolve the reported blocker, then rerun lco drive in dry-run mode."],
     proofBoundary: "LCO drive produced a bounded review packet, deterministic plan, and target-adapter dry-run audit packet only. It did not run a reviewer, execute live target control, mutate a GUI or source store, write an external system, or prove unattended autonomy."
   };
@@ -214,7 +219,7 @@ function validateDriveOptions(options: DriveOptions): ValidDriveOptions {
   if (!objective || objective.length > 2000) throw new DriveInputError("drive objective requires 1 to 2000 characters");
   if (looksSensitive(objective)) throw new DriveInputError("drive objective contains restricted secret or local-path material");
   const targetRef = validateTargetRef(options.driver, options.targetRef);
-  const surface = options.surface ?? "cli";
+  const surface = options.invocationSurface ?? "cli";
   if (surface !== "cli" && surface !== "mcp" && surface !== "openclaw-gateway") {
     throw new DriveInputError("drive surface requires cli, mcp, or openclaw-gateway");
   }
@@ -253,7 +258,7 @@ function boundedNumber(value: number, min: number, max: number, name: string): n
 }
 
 function looksSensitive(value: string): boolean {
-  return /(?:\bBearer\s+|\bsk-[A-Za-z0-9_-]{8,}|\/Users\/|\/home\/|[A-Za-z]:\\Users\\|-----BEGIN [A-Z ]+PRIVATE KEY-----)/i.test(value);
+  return /(?:\bBearer\s+|\bsk-[A-Za-z0-9_-]{8,}|\bgh[pousr]_[A-Za-z0-9_]{10,}|\bgithub_pat_[A-Za-z0-9_]{10,}|\bnpm_[A-Za-z0-9_]{10,}|\b(?:AKIA|ASIA)[A-Z0-9]{16}|\bxox[abprs]-[A-Za-z0-9-]{10,}|\bAIza[0-9A-Za-z_-]{20,}|\/Users\/|\/home\/|[A-Za-z]:\\Users\\|-----BEGIN [A-Z ]+PRIVATE KEY-----)/i.test(value);
 }
 
 function validIso(value: string | undefined): string | null {
@@ -271,7 +276,9 @@ function driveGeneratedAt(value: string | undefined): string {
 
 function drivePlanSteps(
   input: ValidDriveOptions,
-  dryRunResult: { approvalAuditId: string; paramsHash: string } | null
+  dryRunResult: { approvalAuditId: string; paramsHash: string } | null,
+  dryRunRecord: AuditRecord | null,
+  evaluatedAt: string
 ): DriveReport["drivePlan"]["steps"] {
   type Step = DriveReport["drivePlan"]["steps"][number];
   type Approval = Step["approval"];
@@ -281,10 +288,21 @@ function drivePlanSteps(
     timeoutMs: input.timeoutMs,
     costCeilingUsd: input.costCeilingUsd
   };
-  const freshness = {
-    state: "fresh" as const,
+  const issuedAtMs = dryRunRecord ? Date.parse(dryRunRecord.createdAt) : NaN;
+  const evaluatedAtMs = Date.parse(evaluatedAt);
+  const expiresAtMs = issuedAtMs + CODEX_CONTROL_DRY_RUN_TTL_MS;
+  const freshnessState: Step["freshness"]["state"] = !dryRunResult
+    ? "not_applicable"
+    : !dryRunRecord || !Number.isFinite(issuedAtMs) || issuedAtMs > evaluatedAtMs
+      ? "invalid"
+      : expiresAtMs <= evaluatedAtMs
+        ? "expired"
+        : "fresh";
+  const freshness: Step["freshness"] = {
+    state: freshnessState,
     generatedAt: input.generatedAt,
-    expiresAt: new Date(Date.parse(input.generatedAt) + input.timeoutMs).toISOString()
+    issuedAt: Number.isFinite(issuedAtMs) ? new Date(issuedAtMs).toISOString() : null,
+    expiresAt: Number.isFinite(expiresAtMs) ? new Date(expiresAtMs).toISOString() : null
   };
   const noApproval: Approval = {
     required: false,
@@ -292,7 +310,8 @@ function drivePlanSteps(
     approvalAuditId: null,
     paramsHash: null
   };
-  const actionApproval: Approval = dryRunResult
+  const liveApprovalBindable = input.driver === "codex" && dryRunResult && freshnessState === "fresh";
+  const actionApproval: Approval = liveApprovalBindable
     ? {
       required: true,
       state: "bound_pending_confirmation" as const,
@@ -316,7 +335,7 @@ function drivePlanSteps(
     step(1, "review", false, "planned"),
     step(2, "plan", false, "planned"),
     step(3, "dry_run", true, dryRunResult ? "completed" : "blocked"),
-    step(4, "confirm", false, dryRunResult ? "pending_approval" : "blocked", actionApproval),
+    step(4, "confirm", false, liveApprovalBindable ? "pending_approval" : "blocked", actionApproval),
     step(5, "live", false, "blocked", actionApproval),
     step(6, "report", true, "completed")
   ];

@@ -1524,7 +1524,8 @@ test("MCP tool registry exposes lco-prefixed canonical tools with loo compatibil
       max_turns: 4,
       token_budget: 1000,
       timeout_ms: 120000,
-      cost_ceiling_usd: 1
+      cost_ceiling_usd: 1,
+      surface: "openclaw-gateway"
     }) as {
       schema: string;
       status: string;
@@ -1538,6 +1539,24 @@ test("MCP tool registry exposes lco-prefixed canonical tools with loo compatibil
     assert.equal(driveReport.dryRun.live, false);
     assert.equal(driveReport.actionsPerformed.liveControl, false);
     assert.equal(codexRequests.length, driveRequestCount);
+    const openclawTools = createLooTools({
+      db,
+      audit,
+      codexClient: { request: async () => ({ ok: true }) },
+      includeAliases: false,
+      invocationSurface: "openclaw-gateway"
+    });
+    const openclawDrive = openclawTools.find((tool) => tool.name === "lco_drive");
+    assert.ok(openclawDrive);
+    const openclawDriveReport = await openclawDrive.execute({
+      reviewer: "codex",
+      driver: "codex",
+      target_ref: "codex_thread:thr_1",
+      objective: "Review safely."
+    }) as { surface: string; controllerMatrix: Array<{ controller: string; status: string }> };
+    assert.equal(openclawDriveReport.surface, "openclaw-gateway");
+    assert.equal(openclawDriveReport.controllerMatrix.find((row) => row.controller === "openclaw")?.status, "dry_run_available");
+    assert.equal(openclawDriveReport.controllerMatrix.find((row) => row.controller === "mcp")?.status, "not_probed");
     await assert.rejects(
       () => driveTool.execute({
         reviewer: "codex",
