@@ -642,7 +642,7 @@ function childEnv(options: QaLabWorkflowOptions): NodeJS.ProcessEnv {
 }
 
 function resolveGatewayToken(options: QaLabWorkflowOptions): string | undefined {
-  return options.token || options.env?.OPENCLAW_GATEWAY_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN;
+  return options.token || options.env?.OPENCLAW_GATEWAY_TOKEN;
 }
 
 function remainingGatewayTimeoutMs(deadline: number): number {
