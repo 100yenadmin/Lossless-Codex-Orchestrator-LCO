@@ -1041,8 +1041,8 @@ export function createLooTools(options: {
     tool("lco_drive", "Create a bounded review-then-drive plan and target-adapter dry-run packet under local audit.", {
       reviewer: { type: "string", enum: ["codex", "claude"] },
       driver: { type: "string", enum: ["codex", "claude"] },
-      target_ref: { type: "string" },
-      objective: { type: "string" },
+      target_ref: { type: "string", maxLength: 195 },
+      objective: { type: "string", maxLength: 2000 },
       max_turns: { type: "integer", minimum: 1, maximum: 20 },
       token_budget: { type: "integer", minimum: 100, maximum: 8000 },
       timeout_ms: { type: "integer", minimum: 1000, maximum: 600000 },

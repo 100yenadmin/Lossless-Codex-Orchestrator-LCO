@@ -12,6 +12,7 @@ function auditStub() {
   const records: AuditRecord[] = [];
   const fingerprint = (value: string) => createHash("sha256").update(value).digest("hex").slice(0, 32);
   return {
+    records,
     path: "memory",
     fingerprintText: fingerprint,
     fingerprintValue(value: unknown) {
@@ -104,17 +105,19 @@ test("drive enforces bounded budgets before writing an audit record", async () =
     { costCeilingUsd: -0.01 },
     { costCeilingUsd: 100.01 }
   ]) {
+    const audit = auditStub();
     await assert.rejects(
       () => createDriveReport({
         reviewer: "codex",
         driver: "codex",
         targetRef: "codex_thread:thread-1",
         objective: "Review safely.",
-        audit: auditStub(),
+        audit,
         ...input
       }),
       /drive .* requires|drive .* must be/i
     );
+    assert.equal(audit.records.length, 0);
   }
 });
 
@@ -140,16 +143,18 @@ test("drive rejects secret-shaped target identifiers before writing an audit pac
     "codex_thread:AKIAABCDEFGHIJKLMNOP",
     "codex_thread:xoxb-abcdefghijklmnop"
   ]) {
+    const audit = auditStub();
     await assert.rejects(
       () => createDriveReport({
         reviewer: "codex",
         driver: "codex",
         targetRef,
         objective: "Review safely.",
-        audit: auditStub()
+        audit
       }),
       /target ref contains restricted secret/i
     );
+    assert.equal(audit.records.length, 0);
   }
 });
 

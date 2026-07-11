@@ -107,6 +107,8 @@ test("public operator docs explain the bounded lco drive dry-run workflow", () =
 
   assert.match(setup, /--reviewer claude[\s\S]*--driver codex/);
   assert.match(openclaw, /lco_drive/);
+  assert.match(openclaw, /"target_ref": "codex_thread:<thread-id>"/);
+  assert.match(openclaw, /"max_turns": 4[\s\S]*"token_budget": 1000[\s\S]*"timeout_ms": 120000[\s\S]*"cost_ceiling_usd": 1/);
   assert.match(vision, /does not run a reviewer/i);
 });
 

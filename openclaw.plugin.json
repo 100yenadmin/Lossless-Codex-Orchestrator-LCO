@@ -1334,10 +1334,12 @@
               ]
             },
             "target_ref": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 195
             },
             "objective": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 2000
             },
             "max_turns": {
               "type": "integer",
@@ -3156,10 +3158,12 @@
               ]
             },
             "target_ref": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 195
             },
             "objective": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 2000
             },
             "max_turns": {
               "type": "integer",

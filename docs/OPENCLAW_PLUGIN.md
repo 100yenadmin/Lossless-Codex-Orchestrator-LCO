@@ -153,6 +153,22 @@ Safety details:
   GUI, or write an external system. Use `lco drive` for the equivalent CLI
   workflow.
 
+  Example `lco_drive` arguments for an OpenClaw or MCP tool call:
+
+  ```json
+  {
+    "reviewer": "claude",
+    "driver": "codex",
+    "target_ref": "codex_thread:<thread-id>",
+    "objective": "Review the selected session and prepare the next bounded action",
+    "max_turns": 4,
+    "token_budget": 1000,
+    "timeout_ms": 120000,
+    "cost_ceiling_usd": 1,
+    "dry_run": true
+  }
+  ```
+
 Claude Code read/recall support is available through `lco index claude` and
 `claude_session:*` refs. Claude live control, GUI mutation, settings/session
 mutation, and adapter parity remain future work.
