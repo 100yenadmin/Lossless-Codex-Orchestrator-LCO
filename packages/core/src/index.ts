@@ -2088,6 +2088,8 @@ export type SessionDiffReport = {
   };
   summary: {
     totalChanges: number;
+    totalChangesExact: boolean;
+    hasMore: boolean;
     returned: number;
     changedSourceEvents: number;
     changedSourceRanges: number;
@@ -2104,11 +2106,15 @@ export type SessionDiffReport = {
   changes: SessionDiffChange[];
   omitted: {
     count: number;
+    countExact: boolean;
+    hasMore: boolean;
     reason: "limit" | "token_budget" | "filtered_unsafe_rows" | "mixed" | "none";
     reasons: Array<"limit" | "token_budget" | "filtered_unsafe_rows"> | ["none"];
     limitCount: number;
+    limitCountExact: boolean;
     tokenBudgetCount: number;
     filteredUnsafeRows: number;
+    invalidTimestampRows: number;
   };
   nextSafeCommands: string[];
   actionsPerformed: {
@@ -11677,6 +11683,7 @@ type SessionDiffCollectorResult = {
   counts: SessionDiffSafeCounts;
   changedRows: number;
   filteredUnsafeRows: number;
+  invalidTimestampRows: number;
   changes: SessionDiffCandidate[];
   scanWatermark: SessionDiffCursorWatermark | null;
   scanExhausted: boolean;
@@ -11776,6 +11783,8 @@ export function getSessionDiff(db: LooDatabase, options: SessionDiffOptions = {}
     + preparedCardResult.filteredUnsafeRows
     + inboxResult.filteredUnsafeRows
     + watcherResult.filteredUnsafeRows;
+  const invalidTimestampRows = collectorResults.reduce((sum, result) => sum + result.invalidTimestampRows, 0);
+  const hasMore = scanBarrier !== null || limitCount > 0 || tokenBudgetCount > 0;
   const omittedReasons = [
     limitCount > 0 ? "limit" : null,
     tokenBudgetCount > 0 ? "token_budget" : null,
@@ -11826,14 +11835,16 @@ export function getSessionDiff(db: LooDatabase, options: SessionDiffOptions = {}
       indexedSession: sessionDiffIndexedSessionCoverage(db, threadId, targetRef),
       preparedSourceRanges: cursorStatus === "stale" && cursorReasonCodes.includes("source_hash_changed")
         ? "partial"
-        : coverageFromCounts(sourceRangeResult.counts.raw, sourceRangeResult.counts.safe),
-      summaryLeaves: coverageFromCounts(summaryLeafResult.counts.raw, summaryLeafResult.counts.safe),
-      preparedCards: coverageFromCounts(preparedCardResult.counts.raw, preparedCardResult.counts.safe),
-      preparedInboxItems: coverageFromCounts(inboxResult.counts.raw, inboxResult.counts.safe),
-      watcherObservations: coverageFromCounts(watcherResult.counts.raw, watcherResult.counts.safe)
+        : sessionDiffCollectorCoverage(sourceRangeResult),
+      summaryLeaves: sessionDiffCollectorCoverage(summaryLeafResult),
+      preparedCards: sessionDiffCollectorCoverage(preparedCardResult),
+      preparedInboxItems: sessionDiffCollectorCoverage(inboxResult),
+      watcherObservations: sessionDiffCollectorCoverage(watcherResult)
     },
     summary: {
       totalChanges: candidates.length,
+      totalChangesExact: scanBarrier === null,
+      hasMore,
       returned: selected.length,
       changedSourceEvents: sourceEventsChanged,
       changedSourceRanges: candidates.filter((change) => change.changeKind === "source_range").length,
@@ -11850,11 +11861,15 @@ export function getSessionDiff(db: LooDatabase, options: SessionDiffOptions = {}
     changes: selected,
     omitted: {
       count: limitCount + tokenBudgetCount + filteredUnsafeRows,
+      countExact: scanBarrier === null,
+      hasMore,
       reason: omittedReasons.length > 1 ? "mixed" : omittedReasons[0] ?? "none",
       reasons: omittedReasons.length ? omittedReasons : ["none"],
       limitCount,
+      limitCountExact: scanBarrier === null,
       tokenBudgetCount,
-      filteredUnsafeRows
+      filteredUnsafeRows,
+      invalidTimestampRows
     },
     nextSafeCommands: sessionDiffNextSafeCommands(cursorStatus),
     actionsPerformed: preparedCardReadActions(),
@@ -12309,6 +12324,7 @@ function sessionDiffScanWhere(
 ): { where: string; params: string[] } {
   const clauses = base.where ? [base.where.replace(/^WHERE\s+/i, "")] : [];
   const params = [...base.params];
+  clauses.push(sessionDiffCanonicalTimestampSql(changedColumn));
   if (!watermark.changeKind || watermark.key === null) {
     clauses.push(`${changedColumn} > ?`);
     params.push(watermark.changedAt);
@@ -12326,6 +12342,27 @@ function sessionDiffScanWhere(
     }
   }
   return { where: `WHERE ${clauses.join(" AND ")}`, params };
+}
+
+function sessionDiffCanonicalTimestampSql(column: "created_at" | "updated_at" | "observed_at"): string {
+  return `typeof(${column}) = 'text' AND length(${column}) = 24 AND strftime('%Y-%m-%dT%H:%M:%fZ', ${column}) = ${column}`;
+}
+
+function countInvalidSessionDiffTimestamps(
+  db: LooDatabase,
+  table: "prepared_source_ranges" | "summary_leaves" | "prepared_cards" | "prepared_inbox_items" | "watcher_observations",
+  changedColumn: "created_at" | "updated_at" | "observed_at",
+  base: { where: string; params: string[] }
+): number {
+  const clauses = base.where ? [base.where.replace(/^WHERE\s+/i, "")] : [];
+  clauses.push(`NOT (${sessionDiffCanonicalTimestampSql(changedColumn)})`);
+  return Number((db.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE ${clauses.join(" AND ")}`).get(...base.params) as { count: number }).count ?? 0);
+}
+
+function sessionDiffCollectorCoverage(result: SessionDiffCollectorResult): PreparedStateCoverage {
+  return result.invalidTimestampRows > 0
+    ? "partial"
+    : coverageFromCounts(result.counts.raw, result.counts.safe);
 }
 
 function sessionDiffScannedWatermark(
@@ -12348,6 +12385,7 @@ function collectChangedSourceRanges(
   input: { threadId?: string; targetRef?: string | null; cursorWatermark: SessionDiffCursorWatermark; scanLimit: number }
 ): SessionDiffCollectorResult {
   const base = sessionDiffWhereSql("prepared_source_ranges", input);
+  const invalidTimestampRows = countInvalidSessionDiffTimestamps(db, "prepared_source_ranges", "created_at", base);
   const scan = sessionDiffScanWhere(
     "source_range",
     "created_at",
@@ -12385,7 +12423,7 @@ function collectChangedSourceRanges(
   `).all(...scan.params, input.scanLimit + 1) as Array<PreparedSourceRangeRow & { createdAt: string; cursorKey: string }>;
   const rows = rawRows.slice(0, input.scanLimit);
   const changes: SessionDiffCandidate[] = [];
-  let filteredUnsafeRows = 0;
+  let filteredUnsafeRows = invalidTimestampRows;
   for (const row of rows) {
     const range = preparedSourceRangeFromRow(row);
     if (!range) {
@@ -12413,6 +12451,7 @@ function collectChangedSourceRanges(
     counts: sessionDiffSafeCounts(db, "prepared_source_ranges", input),
     changedRows: rows.length,
     filteredUnsafeRows,
+    invalidTimestampRows,
     changes,
     scanWatermark: sessionDiffScannedWatermark("source_range", rows.at(-1), rows.at(-1)?.createdAt, input.cursorWatermark.changedAt),
     scanExhausted: rawRows.length <= input.scanLimit
@@ -12424,6 +12463,7 @@ function collectChangedSummaryLeaves(
   input: { threadId?: string; targetRef?: string | null; cursorWatermark: SessionDiffCursorWatermark; scanLimit: number }
 ): SessionDiffCollectorResult {
   const base = sessionDiffWhereSql("summary_leaves", input);
+  const invalidTimestampRows = countInvalidSessionDiffTimestamps(db, "summary_leaves", "created_at", base);
   const scan = sessionDiffScanWhere("summary_leaf", "created_at", "leaf_ref", base, input.cursorWatermark);
   const rawRows = db.prepare(`
     SELECT
@@ -12451,7 +12491,7 @@ function collectChangedSummaryLeaves(
   `).all(...scan.params, input.scanLimit + 1) as Array<SummaryLeafRow & { createdAt: string; cursorKey: string }>;
   const rows = rawRows.slice(0, input.scanLimit);
   const changes: SessionDiffCandidate[] = [];
-  let filteredUnsafeRows = 0;
+  let filteredUnsafeRows = invalidTimestampRows;
   for (const row of rows) {
     const leaf = publicSummaryLeafFromRow(row);
     if (!leaf) {
@@ -12479,6 +12519,7 @@ function collectChangedSummaryLeaves(
     counts: sessionDiffSafeCounts(db, "summary_leaves", input),
     changedRows: rows.length,
     filteredUnsafeRows,
+    invalidTimestampRows,
     changes,
     scanWatermark: sessionDiffScannedWatermark("summary_leaf", rows.at(-1), rows.at(-1)?.createdAt, input.cursorWatermark.changedAt),
     scanExhausted: rawRows.length <= input.scanLimit
@@ -12490,6 +12531,7 @@ function collectChangedPreparedCards(
   input: { threadId?: string; targetRef?: string | null; cursorWatermark: SessionDiffCursorWatermark; scanLimit: number }
 ): SessionDiffCollectorResult {
   const base = sessionDiffWhereSql("prepared_cards", input);
+  const invalidTimestampRows = countInvalidSessionDiffTimestamps(db, "prepared_cards", "updated_at", base);
   const scan = sessionDiffScanWhere("prepared_card", "updated_at", "card_ref", base, input.cursorWatermark);
   const rawRows = db.prepare(`
     SELECT
@@ -12522,7 +12564,7 @@ function collectChangedPreparedCards(
   `).all(...scan.params, input.scanLimit + 1) as Array<PreparedCardRow & { updatedAt: string; cursorKey: string }>;
   const rows = rawRows.slice(0, input.scanLimit);
   const changes: SessionDiffCandidate[] = [];
-  let filteredUnsafeRows = 0;
+  let filteredUnsafeRows = invalidTimestampRows;
   for (const row of rows) {
     const card = publicPreparedCardFromRow(row);
     if (!card) {
@@ -12550,6 +12592,7 @@ function collectChangedPreparedCards(
     counts: sessionDiffSafeCounts(db, "prepared_cards", input),
     changedRows: rows.length,
     filteredUnsafeRows,
+    invalidTimestampRows,
     changes,
     scanWatermark: sessionDiffScannedWatermark("prepared_card", rows.at(-1), rows.at(-1)?.updatedAt, input.cursorWatermark.changedAt),
     scanExhausted: rawRows.length <= input.scanLimit
@@ -12561,6 +12604,7 @@ function collectChangedPreparedInboxItems(
   input: { threadId?: string; targetRef?: string | null; cursorWatermark: SessionDiffCursorWatermark; scanLimit: number }
 ): SessionDiffCollectorResult {
   const base = sessionDiffWhereSql("prepared_inbox_items", input);
+  const invalidTimestampRows = countInvalidSessionDiffTimestamps(db, "prepared_inbox_items", "updated_at", base);
   const scan = sessionDiffScanWhere("prepared_inbox_item", "updated_at", "item_id", base, input.cursorWatermark);
   const rawRows = db.prepare(`
     SELECT
@@ -12581,7 +12625,7 @@ function collectChangedPreparedInboxItems(
   `).all(...scan.params, input.scanLimit + 1) as Array<PreparedInboxRow & { updatedAt: string; cursorKey: string }>;
   const rows = rawRows.slice(0, input.scanLimit);
   const changes: SessionDiffCandidate[] = [];
-  let filteredUnsafeRows = 0;
+  let filteredUnsafeRows = invalidTimestampRows;
   for (const row of rows) {
     const item = publicPreparedInboxItemFromRow(row);
     if (!item) {
@@ -12609,6 +12653,7 @@ function collectChangedPreparedInboxItems(
     counts: sessionDiffSafeCounts(db, "prepared_inbox_items", input),
     changedRows: rows.length,
     filteredUnsafeRows,
+    invalidTimestampRows,
     changes,
     scanWatermark: sessionDiffScannedWatermark("prepared_inbox_item", rows.at(-1), rows.at(-1)?.updatedAt, input.cursorWatermark.changedAt),
     scanExhausted: rawRows.length <= input.scanLimit
@@ -12620,6 +12665,7 @@ function collectChangedWatcherObservations(
   input: { targetRef?: string | null; cursorWatermark: SessionDiffCursorWatermark; scanLimit: number }
 ): SessionDiffCollectorResult {
   const base = sessionDiffWhereSql("watcher_observations", input);
+  const invalidTimestampRows = countInvalidSessionDiffTimestamps(db, "watcher_observations", "created_at", base);
   const scan = sessionDiffScanWhere("watcher_observation", "created_at", "observation_id", base, input.cursorWatermark);
   const rawRows = db.prepare(`
     SELECT
@@ -12640,7 +12686,7 @@ function collectChangedWatcherObservations(
   `).all(...scan.params, input.scanLimit + 1) as Array<WatcherObservationRow & { cursorKey: string; createdAt: string }>;
   const rows = rawRows.slice(0, input.scanLimit);
   const changes: SessionDiffCandidate[] = [];
-  let filteredUnsafeRows = 0;
+  let filteredUnsafeRows = invalidTimestampRows;
   for (const row of rows) {
     const observation = publicWatcherObservationFromRow(row);
     if (!observation) {
@@ -12668,6 +12714,7 @@ function collectChangedWatcherObservations(
     counts: sessionDiffSafeCounts(db, "watcher_observations", input),
     changedRows: rows.length,
     filteredUnsafeRows,
+    invalidTimestampRows,
     changes,
     scanWatermark: sessionDiffScannedWatermark("watcher_observation", rows.at(-1), rows.at(-1)?.createdAt, input.cursorWatermark.changedAt),
     scanExhausted: rawRows.length <= input.scanLimit

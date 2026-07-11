@@ -1690,6 +1690,64 @@ test("session diff drains more than 2000 same-timestamp rows without loss or dup
   });
 });
 
+test("session diff marks bounded-scan totals as lower bounds while more rows remain", () => {
+  withSessionDiffDb((db) => {
+    const threadId = "019f-session-diff-bounded-counts";
+    insertSession(db, threadId);
+    for (let ordinal = 1; ordinal <= 5000; ordinal += 1) {
+      insertPreparedRange(db, {
+        threadId,
+        ordinal,
+        createdAt: "2026-07-09T00:01:00.000Z"
+      });
+    }
+    const diff = getSessionDiff(db, {
+      threadId,
+      now: "2026-07-09T00:02:00.000Z",
+      limit: 500,
+      tokenBudget: 8000
+    });
+    assert.equal(diff.summary.totalChangesExact, false);
+    assert.equal(diff.summary.hasMore, true);
+    assert.equal(diff.omitted.countExact, false);
+    assert.equal(diff.omitted.limitCountExact, false);
+    assert.equal(diff.omitted.hasMore, true);
+    assert.ok(diff.summary.totalChanges < 5000);
+  });
+});
+
+test("session diff quarantines malformed timestamps without advertising another page", () => {
+  withSessionDiffDb((db) => {
+    const threadId = "019f-session-diff-invalid-timestamp";
+    insertSession(db, threadId);
+    const range = insertPreparedRange(db, {
+      threadId,
+      ordinal: 1,
+      createdAt: "2026-07-09T00:01:00.000Z"
+    });
+    db.prepare(`
+      UPDATE prepared_source_ranges
+      SET created_at = 'zzz', privacy_class = 'private'
+      WHERE range_ref = ?
+    `).run(range);
+    const first = getSessionDiff(db, {
+      threadId,
+      now: "2026-07-09T00:02:00.000Z"
+    });
+    assert.equal(first.summary.returned, 0);
+    assert.equal(first.omitted.invalidTimestampRows, 1);
+    assert.equal(first.omitted.filteredUnsafeRows, 1);
+    assert.equal(first.omitted.hasMore, false);
+    const second = getSessionDiff(db, {
+      threadId,
+      cursor: first.cursor.nextCursor,
+      now: "2026-07-09T00:03:00.000Z"
+    });
+    assert.equal(second.omitted.invalidTimestampRows, 1);
+    assert.equal(second.omitted.hasMore, false);
+  });
+});
+
 test("session diff keyset collectors use bounded time and key indexes", () => {
   withSessionDiffDb((db) => {
     const plans = [
