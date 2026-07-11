@@ -173,6 +173,10 @@ export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabW
   if (!gatewayUrlValidation.ok) {
     addBlocker(blockers, "P1", gatewayUrlValidation.code, "qaLabWorkflow", gatewayUrlValidation.detail);
   }
+  const gatewayToken = options.token || options.env?.OPENCLAW_GATEWAY_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN;
+  if (gatewayToken && !options.gatewayUrl) {
+    addBlocker(blockers, "P1", "workflow_gateway_token_requires_url", "qaLabWorkflow", "A scoped gateway token requires an explicit loopback --gateway-url; omit the token to use configured profile credentials.");
+  }
   if (!candidateShaValid) {
     addBlocker(blockers, "P1", "candidate_sha_invalid", "qaLabWorkflow", "Candidate SHA must be a 40-character hexadecimal commit SHA.");
   }
@@ -375,7 +379,7 @@ function callGatewayJson(
   }
   const gatewayToken = options.token || options.env?.OPENCLAW_GATEWAY_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN;
   if (options.gatewayUrl && gatewayToken) {
-    return callGatewayBackendJson(options.gatewayUrl, gatewayToken, method, params, gatewayTimeoutMs);
+    return callGatewayBackendJson(options.gatewayUrl, gatewayToken, method, params, gatewayTimeoutMs, childEnv(options));
   }
   const gatewayOptions = [
     ...(options.gatewayUrl ? ["--url", options.gatewayUrl] : []),

@@ -627,7 +627,8 @@ export function callGatewayBackendJson(
   token: string,
   method: string,
   params: unknown,
-  timeoutMs: number
+  timeoutMs: number,
+  sourceEnv: NodeJS.ProcessEnv = process.env
 ): GatewayJsonResult {
   const request = JSON.stringify({
     url: gatewayUrl,
@@ -638,11 +639,7 @@ export function callGatewayBackendJson(
   });
   const call = spawnSync(process.execPath, ["--input-type=module", "-e", GATEWAY_BACKEND_CALL_SCRIPT], {
     encoding: "utf8",
-    env: {
-      ...process.env,
-      LCO_GATEWAY_BACKEND_REQUEST: request,
-      LCO_GATEWAY_BACKEND_TOKEN: token
-    },
+    env: gatewayBackendChildEnv(sourceEnv, request, token),
     maxBuffer: 20 * 1024 * 1024,
     timeout: gatewayProcessTimeoutMs(timeoutMs)
   });
@@ -657,6 +654,19 @@ export function callGatewayBackendJson(
     result.parseError = error instanceof Error ? error.message : "invalid JSON";
   }
   return result;
+}
+
+function gatewayBackendChildEnv(source: NodeJS.ProcessEnv, request: string, token: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of ["PATH", "HOME", "TMPDIR"]) {
+    if (source[key]) env[key] = source[key];
+  }
+  for (const [key, value] of Object.entries(source)) {
+    if (key.startsWith("OPENCLAW_FAKE_") && value !== undefined) env[key] = value;
+  }
+  env.LCO_GATEWAY_BACKEND_REQUEST = request;
+  env.LCO_GATEWAY_BACKEND_TOKEN = token;
+  return env;
 }
 
 const GATEWAY_BACKEND_CALL_SCRIPT = `

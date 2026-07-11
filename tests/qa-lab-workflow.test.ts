@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { createQaLabWorkflowReport, type QaLabWorkflowReport } from "../packages/cli/src/qa-lab-workflow.js";
+import { callGatewayBackendJson } from "../packages/cli/src/openclaw-tool-smoke.js";
 import { runLoo } from "./helpers/run-loo.js";
 
 const packageVersion = "1.3.0";
@@ -287,6 +288,43 @@ test("qa-lab workflow keeps explicit gateway tokens out of OpenClaw argv", (t) =
   assert.equal(existsSync(callsPath), false, "explicit URL+token calls must use the environment-only gateway backend instead of OpenClaw argv");
   assert.doesNotMatch(JSON.stringify(report), new RegExp(token));
   assert.doesNotMatch(readFileSync(join(dir, "workflow-run.json"), "utf8"), new RegExp(token));
+});
+
+test("qa-lab workflow fails closed when a scoped token has no explicit gateway URL", (t) => {
+  const dir = makeTempDir(t, "loo-qa-workflow-token-without-url-");
+  const { bin, callsPath } = createFakeOpenClaw(dir);
+
+  const report = createQaLabWorkflowReport({
+    scenarioId: "issue-756-token-without-url",
+    surface: "openclaw-gateway",
+    mode: "dry-run",
+    evidenceDir: dir,
+    openclawBin: bin,
+    token: "scoped-test-gateway-token",
+    env: { ...process.env, OPENCLAW_FAKE_CALLS: callsPath }
+  });
+
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.some((blocker) => blocker.code === "workflow_gateway_token_requires_url"));
+  assert.equal(existsSync(callsPath), false, "ambiguous token-only auth must fail before spawning OpenClaw");
+});
+
+test("gateway backend child strips ambient Node startup controls", () => {
+  const previous = process.env.NODE_OPTIONS;
+  process.env.NODE_OPTIONS = "--eval=process.exit(91)";
+  try {
+    const result = callGatewayBackendJson(
+      "ws://127.0.0.1:65534",
+      "scoped-test-gateway-token",
+      "tools.catalog",
+      {},
+      250
+    );
+    assert.doesNotMatch(result.stderr, /NODE_OPTIONS|--eval/);
+  } finally {
+    if (previous === undefined) delete process.env.NODE_OPTIONS;
+    else process.env.NODE_OPTIONS = previous;
+  }
 });
 
 test("qa-lab workflow reads drive proof from the real OpenClaw content/details envelope", (t) => {
