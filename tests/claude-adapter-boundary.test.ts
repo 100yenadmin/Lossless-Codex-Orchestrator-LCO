@@ -190,21 +190,21 @@ test("Claude dry-run status reports not_configured and redacts local diagnostics
   assert.doesNotMatch(JSON.stringify(status), /\/Users\/lume|sk-test_/);
 });
 
-test("Claude dry-run status never invokes an injected synchronous probe callback", () => {
+test("Claude dry-run control rejects the removed synchronous probe callback without invoking it", () => {
   let probeCount = 0;
-  const control = createClaudeDryRunControl({
+  const legacyOptions = {
     audit: auditStub(),
     probeAvailability() {
       probeCount += 1;
-      throw new Error("status must not execute a synchronous CLI probe");
+      throw new Error("constructor must not execute a synchronous CLI probe");
     }
-  });
+  } as unknown as Parameters<typeof createClaudeDryRunControl>[0];
 
-  const status = control.status();
+  assert.throws(
+    () => createClaudeDryRunControl(legacyOptions),
+    /probeAvailability is no longer supported/i
+  );
   assert.equal(probeCount, 0);
-  assert.equal(status.state, "not_configured");
-  assert.equal(status.command.available, false);
-  assert.equal(status.command.error, "Claude availability probe was not requested.");
 });
 
 test("Claude dry-run status reports not_configured when availability is omitted", () => {
@@ -314,28 +314,15 @@ test("Claude probe result classification covers missing binary nonzero and unsup
 });
 
 test("Claude dry-run control construction and status remain side-effect-free", () => {
-  let probeCount = 0;
   const control = createClaudeDryRunControl({
-    audit: auditStub(),
-    probeAvailability() {
-      probeCount += 1;
-      return {
-        available: false,
-        command: "claude",
-        version: null,
-        error: "spawn claude ENOENT /Users/lume/private"
-      };
-    }
+    audit: auditStub()
   });
 
-  assert.equal(probeCount, 0);
   const firstStatus = control.status();
-  assert.equal(probeCount, 0);
   assert.equal(firstStatus.state, "not_configured");
   assert.equal(firstStatus.command.error, "Claude availability probe was not requested.");
   assert.doesNotMatch(JSON.stringify(firstStatus), /\/Users\/lume/);
   const secondStatus = control.status();
-  assert.equal(probeCount, 0);
   assert.deepEqual(secondStatus.command, firstStatus.command);
 });
 

@@ -73,7 +73,10 @@ export function probeClaudeDryRunAvailability(command = "claude"): ClaudeDryRunA
       unsupportedReason: "Only the claude CLI command is allowed for dry-run availability probing."
     };
   }
-  const result = spawnSync("claude", ["--version"], { encoding: "utf8", timeout: 2_000 });
+  // This exported out-of-band probe intentionally uses the caller's trusted
+  // PATH, never a shell. Request/status handlers must inject its sanitized
+  // result instead of invoking the synchronous probe themselves.
+  const result = spawnSync("claude", ["--version"], { encoding: "utf8", timeout: 2_000, shell: false });
   return claudeAvailabilityFromProbeResult(result);
 }
 
@@ -122,9 +125,10 @@ export function claudeAvailabilityFromProbeResult(result: ClaudeVersionProbeResu
 export function createClaudeDryRunControl(options: {
   audit: ClaudeControlAuditStore;
   availability?: ClaudeDryRunAvailability;
-  /** @deprecated Status reads never execute probes. Probe out of band and inject availability instead. */
-  probeAvailability?: () => ClaudeDryRunAvailability;
 }) {
+  if ("probeAvailability" in options) {
+    throw new Error("probeAvailability is no longer supported; probe Claude out of band and inject availability");
+  }
   const availability = sanitizeClaudeAvailability(options.availability ?? {
     available: false,
     command: "claude",
