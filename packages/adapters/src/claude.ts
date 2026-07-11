@@ -1,4 +1,4 @@
-import { execFile, type ExecFileException } from "node:child_process";
+import { spawn } from "node:child_process";
 import { win32 as win32Path } from "node:path";
 import { createTargetControl, type AuditRecord } from "./index.js";
 import { type TargetMethodPolicy } from "./policy.js";
@@ -98,24 +98,70 @@ function runClaudeVersionProbe(invocation: {
   cwd: string | undefined;
 }, trustedPath?: string): Promise<ClaudeVersionProbeResult> {
   return new Promise((resolve) => {
-    execFile(invocation.command, invocation.args, {
-      encoding: "utf8",
-      timeout: 2_000,
-      maxBuffer: 64 * 1024,
-      killSignal: "SIGKILL",
+    const child = spawn(invocation.command, invocation.args, {
       shell: false,
       cwd: invocation.cwd,
-      env: trustedPath === undefined ? undefined : { ...process.env, PATH: trustedPath }
-    }, (error, stdout, stderr) => {
-      const probeError = error as ExecFileException | null;
-      const status = typeof probeError?.code === "number" ? probeError.code : probeError ? null : 0;
+      env: trustedPath === undefined ? undefined : { ...process.env, PATH: trustedPath },
+      detached: process.platform !== "win32",
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    let outputBytes = 0;
+    let spawnError: Error | undefined;
+    let timedOut = false;
+    let terminationStarted = false;
+    let settled = false;
+
+    const terminateTree = () => {
+      if (terminationStarted || child.pid === undefined) return;
+      terminationStarted = true;
+      const termination = claudeProbeTreeTerminationInvocation(process.platform, child.pid);
+      if (termination) {
+        const killer = spawn(termination.command, termination.args, {
+          cwd: termination.cwd,
+          detached: false,
+          windowsHide: true,
+          stdio: "ignore"
+        });
+        const killDirectChild = () => child.kill("SIGKILL");
+        killer.once("error", killDirectChild);
+        killer.once("close", killDirectChild);
+        return;
+      }
+      try {
+        process.kill(-child.pid, "SIGKILL");
+      } catch {
+        child.kill("SIGKILL");
+      }
+    };
+    const capture = (chunks: Buffer[], chunk: Buffer | string) => {
+      const value = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      outputBytes += value.length;
+      if (outputBytes <= 64 * 1024) chunks.push(value);
+      else terminateTree();
+    };
+    child.stdout.on("data", (chunk) => capture(stdout, chunk));
+    child.stderr.on("data", (chunk) => capture(stderr, chunk));
+    child.once("error", (error) => {
+      spawnError = error;
+    });
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      terminateTree();
+    }, 2_000);
+    child.once("close", (code, signal) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
       resolve({
-        error: probeError && status === null ? probeError : undefined,
-        status,
-        stdout,
-        stderr,
-        signal: probeError?.signal ?? null,
-        timedOut: probeError?.killed === true && probeError.signal === "SIGKILL"
+        error: spawnError,
+        status: code,
+        stdout: Buffer.concat(stdout),
+        stderr: Buffer.concat(stderr),
+        signal,
+        timedOut
       });
     });
   });
@@ -126,12 +172,7 @@ export function claudeVersionProbeInvocation(
   systemRoot = process.env.SystemRoot
 ): { command: string; args: string[]; cwd: string | undefined } {
   if (platform === "win32") {
-    const rawRoot = systemRoot?.trim() || "C:\\Windows";
-    const safeRoot = win32Path.isAbsolute(rawRoot)
-      && !rawRoot.split(/[\\/]+/).includes("..")
-      && !/[<>"|?*\r\n]/.test(rawRoot)
-      ? win32Path.normalize(rawRoot)
-      : "C:\\Windows";
+    const safeRoot = safeWindowsSystemRoot(systemRoot);
     const system32 = win32Path.join(safeRoot, "System32");
     return {
       command: win32Path.join(system32, "cmd.exe"),
@@ -140,6 +181,29 @@ export function claudeVersionProbeInvocation(
     };
   }
   return { command: "claude", args: ["--version"], cwd: undefined };
+}
+
+export function claudeProbeTreeTerminationInvocation(
+  platform: NodeJS.Platform,
+  pid: number,
+  systemRoot = process.env.SystemRoot
+): { command: string; args: string[]; cwd: string } | null {
+  if (platform !== "win32") return null;
+  const system32 = win32Path.join(safeWindowsSystemRoot(systemRoot), "System32");
+  return {
+    command: win32Path.join(system32, "taskkill.exe"),
+    args: ["/PID", String(pid), "/T", "/F"],
+    cwd: system32
+  };
+}
+
+function safeWindowsSystemRoot(systemRoot: string | undefined): string {
+  const rawRoot = systemRoot?.trim() || "C:\\Windows";
+  return win32Path.isAbsolute(rawRoot)
+    && !rawRoot.split(/[\\/]+/).includes("..")
+    && !/[<>"|?*\r\n]/.test(rawRoot)
+    ? win32Path.normalize(rawRoot)
+    : "C:\\Windows";
 }
 
 export function claudeAvailabilityFromProbeResult(result: ClaudeVersionProbeResult): ClaudeDryRunAvailability {
@@ -186,7 +250,9 @@ export function claudeAvailabilityFromProbeResult(result: ClaudeVersionProbeResu
     command: "claude",
     version,
     error: null,
-    unsupportedReason: unsupportedClaudeVersionReason(version)
+    unsupportedReason: version
+      ? unsupportedClaudeVersionReason(version)
+      : "Claude CLI version output was empty and could not be parsed for dry-run validation."
   });
 }
 

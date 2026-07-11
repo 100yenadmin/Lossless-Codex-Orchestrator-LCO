@@ -9,6 +9,7 @@ import { assertTargetMethodAllowed } from "../packages/adapters/src/index.js";
 import {
   CLAUDE_TARGET_METHOD_POLICY,
   claudeAvailabilityFromProbeResult,
+  claudeProbeTreeTerminationInvocation,
   claudeVersionProbeInvocation,
   createClaudeCodeAdapter,
   createClaudeDryRunControl,
@@ -284,6 +285,8 @@ test("Claude availability probe kills a timeout-resistant CLI within its bound",
   const fakeClaude = join(root, "claude");
   writeFileSync(fakeClaude, [
     `#!${process.execPath}`,
+    "const { spawn } = require('node:child_process');",
+    "spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'inherit' });",
     "process.on('SIGTERM', () => {});",
     "setInterval(() => {}, 1000);"
   ].join("\n"));
@@ -314,6 +317,12 @@ test("Claude availability probe resolves the fixed command through cmd.exe on Wi
   assert.match(windows.command, /^[A-Za-z]:\\Windows\\System32\\cmd\.exe$/i);
   assert.equal(windows.cwd, "C:\\Windows\\System32");
   assert.doesNotMatch(`${windows.command} ${windows.cwd}`, /checkout|worktree|repo/i);
+  assert.deepEqual(claudeProbeTreeTerminationInvocation("win32", 4242, "D:\\Windows"), {
+    command: "D:\\Windows\\System32\\taskkill.exe",
+    args: ["/PID", "4242", "/T", "/F"],
+    cwd: "D:\\Windows\\System32"
+  });
+  assert.equal(claudeProbeTreeTerminationInvocation("darwin", 4242), null);
 });
 
 test("Claude version parser accepts semver metadata and rejects old or unparseable versions", () => {
@@ -402,6 +411,17 @@ test("Claude probe result classification covers missing binary nonzero and unsup
   });
   assert.equal(unknownVersion.available, true);
   assert.match(unknownVersion.unsupportedReason ?? "", /could not be parsed/i);
+
+  const emptyVersion = claudeAvailabilityFromProbeResult({
+    error: undefined,
+    status: 0,
+    stdout: "",
+    stderr: ""
+  });
+  assert.equal(emptyVersion.available, true);
+  assert.equal(emptyVersion.version, null);
+  assert.match(emptyVersion.unsupportedReason ?? "", /empty|could not be parsed/i);
+  assert.equal(createClaudeDryRunControl({ audit: auditStub(), availability: emptyVersion }).status().state, "unsupported");
 
   const sensitiveVersion = claudeAvailabilityFromProbeResult({
     error: undefined,
