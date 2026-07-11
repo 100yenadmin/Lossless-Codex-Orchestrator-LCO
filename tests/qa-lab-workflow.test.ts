@@ -40,7 +40,8 @@ if (method === "tools.catalog") {
     { name: "loo_codex_plans" },
     { name: "loo_codex_final_messages" },
     { name: "loo_codex_touched_files" },
-    { name: "loo_codex_control_dry_run" }
+    { name: "loo_codex_control_dry_run" },
+    { name: "loo_drive" }
   ].filter((tool) => tool.name !== process.env.OPENCLAW_FAKE_MISSING_TOOL);
   if (process.env.OPENCLAW_FAKE_CATALOG_ERROR === "1") {
     console.log(JSON.stringify({ ok: false, status: "error", tools }));
@@ -158,6 +159,24 @@ if (method === "tools.invoke") {
     console.log(JSON.stringify(wrap(responseOutput)));
     process.exit(0);
   }
+  if (name === "loo_drive") {
+    console.log(JSON.stringify(wrap({
+      schema: "lco.drive.report.v1",
+      status: "dry_run_ready",
+      surface: "openclaw-gateway",
+      target: { ref: toolArgs.target_ref, driver: toolArgs.driver },
+      dryRun: {
+        live: false,
+        approvalAuditId: "loo_audit_drive_workflow",
+        paramsHash: "drive-params-hash"
+      },
+      actionsPerformed: {
+        liveControl: false,
+        externalWrite: false
+      }
+    })));
+    process.exit(0);
+  }
 }
 
 console.error("unexpected fake OpenClaw call");
@@ -196,13 +215,17 @@ test("qa-lab workflow creates a public-safe dry-run OpenClaw gateway report", (t
     "loo_codex_plans",
     "loo_codex_final_messages",
     "loo_codex_touched_files",
-    "loo_codex_control_dry_run"
+    "loo_codex_control_dry_run",
+    "loo_drive"
   ]);
   assert.equal(report.workflow.selectedSourceRef, "codex_thread:agent-thread-1");
   assert.match(report.command, /tools\.catalog\/tools\.invoke/);
   assert.equal(report.workflow.rawTranscriptReadRequired, false);
   assert.equal(report.workflow.recommendedNextAction.kind, "dry_run_resume");
+  assert.equal(report.workflow.recommendedNextAction.tool, "loo_drive");
   assert.equal(report.workflow.dryRunControl.live, false);
+  assert.equal(report.workflow.dryRunControl.approvalAuditId, "loo_audit_drive_workflow");
+  assert.equal(report.workflow.dryRunControl.paramsHash, "drive-params-hash");
   assert.deepEqual(report.actionsPerformed, {
     liveCodexControlRun: false,
     desktopGuiActionRun: false,
@@ -229,7 +252,12 @@ test("qa-lab workflow creates a public-safe dry-run OpenClaw gateway report", (t
 
   const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
   assert.equal(calls.filter((call) => call.method === "tools.catalog").length, 1);
-  assert.equal(calls.filter((call) => call.method === "tools.invoke").length, 7);
+  assert.equal(calls.filter((call) => call.method === "tools.invoke").length, 8);
+  const driveCall = calls.find((call) => call.params?.name === "loo_drive");
+  assert.equal(driveCall.params.args.target_ref, "codex_thread:agent-thread-1");
+  assert.equal(driveCall.params.args.reviewer, "claude");
+  assert.equal(driveCall.params.args.driver, "codex");
+  assert.equal(driveCall.params.args.dry_run, true);
   assert.equal(calls.some((call) => call.envSecretPresent), false);
   assert.ok(calls
     .filter((call) => call.method === "tools.invoke")
@@ -544,8 +572,8 @@ test("qa-lab workflow uses deterministic idempotency keys for retry-safe gateway
   const invokeKeys = calls
     .filter((call) => call.method === "tools.invoke")
     .map((call) => call.params.idempotencyKey);
-  assert.deepEqual(invokeKeys.slice(0, 7), invokeKeys.slice(7, 14));
-  assert.notDeepEqual(invokeKeys.slice(0, 7), invokeKeys.slice(14, 21));
+  assert.deepEqual(invokeKeys.slice(0, 8), invokeKeys.slice(8, 16));
+  assert.notDeepEqual(invokeKeys.slice(0, 8), invokeKeys.slice(16, 24));
 });
 
 test("qa-lab workflow fails closed without spawning more calls after deadline exhaustion", (t) => {
@@ -744,7 +772,7 @@ test("loo qa-lab workflow writes a strict public-safe report through fake OpenCl
   assert.equal(report.packageVersion, packageVersion);
   assert.equal(report.candidateSha, candidateSha);
   assert.equal(report.workflowRunReady, true);
-  assert.equal(report.workflow.toolsInvoked.length, 7);
+  assert.equal(report.workflow.toolsInvoked.length, 8);
   assert.equal(report.actionsPerformed.liveCodexControlRun, false);
   assert.doesNotMatch(JSON.stringify(report), /PRIVATE RAW|\/Users\/lume|\.jsonl|\.sqlite|screenshot|token|cookie/i);
   assert.doesNotMatch(readFileSync(join(dir, "workflow-run.json"), "utf8"), /PRIVATE RAW|\/Users\/lume|\.jsonl|\.sqlite|screenshot|token|cookie/i);

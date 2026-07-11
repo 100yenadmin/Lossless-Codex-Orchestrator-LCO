@@ -145,6 +145,13 @@ Safety details:
 - `lco_prepared_state_status` accepts an optional `thread_id` for targeted active-thread coverage. When global prepared cache is populated but the requested thread is missing prepared rows, the tool reports public-safe `targetCoverage` with opaque refs, freshness, missing-layer coverage, and reason codes such as `source_present_not_indexed` or `active_session_pending_index`; it does not expose transcript paths, raw text, app-server previews, Desktop state, live control, or GUI mutation proof.
 - `lco_codex_autonomy_tick` is the #371 deterministic tick planner. It composes the active-thread state report into ordered `execute:false` next tool calls, putting read-only probes before control dry-run recommendations for the same lane. `priority_order` influences upstream active-lane selection; final tick ordering is safety-first by step type, active-state priority, urgency, and stable tie-breaks. It emits priority, idempotency key, source coverage, confidence, reason codes, evidence ids, stop conditions, and approval boundaries where relevant; it does not execute the tool call, mint approval ids, run live control, mutate Codex Desktop, capture screenshots, publish npm, or create GitHub releases.
 - `lco_codex_start_thread` is the approval-gated new-thread workflow. It is dry-run by default, requires the matching `approval_audit_id` for live `thread/start`, and reports `proof_state` so callers can distinguish `accepted_by_transport`, `started`, `completed`, `persisted`, and `unverified_pending`. An `unverified_pending` result is not durable execution or local-session persistence; callers must run the returned read-only `next_proof` packet before building follow-up claims.
+- `lco_drive` is the bounded review-then-drive entry point for CLI, MCP, and
+  OpenClaw. It accepts a Codex or Claude reviewer label, a Codex or Claude target
+  adapter, public-safe target ref, objective, and explicit turn/token/time/cost
+  budgets. The 1.6 tool is dry-run only: it returns a deterministic plan plus
+  local audit hashes and does not run a reviewer, perform live control, mutate a
+  GUI, or write an external system. Use `lco drive` for the equivalent CLI
+  workflow.
 
 Claude Code read/recall support is available through `lco index claude` and
 `claude_session:*` refs. Claude live control, GUI mutation, settings/session
