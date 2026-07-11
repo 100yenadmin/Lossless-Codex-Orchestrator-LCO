@@ -234,6 +234,10 @@ test("loo drive help exposes the bounded dry-run contract", () => {
   assert.match(result.stdout, /--max-turns/);
   assert.match(result.stdout, /--cost-ceiling-usd/);
   assert.match(result.stdout, /dry-run/i);
+  const topLevel = runLoo(["--help"], process.env, 5_000);
+  assert.equal(topLevel.status, 0, topLevel.stderr || topLevel.stdout);
+  assert.match(topLevel.stdout, /drive[^\n]+\[--surface cli\]/);
+  assert.doesNotMatch(topLevel.stdout, /drive[^\n]+--surface cli\|mcp\|openclaw-gateway/);
 });
 
 test("loo drive emits a public-safe Codex dry-run report", () => {

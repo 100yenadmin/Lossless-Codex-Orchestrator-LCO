@@ -1294,7 +1294,7 @@ function mainUsageText(): string {
     "  loo sanitize sessions [--thread-id id] [--limit n] [--evidence-dir path] [--strict]",
     "  loo serve",
     "  loo audit-path",
-    "  loo drive --reviewer codex|claude --driver codex|claude --target-ref ref --objective text [--surface cli|mcp|openclaw-gateway] [--max-turns n] [--token-budget n] [--timeout-ms ms] [--cost-ceiling-usd n] [--audit-path path] [--now iso] [--dry-run]",
+    "  loo drive --reviewer codex|claude --driver codex|claude --target-ref ref --objective text [--surface cli] [--max-turns n] [--token-budget n] [--timeout-ms ms] [--cost-ceiling-usd n] [--audit-path path] [--now iso] [--dry-run]",
     "  loo codex live-control-smoke --evidence-dir path [--thread-id id] [--message text] [--cwd path] [--timeout-ms ms] [--turn-wait-ms ms] [--audit-path path] [--codex-bin path] [--app-server-args \"app-server --stdio\"]",
     "  loo openclaw dogfood [--dev] [--profile name] [--install-source path] [--link] [--force-install] [--evidence-path path] [--strict]",
     "  loo openclaw tool-smoke [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--thread-id id] [--expand-profile metadata|brief|evidence] [--token-budget n] [--coverage default|full] [--required-tool name] [--evidence-path path] [--strict]",
