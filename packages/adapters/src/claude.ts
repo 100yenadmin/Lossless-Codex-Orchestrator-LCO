@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { createTargetControl, type AuditRecord } from "./index.js";
 import { type TargetMethodPolicy } from "./policy.js";
@@ -82,39 +81,42 @@ export function claudeAvailabilityFromProbeResult(result: ClaudeVersionProbeResu
   const stdout = typeof result.stdout === "string" ? result.stdout : result.stdout?.toString("utf8") ?? "";
   const stderr = typeof result.stderr === "string" ? result.stderr : result.stderr?.toString("utf8") ?? "";
   if (result.status === null && result.signal) {
-    return {
+    return sanitizeClaudeAvailability({
       available: false,
       command: "claude",
       version: null,
       error: result.signal === "SIGTERM"
         ? "Claude availability probe timed out."
         : `Claude availability probe terminated by ${result.signal}.`
-    };
+    });
   }
   if (result.error) {
-    return {
+    const errorCode = /\bENOENT\b/.test(result.error.message) ? "ENOENT" : null;
+    return sanitizeClaudeAvailability({
       available: false,
       command: "claude",
       version: null,
-      error: result.error.message
-    };
+      error: errorCode
+        ? `Claude availability probe failed (${errorCode}).`
+        : "Claude availability probe failed."
+    });
   }
   if (result.status !== 0) {
-    return {
+    return sanitizeClaudeAvailability({
       available: false,
       command: "claude",
       version: null,
       error: stderr || `Claude command exited with status ${result.status}`
-    };
+    });
   }
   const version = (stdout || stderr).trim() || null;
-  return {
+  return sanitizeClaudeAvailability({
     available: true,
     command: "claude",
     version,
     error: null,
     unsupportedReason: unsupportedClaudeVersionReason(version)
-  };
+  });
 }
 
 export function createClaudeDryRunControl(options: {
@@ -231,7 +233,7 @@ function claudeDryRunState(availability: ClaudeDryRunAvailability): ClaudeDryRun
 function safeClaudeSessionRef(sessionId: string): string {
   const normalized = sessionId.startsWith("claude_session:") ? sessionId.slice("claude_session:".length) : sessionId;
   if (/^[A-Za-z0-9._-]{1,128}$/.test(normalized)) return `claude_session:${normalized}`;
-  throw new Error(`Invalid Claude session id: ${createHash("sha256").update(normalized).digest("hex").slice(0, 16)}`);
+  throw new Error("Invalid Claude session id");
 }
 
 function nextClaudeDryRunAction(state: ClaudeDryRunState): string {
@@ -242,7 +244,7 @@ function nextClaudeDryRunAction(state: ClaudeDryRunState): string {
 
 export function unsupportedClaudeVersionReason(version: string | null): string | null {
   if (!version) return null;
-  const match = version.match(/(?:Claude(?:\s+Code)?\s*)?(\d+)\.(\d+)\.(\d+)/i);
+  const match = version.match(/^\s*(?:Claude(?:\s+Code)?\s*)?(\d+)\.(\d+)\.(\d+)(?:\s+\(Claude Code\))?\s*$/i);
   if (!match) return "Claude CLI version could not be parsed for dry-run validation.";
   const major = Number(match[1]);
   if (Number.isFinite(major) && major < 1) return "Claude CLI version is below minimum supported 1.0.0 for dry-run validation.";

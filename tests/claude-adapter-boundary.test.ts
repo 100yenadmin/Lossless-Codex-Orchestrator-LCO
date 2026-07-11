@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
@@ -102,10 +103,10 @@ test("Claude dry-run adapter uses TargetAdapter policy without live control", as
     audit: {
       path: "memory",
       fingerprintText(value) {
-        return `claude-text-${value.length}`;
+        return createHash("sha256").update(value).digest("hex");
       },
       fingerprintValue(value) {
-        return `claude-params-${JSON.stringify(value)}`;
+        return createHash("sha256").update(JSON.stringify(value)).digest("hex");
       },
       append(record) {
         auditRecord = { id: "loo_audit_claude", createdAt: new Date().toISOString(), ...record };
@@ -143,6 +144,8 @@ test("Claude dry-run adapter uses TargetAdapter policy without live control", as
   assert.deepEqual(dryRun.methodSequence, ["claude/print/resume"]);
   assert.equal(dryRun.approvalAuditId, "loo_audit_claude");
   assert.match(dryRun.proofState.callerInstruction, /Claude Code dry-run only/i);
+  assert.doesNotMatch(auditRecord.paramsHash, /Summarize|claude-session-1/);
+  assert.doesNotMatch(auditRecord.messageHash, /Summarize|claude-session-1/);
 
   await assert.rejects(
     () => control.resumePrompt({
@@ -222,12 +225,14 @@ test("Claude diagnostics redact Unix Users Profiles drive-home and UNC profile p
     "unc \\\\server\\Users\\dave\\private",
     "profiles D:\\Profiles\\erin\\private",
     "drive home E:/home/frank/private",
-    "unc profiles \\\\server\\Profiles\\grace\\private"
+    "unc profiles \\\\server\\Profiles\\grace\\private",
+    "root /root/.claude/private",
+    "mixed /HoMe/heidi/private"
   ].join(" | "));
 
-  assert.doesNotMatch(redacted, /alice|bob|carol|dave|erin|frank|grace/);
+  assert.doesNotMatch(redacted, /alice|bob|carol|dave|erin|frank|grace|heidi|\/root/);
   assert.doesNotMatch(redacted, /\/home\/|[A-Za-z]:[\\/](?:users|profiles|home)[\\/]|\\\\server\\(?:Users|Profiles)\\/i);
-  assert.equal((redacted.match(/~/g) ?? []).length, 7);
+  assert.equal((redacted.match(/~/g) ?? []).length, 9);
 });
 
 test("Claude availability probe refuses non-allowlisted commands before reporting readiness", () => {
@@ -244,6 +249,9 @@ test("Claude version parser classifies old and unparseable CLI versions as unsup
   assert.match(unsupportedClaudeVersionReason("Claude Code 0.9.9") ?? "", /below minimum/i);
   assert.equal(unsupportedClaudeVersionReason("Claude Code 1.2.3"), null);
   assert.equal(unsupportedClaudeVersionReason("1.0.0"), null);
+  assert.equal(unsupportedClaudeVersionReason("2.1.186 (Claude Code)"), null);
+  assert.match(unsupportedClaudeVersionReason("Claude Code 1.0.0-rc.1") ?? "", /could not be parsed/i);
+  assert.match(unsupportedClaudeVersionReason("build 9.9.9; Claude Code 0.9.0") ?? "", /could not be parsed/i);
   assert.match(unsupportedClaudeVersionReason("not a semver") ?? "", /could not be parsed/i);
 });
 
@@ -257,6 +265,7 @@ test("Claude probe result classification covers missing binary nonzero and unsup
   assert.equal(missing.available, false);
   assert.equal(missing.version, null);
   assert.match(missing.error ?? "", /ENOENT/);
+  assert.doesNotMatch(missing.error ?? "", /\/Users\/lume|private/);
 
   const nonzero = claudeAvailabilityFromProbeResult({
     error: undefined,
@@ -294,6 +303,14 @@ test("Claude probe result classification covers missing binary nonzero and unsup
   });
   assert.equal(unknownVersion.available, true);
   assert.match(unknownVersion.unsupportedReason ?? "", /could not be parsed/i);
+
+  const sensitiveVersion = claudeAvailabilityFromProbeResult({
+    error: undefined,
+    status: 0,
+    stdout: "Claude Code 1.2.3 from /Users/lume/bin with sk-test_1234567890abcdef\n",
+    stderr: ""
+  });
+  assert.doesNotMatch(JSON.stringify(sensitiveVersion), /\/Users\/lume|sk-test_/);
 });
 
 test("Claude dry-run control construction and status remain side-effect-free", () => {
@@ -389,6 +406,6 @@ test("Claude dry-run resume fails closed for invalid session ids", async () => {
       prompt: "This should not produce an audit packet.",
       dryRun: true
     }),
-    /Invalid Claude session id/
+    (error: unknown) => error instanceof Error && error.message === "Invalid Claude session id"
   );
 });
