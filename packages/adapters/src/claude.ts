@@ -429,8 +429,9 @@ export function createClaudeCodeAdapter() {
 }
 
 function sanitizeClaudeAvailability(input: ClaudeDryRunAvailability): ClaudeDryRunAvailability {
-  const available = input.available === true;
-  const version = input.version === null ? null : String(redactClaudeValue(input.version));
+  const canonicalCommand = input.command === "claude";
+  const available = input.available === true && canonicalCommand;
+  const version = canonicalCommand && input.version !== null ? String(redactClaudeValue(input.version)) : null;
   const derivedUnsupportedReason = available
     ? version
       ? unsupportedClaudeVersionReason(version)
@@ -441,10 +442,12 @@ function sanitizeClaudeAvailability(input: ClaudeDryRunAvailability): ClaudeDryR
     : String(redactClaudeValue(input.unsupportedReason)).trim() || null;
   return {
     available,
-    command: String(redactClaudeValue(input.command)),
+    command: "claude",
     version,
-    error: input.error === null ? null : String(redactClaudeValue(input.error)),
-    unsupportedReason: suppliedUnsupportedReason ?? derivedUnsupportedReason
+    error: canonicalCommand
+      ? input.error === null ? null : String(redactClaudeValue(input.error))
+      : "Claude availability status used a noncanonical command.",
+    unsupportedReason: canonicalCommand ? suppliedUnsupportedReason ?? derivedUnsupportedReason : null
   };
 }
 

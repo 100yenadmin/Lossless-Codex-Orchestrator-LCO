@@ -282,9 +282,12 @@ test("Claude diagnostics redact Unix Users Profiles drive-home and UNC profile p
   }
   for (const delimitedPath of [
     "error[/Volumes/PRIVATE/customer]",
-    "ENOENT-/Volumes/PRIVATE/customer/repo"
+    "ENOENT-/Volumes/PRIVATE/customer/repo",
+    "file:/secret",
+    "ENOENT:/private",
+    "path:/Volumes/PRIVATE/customer/repo"
   ]) {
-    assert.doesNotMatch(redactClaudeString(delimitedPath), /\/Volumes\/PRIVATE/);
+    assert.doesNotMatch(redactClaudeString(delimitedPath), /\/(?:Volumes\/PRIVATE|secret|private)/);
   }
 });
 
@@ -421,6 +424,7 @@ test("Claude probe tree-killer monitor preserves the helper until completion", a
   await new Promise((resolve) => setTimeout(resolve, 150));
   assert.equal(helper.killed, false);
   assert.equal(completions, 0);
+  helper.ref();
   helper.kill("SIGTERM");
   await new Promise<void>((resolve) => helper.once("close", () => resolve()));
   assert.equal(completions, 1);
@@ -636,6 +640,19 @@ test("Claude dry-run derives unsupported state from injected version output", as
     audit: auditStub()
   });
   assert.equal(malformedAvailability.status().state, "not_configured");
+  for (const command of ["", "not-claude", "/tmp/fake-wrapper"]) {
+    const noncanonicalAvailability = createClaudeDryRunControl({
+      availability: {
+        available: true,
+        command,
+        version: "Claude Code 1.0.0",
+        error: null
+      },
+      audit: auditStub()
+    });
+    assert.equal(noncanonicalAvailability.status().state, "not_configured");
+    assert.equal(noncanonicalAvailability.status().command.command, "claude");
+  }
 });
 
 test("Claude dry-run resume fails closed for invalid session ids", async () => {
