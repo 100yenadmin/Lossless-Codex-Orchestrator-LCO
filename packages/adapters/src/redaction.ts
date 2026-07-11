@@ -7,16 +7,23 @@ const SECRET_PATTERNS: Array<[RegExp, string]> = [
   [/(\bauthorization\s*:\s*)[^\r\n]+/gi, "$1<redacted-secret>"]
 ];
 
-const GENERIC_UNIX_HOME_PATTERN = /(?:\/(?:Users|home)\/[^/\s]+|\/root(?=\/|\s|$))/gi;
-const GENERIC_WINDOWS_HOME_PATTERN = /(?:[A-Za-z]:|\\\\[^\\/\s]+)[\\/](?:Users|Profiles|home)[\\/][^\\/\s]+/gi;
+const GENERIC_HOME_PATTERN = /\/Users\/[^/\s]+/g;
+const CLAUDE_UNIX_HOME_PATTERN = /(?:\/(?:Users|home)\/[^/\s]+|\/root(?=\/|\s|$))/gi;
+const CLAUDE_WINDOWS_HOME_PATTERN = /(?:[A-Za-z]:|\\\\[^\\/\s]+)[\\/](?:Users|Profiles|home)[\\/][^\\/\s]+/gi;
 
 export function redactString(value: string): string {
   let redacted = value.replaceAll(homedir(), "~");
-  redacted = redacted.replace(GENERIC_WINDOWS_HOME_PATTERN, "~");
-  redacted = redacted.replace(GENERIC_UNIX_HOME_PATTERN, "~");
+  redacted = redacted.replace(GENERIC_HOME_PATTERN, "~");
   for (const [pattern, replacement] of SECRET_PATTERNS) {
     redacted = redacted.replace(pattern, replacement);
   }
+  return redacted;
+}
+
+export function redactClaudeString(value: string): string {
+  let redacted = redactString(value);
+  redacted = redacted.replace(CLAUDE_WINDOWS_HOME_PATTERN, "~");
+  redacted = redacted.replace(CLAUDE_UNIX_HOME_PATTERN, "~");
   return redacted;
 }
 
@@ -27,6 +34,18 @@ export function redactValue(value: unknown): unknown {
     return Object.fromEntries(Object.entries(value).map(([key, item]) => [
       key,
       isAuthorizationKey(key) ? "<redacted-secret>" : redactValue(item)
+    ]));
+  }
+  return value;
+}
+
+export function redactClaudeValue(value: unknown): unknown {
+  if (typeof value === "string") return redactClaudeString(value);
+  if (Array.isArray(value)) return value.map((item) => redactClaudeValue(item));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+      key,
+      isAuthorizationKey(key) ? "<redacted-secret>" : redactClaudeValue(item)
     ]));
   }
   return value;

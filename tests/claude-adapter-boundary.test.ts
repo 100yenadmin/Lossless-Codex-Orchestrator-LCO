@@ -12,7 +12,7 @@ import {
   probeClaudeDryRunAvailability,
   unsupportedClaudeVersionReason
 } from "../packages/adapters/src/claude.js";
-import { redactString } from "../packages/adapters/src/redaction.js";
+import { redactClaudeString } from "../packages/adapters/src/redaction.js";
 
 function read(path: string): string {
   return readFileSync(path, "utf8");
@@ -218,7 +218,7 @@ test("Claude dry-run status reports not_configured when availability is omitted"
 });
 
 test("Claude diagnostics redact Unix Users Profiles drive-home and UNC profile paths", () => {
-  const redacted = redactString([
+  const redacted = redactClaudeString([
     "linux /home/alice/private",
     "windows c:\\users\\bob\\private",
     "forward C:/Users/carol/private",
@@ -233,6 +233,30 @@ test("Claude diagnostics redact Unix Users Profiles drive-home and UNC profile p
   assert.doesNotMatch(redacted, /alice|bob|carol|dave|erin|frank|grace|heidi|\/root/);
   assert.doesNotMatch(redacted, /\/home\/|[A-Za-z]:[\\/](?:users|profiles|home)[\\/]|\\\\server\\(?:Users|Profiles)\\/i);
   assert.equal((redacted.match(/~/g) ?? []).length, 9);
+});
+
+test("Claude dry-run packet minting rejects not-configured and unsupported states", async () => {
+  for (const availability of [
+    {
+      available: false,
+      command: "claude",
+      version: null,
+      error: "Claude CLI is missing."
+    },
+    {
+      available: true,
+      command: "claude",
+      version: "Claude Code 0.9.0",
+      error: null,
+      unsupportedReason: "Claude CLI version is below minimum supported 1.0.0 for dry-run validation."
+    }
+  ]) {
+    const control = createClaudeDryRunControl({ audit: auditStub(), availability });
+    await assert.rejects(
+      () => control.resumePrompt({ sessionId: "claude-session-1", prompt: "Do not mint a packet." }),
+      /dry-run packet is unavailable while status is (?:not_configured|unsupported)/i
+    );
+  }
 });
 
 test("Claude availability probe refuses non-allowlisted commands before reporting readiness", () => {

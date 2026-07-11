@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createTargetControl, type AuditRecord } from "./index.js";
 import { type TargetMethodPolicy } from "./policy.js";
-import { redactValue } from "./redaction.js";
+import { redactClaudeValue } from "./redaction.js";
 
 export const CLAUDE_TARGET_METHOD_POLICY: TargetMethodPolicy = {
   targetName: "Claude Code",
@@ -175,6 +175,10 @@ export function createClaudeDryRunControl(options: {
       if (input.dryRun === false) {
         throw new Error("Claude Code control is dry-run only in this release");
       }
+      const state = claudeDryRunState(availability);
+      if (state !== "dry_run_only") {
+        throw new Error(`Claude Code dry-run packet is unavailable while status is ${state}`);
+      }
       const sessionRef = safeClaudeSessionRef(input.sessionId);
       const result = await target.execute({
         action: "claude_resume_prompt",
@@ -220,12 +224,12 @@ export function createClaudeCodeAdapter() {
 function sanitizeClaudeAvailability(input: ClaudeDryRunAvailability): ClaudeDryRunAvailability {
   return {
     available: input.available,
-    command: String(redactValue(input.command)),
-    version: input.version === null ? null : String(redactValue(input.version)),
-    error: input.error === null ? null : String(redactValue(input.error)),
+    command: String(redactClaudeValue(input.command)),
+    version: input.version === null ? null : String(redactClaudeValue(input.version)),
+    error: input.error === null ? null : String(redactClaudeValue(input.error)),
     unsupportedReason: input.unsupportedReason === undefined || input.unsupportedReason === null
       ? null
-      : String(redactValue(input.unsupportedReason))
+      : String(redactClaudeValue(input.unsupportedReason))
   };
 }
 
