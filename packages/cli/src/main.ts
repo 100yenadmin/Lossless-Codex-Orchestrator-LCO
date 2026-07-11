@@ -1868,6 +1868,7 @@ function printOpenClawToolSmokeHelp(): void {
     "",
     "Safety boundary:",
     "  The command invokes selected tools through OpenClaw Gateway and stores only public-safe summaries.",
+    "  An explicit --token requires --gateway-url. OPENCLAW_GATEWAY_TOKEN may satisfy a configured profile SecretRef; with --gateway-url it uses the backend route.",
     "  loo_codex_control_dry_run remains dry-run only; the command does not run live Codex control.",
     "  It does not mutate a desktop GUI, does not publish npm, does not create a GitHub Release, does not deliver messages, and does not approve broad gateway scope."
   ].join("\n"));
@@ -2428,7 +2429,7 @@ function printOpenClawLiveControlSmokeHelp(): void {
     "  The command requires an explicit --action so no live action is selected by default.",
     "  --turn-wait-ms overrides the bounded turn wait passed to the live LCO tool.",
     "  Steer and interrupt require --expected-turn-id so the live action is bound to one known sacrificial turn.",
-    "  A scoped --token or OPENCLAW_GATEWAY_TOKEN requires an explicit --gateway-url; plaintext ws:// is restricted to loopback and remote endpoints must use wss://.",
+    "  An explicit --token requires --gateway-url. OPENCLAW_GATEWAY_TOKEN may satisfy a configured profile SecretRef; plaintext remote ws:// is rejected.",
     "  It invokes loo_codex_control_dry_run first, then uses the matching approval_audit_id for the selected live tool with dry_run:false.",
     "  It reads loo_audit_tail to prove matching dry-run/live audit metadata.",
     "  Evidence contains refs, audit ids, hashes, tool names, and status only.",
@@ -2450,7 +2451,7 @@ function printOpenClawPostActionRefreshSmokeHelp(): void {
     "",
     "Safety boundary:",
     "  The command requires a #158 live-control proof report for the same thread.",
-    "  A scoped --token or OPENCLAW_GATEWAY_TOKEN requires an explicit --gateway-url; plaintext ws:// is restricted to loopback and remote endpoints must use wss://.",
+    "  An explicit --token requires --gateway-url. OPENCLAW_GATEWAY_TOKEN may satisfy a configured profile SecretRef; plaintext remote ws:// is rejected.",
     "  It invokes only read/recall tools: loo_codex_thread_map, loo_search_sessions, loo_describe_session, and loo_expand_query.",
     "  Evidence contains source refs, safe summary deltas, bounded profile metadata, omitted markers, and a safe reasoning note only.",
     "  It does not run live Codex control, GUI mutation, npm publish, GitHub Release creation, or raw transcript inspection."

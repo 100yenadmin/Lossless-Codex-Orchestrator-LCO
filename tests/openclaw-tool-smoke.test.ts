@@ -2493,6 +2493,14 @@ test("OpenClaw tool smoke rejects explicit token-only auth before spawning OpenC
 
     assert.equal(report.ok, false);
     assert.ok(report.blockers.includes("openclaw_gateway_token_requires_url"));
+    assert.ok(report.setupBlockers.includes("openclaw_gateway_route_configuration_required"));
+    assert.deepEqual(report.setupStatus, {
+      classification: "gateway_setup_required",
+      packageInstallLikelyOk: true,
+      recoverable: true,
+      retryAfterSetup: true,
+      doesNotIndicatePackageFailure: true
+    });
     assert.equal(existsSync(callsPath), false);
     assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /test-gateway-token/);
   } finally {
@@ -2503,7 +2511,7 @@ test("OpenClaw tool smoke rejects explicit token-only auth before spawning OpenC
   }
 });
 
-test("OpenClaw tool smoke rejects ambient token-only auth before spawning OpenClaw", () => {
+test("OpenClaw tool smoke preserves ambient configured-profile token auth without argv exposure", () => {
   const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-env-token-"));
   const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_doctor"]);
   const previousCalls = process.env.OPENCLAW_FAKE_CALLS;
@@ -2517,9 +2525,11 @@ test("OpenClaw tool smoke rejects ambient token-only auth before spawning OpenCl
       requiredTools: ["loo_doctor"]
     });
 
-    assert.equal(report.ok, false);
-    assert.ok(report.blockers.includes("openclaw_gateway_token_requires_url"));
-    assert.equal(existsSync(callsPath), false);
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { args: string[]; envTokenPresent?: boolean });
+    assert.equal(calls.every((call) => call.envTokenPresent === true), true);
+    assert.equal(calls.some((call) => call.args.includes("--token")), false);
+    assert.equal(calls.some((call) => call.args.includes("ambient-gateway-token")), false);
   } finally {
     if (previousCalls === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previousCalls;

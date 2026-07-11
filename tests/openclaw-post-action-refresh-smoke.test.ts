@@ -60,6 +60,38 @@ test("OpenClaw post-action refresh rejects plaintext remote gateway URLs before 
   }
 });
 
+test("OpenClaw post-action refresh preserves ambient configured-profile token auth without argv exposure", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-refresh-profile-token-"));
+  const evidenceDir = join(root, "evidence");
+  const liveProofReportPath = join(root, "live-proof.json");
+  writeLiveProofReport(liveProofReportPath);
+  const { bin, callsPath } = createFakeOpenClaw(root);
+  const previousCalls = process.env.OPENCLAW_FAKE_CALLS;
+  const previousToken = process.env.OPENCLAW_GATEWAY_TOKEN;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  process.env.OPENCLAW_GATEWAY_TOKEN = "ambient-profile-token";
+  try {
+    const report = runOpenClawPostActionRefreshSmoke({
+      openclawBin: bin,
+      profile: "lco-refresh-profile",
+      evidenceDir,
+      liveProofReportPath,
+      threadId: TARGET_THREAD_ID,
+      now: "2026-07-01T00:03:00.000Z"
+    });
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { args: string[]; hasTokenEnv: boolean });
+    assert.equal(calls.every((call) => call.hasTokenEnv), true);
+    assert.equal(calls.some((call) => call.args.includes("--token") || call.args.includes("ambient-profile-token")), false);
+  } finally {
+    if (previousCalls === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previousCalls;
+    if (previousToken === undefined) delete process.env.OPENCLAW_GATEWAY_TOKEN;
+    else process.env.OPENCLAW_GATEWAY_TOKEN = previousToken;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 function writeLiveProofReport(path: string, overrides: Record<string, unknown> = {}): void {
   writeFileSync(path, `${JSON.stringify({
     ok: true,

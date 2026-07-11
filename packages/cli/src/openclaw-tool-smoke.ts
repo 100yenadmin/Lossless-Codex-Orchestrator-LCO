@@ -333,7 +333,7 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
     ...(options.profile ? ["--profile", options.profile] : [])
   ];
   const gatewayTimeoutMs = options.gatewayTimeoutMs ?? 60_000;
-  const gatewayToken = options.token || process.env.OPENCLAW_GATEWAY_TOKEN;
+  const gatewayToken = options.token || (options.gatewayUrl ? process.env.OPENCLAW_GATEWAY_TOKEN : undefined);
   const gatewayEnv = options.token ? { OPENCLAW_GATEWAY_TOKEN: options.token } : undefined;
   const usesBackendGateway = Boolean(options.gatewayUrl && gatewayToken && gatewayToken !== "__OPENCLAW_REDACTED__");
   const gatewayOptions = usesBackendGateway ? [] : [
@@ -2057,7 +2057,10 @@ function nextActionForBlockers(blockers: string[]): string {
     return "Rotate or reissue the OpenClaw gateway device token, confirm the caller uses the current token, then rerun the tool-smoke without storing the token in evidence.";
   }
   if (hasBlocker(blockers, "openclaw_gateway_credentials_required")) {
-    return "Use a profile with OpenClaw gateway credentials, pass a scoped --token or OPENCLAW_GATEWAY_TOKEN, or run an explicit loopback token-auth gateway for local dogfood; then rerun the tool-smoke.";
+    return "Use a profile with configured gateway credentials or an environment-token reference, or pass a scoped token together with an explicit loopback --gateway-url; then rerun the tool-smoke.";
+  }
+  if (hasBlocker(blockers, "openclaw_gateway_token_requires_url")) {
+    return "Add an explicit loopback --gateway-url for the scoped --token, or omit --token and use configured profile credentials.";
   }
   return "Fix or document the gateway tool-call blocker before claiming first-class OpenClaw agent usability.";
 }
@@ -2076,13 +2079,16 @@ function setupBlockersFor(blockers: string[]): string[] {
   if (hasBlocker(blockers, "openclaw_gateway_scope_upgrade_pending")) {
     setupBlockers.push("openclaw_gateway_scope_approval_required");
   }
+  if (hasBlocker(blockers, "openclaw_gateway_token_requires_url")) {
+    setupBlockers.push("openclaw_gateway_route_configuration_required");
+  }
   return [...new Set(setupBlockers)];
 }
 
 function setupGuidanceFor(setupBlockers: string[]): string[] {
   return setupBlockers.map((blocker) => {
     if (blocker === "fresh_profile_gateway_credentials_required") {
-      return "Fresh OpenClaw profiles may install and list the plugin before they can call gateway tools. Select a provisioned profile, pass a scoped gateway token, or complete device/profile pairing before treating tool-smoke as product failure.";
+      return "Fresh OpenClaw profiles may install and list the plugin before they can call gateway tools. Select a provisioned profile, configure an environment-token reference, pass a scoped token with an explicit loopback gateway URL, or complete device/profile pairing before treating tool-smoke as product failure.";
     }
     if (blocker === "openclaw_device_identity_pairing_required") {
       return "Pair or approve the local OpenClaw device identity before rerunning gateway tool-smoke.";
@@ -2092,6 +2098,9 @@ function setupGuidanceFor(setupBlockers: string[]): string[] {
     }
     if (blocker === "openclaw_gateway_scope_approval_required") {
       return "Approve only the required gateway tool scopes; this is not broad gateway scope or live-control approval.";
+    }
+    if (blocker === "openclaw_gateway_route_configuration_required") {
+      return "Pair an explicit scoped token with an explicit loopback gateway URL, or use the configured profile credential route.";
     }
     return "Resolve the OpenClaw gateway setup blocker before claiming first-class agent usability.";
   });
@@ -2131,7 +2140,8 @@ function isSetupOnlyBlockerSet(blockers: string[], setupBlockers: string[]): boo
     "openclaw_gateway_credentials_required",
     "openclaw_gateway_device_identity_required",
     "openclaw_gateway_device_token_mismatch",
-    "openclaw_gateway_scope_upgrade_pending"
+    "openclaw_gateway_scope_upgrade_pending",
+    "openclaw_gateway_token_requires_url"
   ];
   return setupBlockers.length > 0 && blockers.every((blocker) => setupTriggerPrefixes.some((prefix) => hasBlocker([blocker], prefix)));
 }

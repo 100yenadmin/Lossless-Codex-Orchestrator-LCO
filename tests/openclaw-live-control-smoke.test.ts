@@ -73,6 +73,34 @@ test("OpenClaw live-control smoke fails closed when a scoped token has no explic
   }
 });
 
+test("OpenClaw live-control smoke preserves ambient configured-profile token auth without argv exposure", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-profile-token-"));
+  const { bin, callsPath } = createFakeOpenClaw(root);
+  const previousCalls = process.env.OPENCLAW_FAKE_CALLS;
+  const previousToken = process.env.OPENCLAW_GATEWAY_TOKEN;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  process.env.OPENCLAW_GATEWAY_TOKEN = "ambient-profile-token";
+  try {
+    const report = runOpenClawGatewayLiveControlSmoke({
+      openclawBin: bin,
+      profile: "lco-live-profile",
+      evidenceDir: join(root, "evidence"),
+      threadId: "thr_gateway_live",
+      action: "send"
+    });
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { args: string[]; envTokenPresent: boolean });
+    assert.equal(calls.every((call) => call.envTokenPresent), true);
+    assert.equal(calls.some((call) => call.args.includes("--token") || call.args.includes("ambient-profile-token")), false);
+  } finally {
+    if (previousCalls === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previousCalls;
+    if (previousToken === undefined) delete process.env.OPENCLAW_GATEWAY_TOKEN;
+    else process.env.OPENCLAW_GATEWAY_TOKEN = previousToken;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 function createFakeOpenClaw(dir: string, options: {
   auditDetailsEnvelope?: boolean;
   liveResponseMissingOk?: boolean;
@@ -135,7 +163,7 @@ const callIndex = args.indexOf("call");
 const method = callIndex >= 0 ? args[callIndex + 1] : "";
 const paramsIndex = args.indexOf("--params");
 const params = paramsIndex >= 0 ? JSON.parse(args[paramsIndex + 1] || "{}") : {};
-appendFileSync(process.env.OPENCLAW_FAKE_CALLS, JSON.stringify({ method, params, args }) + "\\n");
+appendFileSync(process.env.OPENCLAW_FAKE_CALLS, JSON.stringify({ method, params, args, envTokenPresent: Boolean(process.env.OPENCLAW_GATEWAY_TOKEN) }) + "\\n");
   if (method === "tools.catalog") {
   console.log(JSON.stringify({ groups: [{ tools: [
     { id: "loo_codex_control_dry_run" },

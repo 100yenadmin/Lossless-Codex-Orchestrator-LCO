@@ -122,7 +122,7 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
   ];
   const gatewayTimeoutMs = options.gatewayTimeoutMs ?? 120_000;
   const turnWaitMs = options.turnWaitMs;
-  const gatewayToken = options.token || process.env.OPENCLAW_GATEWAY_TOKEN;
+  const gatewayToken = options.token || (options.gatewayUrl ? process.env.OPENCLAW_GATEWAY_TOKEN : undefined);
   const usesBackendGateway = Boolean(options.gatewayUrl && gatewayToken && gatewayToken !== "__OPENCLAW_REDACTED__");
   const gatewayOptions = usesBackendGateway ? [] : [
     ...(options.gatewayUrl ? ["--url", options.gatewayUrl] : []),
