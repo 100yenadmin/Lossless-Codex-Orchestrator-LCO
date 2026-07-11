@@ -622,7 +622,7 @@ function callGatewayJson(
   return result;
 }
 
-function callGatewayBackendJson(
+export function callGatewayBackendJson(
   gatewayUrl: string,
   token: string,
   method: string,
