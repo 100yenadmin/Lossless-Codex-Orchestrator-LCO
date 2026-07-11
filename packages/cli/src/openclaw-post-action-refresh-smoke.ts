@@ -200,7 +200,7 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
     .flatMap((output) => output === undefined ? [] : collectSourceRefs(output)))
     .filter((ref) => ref.startsWith("codex_thread:"));
 
-  const refreshedAt = targetThreadMapOutput ? firstString(targetThreadMapOutput, ["refreshedAt", "refreshed_at", "updatedAt", "updated_at"]) : null;
+  const refreshedAt = targetThreadMapOutput ? firstString(targetThreadMapOutput, ["refreshedAt", "refreshed_at"]) : null;
   const statusBucket = targetThreadMapOutput ? firstString(targetThreadMapOutput, ["statusBucket", "status_bucket", "status"]) ?? (refreshedAt ? "refreshed" : null) : null;
   const safeSummaryDelta = hasTargetSafeSummaryDelta(targetSearchOutput, targetDescribeOutput, query);
   const boundedExpansionProfile = targetExpandOutput ? firstString(targetExpandOutput, ["profile"]) || expandProfile : null;

@@ -1264,6 +1264,11 @@ test("extracts public-safe session metadata and closeout fields", () => {
   try {
     indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
 
+    const sourceUpdatedAt = "2026-07-01T00:01:00.000Z";
+    const indexRefreshedAt = "2026-07-01T00:02:00.000Z";
+    db.prepare("UPDATE codex_sessions SET updated_at = ?, indexed_at = ? WHERE thread_id = ?")
+      .run(sourceUpdatedAt, indexRefreshedAt, "019f-metadata-thread");
+
     const description = describeSession(db, "019f-metadata-thread");
     assert.deepEqual(description?.metadata, {
       project: "lossless-openclaw-orchestrator",
@@ -1283,7 +1288,9 @@ test("extracts public-safe session metadata and closeout fields", () => {
     const [threadMapEntry] = getCodexThreadMap(db, { limit: 10 });
     assert.equal(threadMapEntry?.metadata.status, "external-review-wait");
     assert.equal(threadMapEntry?.metadata.nextAction, "re-check PR gate");
-    assert.match(threadMapEntry?.refreshedAt ?? "", /^\d{4}-\d{2}-\d{2}T/);
+    assert.equal(threadMapEntry?.updatedAt, sourceUpdatedAt);
+    assert.equal(threadMapEntry?.refreshedAt, indexRefreshedAt);
+    assert.notEqual(threadMapEntry?.refreshedAt, threadMapEntry?.updatedAt);
 
     const recallDescription = describeRecallRef(db, { sourceRef: "codex_thread:019f-metadata-thread" });
     assert.deepEqual(recallDescription?.metadata, description?.metadata);
