@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import { assertTargetMethodAllowed } from "../packages/adapters/src/index.js";
@@ -66,8 +68,8 @@ test("Claude adapter boundary inventory exists without claiming parity", () => {
   assert.match(boundary, /dry_run_only/i);
   assert.match(boundary, /not_configured/i);
   assert.match(boundary, /unsupported/i);
-  assert.match(boundary, /caller-trusted POSIX PATH/i);
-  assert.match(boundary, /does not defend against POSIX PATH shadowing/i);
+  assert.match(boundary, /caller-trusted PATH on every platform/i);
+  assert.match(boundary, /does not pin the Claude executable/i);
   assert.match(boundary, /asynchronous subprocess/i);
   assert.doesNotMatch(boundary, /full Claude Code parity|control Claude Code remotely|unattended Claude takeover/i);
 
@@ -276,6 +278,27 @@ test("Claude availability probe is asynchronous and refuses non-allowlisted comm
   assert.doesNotMatch(JSON.stringify(availability), /\/bin\/echo/);
 });
 
+test("Claude availability probe kills a timeout-resistant CLI within its bound", async () => {
+  if (process.platform === "win32") return;
+  const root = mkdtempSync(join(tmpdir(), "lco-claude-probe-timeout-"));
+  const fakeClaude = join(root, "claude");
+  writeFileSync(fakeClaude, [
+    `#!${process.execPath}`,
+    "process.on('SIGTERM', () => {});",
+    "setInterval(() => {}, 1000);"
+  ].join("\n"));
+  chmodSync(fakeClaude, 0o755);
+  try {
+    const startedAt = Date.now();
+    const availability = await probeClaudeDryRunAvailability("claude", { trustedPath: root });
+    assert.ok(Date.now() - startedAt < 3_500);
+    assert.equal(availability.available, false);
+    assert.match(availability.error ?? "", /timed out/i);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Claude availability probe resolves the fixed command through cmd.exe on Windows", () => {
   assert.deepEqual(claudeVersionProbeInvocation("win32", "D:\\Windows"), {
     command: "D:\\Windows\\System32\\cmd.exe",
@@ -302,6 +325,9 @@ test("Claude version parser accepts semver metadata and rejects old or unparseab
   assert.equal(unsupportedClaudeVersionReason("Claude Code 1.0.0-rc.1"), null);
   assert.equal(unsupportedClaudeVersionReason("2.1.186+abc"), null);
   assert.equal(unsupportedClaudeVersionReason("Claude Code 3.0.0-rc.2+sha.abc (Claude Code)"), null);
+  for (const malformed of ["01.0.0", "1.01.0", "1.0.01", "1.0.0-01", "1.0.0-alpha.01"]) {
+    assert.match(unsupportedClaudeVersionReason(malformed) ?? "", /could not be parsed/i);
+  }
   assert.match(unsupportedClaudeVersionReason("build 9.9.9; Claude Code 0.9.0") ?? "", /could not be parsed/i);
   assert.match(unsupportedClaudeVersionReason("not a semver") ?? "", /could not be parsed/i);
 });
@@ -339,12 +365,25 @@ test("Claude probe result classification covers missing binary nonzero and unsup
   const timedOut = claudeAvailabilityFromProbeResult({
     error: undefined,
     status: null,
-    signal: "SIGTERM",
+    signal: "SIGKILL",
+    timedOut: true,
     stdout: "",
     stderr: ""
   });
   assert.equal(timedOut.available, false);
   assert.match(timedOut.error ?? "", /timed out/i);
+
+  const externallyTerminated = claudeAvailabilityFromProbeResult({
+    error: undefined,
+    status: null,
+    signal: "SIGTERM",
+    timedOut: false,
+    stdout: "",
+    stderr: ""
+  });
+  assert.equal(externallyTerminated.available, false);
+  assert.match(externallyTerminated.error ?? "", /terminated by SIGTERM/i);
+  assert.doesNotMatch(externallyTerminated.error ?? "", /timed out/i);
 
   const oldVersion = claudeAvailabilityFromProbeResult({
     error: undefined,

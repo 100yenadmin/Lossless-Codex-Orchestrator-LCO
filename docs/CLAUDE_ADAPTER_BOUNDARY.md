@@ -140,9 +140,10 @@ Constructing the adapter and reading `status()` do not execute the Claude CLI.
 Capability probing is a separate explicit action: a caller may await
 `probeClaudeDryRunAvailability()` deliberately and inject its sanitized result,
 but an omitted probe reports `not_configured` rather than resolving `claude`
-through ambient `PATH` during a status read. On POSIX, the explicit probe uses
-the caller-trusted POSIX PATH and does not defend against POSIX PATH shadowing;
-operators must invoke it only from a trusted environment. Windows instead uses
-the system `cmd.exe` from a validated System32 path and cwd. The probe uses a
-bounded asynchronous subprocess, so it does not block the orchestration event
-loop; `status()` never invokes it, even when a legacy probe callback is supplied.
+through ambient `PATH` during a status read. The explicit probe uses a
+caller-trusted PATH on every platform and therefore must run only from a trusted
+environment. On Windows, this validated System32 boundary pins `cmd.exe` but
+does not pin the Claude executable that `cmd.exe` resolves through `PATH`.
+The probe uses a bounded asynchronous subprocess with a terminal kill signal,
+so it does not block the orchestration event loop indefinitely; `status()` never
+invokes it, even when a legacy probe callback is supplied.

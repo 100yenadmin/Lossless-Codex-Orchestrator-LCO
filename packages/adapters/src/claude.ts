@@ -45,6 +45,7 @@ type ClaudeVersionProbeResult = {
   stdout: string | Buffer;
   stderr: string | Buffer;
   signal?: NodeJS.Signals | null;
+  timedOut?: boolean;
 };
 
 export type ClaudeDryRunStatus = {
@@ -67,7 +68,10 @@ export type ClaudeDryRunStatus = {
   nextSafeAction: string;
 };
 
-export async function probeClaudeDryRunAvailability(command = "claude"): Promise<ClaudeDryRunAvailability> {
+export async function probeClaudeDryRunAvailability(
+  command = "claude",
+  options: { trustedPath?: string } = {}
+): Promise<ClaudeDryRunAvailability> {
   const normalizedCommand = command.trim();
   if (normalizedCommand !== "claude") {
     return {
@@ -78,13 +82,13 @@ export async function probeClaudeDryRunAvailability(command = "claude"): Promise
       unsupportedReason: null
     };
   }
-  // POSIX intentionally uses the caller's trusted PATH and does not defend
-  // against PATH shadowing. Windows uses a fixed system cmd.exe from a trusted
-  // System32 cwd so checkout-local claude.cmd/bat shadows are never considered.
-  // Request/status handlers inject this sanitized result; the asynchronous
-  // subprocess never blocks the orchestration event loop.
+  // Every platform intentionally uses the caller's trusted PATH to resolve the
+  // Claude executable. Windows pins only cmd.exe and cwd to System32; it does
+  // not pin claude.cmd/bat. Request/status handlers inject this sanitized
+  // result; the kill-bounded asynchronous subprocess never blocks the event
+  // loop indefinitely.
   const invocation = claudeVersionProbeInvocation();
-  const result = await runClaudeVersionProbe(invocation);
+  const result = await runClaudeVersionProbe(invocation, options.trustedPath);
   return claudeAvailabilityFromProbeResult(result);
 }
 
@@ -92,14 +96,16 @@ function runClaudeVersionProbe(invocation: {
   command: string;
   args: string[];
   cwd: string | undefined;
-}): Promise<ClaudeVersionProbeResult> {
+}, trustedPath?: string): Promise<ClaudeVersionProbeResult> {
   return new Promise((resolve) => {
     execFile(invocation.command, invocation.args, {
       encoding: "utf8",
       timeout: 2_000,
       maxBuffer: 64 * 1024,
+      killSignal: "SIGKILL",
       shell: false,
-      cwd: invocation.cwd
+      cwd: invocation.cwd,
+      env: trustedPath === undefined ? undefined : { ...process.env, PATH: trustedPath }
     }, (error, stdout, stderr) => {
       const probeError = error as ExecFileException | null;
       const status = typeof probeError?.code === "number" ? probeError.code : probeError ? null : 0;
@@ -108,7 +114,8 @@ function runClaudeVersionProbe(invocation: {
         status,
         stdout,
         stderr,
-        signal: probeError?.signal ?? null
+        signal: probeError?.signal ?? null,
+        timedOut: probeError?.killed === true && probeError.signal === "SIGKILL"
       });
     });
   });
@@ -138,14 +145,20 @@ export function claudeVersionProbeInvocation(
 export function claudeAvailabilityFromProbeResult(result: ClaudeVersionProbeResult): ClaudeDryRunAvailability {
   const stdout = typeof result.stdout === "string" ? result.stdout : result.stdout?.toString("utf8") ?? "";
   const stderr = typeof result.stderr === "string" ? result.stderr : result.stderr?.toString("utf8") ?? "";
+  if (result.timedOut) {
+    return sanitizeClaudeAvailability({
+      available: false,
+      command: "claude",
+      version: null,
+      error: "Claude availability probe timed out."
+    });
+  }
   if (result.status === null && result.signal) {
     return sanitizeClaudeAvailability({
       available: false,
       command: "claude",
       version: null,
-      error: result.signal === "SIGTERM"
-        ? "Claude availability probe timed out."
-        : `Claude availability probe terminated by ${result.signal}.`
+      error: `Claude availability probe terminated by ${result.signal}.`
     });
   }
   if (result.error) {
@@ -307,9 +320,12 @@ function nextClaudeDryRunAction(state: ClaudeDryRunState): string {
 
 export function unsupportedClaudeVersionReason(version: string | null): string | null {
   if (!version) return null;
-  const identifier = "[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*";
+  const numeric = "(?:0|[1-9]\\d*)";
+  const prereleaseIdentifier = `(?:${numeric}|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)`;
+  const prerelease = `${prereleaseIdentifier}(?:\\.${prereleaseIdentifier})*`;
+  const build = "[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*";
   const match = version.match(new RegExp(
-    `^\\s*(?:Claude(?:\\s+Code)?\\s*)?(\\d+)\\.(\\d+)\\.(\\d+)(?:-${identifier})?(?:\\+${identifier})?(?:\\s+\\(Claude Code\\))?\\s*$`,
+    `^\\s*(?:Claude(?:\\s+Code)?\\s*)?(${numeric})\\.(${numeric})\\.(${numeric})(?:-${prerelease})?(?:\\+${build})?(?:\\s+\\(Claude Code\\))?\\s*$`,
     "i"
   ));
   if (!match) return "Claude CLI version could not be parsed for dry-run validation.";
