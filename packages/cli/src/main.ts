@@ -3,6 +3,7 @@ import {
   codexTransportStatus,
   createAuditStore,
   createDriveReport,
+  DriveInputError,
   deriveAuditSubkeyIfConfigured,
   desktopActDryRun,
   desktopFallbackDiagnostics,
@@ -1093,7 +1094,7 @@ try {
   await main();
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
-  const usageError = isCliUsageErrorMessage(message);
+  const usageError = error instanceof DriveInputError || isCliUsageErrorMessage(message);
   console.error(`Error: ${sanitizeCliErrorMessage(message)}`);
   process.exitCode = usageError ? 2 : 1;
 }

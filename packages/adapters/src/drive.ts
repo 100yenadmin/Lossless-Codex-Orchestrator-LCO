@@ -64,6 +64,23 @@ export type DriveReport = {
       kind: "review" | "plan" | "dry_run" | "confirm" | "live" | "report";
       execute: boolean;
       state: "planned" | "completed" | "pending_approval" | "blocked";
+      budget: {
+        maxTurns: number;
+        tokenBudget: number;
+        timeoutMs: number;
+        costCeilingUsd: number;
+      };
+      freshness: {
+        state: "fresh";
+        generatedAt: string;
+        expiresAt: string;
+      };
+      approval: {
+        required: boolean;
+        state: "not_required" | "bound_pending_confirmation" | "blocked";
+        approvalAuditId: string | null;
+        paramsHash: string | null;
+      };
     }>;
   };
   dryRun: {
@@ -103,13 +120,19 @@ const DEFAULT_TOKEN_BUDGET = 1000;
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_COST_CEILING_USD = 1;
 
+export class DriveInputError extends Error {
+  override name = "DriveInputError";
+}
+
 export async function createDriveReport(options: DriveOptions): Promise<DriveReport> {
   const input = validateDriveOptions(options);
   const objectiveHash = options.audit.fingerprintText(input.objective);
   const blockedClaudeState = input.driver === "claude"
     ? claudeDriverBlocker(input.claudeAvailability)
     : null;
-  const claudeControllerStatus = claudeControllerState(input.claudeAvailability);
+  const claudeControllerStatus = input.driver === "claude"
+    ? blockedClaudeState?.state ?? "dry_run_available"
+    : claudeControllerState(input.claudeAvailability);
   const blockers = blockedClaudeState ? [blockedClaudeState.blocker] : [];
   const dryRunResult = blockedClaudeState
     ? null
@@ -141,7 +164,7 @@ export async function createDriveReport(options: DriveOptions): Promise<DriveRep
     },
     drivePlan: {
       schema: "lco.drive.plan.v1",
-      steps: drivePlanSteps(Boolean(dryRunResult))
+      steps: drivePlanSteps(input, dryRunResult)
     },
     dryRun: {
       available: Boolean(dryRunResult),
@@ -151,7 +174,7 @@ export async function createDriveReport(options: DriveOptions): Promise<DriveRep
       paramsHash: dryRunResult?.paramsHash ?? null,
       messageHash: dryRunResult?.messageHash ?? null
     },
-    controllerMatrix: controllerMatrix(claudeControllerStatus),
+    controllerMatrix: controllerMatrix(input.surface, input.driver, claudeControllerStatus),
     blockers,
     finalReport: {
       status,
@@ -185,15 +208,15 @@ type ValidDriveOptions = Required<Pick<DriveOptions, "reviewer" | "driver" | "ta
 };
 
 function validateDriveOptions(options: DriveOptions): ValidDriveOptions {
-  if (options.reviewer !== "codex" && options.reviewer !== "claude") throw new Error("drive reviewer requires codex or claude");
-  if (options.driver !== "codex" && options.driver !== "claude") throw new Error("drive driver requires codex or claude");
+  if (options.reviewer !== "codex" && options.reviewer !== "claude") throw new DriveInputError("drive reviewer requires codex or claude");
+  if (options.driver !== "codex" && options.driver !== "claude") throw new DriveInputError("drive driver requires codex or claude");
   const objective = options.objective?.trim();
-  if (!objective || objective.length > 2000) throw new Error("drive objective requires 1 to 2000 characters");
-  if (looksSensitive(objective)) throw new Error("drive objective contains restricted secret or local-path material");
+  if (!objective || objective.length > 2000) throw new DriveInputError("drive objective requires 1 to 2000 characters");
+  if (looksSensitive(objective)) throw new DriveInputError("drive objective contains restricted secret or local-path material");
   const targetRef = validateTargetRef(options.driver, options.targetRef);
   const surface = options.surface ?? "cli";
   if (surface !== "cli" && surface !== "mcp" && surface !== "openclaw-gateway") {
-    throw new Error("drive surface requires cli, mcp, or openclaw-gateway");
+    throw new DriveInputError("drive surface requires cli, mcp, or openclaw-gateway");
   }
   return {
     reviewer: options.reviewer,
@@ -212,19 +235,20 @@ function validateDriveOptions(options: DriveOptions): ValidDriveOptions {
 
 function validateTargetRef(driver: DriveHarness, value: string): string {
   const prefix = driver === "codex" ? "codex_thread:" : "claude_session:";
-  if (!value?.startsWith(prefix)) throw new Error("drive driver and target namespace must match");
+  if (!value?.startsWith(prefix)) throw new DriveInputError("drive driver and target namespace must match");
   const id = value.slice(prefix.length);
-  if (!/^[A-Za-z0-9._:-]{1,180}$/.test(id)) throw new Error("drive target ref requires a public-safe identifier");
+  if (!/^[A-Za-z0-9._:-]{1,180}$/.test(id)) throw new DriveInputError("drive target ref requires a public-safe identifier");
+  if (looksSensitive(id)) throw new DriveInputError("drive target ref contains restricted secret material");
   return `${prefix}${id}`;
 }
 
 function boundedInteger(value: number, min: number, max: number, name: string): number {
-  if (!Number.isInteger(value) || value < min || value > max) throw new Error(`drive ${name} requires an integer from ${min} to ${max}`);
+  if (!Number.isInteger(value) || value < min || value > max) throw new DriveInputError(`drive ${name} requires an integer from ${min} to ${max}`);
   return value;
 }
 
 function boundedNumber(value: number, min: number, max: number, name: string): number {
-  if (!Number.isFinite(value) || value < min || value > max) throw new Error(`drive ${name} must be from ${min} to ${max}`);
+  if (!Number.isFinite(value) || value < min || value > max) throw new DriveInputError(`drive ${name} must be from ${min} to ${max}`);
   return value;
 }
 
@@ -241,18 +265,60 @@ function validIso(value: string | undefined): string | null {
 function driveGeneratedAt(value: string | undefined): string {
   if (value === undefined) return new Date().toISOString();
   const generatedAt = validIso(value);
-  if (!generatedAt) throw new Error("drive now requires an ISO timestamp");
+  if (!generatedAt) throw new DriveInputError("drive now requires an ISO timestamp");
   return generatedAt;
 }
 
-function drivePlanSteps(dryRunReady: boolean): DriveReport["drivePlan"]["steps"] {
+function drivePlanSteps(
+  input: ValidDriveOptions,
+  dryRunResult: { approvalAuditId: string; paramsHash: string } | null
+): DriveReport["drivePlan"]["steps"] {
+  type Step = DriveReport["drivePlan"]["steps"][number];
+  type Approval = Step["approval"];
+  const budget = {
+    maxTurns: input.maxTurns,
+    tokenBudget: input.tokenBudget,
+    timeoutMs: input.timeoutMs,
+    costCeilingUsd: input.costCeilingUsd
+  };
+  const freshness = {
+    state: "fresh" as const,
+    generatedAt: input.generatedAt,
+    expiresAt: new Date(Date.parse(input.generatedAt) + input.timeoutMs).toISOString()
+  };
+  const noApproval: Approval = {
+    required: false,
+    state: "not_required" as const,
+    approvalAuditId: null,
+    paramsHash: null
+  };
+  const actionApproval: Approval = dryRunResult
+    ? {
+      required: true,
+      state: "bound_pending_confirmation" as const,
+      approvalAuditId: dryRunResult.approvalAuditId,
+      paramsHash: dryRunResult.paramsHash
+    }
+    : {
+      required: true,
+      state: "blocked" as const,
+      approvalAuditId: null,
+      paramsHash: null
+    };
+  const step = (
+    ordinal: number,
+    kind: Step["kind"],
+    execute: boolean,
+    state: Step["state"],
+    approval: Approval = noApproval
+  ): Step => ({ ordinal, kind, execute, state, budget, freshness, approval });
   return [
-    { ordinal: 1, kind: "review", execute: false, state: "planned" },
-    { ordinal: 2, kind: "plan", execute: false, state: "planned" },
-    { ordinal: 3, kind: "dry_run", execute: true, state: dryRunReady ? "completed" : "blocked" },
-    { ordinal: 4, kind: "confirm", execute: false, state: dryRunReady ? "pending_approval" : "blocked" },
-    { ordinal: 5, kind: "live", execute: false, state: "blocked" },
-    { ordinal: 6, kind: "report", execute: true, state: "completed" }
+    step(1, "review", false, "planned"),
+    step(2, "plan", false, "planned"),
+    step(3, "dry_run", true, dryRunResult ? "completed" : "blocked"),
+    step(4, "confirm", false, dryRunResult ? "pending_approval" : "blocked", actionApproval),
+    step(5, "live", false, "blocked", actionApproval),
+    step(6, "report", true, "completed")
   ];
 }
 
@@ -334,12 +400,17 @@ function claudeControllerState(availability: ClaudeDryRunAvailability | undefine
   return blocker?.state ?? "dry_run_available";
 }
 
-function controllerMatrix(claudeStatus: DriveReport["controllerMatrix"][number]["status"]): DriveReport["controllerMatrix"] {
+function controllerMatrix(
+  activeSurface: DriveSurface,
+  driver: DriveHarness,
+  claudeStatus: DriveReport["controllerMatrix"][number]["status"]
+): DriveReport["controllerMatrix"] {
+  const surfaceStatus = (surface: DriveSurface) => surface === activeSurface ? "dry_run_available" as const : "not_probed" as const;
   return [
-    { controller: "cli", surface: "cli", status: "dry_run_available" },
-    { controller: "mcp", surface: "mcp", status: "dry_run_available" },
-    { controller: "openclaw", surface: "openclaw-gateway", status: "dry_run_available" },
-    { controller: "codex", surface: "target-adapter", status: "dry_run_available" },
+    { controller: "cli", surface: "cli", status: surfaceStatus("cli") },
+    { controller: "mcp", surface: "mcp", status: surfaceStatus("mcp") },
+    { controller: "openclaw", surface: "openclaw-gateway", status: surfaceStatus("openclaw-gateway") },
+    { controller: "codex", surface: "target-adapter", status: driver === "codex" ? "dry_run_available" : "not_probed" },
     { controller: "claude", surface: "target-adapter", status: claudeStatus }
   ] as DriveReport["controllerMatrix"];
 }

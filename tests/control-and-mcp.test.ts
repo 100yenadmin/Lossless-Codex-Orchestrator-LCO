@@ -1538,6 +1538,16 @@ test("MCP tool registry exposes lco-prefixed canonical tools with loo compatibil
     assert.equal(driveReport.dryRun.live, false);
     assert.equal(driveReport.actionsPerformed.liveControl, false);
     assert.equal(codexRequests.length, driveRequestCount);
+    await assert.rejects(
+      () => driveTool.execute({
+        reviewer: "codex",
+        driver: "codex",
+        target_ref: "codex_thread:sk-abcdefgh",
+        objective: "Review safely.",
+        surface: "mcp"
+      }),
+      /target ref contains restricted secret/i
+    );
 
     const startTool = tools.find((tool) => tool.name === "lco_codex_start_thread");
     assert.ok(startTool);

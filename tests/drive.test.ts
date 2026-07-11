@@ -56,7 +56,26 @@ test("drive creates a bounded Codex dry-run packet without exposing objective te
   assert.equal(report.finalReport.liveActions, 0);
   assert.equal(report.actionsPerformed.liveControl, false);
   assert.equal(report.actionsPerformed.externalWrite, false);
+  assert.equal(report.controllerMatrix.find((row) => row.controller === "cli")?.status, "dry_run_available");
+  assert.equal(report.controllerMatrix.find((row) => row.controller === "mcp")?.status, "not_probed");
+  assert.equal(report.controllerMatrix.find((row) => row.controller === "openclaw")?.status, "not_probed");
   assert.equal(report.controllerMatrix.find((row) => row.controller === "claude")?.status, "not_probed");
+  for (const step of report.drivePlan.steps) {
+    assert.deepEqual(step.budget, {
+      maxTurns: 4,
+      tokenBudget: 1000,
+      timeoutMs: 120000,
+      costCeilingUsd: 1
+    });
+    assert.equal(step.freshness.state, "fresh");
+    assert.equal(step.freshness.generatedAt, "2026-07-11T00:00:00.000Z");
+    assert.equal(step.freshness.expiresAt, "2026-07-11T00:02:00.000Z");
+    assert.equal(typeof step.approval.required, "boolean");
+  }
+  const liveStep = report.drivePlan.steps.find((step) => step.kind === "live");
+  assert.equal(liveStep?.approval.state, "bound_pending_confirmation");
+  assert.equal(liveStep?.approval.approvalAuditId, report.dryRun.approvalAuditId);
+  assert.equal(liveStep?.approval.paramsHash, report.dryRun.paramsHash);
   assert.doesNotMatch(JSON.stringify(report), /Review the private patch|private patch|next safe edit/);
 });
 
@@ -112,6 +131,19 @@ test("drive rejects target namespaces that do not match the driver", async () =>
   );
 });
 
+test("drive rejects secret-shaped target identifiers before writing an audit packet", async () => {
+  await assert.rejects(
+    () => createDriveReport({
+      reviewer: "codex",
+      driver: "codex",
+      targetRef: "codex_thread:sk-abcdefgh",
+      objective: "Review safely.",
+      audit: auditStub()
+    }),
+    /target ref contains restricted secret/i
+  );
+});
+
 test("drive returns a public-safe blocked report when Claude is unavailable", async () => {
   const report = await createDriveReport({
     reviewer: "codex",
@@ -155,7 +187,8 @@ test("drive mints a Claude dry-run packet when the supported adapter is availabl
   assert.equal(report.dryRun.target, "claude_session:session-1");
   assert.equal(report.dryRun.live, false);
   assert.equal(report.controllerMatrix.find((row) => row.controller === "mcp")?.status, "dry_run_available");
-  assert.equal(report.controllerMatrix.find((row) => row.controller === "openclaw")?.status, "dry_run_available");
+  assert.equal(report.controllerMatrix.find((row) => row.controller === "cli")?.status, "not_probed");
+  assert.equal(report.controllerMatrix.find((row) => row.controller === "openclaw")?.status, "not_probed");
 });
 
 test("loo drive help exposes the bounded dry-run contract", () => {
@@ -203,4 +236,16 @@ test("loo drive rejects live requests before audit mutation", () => {
   ], process.env, 5_000);
   assert.equal(result.status, 2, result.stderr || result.stdout);
   assert.match(result.stderr, /live.*not supported|unknown drive option/i);
+});
+
+test("loo drive classifies runner-level input validation as usage errors", () => {
+  for (const args of [
+    ["--reviewer", "codex", "--driver", "claude", "--target-ref", "codex_thread:thread-1", "--objective", "Review safely."],
+    ["--reviewer", "codex", "--driver", "codex", "--target-ref", "codex_thread:sk-abcdefgh", "--objective", "Review safely."],
+    ["--reviewer", "codex", "--driver", "codex", "--target-ref", "codex_thread:thread-1", "--objective", "Review safely.", "--now", "invalid"]
+  ]) {
+    const result = runLoo(["drive", ...args], process.env, 5_000);
+    assert.equal(result.status, 2, result.stderr || result.stdout);
+    assert.doesNotMatch(result.stderr, /sk-abcdefgh/);
+  }
 });
