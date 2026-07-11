@@ -3913,7 +3913,7 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
         && watermark
         && extractorStateCurrent
         && !eventContentCurrent
-        && watermark.pathHash === stableId(text)
+        && watermark.pathHash === sourceHash
       ) {
         backfillCodexEventContentForSession(db, session);
         result.indexedFiles += 1;
@@ -7118,6 +7118,7 @@ function materializePreparedCardsForThread(
       updated_at AS updatedAt
     FROM prepared_cards
     WHERE target_ref = ?
+    ORDER BY updated_at DESC, card_ref DESC
     LIMIT 1
   `).get(targetRef) as PreviousPreparedCardWrite | undefined;
   const previousInbox = db.prepare(`
@@ -7128,6 +7129,7 @@ function materializePreparedCardsForThread(
       updated_at AS updatedAt
     FROM prepared_inbox_items
     WHERE target_ref = ?
+    ORDER BY updated_at DESC, item_id DESC
     LIMIT 1
   `).get(targetRef) as PreviousPreparedInboxWrite | undefined;
   deletePreparedCardsForTargetRefs(db, [targetRef]);
@@ -11610,6 +11612,16 @@ export function createSessionDiffSetupRequiredReport(surface: "cli" | "mcp"): Se
   };
 }
 
+export function resolveSessionDiffCursorKey(
+  configuredKey: string | undefined,
+  auditFallbackKey: string | null | undefined
+): Pick<SessionDiffOptions, "cursorSigningKey" | "cursorKeySource"> {
+  return {
+    cursorSigningKey: configuredKey ?? auditFallbackKey ?? undefined,
+    cursorKeySource: configuredKey ? "environment" : auditFallbackKey ? "audit_fallback" : undefined
+  };
+}
+
 function nextSessionDiffMutationTimestamp(db: LooDatabase, proposedAt = new Date().toISOString()): string {
   const proposed = publicIsoTimestamp(proposedAt) ?? new Date().toISOString();
   const proposedMs = timestampMillis(proposed) ?? Date.now();
@@ -11767,10 +11779,9 @@ export function getSessionDiff(db: LooDatabase, options: SessionDiffOptions = {}
   ].filter((reason): reason is "limit" | "token_budget" | "filtered_unsafe_rows" => Boolean(reason));
   const nextWatermark = sessionDiffNextWatermark({
     selected: selectedCandidates,
-    candidates,
     filteredUnsafeRows,
-    generatedAt,
     cursorWatermark,
+    scanBarrier,
     scanWatermarks: scanBarrier ? [scanBarrier] : [
         sourceRangeResult.scanWatermark,
         summaryLeafResult.scanWatermark,
@@ -12017,10 +12028,9 @@ function compareSessionDiffCandidateToWatermark(
 
 function sessionDiffNextWatermark(input: {
   selected: SessionDiffCandidate[];
-  candidates: SessionDiffCandidate[];
   filteredUnsafeRows: number;
-  generatedAt: string;
   cursorWatermark: SessionDiffCursorWatermark;
+  scanBarrier: SessionDiffCursorWatermark | null;
   scanWatermarks: SessionDiffCursorWatermark[];
 }): SessionDiffCursorWatermark {
   const lastSelected = input.selected.at(-1);
@@ -12032,11 +12042,11 @@ function sessionDiffNextWatermark(input: {
       key: lastSelected.cursorKey
     };
   }
+  if (input.scanBarrier && compareSessionDiffWatermarks(input.scanBarrier, input.cursorWatermark) > 0) {
+    return input.scanBarrier;
+  }
   if (input.filteredUnsafeRows > 0 && input.scanWatermarks.length > 0) {
     return input.scanWatermarks.sort(compareSessionDiffWatermarks).at(-1)!;
-  }
-  if (input.candidates.length === 0 && input.filteredUnsafeRows === 0) {
-    return input.cursorWatermark;
   }
   return input.cursorWatermark;
 }

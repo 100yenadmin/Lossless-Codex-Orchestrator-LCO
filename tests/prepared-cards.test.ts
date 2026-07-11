@@ -478,6 +478,59 @@ test("prepared cards materialize public-safe advisory cards and inbox entries", 
   }
 });
 
+test("prepared-card rematerialization deterministically uses the latest predecessor", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-latest-predecessor-"));
+  const sessions = join(root, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const threadId = "019f-prepared-latest-predecessor";
+  const targetRef = `codex_thread:${threadId}`;
+  writePreparedCardJsonl(join(sessions, `rollout-2026-07-03T00-00-00-${threadId}.jsonl`), threadId, "Latest predecessor proof");
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    materializeSummaryLeaves(db, { threadId });
+    materializePreparedCards(db, { threadId });
+    db.prepare(`
+      INSERT INTO prepared_cards (
+        card_id, card_ref, target_ref, card_kind, title, objective, summary_text, blocker, next_action,
+        source_refs_json, source_range_refs_json, source_range_refs_omitted, authority_coverage_json,
+        input_hash, extractor_version, privacy_class, confidence, freshness_at,
+        stale, state, reason_codes_json, created_at, updated_at
+      )
+      SELECT
+        'newer-duplicate-card', 'prepared_card:newer-duplicate', target_ref, card_kind, title, objective,
+        summary_text, blocker, next_action, source_refs_json, source_range_refs_json,
+        source_range_refs_omitted, authority_coverage_json, 'different-input-hash', extractor_version,
+        privacy_class, confidence, freshness_at, stale, state, reason_codes_json,
+        '2099-01-01T00:00:00.000Z', '2099-01-01T00:00:00.000Z'
+      FROM prepared_cards WHERE target_ref = ?
+      ORDER BY updated_at ASC LIMIT 1
+    `).run(targetRef);
+    db.prepare(`
+      INSERT INTO prepared_inbox_items (
+        item_id, card_ref, target_ref, urgency_score, state, reason_codes_json,
+        source_refs_json, execute_false, created_at, updated_at
+      )
+      SELECT
+        'prepared_inbox:newer-duplicate', 'prepared_card:newer-duplicate', target_ref,
+        urgency_score, state, reason_codes_json, source_refs_json, execute_false,
+        '2099-01-01T00:00:00.000Z', '2099-01-01T00:00:00.000Z'
+      FROM prepared_inbox_items WHERE target_ref = ?
+      ORDER BY updated_at ASC LIMIT 1
+    `).run(targetRef);
+
+    materializePreparedCards(db, { threadId });
+    const card = db.prepare("SELECT updated_at AS updatedAt FROM prepared_cards WHERE target_ref = ?").get(targetRef) as { updatedAt: string };
+    const inbox = db.prepare("SELECT updated_at AS updatedAt FROM prepared_inbox_items WHERE target_ref = ?").get(targetRef) as { updatedAt: string };
+    assert.ok(card.updatedAt > "2099-01-01T00:00:00.000Z");
+    assert.equal(inbox.updatedAt, card.updatedAt);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("prepared cards materialize Claude sessions as public-safe advisory cards", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-prepared-claude-cards-"));
   const projectRoot = join(root, ".claude", "projects", "-Volumes-LEXAR-repos-lco");

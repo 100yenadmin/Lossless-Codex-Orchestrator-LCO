@@ -644,6 +644,11 @@ Search returns no results
   stable across CLI, MCP, and OpenClaw restarts.
 - Alternatively, initialize LCO's local audit key through an approved dry-run
   control workflow; session diff reads that existing key without creating files.
+- If LCO reports an invalid audit key, do not silently regenerate or weaken the
+  64-hex-character validation. Back up the invalid local key, then either set a
+  stable `LCO_SESSION_DIFF_CURSOR_KEY` or deliberately replace the audit key
+  through the approved dry-run setup workflow. Replacing either key makes
+  earlier session-diff cursors invalid.
 - Do not paste the key into issue reports, QA evidence, or committed config.
 
 Event-content cache uses too much local disk

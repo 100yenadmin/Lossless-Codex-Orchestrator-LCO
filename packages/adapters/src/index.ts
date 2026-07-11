@@ -2313,7 +2313,7 @@ function readAuditKeyIfConfigured(auditPath: string): Buffer | null {
     throw new Error("Audit fingerprint key is unavailable");
   }
   if (!/^[a-f0-9]{64}$/i.test(encoded)) {
-    throw new Error(`Audit fingerprint key is invalid: ${keyPath}`);
+    throw new Error("Audit fingerprint key is invalid");
   }
   return Buffer.from(encoded, "hex");
 }

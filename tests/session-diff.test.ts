@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { appendFileSync, existsSync, mkdtempSync, rmSync, utimesSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -13,6 +13,7 @@ import {
   materializePreparedCards,
   materializeSummaryLeaves,
   persistWatcherObservations,
+  resolveSessionDiffCursorKey,
   type SessionDiffOptions,
   type WatchSpec
 } from "../packages/core/src/index.js";
@@ -29,6 +30,21 @@ function id(input: string): string {
 }
 
 const TEST_CURSOR_SIGNING_KEY = "test-session-diff-cursor-key-v1";
+
+test("session diff cursor key resolution preserves CLI and MCP precedence", () => {
+  assert.deepEqual(resolveSessionDiffCursorKey("configured-key", "audit-key"), {
+    cursorSigningKey: "configured-key",
+    cursorKeySource: "environment"
+  });
+  assert.deepEqual(resolveSessionDiffCursorKey(undefined, "audit-key"), {
+    cursorSigningKey: "audit-key",
+    cursorKeySource: "audit_fallback"
+  });
+  assert.deepEqual(resolveSessionDiffCursorKey(undefined, null), {
+    cursorSigningKey: undefined,
+    cursorKeySource: undefined
+  });
+});
 
 function getSessionDiff(
   db: ReturnType<typeof createDatabase>,
@@ -1413,6 +1429,23 @@ test("session diff read-only audit-key lookup creates no filesystem artifacts", 
   }
 });
 
+test("session diff invalid audit-key errors never expose the local key path", () => {
+  const root = mkdtempSync(join(tmpdir(), "lco-session-diff-invalid-audit-key-"));
+  const auditPath = join(root, "private", "audit.jsonl");
+  try {
+    mkdirSync(join(root, "private"));
+    writeFileSync(`${auditPath}.key`, "not-a-valid-audit-key\n");
+    assert.throws(
+      () => fingerprintAuditTextIfConfigured(auditPath, "lco_session_diff_cursor_v1"),
+      (error: unknown) => error instanceof Error
+        && error.message === "Audit fingerprint key is invalid"
+        && !error.message.includes(root)
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("session diff cursor scope binds exact null and non-null targets and ignores invalid cursor watermarks", () => {
   withSessionDiffDb((db) => {
     const firstThreadId = "019f-session-diff-scope-first";
@@ -1598,6 +1631,20 @@ test("session diff keyset collectors use bounded time and key indexes", () => {
       }
       assert.doesNotMatch(detail, /USE TEMP B-TREE/);
     }
+    const maxPlans = [
+      ["prepared_source_ranges", "created_at", "prepared_source_ranges_session_diff_key_idx"],
+      ["summary_leaves", "created_at", "summary_leaves_session_diff_idx"],
+      ["prepared_cards", "updated_at", "prepared_cards_session_diff_idx"],
+      ["prepared_inbox_items", "updated_at", "prepared_inbox_session_diff_idx"],
+      ["watcher_observations", "created_at", "watcher_observations_session_diff_idx"]
+    ] as const;
+    for (const [table, column, index] of maxPlans) {
+      const detail = (db.prepare(`EXPLAIN QUERY PLAN SELECT MAX(${column}) FROM ${table}`).all() as Array<{ detail: string }>)
+        .map((row) => row.detail)
+        .join("\n");
+      assert.match(detail, new RegExp(`SEARCH ${table} USING COVERING INDEX ${index}`));
+      assert.doesNotMatch(detail, /SCAN|USE TEMP B-TREE/);
+    }
     const scopedSummaryDetail = (db.prepare(`
       EXPLAIN QUERY PLAN
       SELECT leaf_ref FROM summary_leaves
@@ -1684,7 +1731,7 @@ test("session diff advances past unsafe-only scan pages", () => {
   });
 });
 
-test("session diff does not advance a later-kind cursor past an incomplete unsafe scan page", () => {
+test("session diff advances an empty selection to the incomplete scan barrier without skipping later kinds", () => {
   withSessionDiffDb((db) => {
     const threadId = "019f-session-diff-unsafe-frontier";
     insertSession(db, threadId);
@@ -1721,6 +1768,7 @@ test("session diff does not advance a later-kind cursor past an incomplete unsaf
     });
     assert.equal(first.summary.returned, 0);
     assert.equal(first.omitted.filteredUnsafeRows, 2000);
+    assert.equal(first.omitted.reasons.includes("limit"), true);
 
     const second = getSessionDiff(db, {
       threadId,

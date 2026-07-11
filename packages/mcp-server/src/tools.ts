@@ -57,6 +57,7 @@ import {
   isSessionDiffSetupError,
   probeLcmPeerDbs,
   probeCodexSqliteStores,
+  resolveSessionDiffCursorKey,
   type LooDatabase,
   type AppServerThreadsInput,
   type VisibleCodexInput,
@@ -431,13 +432,11 @@ function sessionDiffToolResult(db: LooDatabase, audit: AuditStore, input: Record
   try {
     const configuredKey = readEnv("SESSION_DIFF_CURSOR_KEY");
     const auditFallbackKey = configuredKey ? null : audit.fingerprintTextIfConfigured?.("lco_session_diff_cursor_v1") ?? null;
-    const cursorSigningKey = configuredKey ?? auditFallbackKey ?? undefined;
     return getSessionDiff(db, {
       threadId: optionalString(input.thread_id),
       targetRef: optionalString(input.target_ref),
       cursor: optionalString(input.cursor),
-      cursorSigningKey,
-      cursorKeySource: configuredKey ? "environment" : auditFallbackKey ? "audit_fallback" : undefined,
+      ...resolveSessionDiffCursorKey(configuredKey, auditFallbackKey),
       limit: optionalNumber(input.limit),
       tokenBudget: optionalNumber(input.token_budget),
       now: optionalString(input.now)

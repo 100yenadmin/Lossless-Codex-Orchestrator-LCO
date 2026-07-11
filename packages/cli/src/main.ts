@@ -46,6 +46,7 @@ import {
   probeCodexSqliteStores,
   probeLcmPeerDbs,
   readCodexIndexHealthStatusFromPath,
+  resolveSessionDiffCursorKey,
   runDatabaseMaintenance,
   runStatePrepHook,
   searchSessions,
@@ -396,8 +397,7 @@ async function main() {
       const auditFallbackKey = configuredKey ? null : fingerprintAuditTextIfConfigured(auditPath, "lco_session_diff_cursor_v1");
       console.log(JSON.stringify(getSessionDiff(db, {
         ...parsed,
-        cursorSigningKey: configuredKey ?? auditFallbackKey ?? undefined,
-        cursorKeySource: configuredKey ? "environment" : auditFallbackKey ? "audit_fallback" : undefined
+        ...resolveSessionDiffCursorKey(configuredKey, auditFallbackKey)
       }), null, 2));
     } catch (error) {
       if (!isSessionDiffSetupError(error)) throw error;
