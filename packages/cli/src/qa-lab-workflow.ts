@@ -157,7 +157,7 @@ export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabW
   const openclawBin = openclawBinValidation.ok ? requestedOpenClawBin : "openclaw";
   const gatewayTimeoutMs = options.gatewayTimeoutMs ?? DEFAULT_GATEWAY_TIMEOUT_MS;
   const deadline = Date.now() + gatewayTimeoutMs;
-  const gatewayToken = options.token || options.env?.OPENCLAW_GATEWAY_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN;
+  const gatewayToken = resolveGatewayToken(options);
   const command = options.gatewayUrl && gatewayToken
     ? "loo backend-gateway tools.catalog/tools.invoke --json --params <redacted>"
     : `${sanitizeCommandBinary(openclawBin)} gateway call tools.catalog/tools.invoke --json --params <redacted>`;
@@ -379,7 +379,7 @@ function callGatewayJson(
   if (gatewayTimeoutMs <= 0) {
     return { status: 124, parseError: "gateway deadline exceeded" };
   }
-  const gatewayToken = options.token || options.env?.OPENCLAW_GATEWAY_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN;
+  const gatewayToken = resolveGatewayToken(options);
   if (options.gatewayUrl && gatewayToken) {
     return callGatewayBackendJson(options.gatewayUrl, gatewayToken, method, params, gatewayTimeoutMs, childEnv(options));
   }
@@ -639,6 +639,10 @@ function childEnv(options: QaLabWorkflowOptions): NodeJS.ProcessEnv {
     if (key.startsWith("OPENCLAW_FAKE_") && value !== undefined) env[key] = value;
   }
   return env;
+}
+
+function resolveGatewayToken(options: QaLabWorkflowOptions): string | undefined {
+  return options.token || options.env?.OPENCLAW_GATEWAY_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN;
 }
 
 function remainingGatewayTimeoutMs(deadline: number): number {

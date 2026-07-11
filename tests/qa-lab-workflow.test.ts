@@ -319,8 +319,10 @@ test("gateway backend child strips ambient Node startup controls", () => {
       "scoped-test-gateway-token",
       "tools.catalog",
       {},
-      250
+      1000
     );
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /gateway websocket error/);
     assert.doesNotMatch(result.stderr, /NODE_OPTIONS|--eval/);
   } finally {
     if (previous === undefined) delete process.env.NODE_OPTIONS;

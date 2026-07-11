@@ -661,9 +661,6 @@ function gatewayBackendChildEnv(source: NodeJS.ProcessEnv, request: string, toke
   for (const key of ["PATH", "HOME", "TMPDIR"]) {
     if (source[key]) env[key] = source[key];
   }
-  for (const [key, value] of Object.entries(source)) {
-    if (key.startsWith("OPENCLAW_FAKE_") && value !== undefined) env[key] = value;
-  }
   env.LCO_GATEWAY_BACKEND_REQUEST = request;
   env.LCO_GATEWAY_BACKEND_TOKEN = token;
   return env;
