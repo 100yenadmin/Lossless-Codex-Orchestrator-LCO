@@ -1,3 +1,5 @@
+import { isIP } from "node:net";
+
 export type OpenClawGatewayRouteValidation =
   | { ok: true }
   | { ok: false; code: "gateway_token_requires_url" | "gateway_url_invalid" | "gateway_url_unsupported_scheme" | "gateway_url_credentials_forbidden" | "gateway_url_insecure" };
@@ -26,5 +28,12 @@ export function validateOpenClawGatewayRoute(gatewayUrl: string | undefined, tok
 }
 
 function isLoopbackHost(hostname: string): boolean {
-  return hostname === "localhost" || hostname.startsWith("127.") || hostname === "::1" || hostname === "[::1]";
+  return hostname === "localhost"
+    || isIpv4LoopbackLiteral(hostname)
+    || hostname === "::1"
+    || hostname === "[::1]";
+}
+
+function isIpv4LoopbackLiteral(hostname: string): boolean {
+  return isIP(hostname) === 4 && hostname.split(".", 1)[0] === "127";
 }
