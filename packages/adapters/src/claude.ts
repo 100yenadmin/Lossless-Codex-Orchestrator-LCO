@@ -39,6 +39,8 @@ type ClaudeControlAuditStore = {
   find(id: string): AuditRecord | null;
 };
 
+type ClaudeVersionProbeResult = Pick<ReturnType<typeof spawnSync>, "error" | "status" | "stdout" | "stderr">;
+
 export type ClaudeDryRunStatus = {
   schema: "lco.claude.dryRunControlStatus.v1";
   publicSafe: true;
@@ -71,6 +73,12 @@ export function probeClaudeDryRunAvailability(command = "claude"): ClaudeDryRunA
     };
   }
   const result = spawnSync("claude", ["--version"], { encoding: "utf8", timeout: 2_000 });
+  return claudeAvailabilityFromProbeResult(result);
+}
+
+export function claudeAvailabilityFromProbeResult(result: ClaudeVersionProbeResult): ClaudeDryRunAvailability {
+  const stdout = typeof result.stdout === "string" ? result.stdout : result.stdout?.toString("utf8") ?? "";
+  const stderr = typeof result.stderr === "string" ? result.stderr : result.stderr?.toString("utf8") ?? "";
   if (result.error) {
     return {
       available: false,
@@ -84,10 +92,10 @@ export function probeClaudeDryRunAvailability(command = "claude"): ClaudeDryRunA
       available: false,
       command: "claude",
       version: null,
-      error: result.stderr || `Claude command exited with status ${result.status}`
+      error: stderr || `Claude command exited with status ${result.status}`
     };
   }
-  const version = (result.stdout || result.stderr || "").trim() || null;
+  const version = (stdout || stderr).trim() || null;
   return {
     available: true,
     command: "claude",
@@ -97,8 +105,16 @@ export function probeClaudeDryRunAvailability(command = "claude"): ClaudeDryRunA
   };
 }
 
-export function createClaudeDryRunControl(options: { audit: ClaudeControlAuditStore; availability?: ClaudeDryRunAvailability }) {
-  const availability = sanitizeClaudeAvailability(options.availability ?? probeClaudeDryRunAvailability());
+export function createClaudeDryRunControl(options: {
+  audit: ClaudeControlAuditStore;
+  availability?: ClaudeDryRunAvailability;
+  probeAvailability?: () => ClaudeDryRunAvailability;
+}) {
+  let availability: ClaudeDryRunAvailability | null = options.availability ? sanitizeClaudeAvailability(options.availability) : null;
+  const getAvailability = (): ClaudeDryRunAvailability => {
+    availability ??= sanitizeClaudeAvailability((options.probeAvailability ?? probeClaudeDryRunAvailability)());
+    return availability;
+  };
   const target = createTargetControl({
     targetName: "Claude Code",
     methodPolicy: CLAUDE_TARGET_METHOD_POLICY,
@@ -112,14 +128,15 @@ export function createClaudeDryRunControl(options: { audit: ClaudeControlAuditSt
 
   return {
     status(): ClaudeDryRunStatus {
-      const state = claudeDryRunState(availability);
+      const currentAvailability = getAvailability();
+      const state = claudeDryRunState(currentAvailability);
       return {
         schema: "lco.claude.dryRunControlStatus.v1",
         publicSafe: true,
         target: "claude_code",
         state,
         liveControlProven: false,
-        command: availability,
+        command: currentAvailability,
         methodPolicy: {
           readMethods: [...CLAUDE_TARGET_METHOD_POLICY.readMethods].sort(),
           controlMethods: [...CLAUDE_TARGET_METHOD_POLICY.controlMethods].sort(),
@@ -208,10 +225,10 @@ function nextClaudeDryRunAction(state: ClaudeDryRunState): string {
   return "Install or configure the Claude Code CLI before dry-run packet generation.";
 }
 
-function unsupportedClaudeVersionReason(version: string | null): string | null {
+export function unsupportedClaudeVersionReason(version: string | null): string | null {
   if (!version) return null;
   const match = version.match(/(?:Claude(?:\s+Code)?\s*)?(\d+)\.(\d+)\.(\d+)/i);
-  if (!match) return null;
+  if (!match) return "Claude CLI version could not be parsed for dry-run validation.";
   const major = Number(match[1]);
   if (Number.isFinite(major) && major < 1) return "Claude CLI version is below minimum supported 1.0.0 for dry-run validation.";
   return null;

@@ -5,13 +5,33 @@ import test from "node:test";
 import { assertTargetMethodAllowed } from "../packages/adapters/src/index.js";
 import {
   CLAUDE_TARGET_METHOD_POLICY,
+  claudeAvailabilityFromProbeResult,
   createClaudeCodeAdapter,
   createClaudeDryRunControl,
-  probeClaudeDryRunAvailability
+  probeClaudeDryRunAvailability,
+  unsupportedClaudeVersionReason
 } from "../packages/adapters/src/claude.js";
 
 function read(path: string): string {
   return readFileSync(path, "utf8");
+}
+
+function auditStub() {
+  return {
+    path: "memory",
+    fingerprintText(value: string) {
+      return value;
+    },
+    fingerprintValue(value: unknown) {
+      return JSON.stringify(value);
+    },
+    append(record: any) {
+      return { id: "unused", createdAt: new Date().toISOString(), ...record };
+    },
+    find() {
+      return null;
+    }
+  };
 }
 
 test("Claude adapter boundary inventory exists without claiming parity", () => {
@@ -173,6 +193,79 @@ test("Claude availability probe refuses non-allowlisted commands before reportin
   assert.equal(availability.command, "claude");
   assert.match(availability.unsupportedReason ?? "", /only the claude cli command/i);
   assert.doesNotMatch(JSON.stringify(availability), /\/bin\/echo/);
+});
+
+test("Claude version parser classifies old and unparseable CLI versions as unsupported", () => {
+  assert.match(unsupportedClaudeVersionReason("0.1.0") ?? "", /below minimum/i);
+  assert.match(unsupportedClaudeVersionReason("Claude Code 0.9.9") ?? "", /below minimum/i);
+  assert.equal(unsupportedClaudeVersionReason("Claude Code 1.2.3"), null);
+  assert.equal(unsupportedClaudeVersionReason("1.0.0"), null);
+  assert.match(unsupportedClaudeVersionReason("not a semver") ?? "", /could not be parsed/i);
+});
+
+test("Claude probe result classification covers missing binary nonzero and unsupported versions", () => {
+  const missing = claudeAvailabilityFromProbeResult({
+    error: new Error("spawn claude ENOENT /Users/lume/private"),
+    status: null,
+    stdout: "",
+    stderr: ""
+  });
+  assert.equal(missing.available, false);
+  assert.equal(missing.version, null);
+  assert.match(missing.error ?? "", /ENOENT/);
+
+  const nonzero = claudeAvailabilityFromProbeResult({
+    error: undefined,
+    status: 1,
+    stdout: "",
+    stderr: "permission denied"
+  });
+  assert.equal(nonzero.available, false);
+  assert.match(nonzero.error ?? "", /permission denied/);
+
+  const oldVersion = claudeAvailabilityFromProbeResult({
+    error: undefined,
+    status: 0,
+    stdout: "Claude Code 0.2.0\n",
+    stderr: ""
+  });
+  assert.equal(oldVersion.available, true);
+  assert.match(oldVersion.unsupportedReason ?? "", /below minimum/i);
+
+  const unknownVersion = claudeAvailabilityFromProbeResult({
+    error: undefined,
+    status: 0,
+    stdout: "Claude Code dev-build\n",
+    stderr: ""
+  });
+  assert.equal(unknownVersion.available, true);
+  assert.match(unknownVersion.unsupportedReason ?? "", /could not be parsed/i);
+});
+
+test("Claude dry-run control construction is side-effect-free and lazy-caches availability", () => {
+  let probeCount = 0;
+  const control = createClaudeDryRunControl({
+    audit: auditStub(),
+    probeAvailability() {
+      probeCount += 1;
+      return {
+        available: false,
+        command: "claude",
+        version: null,
+        error: "spawn claude ENOENT /Users/lume/private"
+      };
+    }
+  });
+
+  assert.equal(probeCount, 0);
+  const firstStatus = control.status();
+  assert.equal(probeCount, 1);
+  assert.equal(firstStatus.state, "not_configured");
+  assert.equal(firstStatus.command.error, "spawn claude ENOENT ~/private");
+  assert.doesNotMatch(JSON.stringify(firstStatus), /\/Users\/lume/);
+  const secondStatus = control.status();
+  assert.equal(probeCount, 1);
+  assert.deepEqual(secondStatus.command, firstStatus.command);
 });
 
 test("Claude dry-run status reports unsupported and redacts all diagnostics", () => {
