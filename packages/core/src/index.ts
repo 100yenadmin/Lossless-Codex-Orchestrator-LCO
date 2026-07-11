@@ -3177,6 +3177,8 @@ export function migrate(db: LooDatabase, options: { maintenance?: DatabaseMainte
     CREATE TABLE IF NOT EXISTS codex_source_files (
       source_path TEXT PRIMARY KEY,
       path_hash TEXT NOT NULL,
+      content_epoch TEXT,
+      append_generation INTEGER NOT NULL DEFAULT 0,
       size INTEGER NOT NULL,
       mtime_ms INTEGER NOT NULL,
       last_indexed_at TEXT NOT NULL,
@@ -3189,6 +3191,14 @@ export function migrate(db: LooDatabase, options: { maintenance?: DatabaseMainte
       jsonl_drift_missing_expected_fields_json TEXT NOT NULL DEFAULT '[]',
       jsonl_drift_reason_codes_json TEXT NOT NULL DEFAULT '[]'
     );
+
+    CREATE TABLE IF NOT EXISTS codex_source_integrity_state (
+      singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+      destructive_generation INTEGER NOT NULL DEFAULT 0
+    );
+
+    INSERT OR IGNORE INTO codex_source_integrity_state (singleton_id, destructive_generation)
+    VALUES (1, 0);
 
     CREATE TABLE IF NOT EXISTS codex_index_limited_files (
       source_path TEXT PRIMARY KEY,
@@ -3324,6 +3334,16 @@ export function migrate(db: LooDatabase, options: { maintenance?: DatabaseMainte
         '${RETRIEVAL_TELEMETRY_MIGRATION_ID}',
         datetime('now'),
         'Additive opt-in retrieval telemetry search and follow tables'
+      ),
+      (
+        '2026-07-11-session-diff-cursor-indexes',
+        datetime('now'),
+        'Additive keyset indexes for bounded session-diff scans'
+      ),
+      (
+        '2026-07-11-source-integrity-generation',
+        datetime('now'),
+        'Track destructive source rewrites separately from monotonic source additions'
       );
 
     CREATE TABLE IF NOT EXISTS prepared_source_events (
@@ -3418,6 +3438,7 @@ export function migrate(db: LooDatabase, options: { maintenance?: DatabaseMainte
       source_path_ref TEXT NOT NULL,
       source_hash TEXT NOT NULL,
       content_hash TEXT NOT NULL,
+      session_diff_key TEXT,
       range_kind TEXT NOT NULL,
       line_start INTEGER NOT NULL,
       line_end INTEGER NOT NULL,
@@ -3469,6 +3490,8 @@ export function migrate(db: LooDatabase, options: { maintenance?: DatabaseMainte
     );
 
     CREATE INDEX IF NOT EXISTS summary_leaves_thread_extractor_idx ON summary_leaves(thread_id, extractor_version, privacy_class, omission_status);
+    CREATE INDEX IF NOT EXISTS summary_leaves_session_diff_idx ON summary_leaves(created_at, leaf_ref);
+    CREATE INDEX IF NOT EXISTS summary_leaves_thread_session_diff_idx ON summary_leaves(thread_id, created_at, leaf_ref);
 
     CREATE TABLE IF NOT EXISTS prepared_cards (
       card_id TEXT PRIMARY KEY,
@@ -3497,6 +3520,8 @@ export function migrate(db: LooDatabase, options: { maintenance?: DatabaseMainte
     );
 
     CREATE INDEX IF NOT EXISTS prepared_cards_target_extractor_idx ON prepared_cards(target_ref, extractor_version, privacy_class, state);
+    CREATE INDEX IF NOT EXISTS prepared_cards_session_diff_idx ON prepared_cards(updated_at, card_ref);
+    CREATE INDEX IF NOT EXISTS prepared_cards_target_session_diff_idx ON prepared_cards(target_ref, updated_at, card_ref);
 
     CREATE TABLE IF NOT EXISTS prepared_inbox_items (
       item_id TEXT PRIMARY KEY,
@@ -3512,6 +3537,8 @@ export function migrate(db: LooDatabase, options: { maintenance?: DatabaseMainte
     );
 
     CREATE INDEX IF NOT EXISTS prepared_inbox_target_score_idx ON prepared_inbox_items(target_ref, urgency_score DESC, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS prepared_inbox_session_diff_idx ON prepared_inbox_items(updated_at, item_id);
+    CREATE INDEX IF NOT EXISTS prepared_inbox_target_session_diff_idx ON prepared_inbox_items(target_ref, updated_at, item_id);
 
     CREATE TABLE IF NOT EXISTS watcher_specs (
       watch_id TEXT PRIMARY KEY,
@@ -3536,6 +3563,9 @@ export function migrate(db: LooDatabase, options: { maintenance?: DatabaseMainte
       observed_at TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
+
+    CREATE INDEX IF NOT EXISTS watcher_observations_session_diff_idx ON watcher_observations(created_at, observation_id);
+    CREATE INDEX IF NOT EXISTS watcher_observations_target_session_diff_idx ON watcher_observations(target_ref, created_at, observation_id);
 
     CREATE TABLE IF NOT EXISTS attention_queue (
       queue_id TEXT PRIMARY KEY,
@@ -3699,8 +3729,11 @@ export function migrate(db: LooDatabase, options: { maintenance?: DatabaseMainte
   ensureColumn(db, "prepared_cards", "objective", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "prepared_cards", "blocker", "TEXT");
   ensureColumn(db, "prepared_cards", "source_range_refs_omitted", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "prepared_source_ranges", "session_diff_key", "TEXT");
   ensureColumn(db, "codex_tool_calls", "reason_code", "TEXT");
   ensureColumn(db, "codex_source_files", "metadata_extractor_version", "TEXT");
+  ensureColumn(db, "codex_source_files", "content_epoch", "TEXT");
+  ensureColumn(db, "codex_source_files", "append_generation", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "codex_source_files", "prepared_range_extractor_version", "TEXT");
   ensureColumn(db, "codex_source_files", "summary_leaf_extractor_version", "TEXT");
   ensureColumn(db, "codex_source_files", "prepared_card_extractor_version", "TEXT");
@@ -3709,7 +3742,43 @@ export function migrate(db: LooDatabase, options: { maintenance?: DatabaseMainte
   ensureColumn(db, "codex_source_files", "jsonl_drift_missing_expected_fields_json", "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn(db, "codex_source_files", "jsonl_drift_reason_codes_json", "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn(db, "telemetry_search_events", "telemetry_session_key", "TEXT");
+  const sessionDiffKeyMigrationRecorded = db
+    .prepare("SELECT 1 FROM loo_schema_migrations WHERE migration_id = ?")
+    .get("2026-07-11-session-diff-persisted-key") !== undefined;
+  if (!sessionDiffKeyMigrationRecorded) {
+    db.exec(`
+      UPDATE prepared_source_ranges
+      SET session_diff_key = source_path_ref || ':' || printf('%012d', ordinal) || ':' || range_kind || ':' || content_hash
+      WHERE session_diff_key IS NULL;
+      INSERT OR IGNORE INTO loo_schema_migrations (migration_id, applied_at, description)
+      VALUES (
+        '2026-07-11-session-diff-persisted-key',
+        datetime('now'),
+        'Persist the stable semantic source-range cursor key for seekable session-diff pagination'
+      );
+    `);
+  }
   db.exec(`
+    CREATE INDEX IF NOT EXISTS prepared_source_ranges_session_diff_key_idx ON prepared_source_ranges(created_at, session_diff_key);
+    CREATE INDEX IF NOT EXISTS prepared_source_ranges_thread_session_diff_key_idx ON prepared_source_ranges(thread_id, created_at, session_diff_key);
+    CREATE INDEX IF NOT EXISTS prepared_source_ranges_source_session_diff_key_idx ON prepared_source_ranges(source_ref, created_at, session_diff_key);
+    CREATE TRIGGER IF NOT EXISTS prepared_source_ranges_session_diff_key_ai
+    AFTER INSERT ON prepared_source_ranges
+    WHEN new.session_diff_key IS NULL
+    BEGIN
+      UPDATE prepared_source_ranges
+      SET session_diff_key = new.source_path_ref || ':' || printf('%012d', new.ordinal) || ':' || new.range_kind || ':' || new.content_hash
+      WHERE range_id = new.range_id;
+    END;
+    CREATE TRIGGER IF NOT EXISTS prepared_source_ranges_session_diff_key_au
+    AFTER UPDATE OF source_path_ref, ordinal, range_kind, content_hash ON prepared_source_ranges
+    WHEN new.session_diff_key IS NULL
+      OR new.session_diff_key <> (new.source_path_ref || ':' || printf('%012d', new.ordinal) || ':' || new.range_kind || ':' || new.content_hash)
+    BEGIN
+      UPDATE prepared_source_ranges
+      SET session_diff_key = new.source_path_ref || ':' || printf('%012d', new.ordinal) || ':' || new.range_kind || ':' || new.content_hash
+      WHERE range_id = new.range_id;
+    END;
     CREATE INDEX IF NOT EXISTS telemetry_search_events_session_ts_idx ON telemetry_search_events(telemetry_session_key, ts DESC);
     INSERT OR IGNORE INTO loo_schema_migrations (migration_id, applied_at, description)
     VALUES (
@@ -3789,8 +3858,8 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
         result.skippedFiles += 1;
         continue;
       }
-      if (eventContentEnabled && watermark && extractorStateCurrent && eventContentCurrent && !verify && stat.size > watermark.size) {
-        const appendDelta = tryIndexCodexAppendDelta(db, path, stat, watermark, maxEventsPerFile);
+      if (watermark && extractorStateCurrent && eventContentCurrent && stat.size > watermark.size) {
+        const appendDelta = tryIndexCodexAppendDelta(db, path, stat, watermark, maxEventsPerFile, eventContentEnabled);
         if (appendDelta) {
           result.indexedFiles += 1;
           result.appendDeltaIndexedFiles += 1;
@@ -3808,12 +3877,30 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
         recordLimitedFile(db, result, path, "max_events_per_file", maxEventsPerFile, eventCount);
         continue;
       }
-      if (sameWatermark && extractorStateCurrent && eventContentCurrent && watermark?.pathHash === stableId(text)) {
+      const sourceHash = stableId(text);
+      if (watermark && extractorStateCurrent && eventContentCurrent && watermark.pathHash === sourceHash) {
+        if (!sameWatermark) refreshSourceFileWatermarkMetadata(db, path, stat);
         result.skippedFiles += 1;
         continue;
       }
       const session = parseCodexJsonl(path, text, maxEventsPerFile);
-      upsertSession(db, path, text, session, { size: stat.size, mtimeMs }, { eventContentEnabled });
+      if (
+        eventContentEnabled
+        && watermark
+        && extractorStateCurrent
+        && !eventContentCurrent
+        && watermark.pathHash === stableId(text)
+      ) {
+        backfillCodexEventContentForSession(db, session);
+        result.indexedFiles += 1;
+        result.indexedEvents += session.eventCount;
+        seenThreads.add(session.threadId);
+        continue;
+      }
+      upsertSession(db, path, text, session, { size: stat.size, mtimeMs }, {
+        eventContentEnabled,
+        monotonicAppend: watermark ? sourceTextExtendsWatermark(text, watermark) : false
+      });
       result.indexedFiles += 1;
       result.indexedEvents += session.eventCount;
       if (session.driftReport) recordCodexJsonlDriftReport(result, session.driftReport);
@@ -3844,6 +3931,43 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
   result.indexedThreads = seenThreads.size;
   result.warnings = createCodexIndexLimitWarnings(result.limitedFiles);
   return result;
+}
+
+function refreshSourceFileWatermarkMetadata(
+  db: LooDatabase,
+  sourcePath: string,
+  stat: { size: number; mtimeMs: number }
+): void {
+  db.prepare(`
+    UPDATE codex_source_files
+    SET size = ?, mtime_ms = ?, last_indexed_at = ?
+    WHERE source_path = ?
+  `).run(stat.size, Math.trunc(stat.mtimeMs), new Date().toISOString(), sourcePath);
+  db.prepare("DELETE FROM codex_index_limited_files WHERE source_path = ?").run(sourcePath);
+}
+
+function backfillCodexEventContentForSession(db: LooDatabase, session: ImportedSession): void {
+  const now = new Date().toISOString();
+  db.exec("BEGIN");
+  try {
+    for (const event of session.sourceEvents) {
+      const eventId = event.eventRef.slice("codex_event:".length);
+      upsertCodexEventContentForDraft(db, {
+        event,
+        eventId,
+        threadId: session.threadId,
+        sourceRef: codexThreadRef(session.threadId),
+        sourcePathRef: event.sourcePathRef,
+        sourceHash: event.sourceHash,
+        privacyClass: "public_safe_metadata",
+        now
+      });
+    }
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
 }
 
 export function parseClaudeCodeJsonl(sourcePath: string, text: string): ParsedClaudeCodeSession {
@@ -4775,6 +4899,8 @@ function clearSourceFileIndex(db: LooDatabase, sourcePath: string): void {
 }
 
 function clearSourceFileIndexInsideTransaction(db: LooDatabase, sourcePath: string): void {
+  const trackedSource = db.prepare("SELECT 1 FROM codex_source_files WHERE source_path = ?").get(sourcePath) !== undefined;
+  if (trackedSource) bumpCodexSourceDestructiveGeneration(db);
   const rows = db.prepare("SELECT rowid AS sessionRowid, thread_id AS threadId FROM codex_sessions WHERE source_path = ?").all(sourcePath) as Array<{ sessionRowid: number; threadId: string }>;
   const threadIds = rows.map((row) => String(row.threadId)).filter(Boolean);
   deleteSummaryLeavesForThreadIds(db, threadIds);
@@ -4794,6 +4920,14 @@ function clearSourceFileIndexInsideTransaction(db: LooDatabase, sourcePath: stri
   db.prepare("DELETE FROM codex_sessions WHERE source_path = ?").run(sourcePath);
   db.prepare("DELETE FROM codex_source_files WHERE source_path = ?").run(sourcePath);
   db.prepare("DELETE FROM codex_index_limited_files WHERE source_path = ?").run(sourcePath);
+}
+
+function bumpCodexSourceDestructiveGeneration(db: LooDatabase): void {
+  db.prepare(`
+    UPDATE codex_source_integrity_state
+    SET destructive_generation = destructive_generation + 1
+    WHERE singleton_id = 1
+  `).run();
 }
 
 function pruneMissingCodexSourceFiles(db: LooDatabase, roots: string[], candidateFiles: string[]): void {
@@ -4886,6 +5020,12 @@ export function getSourceFileWatermark(db: LooDatabase, sourcePath: string): Sou
   };
 }
 
+function sourceTextExtendsWatermark(text: string, watermark: SourceFileWatermark): boolean {
+  const bytes = Buffer.from(text, "utf8");
+  if (watermark.size <= 0 || bytes.length <= watermark.size) return false;
+  return stableId(bytes.subarray(0, watermark.size).toString("utf8")) === watermark.pathHash;
+}
+
 function sourceFileExtractorStateIsCurrent(watermark: SourceFileWatermark): boolean {
   return watermark.metadataExtractorVersion === SESSION_METADATA_EXTRACTOR_VERSION
     && watermark.preparedRangeExtractorVersion === PREPARED_SOURCE_EXTRACTOR_VERSION
@@ -4955,7 +5095,8 @@ function tryIndexCodexAppendDelta(
   sourcePath: string,
   stat: { size: number; mtimeMs: number },
   watermark: SourceFileWatermark,
-  maxEventsPerFile: number
+  maxEventsPerFile: number,
+  eventContentEnabled: boolean
 ): ImportedSession | null {
   if (watermark.size <= 0 || stat.size <= watermark.size) return null;
   if (sourceFileHasRecordedJsonlDrift(db, sourcePath)) return null;
@@ -4981,7 +5122,7 @@ function tryIndexCodexAppendDelta(
   });
   if (delta.threadId !== seed.threadId || delta.eventCount !== appendEventCount) return null;
   const merged = mergeAppendDeltaSession(seed, delta);
-  appendSessionDelta(db, sourcePath, candidate.fullHash, merged, seed, delta, stat);
+  appendSessionDelta(db, sourcePath, candidate.fullHash, merged, seed, delta, stat, eventContentEnabled);
   return delta;
 }
 
@@ -5185,12 +5326,12 @@ function rekeyPreparedSourceRefsForAppend(db: LooDatabase, threadId: string, sou
       db.prepare(`
         INSERT INTO prepared_source_ranges (
           range_id, range_ref, event_id, event_ref, thread_id, source_ref, source_path_ref, source_hash,
-          content_hash, range_kind, line_start, line_end, byte_start, byte_end, ordinal, observed_at,
+          content_hash, session_diff_key, range_kind, line_start, line_end, byte_start, byte_end, ordinal, observed_at,
           extractor_version, privacy_class, omission_status, confidence, reason_codes_json, metadata_json, created_at
         )
         SELECT
           ?, ?, ?, ?, thread_id, source_ref, source_path_ref, ?,
-          content_hash, range_kind, line_start, line_end, byte_start, byte_end, ordinal, observed_at,
+          content_hash, session_diff_key, range_kind, line_start, line_end, byte_start, byte_end, ordinal, observed_at,
           extractor_version, privacy_class, omission_status, confidence, reason_codes_json, metadata_json, created_at
         FROM prepared_source_ranges
         WHERE range_id = ?
@@ -5272,9 +5413,10 @@ function appendSessionDelta(
   merged: ImportedSession,
   seed: ExistingCodexSessionSeed,
   delta: ImportedSession,
-  stat: { size: number; mtimeMs: number }
+  stat: { size: number; mtimeMs: number },
+  eventContentEnabled: boolean
 ): void {
-  const now = new Date().toISOString();
+  const now = nextSessionDiffMutationTimestamp(db);
   const sourcePathRef = publicSourcePathRef(sourcePath);
   const sessionRowid = requireCodexSessionRowid(db, seed.threadId);
   db.exec("BEGIN");
@@ -5282,6 +5424,8 @@ function appendSessionDelta(
     db.prepare(`
       UPDATE codex_source_files
       SET
+        content_epoch = COALESCE(content_epoch, path_hash),
+        append_generation = append_generation + 1,
         path_hash = ?,
         size = ?,
         mtime_ms = ?,
@@ -5405,9 +5549,9 @@ function appendSessionDelta(
     const insertPreparedRange = db.prepare(`
       INSERT OR REPLACE INTO prepared_source_ranges (
         range_id, range_ref, event_id, event_ref, thread_id, source_ref, source_path_ref, source_hash,
-        content_hash, range_kind, line_start, line_end, byte_start, byte_end, ordinal, observed_at,
+        content_hash, session_diff_key, range_kind, line_start, line_end, byte_start, byte_end, ordinal, observed_at,
         extractor_version, privacy_class, omission_status, confidence, reason_codes_json, metadata_json, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     for (const event of delta.sourceEvents) {
       const eventId = event.eventRef.slice("codex_event:".length);
@@ -5433,16 +5577,18 @@ function appendSessionDelta(
         JSON.stringify({ rangeCount: event.ranges.length }),
         now
       );
-      upsertCodexEventContentForDraft(db, {
-        event,
-        eventId,
-        threadId: seed.threadId,
-        sourceRef: codexThreadRef(seed.threadId),
-        sourcePathRef,
-        sourceHash,
-        privacyClass: "public_safe_metadata",
-        now
-      });
+      if (eventContentEnabled) {
+        upsertCodexEventContentForDraft(db, {
+          event,
+          eventId,
+          threadId: seed.threadId,
+          sourceRef: codexThreadRef(seed.threadId),
+          sourcePathRef,
+          sourceHash,
+          privacyClass: "public_safe_metadata",
+          now
+        });
+      }
       for (const range of event.ranges) {
         insertPreparedRange.run(
           range.rangeRef.slice("codex_range:".length),
@@ -5454,6 +5600,7 @@ function appendSessionDelta(
           sourcePathRef,
           sourceHash,
           range.contentHash,
+          sessionDiffSourceRangeCursorKey(sourcePathRef, range.ordinal, range.rangeKind, range.contentHash),
           range.rangeKind,
           event.lineStart,
           event.lineEnd,
@@ -6473,15 +6620,30 @@ function getPreparedSourceRangesForSummaryMaterialization(
 
 export function materializeSummaryLeaves(db: LooDatabase, options: SummaryLeafMaterializationOptions = {}): SummaryLeafMaterializationReport {
   if (!options.threadId) return materializeSummaryLeavesForAllThreads(db, options);
-  const generatedAt = new Date().toISOString();
+  const generatedAt = nextSessionDiffMutationTimestamp(db);
   const rangesReport = getPreparedSourceRangesForSummaryMaterialization(db, { threadId: options.threadId, limit: options.limit });
   const leafDrafts = buildSummaryLeafDrafts(rangesReport.ranges);
   db.exec("BEGIN");
   try {
-    const oldLeafRefs = db.prepare("SELECT leaf_ref AS leafRef FROM summary_leaves WHERE thread_id = ?").all(options.threadId) as Array<{ leafRef: string }>;
-    deleteSummaryLeafEdges(db, oldLeafRefs.map((row) => row.leafRef));
+    const oldLeaves = db.prepare(`
+      SELECT
+        leaf_ref AS leafRef,
+        input_hash AS inputHash,
+        output_hash AS outputHash,
+        created_at AS createdAt
+      FROM summary_leaves
+      WHERE thread_id = ?
+    `).all(options.threadId) as Array<{ leafRef: string; inputHash: string; outputHash: string; createdAt: string }>;
+    const oldLeafByRef = new Map(oldLeaves.map((row) => [row.leafRef, row]));
+    deleteSummaryLeafEdges(db, oldLeaves.map((row) => row.leafRef));
     db.prepare("DELETE FROM summary_leaves WHERE thread_id = ?").run(options.threadId);
     for (const leaf of leafDrafts) {
+      const previousLeaf = oldLeafByRef.get(leaf.leafRef);
+      const leafCreatedAt = previousLeaf
+        && previousLeaf.inputHash === leaf.inputHash
+        && previousLeaf.outputHash === leaf.outputHash
+        ? previousLeaf.createdAt
+        : generatedAt;
       db.prepare(`
         INSERT INTO summary_leaves (
           leaf_id, leaf_ref, thread_id, leaf_kind, summary_text, source_refs_json,
@@ -6506,7 +6668,7 @@ export function materializeSummaryLeaves(db: LooDatabase, options: SummaryLeafMa
         leaf.freshnessAt,
         leaf.stale ? 1 : 0,
         "metadata_only",
-        generatedAt
+        leafCreatedAt
       );
     }
     const edgeCount = insertSummaryLeafEdges(db, leafDrafts, generatedAt);
@@ -6821,7 +6983,7 @@ export function expandSummaryLeaves(db: LooDatabase, options: SummaryExpansionOp
 
 export function materializePreparedCards(db: LooDatabase, options: { threadId?: string } = {}): PreparedCardMaterializationReport {
   if (!options.threadId) return materializePreparedCardsForAllThreads(db);
-  const generatedAt = new Date().toISOString();
+  const generatedAt = nextSessionDiffMutationTimestamp(db);
   let summary: PreparedCardMaterializationReport["summary"];
   db.exec("BEGIN");
   try {
@@ -6849,7 +7011,7 @@ export function materializePreparedCards(db: LooDatabase, options: { threadId?: 
 }
 
 function materializePreparedCardsForAllThreads(db: LooDatabase): PreparedCardMaterializationReport {
-  const generatedAt = new Date().toISOString();
+  const generatedAt = nextSessionDiffMutationTimestamp(db);
   const rows = db.prepare(`
     SELECT DISTINCT threadId
     FROM (
@@ -6924,9 +7086,29 @@ function materializePreparedCardsForThread(
   const card = leavesReport.leaves.length > 0
     ? buildPreparedCardDraft(db, threadId, leavesReport.leaves, leavesReport.omitted.filteredUnsafeRows, lookupCache)
     : null;
+  const previousCard = db.prepare(`
+    SELECT
+      card_ref AS cardRef,
+      input_hash AS inputHash,
+      created_at AS createdAt,
+      updated_at AS updatedAt
+    FROM prepared_cards
+    WHERE target_ref = ?
+    LIMIT 1
+  `).get(targetRef) as PreviousPreparedCardWrite | undefined;
+  const previousInbox = db.prepare(`
+    SELECT
+      item_id AS itemRef,
+      card_ref AS cardRef,
+      created_at AS createdAt,
+      updated_at AS updatedAt
+    FROM prepared_inbox_items
+    WHERE target_ref = ?
+    LIMIT 1
+  `).get(targetRef) as PreviousPreparedInboxWrite | undefined;
   deletePreparedCardsForTargetRefs(db, [targetRef]);
   if (card) {
-    insertPreparedCardAndInbox(db, card, generatedAt);
+    insertPreparedCardAndInbox(db, card, generatedAt, { previousCard, previousInbox });
   }
   return {
     summaryLeaves: leavesReport.summary.total,
@@ -6936,7 +7118,16 @@ function materializePreparedCardsForThread(
   };
 }
 
-function insertPreparedCardAndInbox(db: LooDatabase, card: PreparedCardDraft, generatedAt: string): void {
+function insertPreparedCardAndInbox(
+  db: LooDatabase,
+  card: PreparedCardDraft,
+  generatedAt: string,
+  previous: { previousCard?: PreviousPreparedCardWrite; previousInbox?: PreviousPreparedInboxWrite } = {}
+): void {
+  const cardUnchanged = previous.previousCard?.cardRef === card.cardRef
+    && previous.previousCard.inputHash === card.inputHash;
+  const cardCreatedAt = cardUnchanged ? previous.previousCard!.createdAt : generatedAt;
+  const cardUpdatedAt = cardUnchanged ? previous.previousCard!.updatedAt : generatedAt;
   db.prepare(`
     INSERT INTO prepared_cards (
       card_id, card_ref, target_ref, card_kind, title, objective, summary_text, blocker, next_action,
@@ -6966,10 +7157,15 @@ function insertPreparedCardAndInbox(db: LooDatabase, card: PreparedCardDraft, ge
     card.stale ? 1 : 0,
     card.state,
     JSON.stringify(card.reasonCodes),
-    generatedAt,
-    generatedAt
+    cardCreatedAt,
+    cardUpdatedAt
   );
   const inbox = preparedInboxItemFromCard(card);
+  const inboxUnchanged = cardUnchanged
+    && previous.previousInbox?.itemRef === inbox.itemRef
+    && previous.previousInbox.cardRef === inbox.cardRef;
+  const inboxCreatedAt = inboxUnchanged ? previous.previousInbox!.createdAt : generatedAt;
+  const inboxUpdatedAt = inboxUnchanged ? previous.previousInbox!.updatedAt : generatedAt;
   db.prepare(`
     INSERT INTO prepared_inbox_items (
       item_id, card_ref, target_ref, urgency_score, state, reason_codes_json,
@@ -6984,8 +7180,8 @@ function insertPreparedCardAndInbox(db: LooDatabase, card: PreparedCardDraft, ge
     JSON.stringify(inbox.reasonCodes),
     JSON.stringify(inbox.sourceRefs),
     1,
-    generatedAt,
-    generatedAt
+    inboxCreatedAt,
+    inboxUpdatedAt
   );
 }
 
@@ -7020,12 +7216,29 @@ function materializePreparedCardsForClaudeSessions(db: LooDatabase, generatedAt:
   `).all() as ClaudePreparedSessionRow[];
   const targetRefs = unique(rows.map((row) => claudeSessionRef(safeClaudeSessionId(String(row.sessionId ?? "")))).filter(isPublicPreparedSourceRef));
   const existingRows = db.prepare(`
-    SELECT target_ref AS targetRef
+    SELECT
+      target_ref AS targetRef,
+      card_ref AS cardRef,
+      input_hash AS inputHash,
+      created_at AS createdAt,
+      updated_at AS updatedAt
     FROM prepared_cards
     WHERE target_ref GLOB 'claude_session:*'
       AND extractor_version = ?
       AND privacy_class = 'public_safe_metadata'
-  `).all(PREPARED_CARD_EXTRACTOR_VERSION) as Array<{ targetRef: string }>;
+  `).all(PREPARED_CARD_EXTRACTOR_VERSION) as Array<PreviousPreparedCardWrite & { targetRef: string }>;
+  const existingInboxRows = db.prepare(`
+    SELECT
+      target_ref AS targetRef,
+      item_id AS itemRef,
+      card_ref AS cardRef,
+      created_at AS createdAt,
+      updated_at AS updatedAt
+    FROM prepared_inbox_items
+    WHERE target_ref GLOB 'claude_session:*'
+  `).all() as Array<PreviousPreparedInboxWrite & { targetRef: string }>;
+  const previousCardByTarget = new Map(existingRows.map((row) => [row.targetRef, row]));
+  const previousInboxByTarget = new Map(existingInboxRows.map((row) => [row.targetRef, row]));
   const activeTargetRefs = new Set(targetRefs);
   const staleTargetRefs = existingRows.map((row) => String(row.targetRef ?? "")).filter((ref) => isPublicPreparedSourceRef(ref) && !activeTargetRefs.has(ref));
   // Delete-before-reinsert is safe because the caller keeps the whole
@@ -7050,7 +7263,10 @@ function materializePreparedCardsForClaudeSessions(db: LooDatabase, generatedAt:
     cardsByTargetRef.set(card.targetRef, card);
   }
   for (const card of cardsByTargetRef.values()) {
-    insertPreparedCardAndInbox(db, card, generatedAt);
+    insertPreparedCardAndInbox(db, card, generatedAt, {
+      previousCard: previousCardByTarget.get(card.targetRef),
+      previousInbox: previousInboxByTarget.get(card.targetRef)
+    });
     summary.cards += 1;
     summary.inboxItems += 1;
   }
@@ -7697,6 +7913,20 @@ type PreparedCardRow = {
   stale: number;
   state: string;
   reasonCodesJson: string;
+};
+
+type PreviousPreparedCardWrite = {
+  cardRef: string;
+  inputHash: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type PreviousPreparedInboxWrite = {
+  itemRef: string;
+  cardRef: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 type PreparedInboxRow = {
@@ -11041,7 +11271,7 @@ export function persistWatcherObservations(
   options: { now?: string } = {}
 ): WatcherPersistenceReport {
   const nowMs = timestampMillis(options.now ?? null) ?? Date.now();
-  const generatedAt = new Date(nowMs).toISOString();
+  const generatedAt = nextSessionDiffMutationTimestamp(db, new Date(nowMs).toISOString());
   const summary = {
     specs: 0,
     observations: 0,
@@ -11059,6 +11289,15 @@ export function persistWatcherObservations(
       const observedAt = watcher.lastObservedAt ?? generatedAt;
       // Same spec + same observedAt is an idempotent replay, not a second observation.
       const observationId = stableId(`watcher-observation:${watcher.watchId}:${watcher.targetRef}:${inputHash}:${observedAt}`);
+      const previousObservation = db.prepare(`
+        SELECT observation_id AS observationId, created_at AS createdAt
+        FROM watcher_observations
+        WHERE watch_id = ? AND target_ref = ?
+      `).get(watcher.watchId, watcher.targetRef) as { observationId: string; createdAt: string } | undefined;
+      const previousCreatedAt = previousObservation ? publicIsoTimestamp(previousObservation.createdAt) : null;
+      const observationCreatedAt = previousObservation?.observationId === observationId
+        ? previousCreatedAt ?? generatedAt
+        : generatedAt;
       const evidenceRefs = watcher.evidenceIds;
       db.prepare(`
         INSERT INTO watcher_specs (
@@ -11097,7 +11336,7 @@ export function persistWatcherObservations(
         "public_safe_metadata",
         watcher.confidence,
         observedAt,
-        generatedAt
+        observationCreatedAt
       );
       const watcherSourceRef = watcherSourceRefForWatchId(watcher.watchId);
       const queueRowsForTarget = db.prepare(`
@@ -11288,13 +11527,20 @@ type SessionDiffCursorPayload = {
   watermarkAt: string;
   watermarkChangeKind: SessionDiffChangeKind | null;
   watermarkChangeRef: string | null;
+  watermarkKey: string | null;
   threadId: string | null;
   targetRef: string | null;
   snapshot: SessionDiffSnapshot;
 };
 
 type SessionDiffSnapshot = {
-  sourceHashes: string[];
+  sourceContentDigest: string;
+  sourceEpochDigest: string;
+  sourceAppendGeneration: number;
+  sourceDestructiveGeneration: number;
+  sourceFileDigest: string;
+  sourceFileCount: number;
+  sourceBytes: number;
   sourceEventCount: number;
   sourceRangeCount: number;
   summaryLeafCount: number;
@@ -11304,6 +11550,38 @@ type SessionDiffSnapshot = {
   stateHash: string;
 };
 
+const SESSION_DIFF_CURSOR_MAX_CHARS = 16_384;
+const SESSION_DIFF_SOURCE_RANGE_CURSOR_KEY_SQL = "session_diff_key";
+
+function nextSessionDiffMutationTimestamp(db: LooDatabase, proposedAt = new Date().toISOString()): string {
+  const proposed = publicIsoTimestamp(proposedAt) ?? new Date().toISOString();
+  const proposedMs = timestampMillis(proposed) ?? Date.now();
+  const row = db.prepare(`
+    SELECT MAX(changed_at) AS changedAt
+    FROM (
+      SELECT MAX(created_at) AS changed_at FROM prepared_source_ranges
+      UNION ALL SELECT MAX(created_at) FROM summary_leaves
+      UNION ALL SELECT MAX(updated_at) FROM prepared_cards
+      UNION ALL SELECT MAX(updated_at) FROM prepared_inbox_items
+      UNION ALL SELECT MAX(created_at) FROM watcher_observations
+    )
+  `).get() as { changedAt?: unknown } | undefined;
+  const latestAt = typeof row?.changedAt === "string" ? publicIsoTimestamp(row.changedAt) : null;
+  const latestMs = timestampMillis(latestAt);
+  return latestMs !== null && proposedMs <= latestMs
+    ? new Date(latestMs + 1).toISOString()
+    : proposed;
+}
+
+function sessionDiffSourceRangeCursorKey(
+  sourcePathRef: string,
+  ordinal: number,
+  rangeKind: string,
+  contentHash: string
+): string {
+  return `${sourcePathRef}:${String(Math.max(0, Math.trunc(ordinal))).padStart(12, "0")}:${rangeKind}:${contentHash}`;
+}
+
 type SessionDiffCursorParseResult = {
   status: Exclude<SessionDiffCursorStatus, "none">;
   payload: SessionDiffCursorPayload | null;
@@ -11312,12 +11590,23 @@ type SessionDiffCursorParseResult = {
 
 type SessionDiffCandidate = SessionDiffChange & {
   approxTokens: number;
+  cursorKey: string;
 };
 
 type SessionDiffCursorWatermark = {
   changedAt: string;
   changeKind: SessionDiffChangeKind | null;
   changeRef: string | null;
+  key: string | null;
+};
+
+type SessionDiffCollectorResult = {
+  counts: SessionDiffSafeCounts;
+  changedRows: number;
+  filteredUnsafeRows: number;
+  changes: SessionDiffCandidate[];
+  scanWatermark: SessionDiffCursorWatermark | null;
+  scanExhausted: boolean;
 };
 
 type SessionDiffSafeCounts = {
@@ -11330,21 +11619,27 @@ export function getSessionDiff(db: LooDatabase, options: SessionDiffOptions = {}
   const limit = clamp(options.limit ?? 50, 1, 500);
   const tokenBudget = clamp(options.tokenBudget ?? 1000, 20, 8000);
   const threadId = optionalPublicThreadId(options.threadId);
-  const explicitTargetRef = options.targetRef ? publicSafeRefLike(options.targetRef, "target") : null;
+  const rawTargetRef = options.targetRef?.trim();
+  const explicitTargetRef = rawTargetRef && !looksSensitiveRefLike(rawTargetRef) && publicSafeIdentifier(rawTargetRef) === rawTargetRef
+    ? rawTargetRef
+    : null;
+  if (options.threadId !== undefined && !threadId) throw new Error("Invalid session diff thread id");
+  if (options.targetRef !== undefined && !explicitTargetRef) throw new Error("Invalid session diff target ref");
+  if (threadId && explicitTargetRef && explicitTargetRef !== codexThreadRef(threadId)) {
+    throw new Error("Conflicting session diff scope");
+  }
   const targetRef = threadId ? codexThreadRef(threadId) : explicitTargetRef;
   const cursorSigningKey = sessionDiffCursorSigningKey(options.cursorSigningKey);
   const cursor = parseSessionDiffCursor(options.cursor, cursorSigningKey);
-  const cursorWatermark = sessionDiffCursorWatermark(cursor.payload);
-  const cursorAt = cursorWatermark.changedAt;
   const snapshot = createSessionDiffSnapshot(db, { threadId, targetRef });
   const cursorReasonCodes = [...cursor.reasonCodes];
   let cursorStatus: SessionDiffCursorStatus = options.cursor ? cursor.status : "none";
   if (cursor.payload) {
-    if (threadId && cursor.payload.threadId && cursor.payload.threadId !== threadId) {
+    if (cursor.payload.threadId !== (threadId ?? null)) {
       cursorStatus = "invalid";
       cursorReasonCodes.push("cursor_thread_mismatch");
     }
-    if (targetRef && cursor.payload.targetRef && cursor.payload.targetRef !== targetRef) {
+    if (cursor.payload.targetRef !== (targetRef ?? null)) {
       cursorStatus = "invalid";
       cursorReasonCodes.push("cursor_target_mismatch");
     }
@@ -11357,12 +11652,22 @@ export function getSessionDiff(db: LooDatabase, options: SessionDiffOptions = {}
     }
   }
 
+  const cursorWatermark = sessionDiffCursorWatermark(cursorStatus === "invalid" ? null : cursor.payload);
+  const cursorAt = cursorWatermark.changedAt;
+  const scanLimit = 2000;
+
   const sourceEventsChanged = countChangedSessionDiffRows(db, "prepared_source_events", "created_at", cursorAt, { threadId, targetRef });
-  const sourceRangeResult = collectChangedSourceRanges(db, { threadId, targetRef, cursorAt });
-  const summaryLeafResult = collectChangedSummaryLeaves(db, { threadId, targetRef, cursorAt });
-  const preparedCardResult = collectChangedPreparedCards(db, { threadId, targetRef, cursorAt });
-  const inboxResult = collectChangedPreparedInboxItems(db, { threadId, targetRef, cursorAt });
-  const watcherResult = collectChangedWatcherObservations(db, { targetRef, cursorAt });
+  const sourceRangeResult = collectChangedSourceRanges(db, { threadId, targetRef, cursorWatermark, scanLimit });
+  const summaryLeafResult = collectChangedSummaryLeaves(db, { threadId, targetRef, cursorWatermark, scanLimit });
+  const preparedCardResult = collectChangedPreparedCards(db, { threadId, targetRef, cursorWatermark, scanLimit });
+  const inboxResult = collectChangedPreparedInboxItems(db, { threadId, targetRef, cursorWatermark, scanLimit });
+  const watcherResult = collectChangedWatcherObservations(db, { targetRef, cursorWatermark, scanLimit });
+  const collectorResults = [sourceRangeResult, summaryLeafResult, preparedCardResult, inboxResult, watcherResult];
+  const scanBarrier = collectorResults
+    .filter((result) => !result.scanExhausted && result.scanWatermark)
+    .map((result) => result.scanWatermark!)
+    .sort(compareSessionDiffWatermarks)
+    .at(0) ?? null;
   const candidates = [
     ...sourceRangeResult.changes,
     ...summaryLeafResult.changes,
@@ -11370,28 +11675,30 @@ export function getSessionDiff(db: LooDatabase, options: SessionDiffOptions = {}
     ...inboxResult.changes,
     ...watcherResult.changes
   ].filter((candidate) => sessionDiffCandidateAfterCursor(candidate, cursorWatermark))
+    .filter((candidate) => !scanBarrier || compareSessionDiffCandidateToWatermark(candidate, scanBarrier) <= 0)
     .sort((left, right) => left.changedAt.localeCompare(right.changedAt)
     || left.changeKind.localeCompare(right.changeKind)
-    || left.changeRef.localeCompare(right.changeRef));
+    || left.cursorKey.localeCompare(right.cursorKey));
 
-  const selected: SessionDiffChange[] = [];
+  const selectedCandidates: SessionDiffCandidate[] = [];
   let approxTokens = 0;
   let tokenBudgetCount = 0;
   let limitCount = 0;
   for (let index = 0; index < candidates.length; index += 1) {
     const candidate = candidates[index]!;
-    if (selected.length >= limit) {
+    if (selectedCandidates.length >= limit) {
       limitCount = candidates.length - index;
       break;
     }
-    if (approxTokens + candidate.approxTokens > tokenBudget && selected.length > 0) {
+    if (approxTokens + candidate.approxTokens > tokenBudget && selectedCandidates.length > 0) {
       tokenBudgetCount = candidates.length - index;
       break;
     }
     approxTokens += candidate.approxTokens;
-    const { approxTokens: _approxTokens, ...change } = candidate;
-    selected.push(change);
+    selectedCandidates.push(candidate);
   }
+  if (scanBarrier) limitCount = Math.max(1, limitCount);
+  const selected = selectedCandidates.map(({ approxTokens: _approxTokens, cursorKey: _cursorKey, ...change }) => change);
 
   const filteredUnsafeRows = sourceRangeResult.filteredUnsafeRows
     + summaryLeafResult.filteredUnsafeRows
@@ -11404,11 +11711,18 @@ export function getSessionDiff(db: LooDatabase, options: SessionDiffOptions = {}
     filteredUnsafeRows > 0 ? "filtered_unsafe_rows" : null
   ].filter((reason): reason is "limit" | "token_budget" | "filtered_unsafe_rows" => Boolean(reason));
   const nextWatermark = sessionDiffNextWatermark({
-    selected,
+    selected: selectedCandidates,
     candidates,
     filteredUnsafeRows,
     generatedAt,
-    cursorWatermark
+    cursorWatermark,
+    scanWatermarks: scanBarrier ? [scanBarrier] : [
+        sourceRangeResult.scanWatermark,
+        summaryLeafResult.scanWatermark,
+        preparedCardResult.scanWatermark,
+        inboxResult.scanWatermark,
+        watcherResult.scanWatermark
+      ].filter((watermark): watermark is SessionDiffCursorWatermark => watermark !== null)
   });
   const nextCursor = encodeSessionDiffCursor({
     schema: "lco.session.diff.cursor.v1",
@@ -11416,6 +11730,7 @@ export function getSessionDiff(db: LooDatabase, options: SessionDiffOptions = {}
     watermarkAt: nextWatermark.changedAt,
     watermarkChangeKind: nextWatermark.changeKind,
     watermarkChangeRef: nextWatermark.changeRef,
+    watermarkKey: nextWatermark.key,
     threadId: threadId ?? null,
     targetRef: targetRef ?? null,
     snapshot
@@ -11483,26 +11798,33 @@ function optionalPublicThreadId(value: string | undefined): string | undefined {
   return undefined;
 }
 
-function encodeSessionDiffCursor(payload: SessionDiffCursorPayload, signingKey: string | null): string {
+function encodeSessionDiffCursor(payload: SessionDiffCursorPayload, signingKey: string): string {
   const encodedPayload = Buffer.from(canonicalJsonString(payload)).toString("base64url");
-  if (!signingKey) return `lco_cursor_${encodedPayload}`;
   return `lco_cursor_${encodedPayload}.${sessionDiffCursorSignature(encodedPayload, signingKey)}`;
 }
 
-function parseSessionDiffCursor(cursor: string | undefined, signingKey: string | null): SessionDiffCursorParseResult {
+function parseSessionDiffCursor(cursor: string | undefined, signingKey: string): SessionDiffCursorParseResult {
   if (!cursor) return { status: "accepted", payload: null, reasonCodes: [] };
+  if (cursor.length > SESSION_DIFF_CURSOR_MAX_CHARS) {
+    return { status: "invalid", payload: null, reasonCodes: ["cursor_too_long"] };
+  }
   if (!cursor.startsWith("lco_cursor_")) {
     return { status: "invalid", payload: null, reasonCodes: ["cursor_prefix_invalid"] };
   }
   try {
     const encodedWithSignature = cursor.slice("lco_cursor_".length);
-    const [encodedPayload, suppliedSignature] = encodedWithSignature.split(".", 2);
+    const cursorSegments = encodedWithSignature.split(".");
+    if (cursorSegments.length === 1) {
+      return { status: "invalid", payload: null, reasonCodes: ["cursor_signature_missing"] };
+    }
+    if (cursorSegments.length !== 2) {
+      return { status: "invalid", payload: null, reasonCodes: ["cursor_signature_invalid"] };
+    }
+    const [encodedPayload, suppliedSignature] = cursorSegments;
     if (!encodedPayload) return { status: "invalid", payload: null, reasonCodes: ["cursor_payload_invalid"] };
-    if (signingKey) {
-      if (!suppliedSignature) return { status: "invalid", payload: null, reasonCodes: ["cursor_signature_missing"] };
-      if (!sessionDiffCursorSignatureMatches(encodedPayload, suppliedSignature, signingKey)) {
-        return { status: "invalid", payload: null, reasonCodes: ["cursor_signature_invalid"] };
-      }
+    if (!suppliedSignature) return { status: "invalid", payload: null, reasonCodes: ["cursor_signature_missing"] };
+    if (!sessionDiffCursorSignatureMatches(encodedPayload, suppliedSignature, signingKey)) {
+      return { status: "invalid", payload: null, reasonCodes: ["cursor_signature_invalid"] };
     }
     const parsed = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")) as unknown;
     if (!isObjectRecord(parsed) || parsed.schema !== "lco.session.diff.cursor.v1") {
@@ -11514,11 +11836,26 @@ function parseSessionDiffCursor(cursor: string | undefined, signingKey: string |
     const watermarkChangeRef = typeof parsed.watermarkChangeRef === "string" && /^session_diff:[0-9a-f]{32}$/.test(parsed.watermarkChangeRef)
       ? parsed.watermarkChangeRef
       : null;
+    const watermarkKey = parsed.watermarkKey === null
+      ? null
+      : typeof parsed.watermarkKey === "string"
+        && /^[A-Za-z0-9._:-]{1,256}$/.test(parsed.watermarkKey)
+        ? parsed.watermarkKey
+        : undefined;
+    if (parsed.threadId !== null && (typeof parsed.threadId !== "string" || !optionalPublicThreadId(parsed.threadId))) {
+      return { status: "invalid", payload: null, reasonCodes: ["cursor_thread_invalid"] };
+    }
+    if (parsed.targetRef !== null && (typeof parsed.targetRef !== "string" || !publicSafeRefLike(parsed.targetRef, "target"))) {
+      return { status: "invalid", payload: null, reasonCodes: ["cursor_target_invalid"] };
+    }
     const threadId = typeof parsed.threadId === "string" ? optionalPublicThreadId(parsed.threadId) ?? null : null;
     const targetRef = typeof parsed.targetRef === "string" ? publicSafeRefLike(parsed.targetRef, "target") : null;
     const snapshotValue = isObjectRecord(parsed.snapshot) ? parsed.snapshot : null;
-    if (!issuedAt || !watermarkAt || !snapshotValue) {
+    if (!issuedAt || !watermarkAt || !snapshotValue || watermarkKey === undefined) {
       return { status: "invalid", payload: null, reasonCodes: ["cursor_payload_invalid"] };
+    }
+    if ((watermarkChangeKind === null) !== (watermarkChangeRef === null) || (watermarkChangeKind === null) !== (watermarkKey === null)) {
+      return { status: "invalid", payload: null, reasonCodes: ["cursor_watermark_invalid"] };
     }
     const snapshot = sanitizeSessionDiffSnapshot(snapshotValue);
     if (!snapshot) return { status: "invalid", payload: null, reasonCodes: ["cursor_snapshot_invalid"] };
@@ -11530,6 +11867,7 @@ function parseSessionDiffCursor(cursor: string | undefined, signingKey: string |
         watermarkAt,
         watermarkChangeKind,
         watermarkChangeRef,
+        watermarkKey,
         threadId,
         targetRef,
         snapshot
@@ -11541,10 +11879,10 @@ function parseSessionDiffCursor(cursor: string | undefined, signingKey: string |
   }
 }
 
-function sessionDiffCursorSigningKey(explicitKey: string | undefined): string | null {
+function sessionDiffCursorSigningKey(explicitKey: string | undefined): string {
   const key = explicitKey?.trim() || readEnv("SESSION_DIFF_CURSOR_KEY")?.trim();
   if (key && key.length >= 16) return key;
-  return stableId(`session-diff-cursor:${resolveHomeDir()}`);
+  throw new Error("Session diff cursor signing key is required; set LCO_SESSION_DIFF_CURSOR_KEY or initialize the local audit key through an approved dry-run control workflow");
 }
 
 function sessionDiffCursorSignature(encodedPayload: string, signingKey: string): string {
@@ -11576,7 +11914,8 @@ function sessionDiffCursorWatermark(payload: SessionDiffCursorPayload | null): S
   return {
     changedAt: payload?.watermarkAt ?? payload?.issuedAt ?? "1970-01-01T00:00:00.000Z",
     changeKind: payload?.watermarkChangeKind ?? null,
-    changeRef: payload?.watermarkChangeRef ?? null
+    changeRef: payload?.watermarkChangeRef ?? null,
+    key: payload?.watermarkKey ?? null
   };
 }
 
@@ -11584,42 +11923,70 @@ function sessionDiffCandidateAfterCursor(candidate: SessionDiffCandidate, waterm
   const timeComparison = candidate.changedAt.localeCompare(watermark.changedAt);
   if (timeComparison > 0) return true;
   if (timeComparison < 0) return false;
-  if (!watermark.changeKind || !watermark.changeRef) return false;
+  if (!watermark.changeKind || !watermark.changeRef || watermark.key === null) return false;
   const kindComparison = candidate.changeKind.localeCompare(watermark.changeKind);
   if (kindComparison > 0) return true;
   if (kindComparison < 0) return false;
-  return candidate.changeRef.localeCompare(watermark.changeRef) > 0;
+  return candidate.cursorKey.localeCompare(watermark.key) > 0;
+}
+
+function compareSessionDiffCandidateToWatermark(
+  candidate: SessionDiffCandidate,
+  watermark: SessionDiffCursorWatermark
+): number {
+  return candidate.changedAt.localeCompare(watermark.changedAt)
+    || candidate.changeKind.localeCompare(watermark.changeKind ?? "")
+    || candidate.cursorKey.localeCompare(watermark.key ?? "");
 }
 
 function sessionDiffNextWatermark(input: {
-  selected: SessionDiffChange[];
+  selected: SessionDiffCandidate[];
   candidates: SessionDiffCandidate[];
   filteredUnsafeRows: number;
   generatedAt: string;
   cursorWatermark: SessionDiffCursorWatermark;
+  scanWatermarks: SessionDiffCursorWatermark[];
 }): SessionDiffCursorWatermark {
   const lastSelected = input.selected.at(-1);
   if (lastSelected) {
     return {
       changedAt: lastSelected.changedAt,
       changeKind: lastSelected.changeKind,
-      changeRef: lastSelected.changeRef
+      changeRef: lastSelected.changeRef,
+      key: lastSelected.cursorKey
     };
   }
+  if (input.filteredUnsafeRows > 0 && input.scanWatermarks.length > 0) {
+    return input.scanWatermarks.sort(compareSessionDiffWatermarks).at(-1)!;
+  }
   if (input.candidates.length === 0 && input.filteredUnsafeRows === 0) {
-    return {
-      changedAt: input.generatedAt,
-      changeKind: null,
-      changeRef: null
-    };
+    return input.cursorWatermark;
   }
   return input.cursorWatermark;
 }
 
+function compareSessionDiffWatermarks(left: SessionDiffCursorWatermark, right: SessionDiffCursorWatermark): number {
+  return left.changedAt.localeCompare(right.changedAt)
+    || (left.changeKind ?? "").localeCompare(right.changeKind ?? "")
+    || (left.key ?? "").localeCompare(right.key ?? "");
+}
+
 function sanitizeSessionDiffSnapshot(value: Record<string, unknown>): SessionDiffSnapshot | null {
-  const sourceHashes = Array.isArray(value.sourceHashes)
-    ? value.sourceHashes.filter((hash): hash is string => typeof hash === "string" && /^[0-9a-f]{32}$/.test(hash)).sort()
-    : [];
+  const sourceContentDigest = typeof value.sourceContentDigest === "string" && /^[0-9a-f]{32}$/.test(value.sourceContentDigest)
+    ? value.sourceContentDigest
+    : null;
+  const sourceEpochDigest = typeof value.sourceEpochDigest === "string" && /^[0-9a-f]{32}$/.test(value.sourceEpochDigest)
+    ? value.sourceEpochDigest
+    : null;
+  const sourceAppendGeneration = boundedNonNegativeInteger(value.sourceAppendGeneration, Number.MAX_SAFE_INTEGER);
+  const sourceDestructiveGeneration = boundedNonNegativeInteger(value.sourceDestructiveGeneration, Number.MAX_SAFE_INTEGER);
+  const sourceFileDigest = typeof value.sourceFileDigest === "string" && /^[0-9a-f]{32}$/.test(value.sourceFileDigest)
+    ? value.sourceFileDigest
+    : null;
+  const sourceFileCount = value.sourceFileCount === undefined
+    ? 0
+    : boundedNonNegativeInteger(value.sourceFileCount, 100_000_000);
+  const sourceBytes = boundedNonNegativeInteger(value.sourceBytes, Number.MAX_SAFE_INTEGER);
   const sourceEventCount = boundedNonNegativeInteger(value.sourceEventCount, 100_000_000);
   const sourceRangeCount = boundedNonNegativeInteger(value.sourceRangeCount, 100_000_000);
   const summaryLeafCount = boundedNonNegativeInteger(value.summaryLeafCount, 100_000_000);
@@ -11627,9 +11994,15 @@ function sanitizeSessionDiffSnapshot(value: Record<string, unknown>): SessionDif
   const preparedInboxItemCount = boundedNonNegativeInteger(value.preparedInboxItemCount, 100_000_000);
   const watcherObservationCount = boundedNonNegativeInteger(value.watcherObservationCount, 100_000_000);
   const stateHash = typeof value.stateHash === "string" && /^[0-9a-f]{32}$/.test(value.stateHash) ? value.stateHash : null;
-  if (!stateHash) return null;
+  if (!sourceContentDigest || !sourceEpochDigest || !sourceFileDigest || !stateHash) return null;
   return {
-    sourceHashes,
+    sourceContentDigest,
+    sourceEpochDigest,
+    sourceAppendGeneration,
+    sourceDestructiveGeneration,
+    sourceFileDigest,
+    sourceFileCount,
+    sourceBytes,
     sourceEventCount,
     sourceRangeCount,
     summaryLeafCount,
@@ -11644,24 +12017,22 @@ function createSessionDiffSnapshot(
   db: LooDatabase,
   target: { threadId?: string; targetRef?: string | null }
 ): SessionDiffSnapshot {
+  const sourceFiles = sessionDiffSourceFileSnapshot(db, target);
+  const usesGlobalSourceIntegrityGeneration = !target.threadId && !target.targetRef;
   const sourceEventCount = countMatchingRows(db, "prepared_source_events", target);
   const sourceRangeCount = countMatchingRows(db, "prepared_source_ranges", target);
   const summaryLeafCount = countMatchingRows(db, "summary_leaves", target);
   const preparedCardCount = countMatchingRows(db, "prepared_cards", target);
   const preparedInboxItemCount = countMatchingRows(db, "prepared_inbox_items", target);
   const watcherObservationCount = countMatchingRows(db, "watcher_observations", target);
-  const sourceHashes = db.prepare(`
-    SELECT DISTINCT source_hash AS sourceHash
-    FROM prepared_source_ranges
-    ${sessionDiffWhereSql("prepared_source_ranges", target).where}
-    ORDER BY source_hash ASC
-  `).all(...sessionDiffWhereSql("prepared_source_ranges", target).params) as Array<{ sourceHash: string }>;
-  const cleanSourceHashes = sourceHashes
-    .map((row) => String(row.sourceHash))
-    .filter((hash) => /^[0-9a-f]{32}$/.test(hash))
-    .sort();
   const stateWithoutHash = {
-    sourceHashes: cleanSourceHashes,
+    sourceContentDigest: sourceFiles.contentDigest,
+    sourceEpochDigest: sourceFiles.epochDigest,
+    sourceAppendGeneration: sourceFiles.appendGeneration,
+    sourceDestructiveGeneration: usesGlobalSourceIntegrityGeneration ? sessionDiffSourceDestructiveGeneration(db) : 0,
+    sourceFileDigest: sourceFiles.digest,
+    sourceFileCount: sourceFiles.count,
+    sourceBytes: sourceFiles.bytes,
     sourceEventCount,
     sourceRangeCount,
     summaryLeafCount,
@@ -11675,15 +12046,98 @@ function createSessionDiffSnapshot(
   };
 }
 
-function sessionDiffSnapshotStaleReasons(previous: SessionDiffSnapshot, current: SessionDiffSnapshot): string[] {
+function sessionDiffSourceFileSnapshot(
+  db: LooDatabase,
+  target: { threadId?: string; targetRef?: string | null }
+): { count: number; bytes: number; digest: string; contentDigest: string; epochDigest: string; appendGeneration: number } {
+  const threadId = target.threadId
+    ?? (target.targetRef?.startsWith("codex_thread:") ? target.targetRef.slice("codex_thread:".length) : undefined);
+  const rows = threadId
+    ? db.prepare(`
+      SELECT DISTINCT
+        sources.source_path AS sourcePath,
+        sources.path_hash AS contentHash,
+        sources.content_epoch AS contentEpoch,
+        sources.append_generation AS appendGeneration,
+        sources.size AS size
+      FROM codex_sessions AS sessions
+      INNER JOIN codex_source_files AS sources ON sources.source_path = sessions.source_path
+      WHERE sessions.thread_id = ?
+      ORDER BY sources.path_hash ASC
+    `).all(threadId) as Array<{ sourcePath: string; contentHash: string; contentEpoch: string | null; appendGeneration: number; size: number }>
+    : target.targetRef
+      ? []
+      : db.prepare(`
+      SELECT
+        source_path AS sourcePath,
+        path_hash AS contentHash,
+        content_epoch AS contentEpoch,
+        append_generation AS appendGeneration,
+        size
+      FROM codex_source_files
+      ORDER BY source_path ASC
+    `).all() as Array<{ sourcePath: string; contentHash: string; contentEpoch: string | null; appendGeneration: number; size: number }>;
+  const safeRows = rows
+    .map((row) => ({
+      identityHash: stableId(String(row.sourcePath)),
+      contentHash: String(row.contentHash),
+      contentEpoch: String(row.contentEpoch ?? row.contentHash),
+      appendGeneration: boundedNonNegativeInteger(row.appendGeneration, Number.MAX_SAFE_INTEGER),
+      size: Number.isFinite(Number(row.size)) ? Math.max(0, Math.trunc(Number(row.size))) : 0
+    }))
+    .filter((row) => /^[0-9a-f]{32}$/.test(row.contentHash) && /^[0-9a-f]{32}$/.test(row.contentEpoch))
+    .sort((left, right) => left.identityHash.localeCompare(right.identityHash));
+  return {
+    count: safeRows.length,
+    bytes: safeRows.reduce((total, row) => Math.min(Number.MAX_SAFE_INTEGER, total + row.size), 0),
+    digest: stableId(canonicalJsonString(safeRows.map((row) => row.identityHash))),
+    contentDigest: stableId(canonicalJsonString(safeRows.map((row) => `${row.identityHash}:${row.contentHash}`))),
+    epochDigest: stableId(canonicalJsonString(safeRows.map((row) => `${row.identityHash}:${row.contentEpoch}`))),
+    appendGeneration: safeRows.reduce(
+      (total, row) => Math.min(Number.MAX_SAFE_INTEGER, total + row.appendGeneration),
+      0
+    )
+  };
+}
+
+function sessionDiffSourceDestructiveGeneration(db: LooDatabase): number {
+  const row = db.prepare(`
+    SELECT destructive_generation AS destructiveGeneration
+    FROM codex_source_integrity_state
+    WHERE singleton_id = 1
+  `).get() as { destructiveGeneration?: unknown } | undefined;
+  return boundedNonNegativeInteger(row?.destructiveGeneration, Number.MAX_SAFE_INTEGER);
+}
+
+function sessionDiffSnapshotStaleReasons(
+  previous: SessionDiffSnapshot,
+  current: SessionDiffSnapshot
+): string[] {
   const reasons: string[] = [];
-  if (canonicalJsonString(previous.sourceHashes) !== canonicalJsonString(current.sourceHashes)) reasons.push("source_hash_changed");
+  if (previous.sourceFileCount > 0 && current.sourceFileCount === 0) reasons.push("source_missing");
+  else if (current.sourceFileCount < previous.sourceFileCount) reasons.push("source_file_count_decreased");
+  if (current.sourceBytes < previous.sourceBytes) reasons.push("source_size_decreased");
   if (current.sourceEventCount < previous.sourceEventCount) reasons.push("source_event_count_decreased");
   if (current.sourceRangeCount < previous.sourceRangeCount) reasons.push("source_range_count_decreased");
   if (current.summaryLeafCount < previous.summaryLeafCount) reasons.push("summary_leaf_count_decreased");
   if (current.preparedCardCount < previous.preparedCardCount) reasons.push("prepared_card_count_decreased");
   if (current.preparedInboxItemCount < previous.preparedInboxItemCount) reasons.push("prepared_inbox_count_decreased");
   if (current.watcherObservationCount < previous.watcherObservationCount) reasons.push("watcher_observation_count_decreased");
+  if (current.sourceDestructiveGeneration !== previous.sourceDestructiveGeneration) reasons.push("source_history_rewritten");
+  const sourceFilesAdded = current.sourceFileCount > previous.sourceFileCount
+    && current.sourceDestructiveGeneration === previous.sourceDestructiveGeneration
+    && reasons.length === 0;
+  if (!sourceFilesAdded && previous.sourceFileDigest !== current.sourceFileDigest) reasons.push("source_identity_changed");
+  const sourceHashChanged = previous.sourceContentDigest !== current.sourceContentDigest;
+  const appendShape = current.sourceFileDigest === previous.sourceFileDigest
+    && current.sourceEpochDigest === previous.sourceEpochDigest
+    && current.sourceAppendGeneration > previous.sourceAppendGeneration
+    && current.sourceBytes > previous.sourceBytes
+    && (current.sourceEventCount > previous.sourceEventCount || current.sourceRangeCount > previous.sourceRangeCount)
+    && reasons.length === 0;
+  const monotonicAppend = appendShape;
+  if (sourceHashChanged && !sourceFilesAdded && previous.sourceEpochDigest !== current.sourceEpochDigest) reasons.push("source_history_rewritten");
+  if (sourceHashChanged && !sourceFilesAdded && !monotonicAppend) reasons.push("source_hash_changed");
   return reasons;
 }
 
@@ -11746,14 +12200,64 @@ function countChangedSessionDiffRows(
   return Number((db.prepare(`SELECT COUNT(*) AS count FROM ${table} ${where}`).get(...base.params, cursorAt) as { count: number }).count ?? 0);
 }
 
+function sessionDiffScanWhere(
+  changeKind: SessionDiffChangeKind,
+  changedColumn: "created_at" | "updated_at" | "observed_at",
+  keyExpression: string,
+  base: { where: string; params: string[] },
+  watermark: SessionDiffCursorWatermark
+): { where: string; params: string[] } {
+  const clauses = base.where ? [base.where.replace(/^WHERE\s+/i, "")] : [];
+  const params = [...base.params];
+  if (!watermark.changeKind || watermark.key === null) {
+    clauses.push(`${changedColumn} > ?`);
+    params.push(watermark.changedAt);
+  } else {
+    const kindComparison = changeKind.localeCompare(watermark.changeKind);
+    if (kindComparison > 0) {
+      clauses.push(`${changedColumn} >= ?`);
+      params.push(watermark.changedAt);
+    } else if (kindComparison < 0) {
+      clauses.push(`${changedColumn} > ?`);
+      params.push(watermark.changedAt);
+    } else {
+      clauses.push(`(${changedColumn}, ${keyExpression}) > (?, ?)`);
+      params.push(watermark.changedAt, watermark.key);
+    }
+  }
+  return { where: `WHERE ${clauses.join(" AND ")}`, params };
+}
+
+function sessionDiffScannedWatermark(
+  changeKind: SessionDiffChangeKind,
+  row: { cursorKey: string } | undefined,
+  changedAt: unknown,
+  fallbackAt: string
+): SessionDiffCursorWatermark | null {
+  if (!row) return null;
+  return {
+    changedAt: typeof changedAt === "string" ? publicIsoTimestamp(changedAt) ?? fallbackAt : fallbackAt,
+    changeKind,
+    changeRef: `session_diff:${stableId(`${changeKind}:scan:${row.cursorKey}:${String(changedAt)}`)}`,
+    key: row.cursorKey
+  };
+}
+
 function collectChangedSourceRanges(
   db: LooDatabase,
-  input: { threadId?: string; targetRef?: string | null; cursorAt: string }
-): { counts: SessionDiffSafeCounts; changedRows: number; filteredUnsafeRows: number; changes: SessionDiffCandidate[] } {
+  input: { threadId?: string; targetRef?: string | null; cursorWatermark: SessionDiffCursorWatermark; scanLimit: number }
+): SessionDiffCollectorResult {
   const base = sessionDiffWhereSql("prepared_source_ranges", input);
-  const where = base.where ? `${base.where} AND created_at >= ?` : "WHERE created_at >= ?";
-  const rows = db.prepare(`
+  const scan = sessionDiffScanWhere(
+    "source_range",
+    "created_at",
+    SESSION_DIFF_SOURCE_RANGE_CURSOR_KEY_SQL,
+    base,
+    input.cursorWatermark
+  );
+  const rawRows = db.prepare(`
     SELECT
+      ${SESSION_DIFF_SOURCE_RANGE_CURSOR_KEY_SQL} AS cursorKey,
       range_ref AS rangeRef,
       event_ref AS eventRef,
       thread_id AS threadId,
@@ -11775,10 +12279,11 @@ function collectChangedSourceRanges(
       reason_codes_json AS reasonCodesJson,
       created_at AS createdAt
     FROM prepared_source_ranges
-    ${where}
-    ORDER BY created_at ASC, thread_id ASC, ordinal ASC, range_ref ASC
-    LIMIT 2000
-  `).all(...base.params, input.cursorAt) as Array<PreparedSourceRangeRow & { createdAt: string }>;
+    ${scan.where}
+    ORDER BY created_at ASC, ${SESSION_DIFF_SOURCE_RANGE_CURSOR_KEY_SQL} ASC
+    LIMIT ?
+  `).all(...scan.params, input.scanLimit + 1) as Array<PreparedSourceRangeRow & { createdAt: string; cursorKey: string }>;
+  const rows = rawRows.slice(0, input.scanLimit);
   const changes: SessionDiffCandidate[] = [];
   let filteredUnsafeRows = 0;
   for (const row of rows) {
@@ -11790,9 +12295,10 @@ function collectChangedSourceRanges(
     changes.push(sessionDiffCandidate({
       changeKind: "source_range",
       changeRefInput: range.rangeRef,
+      cursorKey: row.cursorKey,
       targetRef: range.sourceRef,
       threadId: range.threadId,
-      changedAt: publicIsoTimestamp(row.createdAt) ?? range.observedAt ?? input.cursorAt,
+      changedAt: publicIsoTimestamp(row.createdAt) ?? range.observedAt ?? input.cursorWatermark.changedAt,
       freshnessAt: range.observedAt,
       sourceRefs: [range.sourceRef],
       sourceRangeRefs: [range.rangeRef],
@@ -11807,18 +12313,21 @@ function collectChangedSourceRanges(
     counts: sessionDiffSafeCounts(db, "prepared_source_ranges", input),
     changedRows: rows.length,
     filteredUnsafeRows,
-    changes
+    changes,
+    scanWatermark: sessionDiffScannedWatermark("source_range", rows.at(-1), rows.at(-1)?.createdAt, input.cursorWatermark.changedAt),
+    scanExhausted: rawRows.length <= input.scanLimit
   };
 }
 
 function collectChangedSummaryLeaves(
   db: LooDatabase,
-  input: { threadId?: string; targetRef?: string | null; cursorAt: string }
-): { counts: SessionDiffSafeCounts; changedRows: number; filteredUnsafeRows: number; changes: SessionDiffCandidate[] } {
+  input: { threadId?: string; targetRef?: string | null; cursorWatermark: SessionDiffCursorWatermark; scanLimit: number }
+): SessionDiffCollectorResult {
   const base = sessionDiffWhereSql("summary_leaves", input);
-  const where = base.where ? `${base.where} AND created_at >= ?` : "WHERE created_at >= ?";
-  const rows = db.prepare(`
+  const scan = sessionDiffScanWhere("summary_leaf", "created_at", "leaf_ref", base, input.cursorWatermark);
+  const rawRows = db.prepare(`
     SELECT
+      leaf_ref AS cursorKey,
       leaf_ref AS leafRef,
       thread_id AS threadId,
       leaf_kind AS leafKind,
@@ -11836,10 +12345,11 @@ function collectChangedSummaryLeaves(
       omission_status AS omissionStatus,
       created_at AS createdAt
     FROM summary_leaves
-    ${where}
-    ORDER BY created_at ASC, thread_id ASC, leaf_ref ASC
-    LIMIT 2000
-  `).all(...base.params, input.cursorAt) as Array<SummaryLeafRow & { createdAt: string }>;
+    ${scan.where}
+    ORDER BY created_at ASC, leaf_ref ASC
+    LIMIT ?
+  `).all(...scan.params, input.scanLimit + 1) as Array<SummaryLeafRow & { createdAt: string; cursorKey: string }>;
+  const rows = rawRows.slice(0, input.scanLimit);
   const changes: SessionDiffCandidate[] = [];
   let filteredUnsafeRows = 0;
   for (const row of rows) {
@@ -11851,9 +12361,10 @@ function collectChangedSummaryLeaves(
     changes.push(sessionDiffCandidate({
       changeKind: "summary_leaf",
       changeRefInput: leaf.leafRef,
+      cursorKey: row.cursorKey,
       targetRef: leaf.sourceRefs[0] ?? (leaf.threadId ? codexThreadRef(leaf.threadId) : "target_unknown"),
       threadId: leaf.threadId,
-      changedAt: publicIsoTimestamp(row.createdAt) ?? leaf.freshnessAt ?? input.cursorAt,
+      changedAt: publicIsoTimestamp(row.createdAt) ?? leaf.freshnessAt ?? input.cursorWatermark.changedAt,
       freshnessAt: leaf.freshnessAt,
       sourceRefs: leaf.sourceRefs,
       sourceRangeRefs: leaf.sourceRangeRefs,
@@ -11868,18 +12379,21 @@ function collectChangedSummaryLeaves(
     counts: sessionDiffSafeCounts(db, "summary_leaves", input),
     changedRows: rows.length,
     filteredUnsafeRows,
-    changes
+    changes,
+    scanWatermark: sessionDiffScannedWatermark("summary_leaf", rows.at(-1), rows.at(-1)?.createdAt, input.cursorWatermark.changedAt),
+    scanExhausted: rawRows.length <= input.scanLimit
   };
 }
 
 function collectChangedPreparedCards(
   db: LooDatabase,
-  input: { threadId?: string; targetRef?: string | null; cursorAt: string }
-): { counts: SessionDiffSafeCounts; changedRows: number; filteredUnsafeRows: number; changes: SessionDiffCandidate[] } {
+  input: { threadId?: string; targetRef?: string | null; cursorWatermark: SessionDiffCursorWatermark; scanLimit: number }
+): SessionDiffCollectorResult {
   const base = sessionDiffWhereSql("prepared_cards", input);
-  const where = base.where ? `${base.where} AND updated_at >= ?` : "WHERE updated_at >= ?";
-  const rows = db.prepare(`
+  const scan = sessionDiffScanWhere("prepared_card", "updated_at", "card_ref", base, input.cursorWatermark);
+  const rawRows = db.prepare(`
     SELECT
+      card_ref AS cursorKey,
       card_ref AS cardRef,
       target_ref AS targetRef,
       card_kind AS cardKind,
@@ -11902,10 +12416,11 @@ function collectChangedPreparedCards(
       reason_codes_json AS reasonCodesJson,
       updated_at AS updatedAt
     FROM prepared_cards
-    ${where}
-    ORDER BY updated_at ASC, target_ref ASC, card_ref ASC
-    LIMIT 2000
-  `).all(...base.params, input.cursorAt) as Array<PreparedCardRow & { updatedAt: string }>;
+    ${scan.where}
+    ORDER BY updated_at ASC, card_ref ASC
+    LIMIT ?
+  `).all(...scan.params, input.scanLimit + 1) as Array<PreparedCardRow & { updatedAt: string; cursorKey: string }>;
+  const rows = rawRows.slice(0, input.scanLimit);
   const changes: SessionDiffCandidate[] = [];
   let filteredUnsafeRows = 0;
   for (const row of rows) {
@@ -11917,9 +12432,10 @@ function collectChangedPreparedCards(
     changes.push(sessionDiffCandidate({
       changeKind: "prepared_card",
       changeRefInput: card.cardRef,
+      cursorKey: row.cursorKey,
       targetRef: card.targetRef,
       threadId: card.targetRef.startsWith("codex_thread:") ? card.targetRef.slice("codex_thread:".length) : null,
-      changedAt: publicIsoTimestamp(row.updatedAt) ?? card.freshnessAt ?? input.cursorAt,
+      changedAt: publicIsoTimestamp(row.updatedAt) ?? card.freshnessAt ?? input.cursorWatermark.changedAt,
       freshnessAt: card.freshnessAt,
       sourceRefs: card.sourceRefs,
       sourceRangeRefs: card.sourceRangeRefs,
@@ -11934,18 +12450,21 @@ function collectChangedPreparedCards(
     counts: sessionDiffSafeCounts(db, "prepared_cards", input),
     changedRows: rows.length,
     filteredUnsafeRows,
-    changes
+    changes,
+    scanWatermark: sessionDiffScannedWatermark("prepared_card", rows.at(-1), rows.at(-1)?.updatedAt, input.cursorWatermark.changedAt),
+    scanExhausted: rawRows.length <= input.scanLimit
   };
 }
 
 function collectChangedPreparedInboxItems(
   db: LooDatabase,
-  input: { threadId?: string; targetRef?: string | null; cursorAt: string }
-): { counts: SessionDiffSafeCounts; changedRows: number; filteredUnsafeRows: number; changes: SessionDiffCandidate[] } {
+  input: { threadId?: string; targetRef?: string | null; cursorWatermark: SessionDiffCursorWatermark; scanLimit: number }
+): SessionDiffCollectorResult {
   const base = sessionDiffWhereSql("prepared_inbox_items", input);
-  const where = base.where ? `${base.where} AND updated_at >= ?` : "WHERE updated_at >= ?";
-  const rows = db.prepare(`
+  const scan = sessionDiffScanWhere("prepared_inbox_item", "updated_at", "item_id", base, input.cursorWatermark);
+  const rawRows = db.prepare(`
     SELECT
+      item_id AS cursorKey,
       item_id AS itemRef,
       card_ref AS cardRef,
       target_ref AS targetRef,
@@ -11956,10 +12475,11 @@ function collectChangedPreparedInboxItems(
       execute_false AS executeFalse,
       updated_at AS updatedAt
     FROM prepared_inbox_items
-    ${where}
-    ORDER BY updated_at ASC, urgency_score DESC, item_id ASC
-    LIMIT 2000
-  `).all(...base.params, input.cursorAt) as Array<PreparedInboxRow & { updatedAt: string }>;
+    ${scan.where}
+    ORDER BY updated_at ASC, item_id ASC
+    LIMIT ?
+  `).all(...scan.params, input.scanLimit + 1) as Array<PreparedInboxRow & { updatedAt: string; cursorKey: string }>;
+  const rows = rawRows.slice(0, input.scanLimit);
   const changes: SessionDiffCandidate[] = [];
   let filteredUnsafeRows = 0;
   for (const row of rows) {
@@ -11971,9 +12491,10 @@ function collectChangedPreparedInboxItems(
     changes.push(sessionDiffCandidate({
       changeKind: "prepared_inbox_item",
       changeRefInput: item.itemRef,
+      cursorKey: row.cursorKey,
       targetRef: item.targetRef,
       threadId: item.targetRef.startsWith("codex_thread:") ? item.targetRef.slice("codex_thread:".length) : null,
-      changedAt: publicIsoTimestamp(row.updatedAt) ?? input.cursorAt,
+      changedAt: publicIsoTimestamp(row.updatedAt) ?? input.cursorWatermark.changedAt,
       freshnessAt: publicIsoTimestamp(row.updatedAt),
       sourceRefs: item.sourceRefs,
       sourceRangeRefs: [],
@@ -11988,18 +12509,21 @@ function collectChangedPreparedInboxItems(
     counts: sessionDiffSafeCounts(db, "prepared_inbox_items", input),
     changedRows: rows.length,
     filteredUnsafeRows,
-    changes
+    changes,
+    scanWatermark: sessionDiffScannedWatermark("prepared_inbox_item", rows.at(-1), rows.at(-1)?.updatedAt, input.cursorWatermark.changedAt),
+    scanExhausted: rawRows.length <= input.scanLimit
   };
 }
 
 function collectChangedWatcherObservations(
   db: LooDatabase,
-  input: { targetRef?: string | null; cursorAt: string }
-): { counts: SessionDiffSafeCounts; changedRows: number; filteredUnsafeRows: number; changes: SessionDiffCandidate[] } {
+  input: { targetRef?: string | null; cursorWatermark: SessionDiffCursorWatermark; scanLimit: number }
+): SessionDiffCollectorResult {
   const base = sessionDiffWhereSql("watcher_observations", input);
-  const where = base.where ? `${base.where} AND observed_at >= ?` : "WHERE observed_at >= ?";
-  const rows = db.prepare(`
+  const scan = sessionDiffScanWhere("watcher_observation", "created_at", "observation_id", base, input.cursorWatermark);
+  const rawRows = db.prepare(`
     SELECT
+      observation_id AS cursorKey,
       observation_id AS observationId,
       watch_id AS watchId,
       target_ref AS targetRef,
@@ -12007,12 +12531,14 @@ function collectChangedWatcherObservations(
       evidence_refs_json AS evidenceRefsJson,
       privacy_class AS privacyClass,
       confidence,
-      observed_at AS observedAt
+      observed_at AS observedAt,
+      created_at AS createdAt
     FROM watcher_observations
-    ${where}
-    ORDER BY observed_at ASC, watch_id ASC, observation_id ASC
-    LIMIT 2000
-  `).all(...base.params, input.cursorAt) as WatcherObservationRow[];
+    ${scan.where}
+    ORDER BY created_at ASC, observation_id ASC
+    LIMIT ?
+  `).all(...scan.params, input.scanLimit + 1) as Array<WatcherObservationRow & { cursorKey: string; createdAt: string }>;
+  const rows = rawRows.slice(0, input.scanLimit);
   const changes: SessionDiffCandidate[] = [];
   let filteredUnsafeRows = 0;
   for (const row of rows) {
@@ -12024,9 +12550,10 @@ function collectChangedWatcherObservations(
     changes.push(sessionDiffCandidate({
       changeKind: "watcher_observation",
       changeRefInput: observation.observationRef,
+      cursorKey: row.cursorKey,
       targetRef: observation.targetRef,
       threadId: observation.targetRef.startsWith("codex_thread:") ? observation.targetRef.slice("codex_thread:".length) : null,
-      changedAt: observation.observedAt,
+      changedAt: publicIsoTimestamp(row.createdAt) ?? input.cursorWatermark.changedAt,
       freshnessAt: observation.freshness.lastObservedAt,
       sourceRefs: observation.sourceRefs,
       sourceRangeRefs: [],
@@ -12041,7 +12568,9 @@ function collectChangedWatcherObservations(
     counts: sessionDiffSafeCounts(db, "watcher_observations", input),
     changedRows: rows.length,
     filteredUnsafeRows,
-    changes
+    changes,
+    scanWatermark: sessionDiffScannedWatermark("watcher_observation", rows.at(-1), rows.at(-1)?.createdAt, input.cursorWatermark.changedAt),
+    scanExhausted: rawRows.length <= input.scanLimit
   };
 }
 
@@ -12078,7 +12607,9 @@ function sessionDiffIndexedSessionCoverage(db: LooDatabase, threadId?: string, t
   return count > 0 ? "ok" : "not_configured";
 }
 
-function sessionDiffCandidate(input: Omit<SessionDiffChange, "schema" | "changeRef"> & { changeRefInput: string }): SessionDiffCandidate {
+function sessionDiffCandidate(
+  input: Omit<SessionDiffChange, "schema" | "changeRef"> & { changeRefInput: string; cursorKey: string }
+): SessionDiffCandidate {
   const summary = publicSafeText(input.summary, 260);
   const sourceRefs = unique(input.sourceRefs.filter(isPublicPreparedSourceRef)).slice(0, 20);
   const sourceRangeRefs = unique(input.sourceRangeRefs.filter((ref) => /^codex_range:[0-9a-f]{32}$/.test(ref))).slice(0, 20);
@@ -12097,6 +12628,7 @@ function sessionDiffCandidate(input: Omit<SessionDiffChange, "schema" | "changeR
     reasonCodes: unique(input.reasonCodes.map(publicSafeIdentifier).filter((code): code is string => Boolean(code))).slice(0, 20),
     summary,
     item: input.item,
+    cursorKey: input.cursorKey,
     approxTokens: Math.max(1, approximateTokens(`${input.changeKind} ${summary} ${sourceRefs.join(" ")} ${sourceRangeRefs.join(" ")}`))
   };
 }
@@ -18877,9 +19409,9 @@ function upsertSession(
   rawText: string,
   session: ImportedSession,
   stat: { size: number; mtimeMs: number },
-  options: { sourceRef?: string; rangeReasonCodes?: string[]; eventContentEnabled?: boolean } = {}
+  options: { sourceRef?: string; rangeReasonCodes?: string[]; eventContentEnabled?: boolean; monotonicAppend?: boolean } = {}
 ): void {
-  const now = new Date().toISOString();
+  const now = nextSessionDiffMutationTimestamp(db);
   const sourceHash = stableId(rawText);
   const sourcePathRef = publicSourcePathRef(sourcePath);
   const preparedSourceRef = options.sourceRef ?? codexThreadRef(session.threadId);
@@ -18890,12 +19422,32 @@ function upsertSession(
   const driftUnparsedLines = driftReport?.unparsedLines ?? 0;
   const driftMissingExpectedFieldsJson = JSON.stringify(driftReport?.missingExpectedFields ?? []);
   const driftReasonCodesJson = JSON.stringify(driftReport?.reasonCodes ?? []);
+  const previousSource = db.prepare(`
+    SELECT
+      path_hash AS pathHash,
+      content_epoch AS contentEpoch,
+      append_generation AS appendGeneration
+    FROM codex_source_files
+    WHERE source_path = ?
+  `).get(sourcePath) as { pathHash?: unknown; contentEpoch?: unknown; appendGeneration?: unknown } | undefined;
+  const monotonicAppend = Boolean(options.monotonicAppend && previousSource);
+  const contentEpoch = monotonicAppend
+    ? String(previousSource?.contentEpoch ?? previousSource?.pathHash ?? sourceHash)
+    : sourceHash;
+  const appendGeneration = monotonicAppend
+    ? boundedNonNegativeInteger(previousSource?.appendGeneration, Number.MAX_SAFE_INTEGER - 1) + 1
+    : 0;
   db.exec("BEGIN");
   try {
+    if (previousSource && String(previousSource.pathHash ?? "") !== sourceHash && !monotonicAppend) {
+      bumpCodexSourceDestructiveGeneration(db);
+    }
     db.prepare(`
       INSERT INTO codex_source_files (
         source_path,
         path_hash,
+        content_epoch,
+        append_generation,
         size,
         mtime_ms,
         last_indexed_at,
@@ -18907,9 +19459,11 @@ function upsertSession(
         jsonl_drift_unparsed_lines,
         jsonl_drift_missing_expected_fields_json,
         jsonl_drift_reason_codes_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)
       ON CONFLICT(source_path) DO UPDATE SET
         path_hash = excluded.path_hash,
+        content_epoch = excluded.content_epoch,
+        append_generation = excluded.append_generation,
         size = excluded.size,
         mtime_ms = excluded.mtime_ms,
         last_indexed_at = excluded.last_indexed_at,
@@ -18924,6 +19478,8 @@ function upsertSession(
     `).run(
       sourcePath,
       sourceHash,
+      contentEpoch,
+      appendGeneration,
       stat.size,
       stat.mtimeMs,
       now,
@@ -19054,9 +19610,9 @@ function upsertSession(
     const insertPreparedRange = db.prepare(`
       INSERT INTO prepared_source_ranges (
         range_id, range_ref, event_id, event_ref, thread_id, source_ref, source_path_ref, source_hash,
-        content_hash, range_kind, line_start, line_end, byte_start, byte_end, ordinal, observed_at,
+        content_hash, session_diff_key, range_kind, line_start, line_end, byte_start, byte_end, ordinal, observed_at,
         extractor_version, privacy_class, omission_status, confidence, reason_codes_json, metadata_json, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     for (const event of session.sourceEvents) {
       const eventId = event.eventRef.slice("codex_event:".length);
@@ -19105,6 +19661,7 @@ function upsertSession(
           event.sourcePathRef,
           event.sourceHash,
           range.contentHash,
+          sessionDiffSourceRangeCursorKey(event.sourcePathRef, range.ordinal, range.rangeKind, range.contentHash),
           range.rangeKind,
           event.lineStart,
           event.lineEnd,

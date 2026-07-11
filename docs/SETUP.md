@@ -120,6 +120,13 @@ export LCO_LCM_DB_PATHS="$HOME/.openclaw/lcm.db"
 LCM peer DBs are opened read-only. LCO does not merge raw Codex transcripts into
 OpenClaw LCM.
 
+Session diff uses signed opaque cursors. If your profile has not yet created a
+local audit key through an approved dry-run control workflow, provide a stable
+local secret to the CLI, MCP server, or OpenClaw gateway as
+`LCO_SESSION_DIFF_CURSOR_KEY`. Use at least 16 characters, keep the value in
+your normal local secret store, and reuse the same value so cursors remain valid
+across process restarts. Do not commit it to an MCP configuration or repository.
+
 ## 4. Index Local Codex Sessions
 
 Run a bounded first import:
@@ -625,6 +632,14 @@ Search returns no results
 
 - Run `lco index codex --max-files 500 "$HOME/.codex/sessions"`.
 - Confirm `LCO_DB_PATH` points at the same database for index and search.
+
+`lco session-diff` reports that a cursor signing key is required
+
+- Set `LCO_SESSION_DIFF_CURSOR_KEY` from your local secret store and keep it
+  stable across CLI, MCP, and OpenClaw restarts.
+- Alternatively, initialize LCO's local audit key through an approved dry-run
+  control workflow; session diff reads that existing key without creating files.
+- Do not paste the key into issue reports, QA evidence, or committed config.
 
 Event-content cache uses too much local disk
 

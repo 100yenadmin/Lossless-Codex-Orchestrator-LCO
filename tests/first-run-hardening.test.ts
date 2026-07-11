@@ -197,6 +197,61 @@ test("MCP server distinguishes audit-store startup failures from database failur
   }
 });
 
+test("MCP server classifies missing session-diff signing setup without a generic JSON-RPC error", async () => {
+  const root = mkdtempSync(join(tmpdir(), "lco-mcp-session-diff-setup-"));
+  const home = join(root, "home");
+  mkdirSync(home);
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    HOME: home,
+    LCO_DB_PATH: join(root, "state.sqlite"),
+    LCO_AUDIT_PATH: join(root, "audit.jsonl"),
+    LCO_CODEX_BIN: "lco-codex-not-needed-for-session-diff-setup"
+  };
+  delete env.LCO_SESSION_DIFF_CURSOR_KEY;
+  delete env.LOO_SESSION_DIFF_CURSOR_KEY;
+  const server = spawn(process.execPath, ["--import", tsxImport, "packages/mcp-server/src/server.ts"], {
+    cwd: process.cwd(),
+    env,
+    stdio: ["pipe", "pipe", "pipe"]
+  });
+  let stdout = "";
+  let stderr = "";
+  server.stdout.setEncoding("utf8");
+  server.stderr.setEncoding("utf8");
+  server.stdout.on("data", (chunk) => { stdout += chunk; });
+  server.stderr.on("data", (chunk) => { stderr += chunk; });
+
+  try {
+    server.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} })}\n`);
+    await readJsonRpcResponse(server, () => stdout, 1, () => stderr);
+    server.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "lco_session_diff", arguments: {} } })}\n`);
+    const call = await readJsonRpcResponse(server, () => stdout, 2, () => stderr);
+    const structured = call.result?.structuredContent as {
+      schema?: unknown;
+      publicSafe?: unknown;
+      status?: unknown;
+      blockers?: unknown;
+    } | undefined;
+    assert.equal(call.error, undefined);
+    assert.equal(structured?.schema, "lco.session.diff.setup.v1");
+    assert.equal(structured?.publicSafe, true);
+    assert.equal(structured?.status, "setup_required");
+    assert.deepEqual(structured?.blockers, ["session_diff_cursor_signing_key_required"]);
+    assert.doesNotMatch(`${stdout}\n${stderr}`, /Internal error processing|\/Users\/|\/Volumes\/|lco-mcp-session-diff-setup-/);
+  } finally {
+    server.kill();
+    await new Promise<void>((resolve) => {
+      if (server.exitCode !== null) {
+        resolve();
+        return;
+      }
+      server.once("exit", () => resolve());
+    });
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("public docs name the temporary #615 live-send caveat and npm min-release-age tell", () => {
   const sprint = readFileSync("docs/WORKING_APP_PROOF_SPRINT.md", "utf8");
   const readme = readFileSync("README.md", "utf8");

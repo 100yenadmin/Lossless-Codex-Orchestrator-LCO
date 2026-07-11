@@ -2,6 +2,7 @@
 import {
   codexTransportStatus,
   createAuditStore,
+  fingerprintAuditTextIfConfigured,
   desktopActDryRun,
   desktopFallbackDiagnostics,
   desktopSee,
@@ -388,7 +389,13 @@ async function main() {
     const parsed = parseSessionDiffArgs(args);
     const db = createDatabase();
     try {
-      console.log(JSON.stringify(getSessionDiff(db, parsed), null, 2));
+      const auditPath = readEnv("AUDIT_PATH") || join(resolveHomeDir(), ".openclaw", "lossless-openclaw-orchestrator", "audit.jsonl");
+      console.log(JSON.stringify(getSessionDiff(db, {
+        ...parsed,
+        cursorSigningKey: readEnv("SESSION_DIFF_CURSOR_KEY")
+          ?? fingerprintAuditTextIfConfigured(auditPath, "lco_session_diff_cursor_v1")
+          ?? undefined
+      }), null, 2));
     } finally {
       db.close();
     }

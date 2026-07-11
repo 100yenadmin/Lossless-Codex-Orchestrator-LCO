@@ -8,6 +8,7 @@ import test from "node:test";
 
 import {
   createDatabase,
+  getSessionDiff,
   getPreparedCards,
   getPreparedInbox,
   getPreparedStateStatus,
@@ -527,6 +528,48 @@ test("prepared cards materialize Claude sessions as public-safe advisory cards",
     assert.equal(serialized.includes("claude-summary.md"), false);
     assert.equal(serialized.includes("npm_"), false);
     assert.equal(serialized.includes("ghp_"), false);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Claude prepared-card rematerialization is idempotent for session diff", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-prepared-claude-idempotent-"));
+  const projectRoot = join(root, ".claude", "projects", "-Volumes-LEXAR-repos-lco");
+  mkdirSync(projectRoot, { recursive: true });
+  const sessionId = "claude-prepared-card-idempotent";
+  const targetRef = `claude_session:${sessionId}`;
+  writePreparedClaudeJsonl(join(projectRoot, "claude-prepared-idempotent.jsonl"), sessionId);
+
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    assert.equal(indexClaudeSessions(db, { roots: [join(root, ".claude", "projects")], maxFiles: 10 }).indexedSessions, 1);
+    materializePreparedCards(db);
+    const initialCard = db.prepare("SELECT updated_at AS updatedAt FROM prepared_cards WHERE target_ref = ?").get(targetRef) as { updatedAt: string };
+    const initialInbox = db.prepare("SELECT updated_at AS updatedAt FROM prepared_inbox_items WHERE target_ref = ?").get(targetRef) as { updatedAt: string };
+    const baseline = getSessionDiff(db, {
+      targetRef,
+      now: "2026-07-09T00:02:00.000Z",
+      cursorSigningKey: "test-claude-prepared-card-cursor-key"
+    });
+
+    materializePreparedCards(db);
+    const currentCard = db.prepare("SELECT updated_at AS updatedAt FROM prepared_cards WHERE target_ref = ?").get(targetRef) as { updatedAt: string };
+    const currentInbox = db.prepare("SELECT updated_at AS updatedAt FROM prepared_inbox_items WHERE target_ref = ?").get(targetRef) as { updatedAt: string };
+    assert.equal(currentCard.updatedAt, initialCard.updatedAt);
+    assert.equal(currentInbox.updatedAt, initialInbox.updatedAt);
+    const diff = getSessionDiff(db, {
+      targetRef,
+      cursor: baseline.cursor.nextCursor,
+      now: "2026-07-09T00:03:00.000Z",
+      cursorSigningKey: "test-claude-prepared-card-cursor-key"
+    });
+
+    assert.equal(diff.cursor.status, "accepted");
+    assert.equal(diff.summary.changedPreparedCards, 0);
+    assert.equal(diff.summary.changedInboxItems, 0);
+    assert.equal(diff.summary.returned, 0);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });

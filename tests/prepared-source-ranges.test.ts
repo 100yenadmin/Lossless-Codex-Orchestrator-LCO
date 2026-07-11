@@ -111,6 +111,9 @@ test("prepared-state migration adds additive shadow tables to an existing 1.1-st
       "2026-07-06-index-fast-skip-and-hot-path-indexes",
       "2026-07-08-codex-event-content-store",
       "2026-07-06-retrieval-telemetry",
+      "2026-07-11-session-diff-cursor-indexes",
+      "2026-07-11-source-integrity-generation",
+      "2026-07-11-session-diff-persisted-key",
       "2026-07-06-retrieval-telemetry-session-key",
       "2026-07-06-codex-search-fts"
     ];

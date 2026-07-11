@@ -542,7 +542,8 @@
               "type": "string"
             },
             "cursor": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 16384
             },
             "limit": {
               "type": "integer",
@@ -2362,7 +2363,8 @@
               "type": "string"
             },
             "cursor": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 16384
             },
             "limit": {
               "type": "integer",
