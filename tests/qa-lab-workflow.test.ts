@@ -286,6 +286,7 @@ test("qa-lab workflow keeps explicit gateway tokens out of OpenClaw argv", (t) =
   });
 
   assert.equal(existsSync(callsPath), false, "explicit URL+token calls must use the environment-only gateway backend instead of OpenClaw argv");
+  assert.equal(report.command, "loo backend-gateway tools.catalog/tools.invoke --json --params <redacted>");
   assert.doesNotMatch(JSON.stringify(report), new RegExp(token));
   assert.doesNotMatch(readFileSync(join(dir, "workflow-run.json"), "utf8"), new RegExp(token));
 });

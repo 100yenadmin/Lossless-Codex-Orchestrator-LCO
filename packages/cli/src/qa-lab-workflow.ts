@@ -157,7 +157,10 @@ export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabW
   const openclawBin = openclawBinValidation.ok ? requestedOpenClawBin : "openclaw";
   const gatewayTimeoutMs = options.gatewayTimeoutMs ?? DEFAULT_GATEWAY_TIMEOUT_MS;
   const deadline = Date.now() + gatewayTimeoutMs;
-  const command = `${sanitizeCommandBinary(openclawBin)} gateway call tools.catalog/tools.invoke --json --params <redacted>`;
+  const gatewayToken = options.token || options.env?.OPENCLAW_GATEWAY_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN;
+  const command = options.gatewayUrl && gatewayToken
+    ? "loo backend-gateway tools.catalog/tools.invoke --json --params <redacted>"
+    : `${sanitizeCommandBinary(openclawBin)} gateway call tools.catalog/tools.invoke --json --params <redacted>`;
   const candidateShaValid = options.candidateSha === undefined || SHA_PATTERN.test(options.candidateSha);
 
   if (options.surface !== "openclaw-gateway") {
@@ -173,7 +176,6 @@ export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabW
   if (!gatewayUrlValidation.ok) {
     addBlocker(blockers, "P1", gatewayUrlValidation.code, "qaLabWorkflow", gatewayUrlValidation.detail);
   }
-  const gatewayToken = options.token || options.env?.OPENCLAW_GATEWAY_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN;
   if (gatewayToken && !options.gatewayUrl) {
     addBlocker(blockers, "P1", "workflow_gateway_token_requires_url", "qaLabWorkflow", "A scoped gateway token requires an explicit loopback --gateway-url; omit the token to use configured profile credentials.");
   }
