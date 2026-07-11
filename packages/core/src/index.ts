@@ -5440,11 +5440,11 @@ function appendSessionDelta(
   stat: { size: number; mtimeMs: number },
   eventContentEnabled: boolean
 ): void {
-  const now = nextSessionDiffMutationTimestamp(db);
   const sourcePathRef = publicSourcePathRef(sourcePath);
-  const sessionRowid = requireCodexSessionRowid(db, seed.threadId);
-  db.exec("BEGIN");
+  db.exec("BEGIN IMMEDIATE");
   try {
+    const now = allocateSessionDiffMutationTimestamp(db);
+    const sessionRowid = requireCodexSessionRowid(db, seed.threadId);
     db.prepare(`
       UPDATE codex_source_files
       SET
@@ -6644,11 +6644,12 @@ function getPreparedSourceRangesForSummaryMaterialization(
 
 export function materializeSummaryLeaves(db: LooDatabase, options: SummaryLeafMaterializationOptions = {}): SummaryLeafMaterializationReport {
   if (!options.threadId) return materializeSummaryLeavesForAllThreads(db, options);
-  const generatedAt = nextSessionDiffMutationTimestamp(db);
+  let generatedAt: string;
   const rangesReport = getPreparedSourceRangesForSummaryMaterialization(db, { threadId: options.threadId, limit: options.limit });
   const leafDrafts = buildSummaryLeafDrafts(rangesReport.ranges);
-  db.exec("BEGIN");
+  db.exec("BEGIN IMMEDIATE");
   try {
+    generatedAt = allocateSessionDiffMutationTimestamp(db);
     const oldLeaves = db.prepare(`
       SELECT
         leaf_ref AS leafRef,
@@ -7007,10 +7008,11 @@ export function expandSummaryLeaves(db: LooDatabase, options: SummaryExpansionOp
 
 export function materializePreparedCards(db: LooDatabase, options: { threadId?: string } = {}): PreparedCardMaterializationReport {
   if (!options.threadId) return materializePreparedCardsForAllThreads(db);
-  const generatedAt = nextSessionDiffMutationTimestamp(db);
+  let generatedAt: string;
   let summary: PreparedCardMaterializationReport["summary"];
-  db.exec("BEGIN");
+  db.exec("BEGIN IMMEDIATE");
   try {
+    generatedAt = allocateSessionDiffMutationTimestamp(db);
     // threadId is intentionally Codex-only here; Claude session cards refresh in
     // the no-thread path so caller-supplied Codex thread refreshes stay bounded.
     summary = materializePreparedCardsForThread(db, options.threadId, generatedAt);
@@ -7035,7 +7037,7 @@ export function materializePreparedCards(db: LooDatabase, options: { threadId?: 
 }
 
 function materializePreparedCardsForAllThreads(db: LooDatabase): PreparedCardMaterializationReport {
-  const generatedAt = nextSessionDiffMutationTimestamp(db);
+  let generatedAt: string;
   const rows = db.prepare(`
     SELECT DISTINCT threadId
     FROM (
@@ -7064,8 +7066,9 @@ function materializePreparedCardsForAllThreads(db: LooDatabase): PreparedCardMat
     skippedUnsafeRows: 0
   };
   const threadIds = unique(rows.map((row) => String(row.threadId ?? "")).filter(isPublicSummaryThreadId));
-  db.exec("BEGIN");
+  db.exec("BEGIN IMMEDIATE");
   try {
+    generatedAt = allocateSessionDiffMutationTimestamp(db);
     const lookupCache = buildPreparedCardWorkStateLookupCache(db, threadIds);
     for (const threadId of threadIds) {
       const threadSummary = materializePreparedCardsForThread(db, threadId, generatedAt, lookupCache);
@@ -11297,15 +11300,16 @@ export function persistWatcherObservations(
   options: { now?: string } = {}
 ): WatcherPersistenceReport {
   const nowMs = timestampMillis(options.now ?? null) ?? Date.now();
-  const generatedAt = nextSessionDiffMutationTimestamp(db, new Date(nowMs).toISOString());
+  let generatedAt: string;
   const summary = {
     specs: 0,
     observations: 0,
     queueItems: 0,
     skippedUnsafeRows: 0
   };
-  db.exec("BEGIN");
+  db.exec("BEGIN IMMEDIATE");
   try {
+    generatedAt = allocateSessionDiffMutationTimestamp(db, new Date(nowMs).toISOString());
     for (const spec of specs) {
       assertWatcherSpecDoesNotMutate(spec);
       const watcher = watcherStateFromSpec(spec, nowMs);
@@ -11622,7 +11626,7 @@ export function resolveSessionDiffCursorKey(
   };
 }
 
-function nextSessionDiffMutationTimestamp(db: LooDatabase, proposedAt = new Date().toISOString()): string {
+export function allocateSessionDiffMutationTimestamp(db: LooDatabase, proposedAt = new Date().toISOString()): string {
   const proposed = publicIsoTimestamp(proposedAt) ?? new Date().toISOString();
   const proposedMs = timestampMillis(proposed) ?? Date.now();
   const row = db.prepare(`
@@ -19507,7 +19511,6 @@ function upsertSession(
   stat: { size: number; mtimeMs: number },
   options: { sourceRef?: string; rangeReasonCodes?: string[]; eventContentEnabled?: boolean; monotonicAppend?: boolean } = {}
 ): void {
-  const now = nextSessionDiffMutationTimestamp(db);
   const sourceHash = stableId(rawText);
   const sourcePathRef = publicSourcePathRef(sourcePath);
   const preparedSourceRef = options.sourceRef ?? codexThreadRef(session.threadId);
@@ -19533,8 +19536,9 @@ function upsertSession(
   const appendGeneration = monotonicAppend
     ? boundedNonNegativeInteger(previousSource?.appendGeneration, Number.MAX_SAFE_INTEGER - 1) + 1
     : 0;
-  db.exec("BEGIN");
+  db.exec("BEGIN IMMEDIATE");
   try {
+    const now = allocateSessionDiffMutationTimestamp(db);
     if (previousSource && String(previousSource.pathHash ?? "") !== sourceHash && !monotonicAppend) {
       bumpCodexSourceDestructiveGeneration(db);
     }

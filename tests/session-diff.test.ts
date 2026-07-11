@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { once } from "node:events";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
+import { Worker } from "node:worker_threads";
 
 import { createAuditStore, deriveAuditSubkeyIfConfigured, fingerprintAuditTextIfConfigured } from "../packages/adapters/src/index.js";
+import * as core from "../packages/core/src/index.js";
 import {
   createDatabase,
   getSessionDiff as getSessionDiffCore,
@@ -44,6 +48,88 @@ test("session diff cursor key resolution preserves CLI and MCP precedence", () =
     cursorSigningKey: undefined,
     cursorKeySource: undefined
   });
+});
+
+test("session diff mutation timestamps serialize across database connections", async () => {
+  const allocate = (core as typeof core & {
+    allocateSessionDiffMutationTimestamp?: (
+      db: ReturnType<typeof createDatabase>,
+      proposedAt?: string
+    ) => string;
+  }).allocateSessionDiffMutationTimestamp;
+  assert.equal(typeof allocate, "function");
+  const root = mkdtempSync(join(tmpdir(), "lco-session-diff-clock-concurrency-"));
+  const dbPath = join(root, "orchestrator.sqlite");
+  const db = createDatabase(dbPath);
+  let firstOpen = false;
+  try {
+    db.exec("BEGIN IMMEDIATE");
+    firstOpen = true;
+    const proposedAt = "2026-07-09T00:00:00.000Z";
+    const firstAt = allocate!(db, proposedAt);
+    db.prepare(`
+      INSERT INTO watcher_observations (
+        observation_id, watch_id, target_ref, observation_json,
+        evidence_refs_json, input_hash, privacy_class, confidence,
+        observed_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "clock-first-observation",
+      "clock-first-watch",
+      "codex_thread:clock-first",
+      "{}",
+      "[]",
+      "clock-first-input",
+      "public_safe_metadata",
+      1,
+      firstAt,
+      firstAt
+    );
+    const workerPath = join(root, "allocator-worker.ts");
+    writeFileSync(workerPath, `
+      import { parentPort, workerData } from "node:worker_threads";
+      import { DatabaseSync } from "node:sqlite";
+      void (async () => {
+        const core = await import(workerData.coreUrl);
+        const workerDb = new DatabaseSync(workerData.dbPath);
+        workerDb.exec("PRAGMA busy_timeout = 5000");
+        parentPort.postMessage({ type: "attempting" });
+        workerDb.exec("BEGIN IMMEDIATE");
+        const timestamp = core.allocateSessionDiffMutationTimestamp(workerDb, workerData.proposedAt);
+        workerDb.exec("COMMIT");
+        workerDb.close();
+        parentPort.postMessage({ type: "complete", timestamp });
+      })().catch((error) => parentPort.postMessage({ type: "error", message: String(error) }));
+    `);
+    const worker = new Worker(pathToFileURL(workerPath), {
+      execArgv: ["--import", "tsx"],
+      workerData: {
+        coreUrl: pathToFileURL(resolve("packages/core/src/index.ts")).href,
+        dbPath,
+        proposedAt
+      }
+    });
+    const messages: Array<{ type: string; timestamp?: string }> = [];
+    worker.on("message", (message) => messages.push(message));
+    const waitDeadline = Date.now() + 5_000;
+    while (!messages.some((message) => message.type === "attempting" || message.type === "error")) {
+      assert.ok(Date.now() < waitDeadline, "worker did not attempt the serialized allocation");
+      await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+    }
+    assert.equal(messages.find((message) => message.type === "error"), undefined);
+    await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+    assert.equal(messages.some((message) => message.type === "complete"), false);
+    db.exec("COMMIT");
+    firstOpen = false;
+    await once(worker, "exit");
+    const secondAt = messages.find((message) => message.type === "complete")?.timestamp;
+    assert.ok(secondAt);
+    assert.ok(secondAt > firstAt);
+  } finally {
+    if (firstOpen) db.exec("ROLLBACK");
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 function getSessionDiff(
