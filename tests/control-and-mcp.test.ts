@@ -122,8 +122,18 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
     assert.deepEqual((live.response as any).turn.notificationMethods, ["turn/started", "turn/completed", "turn/paused", "turn/queued"]);
     assert.deepEqual(live.methodSequence, ["thread/resume", "turn/start"]);
     assert.deepEqual(sequenceCalls[0]?.map((step) => step.method), ["thread/resume", "turn/start"]);
-    assert.deepEqual(sequenceCalls[0]?.[0]?.params, { threadId: "thr_1", excludeTurns: true });
-    assert.deepEqual(sequenceCalls[0]?.[1]?.params, { threadId: "thr_1", input: [{ type: "text", text: "continue" }] });
+    assert.deepEqual(sequenceCalls[0]?.[0]?.params, {
+      threadId: "thr_1",
+      excludeTurns: true,
+      approvalPolicy: "never",
+      sandbox: "read-only"
+    });
+    assert.deepEqual(sequenceCalls[0]?.[1]?.params, {
+      threadId: "thr_1",
+      input: [{ type: "text", text: "continue" }],
+      approvalPolicy: "never",
+      sandboxPolicy: { type: "readOnly", networkAccess: false }
+    });
     assert.deepEqual(sequenceOptions[0], { threadId: "thr_1", expectedTurnId: undefined, turnWaitMs: 120_000 });
     await assert.rejects(
       () => sequenceControl.sendMessage({
@@ -142,6 +152,12 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
     assert.equal(resumeDryRun.messageHash, undefined);
     await control.resumeThread({ threadId: "thr_1", dryRun: false, approvalAuditId: resumeDryRun.approvalAuditId });
     assert.equal(calls[0]?.method, "thread/resume");
+    assert.deepEqual(calls[0]?.params, {
+      threadId: "thr_1",
+      excludeTurns: true,
+      approvalPolicy: "never",
+      sandbox: "read-only"
+    });
 
     assert.throws(
       () => control.steerThread({ threadId: "thr_1", message: "focus on tests", dryRun: true }),
@@ -173,13 +189,20 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
     });
     assert.equal(sequenceSteerLive.method, "turn/steer");
     assert.equal(sequenceSteerLive.connectionScope, "same_connection_sequence");
-    assert.deepEqual(sequenceCalls[1]?.map((step) => step.method), ["turn/steer"]);
-    assert.deepEqual(sequenceCalls[1]?.[0]?.params, { threadId: "thr_1", expectedTurnId: "turn_1", input: [{ type: "text", text: "focus on tests" }] });
-    assert.deepEqual(sequenceOptions[1], { threadId: "thr_1", expectedTurnId: "turn_1", turnWaitMs: 250 });
+    assert.deepEqual(sequenceCalls[1]?.map((step) => step.method), ["thread/resume", "turn/steer"]);
+    assert.deepEqual(sequenceCalls[1]?.[0]?.params, {
+      threadId: "thr_1",
+      excludeTurns: true,
+      approvalPolicy: "never",
+      sandbox: "read-only"
+    });
+    assert.deepEqual(sequenceCalls[1]?.[1]?.params, { threadId: "thr_1", expectedTurnId: "turn_1", input: [{ type: "text", text: "focus on tests" }] });
+    assert.deepEqual(sequenceOptions[1], { threadId: "thr_1", expectedTurnId: "turn_1", turnWaitMs: 250, requireSafeActiveRuntime: true });
 
-    const interruptDryRun = await control.interruptThread({ threadId: "thr_1", dryRun: true });
-    await control.interruptThread({ threadId: "thr_1", dryRun: false, approvalAuditId: interruptDryRun.approvalAuditId });
-    assert.equal(calls[1]?.method, "turn/interrupt");
+    assert.throws(
+      () => control.interruptThread({ threadId: "thr_1", dryRun: true }),
+      /expected_turn_id is required/
+    );
 
     const boundInterruptDryRun = await control.interruptThread({ threadId: "thr_1", expectedTurnId: "turn_1", dryRun: true });
     await assert.rejects(
@@ -201,9 +224,15 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
     });
     assert.equal(sequenceInterruptLive.method, "turn/interrupt");
     assert.equal(sequenceInterruptLive.connectionScope, "same_connection_sequence");
-    assert.deepEqual(sequenceCalls[2]?.map((step) => step.method), ["turn/interrupt"]);
-    assert.deepEqual(sequenceCalls[2]?.[0]?.params, { threadId: "thr_1", expectedTurnId: "turn_1" });
-    assert.deepEqual(sequenceOptions[2], { threadId: "thr_1", expectedTurnId: "turn_1", turnWaitMs: 500 });
+    assert.deepEqual(sequenceCalls[2]?.map((step) => step.method), ["thread/resume", "turn/interrupt"]);
+    assert.deepEqual(sequenceCalls[2]?.[0]?.params, {
+      threadId: "thr_1",
+      excludeTurns: true,
+      approvalPolicy: "never",
+      sandbox: "read-only"
+    });
+    assert.deepEqual(sequenceCalls[2]?.[1]?.params, { threadId: "thr_1", turnId: "turn_1" });
+    assert.deepEqual(sequenceOptions[2], { threadId: "thr_1", expectedTurnId: "turn_1", turnWaitMs: 500, requireSafeActiveRuntime: true });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -226,6 +255,7 @@ test("Codex control redacts live transport responses before returning them throu
                 id: "thr_1",
                 title: "Safe title",
                 status: "running",
+                publicToolPath: "/usr/local/bin/lco",
                 preview: "PRIVATE_TRANSCRIPT_PREVIEW",
                 path: "/Volumes/LEXAR/private/session.jsonl",
                 cwd: `${homedir()}/project`,
@@ -270,6 +300,7 @@ test("Codex control redacts live transport responses before returning them throu
     assert.equal((live.response as any).result.thread.id, "thr_1");
     assert.equal((live.response as any).result.thread.title, "Safe title");
     assert.equal((live.response as any).result.thread.status, "running");
+    assert.equal((live.response as any).result.thread.publicToolPath, "/usr/local/bin/lco");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -349,6 +380,80 @@ test("Codex control rejects failed same-connection sequence responses before liv
       /control sequence step failed.*thread\/resume/i
     );
 
+    const collisionControl = createCodexControl({
+      audit,
+      client: {
+        request: async () => ({ ok: true }),
+        requestSequenceUntilTurnResolved: async () => ({
+          responses: [
+            { ok: false, code: "safe_runtime_posture_unproven", error: "transport-originated collision" }
+          ]
+        })
+      }
+    });
+    const collisionDryRun = await collisionControl.steerThread({
+      threadId: "thr_collision",
+      message: "continue",
+      expectedTurnId: "turn_collision",
+      dryRun: true
+    });
+    await assert.rejects(
+      () => collisionControl.steerThread({
+        threadId: "thr_collision",
+        message: "continue",
+        expectedTurnId: "turn_collision",
+        dryRun: false,
+        approvalAuditId: collisionDryRun.approvalAuditId
+      }),
+      /control sequence step failed.*thread\/resume/i
+    );
+
+    const auditRecords = readFileSync(audit.path, "utf8").split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as { live: boolean });
+    assert.equal(auditRecords.length, 2);
+    assert.equal(auditRecords[0]?.live, false);
+    assert.equal(auditRecords[1]?.live, false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Codex control returns structured proof when active runtime posture blocks control before send", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-control-runtime-posture-block-"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const control = createCodexControl({
+    audit,
+    client: {
+      request: async () => ({ ok: true }),
+      requestSequenceUntilTurnResolved: async () => ({
+        responses: [
+          { ok: true, result: { approvalPolicy: "never", sandbox: { type: "dangerFullAccess" } } },
+          {
+            ok: false,
+            code: "safe_runtime_posture_unproven",
+            origin: "lco_safety_gate",
+            error: "Codex safe runtime posture was not proven after thread/resume; active-turn control was not sent"
+          }
+        ]
+      })
+    }
+  });
+
+  try {
+    const dryRun = await control.steerThread({ threadId: "thr_1", message: "continue", expectedTurnId: "turn_1", dryRun: true });
+    const blocked = await control.steerThread({
+      threadId: "thr_1",
+      message: "continue",
+      expectedTurnId: "turn_1",
+      dryRun: false,
+      approvalAuditId: dryRun.approvalAuditId
+    });
+
+    assert.equal(blocked.live, true);
+    assert.equal(blocked.controlSent, false);
+    assert.equal(blocked.proofState.status, "transport_rejected");
+    assert.match(blocked.proofState.callerInstruction, /control was not sent/);
+    assert.equal((blocked.response as any).code, "safe_runtime_posture_unproven");
+
     const auditRecords = readFileSync(audit.path, "utf8").split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as { live: boolean });
     assert.equal(auditRecords.length, 1);
     assert.equal(auditRecords[0]?.live, false);
@@ -395,6 +500,7 @@ test("Codex live send waits for a real turn completion before returning success"
     } as any);
 
     assert.equal(live.live, true);
+    assert.equal(live.controlSent, true);
     assert.equal(live.status, "completed");
     assert.equal(live.proofState.acceptedByTransport, true);
     assert.equal(live.proofState.completed, true);
@@ -558,7 +664,7 @@ test("Codex live send fails closed on a mid-turn transport error", async () => {
           notificationMethods: ["turn/started"],
           approvalRequestCount: 0,
           serverRequestCount: 0,
-          error: "stdio closed before turn resolved"
+          error: `authorization: ${homedir()}/secret sk-test_1234567890`
         }
       })
     } as any
@@ -579,7 +685,10 @@ test("Codex live send fails closed on a mid-turn transport error", async () => {
     assert.equal(live.proofState.completed, false);
     assert.match(live.proofState.callerInstruction, /failed closed/i);
     assert.equal((live.response as any).turn.status, "turn_transport_error");
-    assert.equal(JSON.stringify(live).includes("stdio closed"), false);
+    assert.equal((live.response as any).turn.error, "authorization: <redacted-secret>");
+    assert.equal(live.turn?.error, "authorization: <redacted-secret>");
+    assert.equal(JSON.stringify(live).includes("sk-test_1234567890"), false);
+    assert.equal(JSON.stringify(live).includes(`${homedir()}/secret`), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -693,18 +802,22 @@ test("Codex steer and interrupt use bounded turn waits for resolved, timeout, an
 
         assert.equal(live.live, true);
         assert.equal(live.status, status);
-        assert.deepEqual(sequenceCalls[0]?.map((step) => step.method), [action.method]);
+        assert.deepEqual(sequenceCalls[0]?.map((step) => step.method), ["thread/resume", action.method]);
         assert.deepEqual(turnWaitInputs, [{
           threadId: "thr_1",
           expectedTurnId: action.expectedTurnId,
-          turnWaitMs: 25
+          turnWaitMs: 25,
+          requireSafeActiveRuntime: true
         }]);
         assert.equal(live.proofState.turnId, action.expectedTurnId);
         assert.equal(live.proofState.responseStatus, status);
         assert.equal(live.proofState.status, scenario.proofStatus(action));
         assert.equal((live.response as any).turn.status, status);
         assert.equal((live.response as any).status, status);
-        assert.equal(JSON.stringify(live).includes("stdio closed"), false);
+        assert.equal(
+          live.turn?.error,
+          status === "turn_transport_error" ? "stdio closed before turn resolved" : undefined
+        );
       } finally {
         rmSync(root, { recursive: true, force: true });
       }
@@ -843,7 +956,11 @@ test("Codex start-thread workflow is dry-run first and live creation remains pen
       approvalAuditId: dryRun.approvalAuditId
     });
     assert.equal(calls[0]?.method, "thread/start");
-    assert.deepEqual(calls[0]?.params, {});
+    assert.deepEqual(calls[0]?.params, {
+      approvalPolicy: "never",
+      sandbox: "read-only",
+      ephemeral: false
+    });
     assert.equal(live.live, true);
     assert.equal(live.createdThreadId, undefined);
     assert.equal(live.createdThreadCandidateId, "thr_created");
@@ -863,6 +980,40 @@ test("Codex start-thread workflow is dry-run first and live creation remains pen
       limit: 20
     });
     assert.match(live.proofState.callerInstruction, /post-create proof/i);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Codex start-thread rejection diagnostics are strictly redacted", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-control-start-rejection-"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const control = createCodexControl({
+    audit,
+    client: {
+      request: async () => ({
+        ok: false,
+        error: {
+          message: "rejected at D:/customer data/acme/session.jsonl",
+          detail: "credential npm_12345678901234567890"
+        }
+      })
+    }
+  });
+
+  try {
+    const dryRun = await control.startThread({ dryRun: true });
+    const live = await control.startThread({
+      dryRun: false,
+      approvalAuditId: dryRun.approvalAuditId
+    });
+    assert.deepEqual(live.response, {
+      ok: false,
+      error: {
+        message: "rejected at <redacted-local-path>",
+        detail: "credential <redacted-secret>"
+      }
+    });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -1628,6 +1779,10 @@ test("MCP tool registry exposes lco-prefixed canonical tools with loo compatibil
     const steerTool = tools.find((tool) => tool.name === "lco_codex_steer_thread");
     assert.ok(steerTool);
     assert.ok((steerTool.inputSchema.properties as Record<string, unknown>).expected_turn_id);
+    assert.deepEqual(steerTool.inputSchema.required, ["thread_id", "message", "expected_turn_id"]);
+    const interruptTool = tools.find((tool) => tool.name === "lco_codex_interrupt_thread");
+    assert.ok(interruptTool);
+    assert.deepEqual(interruptTool.inputSchema.required, ["thread_id", "expected_turn_id"]);
     const dryRunToolSchema = dryRunTool.inputSchema.properties as Record<string, unknown>;
     assert.ok(dryRunToolSchema.expected_turn_id);
     assert.throws(

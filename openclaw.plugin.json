@@ -1375,7 +1375,7 @@
       },
       {
         "name": "lco_codex_control_dry_run",
-        "description": "Create a dry-run audit id for a Codex control action.",
+        "description": "Create a dry-run audit id for a Codex control action under LCO's fixed never-approve, read-only runtime posture.",
         "safety": {
           "mode": "local_cache_write",
           "source": "audit",
@@ -1415,7 +1415,7 @@
       },
       {
         "name": "lco_codex_start_thread",
-        "description": "Create a new Codex thread. Dry-run by default; live mode requires approval_audit_id and still needs follow-up proof before durability claims.",
+        "description": "Create a persistent read-only Codex thread with approvalPolicy=never. Dry-run by default; live mode requires approval_audit_id and still needs follow-up proof before durability claims.",
         "safety": {
           "mode": "approval_gated_control",
           "source": "codex_direct",
@@ -1444,7 +1444,7 @@
       },
       {
         "name": "lco_codex_resume_thread",
-        "description": "Resume or rejoin a Codex thread without starting a turn. Live mode requires approval_audit_id.",
+        "description": "Resume or rejoin a Codex thread under LCO's fixed never-approve, read-only posture without starting a turn. Live mode requires approval_audit_id.",
         "safety": {
           "mode": "approval_gated_control",
           "source": "codex_direct",
@@ -1478,7 +1478,7 @@
       },
       {
         "name": "lco_codex_send_message",
-        "description": "Send a message to a Codex thread. Live mode requires approval_audit_id and waits for bounded turn proof.",
+        "description": "Send a message under LCO's fixed never-approve, read-only posture. Live mode requires approval_audit_id and waits for bounded turn proof.",
         "safety": {
           "mode": "approval_gated_control",
           "source": "codex_direct",
@@ -1518,7 +1518,7 @@
       },
       {
         "name": "lco_codex_steer_thread",
-        "description": "Steer a running Codex thread. Live mode requires approval_audit_id and expected_turn_id.",
+        "description": "Rejoin and steer a running Codex thread under LCO's fixed never-approve, read-only posture. Live mode requires approval_audit_id and expected_turn_id.",
         "safety": {
           "mode": "approval_gated_control",
           "source": "codex_direct",
@@ -1556,12 +1556,17 @@
             "approval_audit_id": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "thread_id",
+            "message",
+            "expected_turn_id"
+          ]
         }
       },
       {
         "name": "lco_codex_interrupt_thread",
-        "description": "Interrupt a Codex thread. Live mode requires approval_audit_id; expected_turn_id enables bounded turn proof.",
+        "description": "Rejoin and interrupt a Codex thread under LCO's fixed never-approve, read-only posture. Live mode requires approval_audit_id and expected_turn_id.",
         "safety": {
           "mode": "approval_gated_control",
           "source": "codex_direct",
@@ -1596,7 +1601,11 @@
             "approval_audit_id": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "thread_id",
+            "expected_turn_id"
+          ]
         }
       },
       {
@@ -3199,7 +3208,7 @@
       },
       {
         "name": "loo_codex_control_dry_run",
-        "description": "Create a dry-run audit id for a Codex control action.",
+        "description": "Create a dry-run audit id for a Codex control action under LCO's fixed never-approve, read-only runtime posture.",
         "safety": {
           "mode": "local_cache_write",
           "source": "audit",
@@ -3240,7 +3249,7 @@
       },
       {
         "name": "loo_codex_start_thread",
-        "description": "Create a new Codex thread. Dry-run by default; live mode requires approval_audit_id and still needs follow-up proof before durability claims.",
+        "description": "Create a persistent read-only Codex thread with approvalPolicy=never. Dry-run by default; live mode requires approval_audit_id and still needs follow-up proof before durability claims.",
         "safety": {
           "mode": "approval_gated_control",
           "source": "codex_direct",
@@ -3270,7 +3279,7 @@
       },
       {
         "name": "loo_codex_resume_thread",
-        "description": "Resume or rejoin a Codex thread without starting a turn. Live mode requires approval_audit_id.",
+        "description": "Resume or rejoin a Codex thread under LCO's fixed never-approve, read-only posture without starting a turn. Live mode requires approval_audit_id.",
         "safety": {
           "mode": "approval_gated_control",
           "source": "codex_direct",
@@ -3305,7 +3314,7 @@
       },
       {
         "name": "loo_codex_send_message",
-        "description": "Send a message to a Codex thread. Live mode requires approval_audit_id and waits for bounded turn proof.",
+        "description": "Send a message under LCO's fixed never-approve, read-only posture. Live mode requires approval_audit_id and waits for bounded turn proof.",
         "safety": {
           "mode": "approval_gated_control",
           "source": "codex_direct",
@@ -3346,7 +3355,7 @@
       },
       {
         "name": "loo_codex_steer_thread",
-        "description": "Steer a running Codex thread. Live mode requires approval_audit_id and expected_turn_id.",
+        "description": "Rejoin and steer a running Codex thread under LCO's fixed never-approve, read-only posture. Live mode requires approval_audit_id and expected_turn_id.",
         "safety": {
           "mode": "approval_gated_control",
           "source": "codex_direct",
@@ -3385,12 +3394,17 @@
             "approval_audit_id": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "thread_id",
+            "message",
+            "expected_turn_id"
+          ]
         }
       },
       {
         "name": "loo_codex_interrupt_thread",
-        "description": "Interrupt a Codex thread. Live mode requires approval_audit_id; expected_turn_id enables bounded turn proof.",
+        "description": "Rejoin and interrupt a Codex thread under LCO's fixed never-approve, read-only posture. Live mode requires approval_audit_id and expected_turn_id.",
         "safety": {
           "mode": "approval_gated_control",
           "source": "codex_direct",
@@ -3426,7 +3440,11 @@
             "approval_audit_id": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "thread_id",
+            "expected_turn_id"
+          ]
         }
       },
       {

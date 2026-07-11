@@ -2,7 +2,7 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:chil
 import { createInterface, type Interface } from "node:readline";
 import { URL } from "node:url";
 import { assertCodexMethodAllowed, type CodexMethodSurface } from "./policy.js";
-import { redactValue } from "./redaction.js";
+import { redactDiagnosticString, redactValue } from "./redaction.js";
 
 export type JsonRpcTransport = {
   sendJson(payload: unknown): void | Promise<void>;
@@ -12,6 +12,8 @@ export type JsonRpcTransport = {
 
 export type CodexJsonRpcResponse = {
   ok: boolean;
+  code?: string;
+  origin?: "lco_safety_gate";
   result?: unknown;
   error?: string;
   notifications: JsonRpcNotification[];
@@ -310,10 +312,16 @@ export function createCodexMcpStdioClient(options: {
     },
     async requestSequenceUntilTurnResolved(
       steps: Array<{ method: string; params: Record<string, unknown> }>,
-      turnOptions: { threadId: string; expectedTurnId?: string; turnWaitMs: number }
+      turnOptions: { threadId: string; expectedTurnId?: string; turnWaitMs: number; requireSafeActiveRuntime?: boolean }
     ) {
       const surface = options.surface ?? "control";
       for (const step of steps) assertCodexMethodAllowed(step.method, surface);
+      if (turnOptions.requireSafeActiveRuntime && steps[0]?.method !== "thread/resume") {
+        throw new Error("Codex safe active-runtime proof requires thread/resume as the first sequence step");
+      }
+      if (turnOptions.requireSafeActiveRuntime && steps.some((step) => step.params.threadId !== turnOptions.threadId)) {
+        throw new Error("Codex safe active-runtime proof requires every sequence step to target the requested thread");
+      }
       const client = new CodexJsonRpcClient(
         () => new LineProcessTransport(options.command ?? "codex", options.args ?? ["app-server", "--stdio"], options.timeoutMs),
         { timeoutMs: options.timeoutMs, surface }
@@ -323,13 +331,25 @@ export function createCodexMcpStdioClient(options: {
         const responses: CodexJsonRpcResponse[] = [];
         let turnId = turnOptions.expectedTurnId;
         let latestStatus: string | null = null;
-        for (const step of steps) {
+        let latestError: string | undefined;
+        for (const [index, step] of steps.entries()) {
           const response = await client.request(step.method, step.params);
           responses.push(response);
           const responseTurn = turnResolutionFromResponse(response, step.method);
           turnId ??= responseTurn.id;
           latestStatus = responseTurn.status ?? latestStatus;
+          latestError = responseTurn.error ?? latestError;
           if (!response.ok) break;
+          if (index === 0 && turnOptions.requireSafeActiveRuntime && step.method === "thread/resume" && !safeActiveRuntimeFromResume(response)) {
+            responses.push({
+              ok: false,
+              code: "safe_runtime_posture_unproven",
+              origin: "lco_safety_gate",
+              error: "Codex safe runtime posture was not proven after thread/resume; active-turn control was not sent",
+              notifications: []
+            });
+            break;
+          }
         }
         if (responses.some((response) => !response.ok)) {
           return { responses };
@@ -337,6 +357,7 @@ export function createCodexMcpStdioClient(options: {
         const turn = await waitForJsonRpcTurnResolution(client, {
           turnId,
           initialStatus: latestStatus,
+          initialError: latestError,
           timeoutMs: turnOptions.turnWaitMs
         });
         return { responses, turn };
@@ -432,7 +453,7 @@ function serverRequestFromPayload(payload: Record<string, unknown>): JsonRpcServ
 
 async function waitForJsonRpcTurnResolution(
   client: CodexJsonRpcClient,
-  input: { turnId?: string; initialStatus: string | null; timeoutMs: number }
+  input: { turnId?: string; initialStatus: string | null; initialError?: string; timeoutMs: number }
 ): Promise<JsonRpcTurnResolution> {
   if (!input.turnId) {
     return {
@@ -440,7 +461,8 @@ async function waitForJsonRpcTurnResolution(
       completed: false,
       notificationMethods: [],
       approvalRequestCount: 0,
-      serverRequestCount: 0
+      serverRequestCount: 0,
+      ...(input.initialError ? { error: input.initialError } : {})
     };
   }
   const initialNormalized = normalizeTurnStatus(input.initialStatus);
@@ -451,16 +473,19 @@ async function waitForJsonRpcTurnResolution(
       completed: initialNormalized === "completed",
       notificationMethods: [],
       approvalRequestCount: 0,
-      serverRequestCount: 0
+      serverRequestCount: 0,
+      ...(input.initialError ? { error: input.initialError } : {})
     };
   }
 
   let latestStatus = initialNormalized;
+  let latestError = input.initialError;
   try {
     const wait = await client.readNotificationsUntil((notification) => {
       const turn = turnFromNotification(notification);
       if (turn.id !== input.turnId) return false;
       latestStatus = turn.status ?? latestStatus;
+      latestError = turn.error ?? latestError;
       return turnStatusResolved(normalizeTurnStatus(latestStatus));
     }, { timeoutMs: input.timeoutMs, stopOnServerRequest: true });
     const notificationMethods = wait.notifications.map((notification) => notification.method);
@@ -472,7 +497,8 @@ async function waitForJsonRpcTurnResolution(
         completed: false,
         notificationMethods,
         approvalRequestCount,
-        serverRequestCount: wait.serverRequests.length
+        serverRequestCount: wait.serverRequests.length,
+        ...(latestError ? { error: latestError } : {})
       };
     }
     const normalized = normalizeTurnStatus(latestStatus);
@@ -483,7 +509,8 @@ async function waitForJsonRpcTurnResolution(
         completed: normalized === "completed",
         notificationMethods,
         approvalRequestCount,
-        serverRequestCount: wait.serverRequests.length
+        serverRequestCount: wait.serverRequests.length,
+        ...(latestError ? { error: latestError } : {})
       };
     }
     return {
@@ -492,7 +519,8 @@ async function waitForJsonRpcTurnResolution(
       completed: false,
       notificationMethods,
       approvalRequestCount,
-      serverRequestCount: wait.serverRequests.length
+      serverRequestCount: wait.serverRequests.length,
+      ...(latestError ? { error: latestError } : {})
     };
   } catch (error) {
     return {
@@ -502,26 +530,46 @@ async function waitForJsonRpcTurnResolution(
       notificationMethods: [],
       approvalRequestCount: 0,
       serverRequestCount: 0,
-      error: String(redactValue(error instanceof Error ? error.message : error))
+      error: redactDiagnosticString(error instanceof Error ? error.message : String(error))
     };
   }
 }
 
-function turnResolutionFromResponse(response: CodexJsonRpcResponse, method: string): { id?: string; status: string | null } {
+function turnResolutionFromResponse(response: CodexJsonRpcResponse, method: string): { id?: string; status: string | null; error?: string } {
   const result = objectField(response.result);
   const turn = optionalObjectField(result.turn) ?? optionalObjectField((response as unknown as Record<string, unknown>).turn) ?? {};
   return {
     id: stringField(turn, "id"),
-    status: normalizeTurnStatus(stringField(turn, "status") ?? methodStatus(method))
+    status: normalizeTurnStatus(stringField(turn, "status") ?? methodStatus(method)),
+    ...turnError(turn)
   };
 }
 
-function turnFromNotification(notification: JsonRpcNotification): { id?: string; status: string | null } {
+function turnFromNotification(notification: JsonRpcNotification): { id?: string; status: string | null; error?: string } {
   const turn = optionalObjectField(notification.params.turn) ?? notification.params;
   return {
     id: stringField(turn, "id") ?? stringField(notification.params, "turnId"),
-    status: normalizeTurnStatus(stringField(turn, "status") ?? methodStatus(notification.method))
+    status: normalizeTurnStatus(stringField(turn, "status") ?? methodStatus(notification.method)),
+    ...turnError(turn)
   };
+}
+
+function turnError(turn: Record<string, unknown>): { error?: string } {
+  if (typeof turn.error === "string" && turn.error.trim()) {
+    return { error: "Codex turn failed; diagnostic text redacted" };
+  }
+  const error = optionalObjectField(turn.error);
+  const message = error ? stringField(error, "message") : undefined;
+  if (!message) return {};
+  return { error: "Codex turn failed; diagnostic text redacted" };
+}
+
+function safeActiveRuntimeFromResume(response: CodexJsonRpcResponse): boolean {
+  const result = objectField(response.result);
+  const sandbox = optionalObjectField(result.sandbox);
+  return result.approvalPolicy === "never"
+    && sandbox?.type === "readOnly"
+    && sandbox.networkAccess === false;
 }
 
 function methodStatus(method: string): string | null {

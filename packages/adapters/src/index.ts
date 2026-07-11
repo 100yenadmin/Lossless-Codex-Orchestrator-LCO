@@ -4,7 +4,7 @@ import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, readFileSy
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { codexTransportStatus } from "./codex-jsonrpc.js";
 import { CODEX_CONTROL_METHODS, CODEX_FORBIDDEN_METHODS, CODEX_READ_METHODS, CODEX_TARGET_METHOD_POLICY, assertCodexMethodAllowed, assertTargetMethodAllowed, type TargetMethodPolicy } from "./policy.js";
-import { redactValue } from "./redaction.js";
+import { redactDiagnosticString, redactDiagnosticValue, redactValue } from "./redaction.js";
 import { readEnv, readEnvWithFallback, resolveHomeDir } from "../../runtime/src/env.js";
 
 export * from "./codex-jsonrpc.js";
@@ -26,6 +26,7 @@ export type CodexControlSequenceOptions = {
   threadId: string;
   expectedTurnId?: string;
   turnWaitMs: number;
+  requireSafeActiveRuntime?: boolean;
 };
 
 export type CodexControlSequenceResult = {
@@ -618,6 +619,7 @@ export type ControlResult = {
   method?: string;
   methodSequence?: string[];
   connectionScope?: "single_request" | "same_connection_sequence";
+  controlSent?: boolean;
   loadedThreadReusable?: boolean;
   createdThreadId?: string;
   createdThreadCandidateId?: string;
@@ -685,6 +687,7 @@ export type TargetControlExecuteSpec = {
   turnResolution?: {
     expectedTurnId?: string;
     turnWaitMs?: number;
+    requireSafeActiveRuntime?: boolean;
   };
 };
 
@@ -706,6 +709,9 @@ export type AuditRecord = {
 export const CODEX_CONTROL_DRY_RUN_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_CODEX_TURN_WAIT_MS = 120_000;
 const MAX_CODEX_TURN_WAIT_MS = 600_000;
+const CODEX_SAFE_APPROVAL_POLICY = "never";
+const CODEX_SAFE_SANDBOX_MODE = "read-only";
+const CODEX_SAFE_TURN_SANDBOX_POLICY = { type: "readOnly", networkAccess: false } as const;
 
 export function createAuditStore(path: string) {
   mkdirSync(dirname(path), { recursive: true });
@@ -837,10 +843,39 @@ export function createTargetControl(options: { targetName: string; methodPolicy:
         ? {
             threadId: spec.threadId,
             expectedTurnId: spec.turnResolution.expectedTurnId,
-            turnWaitMs: resolveCodexTurnWaitMs(spec.turnResolution.turnWaitMs)
+            turnWaitMs: resolveCodexTurnWaitMs(spec.turnResolution.turnWaitMs),
+            ...(spec.turnResolution.requireSafeActiveRuntime ? { requireSafeActiveRuntime: true } : {})
           }
         : undefined)
       : undefined;
+    const safeRuntimeBlock = safeRuntimeBlockFromSequence(sequenceResult);
+    if (safeRuntimeBlock) {
+      return {
+        action: spec.action,
+        threadId: spec.threadId,
+        live: true,
+        approvalAuditId: previous.id,
+        paramsHash,
+        messageHash,
+        method: spec.method,
+        methodSequence,
+        connectionScope,
+        controlSent: false,
+        expectedTurnId: spec.expectedTurnId,
+        proofState: {
+          acceptedByTransport: false,
+          started: false,
+          completed: false,
+          persisted: false,
+          unverifiedPending: false,
+          status: "transport_rejected",
+          threadId: spec.threadId,
+          callerInstruction: "Codex active runtime posture was not proven safe after resume. The active-turn control was not sent; use a fresh dry-run after establishing the supported never-approve, read-only, no-network posture.",
+          proofBoundary: "This public-safe result proves that LCO stopped before steer or interrupt. It does not prove execution, completion, persistence, or any Codex GUI action."
+        },
+        response: sanitizeCodexControlResponse(safeRuntimeBlock)
+      };
+    }
     const rawResponse = sequenceResult
       ? sequenceResult.responses.at(-1) ?? { ok: true }
       : await options.client.request(spec.method, spec.params);
@@ -869,6 +904,7 @@ export function createTargetControl(options: { targetName: string; methodPolicy:
       methodSequence,
       connectionScope,
       loadedThreadReusable: spec.loadedThreadReusable,
+      controlSent: true,
       createdThreadId,
       createdThreadCandidateId,
       createdThreadResumable,
@@ -896,19 +932,31 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
 
   return {
     startThread(input: { dryRun?: boolean; approvalAuditId?: string } = {}) {
+      const startParams = {
+        approvalPolicy: CODEX_SAFE_APPROVAL_POLICY,
+        sandbox: CODEX_SAFE_SANDBOX_MODE,
+        ephemeral: false
+      };
       return target.execute({
         action: "codex_start_thread",
         method: "thread/start",
         threadId: "new_thread",
         dryRun: input.dryRun,
         approvalAuditId: input.approvalAuditId,
-        params: {},
+        params: startParams,
         createdThreadFromResponse: true
       });
     },
     sendMessage(input: { threadId: string; message: string; dryRun?: boolean; approvalAuditId?: string; turnWaitMs?: number }) {
-      const resumeParams = { threadId: input.threadId, excludeTurns: true };
-      const turnStartParams = { threadId: input.threadId, input: [{ type: "text", text: input.message }] };
+      const resumeParams = safeCodexResumeParams(input.threadId);
+      // A new turn pins its own restrictive posture. Unlike steer/interrupt,
+      // it does not act inside an already-running turn whose posture is fixed.
+      const turnStartParams = {
+        threadId: input.threadId,
+        input: [{ type: "text", text: input.message }],
+        approvalPolicy: CODEX_SAFE_APPROVAL_POLICY,
+        sandboxPolicy: CODEX_SAFE_TURN_SANDBOX_POLICY
+      };
       return target.execute({
         action: "codex_send_message",
         method: "turn/start",
@@ -928,18 +976,21 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
       });
     },
     resumeThread(input: { threadId: string; dryRun?: boolean; approvalAuditId?: string }) {
+      const resumeParams = safeCodexResumeParams(input.threadId);
       return target.execute({
         action: "codex_resume_thread",
         method: "thread/resume",
         threadId: input.threadId,
         dryRun: input.dryRun,
         approvalAuditId: input.approvalAuditId,
-        params: { threadId: input.threadId, excludeTurns: true },
+        params: resumeParams,
         loadedThreadReusable: false
       });
     },
     steerThread(input: { threadId: string; message: string; expectedTurnId?: string; dryRun?: boolean; approvalAuditId?: string; turnWaitMs?: number }) {
       if (!input.expectedTurnId) throw new Error("expected_turn_id is required for steer actions");
+      const resumeParams = safeCodexResumeParams(input.threadId);
+      const steerParams = { threadId: input.threadId, expectedTurnId: input.expectedTurnId, input: [{ type: "text", text: input.message }] };
       return target.execute({
         action: "codex_steer_thread",
         method: "turn/steer",
@@ -947,31 +998,51 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
         message: input.message,
         dryRun: input.dryRun,
         approvalAuditId: input.approvalAuditId,
-        params: { threadId: input.threadId, expectedTurnId: input.expectedTurnId, input: [{ type: "text", text: input.message }] },
+        params: steerParams,
+        steps: [
+          { method: "thread/resume", params: resumeParams },
+          { method: "turn/steer", params: steerParams }
+        ],
         expectedTurnId: input.expectedTurnId,
         turnResolution: {
           expectedTurnId: input.expectedTurnId,
-          turnWaitMs: input.turnWaitMs
+          turnWaitMs: input.turnWaitMs,
+          requireSafeActiveRuntime: true
         }
       });
     },
     interruptThread(input: { threadId: string; expectedTurnId?: string; dryRun?: boolean; approvalAuditId?: string; turnWaitMs?: number }) {
+      if (!input.expectedTurnId) throw new Error("expected_turn_id is required for interrupt actions");
+      const resumeParams = safeCodexResumeParams(input.threadId);
+      const interruptParams = { threadId: input.threadId, turnId: input.expectedTurnId };
       return target.execute({
         action: "codex_interrupt_thread",
         method: "turn/interrupt",
         threadId: input.threadId,
         dryRun: input.dryRun,
         approvalAuditId: input.approvalAuditId,
-        params: { threadId: input.threadId, ...(input.expectedTurnId ? { expectedTurnId: input.expectedTurnId } : {}) },
+        params: interruptParams,
+        steps: [
+          { method: "thread/resume", params: resumeParams },
+          { method: "turn/interrupt", params: interruptParams }
+        ],
         expectedTurnId: input.expectedTurnId,
-        turnResolution: input.expectedTurnId
-          ? {
-              expectedTurnId: input.expectedTurnId,
-              turnWaitMs: input.turnWaitMs
-            }
-          : undefined
+        turnResolution: {
+          expectedTurnId: input.expectedTurnId,
+          turnWaitMs: input.turnWaitMs,
+          requireSafeActiveRuntime: true
+        }
       });
     }
+  };
+}
+
+function safeCodexResumeParams(threadId: string): Record<string, unknown> {
+  return {
+    threadId,
+    excludeTurns: true,
+    approvalPolicy: CODEX_SAFE_APPROVAL_POLICY,
+    sandbox: CODEX_SAFE_SANDBOX_MODE
   };
 }
 
@@ -1125,7 +1196,10 @@ function sanitizeCodexControlResponseValue(value: unknown): unknown {
   if (value && typeof value === "object") {
     const entries = Object.entries(value)
       .filter(([key]) => !CODEX_CONTROL_RESPONSE_FORBIDDEN_KEYS.has(key))
-      .map(([key, item]) => [key, sanitizeCodexControlResponseValue(item)]);
+      .map(([key, item]) => [
+        key,
+        sanitizeCodexControlResponseValue(key.toLowerCase() === "error" ? redactDiagnosticValue(item) : item)
+      ]);
     return Object.fromEntries(entries);
   }
   return value;
@@ -1138,7 +1212,8 @@ function publicTurnResolution(turn: CodexTurnResolution): CodexTurnResolution {
     completed: turn.completed,
     notificationMethods: [...new Set(turn.notificationMethods)].sort(compareTurnNotificationMethods),
     approvalRequestCount: turn.approvalRequestCount,
-    serverRequestCount: turn.serverRequestCount
+    serverRequestCount: turn.serverRequestCount,
+    ...(turn.error ? { error: redactDiagnosticString(turn.error).slice(0, 260) } : {})
   };
 }
 
@@ -1233,13 +1308,25 @@ async function requestCodexControlSequence(
 
 function assertCodexControlSequenceResponses(responses: unknown[], steps: CodexControlStep[]): void {
   for (let index = 0; index < responses.length; index += 1) {
-    if (asRecord(responses[index])?.ok === false) {
+    const response = asRecord(responses[index]);
+    const isLcoSafetyBlock = response?.code === "safe_runtime_posture_unproven"
+      && response.origin === "lco_safety_gate";
+    if (response?.ok === false && !isLcoSafetyBlock) {
       throw new Error(`Codex control sequence step failed: ${steps[index]?.method ?? "unknown"}`);
     }
   }
   if (responses.length !== steps.length) {
     throw new Error(`Codex control sequence returned ${responses.length} response(s) for ${steps.length} step(s)`);
   }
+}
+
+function safeRuntimeBlockFromSequence(sequence: CodexControlSequenceResult | undefined): Record<string, unknown> | null {
+  const response = asRecord(sequence?.responses.at(-1));
+  return response?.ok === false
+    && response.code === "safe_runtime_posture_unproven"
+    && response.origin === "lco_safety_gate"
+    ? response
+    : null;
 }
 
 export async function createCodexAppServerStatusReport(options: {

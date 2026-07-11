@@ -105,7 +105,7 @@ interrupt scratch turns only when the release issue asks for those rows.
 
 | Threat | Failure Mode | Mitigation |
 | --- | --- | --- |
-| Policy confusion | A read-only target method is routed through live-control execution. | Separate read, dry-run, live-control, GUI, external-write, and release-publish method families. |
+| Policy confusion | A read-only target method is routed through live-control execution, or a resumed/running thread retains broader ambient permissions. | Separate read, dry-run, live-control, GUI, external-write, and release-publish method families; pin supported live Codex control to `approvalPolicy=never` plus a read-only, no-network sandbox on start, resume, and turn start; before active-turn steer/interrupt, require the same-connection resume response to prove that posture or fail closed. |
 | Target mix-up | Approval minted for one target is replayed against another. | Include target kind/ref/precondition hash in the audit packet and compare before live execution. |
 | Stale prepared state | Orchestrator acts on an old card as current truth. | Freshness, confidence, source coverage, and low-confidence degradation on every card. |
 | Raw data leakage | Release evidence includes raw prompts, paths, logs, tokens, or SQLite. | Public-safe scan, opaque refs, path canaries, and evidence index review before publish. |
@@ -145,4 +145,3 @@ For local runtime incidents:
 2. Disable any launchd/watch service that invokes LCO.
 3. Move the affected LCO DB aside before reindexing.
 4. Re-run `lco doctor`, fresh-profile setup, and the scoped QA Lab lane.
-
