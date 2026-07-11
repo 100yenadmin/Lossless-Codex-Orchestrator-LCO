@@ -180,9 +180,9 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
     : null;
   blockers.push(...(expand ? gatewayCallBlockers(expand, "post_action_expand_failed") : []));
 
-  const outputs = [threadMap, search, describe, expand]
-    .flatMap((call) => call?.parsed === undefined ? [] : [unwrapToolOutput(unwrapGatewayPayload(call.parsed))]);
-  const textPreview = outputs.map((output) => JSON.stringify(output)).join("\n");
+  const responseEnvelopes = [catalog, threadMap, search, describe, expand]
+    .flatMap((call) => call?.parsed === undefined ? [] : [call.parsed]);
+  const textPreview = responseEnvelopes.map((output) => JSON.stringify(output)).join("\n");
   const containsRawPrivate = RAW_PRIVATE_PATTERN.test(textPreview);
   if (containsRawPrivate) blockers.push("post_action_refresh_raw_private_output");
 
@@ -370,6 +370,8 @@ function gatewayCallBlockers(call: GatewayCallResult, fallback: string): string[
   if (call.parsed === undefined) return [`${fallback}:invalid_json`];
   const payload = unwrapGatewayPayload(call.parsed);
   if (isRecord(payload) && payload.ok === false) return [`${fallback}:tool_not_ok`];
+  const toolOutput = unwrapToolOutput(payload);
+  if (isRecord(toolOutput) && toolOutput.ok === false) return [`${fallback}:tool_not_ok`];
   return [];
 }
 
