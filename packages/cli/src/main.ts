@@ -24,6 +24,7 @@ import {
   createRecallRefNotFoundResult,
   createIndexedSessionSanitizerRepairPlan,
   createIndexedSessionSanitizerReport,
+  createSessionDiffSetupRequiredReport,
   defaultClaudeRoots,
   defaultCodexRoots,
   defaultDatabasePath,
@@ -41,6 +42,7 @@ import {
   harvestRetrievalTelemetry,
   indexClaudeSessions,
   indexCodexSessions,
+  isSessionDiffSetupError,
   probeCodexSqliteStores,
   probeLcmPeerDbs,
   readCodexIndexHealthStatusFromPath,
@@ -397,6 +399,9 @@ async function main() {
         cursorSigningKey: configuredKey ?? auditFallbackKey ?? undefined,
         cursorKeySource: configuredKey ? "environment" : auditFallbackKey ? "audit_fallback" : undefined
       }), null, 2));
+    } catch (error) {
+      if (!isSessionDiffSetupError(error)) throw error;
+      console.log(JSON.stringify(createSessionDiffSetupRequiredReport("cli"), null, 2));
     } finally {
       db.close();
     }

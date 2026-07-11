@@ -2122,6 +2122,27 @@ export type SessionDiffReport = {
   proofBoundary: string;
 };
 
+export type SessionDiffSetupReport = {
+  schema: "lco.session.diff.setup.v1";
+  publicSafe: true;
+  readOnly: true;
+  ok: false;
+  status: "setup_required";
+  blockers: ["session_diff_cursor_signing_key_required"];
+  nextSafeCommands: [string];
+  actionsPerformed: {
+    rawTranscriptRead: false;
+    sourceStoreMutation: false;
+    derivedCacheWrite: false;
+    liveControl: false;
+    guiMutation: false;
+    externalWrite: false;
+    npmPublished: false;
+    githubReleaseCreated: false;
+  };
+  proofBoundary: string;
+};
+
 export type SessionDiffOptions = {
   threadId?: string;
   targetRef?: string;
@@ -11555,6 +11576,40 @@ type SessionDiffSnapshot = {
 
 const SESSION_DIFF_CURSOR_MAX_CHARS = 16_384;
 const SESSION_DIFF_SOURCE_RANGE_CURSOR_KEY_SQL = "session_diff_key";
+
+export function isSessionDiffSetupError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return /^Session diff cursor signing key is required(?:;|$)/.test(error.message)
+    || /^Audit fingerprint key is (?:invalid|unavailable)(?:$|:)/.test(error.message)
+    || /^(?:EACCES|EPERM|EISDIR|ENOTDIR):/.test(error.message);
+}
+
+export function createSessionDiffSetupRequiredReport(surface: "cli" | "mcp"): SessionDiffSetupReport {
+  return {
+    schema: "lco.session.diff.setup.v1",
+    publicSafe: true,
+    readOnly: true,
+    ok: false,
+    status: "setup_required",
+    blockers: ["session_diff_cursor_signing_key_required"],
+    nextSafeCommands: [
+      surface === "cli"
+        ? "Configure LCO_SESSION_DIFF_CURSOR_KEY from a local secret store, then retry lco session-diff."
+        : "Configure LCO_SESSION_DIFF_CURSOR_KEY from a local secret store, then retry lco_session_diff."
+    ],
+    actionsPerformed: {
+      rawTranscriptRead: false,
+      sourceStoreMutation: false,
+      derivedCacheWrite: false,
+      liveControl: false,
+      guiMutation: false,
+      externalWrite: false,
+      npmPublished: false,
+      githubReleaseCreated: false
+    },
+    proofBoundary: "Session diff setup checks do not expose cursor keys, audit-key paths, raw source data, or local transcript content."
+  };
+}
 
 function nextSessionDiffMutationTimestamp(db: LooDatabase, proposedAt = new Date().toISOString()): string {
   const proposed = publicIsoTimestamp(proposedAt) ?? new Date().toISOString();

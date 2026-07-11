@@ -21,6 +21,7 @@ import {
   createLooTools,
   executeLooToolForOpenClaw
 } from "../packages/mcp-server/src/tools.js";
+import { runLoo } from "./helpers/run-loo.js";
 import { writeSyntheticCodexSession } from "./helpers/synthetic-codex.js";
 
 function id(input: string): string {
@@ -1950,6 +1951,37 @@ test("session diff tool returns path-free setup guidance for missing or invalid 
     if (previousLooKey === undefined) delete process.env.LOO_SESSION_DIFF_CURSOR_KEY;
     else process.env.LOO_SESSION_DIFF_CURSOR_KEY = previousLooKey;
     db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("session diff CLI returns structured setup guidance when no signing key is configured", () => {
+  const root = mkdtempSync(join(tmpdir(), "lco-session-diff-cli-setup-"));
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    HOME: root,
+    LCO_DB_PATH: join(root, "orchestrator.sqlite"),
+    LCO_AUDIT_PATH: join(root, "missing", "audit.jsonl")
+  };
+  delete env.LCO_SESSION_DIFF_CURSOR_KEY;
+  delete env.LOO_SESSION_DIFF_CURSOR_KEY;
+  try {
+    const result = runLoo(["session-diff"], env);
+    assert.equal(result.status, 0, result.stderr);
+    const response = JSON.parse(result.stdout) as {
+      schema?: string;
+      publicSafe?: boolean;
+      status?: string;
+      blockers?: string[];
+      nextSafeCommands?: string[];
+    };
+    assert.equal(response.schema, "lco.session.diff.setup.v1");
+    assert.equal(response.publicSafe, true);
+    assert.equal(response.status, "setup_required");
+    assert.deepEqual(response.blockers, ["session_diff_cursor_signing_key_required"]);
+    assert.match(response.nextSafeCommands?.join(" ") ?? "", /lco session-diff/i);
+    assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /\bat\s+|\/Users\/|\/Volumes\/|lco-session-diff-cli-setup-/);
+  } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });

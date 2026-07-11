@@ -11,6 +11,7 @@ import {
   createCodexCollaborationNextSteps,
   createCodexCollaborationCockpit,
   createCodexRuntimeDesktopVisibilityStatus,
+  createSessionDiffSetupRequiredReport,
   createFindRecallReport,
   createRecallIndexSummary,
   createCodexThreadNotFoundResult,
@@ -53,6 +54,7 @@ import {
   grepRecall,
   indexClaudeSessions,
   indexCodexSessions,
+  isSessionDiffSetupError,
   probeLcmPeerDbs,
   probeCodexSqliteStores,
   type LooDatabase,
@@ -442,36 +444,8 @@ function sessionDiffToolResult(db: LooDatabase, audit: AuditStore, input: Record
     });
   } catch (error) {
     if (!isSessionDiffSetupError(error)) throw error;
-    return {
-      schema: "lco.session.diff.setup.v1",
-      publicSafe: true,
-      readOnly: true,
-      ok: false,
-      status: "setup_required",
-      blockers: ["session_diff_cursor_signing_key_required"],
-      nextSafeCommands: [
-        "Configure LCO_SESSION_DIFF_CURSOR_KEY from a local secret store, then retry lco_session_diff."
-      ],
-      actionsPerformed: {
-        rawTranscriptRead: false,
-        sourceStoreMutation: false,
-        derivedCacheWrite: false,
-        liveControl: false,
-        guiMutation: false,
-        externalWrite: false,
-        npmPublished: false,
-        githubReleaseCreated: false
-      },
-      proofBoundary: "Session diff setup checks do not expose cursor keys, audit-key paths, raw source data, or local transcript content."
-    };
+    return createSessionDiffSetupRequiredReport("mcp");
   }
-}
-
-function isSessionDiffSetupError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  return /^Session diff cursor signing key is required(?:;|$)/.test(error.message)
-    || /^Audit fingerprint key is (?:invalid|unavailable)(?:$|:)/.test(error.message)
-    || /^(?:EACCES|EPERM|EISDIR|ENOTDIR):/.test(error.message);
 }
 
 function validateOpenClawToolInput(schema: Record<string, unknown>, input: Record<string, unknown>): string | null {
