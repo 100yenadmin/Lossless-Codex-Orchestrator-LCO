@@ -458,7 +458,9 @@ test("Claude probe settlement does not cut short an active tree killer", () => {
   assert.doesNotMatch(settleBlock, /disposeClaudeProbeTreeKiller/);
   assert.match(settleBlock, /!treeKiller\s*\|\|\s*treeKillerCompleted/);
   const hardDeadlineBlock = source.slice(source.indexOf("hardDeadline = setTimeout"), source.indexOf("child.once(\"close\""));
-  assert.match(hardDeadlineBlock, /if\s*\(!childClosed\)/);
+  assert.match(hardDeadlineBlock, /if\s*\(childIsRunning\(\)\)/);
+  const terminateTreeBlock = source.slice(source.indexOf("const terminateTree ="), source.indexOf("const capture ="));
+  assert.match(terminateTreeBlock, /childIsRunning\(\)/);
   assert.match(hardDeadlineBlock, /disposeClaudeProbeTreeKiller\(treeKiller\)/);
   assert.match(hardDeadlineBlock, /spawnSync/);
   assert.match(hardDeadlineBlock, /child\.kill\("SIGKILL"\)/);

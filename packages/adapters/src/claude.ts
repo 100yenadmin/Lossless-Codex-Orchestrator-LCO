@@ -115,11 +115,12 @@ function runClaudeVersionProbe(invocation: {
     let outputLimitExceeded = false;
     let terminationStarted = false;
     let settled = false;
-    let childClosed = false;
+    let childExited = false;
     let treeKiller: ReturnType<typeof spawn> | null = null;
     let treeKillerCompleted = false;
     let timeout: NodeJS.Timeout;
     let hardDeadline: NodeJS.Timeout;
+    const childIsRunning = () => !childExited && child.exitCode === null && child.signalCode === null;
 
     const settle = (code: number | null, signal: NodeJS.Signals | null) => {
       if (settled) return;
@@ -138,7 +139,7 @@ function runClaudeVersionProbe(invocation: {
     };
 
     const terminateTree = () => {
-      if (terminationStarted || child.pid === undefined) return;
+      if (terminationStarted || child.pid === undefined || !childIsRunning()) return;
       terminationStarted = true;
       const termination = claudeProbeTreeTerminationInvocation(process.platform, child.pid);
       if (termination) {
@@ -184,7 +185,7 @@ function runClaudeVersionProbe(invocation: {
       terminateTree();
       if (treeKiller) {
         disposeClaudeProbeTreeKiller(treeKiller);
-        if (!childClosed) {
+        if (childIsRunning()) {
           const finalTreeTermination = child.pid === undefined
             ? null
             : claudeProbeTreeTerminationInvocation(process.platform, child.pid);
@@ -198,16 +199,16 @@ function runClaudeVersionProbe(invocation: {
           }
         }
       }
-      if (!childClosed) child.kill("SIGKILL");
+      if (childIsRunning()) child.kill("SIGKILL");
       child.stdout.destroy();
       child.stderr.destroy();
       child.unref();
       settle(null, "SIGKILL");
     }, 3_250);
-    child.once("close", (code, signal) => {
-      childClosed = true;
-      settle(code, signal);
+    child.once("exit", () => {
+      childExited = true;
     });
+    child.once("close", settle);
   });
 }
 
