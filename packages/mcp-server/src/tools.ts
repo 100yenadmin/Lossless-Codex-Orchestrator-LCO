@@ -1444,6 +1444,7 @@ function publicSafeIndexRecallResult(options: {
     indexedThreads: summary.indexedThreads,
     indexedSessions: summary.indexedSessions,
     indexedEvents: summary.indexedEvents,
+    preparedMaterialization: options.codex?.preparedMaterialization ?? null,
     indexLimits: {
       codex: options.codex?.indexLimits ?? null,
       claude: options.claude?.indexLimits ?? null

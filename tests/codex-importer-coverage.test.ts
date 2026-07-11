@@ -368,6 +368,11 @@ test("MCP tools expose default Codex roots and read-only SQLite probes", async (
       mutationClasses: string[];
       indexedFiles: number;
       indexedThreads: number;
+      preparedMaterialization: {
+        requestedThreads: number;
+        completedThreads: number;
+        pendingThreads: number;
+      };
     };
     assert.equal(indexed.publicSafe, true);
     assert.equal(indexed.readOnly, false);
@@ -375,6 +380,11 @@ test("MCP tools expose default Codex roots and read-only SQLite probes", async (
     assert.equal(indexed.mutationClasses.length, 1);
     assert.equal(indexed.indexedFiles, 2);
     assert.equal(indexed.indexedThreads, 2);
+    assert.deepEqual(indexed.preparedMaterialization, {
+      requestedThreads: 2,
+      completedThreads: 2,
+      pendingThreads: 0
+    });
 
     const probeTool = tools.find((tool) => tool.name === "loo_codex_sqlite_stores");
     assert.ok(probeTool);
