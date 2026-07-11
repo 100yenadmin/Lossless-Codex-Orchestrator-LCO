@@ -280,6 +280,12 @@ test("Claude diagnostics redact Unix Users Profiles drive-home and UNC profile p
   for (const singleComponentPath of ["/private", "/secret", "/tmp"]) {
     assert.doesNotMatch(redactClaudeString(`failed at ${singleComponentPath}`), new RegExp(singleComponentPath));
   }
+  for (const delimitedPath of [
+    "error[/Volumes/PRIVATE/customer]",
+    "ENOENT-/Volumes/PRIVATE/customer/repo"
+  ]) {
+    assert.doesNotMatch(redactClaudeString(delimitedPath), /\/Volumes\/PRIVATE/);
+  }
 });
 
 test("Claude dry-run packet minting rejects not-configured and unsupported states", async () => {
@@ -425,7 +431,9 @@ test("Claude probe settlement does not cut short an active tree killer", () => {
   const settleBlock = source.slice(source.indexOf("const settle ="), source.indexOf("const terminateTree ="));
   assert.doesNotMatch(settleBlock, /disposeClaudeProbeTreeKiller/);
   const hardDeadlineBlock = source.slice(source.indexOf("hardDeadline = setTimeout"), source.indexOf("child.once(\"close\""));
-  assert.match(hardDeadlineBlock, /if \(!treeKiller\) child\.kill\("SIGKILL"\)/);
+  assert.match(hardDeadlineBlock, /disposeClaudeProbeTreeKiller\(treeKiller\)/);
+  assert.match(hardDeadlineBlock, /spawnSync/);
+  assert.match(hardDeadlineBlock, /child\.kill\("SIGKILL"\)/);
 });
 
 test("Claude version parser accepts semver metadata and rejects old or unparseable versions", () => {
@@ -603,14 +611,13 @@ test("Claude dry-run status reports unsupported and redacts all diagnostics", ()
 });
 
 test("Claude dry-run derives unsupported state from injected version output", async () => {
-  for (const version of ["Claude Code 0.9.0", "unparseable wrapper banner"]) {
+  for (const availability of [
+    { available: true, command: "claude", version: "Claude Code 0.9.0", error: null },
+    { available: true, command: "claude", version: "unparseable wrapper banner", error: null },
+    { available: true, command: "claude", version: "Claude Code 0.1.0", error: null, unsupportedReason: "" }
+  ]) {
     const control = createClaudeDryRunControl({
-      availability: {
-        available: true,
-        command: "claude",
-        version,
-        error: null
-      },
+      availability,
       audit: auditStub()
     });
     assert.equal(control.status().state, "unsupported");
@@ -619,6 +626,16 @@ test("Claude dry-run derives unsupported state from injected version output", as
       /status is unsupported/i
     );
   }
+  const malformedAvailability = createClaudeDryRunControl({
+    availability: {
+      available: "false",
+      command: "claude",
+      version: "Claude Code 1.0.0",
+      error: null
+    } as never,
+    audit: auditStub()
+  });
+  assert.equal(malformedAvailability.status().state, "not_configured");
 });
 
 test("Claude dry-run resume fails closed for invalid session ids", async () => {

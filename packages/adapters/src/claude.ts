@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { win32 as win32Path } from "node:path";
 import { createTargetControl, type AuditRecord } from "./index.js";
 import { type TargetMethodPolicy } from "./policy.js";
@@ -178,7 +178,21 @@ function runClaudeVersionProbe(invocation: {
     hardDeadline = setTimeout(() => {
       timedOut = true;
       terminateTree();
-      if (!treeKiller) child.kill("SIGKILL");
+      if (treeKiller) {
+        disposeClaudeProbeTreeKiller(treeKiller);
+        const finalTreeTermination = child.pid === undefined
+          ? null
+          : claudeProbeTreeTerminationInvocation(process.platform, child.pid);
+        if (finalTreeTermination) {
+          spawnSync(finalTreeTermination.command, finalTreeTermination.args, {
+            cwd: finalTreeTermination.cwd,
+            timeout: 500,
+            windowsHide: true,
+            stdio: "ignore"
+          });
+        }
+      }
+      child.kill("SIGKILL");
       child.stdout.destroy();
       child.stderr.destroy();
       child.unref();
@@ -415,20 +429,22 @@ export function createClaudeCodeAdapter() {
 }
 
 function sanitizeClaudeAvailability(input: ClaudeDryRunAvailability): ClaudeDryRunAvailability {
+  const available = input.available === true;
   const version = input.version === null ? null : String(redactClaudeValue(input.version));
-  const derivedUnsupportedReason = input.available
+  const derivedUnsupportedReason = available
     ? version
       ? unsupportedClaudeVersionReason(version)
       : "Claude CLI version output was empty and could not be parsed for dry-run validation."
     : null;
+  const suppliedUnsupportedReason = input.unsupportedReason === undefined || input.unsupportedReason === null
+    ? null
+    : String(redactClaudeValue(input.unsupportedReason)).trim() || null;
   return {
-    available: input.available,
+    available,
     command: String(redactClaudeValue(input.command)),
     version,
     error: input.error === null ? null : String(redactClaudeValue(input.error)),
-    unsupportedReason: input.unsupportedReason === undefined || input.unsupportedReason === null
-      ? derivedUnsupportedReason
-      : String(redactClaudeValue(input.unsupportedReason))
+    unsupportedReason: suppliedUnsupportedReason ?? derivedUnsupportedReason
   };
 }
 
