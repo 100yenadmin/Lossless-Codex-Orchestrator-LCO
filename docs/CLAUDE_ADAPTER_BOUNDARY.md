@@ -8,6 +8,9 @@ Issues:
   Claude Code format mapping and public-safe parser foundation.
 - [#710](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/710)
   Claude Code local JSONL importer and storage foundation.
+- [#737](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/737)
+  Claude-native dry-run TargetAdapter validation for the 1.6 control-plane
+  seam.
 
 This inventory keeps the Claude Code lane honest. LCO can now import local
 Claude Code JSONL into the same public-safe recall flow as Codex, while live
@@ -123,3 +126,25 @@ The 1.5 read/recall lane now adds local filesystem import:
 
 This is a read/recall foundation. Claude live control, settings mutation, GUI
 mutation, cloud sync, and adapter parity remain future adapter work.
+
+## 1.6 Dry-Run TargetAdapter Validation
+
+The 1.6 control-plane lane adds Claude-native dry-run TargetAdapter validation
+without adding live Claude Code control. The adapter can report explicit
+`dry_run_only`, `not_configured`, and `unsupported` states and can mint an LCO
+dry-run audit packet for a `claude/print/resume` intent. The packet records
+opaque refs and hashes only; it does not invoke `claude`, type into Claude Code,
+change Claude settings, mutate sessions, or claim adapter parity.
+
+Constructing the adapter and reading `status()` do not execute the Claude CLI.
+Capability probing is a separate explicit action: a caller may await
+`probeClaudeDryRunAvailability()` deliberately and inject its sanitized result,
+but an omitted probe reports `not_configured` rather than resolving `claude`
+through ambient `PATH` during a status read. The explicit probe uses a
+caller-trusted PATH on every platform and therefore must run only from a trusted
+environment. On Windows, the canonical `C:\Windows\System32` boundary pins
+`cmd.exe` and `taskkill.exe` but does not pin the Claude executable that
+`cmd.exe` resolves through `PATH`. The asynchronous subprocess uses tree
+termination plus an independent hard deadline, so a stalled tree killer cannot block the
+orchestration event loop indefinitely; `status()` never invokes the probe, even
+when a legacy callback is supplied.
