@@ -10,7 +10,7 @@ const SECRET_PATTERNS: Array<[RegExp, string]> = [
 const GENERIC_HOME_PATTERN = /\/Users\/[^/\s]+/g;
 const CLAUDE_UNIX_HOME_PATTERN = /(?:\/(?:Users|home)\/[^/\s]+|\/root(?=\/|\s|$))/gi;
 const CLAUDE_WINDOWS_HOME_PATTERN = /(?:[A-Za-z]:|\\\\[^\\/\s]+)[\\/](?:Users|Profiles|home)[\\/][^\\/\s]+/gi;
-const CLAUDE_POSIX_ABSOLUTE_PATH_PATTERN = /(^|[\s("'=,:])\/(?:[^/\s"'()<>{}\[\],;:]+\/)+[^/\s"'()<>{}\[\],;:]*/g;
+const CLAUDE_POSIX_ABSOLUTE_PATH_PATTERN = /(^|[\s("'=,:])\/(?:[^/\s"'()<>{}\[\],;:]+\/)*[^/\s"'()<>{}\[\],;:]+/g;
 const CLAUDE_WINDOWS_ABSOLUTE_PATH_PATTERN = /(?:\b[A-Za-z]:|\\\\[^\\/\s]+)[\\/](?:[^\\/\s"'<>|]+[\\/])*[^\\/\s"'<>|]*/g;
 
 export function redactString(value: string): string {

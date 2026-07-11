@@ -277,6 +277,9 @@ test("Claude diagnostics redact Unix Users Profiles drive-home and UNC profile p
   assert.doesNotMatch(redacted, /alice|bob|carol|dave|erin|frank|grace|heidi|\/root/);
   assert.doesNotMatch(redacted, /\/home\/|[A-Za-z]:[\\/](?:users|profiles|home)[\\/]|\\\\server\\(?:Users|Profiles)\\/i);
   assert.equal((redacted.match(/~/g) ?? []).length, 9);
+  for (const singleComponentPath of ["/private", "/secret", "/tmp"]) {
+    assert.doesNotMatch(redactClaudeString(`failed at ${singleComponentPath}`), new RegExp(singleComponentPath));
+  }
 });
 
 test("Claude dry-run packet minting rejects not-configured and unsupported states", async () => {
@@ -408,9 +411,10 @@ test("Claude probe tree-killer monitor preserves the helper until completion", a
   assert.equal(typeof monitor, "function");
   const helper = spawn(process.execPath, ["-e", "setTimeout(() => {}, 1_000)"], { stdio: "ignore" });
   let completions = 0;
-  monitor!(helper, () => { completions += 1; }, 250);
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  monitor!(helper, () => { completions += 1; }, 100);
+  await new Promise((resolve) => setTimeout(resolve, 150));
   assert.equal(helper.killed, false);
+  assert.equal(completions, 0);
   helper.kill("SIGTERM");
   await new Promise<void>((resolve) => helper.once("close", () => resolve()));
   assert.equal(completions, 1);
@@ -420,6 +424,8 @@ test("Claude probe settlement does not cut short an active tree killer", () => {
   const source = read("packages/adapters/src/claude.ts");
   const settleBlock = source.slice(source.indexOf("const settle ="), source.indexOf("const terminateTree ="));
   assert.doesNotMatch(settleBlock, /disposeClaudeProbeTreeKiller/);
+  const hardDeadlineBlock = source.slice(source.indexOf("hardDeadline = setTimeout"), source.indexOf("child.once(\"close\""));
+  assert.match(hardDeadlineBlock, /if \(!treeKiller\) child\.kill\("SIGKILL"\)/);
 });
 
 test("Claude version parser accepts semver metadata and rejects old or unparseable versions", () => {
@@ -594,6 +600,25 @@ test("Claude dry-run status reports unsupported and redacts all diagnostics", ()
   assert.match(status.nextSafeAction, /upgrade|install|configure/i);
   assert.doesNotMatch(status.nextSafeAction, /resumePrompt/i);
   assert.doesNotMatch(JSON.stringify(status), /\/Users\/lume|C:\\Users\\lume|sk-test_/);
+});
+
+test("Claude dry-run derives unsupported state from injected version output", async () => {
+  for (const version of ["Claude Code 0.9.0", "unparseable wrapper banner"]) {
+    const control = createClaudeDryRunControl({
+      availability: {
+        available: true,
+        command: "claude",
+        version,
+        error: null
+      },
+      audit: auditStub()
+    });
+    assert.equal(control.status().state, "unsupported");
+    await assert.rejects(
+      () => control.resumePrompt({ sessionId: "claude-session-1", prompt: "must stay dry-run blocked" }),
+      /status is unsupported/i
+    );
+  }
 });
 
 test("Claude dry-run resume fails closed for invalid session ids", async () => {

@@ -116,7 +116,6 @@ function runClaudeVersionProbe(invocation: {
     let terminationStarted = false;
     let settled = false;
     let treeKiller: ReturnType<typeof spawn> | null = null;
-    let killerFallback: NodeJS.Timeout | null = null;
     let timeout: NodeJS.Timeout;
     let hardDeadline: NodeJS.Timeout;
 
@@ -125,7 +124,6 @@ function runClaudeVersionProbe(invocation: {
       settled = true;
       clearTimeout(timeout);
       clearTimeout(hardDeadline);
-      if (killerFallback) clearTimeout(killerFallback);
       resolve({
         error: spawnError,
         status: code,
@@ -148,12 +146,8 @@ function runClaudeVersionProbe(invocation: {
           windowsHide: true,
           stdio: "ignore"
         });
-        const killDirectChild = () => child.kill("SIGKILL");
-        killerFallback = setTimeout(killDirectChild, 750);
-        killerFallback.unref();
         monitorClaudeProbeTreeKiller(treeKiller, () => {
-          if (killerFallback) clearTimeout(killerFallback);
-          killDirectChild();
+          child.kill("SIGKILL");
         });
         return;
       }
@@ -184,7 +178,7 @@ function runClaudeVersionProbe(invocation: {
     hardDeadline = setTimeout(() => {
       timedOut = true;
       terminateTree();
-      child.kill("SIGKILL");
+      if (!treeKiller) child.kill("SIGKILL");
       child.stdout.destroy();
       child.stderr.destroy();
       child.unref();
@@ -206,24 +200,19 @@ export function disposeClaudeProbeTreeKiller(treeKiller: ReturnType<typeof spawn
 export function monitorClaudeProbeTreeKiller(
   treeKiller: ReturnType<typeof spawn>,
   onComplete: () => void,
-  cleanupMs = 1_500
+  detachMs = 1_500
 ): void {
   let completed = false;
-  let cleanupDeadline: NodeJS.Timeout;
   const finish = () => {
     if (completed) return;
     completed = true;
-    clearTimeout(cleanupDeadline);
     onComplete();
   };
   treeKiller.once("error", finish);
   treeKiller.once("close", finish);
   treeKiller.unref();
-  cleanupDeadline = setTimeout(() => {
-    disposeClaudeProbeTreeKiller(treeKiller);
-    finish();
-  }, cleanupMs);
-  cleanupDeadline.unref();
+  const detachDeadline = setTimeout(() => treeKiller.unref(), detachMs);
+  detachDeadline.unref();
 }
 
 export function claudeVersionProbeInvocation(
@@ -426,13 +415,19 @@ export function createClaudeCodeAdapter() {
 }
 
 function sanitizeClaudeAvailability(input: ClaudeDryRunAvailability): ClaudeDryRunAvailability {
+  const version = input.version === null ? null : String(redactClaudeValue(input.version));
+  const derivedUnsupportedReason = input.available
+    ? version
+      ? unsupportedClaudeVersionReason(version)
+      : "Claude CLI version output was empty and could not be parsed for dry-run validation."
+    : null;
   return {
     available: input.available,
     command: String(redactClaudeValue(input.command)),
-    version: input.version === null ? null : String(redactClaudeValue(input.version)),
+    version,
     error: input.error === null ? null : String(redactClaudeValue(input.error)),
     unsupportedReason: input.unsupportedReason === undefined || input.unsupportedReason === null
-      ? null
+      ? derivedUnsupportedReason
       : String(redactClaudeValue(input.unsupportedReason))
   };
 }
