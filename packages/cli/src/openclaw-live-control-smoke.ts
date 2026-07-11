@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { callGatewayBackendJson } from "./openclaw-tool-smoke.js";
@@ -146,6 +147,7 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
   const message = options.message ?? DEFAULT_MESSAGE;
   const controlMessage = actionMessage(action, message);
   const targetRef = `codex_thread:${options.threadId}`;
+  const runNonce = randomUUID();
   const blockers: string[] = [];
   const gatewayRoute = validateOpenClawGatewayRoute(options.gatewayUrl, gatewayToken);
   if (!gatewayRoute.ok) blockers.push(`openclaw_live_${gatewayRoute.code}`);
@@ -163,7 +165,7 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
       args: liveDryRunArgs(action, options.threadId, controlMessage, expectedTurnId),
       sessionKey,
       confirm: false,
-      idempotencyKey: `loo-live-smoke-dry-run-${action}-${options.threadId}`
+      idempotencyKey: `loo-live-smoke-dry-run-${action}-${options.threadId}-${runNonce}`
     }, callOptions)
     : null;
   blockers.push(...(dryRun ? gatewayCallBlockers(dryRun, "openclaw_live_dry_run_failed") : []));
@@ -176,7 +178,7 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
       args: liveArgs(action, options.threadId, controlMessage, dryRunSummary.approvalAuditId, expectedTurnId, turnWaitMs),
       sessionKey,
       confirm: false,
-      idempotencyKey: `loo-live-smoke-${action}-${options.threadId}-${dryRunSummary.approvalAuditId}`
+      idempotencyKey: `loo-live-smoke-${action}-${options.threadId}-${dryRunSummary.approvalAuditId}-${runNonce}`
     }, callOptions)
     : null;
   blockers.push(...(live ? gatewayCallBlockers(live, "openclaw_live_control_failed") : []));
@@ -200,7 +202,7 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
       args: { limit: 20 },
       sessionKey,
       confirm: false,
-      idempotencyKey: `loo-live-smoke-audit-tail-${action}-${options.threadId}`
+      idempotencyKey: `loo-live-smoke-audit-tail-${action}-${options.threadId}-${runNonce}`
     }, callOptions)
     : null;
   blockers.push(...(auditTail ? gatewayCallBlockers(auditTail, "openclaw_live_audit_tail_failed") : []));

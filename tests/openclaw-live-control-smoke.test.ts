@@ -101,6 +101,33 @@ test("OpenClaw live-control smoke preserves ambient configured-profile token aut
   }
 });
 
+test("OpenClaw live-control smoke uses fresh idempotency keys across repeated runs", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-repeat-"));
+  const { bin, callsPath } = createFakeOpenClaw(root);
+  const previousCalls = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    for (const evidenceName of ["first", "second"]) {
+      const report = runOpenClawGatewayLiveControlSmoke({
+        openclawBin: bin,
+        evidenceDir: join(root, evidenceName),
+        threadId: "thr_gateway_live",
+        action: "send"
+      });
+      assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    }
+    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { method: string; params: { idempotencyKey?: string } });
+    const invocationKeys = calls.filter((call) => call.method === "tools.invoke").map((call) => call.params.idempotencyKey);
+    assert.equal(invocationKeys.length, 6);
+    assert.equal(new Set(invocationKeys).size, invocationKeys.length);
+    assert.equal(invocationKeys.every((key) => typeof key === "string" && key.includes("thr_gateway_live")), true);
+  } finally {
+    if (previousCalls === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previousCalls;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 function createFakeOpenClaw(dir: string, options: {
   auditDetailsEnvelope?: boolean;
   liveResponseMissingOk?: boolean;
