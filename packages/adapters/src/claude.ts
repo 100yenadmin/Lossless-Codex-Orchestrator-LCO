@@ -115,6 +115,7 @@ function runClaudeVersionProbe(invocation: {
     let outputLimitExceeded = false;
     let terminationStarted = false;
     let settled = false;
+    let childClosed = false;
     let treeKiller: ReturnType<typeof spawn> | null = null;
     let treeKillerCompleted = false;
     let timeout: NodeJS.Timeout;
@@ -183,25 +184,30 @@ function runClaudeVersionProbe(invocation: {
       terminateTree();
       if (treeKiller) {
         disposeClaudeProbeTreeKiller(treeKiller);
-        const finalTreeTermination = child.pid === undefined
-          ? null
-          : claudeProbeTreeTerminationInvocation(process.platform, child.pid);
-        if (finalTreeTermination) {
-          spawnSync(finalTreeTermination.command, finalTreeTermination.args, {
-            cwd: finalTreeTermination.cwd,
-            timeout: 500,
-            windowsHide: true,
-            stdio: "ignore"
-          });
+        if (!childClosed) {
+          const finalTreeTermination = child.pid === undefined
+            ? null
+            : claudeProbeTreeTerminationInvocation(process.platform, child.pid);
+          if (finalTreeTermination) {
+            spawnSync(finalTreeTermination.command, finalTreeTermination.args, {
+              cwd: finalTreeTermination.cwd,
+              timeout: 500,
+              windowsHide: true,
+              stdio: "ignore"
+            });
+          }
         }
       }
-      child.kill("SIGKILL");
+      if (!childClosed) child.kill("SIGKILL");
       child.stdout.destroy();
       child.stderr.destroy();
       child.unref();
       settle(null, "SIGKILL");
     }, 3_250);
-    child.once("close", settle);
+    child.once("close", (code, signal) => {
+      childClosed = true;
+      settle(code, signal);
+    });
   });
 }
 
