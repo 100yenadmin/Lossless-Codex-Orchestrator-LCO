@@ -2057,7 +2057,7 @@ function nextActionForBlockers(blockers: string[]): string {
     return "Rotate or reissue the OpenClaw gateway device token, confirm the caller uses the current token, then rerun the tool-smoke without storing the token in evidence.";
   }
   if (hasBlocker(blockers, "openclaw_gateway_credentials_required")) {
-    return "Use a profile with configured gateway credentials or an environment-token reference, or pass a scoped token together with an explicit loopback --gateway-url; then rerun the tool-smoke.";
+    return "Use a profile with configured gateway credentials or an environment-token reference, or run an explicit loopback token-auth gateway with a scoped token and --gateway-url; then rerun the tool-smoke.";
   }
   if (hasBlocker(blockers, "openclaw_gateway_token_requires_url")) {
     return "Add an explicit loopback --gateway-url for the scoped --token, or omit --token and use configured profile credentials.";
