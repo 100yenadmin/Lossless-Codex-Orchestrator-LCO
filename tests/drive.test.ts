@@ -56,7 +56,22 @@ test("drive creates a bounded Codex dry-run packet without exposing objective te
   assert.equal(report.finalReport.liveActions, 0);
   assert.equal(report.actionsPerformed.liveControl, false);
   assert.equal(report.actionsPerformed.externalWrite, false);
+  assert.equal(report.controllerMatrix.find((row) => row.controller === "claude")?.status, "not_probed");
   assert.doesNotMatch(JSON.stringify(report), /Review the private patch|private patch|next safe edit/);
+});
+
+test("drive rejects an invalid deterministic timestamp instead of substituting wall-clock time", async () => {
+  await assert.rejects(
+    () => createDriveReport({
+      reviewer: "codex",
+      driver: "codex",
+      targetRef: "codex_thread:thread-1",
+      objective: "Review safely.",
+      audit: auditStub(),
+      now: "not-an-iso-timestamp"
+    }),
+    /drive now requires an ISO timestamp/i
+  );
 });
 
 test("drive enforces bounded budgets before writing an audit record", async () => {

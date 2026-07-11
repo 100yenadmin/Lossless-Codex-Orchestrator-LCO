@@ -77,7 +77,7 @@ export type DriveReport = {
   controllerMatrix: Array<{
     controller: DriveController;
     surface: DriveSurface | "target-adapter";
-    status: "dry_run_available" | "not_configured" | "unsupported";
+    status: "dry_run_available" | "not_probed" | "not_configured" | "unsupported";
   }>;
   blockers: string[];
   finalReport: {
@@ -109,6 +109,7 @@ export async function createDriveReport(options: DriveOptions): Promise<DriveRep
   const blockedClaudeState = input.driver === "claude"
     ? claudeDriverBlocker(input.claudeAvailability)
     : null;
+  const claudeControllerStatus = claudeControllerState(input.claudeAvailability);
   const blockers = blockedClaudeState ? [blockedClaudeState.blocker] : [];
   const dryRunResult = blockedClaudeState
     ? null
@@ -150,7 +151,7 @@ export async function createDriveReport(options: DriveOptions): Promise<DriveRep
       paramsHash: dryRunResult?.paramsHash ?? null,
       messageHash: dryRunResult?.messageHash ?? null
     },
-    controllerMatrix: controllerMatrix(blockedClaudeState?.state ?? null),
+    controllerMatrix: controllerMatrix(claudeControllerStatus),
     blockers,
     finalReport: {
       status,
@@ -205,7 +206,7 @@ function validateDriveOptions(options: DriveOptions): ValidDriveOptions {
     timeoutMs: boundedInteger(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, 1000, 600_000, "timeout ms"),
     costCeilingUsd: boundedNumber(options.costCeilingUsd ?? DEFAULT_COST_CEILING_USD, 0, 100, "cost ceiling usd"),
     ...(options.claudeAvailability ? { claudeAvailability: options.claudeAvailability } : {}),
-    generatedAt: validIso(options.now) ?? new Date().toISOString()
+    generatedAt: driveGeneratedAt(options.now)
   };
 }
 
@@ -235,6 +236,13 @@ function validIso(value: string | undefined): string | null {
   if (!value) return null;
   const date = new Date(value);
   return Number.isFinite(date.getTime()) && date.toISOString() === value ? value : null;
+}
+
+function driveGeneratedAt(value: string | undefined): string {
+  if (value === undefined) return new Date().toISOString();
+  const generatedAt = validIso(value);
+  if (!generatedAt) throw new Error("drive now requires an ISO timestamp");
+  return generatedAt;
 }
 
 function drivePlanSteps(dryRunReady: boolean): DriveReport["drivePlan"]["steps"] {
@@ -320,12 +328,18 @@ function claudeDriverBlocker(availability: ClaudeDryRunAvailability | undefined)
   };
 }
 
-function controllerMatrix(claudeState: "not_configured" | "unsupported" | null): DriveReport["controllerMatrix"] {
+function claudeControllerState(availability: ClaudeDryRunAvailability | undefined): DriveReport["controllerMatrix"][number]["status"] {
+  if (availability === undefined) return "not_probed";
+  const blocker = claudeDriverBlocker(availability);
+  return blocker?.state ?? "dry_run_available";
+}
+
+function controllerMatrix(claudeStatus: DriveReport["controllerMatrix"][number]["status"]): DriveReport["controllerMatrix"] {
   return [
     { controller: "cli", surface: "cli", status: "dry_run_available" },
     { controller: "mcp", surface: "mcp", status: "dry_run_available" },
     { controller: "openclaw", surface: "openclaw-gateway", status: "dry_run_available" },
     { controller: "codex", surface: "target-adapter", status: "dry_run_available" },
-    { controller: "claude", surface: "target-adapter", status: claudeState ?? "dry_run_available" }
+    { controller: "claude", surface: "target-adapter", status: claudeStatus }
   ] as DriveReport["controllerMatrix"];
 }
