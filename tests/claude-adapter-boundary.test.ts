@@ -289,6 +289,15 @@ test("Claude diagnostics redact Unix Users Profiles drive-home and UNC profile p
   ]) {
     assert.doesNotMatch(redactClaudeString(delimitedPath), /\/(?:Volumes\/PRIVATE|secret|private)/);
   }
+  for (const spacedPath of [
+    "failed /Volumes/Customer Name/private/file",
+    String.raw`failed C:\Customer Data\private\file.txt`,
+    String.raw`failed \\server\Customer Data\private\file.txt`
+  ]) {
+    const spacedRedacted = redactClaudeString(spacedPath);
+    assert.equal(spacedRedacted, "failed <redacted-path>");
+    assert.doesNotMatch(spacedRedacted, /Customer|Name|Data|private|server/i);
+  }
 });
 
 test("Claude dry-run packet minting rejects not-configured and unsupported states", async () => {
