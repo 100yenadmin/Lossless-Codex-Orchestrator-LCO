@@ -257,8 +257,10 @@ export function claudeProbeTreeTerminationInvocation(
 }
 
 function safeWindowsSystemRoot(systemRoot: string | undefined): string {
-  const normalized = win32Path.normalize(systemRoot?.trim() || "C:\\Windows");
-  return /^C:\\Windows$/i.test(normalized) ? "C:\\Windows" : "C:\\Windows";
+  void systemRoot;
+  // Probe helpers are always pinned to the canonical Windows system root;
+  // caller-controlled SystemRoot values must never redirect these binaries.
+  return "C:\\Windows";
 }
 
 export function claudeAvailabilityFromProbeResult(result: ClaudeVersionProbeResult): ClaudeDryRunAvailability {
@@ -372,6 +374,12 @@ export function createClaudeDryRunControl(options: {
       if (input.dryRun === false) {
         throw new Error("Claude Code control is dry-run only in this release");
       }
+      if (input.dryRun !== undefined && input.dryRun !== true) {
+        throw new Error("Claude Code dryRun must be true or omitted");
+      }
+      if (input.approvalAuditId !== undefined) {
+        throw new Error("approvalAuditId is not accepted for Claude dry-run packet generation");
+      }
       const state = claudeDryRunState(availability);
       if (state !== "dry_run_only") {
         throw new Error(`Claude Code dry-run packet is unavailable while status is ${state}`);
@@ -383,7 +391,6 @@ export function createClaudeDryRunControl(options: {
         threadId: sessionRef,
         message: input.prompt,
         dryRun: true,
-        approvalAuditId: input.approvalAuditId,
         params: {
           sessionRef,
           promptLength: input.prompt.length,
@@ -431,8 +438,9 @@ function sanitizeClaudeAvailability(input: ClaudeDryRunAvailability): ClaudeDryR
 }
 
 function claudeDryRunState(availability: ClaudeDryRunAvailability): ClaudeDryRunState {
+  if (!availability.available) return "not_configured";
   if (availability.unsupportedReason) return "unsupported";
-  return availability.available ? "dry_run_only" : "not_configured";
+  return "dry_run_only";
 }
 
 function safeClaudeSessionRef(sessionId: string): string {

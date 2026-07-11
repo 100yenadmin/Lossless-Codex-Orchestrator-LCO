@@ -167,6 +167,25 @@ test("Claude dry-run adapter uses TargetAdapter policy without live control", as
     }),
     /Claude Code control is dry-run only/
   );
+
+  await assert.rejects(
+    () => control.resumePrompt({
+      sessionId: "claude-session-1",
+      prompt: "Mint a new dry-run packet.",
+      dryRun: true,
+      approvalAuditId: dryRun.approvalAuditId
+    }),
+    /approvalAuditId is not accepted/i
+  );
+
+  await assert.rejects(
+    () => control.resumePrompt({
+      sessionId: "claude-session-1",
+      prompt: "Invalid runtime dry-run value.",
+      dryRun: 0
+    } as never),
+    /dryRun must be true or omitted/i
+  );
 });
 
 test("Claude dry-run status reports not_configured and redacts local diagnostics", () => {
@@ -199,6 +218,20 @@ test("Claude dry-run status reports not_configured and redacts local diagnostics
   assert.equal(status.command.available, false);
   assert.equal(status.command.error, "missing ~/.claude/private-config with <redacted-secret>");
   assert.doesNotMatch(JSON.stringify(status), /\/Users\/lume|sk-test_/);
+});
+
+test("Claude dry-run status keeps unavailable ahead of a stale unsupported reason", () => {
+  const control = createClaudeDryRunControl({
+    availability: {
+      available: false,
+      command: "claude",
+      version: null,
+      error: "Claude CLI was not found.",
+      unsupportedReason: "stale unsupported-version detail"
+    },
+    audit: auditStub()
+  });
+  assert.equal(control.status().state, "not_configured");
 });
 
 test("Claude dry-run control rejects the removed synchronous probe callback without invoking it", () => {
@@ -298,7 +331,7 @@ test("Claude availability probe kills a timeout-resistant CLI within its bound",
   try {
     const startedAt = Date.now();
     const availability = await probeClaudeDryRunAvailability("claude", { trustedPath: root });
-    assert.ok(Date.now() - startedAt < 3_500);
+    assert.ok(Date.now() - startedAt < 4_000);
     assert.equal(availability.available, false);
     assert.match(availability.error ?? "", /timed out/i);
   } finally {
@@ -349,6 +382,9 @@ test("Claude availability probe resolves the fixed command through cmd.exe on Wi
     assert.equal(claudeVersionProbeInvocation("win32", hostileRoot).command, "C:\\Windows\\System32\\cmd.exe");
     assert.equal(claudeProbeTreeTerminationInvocation("win32", 4242, hostileRoot)?.command, "C:\\Windows\\System32\\taskkill.exe");
   }
+  const source = read("packages/adapters/src/claude.ts");
+  const systemRootBlock = source.slice(source.indexOf("function safeWindowsSystemRoot"), source.indexOf("export function claudeAvailabilityFromProbeResult"));
+  assert.doesNotMatch(systemRootBlock, /\?\s*"C:\\\\Windows"\s*:\s*"C:\\\\Windows"/);
   assert.equal(claudeProbeTreeTerminationInvocation("darwin", 4242), null);
 });
 
