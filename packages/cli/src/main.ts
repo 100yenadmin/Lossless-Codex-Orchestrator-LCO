@@ -5267,7 +5267,8 @@ function parseQaLabWorkflowArgs(input: string[]): {
   if (!surface) throw new Error("qa-lab workflow requires --surface");
   if (!mode) throw new Error("qa-lab workflow requires --mode");
   if (!evidenceDir) throw new Error("qa-lab workflow requires --evidence-dir");
-  return { scenarioId, surface, mode, evidenceDir, packageVersion, candidateSha, openclawBin, gatewayUrl, token, gatewayTimeoutMs: gatewayTimeoutMs ?? 60_000, sessionKey, now, strict };
+  const gatewayToken = token ?? (gatewayUrl ? process.env.OPENCLAW_GATEWAY_TOKEN : undefined);
+  return { scenarioId, surface, mode, evidenceDir, packageVersion, candidateSha, openclawBin, gatewayUrl, token: gatewayToken, gatewayTimeoutMs: gatewayTimeoutMs ?? 60_000, sessionKey, now, strict };
 }
 
 function parseQaLabWorkflowSurface(input: string[], index: number, flag: string): QaLabWorkflowSurface {

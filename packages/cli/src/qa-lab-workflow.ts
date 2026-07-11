@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { CANONICAL_PACKAGE_NAME, type SupportedPackageName } from "./package-identity.js";
+import { callGatewayBackendJson } from "./openclaw-tool-smoke.js";
 
 export type QaLabWorkflowSurface = "cli" | "mcp" | "openclaw-gateway" | "desktop-contract";
 export type QaLabWorkflowMode = "dry-run" | "live-approved";
@@ -156,7 +157,10 @@ export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabW
   const openclawBin = openclawBinValidation.ok ? requestedOpenClawBin : "openclaw";
   const gatewayTimeoutMs = options.gatewayTimeoutMs ?? DEFAULT_GATEWAY_TIMEOUT_MS;
   const deadline = Date.now() + gatewayTimeoutMs;
-  const command = `${sanitizeCommandBinary(openclawBin)} gateway call tools.catalog/tools.invoke --json --params <redacted>`;
+  const gatewayToken = resolveGatewayToken(options);
+  const command = options.gatewayUrl && gatewayToken
+    ? "loo backend-gateway tools.catalog/tools.invoke --json --params <redacted>"
+    : `${sanitizeCommandBinary(openclawBin)} gateway call tools.catalog/tools.invoke --json --params <redacted>`;
   const candidateShaValid = options.candidateSha === undefined || SHA_PATTERN.test(options.candidateSha);
 
   if (options.surface !== "openclaw-gateway") {
@@ -171,6 +175,9 @@ export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabW
   const gatewayUrlValidation = validateGatewayUrl(options.gatewayUrl);
   if (!gatewayUrlValidation.ok) {
     addBlocker(blockers, "P1", gatewayUrlValidation.code, "qaLabWorkflow", gatewayUrlValidation.detail);
+  }
+  if (gatewayToken && !options.gatewayUrl) {
+    addBlocker(blockers, "P1", "workflow_gateway_token_requires_url", "qaLabWorkflow", "A scoped gateway token requires an explicit loopback --gateway-url; omit the token to use configured profile credentials.");
   }
   if (!candidateShaValid) {
     addBlocker(blockers, "P1", "candidate_sha_invalid", "qaLabWorkflow", "Candidate SHA must be a 40-character hexadecimal commit SHA.");
@@ -372,14 +379,16 @@ function callGatewayJson(
   if (gatewayTimeoutMs <= 0) {
     return { status: 124, parseError: "gateway deadline exceeded" };
   }
+  const gatewayToken = resolveGatewayToken(options);
+  if (options.gatewayUrl && gatewayToken) {
+    return callGatewayBackendJson(options.gatewayUrl, gatewayToken, method, params, gatewayTimeoutMs, childEnv(options));
+  }
   const gatewayOptions = [
     ...(options.gatewayUrl ? ["--url", options.gatewayUrl] : []),
-    ...gatewayTokenArgs(options.token),
     "--timeout",
     String(gatewayTimeoutMs)
   ];
   const env = childEnv(options);
-  if (options.token) env.OPENCLAW_GATEWAY_TOKEN = options.token;
   const call = spawnSync(openclawBin, [
     "gateway",
     "call",
@@ -429,11 +438,10 @@ function summarizeOutput(toolName: string, output: unknown, args: Record<string,
   if (threadId) summary.threadId = threadId;
   if (toolName === "loo_expand_session" && typeof args.token_budget === "number") summary.expansionBudget = args.token_budget;
   if (toolName === "loo_codex_control_dry_run" || toolName === "loo_drive") {
-    const controlOutput = toolName === "loo_drive" && isRecord(output) && isRecord(output.dryRun)
-      ? output.dryRun
-      : isRecord(output) && isRecord(output.details)
-        ? output.details
-        : output;
+    const detailsOutput = isRecord(output) && isRecord(output.details) ? output.details : output;
+    const controlOutput = toolName === "loo_drive" && isRecord(detailsOutput) && isRecord(detailsOutput.dryRun)
+      ? detailsOutput.dryRun
+      : detailsOutput;
     const live = readBooleanPath(controlOutput, ["live"]);
     if (live !== undefined) summary.live = live;
     summary.approvalAuditId = readStringPath(controlOutput, ["approvalAuditId"]) ?? readStringPath(controlOutput, ["approval_audit_id"]);
@@ -459,10 +467,6 @@ function noActions(): QaLabWorkflowReport["actionsPerformed"] {
     npmPublished: false,
     githubReleaseCreated: false
   };
-}
-
-function gatewayTokenArgs(token: string | undefined): string[] {
-  return token ? ["--token-env", "OPENCLAW_GATEWAY_TOKEN"] : [];
 }
 
 function gatewayFailureBlockers(call: GatewayJsonResult, fallback: string): string[] {
@@ -635,6 +639,10 @@ function childEnv(options: QaLabWorkflowOptions): NodeJS.ProcessEnv {
     if (key.startsWith("OPENCLAW_FAKE_") && value !== undefined) env[key] = value;
   }
   return env;
+}
+
+function resolveGatewayToken(options: QaLabWorkflowOptions): string | undefined {
+  return options.token || options.env?.OPENCLAW_GATEWAY_TOKEN;
 }
 
 function remainingGatewayTimeoutMs(deadline: number): number {

@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { createQaLabWorkflowReport, type QaLabWorkflowReport } from "../packages/cli/src/qa-lab-workflow.js";
+import { callGatewayBackendJson } from "../packages/cli/src/openclaw-tool-smoke.js";
+import { startFakeGatewayBackend } from "./helpers/fake-gateway-backend.js";
 import { runLoo } from "./helpers/run-loo.js";
 
 const packageVersion = "1.3.0";
@@ -160,7 +162,7 @@ if (method === "tools.invoke") {
     process.exit(0);
   }
   if (name === "loo_drive") {
-    console.log(JSON.stringify(wrap({
+    const output = {
       schema: "lco.drive.report.v1",
       status: "dry_run_ready",
       surface: "openclaw-gateway",
@@ -174,7 +176,10 @@ if (method === "tools.invoke") {
         liveControl: false,
         externalWrite: false
       }
-    })));
+    };
+    console.log(JSON.stringify(wrap(process.env.OPENCLAW_FAKE_DRIVE_DETAILS === "1"
+      ? { content: [{ type: "text", text: "redacted drive packet" }], details: output }
+      : output)));
     process.exit(0);
   }
 }
@@ -262,6 +267,106 @@ test("qa-lab workflow creates a public-safe dry-run OpenClaw gateway report", (t
   assert.ok(calls
     .filter((call) => call.method === "tools.invoke")
     .every((call) => /^loo-qa-workflow-[a-f0-9]{24}-loo_/.test(call.params.idempotencyKey)));
+});
+
+test("qa-lab workflow keeps explicit gateway tokens out of OpenClaw argv", (t) => {
+  const dir = makeTempDir(t, "loo-qa-workflow-token-transport-");
+  const { bin, callsPath } = createFakeOpenClaw(dir);
+  const token = "scoped-test-gateway-token";
+
+  const report = createQaLabWorkflowReport({
+    scenarioId: "issue-756-gateway-token-transport",
+    surface: "openclaw-gateway",
+    mode: "dry-run",
+    evidenceDir: dir,
+    openclawBin: bin,
+    gatewayUrl: "ws://127.0.0.1:65534",
+    token,
+    gatewayTimeoutMs: 250,
+    env: { ...process.env, OPENCLAW_FAKE_CALLS: callsPath }
+  });
+
+  assert.equal(existsSync(callsPath), false, "explicit URL+token calls must use the environment-only gateway backend instead of OpenClaw argv");
+  assert.equal(report.command, "loo backend-gateway tools.catalog/tools.invoke --json --params <redacted>");
+  assert.doesNotMatch(JSON.stringify(report), new RegExp(token));
+  assert.doesNotMatch(readFileSync(join(dir, "workflow-run.json"), "utf8"), new RegExp(token));
+});
+
+test("qa-lab workflow completes through the authenticated backend transport", (t) => {
+  const dir = makeTempDir(t, "loo-qa-workflow-backend-round-trip-");
+  const { server, port, capturePath } = startFakeGatewayBackend(dir);
+  t.after(() => server.kill("SIGTERM"));
+
+  const report = createQaLabWorkflowReport({
+    scenarioId: "issue-756-backend-round-trip",
+    surface: "openclaw-gateway",
+    mode: "dry-run",
+    evidenceDir: dir,
+    gatewayUrl: `ws://127.0.0.1:${port}`,
+    token: "scoped-test-gateway-token",
+    gatewayTimeoutMs: 5000
+  });
+
+  assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+  assert.equal(report.command, "loo backend-gateway tools.catalog/tools.invoke --json --params <redacted>");
+  assert.equal(report.workflow.toolsInvoked.length, 8);
+  assert.equal(report.workflow.dryRunControl.live, false);
+  const frames = readFileSync(capturePath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  assert.equal(frames.filter((frame) => frame.method === "tools.catalog").length, 1);
+  assert.equal(frames.filter((frame) => frame.method === "tools.invoke").length, 8);
+  assert.ok(frames.filter((frame) => frame.method === "tools.invoke").every((frame) => /^loo-qa-workflow-[a-f0-9]{24}-loo_/.test(frame.params.idempotencyKey)));
+});
+
+test("qa-lab workflow fails closed when a scoped token has no explicit gateway URL", (t) => {
+  const dir = makeTempDir(t, "loo-qa-workflow-token-without-url-");
+  const { bin, callsPath } = createFakeOpenClaw(dir);
+
+  const report = createQaLabWorkflowReport({
+    scenarioId: "issue-756-token-without-url",
+    surface: "openclaw-gateway",
+    mode: "dry-run",
+    evidenceDir: dir,
+    openclawBin: bin,
+    token: "scoped-test-gateway-token",
+    env: { ...process.env, OPENCLAW_FAKE_CALLS: callsPath }
+  });
+
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.some((blocker) => blocker.code === "workflow_gateway_token_requires_url"));
+  assert.equal(existsSync(callsPath), false, "ambiguous token-only auth must fail before spawning OpenClaw");
+});
+
+test("gateway backend child strips ambient Node startup controls", () => {
+  const result = callGatewayBackendJson(
+    "ws://127.0.0.1:65534",
+    "scoped-test-gateway-token",
+    "tools.catalog",
+    {},
+    1000,
+    { ...process.env, NODE_OPTIONS: "--eval=process.exit(91)" }
+  );
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /gateway websocket error/);
+  assert.doesNotMatch(result.stderr, /NODE_OPTIONS|--eval/);
+});
+
+test("qa-lab workflow reads drive proof from the real OpenClaw content/details envelope", (t) => {
+  const dir = makeTempDir(t, "loo-qa-workflow-drive-details-");
+  const { bin, callsPath } = createFakeOpenClaw(dir);
+
+  const report = createQaLabWorkflowReport({
+    scenarioId: "issue-756-drive-details-envelope",
+    surface: "openclaw-gateway",
+    mode: "dry-run",
+    evidenceDir: dir,
+    openclawBin: bin,
+    env: { ...process.env, OPENCLAW_FAKE_CALLS: callsPath, OPENCLAW_FAKE_DRIVE_DETAILS: "1" }
+  });
+
+  assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+  assert.equal(report.workflow.dryRunControl.live, false);
+  assert.equal(report.workflow.dryRunControl.approvalAuditId, "loo_audit_drive_workflow");
+  assert.equal(report.workflow.dryRunControl.paramsHash, "drive-params-hash");
 });
 
 test("qa-lab workflow fails closed when a required gateway tool is missing", (t) => {
@@ -740,6 +845,37 @@ test("loo qa-lab workflow rejects invalid gateway timeout values at the CLI boun
 
   assert.notEqual(missing.status, 0);
   assert.match(missing.stderr, /--gateway-timeout-ms requires a value/);
+});
+
+test("loo qa-lab workflow ignores an ambient gateway token without an explicit URL", (t) => {
+  const dir = makeTempDir(t, "loo-qa-workflow-cli-ambient-token-");
+  const { bin, callsPath } = createFakeOpenClaw(dir);
+
+  const result = runLoo([
+    "qa-lab",
+    "workflow",
+    "--scenario-id",
+    "issue-756-ambient-token",
+    "--surface",
+    "openclaw-gateway",
+    "--mode",
+    "dry-run",
+    "--openclaw-bin",
+    bin,
+    "--evidence-dir",
+    dir,
+    "--strict"
+  ], {
+    ...process.env,
+    OPENCLAW_FAKE_CALLS: callsPath,
+    OPENCLAW_GATEWAY_TOKEN: "ambient-token-for-another-client"
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout) as QaLabWorkflowReport;
+  assert.equal(report.workflowRunReady, true);
+  assert.equal(report.command.startsWith("openclaw-fake.mjs gateway call"), true);
+  assert.equal(readFileSync(callsPath, "utf8").trim().split("\n").length, 9);
 });
 
 test("loo qa-lab workflow writes a strict public-safe report through fake OpenClaw", (t) => {
