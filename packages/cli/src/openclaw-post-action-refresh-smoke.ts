@@ -105,7 +105,7 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
   const gatewayTimeoutMs = options.gatewayTimeoutMs ?? 120_000;
   const gatewayToken = options.token || process.env.OPENCLAW_GATEWAY_TOKEN;
   const usesBackendGateway = Boolean(options.gatewayUrl && gatewayToken && gatewayToken !== "__OPENCLAW_REDACTED__");
-  const gatewayOptions = [
+  const gatewayOptions = usesBackendGateway ? [] : [
     ...(options.gatewayUrl ? ["--url", options.gatewayUrl] : []),
     "--timeout",
     String(gatewayTimeoutMs)
