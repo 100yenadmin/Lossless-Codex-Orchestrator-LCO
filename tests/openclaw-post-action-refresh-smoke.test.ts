@@ -130,7 +130,7 @@ function writeLiveProofReport(path: string, overrides: Record<string, unknown> =
   }, null, 2)}\n`);
 }
 
-function createFakeOpenClaw(dir: string, options: { rawExpansion?: boolean; staleSearchAndExpansion?: boolean; nestedTargetOnlyExpansion?: boolean; nestedTargetOnlyCoreOutputs?: boolean; nestedArrayTargetOnlySearch?: boolean; staleRefreshTimestamp?: boolean; missingMapMarkers?: boolean; publicThreadMapShape?: boolean; missingMapStatus?: boolean; alternateTopLevelSearchCollection?: boolean } = {}): { bin: string; callsPath: string } {
+function createFakeOpenClaw(dir: string, options: { rawExpansion?: boolean; staleSearchAndExpansion?: boolean; nestedTargetOnlyExpansion?: boolean; nestedTargetOnlyCoreOutputs?: boolean; nestedArrayTargetOnlySearch?: boolean; staleRefreshTimestamp?: boolean; missingMapMarkers?: boolean; publicThreadMapShape?: boolean; missingMapStatus?: boolean; alternateTopLevelSearchCollection?: boolean; detailsEnvelope?: boolean } = {}): { bin: string; callsPath: string } {
   const callsPath = join(dir, "calls.jsonl");
   const bin = join(dir, "openclaw-refresh-fake.mjs");
   const refreshedAt = options.staleRefreshTimestamp ? "2026-07-01T00:00:30.000Z" : "2026-07-01T00:02:00.000Z";
@@ -177,24 +177,28 @@ function createFakeOpenClaw(dir: string, options: { rawExpansion?: boolean; stal
       sourceRefs: ["${OTHER_REF}"],
       related: { sourceRef: "${TARGET_REF}", refreshedAt: "${refreshedAt}" }
     }`;
-  const threadMapResponse = `{ ok: true, output: ${options.nestedTargetOnlyCoreOutputs ? nestedCoreThreadMapOutput : threadMapOutput} }`;
-  const searchResponse = options.alternateTopLevelSearchCollection
-    ? `{ ok: true, output: {
+  const wrapOutput = (output: string) => options.detailsEnvelope
+    ? `{ ok: true, output: { content: [{ type: "text", text: "public-safe output" }], details: ${output} } }`
+    : `{ ok: true, output: ${output} }`;
+  const threadMapResponse = wrapOutput(options.nestedTargetOnlyCoreOutputs ? nestedCoreThreadMapOutput : threadMapOutput);
+  const searchOutput = options.alternateTopLevelSearchCollection
+    ? `{
       query: "gateway live smoke acknowledged",
       records: ${searchResults}
-    } }`
-    : `{ ok: true, output: {
+    }`
+    : `{
       query: "gateway live smoke acknowledged",
       results: ${searchResults}
-    } }`;
-  const describeResponse = `{ ok: true, output: {
+    }`;
+  const searchResponse = wrapOutput(searchOutput);
+  const describeResponse = wrapOutput(`{
       sourceRef: "${options.nestedTargetOnlyCoreOutputs ? OTHER_REF : TARGET_REF}",
       status: "completed",
       safeSummary: "The selected Codex thread contains a post-action safe closeout marker.",
       finalAssistantMessage: "LCO gateway live smoke acknowledged.",
       touchedFiles: [],
       related: { sourceRef: "${TARGET_REF}" }
-    } }`;
+    }`);
   const expandOutput = options.nestedTargetOnlyExpansion
     ? `{
       sourceRefs: ["${OTHER_REF}"],
@@ -209,7 +213,7 @@ function createFakeOpenClaw(dir: string, options: { rawExpansion?: boolean; stal
       tokenBudget: 1000,
       text: "${expansionText}"
     }`;
-  const expandResponse = `{ ok: true, output: ${expandOutput} }`;
+  const expandResponse = wrapOutput(expandOutput);
   writeFileSync(bin, `#!/usr/bin/env node
 import { appendFileSync } from "node:fs";
 const args = process.argv.slice(2);
@@ -398,6 +402,36 @@ test("OpenClaw post-action refresh smoke binds public thread-map entries by thre
     assert.equal(report.refresh.postActionRefresh, true);
     assert.equal(report.refresh.refreshedAt, "2026-07-01T00:02:00.000Z");
     assert.equal(report.refresh.statusBucket, "active");
+    assert.deepEqual(report.reasoning.sourceRefs, [TARGET_REF]);
+    assert.deepEqual(report.blockers, []);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw post-action refresh smoke unwraps native plugin output details", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-refresh-smoke-details-envelope-"));
+  const evidenceDir = join(root, "evidence");
+  const liveProofReportPath = join(root, "openclaw-gateway-live-control-smoke-report.json");
+  writeLiveProofReport(liveProofReportPath);
+  const { bin, callsPath } = createFakeOpenClaw(root, { publicThreadMapShape: true, detailsEnvelope: true });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+
+  try {
+    const report = runOpenClawPostActionRefreshSmoke({
+      openclawBin: bin,
+      evidenceDir,
+      liveProofReportPath,
+      threadId: TARGET_THREAD_ID,
+      now: "2026-07-01T00:03:00.000Z"
+    });
+
+    assert.equal(report.ok, true);
+    assert.equal(report.proofReady, true);
+    assert.equal(report.refresh.refreshedAt, "2026-07-01T00:02:00.000Z");
     assert.deepEqual(report.reasoning.sourceRefs, [TARGET_REF]);
     assert.deepEqual(report.blockers, []);
   } finally {

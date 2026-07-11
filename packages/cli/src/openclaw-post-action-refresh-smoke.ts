@@ -416,8 +416,9 @@ function unwrapGatewayPayload(value: unknown): unknown {
 
 function unwrapToolOutput(value: unknown): unknown {
   if (!isRecord(value)) return value;
-  if ("output" in value) return value.output;
-  if ("result" in value) return value.result;
+  if ("output" in value) return unwrapToolOutput(value.output);
+  if ("details" in value) return unwrapToolOutput(value.details);
+  if ("result" in value) return unwrapToolOutput(value.result);
   return value;
 }
 

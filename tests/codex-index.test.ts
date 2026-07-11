@@ -1283,6 +1283,7 @@ test("extracts public-safe session metadata and closeout fields", () => {
     const [threadMapEntry] = getCodexThreadMap(db, { limit: 10 });
     assert.equal(threadMapEntry?.metadata.status, "external-review-wait");
     assert.equal(threadMapEntry?.metadata.nextAction, "re-check PR gate");
+    assert.match(threadMapEntry?.refreshedAt ?? "", /^\d{4}-\d{2}-\d{2}T/);
 
     const recallDescription = describeRecallRef(db, { sourceRef: "codex_thread:019f-metadata-thread" });
     assert.deepEqual(recallDescription?.metadata, description?.metadata);
