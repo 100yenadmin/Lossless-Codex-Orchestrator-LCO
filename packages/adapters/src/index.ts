@@ -3501,3 +3501,5 @@ function systemDesktopProbe(): DesktopProbe {
 function mergedDesktopEnv(options?: DesktopCommandOptions): NodeJS.ProcessEnv {
   return options?.env ? { ...process.env, ...options.env } : process.env;
 }
+
+export * from "./drive.js";
