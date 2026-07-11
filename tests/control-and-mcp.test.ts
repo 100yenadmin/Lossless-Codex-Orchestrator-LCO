@@ -1514,8 +1514,9 @@ test("MCP tool registry exposes lco-prefixed canonical tools with loo compatibil
 
     const driveTool = tools.find((tool) => tool.name === "lco_drive");
     assert.ok(driveTool);
-    assert.equal(driveTool.inputSchema.properties.target_ref.maxLength, 195);
-    assert.equal(driveTool.inputSchema.properties.objective.maxLength, 2000);
+    const driveProperties = driveTool.inputSchema.properties as Record<string, { maxLength?: number }>;
+    assert.equal(driveProperties.target_ref?.maxLength, 195);
+    assert.equal(driveProperties.objective?.maxLength, 2000);
     const driveRequestCount = codexRequests.length;
     const driveReport = await driveTool.execute({
       reviewer: "claude",
@@ -1559,7 +1560,7 @@ test("MCP tool registry exposes lco-prefixed canonical tools with loo compatibil
     assert.equal(openclawDriveReport.controllerMatrix.find((row) => row.controller === "openclaw")?.status, "dry_run_available");
     assert.equal(openclawDriveReport.controllerMatrix.find((row) => row.controller === "mcp")?.status, "not_probed");
     await assert.rejects(
-      () => driveTool.execute({
+      async () => await driveTool.execute({
         reviewer: "codex",
         driver: "codex",
         target_ref: "codex_thread:sk-abcdefgh",
