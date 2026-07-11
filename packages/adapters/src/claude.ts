@@ -113,21 +113,46 @@ function runClaudeVersionProbe(invocation: {
     let timedOut = false;
     let terminationStarted = false;
     let settled = false;
+    let treeKiller: ReturnType<typeof spawn> | null = null;
+    let timeout: NodeJS.Timeout;
+    let hardDeadline: NodeJS.Timeout;
+
+    const settle = (code: number | null, signal: NodeJS.Signals | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      clearTimeout(hardDeadline);
+      resolve({
+        error: spawnError,
+        status: code,
+        stdout: Buffer.concat(stdout),
+        stderr: Buffer.concat(stderr),
+        signal,
+        timedOut
+      });
+    };
 
     const terminateTree = () => {
       if (terminationStarted || child.pid === undefined) return;
       terminationStarted = true;
       const termination = claudeProbeTreeTerminationInvocation(process.platform, child.pid);
       if (termination) {
-        const killer = spawn(termination.command, termination.args, {
+        treeKiller = spawn(termination.command, termination.args, {
           cwd: termination.cwd,
           detached: false,
           windowsHide: true,
           stdio: "ignore"
         });
         const killDirectChild = () => child.kill("SIGKILL");
-        killer.once("error", killDirectChild);
-        killer.once("close", killDirectChild);
+        const killerFallback = setTimeout(killDirectChild, 750);
+        treeKiller.once("error", () => {
+          clearTimeout(killerFallback);
+          killDirectChild();
+        });
+        treeKiller.once("close", () => {
+          clearTimeout(killerFallback);
+          killDirectChild();
+        });
         return;
       }
       try {
@@ -147,23 +172,21 @@ function runClaudeVersionProbe(invocation: {
     child.once("error", (error) => {
       spawnError = error;
     });
-    const timeout = setTimeout(() => {
+    timeout = setTimeout(() => {
       timedOut = true;
       terminateTree();
     }, 2_000);
-    child.once("close", (code, signal) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      resolve({
-        error: spawnError,
-        status: code,
-        stdout: Buffer.concat(stdout),
-        stderr: Buffer.concat(stderr),
-        signal,
-        timedOut
-      });
-    });
+    hardDeadline = setTimeout(() => {
+      timedOut = true;
+      terminateTree();
+      treeKiller?.kill("SIGKILL");
+      child.kill("SIGKILL");
+      child.stdout.destroy();
+      child.stderr.destroy();
+      child.unref();
+      settle(null, "SIGKILL");
+    }, 3_250);
+    child.once("close", settle);
   });
 }
 
@@ -198,12 +221,8 @@ export function claudeProbeTreeTerminationInvocation(
 }
 
 function safeWindowsSystemRoot(systemRoot: string | undefined): string {
-  const rawRoot = systemRoot?.trim() || "C:\\Windows";
-  return win32Path.isAbsolute(rawRoot)
-    && !rawRoot.split(/[\\/]+/).includes("..")
-    && !/[<>"|?*\r\n]/.test(rawRoot)
-    ? win32Path.normalize(rawRoot)
-    : "C:\\Windows";
+  const normalized = win32Path.normalize(systemRoot?.trim() || "C:\\Windows");
+  return /^C:\\Windows$/i.test(normalized) ? "C:\\Windows" : "C:\\Windows";
 }
 
 export function claudeAvailabilityFromProbeResult(result: ClaudeVersionProbeResult): ClaudeDryRunAvailability {

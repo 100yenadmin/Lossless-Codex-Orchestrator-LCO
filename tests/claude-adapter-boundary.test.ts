@@ -72,6 +72,7 @@ test("Claude adapter boundary inventory exists without claiming parity", () => {
   assert.match(boundary, /caller-trusted PATH on every platform/i);
   assert.match(boundary, /does not pin the Claude executable/i);
   assert.match(boundary, /asynchronous subprocess/i);
+  assert.match(boundary, /independent hard deadline/i);
   assert.doesNotMatch(boundary, /full Claude Code parity|control Claude Code remotely|unattended Claude takeover/i);
 
   const readme = read("README.md");
@@ -304,9 +305,9 @@ test("Claude availability probe kills a timeout-resistant CLI within its bound",
 
 test("Claude availability probe resolves the fixed command through cmd.exe on Windows", () => {
   assert.deepEqual(claudeVersionProbeInvocation("win32", "D:\\Windows"), {
-    command: "D:\\Windows\\System32\\cmd.exe",
+    command: "C:\\Windows\\System32\\cmd.exe",
     args: ["/d", "/s", "/c", "claude --version"],
-    cwd: "D:\\Windows\\System32"
+    cwd: "C:\\Windows\\System32"
   });
   assert.deepEqual(claudeVersionProbeInvocation("darwin"), {
     command: "claude",
@@ -318,10 +319,14 @@ test("Claude availability probe resolves the fixed command through cmd.exe on Wi
   assert.equal(windows.cwd, "C:\\Windows\\System32");
   assert.doesNotMatch(`${windows.command} ${windows.cwd}`, /checkout|worktree|repo/i);
   assert.deepEqual(claudeProbeTreeTerminationInvocation("win32", 4242, "D:\\Windows"), {
-    command: "D:\\Windows\\System32\\taskkill.exe",
+    command: "C:\\Windows\\System32\\taskkill.exe",
     args: ["/PID", "4242", "/T", "/F"],
-    cwd: "D:\\Windows\\System32"
+    cwd: "C:\\Windows\\System32"
   });
+  for (const hostileRoot of ["\\\\evil\\share\\Windows", "C:\\attacker-controlled", "D:\\Windows"]) {
+    assert.equal(claudeVersionProbeInvocation("win32", hostileRoot).command, "C:\\Windows\\System32\\cmd.exe");
+    assert.equal(claudeProbeTreeTerminationInvocation("win32", 4242, hostileRoot)?.command, "C:\\Windows\\System32\\taskkill.exe");
+  }
   assert.equal(claudeProbeTreeTerminationInvocation("darwin", 4242), null);
 });
 

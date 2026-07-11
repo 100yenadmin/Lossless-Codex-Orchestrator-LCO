@@ -142,8 +142,9 @@ Capability probing is a separate explicit action: a caller may await
 but an omitted probe reports `not_configured` rather than resolving `claude`
 through ambient `PATH` during a status read. The explicit probe uses a
 caller-trusted PATH on every platform and therefore must run only from a trusted
-environment. On Windows, this validated System32 boundary pins `cmd.exe` but
-does not pin the Claude executable that `cmd.exe` resolves through `PATH`.
-The probe uses a bounded asynchronous subprocess with a terminal kill signal,
-so it does not block the orchestration event loop indefinitely; `status()` never
-invokes it, even when a legacy probe callback is supplied.
+environment. On Windows, the canonical `C:\Windows\System32` boundary pins
+`cmd.exe` and `taskkill.exe` but does not pin the Claude executable that
+`cmd.exe` resolves through `PATH`. The asynchronous subprocess uses tree
+termination plus an independent hard deadline, so a stalled tree killer cannot block the
+orchestration event loop indefinitely; `status()` never invokes the probe, even
+when a legacy callback is supplied.
