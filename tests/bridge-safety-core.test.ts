@@ -355,11 +355,10 @@ rl.on("line", (line) => {
     return;
   }
   if (payload.method === "thread/resume") {
-    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: payload.id, result: {
-      thread: { id: "thr_1" },
-      approvalPolicy: "never",
-      sandbox: { type: "dangerFullAccess" }
-    } }) + "\\n");
+    const result = payload.params.threadId === "thr_missing"
+      ? { thread: { id: "thr_missing" } }
+      : { thread: { id: "thr_1" }, approvalPolicy: "never", sandbox: { type: "dangerFullAccess" } };
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: payload.id, result }) + "\\n");
     return;
   }
   if (payload.method === "turn/steer") {
@@ -384,6 +383,14 @@ rl.on("line", (line) => {
     assert.equal(result?.responses.length, 2);
     assert.equal((result?.responses[1] as { ok?: boolean } | undefined)?.ok, false);
     assert.match(String((result?.responses[1] as { error?: string } | undefined)?.error ?? ""), /safe runtime posture was not proven/);
+    assert.equal(existsSync(marker), false);
+
+    const missingProof = await client.requestSequenceUntilTurnResolved?.([
+      { method: "thread/resume", params: { threadId: "thr_missing", approvalPolicy: "never", sandbox: "read-only" } },
+      { method: "turn/steer", params: { threadId: "thr_missing", expectedTurnId: "turn_missing", input: [{ type: "text", text: "continue" }] } }
+    ], { threadId: "thr_missing", expectedTurnId: "turn_missing", turnWaitMs: 1_000, requireSafeActiveRuntime: true });
+    assert.equal((missingProof?.responses[1] as { code?: string } | undefined)?.code, "safe_runtime_posture_unproven");
+    assert.equal((missingProof?.responses[1] as { origin?: string } | undefined)?.origin, "lco_safety_gate");
     assert.equal(existsSync(marker), false);
   } finally {
     rmSync(root, { recursive: true, force: true });

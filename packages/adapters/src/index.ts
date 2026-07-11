@@ -904,6 +904,7 @@ export function createTargetControl(options: { targetName: string; methodPolicy:
       methodSequence,
       connectionScope,
       loadedThreadReusable: spec.loadedThreadReusable,
+      controlSent: true,
       createdThreadId,
       createdThreadCandidateId,
       createdThreadResumable,
@@ -1308,7 +1309,9 @@ async function requestCodexControlSequence(
 function assertCodexControlSequenceResponses(responses: unknown[], steps: CodexControlStep[]): void {
   for (let index = 0; index < responses.length; index += 1) {
     const response = asRecord(responses[index]);
-    if (response?.ok === false && response.code !== "safe_runtime_posture_unproven") {
+    const isLcoSafetyBlock = response?.code === "safe_runtime_posture_unproven"
+      && response.origin === "lco_safety_gate";
+    if (response?.ok === false && !isLcoSafetyBlock) {
       throw new Error(`Codex control sequence step failed: ${steps[index]?.method ?? "unknown"}`);
     }
   }
@@ -1319,7 +1322,11 @@ function assertCodexControlSequenceResponses(responses: unknown[], steps: CodexC
 
 function safeRuntimeBlockFromSequence(sequence: CodexControlSequenceResult | undefined): Record<string, unknown> | null {
   const response = asRecord(sequence?.responses.at(-1));
-  return response?.ok === false && response.code === "safe_runtime_posture_unproven" ? response : null;
+  return response?.ok === false
+    && response.code === "safe_runtime_posture_unproven"
+    && response.origin === "lco_safety_gate"
+    ? response
+    : null;
 }
 
 export async function createCodexAppServerStatusReport(options: {

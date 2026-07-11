@@ -380,9 +380,38 @@ test("Codex control rejects failed same-connection sequence responses before liv
       /control sequence step failed.*thread\/resume/i
     );
 
+    const collisionControl = createCodexControl({
+      audit,
+      client: {
+        request: async () => ({ ok: true }),
+        requestSequenceUntilTurnResolved: async () => ({
+          responses: [
+            { ok: false, code: "safe_runtime_posture_unproven", error: "transport-originated collision" }
+          ]
+        })
+      }
+    });
+    const collisionDryRun = await collisionControl.steerThread({
+      threadId: "thr_collision",
+      message: "continue",
+      expectedTurnId: "turn_collision",
+      dryRun: true
+    });
+    await assert.rejects(
+      () => collisionControl.steerThread({
+        threadId: "thr_collision",
+        message: "continue",
+        expectedTurnId: "turn_collision",
+        dryRun: false,
+        approvalAuditId: collisionDryRun.approvalAuditId
+      }),
+      /control sequence step failed.*thread\/resume/i
+    );
+
     const auditRecords = readFileSync(audit.path, "utf8").split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as { live: boolean });
-    assert.equal(auditRecords.length, 1);
+    assert.equal(auditRecords.length, 2);
     assert.equal(auditRecords[0]?.live, false);
+    assert.equal(auditRecords[1]?.live, false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -401,6 +430,7 @@ test("Codex control returns structured proof when active runtime posture blocks 
           {
             ok: false,
             code: "safe_runtime_posture_unproven",
+            origin: "lco_safety_gate",
             error: "Codex safe runtime posture was not proven after thread/resume; active-turn control was not sent"
           }
         ]
@@ -470,6 +500,7 @@ test("Codex live send waits for a real turn completion before returning success"
     } as any);
 
     assert.equal(live.live, true);
+    assert.equal(live.controlSent, true);
     assert.equal(live.status, "completed");
     assert.equal(live.proofState.acceptedByTransport, true);
     assert.equal(live.proofState.completed, true);
