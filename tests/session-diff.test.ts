@@ -1474,6 +1474,29 @@ test("session diff rejects malformed thread and target scope instead of widening
       () => getSessionDiff(db, { targetRef: "../../private/session.jsonl" }),
       /invalid session diff target ref/i
     );
+    assert.throws(
+      () => getSessionDiff(db, { targetRef: "codex_thread:" }),
+      /invalid session diff target ref/i
+    );
+    const maximumThreadId = `t${"a".repeat(179)}`;
+    insertSession(db, maximumThreadId);
+    assert.doesNotThrow(() => getSessionDiff(db, { threadId: maximumThreadId }));
+    assert.doesNotThrow(() => getSessionDiff(db, { targetRef: `codex_thread:${maximumThreadId}` }));
+  });
+});
+
+test("session diff rejects unsafe runtime cursor key-source values", () => {
+  withSessionDiffDb((db) => {
+    const unsafeOptions = {
+      cursorSigningKey: TEST_CURSOR_SIGNING_KEY,
+      cursorKeySource: "/Users/lume/private/audit.jsonl"
+    } as unknown as SessionDiffOptions;
+    assert.throws(
+      () => getSessionDiffCore(db, unsafeOptions),
+      (error: unknown) => error instanceof Error
+        && /invalid session diff cursor key source/i.test(error.message)
+        && !/Users|private|audit\.jsonl/.test(error.message)
+    );
   });
 });
 

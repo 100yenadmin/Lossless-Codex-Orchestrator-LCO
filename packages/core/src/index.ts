@@ -11622,10 +11622,7 @@ export function getSessionDiff(db: LooDatabase, options: SessionDiffOptions = {}
   const limit = clamp(options.limit ?? 50, 1, 500);
   const tokenBudget = clamp(options.tokenBudget ?? 1000, 20, 8000);
   const threadId = optionalPublicThreadId(options.threadId);
-  const rawTargetRef = options.targetRef?.trim();
-  const explicitTargetRef = rawTargetRef && !looksSensitiveRefLike(rawTargetRef) && publicSafeIdentifier(rawTargetRef) === rawTargetRef
-    ? rawTargetRef
-    : null;
+  const explicitTargetRef = optionalSessionDiffTargetRef(options.targetRef) ?? null;
   if (options.threadId !== undefined && !threadId) throw new Error("Invalid session diff thread id");
   if (options.targetRef !== undefined && !explicitTargetRef) throw new Error("Invalid session diff target ref");
   if (threadId && explicitTargetRef && explicitTargetRef !== codexThreadRef(threadId)) {
@@ -11803,6 +11800,17 @@ function optionalPublicThreadId(value: string | undefined): string | undefined {
   return undefined;
 }
 
+function optionalSessionDiffTargetRef(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (trimmed.startsWith("codex_thread:")) {
+    const threadId = optionalPublicThreadId(trimmed.slice("codex_thread:".length));
+    return threadId && trimmed === codexThreadRef(threadId) ? trimmed : undefined;
+  }
+  if (!looksSensitiveRefLike(trimmed) && publicSafeIdentifier(trimmed) === trimmed) return trimmed;
+  return undefined;
+}
+
 function encodeSessionDiffCursor(payload: SessionDiffCursorPayload, signingKey: string): string {
   const encodedPayload = Buffer.from(canonicalJsonString(payload)).toString("base64url");
   return `lco_cursor_${encodedPayload}.${sessionDiffCursorSignature(encodedPayload, signingKey)}`;
@@ -11850,11 +11858,11 @@ function parseSessionDiffCursor(cursor: string | undefined, signingKey: string):
     if (parsed.threadId !== null && (typeof parsed.threadId !== "string" || !optionalPublicThreadId(parsed.threadId))) {
       return { status: "invalid", payload: null, reasonCodes: ["cursor_thread_invalid"] };
     }
-    if (parsed.targetRef !== null && (typeof parsed.targetRef !== "string" || !publicSafeRefLike(parsed.targetRef, "target"))) {
+    if (parsed.targetRef !== null && (typeof parsed.targetRef !== "string" || !optionalSessionDiffTargetRef(parsed.targetRef))) {
       return { status: "invalid", payload: null, reasonCodes: ["cursor_target_invalid"] };
     }
     const threadId = typeof parsed.threadId === "string" ? optionalPublicThreadId(parsed.threadId) ?? null : null;
-    const targetRef = typeof parsed.targetRef === "string" ? publicSafeRefLike(parsed.targetRef, "target") : null;
+    const targetRef = typeof parsed.targetRef === "string" ? optionalSessionDiffTargetRef(parsed.targetRef) ?? null : null;
     const snapshotValue = isObjectRecord(parsed.snapshot) ? parsed.snapshot : null;
     if (!issuedAt || !watermarkAt || !snapshotValue || watermarkKey === undefined) {
       return { status: "invalid", payload: null, reasonCodes: ["cursor_payload_invalid"] };
@@ -11891,7 +11899,10 @@ function sessionDiffCursorSigningKey(explicitKey: string | undefined): string {
 }
 
 function sessionDiffCursorKeySource(options: Pick<SessionDiffOptions, "cursorSigningKey" | "cursorKeySource">): SessionDiffCursorKeySource {
-  if (options.cursorKeySource) return options.cursorKeySource;
+  if (options.cursorKeySource) {
+    if (["explicit", "environment", "audit_fallback"].includes(options.cursorKeySource)) return options.cursorKeySource;
+    throw new Error("Invalid session diff cursor key source");
+  }
   if (options.cursorSigningKey?.trim()) return "explicit";
   return readEnv("SESSION_DIFF_CURSOR_KEY")?.trim() ? "environment" : "explicit";
 }
@@ -12159,7 +12170,7 @@ function sessionDiffWhereSql(
   const clauses: string[] = [];
   const params: string[] = [];
   const targetRef = target.threadId ? codexThreadRef(target.threadId) : target.targetRef ?? null;
-  if (targetRef && (publicSafeIdentifier(targetRef) !== targetRef || looksSensitiveRefLike(targetRef))) {
+  if (targetRef && optionalSessionDiffTargetRef(targetRef) !== targetRef) {
     throw new Error("Invalid session diff SQL target ref");
   }
   const scopedThreadId = target.threadId
