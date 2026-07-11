@@ -961,7 +961,8 @@ test("Codex start-thread rejection diagnostics are strictly redacted", async () 
       request: async () => ({
         ok: false,
         error: {
-          message: "rejected at D:/customer/acme/session.jsonl with npm_12345678901234567890"
+          message: "rejected at D:/customer data/acme/session.jsonl",
+          detail: "credential npm_12345678901234567890"
         }
       })
     }
@@ -976,7 +977,8 @@ test("Codex start-thread rejection diagnostics are strictly redacted", async () 
     assert.deepEqual(live.response, {
       ok: false,
       error: {
-        message: "rejected at <redacted-local-path> with <redacted-secret>"
+        message: "rejected at <redacted-local-path>",
+        detail: "credential <redacted-secret>"
       }
     });
   } finally {
@@ -1744,6 +1746,10 @@ test("MCP tool registry exposes lco-prefixed canonical tools with loo compatibil
     const steerTool = tools.find((tool) => tool.name === "lco_codex_steer_thread");
     assert.ok(steerTool);
     assert.ok((steerTool.inputSchema.properties as Record<string, unknown>).expected_turn_id);
+    assert.deepEqual(steerTool.inputSchema.required, ["thread_id", "message", "expected_turn_id"]);
+    const interruptTool = tools.find((tool) => tool.name === "lco_codex_interrupt_thread");
+    assert.ok(interruptTool);
+    assert.deepEqual(interruptTool.inputSchema.required, ["thread_id", "expected_turn_id"]);
     const dryRunToolSchema = dryRunTool.inputSchema.properties as Record<string, unknown>;
     assert.ok(dryRunToolSchema.expected_turn_id);
     assert.throws(

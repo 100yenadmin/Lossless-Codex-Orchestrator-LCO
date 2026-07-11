@@ -1080,8 +1080,8 @@ export function createLooTools(options: {
     tool("lco_codex_start_thread", "Create a persistent read-only Codex thread with approvalPolicy=never. Dry-run by default; live mode requires approval_audit_id and still needs follow-up proof before durability claims.", startControlSchema(), (input) => snakeCaseControlResult(control.startThread(startControlInput(input)))),
     tool("lco_codex_resume_thread", "Resume or rejoin a Codex thread under LCO's fixed never-approve, read-only posture without starting a turn. Live mode requires approval_audit_id.", controlSchema(), (input) => snakeCaseControlResult(control.resumeThread(controlInput(input)))),
     tool("lco_codex_send_message", "Send a message under LCO's fixed never-approve, read-only posture. Live mode requires approval_audit_id and waits for bounded turn proof.", controlSchema(true, false, true), (input) => snakeCaseControlResult(control.sendMessage(messageControlInput(input, false, true)))),
-    tool("lco_codex_steer_thread", "Rejoin and steer a running Codex thread under LCO's fixed never-approve, read-only posture. Live mode requires approval_audit_id and expected_turn_id.", controlSchema(true, true, true), (input) => snakeCaseControlResult(control.steerThread(messageControlInput(input, true, true)))),
-    tool("lco_codex_interrupt_thread", "Rejoin and interrupt a Codex thread under LCO's fixed never-approve, read-only posture. Live mode requires approval_audit_id and expected_turn_id.", controlSchema(false, true, true), (input) => snakeCaseControlResult(control.interruptThread(controlInput(input, false, true)))),
+    tool("lco_codex_steer_thread", "Rejoin and steer a running Codex thread under LCO's fixed never-approve, read-only posture. Live mode requires approval_audit_id and expected_turn_id.", controlSchema(true, true, true), (input) => snakeCaseControlResult(control.steerThread(messageControlInput(input, true, true))), ["thread_id", "message", "expected_turn_id"]),
+    tool("lco_codex_interrupt_thread", "Rejoin and interrupt a Codex thread under LCO's fixed never-approve, read-only posture. Live mode requires approval_audit_id and expected_turn_id.", controlSchema(false, true, true), (input) => snakeCaseControlResult(control.interruptThread(controlInput(input, false, true))), ["thread_id", "expected_turn_id"]),
     tool("lco_desktop_act", "Dry-run desktop fallback action for CUA/Peekaboo; live requests return structured missing-proof blockers.", {
       backend: { type: "string", enum: ["direct", "cua-driver", "peekaboo"] },
       action: { type: "string" },
@@ -1556,7 +1556,13 @@ const SAFE_VALIDATION_MESSAGES = new Set([
   "github item urgency must be low, medium, high, or critical"
 ]);
 
-function tool(name: string, description: string, properties: Record<string, unknown>, execute: LooTool["execute"]): LooTool {
+function tool(
+  name: string,
+  description: string,
+  properties: Record<string, unknown>,
+  execute: LooTool["execute"],
+  required: string[] = []
+): LooTool {
   const safety = LOO_COMMAND_POLICY[name];
   if (!safety) throw new Error(`Missing LOO command policy for ${name}`);
   const metadata = LOO_TOOL_SURFACE[name];
@@ -1566,7 +1572,12 @@ function tool(name: string, description: string, properties: Record<string, unkn
     description,
     safety,
     metadata,
-    inputSchema: { type: "object", additionalProperties: false, properties },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties,
+      ...(required.length > 0 ? { required } : {})
+    },
     execute
   };
 }

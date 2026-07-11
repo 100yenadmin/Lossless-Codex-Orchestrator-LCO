@@ -85,8 +85,8 @@ test("strict diagnostic redaction removes host/container paths, provider tokens,
     "failed at <redacted-local-path>, <redacted-local-path>, with <redacted-secret> <redacted-secret> <redacted-secret> <redacted-secret> <redacted-secret> postgres://<redacted-secret>@db.example.com/prod <redacted-secret>"
   );
   assert.equal(
-    redactDiagnosticString("failed at D:/customer/acme/session.jsonl and E:\\customer\\acme\\session.jsonl"),
-    "failed at <redacted-local-path> and <redacted-local-path>"
+    redactDiagnosticString("failed at D:/customer data/session.jsonl, E:\\Program Files\\App\\secret.jsonl, and /Applications/LCO QA/private.log"),
+    "failed at <redacted-local-path>, <redacted-local-path>, and <redacted-local-path>"
   );
 });
 

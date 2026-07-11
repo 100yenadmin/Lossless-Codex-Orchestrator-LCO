@@ -1556,7 +1556,12 @@
             "approval_audit_id": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "thread_id",
+            "message",
+            "expected_turn_id"
+          ]
         }
       },
       {
@@ -1596,7 +1601,11 @@
             "approval_audit_id": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "thread_id",
+            "expected_turn_id"
+          ]
         }
       },
       {
@@ -3385,7 +3394,12 @@
             "approval_audit_id": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "thread_id",
+            "message",
+            "expected_turn_id"
+          ]
         }
       },
       {
@@ -3426,7 +3440,11 @@
             "approval_audit_id": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "thread_id",
+            "expected_turn_id"
+          ]
         }
       },
       {

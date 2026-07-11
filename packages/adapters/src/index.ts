@@ -948,6 +948,8 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
     },
     sendMessage(input: { threadId: string; message: string; dryRun?: boolean; approvalAuditId?: string; turnWaitMs?: number }) {
       const resumeParams = safeCodexResumeParams(input.threadId);
+      // A new turn pins its own restrictive posture. Unlike steer/interrupt,
+      // it does not act inside an already-running turn whose posture is fixed.
       const turnStartParams = {
         threadId: input.threadId,
         input: [{ type: "text", text: input.message }],
