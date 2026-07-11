@@ -11,6 +11,7 @@ import {
   probeClaudeDryRunAvailability,
   unsupportedClaudeVersionReason
 } from "../packages/adapters/src/claude.js";
+import { redactString } from "../packages/adapters/src/redaction.js";
 
 function read(path: string): string {
   return readFileSync(path, "utf8");
@@ -131,8 +132,7 @@ test("Claude dry-run adapter uses TargetAdapter policy without live control", as
 
   const dryRun = await control.resumePrompt({
     sessionId: "claude-session-1",
-    prompt: "Summarize the current branch status.",
-    dryRun: true
+    prompt: "Summarize the current branch status."
   });
 
   assert.equal(dryRun.live, false);
@@ -184,6 +184,29 @@ test("Claude dry-run status reports not_configured and redacts local diagnostics
   assert.equal(status.command.available, false);
   assert.equal(status.command.error, "missing ~/.claude/private-config with <redacted-secret>");
   assert.doesNotMatch(JSON.stringify(status), /\/Users\/lume|sk-test_/);
+});
+
+test("Claude dry-run status does not probe the external CLI unless explicitly injected", () => {
+  const control = createClaudeDryRunControl({ audit: auditStub() });
+
+  const status = control.status();
+  assert.equal(status.state, "not_configured");
+  assert.equal(status.command.available, false);
+  assert.equal(status.command.error, "Claude availability probe was not requested.");
+  assert.match(status.nextSafeAction, /install|configure/i);
+});
+
+test("Claude diagnostics redact Linux mixed-case Windows forward-slash and UNC home paths", () => {
+  const redacted = redactString([
+    "linux /home/alice/private",
+    "windows c:\\users\\bob\\private",
+    "forward C:/Users/carol/private",
+    "unc \\\\server\\Users\\dave\\private"
+  ].join(" | "));
+
+  assert.doesNotMatch(redacted, /alice|bob|carol|dave/);
+  assert.doesNotMatch(redacted, /\/home\/|[A-Za-z]:[\\/]users[\\/]|\\\\server\\Users\\/i);
+  assert.equal((redacted.match(/~/g) ?? []).length, 4);
 });
 
 test("Claude availability probe refuses non-allowlisted commands before reporting readiness", () => {

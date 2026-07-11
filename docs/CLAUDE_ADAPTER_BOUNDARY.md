@@ -135,3 +135,9 @@ without adding live Claude Code control. The adapter can report explicit
 dry-run audit packet for a `claude/print/resume` intent. The packet records
 opaque refs and hashes only; it does not invoke `claude`, type into Claude Code,
 change Claude settings, mutate sessions, or claim adapter parity.
+
+Constructing the adapter and reading `status()` do not execute the Claude CLI.
+Capability probing is a separate explicit action: a caller may run
+`probeClaudeDryRunAvailability()` deliberately and inject its sanitized result,
+but an omitted probe reports `not_configured` rather than resolving `claude`
+through ambient `PATH` during a status read.

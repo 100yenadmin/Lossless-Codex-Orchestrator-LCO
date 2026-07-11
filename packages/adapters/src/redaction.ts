@@ -7,13 +7,13 @@ const SECRET_PATTERNS: Array<[RegExp, string]> = [
   [/(\bauthorization\s*:\s*)[^\r\n]+/gi, "$1<redacted-secret>"]
 ];
 
-const GENERIC_HOME_PATTERN = /\/Users\/[^/\s]+/g;
-const GENERIC_WINDOWS_HOME_PATTERN = /[A-Za-z]:\\Users\\[^\\\s]+/g;
+const GENERIC_UNIX_HOME_PATTERN = /\/(?:Users|home)\/[^/\s]+/g;
+const GENERIC_WINDOWS_HOME_PATTERN = /(?:[A-Za-z]:|\\\\[^\\/\s]+)[\\/]Users[\\/][^\\/\s]+/gi;
 
 export function redactString(value: string): string {
   let redacted = value.replaceAll(homedir(), "~");
-  redacted = redacted.replace(GENERIC_HOME_PATTERN, "~");
   redacted = redacted.replace(GENERIC_WINDOWS_HOME_PATTERN, "~");
+  redacted = redacted.replace(GENERIC_UNIX_HOME_PATTERN, "~");
   for (const [pattern, replacement] of SECRET_PATTERNS) {
     redacted = redacted.replace(pattern, replacement);
   }

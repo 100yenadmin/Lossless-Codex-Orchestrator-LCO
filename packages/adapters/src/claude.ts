@@ -112,7 +112,15 @@ export function createClaudeDryRunControl(options: {
 }) {
   let availability: ClaudeDryRunAvailability | null = options.availability ? sanitizeClaudeAvailability(options.availability) : null;
   const getAvailability = (): ClaudeDryRunAvailability => {
-    availability ??= sanitizeClaudeAvailability((options.probeAvailability ?? probeClaudeDryRunAvailability)());
+    availability ??= sanitizeClaudeAvailability(options.probeAvailability
+      ? options.probeAvailability()
+      : {
+          available: false,
+          command: "claude",
+          version: null,
+          error: "Claude availability probe was not requested.",
+          unsupportedReason: null
+        });
     return availability;
   };
   const target = createTargetControl({
