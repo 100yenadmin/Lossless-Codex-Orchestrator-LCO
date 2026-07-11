@@ -1346,7 +1346,7 @@ function isCliUsageErrorMessage(message: string): boolean {
     || /^Unknown maintenance --drop-event-content option: /.test(message)
     || /^Unknown release claim scope: /.test(message)
     || /^Invalid --[\w-]+: /.test(message)
-    || /^--[\w-]+ requires /.test(message)
+    || /^--surface requires cli when invoked through the CLI$/.test(message)
     || / requires (?:a value|a path|a number|a positive integer|an integer|--[\w-]+)/.test(message)
     || /^--[\w-]+ must be /.test(message);
 }
