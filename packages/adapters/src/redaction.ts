@@ -24,6 +24,7 @@ const DIAGNOSTIC_SECRET_PATTERNS: Array<[RegExp, string]> = [
 ];
 
 const DIAGNOSTIC_LOCAL_PATH_PATTERN = /(?:~\/|\/(?:Volumes|Users|home|root|private|tmp|workspace|workspaces|mnt|data|opt|srv|etc|Library|Applications|build|repo|proc|usr)\/|\/var\/folders\/)[^\r\n"',)\]}]+/g;
+const DIAGNOSTIC_POSIX_ABSOLUTE_PATH_PATTERN = /(?<![A-Za-z0-9+.:\/~])\/(?!\/)[^\r\n"',)\]}]+/g;
 const DIAGNOSTIC_WINDOWS_PATH_PATTERN = /(?<![A-Za-z0-9])(?:[A-Za-z]:[\\\/]|\\\\(?:\?\\)?)[^\r\n"',)\]}]+/g;
 
 const GENERIC_HOME_PATTERN = /\/Users\/[^/\s]+/g;
@@ -46,6 +47,7 @@ export function redactString(value: string): string {
 export function redactDiagnosticString(value: string): string {
   let redacted = redactString(value)
     .replace(DIAGNOSTIC_LOCAL_PATH_PATTERN, "<redacted-local-path>")
+    .replace(DIAGNOSTIC_POSIX_ABSOLUTE_PATH_PATTERN, "<redacted-local-path>")
     .replace(DIAGNOSTIC_WINDOWS_PATH_PATTERN, "<redacted-local-path>");
   for (const [pattern, replacement] of DIAGNOSTIC_SECRET_PATTERNS) {
     redacted = redacted.replace(pattern, replacement);
