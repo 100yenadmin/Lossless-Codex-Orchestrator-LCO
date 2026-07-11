@@ -12,6 +12,7 @@ export type JsonRpcTransport = {
 
 export type CodexJsonRpcResponse = {
   ok: boolean;
+  code?: string;
   result?: unknown;
   error?: string;
   notifications: JsonRpcNotification[];
@@ -338,6 +339,7 @@ export function createCodexMcpStdioClient(options: {
           if (index === 0 && turnOptions.requireSafeActiveRuntime && step.method === "thread/resume" && !safeActiveRuntimeFromResume(response)) {
             responses.push({
               ok: false,
+              code: "safe_runtime_posture_unproven",
               error: "Codex safe runtime posture was not proven after thread/resume; active-turn control was not sent",
               notifications: []
             });

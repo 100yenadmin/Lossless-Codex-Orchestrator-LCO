@@ -15,14 +15,16 @@ const DIAGNOSTIC_SECRET_PATTERNS: Array<[RegExp, string]> = [
   [/\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, "<redacted-secret>"],
   [/(\baws_secret_access_key\s*[=:]\s*)[A-Za-z0-9/+]{32,}/gi, "$1<redacted-secret>"],
   [/\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g, "<redacted-secret>"],
+  [/\bxapp-[A-Za-z0-9-]{10,}\b/g, "<redacted-secret>"],
   [/\bglpat-[A-Za-z0-9_-]{20,}\b/g, "<redacted-secret>"],
   [/\bAIza[0-9A-Za-z_-]{20,}\b/g, "<redacted-secret>"],
+  [/\bya29\.[0-9A-Za-z_-]{20,}\b/g, "<redacted-secret>"],
   [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, "<redacted-secret>"],
   [/(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+:[^\s/@]+@/gi, "$1<redacted-secret>@"]
 ];
 
-const DIAGNOSTIC_LOCAL_PATH_PATTERN = /(?:~\/|\/(?:Volumes|Users|home|root|private|tmp|workspace|workspaces|mnt|data|opt|srv|etc)\/|\/var\/folders\/)[^\s"',)\]}]+/g;
-const DIAGNOSTIC_WINDOWS_PATH_PATTERN = /[A-Za-z]:\\[^\s"',)\]}]+/g;
+const DIAGNOSTIC_LOCAL_PATH_PATTERN = /(?:~\/|\/(?:Volumes|Users|home|root|private|tmp|workspace|workspaces|mnt|data|opt|srv|etc)\/|\/var\/folders\/)[^\r\n"',)\]}]+/g;
+const DIAGNOSTIC_WINDOWS_PATH_PATTERN = /[A-Za-z]:\\[^\r\n"',)\]}]+/g;
 
 const GENERIC_HOME_PATTERN = /\/Users\/[^/\s]+/g;
 const CLAUDE_UNIX_HOME_PATTERN = /(?:\/(?:Users|home)\/[^/\s]+|\/root(?=\/|\s|$))/gi;

@@ -79,10 +79,10 @@ test("redacts local paths and common credential shapes from shareable envelopes"
 });
 
 test("strict diagnostic redaction removes host/container paths, provider tokens, JWTs, and URI credentials", () => {
-  const value = "failed at /Volumes/LEXAR/customers/acme/token and /workspace/private/session.jsonl with npm_12345678901234567890 github_pat_12345678901234567890 AKIA1234567890ABCDEF postgres://admin:SuperSecret123@db.example.com/prod eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signatureTOKEN123";
+  const value = "failed at /Volumes/LEXAR/customers/My Project/session.jsonl, /workspace/private/session.jsonl, with npm_12345678901234567890 github_pat_12345678901234567890 AKIA1234567890ABCDEF xapp-1-abcdefghijklmnopqrstuvwxyz ya29.abcdefghijklmnopqrstuvwxyz012345 postgres://admin:SuperSecret123@db.example.com/prod eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signatureTOKEN123";
   assert.equal(
     redactDiagnosticString(value),
-    "failed at <redacted-local-path> and <redacted-local-path> with <redacted-secret> <redacted-secret> <redacted-secret> postgres://<redacted-secret>@db.example.com/prod <redacted-secret>"
+    "failed at <redacted-local-path>, <redacted-local-path>, with <redacted-secret> <redacted-secret> <redacted-secret> <redacted-secret> <redacted-secret> postgres://<redacted-secret>@db.example.com/prod <redacted-secret>"
   );
 });
 

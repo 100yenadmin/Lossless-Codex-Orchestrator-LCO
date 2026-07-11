@@ -1742,6 +1742,7 @@ async function snakeCaseControlResult(value: Promise<any>) {
     approval_audit_id: result.approvalAuditId,
     params_hash: result.paramsHash,
     message_hash: result.messageHash,
+    control_sent: result.controlSent,
     expected_turn_id: result.expectedTurnId,
     turn_status: result.status,
     ...(turn ? { turn } : {}),

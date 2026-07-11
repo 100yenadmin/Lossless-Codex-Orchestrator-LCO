@@ -619,6 +619,7 @@ export type ControlResult = {
   method?: string;
   methodSequence?: string[];
   connectionScope?: "single_request" | "same_connection_sequence";
+  controlSent?: boolean;
   loadedThreadReusable?: boolean;
   createdThreadId?: string;
   createdThreadCandidateId?: string;
@@ -847,6 +848,34 @@ export function createTargetControl(options: { targetName: string; methodPolicy:
           }
         : undefined)
       : undefined;
+    const safeRuntimeBlock = safeRuntimeBlockFromSequence(sequenceResult);
+    if (safeRuntimeBlock) {
+      return {
+        action: spec.action,
+        threadId: spec.threadId,
+        live: true,
+        approvalAuditId: previous.id,
+        paramsHash,
+        messageHash,
+        method: spec.method,
+        methodSequence,
+        connectionScope,
+        controlSent: false,
+        expectedTurnId: spec.expectedTurnId,
+        proofState: {
+          acceptedByTransport: false,
+          started: false,
+          completed: false,
+          persisted: false,
+          unverifiedPending: false,
+          status: "transport_rejected",
+          threadId: spec.threadId,
+          callerInstruction: "Codex active runtime posture was not proven safe after resume. The active-turn control was not sent; use a fresh dry-run after establishing the supported never-approve, read-only, no-network posture.",
+          proofBoundary: "This public-safe result proves that LCO stopped before steer or interrupt. It does not prove execution, completion, persistence, or any Codex GUI action."
+        },
+        response: sanitizeCodexControlResponse(safeRuntimeBlock)
+      };
+    }
     const rawResponse = sequenceResult
       ? sequenceResult.responses.at(-1) ?? { ok: true }
       : await options.client.request(spec.method, spec.params);
@@ -1273,13 +1302,19 @@ async function requestCodexControlSequence(
 
 function assertCodexControlSequenceResponses(responses: unknown[], steps: CodexControlStep[]): void {
   for (let index = 0; index < responses.length; index += 1) {
-    if (asRecord(responses[index])?.ok === false) {
+    const response = asRecord(responses[index]);
+    if (response?.ok === false && response.code !== "safe_runtime_posture_unproven") {
       throw new Error(`Codex control sequence step failed: ${steps[index]?.method ?? "unknown"}`);
     }
   }
   if (responses.length !== steps.length) {
     throw new Error(`Codex control sequence returned ${responses.length} response(s) for ${steps.length} step(s)`);
   }
+}
+
+function safeRuntimeBlockFromSequence(sequence: CodexControlSequenceResult | undefined): Record<string, unknown> | null {
+  const response = asRecord(sequence?.responses.at(-1));
+  return response?.ok === false && response.code === "safe_runtime_posture_unproven" ? response : null;
 }
 
 export async function createCodexAppServerStatusReport(options: {

@@ -386,6 +386,50 @@ test("Codex control rejects failed same-connection sequence responses before liv
   }
 });
 
+test("Codex control returns structured proof when active runtime posture blocks control before send", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-control-runtime-posture-block-"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const control = createCodexControl({
+    audit,
+    client: {
+      request: async () => ({ ok: true }),
+      requestSequenceUntilTurnResolved: async () => ({
+        responses: [
+          { ok: true, result: { approvalPolicy: "never", sandbox: { type: "dangerFullAccess" } } },
+          {
+            ok: false,
+            code: "safe_runtime_posture_unproven",
+            error: "Codex safe runtime posture was not proven after thread/resume; active-turn control was not sent"
+          }
+        ]
+      })
+    }
+  });
+
+  try {
+    const dryRun = await control.steerThread({ threadId: "thr_1", message: "continue", expectedTurnId: "turn_1", dryRun: true });
+    const blocked = await control.steerThread({
+      threadId: "thr_1",
+      message: "continue",
+      expectedTurnId: "turn_1",
+      dryRun: false,
+      approvalAuditId: dryRun.approvalAuditId
+    });
+
+    assert.equal(blocked.live, true);
+    assert.equal(blocked.controlSent, false);
+    assert.equal(blocked.proofState.status, "transport_rejected");
+    assert.match(blocked.proofState.callerInstruction, /control was not sent/);
+    assert.equal((blocked.response as any).code, "safe_runtime_posture_unproven");
+
+    const auditRecords = readFileSync(audit.path, "utf8").split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as { live: boolean });
+    assert.equal(auditRecords.length, 1);
+    assert.equal(auditRecords[0]?.live, false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Codex live send waits for a real turn completion before returning success", async () => {
   const root = mkdtempSync(join(tmpdir(), "loo-control-turn-complete-"));
   const audit = createAuditStore(join(root, "audit.jsonl"));
