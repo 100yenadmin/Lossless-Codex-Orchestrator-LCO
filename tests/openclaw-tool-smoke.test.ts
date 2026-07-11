@@ -2473,7 +2473,7 @@ test("OpenClaw tool smoke still requires message hash for send-message dry-runs"
   }
 });
 
-test("OpenClaw tool smoke passes gateway token through call argv and keeps evidence redacted", () => {
+test("OpenClaw tool smoke rejects explicit token-only auth before spawning OpenClaw", () => {
   const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-token-"));
   const evidencePath = join(dir, "tool-smoke.json");
   const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_doctor"]);
@@ -2482,7 +2482,7 @@ test("OpenClaw tool smoke passes gateway token through call argv and keeps evide
   process.env.OPENCLAW_FAKE_CALLS = callsPath;
   delete process.env.OPENCLAW_GATEWAY_TOKEN;
   try {
-    runOpenClawToolSmoke({
+    const report = runOpenClawToolSmoke({
       openclawBin: bin,
       profile: "lco-issue-80",
       requiredTools: ["loo_doctor"],
@@ -2491,19 +2491,10 @@ test("OpenClaw tool smoke passes gateway token through call argv and keeps evide
       evidencePath
     });
 
-    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { args: string[]; envTokenPresent?: boolean });
-    assert.equal(calls.every((call) => call.envTokenPresent === true), true);
-    assert.equal(calls.every((call) => call.args.includes("--token")), true);
-    assert.equal(calls.every((call) => call.args[call.args.indexOf("--token") + 1] === "test-gateway-token"), true);
-    assert.equal(calls.every((call) => call.args.includes("--timeout")), true);
-    assert.equal(calls.every((call) => call.args[call.args.indexOf("--timeout") + 1] === "12345"), true);
+    assert.equal(report.ok, false);
+    assert.ok(report.blockers.includes("openclaw_gateway_token_requires_url"));
+    assert.equal(existsSync(callsPath), false);
     assert.doesNotMatch(readFileSync(evidencePath, "utf8"), /test-gateway-token/);
-    assert.doesNotMatch(JSON.stringify(runOpenClawToolSmoke({
-      openclawBin: bin,
-      profile: "lco-issue-80",
-      requiredTools: ["loo_doctor"],
-      token: "test-gateway-token"
-    })), /test-gateway-token/);
   } finally {
     if (previousCalls === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previousCalls;
@@ -2512,7 +2503,7 @@ test("OpenClaw tool smoke passes gateway token through call argv and keeps evide
   }
 });
 
-test("OpenClaw tool smoke uses ambient gateway token for call-mode auth", () => {
+test("OpenClaw tool smoke rejects ambient token-only auth before spawning OpenClaw", () => {
   const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-env-token-"));
   const { bin, callsPath } = createFakeOpenClaw(dir, ["loo_doctor"]);
   const previousCalls = process.env.OPENCLAW_FAKE_CALLS;
@@ -2520,21 +2511,32 @@ test("OpenClaw tool smoke uses ambient gateway token for call-mode auth", () => 
   process.env.OPENCLAW_FAKE_CALLS = callsPath;
   process.env.OPENCLAW_GATEWAY_TOKEN = "ambient-gateway-token";
   try {
-    runOpenClawToolSmoke({
+    const report = runOpenClawToolSmoke({
       openclawBin: bin,
       profile: "lco-issue-106",
       requiredTools: ["loo_doctor"]
     });
 
-    const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { args: string[] });
-    assert.equal(calls.every((call) => call.args.includes("--token")), true);
-    assert.equal(calls.every((call) => call.args[call.args.indexOf("--token") + 1] === "ambient-gateway-token"), true);
+    assert.equal(report.ok, false);
+    assert.ok(report.blockers.includes("openclaw_gateway_token_requires_url"));
+    assert.equal(existsSync(callsPath), false);
   } finally {
     if (previousCalls === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previousCalls;
     if (previousToken === undefined) delete process.env.OPENCLAW_GATEWAY_TOKEN;
     else process.env.OPENCLAW_GATEWAY_TOKEN = previousToken;
   }
+});
+
+test("OpenClaw tool smoke rejects plaintext remote gateway URLs before sending a token", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-remote-ws-"));
+  const report = runOpenClawToolSmoke({
+    gatewayUrl: "ws://gateway.example.test:18789",
+    token: "must-not-leave-process",
+    requiredTools: ["loo_doctor"]
+  });
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.includes("openclaw_gateway_url_insecure"));
 });
 
 test("OpenClaw tool smoke reports catalog parse failure without synthetic missing-tool blockers", () => {

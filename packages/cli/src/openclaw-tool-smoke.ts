@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute } from "node:path";
 import { PREPARED_CARD_STATES } from "../../core/src/index.js";
+import { validateOpenClawGatewayRoute } from "./openclaw-gateway-route.js";
 
 const BASE_GATEWAY_SMOKE_TOOL_CALLS = [
   "loo_doctor",
@@ -332,15 +333,14 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
     ...(options.profile ? ["--profile", options.profile] : [])
   ];
   const gatewayTimeoutMs = options.gatewayTimeoutMs ?? 60_000;
-  const gatewayOptions = [
-    ...(options.gatewayUrl ? ["--url", options.gatewayUrl] : []),
-    ...gatewayTokenArgs(options.token || process.env.OPENCLAW_GATEWAY_TOKEN),
-    "--timeout",
-    String(gatewayTimeoutMs)
-  ];
   const gatewayToken = options.token || process.env.OPENCLAW_GATEWAY_TOKEN;
   const gatewayEnv = options.token ? { OPENCLAW_GATEWAY_TOKEN: options.token } : undefined;
   const usesBackendGateway = Boolean(options.gatewayUrl && gatewayToken && gatewayToken !== "__OPENCLAW_REDACTED__");
+  const gatewayOptions = usesBackendGateway ? [] : [
+    ...(options.gatewayUrl ? ["--url", options.gatewayUrl] : []),
+    "--timeout",
+    String(gatewayTimeoutMs)
+  ];
   const sessionKey = options.sessionKey || "agent:main:lco-tool-smoke";
   const query = options.query || "Proposed plan";
   const expandProfile = options.expandProfile || "brief";
@@ -348,14 +348,18 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
   const runId = randomUUID();
 
   const gatewayCallOptions = { env: gatewayEnv, timeoutMs: gatewayTimeoutMs, backendUrl: options.gatewayUrl, token: gatewayToken };
-  const catalogCall = callGatewayJson(openclawBin, baseArgs, gatewayOptions, "tools.catalog", {}, gatewayCallOptions);
+  const gatewayRoute = validateOpenClawGatewayRoute(options.gatewayUrl, gatewayToken);
+  const catalogCall: GatewayJsonResult = gatewayRoute.ok
+    ? callGatewayJson(openclawBin, baseArgs, gatewayOptions, "tools.catalog", {}, gatewayCallOptions)
+    : { status: null, stdout: "", stderr: "" };
   const catalogParsed = catalogCall.parsed !== undefined;
   const catalogComparable = catalogCall.status === 0 && catalogParsed;
   const catalogToolNames = catalogComparable ? extractCatalogToolNames(unwrapGatewayPayload(catalogCall.parsed)) : [];
   const missingRequiredTools = catalogComparable ? requiredTools.filter((name) => !catalogToolNames.includes(name)) : [];
   const unknownDispositionTools = requiredTools.filter((name) => !KNOWN_TOOL_DISPOSITION_SET.has(name));
   const blockers = [
-    ...gatewayFailureBlockers(catalogCall, "openclaw_catalog_failed"),
+    ...(!gatewayRoute.ok ? [`openclaw_${gatewayRoute.code}`] : []),
+    ...(gatewayRoute.ok ? gatewayFailureBlockers(catalogCall, "openclaw_catalog_failed") : []),
     ...(catalogCall.status === 0 && !catalogParsed ? ["openclaw_catalog_invalid_json"] : []),
     ...(missingRequiredTools.length > 0 ? ["openclaw_catalog_missing_required_tools"] : []),
     ...(unknownDispositionTools.length > 0 ? ["openclaw_tool_smoke_unknown_disposition"] : [])
@@ -578,11 +582,6 @@ function annotateRequestedExpansionProfile(summary: OpenClawToolInvocationSummar
   if (summary.summary.tokenBudget === undefined && typeof args.token_budget === "number") summary.summary.tokenBudget = args.token_budget;
 }
 
-function gatewayTokenArgs(token: string | undefined): string[] {
-  if (!token || token === "__OPENCLAW_REDACTED__") return [];
-  return ["--token", token];
-}
-
 function callGatewayJson(
   openclawBin: string,
   baseArgs: string[],
@@ -630,6 +629,15 @@ export function callGatewayBackendJson(
   timeoutMs: number,
   sourceEnv: NodeJS.ProcessEnv = process.env
 ): GatewayJsonResult {
+  const route = validateOpenClawGatewayRoute(gatewayUrl, token);
+  if (!route.ok) {
+    return {
+      status: 1,
+      stdout: "",
+      stderr: route.code,
+      parsed: { ok: false, error: { code: route.code } }
+    };
+  }
   const request = JSON.stringify({
     url: gatewayUrl,
     method,
