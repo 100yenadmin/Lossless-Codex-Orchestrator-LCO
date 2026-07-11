@@ -84,6 +84,10 @@ test("strict diagnostic redaction removes host/container paths, provider tokens,
     redactDiagnosticString(value),
     "failed at <redacted-local-path>, <redacted-local-path>, with <redacted-secret> <redacted-secret> <redacted-secret> <redacted-secret> <redacted-secret> postgres://<redacted-secret>@db.example.com/prod <redacted-secret>"
   );
+  assert.equal(
+    redactDiagnosticString("failed at D:/customer/acme/session.jsonl and E:\\customer\\acme\\session.jsonl"),
+    "failed at <redacted-local-path> and <redacted-local-path>"
+  );
 });
 
 test("Codex method policy blocks generic mutation passthrough but allows approved control surface methods", () => {

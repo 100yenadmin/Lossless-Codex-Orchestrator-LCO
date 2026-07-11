@@ -4,7 +4,7 @@ import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, readFileSy
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { codexTransportStatus } from "./codex-jsonrpc.js";
 import { CODEX_CONTROL_METHODS, CODEX_FORBIDDEN_METHODS, CODEX_READ_METHODS, CODEX_TARGET_METHOD_POLICY, assertCodexMethodAllowed, assertTargetMethodAllowed, type TargetMethodPolicy } from "./policy.js";
-import { redactDiagnosticString, redactValue } from "./redaction.js";
+import { redactDiagnosticString, redactDiagnosticValue, redactValue } from "./redaction.js";
 import { readEnv, readEnvWithFallback, resolveHomeDir } from "../../runtime/src/env.js";
 
 export * from "./codex-jsonrpc.js";
@@ -1185,7 +1185,7 @@ const CODEX_CONTROL_RESPONSE_FORBIDDEN_KEYS = new Set([
 ]);
 
 function sanitizeCodexControlResponse(response: unknown): unknown {
-  return sanitizeCodexControlResponseValue(redactValue(response));
+  return sanitizeCodexControlResponseValue(redactDiagnosticValue(response));
 }
 
 function sanitizeCodexControlResponseValue(value: unknown): unknown {

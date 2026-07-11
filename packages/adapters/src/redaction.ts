@@ -24,7 +24,7 @@ const DIAGNOSTIC_SECRET_PATTERNS: Array<[RegExp, string]> = [
 ];
 
 const DIAGNOSTIC_LOCAL_PATH_PATTERN = /(?:~\/|\/(?:Volumes|Users|home|root|private|tmp|workspace|workspaces|mnt|data|opt|srv|etc)\/|\/var\/folders\/)[^\r\n"',)\]}]+/g;
-const DIAGNOSTIC_WINDOWS_PATH_PATTERN = /[A-Za-z]:\\[^\r\n"',)\]}]+/g;
+const DIAGNOSTIC_WINDOWS_PATH_PATTERN = /(?<![A-Za-z0-9])(?:[A-Za-z]:\\[^\r\n"',)\]}]+|[A-Za-z]:\/[^\s"',)\]}]+)/g;
 
 const GENERIC_HOME_PATTERN = /\/Users\/[^/\s]+/g;
 const CLAUDE_UNIX_HOME_PATTERN = /(?:\/(?:Users|home)\/[^/\s]+|\/root(?=\/|\s|$))/gi;
@@ -51,6 +51,18 @@ export function redactDiagnosticString(value: string): string {
     redacted = redacted.replace(pattern, replacement);
   }
   return redacted;
+}
+
+export function redactDiagnosticValue(value: unknown): unknown {
+  if (typeof value === "string") return redactDiagnosticString(value);
+  if (Array.isArray(value)) return value.map((item) => redactDiagnosticValue(item));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+      key,
+      isAuthorizationKey(key) ? "<redacted-secret>" : redactDiagnosticValue(item)
+    ]));
+  }
+  return value;
 }
 
 export function redactClaudeString(value: string): string {

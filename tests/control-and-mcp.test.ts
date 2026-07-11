@@ -952,6 +952,38 @@ test("Codex start-thread workflow is dry-run first and live creation remains pen
   }
 });
 
+test("Codex start-thread rejection diagnostics are strictly redacted", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-control-start-rejection-"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const control = createCodexControl({
+    audit,
+    client: {
+      request: async () => ({
+        ok: false,
+        error: {
+          message: "rejected at D:/customer/acme/session.jsonl with npm_12345678901234567890"
+        }
+      })
+    }
+  });
+
+  try {
+    const dryRun = await control.startThread({ dryRun: true });
+    const live = await control.startThread({
+      dryRun: false,
+      approvalAuditId: dryRun.approvalAuditId
+    });
+    assert.deepEqual(live.response, {
+      ok: false,
+      error: {
+        message: "rejected at <redacted-local-path> with <redacted-secret>"
+      }
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Codex start-thread post-create proof reports public-safe created-but-unindexed coverage", async () => {
   const root = mkdtempSync(join(tmpdir(), "loo-control-start-proof-gap-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
