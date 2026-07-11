@@ -66,6 +66,9 @@ test("Claude adapter boundary inventory exists without claiming parity", () => {
   assert.match(boundary, /dry_run_only/i);
   assert.match(boundary, /not_configured/i);
   assert.match(boundary, /unsupported/i);
+  assert.match(boundary, /caller-trusted POSIX PATH/i);
+  assert.match(boundary, /does not defend against POSIX PATH shadowing/i);
+  assert.match(boundary, /asynchronous subprocess/i);
   assert.doesNotMatch(boundary, /full Claude Code parity|control Claude Code remotely|unattended Claude takeover/i);
 
   const readme = read("README.md");
@@ -260,8 +263,10 @@ test("Claude dry-run packet minting rejects not-configured and unsupported state
   }
 });
 
-test("Claude availability probe refuses non-allowlisted commands before reporting readiness", () => {
-  const availability = probeClaudeDryRunAvailability("/bin/echo");
+test("Claude availability probe is asynchronous and refuses non-allowlisted commands", async () => {
+  const pendingAvailability = probeClaudeDryRunAvailability("/bin/echo");
+  assert.equal(pendingAvailability instanceof Promise, true);
+  const availability = await pendingAvailability;
 
   assert.equal(availability.available, false);
   assert.equal(availability.command, "claude");
@@ -288,13 +293,15 @@ test("Claude availability probe resolves the fixed command through cmd.exe on Wi
   assert.doesNotMatch(`${windows.command} ${windows.cwd}`, /checkout|worktree|repo/i);
 });
 
-test("Claude version parser classifies old and unparseable CLI versions as unsupported", () => {
+test("Claude version parser accepts semver metadata and rejects old or unparseable versions", () => {
   assert.match(unsupportedClaudeVersionReason("0.1.0") ?? "", /below minimum/i);
   assert.match(unsupportedClaudeVersionReason("Claude Code 0.9.9") ?? "", /below minimum/i);
   assert.equal(unsupportedClaudeVersionReason("Claude Code 1.2.3"), null);
   assert.equal(unsupportedClaudeVersionReason("1.0.0"), null);
   assert.equal(unsupportedClaudeVersionReason("2.1.186 (Claude Code)"), null);
-  assert.match(unsupportedClaudeVersionReason("Claude Code 1.0.0-rc.1") ?? "", /could not be parsed/i);
+  assert.equal(unsupportedClaudeVersionReason("Claude Code 1.0.0-rc.1"), null);
+  assert.equal(unsupportedClaudeVersionReason("2.1.186+abc"), null);
+  assert.equal(unsupportedClaudeVersionReason("Claude Code 3.0.0-rc.2+sha.abc (Claude Code)"), null);
   assert.match(unsupportedClaudeVersionReason("build 9.9.9; Claude Code 0.9.0") ?? "", /could not be parsed/i);
   assert.match(unsupportedClaudeVersionReason("not a semver") ?? "", /could not be parsed/i);
 });

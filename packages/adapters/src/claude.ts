@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { execFile, type ExecFileException } from "node:child_process";
 import { win32 as win32Path } from "node:path";
 import { createTargetControl, type AuditRecord } from "./index.js";
 import { type TargetMethodPolicy } from "./policy.js";
@@ -39,8 +39,12 @@ type ClaudeControlAuditStore = {
   find(id: string): AuditRecord | null;
 };
 
-type ClaudeVersionProbeResult = Pick<ReturnType<typeof spawnSync>, "error" | "status" | "stdout" | "stderr"> & {
-  signal?: ReturnType<typeof spawnSync>["signal"];
+type ClaudeVersionProbeResult = {
+  error?: Error;
+  status: number | null;
+  stdout: string | Buffer;
+  stderr: string | Buffer;
+  signal?: NodeJS.Signals | null;
 };
 
 export type ClaudeDryRunStatus = {
@@ -63,7 +67,7 @@ export type ClaudeDryRunStatus = {
   nextSafeAction: string;
 };
 
-export function probeClaudeDryRunAvailability(command = "claude"): ClaudeDryRunAvailability {
+export async function probeClaudeDryRunAvailability(command = "claude"): Promise<ClaudeDryRunAvailability> {
   const normalizedCommand = command.trim();
   if (normalizedCommand !== "claude") {
     return {
@@ -74,19 +78,40 @@ export function probeClaudeDryRunAvailability(command = "claude"): ClaudeDryRunA
       unsupportedReason: null
     };
   }
-  // This exported out-of-band probe intentionally uses the caller's trusted
-  // PATH. Windows uses a fixed system cmd.exe from a trusted System32 cwd so
-  // checkout-local claude.cmd/bat shadows are never considered. Request/status
-  // handlers must inject its sanitized result instead of invoking the
-  // synchronous probe themselves.
+  // POSIX intentionally uses the caller's trusted PATH and does not defend
+  // against PATH shadowing. Windows uses a fixed system cmd.exe from a trusted
+  // System32 cwd so checkout-local claude.cmd/bat shadows are never considered.
+  // Request/status handlers inject this sanitized result; the asynchronous
+  // subprocess never blocks the orchestration event loop.
   const invocation = claudeVersionProbeInvocation();
-  const result = spawnSync(invocation.command, invocation.args, {
-    encoding: "utf8",
-    timeout: 2_000,
-    shell: false,
-    cwd: invocation.cwd
-  });
+  const result = await runClaudeVersionProbe(invocation);
   return claudeAvailabilityFromProbeResult(result);
+}
+
+function runClaudeVersionProbe(invocation: {
+  command: string;
+  args: string[];
+  cwd: string | undefined;
+}): Promise<ClaudeVersionProbeResult> {
+  return new Promise((resolve) => {
+    execFile(invocation.command, invocation.args, {
+      encoding: "utf8",
+      timeout: 2_000,
+      maxBuffer: 64 * 1024,
+      shell: false,
+      cwd: invocation.cwd
+    }, (error, stdout, stderr) => {
+      const probeError = error as ExecFileException | null;
+      const status = typeof probeError?.code === "number" ? probeError.code : probeError ? null : 0;
+      resolve({
+        error: probeError && status === null ? probeError : undefined,
+        status,
+        stdout,
+        stderr,
+        signal: probeError?.signal ?? null
+      });
+    });
+  });
 }
 
 export function claudeVersionProbeInvocation(
@@ -282,7 +307,11 @@ function nextClaudeDryRunAction(state: ClaudeDryRunState): string {
 
 export function unsupportedClaudeVersionReason(version: string | null): string | null {
   if (!version) return null;
-  const match = version.match(/^\s*(?:Claude(?:\s+Code)?\s*)?(\d+)\.(\d+)\.(\d+)(?:\s+\(Claude Code\))?\s*$/i);
+  const identifier = "[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*";
+  const match = version.match(new RegExp(
+    `^\\s*(?:Claude(?:\\s+Code)?\\s*)?(\\d+)\\.(\\d+)\\.(\\d+)(?:-${identifier})?(?:\\+${identifier})?(?:\\s+\\(Claude Code\\))?\\s*$`,
+    "i"
+  ));
   if (!match) return "Claude CLI version could not be parsed for dry-run validation.";
   const major = Number(match[1]);
   if (Number.isFinite(major) && major < 1) return "Claude CLI version is below minimum supported 1.0.0 for dry-run validation.";

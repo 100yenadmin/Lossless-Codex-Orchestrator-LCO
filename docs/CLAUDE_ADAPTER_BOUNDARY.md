@@ -137,10 +137,12 @@ opaque refs and hashes only; it does not invoke `claude`, type into Claude Code,
 change Claude settings, mutate sessions, or claim adapter parity.
 
 Constructing the adapter and reading `status()` do not execute the Claude CLI.
-Capability probing is a separate explicit action: a caller may run
+Capability probing is a separate explicit action: a caller may await
 `probeClaudeDryRunAvailability()` deliberately and inject its sanitized result,
 but an omitted probe reports `not_configured` rather than resolving `claude`
-through ambient `PATH` during a status read.
-The probe uses a bounded synchronous subprocess and therefore must run outside
-an orchestration request or event-loop path; `status()` never invokes it, even
-when a legacy probe callback is supplied.
+through ambient `PATH` during a status read. On POSIX, the explicit probe uses
+the caller-trusted POSIX PATH and does not defend against POSIX PATH shadowing;
+operators must invoke it only from a trusted environment. Windows instead uses
+the system `cmd.exe` from a validated System32 path and cwd. The probe uses a
+bounded asynchronous subprocess, so it does not block the orchestration event
+loop; `status()` never invokes it, even when a legacy probe callback is supplied.
