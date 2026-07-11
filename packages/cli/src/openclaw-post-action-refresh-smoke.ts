@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { callGatewayBackendJson } from "./openclaw-tool-smoke.js";
 
 export type OpenClawPostActionRefreshSmokeOptions = {
   openclawBin?: string;
@@ -101,12 +102,19 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
     ...(options.profile ? ["--profile", options.profile] : [])
   ];
   const gatewayTimeoutMs = options.gatewayTimeoutMs ?? 120_000;
+  const gatewayToken = options.token || process.env.OPENCLAW_GATEWAY_TOKEN;
+  const usesBackendGateway = Boolean(options.gatewayUrl && gatewayToken && gatewayToken !== "__OPENCLAW_REDACTED__");
   const gatewayOptions = [
     ...(options.gatewayUrl ? ["--url", options.gatewayUrl] : []),
     "--timeout",
     String(gatewayTimeoutMs)
   ];
-  const callOptions = { timeoutMs: gatewayTimeoutMs, env: options.token ? { OPENCLAW_GATEWAY_TOKEN: options.token } : undefined };
+  const callOptions = {
+    timeoutMs: gatewayTimeoutMs,
+    env: options.token ? { OPENCLAW_GATEWAY_TOKEN: options.token } : undefined,
+    backendUrl: options.gatewayUrl,
+    token: gatewayToken
+  };
   const sessionKey = options.sessionKey || "agent:main:lco-post-action-refresh-smoke";
   const targetRef = `codex_thread:${options.threadId}`;
   const query = options.query || DEFAULT_QUERY;
@@ -218,7 +226,9 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
     proofReady,
     publicSafe: !containsRawPrivate,
     generatedAt: options.now ?? new Date().toISOString(),
-    command: `${sanitizeCommandBinary(openclawBin)} ${[...baseArgs, "gateway", "call", "tools.invoke", "--json", "--params", "<redacted>"].join(" ")}`,
+    command: usesBackendGateway
+      ? "loo backend-gateway tools.catalog/tools.invoke --json --params <redacted>"
+      : `${sanitizeCommandBinary(openclawBin)} ${[...baseArgs, "gateway", "call", "tools.invoke", "--json", "--params", "<redacted>"].join(" ")}`,
     requiredTools: REQUIRED_TOOLS,
     targetRef,
     liveProof: {
@@ -317,8 +327,11 @@ function callGatewayJson(
   gatewayOptions: string[],
   method: string,
   params: unknown,
-  options: { env?: Record<string, string>; timeoutMs?: number } = {}
+  options: { env?: Record<string, string>; timeoutMs?: number; backendUrl?: string; token?: string } = {}
 ): GatewayCallResult {
+  if (options.backendUrl && options.token && options.token !== "__OPENCLAW_REDACTED__") {
+    return callGatewayBackendJson(options.backendUrl, options.token, method, params, options.timeoutMs ?? 120_000);
+  }
   const call = spawnSync(openclawBin, [
     ...baseArgs,
     "gateway",

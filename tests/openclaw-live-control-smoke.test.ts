@@ -7,12 +7,37 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { runOpenClawGatewayLiveControlSmoke } from "../packages/cli/src/openclaw-live-control-smoke.js";
 import { createScenarioSweep } from "../packages/cli/src/scenario-sweep.js";
+import { startFakeGatewayBackend } from "./helpers/fake-gateway-backend.js";
 
 const tsxImport = createRequire(import.meta.url).resolve("tsx");
 const PARAMS_HASH = "a".repeat(64);
 const MESSAGE_HASH = "b".repeat(64);
 const DRY_RUN_AUDIT_ID = "loo_audit_abcd1234";
 const LIVE_AUDIT_ID = "loo_audit_def45678";
+
+test("OpenClaw live-control smoke keeps explicit gateway credentials out of OpenClaw argv", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-backend-"));
+  const evidenceDir = join(root, "evidence");
+  const { server, port, capturePath } = startFakeGatewayBackend(root);
+  try {
+    const report = runOpenClawGatewayLiveControlSmoke({
+      openclawBin: join(root, "must-not-run-openclaw"),
+      gatewayUrl: `ws://127.0.0.1:${port}`,
+      token: "scoped-live-control-token",
+      evidenceDir,
+      threadId: "backend-thread",
+      action: "send",
+      now: "2026-07-01T00:01:00.000Z"
+    });
+
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.equal(report.command, "loo backend-gateway tools.catalog/tools.invoke --json --params <redacted>");
+    assert.doesNotMatch(readFileSync(capturePath, "utf8"), /scoped-live-control-token/);
+  } finally {
+    server.kill("SIGTERM");
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 function createFakeOpenClaw(dir: string, options: {
   auditDetailsEnvelope?: boolean;

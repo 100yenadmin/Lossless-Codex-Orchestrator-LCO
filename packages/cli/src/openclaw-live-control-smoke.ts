@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
+import { callGatewayBackendJson } from "./openclaw-tool-smoke.js";
 
 export type OpenClawGatewayLiveControlSmokeOptions = {
   openclawBin?: string;
@@ -121,9 +122,9 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
   const gatewayTimeoutMs = options.gatewayTimeoutMs ?? 120_000;
   const turnWaitMs = options.turnWaitMs;
   const gatewayToken = options.token || process.env.OPENCLAW_GATEWAY_TOKEN;
+  const usesBackendGateway = Boolean(options.gatewayUrl && gatewayToken && gatewayToken !== "__OPENCLAW_REDACTED__");
   const gatewayOptions = [
     ...(options.gatewayUrl ? ["--url", options.gatewayUrl] : []),
-    ...gatewayTokenArgs(gatewayToken),
     "--timeout",
     String(gatewayTimeoutMs)
   ];
@@ -132,7 +133,9 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
     env: {
       ...(options.token ? { OPENCLAW_GATEWAY_TOKEN: options.token } : {}),
       ...(turnWaitMs ? { LCO_CODEX_TURN_WAIT_MS: String(turnWaitMs) } : {})
-    }
+    },
+    backendUrl: options.gatewayUrl,
+    token: gatewayToken
   };
   const sessionKey = options.sessionKey || "agent:main:lco-live-control-smoke";
   const action = normalizeAction(options.action);
@@ -215,7 +218,9 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
     proofReady: uniqueBlockers.length === 0,
     publicSafe: true,
     generatedAt: options.now ?? new Date().toISOString(),
-    command: `${sanitizeCommandBinary(openclawBin)} ${[...baseArgs, "gateway", "call", "tools.invoke", "--json", "--params", "<redacted>"].join(" ")}`,
+    command: usesBackendGateway
+      ? "loo backend-gateway tools.catalog/tools.invoke --json --params <redacted>"
+      : `${sanitizeCommandBinary(openclawBin)} ${[...baseArgs, "gateway", "call", "tools.invoke", "--json", "--params", "<redacted>"].join(" ")}`,
     action,
     requiredTools,
     targetRef,
@@ -403,8 +408,11 @@ function callGatewayJson(
   gatewayOptions: string[],
   method: string,
   params: unknown,
-  options: { env?: Record<string, string>; timeoutMs?: number } = {}
+  options: { env?: Record<string, string>; timeoutMs?: number; backendUrl?: string; token?: string } = {}
 ): GatewayCallResult {
+  if (options.backendUrl && options.token && options.token !== "__OPENCLAW_REDACTED__") {
+    return callGatewayBackendJson(options.backendUrl, options.token, method, params, options.timeoutMs ?? 120_000);
+  }
   const call = spawnSync(openclawBin, [
     ...baseArgs,
     "gateway",
@@ -439,11 +447,6 @@ function gatewayCallBlockers(call: GatewayCallResult, fallback: string): string[
   const payload = unwrapGatewayPayload(call.parsed);
   if (isRecord(payload) && payload.ok === false) return [`${fallback}:tool_not_ok`];
   return [];
-}
-
-function gatewayTokenArgs(token: string | undefined): string[] {
-  if (!token || token === "__OPENCLAW_REDACTED__") return [];
-  return ["--token", token];
 }
 
 function gatewayProcessTimeoutMs(timeoutMs: number): number {

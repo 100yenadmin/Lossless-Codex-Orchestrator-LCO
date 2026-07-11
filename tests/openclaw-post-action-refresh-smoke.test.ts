@@ -8,11 +8,38 @@ import test from "node:test";
 import { pathToFileURL } from "node:url";
 import { runOpenClawPostActionRefreshSmoke } from "../packages/cli/src/openclaw-post-action-refresh-smoke.js";
 import { createScenarioSweep } from "../packages/cli/src/scenario-sweep.js";
+import { startFakeGatewayBackend } from "./helpers/fake-gateway-backend.js";
 
 const tsxImport = pathToFileURL(createRequire(import.meta.url).resolve("tsx")).href;
 const TARGET_THREAD_ID = "thr_gateway_live";
 const TARGET_REF = `codex_thread:${TARGET_THREAD_ID}`;
 const OTHER_REF = "codex_thread:other";
+
+test("OpenClaw post-action refresh keeps explicit gateway credentials out of OpenClaw argv", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-refresh-backend-"));
+  const evidenceDir = join(root, "evidence");
+  const liveProofReportPath = join(root, "openclaw-gateway-live-control-smoke-report.json");
+  writeLiveProofReport(liveProofReportPath, { targetRef: "codex_thread:backend-thread" });
+  const { server, port, capturePath } = startFakeGatewayBackend(root);
+  try {
+    const report = runOpenClawPostActionRefreshSmoke({
+      openclawBin: join(root, "must-not-run-openclaw"),
+      gatewayUrl: `ws://127.0.0.1:${port}`,
+      token: "scoped-refresh-token",
+      evidenceDir,
+      liveProofReportPath,
+      threadId: "backend-thread",
+      now: "2026-07-01T00:03:00.000Z"
+    });
+
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.equal(report.command, "loo backend-gateway tools.catalog/tools.invoke --json --params <redacted>");
+    assert.doesNotMatch(readFileSync(capturePath, "utf8"), /scoped-refresh-token/);
+  } finally {
+    server.kill("SIGTERM");
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 function writeLiveProofReport(path: string, overrides: Record<string, unknown> = {}): void {
   writeFileSync(path, `${JSON.stringify({
