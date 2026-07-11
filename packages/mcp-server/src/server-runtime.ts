@@ -109,7 +109,8 @@ function getRuntimeState(): RuntimeState {
         audit,
         includeAliases: true,
         codexClient,
-        codexReadClient
+        codexReadClient,
+        invocationSurface: "mcp"
       })
     };
     return runtimeState;

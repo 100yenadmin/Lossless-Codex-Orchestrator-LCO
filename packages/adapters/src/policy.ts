@@ -176,6 +176,7 @@ export const LOO_COMMAND_POLICY: Record<string, LooCommandSafety> = {
   lco_session_sanitizer: readOnly("local_index"),
   lco_codex_sqlite_stores: readOnly("local_index"),
   lco_lcm_peer_dbs: readOnly("local_index"),
+  lco_drive: localCacheWrite("audit"),
   lco_codex_control_dry_run: localCacheWrite("audit"),
   lco_codex_start_thread: approvalGatedControl("codex_direct"),
   lco_codex_resume_thread: approvalGatedControl("codex_direct"),

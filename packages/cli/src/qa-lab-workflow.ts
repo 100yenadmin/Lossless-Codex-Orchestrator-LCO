@@ -32,7 +32,7 @@ export type QaLabWorkflowBlocker = {
 };
 
 export type QaLabWorkflowStep = {
-  step: "catalog" | "search" | "describe" | "expand" | "plans" | "finals" | "touched_files" | "recommend_next_action" | "control_dry_run";
+  step: "catalog" | "search" | "describe" | "expand" | "plans" | "finals" | "touched_files" | "recommend_next_action" | "control_dry_run" | "drive";
   toolName: string;
   ok: boolean;
   evidenceRef: string;
@@ -70,7 +70,7 @@ export type QaLabWorkflowReport = {
     rawTranscriptReadRequired: false;
     recommendedNextAction: {
       kind: "dry_run_resume" | "resolve_blockers";
-      tool: "loo_codex_control_dry_run" | null;
+      tool: "loo_drive" | "loo_codex_control_dry_run" | null;
       execute: false;
       reason: string;
     };
@@ -116,7 +116,8 @@ const REQUIRED_WORKFLOW_TOOLS = [
   "loo_codex_plans",
   "loo_codex_final_messages",
   "loo_codex_touched_files",
-  "loo_codex_control_dry_run"
+  "loo_codex_control_dry_run",
+  "loo_drive"
 ] as const;
 
 const PRIVATE_DATA_EXCLUSIONS = [
@@ -230,14 +231,29 @@ export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabW
         { step: "plans", toolName: "loo_codex_plans", args: { thread_id: selectedThreadId, limit: 5 } },
         { step: "finals", toolName: "loo_codex_final_messages", args: { thread_id: selectedThreadId, limit: 5 } },
         { step: "touched_files", toolName: "loo_codex_touched_files", args: { thread_id: selectedThreadId } },
-        { step: "control_dry_run", toolName: "loo_codex_control_dry_run", args: { action: "resume", thread_id: selectedThreadId } }
+        { step: "control_dry_run", toolName: "loo_codex_control_dry_run", args: { action: "resume", thread_id: selectedThreadId } },
+        {
+          step: "drive",
+          toolName: "loo_drive",
+          args: {
+            reviewer: "claude",
+            driver: "codex",
+            target_ref: `codex_thread:${selectedThreadId}`,
+            objective: "Review the selected public-safe session and prepare the next bounded action.",
+            max_turns: 4,
+            token_budget: DEFAULT_TOKEN_BUDGET,
+            timeout_ms: 120_000,
+            cost_ceiling_usd: 1,
+            dry_run: true
+          }
+        }
       ];
       for (const call of calls) {
         const step = invokeWorkflowTool(openclawBin, options, deadline, call);
         ensureStepSourceRef(step, selectedSourceRef);
         steps.push(step);
         addStepBlockers(blockers, step);
-        if (call.step === "control_dry_run") {
+        if (call.step === "control_dry_run" || call.step === "drive") {
           dryRunApprovalAuditId = step.outputSummary.approvalAuditId ?? null;
           dryRunParamsHash = step.outputSummary.paramsHash ?? null;
           if (step.outputSummary.live === undefined) {
@@ -274,7 +290,7 @@ export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabW
       recommendedNextAction: workflowRunReady
         ? {
           kind: "dry_run_resume",
-          tool: "loo_codex_control_dry_run",
+          tool: "loo_drive",
           execute: false,
           reason: "Use the public-safe workflow packet as QA Lab agent-workflow evidence; live control still requires separate approval and proof."
         }
@@ -406,12 +422,18 @@ function summarizeOutput(toolName: string, output: unknown, args: Record<string,
     ? args.thread_id
     : typeof args.source_ref === "string"
       ? threadIdFromSourceRef(args.source_ref)
+      : typeof args.target_ref === "string"
+        ? threadIdFromSourceRef(args.target_ref)
       : null;
   const threadId = requestThreadId ?? firstThreadId(output) ?? undefined;
   if (threadId) summary.threadId = threadId;
   if (toolName === "loo_expand_session" && typeof args.token_budget === "number") summary.expansionBudget = args.token_budget;
-  if (toolName === "loo_codex_control_dry_run") {
-    const controlOutput = isRecord(output) && isRecord(output.details) ? output.details : output;
+  if (toolName === "loo_codex_control_dry_run" || toolName === "loo_drive") {
+    const controlOutput = toolName === "loo_drive" && isRecord(output) && isRecord(output.dryRun)
+      ? output.dryRun
+      : isRecord(output) && isRecord(output.details)
+        ? output.details
+        : output;
     const live = readBooleanPath(controlOutput, ["live"]);
     if (live !== undefined) summary.live = live;
     summary.approvalAuditId = readStringPath(controlOutput, ["approvalAuditId"]) ?? readStringPath(controlOutput, ["approval_audit_id"]);

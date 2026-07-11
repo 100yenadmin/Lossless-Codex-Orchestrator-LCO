@@ -2,6 +2,8 @@
 import {
   codexTransportStatus,
   createAuditStore,
+  createDriveReport,
+  DriveInputError,
   deriveAuditSubkeyIfConfigured,
   desktopActDryRun,
   desktopFallbackDiagnostics,
@@ -10,8 +12,11 @@ import {
   writeDesktopGuiProofReport,
   writeDesktopLiveProofHarness,
   writeDesktopProofAction,
-  type DesktopBackend
+  type DesktopBackend,
+  type DriveHarness,
+  type DriveSurface
 } from "../../adapters/src/index.js";
+import { probeClaudeDryRunAvailability } from "../../adapters/src/claude.js";
 import {
   captureCloseoutHookPacket,
   captureCompactionMarkerHookPacket,
@@ -615,6 +620,32 @@ async function main() {
     console.log(createAuditStore(readEnv("AUDIT_PATH") || join(resolveHomeDir(), ".openclaw", "lossless-openclaw-orchestrator", "audit.jsonl")).path);
     return;
   }
+  if (command === "drive") {
+    if (hasHelpFlag(args)) {
+      printDriveHelp();
+      return;
+    }
+    const parsed = parseDriveArgs(args);
+    const audit = createAuditStore(parsed.auditPath ?? readEnv("AUDIT_PATH") ?? join(resolveHomeDir(), ".openclaw", "lossless-openclaw-orchestrator", "audit.jsonl"));
+    const claudeAvailability = parsed.driver === "claude"
+      ? await probeClaudeDryRunAvailability("claude", { trustedPath: process.env.PATH })
+      : undefined;
+    console.log(JSON.stringify(await createDriveReport({
+      reviewer: parsed.reviewer,
+      driver: parsed.driver,
+      targetRef: parsed.targetRef,
+      objective: parsed.objective,
+      invocationSurface: "cli",
+      maxTurns: parsed.maxTurns,
+      tokenBudget: parsed.tokenBudget,
+      timeoutMs: parsed.timeoutMs,
+      costCeilingUsd: parsed.costCeilingUsd,
+      audit,
+      ...(claudeAvailability ? { claudeAvailability } : {}),
+      ...(parsed.now ? { now: parsed.now } : {})
+    }), null, 2));
+    return;
+  }
   if (command === "codex" && args[0] === "live-control-smoke") {
     if (hasHelpFlag(args.slice(1))) {
       printLiveControlSmokeHelp();
@@ -1063,7 +1094,7 @@ try {
   await main();
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
-  const usageError = isCliUsageErrorMessage(message);
+  const usageError = error instanceof DriveInputError || isCliUsageErrorMessage(message);
   console.error(`Error: ${sanitizeCliErrorMessage(message)}`);
   process.exitCode = usageError ? 2 : 1;
 }
@@ -1263,6 +1294,7 @@ function mainUsageText(): string {
     "  loo sanitize sessions [--thread-id id] [--limit n] [--evidence-dir path] [--strict]",
     "  loo serve",
     "  loo audit-path",
+    "  loo drive --reviewer codex|claude --driver codex|claude --target-ref ref --objective text [--surface cli] [--max-turns n] [--token-budget n] [--timeout-ms ms] [--cost-ceiling-usd n] [--audit-path path] [--now iso] [--dry-run]",
     "  loo codex live-control-smoke --evidence-dir path [--thread-id id] [--message text] [--cwd path] [--timeout-ms ms] [--turn-wait-ms ms] [--audit-path path] [--codex-bin path] [--app-server-args \"app-server --stdio\"]",
     "  loo openclaw dogfood [--dev] [--profile name] [--install-source path] [--link] [--force-install] [--evidence-path path] [--strict]",
     "  loo openclaw tool-smoke [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--thread-id id] [--expand-profile metadata|brief|evidence] [--token-budget n] [--coverage default|full] [--required-tool name] [--evidence-path path] [--strict]",
@@ -1309,12 +1341,131 @@ function sanitizeCliErrorMessage(message: string): string {
 
 function isCliUsageErrorMessage(message: string): boolean {
   return /^Unknown .+ option: /.test(message)
+    || /^drive live mode is not supported/.test(message)
     || /^Unknown maintenance option: /.test(message)
     || /^Unknown maintenance --drop-event-content option: /.test(message)
     || /^Unknown release claim scope: /.test(message)
     || /^Invalid --[\w-]+: /.test(message)
+    || /^--surface requires cli when invoked through the CLI$/.test(message)
     || / requires (?:a value|a path|a number|a positive integer|an integer|--[\w-]+)/.test(message)
     || /^--[\w-]+ must be /.test(message);
+}
+
+type ParsedDriveArgs = {
+  reviewer: DriveHarness;
+  driver: DriveHarness;
+  targetRef: string;
+  objective: string;
+  surface: DriveSurface;
+  maxTurns: number;
+  tokenBudget: number;
+  timeoutMs: number;
+  costCeilingUsd: number;
+  auditPath?: string;
+  now?: string;
+};
+
+function printDriveHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo drive --reviewer codex|claude --driver codex|claude --target-ref ref --objective text [options]",
+    "",
+    "Options:",
+    "  --surface cli                       Explicit CLI provenance marker (default: cli).",
+    "  --max-turns 1..20                   Planned turn ceiling (default: 4).",
+    "  --token-budget 100..8000            Planned output ceiling (default: 1000).",
+    "  --timeout-ms 1000..600000           Planned time ceiling (default: 120000).",
+    "  --cost-ceiling-usd 0..100           Planned cost ceiling (default: 1).",
+    "  --audit-path path                   Local audit log path.",
+    "  --now iso                           Deterministic report time for testing.",
+    "  --dry-run                           Explicitly select the default no-live-action mode.",
+    "",
+    "LCO 1.6 drive is dry-run only. It writes a local audit packet but does not run a reviewer, live target control, GUI mutation, or external writes."
+  ].join("\n"));
+}
+
+function parseDriveArgs(input: string[]): ParsedDriveArgs {
+  let reviewer: DriveHarness | undefined;
+  let driver: DriveHarness | undefined;
+  let targetRef: string | undefined;
+  let objective: string | undefined;
+  let surface: DriveSurface = "cli";
+  let maxTurns = 4;
+  let tokenBudget = 1000;
+  let timeoutMs = 120_000;
+  let costCeilingUsd = 1;
+  let auditPath: string | undefined;
+  let now: string | undefined;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--reviewer") {
+      reviewer = parseDriveHarness(readReleaseStatusValue(input, ++index, arg), arg);
+      continue;
+    }
+    if (arg === "--driver") {
+      driver = parseDriveHarness(readReleaseStatusValue(input, ++index, arg), arg);
+      continue;
+    }
+    if (arg === "--target-ref") {
+      targetRef = readReleaseStatusValue(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--objective") {
+      objective = readReleaseStatusValue(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--surface") {
+      surface = parseDriveSurface(readReleaseStatusValue(input, ++index, arg), arg);
+      continue;
+    }
+    if (arg === "--max-turns") {
+      maxTurns = parsePositiveInteger(readReleaseStatusValue(input, ++index, arg), arg, 20);
+      continue;
+    }
+    if (arg === "--token-budget") {
+      tokenBudget = parsePositiveInteger(readReleaseStatusValue(input, ++index, arg), arg, 8000);
+      if (tokenBudget < 100) throw new Error("--token-budget must be an integer from 100 to 8000");
+      continue;
+    }
+    if (arg === "--timeout-ms") {
+      timeoutMs = parsePositiveInteger(readReleaseStatusValue(input, ++index, arg), arg, 600_000);
+      if (timeoutMs < 1000) throw new Error("--timeout-ms must be an integer from 1000 to 600000");
+      continue;
+    }
+    if (arg === "--cost-ceiling-usd") {
+      costCeilingUsd = Number(readReleaseStatusValue(input, ++index, arg));
+      if (!Number.isFinite(costCeilingUsd) || costCeilingUsd < 0 || costCeilingUsd > 100) {
+        throw new Error("--cost-ceiling-usd must be a number from 0 to 100");
+      }
+      continue;
+    }
+    if (arg === "--audit-path") {
+      auditPath = readReleaseStatusPath(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--now") {
+      now = readReleaseStatusValue(input, ++index, arg);
+      continue;
+    }
+    if (arg === "--dry-run") continue;
+    if (arg === "--live") throw new Error("drive live mode is not supported in 1.6; use --dry-run");
+    throw new Error(`Unknown drive option: ${arg}`);
+  }
+  if (!reviewer) throw new Error("drive requires --reviewer");
+  if (!driver) throw new Error("drive requires --driver");
+  if (!targetRef) throw new Error("drive requires --target-ref");
+  if (!objective) throw new Error("drive requires --objective");
+  return { reviewer, driver, targetRef, objective, surface, maxTurns, tokenBudget, timeoutMs, costCeilingUsd, auditPath, now };
+}
+
+function parseDriveHarness(value: string, flag: string): DriveHarness {
+  if (value === "codex" || value === "claude") return value;
+  throw new Error(`${flag} requires codex or claude`);
+}
+
+function parseDriveSurface(value: string, flag: string): DriveSurface {
+  if (value === "cli") return value;
+  throw new Error(`${flag} requires cli when invoked through the CLI`);
 }
 
 function printMaintenanceHelp(): void {

@@ -703,7 +703,7 @@ export type AuditRecord = {
   createdAt: string;
 };
 
-const CODEX_CONTROL_DRY_RUN_TTL_MS = 15 * 60 * 1000;
+export const CODEX_CONTROL_DRY_RUN_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_CODEX_TURN_WAIT_MS = 120_000;
 const MAX_CODEX_TURN_WAIT_MS = 600_000;
 
@@ -3501,3 +3501,5 @@ function systemDesktopProbe(): DesktopProbe {
 function mergedDesktopEnv(options?: DesktopCommandOptions): NodeJS.ProcessEnv {
   return options?.env ? { ...process.env, ...options.env } : process.env;
 }
+
+export * from "./drive.js";

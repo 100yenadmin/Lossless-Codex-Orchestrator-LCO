@@ -68,7 +68,7 @@ test("lco-prefixed tools are the canonical base declarations for every tier", ()
   const baseDeclarations = createLooToolDeclarations({ profile: "all", includeAliases: false });
   const publicFacadeNames = createLooToolSurfaceSummary().publicFacadeTools;
 
-  assert.equal(baseDeclarations.length, 36);
+  assert.equal(baseDeclarations.length, 37);
   assert.equal(baseDeclarations.every((tool) => tool.name.startsWith("lco_")), true);
   assert.equal(baseDeclarations.some((tool) => tool.name.startsWith("loo_")), false);
   assert.equal(baseDeclarations.some((tool) => tool.metadata.aliasOf), false);
@@ -80,7 +80,7 @@ test("lco-prefixed tools are the canonical base declarations for every tier", ()
     "lco_recent_sessions",
     "lco_attention_inbox",
     "lco_project_digest",
-    "lco_codex_control_dry_run",
+    "lco_drive",
     "lco_codex_resume_thread"
   ]);
 });
@@ -148,9 +148,9 @@ test("C1 lco canonical umbrellas replace folded read-only leaf tools while prese
     assert.deepEqual(byName.get(compatName)?.safety, byName.get(targetName)?.safety);
   }
 
-  assert.equal(baseDeclarations.length, 36);
+  assert.equal(baseDeclarations.length, 37);
   assert.equal(aliasedDeclarations.filter((tool) => tool.name.startsWith("lco_") && tool.metadata.aliasOf).length, 0);
-  assert.equal(aliasedDeclarations.filter((tool) => tool.name.startsWith("loo_") && tool.metadata.aliasOf).length, 67);
+  assert.equal(aliasedDeclarations.filter((tool) => tool.name.startsWith("loo_") && tool.metadata.aliasOf).length, 68);
 });
 
 test("redirect aliases target any declared tool and merge kind defaults before caller args", async () => {
@@ -363,6 +363,8 @@ function sampleInputForTarget(targetName: string, root: string): Record<string, 
       return { lcm_db_paths: [] };
     case "lco_session_diff":
       return { thread_id: "thr_1", now };
+    case "lco_drive":
+      return { reviewer: "claude", driver: "codex", target_ref: "codex_thread:thr_1", objective: "Review safely." };
     case "lco_codex_control_dry_run":
       return { action: "send", thread_id: "thr_1", message: "continue" };
     case "lco_codex_start_thread":
@@ -420,7 +422,7 @@ function normalizeAliasResult(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(normalizeAliasResult);
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, child]) => {
-    if (["approvalAuditId", "approval_audit_id", "packetId", "packet_id", "createdAt", "created_at", "generatedAt", "generated_at", "expiresAt", "expires_at", "auditId", "audit_id"].includes(key)) {
+    if (["approvalAuditId", "approval_audit_id", "packetId", "packet_id", "createdAt", "created_at", "generatedAt", "generated_at", "issuedAt", "issued_at", "expiresAt", "expires_at", "auditId", "audit_id"].includes(key)) {
       return [key, "<normalized>"];
     }
     return [key, normalizeAliasResult(child)];

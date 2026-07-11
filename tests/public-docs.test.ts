@@ -90,6 +90,28 @@ test("setup guide covers install, local indexing, OpenClaw, MCP, and troubleshoo
   }
 });
 
+test("public operator docs explain the bounded lco drive dry-run workflow", () => {
+  const setup = read("docs/SETUP.md");
+  const openclaw = read("docs/OPENCLAW_PLUGIN.md");
+  const vision = read("VISION.md");
+
+  for (const [surface, content] of [
+    ["setup guide", setup],
+    ["OpenClaw guide", openclaw],
+    ["vision", vision]
+  ] as const) {
+    assert.match(content, /lco drive/i, `${surface} must name the bounded drive workflow`);
+    assert.match(content, /review-then-drive/i, `${surface} must describe the workflow purpose`);
+    assert.match(content, /dry-run/i, `${surface} must keep the proof boundary explicit`);
+  }
+
+  assert.match(setup, /--reviewer claude[\s\S]*--driver codex/);
+  assert.match(openclaw, /lco_drive/);
+  assert.match(openclaw, /"target_ref": "codex_thread:<thread-id>"/);
+  assert.match(openclaw, /"max_turns": 4[\s\S]*"token_budget": 1000[\s\S]*"timeout_ms": 120000[\s\S]*"cost_ceiling_usd": 1/);
+  assert.match(vision, /does not run a reviewer/i);
+});
+
 test("public docs document index byte cap and fresh-user tarball recovery commands", () => {
   const readme = read("README.md");
   const setup = read("docs/SETUP.md");

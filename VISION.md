@@ -166,6 +166,11 @@ What a local OpenClaw agent can do today:
 - Use `lco_codex_runtime_desktop_visibility_status` when the agent needs a compact answer to "which active lanes have Desktop visibility or proof coverage, and what read-only proof step remains?" The status report returns covered/partial/blocked lane counts, source coverage, false action flags, and any next tool call with `execute=false`.
 - Use `lco_codex_active_thread_state` when the agent needs a compact answer to "which active Codex threads are running, blocked, stale, or need a nudge?" The report returns state counts, confidence, freshness, reason codes, source coverage, per-item attention coverage, non-executed read-only probe recommendations, non-executed `lco_codex_control_dry_run` recommendation packets, and false action flags without reading raw transcripts or mutating Codex.
 - Use `lco_codex_autonomy_tick` when the agent needs the next deterministic loop step after active-thread state. It returns prioritized `execute:false` tool-call packets, source coverage, reason codes, stop conditions, and idempotency keys, with read-only probes ordered ahead of control dry-run recommendations.
+- Use `lco drive` or `lco_drive` when the agent needs a bounded
+  review-then-drive packet across the CLI, MCP, or OpenClaw surface. The 1.6
+  workflow records reviewer/driver choices, target, budgets, a deterministic
+  plan, and target-adapter dry-run audit hashes. It does not run a reviewer,
+  perform live control, mutate a GUI, or prove unattended autonomy.
 - Use `lco hook closeout-capture`, `lco hook state-prep`, and `lco hook compaction-capture --mode marker` as local CLI sidecar capture paths. They write only LCO-owned derived cache, hash/redact transcript paths, and record compaction lifecycle markers without claiming true compaction-summary capture.
 - Inspect `authorityCoverage` on operating-picture outputs before trusting GitHub, PLAN_STATE, or future P1 source claims.
 - Classify package and gateway readiness with `lco onboard status`, `lco openclaw dogfood`, `lco openclaw tool-smoke`, and `lco openclaw published-smoke`.

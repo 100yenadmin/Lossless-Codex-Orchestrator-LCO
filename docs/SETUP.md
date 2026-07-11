@@ -240,6 +240,32 @@ Look up detail fields through MCP/OpenClaw tools when available:
 - `lco_codex_extract` with `kind: "touched_files"`
 - `lco_codex_extract` with `kind: "tool_calls"`
 
+### Prepare a bounded review-then-drive packet
+
+`lco drive` connects a reviewer choice to a target adapter without taking a
+live action. This Codex-target example creates a public-safe plan and audited
+dry-run packet:
+
+```bash
+lco drive \
+  --reviewer claude \
+  --driver codex \
+  --target-ref codex_thread:<thread-id> \
+  --objective "Review the selected session and prepare the next bounded action" \
+  --surface cli \
+  --max-turns 4 \
+  --token-budget 1000 \
+  --timeout-ms 120000 \
+  --cost-ceiling-usd 1 \
+  --dry-run
+```
+
+The report hashes the objective, records the target and budgets, and returns
+the adapter's dry-run audit id and parameter hashes. It does not run the named
+reviewer, execute live Codex or Claude control, mutate a GUI, or authorize the
+later action. Claude is available as a dry-run target adapter only; Claude live
+parity is not a 1.6 claim.
+
 ## 6. Enable Codex Thread Title Aliases
 
 The published LCO package includes a small Codex plugin bundle for one purpose:

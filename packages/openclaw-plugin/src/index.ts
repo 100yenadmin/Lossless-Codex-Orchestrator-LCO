@@ -98,7 +98,7 @@ function getNativeRuntime(): NativeRuntime {
     audit,
     codexClient,
     codexReadClient,
-    tools: createLooTools({ db, audit, codexClient, codexReadClient, includeAliases: true })
+    tools: createLooTools({ db, audit, codexClient, codexReadClient, includeAliases: true, invocationSurface: "openclaw-gateway" })
   };
   return nativeRuntime;
 }
