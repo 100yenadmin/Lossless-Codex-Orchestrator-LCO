@@ -90,6 +90,12 @@ review the control-plane threat model in the operator-facing
 cache, scratch-session, or rollback concerns are represented in the release
 issue and QA evidence rather than in public release notes.
 
+If a publish, dist-tag, dual-name package, Git tag, or GitHub Release correction
+is needed, use the operator-facing
+[Release Rollback Runbook](RELEASE_ROLLBACK.md)
+(`docs/RELEASE_ROLLBACK.md`). Keep rollback commands and recovery doctrine in
+that runbook and the release tracker, not in public release notes.
+
 ## Stable General Release
 
 For a stable/general release, the release must additionally prove:

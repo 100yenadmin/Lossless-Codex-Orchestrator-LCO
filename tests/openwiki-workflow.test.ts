@@ -63,6 +63,26 @@ test("manual OpenWiki workflow is docs-only, Z.AI-gated, and PR-based", () => {
   for (const block of checkoutBlocks) {
     assert.match(block, /persist-credentials:\s*false/);
   }
+  assert.match(workflowStepBlock(workflow, "Checkout LCO"), /fetch-depth:\s*0/);
+  assert.match(workflow, /id:\s*openwiki_should_run/);
+  assert.match(workflow, /node scripts\/should-run-openwiki-update\.mjs --github-output/);
+  assert.match(
+    workflowStepBlock(workflow, "Checkout OpenWiki runner"),
+    /if:\s*steps\.openwiki_should_run\.outputs\.should_run == 'true'/
+  );
+  for (const step of [
+    "Build OpenWiki runner",
+    "Move OpenWiki runner outside workspace",
+    "Run OpenWiki docs update",
+    "Remove OpenWiki runner checkout",
+    "Normalize OpenWiki output path",
+    "Detect OpenWiki content changes"
+  ]) {
+    assert.match(
+      workflowStepBlock(workflow, step),
+      /if:\s*steps\.openwiki_should_run\.outputs\.should_run == 'true'/
+    );
+  }
   assert.match(workflow, /working-directory:\s*\$\{\{\s*env\.OPENWIKI_RUNNER_DIR\s*\}\}/);
   assert.match(workflow, /mv "\$\{OPENWIKI_RUNNER_DIR\}" "\$\{RUNNER_TEMP\}\/openwiki-runner"/);
   assert.match(workflow, /OPENWIKI_RUNNER_PATH:\s*\$\{\{\s*runner\.temp\s*\}\}\/openwiki-runner/);
@@ -77,15 +97,15 @@ test("manual OpenWiki workflow is docs-only, Z.AI-gated, and PR-based", () => {
   assert.match(workflow, /node scripts\/detect-openwiki-real-changes\.mjs --github-output/);
   assert.match(
     workflowStepBlock(workflow, "Record public run metadata"),
-    /if:\s*steps\.openwiki_changes\.outputs\.has_changes == 'true'/
+    /if:\s*steps\.openwiki_should_run\.outputs\.should_run == 'true' && steps\.openwiki_changes\.outputs\.has_changes == 'true'/
   );
   assert.match(
     workflowStepBlock(workflow, "Guard OpenWiki-only diff"),
-    /if:\s*steps\.openwiki_changes\.outputs\.has_changes == 'true'/
+    /if:\s*steps\.openwiki_should_run\.outputs\.should_run == 'true' && steps\.openwiki_changes\.outputs\.has_changes == 'true'/
   );
   assert.match(
     workflowStepBlock(workflow, "Open docs PR"),
-    /if:\s*steps\.openwiki_changes\.outputs\.has_changes == 'true'/
+    /if:\s*steps\.openwiki_should_run\.outputs\.should_run == 'true' && steps\.openwiki_changes\.outputs\.has_changes == 'true'/
   );
   assert.doesNotMatch(workflow, /path:\s*\$\{\{\s*runner\.temp\s*\}\}/);
   assert.doesNotMatch(workflow, /prompt='Update the LCO OpenWiki orientation docs/);

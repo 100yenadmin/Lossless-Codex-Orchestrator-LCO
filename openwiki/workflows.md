@@ -7,10 +7,23 @@ This page covers the agent-facing workflows that LCO supports, from initial inde
 Every agent workflow follows the same staged path:
 
 ```
-index → search/grep → describe → expand (1k/4k) → prepared inbox → dry-run → [approved] live control
+find (index + search) → describe → expand (1k/4k) → prepared inbox → dry-run → [approved] live control
 ```
 
-### 1. Index Local Codex Sessions
+For lower-level recall control, `search`/`grep`/`expand-query` can be used instead of `find`.
+
+### 1. Find (Index + Search in One Step)
+
+```bash
+lco find "billing bridge proposed plan"
+lco find --json --limit 20 --timeout-ms 10000 "billing bridge proposed plan"
+```
+
+- Runs an incremental Codex and Claude Code index pass on first use, then searches titles, metadata, prepared cards, summaries, and event-level content snippets.
+- Options: `--json` (machine packet), `--limit` (default 10, max 100), `--timeout-ms` (default 5000, max 60000), `--no-index` (search existing DB only).
+- Source-file watermarks skip unchanged files on re-index.
+
+### 2. Manual Index (Lower-Level Control)
 
 ```bash
 lco index codex --max-files 500 "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"
@@ -21,9 +34,9 @@ lco index codex --max-files 500 "$HOME/.codex/sessions" "$HOME/.codex/archived_s
 - Source-file watermarks skip unchanged files on re-index.
 - Drift is reported, not fatal. See [Codex JSONL Drift](../docs/CODEX_JSONL_DRIFT.md).
 
-### 2. Search vs. Grep
+### 3. Search vs. Grep
 
-LCO distinguishes two recall modes:
+LCO distinguishes three lower-level recall modes (use these when `lco find` is too broad):
 
 | Command | What it searches | Use case |
 | --- | --- | --- |
@@ -31,9 +44,9 @@ LCO distinguishes two recall modes:
 | `lco grep "<phrase>"` | Indexed safe text + read-only LCM peer DBs | Remembered content phrases |
 | `lco expand-query "<query>"` | Search then expand best match into a bounded brief | Query-to-evidence in one step |
 
-**Key caveat:** `lco search` is not raw-content search. If you remember a content phrase, use `lco grep` or `lco expand-query`.
+**Key caveat:** `lco search` is not raw-content search. If you remember a content phrase, use `lco grep` or `lco expand-query`. `lco find` covers both session-card discovery and content snippets in one step.
 
-### 3. Describe
+### 4. Describe
 
 ```bash
 lco describe codex_thread:<thread-id>
@@ -41,7 +54,7 @@ lco describe codex_thread:<thread-id>
 
 Returns status, project, likely objective, blockers, latest assistant closeout, and next safe action. The MCP equivalent is `lco_describe_ref` which accepts any source-prefixed ref (`codex_thread:*`, `lcm_summary:*`).
 
-### 4. Bounded Expansion
+### 5. Bounded Expansion
 
 Three profiles control evidence depth:
 
@@ -58,7 +71,7 @@ lco expand-query --profile evidence --token-budget 4000 "billing bridge"
 
 Expansion reports omissions when a brief is intentionally smaller than the underlying session. Stop expanding once the next action is clear.
 
-### 5. Detail Tools (instead of expanding entire sessions)
+### 6. Detail Tools (instead of expanding entire sessions)
 
 Use the canonical `lco_codex_extract` tool for focused indexed-session details:
 

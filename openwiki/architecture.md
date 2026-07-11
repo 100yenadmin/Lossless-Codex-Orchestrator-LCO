@@ -9,10 +9,12 @@ packages/
   core/         — SQLite database, Codex JSONL indexer, FTS5 search, prepared state, summary leaves
   adapters/     — Codex JSON-RPC client, desktop backend, method policy, redaction, audit store
   mcp-server/   — MCP tool registry (35 canonical lco_* tools plus loo_* compatibility aliases), tool tiers, alias management
-  cli/          — CLI dispatch, release/QA gates, smoke harnesses, onboarding
+  cli/          — CLI dispatch (`lco find`, search, describe, expand), release/QA gates, smoke harnesses, onboarding
   openclaw-plugin/ — OpenClaw plugin entry (defineToolPlugin wrapper)
   runtime/      — Env helpers, Node.js version guard
   local-mac-ui/ — macOS local search UI shell (CUA/Peekaboo integration)
+plugins/
+  lco-recall/   — Claude Code recall companion plugin (user-invocable `find` skill, npx fallback)
 ```
 
 ### Dependency flow
@@ -38,9 +40,11 @@ The core is the largest source file in the repo (`index.ts`, ~668k). It contains
 ### Indexing
 
 - `indexCodexSessions(db, options)` — Parses Codex JSONL files into the local DB. Supports `maxFiles`, `maxBytesPerFile` (default 256 MB), `maxEventsPerFile` (default 200k).
+- `indexClaudeSessions(db, options)` — Parses local Claude Code JSONL files into `claude_sessions` and `claude_safe_text_fts`, producing `claude_session:*` refs routed through the same describe/expand path as Codex. Read/recall only; no live control or settings mutation. See `docs/CLAUDE_ADAPTER_BOUNDARY.md`.
 - Handles envelope records (`{ type, payload }`), transparent envelopes (`response_item`, `event_msg`, `session_meta`, etc.), and legacy inline records.
 - Produces a `driftReport` when unknown event kinds or unparsed lines are encountered (fail-soft, not fail-closed).
 - Source-file watermarks prevent re-indexing unchanged files.
+- Database maintenance (`runDatabaseMaintenance()`) supports checkpoint, analyze, and guarded VACUUM via `lco maintenance`.
 
 ### Search (`search.ts`)
 
@@ -127,8 +131,9 @@ Redacts credential strings and generic `/Users/<name>` paths (converted to `~/..
 | Group | Commands |
 | --- | --- |
 | **Setup** | `doctor`, `onboard status` |
-| **Indexing** | `index codex`, `index bench`, `probe codex-sqlite` |
-| **Recall** | `search`, `grep`, `describe`, `expand-query`, `expand-ref`, `session-map` |
+| **Indexing** | `index codex`, `index claude`, `index bench`, `probe codex-sqlite` |
+| **Recall** | `find`, `search`, `grep`, `describe`, `expand-query`, `expand-ref`, `session-map` |
+| **Maintenance** | `maintenance [--checkpoint] [--analyze] [--vacuum]`, `maintenance --drop-event-content` |
 | **Hooks** | `hook closeout-capture`, `hook state-prep`, `hook compaction-capture`, `hook thread-title-finalize`, `closeout dry-run` |
 | **Safety** | `sanitize sessions`, `audit-path` |
 | **Desktop** | `desktop see`, `desktop act`, `desktop proof-report`, `desktop live-proof-harness`, `desktop proof-action` |
