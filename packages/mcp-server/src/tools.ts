@@ -428,14 +428,14 @@ export async function executeLooToolForOpenClaw(tool: LooTool, input: Record<str
 function sessionDiffToolResult(db: LooDatabase, audit: AuditStore, input: Record<string, unknown>): unknown {
   try {
     const configuredKey = readEnv("SESSION_DIFF_CURSOR_KEY");
-    const cursorSigningKey = configuredKey
-      ?? audit.fingerprintTextIfConfigured?.("lco_session_diff_cursor_v1")
-      ?? undefined;
+    const auditFallbackKey = configuredKey ? null : audit.fingerprintTextIfConfigured?.("lco_session_diff_cursor_v1") ?? null;
+    const cursorSigningKey = configuredKey ?? auditFallbackKey ?? undefined;
     return getSessionDiff(db, {
       threadId: optionalString(input.thread_id),
       targetRef: optionalString(input.target_ref),
       cursor: optionalString(input.cursor),
       cursorSigningKey,
+      cursorKeySource: configuredKey ? "environment" : auditFallbackKey ? "audit_fallback" : undefined,
       limit: optionalNumber(input.limit),
       tokenBudget: optionalNumber(input.token_budget),
       now: optionalString(input.now)

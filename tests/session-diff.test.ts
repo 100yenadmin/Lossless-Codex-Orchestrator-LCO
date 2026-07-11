@@ -841,10 +841,36 @@ test("session diff does not replay prepared state when event-content storage is 
       threadId,
       now: "2026-07-09T00:01:00.000Z"
     });
+    const sourceBefore = db.prepare(`
+      SELECT
+        summary_leaf_extractor_version AS summaryLeafVersion,
+        prepared_card_extractor_version AS preparedCardVersion
+      FROM codex_source_files
+      WHERE source_path = ?
+    `).get(file) as { summaryLeafVersion: string; preparedCardVersion: string };
+    const preparedBefore = db.prepare(`
+      SELECT
+        (SELECT MIN(created_at) FROM summary_leaves WHERE thread_id = ?) AS leafCreatedAt,
+        (SELECT MIN(updated_at) FROM prepared_cards WHERE target_ref = ?) AS cardUpdatedAt
+    `).get(threadId, `codex_thread:${threadId}`) as { leafCreatedAt: string; cardUpdatedAt: string };
 
     const backfill = indexCodexSessions(db, { roots: [sessionsDir], maxFiles: 10, eventContent: true });
     assert.equal(backfill.indexedFiles, 1);
     assert.ok(Number((db.prepare("SELECT COUNT(*) AS count FROM codex_event_content").get() as { count: number }).count) > 0);
+    const sourceAfter = db.prepare(`
+      SELECT
+        summary_leaf_extractor_version AS summaryLeafVersion,
+        prepared_card_extractor_version AS preparedCardVersion
+      FROM codex_source_files
+      WHERE source_path = ?
+    `).get(file) as { summaryLeafVersion: string; preparedCardVersion: string };
+    const preparedAfter = db.prepare(`
+      SELECT
+        (SELECT MIN(created_at) FROM summary_leaves WHERE thread_id = ?) AS leafCreatedAt,
+        (SELECT MIN(updated_at) FROM prepared_cards WHERE target_ref = ?) AS cardUpdatedAt
+    `).get(threadId, `codex_thread:${threadId}`) as { leafCreatedAt: string; cardUpdatedAt: string };
+    assert.deepEqual(sourceAfter, sourceBefore);
+    assert.deepEqual(preparedAfter, preparedBefore);
     const diff = getSessionDiff(db, {
       threadId,
       cursor: baseline.cursor.nextCursor,
@@ -935,6 +961,52 @@ test("session diff scoped cursor ignores destructive changes to another thread",
 
     assert.equal(diff.cursor.status, "accepted");
     assert.equal(diff.summary.returned, 0);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("session diff scoped cursor marks a same-count destructive source rewrite stale", () => {
+  const root = mkdtempSync(join(tmpdir(), "lco-session-diff-scoped-rewrite-"));
+  const sessionsDir = join(root, "sessions");
+  const file = join(sessionsDir, "rollout-2026-07-09T00-00-00-019f-session-diff-scoped-rewrite.jsonl");
+  const threadId = "019f-session-diff-scoped-rewrite";
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    writeSyntheticCodexSession(file, {
+      threadId,
+      title: "Scoped rewrite before",
+      finalMessage: "Final: scoped rewrite before."
+    });
+    assert.equal(indexCodexSessions(db, { roots: [sessionsDir], maxFiles: 10 }).indexedFiles, 1);
+    const baselineCounts = db.prepare(`
+      SELECT
+        (SELECT COUNT(*) FROM prepared_source_events WHERE thread_id = ?) AS events,
+        (SELECT COUNT(*) FROM prepared_source_ranges WHERE thread_id = ?) AS ranges
+    `).get(threadId, threadId) as { events: number; ranges: number };
+    const baseline = getSessionDiff(db, { threadId, now: "2026-07-09T00:01:00.000Z" });
+
+    writeSyntheticCodexSession(file, {
+      threadId,
+      title: "Scoped rewrite after",
+      finalMessage: "Final: scoped rewrite after."
+    });
+    assert.equal(indexCodexSessions(db, { roots: [sessionsDir], maxFiles: 10, verify: true }).indexedFiles, 1);
+    const rewrittenCounts = db.prepare(`
+      SELECT
+        (SELECT COUNT(*) FROM prepared_source_events WHERE thread_id = ?) AS events,
+        (SELECT COUNT(*) FROM prepared_source_ranges WHERE thread_id = ?) AS ranges
+    `).get(threadId, threadId) as { events: number; ranges: number };
+    assert.deepEqual(rewrittenCounts, baselineCounts);
+    const diff = getSessionDiff(db, {
+      threadId,
+      cursor: baseline.cursor.nextCursor,
+      now: "2026-07-09T00:02:00.000Z"
+    });
+
+    assert.equal(diff.cursor.status, "stale");
+    assert.ok(diff.cursor.reasonCodes.includes("source_history_rewritten"));
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });
@@ -1502,6 +1574,17 @@ test("session diff keyset collectors use bounded time and key indexes", () => {
       }
       assert.doesNotMatch(detail, /USE TEMP B-TREE/);
     }
+    const scopedSummaryDetail = (db.prepare(`
+      EXPLAIN QUERY PLAN
+      SELECT leaf_ref FROM summary_leaves
+      WHERE thread_id = ? AND (created_at, leaf_ref) > (?, ?)
+      ORDER BY created_at ASC, leaf_ref ASC
+      LIMIT ?
+    `).all("abc", "2026-07-09T00:00:00.000Z", "cursor-key", 2001) as Array<{ detail: string }>)
+      .map((row) => row.detail)
+      .join("\n");
+    assert.match(scopedSummaryDetail, /SEARCH .* USING (?:COVERING )?INDEX summary_leaves_thread_session_diff_idx/);
+    assert.doesNotMatch(scopedSummaryDetail, /SCAN|USE TEMP B-TREE/);
   });
 });
 
@@ -1741,9 +1824,59 @@ test("session diff tool keeps an explicit environment signing key authoritative"
         now: "2026-07-09T00:02:00.000Z"
       }) as ReturnType<typeof getSessionDiff>;
       assert.equal(report.cursor.status, "accepted");
+      assert.equal(report.cursor.keySource, "environment");
     } finally {
       if (previousLcoKey === undefined) delete process.env.LCO_SESSION_DIFF_CURSOR_KEY;
       else process.env.LCO_SESSION_DIFF_CURSOR_KEY = previousLcoKey;
+    }
+  });
+});
+
+test("session diff audit-key fallback round-trips and key-source changes invalidate cursors", () => {
+  withSessionDiffDb((db) => {
+    const previousLcoKey = process.env.LCO_SESSION_DIFF_CURSOR_KEY;
+    const previousLooKey = process.env.LOO_SESSION_DIFF_CURSOR_KEY;
+    delete process.env.LCO_SESSION_DIFF_CURSOR_KEY;
+    delete process.env.LOO_SESSION_DIFF_CURSOR_KEY;
+    const createToolsWithAuditKey = (auditKey: string) => createLooTools({
+      db,
+      audit: {
+        path: "test",
+        append() { throw new Error("not used"); },
+        find() { return null; },
+        tail() { return []; },
+        fingerprintText() { throw new Error("read-only session diff must not create an audit key"); },
+        fingerprintTextIfConfigured() { return auditKey; },
+        fingerprintValue() { throw new Error("not used"); }
+      },
+      codexClient: { async request() { throw new Error("not used"); } }
+    });
+    try {
+      const firstTool = createToolsWithAuditKey("stable-audit-derived-cursor-key").find((entry) => entry.name === "lco_session_diff");
+      assert.ok(firstTool);
+      const baseline = firstTool.execute({ now: "2026-07-09T00:01:00.000Z" }) as ReturnType<typeof getSessionDiff>;
+      assert.equal(baseline.cursor.keySource, "audit_fallback");
+      const sameKeyTool = createToolsWithAuditKey("stable-audit-derived-cursor-key").find((entry) => entry.name === "lco_session_diff");
+      assert.ok(sameKeyTool);
+      const accepted = sameKeyTool.execute({
+        cursor: baseline.cursor.nextCursor,
+        now: "2026-07-09T00:02:00.000Z"
+      }) as ReturnType<typeof getSessionDiff>;
+      assert.equal(accepted.cursor.status, "accepted");
+
+      const differentKeyTool = createToolsWithAuditKey("different-audit-derived-key").find((entry) => entry.name === "lco_session_diff");
+      assert.ok(differentKeyTool);
+      const invalid = differentKeyTool.execute({
+        cursor: baseline.cursor.nextCursor,
+        now: "2026-07-09T00:03:00.000Z"
+      }) as ReturnType<typeof getSessionDiff>;
+      assert.equal(invalid.cursor.status, "invalid");
+      assert.ok(invalid.cursor.reasonCodes.includes("cursor_signature_invalid"));
+    } finally {
+      if (previousLcoKey === undefined) delete process.env.LCO_SESSION_DIFF_CURSOR_KEY;
+      else process.env.LCO_SESSION_DIFF_CURSOR_KEY = previousLcoKey;
+      if (previousLooKey === undefined) delete process.env.LOO_SESSION_DIFF_CURSOR_KEY;
+      else process.env.LOO_SESSION_DIFF_CURSOR_KEY = previousLooKey;
     }
   });
 });

@@ -2031,6 +2031,7 @@ export type WatcherEventsOptions = {
 };
 
 export type SessionDiffCursorStatus = "none" | "accepted" | "stale" | "invalid";
+export type SessionDiffCursorKeySource = "explicit" | "environment" | "audit_fallback";
 export type SessionDiffChangeKind =
   | "source_range"
   | "summary_leaf"
@@ -2072,6 +2073,7 @@ export type SessionDiffReport = {
   cursor: {
     provided: boolean;
     status: SessionDiffCursorStatus;
+    keySource: SessionDiffCursorKeySource;
     issuedAt: string | null;
     nextCursor: string;
     reasonCodes: string[];
@@ -2125,6 +2127,7 @@ export type SessionDiffOptions = {
   targetRef?: string;
   cursor?: string;
   cursorSigningKey?: string;
+  cursorKeySource?: SessionDiffCursorKeySource;
   limit?: number;
   tokenBudget?: number;
   now?: string;
@@ -11630,6 +11633,7 @@ export function getSessionDiff(db: LooDatabase, options: SessionDiffOptions = {}
   }
   const targetRef = threadId ? codexThreadRef(threadId) : explicitTargetRef;
   const cursorSigningKey = sessionDiffCursorSigningKey(options.cursorSigningKey);
+  const cursorKeySource = sessionDiffCursorKeySource(options);
   const cursor = parseSessionDiffCursor(options.cursor, cursorSigningKey);
   const snapshot = createSessionDiffSnapshot(db, { threadId, targetRef });
   const cursorReasonCodes = [...cursor.reasonCodes];
@@ -11747,6 +11751,7 @@ export function getSessionDiff(db: LooDatabase, options: SessionDiffOptions = {}
     cursor: {
       provided: Boolean(options.cursor),
       status: cursorStatus,
+      keySource: cursorKeySource,
       issuedAt: cursor.payload?.issuedAt ?? null,
       nextCursor,
       reasonCodes: unique(cursorReasonCodes.length ? cursorReasonCodes : [cursorStatus === "none" ? "cursor_not_provided" : "cursor_accepted"]).slice(0, 20)
@@ -11883,6 +11888,12 @@ function sessionDiffCursorSigningKey(explicitKey: string | undefined): string {
   const key = explicitKey?.trim() || readEnv("SESSION_DIFF_CURSOR_KEY")?.trim();
   if (key && key.length >= 16) return key;
   throw new Error("Session diff cursor signing key is required; set LCO_SESSION_DIFF_CURSOR_KEY or initialize the local audit key through an approved dry-run control workflow");
+}
+
+function sessionDiffCursorKeySource(options: Pick<SessionDiffOptions, "cursorSigningKey" | "cursorKeySource">): SessionDiffCursorKeySource {
+  if (options.cursorKeySource) return options.cursorKeySource;
+  if (options.cursorSigningKey?.trim()) return "explicit";
+  return readEnv("SESSION_DIFF_CURSOR_KEY")?.trim() ? "environment" : "explicit";
 }
 
 function sessionDiffCursorSignature(encodedPayload: string, signingKey: string): string {
@@ -12148,16 +12159,26 @@ function sessionDiffWhereSql(
   const clauses: string[] = [];
   const params: string[] = [];
   const targetRef = target.threadId ? codexThreadRef(target.threadId) : target.targetRef ?? null;
+  if (targetRef && (publicSafeIdentifier(targetRef) !== targetRef || looksSensitiveRefLike(targetRef))) {
+    throw new Error("Invalid session diff SQL target ref");
+  }
+  const scopedThreadId = target.threadId
+    ?? (targetRef?.startsWith("codex_thread:")
+      ? optionalPublicThreadId(targetRef.slice("codex_thread:".length))
+      : undefined);
   if (table === "codex_sessions") {
-    if (target.threadId) {
+    if (scopedThreadId) {
       clauses.push("thread_id = ?");
-      params.push(target.threadId);
+      params.push(scopedThreadId);
     }
   } else if (table === "summary_leaves") {
-    if (target.threadId) {
+    if (scopedThreadId) {
       clauses.push("thread_id = ?");
-      params.push(target.threadId);
+      params.push(scopedThreadId);
     } else if (targetRef) {
+      // Non-Codex target refs remain a bounded compatibility scan because
+      // summary-leaf source refs are stored as JSON. The immediate charset
+      // assertion above keeps quote and wildcard interpretation impossible.
       clauses.push("source_refs_json LIKE ? ESCAPE '\\'");
       params.push(`%"${escapeLike(targetRef)}"%`);
     }
@@ -12166,9 +12187,9 @@ function sessionDiffWhereSql(
       clauses.push("target_ref = ?");
       params.push(targetRef);
     }
-  } else if (target.threadId) {
+  } else if (scopedThreadId) {
     clauses.push("thread_id = ?");
-    params.push(target.threadId);
+    params.push(scopedThreadId);
   } else if (targetRef) {
     clauses.push("source_ref = ?");
     params.push(targetRef);

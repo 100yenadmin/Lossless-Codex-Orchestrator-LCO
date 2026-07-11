@@ -126,6 +126,11 @@ local secret to the CLI, MCP server, or OpenClaw gateway as
 `LCO_SESSION_DIFF_CURSOR_KEY`. Use at least 16 characters, keep the value in
 your normal local secret store, and reuse the same value so cursors remain valid
 across process restarts. Do not commit it to an MCP configuration or repository.
+Reports expose only the safe key source (`environment`, `audit_fallback`, or
+`explicit`), never the key or audit path. If you rely on `audit_fallback`, keep
+the same audit profile/path; changing it intentionally invalidates earlier
+cursors. Prefer the environment-backed secret when cursors must survive profile
+or audit-path changes.
 
 ## 4. Index Local Codex Sessions
 
