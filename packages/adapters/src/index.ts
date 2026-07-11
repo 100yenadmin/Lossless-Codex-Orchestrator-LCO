@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
+import { createHash, createHmac, hkdfSync, randomBytes, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -664,7 +664,8 @@ export type ControlProofState = {
   proofBoundary: string;
 };
 
-export type AuditStore = Omit<ReturnType<typeof createAuditStore>, "fingerprintTextIfConfigured"> & {
+export type AuditStore = Omit<ReturnType<typeof createAuditStore>, "deriveSubkeyIfConfigured" | "fingerprintTextIfConfigured"> & {
+  deriveSubkeyIfConfigured?(domain: string): string | null;
   fingerprintTextIfConfigured?(value: string): string | null;
 };
 type ControlAuditStore = Pick<AuditStore, "path" | "append" | "find" | "fingerprintText" | "fingerprintValue">;
@@ -719,6 +720,10 @@ export function createAuditStore(path: string) {
       const key = readAuditKeyIfConfigured(path);
       return key ? hmacDigest(key, value) : null;
     },
+    deriveSubkeyIfConfigured(domain: string): string | null {
+      const key = readAuditKeyIfConfigured(path);
+      return key ? deriveAuditSubkey(key, domain) : null;
+    },
     fingerprintText(value: string): string {
       return hmacDigest(getAuditKey(), value);
     },
@@ -762,6 +767,11 @@ export function createAuditStore(path: string) {
 export function fingerprintAuditTextIfConfigured(auditPath: string, value: string): string | null {
   const key = readAuditKeyIfConfigured(auditPath);
   return key ? hmacDigest(key, value) : null;
+}
+
+export function deriveAuditSubkeyIfConfigured(auditPath: string, domain: string): string | null {
+  const key = readAuditKeyIfConfigured(auditPath);
+  return key ? deriveAuditSubkey(key, domain) : null;
 }
 
 export function createTargetControl(options: { targetName: string; methodPolicy: TargetMethodPolicy; audit: ControlAuditStore; client: CodexClient }): TargetControl {
@@ -2320,6 +2330,16 @@ function readAuditKeyIfConfigured(auditPath: string): Buffer | null {
 
 function hmacDigest(key: Buffer, value: string): string {
   return createHmac("sha256", key).update(value).digest("hex");
+}
+
+function deriveAuditSubkey(key: Buffer, domain: string): string {
+  return Buffer.from(hkdfSync(
+    "sha256",
+    key,
+    Buffer.from("lco.audit.subkey.hkdf.v1", "utf8"),
+    Buffer.from(domain, "utf8"),
+    32
+  )).toString("hex");
 }
 
 function isFileExistsError(error: unknown): boolean {

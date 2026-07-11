@@ -2,7 +2,7 @@
 import {
   codexTransportStatus,
   createAuditStore,
-  fingerprintAuditTextIfConfigured,
+  deriveAuditSubkeyIfConfigured,
   desktopActDryRun,
   desktopFallbackDiagnostics,
   desktopSee,
@@ -394,7 +394,7 @@ async function main() {
     try {
       const auditPath = readEnv("AUDIT_PATH") || join(resolveHomeDir(), ".openclaw", "lossless-openclaw-orchestrator", "audit.jsonl");
       const configuredKey = readEnv("SESSION_DIFF_CURSOR_KEY");
-      const auditFallbackKey = configuredKey ? null : fingerprintAuditTextIfConfigured(auditPath, "lco_session_diff_cursor_v1");
+      const auditFallbackKey = configuredKey ? null : deriveAuditSubkeyIfConfigured(auditPath, "lco_session_diff_cursor_v1");
       console.log(JSON.stringify(getSessionDiff(db, {
         ...parsed,
         ...resolveSessionDiffCursorKey(configuredKey, auditFallbackKey)

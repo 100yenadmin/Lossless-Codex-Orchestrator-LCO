@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { fingerprintAuditTextIfConfigured } from "../packages/adapters/src/index.js";
+import { createAuditStore, deriveAuditSubkeyIfConfigured, fingerprintAuditTextIfConfigured } from "../packages/adapters/src/index.js";
 import {
   createDatabase,
   getSessionDiff as getSessionDiffCore,
@@ -1422,8 +1422,24 @@ test("session diff read-only audit-key lookup creates no filesystem artifacts", 
   try {
     const auditPath = join(root, "missing", "audit.jsonl");
     assert.equal(fingerprintAuditTextIfConfigured(auditPath, "lco_session_diff_cursor_v1"), null);
+    assert.equal(deriveAuditSubkeyIfConfigured(auditPath, "lco_session_diff_cursor_v1"), null);
     assert.equal(existsSync(join(root, "missing")), false);
     assert.equal(existsSync(`${auditPath}.key`), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("session diff audit fallback uses a domain-separated subkey", () => {
+  const root = mkdtempSync(join(tmpdir(), "lco-session-diff-audit-subkey-"));
+  const auditPath = join(root, "audit.jsonl");
+  try {
+    const audit = createAuditStore(auditPath);
+    const chosenMessageFingerprint = audit.fingerprintText("lco_session_diff_cursor_v1");
+    const derivedCursorKey = audit.deriveSubkeyIfConfigured("lco_session_diff_cursor_v1");
+    assert.ok(derivedCursorKey);
+    assert.equal(derivedCursorKey, deriveAuditSubkeyIfConfigured(auditPath, "lco_session_diff_cursor_v1"));
+    assert.notEqual(derivedCursorKey, chosenMessageFingerprint);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -1436,7 +1452,7 @@ test("session diff invalid audit-key errors never expose the local key path", ()
     mkdirSync(join(root, "private"));
     writeFileSync(`${auditPath}.key`, "not-a-valid-audit-key\n");
     assert.throws(
-      () => fingerprintAuditTextIfConfigured(auditPath, "lco_session_diff_cursor_v1"),
+      () => deriveAuditSubkeyIfConfigured(auditPath, "lco_session_diff_cursor_v1"),
       (error: unknown) => error instanceof Error
         && error.message === "Audit fingerprint key is invalid"
         && !error.message.includes(root)
@@ -1852,6 +1868,9 @@ test("session diff is exposed through MCP/OpenClaw declarations and legacy alias
         fingerprintTextIfConfigured() {
           return TEST_CURSOR_SIGNING_KEY;
         },
+        deriveSubkeyIfConfigured() {
+          return TEST_CURSOR_SIGNING_KEY;
+        },
         fingerprintValue() {
           return TEST_CURSOR_SIGNING_KEY;
         }
@@ -1885,6 +1904,7 @@ test("session diff tool keeps an explicit environment signing key authoritative"
           tail() { return []; },
           fingerprintText() { return "different-audit-key"; },
           fingerprintTextIfConfigured() { return "different-audit-key"; },
+          deriveSubkeyIfConfigured() { return "different-audit-key"; },
           fingerprintValue() { return "different-audit-key"; }
         },
         codexClient: { async request() { throw new Error("not used"); } }
@@ -1919,6 +1939,7 @@ test("session diff audit-key fallback round-trips and key-source changes invalid
         tail() { return []; },
         fingerprintText() { throw new Error("read-only session diff must not create an audit key"); },
         fingerprintTextIfConfigured() { return auditKey; },
+        deriveSubkeyIfConfigured() { return auditKey; },
         fingerprintValue() { throw new Error("not used"); }
       },
       codexClient: { async request() { throw new Error("not used"); } }

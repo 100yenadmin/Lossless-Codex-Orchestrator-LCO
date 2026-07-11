@@ -392,6 +392,9 @@ const metadataOnlyAudit: AuditStore = {
   fingerprintTextIfConfigured() {
     return null;
   },
+  deriveSubkeyIfConfigured() {
+    return null;
+  },
   fingerprintValue() {
     return "metadata-only";
   }
@@ -431,7 +434,7 @@ export async function executeLooToolForOpenClaw(tool: LooTool, input: Record<str
 function sessionDiffToolResult(db: LooDatabase, audit: AuditStore, input: Record<string, unknown>): unknown {
   try {
     const configuredKey = readEnv("SESSION_DIFF_CURSOR_KEY");
-    const auditFallbackKey = configuredKey ? null : audit.fingerprintTextIfConfigured?.("lco_session_diff_cursor_v1") ?? null;
+    const auditFallbackKey = configuredKey ? null : audit.deriveSubkeyIfConfigured?.("lco_session_diff_cursor_v1") ?? null;
     return getSessionDiff(db, {
       threadId: optionalString(input.thread_id),
       targetRef: optionalString(input.target_ref),
