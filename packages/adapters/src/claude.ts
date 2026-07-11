@@ -126,7 +126,6 @@ function runClaudeVersionProbe(invocation: {
       clearTimeout(timeout);
       clearTimeout(hardDeadline);
       if (killerFallback) clearTimeout(killerFallback);
-      disposeClaudeProbeTreeKiller(treeKiller);
       resolve({
         error: spawnError,
         status: code,
@@ -149,15 +148,10 @@ function runClaudeVersionProbe(invocation: {
           windowsHide: true,
           stdio: "ignore"
         });
-        treeKiller.unref();
         const killDirectChild = () => child.kill("SIGKILL");
         killerFallback = setTimeout(killDirectChild, 750);
         killerFallback.unref();
-        treeKiller.once("error", () => {
-          if (killerFallback) clearTimeout(killerFallback);
-          killDirectChild();
-        });
-        treeKiller.once("close", () => {
+        monitorClaudeProbeTreeKiller(treeKiller, () => {
           if (killerFallback) clearTimeout(killerFallback);
           killDirectChild();
         });
@@ -190,7 +184,6 @@ function runClaudeVersionProbe(invocation: {
     hardDeadline = setTimeout(() => {
       timedOut = true;
       terminateTree();
-      disposeClaudeProbeTreeKiller(treeKiller);
       child.kill("SIGKILL");
       child.stdout.destroy();
       child.stderr.destroy();
@@ -208,6 +201,29 @@ export function disposeClaudeProbeTreeKiller(treeKiller: ReturnType<typeof spawn
   treeKiller.once("error", () => {});
   if (treeKiller.pid !== undefined && !treeKiller.killed) treeKiller.kill("SIGKILL");
   treeKiller.unref();
+}
+
+export function monitorClaudeProbeTreeKiller(
+  treeKiller: ReturnType<typeof spawn>,
+  onComplete: () => void,
+  cleanupMs = 1_500
+): void {
+  let completed = false;
+  let cleanupDeadline: NodeJS.Timeout;
+  const finish = () => {
+    if (completed) return;
+    completed = true;
+    clearTimeout(cleanupDeadline);
+    onComplete();
+  };
+  treeKiller.once("error", finish);
+  treeKiller.once("close", finish);
+  treeKiller.unref();
+  cleanupDeadline = setTimeout(() => {
+    disposeClaudeProbeTreeKiller(treeKiller);
+    finish();
+  }, cleanupMs);
+  cleanupDeadline.unref();
 }
 
 export function claudeVersionProbeInvocation(

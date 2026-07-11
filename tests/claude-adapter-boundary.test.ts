@@ -7,6 +7,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { assertTargetMethodAllowed } from "../packages/adapters/src/index.js";
+import * as claudeAdapter from "../packages/adapters/src/claude.js";
 import {
   CLAUDE_TARGET_METHOD_POLICY,
   claudeAvailabilityFromProbeResult,
@@ -360,6 +361,31 @@ test("Claude probe tree-killer cleanup safely absorbs an asynchronous spawn fail
   assert.equal(missingKiller.pid, undefined);
 });
 
+test("Claude probe tree-killer monitor preserves the helper until completion", async () => {
+  const monitor = (claudeAdapter as typeof claudeAdapter & {
+    monitorClaudeProbeTreeKiller?: (
+      helper: ReturnType<typeof spawn>,
+      onComplete: () => void,
+      cleanupMs: number
+    ) => void;
+  }).monitorClaudeProbeTreeKiller;
+  assert.equal(typeof monitor, "function");
+  const helper = spawn(process.execPath, ["-e", "setTimeout(() => {}, 1_000)"], { stdio: "ignore" });
+  let completions = 0;
+  monitor!(helper, () => { completions += 1; }, 250);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(helper.killed, false);
+  helper.kill("SIGTERM");
+  await new Promise<void>((resolve) => helper.once("close", () => resolve()));
+  assert.equal(completions, 1);
+});
+
+test("Claude probe settlement does not cut short an active tree killer", () => {
+  const source = read("packages/adapters/src/claude.ts");
+  const settleBlock = source.slice(source.indexOf("const settle ="), source.indexOf("const terminateTree ="));
+  assert.doesNotMatch(settleBlock, /disposeClaudeProbeTreeKiller/);
+});
+
 test("Claude version parser accepts semver metadata and rejects old or unparseable versions", () => {
   assert.match(unsupportedClaudeVersionReason("0.1.0") ?? "", /below minimum/i);
   assert.match(unsupportedClaudeVersionReason("Claude Code 0.9.9") ?? "", /below minimum/i);
@@ -405,6 +431,14 @@ test("Claude probe result classification covers missing binary nonzero and unsup
   });
   assert.equal(sensitiveNonzero.available, false);
   assert.doesNotMatch(JSON.stringify(sensitiveNonzero), /sensitive-token|\/Users\/alice|C:\\Users\\bob/);
+
+  const externalPathNonzero = claudeAvailabilityFromProbeResult({
+    error: undefined,
+    status: 1,
+    stdout: "",
+    stderr: "failed /Volumes/PRIVATE/customer/repo and C:\\work\\secret"
+  });
+  assert.doesNotMatch(JSON.stringify(externalPathNonzero), /\/Volumes\/PRIVATE|C:\\work\\secret/);
 
   const timedOut = claudeAvailabilityFromProbeResult({
     error: undefined,
