@@ -79,7 +79,9 @@ test("redacts local paths and common credential shapes from shareable envelopes"
 });
 
 test("strict diagnostic redaction removes host/container paths, provider tokens, JWTs, and URI credentials", () => {
-  const value = "failed at /Volumes/LEXAR/customers/My Project/session.jsonl, /workspace/private/session.jsonl, with npm_12345678901234567890 github_pat_12345678901234567890 AKIA1234567890ABCDEF xapp-1-abcdefghijklmnopqrstuvwxyz ya29.abcdefghijklmnopqrstuvwxyz012345 postgres://admin:SuperSecret123@db.example.com/prod eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signatureTOKEN123";
+  const awsKey = ["AKIA", "1234567890ABCDEF"].join("");
+  const jwt = ["eyJhbGciOiJIUzI1NiJ9", "eyJzdWIiOiIxMjM0NTY3ODkwIn0", "signatureTOKEN123"].join(".");
+  const value = `failed at /Volumes/LEXAR/customers/My Project/session.jsonl, /workspace/private/session.jsonl, with npm_12345678901234567890 github_pat_12345678901234567890 ${awsKey} xapp-1-abcdefghijklmnopqrstuvwxyz ya29.abcdefghijklmnopqrstuvwxyz012345 postgres://admin:SuperSecret123@db.example.com/prod ${jwt}`;
   assert.equal(
     redactDiagnosticString(value),
     "failed at <redacted-local-path>, <redacted-local-path>, with <redacted-secret> <redacted-secret> <redacted-secret> <redacted-secret> <redacted-secret> postgres://<redacted-secret>@db.example.com/prod <redacted-secret>"
@@ -87,6 +89,10 @@ test("strict diagnostic redaction removes host/container paths, provider tokens,
   assert.equal(
     redactDiagnosticString("failed at D:/customer data/session.jsonl, E:\\Program Files\\App\\secret.jsonl, and /Applications/LCO QA/private.log"),
     "failed at <redacted-local-path>, <redacted-local-path>, and <redacted-local-path>"
+  );
+  assert.equal(
+    redactDiagnosticString("failed at \\\\server\\share\\customer data\\session.jsonl, \\\\?\\C:\\Program Files\\LCO\\secret.jsonl"),
+    "failed at <redacted-local-path>, <redacted-local-path>"
   );
 });
 
@@ -443,6 +449,14 @@ test("Codex stdio sequence rejects a safe-runtime requirement unless thread/resu
     ], { threadId: "thr_1", expectedTurnId: "turn_1", turnWaitMs: 1_000, requireSafeActiveRuntime: true }),
     /requires thread\/resume as the first sequence step/
   );
+
+  await assert.rejects(
+    () => client.requestSequenceUntilTurnResolved?.([
+      { method: "thread/resume", params: { threadId: "thr_1" } },
+      { method: "turn/steer", params: { threadId: "thr_other", expectedTurnId: "turn_1", input: [{ type: "text", text: "continue" }] } }
+    ], { threadId: "thr_1", expectedTurnId: "turn_1", turnWaitMs: 1_000, requireSafeActiveRuntime: true }),
+    /every sequence step to target the requested thread/
+  );
 });
 
 test("Codex stdio turn resolution surfaces a strictly redacted terminal error", async () => {
@@ -460,8 +474,8 @@ rl.on("line", (line) => {
     return;
   }
   if (payload.method === "turn/start") {
-    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: payload.id, result: { turn: { id: "turn_1", status: "inProgress" } } }) + "\\n");
-    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", method: "turn/completed", params: { threadId: "thr_1", turn: { id: "turn_1", status: "failed", error: { message: "failed at /Volumes/LEXAR/customers/acme/token with npm_12345678901234567890 github_pat_12345678901234567890 AKIA1234567890ABCDEF postgres://admin:SuperSecret123@db.example.com/prod eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signatureTOKEN123" } } } }) + "\\n");
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: payload.id, result: { turn: { id: "turn_1", status: "inProgress", error: { message: "object-form private diagnostic" } } } }) + "\\n");
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", method: "turn/completed", params: { threadId: "thr_1", turn: { id: "turn_1", status: "failed", error: "string-form private diagnostic" } } }) + "\\n");
   }
 });
 `;

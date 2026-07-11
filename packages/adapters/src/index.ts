@@ -1187,7 +1187,7 @@ const CODEX_CONTROL_RESPONSE_FORBIDDEN_KEYS = new Set([
 ]);
 
 function sanitizeCodexControlResponse(response: unknown): unknown {
-  return sanitizeCodexControlResponseValue(redactDiagnosticValue(response));
+  return sanitizeCodexControlResponseValue(redactValue(response));
 }
 
 function sanitizeCodexControlResponseValue(value: unknown): unknown {
@@ -1195,7 +1195,10 @@ function sanitizeCodexControlResponseValue(value: unknown): unknown {
   if (value && typeof value === "object") {
     const entries = Object.entries(value)
       .filter(([key]) => !CODEX_CONTROL_RESPONSE_FORBIDDEN_KEYS.has(key))
-      .map(([key, item]) => [key, sanitizeCodexControlResponseValue(item)]);
+      .map(([key, item]) => [
+        key,
+        sanitizeCodexControlResponseValue(key.toLowerCase() === "error" ? redactDiagnosticValue(item) : item)
+      ]);
     return Object.fromEntries(entries);
   }
   return value;

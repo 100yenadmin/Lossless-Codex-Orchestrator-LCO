@@ -255,6 +255,7 @@ test("Codex control redacts live transport responses before returning them throu
                 id: "thr_1",
                 title: "Safe title",
                 status: "running",
+                publicToolPath: "/usr/local/bin/lco",
                 preview: "PRIVATE_TRANSCRIPT_PREVIEW",
                 path: "/Volumes/LEXAR/private/session.jsonl",
                 cwd: `${homedir()}/project`,
@@ -299,6 +300,7 @@ test("Codex control redacts live transport responses before returning them throu
     assert.equal((live.response as any).result.thread.id, "thr_1");
     assert.equal((live.response as any).result.thread.title, "Safe title");
     assert.equal((live.response as any).result.thread.status, "running");
+    assert.equal((live.response as any).result.thread.publicToolPath, "/usr/local/bin/lco");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

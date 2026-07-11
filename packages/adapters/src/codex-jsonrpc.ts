@@ -318,6 +318,9 @@ export function createCodexMcpStdioClient(options: {
       if (turnOptions.requireSafeActiveRuntime && steps[0]?.method !== "thread/resume") {
         throw new Error("Codex safe active-runtime proof requires thread/resume as the first sequence step");
       }
+      if (turnOptions.requireSafeActiveRuntime && steps.some((step) => step.params.threadId !== turnOptions.threadId)) {
+        throw new Error("Codex safe active-runtime proof requires every sequence step to target the requested thread");
+      }
       const client = new CodexJsonRpcClient(
         () => new LineProcessTransport(options.command ?? "codex", options.args ?? ["app-server", "--stdio"], options.timeoutMs),
         { timeoutMs: options.timeoutMs, surface }
@@ -550,6 +553,9 @@ function turnFromNotification(notification: JsonRpcNotification): { id?: string;
 }
 
 function turnError(turn: Record<string, unknown>): { error?: string } {
+  if (typeof turn.error === "string" && turn.error.trim()) {
+    return { error: "Codex turn failed; diagnostic text redacted" };
+  }
   const error = optionalObjectField(turn.error);
   const message = error ? stringField(error, "message") : undefined;
   if (!message) return {};

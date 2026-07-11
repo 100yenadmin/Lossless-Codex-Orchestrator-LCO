@@ -24,7 +24,7 @@ const DIAGNOSTIC_SECRET_PATTERNS: Array<[RegExp, string]> = [
 ];
 
 const DIAGNOSTIC_LOCAL_PATH_PATTERN = /(?:~\/|\/(?:Volumes|Users|home|root|private|tmp|workspace|workspaces|mnt|data|opt|srv|etc|Library|Applications|build|repo|proc|usr)\/|\/var\/folders\/)[^\r\n"',)\]}]+/g;
-const DIAGNOSTIC_WINDOWS_PATH_PATTERN = /(?<![A-Za-z0-9])[A-Za-z]:[\\\/][^\r\n"',)\]}]+/g;
+const DIAGNOSTIC_WINDOWS_PATH_PATTERN = /(?<![A-Za-z0-9])(?:[A-Za-z]:[\\\/]|\\\\(?:\?\\)?)[^\r\n"',)\]}]+/g;
 
 const GENERIC_HOME_PATTERN = /\/Users\/[^/\s]+/g;
 const CLAUDE_UNIX_HOME_PATTERN = /(?:\/(?:Users|home)\/[^/\s]+|\/root(?=\/|\s|$))/gi;
