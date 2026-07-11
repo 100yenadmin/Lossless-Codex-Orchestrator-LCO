@@ -292,7 +292,9 @@ test("Claude diagnostics redact Unix Users Profiles drive-home and UNC profile p
   for (const spacedPath of [
     "failed /Volumes/Customer Name/private/file",
     String.raw`failed C:\Customer Data\private\file.txt`,
-    String.raw`failed \\server\Customer Data\private\file.txt`
+    String.raw`failed \\server\Customer Data\private\file.txt`,
+    "failed file:///Secret Volume/customer/private",
+    "failed file://PrivateServer/share/customer"
   ]) {
     const spacedRedacted = redactClaudeString(spacedPath);
     assert.equal(spacedRedacted, "failed <redacted-path>");

@@ -10,6 +10,7 @@ const SECRET_PATTERNS: Array<[RegExp, string]> = [
 const GENERIC_HOME_PATTERN = /\/Users\/[^/\s]+/g;
 const CLAUDE_UNIX_HOME_PATTERN = /(?:\/(?:Users|home)\/[^/\s]+|\/root(?=\/|\s|$))/gi;
 const CLAUDE_WINDOWS_HOME_PATTERN = /(?:[A-Za-z]:|\\\\[^\\/\s]+)[\\/](?:Users|Profiles|home)[\\/][^\\/\s]+/gi;
+const CLAUDE_FILE_URI_PATTERN = /\bfile:\/\/[^"'\r\n()<>{}\[\],;|]+/gi;
 const CLAUDE_POSIX_ABSOLUTE_PATH_PATTERN = /(?<![\/~])\/(?!\/)[^"'\r\n()<>{}\[\],;|:]+/g;
 const CLAUDE_WINDOWS_ABSOLUTE_PATH_PATTERN = /(?:\b[A-Za-z]:|\\\\[^\\/\r\n"'<>|]+)[\\/][^"'\r\n<>|,;)\]}]+/g;
 
@@ -24,6 +25,7 @@ export function redactString(value: string): string {
 
 export function redactClaudeString(value: string): string {
   let redacted = redactString(value);
+  redacted = redacted.replace(CLAUDE_FILE_URI_PATTERN, "<redacted-path>");
   redacted = redacted.replace(CLAUDE_WINDOWS_HOME_PATTERN, "~");
   redacted = redacted.replace(CLAUDE_UNIX_HOME_PATTERN, "~");
   const protectedHomePaths: string[] = [];
