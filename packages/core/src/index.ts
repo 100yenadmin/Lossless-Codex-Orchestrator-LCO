@@ -275,6 +275,11 @@ export type IndexCodexResult = {
   skippedFiles: number;
   indexedThreads: number;
   indexedEvents: number;
+  preparedMaterialization: {
+    requestedThreads: number;
+    completedThreads: number;
+    pendingThreads: number;
+  };
   limitedFiles: LimitedCodexFile[];
   warnings: CodexIndexLimitWarning[];
   errors: Array<{ path: string; message: string }>;
@@ -3855,6 +3860,11 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
     skippedFiles: 0,
     indexedThreads: 0,
     indexedEvents: 0,
+    preparedMaterialization: {
+      requestedThreads: 0,
+      completedThreads: 0,
+      pendingThreads: 0
+    },
     limitedFiles: [],
     warnings: [],
     errors: [],
@@ -3949,10 +3959,16 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
       result.errors.push({ path: codexThreadRef(threadId), message: error instanceof Error ? error.message : String(error) });
     }
   }
-  for (const threadId of preparedThreadsToMaterialize) {
+  const preparedThreadIds = [...preparedThreadsToMaterialize];
+  result.preparedMaterialization.requestedThreads = preparedThreadIds.length;
+  result.preparedMaterialization.pendingThreads = preparedThreadIds.length;
+  const preparedCardLookupCache = buildPreparedCardWorkStateLookupCache(db, preparedThreadIds);
+  for (const threadId of preparedThreadIds) {
     try {
-      materializePreparedCards(db, { threadId });
+      materializePreparedCardsForTarget(db, threadId, preparedCardLookupCache);
       markSourceFilesPreparedCardCurrent(db, threadId);
+      result.preparedMaterialization.completedThreads += 1;
+      result.preparedMaterialization.pendingThreads -= 1;
     } catch (error) {
       result.errors.push({ path: codexThreadRef(threadId), message: error instanceof Error ? error.message : String(error) });
     }
@@ -7014,6 +7030,14 @@ export function expandSummaryLeaves(db: LooDatabase, options: SummaryExpansionOp
 
 export function materializePreparedCards(db: LooDatabase, options: { threadId?: string } = {}): PreparedCardMaterializationReport {
   if (!options.threadId) return materializePreparedCardsForAllThreads(db);
+  return materializePreparedCardsForTarget(db, options.threadId);
+}
+
+function materializePreparedCardsForTarget(
+  db: LooDatabase,
+  threadId: string,
+  lookupCache?: PreparedCardWorkStateLookupCache
+): PreparedCardMaterializationReport {
   let generatedAt: string;
   let summary: PreparedCardMaterializationReport["summary"];
   db.exec("BEGIN IMMEDIATE");
@@ -7021,7 +7045,7 @@ export function materializePreparedCards(db: LooDatabase, options: { threadId?: 
     generatedAt = allocateSessionDiffMutationTimestamp(db);
     // threadId is intentionally Codex-only here; Claude session cards refresh in
     // the no-thread path so caller-supplied Codex thread refreshes stay bounded.
-    summary = materializePreparedCardsForThread(db, options.threadId, generatedAt);
+    summary = materializePreparedCardsForThread(db, threadId, generatedAt, lookupCache);
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
@@ -7034,7 +7058,7 @@ export function materializePreparedCards(db: LooDatabase, options: { threadId?: 
     mutationClasses: ["derived_cache"],
     generatedAt,
     target: {
-      threadId: options.threadId
+      threadId
     },
     summary,
     actionsPerformed: preparedCardWriteActions(),
