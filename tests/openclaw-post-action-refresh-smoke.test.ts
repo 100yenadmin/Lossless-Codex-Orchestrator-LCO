@@ -130,7 +130,7 @@ function writeLiveProofReport(path: string, overrides: Record<string, unknown> =
   }, null, 2)}\n`);
 }
 
-function createFakeOpenClaw(dir: string, options: { rawExpansion?: boolean; rawContentEnvelope?: boolean; detailsNotOk?: boolean; staleSearchAndExpansion?: boolean; nestedTargetOnlyExpansion?: boolean; nestedTargetOnlyCoreOutputs?: boolean; nestedArrayTargetOnlySearch?: boolean; staleRefreshTimestamp?: boolean; missingRefreshTimestamp?: boolean; nestedRefreshTimestampOnly?: boolean; missingMapMarkers?: boolean; publicThreadMapShape?: boolean; missingMapStatus?: boolean; nestedStatusLookalike?: boolean; topLevelStatusLookalike?: boolean; domainEnvelopeLookalikes?: boolean; alternateTopLevelSearchCollection?: boolean; detailsEnvelope?: boolean } = {}): { bin: string; callsPath: string } {
+function createFakeOpenClaw(dir: string, options: { rawExpansion?: boolean; rawContentEnvelope?: boolean; detailsNotOk?: boolean; nestedDetailsResponseNotOk?: boolean; directDetailsEnvelope?: boolean; staleSearchAndExpansion?: boolean; nestedTargetOnlyExpansion?: boolean; nestedTargetOnlyCoreOutputs?: boolean; nestedArrayTargetOnlySearch?: boolean; staleRefreshTimestamp?: boolean; missingRefreshTimestamp?: boolean; nestedRefreshTimestampOnly?: boolean; missingMapMarkers?: boolean; publicThreadMapShape?: boolean; missingMapStatus?: boolean; nestedStatusLookalike?: boolean; topLevelStatusLookalike?: boolean; domainEnvelopeLookalikes?: boolean; alternateTopLevelSearchCollection?: boolean; detailsEnvelope?: boolean } = {}): { bin: string; callsPath: string } {
   const callsPath = join(dir, "calls.jsonl");
   const bin = join(dir, "openclaw-refresh-fake.mjs");
   const refreshedAt = options.staleRefreshTimestamp ? "2026-07-01T00:00:30.000Z" : "2026-07-01T00:02:00.000Z";
@@ -185,7 +185,11 @@ function createFakeOpenClaw(dir: string, options: { rawExpansion?: boolean; rawC
       related: { sourceRef: "${TARGET_REF}", refreshedAt: "${refreshedAt}" }
     }`;
   const wrapOutput = (output: string) => options.detailsEnvelope
-    ? `{ ok: true, output: { content: [{ type: "text", text: "${options.rawContentEnvelope ? "RAW_TRANSCRIPT: private raw session text" : "public-safe output"}" }], details: ${options.detailsNotOk ? output.replace(/^\s*\{/, "{ ok: false,") : output} } }`
+    ? `${options.directDetailsEnvelope ? "" : "{ ok: true, output: "}{ content: [{ type: "text", text: "${options.rawContentEnvelope ? "RAW_TRANSCRIPT: private raw session text" : "public-safe output"}" }], details: ${options.detailsNotOk
+      ? output.replace(/^\s*\{/, "{ ok: false,")
+      : options.nestedDetailsResponseNotOk
+        ? output.replace(/^\s*\{/, "{ response: { ok: false },")
+        : output} }${options.directDetailsEnvelope ? "" : " }"}`
     : `{ ok: true, output: ${output} }`;
   const threadMapResponse = wrapOutput(options.nestedTargetOnlyCoreOutputs ? nestedCoreThreadMapOutput : threadMapOutput);
   const searchOutput = options.alternateTopLevelSearchCollection
@@ -492,6 +496,71 @@ test("OpenClaw post-action refresh smoke rejects native details marked not ok", 
     publicThreadMapShape: true,
     detailsEnvelope: true,
     detailsNotOk: true
+  });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+
+  try {
+    const report = runOpenClawPostActionRefreshSmoke({
+      openclawBin: bin,
+      evidenceDir,
+      liveProofReportPath,
+      threadId: TARGET_THREAD_ID,
+      now: "2026-07-01T00:03:00.000Z"
+    });
+
+    assert.equal(report.ok, false);
+    assert.equal(report.proofReady, false);
+    assert.equal(report.blockers.includes("post_action_thread_map_failed:tool_not_ok"), true);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw post-action refresh smoke rejects nested native response failures", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-refresh-smoke-nested-response-not-ok-"));
+  const evidenceDir = join(root, "evidence");
+  const liveProofReportPath = join(root, "openclaw-gateway-live-control-smoke-report.json");
+  writeLiveProofReport(liveProofReportPath);
+  const { bin, callsPath } = createFakeOpenClaw(root, {
+    publicThreadMapShape: true,
+    detailsEnvelope: true,
+    nestedDetailsResponseNotOk: true
+  });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+
+  try {
+    const report = runOpenClawPostActionRefreshSmoke({
+      openclawBin: bin,
+      evidenceDir,
+      liveProofReportPath,
+      threadId: TARGET_THREAD_ID,
+      now: "2026-07-01T00:03:00.000Z"
+    });
+
+    assert.equal(report.ok, false);
+    assert.equal(report.proofReady, false);
+    assert.equal(report.blockers.includes("post_action_thread_map_failed:tool_not_ok"), true);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw post-action refresh smoke rejects direct native response failures", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-refresh-smoke-direct-response-not-ok-"));
+  const evidenceDir = join(root, "evidence");
+  const liveProofReportPath = join(root, "openclaw-gateway-live-control-smoke-report.json");
+  writeLiveProofReport(liveProofReportPath);
+  const { bin, callsPath } = createFakeOpenClaw(root, {
+    publicThreadMapShape: true,
+    detailsEnvelope: true,
+    directDetailsEnvelope: true,
+    nestedDetailsResponseNotOk: true
   });
   const previous = process.env.OPENCLAW_FAKE_CALLS;
   process.env.OPENCLAW_FAKE_CALLS = callsPath;

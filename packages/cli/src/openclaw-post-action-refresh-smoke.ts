@@ -382,9 +382,30 @@ function gatewayCallBlockers(call: GatewayCallResult, fallback: string): string[
   if (call.parsed === undefined) return [`${fallback}:invalid_json`];
   const payload = unwrapGatewayPayload(call.parsed);
   if (isRecord(payload) && payload.ok === false) return [`${fallback}:tool_not_ok`];
+  if (hasNativeToolFailure(payload)) return [`${fallback}:tool_not_ok`];
   const toolOutput = unwrapToolOutput(payload);
   if (isRecord(toolOutput) && toolOutput.ok === false) return [`${fallback}:tool_not_ok`];
   return [];
+}
+
+function hasNativeToolFailure(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  const output = isRecord(value.output) ? value.output : value;
+  if (!Array.isArray(output.content) || !("details" in output)) return false;
+  return hasNativeResultFailure(output.details, true);
+}
+
+function hasNativeResultFailure(value: unknown, checkDirect = false, depth = 0): boolean {
+  if (!isRecord(value) || depth > 4) return false;
+  if (checkDirect && value.ok === false) return true;
+  for (const key of ["response", "result"] as const) {
+    const nested = value[key];
+    if (!isRecord(nested)) continue;
+    if (nested.ok === false) return true;
+    if (typeof nested.status === "string" && ["error", "failed", "failure"].includes(nested.status.toLowerCase())) return true;
+    if (hasNativeResultFailure(nested, false, depth + 1)) return true;
+  }
+  return false;
 }
 
 function gatewayProcessTimeoutMs(timeoutMs: number): number {
