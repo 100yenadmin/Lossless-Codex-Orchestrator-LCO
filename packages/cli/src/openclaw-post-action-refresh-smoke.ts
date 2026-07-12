@@ -204,8 +204,8 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
     ? directString(targetThreadMapOutput, ["refreshedAt", "refreshed_at"])
     : null;
   const statusBucket = isRecord(targetThreadMapOutput)
-    ? directString(targetThreadMapOutput, ["statusBucket", "status_bucket", "status"])
-      ?? stringPath(targetThreadMapOutput, ["metadata", "status"])
+    ? stringPath(targetThreadMapOutput, ["metadata", "status"])
+      ?? directString(targetThreadMapOutput, ["statusBucket", "status_bucket"])
       ?? (refreshedAt ? "refreshed" : null)
     : null;
   const safeSummaryDelta = hasTargetSafeSummaryDelta(targetSearchOutput, targetDescribeOutput, query);
@@ -430,10 +430,12 @@ function unwrapGatewayPayload(value: unknown): unknown {
 
 function unwrapToolOutput(value: unknown): unknown {
   if (!isRecord(value)) return value;
-  if ("output" in value) return unwrapToolOutput(value.output);
-  if ("details" in value) return unwrapToolOutput(value.details);
-  if ("result" in value) return unwrapToolOutput(value.result);
-  return value;
+  const output = "output" in value ? value.output : value;
+  if (!isRecord(output)) return output;
+  // Native OpenClaw tool results pair content[] with structured details.
+  // Legacy/direct results are already application payloads and must not be
+  // recursively unwrapped through semantic details or result fields.
+  return Array.isArray(output.content) && "details" in output ? output.details : output;
 }
 
 function extractCatalogToolNames(value: unknown): string[] {
