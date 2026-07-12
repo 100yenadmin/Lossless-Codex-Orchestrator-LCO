@@ -203,7 +203,11 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
   const refreshedAt = isRecord(targetThreadMapOutput)
     ? directString(targetThreadMapOutput, ["refreshedAt", "refreshed_at"])
     : null;
-  const statusBucket = targetThreadMapOutput ? firstString(targetThreadMapOutput, ["statusBucket", "status_bucket", "status"]) ?? (refreshedAt ? "refreshed" : null) : null;
+  const statusBucket = isRecord(targetThreadMapOutput)
+    ? directString(targetThreadMapOutput, ["statusBucket", "status_bucket", "status"])
+      ?? stringPath(targetThreadMapOutput, ["metadata", "status"])
+      ?? (refreshedAt ? "refreshed" : null)
+    : null;
   const safeSummaryDelta = hasTargetSafeSummaryDelta(targetSearchOutput, targetDescribeOutput, query);
   const boundedExpansionProfile = targetExpandOutput ? firstString(targetExpandOutput, ["profile"]) || expandProfile : null;
   const refreshTimestampValid = refreshedAt ? parseTimestamp(refreshedAt) !== null : false;
