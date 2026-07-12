@@ -117,8 +117,13 @@ Optional read-only OpenClaw LCM peer database paths:
 export LCO_LCM_DB_PATHS="$HOME/.openclaw/lcm.db"
 ```
 
-LCM peer DBs are opened read-only. LCO does not merge raw Codex transcripts into
-OpenClaw LCM.
+LCM peer DBs are opened read-only. LCO does not merge raw Codex transcripts or
+peer rows into OpenClaw LCM or the LCO source index. Running `lco index codex`
+or `lco find` with peers configured refreshes public-safe advisory prepared
+cards and inbox items from their summary DAGs. Run `lco doctor --peers` to see
+ready, degraded, or unavailable classifications plus bounded integrity reasons
+for missing optional tables, empty summaries, stale DAG links, and degraded
+expansion.
 
 Session diff uses signed opaque cursors. If your profile has not yet created a
 local audit key through an approved dry-run control workflow, provide a stable

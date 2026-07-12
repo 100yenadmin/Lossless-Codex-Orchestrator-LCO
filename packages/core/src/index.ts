@@ -94,6 +94,7 @@ function withSuppressedNodeSqliteExperimentalWarning<T>(load: () => T): T {
 
 export type IndexCodexOptions = {
   roots: string[];
+  lcmDbPaths?: string[];
   maxFiles?: number;
   maxBytesPerFile?: number;
   maxEventsPerFile?: number;
@@ -576,7 +577,7 @@ export const PREPARED_CARD_STATES = [
   "unknown_lifecycle"
 ] as const;
 export type PreparedCardState = (typeof PREPARED_CARD_STATES)[number];
-export type PreparedCardKind = "codex_session" | "claude_session";
+export type PreparedCardKind = "codex_session" | "claude_session" | "lcm_summary";
 export type PreparedStateCoverage = "ok" | "partial" | "not_configured" | "unknown";
 
 export type PreparedCard = {
@@ -3001,6 +3002,7 @@ export type RetrievalTelemetryHarvestOptions = {
 };
 
 export type LcmPeerProbe = {
+  status: "ready" | "degraded" | "unavailable";
   path: string;
   readable: boolean;
   readOnly: boolean;
@@ -3010,6 +3012,21 @@ export type LcmPeerProbe = {
   summaryCount: number | null;
   ftsAvailable: boolean;
   reason: string | null;
+  integrity: {
+    missingOptionalTables: string[];
+    emptySummaries: number;
+    staleDagLinks: number;
+    degradedExpansions: number;
+    reasonCodes: string[];
+  };
+};
+
+export type LcmPeerProbeReport = {
+  schema: "lco.lcm.peerDoctor.v1";
+  status: "ready" | "degraded" | "unavailable";
+  readOnly: true;
+  summary: { ready: number; degraded: number; unavailable: number };
+  peers: LcmPeerProbe[];
 };
 
 type LcmSummaryRecord = {
@@ -3971,6 +3988,17 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
       result.preparedMaterialization.pendingThreads -= 1;
     } catch (error) {
       result.errors.push({ path: codexThreadRef(threadId), message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  if (options.lcmDbPaths?.length) {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      materializePreparedCardsForLcmPeers(db, options.lcmDbPaths, allocateSessionDiffMutationTimestamp(db));
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      result.errors.push({ path: "lcm_summary:configured_peers", message: error instanceof Error ? error.message : String(error) });
     }
   }
 
@@ -7028,8 +7056,8 @@ export function expandSummaryLeaves(db: LooDatabase, options: SummaryExpansionOp
   };
 }
 
-export function materializePreparedCards(db: LooDatabase, options: { threadId?: string } = {}): PreparedCardMaterializationReport {
-  if (!options.threadId) return materializePreparedCardsForAllThreads(db);
+export function materializePreparedCards(db: LooDatabase, options: { threadId?: string; lcmDbPaths?: string[] } = {}): PreparedCardMaterializationReport {
+  if (!options.threadId) return materializePreparedCardsForAllThreads(db, options.lcmDbPaths);
   return materializePreparedCardsForTarget(db, options.threadId);
 }
 
@@ -7066,7 +7094,7 @@ function materializePreparedCardsForTarget(
   };
 }
 
-function materializePreparedCardsForAllThreads(db: LooDatabase): PreparedCardMaterializationReport {
+function materializePreparedCardsForAllThreads(db: LooDatabase, lcmDbPaths: string[] = []): PreparedCardMaterializationReport {
   let generatedAt: string;
   const rows = db.prepare(`
     SELECT DISTINCT threadId
@@ -7112,6 +7140,11 @@ function materializePreparedCardsForAllThreads(db: LooDatabase): PreparedCardMat
     summary.cards += claudeSummary.cards;
     summary.inboxItems += claudeSummary.inboxItems;
     summary.skippedUnsafeRows += claudeSummary.skippedUnsafeRows;
+    const lcmSummary = materializePreparedCardsForLcmPeers(db, lcmDbPaths, generatedAt);
+    summary.summaryLeaves += lcmSummary.summaryLeaves;
+    summary.cards += lcmSummary.cards;
+    summary.inboxItems += lcmSummary.inboxItems;
+    summary.skippedUnsafeRows += lcmSummary.skippedUnsafeRows;
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
@@ -7416,6 +7449,151 @@ function buildPreparedClaudeCardDraft(db: LooDatabase, row: ClaudePreparedSessio
     stale: false,
     state,
     reasonCodes: confidence < 0.5 ? unique([...reasonCodes, "low_confidence"]) : reasonCodes
+  };
+}
+
+function materializePreparedCardsForLcmPeers(
+  db: LooDatabase,
+  paths: string[],
+  generatedAt: string
+): PreparedCardMaterializationReport["summary"] {
+  const previousCards = db.prepare(`
+    SELECT target_ref AS targetRef, card_ref AS cardRef, input_hash AS inputHash,
+      created_at AS createdAt, updated_at AS updatedAt
+    FROM prepared_cards
+    WHERE target_ref LIKE 'lcm_summary:%'
+      AND extractor_version = ?
+      AND privacy_class = 'public_safe_metadata'
+  `).all(PREPARED_CARD_EXTRACTOR_VERSION) as Array<PreviousPreparedCardWrite & { targetRef: string }>;
+  const previousInbox = db.prepare(`
+    SELECT target_ref AS targetRef, item_id AS itemRef, card_ref AS cardRef,
+      created_at AS createdAt, updated_at AS updatedAt
+    FROM prepared_inbox_items
+    WHERE target_ref LIKE 'lcm_summary:%'
+  `).all() as Array<PreviousPreparedInboxWrite & { targetRef: string }>;
+  const previousCardByTarget = new Map(previousCards.map((row) => [row.targetRef, row]));
+  const previousInboxByTarget = new Map(previousInbox.map((row) => [row.targetRef, row]));
+  const cards = new Map<string, PreparedCardDraft>();
+  let skippedUnsafeRows = 0;
+
+  for (const path of normalizePeerPaths(paths)) {
+    let peer: LooDatabase | null = null;
+    try {
+      peer = openLcmPeerDb(path);
+      if (!tableExists(peer, "summaries")) continue;
+      const rows = peer.prepare("SELECT summary_id AS summaryId FROM summaries ORDER BY summary_id ASC").all() as Array<{ summaryId: string }>;
+      for (const row of rows) {
+        const root = getLcmSummaryRecordFromDb(peer, path, String(row.summaryId ?? ""));
+        if (!root) {
+          skippedUnsafeRows += 1;
+          continue;
+        }
+        const expansion: LcmSummaryExpansion = { root, ...walkLcmSummarySources(peer, path, root.summaryId) };
+        const card = buildPreparedLcmCardDraft(expansion);
+        if (card) cards.set(card.targetRef, card);
+        else skippedUnsafeRows += 1;
+      }
+    } catch {
+      // Optional peers remain fail-closed and unavailable without affecting other cards.
+    } finally {
+      peer?.close();
+    }
+  }
+
+  deletePreparedCardsForTargetRefs(db, unique([
+    ...previousCards.map((row) => row.targetRef),
+    ...cards.keys()
+  ]));
+  for (const card of cards.values()) {
+    insertPreparedCardAndInbox(db, card, generatedAt, {
+      previousCard: previousCardByTarget.get(card.targetRef),
+      previousInbox: previousInboxByTarget.get(card.targetRef)
+    });
+  }
+  return {
+    summaryLeaves: [...cards.values()].reduce((count, card) => count + card.authorityCoverage.summaryLeaves.leafCount, 0),
+    cards: cards.size,
+    inboxItems: cards.size,
+    skippedUnsafeRows
+  };
+}
+
+function buildPreparedLcmCardDraft(expansion: LcmSummaryExpansion): PreparedCardDraft | null {
+  const targetRef = lcmSummaryRef(expansion.root.sourcePath, expansion.root.summaryId);
+  if (!isPublicPreparedSourceRef(targetRef)) return null;
+  const sourceRefs = unique([
+    targetRef,
+    ...expansion.sourceSummaries.map((summary) => lcmSummaryRef(summary.sourcePath, summary.summaryId))
+  ]).filter(isPublicPreparedSourceRef).slice(0, 40);
+  if (sourceRefs.length === 0) return null;
+  const title = cleanPreparedCardField(
+    expansion.root.conversationTitle ?? `LCM summary ${expansion.root.summaryId}`,
+    { fallback: "LCM summary", maxChars: 160, role: "title" }
+  );
+  const summaryText = cleanPreparedCardField(expansion.root.content, {
+    fallback: "LCM summary is empty or unavailable for prepared recall.",
+    maxChars: 320,
+    role: "summary"
+  });
+  const degraded = expansion.reasonCodes.length > 0 || summaryText.lowConfidence;
+  const state: PreparedCardState = degraded ? "stale_or_partial" : "ready";
+  const authorityCoverage: PreparedCard["authorityCoverage"] = {
+    summaryLeaves: {
+      status: degraded ? "partial" : "ok",
+      leafCount: Math.max(1, expansion.sourceSummaries.length),
+      rangeCount: expansion.sourceSummaries.length
+    },
+    sessionMetadata: { status: "ok" },
+    watcherObservations: { status: "not_configured" }
+  };
+  const freshnessAt = latestIso([
+    expansion.root.updatedAt,
+    expansion.root.createdAt,
+    ...expansion.sourceSummaries.flatMap((summary) => [summary.updatedAt, summary.createdAt])
+  ]);
+  const reasonCodes = unique([
+    "lcm_summary_prepared",
+    "metadata_only",
+    "watcher_not_configured",
+    ...expansion.reasonCodes,
+    title.cleaned || summaryText.cleaned ? "presentation_cleaned" : "",
+    degraded ? "authority_partial" : "summary_leaves_ready"
+  ].filter(Boolean));
+  const confidence = degraded ? 0.49 : 0.86;
+  const inputHash = stableId(JSON.stringify({
+    targetRef,
+    sourceRefs,
+    title: title.text,
+    summaryText: summaryText.text,
+    freshnessAt,
+    reasonCodes,
+    extractorVersion: PREPARED_CARD_EXTRACTOR_VERSION
+  }));
+  const cardId = stableId(`prepared-card:${targetRef}:${inputHash}`);
+  return {
+    schema: "lco.prepared.card.v1",
+    cardId,
+    cardRef: `prepared_card:${cardId}`,
+    targetRef,
+    cardKind: "lcm_summary",
+    title: title.text,
+    objective: null,
+    summaryText: summaryText.text,
+    blocker: null,
+    nextAction: "Use bounded LCM expansion before acting on this peer summary.",
+    sourceRefs,
+    sourceRangeRefs: [],
+    sourceRangeRefsOmitted: expansion.reasonCodes.filter((code) => code.includes("omitted") || code.includes("cap") || code.includes("truncated") || code.includes("missing")).length,
+    authorityCoverage,
+    sourceCoverage: preparedCardSourceCoverage(authorityCoverage),
+    inputHash,
+    extractorVersion: PREPARED_CARD_EXTRACTOR_VERSION,
+    privacyClass: "public_safe_metadata",
+    confidence,
+    freshnessAt,
+    stale: false,
+    state,
+    reasonCodes
   };
 }
 
@@ -8775,7 +8953,7 @@ function isPublicPreparedCardRow(
 ): boolean {
   return /^prepared_card:[0-9a-f]{32}$/.test(row.cardRef)
     && isPublicPreparedSourceRef(row.targetRef)
-    && (row.cardKind === "codex_session" || row.cardKind === "claude_session")
+    && (row.cardKind === "codex_session" || row.cardKind === "claude_session" || row.cardKind === "lcm_summary")
     && row.extractorVersion === PREPARED_CARD_EXTRACTOR_VERSION
     && row.privacyClass === "public_safe_metadata"
     && /^[0-9a-f]{32}$/.test(row.inputHash)
@@ -9195,6 +9373,16 @@ function isPublicPreparedSourceRef(value: string): boolean {
   if (value.startsWith("codex_subagent_result:")) return isPublicCodexSubagentResultRef(value);
   if (value.startsWith("claude_session:")) return isPublicClaudeSessionRef(value);
   if (value.startsWith("claude_source:")) return /^claude_source:[0-9a-f]{16}$/.test(value);
+  if (value.startsWith("lcm_summary:")) {
+    const match = /^lcm_summary:([0-9a-f]{12}):([A-Za-z0-9._~%-]+)$/.exec(value);
+    if (!match) return false;
+    try {
+      const decoded = decodeURIComponent(match[2]);
+      return decoded.length > 0 && decoded.length <= 200 && !looksSensitiveRefLike(decoded);
+    } catch {
+      return false;
+    }
+  }
   if (value.startsWith("summary_leaf:")) return isPublicSummaryLeafRef(value);
   return false;
 }
@@ -17337,8 +17525,19 @@ function formatTouchedFiles(files: string[], limit: number, maxChars: number): s
   return [visibleText, omittedMarker].filter(Boolean).join("\n");
 }
 
-export function probeLcmPeerDbs(paths = configuredLcmPeerDbPaths()): { peers: LcmPeerProbe[] } {
-  return { peers: paths.map((path) => probeLcmPeerDb(path)) };
+export function probeLcmPeerDbs(paths = configuredLcmPeerDbPaths()): LcmPeerProbeReport {
+  const peers = paths.map((path) => probeLcmPeerDb(path));
+  const summary = {
+    ready: peers.filter((peer) => peer.status === "ready").length,
+    degraded: peers.filter((peer) => peer.status === "degraded").length,
+    unavailable: peers.filter((peer) => peer.status === "unavailable").length
+  };
+  const status = peers.length > 0 && summary.ready === peers.length
+    ? "ready"
+    : peers.length > 0 && summary.unavailable === peers.length
+      ? "unavailable"
+      : "degraded";
+  return { schema: "lco.lcm.peerDoctor.v1", status, readOnly: true, summary, peers };
 }
 
 function searchCodexEventContent(db: LooDatabase, options: { query: string; limit: number }): { matches: RecallSearchResult[]; reasonCodes: string[] } {
@@ -18645,7 +18844,36 @@ function probeLcmPeerDb(path: string): LcmPeerProbe {
       const tables = listTables(db);
       const supported = tables.includes("summaries");
       const summaryCount = supported ? Number((db.prepare("SELECT COUNT(*) AS count FROM summaries").get() as { count: number }).count) : null;
+      const optionalTables = ["summaries_fts", "conversations", "summary_messages", "summary_parents"];
+      const missingOptionalTables = optionalTables.filter((table) => !tables.includes(table));
+      const emptySummaries = supported
+        ? Number((db.prepare("SELECT COUNT(*) AS count FROM summaries WHERE TRIM(COALESCE(content, '')) = ''").get() as { count: number }).count)
+        : 0;
+      const staleDagLinks = supported && tables.includes("summary_parents")
+        ? Number((db.prepare(`
+            SELECT COUNT(*) AS count
+            FROM summary_parents p
+            LEFT JOIN summaries child ON child.summary_id = p.summary_id
+            LEFT JOIN summaries parent ON parent.summary_id = p.parent_summary_id
+            WHERE child.summary_id IS NULL OR parent.summary_id IS NULL
+          `).get() as { count: number }).count)
+        : 0;
+      const degradedExpansions = missingOptionalTables.includes("summary_parents")
+        ? summaryCount ?? 0
+        : emptySummaries + staleDagLinks;
+      const reasonCodes = unique([
+        ...missingOptionalTables.map((table) => `lcm_peer_optional_table_missing:${table}`),
+        emptySummaries > 0 ? "lcm_peer_empty_summaries" : "",
+        staleDagLinks > 0 ? "lcm_peer_stale_dag_links" : "",
+        degradedExpansions > 0 ? "lcm_peer_degraded_expansion" : ""
+      ].filter(Boolean));
+      const status: LcmPeerProbe["status"] = !supported
+        ? "unavailable"
+        : summaryCount === 0 || reasonCodes.length > 0
+          ? "degraded"
+          : "ready";
       return {
+        status,
         path: publicSafeLcmPeerPath(normalizedPath),
         readable: true,
         readOnly: true,
@@ -18654,13 +18882,15 @@ function probeLcmPeerDb(path: string): LcmPeerProbe {
         tables: tables.filter((table) => ["summaries", "summaries_fts", "conversations", "summary_messages", "summary_parents"].includes(table)),
         summaryCount,
         ftsAvailable: tables.includes("summaries_fts"),
-        reason: supported ? null : "missing summaries table"
+        reason: supported ? null : "missing summaries table",
+        integrity: { missingOptionalTables, emptySummaries, staleDagLinks, degradedExpansions, reasonCodes }
       };
     } finally {
       db.close();
     }
   } catch (error) {
     return {
+      status: "unavailable",
       path: publicSafeLcmPeerPath(normalizedPath),
       readable: false,
       readOnly: true,
@@ -18669,7 +18899,14 @@ function probeLcmPeerDb(path: string): LcmPeerProbe {
       tables: [],
       summaryCount: null,
       ftsAvailable: false,
-      reason: publicSafeText(error instanceof Error ? error.message : String(error), 300)
+      reason: publicSafeText(error instanceof Error ? error.message : String(error), 300),
+      integrity: {
+        missingOptionalTables: [],
+        emptySummaries: 0,
+        staleDagLinks: 0,
+        degradedExpansions: 0,
+        reasonCodes: ["lcm_peer_unavailable"]
+      }
     };
   }
 }

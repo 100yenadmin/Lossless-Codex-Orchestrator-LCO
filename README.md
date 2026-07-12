@@ -227,10 +227,17 @@ Optional: allow recall from one or more OpenClaw LCM peer databases:
 export LCO_LCM_DB_PATHS="$HOME/.openclaw/lcm.db"
 ```
 
+Configured peers stay read-only. `lco index codex` and `lco find` materialize
+public-safe advisory cards and inbox items from their summary DAGs without
+copying peer rows into LCO source tables. Inspect peer readiness and integrity
+with `lco doctor --peers`; peers are classified as ready, degraded, or
+unavailable with omission reasons for missing tables, empty summaries, and
+stale DAG links.
+
 Check local readiness:
 
 ```bash
-lco doctor
+lco doctor --peers
 lco onboard status --strict
 ```
 

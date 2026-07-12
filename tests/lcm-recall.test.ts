@@ -6,6 +6,8 @@ import { homedir, tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
+import { createAuditStore } from "../packages/adapters/src/index.js";
+import { createLooTools } from "../packages/mcp-server/src/tools.js";
 
 import {
   configuredLcmPeerDbPaths,
@@ -13,6 +15,8 @@ import {
   describeRecallRef,
   expandQuery,
   expandRecallRef,
+  getPreparedCards,
+  getPreparedInbox,
   grepRecall,
   indexCodexSessions,
   probeLcmPeerDbs
@@ -46,6 +50,12 @@ function createLcmPeerSchema(lcm: DatabaseSync): void {
       parent_summary_id TEXT NOT NULL,
       ordinal INTEGER NOT NULL,
       PRIMARY KEY (summary_id, parent_summary_id)
+    );
+    CREATE TABLE summary_messages (
+      summary_id TEXT NOT NULL,
+      message_id TEXT NOT NULL,
+      ordinal INTEGER NOT NULL,
+      PRIMARY KEY (summary_id, message_id)
     );
     CREATE VIRTUAL TABLE summaries_fts USING fts5(summary_id UNINDEXED, content, tokenize = 'unicode61');
   `);
@@ -339,6 +349,108 @@ test("grep -> describe -> expand_query preserves Codex and read-only LCM source 
     }
   } finally {
     db.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM peer doctor classifies ready degraded and unavailable without mutation", () => {
+  const ready = makeDagFixture();
+  const degraded = makeDagFixture();
+  ready.addSummary("ready_root", "Ready LCM root summary.", { kind: "condensed", depth: 1 });
+  ready.addSummary("ready_leaf", "Ready LCM source leaf.", { kind: "leaf", depth: 0 });
+  ready.addParent("ready_root", "ready_leaf", 0);
+  degraded.addSummary("degraded_root", "Degraded LCM root summary.", { kind: "condensed", depth: 1 });
+  degraded.addParent("degraded_root", "missing_leaf", 0);
+  degraded.addSummary("empty_leaf", "", { kind: "leaf", depth: 0 });
+  const missingPath = join(degraded.root, "missing-peer.sqlite");
+  const readyBefore = peerDbState(ready.lcmPath);
+  const degradedBefore = peerDbState(degraded.lcmPath);
+  try {
+    const report = probeLcmPeerDbs([ready.lcmPath, degraded.lcmPath, missingPath]);
+    assert.equal(report.status, "degraded");
+    assert.deepEqual(report.summary, { ready: 1, degraded: 1, unavailable: 1 });
+    assert.equal(report.peers[0]?.status, "ready");
+    assert.deepEqual(report.peers[0]?.integrity.reasonCodes, []);
+    assert.equal(report.peers[1]?.status, "degraded");
+    assert.equal(report.peers[1]?.integrity.emptySummaries, 1);
+    assert.equal(report.peers[1]?.integrity.staleDagLinks, 1);
+    assert.equal(report.peers[1]?.integrity.degradedExpansions >= 1, true);
+    assert.equal(report.peers[2]?.status, "unavailable");
+    assert.equal(report.readOnly, true);
+    assert.deepEqual(peerDbState(ready.lcmPath), readyBefore);
+    assert.deepEqual(peerDbState(degraded.lcmPath), degradedBefore);
+    for (const path of [ready.lcmPath, degraded.lcmPath]) {
+      for (const suffix of ["-wal", "-shm", "-journal"]) assert.equal(existsSync(`${path}${suffix}`), false);
+    }
+  } finally {
+    ready.close();
+    degraded.close();
+    rmSync(ready.root, { recursive: true, force: true });
+    rmSync(degraded.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM summary DAGs materialize public-safe prepared cards and inbox items", () => {
+  const fixture = makeDagFixture();
+  fixture.addSummary("card_root", "Prepared LCM root summary for the next operator.", { kind: "condensed", depth: 1 });
+  fixture.addSummary("card_leaf", "Prepared LCM source leaf with bounded evidence.", { kind: "leaf", depth: 0 });
+  fixture.addParent("card_root", "card_leaf", 0);
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  const before = peerDbState(fixture.lcmPath);
+  try {
+    const indexed = indexCodexSessions(db, { roots: [], lcmDbPaths: [fixture.lcmPath] });
+    assert.deepEqual(indexed.errors, []);
+    const cards = getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary");
+    assert.equal(cards.length, 2);
+    const rootCard = cards.find((card) => card.targetRef.includes("card_root"));
+    assert.ok(rootCard);
+    assert.equal(rootCard.summaryText.includes("Prepared LCM root summary"), true);
+    assert.equal(rootCard.sourceRefs.some((ref) => ref.includes("card_leaf")), true);
+    assert.equal(rootCard.authorityCoverage.summaryLeaves.status, "ok");
+    assert.equal(rootCard.freshnessAt, "2026-07-08T00:02:00.000Z");
+    const inbox = getPreparedInbox(db, { limit: 10 }).items.filter((item) => item.targetRef.startsWith("lcm_summary:"));
+    assert.equal(inbox.length, 2);
+    assert.equal(inbox.every((item) => item.execute === false), true);
+    assert.deepEqual(peerDbState(fixture.lcmPath), before);
+  } finally {
+    db.close();
+    fixture.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("MCP index, prepared cards, and doctor share the configured LCM peer contract", async () => {
+  const fixture = makeDagFixture();
+  fixture.addSummary("mcp_root", "MCP-visible LCM prepared summary.", { kind: "condensed", depth: 1 });
+  const dbPath = join(fixture.root, "orchestrator.sqlite");
+  const db = createDatabase(dbPath);
+  const audit = createAuditStore(join(fixture.root, "audit.jsonl"));
+  const previousPeers = process.env.LOO_LCM_DB_PATHS;
+  process.env.LOO_LCM_DB_PATHS = fixture.lcmPath;
+  const tools = createLooTools({
+    db,
+    dbPath,
+    audit,
+    codexClient: { request: async () => ({ ok: true }) },
+    includeAliases: false
+  });
+  try {
+    const indexTool = tools.find((tool) => tool.name === "lco_index_sessions");
+    const cardsTool = tools.find((tool) => tool.name === "lco_prepared_state");
+    const doctorTool = tools.find((tool) => tool.name === "lco_doctor");
+    const peerTool = tools.find((tool) => tool.name === "lco_lcm_peer_dbs");
+    assert.ok(indexTool && cardsTool && doctorTool && peerTool);
+    await indexTool.execute({ roots: [fixture.root], lcm_db_paths: [fixture.lcmPath] });
+    const cards = await cardsTool.execute({ view: "cards", limit: 10 }) as { cards: Array<{ cardKind: string; targetRef: string }> };
+    assert.equal(cards.cards.some((card) => card.cardKind === "lcm_summary" && card.targetRef.includes("mcp_root")), true);
+    const doctor = await doctorTool.execute({}) as { lcmPeers: unknown };
+    const peers = await peerTool.execute({ lcm_db_paths: [fixture.lcmPath] });
+    assert.deepEqual(doctor.lcmPeers, peers);
+  } finally {
+    if (previousPeers === undefined) delete process.env.LOO_LCM_DB_PATHS;
+    else process.env.LOO_LCM_DB_PATHS = previousPeers;
+    db.close();
+    fixture.close();
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });

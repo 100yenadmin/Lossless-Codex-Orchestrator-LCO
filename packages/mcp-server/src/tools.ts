@@ -541,6 +541,7 @@ export function createLooTools(options: {
       target: { type: "string", enum: ["codex", "claude", "all"] },
       roots: { type: "array", items: { type: "string" } },
       claude_roots: { type: "array", items: { type: "string" } },
+      lcm_db_paths: { type: "array", items: { type: "string" } },
       max_files: { type: "integer", minimum: 1, maximum: 100000 },
       max_bytes_per_file: { type: "integer", minimum: 1, maximum: 1073741824 },
       max_events_per_file: { type: "integer", minimum: 1, maximum: 1000000 }
@@ -549,6 +550,7 @@ export function createLooTools(options: {
       const codex = target === "codex" || target === "all"
         ? indexCodexSessions(options.db, {
           roots: optionalRoots(input.roots, defaultCodexRoots()),
+          lcmDbPaths: optionalRoots(input.lcm_db_paths, configuredLcmPeerDbPaths()),
           maxFiles: optionalNumber(input.max_files),
           maxBytesPerFile: optionalNumber(input.max_bytes_per_file),
           maxEventsPerFile: optionalNumber(input.max_events_per_file)
@@ -571,6 +573,7 @@ export function createLooTools(options: {
       index_target: { type: "string", enum: ["codex", "claude", "all"] },
       roots: { type: "array", items: { type: "string" } },
       claude_roots: { type: "array", items: { type: "string" } },
+      lcm_db_paths: { type: "array", items: { type: "string" } },
       max_files: { type: "integer", minimum: 1, maximum: 100000 },
       max_bytes_per_file: { type: "integer", minimum: 1, maximum: 1073741824 },
       max_events_per_file: { type: "integer", minimum: 1, maximum: 1000000 }
@@ -582,6 +585,7 @@ export function createLooTools(options: {
       const codex = shouldIndex && (indexTarget === "codex" || indexTarget === "all")
         ? indexCodexSessions(options.db, {
           roots: optionalRoots(input.roots, defaultCodexRoots()),
+          lcmDbPaths: optionalRoots(input.lcm_db_paths, configuredLcmPeerDbPaths()),
           maxFiles: optionalNumber(input.max_files),
           maxBytesPerFile: optionalNumber(input.max_bytes_per_file),
           maxEventsPerFile: optionalNumber(input.max_events_per_file)
@@ -604,6 +608,7 @@ export function createLooTools(options: {
           query,
           limit,
           profile: "brief",
+          lcmDbPaths: optionalRoots(input.lcm_db_paths, configuredLcmPeerDbPaths()),
           telemetry: false
         })
       });
