@@ -549,22 +549,25 @@ test("LCM prepared cards reconcile disabled peers and retain unavailable peer ca
   }
 });
 
-test("LCM prepared cards delete removed peers while retaining unavailable configured peers", () => {
+test("LCM prepared cards delete removed peers while retaining an unavailable symlinked peer", () => {
   const unavailableFixture = makeDagFixture();
   const removedFixture = makeDagFixture();
   unavailableFixture.addSummary("unavailable_root", "Unavailable configured peer summary.");
   removedFixture.addSummary("removed_root", "Removed peer summary.");
+  const unavailableAliasPath = join(unavailableFixture.root, "unavailable-peer-alias.sqlite");
+  symlinkSync(unavailableFixture.lcmPath, unavailableAliasPath);
   const root = mkdtempSync(join(tmpdir(), "loo-lcm-mixed-peer-reconcile-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
   let unavailableFixtureClosed = false;
   try {
-    indexCodexSessions(db, { roots: [], lcmDbPaths: [unavailableFixture.lcmPath, removedFixture.lcmPath] });
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [unavailableAliasPath, removedFixture.lcmPath] });
     assert.equal(getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary").length, 2);
 
     unavailableFixture.close();
     unavailableFixtureClosed = true;
-    rmSync(unavailableFixture.lcmPath, { force: true });
-    indexCodexSessions(db, { roots: [], lcmDbPaths: [unavailableFixture.lcmPath] });
+    writeFileSync(unavailableFixture.lcmPath, "not a sqlite database");
+    assert.equal(existsSync(unavailableAliasPath), true);
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [unavailableAliasPath] });
 
     const cards = getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary");
     assert.equal(cards.length, 1);
