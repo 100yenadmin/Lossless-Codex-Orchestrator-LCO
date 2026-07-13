@@ -3895,6 +3895,7 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
       const extractorStateCurrent = watermark ? sourceFileExtractorStateIsCurrent(watermark) : false;
       const eventContentCurrent = !eventContentEnabled || (watermark ? sourceFileEventContentCurrent(db, path) : false);
       if (sameWatermark && extractorStateCurrent && eventContentCurrent && !verify) {
+        refreshSourceFileWatermarkMetadata(db, path, stat);
         result.skippedFiles += 1;
         continue;
       }
@@ -11140,7 +11141,7 @@ export function getCodexThreadMap(db: LooDatabase, options: CodexThreadMapOption
       s.title,
       s.summary,
       s.updated_at AS updatedAt,
-      s.indexed_at AS refreshedAt,
+      COALESCE(sf.last_indexed_at, s.indexed_at) AS refreshedAt,
       s.source_path AS sourcePath,
       m.project,
       m.status,
@@ -11155,6 +11156,7 @@ export function getCodexThreadMap(db: LooDatabase, options: CodexThreadMapOption
       m.touched_file_refs_json AS touchedFileRefsJson,
       m.source_refs_json AS sourceRefsJson
     FROM codex_sessions s
+    LEFT JOIN codex_source_files sf ON sf.source_path = s.source_path
     LEFT JOIN codex_session_metadata m ON m.thread_id = s.thread_id
     ${whereSql}
     ORDER BY ${priorityRank} COALESCE(s.updated_at, s.indexed_at) DESC

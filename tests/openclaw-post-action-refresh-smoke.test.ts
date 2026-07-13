@@ -130,7 +130,7 @@ function writeLiveProofReport(path: string, overrides: Record<string, unknown> =
   }, null, 2)}\n`);
 }
 
-function createFakeOpenClaw(dir: string, options: { rawExpansion?: boolean; rawContentEnvelope?: boolean; detailsNotOk?: boolean; directDetailsErrorStatus?: boolean; nestedDetailsResponseNotOk?: boolean; nestedSuccessWrapper?: boolean; nestedDomainFailureStatus?: boolean; directDomainFailureStatus?: boolean; directDetailsEnvelope?: boolean; detailsWithoutContent?: boolean; staleSearchAndExpansion?: boolean; nestedTargetOnlyExpansion?: boolean; nestedTargetOnlyCoreOutputs?: boolean; nestedArrayTargetOnlySearch?: boolean; staleRefreshTimestamp?: boolean; missingRefreshTimestamp?: boolean; nestedRefreshTimestampOnly?: boolean; missingMapMarkers?: boolean; publicThreadMapShape?: boolean; missingMapStatus?: boolean; nestedStatusLookalike?: boolean; topLevelStatusLookalike?: boolean; domainEnvelopeLookalikes?: boolean; alternateTopLevelSearchCollection?: boolean; detailsEnvelope?: boolean } = {}): { bin: string; callsPath: string } {
+function createFakeOpenClaw(dir: string, options: { rawExpansion?: boolean; rawContentEnvelope?: boolean; detailsNotOk?: boolean; directDetailsErrorStatus?: boolean; nestedDetailsResponseNotOk?: boolean; nestedSuccessWrapper?: boolean; nestedDomainFailureStatus?: boolean; directDomainFailureStatus?: boolean; directDetailsEnvelope?: boolean; directDetailsOk?: boolean; detailsWithoutContent?: boolean; staleSearchAndExpansion?: boolean; nestedTargetOnlyExpansion?: boolean; nestedTargetOnlyCoreOutputs?: boolean; nestedArrayTargetOnlySearch?: boolean; staleRefreshTimestamp?: boolean; missingRefreshTimestamp?: boolean; nestedRefreshTimestampOnly?: boolean; missingMapMarkers?: boolean; publicThreadMapShape?: boolean; missingMapStatus?: boolean; nestedStatusLookalike?: boolean; topLevelStatusLookalike?: boolean; domainEnvelopeLookalikes?: boolean; alternateTopLevelSearchCollection?: boolean; detailsEnvelope?: boolean } = {}): { bin: string; callsPath: string } {
   const callsPath = join(dir, "calls.jsonl");
   const bin = join(dir, "openclaw-refresh-fake.mjs");
   const refreshedAt = options.staleRefreshTimestamp ? "2026-07-01T00:00:30.000Z" : "2026-07-01T00:02:00.000Z";
@@ -185,7 +185,7 @@ function createFakeOpenClaw(dir: string, options: { rawExpansion?: boolean; rawC
       related: { sourceRef: "${TARGET_REF}", refreshedAt: "${refreshedAt}" }
     }`;
   const wrapOutput = (output: string) => options.detailsEnvelope
-    ? `${options.directDetailsEnvelope ? "" : "{ ok: true, output: "}{ ${options.detailsWithoutContent ? "" : `content: [{ type: "text", text: "${options.rawContentEnvelope ? "RAW_TRANSCRIPT: private raw session text" : "public-safe output"}" }], `}details: ${options.detailsNotOk
+    ? `${options.directDetailsEnvelope ? `{ ${options.directDetailsOk ? "ok: true, " : ""}` : "{ ok: true, output: { "}${options.detailsWithoutContent ? "" : `content: [{ type: "text", text: "${options.rawContentEnvelope ? "RAW_TRANSCRIPT: private raw session text" : "public-safe output"}" }], `}details: ${options.detailsNotOk
       ? output.replace(/^\s*\{/, "{ ok: false,")
       : options.nestedDetailsResponseNotOk
         ? output.replace(/^\s*\{/, "{ response: { ok: false },")
@@ -502,6 +502,7 @@ test("OpenClaw post-action refresh smoke unwraps direct native details without c
     publicThreadMapShape: true,
     detailsEnvelope: true,
     directDetailsEnvelope: true,
+    directDetailsOk: true,
     detailsWithoutContent: true
   });
   const previous = process.env.OPENCLAW_FAKE_CALLS;

@@ -1268,6 +1268,8 @@ test("extracts public-safe session metadata and closeout fields", () => {
     const indexRefreshedAt = "2026-07-01T00:02:00.000Z";
     db.prepare("UPDATE codex_sessions SET updated_at = ?, indexed_at = ? WHERE thread_id = ?")
       .run(sourceUpdatedAt, indexRefreshedAt, "019f-metadata-thread");
+    db.prepare("UPDATE codex_source_files SET last_indexed_at = ? WHERE source_path = ?")
+      .run(indexRefreshedAt, threadPath);
 
     const description = describeSession(db, "019f-metadata-thread");
     assert.deepEqual(description?.metadata, {
@@ -1291,6 +1293,22 @@ test("extracts public-safe session metadata and closeout fields", () => {
     assert.equal(threadMapEntry?.updatedAt, sourceUpdatedAt);
     assert.equal(threadMapEntry?.refreshedAt, indexRefreshedAt);
     assert.notEqual(threadMapEntry?.refreshedAt, threadMapEntry?.updatedAt);
+
+    const staleParseAt = "2026-07-01T00:00:00.000Z";
+    db.prepare("UPDATE codex_sessions SET indexed_at = ? WHERE thread_id = ?")
+      .run(staleParseAt, "019f-metadata-thread");
+    db.prepare("UPDATE codex_source_files SET last_indexed_at = ? WHERE source_path = ?")
+      .run(staleParseAt, threadPath);
+    const refreshStartedAt = new Date().toISOString();
+    const refresh = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+    assert.equal(refresh.skippedFiles, 1);
+    const sourceRefresh = db.prepare("SELECT last_indexed_at AS lastIndexedAt FROM codex_source_files WHERE source_path = ?")
+      .get(threadPath) as { lastIndexedAt: string };
+    const sessionParse = db.prepare("SELECT indexed_at AS indexedAt FROM codex_sessions WHERE thread_id = ?")
+      .get("019f-metadata-thread") as { indexedAt: string };
+    assert.equal(sourceRefresh.lastIndexedAt >= refreshStartedAt, true);
+    assert.equal(sessionParse.indexedAt, staleParseAt);
+    assert.equal(getCodexThreadMap(db, { limit: 10 })[0]?.refreshedAt, sourceRefresh.lastIndexedAt);
 
     const recallDescription = describeRecallRef(db, { sourceRef: "codex_thread:019f-metadata-thread" });
     assert.deepEqual(recallDescription?.metadata, description?.metadata);

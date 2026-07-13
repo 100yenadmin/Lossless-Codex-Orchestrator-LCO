@@ -464,10 +464,10 @@ function unwrapToolOutput(value: unknown): unknown {
 function resolveNativeEnvelopeDetails(value: unknown): unknown {
   if (!isRecord(value)) return undefined;
   if (isRecord(value.output)
-    && Object.keys(value.output).every((key) => ["content", "details"].includes(key))) {
+    && Object.keys(value.output).every((key) => ["ok", "content", "details"].includes(key))) {
     return "details" in value.output ? value.output.details : undefined;
   }
-  if (Object.keys(value).every((key) => ["content", "details"].includes(key))) {
+  if (Object.keys(value).every((key) => ["ok", "content", "details"].includes(key))) {
     return "details" in value ? value.details : undefined;
   }
   return undefined;
