@@ -402,6 +402,22 @@ test("LCM peer doctor treats an optional unconfigured peer set as ready", () => 
   assert.deepEqual(report.peers, []);
 });
 
+test("LCM peer doctor bounds stale DAG link inspection", () => {
+  const fixture = makeDagFixture();
+  try {
+    for (let index = 0; index <= 500; index += 1) {
+      fixture.addParent(`missing_child_${index}`, `missing_parent_${index}`, index);
+    }
+    const report = probeLcmPeerDbs([fixture.lcmPath]);
+    assert.equal(report.peers[0]?.integrity.staleDagLinks, 501);
+    assert.equal(report.peers[0]?.integrity.reasonCodes.includes("lcm_peer_integrity_scan_cap"), true);
+    assert.equal(report.peers[0]?.status, "degraded");
+  } finally {
+    fixture.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("LCM peer doctor degrades cyclic summary DAGs", () => {
   const fixture = makeDagFixture();
   fixture.addSummary("cycle_a", "Cycle A summary.");
@@ -576,7 +592,12 @@ test("MCP index, prepared cards, and doctor share the configured LCM peer contra
     const cardsTool = tools.find((tool) => tool.name === "lco_prepared_state");
     const doctorTool = tools.find((tool) => tool.name === "lco_doctor");
     const peerTool = tools.find((tool) => tool.name === "lco_lcm_peer_dbs");
-    assert.ok(indexTool && cardsTool && doctorTool && peerTool);
+    const findTool = tools.find((tool) => tool.name === "lco_find");
+    assert.ok(indexTool && cardsTool && doctorTool && peerTool && findTool);
+    const explicitEmptyPeers = await peerTool.execute({ lcm_db_paths: [] }) as { peers: unknown[] };
+    assert.deepEqual(explicitEmptyPeers.peers, []);
+    const explicitEmptyFind = await findTool.execute({ query: "MCP-visible", roots: [], claude_roots: [], lcm_db_paths: [], index: false }) as { results: unknown[] };
+    assert.deepEqual(explicitEmptyFind.results, []);
     await indexTool.execute({ roots: [fixture.root], lcm_db_paths: [fixture.lcmPath] });
     const cards = await cardsTool.execute({ view: "cards", limit: 10 }) as { cards: Array<{ cardKind: string; targetRef: string }> };
     assert.equal(cards.cards.some((card) => card.cardKind === "lcm_summary" && card.targetRef.includes("mcp_root")), true);

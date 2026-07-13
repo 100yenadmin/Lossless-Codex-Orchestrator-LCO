@@ -9413,7 +9413,12 @@ function isPublicPreparedSourceRef(value: string): boolean {
     const match = /^lcm_summary:([0-9a-f]{12}):([A-Za-z0-9._~%-]+)$/.exec(value);
     if (!match) return false;
     try {
-      const decoded = decodeURIComponent(match[2]);
+      let decoded = match[2];
+      for (let pass = 0; pass < 3; pass += 1) {
+        const next = decodeURIComponent(decoded);
+        if (next === decoded) break;
+        decoded = next;
+      }
       return decoded.length > 0 && decoded.length <= 200 && !looksSensitiveRefLike(decoded);
     } catch {
       return false;
@@ -17751,7 +17756,9 @@ export function createFindRecallReport(options: {
   const requestedLimit = options.limit ?? (options.recall.matches.length || 10);
   const limit = clamp(requestedLimit, 1, 100);
   const indexed = normalizeRecallIndexSummary(options.indexed ?? null);
-  const results = options.recall.matches.slice(0, limit).map(sanitizeFindRecallResult);
+  const safeMatches = options.recall.matches.filter((match) => match.sourceKind !== "lcm_summary" || isPublicPreparedSourceRef(match.sourceRef));
+  const unsafeResultsFiltered = safeMatches.length !== options.recall.matches.length;
+  const results = safeMatches.slice(0, limit).map(sanitizeFindRecallResult);
   const incrementalIndexAttempted = indexed?.attempted ?? false;
   const localCodexSourceRead = Boolean(indexed?.sourceKinds.includes("codex"));
   const localClaudeSourceRead = Boolean(indexed?.sourceKinds.includes("claude"));
@@ -17801,6 +17808,7 @@ export function createFindRecallReport(options: {
       localCodexSourceRead ? "codex_index_attempted" : "",
       localClaudeSourceRead ? "claude_index_attempted" : "",
       localLcmSourceRead ? "lcm_peer_source_read" : "",
+      unsafeResultsFiltered ? "unsafe_results_filtered" : "",
       results.some((result) => result.reasonCodes.includes("event_content_fts_match")) ? "event_content_results_available" : "",
       results.length === 0 ? "no_matches" : ""
     ].filter(Boolean))
@@ -18898,12 +18906,17 @@ function probeLcmPeerDb(path: string): LcmPeerProbe {
       const staleDagLinks = supported && tables.includes("summary_parents")
         ? Number((db.prepare(`
             SELECT COUNT(*) AS count
-            FROM summary_parents p
-            LEFT JOIN summaries child ON child.summary_id = p.summary_id
-            LEFT JOIN summaries parent ON parent.summary_id = p.parent_summary_id
-            WHERE child.summary_id IS NULL OR parent.summary_id IS NULL
-          `).get() as { count: number }).count)
+            FROM (
+              SELECT 1
+              FROM summary_parents p
+              LEFT JOIN summaries child ON child.summary_id = p.summary_id
+              LEFT JOIN summaries parent ON parent.summary_id = p.parent_summary_id
+              WHERE child.summary_id IS NULL OR parent.summary_id IS NULL
+              LIMIT ?
+            ) bounded_stale_links
+          `).get(LCM_PEER_SUMMARY_SCAN_MAX + 1) as { count: number }).count)
         : 0;
+      const staleDagLinkScanCapped = staleDagLinks > LCM_PEER_SUMMARY_SCAN_MAX;
       const integrityRows = supported && tables.includes("summary_parents")
         ? db.prepare(`
             SELECT SUBSTR(summary_id, 1, ${LCM_SUMMARY_ID_MAX_CHARS + 1}) AS summaryId
@@ -18928,7 +18941,7 @@ function probeLcmPeerDb(path: string): LcmPeerProbe {
         emptySummaries > 0 ? "lcm_peer_empty_summaries" : "",
         staleDagLinks > 0 ? "lcm_peer_stale_dag_links" : "",
         dagCycles > 0 ? "lcm_peer_dag_cycle" : "",
-        integrityScanCapped ? "lcm_peer_integrity_scan_cap" : "",
+        integrityScanCapped || staleDagLinkScanCapped ? "lcm_peer_integrity_scan_cap" : "",
         degradedExpansions > 0 ? "lcm_peer_degraded_expansion" : ""
       ].filter(Boolean));
       const status: LcmPeerProbe["status"] = !supported

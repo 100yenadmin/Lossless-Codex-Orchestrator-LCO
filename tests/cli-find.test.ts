@@ -239,6 +239,35 @@ test("lco find reports direct LCM peer reads without claiming transcript access"
   assert.equal(noMatch.actionsPerformed.rawTranscriptRead, false);
 });
 
+test("lco find filters encoded private-looking LCM references", () => {
+  const encodedPrivateRef = "lcm_summary:0123456789ab:%252FUsers%252Flume%252Fprivate-summary";
+  const report = createFindRecallReport({
+    query: "private peer",
+    indexed: null,
+    recall: {
+      query: "private peer",
+      profile: "brief",
+      reasonCodes: ["lcm_peer_source_read"],
+      matches: [{
+        sourceKind: "lcm_summary",
+        sourceRef: encodedPrivateRef,
+        title: "Private peer",
+        summary: "Should not escape.",
+        updatedAt: null,
+        score: 1,
+        snippet: "Should not escape.",
+        summaryId: "%2FUsers%2Flume%2Fprivate-summary",
+        reasonCodes: ["lcm_summary_match"]
+      }]
+    }
+  });
+
+  assert.equal(report.resultCount, 0);
+  assert.equal(report.actionsPerformed.localLcmSourceRead, true);
+  assert.equal(report.reasonCodes.includes("unsafe_results_filtered"), true);
+  assert.doesNotMatch(JSON.stringify(report), /%2FUsers|%252FUsers|private-summary/);
+});
+
 test("lco_find MCP facade indexes then returns the same public-safe find packet", async () => {
   const root = mkdtempSync(join(tmpdir(), "lco-find-mcp-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
