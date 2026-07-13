@@ -104,6 +104,8 @@ function createFakeOpenClaw(
     deepDesktopActProof?: boolean;
     wideDesktopActProof?: boolean;
     currentProductFailClosedShapes?: boolean;
+    successfulPostCreateProof?: boolean;
+    successfulPostCreateRestrictedAction?: boolean;
     unsafeIndexErrorPath?: boolean;
     unsafeIndexMutationClass?: boolean;
     unsafeIndexPublicSafe?: boolean;
@@ -506,6 +508,10 @@ if (method === "tools.invoke") {
     process.exit(0);
   }
   if (name === "loo_codex_start_thread_post_create_proof") {
+    if (${options.successfulPostCreateProof ? "true" : "false"}) {
+      console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { details: { schema: "lco.codex.startThreadPostCreateProof.v1", public_safe: true, read_only: true, status: "persisted", created_thread_ref: toolArgs.created_thread_ref, proof: { app_server: { found: true, read_probe_ok: true }, index: { found: true, described: true }, prepared_state: { card_available: true } }, reason_codes: ["read_only_app_server_signal", "read_probe_found_thread", "indexed_session_found", "indexed_description_available", "prepared_card_available"], actions_performed: { live_codex_control_run: ${options.successfulPostCreateRestrictedAction ? "true" : "false"}, desktop_gui_action_run: false, raw_transcript_read: false, source_store_mutation: false, npm_publish: false, github_release: false } } } }));
+      process.exit(0);
+    }
     if (${options.currentProductFailClosedShapes ? "true" : "false"}) {
       console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { details: { schema: "lco.codex.startThreadPostCreateProof.v1", public_safe: true, read_only: true, status: "unresolved_unknown", created_thread_ref: toolArgs.created_thread_ref, reason_codes: ["app_server_thread_missing", "read_probe_missing_or_failed", "created_but_unindexed_pending", "indexed_description_missing", "prepared_card_missing", "unresolved_unknown"], actions_performed: { live_codex_control_run: false, desktop_gui_action_run: false, raw_transcript_read: false, source_store_mutation: false, npm_publish: false, github_release: false } } } }));
       process.exit(0);
@@ -1196,6 +1202,62 @@ test("OpenClaw tool smoke accepts current product fail-closed envelopes for boun
       channelDelivery: false,
       broadGatewayScopeApproval: false
     });
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke accepts a successful public-safe post-create proof", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-post-create-success-"));
+  const toolName = "loo_codex_start_thread_post_create_proof";
+  const { bin, callsPath } = createFakeOpenClaw(dir, [toolName], "flat", {
+    successfulPostCreateProof: true
+  });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      requiredTools: [toolName],
+      threadId: "00000000-0000-4000-8000-000000000001"
+    });
+
+    assert.equal(report.toolSmokeReady, true, JSON.stringify(report, null, 2));
+    const invocation = report.invocations.find((call) => call.toolName === toolName);
+    assert.equal(invocation?.ok, true, JSON.stringify(invocation, null, 2));
+    assert.equal(invocation?.disposition, "successful_invocation");
+    assert.equal(invocation?.productEvidenceClaimed, true);
+    assert.equal(report.smokeDispositionPlan.entries.find((entry) => entry.toolName === toolName)?.disposition, "successful_invocation");
+    assert.deepEqual(report.blockers, []);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke rejects a persisted post-create proof with a restricted action", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-post-create-restricted-"));
+  const toolName = "loo_codex_start_thread_post_create_proof";
+  const { bin, callsPath } = createFakeOpenClaw(dir, [toolName], "flat", {
+    successfulPostCreateProof: true,
+    successfulPostCreateRestrictedAction: true
+  });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      requiredTools: [toolName],
+      threadId: "00000000-0000-4000-8000-000000000001"
+    });
+
+    assert.equal(report.toolSmokeReady, false);
+    const invocation = report.invocations.find((call) => call.toolName === toolName);
+    assert.equal(invocation?.ok, false);
+    assert.equal(invocation?.disposition, "expected_fail_closed");
+    assert.equal(invocation?.productEvidenceClaimed, false);
+    assert.equal(report.blockers.includes(`expected_fail_closed_not_proven:${toolName}`), true);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;
