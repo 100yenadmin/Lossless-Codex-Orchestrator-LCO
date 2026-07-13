@@ -1787,14 +1787,21 @@ function summarizeInvocation(
         || item.execute !== false;
     })) blockers.push("prepared_inbox_public_refs_invalid");
   }
+  const postCreateProofValidationBlockers = toolName === "loo_codex_start_thread_post_create_proof"
+    ? successfulPostCreateProofBlockers(details ?? output, requestArgs)
+    : [];
   const successfulPostCreateProof = toolName === "loo_codex_start_thread_post_create_proof"
-    && successfulPostCreateProofProven(details ?? output, requestArgs);
+    && postCreateProofValidationBlockers.length === 0;
+  if (!successfulPostCreateProof
+    && !blockers.includes(`openclaw_tool_result_not_ok:${toolName}`)) {
+    blockers.push(...postCreateProofValidationBlockers.filter((blocker) => !blockers.includes(blocker)));
+  }
   const effectiveDisposition = successfulPostCreateProof ? "successful_invocation" : disposition;
   if (disposition === "expected_fail_closed" && !successfulPostCreateProof) {
     const failClosedProven = expectedFailClosedProven(toolName, details ?? output, summary, requestArgs);
     if (failClosedProven) {
       blockers = blockers.filter((blocker) => blocker !== `openclaw_tool_result_not_ok:${toolName}`);
-    } else if (blockers.length === 0) {
+    } else if (blockers.length === 0 || toolName === "loo_codex_start_thread_post_create_proof") {
       blockers.push(`expected_fail_closed_not_proven:${toolName}`);
     }
   }
@@ -1811,11 +1818,12 @@ function summarizeInvocation(
   };
 }
 
-function successfulPostCreateProofProven(
+function successfulPostCreateProofBlockers(
   value: unknown,
   requestArgs: Record<string, unknown>
-): boolean {
-  if (!isRecord(value) || hasRestrictedActionPerformed(value)) return false;
+): string[] {
+  if (!isRecord(value)) return ["post_create_proof_envelope_invalid"];
+  if (hasRestrictedActionPerformed(value)) return ["post_create_proof_restricted_action_present"];
   const createdThreadRef = stringPath(value, ["createdThreadRef"])
     || stringPath(value, ["created_thread_ref"]);
   const requestedThreadRef = typeof requestArgs.created_thread_ref === "string"
@@ -1827,7 +1835,7 @@ function successfulPostCreateProofProven(
       ? value.actions_performed
       : undefined;
   const proof = isRecord(value.proof) ? value.proof : undefined;
-  if (!actions || !proof) return false;
+  if (!actions || !proof) return ["post_create_proof_structure_invalid"];
 
   const explicitFalse = (camelCase: string, snakeCase: string): boolean => {
     const values = [actions[camelCase], actions[snakeCase]].filter((entry) => entry !== undefined);
@@ -1845,24 +1853,27 @@ function successfulPostCreateProofProven(
   const indexSourceRef = index
     ? stringPath(index, ["sourceRef"]) || stringPath(index, ["source_ref"])
     : undefined;
-  return value.schema === "lco.codex.startThreadPostCreateProof.v1"
-    && (value.publicSafe === true || value.public_safe === true)
-    && (value.readOnly === true || value.read_only === true)
-    && value.status === "persisted"
-    && Boolean(requestedThreadRef)
-    && createdThreadRef === requestedThreadRef
-    && appServerThreadRef === createdThreadRef
-    && indexSourceRef === createdThreadRef
-    && appServer?.found === true
-    && (appServer?.readProbeOk === true || appServer?.read_probe_ok === true)
-    && index?.found === true
-    && index?.described === true
-    && explicitFalse("liveCodexControlRun", "live_codex_control_run")
-    && explicitFalse("desktopGuiActionRun", "desktop_gui_action_run")
-    && explicitFalse("rawTranscriptRead", "raw_transcript_read")
-    && explicitFalse("sourceStoreMutation", "source_store_mutation")
-    && explicitFalse("npmPublished", "npm_publish")
-    && explicitFalse("githubReleaseCreated", "github_release");
+  const checks: Array<[boolean, string]> = [
+    [value.schema === "lco.codex.startThreadPostCreateProof.v1", "post_create_proof_schema_invalid"],
+    [value.publicSafe === true || value.public_safe === true, "post_create_proof_public_safe_missing"],
+    [value.readOnly === true || value.read_only === true, "post_create_proof_read_only_missing"],
+    [value.status === "persisted", "post_create_proof_status_not_persisted"],
+    [Boolean(requestedThreadRef), "post_create_proof_requested_thread_ref_missing"],
+    [createdThreadRef === requestedThreadRef, "post_create_proof_created_thread_ref_mismatch"],
+    [appServerThreadRef === createdThreadRef, "post_create_proof_app_server_thread_ref_mismatch"],
+    [indexSourceRef === createdThreadRef, "post_create_proof_index_source_ref_mismatch"],
+    [appServer?.found === true, "post_create_proof_app_server_not_found"],
+    [appServer?.readProbeOk === true || appServer?.read_probe_ok === true, "post_create_proof_read_probe_missing"],
+    [index?.found === true, "post_create_proof_index_not_found"],
+    [index?.described === true, "post_create_proof_index_description_missing"],
+    [explicitFalse("liveCodexControlRun", "live_codex_control_run"), "post_create_proof_live_control_marker_invalid"],
+    [explicitFalse("desktopGuiActionRun", "desktop_gui_action_run"), "post_create_proof_desktop_action_marker_invalid"],
+    [explicitFalse("rawTranscriptRead", "raw_transcript_read"), "post_create_proof_transcript_marker_invalid"],
+    [explicitFalse("sourceStoreMutation", "source_store_mutation"), "post_create_proof_store_mutation_marker_invalid"],
+    [explicitFalse("npmPublished", "npm_publish"), "post_create_proof_npm_marker_invalid"],
+    [explicitFalse("githubReleaseCreated", "github_release"), "post_create_proof_github_release_marker_invalid"]
+  ];
+  return checks.filter(([passed]) => !passed).map(([, blocker]) => blocker);
 }
 
 function toolPayloadBlockers(toolName: string, payload: unknown): string[] {
