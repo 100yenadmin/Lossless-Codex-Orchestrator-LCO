@@ -9506,7 +9506,7 @@ function decodeBoundedLcmSummaryId(encodedId: string): string | null {
       // A decoded public ID may legitimately contain a literal percent sign.
       // Fail closed only when a valid encoded byte remains, because that means
       // recursive decoding was interrupted before the safety check saw it.
-      return !/%[0-9A-Fa-f]{2}/.test(decoded) && decoded.length <= LCM_SUMMARY_ID_MAX_CHARS ? decoded : null;
+      return pass > 0 && !/%[0-9A-Fa-f]{2}/.test(decoded) && decoded.length <= LCM_SUMMARY_ID_MAX_CHARS ? decoded : null;
     }
   }
   return null;
