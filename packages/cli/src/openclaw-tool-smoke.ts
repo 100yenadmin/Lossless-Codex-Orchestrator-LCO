@@ -1787,12 +1787,16 @@ function summarizeInvocation(
         || item.execute !== false;
     })) blockers.push("prepared_inbox_public_refs_invalid");
   }
+  const postCreateProofValue = details ?? output;
   const postCreateProofValidationBlockers = toolName === "loo_codex_start_thread_post_create_proof"
-    ? successfulPostCreateProofBlockers(details ?? output, requestArgs)
+    ? successfulPostCreateProofBlockers(postCreateProofValue, requestArgs)
     : [];
   const successfulPostCreateProof = toolName === "loo_codex_start_thread_post_create_proof"
     && postCreateProofValidationBlockers.length === 0;
   if (!successfulPostCreateProof
+    && isRecord(postCreateProofValue)
+    && postCreateProofValue.schema === "lco.codex.startThreadPostCreateProof.v1"
+    && postCreateProofValue.status === "persisted"
     && !blockers.includes(`openclaw_tool_result_not_ok:${toolName}`)) {
     blockers.push(...postCreateProofValidationBlockers.filter((blocker) => !blockers.includes(blocker)));
   }
