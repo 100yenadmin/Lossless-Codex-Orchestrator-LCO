@@ -456,7 +456,17 @@ function unwrapToolOutput(value: unknown): unknown {
   // Native OpenClaw tool results pair content[] with structured details.
   // Legacy/direct results are already application payloads and must not be
   // recursively unwrapped through semantic details or result fields.
-  return Array.isArray(output.content) && "details" in output ? output.details : output;
+  return Array.isArray(output.content) && "details" in output ? unwrapNativeSuccessDetails(output.details) : output;
+}
+
+function unwrapNativeSuccessDetails(value: unknown, depth = 0): unknown {
+  if (!isRecord(value) || depth > 4) return value;
+  const keys = Object.keys(value);
+  const wrapperOnly = keys.every((key) => ["ok", "status", "response", "result"].includes(key));
+  if (!wrapperOnly) return value;
+  if (isRecord(value.response)) return unwrapNativeSuccessDetails(value.response, depth + 1);
+  if (isRecord(value.result)) return unwrapNativeSuccessDetails(value.result, depth + 1);
+  return value;
 }
 
 function extractCatalogToolNames(value: unknown): string[] {
