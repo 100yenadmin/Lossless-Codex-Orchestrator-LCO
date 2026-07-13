@@ -192,6 +192,14 @@ test("loo doctor --peers exposes peer integrity and rejects unknown options", ()
     assert.equal(report.lcmPeers?.readOnly, true);
     assert.equal(report.lcmPeers?.peers?.[0]?.status, "unavailable");
 
+    const jsonCompatibility = runLoo(["doctor", "--json"], {
+      ...process.env,
+      LOO_DB_PATH: dbPath,
+      LOO_LCM_DB_PATHS: missingPeer
+    });
+    assert.equal(jsonCompatibility.status, 0, jsonCompatibility.stderr || jsonCompatibility.stdout);
+    assert.equal(JSON.parse(jsonCompatibility.stdout).lcmPeers?.schema, "lco.lcm.peerDoctor.v1");
+
     const invalid = runLoo(["doctor", "--unknown-peer-option"]);
     assert.equal(invalid.status, 2, invalid.stderr || invalid.stdout);
     assert.match(invalid.stderr, /Unknown doctor option/);

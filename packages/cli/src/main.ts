@@ -155,10 +155,10 @@ async function main() {
   }
   if (command === "doctor") {
     if (isBareHelpInvocation(args)) {
-      console.log("Usage: loo doctor [--peers]");
+      console.log("Usage: loo doctor [--peers] [--json]");
       return;
     }
-    const unknownDoctorOption = args.find((arg) => arg !== "--peers");
+    const unknownDoctorOption = args.find((arg) => arg !== "--peers" && arg !== "--json");
     if (unknownDoctorOption) throw new Error(`Unknown doctor option: ${unknownDoctorOption}`);
     const codexIndexHealth = readCodexIndexHealthStatusFromPath(defaultDatabasePath());
     const { databaseStorage, ...healthWithoutDatabaseStorage } = codexIndexHealth;
@@ -1274,7 +1274,7 @@ function mainUsageText(): string {
     "  loo --help",
     "  loo --version",
     "  loo onboard status [--evidence-dir path] [--root path] [--now iso] [--registry-version version] [--registry-beta-version version] [--gateway-setup-status ready|gateway_setup_required|package_failure_or_unknown] [--strict]",
-    "  loo doctor [--peers]",
+    "  loo doctor [--peers] [--json]",
     "  loo desktop see [direct|cua-driver|peekaboo] [--snapshot] [--max-nodes n] [--max-chars n]",
     "  loo desktop act [direct|cua-driver|peekaboo] <action>",
     "  loo desktop proof-report --evidence-dir path --observation-file path [--strict]",
