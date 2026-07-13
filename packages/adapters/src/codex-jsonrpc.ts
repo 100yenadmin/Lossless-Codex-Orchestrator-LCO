@@ -279,24 +279,29 @@ export class LoopbackWebSocketTransport implements JsonRpcTransport {
   private readonly waiters: Array<(line: string | null) => void> = [];
   private closed = false;
   private readonly ready: Promise<void>;
+  private connectTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(rawUrl: string, private readonly timeoutMs = DEFAULT_TIMEOUT_MS) {
     const { url } = buildLoopbackWebSocketConfig(rawUrl);
     this.socket = new WebSocket(url);
     this.ready = new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
+      this.connectTimer = setTimeout(() => {
         this.close();
         reject(new Error("Codex loopback WebSocket connect timed out"));
       }, this.timeoutMs);
       this.socket.addEventListener("open", () => {
-        clearTimeout(timer);
+        this.clearConnectTimer();
         resolve();
       }, { once: true });
       this.socket.addEventListener("error", () => {
-        clearTimeout(timer);
+        this.clearConnectTimer();
         reject(new Error("Codex loopback WebSocket connection failed"));
       }, { once: true });
     });
+    // An operator may explicitly close while the handshake is still pending.
+    // Keep that lifecycle from creating a process-level unhandled rejection;
+    // callers awaiting sendJson still observe the original rejection.
+    void this.ready.catch(() => undefined);
     this.socket.addEventListener("message", (event) => {
       if (typeof event.data === "string") this.pushLine(event.data);
     });
@@ -329,8 +334,15 @@ export class LoopbackWebSocketTransport implements JsonRpcTransport {
   }
 
   close(): void {
+    this.clearConnectTimer();
     this.finishOutput();
     if (this.socket.readyState === WebSocket.CONNECTING || this.socket.readyState === WebSocket.OPEN) this.socket.close();
+  }
+
+  private clearConnectTimer(): void {
+    if (this.connectTimer === undefined) return;
+    clearTimeout(this.connectTimer);
+    this.connectTimer = undefined;
   }
 
   private pushLine(line: string): void {

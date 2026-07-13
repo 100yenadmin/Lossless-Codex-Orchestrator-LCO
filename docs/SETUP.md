@@ -442,6 +442,10 @@ For approval-gated steer or interrupt across separate gateway invocations, run
 one persistent Codex app-server on a loopback WebSocket and point the OpenClaw
 profile at it:
 
+First verify that the pinned Codex CLI version for your runtime exposes the
+experimental `app-server --listen` option. After that version check, start the
+listener with:
+
 ```bash
 codex app-server --listen ws://127.0.0.1:45555
 openclaw --profile lco-dogfood config set env.LCO_CODEX_APP_SERVER_URL '"ws://127.0.0.1:45555"' --strict-json

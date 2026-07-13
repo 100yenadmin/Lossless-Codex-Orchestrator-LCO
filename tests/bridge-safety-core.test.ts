@@ -741,6 +741,31 @@ test("Codex loopback WebSocket connection timeout rejects and closes the socket"
   }
 });
 
+test("Codex loopback WebSocket explicit close clears the pending connection timeout", async () => {
+  const OriginalWebSocket = globalThis.WebSocket;
+  let closeCalls = 0;
+
+  class NeverOpeningWebSocket {
+    static readonly CONNECTING = 0;
+    static readonly OPEN = 1;
+    readyState = NeverOpeningWebSocket.CONNECTING;
+
+    addEventListener(): void {}
+    send(): void {}
+    close(): void { closeCalls += 1; }
+  }
+
+  Object.assign(globalThis, { WebSocket: NeverOpeningWebSocket });
+  try {
+    const transport = new LoopbackWebSocketTransport("ws://127.0.0.1:4555", 20);
+    transport.close();
+    await delay(50);
+    assert.equal(closeCalls, 1);
+  } finally {
+    Object.assign(globalThis, { WebSocket: OriginalWebSocket });
+  }
+});
+
 test("Codex loopback WebSocket connection errors reject and close the socket", async () => {
   const OriginalWebSocket = globalThis.WebSocket;
   let closed = false;
