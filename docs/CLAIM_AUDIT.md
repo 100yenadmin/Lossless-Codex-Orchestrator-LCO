@@ -1,10 +1,10 @@
 # Public Claim Audit
 
-## Allowed Stable 1.5.0 Claim
+## Allowed Stable 1.6.0 Claim
 
-Collaborate with local Codex and Claude Code session context through OpenClaw/MCP using local indexing, prepared-state recall, bounded expansion, and approval-gated dry-run/control boundaries.
+Coordinate local Codex work through OpenClaw/MCP with bounded recall and session diffs, audited review-then-drive dry-runs, approved disposable-target Codex controls, and read-only LCM prepared state; Claude targeting remains dry-run only.
 
-This claim covers the stable local recall path with tests and smoke coverage: Codex indexing/search/describe/expand, Claude Code read/recall and `claude_session:*` refs, prepared-state cards/inbox, summary leaves, bounded expansion, read-only LCM peer DAG expansion, Codex direct protocol diagnostics, dry-run approval audits, and read-only CUA/Peekaboo readiness.
+This claim covers the stable local recall and control-plane paths with tests and smoke coverage: Codex indexing/search/describe/expand, session-diff cursors, review-then-drive dry-run packets with budgets, Claude Code read/recall and dry-run adapter states, prepared cards/inbox and summary leaves, read-only LCM peer DAG expansion and peer diagnostics, and approval-bound Codex scratch controls with post-action refresh proof where the release evidence records them.
 
 Scratch-thread live smokes are standing-approved only when the prompt is
 harmless, the thread created by the smoke is disposable, and the evidence stays
@@ -30,7 +30,11 @@ post-action refresh working-app loop.
 - No generic GUI mutation.
 - No release-grade enterprise security claim.
 
-Claude Code local JSONL read/recall is in the 1.5 line through `lco index claude` and `claude_session:*` refs. Public docs must not imply Claude Code control parity, GUI mutation, cloud sync, or settings/session mutation until those adapter paths are proven.
+Claude Code local JSONL read/recall through `lco index claude` and
+`claude_session:*` refs, plus explicit dry-run adapter validation, are in the
+1.6 line. Public docs must not imply Claude Code live-control parity, GUI
+mutation, cloud sync, or settings/session mutation until those adapter paths
+are separately proven.
 
 If native Codex or Claude recall appears in those tools, LCO still provides
 cross-harness recall, local prepared state, and audited control boundaries
@@ -85,7 +89,7 @@ blockers instead of allowing a working-app claim.
 
 Install stable releases through the `latest` dist-tag, public betas through the
 `beta` dist-tag, and release candidates through `next`. The stable channel
-target for this package version is `1.5.0`; npm `latest` must move only after
+target for this package version is `1.6.0`; npm `latest` must move only after
 the separate stable-promotion gate proves the exact candidate. Keep beta and
 other prereleases on prerelease tags. Do not publish a fake stable package just
 to move a dist-tag.

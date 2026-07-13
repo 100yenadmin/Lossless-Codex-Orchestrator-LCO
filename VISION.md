@@ -48,16 +48,17 @@ tier: a capability such as live control is part of a tier only once it has real
 evidence on that tier. OpenClaw having a proof does not extend the capability to
 Hermes or generic MCP until each is independently proven.
 
-## Current Release Roadmap: 1.5 Coverage And Cockpit
+## Current Release Roadmap: 1.6 Control Plane
 
-Current stable: `1.5.0` shipped the Coverage & Cockpit release. It keeps
+Current stable: `1.6.0` shipped the Control Plane release. It keeps
 `lossless-codex-orchestrator` as the canonical npm package, keeps
 `lossless-openclaw-orchestrator` as a maintained compatibility package, adds
-Claude Code read/recall and prepared-card coverage, expands LCM summary context,
-surfaces database maintenance status, and keeps OpenWiki/public plugin metadata
-aligned with the current product.
+bounded session-diff cursors and review-then-drive dry-runs, verifies the Codex
+scratch control matrix under audit and post-action refresh, materializes LCM
+prepared cards with peer diagnostics, and validates Claude as a second target
+family without claiming Claude live control.
 
-The stable 1.0.0 through `1.5.0` packages are completed release lines. M11 proved
+The stable 1.0.0 through `1.6.0` packages are completed release lines. M11 proved
 the first scoped stable GA-assurance lane, and M12 built the
 release-assurance foundation: fresh npm install checks, OpenClaw gateway
 dogfood, QA Lab coverage, release aggregation, public-safe evidence rules, and
@@ -66,17 +67,14 @@ release trains, but M12 is no longer the active product sprint.
 
 Active release train:
 
-- **Milestone 13: LCO 1.5 Coverage & Cockpit Release Train.** Focus:
-  raw-content/event FTS coverage, session discovery gaps, public-safe output
-  validation, cockpit usability, distribution hardening, LCM-S recall, release
-  hygiene, and the public release-note cleanup tracked by
-  [#683](https://github.com/100yenadmin/Lossless-Codex-Orchestrator-LCO/issues/683).
-- **Milestone 14: LCO 1.6 Control Plane Release Train.** Focus: the next
-  control-plane release lane, including broader live-control matrix work only
-  when disposable/sacrificial targets and approval evidence are in place.
-- **Milestone 15: LCO 1.7 Matrix Stretch Release Train.** Focus: stretch
-  matrix coverage and future adapter/product expansion after the 1.5 and 1.6
-  release trains are stable.
+- **Milestone 13: LCO 1.5 Coverage & Cockpit Release Train.** Completed and
+  administratively closed after the 1.5.0 release.
+- **Milestone 14: LCO 1.6 Control Plane Release Train.** Completed by the 1.6.0
+  release after exact-head implementation, QA Lab, dual-package, and runtime
+  verification.
+- **Milestone 15: LCO 1.7 Matrix Stretch Release Train.** Next roadmap lane for
+  Claude live control, bidirectional flows, Hermes-native integration, watch
+  mode, large-file fallback, and the separately gated recall-v2 evaluation.
 
 Current target:
 
@@ -85,10 +83,9 @@ Current target:
   doctrine belongs in [docs/CLAIM_AUDIT.md](docs/CLAIM_AUDIT.md),
   [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md), QA Lab reports, issue
   comments, and [docs/BETA_RELEASE_RUNBOOK.md](docs/BETA_RELEASE_RUNBOOK.md).
-- Finish the 1.5 coverage lane by landing event-content storage, the
-  event-content opt-out/drop-cache escape hatch, and raw-content search
-  coverage, then run the QA Lab and OpenClaw gateway evidence for the exact
-  surfaced features.
+- Keep the shipped 1.6 control-plane paths current across CLI, MCP, and
+  OpenClaw: session diff, drive dry-run, Codex audit binding and refresh proof,
+  LCM prepared cards, and peer doctoring.
 - Treat `lco qa-lab tool-coverage --coverage-policy full --strict` as the
   full-surface GA gate over the canonical tool surface. Missing product evidence
   is a blocker unless release copy explicitly excludes that tool or workflow.
@@ -390,9 +387,9 @@ Release candidates follow [docs/BETA_RELEASE_RUNBOOK.md](docs/BETA_RELEASE_RUNBO
 
 ## Capability Boundaries
 
-Stable 1.5.0 product statement:
+Stable 1.6.0 product statement:
 
-> Collaborate with local Codex and Claude Code session context through OpenClaw/MCP using local indexing, prepared-state recall, bounded expansion, and approval-gated dry-run/control boundaries.
+> Coordinate local Codex work through OpenClaw/MCP with bounded recall and session diffs, audited review-then-drive dry-runs, approved disposable-target Codex controls, and read-only LCM prepared state; Claude targeting remains dry-run only.
 
 Future roadmap candidates:
 

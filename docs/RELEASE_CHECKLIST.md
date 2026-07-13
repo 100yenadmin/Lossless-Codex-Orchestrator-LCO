@@ -139,9 +139,10 @@ npm install -g lossless-codex-orchestrator@beta
 
 The current published package name is `lossless-codex-orchestrator`. The
 deprecated compat package `lossless-openclaw-orchestrator` remains maintained
-for existing automation. Release proof should use the canonical package and
-verify the compat package when a patch is published under both names. The `lco`
-CLI and `lco-mcp-server` remain the canonical command surface.
+for existing automation. Every stable feature release publishes and verifies
+the same version under both names; release proof uses the canonical package as
+the primary surface and independently clean-installs the compatibility package.
+The `lco` CLI and `lco-mcp-server` remain the canonical command surface.
 
 Move `latest` only as part of a separate stable-release issue after the
 pre-publish candidate gates pass and the release-status approval markers
