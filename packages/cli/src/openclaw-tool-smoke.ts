@@ -1798,7 +1798,8 @@ function summarizeInvocation(
     ? successfulPostCreateProofBlockers(postCreateProofValue, requestArgs)
     : [];
   const successfulPostCreateProof = toolName === "loo_codex_start_thread_post_create_proof"
-    && postCreateProofValidationBlockers.length === 0;
+    && postCreateProofValidationBlockers.length === 0
+    && !blockers.some((blocker) => blocker.startsWith(`openclaw_tool_result_not_ok:${toolName}`));
   const postCreateProofBlockersToSurface = isRecord(postCreateProofValue) && postCreateProofValue.status === "persisted"
     ? postCreateProofValidationBlockers
     : postCreateProofValidationBlockers.filter((blocker) => blocker === "post_create_proof_restricted_action_present");
@@ -1813,6 +1814,8 @@ function summarizeInvocation(
     const failClosedProven = expectedFailClosedProven(toolName, details ?? output, summary, requestArgs);
     if (failClosedProven) {
       blockers = blockers.filter((blocker) => blocker !== `openclaw_tool_result_not_ok:${toolName}`);
+    // Preserve the generic promotion-failure marker alongside specific post-create
+    // diagnostics so aggregate release QA can identify this statically fail-closed lane.
     } else if (blockers.length === 0 || toolName === "loo_codex_start_thread_post_create_proof") {
       blockers.push(`expected_fail_closed_not_proven:${toolName}`);
     }
@@ -1870,7 +1873,7 @@ function successfulPostCreateProofBlockers(
     ...arrayPath(value, ["reason_codes"])
   ];
   const uniqueReasonCodes = [...new Set(reasonCodes)];
-  const reasonCodesValid = reasonCodes.length > 0
+  const reasonCodesValid = uniqueReasonCodes.length === SUCCESSFUL_POST_CREATE_REASON_CODES.size
     && uniqueReasonCodes.every((reasonCode) => typeof reasonCode === "string"
       && SUCCESSFUL_POST_CREATE_REASON_CODES.has(reasonCode));
   const checks: Array<[boolean, string]> = [
@@ -1940,6 +1943,19 @@ function expectedFailClosedProven(
   const hasAllowedBlocker = (summary.toolBlockers?.length ?? 0) > 0;
   const hasSafeReasonCode = reasonCodes.some((code) => safeFailClosedReasonCodes(toolName).has(code));
   const hasNoActionProofMarker = proofMarkers?.noActionObserved === true || proofMarkers?.liveActionObserved === false;
+  if (toolName === "loo_codex_start_thread_post_create_proof") {
+    const createdThreadRef = stringPath(value, ["createdThreadRef"])
+      || stringPath(value, ["created_thread_ref"]);
+    const requestedThreadRef = typeof requestArgs.created_thread_ref === "string"
+      ? requestArgs.created_thread_ref
+      : undefined;
+    return status === "unresolved_unknown"
+      && (value.publicSafe === true || value.public_safe === true)
+      && (value.readOnly === true || value.read_only === true)
+      && Boolean(requestedThreadRef)
+      && createdThreadRef === requestedThreadRef
+      && (hasAllowedBlocker || hasSafeReasonCode || hasNoActionProofMarker);
+  }
   if (toolName === "loo_desktop_act") {
     const hasBlockedStatus = status === "blocked" || status === "not_observed";
     const hasSupportingNoActionProof = hasAllowedBlocker || hasSafeReasonCode || proofMarkers?.noActionObserved === true;
