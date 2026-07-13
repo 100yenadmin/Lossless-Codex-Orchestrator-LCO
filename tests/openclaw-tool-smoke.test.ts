@@ -156,7 +156,7 @@ function createFakeOpenClaw(
       : `{ publicSafe: true, readOnly: true, status: "blocked", blockers: ["desktop_live_action_disallowed"], action: toolArgs.action, actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false } }`;
   const fallbackNextToolCallCode = options.omitFallbackNextToolCall
     ? "null"
-    : `missingCoherence ? { tool: "loo_codex_desktop_coherence", args: { thread_id: toolArgs.thread_id, source_ref: toolArgs.source_ref } } : null`;
+    : `missingCoherence ? { tool: "lco_desktop_proof", args: { check: "coherence", thread_id: toolArgs.thread_id, source_ref: toolArgs.source_ref } } : null`;
   const collaborationNextStepsOutputCode = options.unsafeCollaborationNextSteps
     ? `{ publicSafe: true, readOnly: true, schema: "lco.codex.collaborationNextSteps.v1", steps: [{ threadId: "codex_thread:thread-1", category: "desktop_coherence", status: "ready", toolCall: null }], actionsPerformed: { liveCodexControlRun: true, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false, npmPublished: false, githubReleaseCreated: false } }`
     : `{ publicSafe: true, readOnly: true, schema: "lco.codex.collaborationNextSteps.v1", steps: [{ threadId: "codex_thread:thread-1", category: "desktop_coherence", status: "ready", toolCall: { tool: "loo_codex_desktop_coherence", args: { thread_id: "thread-1", source_ref: "codex_thread:thread-1" }, execute: false } }], actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, screenshotCaptured: false, npmPublished: false, githubReleaseCreated: false } }`;
@@ -2327,15 +2327,16 @@ test("OpenClaw tool smoke can exercise desktop fallback status without a supplie
     assert.equal("coherence" in (invoke?.params.args ?? {}), false);
     const fallbackInvocation = report.invocations.find((invocation) => invocation.toolName === "loo_codex_desktop_fallback_status");
     assert.deepEqual(fallbackInvocation?.summary.nextToolCall, {
-      tool: "loo_codex_desktop_coherence",
+      tool: "lco_desktop_proof",
       args: {
+        check: "coherence",
         thread_id: "thread-1",
         source_ref: "codex_thread:thread-1"
       }
     });
     const evidence = readFileSync(evidencePath, "utf8");
     assert.match(evidence, /coherence_input_missing/);
-    assert.match(evidence, /loo_codex_desktop_coherence/);
+    assert.match(evidence, /lco_desktop_proof/);
     assert.match(evidence, /codex_thread:thread-1/);
     assert.doesNotMatch(evidence, /super-secret-transcript-span/);
   } finally {

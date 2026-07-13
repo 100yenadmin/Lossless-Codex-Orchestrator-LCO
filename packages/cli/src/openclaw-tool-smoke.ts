@@ -2022,14 +2022,19 @@ function hasDerivedCacheWriteActionMarkers(value: unknown): boolean {
 
 function publicSafeFallbackNextToolCall(value: unknown): OpenClawToolInvocationSummary["summary"]["nextToolCall"] | undefined {
   if (!isRecord(value)) return undefined;
-  if (stringPath(value, ["tool"]) !== "loo_codex_desktop_coherence") return undefined;
+  const tool = stringPath(value, ["tool"]);
   const args = isRecord(value.args) ? value.args : {};
+  const canonical = tool === "lco_desktop_proof" && stringPath(args, ["check"]) === "coherence";
+  const compatibility = tool === "loo_codex_desktop_coherence";
+  if (!canonical && !compatibility) return undefined;
   const threadId = stringPath(args, ["thread_id"]) || stringPath(args, ["threadId"]);
   const sourceRef = stringPath(args, ["source_ref"]) || stringPath(args, ["sourceRef"]);
-  const safeArgs: { thread_id?: string; source_ref?: string } = {};
+  const safeArgs: { check?: "coherence"; thread_id?: string; source_ref?: string } = canonical
+    ? { check: "coherence" }
+    : {};
   if (threadId && /^[A-Za-z0-9._:-]+$/.test(threadId)) safeArgs.thread_id = threadId;
   if (sourceRef && /^codex_thread:[A-Za-z0-9._:-]+$/.test(sourceRef)) safeArgs.source_ref = sourceRef;
-  return { tool: "loo_codex_desktop_coherence", args: safeArgs };
+  return { tool, args: safeArgs };
 }
 
 function publicSafeCollaborationProofNextToolCall(value: unknown): OpenClawToolInvocationSummary["summary"]["nextToolCall"] | undefined {
