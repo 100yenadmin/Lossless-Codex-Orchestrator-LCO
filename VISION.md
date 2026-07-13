@@ -50,7 +50,7 @@ Hermes or generic MCP until each is independently proven.
 
 ## Current Release Roadmap: 1.6 Control Plane
 
-Current stable: `1.5.0`, shipped on the npm `latest` channel. The `1.6.0` Control Plane release candidate keeps
+Current stable: `1.6.0`, shipped on the npm `latest` channel. The Control Plane release keeps
 `lossless-codex-orchestrator` as the canonical npm package, keeps
 `lossless-openclaw-orchestrator` as a maintained compatibility package, adds
 bounded session-diff cursors and review-then-drive dry-runs, verifies the Codex
@@ -65,13 +65,13 @@ dogfood, QA Lab coverage, release aggregation, public-safe evidence rules, and
 per-tool product evidence requirements. Those gates remain mandatory for future
 release trains, but M12 is no longer the active product sprint.
 
-Active release train:
+Release train status:
 
 - **Milestone 13: LCO 1.5 Coverage & Cockpit Release Train.** Completed and
   administratively closed after the 1.5.0 release.
-- **Milestone 14: LCO 1.6 Control Plane Release Train.** Active until exact-head
-  implementation, QA Lab, dual-package publication, and runtime verification
-  agree on the 1.6.0 release candidate and its published artifact.
+- **Milestone 14: LCO 1.6 Control Plane Release Train.** Completed with the
+  1.6.0 dual-package release after exact-head implementation, QA Lab, publication,
+  and runtime verification agreed on the published artifact.
 - **Milestone 15: LCO 1.7 Matrix Stretch Release Train.** Next roadmap lane after
   the 1.6 closeout for
   Claude live control, bidirectional flows, Hermes-native integration, watch
@@ -84,7 +84,7 @@ Current target:
   doctrine belongs in [docs/CLAIM_AUDIT.md](docs/CLAIM_AUDIT.md),
   [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md), QA Lab reports, issue
   comments, and [docs/BETA_RELEASE_RUNBOOK.md](docs/BETA_RELEASE_RUNBOOK.md).
-- Keep the 1.6 release-candidate control-plane paths current across CLI, MCP, and
+- Keep the 1.6 stable control-plane paths current across CLI, MCP, and
   OpenClaw: session diff, drive dry-run, Codex audit binding and refresh proof,
   LCM prepared cards, and peer doctoring.
 - Treat `lco qa-lab tool-coverage --coverage-policy full --strict` as the
