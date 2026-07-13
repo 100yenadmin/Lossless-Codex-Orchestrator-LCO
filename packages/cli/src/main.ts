@@ -1337,7 +1337,7 @@ function mainUsageText(): string {
     "  loo qa-lab judge --run path --rubric-version real-product-v1 --evidence-dir path [--now iso] [--strict]",
     "  loo qa-lab adversarial-review --run path --lenses safety,retrieval,packaging,claims,agent-usability --evidence-dir path [--now iso] [--strict]",
     "  loo qa-lab workflow --scenario-id id --surface openclaw-gateway --mode dry-run --evidence-dir path [--package-version version] [--candidate-sha sha] [--openclaw-bin path] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--now iso] [--strict]"
-  ].join("\n");
+  ].join("\n").replace(/^  loo /gm, "  lco ");
 }
 
 function readCliPackageVersion(): string {
