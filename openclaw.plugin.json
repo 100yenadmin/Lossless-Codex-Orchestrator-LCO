@@ -1,7 +1,7 @@
 {
   "id": "lossless-openclaw-orchestrator",
   "name": "Lossless OpenClaw Orchestrator",
-  "description": "Coordinate local Codex work through OpenClaw using bounded recall, session diff, review-then-drive dry-runs, prepared-state diagnostics, and approval-gated controls.",
+  "description": "Index, search, and prepare local Codex sessions for OpenClaw with approval-gated dry-runs and optional Codex controls.",
   "version": "1.6.0",
   "kind": "tool",
   "tools": {
