@@ -170,7 +170,7 @@ npm install -g lossless-codex-orchestrator@beta
 
 Package channels:
 
-- Current stable: `1.5.0` shipped the Coverage & Cockpit release: Claude Code read/recall, Claude prepared cards, the Claude Code recall companion plugin, LCM summary DAG expansion, database maintenance doctoring, OpenWiki orientation updates, and public metadata cleanup.
+- Current stable: `1.6.0` shipped the Control Plane release: bounded session-diff cursors, review-then-drive dry-runs with budgets and audit binding, Codex scratch-thread control verification, LCM prepared cards and peer diagnostics, and a Claude adapter validation lane that remains dry-run only.
 - `latest` is the stable public channel.
 - `beta` is the active prerelease train.
 - `next` is reserved for release candidates.
@@ -259,6 +259,22 @@ lco find --json "billing bridge proposed plan"
 
 For lower-level recall, use `lco search` for title/session-card discovery and
 `lco grep` or `lco expand-query` for content-oriented recall.
+
+Before preparing a drive plan, ask what changed since a public-safe cursor:
+
+```bash
+lco session-diff --cursor <cursor>
+```
+
+Build a bounded review-then-drive packet without running live control:
+
+```bash
+lco drive --dry-run --reviewer codex --driver claude --max-turns 3
+```
+
+When LCM peers are configured, inspect their read-only integrity posture with
+`lco doctor --peers`. Claude targeting in 1.6 validates availability and
+dry-run policy only; it does not provide Claude live control.
 
 Describe a result:
 

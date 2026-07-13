@@ -198,6 +198,10 @@ if (method === "tools.invoke") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { ok: true, localOnly: true, toolPrefix: "loo_*" } }));
     process.exit(0);
   }
+  if (name === "lco_doctor") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { ok: true, localOnly: true, toolPrefix: "lco_*" } }));
+    process.exit(0);
+  }
   if (name === "loo_find") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.find.v1", ok: true, publicSafe: true, query: toolArgs.query || "Proposed plan", limit: toolArgs.limit || 3, indexed: { attempted: false, indexedFiles: 0, skippedFiles: 0, indexedThreads: 0, indexedEvents: 0, limitedFiles: 0, warnings: 0, errors: 0 }, resultCount: 1, results: [{ rank: 1, sourceKind: "codex_thread", sourceRef: "codex_thread:" + searchThreadId, title: "Thread 1", summary: "public-safe summary", updatedAt: "2026-07-01T12:00:00.000Z", snippet: "public-safe find snippet", threadId: searchThreadId, reasonCodes: ["event_content_fts_match"] }], nextSafeCommands: ["lco describe codex_thread:" + searchThreadId], actionsPerformed: { derivedCacheWrite: false, localCodexSourceRead: false, sourceStoreMutation: false, externalWrite: false, liveControl: false, guiMutation: false, rawTranscriptRead: false, rawTranscriptReturned: false, rawTranscriptUploaded: false }, reasonCodes: ["find_command", "index_skipped_by_flag"] } }));
     process.exit(0);
@@ -230,6 +234,22 @@ if (method === "tools.invoke") {
 	    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: [{ sourceRef: "codex_thread:" + searchThreadId, threadId: searchThreadId, score: 9, snippet: "super-secret-transcript-span" }] }));
 	    process.exit(0);
 	  }
+  if (name === "lco_search_sessions") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: [{ sourceRef: "codex_thread:" + searchThreadId, threadId: searchThreadId, score: 9, snippet: "super-secret-transcript-span" }] }));
+    process.exit(0);
+  }
+  if (name === "lco_session_diff") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.sessionDiff.v1", publicSafe: true, readOnly: true, threadId: toolArgs.thread_id, targetRef: "codex_thread:" + toolArgs.thread_id, changes: [], nextCursor: "opaque-cursor" } }));
+    process.exit(0);
+  }
+  if (name === "lco_drive") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { schema: "lco.drive.v1", status: "dry_run_ready", dryRun: { live: false, approvalAuditId: "loo_audit_drive", paramsHash: "drive-params-hash", messageHash: "drive-message-hash" }, finalReport: { liveActions: 0 }, actionsPerformed: { liveControl: false, auditWrite: true } } }));
+    process.exit(0);
+  }
+  if (name === "lco_codex_control_dry_run") {
+    console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: ${dryRunOutputCode} }));
+    process.exit(0);
+  }
   if (name === "loo_describe_session") {
     console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { threadId: toolArgs.thread_id, sourceRef: "codex_thread:" + toolArgs.thread_id, status: "active", summary: "super-secret-transcript-span" } }));
     process.exit(0);
@@ -763,6 +783,39 @@ test("OpenClaw tool smoke invokes required loo tools through gateway call and wr
     assert.equal(calls.find((call) => call.params.name === "loo_prepared_inbox")?.params.args?.thread_id, "thread-1");
     assert.equal(calls.find((call) => call.params.name === "loo_summary_expand")?.params.args?.thread_id, "thread-1");
     assert.equal(calls.some((call) => call.args.includes("--token")), false);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+  }
+});
+
+test("OpenClaw tool smoke invokes canonical 1.6 facade and control-plane tools", () => {
+  const dir = mkdtempSync(join(tmpdir(), "lco-openclaw-tool-smoke-canonical-"));
+  const requiredTools = [
+    "lco_doctor",
+    "lco_search_sessions",
+    "lco_session_diff",
+    "lco_drive",
+    "lco_codex_control_dry_run"
+  ];
+  const { bin, callsPath } = createFakeOpenClaw(dir, requiredTools);
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawToolSmoke({
+      openclawBin: bin,
+      profile: "lco-canonical-smoke",
+      requiredTools,
+      tokenBudget: 500
+    });
+
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.deepEqual(report.invocations.map((call) => call.toolName), requiredTools);
+    assert.equal(report.smokeDispositionPlan.counts.unknown_non_claim, 0);
+    assert.equal(report.invocations.find((call) => call.toolName === "lco_session_diff")?.summary.threadId, "thread-1");
+    assert.equal(report.invocations.find((call) => call.toolName === "lco_drive")?.summary.live, false);
+    assert.equal(report.invocations.find((call) => call.toolName === "lco_drive")?.summary.approvalAuditId, "loo_audit_drive");
+    assert.equal(report.invocations.find((call) => call.toolName === "lco_codex_control_dry_run")?.summary.live, false);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;

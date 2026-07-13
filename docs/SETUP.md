@@ -438,6 +438,28 @@ Run a tool smoke through OpenClaw Gateway:
 lco openclaw tool-smoke --profile lco-dogfood --required-tool lco_doctor --required-tool lco_search_sessions --strict
 ```
 
+For approval-gated steer or interrupt across separate gateway invocations, run
+one persistent Codex app-server on a loopback WebSocket and point the OpenClaw
+profile at it:
+
+First verify that the pinned Codex CLI version for your runtime exposes the
+experimental `app-server --listen` option. After that version check, start the
+listener with:
+
+```bash
+codex app-server --listen ws://127.0.0.1:45555
+openclaw --profile lco-dogfood config set env.LCO_CODEX_APP_SERVER_URL '"ws://127.0.0.1:45555"' --strict-json
+openclaw --profile lco-dogfood gateway restart
+```
+
+LCO accepts only unauthenticated `ws://` loopback URLs with an explicit port and
+no credentials, path, query, or fragment. Leave `LCO_CODEX_APP_SERVER_URL`
+unset for the default one-shot stdio client. The shared loopback server is
+needed when one process owns an active turn and a later OpenClaw invocation must
+steer or interrupt that exact turn. Codex currently marks the app-server
+WebSocket listener experimental, so this is an explicit operator opt-in; pin and
+re-verify the Codex CLI version before relying on it in a release or runtime lane.
+
 After a published install, combine the package, dogfood, and tool-smoke reports
 into one first-run classifier:
 
@@ -481,7 +503,7 @@ The safe loop is:
 
 1. `lco_doctor`
 2. `lco_search_sessions`
-3. `lco_describe_session` or `lco_describe_ref`
+3. `lco_describe_ref` with either `thread_id` or a source-prefixed `source_ref`
 4. `lco_codex_extract` with `kind: "plans"`, `kind: "final_messages"`, and
    `kind: "touched_files"`
 5. `lco_expand_session` or `lco_expand_query`

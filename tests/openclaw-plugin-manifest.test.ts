@@ -224,6 +224,19 @@ test("native OpenClaw plugin wrapper passes facade metadata to runtime tool defi
   assert.match(pluginSource, /parameters:\s*declaration\.inputSchema/);
 });
 
+test("native OpenClaw plugin can share a loopback Codex app-server for cross-invocation live control", () => {
+  const pluginSource = readFileSync("packages/openclaw-plugin/src/index.ts", "utf8");
+  const setupDocs = readFileSync("docs/SETUP.md", "utf8");
+  const pluginDocs = readFileSync("docs/OPENCLAW_PLUGIN.md", "utf8");
+
+  assert.match(pluginSource, /CODEX_APP_SERVER_URL/);
+  assert.match(pluginSource, /createCodexAppServerWebSocketClient/);
+  assert.match(pluginSource, /buildLoopbackWebSocketConfig/);
+  assert.match(setupDocs, /LCO_CODEX_APP_SERVER_URL/);
+  assert.match(pluginDocs, /LCO_CODEX_APP_SERVER_URL/);
+  assert.match(pluginDocs, /loopback/i);
+});
+
 test("always-on MCP and native plugin surfaces use bounded schema-only DB startup", () => {
   const pluginSource = readFileSync("packages/openclaw-plugin/src/index.ts", "utf8");
   const mcpServerSource = readFileSync("packages/mcp-server/src/server.ts", "utf8");

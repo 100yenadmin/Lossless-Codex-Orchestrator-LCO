@@ -14,7 +14,7 @@ test("VISION.md captures product, eval, dogfood, cadence, and capability-boundar
 
   for (const heading of [
     "## North Star",
-    "## Current Release Roadmap: 1.5 Coverage And Cockpit",
+    "## Current Release Roadmap: 1.6 Control Plane",
     "## Completed Proof: Working App Runtime",
     "## Primary User Stories",
     "## Orchestrator Product-Management Mode",

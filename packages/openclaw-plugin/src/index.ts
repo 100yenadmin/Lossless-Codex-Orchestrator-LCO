@@ -3,8 +3,10 @@
 import { defineToolPlugin } from "openclaw/plugin-sdk/tool-plugin";
 import { join } from "node:path";
 import {
+  buildLoopbackWebSocketConfig,
   createAuditStore,
   createCodexAppServerStdioClient,
+  createCodexAppServerWebSocketClient,
   type AuditStore,
   type CodexClient
 } from "../../adapters/src/index.js";
@@ -21,7 +23,7 @@ import {
 export const pluginMetadata = {
   id: "lossless-openclaw-orchestrator",
   name: "Lossless OpenClaw Orchestrator",
-  description: "Collaborate with local Codex sessions through OpenClaw using local indexing, prepared-state recall, bounded expansion, approval-gated dry-runs, and optional Codex controls.",
+  description: "Index, search, and prepare local Codex sessions for OpenClaw with approval-gated dry-runs and optional Codex controls.",
   kind: "tool",
   mcp: {
     command: "lco-mcp-server",
@@ -83,16 +85,14 @@ function getNativeRuntime(): NativeRuntime {
   const audit = createAuditStore(readEnv("AUDIT_PATH") || join(resolveHomeDir(), ".openclaw", "lossless-openclaw-orchestrator", "audit.jsonl"));
   const codexCommand = readEnvWithFallback("CODEX_BIN", "codex");
   const codexArgs = (readEnv("CODEX_APP_SERVER_ARGS") || "app-server --stdio").split(/\s+/).filter(Boolean);
-  const codexClient = createCodexAppServerStdioClient({
-    command: codexCommand,
-    args: codexArgs,
-    surface: "control"
-  });
-  const codexReadClient = createCodexAppServerStdioClient({
-    command: codexCommand,
-    args: codexArgs,
-    surface: "read"
-  });
+  const codexUrl = readEnv("CODEX_APP_SERVER_URL");
+  const loopbackUrl = codexUrl ? buildLoopbackWebSocketConfig(codexUrl).url : null;
+  const codexClient = loopbackUrl
+    ? createCodexAppServerWebSocketClient({ url: loopbackUrl, surface: "control" })
+    : createCodexAppServerStdioClient({ command: codexCommand, args: codexArgs, surface: "control" });
+  const codexReadClient = loopbackUrl
+    ? createCodexAppServerWebSocketClient({ url: loopbackUrl, surface: "read" })
+    : createCodexAppServerStdioClient({ command: codexCommand, args: codexArgs, surface: "read" });
   nativeRuntime = {
     db,
     audit,

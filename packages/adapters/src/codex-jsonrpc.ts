@@ -271,20 +271,129 @@ export class LineProcessTransport implements JsonRpcTransport {
   }
 }
 
+export class LoopbackWebSocketTransport implements JsonRpcTransport {
+  // Codex currently marks its app-server WebSocket listener experimental. Keep
+  // this transport explicit, loopback-only, bounded, and opt-in via the plugin.
+  private readonly socket: WebSocket;
+  private readonly lines: string[] = [];
+  private readonly waiters: Array<(line: string | null) => void> = [];
+  private closed = false;
+  private readonly ready: Promise<void>;
+  private connectTimer: ReturnType<typeof setTimeout> | undefined;
+
+  constructor(rawUrl: string, private readonly timeoutMs = DEFAULT_TIMEOUT_MS) {
+    const { url } = buildLoopbackWebSocketConfig(rawUrl);
+    this.socket = new WebSocket(url);
+    this.ready = new Promise((resolve, reject) => {
+      this.connectTimer = setTimeout(() => {
+        this.close();
+        reject(new Error("Codex loopback WebSocket connect timed out"));
+      }, this.timeoutMs);
+      this.socket.addEventListener("open", () => {
+        this.clearConnectTimer();
+        resolve();
+      }, { once: true });
+      this.socket.addEventListener("error", () => {
+        this.clearConnectTimer();
+        reject(new Error("Codex loopback WebSocket connection failed"));
+      }, { once: true });
+    });
+    // An operator may explicitly close while the handshake is still pending.
+    // Keep that lifecycle from creating a process-level unhandled rejection;
+    // callers awaiting sendJson still observe the original rejection.
+    void this.ready.catch(() => undefined);
+    this.socket.addEventListener("message", (event) => {
+      if (typeof event.data === "string") this.pushLine(event.data);
+    });
+    this.socket.addEventListener("close", () => this.finishOutput());
+  }
+
+  async sendJson(payload: unknown): Promise<void> {
+    await this.ready;
+    this.socket.send(JSON.stringify(payload));
+  }
+
+  readLine(deadline: number): Promise<string | null> {
+    const existing = this.lines.shift();
+    if (existing !== undefined) return Promise.resolve(existing);
+    if (this.closed) return Promise.resolve(null);
+    const remaining = Math.max(1, Math.min(this.timeoutMs, deadline - Date.now()));
+    return new Promise((resolve) => {
+      let timer: ReturnType<typeof setTimeout>;
+      const waiter = (line: string | null) => {
+        clearTimeout(timer);
+        resolve(line);
+      };
+      timer = setTimeout(() => {
+        const index = this.waiters.indexOf(waiter);
+        if (index >= 0) this.waiters.splice(index, 1);
+        resolve(null);
+      }, remaining);
+      this.waiters.push(waiter);
+    });
+  }
+
+  close(): void {
+    this.clearConnectTimer();
+    this.finishOutput();
+    if (this.socket.readyState === WebSocket.CONNECTING || this.socket.readyState === WebSocket.OPEN) this.socket.close();
+  }
+
+  private clearConnectTimer(): void {
+    if (this.connectTimer === undefined) return;
+    clearTimeout(this.connectTimer);
+    this.connectTimer = undefined;
+  }
+
+  private pushLine(line: string): void {
+    const waiter = this.waiters.shift();
+    if (waiter) waiter(line);
+    else this.lines.push(line);
+  }
+
+  private finishOutput(): void {
+    if (this.closed) return;
+    this.closed = true;
+    let waiter = this.waiters.shift();
+    while (waiter) {
+      waiter(null);
+      waiter = this.waiters.shift();
+    }
+  }
+}
+
 export function createCodexMcpStdioClient(options: {
   command?: string;
   args?: string[];
   timeoutMs?: number;
   surface?: CodexMethodSurface;
 } = {}) {
+  return createCodexClientFromTransport(
+    () => new LineProcessTransport(options.command ?? "codex", options.args ?? ["app-server", "--stdio"], options.timeoutMs),
+    options
+  );
+}
+
+export function createCodexAppServerWebSocketClient(options: {
+  url: string;
+  timeoutMs?: number;
+  surface?: CodexMethodSurface;
+}) {
+  return createCodexClientFromTransport(() => new LoopbackWebSocketTransport(options.url, options.timeoutMs), options);
+}
+
+function createCodexClientFromTransport(
+  transportFactory: () => JsonRpcTransport,
+  options: { timeoutMs?: number; surface?: CodexMethodSurface }
+) {
   return {
     async request(method: string, params: Record<string, unknown>) {
       const client = new CodexJsonRpcClient(
-        () => new LineProcessTransport(options.command ?? "codex", options.args ?? ["app-server", "--stdio"], options.timeoutMs),
+        transportFactory,
         { timeoutMs: options.timeoutMs, surface: options.surface ?? "control" }
       );
-      await client.connect();
       try {
+        await client.connect();
         return await client.request(method, params);
       } finally {
         await client.close();
@@ -294,11 +403,11 @@ export function createCodexMcpStdioClient(options: {
       const surface = options.surface ?? "control";
       for (const step of steps) assertCodexMethodAllowed(step.method, surface);
       const client = new CodexJsonRpcClient(
-        () => new LineProcessTransport(options.command ?? "codex", options.args ?? ["app-server", "--stdio"], options.timeoutMs),
+        transportFactory,
         { timeoutMs: options.timeoutMs, surface }
       );
-      await client.connect();
       try {
+        await client.connect();
         const responses: CodexJsonRpcResponse[] = [];
         for (const step of steps) {
           const response = await client.request(step.method, step.params);
@@ -323,11 +432,11 @@ export function createCodexMcpStdioClient(options: {
         throw new Error("Codex safe active-runtime proof requires every sequence step to target the requested thread");
       }
       const client = new CodexJsonRpcClient(
-        () => new LineProcessTransport(options.command ?? "codex", options.args ?? ["app-server", "--stdio"], options.timeoutMs),
+        transportFactory,
         { timeoutMs: options.timeoutMs, surface }
       );
-      await client.connect();
       try {
+        await client.connect();
         const responses: CodexJsonRpcResponse[] = [];
         let turnId = turnOptions.expectedTurnId;
         let latestStatus: string | null = null;

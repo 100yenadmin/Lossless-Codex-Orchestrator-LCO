@@ -63,7 +63,8 @@ const SUCCESSFUL_INVOCATION_TOOL_CALLS = [
   "loo_audit_tail",
   "loo_codex_sqlite_stores",
   "loo_lcm_peer_dbs",
-  "loo_desktop_see"
+  "loo_desktop_see",
+  "lco_session_diff"
 ];
 
 const SUCCESSFUL_DRY_RUN_TOOL_CALLS = [
@@ -71,7 +72,8 @@ const SUCCESSFUL_DRY_RUN_TOOL_CALLS = [
   "loo_codex_resume_thread",
   "loo_codex_send_message",
   "loo_codex_steer_thread",
-  "loo_codex_interrupt_thread"
+  "loo_codex_interrupt_thread",
+  "lco_drive"
 ];
 
 const EXPECTED_FAIL_CLOSED_TOOL_CALLS = [
@@ -90,14 +92,6 @@ const SUCCESSFUL_DRY_RUN_TOOL_SET = new Set(SUCCESSFUL_DRY_RUN_TOOL_CALLS);
 const EXPECTED_FAIL_CLOSED_TOOL_SET = new Set(EXPECTED_FAIL_CLOSED_TOOL_CALLS);
 const EXCLUDED_NON_CLAIM_TOOL_SET = new Set(EXCLUDED_NON_CLAIM_TOOL_CALLS);
 const BASE_GATEWAY_SMOKE_TOOL_SET = new Set(BASE_GATEWAY_SMOKE_TOOL_CALLS);
-const KNOWN_TOOL_DISPOSITION_SET = new Set([
-  ...BASE_GATEWAY_SMOKE_TOOL_CALLS,
-  ...SUCCESSFUL_INVOCATION_TOOL_CALLS,
-  ...SUCCESSFUL_DRY_RUN_TOOL_CALLS,
-  ...EXPECTED_FAIL_CLOSED_TOOL_CALLS,
-  ...EXCLUDED_NON_CLAIM_TOOL_CALLS,
-  "loo_codex_control_dry_run"
-]);
 const THREAD_BOUND_TOOL_ARG_SET = new Set([
   "loo_describe_ref",
   "loo_describe_session",
@@ -113,7 +107,19 @@ const THREAD_BOUND_TOOL_ARG_SET = new Set([
   "loo_closeout_dry_run",
   "loo_session_sanitizer",
   "loo_codex_start_thread_post_create_proof",
-  "lco_desktop_proof"
+  "lco_desktop_proof",
+  "lco_session_diff",
+  "lco_drive"
+]);
+
+const CANONICAL_MERGED_SMOKE_TOOL_SET = new Set([
+  "lco_watchers",
+  "lco_codex_extract",
+  "lco_prepared_state",
+  "lco_operating_picture",
+  "lco_desktop_proof",
+  "lco_session_diff",
+  "lco_drive"
 ]);
 
 export const DEFAULT_REQUIRED_TOOL_CALLS = BASE_GATEWAY_SMOKE_TOOL_CALLS;
@@ -356,7 +362,7 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
   const catalogComparable = catalogCall.status === 0 && catalogParsed;
   const catalogToolNames = catalogComparable ? extractCatalogToolNames(unwrapGatewayPayload(catalogCall.parsed)) : [];
   const missingRequiredTools = catalogComparable ? requiredTools.filter((name) => !catalogToolNames.includes(name)) : [];
-  const unknownDispositionTools = requiredTools.filter((name) => !KNOWN_TOOL_DISPOSITION_SET.has(name));
+  const unknownDispositionTools = requiredTools.filter((name) => dispositionForTool(name) === "unknown_non_claim");
   const blockers = [
     ...(!gatewayRoute.ok ? [`openclaw_${gatewayRoute.code}`] : []),
     ...(gatewayRoute.ok ? gatewayFailureBlockers(catalogCall, "openclaw_catalog_failed") : []),
@@ -379,7 +385,7 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
         tokenBudget,
         desktopFallbackCoherence: options.desktopFallbackCoherence
       });
-      if (THREAD_BOUND_TOOL_ARG_SET.has(toolName)) {
+      if (THREAD_BOUND_TOOL_ARG_SET.has(smokeContractToolName(toolName))) {
         if (!args) {
           blockers.push("openclaw_tool_smoke_missing_thread_ref");
           continue;
@@ -450,12 +456,18 @@ export function runOpenClawToolSmoke(options: OpenClawToolSmokeOptions = {}): Op
 }
 
 function dispositionForTool(toolName: string): OpenClawToolSmokeDisposition {
-  if (EXCLUDED_NON_CLAIM_TOOL_SET.has(toolName)) return "excluded_non_claim";
-  if (EXPECTED_FAIL_CLOSED_TOOL_SET.has(toolName)) return "expected_fail_closed";
-  if (SUCCESSFUL_DRY_RUN_TOOL_SET.has(toolName) || toolName === "loo_codex_control_dry_run") return "successful_dry_run";
-  if (SUCCESSFUL_INVOCATION_TOOL_SET.has(toolName)) return "successful_invocation";
-  if (BASE_GATEWAY_SMOKE_TOOL_SET.has(toolName)) return "successful_invocation";
+  const contractToolName = smokeContractToolName(toolName);
+  if (EXCLUDED_NON_CLAIM_TOOL_SET.has(contractToolName)) return "excluded_non_claim";
+  if (EXPECTED_FAIL_CLOSED_TOOL_SET.has(contractToolName)) return "expected_fail_closed";
+  if (SUCCESSFUL_DRY_RUN_TOOL_SET.has(contractToolName) || contractToolName === "loo_codex_control_dry_run") return "successful_dry_run";
+  if (SUCCESSFUL_INVOCATION_TOOL_SET.has(contractToolName)) return "successful_invocation";
+  if (BASE_GATEWAY_SMOKE_TOOL_SET.has(contractToolName)) return "successful_invocation";
   return "unknown_non_claim";
+}
+
+function smokeContractToolName(toolName: string): string {
+  if (!toolName.startsWith("lco_") || CANONICAL_MERGED_SMOKE_TOOL_SET.has(toolName)) return toolName;
+  return `loo_${toolName.slice("lco_".length)}`;
 }
 
 function productEvidenceClaimedForDisposition(disposition: OpenClawToolSmokeDisposition): boolean {
@@ -786,6 +798,27 @@ function buildToolArgs(params: {
   tokenBudget: number;
   desktopFallbackCoherence?: "fixture" | "omit";
 }): Record<string, unknown> | null {
+  const contractToolName = smokeContractToolName(params.toolName);
+  if (contractToolName !== params.toolName) {
+    return buildToolArgs({ ...params, toolName: contractToolName });
+  }
+  if (params.toolName === "lco_session_diff") {
+    return params.threadId ? { thread_id: params.threadId, limit: 5, token_budget: Math.min(params.tokenBudget, 1000) } : null;
+  }
+  if (params.toolName === "lco_drive") {
+    return params.threadId ? {
+      reviewer: "codex",
+      driver: "codex",
+      target_ref: `codex_thread:${params.threadId}`,
+      objective: "Review the selected public-safe session state and prepare a bounded dry-run plan.",
+      max_turns: 1,
+      token_budget: Math.min(Math.max(params.tokenBudget, 100), 1000),
+      timeout_ms: 30_000,
+      cost_ceiling_usd: 0,
+      dry_run: true,
+      now: TOOL_SMOKE_NOW
+    } : null;
+  }
   if (params.toolName === "loo_find") return { query: params.query, limit: 3, index: false };
   if (params.toolName === "loo_search_sessions") return { query: params.query, limit: 3 };
   if (params.toolName === "loo_index_sessions") {
@@ -1311,7 +1344,12 @@ function summarizeInvocation(
   }
   if (disposition === "successful_dry_run") {
     const upstreamBlocked = blockers.length > 0;
-    const dryRunOutput = details ?? output;
+    const invocationOutput = details ?? output;
+    // lco_drive is deliberately pinned in CANONICAL_MERGED_SMOKE_TOOL_SET: its
+    // nested dryRun packet must not pass through legacy-name rewriting.
+    const dryRunOutput = toolName === "lco_drive" && isRecord(invocationOutput) && isRecord(invocationOutput.dryRun)
+      ? invocationOutput.dryRun
+      : invocationOutput;
     summary.live = booleanPath(dryRunOutput, ["live"]);
     const approvalAuditId = stringPath(dryRunOutput, ["approval_audit_id"]) || stringPath(dryRunOutput, ["approvalAuditId"]);
     const paramsHash = stringPath(dryRunOutput, ["params_hash"]) || stringPath(dryRunOutput, ["paramsHash"]);
