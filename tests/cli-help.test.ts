@@ -10,24 +10,25 @@ import {
 } from "../packages/core/src/index.js";
 import { runLoo } from "./helpers/run-loo.js";
 
-test("loo --help exits zero with top-level usage", () => {
+test("canonical CLI help advertises lco while retaining loo as an executable alias", () => {
   const result = runLoo(["--help"]);
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /Usage:\n  loo --help/);
-  assert.match(result.stdout, /loo --version/);
-  assert.match(result.stdout, /loo doctor \[--peers\]/);
-  assert.match(result.stdout, /loo hook closeout-capture/);
-  assert.match(result.stdout, /loo hook state-prep/);
-  assert.match(result.stdout, /loo hook compaction-capture --mode marker/);
-  assert.match(result.stdout, /loo openclaw published-smoke .*--gateway-ready-strict/);
-  assert.match(result.stdout, /loo release ga-smoke .*--release-status path/);
-  assert.match(result.stdout, /loo release ga-smoke .*--privacy-scan path/);
-  assert.match(result.stdout, /loo release ga-smoke .*--now iso/);
-  assert.match(result.stdout, /loo qa-lab desktop-contract --evidence-dir path/);
-  assert.match(result.stdout, /loo qa-lab privacy-scan --evidence-dir path/);
-  assert.match(result.stdout, /loo qa-lab judge --run path --rubric-version real-product-v1/);
-  assert.match(result.stdout, /loo qa-lab adversarial-review --run path --lenses safety,retrieval,packaging,claims,agent-usability/);
+  assert.match(result.stdout, /Usage:\n  lco --help/);
+  assert.match(result.stdout, /lco --version/);
+  assert.match(result.stdout, /lco doctor \[--peers\]/);
+  assert.match(result.stdout, /lco hook closeout-capture/);
+  assert.match(result.stdout, /lco hook state-prep/);
+  assert.match(result.stdout, /lco hook compaction-capture --mode marker/);
+  assert.match(result.stdout, /lco openclaw published-smoke .*--gateway-ready-strict/);
+  assert.match(result.stdout, /lco release ga-smoke .*--release-status path/);
+  assert.match(result.stdout, /lco release ga-smoke .*--privacy-scan path/);
+  assert.match(result.stdout, /lco release ga-smoke .*--now iso/);
+  assert.match(result.stdout, /lco qa-lab desktop-contract --evidence-dir path/);
+  assert.match(result.stdout, /lco qa-lab privacy-scan --evidence-dir path/);
+  assert.match(result.stdout, /lco qa-lab judge --run path --rubric-version real-product-v1/);
+  assert.match(result.stdout, /lco qa-lab adversarial-review --run path --lenses safety,retrieval,packaging,claims,agent-usability/);
+  assert.doesNotMatch(result.stdout, /^  loo /m);
   assert.equal(result.stderr.trim(), "");
 });
 
