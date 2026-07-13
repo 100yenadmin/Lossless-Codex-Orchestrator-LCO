@@ -514,6 +514,8 @@ test("OpenClaw post-action refresh smoke preserves domain failure statuses insid
     assert.equal(report.ok, true, JSON.stringify(report, null, 2));
     assert.equal(report.proofReady, true);
     assert.deepEqual(report.blockers, []);
+    assert.equal(report.refresh.statusBucket, "active");
+    assert.equal(report.refresh.refreshedAt, "2026-07-01T00:02:00.000Z");
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;
@@ -542,6 +544,8 @@ test("OpenClaw post-action refresh smoke preserves direct domain failure statuse
     assert.equal(report.ok, true, JSON.stringify(report, null, 2));
     assert.equal(report.proofReady, true);
     assert.deepEqual(report.blockers, []);
+    assert.equal(report.refresh.statusBucket, "active");
+    assert.equal(report.refresh.refreshedAt, "2026-07-01T00:02:00.000Z");
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;
