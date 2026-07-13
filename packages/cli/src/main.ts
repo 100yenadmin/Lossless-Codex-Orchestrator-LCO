@@ -154,6 +154,12 @@ async function main() {
     return;
   }
   if (command === "doctor") {
+    if (isBareHelpInvocation(args)) {
+      console.log("Usage: loo doctor [--peers] [--json]");
+      return;
+    }
+    const unknownDoctorOption = args.find((arg) => arg !== "--peers" && arg !== "--json");
+    if (unknownDoctorOption) throw new Error(`Unknown doctor option: ${unknownDoctorOption}`);
     const codexIndexHealth = readCodexIndexHealthStatusFromPath(defaultDatabasePath());
     const { databaseStorage, ...healthWithoutDatabaseStorage } = codexIndexHealth;
     console.log(JSON.stringify({
@@ -230,6 +236,7 @@ async function main() {
       db = createDatabase({ busyTimeoutMs: parsed.timeoutMs });
       console.log(JSON.stringify(indexCodexSessions(db, {
         roots: parsed.roots.length ? parsed.roots : defaultCodexRoots(),
+        lcmDbPaths: configuredLcmPeerDbPaths(),
         maxFiles: parsed.maxFiles,
         maxBytesPerFile: parsed.maxBytesPerFile,
         maxEventsPerFile: parsed.maxEventsPerFile,
@@ -332,7 +339,7 @@ async function main() {
       let indexResult: ReturnType<typeof createRecallIndexSummary> | null = null;
       if (parsed.index) {
         console.error("LCO find: indexing local Codex and Claude sessions before recall...");
-        const codex = indexCodexSessions(db, { roots: defaultCodexRoots() });
+        const codex = indexCodexSessions(db, { roots: defaultCodexRoots(), lcmDbPaths: configuredLcmPeerDbPaths() });
         const claude = indexClaudeSessions(db, { roots: defaultClaudeRoots() });
         indexResult = createRecallIndexSummary({ codex, claude });
         if (emitRecallTimeoutReportIfExceeded("find", started, { limit: parsed.limit, timeoutMs: parsed.timeoutMs })) return;
@@ -341,6 +348,7 @@ async function main() {
         query: parsed.query,
         limit: parsed.limit,
         profile: "brief",
+        lcmDbPaths: configuredLcmPeerDbPaths(),
         telemetry: false
       });
       if (emitRecallTimeoutReportIfExceeded("find", started, { limit: parsed.limit, timeoutMs: parsed.timeoutMs })) return;
@@ -1266,7 +1274,7 @@ function mainUsageText(): string {
     "  loo --help",
     "  loo --version",
     "  loo onboard status [--evidence-dir path] [--root path] [--now iso] [--registry-version version] [--registry-beta-version version] [--gateway-setup-status ready|gateway_setup_required|package_failure_or_unknown] [--strict]",
-    "  loo doctor",
+    "  loo doctor [--peers] [--json]",
     "  loo desktop see [direct|cua-driver|peekaboo] [--snapshot] [--max-nodes n] [--max-chars n]",
     "  loo desktop act [direct|cua-driver|peekaboo] <action>",
     "  loo desktop proof-report --evidence-dir path --observation-file path [--strict]",
