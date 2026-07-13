@@ -400,6 +400,7 @@ test("OpenClaw live-control smoke proves a recommended resume action through too
       evidenceDir,
       threadId: "thr_gateway_resume",
       action: "resume",
+      turnWaitMs: 120_000,
       now: "2026-07-01T00:00:00.000Z"
     });
 
@@ -423,6 +424,7 @@ test("OpenClaw live-control smoke proves a recommended resume action through too
     assert.equal(calls[2]?.params.name, "loo_codex_resume_thread");
     assert.equal(calls[2]?.params.args?.approval_audit_id, DRY_RUN_AUDIT_ID);
     assert.equal(calls[2]?.params.args?.dry_run, false);
+    assert.equal(calls[2]?.params.args?.turn_wait_ms, undefined);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;
