@@ -15,6 +15,7 @@ import { validateWorkingAppRuntimeProof } from "./runtime-proof-gate.js";
 
 export type ReleaseDemoStatusOptions = {
   evidenceDir: string;
+  candidateSha?: string;
   approvedLiveControlEvidence?: string;
   claimScope?: ReleaseClaimScope;
   runtimeProofDir?: string;
@@ -63,6 +64,7 @@ type ApprovedLiveControlSmokeProof = {
   approvedLiveControlSmoke?: boolean;
   action?: string;
   targetRef?: string;
+  candidateSha?: string;
   approvalAuditId?: string;
   messageHash?: string;
   preservesCodexApprovalSemantics?: boolean;
@@ -120,7 +122,7 @@ export function createReleaseDemoStatus(options: ReleaseDemoStatusOptions): Rele
   const controlDryRunEvidence = readJson(evidenceFilePaths.controlDryRun);
   const controlDryRunProof = parseControlDryRun(controlDryRunEvidence.value);
   const approvedLiveControl = liveControlRequired
-    ? validateApprovedLiveControlProof(evidenceFilePaths.approvedLiveControl)
+    ? validateApprovedLiveControlProof(evidenceFilePaths.approvedLiveControl, options.candidateSha)
     : { check: check(false, liveControlExcludedDetail(claimScope)), proof: null };
   const workingAppRuntimeProof = workingAppRuntimeProofRequired
     ? validateWorkingAppRuntimeProof(options.runtimeProofDir)
@@ -390,7 +392,7 @@ function normalizeControlAction(action: string | null): string | null {
   }
 }
 
-function validateApprovedLiveControlProof(path: string): ApprovedProofResult {
+function validateApprovedLiveControlProof(path: string, expectedCandidateSha?: string): ApprovedProofResult {
   if (!existsSync(path)) return { check: check(false, "approved live-control evidence was not provided"), proof: null };
   let proof: ApprovedLiveControlSmokeProof;
   try {
@@ -406,15 +408,22 @@ function validateApprovedLiveControlProof(path: string): ApprovedProofResult {
     "approvedLiveControlSmoke",
     "action",
     "targetRef",
+    "candidateSha",
     "approvalAuditId",
     "messageHash",
     "preservesCodexApprovalSemantics",
     "rawPromptIncluded"
   ]);
+  const candidateShaOk = !expectedCandidateSha || (
+    typeof proof.candidateSha === "string"
+    && /^[0-9a-f]{40}$/i.test(proof.candidateSha)
+    && proof.candidateSha.toLowerCase() === expectedCandidateSha.toLowerCase()
+  );
   const ok = proof.kind === "loo_approved_live_control_smoke"
     && proof.approvedLiveControlSmoke === true
     && actionOk
     && Boolean(proof.targetRef?.startsWith("codex_thread:"))
+    && candidateShaOk
     && Boolean(proof.approvalAuditId)
     && hashOk
     && proof.preservesCodexApprovalSemantics === true

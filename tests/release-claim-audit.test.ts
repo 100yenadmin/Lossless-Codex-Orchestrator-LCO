@@ -13,6 +13,7 @@ const tsxImport = createRequire(import.meta.url).resolve("tsx");
 const packageVersion = JSON.parse(readFileSync("package.json", "utf8")).version as string;
 const documentedStableVersion = readFileSync("README.md", "utf8").match(/Current stable:\s+`([^`]+)`/i)?.[1] ?? packageVersion;
 const escapedDocumentedStableVersion = documentedStableVersion.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const escapedPackageVersion = packageVersion.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const releaseNotesPath = `docs/releases/RELEASE_NOTES_${documentedStableVersion}.md`;
 const internalReleaseNoteLanguage = /##\s*(?:Current Claim Scope|Proof Boundary|Explicit Non-Claims)|\bDo not claim:|approved_live_control_smoke_missing|codex-read-search-expand-dry-run|same proof boundary as beta\.35|No cloud sync|No unattended desktop takeover|No release-grade enterprise security/i;
 
@@ -108,7 +109,7 @@ test("public docs include setup, MCP/OpenClaw, demo, and approval-boundary proof
   }
 
   for (const required of [
-    new RegExp(`Allowed Stable ${escapedDocumentedStableVersion} Claim`, "i"),
+    new RegExp(`Allowed ${escapedPackageVersion} Release Candidate Claim`, "i"),
     /Forbidden beta claims/i,
     /Claude Code local JSONL read\/recall/i,
     /lco index claude/i,
@@ -168,7 +169,7 @@ test("npm dist-tag policy is explicit for stable, beta, and rc channels", () => 
     assert.match(content, /npm dist-tag policy/i, surface);
     assert.match(content, /latest/i, surface);
     assert.match(content, /beta/i, surface);
-    assert.match(content, new RegExp("stable channel\\s+target for this package version is\\s+`" + escapedDocumentedStableVersion + "`", "i"), surface);
+    assert.match(content, new RegExp("stable channel\\s+target for this package version is\\s+`" + escapedPackageVersion + "`", "i"), surface);
     assert.match(content, /npm `latest` must move only after/i, surface);
     assert.match(content, /Do not publish\s+a\s+fake stable/i, surface);
     assert.doesNotMatch(content, new RegExp("stable channel\\s+currently points at\\s+`" + escapedDocumentedStableVersion + "`", "i"), `${surface} must not claim unpublished candidates are already on latest`);
@@ -185,7 +186,7 @@ test("npm dist-tag policy is explicit for stable, beta, and rc channels", () => 
   assert.match(runbook, /npm `latest` must move only after/i);
 });
 
-test("README and VISION describe the current stable package without stale release-candidate wording", () => {
+test("README and VISION distinguish the published stable package from the active release candidate", () => {
   const readme = read("README.md");
   const vision = read("VISION.md");
 

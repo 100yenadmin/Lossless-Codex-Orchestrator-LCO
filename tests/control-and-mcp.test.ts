@@ -118,6 +118,7 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
       approvalAuditId: sequenceDryRun.approvalAuditId
     });
     assert.equal(live.live, true);
+    assert.equal(audit.find(live.approvalAuditId)?.approvalAuditId, sequenceDryRun.approvalAuditId);
     // Public turn output is deterministic by explicit lifecycle order, with unknown methods sorted after known lifecycle notifications.
     assert.deepEqual((live.response as any).turn.notificationMethods, ["turn/started", "turn/completed", "turn/paused", "turn/queued"]);
     assert.deepEqual(live.methodSequence, ["thread/resume", "turn/start"]);

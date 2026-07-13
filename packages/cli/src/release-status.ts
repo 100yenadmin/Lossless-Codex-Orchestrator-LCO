@@ -122,6 +122,7 @@ export function createReleaseStatus(options: ReleaseStatusOptions): ReleaseStatu
   const codeqlEvidence = resolveEvidencePath(evidenceDir, options.codeqlEvidence);
   const releasePreflight = runReleasePreflight({
     evidenceDir,
+    candidateSha,
     approvedLiveControlEvidence,
     claimScope: options.claimScope,
     runtimeProofDir: options.runtimeProofDir,
@@ -129,7 +130,7 @@ export function createReleaseStatus(options: ReleaseStatusOptions): ReleaseStatu
     rootDir: options.rootDir
   });
   const liveControlRequired = releaseClaimScopeRequiresLiveControl(releasePreflight.claimScope);
-  const liveControlSmokeSatisfied = liveControlRequired && !releasePreflight.blockers.includes("approved_live_control_smoke_missing");
+  const liveControlSmokeSatisfied = liveControlRequired && releasePreflight.checks.liveControlSmoke?.ok === true;
   const npmPublishSatisfied = validateReleaseOperationApprovalProof(npmPublishApprovalEvidence, "npm_publish", generatedAt);
   const githubReleaseSatisfied = validateReleaseOperationApprovalProof(githubReleaseApprovalEvidence, "github_release", generatedAt);
   const desktopGuiRequired = options.desktopGuiRequired === true;

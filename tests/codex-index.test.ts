@@ -606,6 +606,36 @@ test("Codex FTS documents stay pinned to session rowids across cold index, reind
   }
 });
 
+test("healthy incremental indexing avoids full FTS matching-row count scans", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-codex-fts-bounded-integrity-"));
+  try {
+    const corpus = writeSyntheticCodexCorpus(root, 3);
+    const db = createDatabase(join(root, "orchestrator.sqlite"));
+    try {
+      indexCodexSessions(db, { roots: [corpus.sessionsDir], maxFiles: 10 });
+      const originalPrepare = db.prepare.bind(db);
+      db.prepare = ((sql: string) => {
+        if (/FROM\s+codex_(?:safe_text|search)_fts\b/i.test(sql)) {
+          throw new Error("incremental FTS integrity must not scan the FTS virtual table");
+        }
+        return originalPrepare(sql);
+      }) as typeof db.prepare;
+
+      const incremental = indexCodexSessions(db, { roots: [corpus.sessionsDir], maxFiles: 10 });
+      db.prepare = originalPrepare as typeof db.prepare;
+
+      assert.equal(incremental.indexedFiles, 0);
+      assert.equal(incremental.skippedFiles, 3);
+      assert.equal(incremental.errors.length, 0);
+      assertCodexFtsPinnedToSessionRowids(db);
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("migrate repairs legacy Codex FTS rowid drift without reindexing", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-codex-migrate-fts-repair-"));
   try {

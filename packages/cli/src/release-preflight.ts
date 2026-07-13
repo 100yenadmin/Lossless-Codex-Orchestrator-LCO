@@ -15,6 +15,7 @@ import { validateWorkingAppRuntimeProof } from "./runtime-proof-gate.js";
 
 export type ReleasePreflightOptions = {
   evidenceDir?: string;
+  candidateSha?: string;
   approvedLiveControlEvidence?: string;
   claimScope?: ReleaseClaimScope;
   runtimeProofDir?: string;
@@ -48,6 +49,7 @@ type ApprovedLiveControlSmokeProof = {
   approvedLiveControlSmoke?: boolean;
   action?: string;
   targetRef?: string;
+  candidateSha?: string;
   approvalAuditId?: string;
   messageHash?: string;
   preservesCodexApprovalSemantics?: boolean;
@@ -162,7 +164,7 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
 
   const approvedLiveControlProof = options.approvedLiveControlEvidence?.trim();
   const liveControlProof = liveControlRequired
-    ? validateApprovedLiveControlProof(approvedLiveControlProof)
+    ? validateApprovedLiveControlProof(approvedLiveControlProof, options.candidateSha)
     : check(false, liveControlExcludedDetail(claimScope));
   const workingAppRuntimeProof = workingAppRuntimeProofRequired
     ? validateWorkingAppRuntimeProof(options.runtimeProofDir)
@@ -198,7 +200,11 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
     .map(([key]) => `${key}_failed`);
   if (rawSessionArtifacts.length > 0) blockers.push("raw_session_artifacts_present");
   if (evidenceScanDepthExceeded.length > 0) blockers.push("evidence_scan_depth_exceeded");
-  if (liveControlRequired && !checks.liveControlSmoke?.ok) blockers.push("approved_live_control_smoke_missing");
+  if (liveControlRequired && !checks.liveControlSmoke?.ok) {
+    blockers.push(checks.liveControlSmoke?.detail.includes("candidate SHA")
+      ? "approved_live_control_candidate_mismatch"
+      : "approved_live_control_smoke_missing");
+  }
   if (workingAppRuntimeProofRequired && workingAppRuntimeProof && !workingAppRuntimeProof.ok) {
     blockers.push(...workingAppRuntimeProof.blockers);
   }
@@ -333,7 +339,7 @@ function rawArtifactForName(name: string): RawSessionArtifact | null {
   return null;
 }
 
-function validateApprovedLiveControlProof(path: string | undefined): ReleasePreflightCheck {
+function validateApprovedLiveControlProof(path: string | undefined, expectedCandidateSha?: string): ReleasePreflightCheck {
   if (!path) return check(false, "approved live-control evidence was not provided");
   if (!existsSync(path)) return check(false, "approved live-control evidence path does not exist");
   let proof: ApprovedLiveControlSmokeProof;
@@ -349,22 +355,36 @@ function validateApprovedLiveControlProof(path: string | undefined): ReleasePref
     "approvedLiveControlSmoke",
     "action",
     "targetRef",
+    "candidateSha",
     "approvalAuditId",
     "messageHash",
     "preservesCodexApprovalSemantics",
     "rawPromptIncluded"
   ]);
   const hasOnlyAllowedKeys = Object.keys(proof).every((key) => allowedKeys.has(key));
+  const candidateShaOk = !expectedCandidateSha || (
+    typeof proof.candidateSha === "string"
+    && /^[0-9a-f]{40}$/i.test(proof.candidateSha)
+    && proof.candidateSha.toLowerCase() === expectedCandidateSha.toLowerCase()
+  );
   const ok = proof.kind === "loo_approved_live_control_smoke"
     && proof.approvedLiveControlSmoke === true
     && actionOk
     && Boolean(proof.targetRef?.startsWith("codex_thread:"))
+    && candidateShaOk
     && Boolean(proof.approvalAuditId)
     && hashOk
     && proof.preservesCodexApprovalSemantics === true
     && proof.rawPromptIncluded === false
     && hasOnlyAllowedKeys;
-  return check(ok, ok ? "structured approved live-control smoke proof accepted" : "approved live-control evidence is not a safe structured proof marker");
+  return check(
+    ok,
+    ok
+      ? "structured approved live-control smoke proof accepted and candidate SHA bound"
+      : !candidateShaOk
+        ? "approved live-control evidence candidate SHA is missing, invalid, or mismatched"
+        : "approved live-control evidence is not a safe structured proof marker"
+  );
 }
 
 function isSafeFingerprint(value: string | undefined | null): boolean {

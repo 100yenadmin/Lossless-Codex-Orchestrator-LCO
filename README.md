@@ -170,7 +170,8 @@ npm install -g lossless-codex-orchestrator@beta
 
 Package channels:
 
-- Current stable: `1.6.0` shipped the Control Plane release: bounded session-diff cursors, review-then-drive dry-runs with budgets and audit binding, Codex scratch-thread control verification, LCM prepared cards and peer diagnostics, and a Claude adapter validation lane that remains dry-run only.
+- Current stable: `1.5.0` shipped on `latest` and remains there until the 1.6 release train completes its final QA and publication checks.
+- Release candidate: `1.6.0` is the Control Plane train for bounded session-diff cursors, review-then-drive dry-runs with budgets and audit binding, Codex scratch-thread control verification, LCM prepared cards and peer diagnostics, and a Claude adapter validation lane that remains dry-run only.
 - `latest` is the stable public channel.
 - `beta` is the active prerelease train.
 - `next` is reserved for release candidates.

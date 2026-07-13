@@ -50,7 +50,7 @@ Hermes or generic MCP until each is independently proven.
 
 ## Current Release Roadmap: 1.6 Control Plane
 
-Current stable: `1.6.0` shipped the Control Plane release. It keeps
+Current stable: `1.5.0`, shipped on the npm `latest` channel. The `1.6.0` Control Plane release candidate keeps
 `lossless-codex-orchestrator` as the canonical npm package, keeps
 `lossless-openclaw-orchestrator` as a maintained compatibility package, adds
 bounded session-diff cursors and review-then-drive dry-runs, verifies the Codex
@@ -58,7 +58,7 @@ scratch control matrix under audit and post-action refresh, materializes LCM
 prepared cards with peer diagnostics, and validates Claude as a second target
 family without claiming Claude live control.
 
-The stable 1.0.0 through `1.6.0` packages are completed release lines. M11 proved
+The stable 1.0.0 through `1.5.0` packages are completed release lines. M11 proved
 the first scoped stable GA-assurance lane, and M12 built the
 release-assurance foundation: fresh npm install checks, OpenClaw gateway
 dogfood, QA Lab coverage, release aggregation, public-safe evidence rules, and
@@ -69,10 +69,11 @@ Active release train:
 
 - **Milestone 13: LCO 1.5 Coverage & Cockpit Release Train.** Completed and
   administratively closed after the 1.5.0 release.
-- **Milestone 14: LCO 1.6 Control Plane Release Train.** Completed by the 1.6.0
-  release after exact-head implementation, QA Lab, dual-package, and runtime
-  verification.
-- **Milestone 15: LCO 1.7 Matrix Stretch Release Train.** Next roadmap lane for
+- **Milestone 14: LCO 1.6 Control Plane Release Train.** Active until exact-head
+  implementation, QA Lab, dual-package publication, and runtime verification
+  agree on the released 1.6.0 artifact.
+- **Milestone 15: LCO 1.7 Matrix Stretch Release Train.** Next roadmap lane after
+  the 1.6 closeout for
   Claude live control, bidirectional flows, Hermes-native integration, watch
   mode, large-file fallback, and the separately gated recall-v2 evaluation.
 

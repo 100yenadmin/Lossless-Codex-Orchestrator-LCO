@@ -143,6 +143,7 @@ function createFakeOpenClaw(dir: string, options: {
   interruptMethod?: string;
   mismatchedExpectedTurnId?: boolean;
   staleLiveAuditId?: boolean;
+  missingParentApprovalAuditId?: boolean;
 } = {}): { bin: string; callsPath: string } {
   const callsPath = join(dir, "calls.jsonl");
   const bin = join(dir, "openclaw-live-fake.mjs");
@@ -177,7 +178,7 @@ function createFakeOpenClaw(dir: string, options: {
       auditPath: "metadata-only",
       records: [
         { id: "${DRY_RUN_AUDIT_ID}", live: false, paramsHash: "${PARAMS_HASH}" },
-        { id: "${options.staleLiveAuditId ? "loo_audit_deadbeef" : LIVE_AUDIT_ID}", live: true, paramsHash: "${PARAMS_HASH}" }
+        { id: "${options.staleLiveAuditId ? "loo_audit_deadbeef" : LIVE_AUDIT_ID}", live: true, paramsHash: "${PARAMS_HASH}"${options.missingParentApprovalAuditId ? "" : `, approvalAuditId: "${DRY_RUN_AUDIT_ID}"`} }
       ]
     }`;
   const auditTailResponse = options.auditDetailsEnvelope
@@ -357,6 +358,9 @@ test("OpenClaw live-control smoke proves dry-run live send and audit tail throug
     assert.equal(report.audit.matchingLiveRecord, true);
     assert.equal(report.actionsPerformed.liveCodexControlRun, true);
     assert.equal(JSON.stringify(report).includes(message), false);
+    assert.equal(report.runtimeProofPath, "openclaw-gateway-live-codex-v1-1.runtime-proof.json");
+    assert.equal(report.reportPath, "openclaw-gateway-live-control-smoke-report.json");
+    assert.equal(JSON.stringify(report).includes(root), false);
 
     const reportText = readFileSync(join(evidenceDir, "openclaw-gateway-live-control-smoke-report.json"), "utf8");
     const proofText = readFileSync(join(evidenceDir, "openclaw-gateway-live-codex-v1-1.runtime-proof.json"), "utf8");
@@ -838,6 +842,29 @@ test("OpenClaw live-control smoke rejects a stale live audit record with the sam
   const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-smoke-stale-audit-"));
   const evidenceDir = join(root, "evidence");
   const { bin, callsPath } = createFakeOpenClaw(root, { staleLiveAuditId: true });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawGatewayLiveControlSmoke({
+      openclawBin: bin,
+      evidenceDir,
+      threadId: "thr_gateway_live",
+      action: "send"
+    });
+    assert.equal(report.ok, false);
+    assert.equal(report.audit.matchingLiveRecord, false);
+    assert.ok(report.blockers.includes("openclaw_live_audit_tail_missing_live_record"));
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw live-control smoke rejects a live audit record without its parent dry-run approval id", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-live-smoke-unbound-audit-"));
+  const evidenceDir = join(root, "evidence");
+  const { bin, callsPath } = createFakeOpenClaw(root, { missingParentApprovalAuditId: true });
   const previous = process.env.OPENCLAW_FAKE_CALLS;
   process.env.OPENCLAW_FAKE_CALLS = callsPath;
   try {

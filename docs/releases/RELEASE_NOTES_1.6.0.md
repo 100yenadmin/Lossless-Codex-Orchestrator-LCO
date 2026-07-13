@@ -1,6 +1,6 @@
 # Release Notes 1.6.0
 
-`1.6.0` is the Control Plane release for local Codex sessions. It adds bounded
+`1.6.0` is the Control Plane release candidate for local Codex sessions. It adds bounded
 ways to see what changed, prepare review-then-drive work, verify supported
 Codex actions, and use LCM summary peers without widening access to raw local
 data.
@@ -38,6 +38,8 @@ data.
   control-plane release process.
 
 ## Upgrade
+
+After the release is published to the stable channel:
 
 ```bash
 npm install -g lossless-codex-orchestrator@latest
