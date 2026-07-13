@@ -31,6 +31,7 @@ const params = paramsIndex >= 0 ? JSON.parse(args[paramsIndex + 1] || "{}") : {}
 appendFileSync(process.env.OPENCLAW_FAKE_CALLS, JSON.stringify({
   method,
   params,
+  argv: args,
   envSecretPresent: Boolean(process.env.NPM_TOKEN || process.env.SECRET_TOKEN || process.env.GITHUB_TOKEN)
 }) + "\\n");
 
@@ -267,6 +268,30 @@ test("qa-lab workflow creates a public-safe dry-run OpenClaw gateway report", (t
   assert.ok(calls
     .filter((call) => call.method === "tools.invoke")
     .every((call) => /^loo-qa-workflow-[a-f0-9]{24}-loo_/.test(call.params.idempotencyKey)));
+});
+
+test("qa-lab workflow routes every gateway call through the selected OpenClaw profile", (t) => {
+  const dir = makeTempDir(t, "loo-qa-workflow-profile-");
+  const { bin, callsPath } = createFakeOpenClaw(dir);
+
+  const report = createQaLabWorkflowReport({
+    scenarioId: "issue-777-profile-routing",
+    surface: "openclaw-gateway",
+    mode: "dry-run",
+    evidenceDir: dir,
+    openclawBin: bin,
+    profile: "lco-dogfood",
+    env: { ...process.env, OPENCLAW_FAKE_CALLS: callsPath }
+  });
+
+  assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+  const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  assert.equal(calls.length, 9);
+  for (const call of calls) {
+    assert.deepEqual(call.argv.slice(0, 2), ["--profile", "lco-dogfood"]);
+    assert.equal(call.argv[2], "gateway");
+  }
+  assert.match(report.command, /^openclaw-fake\.mjs --profile <profile> gateway call/);
 });
 
 test("qa-lab workflow keeps explicit gateway tokens out of OpenClaw argv", (t) => {
@@ -669,7 +694,7 @@ test("qa-lab workflow uses deterministic idempotency keys for retry-safe gateway
 
   const first = createQaLabWorkflowReport(options);
   const second = createQaLabWorkflowReport(options);
-  const third = createQaLabWorkflowReport({ ...options, gatewayUrl: "ws://127.0.0.1:65535" });
+  const third = createQaLabWorkflowReport({ ...options, profile: "lco-dogfood" });
 
   assert.equal(first.ok, true, JSON.stringify(first, null, 2));
   assert.equal(second.ok, true, JSON.stringify(second, null, 2));
@@ -679,6 +704,26 @@ test("qa-lab workflow uses deterministic idempotency keys for retry-safe gateway
     .map((call) => call.params.idempotencyKey);
   assert.deepEqual(invokeKeys.slice(0, 8), invokeKeys.slice(8, 16));
   assert.notDeepEqual(invokeKeys.slice(0, 8), invokeKeys.slice(16, 24));
+});
+
+test("qa-lab workflow rejects unsafe OpenClaw profile names before spawning", (t) => {
+  const dir = makeTempDir(t, "loo-qa-workflow-profile-invalid-");
+  const { bin, callsPath } = createFakeOpenClaw(dir);
+
+  const report = createQaLabWorkflowReport({
+    scenarioId: "issue-777-profile-routing",
+    surface: "openclaw-gateway",
+    mode: "dry-run",
+    evidenceDir: dir,
+    openclawBin: bin,
+    profile: "../../private profile",
+    env: { ...process.env, OPENCLAW_FAKE_CALLS: callsPath }
+  });
+
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.some((blocker) => blocker.code === "workflow_profile_invalid"));
+  assert.throws(() => readFileSync(callsPath, "utf8"), /ENOENT/);
+  assert.doesNotMatch(JSON.stringify(report), /private profile/);
 });
 
 test("qa-lab workflow fails closed without spawning more calls after deadline exhaustion", (t) => {
@@ -862,6 +907,8 @@ test("loo qa-lab workflow ignores an ambient gateway token without an explicit U
     "dry-run",
     "--openclaw-bin",
     bin,
+    "--profile",
+    "lco-dogfood",
     "--evidence-dir",
     dir,
     "--strict"
@@ -874,8 +921,10 @@ test("loo qa-lab workflow ignores an ambient gateway token without an explicit U
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const report = JSON.parse(result.stdout) as QaLabWorkflowReport;
   assert.equal(report.workflowRunReady, true);
-  assert.equal(report.command.startsWith("openclaw-fake.mjs gateway call"), true);
-  assert.equal(readFileSync(callsPath, "utf8").trim().split("\n").length, 9);
+  assert.equal(report.command.startsWith("openclaw-fake.mjs --profile <profile> gateway call"), true);
+  const calls = readFileSync(callsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  assert.equal(calls.length, 9);
+  assert.equal(calls.every((call) => call.argv[0] === "--profile" && call.argv[1] === "lco-dogfood"), true);
 });
 
 test("loo qa-lab workflow writes a strict public-safe report through fake OpenClaw", (t) => {

@@ -1336,7 +1336,7 @@ function mainUsageText(): string {
     "  loo qa-lab live-control-matrix --evidence-dir path [--package-version version] [--candidate-sha sha] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--sacrificial-thread-id id ...] [--send-report path] [--resume-report path] [--steer-report path] [--interrupt-report path] [--now iso] [--strict]",
     "  loo qa-lab judge --run path --rubric-version real-product-v1 --evidence-dir path [--now iso] [--strict]",
     "  loo qa-lab adversarial-review --run path --lenses safety,retrieval,packaging,claims,agent-usability --evidence-dir path [--now iso] [--strict]",
-    "  loo qa-lab workflow --scenario-id id --surface openclaw-gateway --mode dry-run --evidence-dir path [--package-version version] [--candidate-sha sha] [--openclaw-bin path] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--now iso] [--strict]"
+    "  loo qa-lab workflow --scenario-id id --surface openclaw-gateway --mode dry-run --evidence-dir path [--package-version version] [--candidate-sha sha] [--openclaw-bin path] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--now iso] [--strict]"
   ].join("\n").replace(/^  loo /gm, "  lco ");
 }
 
@@ -2303,7 +2303,7 @@ function printQaLabAdversarialReviewHelp(): void {
 function printQaLabWorkflowHelp(): void {
   console.log([
     "Usage:",
-    "  loo qa-lab workflow --scenario-id id --surface cli|mcp|openclaw-gateway|desktop-contract --mode dry-run|live-approved --evidence-dir path [--package-version version] [--candidate-sha sha] [--openclaw-bin path] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--now iso] [--strict]",
+    "  loo qa-lab workflow --scenario-id id --surface cli|mcp|openclaw-gateway|desktop-contract --mode dry-run|live-approved --evidence-dir path [--package-version version] [--candidate-sha sha] [--openclaw-bin path] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--now iso] [--strict]",
     "",
     "Runs the public-safe QA Lab agent workflow and writes `workflow-run.json`.",
     "--gateway-timeout-ms defaults to 60000 ms and is capped at 600000 ms across the whole workflow.",
@@ -5212,6 +5212,7 @@ function parseQaLabWorkflowArgs(input: string[]): {
   packageVersion?: string;
   candidateSha?: string;
   openclawBin?: string;
+  profile?: string;
   gatewayUrl?: string;
   token?: string;
   gatewayTimeoutMs?: number;
@@ -5226,6 +5227,7 @@ function parseQaLabWorkflowArgs(input: string[]): {
   let packageVersion: string | undefined;
   let candidateSha: string | undefined;
   let openclawBin: string | undefined;
+  let profile: string | undefined;
   let gatewayUrl: string | undefined;
   let token: string | undefined;
   let gatewayTimeoutMs: number | undefined;
@@ -5262,6 +5264,10 @@ function parseQaLabWorkflowArgs(input: string[]): {
       openclawBin = readReleaseStatusPath(input, ++index, arg);
       continue;
     }
+    if (arg === "--profile") {
+      profile = readReleaseStatusValue(input, ++index, arg);
+      continue;
+    }
     if (arg === "--gateway-url") {
       gatewayUrl = readReleaseStatusValue(input, ++index, arg);
       continue;
@@ -5293,7 +5299,7 @@ function parseQaLabWorkflowArgs(input: string[]): {
   if (!mode) throw new Error("qa-lab workflow requires --mode");
   if (!evidenceDir) throw new Error("qa-lab workflow requires --evidence-dir");
   const gatewayToken = token ?? (gatewayUrl ? process.env.OPENCLAW_GATEWAY_TOKEN : undefined);
-  return { scenarioId, surface, mode, evidenceDir, packageVersion, candidateSha, openclawBin, gatewayUrl, token: gatewayToken, gatewayTimeoutMs: gatewayTimeoutMs ?? 60_000, sessionKey, now, strict };
+  return { scenarioId, surface, mode, evidenceDir, packageVersion, candidateSha, openclawBin, profile, gatewayUrl, token: gatewayToken, gatewayTimeoutMs: gatewayTimeoutMs ?? 60_000, sessionKey, now, strict };
 }
 
 function parseQaLabWorkflowSurface(input: string[], index: number, flag: string): QaLabWorkflowSurface {

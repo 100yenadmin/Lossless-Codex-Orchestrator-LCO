@@ -16,6 +16,7 @@ export type QaLabWorkflowOptions = {
   packageVersion?: string;
   candidateSha?: string;
   openclawBin?: string;
+  profile?: string;
   gatewayUrl?: string;
   token?: string;
   sessionKey?: string;
@@ -139,6 +140,7 @@ const DEFAULT_GATEWAY_TIMEOUT_MS = 60_000;
 const MAX_UNWRAP_DEPTH = 8;
 const MAX_OUTPUT_SCAN_DEPTH = 64;
 const SAFE_IDENTIFIER_PATTERN = /^[A-Za-z0-9_.:-]{1,160}$/;
+const SAFE_PROFILE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const SAFE_SOURCE_REF_PATTERN = /^(codex_thread|codex_event|codex_range|codex_source|summary_leaf|prepared_card|prepared_inbox|lcm_summary):[A-Za-z0-9_.:-]{1,180}$/;
 const SHA_PATTERN = /^[a-f0-9]{40}$/i;
 
@@ -160,7 +162,7 @@ export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabW
   const gatewayToken = resolveGatewayToken(options);
   const command = options.gatewayUrl && gatewayToken
     ? "loo backend-gateway tools.catalog/tools.invoke --json --params <redacted>"
-    : `${sanitizeCommandBinary(openclawBin)} gateway call tools.catalog/tools.invoke --json --params <redacted>`;
+    : `${sanitizeCommandBinary(openclawBin)}${options.profile ? " --profile <profile>" : ""} gateway call tools.catalog/tools.invoke --json --params <redacted>`;
   const candidateShaValid = options.candidateSha === undefined || SHA_PATTERN.test(options.candidateSha);
 
   if (options.surface !== "openclaw-gateway") {
@@ -171,6 +173,9 @@ export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabW
   }
   if (!openclawBinValidation.ok) {
     addBlocker(blockers, "P1", openclawBinValidation.code, "qaLabWorkflow", openclawBinValidation.detail);
+  }
+  if (options.profile !== undefined && !SAFE_PROFILE_PATTERN.test(options.profile)) {
+    addBlocker(blockers, "P1", "workflow_profile_invalid", "qaLabWorkflow", "OpenClaw profile must be a public-safe name of 1 to 64 letters, digits, dots, underscores, or hyphens.");
   }
   const gatewayUrlValidation = validateGatewayUrl(options.gatewayUrl);
   if (!gatewayUrlValidation.ok) {
@@ -390,6 +395,7 @@ function callGatewayJson(
   ];
   const env = childEnv(options);
   const call = spawnSync(openclawBin, [
+    ...(options.profile ? ["--profile", options.profile] : []),
     "gateway",
     "call",
     method,
@@ -692,6 +698,7 @@ function workflowIdempotencyKey(options: QaLabWorkflowOptions, call: WorkflowCal
     surface: options.surface,
     mode: options.mode,
     gatewayUrl: options.gatewayUrl ?? null,
+    profile: options.profile ?? null,
     openclawBin: options.openclawBin ? sanitizeCommandBinary(options.openclawBin) : null,
     sessionKey: options.sessionKey || "agent:main:lco-qa-lab-workflow",
     toolName: call.toolName,
