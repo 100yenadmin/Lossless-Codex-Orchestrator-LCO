@@ -7500,6 +7500,7 @@ function materializePreparedCardsForLcmPeers(
     }
   }
   const refreshedPeerHashes = new Set<string>();
+  let unavailableConfiguredPeer = false;
   let skippedUnsafeRows = 0;
 
   for (const path of normalizedPaths) {
@@ -7541,6 +7542,7 @@ function materializePreparedCardsForLcmPeers(
     } catch {
       // Retain the last derived cache for an unavailable configured peer. The
       // peer remains fail-closed and doctor reports its unavailable posture.
+      unavailableConfiguredPeer = true;
     } finally {
       peer?.close();
     }
@@ -7548,7 +7550,9 @@ function materializePreparedCardsForLcmPeers(
 
   const staleTargets = previousCards.map((row) => row.targetRef).filter((targetRef) => {
     const peerHash = lcmPeerHashFromRef(targetRef);
-    return peerHash === null || !configuredPeerHashes.has(peerHash) || refreshedPeerHashes.has(peerHash);
+    return peerHash === null
+      || refreshedPeerHashes.has(peerHash)
+      || (!configuredPeerHashes.has(peerHash) && !unavailableConfiguredPeer);
   });
   deletePreparedCardsForTargetRefs(db, unique([
     ...staleTargets,

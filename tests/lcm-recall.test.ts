@@ -589,9 +589,13 @@ test("LCM peer aliases canonicalize to one doctor peer and one prepared-card set
     assert.equal(refreshedInbox.length, 1);
     assert.equal(refreshedInbox[0]?.targetRef, canonicalRef);
 
+    rmSync(aliasPath, { force: true });
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [aliasPath] });
+    assert.equal(getPreparedCards(db, { limit: 10 }).cards.some((card) => card.targetRef === canonicalRef), true);
+    assert.equal(getPreparedInbox(db, { limit: 10 }).items.some((item) => item.targetRef === canonicalRef), true);
+
     db.prepare("UPDATE prepared_cards SET target_ref = ? WHERE target_ref = ?").run(legacyRef, canonicalRef);
     db.prepare("UPDATE prepared_inbox_items SET target_ref = ? WHERE target_ref = ?").run(legacyRef, canonicalRef);
-    rmSync(aliasPath, { force: true });
     indexCodexSessions(db, { roots: [], lcmDbPaths: [aliasPath] });
     assert.equal(getPreparedCards(db, { limit: 10 }).cards.some((card) => card.targetRef === legacyRef), true);
     assert.equal(getPreparedInbox(db, { limit: 10 }).items.some((item) => item.targetRef === legacyRef), true);
