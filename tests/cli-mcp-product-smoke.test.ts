@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
+import { createCliMcpProductSmokeReport } from "../packages/cli/src/cli-mcp-product-smoke.js";
 
 const tsxImport = createRequire(import.meta.url).resolve("tsx");
 const repoRoot = new URL("..", import.meta.url);
@@ -129,6 +130,38 @@ test("loo qa-lab cli-mcp-smoke isolates the MCP probe from the ambient user runt
   } finally {
     if (previousSecret === undefined) delete process.env.SECRET_TOKEN;
     else process.env.SECRET_TOKEN = previousSecret;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loo qa-lab cli-mcp-smoke reports isolated runtime setup failure without rejecting", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-cli-mcp-smoke-runtime-setup-failure-"));
+  try {
+    const cliBin = join(dir, "loo");
+    const mcpBin = join(dir, "lco-mcp-server");
+    const evidenceDir = join(dir, "evidence");
+    writeFakeCli(cliBin);
+    writeFakeMcpServer(mcpBin, ["lco_doctor"]);
+
+    const report = await createCliMcpProductSmokeReport({
+      evidenceDir,
+      packageVersion: "1.6.0",
+      cliBin,
+      mcpBin,
+      requiredTools: ["lco_doctor"],
+      toolCallName: "lco_doctor",
+      runtimeRootFactory: () => {
+        throw Object.assign(new Error("private runtime setup detail"), { code: "EACCES" });
+      }
+    });
+
+    assert.equal(report.ok, false);
+    assert.equal(report.mcpReady, false);
+    assert.deepEqual(report.blockers, ["mcp_isolated_runtime_setup_failed"]);
+    assert.equal(report.toolCallProbe.errorCode, "mcp_isolated_runtime_setup_failed");
+    assert.equal(existsSync(join(evidenceDir, "cli-mcp-product-smoke.json")), true);
+    assert.doesNotMatch(readFileSync(join(evidenceDir, "cli-mcp-product-smoke.json"), "utf8"), /private runtime setup detail|EACCES/);
+  } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
