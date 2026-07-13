@@ -104,7 +104,7 @@ test("adapter-tier docs and Hermes boundary are linked without widening Hermes c
   assert.match(hermes, /not "LCO has a Hermes adapter\."/);
 });
 
-test("shipped product names and Codex plugin metadata match the 1.4 LCO identity lane", () => {
+test("shipped product names and Codex plugin metadata match the current LCO identity lane", () => {
   const pkg = JSON.parse(read("package.json")) as { version?: string };
   const plugin = JSON.parse(read(".codex-plugin/plugin.json")) as {
     version?: string;
