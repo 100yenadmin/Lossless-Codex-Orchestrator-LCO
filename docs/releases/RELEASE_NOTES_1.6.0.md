@@ -1,6 +1,6 @@
 # Release Notes 1.6.0
 
-`1.6.0` is the Control Plane release candidate for local Codex sessions. It adds bounded
+`1.6.0` is the Control Plane release for local Codex sessions. It adds bounded
 ways to see what changed, prepare review-then-drive work, verify supported
 Codex actions, and use LCM summary peers without widening access to raw local
 data.
@@ -34,12 +34,14 @@ data.
   sensitive-ref filtering.
 - Added a side-effect-free Claude availability probe and kept the 1.6 Claude
   control surface dry-run only.
+- Made the canonical `lco` help output consistent across both package names and
+  allowed QA Lab workflows to target an isolated OpenClaw profile explicitly.
 - Added operator threat-model and dual-package rollback guidance for the
   control-plane release process.
 
 ## Upgrade
 
-After the release is published to the stable channel:
+Install or upgrade from the stable channel:
 
 ```bash
 npm install -g lossless-codex-orchestrator@latest
@@ -66,3 +68,5 @@ and approved disposable-target runtime checks.
 - Codex scratch control matrix: #741
 - LCM prepared cards and peer doctor: #742
 - Post-action refresh QA fix: #761
+- Canonical CLI help: #773
+- QA Lab OpenClaw profile routing: #777
