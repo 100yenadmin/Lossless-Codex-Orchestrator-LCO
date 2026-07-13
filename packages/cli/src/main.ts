@@ -669,6 +669,7 @@ async function main() {
       }),
       audit,
       evidenceDir: parsed.evidenceDir,
+      candidateSha: parsed.candidateSha,
       message: parsed.message,
       threadId: parsed.threadId,
       cwd: parsed.cwd,
@@ -1306,7 +1307,7 @@ function mainUsageText(): string {
     "  loo serve",
     "  loo audit-path",
     "  loo drive --reviewer codex|claude --driver codex|claude --target-ref ref --objective text [--surface cli] [--max-turns n] [--token-budget n] [--timeout-ms ms] [--cost-ceiling-usd n] [--audit-path path] [--now iso] [--dry-run]",
-    "  loo codex live-control-smoke --evidence-dir path [--thread-id id] [--message text] [--cwd path] [--timeout-ms ms] [--turn-wait-ms ms] [--audit-path path] [--codex-bin path] [--app-server-args \"app-server --stdio\"]",
+    "  loo codex live-control-smoke --evidence-dir path --candidate-sha sha [--thread-id id] [--message text] [--cwd path] [--timeout-ms ms] [--turn-wait-ms ms] [--audit-path path] [--codex-bin path] [--app-server-args \"app-server --stdio\"]",
     "  loo openclaw dogfood [--dev] [--profile name] [--install-source path] [--link] [--force-install] [--evidence-path path] [--strict]",
     "  loo openclaw tool-smoke [--openclaw-bin path] [--dev] [--profile name] [--gateway-url ws://127.0.0.1:port] [--token token] [--gateway-timeout-ms ms] [--session-key key] [--query text] [--thread-id id] [--expand-profile metadata|brief|evidence] [--token-budget n] [--coverage default|full] [--required-tool name] [--evidence-path path] [--strict]",
     "  loo openclaw published-smoke --evidence-dir path --dogfood-report path --tool-smoke-report path [--configured-tool-smoke-report path] [--npm-install-diagnostic-report path] [--binary-probe-report path] [--registry-version version] [--registry-beta-version version] [--root path] [--now iso] [--strict] [--gateway-ready-strict]",
@@ -2407,7 +2408,7 @@ function printReleaseDemoStatusHelp(): void {
 function printLiveControlSmokeHelp(): void {
   console.log([
     "Usage:",
-    "  loo codex live-control-smoke --evidence-dir path [--thread-id id] [--message text] [--cwd path] [--timeout-ms ms] [--turn-wait-ms ms] [--audit-path path] [--codex-bin path] [--app-server-args \"app-server --stdio\"]",
+    "  loo codex live-control-smoke --evidence-dir path --candidate-sha sha [--thread-id id] [--message text] [--cwd path] [--timeout-ms ms] [--turn-wait-ms ms] [--audit-path path] [--codex-bin path] [--app-server-args \"app-server --stdio\"]",
     "",
     "Runs one approval-gated live Codex send smoke with a harmless prompt.",
     "",
@@ -2553,6 +2554,7 @@ function printLocalMacSearchUiHelp(): void {
 
 function parseLiveControlSmokeArgs(input: string[]): {
   evidenceDir: string;
+  candidateSha: string;
   threadId?: string;
   message?: string;
   cwd?: string;
@@ -2567,6 +2569,8 @@ function parseLiveControlSmokeArgs(input: string[]): {
     const arg = input[index]!;
     if (arg === "--evidence-dir") {
       parsed.evidenceDir = requireOptionValue(input[++index], arg);
+    } else if (arg === "--candidate-sha") {
+      parsed.candidateSha = requireOptionValue(input[++index], arg);
     } else if (arg === "--thread-id") {
       parsed.threadId = requireOptionValue(input[++index], arg);
     } else if (arg === "--message") {
@@ -2588,6 +2592,7 @@ function parseLiveControlSmokeArgs(input: string[]): {
     }
   }
   if (!parsed.evidenceDir) throw new Error("codex live-control-smoke requires --evidence-dir");
+  if (!parsed.candidateSha) throw new Error("codex live-control-smoke requires --candidate-sha");
   return parsed as ReturnType<typeof parseLiveControlSmokeArgs>;
 }
 

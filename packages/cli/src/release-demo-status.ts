@@ -419,7 +419,9 @@ function validateApprovedLiveControlProof(path: string, expectedCandidateSha?: s
     "preservesCodexApprovalSemantics",
     "rawPromptIncluded"
   ]);
-  const candidateShaOk = !expectedCandidateSha || (
+  const candidateShaOk = typeof expectedCandidateSha === "string"
+    && /^[0-9a-f]{40}$/i.test(expectedCandidateSha)
+    && (
     typeof proof.candidateSha === "string"
     && /^[0-9a-f]{40}$/i.test(proof.candidateSha)
     && proof.candidateSha.toLowerCase() === expectedCandidateSha.toLowerCase()

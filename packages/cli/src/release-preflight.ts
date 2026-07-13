@@ -367,7 +367,9 @@ function validateApprovedLiveControlProof(path: string | undefined, expectedCand
     "rawPromptIncluded"
   ]);
   const hasOnlyAllowedKeys = Object.keys(proof).every((key) => allowedKeys.has(key));
-  const candidateShaOk = !expectedCandidateSha || (
+  const candidateShaOk = typeof expectedCandidateSha === "string"
+    && /^[0-9a-f]{40}$/i.test(expectedCandidateSha)
+    && (
     typeof proof.candidateSha === "string"
     && /^[0-9a-f]{40}$/i.test(proof.candidateSha)
     && proof.candidateSha.toLowerCase() === expectedCandidateSha.toLowerCase()

@@ -60,6 +60,7 @@ function writePassingDemoEvidence(evidenceDir: string): string {
     approvedLiveControlSmoke: true,
     action: "send",
     targetRef: "codex_thread:plan-thread",
+    candidateSha,
     approvalAuditId: "loo_audit_test",
     messageHash: "b".repeat(64),
     preservesCodexApprovalSemantics: true,
@@ -148,6 +149,8 @@ test("release demo-status accepts public-safe demo evidence and optional live-co
     "demo-status",
     "--evidence-dir",
     evidenceDir,
+    "--candidate-sha",
+    candidateSha,
     "--approved-live-control-evidence",
     liveControlProof,
     "--strict"
@@ -271,6 +274,8 @@ test("release demo-status accepts documented MCP plan and final text outputs", (
     "demo-status",
     "--evidence-dir",
     evidenceDir,
+    "--candidate-sha",
+    candidateSha,
     "--approved-live-control-evidence",
     liveControlProof,
     "--strict"
@@ -303,6 +308,8 @@ test("release demo-status matches Codex adapter action names to approved proof",
     "demo-status",
     "--evidence-dir",
     evidenceDir,
+    "--candidate-sha",
+    candidateSha,
     "--approved-live-control-evidence",
     liveControlProof,
     "--strict"
@@ -327,6 +334,8 @@ test("release demo-status resolves relative approval proof paths from the eviden
     "demo-status",
     "--evidence-dir",
     evidenceDir,
+    "--candidate-sha",
+    candidateSha,
     "--approved-live-control-evidence",
     "approved-live-control-smoke.json",
     "--strict"
@@ -358,6 +367,8 @@ test("release demo-status counts warm-cache skipped Codex session files", () => 
     "demo-status",
     "--evidence-dir",
     evidenceDir,
+    "--candidate-sha",
+    candidateSha,
     "--approved-live-control-evidence",
     liveControlProof,
     "--strict"
@@ -464,6 +475,7 @@ test("release demo-status rejects nested raw artifacts and mismatched approval p
     approvedLiveControlSmoke: true,
     action: "send",
     targetRef: "codex_thread:different-thread",
+    candidateSha,
     approvalAuditId: "loo_audit_different",
     messageHash: "sha256:different",
     preservesCodexApprovalSemantics: true,
@@ -478,6 +490,8 @@ test("release demo-status rejects nested raw artifacts and mismatched approval p
     "demo-status",
     "--evidence-dir",
     evidenceDir,
+    "--candidate-sha",
+    candidateSha,
     "--approved-live-control-evidence",
     liveControlProof
   ], { encoding: "utf8" });
