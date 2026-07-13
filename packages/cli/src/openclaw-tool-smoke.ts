@@ -489,8 +489,8 @@ function buildSmokeDispositionPlan(
 ): OpenClawToolSmokeDispositionPlan {
   const invocationsByTool = new Map(invocations.map((invocation) => [invocation.toolName, invocation]));
   const entries = requiredTools.map((toolName): OpenClawToolSmokeDispositionPlanEntry => {
-    const disposition = dispositionForTool(toolName);
     const invocation = invocationsByTool.get(toolName);
+    const disposition = invocation?.disposition ?? dispositionForTool(toolName);
     const evidenceEligible = productEvidenceClaimedForDisposition(disposition);
     return {
       toolName,
@@ -1786,7 +1786,10 @@ function summarizeInvocation(
         || item.execute !== false;
     })) blockers.push("prepared_inbox_public_refs_invalid");
   }
-  if (disposition === "expected_fail_closed") {
+  const successfulPostCreateProof = toolName === "loo_codex_start_thread_post_create_proof"
+    && successfulPostCreateProofProven(details ?? output, requestArgs);
+  const effectiveDisposition = successfulPostCreateProof ? "successful_invocation" : disposition;
+  if (disposition === "expected_fail_closed" && !successfulPostCreateProof) {
     const failClosedProven = expectedFailClosedProven(toolName, details ?? output, summary, requestArgs);
     if (failClosedProven) {
       blockers = blockers.filter((blocker) => blocker !== `openclaw_tool_result_not_ok:${toolName}`);
@@ -1797,14 +1800,65 @@ function summarizeInvocation(
 
   return {
     toolName,
-    disposition,
-    productEvidenceClaimed: productEvidenceClaimedForDisposition(disposition) && blockers.length === 0,
+    disposition: effectiveDisposition,
+    productEvidenceClaimed: productEvidenceClaimedForDisposition(effectiveDisposition) && blockers.length === 0,
     exitStatus: call.status,
     ok: blockers.length === 0,
     gatewayMethod: "tools.invoke",
     summary,
     blockers
   };
+}
+
+function successfulPostCreateProofProven(
+  value: unknown,
+  requestArgs: Record<string, unknown>
+): boolean {
+  if (!isRecord(value) || hasRestrictedActionPerformed(value)) return false;
+  const createdThreadRef = stringPath(value, ["createdThreadRef"])
+    || stringPath(value, ["created_thread_ref"]);
+  const requestedThreadRef = typeof requestArgs.created_thread_ref === "string"
+    ? requestArgs.created_thread_ref
+    : undefined;
+  const actions = isRecord(value.actionsPerformed)
+    ? value.actionsPerformed
+    : isRecord(value.actions_performed)
+      ? value.actions_performed
+      : undefined;
+  const proof = isRecord(value.proof) ? value.proof : undefined;
+  if (!actions || !proof) return false;
+
+  const explicitFalse = (camelCase: string, snakeCase: string): boolean =>
+    actions[camelCase] === false || actions[snakeCase] === false;
+  const appServer = isRecord(proof.appServer)
+    ? proof.appServer
+    : isRecord(proof.app_server)
+      ? proof.app_server
+      : undefined;
+  const index = isRecord(proof.index) ? proof.index : undefined;
+  const preparedState = isRecord(proof.preparedState)
+    ? proof.preparedState
+    : isRecord(proof.prepared_state)
+      ? proof.prepared_state
+      : undefined;
+
+  return value.schema === "lco.codex.startThreadPostCreateProof.v1"
+    && (value.publicSafe === true || value.public_safe === true)
+    && (value.readOnly === true || value.read_only === true)
+    && value.status === "persisted"
+    && Boolean(requestedThreadRef)
+    && createdThreadRef === requestedThreadRef
+    && Boolean(appServer?.found)
+    && (appServer?.readProbeOk === true || appServer?.read_probe_ok === true)
+    && index?.found === true
+    && index?.described === true
+    && (preparedState?.cardAvailable === true || preparedState?.card_available === true)
+    && explicitFalse("liveCodexControlRun", "live_codex_control_run")
+    && explicitFalse("desktopGuiActionRun", "desktop_gui_action_run")
+    && explicitFalse("rawTranscriptRead", "raw_transcript_read")
+    && explicitFalse("sourceStoreMutation", "source_store_mutation")
+    && explicitFalse("npmPublished", "npm_publish")
+    && explicitFalse("githubReleaseCreated", "github_release");
 }
 
 function toolPayloadBlockers(toolName: string, payload: unknown): string[] {
