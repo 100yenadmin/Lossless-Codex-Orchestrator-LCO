@@ -3995,7 +3995,7 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
     }
   }
 
-  if (options.lcmDbPaths !== undefined) {
+  if (options.lcmDbPaths !== undefined && (options.lcmDbPaths.length > 0 || hasPreparedLcmState(db))) {
     db.exec("BEGIN IMMEDIATE");
     try {
       materializePreparedCardsForLcmPeers(db, options.lcmDbPaths, allocateSessionDiffMutationTimestamp(db));
@@ -7545,6 +7545,13 @@ function materializePreparedCardsForLcmPeers(
     inboxItems: cards.size,
     skippedUnsafeRows
   };
+}
+
+function hasPreparedLcmState(db: LooDatabase): boolean {
+  const card = db.prepare("SELECT 1 AS found FROM prepared_cards WHERE target_ref LIKE 'lcm_summary:%' LIMIT 1").get() as { found: number } | undefined;
+  if (card?.found === 1) return true;
+  const inbox = db.prepare("SELECT 1 AS found FROM prepared_inbox_items WHERE target_ref LIKE 'lcm_summary:%' LIMIT 1").get() as { found: number } | undefined;
+  return inbox?.found === 1;
 }
 
 function buildPreparedLcmCardDraft(expansion: LcmSummaryExpansion): PreparedCardDraft | null {

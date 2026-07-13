@@ -474,6 +474,27 @@ test("LCM prepared cards reconcile disabled peers and retain unavailable peer ca
   }
 });
 
+test("empty LCM configuration skips reconciliation when no peer cache exists", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-lcm-empty-reconcile-"));
+  const dbPath = join(root, "orchestrator.sqlite");
+  const db = createDatabase(dbPath);
+  const locker = createDatabase(dbPath);
+  try {
+    locker.exec("BEGIN IMMEDIATE");
+    assert.doesNotThrow(() => indexCodexSessions(db, { roots: [], lcmDbPaths: [] }));
+    locker.exec("ROLLBACK");
+  } finally {
+    try {
+      locker.exec("ROLLBACK");
+    } catch {
+      // The assertion path may already have released the lock.
+    }
+    locker.close();
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("LCM peer aliases canonicalize to one doctor peer and one prepared-card set", () => {
   const fixture = makeDagFixture();
   fixture.addSummary("alias_root", "Alias dedup summary.");
