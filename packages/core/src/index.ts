@@ -2757,6 +2757,7 @@ export type FindRecallReport = {
     localRecallSourceRead: boolean;
     localCodexSourceRead: boolean;
     localClaudeSourceRead: boolean;
+    localLcmSourceRead: boolean;
     sourceStoreMutation: false;
     externalWrite: false;
     liveControl: false;
@@ -3148,6 +3149,9 @@ const CODEX_JSONL_DRIFT_MISSING_DB_NEXT_ACTION = "loo index codex \"$HOME/.codex
 const CODEX_INDEX_LIMIT_RECOVERY_COMMAND = `loo index codex --max-files 100000 --max-bytes-per-file ${CODEX_RECOVERY_MAX_BYTES_PER_FILE} --max-events-per-file ${CODEX_RECOVERY_MAX_EVENTS_PER_FILE} "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"`;
 const LCM_SUMMARY_DAG_MAX_NODES = 12;
 const LCM_SUMMARY_DAG_MAX_DEPTH = 4;
+const LCM_PEER_SUMMARY_SCAN_MAX = 500;
+const LCM_SUMMARY_ID_MAX_CHARS = 200;
+const LCM_SUMMARY_CONTENT_MAX_CHARS = 16_000;
 const CLAUDE_INDEX_LIMIT_RECOVERY_COMMAND = `loo index claude --max-files 100000 --max-bytes-per-file ${CODEX_RECOVERY_MAX_BYTES_PER_FILE} --max-events-per-file ${CODEX_RECOVERY_MAX_EVENTS_PER_FILE} "$HOME/.claude/projects"`;
 
 export function createDatabase(dbPath?: string): LooDatabase;
@@ -3991,7 +3995,7 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
     }
   }
 
-  if (options.lcmDbPaths?.length) {
+  if (options.lcmDbPaths !== undefined) {
     db.exec("BEGIN IMMEDIATE");
     try {
       materializePreparedCardsForLcmPeers(db, options.lcmDbPaths, allocateSessionDiffMutationTimestamp(db));
@@ -7094,7 +7098,7 @@ function materializePreparedCardsForTarget(
   };
 }
 
-function materializePreparedCardsForAllThreads(db: LooDatabase, lcmDbPaths: string[] = []): PreparedCardMaterializationReport {
+function materializePreparedCardsForAllThreads(db: LooDatabase, lcmDbPaths?: string[]): PreparedCardMaterializationReport {
   let generatedAt: string;
   const rows = db.prepare(`
     SELECT DISTINCT threadId
@@ -7140,11 +7144,13 @@ function materializePreparedCardsForAllThreads(db: LooDatabase, lcmDbPaths: stri
     summary.cards += claudeSummary.cards;
     summary.inboxItems += claudeSummary.inboxItems;
     summary.skippedUnsafeRows += claudeSummary.skippedUnsafeRows;
-    const lcmSummary = materializePreparedCardsForLcmPeers(db, lcmDbPaths, generatedAt);
-    summary.summaryLeaves += lcmSummary.summaryLeaves;
-    summary.cards += lcmSummary.cards;
-    summary.inboxItems += lcmSummary.inboxItems;
-    summary.skippedUnsafeRows += lcmSummary.skippedUnsafeRows;
+    if (lcmDbPaths !== undefined) {
+      const lcmSummary = materializePreparedCardsForLcmPeers(db, lcmDbPaths, generatedAt);
+      summary.summaryLeaves += lcmSummary.summaryLeaves;
+      summary.cards += lcmSummary.cards;
+      summary.inboxItems += lcmSummary.inboxItems;
+      summary.skippedUnsafeRows += lcmSummary.skippedUnsafeRows;
+    }
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
@@ -7474,34 +7480,57 @@ function materializePreparedCardsForLcmPeers(
   const previousCardByTarget = new Map(previousCards.map((row) => [row.targetRef, row]));
   const previousInboxByTarget = new Map(previousInbox.map((row) => [row.targetRef, row]));
   const cards = new Map<string, PreparedCardDraft>();
+  const normalizedPaths = normalizePeerPaths(paths);
+  const configuredPeerHashes = new Set(normalizedPaths.map(lcmPeerHash));
+  const refreshedPeerHashes = new Set<string>();
   let skippedUnsafeRows = 0;
 
-  for (const path of normalizePeerPaths(paths)) {
+  for (const path of normalizedPaths) {
     let peer: LooDatabase | null = null;
     try {
       peer = openLcmPeerDb(path);
       if (!tableExists(peer, "summaries")) continue;
-      const rows = peer.prepare("SELECT summary_id AS summaryId FROM summaries ORDER BY summary_id ASC").all() as Array<{ summaryId: string }>;
-      for (const row of rows) {
+      const rows = peer.prepare(`
+        SELECT SUBSTR(summary_id, 1, ${LCM_SUMMARY_ID_MAX_CHARS + 1}) AS summaryId
+        FROM summaries
+        ORDER BY summary_id ASC
+        LIMIT ?
+      `).all(LCM_PEER_SUMMARY_SCAN_MAX + 1) as Array<{ summaryId: string }>;
+      const capped = rows.length > LCM_PEER_SUMMARY_SCAN_MAX;
+      const peerCards = new Map<string, PreparedCardDraft>();
+      if (capped) skippedUnsafeRows += 1;
+      for (const row of rows.slice(0, LCM_PEER_SUMMARY_SCAN_MAX)) {
         const root = getLcmSummaryRecordFromDb(peer, path, String(row.summaryId ?? ""));
         if (!root) {
           skippedUnsafeRows += 1;
           continue;
         }
-        const expansion: LcmSummaryExpansion = { root, ...walkLcmSummarySources(peer, path, root.summaryId) };
+        const walked = walkLcmSummarySources(peer, path, root.summaryId);
+        const expansion: LcmSummaryExpansion = {
+          root,
+          sourceSummaries: walked.sourceSummaries,
+          reasonCodes: capped ? unique([...walked.reasonCodes, "lcm_peer_materialization_cap"]) : walked.reasonCodes
+        };
         const card = buildPreparedLcmCardDraft(expansion);
-        if (card) cards.set(card.targetRef, card);
+        if (card) peerCards.set(card.targetRef, card);
         else skippedUnsafeRows += 1;
       }
+      refreshedPeerHashes.add(lcmPeerHash(path));
+      for (const [targetRef, card] of peerCards) cards.set(targetRef, card);
     } catch {
-      // Optional peers remain fail-closed and unavailable without affecting other cards.
+      // Retain the last derived cache for an unavailable configured peer. The
+      // peer remains fail-closed and doctor reports its unavailable posture.
     } finally {
       peer?.close();
     }
   }
 
+  const staleTargets = previousCards.map((row) => row.targetRef).filter((targetRef) => {
+    const peerHash = lcmPeerHashFromRef(targetRef);
+    return peerHash === null || !configuredPeerHashes.has(peerHash) || refreshedPeerHashes.has(peerHash);
+  });
   deletePreparedCardsForTargetRefs(db, unique([
-    ...previousCards.map((row) => row.targetRef),
+    ...staleTargets,
     ...cards.keys()
   ]));
   for (const card of cards.values()) {
@@ -17526,7 +17555,7 @@ function formatTouchedFiles(files: string[], limit: number, maxChars: number): s
 }
 
 export function probeLcmPeerDbs(paths = configuredLcmPeerDbPaths()): LcmPeerProbeReport {
-  const peers = paths.map((path) => probeLcmPeerDb(path));
+  const peers = normalizePeerPaths(paths).map((path) => probeLcmPeerDb(path));
   const summary = {
     ready: peers.filter((peer) => peer.status === "ready").length,
     degraded: peers.filter((peer) => peer.status === "degraded").length,
@@ -17713,10 +17742,12 @@ export function createFindRecallReport(options: {
   const limit = clamp(requestedLimit, 1, 100);
   const indexed = normalizeRecallIndexSummary(options.indexed ?? null);
   const results = options.recall.matches.slice(0, limit).map(sanitizeFindRecallResult);
-  const localRecallSourceRead = indexed?.attempted ?? false;
+  const incrementalIndexAttempted = indexed?.attempted ?? false;
   const localCodexSourceRead = Boolean(indexed?.sourceKinds.includes("codex"));
   const localClaudeSourceRead = Boolean(indexed?.sourceKinds.includes("claude"));
-  const transcriptDerivedContentRead = localRecallSourceRead
+  const localLcmSourceRead = results.some((result) => result.sourceKind === "lcm_summary");
+  const localRecallSourceRead = incrementalIndexAttempted || localLcmSourceRead;
+  const transcriptDerivedContentRead = incrementalIndexAttempted
     || results.some((result) => result.reasonCodes.includes("event_content_fts_match"));
   return {
     schema: "lco.find.v1",
@@ -17725,7 +17756,7 @@ export function createFindRecallReport(options: {
     query: publicSafeFindText(options.query, 180),
     limit,
     indexed: {
-      attempted: localRecallSourceRead,
+      attempted: incrementalIndexAttempted,
       sourceKinds: indexed?.sourceKinds ?? [],
       indexedFiles: indexed?.indexedFiles ?? 0,
       skippedFiles: indexed?.skippedFiles ?? 0,
@@ -17740,10 +17771,11 @@ export function createFindRecallReport(options: {
     results,
     nextSafeCommands: findRecallNextSafeCommands(options.query, results),
     actionsPerformed: {
-      derivedCacheWrite: localRecallSourceRead,
+      derivedCacheWrite: incrementalIndexAttempted,
       localRecallSourceRead,
       localCodexSourceRead,
       localClaudeSourceRead,
+      localLcmSourceRead,
       sourceStoreMutation: false,
       externalWrite: false,
       liveControl: false,
@@ -17754,9 +17786,10 @@ export function createFindRecallReport(options: {
     },
     reasonCodes: unique([
       "find_command",
-      localRecallSourceRead ? "incremental_index_attempted" : "index_skipped_by_flag",
+      incrementalIndexAttempted ? "incremental_index_attempted" : "index_skipped_by_flag",
       localCodexSourceRead ? "codex_index_attempted" : "",
       localClaudeSourceRead ? "claude_index_attempted" : "",
+      localLcmSourceRead ? "lcm_peer_source_read" : "",
       results.some((result) => result.reasonCodes.includes("event_content_fts_match")) ? "event_content_results_available" : "",
       results.length === 0 ? "no_matches" : ""
     ].filter(Boolean))
@@ -18667,7 +18700,7 @@ function searchLcmPeer(db: LooDatabase, path: string, query: string, limit: numb
       ${hasConversations ? "c.title" : "NULL"} AS conversationTitle,
       s.kind,
       s.depth,
-      s.content,
+      SUBSTR(s.content, 1, ${LCM_SUMMARY_CONTENT_MAX_CHARS}) AS content,
       s.token_count AS tokenCount,
       s.model,
       s.created_at AS createdAt,
@@ -18858,13 +18891,31 @@ function probeLcmPeerDb(path: string): LcmPeerProbe {
             WHERE child.summary_id IS NULL OR parent.summary_id IS NULL
           `).get() as { count: number }).count)
         : 0;
+      const integrityRows = supported && tables.includes("summary_parents")
+        ? db.prepare(`
+            SELECT SUBSTR(summary_id, 1, ${LCM_SUMMARY_ID_MAX_CHARS + 1}) AS summaryId
+            FROM summaries
+            ORDER BY summary_id ASC
+            LIMIT ?
+          `).all(LCM_PEER_SUMMARY_SCAN_MAX + 1) as Array<{ summaryId: string }>
+        : [];
+      const integrityScanCapped = integrityRows.length > LCM_PEER_SUMMARY_SCAN_MAX;
+      let traversalDegraded = 0;
+      let dagCycles = 0;
+      for (const row of integrityRows.slice(0, LCM_PEER_SUMMARY_SCAN_MAX)) {
+        const walked = walkLcmSummarySources(db, normalizedPath, String(row.summaryId ?? ""));
+        if (walked.reasonCodes.length > 0) traversalDegraded += 1;
+        if (walked.reasonCodes.includes("lcm_summary_dag_cycle_omitted")) dagCycles += 1;
+      }
       const degradedExpansions = missingOptionalTables.includes("summary_parents")
         ? summaryCount ?? 0
-        : emptySummaries + staleDagLinks;
+        : Math.max(traversalDegraded, emptySummaries + staleDagLinks, integrityScanCapped ? 1 : 0);
       const reasonCodes = unique([
         ...missingOptionalTables.map((table) => `lcm_peer_optional_table_missing:${table}`),
         emptySummaries > 0 ? "lcm_peer_empty_summaries" : "",
         staleDagLinks > 0 ? "lcm_peer_stale_dag_links" : "",
+        dagCycles > 0 ? "lcm_peer_dag_cycle" : "",
+        integrityScanCapped ? "lcm_peer_integrity_scan_cap" : "",
         degradedExpansions > 0 ? "lcm_peer_degraded_expansion" : ""
       ].filter(Boolean));
       const status: LcmPeerProbe["status"] = !supported
@@ -19031,6 +19082,11 @@ function lcmSummaryRef(path: string, summaryId: string): string {
   return `lcm_summary:${lcmPeerHash(path)}:${encodeURIComponent(summaryId)}`;
 }
 
+function lcmPeerHashFromRef(sourceRef: string): string | null {
+  const match = /^lcm_summary:([0-9a-f]{12}):/.exec(sourceRef);
+  return match?.[1] ?? null;
+}
+
 function lcmPeerHash(path: string): string {
   return stableId(normalizePeerPath(path)).slice(0, 12);
 }
@@ -19062,13 +19118,13 @@ function unique(values: string[]): string[] {
 }
 
 function normalizePeerPaths(paths: string[]): string[] {
-  return paths.flatMap((path) => {
+  return unique(paths.flatMap((path) => {
     try {
       return [normalizePeerPath(path)];
     } catch {
       return [];
     }
-  });
+  }));
 }
 
 function queryTerms(query: string): string[] {
@@ -19076,9 +19132,20 @@ function queryTerms(query: string): string[] {
 }
 
 function normalizePeerPath(path: string): string {
-  if (path === "~") return resolve(homeDirectory());
-  if (path.startsWith("~/")) return resolve(join(homeDirectory(), path.slice(2)));
-  return resolve(path);
+  const resolved = path === "~"
+    ? resolve(homeDirectory())
+    : path.startsWith("~/")
+      ? resolve(join(homeDirectory(), path.slice(2)))
+      : resolve(path);
+  try {
+    return realpathSync.native(resolved);
+  } catch {
+    try {
+      return join(realpathSync.native(dirname(resolved)), basename(resolved));
+    } catch {
+      return resolved;
+    }
+  }
 }
 
 function homeDirectory(): string {

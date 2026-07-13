@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -19,6 +19,7 @@ import {
   getPreparedInbox,
   grepRecall,
   indexCodexSessions,
+  materializePreparedCards,
   probeLcmPeerDbs
 } from "../packages/core/src/index.js";
 
@@ -390,6 +391,24 @@ test("LCM peer doctor classifies ready degraded and unavailable without mutation
   }
 });
 
+test("LCM peer doctor degrades cyclic summary DAGs", () => {
+  const fixture = makeDagFixture();
+  fixture.addSummary("cycle_a", "Cycle A summary.");
+  fixture.addSummary("cycle_b", "Cycle B summary.");
+  fixture.addParent("cycle_a", "cycle_b", 0);
+  fixture.addParent("cycle_b", "cycle_a", 0);
+  try {
+    const report = probeLcmPeerDbs([fixture.lcmPath]);
+    assert.equal(report.status, "degraded");
+    assert.equal(report.peers[0]?.status, "degraded");
+    assert.equal(report.peers[0]?.integrity.degradedExpansions >= 1, true);
+    assert.equal(report.peers[0]?.integrity.reasonCodes.includes("lcm_peer_dag_cycle"), true);
+  } finally {
+    fixture.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("LCM summary DAGs materialize public-safe prepared cards and inbox items", () => {
   const fixture = makeDagFixture();
   fixture.addSummary("card_root", "Prepared LCM root summary for the next operator.", { kind: "condensed", depth: 1 });
@@ -419,14 +438,77 @@ test("LCM summary DAGs materialize public-safe prepared cards and inbox items", 
   }
 });
 
+test("LCM prepared cards reconcile disabled peers and retain unavailable peer cache", () => {
+  const fixture = makeDagFixture();
+  fixture.addSummary("retained_root", "Retained peer summary.");
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [fixture.lcmPath] });
+    assert.equal(getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary").length, 1);
+
+    materializePreparedCards(db);
+    assert.equal(getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary").length, 1);
+
+    fixture.close();
+    rmSync(fixture.lcmPath, { force: true });
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [fixture.lcmPath] });
+    assert.equal(getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary").length, 1);
+
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [] });
+    assert.equal(getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary").length, 0);
+    assert.equal(getPreparedInbox(db, { limit: 10 }).items.filter((item) => item.targetRef.startsWith("lcm_summary:")).length, 0);
+  } finally {
+    db.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM peer aliases canonicalize to one doctor peer and one prepared-card set", () => {
+  const fixture = makeDagFixture();
+  fixture.addSummary("alias_root", "Alias dedup summary.");
+  const aliasPath = join(fixture.root, "lcm-peer-alias.sqlite");
+  symlinkSync(fixture.lcmPath, aliasPath);
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    const report = probeLcmPeerDbs([fixture.lcmPath, aliasPath]);
+    assert.equal(report.peers.length, 1);
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [fixture.lcmPath, aliasPath] });
+    assert.equal(getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary").length, 1);
+  } finally {
+    db.close();
+    fixture.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM prepared-card materialization caps oversized peers with omission markers", () => {
+  const fixture = makeDagFixture();
+  for (let index = 0; index <= 500; index += 1) {
+    fixture.addSummary(`bounded_${String(index).padStart(3, "0")}`, `Bounded LCM summary ${index}.`);
+  }
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [fixture.lcmPath] });
+    const cards = getPreparedCards(db, { limit: 500 }).cards.filter((card) => card.cardKind === "lcm_summary");
+    assert.equal(cards.length, 500);
+    assert.equal(cards.every((card) => card.reasonCodes.includes("lcm_peer_materialization_cap")), true);
+  } finally {
+    db.close();
+    fixture.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("MCP index, prepared cards, and doctor share the configured LCM peer contract", async () => {
   const fixture = makeDagFixture();
   fixture.addSummary("mcp_root", "MCP-visible LCM prepared summary.", { kind: "condensed", depth: 1 });
   const dbPath = join(fixture.root, "orchestrator.sqlite");
   const db = createDatabase(dbPath);
   const audit = createAuditStore(join(fixture.root, "audit.jsonl"));
-  const previousPeers = process.env.LOO_LCM_DB_PATHS;
-  process.env.LOO_LCM_DB_PATHS = fixture.lcmPath;
+  const previousCanonicalPeers = process.env.LCO_LCM_DB_PATHS;
+  const previousLegacyPeers = process.env.LOO_LCM_DB_PATHS;
+  process.env.LCO_LCM_DB_PATHS = fixture.lcmPath;
+  delete process.env.LOO_LCM_DB_PATHS;
   const tools = createLooTools({
     db,
     dbPath,
@@ -447,8 +529,10 @@ test("MCP index, prepared cards, and doctor share the configured LCM peer contra
     const peers = await peerTool.execute({ lcm_db_paths: [fixture.lcmPath] });
     assert.deepEqual(doctor.lcmPeers, peers);
   } finally {
-    if (previousPeers === undefined) delete process.env.LOO_LCM_DB_PATHS;
-    else process.env.LOO_LCM_DB_PATHS = previousPeers;
+    if (previousCanonicalPeers === undefined) delete process.env.LCO_LCM_DB_PATHS;
+    else process.env.LCO_LCM_DB_PATHS = previousCanonicalPeers;
+    if (previousLegacyPeers === undefined) delete process.env.LOO_LCM_DB_PATHS;
+    else process.env.LOO_LCM_DB_PATHS = previousLegacyPeers;
     db.close();
     fixture.close();
     rmSync(fixture.root, { recursive: true, force: true });

@@ -194,6 +194,35 @@ test("lco find report preserves public-safe refs for next commands and lineage",
   assert.equal(report.actionsPerformed.rawTranscriptRead, true);
 });
 
+test("lco find reports direct LCM peer reads without claiming transcript access", () => {
+  const report = createFindRecallReport({
+    query: "peer summary",
+    indexed: null,
+    recall: {
+      query: "peer summary",
+      profile: "brief",
+      matches: [{
+        sourceKind: "lcm_summary",
+        sourceRef: "lcm_summary:0123456789ab:peer_summary",
+        title: "Peer summary",
+        summary: "Public-safe peer memory.",
+        updatedAt: "2026-07-08T00:00:00.000Z",
+        score: 1,
+        snippet: "Public-safe peer memory.",
+        summaryId: "peer_summary",
+        reasonCodes: ["lcm_summary_match"]
+      }]
+    }
+  });
+
+  assert.equal(report.indexed.attempted, false);
+  assert.equal(report.actionsPerformed.derivedCacheWrite, false);
+  assert.equal(report.actionsPerformed.localRecallSourceRead, true);
+  assert.equal(report.actionsPerformed.localLcmSourceRead, true);
+  assert.equal(report.actionsPerformed.rawTranscriptRead, false);
+  assert.equal(report.reasonCodes.includes("lcm_peer_source_read"), true);
+});
+
 test("lco_find MCP facade indexes then returns the same public-safe find packet", async () => {
   const root = mkdtempSync(join(tmpdir(), "lco-find-mcp-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
