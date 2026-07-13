@@ -1047,6 +1047,7 @@ function buildToolArgs(params: {
   if (params.toolName === "loo_codex_interrupt_thread") {
     return params.threadId ? {
       thread_id: params.threadId,
+      expected_turn_id: "tool-smoke-turn",
       dry_run: true
     } : null;
   }
