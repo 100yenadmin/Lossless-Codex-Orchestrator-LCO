@@ -361,6 +361,27 @@ test("qa-lab workflow fails closed when a scoped token has no explicit gateway U
   assert.equal(existsSync(callsPath), false, "ambiguous token-only auth must fail before spawning OpenClaw");
 });
 
+test("qa-lab workflow rejects a profile on the direct authenticated backend transport", (t) => {
+  const dir = makeTempDir(t, "loo-qa-workflow-profile-backend-");
+  const { bin, callsPath } = createFakeOpenClaw(dir);
+
+  const report = createQaLabWorkflowReport({
+    scenarioId: "issue-777-profile-routing",
+    surface: "openclaw-gateway",
+    mode: "dry-run",
+    evidenceDir: dir,
+    openclawBin: bin,
+    profile: "lco-dogfood",
+    gatewayUrl: "ws://127.0.0.1:18790",
+    token: "scoped-token",
+    env: { ...process.env, OPENCLAW_FAKE_CALLS: callsPath }
+  });
+
+  assert.equal(report.ok, false);
+  assert.ok(report.blockers.some((blocker) => blocker.code === "workflow_profile_backend_transport_unsupported"));
+  assert.throws(() => readFileSync(callsPath, "utf8"), /ENOENT/);
+});
+
 test("gateway backend child strips ambient Node startup controls", () => {
   const result = callGatewayBackendJson(
     "ws://127.0.0.1:65534",
