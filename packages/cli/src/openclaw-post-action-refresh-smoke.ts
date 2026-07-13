@@ -401,7 +401,9 @@ function hasNativeResultFailure(value: unknown, checkDirect = false, depth = 0):
     const nested = value[key];
     if (!isRecord(nested)) continue;
     if (nested.ok === false) return true;
-    if (typeof nested.status === "string" && ["error", "failed", "failure"].includes(nested.status.toLowerCase())) return true;
+    if (isNativeResultWrapper(nested)
+      && typeof nested.status === "string"
+      && ["error", "failed", "failure"].includes(nested.status.toLowerCase())) return true;
     if (hasNativeResultFailure(nested, false, depth + 1)) return true;
   }
   return false;
@@ -465,12 +467,14 @@ function resolveNativeEnvelopeDetails(value: unknown): unknown {
 
 function unwrapNativeSuccessDetails(value: unknown, depth = 0): unknown {
   if (!isRecord(value) || depth > 4) return value;
-  const keys = Object.keys(value);
-  const wrapperOnly = keys.every((key) => ["ok", "status", "response", "result"].includes(key));
-  if (!wrapperOnly) return value;
+  if (!isNativeResultWrapper(value)) return value;
   if (isRecord(value.response)) return unwrapNativeSuccessDetails(value.response, depth + 1);
   if (isRecord(value.result)) return unwrapNativeSuccessDetails(value.result, depth + 1);
   return value;
+}
+
+function isNativeResultWrapper(value: Record<string, unknown>): boolean {
+  return Object.keys(value).every((key) => ["ok", "status", "response", "result"].includes(key));
 }
 
 function extractCatalogToolNames(value: unknown): string[] {
