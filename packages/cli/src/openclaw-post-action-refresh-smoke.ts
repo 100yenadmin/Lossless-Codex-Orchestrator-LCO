@@ -467,7 +467,10 @@ function resolveNativeEnvelopeDetails(value: unknown): unknown {
     && Object.keys(value.output).every((key) => ["content", "details"].includes(key))) {
     return "details" in value.output ? value.output.details : undefined;
   }
-  return Array.isArray(value.content) && "details" in value ? value.details : undefined;
+  if (Object.keys(value).every((key) => ["content", "details"].includes(key))) {
+    return "details" in value ? value.details : undefined;
+  }
+  return undefined;
 }
 
 function unwrapNativeSuccessDetails(value: unknown, depth = 0): unknown {
