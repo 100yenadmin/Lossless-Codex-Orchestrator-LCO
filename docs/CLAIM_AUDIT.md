@@ -1,6 +1,6 @@
 # Public Claim Audit
 
-## Allowed 1.6.0 Release Candidate Claim
+## Allowed 1.6.0 Stable Claim
 
 Coordinate local Codex work through OpenClaw/MCP with bounded recall and session diffs, audited review-then-drive dry-runs, approved disposable-target Codex controls, and read-only LCM prepared state; Claude targeting remains dry-run only.
 
