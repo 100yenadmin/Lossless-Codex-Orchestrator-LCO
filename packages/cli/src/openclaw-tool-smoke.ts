@@ -475,6 +475,7 @@ function productEvidenceClaimedForDisposition(disposition: OpenClawToolSmokeDisp
 }
 
 function dispositionReason(disposition: OpenClawToolSmokeDisposition, toolName: string): string {
+  if (disposition === "successful_invocation" && toolName === "loo_codex_start_thread_post_create_proof") return "A statically fail-closed post-create probe is promoted only when its response proves a target-bound, public-safe, read-only persisted thread with explicit no-action markers.";
   if (disposition === "successful_invocation") return "Tool is safe to invoke with public-safe fixture arguments.";
   if (disposition === "successful_dry_run" && toolName === "loo_codex_start_thread") return "Tool is control-capable and must be requested with dry_run:true, then prove live:false plus approval audit and params hash from the response; this does not claim thread-bound control semantics.";
   if (disposition === "successful_dry_run") return "Tool is control-capable and must be invoked only with dry_run:true or equivalent dry-run proof.";
@@ -510,7 +511,7 @@ function buildSmokeDispositionPlan(
       unknown_non_claim: entries.filter((entry) => entry.disposition === "unknown_non_claim").length
     },
     entries,
-    proofBoundary: "Successful invocation and successful dry-run entries may count as product gateway evidence; dry-run entries trust explicit dry_run/live:false plus audit/hash markers from the tool response and do not independently prove live action absence. Expected fail-closed entries prove only safe refusal/no-action behavior using allowlisted blocker/reason/proof-marker evidence, and desktop action proof is additionally bound to request-side dry_run:true. Excluded and unknown non-claim entries are catalog/disposition records only and must not be counted as product invocation proof."
+    proofBoundary: "Successful invocation and successful dry-run entries may count as product gateway evidence; dry-run entries trust explicit dry_run/live:false plus audit/hash markers from the tool response and do not independently prove live action absence. The post-create probe starts statically fail-closed and may become a successful invocation only after its response proves request and nested thread-reference binding, public-safe read-only persistence, and explicit no-action markers. Expected fail-closed entries prove only safe refusal/no-action behavior using allowlisted blocker/reason/proof-marker evidence, and desktop action proof is additionally bound to request-side dry_run:true. Excluded and unknown non-claim entries are catalog/disposition records only and must not be counted as product invocation proof."
   };
 }
 
@@ -1828,20 +1829,30 @@ function successfulPostCreateProofProven(
   const proof = isRecord(value.proof) ? value.proof : undefined;
   if (!actions || !proof) return false;
 
-  const explicitFalse = (camelCase: string, snakeCase: string): boolean =>
-    actions[camelCase] === false || actions[snakeCase] === false;
+  const explicitFalse = (camelCase: string, snakeCase: string): boolean => {
+    const values = [actions[camelCase], actions[snakeCase]].filter((entry) => entry !== undefined);
+    return values.length > 0 && values.every((entry) => entry === false);
+  };
   const appServer = isRecord(proof.appServer)
     ? proof.appServer
     : isRecord(proof.app_server)
       ? proof.app_server
       : undefined;
   const index = isRecord(proof.index) ? proof.index : undefined;
+  const appServerThreadRef = appServer
+    ? stringPath(appServer, ["threadRef"]) || stringPath(appServer, ["thread_ref"])
+    : undefined;
+  const indexSourceRef = index
+    ? stringPath(index, ["sourceRef"]) || stringPath(index, ["source_ref"])
+    : undefined;
   return value.schema === "lco.codex.startThreadPostCreateProof.v1"
     && (value.publicSafe === true || value.public_safe === true)
     && (value.readOnly === true || value.read_only === true)
     && value.status === "persisted"
     && Boolean(requestedThreadRef)
     && createdThreadRef === requestedThreadRef
+    && appServerThreadRef === createdThreadRef
+    && indexSourceRef === createdThreadRef
     && appServer?.found === true
     && (appServer?.readProbeOk === true || appServer?.read_probe_ok === true)
     && index?.found === true
