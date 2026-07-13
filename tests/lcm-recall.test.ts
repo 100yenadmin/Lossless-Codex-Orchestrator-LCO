@@ -459,7 +459,7 @@ test("LCM summary DAGs materialize public-safe prepared cards and inbox items", 
     assert.equal(inbox.every((item) => item.execute === false), true);
     const serializedPreparedState = JSON.stringify({ cards, inbox });
     assert.doesNotMatch(serializedPreparedState, /\/Users\/lume\/private|sk-test_1234567890|Bearer/);
-    assert.doesNotMatch(serializedPreparedState, new RegExp(fixture.root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.equal(serializedPreparedState.includes(fixture.root), false);
     assert.deepEqual(peerDbState(fixture.lcmPath), before);
   } finally {
     db.close();
