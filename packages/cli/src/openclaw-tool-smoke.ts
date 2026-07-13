@@ -137,6 +137,12 @@ export const FULL_GATEWAY_SMOKE_TOOL_CALLS = [
 const PREPARED_CARD_STATE_SET = new Set<string>(PREPARED_CARD_STATES);
 const MAX_RESTRICTED_ACTION_SCAN_DEPTH = 64;
 const MAX_RESTRICTED_ACTION_SCAN_ENTRIES = 512;
+const SUCCESSFUL_POST_CREATE_REASON_CODES = new Set([
+  "read_only_app_server_signal",
+  "read_probe_found_thread",
+  "indexed_session_found",
+  "indexed_description_available"
+]);
 const SAFE_FAIL_CLOSED_REASON_CODES_BY_TOOL = new Map<string, Set<string>>([
   ["loo_codex_start_thread_post_create_proof", new Set([
     "post_create_proof_missing_persisted_evidence",
@@ -1857,6 +1863,13 @@ function successfulPostCreateProofBlockers(
   const indexSourceRef = index
     ? stringPath(index, ["sourceRef"]) || stringPath(index, ["source_ref"])
     : undefined;
+  const reasonCodes = [
+    ...arrayPath(value, ["reasonCodes"]),
+    ...arrayPath(value, ["reason_codes"])
+  ];
+  const reasonCodesValid = reasonCodes.length > 0
+    && reasonCodes.every((reasonCode) => typeof reasonCode === "string"
+      && SUCCESSFUL_POST_CREATE_REASON_CODES.has(reasonCode));
   const checks: Array<[boolean, string]> = [
     [value.schema === "lco.codex.startThreadPostCreateProof.v1", "post_create_proof_schema_invalid"],
     [value.publicSafe === true || value.public_safe === true, "post_create_proof_public_safe_missing"],
@@ -1870,6 +1883,7 @@ function successfulPostCreateProofBlockers(
     [appServer?.readProbeOk === true || appServer?.read_probe_ok === true, "post_create_proof_read_probe_missing"],
     [index?.found === true, "post_create_proof_index_not_found"],
     [index?.described === true, "post_create_proof_index_description_missing"],
+    [reasonCodesValid, "post_create_proof_reason_codes_invalid"],
     [explicitFalse("liveCodexControlRun", "live_codex_control_run"), "post_create_proof_live_control_marker_invalid"],
     [explicitFalse("desktopGuiActionRun", "desktop_gui_action_run"), "post_create_proof_desktop_action_marker_invalid"],
     [explicitFalse("rawTranscriptRead", "raw_transcript_read"), "post_create_proof_transcript_marker_invalid"],

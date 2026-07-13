@@ -110,6 +110,8 @@ function createFakeOpenClaw(
     mismatchedSuccessfulPostCreateNestedRef?: boolean;
     mismatchedSuccessfulPostCreateIndexRef?: boolean;
     inconsistentSuccessfulPostCreateActionAlias?: boolean;
+    missingSuccessfulPostCreateReasonCodes?: boolean;
+    unknownSuccessfulPostCreateReasonCode?: boolean;
     successfulPostCreateRestrictedAction?: boolean;
     unsafeIndexErrorPath?: boolean;
     unsafeIndexMutationClass?: boolean;
@@ -514,7 +516,7 @@ if (method === "tools.invoke") {
   }
   if (name === "loo_codex_start_thread_post_create_proof") {
     if (${options.successfulPostCreateProof ? "true" : "false"}) {
-      console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { details: { schema: "lco.codex.startThreadPostCreateProof.v1", public_safe: true, read_only: true, status: "persisted", created_thread_ref: toolArgs.created_thread_ref, proof: { app_server: { found: ${options.malformedSuccessfulPostCreateAppServerFound ? '"false"' : "true"}, read_probe_ok: true, thread_ref: ${options.mismatchedSuccessfulPostCreateNestedRef ? '"codex_thread:other-thread"' : "toolArgs.created_thread_ref"} }, index: { found: true, described: true, source_ref: ${options.mismatchedSuccessfulPostCreateNestedRef || options.mismatchedSuccessfulPostCreateIndexRef ? '"codex_thread:other-thread"' : "toolArgs.created_thread_ref"} }, prepared_state: { card_available: ${options.successfulPostCreatePreparedCard === false ? "false" : "true"} } }, reason_codes: ["read_only_app_server_signal", "read_probe_found_thread", "indexed_session_found", "indexed_description_available"], actions_performed: { ${options.inconsistentSuccessfulPostCreateActionAlias ? 'liveCodexControlRun: "false",' : ""} live_codex_control_run: ${options.successfulPostCreateRestrictedAction ? "true" : "false"}, desktop_gui_action_run: false, raw_transcript_read: false, source_store_mutation: false, npm_publish: false, github_release: false } } } }));
+      console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { details: { schema: "lco.codex.startThreadPostCreateProof.v1", public_safe: true, read_only: true, status: "persisted", created_thread_ref: toolArgs.created_thread_ref, proof: { app_server: { found: ${options.malformedSuccessfulPostCreateAppServerFound ? '"false"' : "true"}, read_probe_ok: true, thread_ref: ${options.mismatchedSuccessfulPostCreateNestedRef ? '"codex_thread:other-thread"' : "toolArgs.created_thread_ref"} }, index: { found: true, described: true, source_ref: ${options.mismatchedSuccessfulPostCreateNestedRef || options.mismatchedSuccessfulPostCreateIndexRef ? '"codex_thread:other-thread"' : "toolArgs.created_thread_ref"} }, prepared_state: { card_available: ${options.successfulPostCreatePreparedCard === false ? "false" : "true"} } }, reason_codes: ${options.missingSuccessfulPostCreateReasonCodes ? "[]" : options.unknownSuccessfulPostCreateReasonCode ? '["unrecognized_reason"]' : '["read_only_app_server_signal", "read_probe_found_thread", "indexed_session_found", "indexed_description_available"]'}, actions_performed: { ${options.inconsistentSuccessfulPostCreateActionAlias ? 'liveCodexControlRun: "false",' : ""} live_codex_control_run: ${options.successfulPostCreateRestrictedAction ? "true" : "false"}, desktop_gui_action_run: false, raw_transcript_read: false, source_store_mutation: false, npm_publish: false, github_release: false } } } }));
       process.exit(0);
     }
     if (${options.currentProductFailClosedShapes ? "true" : "false"}) {
@@ -1366,6 +1368,37 @@ test("OpenClaw tool smoke rejects inconsistent post-create action aliases", () =
     else process.env.OPENCLAW_FAKE_CALLS = previous;
   }
 });
+
+for (const [name, fixture] of [
+  ["missing", { missingSuccessfulPostCreateReasonCodes: true }],
+  ["unrecognized", { unknownSuccessfulPostCreateReasonCode: true }]
+] as const) {
+  test(`OpenClaw tool smoke rejects ${name} successful post-create reason codes`, () => {
+    const dir = mkdtempSync(join(tmpdir(), `loo-openclaw-tool-smoke-post-create-${name}-reason-`));
+    const toolName = "loo_codex_start_thread_post_create_proof";
+    const { bin, callsPath } = createFakeOpenClaw(dir, [toolName], "flat", {
+      successfulPostCreateProof: true,
+      ...fixture
+    });
+    const previous = process.env.OPENCLAW_FAKE_CALLS;
+    process.env.OPENCLAW_FAKE_CALLS = callsPath;
+    try {
+      const report = runOpenClawToolSmoke({
+        openclawBin: bin,
+        requiredTools: [toolName],
+        threadId: "00000000-0000-4000-8000-000000000001"
+      });
+
+      assert.equal(report.toolSmokeReady, false);
+      assert.equal(report.invocations[0]?.disposition, "expected_fail_closed");
+      assert.equal(report.invocations[0]?.productEvidenceClaimed, false);
+      assert.equal(report.invocations[0]?.blockers.includes("post_create_proof_reason_codes_invalid"), true);
+    } finally {
+      if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+      else process.env.OPENCLAW_FAKE_CALLS = previous;
+    }
+  });
+}
 
 test("OpenClaw tool smoke rejects a persisted post-create proof with a restricted action", () => {
   const dir = mkdtempSync(join(tmpdir(), "loo-openclaw-tool-smoke-post-create-restricted-"));
