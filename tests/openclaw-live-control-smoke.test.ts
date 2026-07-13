@@ -338,6 +338,7 @@ test("OpenClaw live-control smoke proves dry-run live send and audit tail throug
       threadId: "thr_gateway_live",
       action: "send",
       message,
+      turnWaitMs: 120_000,
       now: "2026-07-01T00:00:00.000Z"
     });
 
@@ -379,6 +380,7 @@ test("OpenClaw live-control smoke proves dry-run live send and audit tail throug
     assert.equal(calls[2]?.params.name, "loo_codex_send_message");
     assert.equal(calls[2]?.params.args?.approval_audit_id, DRY_RUN_AUDIT_ID);
     assert.equal(calls[2]?.params.args?.dry_run, false);
+    assert.equal(calls[2]?.params.args?.turn_wait_ms, 120_000);
     assert.equal(calls[3]?.params.name, "loo_audit_tail");
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
