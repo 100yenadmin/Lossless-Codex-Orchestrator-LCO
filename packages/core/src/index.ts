@@ -11419,6 +11419,7 @@ export function getCodexThreadMap(db: LooDatabase, options: CodexThreadMapOption
   title: string | null;
   summary: string | null;
   updatedAt: string | null;
+  refreshedAt: string;
   sourcePath: string;
   metadata: SessionMetadata;
 }> {
@@ -11452,6 +11453,7 @@ export function getCodexThreadMap(db: LooDatabase, options: CodexThreadMapOption
       s.title,
       s.summary,
       s.updated_at AS updatedAt,
+      COALESCE(sf.last_indexed_at, s.indexed_at) AS refreshedAt,
       s.source_path AS sourcePath,
       m.project,
       m.status,
@@ -11466,6 +11468,7 @@ export function getCodexThreadMap(db: LooDatabase, options: CodexThreadMapOption
       m.touched_file_refs_json AS touchedFileRefsJson,
       m.source_refs_json AS sourceRefsJson
     FROM codex_sessions s
+    LEFT JOIN codex_source_files sf ON sf.source_path = s.source_path
     LEFT JOIN codex_session_metadata m ON m.thread_id = s.thread_id
     ${whereSql}
     ORDER BY ${priorityRank} COALESCE(s.updated_at, s.indexed_at) DESC
@@ -11475,6 +11478,7 @@ export function getCodexThreadMap(db: LooDatabase, options: CodexThreadMapOption
     title: nullableString(row.title),
     summary: nullableString(row.summary),
     updatedAt: nullableString(row.updatedAt),
+    refreshedAt: String(row.refreshedAt),
     sourcePath: publicSourcePathRef(String(row.sourcePath)),
     metadata: sessionMetadataFromRow(row)
   }));
