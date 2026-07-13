@@ -251,7 +251,14 @@ function probeMcpToolsListAndCall(mcpBin: string, toolCallName: string, timeoutM
       if (killTimer) clearTimeout(killTimer);
       if (resolved) return;
       if (listedTools.length > 0) {
-        finish({ ...packageDefect("mcp_tools_call_failed"), tools: listedTools, toolCall: failedToolCall(toolCallName, "mcp_tools_call_failed") });
+        finish({
+          ready: true,
+          tools: listedTools,
+          setupBlockers: [],
+          blockers: ["mcp_tools_call_failed"],
+          warnings: [],
+          toolCall: failedToolCall(toolCallName, "mcp_tools_call_failed")
+        });
         return;
       }
       finish({ ...packageDefect("mcp_tools_list_failed"), tools: [], toolCall: failedToolCall(toolCallName, "mcp_tools_list_failed") });

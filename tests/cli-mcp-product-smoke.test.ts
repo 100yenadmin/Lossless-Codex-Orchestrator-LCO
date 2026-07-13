@@ -30,6 +30,7 @@ function writeFakeCli(path: string, options: { helpStatus?: number } = {}): void
 function writeFakeMcpServer(path: string, toolNames: string[], options: {
   initializeError?: boolean;
   toolsCallError?: boolean;
+  exitAfterToolsList?: boolean;
   exitAfterToolsCall?: boolean;
   responseToolName?: string;
   requireIsolatedRuntime?: boolean;
@@ -45,6 +46,7 @@ function writeFakeMcpServer(path: string, toolNames: string[], options: {
     }))) + ";",
     `const initializeError = ${JSON.stringify(options.initializeError === true)};`,
     `const toolsCallError = ${JSON.stringify(options.toolsCallError === true)};`,
+    `const exitAfterToolsList = ${JSON.stringify(options.exitAfterToolsList === true)};`,
     `const exitAfterToolsCall = ${JSON.stringify(options.exitAfterToolsCall === true)};`,
     `const responseToolName = ${JSON.stringify(options.responseToolName ?? null)};`,
     `const requireIsolatedRuntime = ${JSON.stringify(options.requireIsolatedRuntime === true)};`,
@@ -64,6 +66,7 @@ function writeFakeMcpServer(path: string, toolNames: string[], options: {
     "  }",
     "  if (message.method === 'tools/list') {",
     "    send({ id: message.id, result: { tools } });",
+    "    if (exitAfterToolsList) setImmediate(() => process.exit(0));",
     "    return;",
     "  }",
     "  if (message.method === 'tools/call') {",
@@ -652,6 +655,49 @@ test("loo qa-lab cli-mcp-smoke accepts fast-exit server after successful tools/c
     assert.equal(report.mcpReady, true);
     assert.equal(report.mcpToolsCallReady, true);
     assert.deepEqual(report.blockers, []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loo qa-lab cli-mcp-smoke retains MCP readiness when the server exits after tools/list", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-cli-mcp-smoke-exit-after-list-"));
+  try {
+    const cliBin = join(dir, "loo");
+    const mcpBin = join(dir, "loo-mcp-server");
+    writeFakeCli(cliBin);
+    writeFakeMcpServer(mcpBin, ["loo_doctor"], { exitAfterToolsList: true });
+
+    const result = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "qa-lab",
+      "cli-mcp-smoke",
+      "--evidence-dir",
+      join(dir, "evidence"),
+      "--package-version",
+      "1.6.0",
+      "--cli-bin",
+      cliBin,
+      "--mcp-bin",
+      mcpBin,
+      "--required-tool",
+      "loo_doctor",
+      "--tool-call",
+      "loo_doctor",
+      "--strict"
+    ], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      timeout: 15_000
+    });
+
+    assert.equal(result.status, 1, result.stderr || result.stdout);
+    const report = JSON.parse(result.stdout) as { mcpReady: boolean; toolsListed: number; blockers: string[] };
+    assert.equal(report.mcpReady, true);
+    assert.equal(report.toolsListed, 1);
+    assert.deepEqual(report.blockers, ["mcp_tools_call_failed"]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
