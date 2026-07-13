@@ -389,10 +389,8 @@ function gatewayCallBlockers(call: GatewayCallResult, fallback: string): string[
 }
 
 function hasNativeToolFailure(value: unknown): boolean {
-  if (!isRecord(value)) return false;
-  const output = isRecord(value.output) ? value.output : value;
-  if (!Array.isArray(output.content) || !("details" in output)) return false;
-  return hasNativeResultFailure(output.details, true);
+  const details = resolveNativeEnvelopeDetails(value);
+  return details !== undefined && hasNativeResultFailure(details, true);
 }
 
 function hasNativeResultFailure(value: unknown, checkDirect = false, depth = 0): boolean {
@@ -451,13 +449,18 @@ function unwrapGatewayPayload(value: unknown): unknown {
 }
 
 function unwrapToolOutput(value: unknown): unknown {
+  const details = resolveNativeEnvelopeDetails(value);
+  if (details !== undefined) return unwrapNativeSuccessDetails(details);
   if (!isRecord(value)) return value;
   const output = "output" in value ? value.output : value;
-  if (!isRecord(output)) return output;
-  // Native OpenClaw tool results pair content[] with structured details.
-  // Legacy/direct results are already application payloads and must not be
-  // recursively unwrapped through semantic details or result fields.
-  return Array.isArray(output.content) && "details" in output ? unwrapNativeSuccessDetails(output.details) : output;
+  return output;
+}
+
+function resolveNativeEnvelopeDetails(value: unknown): unknown {
+  if (!isRecord(value)) return undefined;
+  const output = isRecord(value.output) ? value.output : value;
+  if (!isRecord(output)) return undefined;
+  return Array.isArray(output.content) && "details" in output ? output.details : undefined;
 }
 
 function unwrapNativeSuccessDetails(value: unknown, depth = 0): unknown {
