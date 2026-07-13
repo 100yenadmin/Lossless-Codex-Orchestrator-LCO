@@ -1868,11 +1868,26 @@ function successfulPostCreateProofBlockers(
       ? proof.app_server
       : undefined;
   const index = isRecord(proof.index) ? proof.index : undefined;
-  const preparedState = isRecord(proof.preparedState)
-    ? proof.preparedState
-    : isRecord(proof.prepared_state)
-      ? proof.prepared_state
-      : undefined;
+  const preparedStateAliases = [proof.preparedState, proof.prepared_state]
+    .filter((entry) => entry !== undefined);
+  const normalizedPreparedStateAliases = preparedStateAliases
+    .filter(isRecord)
+    .map((state) => {
+      const availableAliases = [state.cardAvailable, state.card_available].filter((entry) => entry !== undefined);
+      const currentAliases = [state.cardCurrent, state.card_current].filter((entry) => entry !== undefined);
+      const aliasesValid = availableAliases.length > 0
+        && currentAliases.length > 0
+        && availableAliases.every((entry) => typeof entry === "boolean" && entry === availableAliases[0])
+        && currentAliases.every((entry) => typeof entry === "boolean" && entry === currentAliases[0]);
+      return aliasesValid
+        ? { available: availableAliases[0] === true, current: currentAliases[0] === true }
+        : null;
+    });
+  const preparedStateAliasesValid = preparedStateAliases.length > 0
+    && normalizedPreparedStateAliases.length === preparedStateAliases.length
+    && normalizedPreparedStateAliases.every((entry) => entry !== null
+      && JSON.stringify(entry) === JSON.stringify(normalizedPreparedStateAliases[0]));
+  const preparedState = normalizedPreparedStateAliases[0];
   const appServerThreadRef = appServer
     ? stringPath(appServer, ["threadRef"]) || stringPath(appServer, ["thread_ref"])
     : undefined;
@@ -1890,19 +1905,9 @@ function successfulPostCreateProofBlockers(
     && normalizedReasonCodeAliases.length === reasonCodeAliases.length
     && normalizedReasonCodeAliases.every((entry) => entry.every((code) => typeof code === "string"))
     && normalizedReasonCodeAliases.every((entry) => JSON.stringify(entry) === JSON.stringify(normalizedReasonCodeAliases[0]));
-  const preparedAvailableAliases = preparedState
-    ? [preparedState.cardAvailable, preparedState.card_available].filter((entry) => entry !== undefined)
-    : [];
-  const preparedCurrentAliases = preparedState
-    ? [preparedState.cardCurrent, preparedState.card_current].filter((entry) => entry !== undefined)
-    : [];
-  const preparedStateAliasesValid = preparedAvailableAliases.length > 0
-    && preparedCurrentAliases.length > 0
-    && preparedAvailableAliases.every((entry) => typeof entry === "boolean" && entry === preparedAvailableAliases[0])
-    && preparedCurrentAliases.every((entry) => typeof entry === "boolean" && entry === preparedCurrentAliases[0]);
-  const preparedCardAvailable = preparedAvailableAliases[0] === true;
-  const preparedCardMissing = preparedAvailableAliases[0] === false;
-  const preparedCardCurrent = preparedCurrentAliases[0] === true;
+  const preparedCardAvailable = preparedState?.available === true;
+  const preparedCardMissing = preparedState?.available === false;
+  const preparedCardCurrent = preparedState?.current === true;
   const hasPreparedAvailableCode = uniqueReasonCodes.includes("prepared_card_available");
   const hasPreparedMissingCode = uniqueReasonCodes.includes("prepared_card_missing");
   const hasPreparedStaleCode = uniqueReasonCodes.includes("prepared_card_stale_or_not_ready");
