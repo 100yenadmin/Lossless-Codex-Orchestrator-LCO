@@ -189,7 +189,7 @@ Completed proof does not mean broad automation parity. Generic GUI mutation, Cod
 - As an OpenClaw agent, I can find relevant Codex sessions by plan, final message, files touched, tool metadata, safe summary, or source ref.
 - As a user, I can expand one or two sessions into a bounded brief instead of exposing a raw transcript.
 - As a user, I can dry-run a Codex continue, send, steer, resume, or interrupt action and inspect the exact target/action before approval.
-- As a user, I can approve one harmless Codex action through the installed OpenClaw gateway path and then see LCO refresh the session state.
+- As a user, I can approve one harmless Codex action through the installed OpenClaw gateway path, re-index changed session data, and then verify refreshed state; an unchanged index skip does not count as fresh action evidence.
 - As an OpenClaw agent, I can reason about the updated session from safe summaries and source refs without reading raw transcripts.
 - As a maintainer, I can prove the package is local-only, bounded, and honest about unsupported features before public release.
 - As a future adapter author, I can add Claude Code or another agent desktop behind the same index, recall, safety, and proof-boundary patterns without claiming parity early.

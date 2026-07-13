@@ -13,6 +13,8 @@ data.
   target, turn, token, cost, timeout, freshness, and approval guards.
 - Codex send, resume, steer, and interrupt paths use matching dry-run audits and
   post-action refresh checks on approved disposable targets.
+  Verification re-indexes changed session data after the action; an unchanged
+  index skip does not count as fresh action evidence.
 - Configured LCM peers can materialize public-safe prepared cards from summary
   DAGs and report ready, degraded, or unavailable status through peer doctoring.
 - The Claude adapter validates a second target family with explicit dry-run,
@@ -28,7 +30,8 @@ data.
 - Bound post-action refresh confirmation to native OpenClaw response details and the
   actual local index refresh watermark.
 - Added read-only LCM peer integrity checks, bounded materialization, symlink
-  alias compatibility, disabled-peer cleanup, and sensitive-ref filtering.
+  alias and retarget cleanup, disabled-peer cleanup, and recursively encoded
+  sensitive-ref filtering.
 - Added a side-effect-free Claude availability probe and kept the 1.6 Claude
   control surface dry-run only.
 - Added operator threat-model and dual-package rollback guidance for the
