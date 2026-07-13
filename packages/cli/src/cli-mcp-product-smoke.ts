@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CANONICAL_PACKAGE_NAME, type SupportedPackageName } from "./package-identity.js";
 
@@ -138,7 +139,7 @@ export async function createCliMcpProductSmokeReport(options: CliMcpProductSmoke
       screenshotsCaptured: false
     },
     privateDataExclusions: PRIVATE_DATA_EXCLUSIONS,
-    proofBoundary: "This public-safe QA Lab product smoke proves CLI --help, MCP tools/list, and MCP tools/call for one safe representative tool from the selected published/fresh-install candidate binaries. The default representative call is lco_doctor with empty arguments, so deeper tools should be covered by workflow-specific QA Lab lanes. The CLI and MCP probes run sequentially with the configured timeout applied per probe. The smoke initializes MCP with protocolVersion 2025-11-25; initialize failures are reported as package/protocol-drift defects for the candidate under test. JSON-RPC id pairing is the primary request/response binding; name-mismatch detection applies only when a non-standard server echoes result.name or result.toolName. It does not run live Codex control, mutate a desktop GUI, capture screenshots, publish npm, create a GitHub Release, store raw CLI output, or store raw MCP output.",
+    proofBoundary: "This public-safe QA Lab product smoke proves CLI --help, MCP tools/list, and MCP tools/call for one safe representative tool from the selected published/fresh-install candidate binaries. The MCP child runs with an isolated temporary home, database, audit store, and Codex home so ambient user runtime size or state cannot substitute for package readiness. The default representative call is lco_doctor with empty arguments, so deeper tools should be covered by workflow-specific QA Lab lanes. The CLI and MCP probes run sequentially with the configured timeout applied per probe. The smoke initializes MCP with protocolVersion 2025-11-25; initialize failures are reported as package/protocol-drift defects for the candidate under test. JSON-RPC id pairing is the primary request/response binding; name-mismatch detection applies only when a non-standard server echoes result.name or result.toolName. It does not run live Codex control, mutate a desktop GUI, capture screenshots, publish npm, create a GitHub Release, store raw CLI output, or store raw MCP output.",
     nextSafeCommands: [
       `loo qa-lab cli-mcp-smoke --evidence-dir <dir> --package-version ${options.packageVersion} --strict`,
       "loo --help",
@@ -180,10 +181,19 @@ function probeMcpToolsListAndCall(mcpBin: string, toolCallName: string, timeoutM
     let resolved = false;
     let stdoutBuffer = "";
     let listedTools: string[] = [];
+    let stage: "initialize" | "tools_list" | "tools_call" = "initialize";
     let timer: ReturnType<typeof setTimeout> | null = null;
     let killTimer: ReturnType<typeof setTimeout> | null = null;
+    const runtimeRoot = mkdtempSync(join(tmpdir(), "lco-cli-mcp-smoke-"));
+    let runtimeCleaned = false;
+    const cleanupRuntime = () => {
+      if (runtimeCleaned) return;
+      runtimeCleaned = true;
+      rmSync(runtimeRoot, { recursive: true, force: true });
+    };
     const child = spawn(mcpBin, [], {
-      stdio: ["pipe", "pipe", "pipe"]
+      stdio: ["pipe", "pipe", "pipe"],
+      env: isolatedMcpProbeEnv(runtimeRoot)
     });
     const terminateChild = () => {
       if (child.exitCode !== null || child.signalCode !== null) return;
@@ -201,7 +211,21 @@ function probeMcpToolsListAndCall(mcpBin: string, toolCallName: string, timeoutM
       resolve(result);
     };
 
-    timer = setTimeout(() => finish({ ...packageDefect("mcp_probe_timeout"), tools: [], toolCall: failedToolCall(toolCallName, "mcp_probe_timeout") }), timeoutMs);
+    timer = setTimeout(() => {
+      const errorCode = stage === "initialize"
+        ? "mcp_initialize_timeout"
+        : stage === "tools_list"
+          ? "mcp_tools_list_timeout"
+          : "mcp_tools_call_timeout";
+      finish({
+        ready: stage === "tools_call" && listedTools.length > 0,
+        setupBlockers: [],
+        blockers: [errorCode],
+        warnings: [],
+        tools: listedTools,
+        toolCall: failedToolCall(toolCallName, errorCode)
+      });
+    }, timeoutMs);
     timer.unref?.();
 
     const writeMessage = (payload: Record<string, unknown>, failureCode: string): boolean => {
@@ -223,6 +247,7 @@ function probeMcpToolsListAndCall(mcpBin: string, toolCallName: string, timeoutM
       finish({ ...packageDefect("mcp_spawn_failed"), tools: [], toolCall: failedToolCall(toolCallName, "mcp_spawn_failed") });
     });
     child.on("close", () => {
+      cleanupRuntime();
       if (killTimer) clearTimeout(killTimer);
       if (resolved) return;
       if (listedTools.length > 0) {
@@ -243,6 +268,7 @@ function probeMcpToolsListAndCall(mcpBin: string, toolCallName: string, timeoutM
           return;
         }
         if (parsed.id === 1 && isRecord(parsed.result)) {
+          stage = "tools_list";
           if (!writeMessage({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }, "mcp_initialized_notification_failed")) return;
           if (!writeMessage({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }, "mcp_tools_list_write_failed")) return;
           continue;
@@ -269,6 +295,7 @@ function probeMcpToolsListAndCall(mcpBin: string, toolCallName: string, timeoutM
             });
             return;
           }
+          stage = "tools_call";
           if (!writeMessage({
             jsonrpc: "2.0",
             id: 3,
@@ -314,6 +341,24 @@ function probeMcpToolsListAndCall(mcpBin: string, toolCallName: string, timeoutM
       }
     }, "mcp_initialize_write_failed");
   });
+}
+
+function isolatedMcpProbeEnv(runtimeRoot: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of ["PATH", "Path", "PATHEXT", "SystemRoot", "SYSTEMROOT", "ComSpec", "COMSPEC", "LANG", "LC_ALL", "TZ"]) {
+    if (process.env[key]) env[key] = process.env[key];
+  }
+  return {
+    ...env,
+    HOME: runtimeRoot,
+    USERPROFILE: runtimeRoot,
+    TMPDIR: runtimeRoot,
+    TMP: runtimeRoot,
+    TEMP: runtimeRoot,
+    CODEX_HOME: join(runtimeRoot, ".codex"),
+    LCO_DB_PATH: join(runtimeRoot, "orchestrator.sqlite"),
+    LCO_AUDIT_PATH: join(runtimeRoot, "audit.jsonl")
+  };
 }
 
 function failedToolCall(toolName: string, errorCode: string): ToolCallProbe {

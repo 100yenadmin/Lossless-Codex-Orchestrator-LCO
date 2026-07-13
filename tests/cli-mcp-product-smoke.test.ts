@@ -32,6 +32,8 @@ function writeFakeMcpServer(path: string, toolNames: string[], options: {
   toolsCallError?: boolean;
   exitAfterToolsCall?: boolean;
   responseToolName?: string;
+  requireIsolatedRuntime?: boolean;
+  stallToolsCall?: boolean;
 } = {}): void {
   writeExecutable(path, [
     "#!/usr/bin/env node",
@@ -45,6 +47,12 @@ function writeFakeMcpServer(path: string, toolNames: string[], options: {
     `const toolsCallError = ${JSON.stringify(options.toolsCallError === true)};`,
     `const exitAfterToolsCall = ${JSON.stringify(options.exitAfterToolsCall === true)};`,
     `const responseToolName = ${JSON.stringify(options.responseToolName ?? null)};`,
+    `const requireIsolatedRuntime = ${JSON.stringify(options.requireIsolatedRuntime === true)};`,
+    `const stallToolsCall = ${JSON.stringify(options.stallToolsCall === true)};`,
+    `const ambientHome = ${JSON.stringify(process.env.HOME ?? process.env.USERPROFILE ?? "")};`,
+    "const runtimeRoot = process.env.HOME || process.env.USERPROFILE || '';",
+    "const runtimeIsolated = runtimeRoot !== '' && runtimeRoot !== ambientHome && process.env.HOME === runtimeRoot && process.env.USERPROFILE === runtimeRoot && (process.env.LCO_DB_PATH || '').startsWith(runtimeRoot) && (process.env.LCO_AUDIT_PATH || '').startsWith(runtimeRoot) && !process.env.SECRET_TOKEN;",
+    "if (requireIsolatedRuntime && !runtimeIsolated) process.exit(91);",
     "const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });",
     "function send(payload) { process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...payload }) + '\\n'); }",
     "rl.on('line', (line) => {",
@@ -59,6 +67,7 @@ function writeFakeMcpServer(path: string, toolNames: string[], options: {
     "    return;",
     "  }",
     "  if (message.method === 'tools/call') {",
+    "    if (stallToolsCall) return;",
     "    if (!tools.some((tool) => tool.name === message.params?.name)) {",
     "      send({ id: message.id, error: { code: -32602, message: 'missing tool' } });",
     "      return;",
@@ -72,6 +81,107 @@ function writeFakeMcpServer(path: string, toolNames: string[], options: {
     "});"
   ].join("\n"));
 }
+
+test("loo qa-lab cli-mcp-smoke isolates the MCP probe from the ambient user runtime", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-cli-mcp-smoke-isolated-runtime-"));
+  const previousSecret = process.env.SECRET_TOKEN;
+  try {
+    process.env.SECRET_TOKEN = "must-not-reach-mcp-child";
+    const cliBin = join(dir, "loo");
+    const mcpBin = join(dir, "lco-mcp-server");
+    writeFakeCli(cliBin);
+    writeFakeMcpServer(mcpBin, ["lco_doctor"], { requireIsolatedRuntime: true });
+
+    const result = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "qa-lab",
+      "cli-mcp-smoke",
+      "--evidence-dir",
+      join(dir, "evidence"),
+      "--package-version",
+      "1.6.0",
+      "--cli-bin",
+      cliBin,
+      "--mcp-bin",
+      mcpBin,
+      "--required-tool",
+      "lco_doctor",
+      "--tool-call",
+      "lco_doctor",
+      "--timeout-ms",
+      "1000",
+      "--strict"
+    ], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      timeout: 15_000
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const report = JSON.parse(result.stdout) as { ok: boolean; blockers: string[] };
+    assert.equal(report.ok, true);
+    assert.deepEqual(report.blockers, []);
+  } finally {
+    if (previousSecret === undefined) delete process.env.SECRET_TOKEN;
+    else process.env.SECRET_TOKEN = previousSecret;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loo qa-lab cli-mcp-smoke preserves tools/list evidence when tools/call times out", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-cli-mcp-smoke-tools-call-timeout-"));
+  try {
+    const cliBin = join(dir, "loo");
+    const mcpBin = join(dir, "lco-mcp-server");
+    writeFakeCli(cliBin);
+    writeFakeMcpServer(mcpBin, ["lco_doctor"], { stallToolsCall: true });
+
+    const result = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "qa-lab",
+      "cli-mcp-smoke",
+      "--evidence-dir",
+      join(dir, "evidence"),
+      "--package-version",
+      "1.6.0",
+      "--cli-bin",
+      cliBin,
+      "--mcp-bin",
+      mcpBin,
+      "--required-tool",
+      "lco_doctor",
+      "--tool-call",
+      "lco_doctor",
+      "--timeout-ms",
+      "1000",
+      "--strict"
+    ], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      timeout: 15_000
+    });
+
+    assert.equal(result.status, 1, result.stderr || result.stdout);
+    const report = JSON.parse(result.stdout) as {
+      mcpReady: boolean;
+      toolsListed: number;
+      requiredToolsPresent: string[];
+      blockers: string[];
+      toolCallProbe: { errorCode: string | null };
+    };
+    assert.equal(report.mcpReady, true);
+    assert.equal(report.toolsListed, 1);
+    assert.deepEqual(report.requiredToolsPresent, ["lco_doctor"]);
+    assert.deepEqual(report.blockers, ["mcp_tools_call_timeout"]);
+    assert.equal(report.toolCallProbe.errorCode, "mcp_tools_call_timeout");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test("loo qa-lab cli-mcp-smoke proves CLI help plus MCP tools/list and tools/call with public-safe evidence", () => {
   const dir = mkdtempSync(join(tmpdir(), "loo-cli-mcp-smoke-"));
