@@ -3202,7 +3202,16 @@ export function defaultClaudeRoots(home = resolveHomeDir()): string[] {
 }
 
 export function configuredLcmPeerDbPaths(raw = readEnv("LCM_DB_PATHS") ?? ""): string[] {
-  return unique(normalizePeerPaths(raw.split(new RegExp(`[${escapeRegExp(delimiter)},\\n]`, "g")).map((part) => part.trim()).filter(Boolean)));
+  return unique(raw.split(new RegExp(`[${escapeRegExp(delimiter)},\\n]`, "g"))
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .flatMap((path) => {
+      try {
+        return [resolvePeerPath(path)];
+      } catch {
+        return [];
+      }
+    }));
 }
 
 export function migrate(db: LooDatabase, options: { maintenance?: DatabaseMaintenanceMode } = {}): void {
@@ -3595,6 +3604,12 @@ export function migrate(db: LooDatabase, options: { maintenance?: DatabaseMainte
     CREATE INDEX IF NOT EXISTS prepared_inbox_target_score_idx ON prepared_inbox_items(target_ref, urgency_score DESC, updated_at DESC);
     CREATE INDEX IF NOT EXISTS prepared_inbox_session_diff_idx ON prepared_inbox_items(updated_at, item_id);
     CREATE INDEX IF NOT EXISTS prepared_inbox_target_session_diff_idx ON prepared_inbox_items(target_ref, updated_at, item_id);
+
+    CREATE TABLE IF NOT EXISTS lcm_peer_aliases (
+      alias_hash TEXT PRIMARY KEY,
+      canonical_hash TEXT NOT NULL,
+      last_seen_at TEXT NOT NULL
+    );
 
     CREATE TABLE IF NOT EXISTS watcher_specs (
       watch_id TEXT PRIMARY KEY,
@@ -7481,13 +7496,17 @@ function materializePreparedCardsForLcmPeers(
   const previousInboxByTarget = new Map(previousInbox.map((row) => [row.targetRef, row]));
   const cards = new Map<string, PreparedCardDraft>();
   const normalizedPaths = normalizePeerPaths(paths);
-  const configuredPeerHashes = new Set(paths.flatMap((path) => {
+  const configuredAliasHashes = new Set(paths.flatMap((path) => {
     try {
       return [lcmPeerHash(path), legacyLcmPeerHash(path)];
     } catch {
       return [];
     }
   }));
+  const configuredPeerHashes = new Set([
+    ...configuredAliasHashes,
+    ...mappedLcmCanonicalHashes(db, configuredAliasHashes)
+  ]);
   const legacyHashesByCanonicalHash = new Map<string, Set<string>>();
   for (const path of paths) {
     try {
@@ -7500,7 +7519,6 @@ function materializePreparedCardsForLcmPeers(
     }
   }
   const refreshedPeerHashes = new Set<string>();
-  const unavailableConfiguredPeerHashes = new Set<string>();
   let skippedUnsafeRows = 0;
 
   for (const path of normalizedPaths) {
@@ -7534,6 +7552,7 @@ function materializePreparedCardsForLcmPeers(
         else skippedUnsafeRows += 1;
       }
       const canonicalHash = lcmPeerHash(path);
+      rememberLcmPeerAliases(db, canonicalHash, legacyHashesByCanonicalHash.get(canonicalHash) ?? [], generatedAt);
       refreshedPeerHashes.add(canonicalHash);
       for (const legacyHash of legacyHashesByCanonicalHash.get(canonicalHash) ?? []) {
         refreshedPeerHashes.add(legacyHash);
@@ -7542,28 +7561,16 @@ function materializePreparedCardsForLcmPeers(
     } catch {
       // Retain the last derived cache for an unavailable configured peer. The
       // peer remains fail-closed and doctor reports its unavailable posture.
-      try {
-        unavailableConfiguredPeerHashes.add(lcmPeerHash(path));
-        unavailableConfiguredPeerHashes.add(legacyLcmPeerHash(path));
-      } catch {
-        // The configured peer has no safe hash identity to reconcile.
-      }
     } finally {
       peer?.close();
     }
   }
 
-  const previousPeerHashes = new Set(previousCards.flatMap((row) => {
-    const peerHash = lcmPeerHashFromRef(row.targetRef);
-    return peerHash === null ? [] : [peerHash];
-  }));
-  const hasUnresolvedUnavailableAlias = [...unavailableConfiguredPeerHashes]
-    .some((peerHash) => !previousPeerHashes.has(peerHash));
   const staleTargets = previousCards.map((row) => row.targetRef).filter((targetRef) => {
     const peerHash = lcmPeerHashFromRef(targetRef);
     return peerHash === null
       || refreshedPeerHashes.has(peerHash)
-      || (!configuredPeerHashes.has(peerHash) && !hasUnresolvedUnavailableAlias);
+      || !configuredPeerHashes.has(peerHash);
   });
   deletePreparedCardsForTargetRefs(db, unique([
     ...staleTargets,
@@ -7581,6 +7588,36 @@ function materializePreparedCardsForLcmPeers(
     inboxItems: cards.size,
     skippedUnsafeRows
   };
+}
+
+function rememberLcmPeerAliases(
+  db: LooDatabase,
+  canonicalHash: string,
+  aliasHashes: Iterable<string>,
+  lastSeenAt: string
+): void {
+  const write = db.prepare(`
+    INSERT INTO lcm_peer_aliases (alias_hash, canonical_hash, last_seen_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(alias_hash) DO UPDATE SET
+      canonical_hash = excluded.canonical_hash,
+      last_seen_at = excluded.last_seen_at
+  `);
+  for (const aliasHash of unique([canonicalHash, ...aliasHashes])) {
+    write.run(aliasHash, canonicalHash, lastSeenAt);
+  }
+}
+
+function mappedLcmCanonicalHashes(db: LooDatabase, aliasHashes: Iterable<string>): string[] {
+  const read = db.prepare(`
+    SELECT canonical_hash AS canonicalHash
+    FROM lcm_peer_aliases
+    WHERE alias_hash = ?
+  `);
+  return unique([...aliasHashes].flatMap((aliasHash) => {
+    const row = read.get(aliasHash) as { canonicalHash?: string } | undefined;
+    return row?.canonicalHash ? [row.canonicalHash] : [];
+  }));
 }
 
 function hasPreparedLcmState(db: LooDatabase): boolean {
@@ -9448,25 +9485,28 @@ function isPublicPreparedSourceRef(value: string): boolean {
   if (value.startsWith("lcm_summary:")) {
     const match = /^lcm_summary:([0-9a-f]{12}):([A-Za-z0-9._~%-]+)$/.exec(value);
     if (!match) return false;
-    try {
-      let decoded = match[2];
-      if (decoded.length > 200) return false;
-      let stable = false;
-      for (let pass = 0; pass <= match[2].length; pass += 1) {
-        const next = decodeURIComponent(decoded);
-        if (next === decoded) {
-          stable = true;
-          break;
-        }
-        decoded = next;
-      }
-      return stable && decoded.length > 0 && decoded.length <= 200 && !looksSensitiveRefLike(decoded);
-    } catch {
-      return false;
-    }
+    const decoded = decodeBoundedLcmSummaryId(match[2]);
+    return decoded !== null && !looksSensitiveRefLike(decoded);
   }
   if (value.startsWith("summary_leaf:")) return isPublicSummaryLeafRef(value);
   return false;
+}
+
+function decodeBoundedLcmSummaryId(encodedId: string): string | null {
+  if (!encodedId || encodedId.length > LCM_SUMMARY_ID_MAX_CHARS * 12) return null;
+  let decoded = encodedId;
+  for (let pass = 0; pass < 8; pass += 1) {
+    try {
+      const next = decodeURIComponent(decoded);
+      if (next === decoded) {
+        return decoded.length <= LCM_SUMMARY_ID_MAX_CHARS ? decoded : null;
+      }
+      decoded = next;
+    } catch {
+      return pass > 0 && decoded.length <= LCM_SUMMARY_ID_MAX_CHARS ? decoded : null;
+    }
+  }
+  return null;
 }
 
 function isPublicClaudeSessionRef(value: string): boolean {

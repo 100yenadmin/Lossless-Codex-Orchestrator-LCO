@@ -499,15 +499,24 @@ test("LCM summary DAGs materialize public-safe prepared cards and inbox items", 
 test("LCM prepared cards accept the full encodeURIComponent unescaped ID set", () => {
   const fixture = makeDagFixture();
   fixture.addSummary("valid!*'()", "Prepared LCM summary with a valid public identifier.");
+  const spacedId = "space ".repeat(30).trim();
+  fixture.addSummary(spacedId, "Prepared LCM summary with a long encoded public identifier.");
+  fixture.addSummary("literal%percent", "Prepared LCM summary with a literal percent identifier.");
   const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
   try {
     const indexed = indexCodexSessions(db, { roots: [], lcmDbPaths: [fixture.lcmPath] });
     assert.deepEqual(indexed.errors, []);
     const cards = getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary");
-    assert.equal(cards.length, 1);
-    assert.equal(cards[0]?.targetRef.endsWith(":valid%21%2A%27%28%29"), true);
-    const description = describeRecallRef(db, { sourceRef: cards[0]!.targetRef, lcmDbPaths: [fixture.lcmPath] });
-    assert.equal(description?.summaryId, "valid!*'()");
+    assert.equal(cards.length, 3);
+    const punctuationCard = cards.find((card) => card.targetRef.endsWith(":valid%21%2A%27%28%29"));
+    const spacedCard = cards.find((card) => card.targetRef.endsWith(`:${encodeURIComponent(spacedId)}`));
+    const percentCard = cards.find((card) => card.targetRef.endsWith(":literal%25percent"));
+    assert.ok(punctuationCard);
+    assert.ok(spacedCard);
+    assert.ok(percentCard);
+    assert.equal(describeRecallRef(db, { sourceRef: punctuationCard.targetRef, lcmDbPaths: [fixture.lcmPath] })?.summaryId, "valid!*'()");
+    assert.equal(describeRecallRef(db, { sourceRef: spacedCard.targetRef, lcmDbPaths: [fixture.lcmPath] })?.summaryId, spacedId);
+    assert.equal(describeRecallRef(db, { sourceRef: percentCard.targetRef, lcmDbPaths: [fixture.lcmPath] })?.summaryId, "literal%percent");
   } finally {
     db.close();
     fixture.close();
@@ -570,6 +579,25 @@ test("LCM prepared cards delete removed peers while retaining unavailable config
   }
 });
 
+test("LCM prepared cards delete a disabled peer when its replacement is unavailable", () => {
+  const fixture = makeDagFixture();
+  fixture.addSummary("disabled_root", "Disabled peer summary.");
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [fixture.lcmPath] });
+    assert.equal(getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary").length, 1);
+
+    const missingReplacement = join(fixture.root, "missing-replacement.sqlite");
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [missingReplacement] });
+    assert.equal(getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary").length, 0);
+    assert.equal(getPreparedInbox(db, { limit: 10 }).items.filter((item) => item.targetRef.startsWith("lcm_summary:")).length, 0);
+  } finally {
+    db.close();
+    fixture.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("empty LCM configuration skips reconciliation when no peer cache exists", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-lcm-empty-reconcile-"));
   const dbPath = join(root, "orchestrator.sqlite");
@@ -599,14 +627,16 @@ test("LCM peer aliases canonicalize to one doctor peer and one prepared-card set
   symlinkSync(fixture.lcmPath, aliasPath);
   const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
   try {
+    const configuredAliasPaths = configuredLcmPeerDbPaths(aliasPath);
+    assert.deepEqual(configuredAliasPaths, [resolve(aliasPath)]);
     const report = probeLcmPeerDbs([fixture.lcmPath, aliasPath]);
     assert.equal(report.peers.length, 1);
     indexCodexSessions(db, { roots: [], lcmDbPaths: [fixture.lcmPath, aliasPath] });
     assert.equal(getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary").length, 1);
     const legacyHash = createHash("sha256").update(resolve(aliasPath)).digest("hex").slice(0, 12);
     const legacyRef = `lcm_summary:${legacyHash}:alias_root`;
-    assert.equal(describeRecallRef(db, { sourceRef: legacyRef, lcmDbPaths: [aliasPath] })?.summaryId, "alias_root");
-    assert.equal(expandRecallRef(db, { sourceRef: legacyRef, lcmDbPaths: [aliasPath], profile: "brief" }).summaryId, "alias_root");
+    assert.equal(describeRecallRef(db, { sourceRef: legacyRef, lcmDbPaths: configuredAliasPaths })?.summaryId, "alias_root");
+    assert.equal(expandRecallRef(db, { sourceRef: legacyRef, lcmDbPaths: configuredAliasPaths, profile: "brief" }).summaryId, "alias_root");
 
     const canonicalRef = getPreparedCards(db, { limit: 10 }).cards.find((card) => card.cardKind === "lcm_summary")!.targetRef;
     db.prepare("UPDATE prepared_cards SET target_ref = ? WHERE target_ref = ?").run(legacyRef, canonicalRef);
