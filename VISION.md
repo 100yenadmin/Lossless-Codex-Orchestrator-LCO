@@ -389,7 +389,7 @@ Release candidates follow [docs/BETA_RELEASE_RUNBOOK.md](docs/BETA_RELEASE_RUNBO
 
 Stable 1.6.0 product statement:
 
-> Coordinate local Codex work through OpenClaw/MCP with bounded recall and session diffs, audited review-then-drive dry-runs, approved disposable-target Codex controls, and read-only LCM prepared state; Claude targeting remains dry-run only.
+> Coordinate local Codex work through OpenClaw/MCP with bounded recall and session diffs, audited review-then-drive dry-runs, the four-row `lco.qaLab.liveControlMatrix.v1` send/resume/steer/interrupt matrix on approved disposable QA targets, and read-only LCM prepared state; Claude targeting remains dry-run only.
 
 Future roadmap candidates:
 

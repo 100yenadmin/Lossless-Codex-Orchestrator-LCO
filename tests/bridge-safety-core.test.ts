@@ -11,6 +11,7 @@ import {
   CODEX_TURN_NOTIFICATION_METHOD_STATUS,
   CodexJsonRpcClient,
   LineProcessTransport,
+  LoopbackWebSocketTransport,
   assertCodexMethodAllowed,
   buildLoopbackWebSocketConfig,
   codexTransportStatus,
@@ -701,6 +702,128 @@ test("Codex loopback WebSocket client initializes and serves JSON-RPC requests",
     assert.equal(response.ok, true);
     assert.equal(observedUrl, "ws://127.0.0.1:4555/");
     assert.deepEqual(sent.map((payload) => payload.method), ["initialize", "initialized", "account/read"]);
+  } finally {
+    Object.assign(globalThis, { WebSocket: OriginalWebSocket });
+  }
+});
+
+test("Codex loopback WebSocket connection timeout rejects and closes the socket", async () => {
+  const OriginalWebSocket = globalThis.WebSocket;
+  let closed = false;
+
+  class NeverOpeningWebSocket {
+    static readonly CONNECTING = 0;
+    static readonly OPEN = 1;
+    readyState = NeverOpeningWebSocket.CONNECTING;
+
+    addEventListener(): void {}
+    send(): void {}
+    close(): void { closed = true; }
+  }
+
+  Object.assign(globalThis, { WebSocket: NeverOpeningWebSocket });
+  try {
+    const client = createCodexAppServerWebSocketClient({
+      url: "ws://127.0.0.1:4555",
+      surface: "read",
+      timeoutMs: 20
+    });
+    await assert.rejects(
+      Promise.race([
+        client.request("account/read", { refreshToken: false }),
+        delay(100).then(() => { throw new Error("test deadline elapsed"); })
+      ]),
+      /connect timed out/
+    );
+    assert.equal(closed, true);
+  } finally {
+    Object.assign(globalThis, { WebSocket: OriginalWebSocket });
+  }
+});
+
+test("Codex loopback WebSocket connection errors reject and close the socket", async () => {
+  const OriginalWebSocket = globalThis.WebSocket;
+  let closed = false;
+
+  class ErroringWebSocket {
+    static readonly CONNECTING = 0;
+    static readonly OPEN = 1;
+    readyState = ErroringWebSocket.CONNECTING;
+    private readonly listeners = new Map<string, Array<(event: any) => void>>();
+
+    constructor() {
+      queueMicrotask(() => this.emit("error", {}));
+    }
+
+    addEventListener(type: string, listener: (event: any) => void): void {
+      const listeners = this.listeners.get(type) ?? [];
+      listeners.push(listener);
+      this.listeners.set(type, listeners);
+    }
+
+    send(): void {}
+    close(): void { closed = true; }
+
+    private emit(type: string, event: any): void {
+      for (const listener of this.listeners.get(type) ?? []) listener(event);
+    }
+  }
+
+  Object.assign(globalThis, { WebSocket: ErroringWebSocket });
+  try {
+    const client = createCodexAppServerWebSocketClient({
+      url: "ws://127.0.0.1:4555",
+      surface: "read",
+      timeoutMs: 50
+    });
+    await assert.rejects(client.request("account/read", { refreshToken: false }), /connection failed/);
+    assert.equal(closed, true);
+  } finally {
+    Object.assign(globalThis, { WebSocket: OriginalWebSocket });
+  }
+});
+
+test("Codex loopback WebSocket close drains a pending read without leaking a waiter", async () => {
+  const OriginalWebSocket = globalThis.WebSocket;
+  let socket: ClosingWebSocket | undefined;
+
+  class ClosingWebSocket {
+    static readonly CONNECTING = 0;
+    static readonly OPEN = 1;
+    readyState = ClosingWebSocket.CONNECTING;
+    private readonly listeners = new Map<string, Array<(event: any) => void>>();
+
+    constructor() {
+      socket = this;
+      queueMicrotask(() => {
+        this.readyState = ClosingWebSocket.OPEN;
+        this.emit("open", {});
+      });
+    }
+
+    addEventListener(type: string, listener: (event: any) => void): void {
+      const listeners = this.listeners.get(type) ?? [];
+      listeners.push(listener);
+      this.listeners.set(type, listeners);
+    }
+
+    send(): void {}
+    close(): void { this.emit("close", {}); }
+    closeFromServer(): void { this.emit("close", {}); }
+
+    private emit(type: string, event: any): void {
+      for (const listener of this.listeners.get(type) ?? []) listener(event);
+    }
+  }
+
+  Object.assign(globalThis, { WebSocket: ClosingWebSocket });
+  try {
+    const transport = new LoopbackWebSocketTransport("ws://127.0.0.1:4555", 50);
+    await transport.sendJson({ method: "initialized" });
+    const pending = transport.readLine(Date.now() + 50);
+    socket?.closeFromServer();
+    assert.equal(await pending, null);
+    assert.equal(await transport.readLine(Date.now() + 50), null);
   } finally {
     Object.assign(globalThis, { WebSocket: OriginalWebSocket });
   }

@@ -22,7 +22,7 @@ export function createOpenClawPluginManifest({ packageVersion }) {
     id: "lossless-openclaw-orchestrator",
     name: "Lossless OpenClaw Orchestrator",
     description:
-      "Collaborate with local Codex sessions through OpenClaw using local indexing, prepared-state recall, bounded expansion, approval-gated dry-runs, and optional Codex controls.",
+      "Coordinate local Codex work through OpenClaw using bounded recall, session diff, review-then-drive dry-runs, prepared-state diagnostics, and approval-gated controls.",
     version: packageVersion,
     kind: "tool",
     tools: {

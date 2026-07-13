@@ -452,7 +452,9 @@ LCO accepts only unauthenticated `ws://` loopback URLs with an explicit port and
 no credentials, path, query, or fragment. Leave `LCO_CODEX_APP_SERVER_URL`
 unset for the default one-shot stdio client. The shared loopback server is
 needed when one process owns an active turn and a later OpenClaw invocation must
-steer or interrupt that exact turn.
+steer or interrupt that exact turn. Codex currently marks the app-server
+WebSocket listener experimental, so this is an explicit operator opt-in; pin and
+re-verify the Codex CLI version before relying on it in a release or runtime lane.
 
 After a published install, combine the package, dogfood, and tool-smoke reports
 into one first-run classifier:

@@ -66,7 +66,9 @@ set the profile-scoped `LCO_CODEX_APP_SERVER_URL` to that `ws://127.0.0.1:<port>
 endpoint, and restart the gateway. LCO rejects credentials, non-loopback hosts,
 TLS URLs, paths, queries, and fragments on this setting. When the variable is
 unset, the plugin retains the one-shot stdio app-server path for ordinary reads
-and controls that do not cross process ownership.
+and controls that do not cross process ownership. Codex currently marks its
+app-server WebSocket listener experimental; this path is therefore opt-in and
+must be re-verified against the pinned Codex CLI version used by the operator.
 
 Tool declarations include a `metadata.tier` value so agents can distinguish the
 compact operator path from detail, proof, and low-level recovery surfaces:

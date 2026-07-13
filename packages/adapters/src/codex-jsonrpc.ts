@@ -272,18 +272,30 @@ export class LineProcessTransport implements JsonRpcTransport {
 }
 
 export class LoopbackWebSocketTransport implements JsonRpcTransport {
+  // Codex currently marks its app-server WebSocket listener experimental. Keep
+  // this transport explicit, loopback-only, bounded, and opt-in via the plugin.
   private readonly socket: WebSocket;
   private readonly lines: string[] = [];
   private readonly waiters: Array<(line: string | null) => void> = [];
   private closed = false;
   private readonly ready: Promise<void>;
 
-  constructor(rawUrl: string) {
+  constructor(rawUrl: string, private readonly timeoutMs = DEFAULT_TIMEOUT_MS) {
     const { url } = buildLoopbackWebSocketConfig(rawUrl);
     this.socket = new WebSocket(url);
     this.ready = new Promise((resolve, reject) => {
-      this.socket.addEventListener("open", () => resolve(), { once: true });
-      this.socket.addEventListener("error", () => reject(new Error("Codex loopback WebSocket connection failed")), { once: true });
+      const timer = setTimeout(() => {
+        this.close();
+        reject(new Error("Codex loopback WebSocket connect timed out"));
+      }, this.timeoutMs);
+      this.socket.addEventListener("open", () => {
+        clearTimeout(timer);
+        resolve();
+      }, { once: true });
+      this.socket.addEventListener("error", () => {
+        clearTimeout(timer);
+        reject(new Error("Codex loopback WebSocket connection failed"));
+      }, { once: true });
     });
     this.socket.addEventListener("message", (event) => {
       if (typeof event.data === "string") this.pushLine(event.data);
@@ -300,7 +312,7 @@ export class LoopbackWebSocketTransport implements JsonRpcTransport {
     const existing = this.lines.shift();
     if (existing !== undefined) return Promise.resolve(existing);
     if (this.closed) return Promise.resolve(null);
-    const remaining = Math.max(1, deadline - Date.now());
+    const remaining = Math.max(1, Math.min(this.timeoutMs, deadline - Date.now()));
     return new Promise((resolve) => {
       let timer: ReturnType<typeof setTimeout>;
       const waiter = (line: string | null) => {
@@ -355,7 +367,7 @@ export function createCodexAppServerWebSocketClient(options: {
   timeoutMs?: number;
   surface?: CodexMethodSurface;
 }) {
-  return createCodexClientFromTransport(() => new LoopbackWebSocketTransport(options.url), options);
+  return createCodexClientFromTransport(() => new LoopbackWebSocketTransport(options.url, options.timeoutMs), options);
 }
 
 function createCodexClientFromTransport(
@@ -368,8 +380,8 @@ function createCodexClientFromTransport(
         transportFactory,
         { timeoutMs: options.timeoutMs, surface: options.surface ?? "control" }
       );
-      await client.connect();
       try {
+        await client.connect();
         return await client.request(method, params);
       } finally {
         await client.close();
@@ -382,8 +394,8 @@ function createCodexClientFromTransport(
         transportFactory,
         { timeoutMs: options.timeoutMs, surface }
       );
-      await client.connect();
       try {
+        await client.connect();
         const responses: CodexJsonRpcResponse[] = [];
         for (const step of steps) {
           const response = await client.request(step.method, step.params);
@@ -411,8 +423,8 @@ function createCodexClientFromTransport(
         transportFactory,
         { timeoutMs: options.timeoutMs, surface }
       );
-      await client.connect();
       try {
+        await client.connect();
         const responses: CodexJsonRpcResponse[] = [];
         let turnId = turnOptions.expectedTurnId;
         let latestStatus: string | null = null;

@@ -1345,6 +1345,8 @@ function summarizeInvocation(
   if (disposition === "successful_dry_run") {
     const upstreamBlocked = blockers.length > 0;
     const invocationOutput = details ?? output;
+    // lco_drive is deliberately pinned in CANONICAL_MERGED_SMOKE_TOOL_SET: its
+    // nested dryRun packet must not pass through legacy-name rewriting.
     const dryRunOutput = toolName === "lco_drive" && isRecord(invocationOutput) && isRecord(invocationOutput.dryRun)
       ? invocationOutput.dryRun
       : invocationOutput;
