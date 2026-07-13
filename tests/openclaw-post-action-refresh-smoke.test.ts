@@ -130,7 +130,7 @@ function writeLiveProofReport(path: string, overrides: Record<string, unknown> =
   }, null, 2)}\n`);
 }
 
-function createFakeOpenClaw(dir: string, options: { rawExpansion?: boolean; rawContentEnvelope?: boolean; detailsNotOk?: boolean; directDetailsErrorStatus?: boolean; nestedDetailsResponseNotOk?: boolean; nestedSuccessWrapper?: boolean; nestedDomainFailureStatus?: boolean; directDomainFailureStatus?: boolean; directDetailsEnvelope?: boolean; directDetailsOk?: boolean; detailsWithoutContent?: boolean; staleSearchAndExpansion?: boolean; nestedTargetOnlyExpansion?: boolean; nestedTargetOnlyCoreOutputs?: boolean; nestedArrayTargetOnlySearch?: boolean; staleRefreshTimestamp?: boolean; missingRefreshTimestamp?: boolean; nestedRefreshTimestampOnly?: boolean; missingMapMarkers?: boolean; publicThreadMapShape?: boolean; missingMapStatus?: boolean; nestedStatusLookalike?: boolean; topLevelStatusLookalike?: boolean; domainEnvelopeLookalikes?: boolean; alternateTopLevelSearchCollection?: boolean; detailsEnvelope?: boolean } = {}): { bin: string; callsPath: string } {
+function createFakeOpenClaw(dir: string, options: { rawExpansion?: boolean; rawContentEnvelope?: boolean; rawDetailsEnvelope?: boolean; detailsNotOk?: boolean; directDetailsErrorStatus?: boolean; deepMixedNativeFailureStatus?: boolean; nestedDetailsResponseNotOk?: boolean; nestedSuccessWrapper?: boolean; nestedDomainFailureStatus?: boolean; directDomainFailureStatus?: boolean; directDetailsEnvelope?: boolean; directDetailsOk?: boolean; detailsWithoutContent?: boolean; staleSearchAndExpansion?: boolean; nestedTargetOnlyExpansion?: boolean; nestedTargetOnlyCoreOutputs?: boolean; nestedArrayTargetOnlySearch?: boolean; staleRefreshTimestamp?: boolean; missingRefreshTimestamp?: boolean; nestedRefreshTimestampOnly?: boolean; missingMapMarkers?: boolean; publicThreadMapShape?: boolean; missingMapStatus?: boolean; nestedStatusLookalike?: boolean; topLevelStatusLookalike?: boolean; domainEnvelopeLookalikes?: boolean; alternateTopLevelSearchCollection?: boolean; detailsEnvelope?: boolean } = {}): { bin: string; callsPath: string } {
   const callsPath = join(dir, "calls.jsonl");
   const bin = join(dir, "openclaw-refresh-fake.mjs");
   const refreshedAt = options.staleRefreshTimestamp ? "2026-07-01T00:00:30.000Z" : "2026-07-01T00:02:00.000Z";
@@ -191,8 +191,12 @@ function createFakeOpenClaw(dir: string, options: { rawExpansion?: boolean; rawC
         ? output.replace(/^\s*\{/, "{ response: { ok: false },")
         : options.directDetailsErrorStatus
           ? `{ status: "error", result: ${output} }`
+        : options.deepMixedNativeFailureStatus
+          ? `{ response: { result: { response: { result: { response: { status: "error", metadata: { source: "native" }, result: ${output} } } } } } }`
         : options.nestedSuccessWrapper
           ? `{ response: { result: ${output} } }`
+        : options.rawDetailsEnvelope
+          ? output.replace(/^\s*\{/, '{ unsafeFinding: "RAW_TRANSCRIPT: private raw session text",')
           : output} }${options.directDetailsEnvelope ? "" : " }"}`
     : `{ ok: true, output: ${output} }`;
   const selectedThreadMapOutput = options.nestedTargetOnlyCoreOutputs ? nestedCoreThreadMapOutput : threadMapOutput;
@@ -656,7 +660,7 @@ test("OpenClaw post-action refresh smoke preserves direct domain failure statuse
   }
 });
 
-test("OpenClaw post-action refresh smoke scans native content before trusting details", () => {
+test("OpenClaw post-action refresh smoke scans raw native details without content", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-openclaw-refresh-smoke-private-content-envelope-"));
   const evidenceDir = join(root, "evidence");
   const liveProofReportPath = join(root, "openclaw-gateway-live-control-smoke-report.json");
@@ -664,7 +668,8 @@ test("OpenClaw post-action refresh smoke scans native content before trusting de
   const { bin, callsPath } = createFakeOpenClaw(root, {
     publicThreadMapShape: true,
     detailsEnvelope: true,
-    rawContentEnvelope: true
+    rawDetailsEnvelope: true,
+    detailsWithoutContent: true
   });
   const previous = process.env.OPENCLAW_FAKE_CALLS;
   process.env.OPENCLAW_FAKE_CALLS = callsPath;
@@ -682,6 +687,25 @@ test("OpenClaw post-action refresh smoke scans native content before trusting de
     assert.equal(report.proofReady, false);
     assert.equal(report.publicSafe, false);
     assert.equal(report.blockers.includes("post_action_refresh_raw_private_output"), true);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw post-action refresh smoke fails closed on deep mixed native failures", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-refresh-smoke-deep-mixed-failure-"));
+  const liveProofReportPath = join(root, "openclaw-gateway-live-control-smoke-report.json");
+  writeLiveProofReport(liveProofReportPath);
+  const { bin, callsPath } = createFakeOpenClaw(root, { publicThreadMapShape: true, detailsEnvelope: true, deepMixedNativeFailureStatus: true });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+  try {
+    const report = runOpenClawPostActionRefreshSmoke({ openclawBin: bin, evidenceDir: join(root, "evidence"), liveProofReportPath, threadId: TARGET_THREAD_ID, now: "2026-07-01T00:03:00.000Z" });
+    assert.equal(report.ok, false);
+    assert.equal(report.proofReady, false);
+    assert.equal(report.blockers.some((blocker) => blocker.endsWith(":tool_not_ok")), true);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;

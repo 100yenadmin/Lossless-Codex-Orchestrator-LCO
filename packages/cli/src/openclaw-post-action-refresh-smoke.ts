@@ -394,22 +394,24 @@ function hasNativeToolFailure(value: unknown): boolean {
 }
 
 function hasNativeResultFailure(value: unknown, checkDirect = false, depth = 0): boolean {
-  if (!isRecord(value) || depth > 4) return false;
+  if (!isRecord(value)) return false;
+  if (depth > 4) return true;
   if (checkDirect && value.ok === false) return true;
-  if (checkDirect
-    && isNativeResultWrapper(value)
-    && typeof value.status === "string"
-    && ["error", "failed", "failure"].includes(value.status.toLowerCase())) return true;
+  if (checkDirect && hasNativeFailureStatus(value)) return true;
   for (const key of ["response", "result"] as const) {
     const nested = value[key];
     if (!isRecord(nested)) continue;
     if (nested.ok === false) return true;
-    if (isNativeResultWrapper(nested)
-      && typeof nested.status === "string"
-      && ["error", "failed", "failure"].includes(nested.status.toLowerCase())) return true;
+    if (hasNativeFailureStatus(nested)) return true;
     if (hasNativeResultFailure(nested, false, depth + 1)) return true;
   }
   return false;
+}
+
+function hasNativeFailureStatus(value: Record<string, unknown>): boolean {
+  return typeof value.status === "string"
+    && ["error", "failed", "failure"].includes(value.status.toLowerCase())
+    && (isNativeResultWrapper(value) || isRecord(value.response) || isRecord(value.result));
 }
 
 function gatewayProcessTimeoutMs(timeoutMs: number): number {
