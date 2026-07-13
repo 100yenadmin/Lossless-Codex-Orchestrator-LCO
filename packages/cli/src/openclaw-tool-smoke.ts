@@ -1836,23 +1836,16 @@ function successfulPostCreateProofProven(
       ? proof.app_server
       : undefined;
   const index = isRecord(proof.index) ? proof.index : undefined;
-  const preparedState = isRecord(proof.preparedState)
-    ? proof.preparedState
-    : isRecord(proof.prepared_state)
-      ? proof.prepared_state
-      : undefined;
-
   return value.schema === "lco.codex.startThreadPostCreateProof.v1"
     && (value.publicSafe === true || value.public_safe === true)
     && (value.readOnly === true || value.read_only === true)
     && value.status === "persisted"
     && Boolean(requestedThreadRef)
     && createdThreadRef === requestedThreadRef
-    && Boolean(appServer?.found)
+    && appServer?.found === true
     && (appServer?.readProbeOk === true || appServer?.read_probe_ok === true)
     && index?.found === true
     && index?.described === true
-    && (preparedState?.cardAvailable === true || preparedState?.card_available === true)
     && explicitFalse("liveCodexControlRun", "live_codex_control_run")
     && explicitFalse("desktopGuiActionRun", "desktop_gui_action_run")
     && explicitFalse("rawTranscriptRead", "raw_transcript_read")
