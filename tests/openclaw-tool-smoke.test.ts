@@ -927,6 +927,7 @@ test("OpenClaw tool smoke emits safe full-gateway disposition plan for missing t
     assert.equal(calls.find((call) => call.params.name === "loo_grep")?.params.args?.profile, "metadata");
     assert.equal(calls.find((call) => call.params.name === "loo_grep")?.params.args?.token_budget, 200);
     assert.equal(calls.find((call) => call.params.name === "loo_codex_steer_thread")?.params.args?.expected_turn_id, "tool-smoke-turn");
+    assert.equal(calls.find((call) => call.params.name === "loo_codex_interrupt_thread")?.params.args?.expected_turn_id, "tool-smoke-turn");
     assert.equal(calls.find((call) => call.params.name === "loo_desktop_act")?.params.args?.dry_run, true);
     assert.equal(calls.find((call) => call.params.name === "loo_desktop_see")?.params.args?.include_snapshot, false);
   } finally {
