@@ -14,6 +14,7 @@ import {
   assertCodexMethodAllowed,
   buildLoopbackWebSocketConfig,
   codexTransportStatus,
+  createCodexAppServerWebSocketClient,
   createCodexMcpStdioClient,
   createCodexControl,
   createTargetControl,
@@ -644,6 +645,65 @@ test("loopback WebSocket config rejects credentials, non-loopback, paths, and no
   assert.throws(() => buildLoopbackWebSocketConfig("wss://127.0.0.1:4567"), /must use ws/);
   assert.throws(() => buildLoopbackWebSocketConfig("ws://example.com:4567"), /loopback/);
   assert.throws(() => buildLoopbackWebSocketConfig("ws://127.0.0.1:4567/path"), /must not include a path/);
+});
+
+test("Codex loopback WebSocket client initializes and serves JSON-RPC requests", async () => {
+  const OriginalWebSocket = globalThis.WebSocket;
+  const sent: Array<Record<string, unknown>> = [];
+  let observedUrl = "";
+
+  class FakeWebSocket {
+    static readonly CONNECTING = 0;
+    static readonly OPEN = 1;
+    readyState = FakeWebSocket.CONNECTING;
+    private readonly listeners = new Map<string, Array<(event: any) => void>>();
+
+    constructor(url: string) {
+      observedUrl = url;
+      queueMicrotask(() => {
+        this.readyState = FakeWebSocket.OPEN;
+        this.emit("open", {});
+      });
+    }
+
+    addEventListener(type: string, listener: (event: any) => void): void {
+      const listeners = this.listeners.get(type) ?? [];
+      listeners.push(listener);
+      this.listeners.set(type, listeners);
+    }
+
+    send(raw: string): void {
+      const payload = JSON.parse(raw) as Record<string, unknown>;
+      sent.push(payload);
+      if (payload.id === undefined) return;
+      queueMicrotask(() => this.emit("message", {
+        data: JSON.stringify({ id: payload.id, result: payload.method === "initialize" ? { serverInfo: {} } : { account: {} } })
+      }));
+    }
+
+    close(): void {
+      this.emit("close", {});
+    }
+
+    private emit(type: string, event: any): void {
+      for (const listener of this.listeners.get(type) ?? []) listener(event);
+    }
+  }
+
+  Object.assign(globalThis, { WebSocket: FakeWebSocket });
+  try {
+    const client = createCodexAppServerWebSocketClient({
+      url: "ws://127.0.0.1:4555",
+      surface: "read",
+      timeoutMs: 250
+    });
+    const response = await client.request("account/read", { refreshToken: false });
+    assert.equal(response.ok, true);
+    assert.equal(observedUrl, "ws://127.0.0.1:4555/");
+    assert.deepEqual(sent.map((payload) => payload.method), ["initialize", "initialized", "account/read"]);
+  } finally {
+    Object.assign(globalThis, { WebSocket: OriginalWebSocket });
+  }
 });
 
 test("Codex transport status reports command availability without starting a live session", () => {

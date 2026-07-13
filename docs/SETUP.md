@@ -438,6 +438,22 @@ Run a tool smoke through OpenClaw Gateway:
 lco openclaw tool-smoke --profile lco-dogfood --required-tool lco_doctor --required-tool lco_search_sessions --strict
 ```
 
+For approval-gated steer or interrupt across separate gateway invocations, run
+one persistent Codex app-server on a loopback WebSocket and point the OpenClaw
+profile at it:
+
+```bash
+codex app-server --listen ws://127.0.0.1:45555
+openclaw --profile lco-dogfood config set env.LCO_CODEX_APP_SERVER_URL '"ws://127.0.0.1:45555"' --strict-json
+openclaw --profile lco-dogfood gateway restart
+```
+
+LCO accepts only unauthenticated `ws://` loopback URLs with an explicit port and
+no credentials, path, query, or fragment. Leave `LCO_CODEX_APP_SERVER_URL`
+unset for the default one-shot stdio client. The shared loopback server is
+needed when one process owns an active turn and a later OpenClaw invocation must
+steer or interrupt that exact turn.
+
 After a published install, combine the package, dogfood, and tool-smoke reports
 into one first-run classifier:
 

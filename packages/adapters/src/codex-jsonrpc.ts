@@ -271,16 +271,101 @@ export class LineProcessTransport implements JsonRpcTransport {
   }
 }
 
+export class LoopbackWebSocketTransport implements JsonRpcTransport {
+  private readonly socket: WebSocket;
+  private readonly lines: string[] = [];
+  private readonly waiters: Array<(line: string | null) => void> = [];
+  private closed = false;
+  private readonly ready: Promise<void>;
+
+  constructor(rawUrl: string) {
+    const { url } = buildLoopbackWebSocketConfig(rawUrl);
+    this.socket = new WebSocket(url);
+    this.ready = new Promise((resolve, reject) => {
+      this.socket.addEventListener("open", () => resolve(), { once: true });
+      this.socket.addEventListener("error", () => reject(new Error("Codex loopback WebSocket connection failed")), { once: true });
+    });
+    this.socket.addEventListener("message", (event) => {
+      if (typeof event.data === "string") this.pushLine(event.data);
+    });
+    this.socket.addEventListener("close", () => this.finishOutput());
+  }
+
+  async sendJson(payload: unknown): Promise<void> {
+    await this.ready;
+    this.socket.send(JSON.stringify(payload));
+  }
+
+  readLine(deadline: number): Promise<string | null> {
+    const existing = this.lines.shift();
+    if (existing !== undefined) return Promise.resolve(existing);
+    if (this.closed) return Promise.resolve(null);
+    const remaining = Math.max(1, deadline - Date.now());
+    return new Promise((resolve) => {
+      let timer: ReturnType<typeof setTimeout>;
+      const waiter = (line: string | null) => {
+        clearTimeout(timer);
+        resolve(line);
+      };
+      timer = setTimeout(() => {
+        const index = this.waiters.indexOf(waiter);
+        if (index >= 0) this.waiters.splice(index, 1);
+        resolve(null);
+      }, remaining);
+      this.waiters.push(waiter);
+    });
+  }
+
+  close(): void {
+    this.finishOutput();
+    if (this.socket.readyState === WebSocket.CONNECTING || this.socket.readyState === WebSocket.OPEN) this.socket.close();
+  }
+
+  private pushLine(line: string): void {
+    const waiter = this.waiters.shift();
+    if (waiter) waiter(line);
+    else this.lines.push(line);
+  }
+
+  private finishOutput(): void {
+    if (this.closed) return;
+    this.closed = true;
+    let waiter = this.waiters.shift();
+    while (waiter) {
+      waiter(null);
+      waiter = this.waiters.shift();
+    }
+  }
+}
+
 export function createCodexMcpStdioClient(options: {
   command?: string;
   args?: string[];
   timeoutMs?: number;
   surface?: CodexMethodSurface;
 } = {}) {
+  return createCodexClientFromTransport(
+    () => new LineProcessTransport(options.command ?? "codex", options.args ?? ["app-server", "--stdio"], options.timeoutMs),
+    options
+  );
+}
+
+export function createCodexAppServerWebSocketClient(options: {
+  url: string;
+  timeoutMs?: number;
+  surface?: CodexMethodSurface;
+}) {
+  return createCodexClientFromTransport(() => new LoopbackWebSocketTransport(options.url), options);
+}
+
+function createCodexClientFromTransport(
+  transportFactory: () => JsonRpcTransport,
+  options: { timeoutMs?: number; surface?: CodexMethodSurface }
+) {
   return {
     async request(method: string, params: Record<string, unknown>) {
       const client = new CodexJsonRpcClient(
-        () => new LineProcessTransport(options.command ?? "codex", options.args ?? ["app-server", "--stdio"], options.timeoutMs),
+        transportFactory,
         { timeoutMs: options.timeoutMs, surface: options.surface ?? "control" }
       );
       await client.connect();
@@ -294,7 +379,7 @@ export function createCodexMcpStdioClient(options: {
       const surface = options.surface ?? "control";
       for (const step of steps) assertCodexMethodAllowed(step.method, surface);
       const client = new CodexJsonRpcClient(
-        () => new LineProcessTransport(options.command ?? "codex", options.args ?? ["app-server", "--stdio"], options.timeoutMs),
+        transportFactory,
         { timeoutMs: options.timeoutMs, surface }
       );
       await client.connect();
@@ -323,7 +408,7 @@ export function createCodexMcpStdioClient(options: {
         throw new Error("Codex safe active-runtime proof requires every sequence step to target the requested thread");
       }
       const client = new CodexJsonRpcClient(
-        () => new LineProcessTransport(options.command ?? "codex", options.args ?? ["app-server", "--stdio"], options.timeoutMs),
+        transportFactory,
         { timeoutMs: options.timeoutMs, surface }
       );
       await client.connect();

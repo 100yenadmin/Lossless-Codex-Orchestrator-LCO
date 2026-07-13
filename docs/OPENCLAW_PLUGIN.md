@@ -60,6 +60,14 @@ matching release gate artifacts are present and public-safe.
 
 Recommended OpenClaw configuration should expose the `lco_*` tools and keep live controls approval-gated.
 
+Steer and interrupt of an already-active turn require the gateway and turn
+owner to share a persistent Codex app-server. Start a loopback WebSocket server,
+set the profile-scoped `LCO_CODEX_APP_SERVER_URL` to that `ws://127.0.0.1:<port>`
+endpoint, and restart the gateway. LCO rejects credentials, non-loopback hosts,
+TLS URLs, paths, queries, and fragments on this setting. When the variable is
+unset, the plugin retains the one-shot stdio app-server path for ordinary reads
+and controls that do not cross process ownership.
+
 Tool declarations include a `metadata.tier` value so agents can distinguish the
 compact operator path from detail, proof, and low-level recovery surfaces:
 
