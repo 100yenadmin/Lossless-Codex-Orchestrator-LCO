@@ -311,7 +311,7 @@ function liveArgs(action: OpenClawGatewayLiveControlAction, threadId: string, me
     thread_id: threadId,
     dry_run: false,
     approval_audit_id: approvalAuditId,
-    ...(turnWaitMs ? { turn_wait_ms: turnWaitMs } : {})
+    ...(action !== "resume" && turnWaitMs ? { turn_wait_ms: turnWaitMs } : {})
   };
   if (action === "send") return { ...common, message };
   if (action === "steer") return { ...common, message, expected_turn_id: expectedTurnId };
