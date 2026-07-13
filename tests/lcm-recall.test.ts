@@ -577,6 +577,14 @@ test("LCM peer aliases canonicalize to one doctor peer and one prepared-card set
     const legacyRef = `lcm_summary:${legacyHash}:alias_root`;
     assert.equal(describeRecallRef(db, { sourceRef: legacyRef, lcmDbPaths: [aliasPath] })?.summaryId, "alias_root");
     assert.equal(expandRecallRef(db, { sourceRef: legacyRef, lcmDbPaths: [aliasPath], profile: "brief" }).summaryId, "alias_root");
+
+    const canonicalRef = getPreparedCards(db, { limit: 10 }).cards.find((card) => card.cardKind === "lcm_summary")!.targetRef;
+    db.prepare("UPDATE prepared_cards SET target_ref = ? WHERE target_ref = ?").run(legacyRef, canonicalRef);
+    db.prepare("UPDATE prepared_inbox_items SET target_ref = ? WHERE target_ref = ?").run(legacyRef, canonicalRef);
+    rmSync(aliasPath, { force: true });
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [aliasPath] });
+    assert.equal(getPreparedCards(db, { limit: 10 }).cards.some((card) => card.targetRef === legacyRef), true);
+    assert.equal(getPreparedInbox(db, { limit: 10 }).items.some((item) => item.targetRef === legacyRef), true);
   } finally {
     db.close();
     fixture.close();

@@ -7481,7 +7481,13 @@ function materializePreparedCardsForLcmPeers(
   const previousInboxByTarget = new Map(previousInbox.map((row) => [row.targetRef, row]));
   const cards = new Map<string, PreparedCardDraft>();
   const normalizedPaths = normalizePeerPaths(paths);
-  const configuredPeerHashes = new Set(normalizedPaths.map(lcmPeerHash));
+  const configuredPeerHashes = new Set(paths.flatMap((path) => {
+    try {
+      return [lcmPeerHash(path), legacyLcmPeerHash(path)];
+    } catch {
+      return [];
+    }
+  }));
   const refreshedPeerHashes = new Set<string>();
   let skippedUnsafeRows = 0;
 
