@@ -14,6 +14,8 @@ export type CliMcpProductSmokeOptions = {
   requiredTools?: string[];
   timeoutMs?: number;
   now?: string;
+  /** @internal deterministic failure seam for focused tests. */
+  runtimeRootFactory?: () => string;
 };
 
 export type CliMcpProductSmokeReport = {
@@ -96,7 +98,12 @@ export async function createCliMcpProductSmokeReport(options: CliMcpProductSmoke
   const requiredTools = uniqueStrings(options.requiredTools?.length ? options.requiredTools : DEFAULT_REQUIRED_TOOLS);
   const cliProbe = probeCliHelp(options.cliBin ?? "loo", options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   const toolCallName = options.toolCallName ?? "lco_doctor";
-  const mcpProbe = await probeMcpToolsListAndCall(options.mcpBin ?? "lco-mcp-server", toolCallName, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  const mcpProbe = await probeMcpToolsListAndCall(
+    options.mcpBin ?? "lco-mcp-server",
+    toolCallName,
+    options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    options.runtimeRootFactory
+  );
   const requiredToolsPresent = requiredTools.filter((tool) => mcpProbe.tools.includes(tool));
   const missingRequiredTools = requiredTools.filter((tool) => !mcpProbe.tools.includes(tool));
   const blockers = uniqueStrings([
@@ -176,7 +183,12 @@ function probeCliHelp(cliBin: string, timeoutMs: number): ProbeResult {
   return packageDefect("cli_help_failed");
 }
 
-function probeMcpToolsListAndCall(mcpBin: string, toolCallName: string, timeoutMs: number): Promise<McpProbeResult> {
+function probeMcpToolsListAndCall(
+  mcpBin: string,
+  toolCallName: string,
+  timeoutMs: number,
+  runtimeRootFactory: () => string = () => mkdtempSync(join(tmpdir(), "lco-cli-mcp-smoke-"))
+): Promise<McpProbeResult> {
   return new Promise((resolve) => {
     let resolved = false;
     let stdoutBuffer = "";
@@ -184,7 +196,17 @@ function probeMcpToolsListAndCall(mcpBin: string, toolCallName: string, timeoutM
     let stage: "initialize" | "tools_list" | "tools_call" = "initialize";
     let timer: ReturnType<typeof setTimeout> | null = null;
     let killTimer: ReturnType<typeof setTimeout> | null = null;
-    const runtimeRoot = mkdtempSync(join(tmpdir(), "lco-cli-mcp-smoke-"));
+    let runtimeRoot: string;
+    try {
+      runtimeRoot = runtimeRootFactory();
+    } catch {
+      resolve({
+        ...packageDefect("mcp_isolated_runtime_setup_failed"),
+        tools: [],
+        toolCall: failedToolCall(toolCallName, "mcp_isolated_runtime_setup_failed")
+      });
+      return;
+    }
     let runtimeCleaned = false;
     const cleanupRuntime = () => {
       if (runtimeCleaned) return;
