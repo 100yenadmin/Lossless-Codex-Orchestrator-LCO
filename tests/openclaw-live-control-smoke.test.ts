@@ -364,8 +364,12 @@ test("OpenClaw live-control smoke proves dry-run live send and audit tail throug
 
     const reportText = readFileSync(join(evidenceDir, "openclaw-gateway-live-control-smoke-report.json"), "utf8");
     const proofText = readFileSync(join(evidenceDir, "openclaw-gateway-live-codex-v1-1.runtime-proof.json"), "utf8");
+    assert.equal(existsSync(join(evidenceDir, report.reportPath)), true);
+    assert.equal(existsSync(join(evidenceDir, report.runtimeProofPath)), true);
     assert.equal(reportText.includes(message), false);
     assert.equal(proofText.includes(message), false);
+    assert.equal(reportText.includes(root), false);
+    assert.equal(proofText.includes(root), false);
 
     mkdirSync(scenarioDir);
     copyFileSync(join("evals", "scenarios", "v1.1", "openclaw-gateway-live-codex.json"), join(scenarioDir, "openclaw-gateway-live-codex.json"));

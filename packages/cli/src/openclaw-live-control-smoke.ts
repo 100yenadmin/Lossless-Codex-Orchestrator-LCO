@@ -211,12 +211,16 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
   const matchingDryRunRecord = Boolean(dryRunSummary.approvalAuditId && auditRecords.some((record) =>
     record.id === dryRunSummary.approvalAuditId && record.live === false && record.paramsHash === dryRunSummary.paramsHash
   ));
-  const matchingLiveRecord = Boolean(liveSummary.paramsHash && auditRecords.some((record) =>
-    record.id === liveSummary.approvalAuditId
-    && record.live === true
-    && record.paramsHash === liveSummary.paramsHash
-    && record.approvalAuditId === dryRunSummary.approvalAuditId
-  ));
+  const matchingLiveRecord = Boolean(
+    safeAuditId(liveSummary.approvalAuditId)
+    && liveSummary.paramsHash
+    && auditRecords.some((record) =>
+      record.id === liveSummary.approvalAuditId
+      && record.live === true
+      && record.paramsHash === liveSummary.paramsHash
+      && record.approvalAuditId === dryRunSummary.approvalAuditId
+    )
+  );
   if (auditTail && !matchingDryRunRecord) blockers.push("openclaw_live_audit_tail_missing_dry_run_record");
   if (auditTail && !matchingLiveRecord) blockers.push("openclaw_live_audit_tail_missing_live_record");
 

@@ -28,6 +28,11 @@ export type ReleasePreflightCheck = {
   detail: string;
 };
 
+type ApprovedLiveControlValidation = {
+  check: ReleasePreflightCheck;
+  candidateMismatch: boolean;
+};
+
 export type ReleasePreflightReport = {
   ok: boolean;
   releaseReady: boolean;
@@ -163,9 +168,9 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
   );
 
   const approvedLiveControlProof = options.approvedLiveControlEvidence?.trim();
-  const liveControlProof = liveControlRequired
+  const liveControlValidation: ApprovedLiveControlValidation = liveControlRequired
     ? validateApprovedLiveControlProof(approvedLiveControlProof, options.candidateSha)
-    : check(false, liveControlExcludedDetail(claimScope));
+    : { check: check(false, liveControlExcludedDetail(claimScope)), candidateMismatch: false };
   const workingAppRuntimeProof = workingAppRuntimeProofRequired
     ? validateWorkingAppRuntimeProof(options.runtimeProofDir)
     : null;
@@ -184,7 +189,7 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
         ? "no raw session/private DB/screenshot artifacts found"
         : "raw artifacts or unsafe evidence tree shape are present"
     ),
-    liveControlSmoke: liveControlProof,
+    liveControlSmoke: liveControlValidation.check,
     workingAppRuntimeProof: workingAppRuntimeProof
       ? check(
         workingAppRuntimeProof.ok,
@@ -201,7 +206,7 @@ export function runReleasePreflight(options: ReleasePreflightOptions = {}): Rele
   if (rawSessionArtifacts.length > 0) blockers.push("raw_session_artifacts_present");
   if (evidenceScanDepthExceeded.length > 0) blockers.push("evidence_scan_depth_exceeded");
   if (liveControlRequired && !checks.liveControlSmoke?.ok) {
-    blockers.push(checks.liveControlSmoke?.detail.includes("candidate SHA")
+    blockers.push(liveControlValidation.candidateMismatch
       ? "approved_live_control_candidate_mismatch"
       : "approved_live_control_smoke_missing");
   }
@@ -339,14 +344,14 @@ function rawArtifactForName(name: string): RawSessionArtifact | null {
   return null;
 }
 
-function validateApprovedLiveControlProof(path: string | undefined, expectedCandidateSha?: string): ReleasePreflightCheck {
-  if (!path) return check(false, "approved live-control evidence was not provided");
-  if (!existsSync(path)) return check(false, "approved live-control evidence path does not exist");
+function validateApprovedLiveControlProof(path: string | undefined, expectedCandidateSha?: string): ApprovedLiveControlValidation {
+  if (!path) return { check: check(false, "approved live-control evidence was not provided"), candidateMismatch: false };
+  if (!existsSync(path)) return { check: check(false, "approved live-control evidence path does not exist"), candidateMismatch: false };
   let proof: ApprovedLiveControlSmokeProof;
   try {
     proof = JSON.parse(readFileSync(path, "utf8")) as ApprovedLiveControlSmokeProof;
   } catch {
-    return check(false, "approved live-control evidence must be JSON");
+    return { check: check(false, "approved live-control evidence must be JSON"), candidateMismatch: false };
   }
   const actionOk = proof.action === "send" || proof.action === "resume" || proof.action === "steer" || proof.action === "interrupt";
   const hashOk = proof.action === "send" || proof.action === "steer" ? isSafeFingerprint(proof.messageHash) : true;
@@ -377,14 +382,17 @@ function validateApprovedLiveControlProof(path: string | undefined, expectedCand
     && proof.preservesCodexApprovalSemantics === true
     && proof.rawPromptIncluded === false
     && hasOnlyAllowedKeys;
-  return check(
-    ok,
-    ok
-      ? "structured approved live-control smoke proof accepted and candidate SHA bound"
-      : !candidateShaOk
-        ? "approved live-control evidence candidate SHA is missing, invalid, or mismatched"
-        : "approved live-control evidence is not a safe structured proof marker"
-  );
+  return {
+    check: check(
+      ok,
+      ok
+        ? "structured approved live-control smoke proof accepted and candidate SHA bound"
+        : !candidateShaOk
+          ? "approved live-control evidence candidate SHA is missing, invalid, or mismatched"
+          : "approved live-control evidence is not a safe structured proof marker"
+    ),
+    candidateMismatch: !ok && !candidateShaOk
+  };
 }
 
 function isSafeFingerprint(value: string | undefined | null): boolean {

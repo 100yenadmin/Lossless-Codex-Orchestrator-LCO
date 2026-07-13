@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import { test } from "node:test";
 
 const tsxImport = createRequire(import.meta.url).resolve("tsx");
+const candidateSha = "a".repeat(40);
 
 function read(path: string): string {
   return readFileSync(path, "utf8");
@@ -177,6 +178,35 @@ test("release demo-status accepts public-safe demo evidence and optional live-co
     npmPublished: false,
     githubReleaseCreated: false
   });
+});
+
+test("release demo-status reports candidate mismatch distinctly from missing live-control proof", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-demo-status-candidate-mismatch-"));
+  const liveControlProof = writePassingDemoEvidence(evidenceDir);
+  const proof = JSON.parse(read(liveControlProof)) as Record<string, unknown>;
+  proof.candidateSha = "b".repeat(40);
+  writeJson(liveControlProof, proof);
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "demo-status",
+    "--evidence-dir",
+    evidenceDir,
+    "--candidate-sha",
+    candidateSha,
+    "--approved-live-control-evidence",
+    liveControlProof,
+    "--strict"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as { demoReady?: boolean; blockers?: string[] };
+  assert.equal(payload.demoReady, false);
+  assert.equal(payload.blockers?.includes("approved_live_control_candidate_mismatch"), true);
+  assert.equal(payload.blockers?.includes("approved_live_control_smoke_missing"), false);
 });
 
 test("release demo-status --claim-scope codex-read-search-expand-dry-run accepts dry-run demo evidence without live-control proof", () => {

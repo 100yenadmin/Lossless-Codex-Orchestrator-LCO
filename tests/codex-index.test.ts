@@ -614,9 +614,13 @@ test("healthy incremental indexing avoids full FTS matching-row count scans", ()
     try {
       indexCodexSessions(db, { roots: [corpus.sessionsDir], maxFiles: 10 });
       const originalPrepare = db.prepare.bind(db);
+      let contentTableProbeRan = false;
       db.prepare = ((sql: string) => {
         if (/FROM\s+codex_(?:safe_text|search)_fts\b/i.test(sql)) {
           throw new Error("incremental FTS integrity must not scan the FTS virtual table");
+        }
+        if (/FROM\s+codex_(?:safe_text|search)_fts_content\b/i.test(sql)) {
+          contentTableProbeRan = true;
         }
         return originalPrepare(sql);
       }) as typeof db.prepare;
@@ -624,6 +628,7 @@ test("healthy incremental indexing avoids full FTS matching-row count scans", ()
       const incremental = indexCodexSessions(db, { roots: [corpus.sessionsDir], maxFiles: 10 });
       db.prepare = originalPrepare as typeof db.prepare;
 
+      assert.equal(contentTableProbeRan, true, "expected the bounded content-table integrity probe to run");
       assert.equal(incremental.indexedFiles, 0);
       assert.equal(incremental.skippedFiles, 3);
       assert.equal(incremental.errors.length, 0);

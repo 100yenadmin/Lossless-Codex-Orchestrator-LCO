@@ -4899,8 +4899,8 @@ function codexFtsRowidPinningNeedsRepair(db: LooDatabase, table: "codex_safe_tex
     ? "codex_safe_text_fts_content"
     : "codex_search_fts_content";
   const sessionCount = Number((db.prepare("SELECT COUNT(*) AS count FROM codex_sessions").get() as { count: number }).count);
-  const ftsCount = Number((db.prepare(`SELECT COUNT(*) AS count FROM ${contentTable}`).get() as { count: number }).count);
-  if (ftsCount !== sessionCount) return true;
+  const contentCount = Number((db.prepare(`SELECT COUNT(*) AS count FROM ${contentTable}`).get() as { count: number }).count);
+  if (contentCount !== sessionCount) return true;
   const mismatchedRow = db.prepare(`
     SELECT 1
     FROM codex_sessions s
