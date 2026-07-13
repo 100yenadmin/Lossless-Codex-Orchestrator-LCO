@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
+import { createAuditStore } from "../packages/adapters/src/index.js";
+import { createLooTools } from "../packages/mcp-server/src/tools.js";
 
 import {
   configuredLcmPeerDbPaths,
@@ -13,8 +15,11 @@ import {
   describeRecallRef,
   expandQuery,
   expandRecallRef,
+  getPreparedCards,
+  getPreparedInbox,
   grepRecall,
   indexCodexSessions,
+  materializePreparedCards,
   probeLcmPeerDbs
 } from "../packages/core/src/index.js";
 
@@ -46,6 +51,12 @@ function createLcmPeerSchema(lcm: DatabaseSync): void {
       parent_summary_id TEXT NOT NULL,
       ordinal INTEGER NOT NULL,
       PRIMARY KEY (summary_id, parent_summary_id)
+    );
+    CREATE TABLE summary_messages (
+      summary_id TEXT NOT NULL,
+      message_id TEXT NOT NULL,
+      ordinal INTEGER NOT NULL,
+      PRIMARY KEY (summary_id, message_id)
     );
     CREATE VIRTUAL TABLE summaries_fts USING fts5(summary_id UNINDEXED, content, tokenize = 'unicode61');
   `);
@@ -176,7 +187,7 @@ function makeRecallFixture() {
 type DagFixture = {
   root: string;
   lcmPath: string;
-  addSummary: (summaryId: string, content: string, options?: { kind?: string; depth?: number; ordinal?: number }) => void;
+  addSummary: (summaryId: string, content: string, options?: { kind?: string; depth?: number; ordinal?: number; latestAt?: string | null; createdAt?: string }) => void;
   addParent: (summaryId: string, parentSummaryId: string, ordinal: number) => void;
   close: () => void;
 };
@@ -215,9 +226,9 @@ function makeDagFixture(): DagFixture {
         Math.max(1, Math.ceil(content.length / 4)),
         JSON.stringify([]),
         "2026-07-08T00:00:00Z",
-        "2026-07-08T00:01:00Z",
+        options.latestAt === undefined ? "2026-07-08T00:01:00Z" : options.latestAt,
         0,
-        "2026-07-08T00:02:00Z",
+        options.createdAt ?? "2026-07-08T00:02:00Z",
         "gpt-5.5"
       );
       insertFts.run(summaryId, content);
@@ -277,6 +288,10 @@ test("grep -> describe -> expand_query preserves Codex and read-only LCM source 
     assert.equal(grep.matches.some((match) => match.sourceRef === "codex_thread:019f-recall-thread"), true);
     const lcmRef = grep.matches.find((match) => match.sourceKind === "lcm_summary")?.sourceRef;
     assert.ok(lcmRef?.startsWith("lcm_summary:"));
+
+    const noPeerMatch = grepRecall(db, { query: "definitely absent peer term", lcmDbPaths: [fixture.lcmPath], limit: 5 });
+    assert.equal(noPeerMatch.matches.some((match) => match.sourceKind === "lcm_summary"), false);
+    assert.equal(noPeerMatch.reasonCodes?.includes("lcm_peer_source_read"), true);
 
     const codexDescription = describeRecallRef(db, {
       sourceRef: "codex_thread:019f-recall-thread",
@@ -339,6 +354,439 @@ test("grep -> describe -> expand_query preserves Codex and read-only LCM source 
     }
   } finally {
     db.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM peer doctor classifies ready degraded and unavailable without mutation", () => {
+  const ready = makeDagFixture();
+  const degraded = makeDagFixture();
+  ready.addSummary("ready_root", "Ready LCM root summary.", { kind: "condensed", depth: 1 });
+  ready.addSummary("ready_leaf", "Ready LCM source leaf.", { kind: "leaf", depth: 0 });
+  ready.addParent("ready_root", "ready_leaf", 0);
+  degraded.addSummary("degraded_root", "Degraded LCM root summary.", { kind: "condensed", depth: 1 });
+  degraded.addParent("degraded_root", "missing_leaf", 0);
+  degraded.addSummary("empty_leaf", "", { kind: "leaf", depth: 0 });
+  const missingPath = join(degraded.root, "missing-peer.sqlite");
+  const readyBefore = peerDbState(ready.lcmPath);
+  const degradedBefore = peerDbState(degraded.lcmPath);
+  try {
+    const report = probeLcmPeerDbs([ready.lcmPath, degraded.lcmPath, missingPath]);
+    assert.equal(report.status, "degraded");
+    assert.deepEqual(report.summary, { ready: 1, degraded: 1, unavailable: 1 });
+    assert.equal(report.peers[0]?.status, "ready");
+    assert.deepEqual(report.peers[0]?.integrity.reasonCodes, []);
+    assert.equal(report.peers[1]?.status, "degraded");
+    assert.equal(report.peers[1]?.integrity.emptySummaries, 1);
+    assert.equal(report.peers[1]?.integrity.staleDagLinks, 1);
+    assert.equal(report.peers[1]?.integrity.degradedExpansions >= 1, true);
+    assert.equal(report.peers[2]?.status, "unavailable");
+    assert.equal(report.readOnly, true);
+    assert.deepEqual(peerDbState(ready.lcmPath), readyBefore);
+    assert.deepEqual(peerDbState(degraded.lcmPath), degradedBefore);
+    for (const path of [ready.lcmPath, degraded.lcmPath]) {
+      for (const suffix of ["-wal", "-shm", "-journal"]) assert.equal(existsSync(`${path}${suffix}`), false);
+    }
+  } finally {
+    ready.close();
+    degraded.close();
+    rmSync(ready.root, { recursive: true, force: true });
+    rmSync(degraded.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM peer doctor treats an optional unconfigured peer set as ready", () => {
+  const report = probeLcmPeerDbs([]);
+  assert.equal(report.status, "ready");
+  assert.deepEqual(report.summary, { ready: 0, degraded: 0, unavailable: 0 });
+  assert.deepEqual(report.peers, []);
+});
+
+test("LCM peer doctor explains a supported empty summary table", () => {
+  const fixture = makeDagFixture();
+  try {
+    const report = probeLcmPeerDbs([fixture.lcmPath]);
+    assert.equal(report.peers[0]?.status, "degraded");
+    assert.equal(report.peers[0]?.integrity.reasonCodes.includes("lcm_peer_summary_table_empty"), true);
+    assert.equal(report.peers[0]?.integrity.reasonCodes.includes("lcm_peer_empty_summaries"), false);
+  } finally {
+    fixture.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM peer doctor bounds empty-summary content inspection", () => {
+  const fixture = makeDagFixture();
+  try {
+    for (let index = 0; index <= 500; index += 1) fixture.addSummary(`empty_${index}`, "");
+    const report = probeLcmPeerDbs([fixture.lcmPath]);
+    assert.equal(report.peers[0]?.integrity.emptySummaries, 501);
+    assert.equal(report.peers[0]?.integrity.reasonCodes.includes("lcm_peer_integrity_scan_cap"), true);
+  } finally {
+    fixture.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM peer doctor bounds stale DAG link inspection", () => {
+  const fixture = makeDagFixture();
+  try {
+    for (let index = 0; index <= 500; index += 1) {
+      fixture.addParent(`missing_child_${index}`, `missing_parent_${index}`, index);
+    }
+    const report = probeLcmPeerDbs([fixture.lcmPath]);
+    assert.equal(report.peers[0]?.integrity.staleDagLinks, 501);
+    assert.equal(report.peers[0]?.integrity.reasonCodes.includes("lcm_peer_integrity_scan_cap"), true);
+    assert.equal(report.peers[0]?.status, "degraded");
+  } finally {
+    fixture.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM peer doctor degrades cyclic summary DAGs", () => {
+  const fixture = makeDagFixture();
+  fixture.addSummary("cycle_a", "Cycle A summary.");
+  fixture.addSummary("cycle_b", "Cycle B summary.");
+  fixture.addParent("cycle_a", "cycle_b", 0);
+  fixture.addParent("cycle_b", "cycle_a", 0);
+  try {
+    const report = probeLcmPeerDbs([fixture.lcmPath]);
+    assert.equal(report.status, "degraded");
+    assert.equal(report.peers[0]?.status, "degraded");
+    assert.equal(report.peers[0]?.integrity.degradedExpansions >= 1, true);
+    assert.equal(report.peers[0]?.integrity.reasonCodes.includes("lcm_peer_dag_cycle"), true);
+  } finally {
+    fixture.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM summary DAGs materialize public-safe prepared cards and inbox items", () => {
+  const fixture = makeDagFixture();
+  const oversizedTailCanary = "LCM_OVERSIZED_TAIL_MUST_NOT_LOAD";
+  fixture.addSummary("card_root", `Prepared LCM root summary for the next operator at /Users/lume/private. Bearer sk-test_1234567890 ${"x".repeat(20_000)}${oversizedTailCanary}`, { kind: "condensed", depth: 1 });
+  fixture.addSummary("card_leaf", "Prepared LCM source leaf with bounded evidence.", { kind: "leaf", depth: 0 });
+  fixture.addParent("card_root", "card_leaf", 0);
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  const before = peerDbState(fixture.lcmPath);
+  try {
+    const indexed = indexCodexSessions(db, { roots: [], lcmDbPaths: [fixture.lcmPath] });
+    assert.deepEqual(indexed.errors, []);
+    const cards = getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary");
+    assert.equal(cards.length, 2);
+    const rootCard = cards.find((card) => card.targetRef.includes("card_root"));
+    assert.ok(rootCard);
+    assert.equal(rootCard.summaryText.includes("Prepared LCM root summary"), true);
+    assert.equal(rootCard.sourceRefs.some((ref) => ref.includes("card_leaf")), true);
+    assert.equal(rootCard.authorityCoverage.summaryLeaves.status, "ok");
+    assert.equal(rootCard.freshnessAt, "2026-07-08T00:02:00.000Z");
+    const inbox = getPreparedInbox(db, { limit: 10 }).items.filter((item) => item.targetRef.startsWith("lcm_summary:"));
+    assert.equal(inbox.length, 2);
+    assert.equal(inbox.every((item) => item.execute === false), true);
+    const serializedPreparedState = JSON.stringify({ cards, inbox });
+    assert.doesNotMatch(serializedPreparedState, /\/Users\/lume\/private|sk-test_1234567890|Bearer/);
+    assert.equal(serializedPreparedState.includes(oversizedTailCanary), false);
+    assert.equal(serializedPreparedState.includes(fixture.root), false);
+    assert.deepEqual(peerDbState(fixture.lcmPath), before);
+  } finally {
+    db.close();
+    fixture.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM prepared cards accept the full encodeURIComponent unescaped ID set", () => {
+  const fixture = makeDagFixture();
+  fixture.addSummary("valid!*'()", "Prepared LCM summary with a valid public identifier.");
+  const spacedId = "space ".repeat(30).trim();
+  fixture.addSummary(spacedId, "Prepared LCM summary with a long encoded public identifier.");
+  fixture.addSummary("literal%percent", "Prepared LCM summary with a literal percent identifier.");
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    const indexed = indexCodexSessions(db, { roots: [], lcmDbPaths: [fixture.lcmPath] });
+    assert.deepEqual(indexed.errors, []);
+    const cards = getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary");
+    assert.equal(cards.length, 3);
+    const punctuationCard = cards.find((card) => card.targetRef.endsWith(":valid%21%2A%27%28%29"));
+    const spacedCard = cards.find((card) => card.targetRef.endsWith(`:${encodeURIComponent(spacedId)}`));
+    const percentCard = cards.find((card) => card.targetRef.endsWith(":literal%25percent"));
+    assert.ok(punctuationCard);
+    assert.ok(spacedCard);
+    assert.ok(percentCard);
+    assert.equal(describeRecallRef(db, { sourceRef: punctuationCard.targetRef, lcmDbPaths: [fixture.lcmPath] })?.summaryId, "valid!*'()");
+    assert.equal(describeRecallRef(db, { sourceRef: spacedCard.targetRef, lcmDbPaths: [fixture.lcmPath] })?.summaryId, spacedId);
+    assert.equal(describeRecallRef(db, { sourceRef: percentCard.targetRef, lcmDbPaths: [fixture.lcmPath] })?.summaryId, "literal%percent");
+  } finally {
+    db.close();
+    fixture.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM prepared cards reconcile disabled peers and retain unavailable peer cache", () => {
+  const fixture = makeDagFixture();
+  fixture.addSummary("retained_root", "Retained peer summary.");
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [fixture.lcmPath] });
+    assert.equal(getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary").length, 1);
+
+    materializePreparedCards(db);
+    assert.equal(getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary").length, 1);
+
+    fixture.close();
+    rmSync(fixture.lcmPath, { force: true });
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [fixture.lcmPath] });
+    assert.equal(getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary").length, 1);
+
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [] });
+    assert.equal(getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary").length, 0);
+    assert.equal(getPreparedInbox(db, { limit: 10 }).items.filter((item) => item.targetRef.startsWith("lcm_summary:")).length, 0);
+  } finally {
+    db.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM prepared cards delete removed peers while retaining an unavailable symlinked peer", () => {
+  const unavailableFixture = makeDagFixture();
+  const removedFixture = makeDagFixture();
+  unavailableFixture.addSummary("unavailable_root", "Unavailable configured peer summary.");
+  removedFixture.addSummary("removed_root", "Removed peer summary.");
+  const unavailableAliasPath = join(unavailableFixture.root, "unavailable-peer-alias.sqlite");
+  symlinkSync(unavailableFixture.lcmPath, unavailableAliasPath);
+  const root = mkdtempSync(join(tmpdir(), "loo-lcm-mixed-peer-reconcile-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  let unavailableFixtureClosed = false;
+  try {
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [unavailableAliasPath, removedFixture.lcmPath] });
+    assert.equal(getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary").length, 2);
+
+    unavailableFixture.close();
+    unavailableFixtureClosed = true;
+    writeFileSync(unavailableFixture.lcmPath, "not a sqlite database");
+    assert.equal(existsSync(unavailableAliasPath), true);
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [unavailableAliasPath] });
+
+    const cards = getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary");
+    assert.equal(cards.length, 1);
+    assert.equal(cards[0]?.targetRef.includes("unavailable_root"), true);
+  } finally {
+    db.close();
+    if (!unavailableFixtureClosed) unavailableFixture.close();
+    removedFixture.close();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(unavailableFixture.root, { recursive: true, force: true });
+    rmSync(removedFixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM prepared cards reconcile a symlink retarget in one refresh", () => {
+  const firstFixture = makeDagFixture();
+  const secondFixture = makeDagFixture();
+  firstFixture.addSummary("retarget_first", "First peer summary.");
+  secondFixture.addSummary("retarget_second", "Second peer summary.");
+  const root = mkdtempSync(join(tmpdir(), "loo-lcm-peer-retarget-"));
+  const aliasPath = join(root, "configured-peer.sqlite");
+  symlinkSync(firstFixture.lcmPath, aliasPath);
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [aliasPath] });
+    assert.equal(getPreparedCards(db, { limit: 10 }).cards.some((card) => card.targetRef.includes("retarget_first")), true);
+
+    rmSync(aliasPath);
+    symlinkSync(secondFixture.lcmPath, aliasPath);
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [aliasPath] });
+
+    const cards = getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary");
+    const inbox = getPreparedInbox(db, { limit: 10 }).items.filter((item) => item.targetRef.startsWith("lcm_summary:"));
+    assert.equal(cards.length, 1);
+    assert.equal(cards[0]?.targetRef.includes("retarget_second"), true);
+    assert.equal(cards.some((card) => card.targetRef.includes("retarget_first")), false);
+    assert.equal(inbox.length, 1);
+    assert.equal(inbox[0]?.targetRef.includes("retarget_second"), true);
+  } finally {
+    db.close();
+    firstFixture.close();
+    secondFixture.close();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(firstFixture.root, { recursive: true, force: true });
+    rmSync(secondFixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM prepared cards delete a disabled peer when its replacement is unavailable", () => {
+  const fixture = makeDagFixture();
+  fixture.addSummary("disabled_root", "Disabled peer summary.");
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [fixture.lcmPath] });
+    assert.equal(getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary").length, 1);
+
+    const missingReplacement = join(fixture.root, "missing-replacement.sqlite");
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [missingReplacement] });
+    assert.equal(getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary").length, 0);
+    assert.equal(getPreparedInbox(db, { limit: 10 }).items.filter((item) => item.targetRef.startsWith("lcm_summary:")).length, 0);
+  } finally {
+    db.close();
+    fixture.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("empty LCM configuration skips reconciliation when no peer cache exists", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-lcm-empty-reconcile-"));
+  const dbPath = join(root, "orchestrator.sqlite");
+  const db = createDatabase(dbPath);
+  const locker = createDatabase(dbPath);
+  try {
+    locker.exec("BEGIN IMMEDIATE");
+    const indexed = indexCodexSessions(db, { roots: [], lcmDbPaths: [] });
+    assert.deepEqual(indexed.errors, []);
+    locker.exec("ROLLBACK");
+  } finally {
+    try {
+      locker.exec("ROLLBACK");
+    } catch {
+      // The assertion path may already have released the lock.
+    }
+    locker.close();
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("LCM peer aliases canonicalize to one doctor peer and one prepared-card set", () => {
+  const fixture = makeDagFixture();
+  fixture.addSummary("alias_root", "Alias dedup summary.");
+  const aliasPath = join(fixture.root, "lcm-peer-alias.sqlite");
+  symlinkSync(fixture.lcmPath, aliasPath);
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    const configuredAliasPaths = configuredLcmPeerDbPaths(aliasPath);
+    assert.deepEqual(configuredAliasPaths, [resolve(aliasPath)]);
+    const report = probeLcmPeerDbs([fixture.lcmPath, aliasPath]);
+    assert.equal(report.peers.length, 1);
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [fixture.lcmPath, aliasPath] });
+    assert.equal(getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary").length, 1);
+    const legacyHash = createHash("sha256").update(resolve(aliasPath)).digest("hex").slice(0, 12);
+    const legacyRef = `lcm_summary:${legacyHash}:alias_root`;
+    assert.equal(describeRecallRef(db, { sourceRef: legacyRef, lcmDbPaths: configuredAliasPaths })?.summaryId, "alias_root");
+    assert.equal(expandRecallRef(db, { sourceRef: legacyRef, lcmDbPaths: configuredAliasPaths, profile: "brief" }).summaryId, "alias_root");
+
+    const canonicalRef = getPreparedCards(db, { limit: 10 }).cards.find((card) => card.cardKind === "lcm_summary")!.targetRef;
+    db.prepare("UPDATE prepared_cards SET target_ref = ? WHERE target_ref = ?").run(legacyRef, canonicalRef);
+    db.prepare("UPDATE prepared_inbox_items SET target_ref = ? WHERE target_ref = ?").run(legacyRef, canonicalRef);
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [aliasPath] });
+    const refreshedCards = getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary");
+    const refreshedInbox = getPreparedInbox(db, { limit: 10 }).items.filter((item) => item.targetRef.startsWith("lcm_summary:"));
+    assert.equal(refreshedCards.length, 1);
+    assert.equal(refreshedCards[0]?.targetRef, canonicalRef);
+    assert.equal(refreshedInbox.length, 1);
+    assert.equal(refreshedInbox[0]?.targetRef, canonicalRef);
+
+    rmSync(aliasPath, { force: true });
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [aliasPath] });
+    assert.equal(getPreparedCards(db, { limit: 10 }).cards.some((card) => card.targetRef === canonicalRef), true);
+    assert.equal(getPreparedInbox(db, { limit: 10 }).items.some((item) => item.targetRef === canonicalRef), true);
+
+    db.prepare("UPDATE prepared_cards SET target_ref = ? WHERE target_ref = ?").run(legacyRef, canonicalRef);
+    db.prepare("UPDATE prepared_inbox_items SET target_ref = ? WHERE target_ref = ?").run(legacyRef, canonicalRef);
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [aliasPath] });
+    assert.equal(getPreparedCards(db, { limit: 10 }).cards.some((card) => card.targetRef === legacyRef), true);
+    assert.equal(getPreparedInbox(db, { limit: 10 }).items.some((item) => item.targetRef === legacyRef), true);
+  } finally {
+    db.close();
+    fixture.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM search deduplicates canonical and symlinked peer paths", () => {
+  const fixture = makeDagFixture();
+  fixture.addSummary("alias_search_root", "Unique alias search marker.");
+  const aliasPath = join(fixture.root, "lcm-search-alias.sqlite");
+  symlinkSync(fixture.lcmPath, aliasPath);
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    const matches = grepRecall(db, {
+      query: "Unique alias search marker",
+      lcmDbPaths: [fixture.lcmPath, aliasPath],
+      limit: 10
+    }).matches.filter((match) => match.sourceKind === "lcm_summary");
+    assert.equal(matches.length, 1);
+    assert.equal(matches[0]?.summaryId, "alias_search_root");
+  } finally {
+    db.close();
+    fixture.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM prepared-card materialization caps oversized peers with omission markers", () => {
+  const fixture = makeDagFixture();
+  for (let index = 0; index <= 500; index += 1) {
+    fixture.addSummary(`bounded_${String(index).padStart(3, "0")}`, `Bounded LCM summary ${index}.`, {
+      latestAt: new Date(Date.UTC(2026, 6, 8, 0, 0, index)).toISOString()
+    });
+  }
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [fixture.lcmPath] });
+    const cards = getPreparedCards(db, { limit: 500 }).cards.filter((card) => card.cardKind === "lcm_summary");
+    assert.equal(cards.length, 500);
+    assert.equal(cards.every((card) => card.reasonCodes.includes("lcm_peer_materialization_cap")), true);
+    assert.equal(cards.some((card) => card.targetRef.includes("bounded_500")), true);
+    assert.equal(cards.some((card) => card.targetRef.includes("bounded_000")), false);
+  } finally {
+    db.close();
+    fixture.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("MCP index, prepared cards, and doctor share the configured LCM peer contract", async () => {
+  const fixture = makeDagFixture();
+  fixture.addSummary("mcp_root", "MCP-visible LCM prepared summary.", { kind: "condensed", depth: 1 });
+  const dbPath = join(fixture.root, "orchestrator.sqlite");
+  const db = createDatabase(dbPath);
+  const audit = createAuditStore(join(fixture.root, "audit.jsonl"));
+  const previousCanonicalPeers = process.env.LCO_LCM_DB_PATHS;
+  const previousLegacyPeers = process.env.LOO_LCM_DB_PATHS;
+  process.env.LCO_LCM_DB_PATHS = fixture.lcmPath;
+  delete process.env.LOO_LCM_DB_PATHS;
+  const tools = createLooTools({
+    db,
+    dbPath,
+    audit,
+    codexClient: { request: async () => ({ ok: true }) },
+    includeAliases: false
+  });
+  try {
+    const indexTool = tools.find((tool) => tool.name === "lco_index_sessions");
+    const cardsTool = tools.find((tool) => tool.name === "lco_prepared_state");
+    const doctorTool = tools.find((tool) => tool.name === "lco_doctor");
+    const peerTool = tools.find((tool) => tool.name === "lco_lcm_peer_dbs");
+    const findTool = tools.find((tool) => tool.name === "lco_find");
+    assert.ok(indexTool && cardsTool && doctorTool && peerTool && findTool);
+    const explicitEmptyPeers = await peerTool.execute({ lcm_db_paths: [] }) as { peers: unknown[] };
+    assert.deepEqual(explicitEmptyPeers.peers, []);
+    const explicitEmptyFind = await findTool.execute({ query: "MCP-visible", roots: [], claude_roots: [], lcm_db_paths: [], index: false }) as { results: unknown[] };
+    assert.deepEqual(explicitEmptyFind.results, []);
+    await indexTool.execute({ roots: [fixture.root], lcm_db_paths: [fixture.lcmPath] });
+    const cards = await cardsTool.execute({ view: "cards", limit: 10 }) as { cards: Array<{ cardKind: string; targetRef: string }> };
+    assert.equal(cards.cards.some((card) => card.cardKind === "lcm_summary" && card.targetRef.includes("mcp_root")), true);
+    const doctor = await doctorTool.execute({}) as { lcmPeers: unknown };
+    const peers = await peerTool.execute({ lcm_db_paths: [fixture.lcmPath] });
+    assert.deepEqual(doctor.lcmPeers, peers);
+  } finally {
+    if (previousCanonicalPeers === undefined) delete process.env.LCO_LCM_DB_PATHS;
+    else process.env.LCO_LCM_DB_PATHS = previousCanonicalPeers;
+    if (previousLegacyPeers === undefined) delete process.env.LOO_LCM_DB_PATHS;
+    else process.env.LOO_LCM_DB_PATHS = previousLegacyPeers;
+    db.close();
+    fixture.close();
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });

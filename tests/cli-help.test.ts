@@ -16,7 +16,7 @@ test("loo --help exits zero with top-level usage", () => {
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /Usage:\n  loo --help/);
   assert.match(result.stdout, /loo --version/);
-  assert.match(result.stdout, /loo doctor/);
+  assert.match(result.stdout, /loo doctor \[--peers\]/);
   assert.match(result.stdout, /loo hook closeout-capture/);
   assert.match(result.stdout, /loo hook state-prep/);
   assert.match(result.stdout, /loo hook compaction-capture --mode marker/);
@@ -170,6 +170,39 @@ test("loo doctor omits local database paths from public-safe output", () => {
     assert.doesNotMatch(result.stdout, new RegExp(dbPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     assert.doesNotMatch(result.stdout, /orchestrator\.sqlite/);
     assert.equal(result.stderr.trim(), "");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("loo doctor --peers exposes peer integrity and rejects unknown options", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-doctor-peers-"));
+  try {
+    const dbPath = join(root, "orchestrator.sqlite");
+    const missingPeer = join(root, "missing-peer.sqlite");
+    const result = runLoo(["doctor", "--peers"], {
+      ...process.env,
+      LOO_DB_PATH: dbPath,
+      LOO_LCM_DB_PATHS: missingPeer
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const report = JSON.parse(result.stdout) as { lcmPeers?: { schema?: string; status?: string; readOnly?: boolean; peers?: Array<{ status?: string }> } };
+    assert.equal(report.lcmPeers?.schema, "lco.lcm.peerDoctor.v1");
+    assert.equal(report.lcmPeers?.status, "unavailable");
+    assert.equal(report.lcmPeers?.readOnly, true);
+    assert.equal(report.lcmPeers?.peers?.[0]?.status, "unavailable");
+
+    const jsonCompatibility = runLoo(["doctor", "--json"], {
+      ...process.env,
+      LOO_DB_PATH: dbPath,
+      LOO_LCM_DB_PATHS: missingPeer
+    });
+    assert.equal(jsonCompatibility.status, 0, jsonCompatibility.stderr || jsonCompatibility.stdout);
+    assert.equal(JSON.parse(jsonCompatibility.stdout).lcmPeers?.schema, "lco.lcm.peerDoctor.v1");
+
+    const invalid = runLoo(["doctor", "--unknown-peer-option"]);
+    assert.equal(invalid.status, 2, invalid.stderr || invalid.stdout);
+    assert.match(invalid.stderr, /Unknown doctor option/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

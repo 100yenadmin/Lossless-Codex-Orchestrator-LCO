@@ -194,6 +194,113 @@ test("lco find report preserves public-safe refs for next commands and lineage",
   assert.equal(report.actionsPerformed.rawTranscriptRead, true);
 });
 
+test("lco find reports direct LCM peer reads without claiming transcript access", () => {
+  const report = createFindRecallReport({
+    query: "peer summary",
+    indexed: null,
+    recall: {
+      query: "peer summary",
+      profile: "brief",
+      matches: [{
+        sourceKind: "lcm_summary",
+        sourceRef: "lcm_summary:0123456789ab:peer_summary",
+        title: "Peer summary",
+        summary: "Public-safe peer memory.",
+        updatedAt: "2026-07-08T00:00:00.000Z",
+        score: 1,
+        snippet: "Public-safe peer memory.",
+        summaryId: "peer_summary",
+        reasonCodes: ["lcm_summary_match"]
+      }]
+    }
+  });
+
+  assert.equal(report.indexed.attempted, false);
+  assert.equal(report.actionsPerformed.derivedCacheWrite, false);
+  assert.equal(report.actionsPerformed.localRecallSourceRead, true);
+  assert.equal(report.actionsPerformed.localLcmSourceRead, true);
+  assert.equal(report.actionsPerformed.rawTranscriptRead, false);
+  assert.equal(report.reasonCodes.includes("lcm_peer_source_read"), true);
+
+  const noMatch = createFindRecallReport({
+    query: "missing peer term",
+    indexed: null,
+    recall: {
+      query: "missing peer term",
+      profile: "brief",
+      matches: [],
+      reasonCodes: ["lcm_peer_source_read"]
+    }
+  });
+  assert.equal(noMatch.resultCount, 0);
+  assert.equal(noMatch.actionsPerformed.localRecallSourceRead, true);
+  assert.equal(noMatch.actionsPerformed.localLcmSourceRead, true);
+  assert.equal(noMatch.actionsPerformed.derivedCacheWrite, false);
+  assert.equal(noMatch.actionsPerformed.rawTranscriptRead, false);
+});
+
+test("lco find filters encoded private-looking LCM references", () => {
+  const encodedPrivateRef = "lcm_summary:0123456789ab:%252FUsers%252Flume%252Fprivate-summary";
+  const recursivelyEncodedPrivateRef = "lcm_summary:0123456789ab:%2525252FUsers%2525252Flume%2525252Fprivate-summary";
+  const malformedEncodedPrivateRef = "lcm_summary:0123456789ab:%252FUsers%252Flume%252Fprivate%25";
+  const malformedRawRef = "lcm_summary:0123456789ab:foo%";
+  const report = createFindRecallReport({
+    query: "private peer",
+    indexed: null,
+    recall: {
+      query: "private peer",
+      profile: "brief",
+      reasonCodes: ["lcm_peer_source_read"],
+      matches: [{
+        sourceKind: "lcm_summary",
+        sourceRef: encodedPrivateRef,
+        title: "Private peer",
+        summary: "Should not escape.",
+        updatedAt: null,
+        score: 1,
+        snippet: "Should not escape.",
+        summaryId: "%2FUsers%2Flume%2Fprivate-summary",
+        reasonCodes: ["lcm_summary_match"]
+      }, {
+        sourceKind: "lcm_summary",
+        sourceRef: recursivelyEncodedPrivateRef,
+        title: "Recursively encoded private peer",
+        summary: "Should not escape either.",
+        updatedAt: null,
+        score: 1,
+        snippet: "Should not escape either.",
+        summaryId: "%25252FUsers%25252Flume%25252Fprivate-summary",
+        reasonCodes: ["lcm_summary_match"]
+      }, {
+        sourceKind: "lcm_summary",
+        sourceRef: malformedEncodedPrivateRef,
+        title: "Malformed encoded private peer",
+        summary: "Should fail closed.",
+        updatedAt: null,
+        score: 1,
+        snippet: "Should fail closed.",
+        summaryId: "%2FUsers%2Flume%2Fprivate%",
+        reasonCodes: ["lcm_summary_match"]
+      }, {
+        sourceKind: "lcm_summary",
+        sourceRef: malformedRawRef,
+        title: "Malformed raw peer",
+        summary: "Should fail closed before follow-up commands are generated.",
+        updatedAt: null,
+        score: 1,
+        snippet: "Should fail closed before follow-up commands are generated.",
+        summaryId: "foo%",
+        reasonCodes: ["lcm_summary_match"]
+      }]
+    }
+  });
+
+  assert.equal(report.resultCount, 0);
+  assert.equal(report.actionsPerformed.localLcmSourceRead, true);
+  assert.equal(report.reasonCodes.includes("unsafe_results_filtered"), true);
+  assert.doesNotMatch(JSON.stringify(report), /%2FUsers|%252FUsers|%25252FUsers|private-summary|private%25|foo%/);
+});
+
 test("lco_find MCP facade indexes then returns the same public-safe find packet", async () => {
   const root = mkdtempSync(join(tmpdir(), "lco-find-mcp-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));

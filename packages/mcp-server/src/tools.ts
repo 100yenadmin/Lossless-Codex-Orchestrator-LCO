@@ -541,6 +541,7 @@ export function createLooTools(options: {
       target: { type: "string", enum: ["codex", "claude", "all"] },
       roots: { type: "array", items: { type: "string" } },
       claude_roots: { type: "array", items: { type: "string" } },
+      lcm_db_paths: { type: "array", items: { type: "string" } },
       max_files: { type: "integer", minimum: 1, maximum: 100000 },
       max_bytes_per_file: { type: "integer", minimum: 1, maximum: 1073741824 },
       max_events_per_file: { type: "integer", minimum: 1, maximum: 1000000 }
@@ -549,6 +550,7 @@ export function createLooTools(options: {
       const codex = target === "codex" || target === "all"
         ? indexCodexSessions(options.db, {
           roots: optionalRoots(input.roots, defaultCodexRoots()),
+          lcmDbPaths: optionalConfiguredPaths(input.lcm_db_paths, configuredLcmPeerDbPaths()),
           maxFiles: optionalNumber(input.max_files),
           maxBytesPerFile: optionalNumber(input.max_bytes_per_file),
           maxEventsPerFile: optionalNumber(input.max_events_per_file)
@@ -571,6 +573,7 @@ export function createLooTools(options: {
       index_target: { type: "string", enum: ["codex", "claude", "all"] },
       roots: { type: "array", items: { type: "string" } },
       claude_roots: { type: "array", items: { type: "string" } },
+      lcm_db_paths: { type: "array", items: { type: "string" } },
       max_files: { type: "integer", minimum: 1, maximum: 100000 },
       max_bytes_per_file: { type: "integer", minimum: 1, maximum: 1073741824 },
       max_events_per_file: { type: "integer", minimum: 1, maximum: 1000000 }
@@ -582,6 +585,7 @@ export function createLooTools(options: {
       const codex = shouldIndex && (indexTarget === "codex" || indexTarget === "all")
         ? indexCodexSessions(options.db, {
           roots: optionalRoots(input.roots, defaultCodexRoots()),
+          lcmDbPaths: optionalConfiguredPaths(input.lcm_db_paths, configuredLcmPeerDbPaths()),
           maxFiles: optionalNumber(input.max_files),
           maxBytesPerFile: optionalNumber(input.max_bytes_per_file),
           maxEventsPerFile: optionalNumber(input.max_events_per_file)
@@ -604,6 +608,7 @@ export function createLooTools(options: {
           query,
           limit,
           profile: "brief",
+          lcmDbPaths: optionalConfiguredPaths(input.lcm_db_paths, configuredLcmPeerDbPaths()),
           telemetry: false
         })
       });
@@ -646,7 +651,7 @@ export function createLooTools(options: {
       limit: optionalNumber(input.limit),
       profile: optionalProfile(input.profile),
       tokenBudget: optionalNumber(input.token_budget),
-      lcmDbPaths: optionalRoots(input.lcm_db_paths, configuredLcmPeerDbPaths()),
+      lcmDbPaths: optionalConfiguredPaths(input.lcm_db_paths, configuredLcmPeerDbPaths()),
       telemetry: telemetryEnabled,
       telemetrySessionId: optionalString(input.telemetry_session_id),
       now: optionalString(input.now)
@@ -661,7 +666,7 @@ export function createLooTools(options: {
       const sourceRef = recallSourceRefInput(input);
       return describeRecallRef(options.db, {
         sourceRef,
-        lcmDbPaths: optionalRoots(input.lcm_db_paths, configuredLcmPeerDbPaths()),
+        lcmDbPaths: optionalConfiguredPaths(input.lcm_db_paths, configuredLcmPeerDbPaths()),
         telemetry: telemetryEnabled,
         telemetrySessionId: optionalString(input.telemetry_session_id),
         now: optionalString(input.now)
@@ -692,7 +697,7 @@ export function createLooTools(options: {
       query: requiredString(input.query, "query"),
       profile: optionalProfile(input.profile),
       tokenBudget: optionalNumber(input.token_budget),
-      lcmDbPaths: optionalRoots(input.lcm_db_paths, configuredLcmPeerDbPaths()),
+      lcmDbPaths: optionalConfiguredPaths(input.lcm_db_paths, configuredLcmPeerDbPaths()),
       telemetry: telemetryEnabled,
       telemetrySessionId: optionalString(input.telemetry_session_id),
       now: optionalString(input.now)
@@ -1037,7 +1042,7 @@ export function createLooTools(options: {
     }, (input) => publicSafeCodexSqliteProbe(probeCodexSqliteStores(optionalRoots(input.roots, [join(resolveHomeDir(), ".codex")]), optionalNumber(input.max_files)))),
     tool("lco_lcm_peer_dbs", "Probe configured OpenClaw LCM peer DBs read-only.", {
       lcm_db_paths: { type: "array", items: { type: "string" } }
-    }, (input) => probeLcmPeerDbs(optionalRoots(input.lcm_db_paths, configuredLcmPeerDbPaths()))),
+    }, (input) => probeLcmPeerDbs(optionalConfiguredPaths(input.lcm_db_paths, configuredLcmPeerDbPaths()))),
     tool("lco_drive", "Create a bounded review-then-drive plan and target-adapter dry-run packet under local audit.", {
       reviewer: { type: "string", enum: ["codex", "claude"] },
       driver: { type: "string", enum: ["codex", "claude"] },
@@ -2210,6 +2215,10 @@ function optionalStringArray(value: unknown): string[] | undefined {
 function optionalRoots(value: unknown, fallback: string[]): string[] {
   const roots = optionalStringArray(value);
   return roots && roots.length > 0 ? roots : fallback;
+}
+
+function optionalConfiguredPaths(value: unknown, fallback: string[]): string[] {
+  return value === undefined ? fallback : stringArray(value);
 }
 
 function resolvePlanStateText(input: Record<string, unknown>): string {
