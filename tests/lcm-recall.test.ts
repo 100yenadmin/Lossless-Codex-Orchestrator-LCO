@@ -581,10 +581,41 @@ test("LCM peer aliases canonicalize to one doctor peer and one prepared-card set
     const canonicalRef = getPreparedCards(db, { limit: 10 }).cards.find((card) => card.cardKind === "lcm_summary")!.targetRef;
     db.prepare("UPDATE prepared_cards SET target_ref = ? WHERE target_ref = ?").run(legacyRef, canonicalRef);
     db.prepare("UPDATE prepared_inbox_items SET target_ref = ? WHERE target_ref = ?").run(legacyRef, canonicalRef);
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [aliasPath] });
+    const refreshedCards = getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary");
+    const refreshedInbox = getPreparedInbox(db, { limit: 10 }).items.filter((item) => item.targetRef.startsWith("lcm_summary:"));
+    assert.equal(refreshedCards.length, 1);
+    assert.equal(refreshedCards[0]?.targetRef, canonicalRef);
+    assert.equal(refreshedInbox.length, 1);
+    assert.equal(refreshedInbox[0]?.targetRef, canonicalRef);
+
+    db.prepare("UPDATE prepared_cards SET target_ref = ? WHERE target_ref = ?").run(legacyRef, canonicalRef);
+    db.prepare("UPDATE prepared_inbox_items SET target_ref = ? WHERE target_ref = ?").run(legacyRef, canonicalRef);
     rmSync(aliasPath, { force: true });
     indexCodexSessions(db, { roots: [], lcmDbPaths: [aliasPath] });
     assert.equal(getPreparedCards(db, { limit: 10 }).cards.some((card) => card.targetRef === legacyRef), true);
     assert.equal(getPreparedInbox(db, { limit: 10 }).items.some((item) => item.targetRef === legacyRef), true);
+  } finally {
+    db.close();
+    fixture.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM search deduplicates canonical and symlinked peer paths", () => {
+  const fixture = makeDagFixture();
+  fixture.addSummary("alias_search_root", "Unique alias search marker.");
+  const aliasPath = join(fixture.root, "lcm-search-alias.sqlite");
+  symlinkSync(fixture.lcmPath, aliasPath);
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    const matches = grepRecall(db, {
+      query: "Unique alias search marker",
+      lcmDbPaths: [fixture.lcmPath, aliasPath],
+      limit: 10
+    }).matches.filter((match) => match.sourceKind === "lcm_summary");
+    assert.equal(matches.length, 1);
+    assert.equal(matches[0]?.summaryId, "alias_search_root");
   } finally {
     db.close();
     fixture.close();

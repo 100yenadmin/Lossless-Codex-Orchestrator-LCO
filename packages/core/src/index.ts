@@ -7488,6 +7488,17 @@ function materializePreparedCardsForLcmPeers(
       return [];
     }
   }));
+  const legacyHashesByCanonicalHash = new Map<string, Set<string>>();
+  for (const path of paths) {
+    try {
+      const canonicalHash = lcmPeerHash(path);
+      const legacyHashes = legacyHashesByCanonicalHash.get(canonicalHash) ?? new Set<string>();
+      legacyHashes.add(legacyLcmPeerHash(path));
+      legacyHashesByCanonicalHash.set(canonicalHash, legacyHashes);
+    } catch {
+      // Ignore unavailable optional peers.
+    }
+  }
   const refreshedPeerHashes = new Set<string>();
   let skippedUnsafeRows = 0;
 
@@ -7521,7 +7532,11 @@ function materializePreparedCardsForLcmPeers(
         if (card) peerCards.set(card.targetRef, card);
         else skippedUnsafeRows += 1;
       }
-      refreshedPeerHashes.add(lcmPeerHash(path));
+      const canonicalHash = lcmPeerHash(path);
+      refreshedPeerHashes.add(canonicalHash);
+      for (const legacyHash of legacyHashesByCanonicalHash.get(canonicalHash) ?? []) {
+        refreshedPeerHashes.add(legacyHash);
+      }
       for (const [targetRef, card] of peerCards) cards.set(targetRef, card);
     } catch {
       // Retain the last derived cache for an unavailable configured peer. The
@@ -9420,12 +9435,17 @@ function isPublicPreparedSourceRef(value: string): boolean {
     if (!match) return false;
     try {
       let decoded = match[2];
-      for (let pass = 0; pass < 3; pass += 1) {
+      if (decoded.length > 200) return false;
+      let stable = false;
+      for (let pass = 0; pass <= match[2].length; pass += 1) {
         const next = decodeURIComponent(decoded);
-        if (next === decoded) break;
+        if (next === decoded) {
+          stable = true;
+          break;
+        }
         decoded = next;
       }
-      return decoded.length > 0 && decoded.length <= 200 && !looksSensitiveRefLike(decoded);
+      return stable && decoded.length > 0 && decoded.length <= 200 && !looksSensitiveRefLike(decoded);
     } catch {
       return false;
     }
@@ -18610,11 +18630,10 @@ function rawQueryTermCount(query: string): number {
 function searchLcmPeers(paths: string[], query: string, limit: number): { matches: RecallSearchResult[]; peerRead: boolean } {
   const matches: RecallSearchResult[] = [];
   let peerRead = false;
-  for (const path of paths) {
+  for (const normalizedPath of normalizePeerPaths(paths)) {
     if (matches.length >= limit) break;
     let db: LooDatabase | null = null;
     try {
-      const normalizedPath = normalizePeerPath(path);
       db = openLcmPeerDb(normalizedPath);
       peerRead = true;
       matches.push(...searchLcmPeer(db, normalizedPath, query, limit - matches.length));
