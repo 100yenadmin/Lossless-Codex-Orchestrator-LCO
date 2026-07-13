@@ -1,6 +1,6 @@
 # Public Claim Audit
 
-## Allowed Stable 1.6.0 Claim
+## Allowed 1.6.0 Release Candidate Claim
 
 Coordinate local Codex work through OpenClaw/MCP with bounded recall and session diffs, audited review-then-drive dry-runs, approved disposable-target Codex controls, and read-only LCM prepared state; Claude targeting remains dry-run only.
 
@@ -104,8 +104,8 @@ to move a dist-tag.
 - `cp evals/scorecards/v1.0/*.json "$release_scorecard_source"`
 - Fill the copied scorecards with run-specific scores, evidence paths, known gaps, and proof boundaries before treating scorecard sweep as release evidence.
 - `lco scorecards sweep --claim-scope codex-read-search-expand-dry-run --scorecard-dir "$release_scorecard_source" --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-scorecards --strict`
-- `lco release preflight --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight --strict`
-- `lco release bundle --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-bundle`
+- `lco release preflight --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-preflight --candidate-sha <release-candidate-sha> --strict`
+- `lco release bundle --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-bundle --candidate-sha <release-candidate-sha>`
 - `lco release status --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --candidate-sha <release-candidate-sha> --approved-live-control-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/approved-live-control-smoke.json --npm-publish-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/npm-approval.json --github-release-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-release-approval.json --github-ci-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-ci.json --codeql-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/codeql.json --strict`
 - Read/search/expand/dry-run scoped RC only: `lco release status --claim-scope codex-read-search-expand-dry-run --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status --candidate-sha <release-candidate-sha> --npm-publish-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/npm-approval.json --github-release-approval-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-release-approval.json --github-ci-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/github-ci.json --codeql-evidence /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/release-status/codeql.json --strict`
 - GitHub CI green for the release PR
@@ -128,7 +128,7 @@ to move a dist-tag.
   and safe reasoning evidence
 - No raw session transcripts, credentials, screenshots with secrets, or private SQLite DBs in public artifacts
 
-`lco release preflight` writes a public-safe `release-preflight.json` artifact manifest. It must report `approved_live_control_smoke_missing` until an explicit approved live-control smoke evidence path points to a structured `loo_approved_live_control_smoke` JSON proof marker with only audit ids, refs, hashes, approval-semantics confirmation, and `rawPromptIncluded: false`. Release automation should use `--strict` so this blocker cannot be silently ignored.
+`lco release preflight` writes a public-safe `release-preflight.json` artifact manifest. It must report `approved_live_control_smoke_missing` until an explicit approved live-control smoke evidence path points to a structured `loo_approved_live_control_smoke` JSON proof marker with only the exact release `candidateSha`, audit ids, refs, hashes, approval-semantics confirmation, and `rawPromptIncluded: false`. `lco release status` rejects a missing or mismatched marker SHA with `approved_live_control_candidate_mismatch`. Release automation should use `--strict` so this blocker cannot be silently ignored.
 
 The only exception is an explicitly scoped read/search/expand/dry-run release
 candidate using `--claim-scope codex-read-search-expand-dry-run`. In that mode,

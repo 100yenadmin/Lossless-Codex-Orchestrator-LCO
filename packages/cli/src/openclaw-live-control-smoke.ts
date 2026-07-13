@@ -211,15 +211,24 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
   const matchingDryRunRecord = Boolean(dryRunSummary.approvalAuditId && auditRecords.some((record) =>
     record.id === dryRunSummary.approvalAuditId && record.live === false && record.paramsHash === dryRunSummary.paramsHash
   ));
-  const matchingLiveRecord = Boolean(liveSummary.paramsHash && auditRecords.some((record) =>
-    record.id === liveSummary.approvalAuditId && record.live === true && record.paramsHash === liveSummary.paramsHash
-  ));
+  const matchingLiveRecord = Boolean(
+    safeAuditId(liveSummary.approvalAuditId)
+    && liveSummary.paramsHash
+    && auditRecords.some((record) =>
+      record.id === liveSummary.approvalAuditId
+      && record.live === true
+      && record.paramsHash === liveSummary.paramsHash
+      && record.approvalAuditId === dryRunSummary.approvalAuditId
+    )
+  );
   if (auditTail && !matchingDryRunRecord) blockers.push("openclaw_live_audit_tail_missing_dry_run_record");
   if (auditTail && !matchingLiveRecord) blockers.push("openclaw_live_audit_tail_missing_live_record");
 
   const uniqueBlockers = [...new Set(blockers)];
-  const runtimeProofPath = join(options.evidenceDir, `${SCENARIO_ID}.runtime-proof.json`);
-  const reportPath = join(options.evidenceDir, "openclaw-gateway-live-control-smoke-report.json");
+  const runtimeProofPath = `${SCENARIO_ID}.runtime-proof.json`;
+  const reportPath = "openclaw-gateway-live-control-smoke-report.json";
+  const runtimeProofWritePath = join(options.evidenceDir, runtimeProofPath);
+  const reportWritePath = join(options.evidenceDir, reportPath);
   const report: OpenClawGatewayLiveControlSmokeReport = {
     ok: uniqueBlockers.length === 0,
     proofReady: uniqueBlockers.length === 0,
@@ -268,8 +277,8 @@ export function runOpenClawGatewayLiveControlSmoke(options: OpenClawGatewayLiveC
       : "Resolve the listed gateway live-control blockers before claiming #158 runtime proof."
   };
 
-  writeJson(reportPath, report);
-  writeJson(runtimeProofPath, runtimeProofForReport(report));
+  writeJson(reportWritePath, report);
+  writeJson(runtimeProofWritePath, runtimeProofForReport(report));
   return report;
 }
 
@@ -541,14 +550,15 @@ function extractCatalogToolNames(value: unknown): string[] {
   }))];
 }
 
-function collectAuditRecords(value: unknown): Array<{ id?: string; live?: boolean; paramsHash?: string }> {
+function collectAuditRecords(value: unknown): Array<{ id?: string; live?: boolean; paramsHash?: string; approvalAuditId?: string }> {
   const records = isRecord(value) && Array.isArray(value.records) ? value.records : [];
   return records.flatMap((record) => {
     if (!isRecord(record)) return [];
     return [{
       id: stringPath(record, ["id"]) ?? undefined,
       live: booleanPath(record, ["live"]) ?? undefined,
-      paramsHash: stringPath(record, ["params_hash"]) || stringPath(record, ["paramsHash"]) || undefined
+      paramsHash: stringPath(record, ["params_hash"]) || stringPath(record, ["paramsHash"]) || undefined,
+      approvalAuditId: stringPath(record, ["approval_audit_id"]) || stringPath(record, ["approvalAuditId"]) || undefined
     }];
   });
 }

@@ -24,12 +24,13 @@ function desktopActionHash(input: {
   return createHash("sha256").update(JSON.stringify(input)).digest("hex");
 }
 
-function writeLiveControlProof(path: string): void {
+function writeLiveControlProof(path: string, proofCandidateSha = candidateSha): void {
   writeFileSync(path, `${JSON.stringify({
     kind: "loo_approved_live_control_smoke",
     approvedLiveControlSmoke: true,
     action: "send",
     targetRef: "codex_thread:test-thread",
+    candidateSha: proofCandidateSha,
     approvalAuditId: "audit_test",
     messageHash: "b".repeat(64),
     preservesCodexApprovalSemantics: true,
@@ -91,6 +92,43 @@ function writeRuntimeScenarioProof(
     ...overrides
   }, null, 2)}\n`);
 }
+
+test("release status rejects approved live-control evidence from a different candidate", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-status-live-candidate-mismatch-"));
+  writeLiveControlProof(join(evidenceDir, "approved-live-control-smoke.json"), "b".repeat(40));
+  writeReleaseOperationApprovalProof(join(evidenceDir, "npm-publish-approval.json"), "npm_publish");
+  writeReleaseOperationApprovalProof(join(evidenceDir, "github-release-approval.json"), "github_release");
+  writeReleaseCheckProof(join(evidenceDir, "github-ci.json"), "github_ci");
+  writeReleaseCheckProof(join(evidenceDir, "codeql.json"), "codeql");
+
+  const result = spawnSync(process.execPath, [
+    "--import",
+    tsxImport,
+    "packages/cli/src/index.ts",
+    "release",
+    "status",
+    "--evidence-dir",
+    evidenceDir,
+    "--approved-live-control-evidence",
+    "approved-live-control-smoke.json",
+    "--npm-publish-approval-evidence",
+    "npm-publish-approval.json",
+    "--github-release-approval-evidence",
+    "github-release-approval.json",
+    "--candidate-sha",
+    candidateSha,
+    "--github-ci-evidence",
+    "github-ci.json",
+    "--codeql-evidence",
+    "codeql.json",
+    "--strict"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout) as { releaseReady?: boolean; blockers?: string[] };
+  assert.equal(payload.releaseReady, false);
+  assert.ok(payload.blockers?.includes("approved_live_control_candidate_mismatch"));
+});
 
 test("release status writes an approval packet without performing gated actions", () => {
   const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-status-"));

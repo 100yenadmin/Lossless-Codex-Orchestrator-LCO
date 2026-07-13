@@ -30,6 +30,7 @@ export type LiveControlSmokeProof = {
   approvedLiveControlSmoke: true;
   action: "send";
   targetRef: string;
+  candidateSha: string;
   approvalAuditId: string;
   messageHash: string;
   preservesCodexApprovalSemantics: true;
@@ -115,6 +116,7 @@ export type LiveControlSmokeOptions = {
   client: LiveControlSmokeClient;
   audit: AuditStore;
   evidenceDir: string;
+  candidateSha: string;
   message?: string;
   threadId?: string;
   cwd?: string;
@@ -178,6 +180,10 @@ export class AppServerLiveControlSmokeClient implements LiveControlSmokeClient {
 }
 
 export async function runLiveControlSmoke(options: LiveControlSmokeOptions): Promise<LiveControlSmokeReport> {
+  if (!/^[0-9a-f]{40}$/i.test(options.candidateSha)) {
+    throw new Error("candidate SHA must be a 40-character Git commit SHA");
+  }
+  const candidateSha = options.candidateSha.toLowerCase();
   mkdirSync(options.evidenceDir, { recursive: true });
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const message = options.message ?? DEFAULT_MESSAGE;
@@ -312,6 +318,7 @@ export async function runLiveControlSmoke(options: LiveControlSmokeOptions): Pro
       approvedLiveControlSmoke: true,
       action: "send",
       targetRef: `codex_thread:${target.threadId}`,
+      candidateSha,
       approvalAuditId: dryRun.approvalAuditId,
       messageHash: dryRun.messageHash,
       preservesCodexApprovalSemantics: true,

@@ -10,9 +10,11 @@ import { runReleasePreflight } from "../packages/cli/src/release-preflight.js";
 import { createLooToolDeclarations } from "../packages/mcp-server/src/tools.js";
 
 const tsxImport = createRequire(import.meta.url).resolve("tsx");
+const candidateSha = "a".repeat(40);
 const packageVersion = JSON.parse(readFileSync("package.json", "utf8")).version as string;
 const documentedStableVersion = readFileSync("README.md", "utf8").match(/Current stable:\s+`([^`]+)`/i)?.[1] ?? packageVersion;
 const escapedDocumentedStableVersion = documentedStableVersion.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const escapedPackageVersion = packageVersion.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const releaseNotesPath = `docs/releases/RELEASE_NOTES_${documentedStableVersion}.md`;
 const internalReleaseNoteLanguage = /##\s*(?:Current Claim Scope|Proof Boundary|Explicit Non-Claims)|\bDo not claim:|approved_live_control_smoke_missing|codex-read-search-expand-dry-run|same proof boundary as beta\.35|No cloud sync|No unattended desktop takeover|No release-grade enterprise security/i;
 
@@ -108,7 +110,7 @@ test("public docs include setup, MCP/OpenClaw, demo, and approval-boundary proof
   }
 
   for (const required of [
-    new RegExp(`Allowed Stable ${escapedDocumentedStableVersion} Claim`, "i"),
+    new RegExp(`Allowed ${escapedPackageVersion} Release Candidate Claim`, "i"),
     /Forbidden beta claims/i,
     /Claude Code local JSONL read\/recall/i,
     /lco index claude/i,
@@ -168,7 +170,7 @@ test("npm dist-tag policy is explicit for stable, beta, and rc channels", () => 
     assert.match(content, /npm dist-tag policy/i, surface);
     assert.match(content, /latest/i, surface);
     assert.match(content, /beta/i, surface);
-    assert.match(content, new RegExp("stable channel\\s+target for this package version is\\s+`" + escapedDocumentedStableVersion + "`", "i"), surface);
+    assert.match(content, new RegExp("stable channel\\s+target for this package version is\\s+`" + escapedPackageVersion + "`", "i"), surface);
     assert.match(content, /npm `latest` must move only after/i, surface);
     assert.match(content, /Do not publish\s+a\s+fake stable/i, surface);
     assert.doesNotMatch(content, new RegExp("stable channel\\s+currently points at\\s+`" + escapedDocumentedStableVersion + "`", "i"), `${surface} must not claim unpublished candidates are already on latest`);
@@ -185,7 +187,7 @@ test("npm dist-tag policy is explicit for stable, beta, and rc channels", () => 
   assert.match(runbook, /npm `latest` must move only after/i);
 });
 
-test("README and VISION describe the current stable package without stale release-candidate wording", () => {
+test("README and VISION distinguish the published stable package from the active release candidate", () => {
   const readme = read("README.md");
   const vision = read("VISION.md");
 
@@ -298,12 +300,13 @@ test("beta release runbook defines RC cadence and keeps main distinct from relea
     /release_scorecard_source/i,
     /cp evals\/scorecards\/v1\.0\/\*\.json "\$release_scorecard_source"/i,
     /fill the copied scorecards/i,
+    /node \.\/dist\/packages\/cli\/src\/index\.js codex live-control-smoke[^\n]+--candidate-sha "\$release_candidate_sha"/i,
     /node \.\/dist\/packages\/cli\/src\/index\.js scorecards sweep[^\n]+--scorecard-dir "\$release_scorecard_source"/i,
     /node \.\/dist\/packages\/cli\/src\/index\.js scorecards sweep[^\n]+--claim-scope codex-live-control[^\n]+--scorecard-dir "\$release_scorecard_source"/i,
     /If the release candidate intentionally excludes live Codex control[\s\S]+node \.\/dist\/packages\/cli\/src\/index\.js scorecards sweep[^\n]+--claim-scope codex-read-search-expand-dry-run/i,
-    /node \.\/dist\/packages\/cli\/src\/index\.js release preflight/i,
-    /node \.\/dist\/packages\/cli\/src\/index\.js release bundle/i,
-    /node \.\/dist\/packages\/cli\/src\/index\.js release demo-status/i,
+    /node \.\/dist\/packages\/cli\/src\/index\.js release preflight[^\n]+--candidate-sha "\$release_candidate_sha"/i,
+    /node \.\/dist\/packages\/cli\/src\/index\.js release bundle[^\n]+--candidate-sha "\$release_candidate_sha"/i,
+    /node \.\/dist\/packages\/cli\/src\/index\.js release demo-status[^\n]+--candidate-sha "\$release_candidate_sha"/i,
     /node \.\/dist\/packages\/cli\/src\/index\.js release status[^\n]+--candidate-sha "\$release_candidate_sha"[^\n]+--github-ci-evidence[^\n]+--codeql-evidence/i,
     /high-context document\/workflow scan/i,
     /README\.md, `VISION\.md`, release notes, claim audit, GitHub workflows, and CLI release gates/i,
@@ -572,11 +575,16 @@ test("release preflight only clears live-control blocker for structured approval
     approvedLiveControlSmoke: true,
     action: "send",
     targetRef: "codex_thread:test-thread",
+    candidateSha,
     approvalAuditId: "audit_test",
     messageHash: "b".repeat(64),
     preservesCodexApprovalSemantics: true,
     rawPromptIncluded: false
   }, null, 2)}\n`);
+
+  const unboundPayload = runReleasePreflight({ approvedLiveControlEvidence: proofFile });
+  assert.equal(unboundPayload.releaseReady, false);
+  assert.deepEqual(unboundPayload.blockers, ["approved_live_control_candidate_mismatch"]);
 
   const proofResult = spawnSync(process.execPath, [
     "--import",
@@ -584,6 +592,8 @@ test("release preflight only clears live-control blocker for structured approval
     "packages/cli/src/index.ts",
     "release",
     "preflight",
+    "--candidate-sha",
+    candidateSha,
     "--approved-live-control-evidence",
     proofFile
   ], { encoding: "utf8" });
@@ -607,6 +617,7 @@ test("release preflight rejects proof markers with unexpected private fields", (
     approvedLiveControlSmoke: true,
     action: "send",
     targetRef: "codex_thread:test-thread",
+    candidateSha,
     approvalAuditId: "audit_test",
     messageHash: "sha256:test",
     preservesCodexApprovalSemantics: true,
@@ -614,10 +625,23 @@ test("release preflight rejects proof markers with unexpected private fields", (
     screenshotPath: "/private/tmp/codex.png"
   }, null, 2)}\n`);
 
-  const payload = runReleasePreflight({ approvedLiveControlEvidence: proofFile });
+  const payload = runReleasePreflight({ candidateSha, approvedLiveControlEvidence: proofFile });
   assert.equal(payload.releaseReady, false);
   assert.equal(payload.checks.liveControlSmoke?.ok, false);
   assert.deepEqual(payload.blockers, ["approved_live_control_smoke_missing"]);
+});
+
+test("release preflight treats non-object JSON proof shapes as structured blockers", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-proof-shapes-"));
+  const proofFile = join(evidenceDir, "approved-live-control-smoke.json");
+
+  for (const value of [null, 42, "proof", []]) {
+    writeFileSync(proofFile, `${JSON.stringify(value)}\n`);
+    const payload = runReleasePreflight({ candidateSha, approvedLiveControlEvidence: proofFile });
+    assert.equal(payload.releaseReady, false);
+    assert.equal(payload.checks.liveControlSmoke?.ok, false);
+    assert.deepEqual(payload.blockers, ["approved_live_control_smoke_missing"]);
+  }
 });
 
 test("release preflight fails closed when the OpenClaw runtime extension artifact is missing", () => {
@@ -630,6 +654,7 @@ test("release preflight fails closed when the OpenClaw runtime extension artifac
     approvedLiveControlSmoke: true,
     action: "send",
     targetRef: "codex_thread:test-thread",
+    candidateSha,
     approvalAuditId: "audit_test",
     messageHash: "sha256:test",
     preservesCodexApprovalSemantics: true,
@@ -639,6 +664,7 @@ test("release preflight fails closed when the OpenClaw runtime extension artifac
   const payload = runReleasePreflight({
     rootDir,
     evidenceDir,
+    candidateSha,
     approvedLiveControlEvidence: liveControlProof
   });
 
@@ -659,6 +685,7 @@ test("release preflight fails closed when OpenClaw artifacts are missing from th
     approvedLiveControlSmoke: true,
     action: "send",
     targetRef: "codex_thread:test-thread",
+    candidateSha,
     approvalAuditId: "audit_test",
     messageHash: "sha256:test",
     preservesCodexApprovalSemantics: true,
@@ -668,6 +695,7 @@ test("release preflight fails closed when OpenClaw artifacts are missing from th
   const payload = runReleasePreflight({
     rootDir,
     evidenceDir,
+    candidateSha,
     approvedLiveControlEvidence: liveControlProof
   });
 
@@ -688,6 +716,7 @@ test("release preflight rejects stale OpenClaw runtimeExtensions metadata", () =
     approvedLiveControlSmoke: true,
     action: "send",
     targetRef: "codex_thread:test-thread",
+    candidateSha,
     approvalAuditId: "audit_test",
     messageHash: "sha256:test",
     preservesCodexApprovalSemantics: true,
@@ -697,6 +726,7 @@ test("release preflight rejects stale OpenClaw runtimeExtensions metadata", () =
   const payload = runReleasePreflight({
     rootDir,
     evidenceDir,
+    candidateSha,
     approvedLiveControlEvidence: liveControlProof
   });
 

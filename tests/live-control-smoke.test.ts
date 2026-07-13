@@ -12,8 +12,10 @@ import {
   runLiveControlSmoke,
   type LiveControlSmokeClient
 } from "../packages/cli/src/live-control-smoke.js";
+import { runReleasePreflight } from "../packages/cli/src/release-preflight.js";
 
 const tsxImport = createRequire(import.meta.url).resolve("tsx");
+const candidateSha = "a".repeat(40);
 
 class FakeLiveControlSmokeClient implements LiveControlSmokeClient {
   readonly requests: Array<{ method: string; params: Record<string, unknown> }> = [];
@@ -58,6 +60,7 @@ test("live control smoke writes strict public-safe proof without raw prompt text
       client,
       audit: createAuditStore(join(root, "audit.jsonl")),
       evidenceDir: root,
+      candidateSha,
       message,
       now: "2026-06-30T00:00:00.000Z"
     });
@@ -67,6 +70,7 @@ test("live control smoke writes strict public-safe proof without raw prompt text
     assert.equal(report.proof.approvedLiveControlSmoke, true);
     assert.equal(report.proof.action, "send");
     assert.equal(report.proof.targetRef, "codex_thread:thr_live_smoke");
+    assert.equal(report.proof.candidateSha, candidateSha);
     assert.match(report.proof.approvalAuditId, /^loo_audit_/);
     assert.match(report.proof.messageHash, /^[a-f0-9]{64}$/);
     assert.equal(report.proof.preservesCodexApprovalSemantics, true);
@@ -75,6 +79,7 @@ test("live control smoke writes strict public-safe proof without raw prompt text
       "action",
       "approvalAuditId",
       "approvedLiveControlSmoke",
+      "candidateSha",
       "kind",
       "messageHash",
       "preservesCodexApprovalSemantics",
@@ -88,9 +93,42 @@ test("live control smoke writes strict public-safe proof without raw prompt text
     assert.doesNotMatch(reportText, /raw prompt/i);
     assert.equal(JSON.stringify(report).includes(message), false);
 
+    const matchingPreflight = runReleasePreflight({
+      candidateSha,
+      approvedLiveControlEvidence: join(root, "approved-live-control-smoke.json")
+    });
+    assert.equal(matchingPreflight.checks.liveControlSmoke?.ok, true);
+    assert.equal(matchingPreflight.blockers.includes("approved_live_control_candidate_mismatch"), false);
+    const mismatchedPreflight = runReleasePreflight({
+      candidateSha: "b".repeat(40),
+      approvedLiveControlEvidence: join(root, "approved-live-control-smoke.json")
+    });
+    assert.equal(mismatchedPreflight.checks.liveControlSmoke?.ok, false);
+    assert.equal(mismatchedPreflight.blockers.includes("approved_live_control_candidate_mismatch"), true);
+
     assert.deepEqual(client.requests.map((request) => request.method), ["thread/start", "thread/resume", "turn/start"]);
     assert.equal(client.requests[1]?.params.threadId, "thr_live_smoke");
     assert.equal(client.requests[2]?.params.threadId, "thr_live_smoke");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("live control smoke rejects an invalid release candidate SHA before live setup", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-live-smoke-invalid-candidate-"));
+  const client = new FakeLiveControlSmokeClient();
+
+  try {
+    await assert.rejects(
+      () => runLiveControlSmoke({
+        client,
+        audit: createAuditStore(join(root, "audit.jsonl")),
+        evidenceDir: root,
+        candidateSha: "not-a-sha"
+      }),
+      /candidate SHA must be a 40-character Git commit SHA/
+    );
+    assert.deepEqual(client.requests, []);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -113,6 +151,7 @@ test("live control smoke fails closed when Codex requests approval during the ha
         client,
         audit: createAuditStore(join(root, "audit.jsonl")),
         evidenceDir: root,
+        candidateSha,
         message: "Approval-triggering prompt"
       }),
       /approval request/
@@ -139,6 +178,7 @@ test("live control smoke fails closed on unexpected server requests during the h
         client,
         audit: createAuditStore(join(root, "audit.jsonl")),
         evidenceDir: root,
+        candidateSha,
         message: "Server request triggering prompt"
       }),
       /server request/
@@ -161,6 +201,7 @@ test("live control smoke writes failure report when setup connect fails", async 
         client,
         audit: createAuditStore(join(root, "audit.jsonl")),
         evidenceDir: root,
+        candidateSha,
         message: "Setup failure prompt"
       }),
       /setup handshake failed/
@@ -201,6 +242,7 @@ test("live control smoke preserves original failure when failure report cannot b
       client,
       audit: createAuditStore(join(root, "audit.jsonl")),
       evidenceDir: root,
+      candidateSha,
       message: "Report write failure prompt"
     }),
     /original request failure/
@@ -231,6 +273,7 @@ test("live control smoke stops same-connection sequences after a failed step", a
         client,
         audit,
         evidenceDir: root,
+        candidateSha,
         message: "Harmless smoke prompt"
       }),
       /control sequence step failed.*thread\/resume/i
@@ -305,6 +348,26 @@ test("CLI exposes the live-control smoke command without running it in help mode
   ], { encoding: "utf8" });
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /loo codex live-control-smoke/i);
+  assert.match(result.stdout, /loo codex live-control-smoke --evidence-dir path --candidate-sha sha/i);
   assert.match(result.stdout, /approved-live-control-smoke\.json/i);
+});
+
+test("CLI requires candidate SHA before starting a live-control smoke", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-live-smoke-cli-candidate-"));
+  try {
+    const result = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "codex",
+      "live-control-smoke",
+      "--evidence-dir",
+      root
+    ], { encoding: "utf8" });
+
+    assert.equal(result.status, 2, result.stderr || result.stdout);
+    assert.match(result.stderr, /requires --candidate-sha/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

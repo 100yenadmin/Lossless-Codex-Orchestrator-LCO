@@ -702,6 +702,7 @@ export type AuditRecord = {
   target: string;
   paramsHash: string;
   messageHash?: string;
+  approvalAuditId?: string;
   live: boolean;
   createdAt: string;
 };
@@ -880,7 +881,14 @@ export function createTargetControl(options: { targetName: string; methodPolicy:
       ? sequenceResult.responses.at(-1) ?? { ok: true }
       : await options.client.request(spec.method, spec.params);
     const response = responseWithTurnResolution(rawResponse, sequenceResult?.turn);
-    const liveRecord = options.audit.append({ action: spec.action, target: spec.threadId, paramsHash, messageHash, live: true });
+    const liveRecord = options.audit.append({
+      action: spec.action,
+      target: spec.threadId,
+      paramsHash,
+      messageHash,
+      approvalAuditId: previous.id,
+      live: true
+    });
     const createdThreadCandidateId = spec.createdThreadFromResponse ? extractControlThreadId(response) : undefined;
     const proofThreadId = createdThreadCandidateId ?? spec.threadId;
     const status = sequenceResult?.turn?.status ?? extractControlStatus(response) ?? undefined;

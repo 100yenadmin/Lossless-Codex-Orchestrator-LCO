@@ -15,6 +15,7 @@ import { validateWorkingAppRuntimeProof } from "./runtime-proof-gate.js";
 
 export type ReleaseDemoStatusOptions = {
   evidenceDir: string;
+  candidateSha?: string;
   approvedLiveControlEvidence?: string;
   claimScope?: ReleaseClaimScope;
   runtimeProofDir?: string;
@@ -63,6 +64,7 @@ type ApprovedLiveControlSmokeProof = {
   approvedLiveControlSmoke?: boolean;
   action?: string;
   targetRef?: string;
+  candidateSha?: string;
   approvalAuditId?: string;
   messageHash?: string;
   preservesCodexApprovalSemantics?: boolean;
@@ -81,6 +83,7 @@ type ControlDryRunProof = {
 type ApprovedProofResult = {
   check: ReleaseDemoStatusCheck;
   proof: ApprovedLiveControlSmokeProof | null;
+  candidateMismatch: boolean;
 };
 
 export function createReleaseDemoStatus(options: ReleaseDemoStatusOptions): ReleaseDemoStatusReport {
@@ -120,8 +123,8 @@ export function createReleaseDemoStatus(options: ReleaseDemoStatusOptions): Rele
   const controlDryRunEvidence = readJson(evidenceFilePaths.controlDryRun);
   const controlDryRunProof = parseControlDryRun(controlDryRunEvidence.value);
   const approvedLiveControl = liveControlRequired
-    ? validateApprovedLiveControlProof(evidenceFilePaths.approvedLiveControl)
-    : { check: check(false, liveControlExcludedDetail(claimScope)), proof: null };
+    ? validateApprovedLiveControlProof(evidenceFilePaths.approvedLiveControl, options.candidateSha)
+    : { check: check(false, liveControlExcludedDetail(claimScope)), proof: null, candidateMismatch: false };
   const workingAppRuntimeProof = workingAppRuntimeProofRequired
     ? validateWorkingAppRuntimeProof(options.runtimeProofDir)
     : null;
@@ -161,7 +164,11 @@ export function createReleaseDemoStatus(options: ReleaseDemoStatusOptions): Rele
     checks.distinctExpansionRefs.ok ? null : "expansion_refs_not_distinct",
     checks.controlDryRun.ok ? null : "control_dry_run_evidence_missing",
     checks.rawArtifacts.ok ? null : "raw_session_artifacts_present",
-    liveControlRequired && !checks.approvedLiveControl.ok ? "approved_live_control_smoke_missing" : null,
+    liveControlRequired && !checks.approvedLiveControl.ok
+      ? approvedLiveControl.candidateMismatch
+        ? "approved_live_control_candidate_mismatch"
+        : "approved_live_control_smoke_missing"
+      : null,
     checks.approvedLiveControlMatchesDryRun.ok ? null : "approved_live_control_dry_run_mismatch",
     ...(workingAppRuntimeProofRequired && workingAppRuntimeProof ? workingAppRuntimeProof.blockers : [])
   ].filter((blocker): blocker is string => blocker !== null);
@@ -390,15 +397,15 @@ function normalizeControlAction(action: string | null): string | null {
   }
 }
 
-function validateApprovedLiveControlProof(path: string): ApprovedProofResult {
-  if (!existsSync(path)) return { check: check(false, "approved live-control evidence was not provided"), proof: null };
+function validateApprovedLiveControlProof(path: string, expectedCandidateSha?: string): ApprovedProofResult {
+  if (!existsSync(path)) return { check: check(false, "approved live-control evidence was not provided"), proof: null, candidateMismatch: false };
   let proof: ApprovedLiveControlSmokeProof;
   try {
     proof = JSON.parse(readFileSync(path, "utf8")) as ApprovedLiveControlSmokeProof;
   } catch {
-    return { check: check(false, "approved live-control evidence must be JSON"), proof: null };
+    return { check: check(false, "approved live-control evidence must be JSON"), proof: null, candidateMismatch: false };
   }
-  if (!proof || typeof proof !== "object" || Array.isArray(proof)) return { check: check(false, "approved live-control evidence is not an object"), proof: null };
+  if (!proof || typeof proof !== "object" || Array.isArray(proof)) return { check: check(false, "approved live-control evidence is not an object"), proof: null, candidateMismatch: false };
   const actionOk = proof.action === "send" || proof.action === "resume" || proof.action === "steer" || proof.action === "interrupt";
   const hashOk = proof.action === "send" || proof.action === "steer" ? isSafeFingerprint(proof.messageHash) : true;
   const allowedKeys = new Set([
@@ -406,21 +413,42 @@ function validateApprovedLiveControlProof(path: string): ApprovedProofResult {
     "approvedLiveControlSmoke",
     "action",
     "targetRef",
+    "candidateSha",
     "approvalAuditId",
     "messageHash",
     "preservesCodexApprovalSemantics",
     "rawPromptIncluded"
   ]);
+  const candidateShaOk = typeof expectedCandidateSha === "string"
+    && /^[0-9a-f]{40}$/i.test(expectedCandidateSha)
+    && (
+    typeof proof.candidateSha === "string"
+    && /^[0-9a-f]{40}$/i.test(proof.candidateSha)
+    && proof.candidateSha.toLowerCase() === expectedCandidateSha.toLowerCase()
+  );
+  const hasOnlyAllowedKeys = Object.keys(proof).every((key) => allowedKeys.has(key));
   const ok = proof.kind === "loo_approved_live_control_smoke"
     && proof.approvedLiveControlSmoke === true
     && actionOk
     && Boolean(proof.targetRef?.startsWith("codex_thread:"))
+    && candidateShaOk
     && Boolean(proof.approvalAuditId)
     && hashOk
     && proof.preservesCodexApprovalSemantics === true
     && proof.rawPromptIncluded === false
-    && Object.keys(proof).every((key) => allowedKeys.has(key));
-  return { check: check(ok, ok ? "structured approved live-control smoke proof accepted" : "approved live-control evidence is not a safe structured proof marker"), proof: ok ? proof : null };
+    && hasOnlyAllowedKeys;
+  return {
+    check: check(
+      ok,
+      ok
+        ? "structured approved live-control smoke proof accepted and candidate SHA bound"
+        : !candidateShaOk
+          ? "approved live-control evidence candidate SHA is missing, invalid, or mismatched"
+          : "approved live-control evidence is not a safe structured proof marker"
+    ),
+    proof: ok ? proof : null,
+    candidateMismatch: !ok && !candidateShaOk
+  };
 }
 
 function matchApprovedLiveControlToDryRun(approvedProof: ApprovedLiveControlSmokeProof | null, dryRunProof: ControlDryRunProof | null): ReleaseDemoStatusCheck {

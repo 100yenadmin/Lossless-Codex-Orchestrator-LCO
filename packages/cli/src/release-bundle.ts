@@ -7,6 +7,7 @@ import type { ReleaseClaimScope, ReleaseExcludedClaim } from "./release-claim-sc
 
 export type ReleaseBundleOptions = {
   evidenceDir: string;
+  candidateSha?: string;
   approvedLiveControlEvidence?: string;
   claimScope?: ReleaseClaimScope;
   runtimeProofDir?: string;
@@ -45,6 +46,7 @@ export function createReleaseBundle(options: ReleaseBundleOptions): ReleaseBundl
   mkdirSync(evidenceDir, { recursive: true });
   const preflight = runReleasePreflight({
     evidenceDir: options.evidenceDir,
+    candidateSha: options.candidateSha,
     approvedLiveControlEvidence: options.approvedLiveControlEvidence,
     claimScope: options.claimScope,
     runtimeProofDir: options.runtimeProofDir,

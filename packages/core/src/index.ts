@@ -4891,15 +4891,28 @@ function repairCodexFtsRowidPinning(db: LooDatabase, options: CodexFtsRowidPinni
 }
 
 function codexFtsRowidPinningNeedsRepair(db: LooDatabase, table: "codex_safe_text_fts" | "codex_search_fts"): boolean {
+  // Contentful FTS5 tables keep the canonical document rowid and first
+  // declared column (thread_id) in a small relational shadow table. Probe that
+  // table instead of the FTS virtual table so a healthy incremental index does
+  // not materialize or scan the full-text corpus on the gateway event loop.
+  const contentTable = table === "codex_safe_text_fts"
+    ? "codex_safe_text_fts_content"
+    : "codex_search_fts_content";
   const sessionCount = Number((db.prepare("SELECT COUNT(*) AS count FROM codex_sessions").get() as { count: number }).count);
-  const ftsCount = Number((db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number }).count);
-  if (ftsCount !== sessionCount) return true;
-  const pinnedCount = Number((db.prepare(`
-    SELECT COUNT(*) AS count
+  const contentCount = Number((db.prepare(`SELECT COUNT(*) AS count FROM ${contentTable}`).get() as { count: number }).count);
+  if (contentCount !== sessionCount) return true;
+  const mismatchedRow = db.prepare(`
+    SELECT 1
     FROM codex_sessions s
-    JOIN ${table} f ON f.rowid = s.rowid AND f.thread_id = s.thread_id
-  `).get() as { count: number }).count);
-  return pinnedCount !== sessionCount;
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM ${contentTable} f
+      WHERE f.id = s.rowid
+        AND f.c0 = s.thread_id
+    )
+    LIMIT 1
+  `).get();
+  return mismatchedRow !== undefined;
 }
 
 function rebuildCodexSafeTextFts(db: LooDatabase): void {
