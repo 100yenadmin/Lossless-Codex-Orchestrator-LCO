@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { createAuditStore } from "../packages/adapters/src/index.js";
@@ -187,7 +187,7 @@ function makeRecallFixture() {
 type DagFixture = {
   root: string;
   lcmPath: string;
-  addSummary: (summaryId: string, content: string, options?: { kind?: string; depth?: number; ordinal?: number }) => void;
+  addSummary: (summaryId: string, content: string, options?: { kind?: string; depth?: number; ordinal?: number; latestAt?: string | null; createdAt?: string }) => void;
   addParent: (summaryId: string, parentSummaryId: string, ordinal: number) => void;
   close: () => void;
 };
@@ -226,9 +226,9 @@ function makeDagFixture(): DagFixture {
         Math.max(1, Math.ceil(content.length / 4)),
         JSON.stringify([]),
         "2026-07-08T00:00:00Z",
-        "2026-07-08T00:01:00Z",
+        options.latestAt === undefined ? "2026-07-08T00:01:00Z" : options.latestAt,
         0,
-        "2026-07-08T00:02:00Z",
+        options.createdAt ?? "2026-07-08T00:02:00Z",
         "gpt-5.5"
       );
       insertFts.run(summaryId, content);
@@ -402,6 +402,32 @@ test("LCM peer doctor treats an optional unconfigured peer set as ready", () => 
   assert.deepEqual(report.peers, []);
 });
 
+test("LCM peer doctor explains a supported empty summary table", () => {
+  const fixture = makeDagFixture();
+  try {
+    const report = probeLcmPeerDbs([fixture.lcmPath]);
+    assert.equal(report.peers[0]?.status, "degraded");
+    assert.equal(report.peers[0]?.integrity.reasonCodes.includes("lcm_peer_summary_table_empty"), true);
+    assert.equal(report.peers[0]?.integrity.reasonCodes.includes("lcm_peer_empty_summaries"), false);
+  } finally {
+    fixture.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM peer doctor bounds empty-summary content inspection", () => {
+  const fixture = makeDagFixture();
+  try {
+    for (let index = 0; index <= 500; index += 1) fixture.addSummary(`empty_${index}`, "");
+    const report = probeLcmPeerDbs([fixture.lcmPath]);
+    assert.equal(report.peers[0]?.integrity.emptySummaries, 501);
+    assert.equal(report.peers[0]?.integrity.reasonCodes.includes("lcm_peer_integrity_scan_cap"), true);
+  } finally {
+    fixture.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("LCM peer doctor bounds stale DAG link inspection", () => {
   const fixture = makeDagFixture();
   try {
@@ -438,7 +464,8 @@ test("LCM peer doctor degrades cyclic summary DAGs", () => {
 
 test("LCM summary DAGs materialize public-safe prepared cards and inbox items", () => {
   const fixture = makeDagFixture();
-  fixture.addSummary("card_root", "Prepared LCM root summary for the next operator at /Users/lume/private. Bearer sk-test_1234567890", { kind: "condensed", depth: 1 });
+  const oversizedTailCanary = "LCM_OVERSIZED_TAIL_MUST_NOT_LOAD";
+  fixture.addSummary("card_root", `Prepared LCM root summary for the next operator at /Users/lume/private. Bearer sk-test_1234567890 ${"x".repeat(20_000)}${oversizedTailCanary}`, { kind: "condensed", depth: 1 });
   fixture.addSummary("card_leaf", "Prepared LCM source leaf with bounded evidence.", { kind: "leaf", depth: 0 });
   fixture.addParent("card_root", "card_leaf", 0);
   const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
@@ -459,6 +486,7 @@ test("LCM summary DAGs materialize public-safe prepared cards and inbox items", 
     assert.equal(inbox.every((item) => item.execute === false), true);
     const serializedPreparedState = JSON.stringify({ cards, inbox });
     assert.doesNotMatch(serializedPreparedState, /\/Users\/lume\/private|sk-test_1234567890|Bearer/);
+    assert.equal(serializedPreparedState.includes(oversizedTailCanary), false);
     assert.equal(serializedPreparedState.includes(fixture.root), false);
     assert.deepEqual(peerDbState(fixture.lcmPath), before);
   } finally {
@@ -545,6 +573,10 @@ test("LCM peer aliases canonicalize to one doctor peer and one prepared-card set
     assert.equal(report.peers.length, 1);
     indexCodexSessions(db, { roots: [], lcmDbPaths: [fixture.lcmPath, aliasPath] });
     assert.equal(getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary").length, 1);
+    const legacyHash = createHash("sha256").update(resolve(aliasPath)).digest("hex").slice(0, 12);
+    const legacyRef = `lcm_summary:${legacyHash}:alias_root`;
+    assert.equal(describeRecallRef(db, { sourceRef: legacyRef, lcmDbPaths: [aliasPath] })?.summaryId, "alias_root");
+    assert.equal(expandRecallRef(db, { sourceRef: legacyRef, lcmDbPaths: [aliasPath], profile: "brief" }).summaryId, "alias_root");
   } finally {
     db.close();
     fixture.close();
@@ -555,7 +587,9 @@ test("LCM peer aliases canonicalize to one doctor peer and one prepared-card set
 test("LCM prepared-card materialization caps oversized peers with omission markers", () => {
   const fixture = makeDagFixture();
   for (let index = 0; index <= 500; index += 1) {
-    fixture.addSummary(`bounded_${String(index).padStart(3, "0")}`, `Bounded LCM summary ${index}.`);
+    fixture.addSummary(`bounded_${String(index).padStart(3, "0")}`, `Bounded LCM summary ${index}.`, {
+      latestAt: new Date(Date.UTC(2026, 6, 8, 0, 0, index)).toISOString()
+    });
   }
   const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
   try {
@@ -563,6 +597,8 @@ test("LCM prepared-card materialization caps oversized peers with omission marke
     const cards = getPreparedCards(db, { limit: 500 }).cards.filter((card) => card.cardKind === "lcm_summary");
     assert.equal(cards.length, 500);
     assert.equal(cards.every((card) => card.reasonCodes.includes("lcm_peer_materialization_cap")), true);
+    assert.equal(cards.some((card) => card.targetRef.includes("bounded_500")), true);
+    assert.equal(cards.some((card) => card.targetRef.includes("bounded_000")), false);
   } finally {
     db.close();
     fixture.close();

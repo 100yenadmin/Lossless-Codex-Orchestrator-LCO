@@ -7493,7 +7493,7 @@ function materializePreparedCardsForLcmPeers(
       const rows = peer.prepare(`
         SELECT SUBSTR(summary_id, 1, ${LCM_SUMMARY_ID_MAX_CHARS + 1}) AS summaryId
         FROM summaries
-        ORDER BY summary_id ASC
+        ORDER BY COALESCE(latest_at, created_at) DESC, summary_id ASC
         LIMIT ?
       `).all(LCM_PEER_SUMMARY_SCAN_MAX + 1) as Array<{ summaryId: string }>;
       const capped = rows.length > LCM_PEER_SUMMARY_SCAN_MAX;
@@ -18754,7 +18754,7 @@ function lcmSearchResult(path: string, row: Record<string, unknown>, query: stri
 }
 
 function getLcmSummaryByRef(paths: string[], dbHash: string, summaryId: string): LcmSummaryRecord | null {
-  const path = normalizePeerPaths(paths).find((candidate) => lcmPeerHash(candidate) === dbHash);
+  const path = findLcmPeerPathByHash(paths, dbHash);
   if (!path) return null;
   let db: LooDatabase | null = null;
   try {
@@ -18769,7 +18769,7 @@ function getLcmSummaryByRef(paths: string[], dbHash: string, summaryId: string):
 }
 
 function getLcmSummaryExpansionByRef(paths: string[], dbHash: string, summaryId: string): LcmSummaryExpansion | null {
-  const path = normalizePeerPaths(paths).find((candidate) => lcmPeerHash(candidate) === dbHash);
+  const path = findLcmPeerPathByHash(paths, dbHash);
   if (!path) return null;
   let db: LooDatabase | null = null;
   try {
@@ -18797,7 +18797,7 @@ function getLcmSummaryRecordFromDb(db: LooDatabase, path: string, summaryId: str
       ${hasConversations ? "c.title" : "NULL"} AS conversationTitle,
       s.kind,
       s.depth,
-      s.content,
+      SUBSTR(s.content, 1, ${LCM_SUMMARY_CONTENT_MAX_CHARS}) AS content,
       s.token_count AS tokenCount,
       s.model,
       s.created_at AS createdAt,
@@ -18901,8 +18901,17 @@ function probeLcmPeerDb(path: string): LcmPeerProbe {
       const optionalTables = ["summaries_fts", "conversations", "summary_messages", "summary_parents"];
       const missingOptionalTables = optionalTables.filter((table) => !tables.includes(table));
       const emptySummaries = supported
-        ? Number((db.prepare("SELECT COUNT(*) AS count FROM summaries WHERE TRIM(COALESCE(content, '')) = ''").get() as { count: number }).count)
+        ? Number((db.prepare(`
+            SELECT COUNT(*) AS count
+            FROM (
+              SELECT 1
+              FROM summaries
+              WHERE TRIM(COALESCE(content, '')) = ''
+              LIMIT ?
+            ) bounded_empty_summaries
+          `).get(LCM_PEER_SUMMARY_SCAN_MAX + 1) as { count: number }).count)
         : 0;
+      const emptySummaryScanCapped = emptySummaries > LCM_PEER_SUMMARY_SCAN_MAX;
       const staleDagLinks = supported && tables.includes("summary_parents")
         ? Number((db.prepare(`
             SELECT COUNT(*) AS count
@@ -18938,10 +18947,11 @@ function probeLcmPeerDb(path: string): LcmPeerProbe {
         : Math.max(traversalDegraded, emptySummaries + staleDagLinks, integrityScanCapped ? 1 : 0);
       const reasonCodes = unique([
         ...missingOptionalTables.map((table) => `lcm_peer_optional_table_missing:${table}`),
+        summaryCount === 0 ? "lcm_peer_summary_table_empty" : "",
         emptySummaries > 0 ? "lcm_peer_empty_summaries" : "",
         staleDagLinks > 0 ? "lcm_peer_stale_dag_links" : "",
         dagCycles > 0 ? "lcm_peer_dag_cycle" : "",
-        integrityScanCapped || staleDagLinkScanCapped ? "lcm_peer_integrity_scan_cap" : "",
+        integrityScanCapped || emptySummaryScanCapped || staleDagLinkScanCapped ? "lcm_peer_integrity_scan_cap" : "",
         degradedExpansions > 0 ? "lcm_peer_degraded_expansion" : ""
       ].filter(Boolean));
       const status: LcmPeerProbe["status"] = !supported
@@ -19120,6 +19130,22 @@ function lcmPeerHash(path: string): string {
   return stableId(normalizePeerPath(path)).slice(0, 12);
 }
 
+function legacyLcmPeerHash(path: string): string {
+  return stableId(resolvePeerPath(path)).slice(0, 12);
+}
+
+function findLcmPeerPathByHash(paths: string[], dbHash: string): string | null {
+  for (const configuredPath of paths) {
+    try {
+      const canonicalPath = normalizePeerPath(configuredPath);
+      if (lcmPeerHash(canonicalPath) === dbHash || legacyLcmPeerHash(configuredPath) === dbHash) return canonicalPath;
+    } catch {
+      // Ignore unavailable optional peers.
+    }
+  }
+  return null;
+}
+
 function parseSourceRef(sourceRef: string): { kind: "codex_thread"; id: string } | { kind: "claude_session"; id: string } | { kind: "lcm_summary"; dbHash: string; id: string } {
   if (sourceRef.startsWith("codex_thread:")) {
     const id = sourceRef.slice("codex_thread:".length);
@@ -19161,11 +19187,7 @@ function queryTerms(query: string): string[] {
 }
 
 function normalizePeerPath(path: string): string {
-  const resolved = path === "~"
-    ? resolve(homeDirectory())
-    : path.startsWith("~/")
-      ? resolve(join(homeDirectory(), path.slice(2)))
-      : resolve(path);
+  const resolved = resolvePeerPath(path);
   try {
     return realpathSync.native(resolved);
   } catch {
@@ -19175,6 +19197,15 @@ function normalizePeerPath(path: string): string {
       return resolved;
     }
   }
+}
+
+function resolvePeerPath(path: string): string {
+  const resolved = path === "~"
+    ? resolve(homeDirectory())
+    : path.startsWith("~/")
+      ? resolve(join(homeDirectory(), path.slice(2)))
+      : resolve(path);
+  return resolved;
 }
 
 function homeDirectory(): string {
