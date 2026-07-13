@@ -398,6 +398,7 @@ function hasNativeToolFailure(value: unknown): boolean {
 function hasNativeResultFailure(value: unknown, checkDirect = false, depth = 0): boolean {
   if (!isRecord(value) || depth > 4) return false;
   if (checkDirect && value.ok === false) return true;
+  if (checkDirect && typeof value.status === "string" && ["error", "failed", "failure"].includes(value.status.toLowerCase())) return true;
   for (const key of ["response", "result"] as const) {
     const nested = value[key];
     if (!isRecord(nested)) continue;

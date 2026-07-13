@@ -130,7 +130,7 @@ function writeLiveProofReport(path: string, overrides: Record<string, unknown> =
   }, null, 2)}\n`);
 }
 
-function createFakeOpenClaw(dir: string, options: { rawExpansion?: boolean; rawContentEnvelope?: boolean; detailsNotOk?: boolean; nestedDetailsResponseNotOk?: boolean; nestedSuccessWrapper?: boolean; directDetailsEnvelope?: boolean; staleSearchAndExpansion?: boolean; nestedTargetOnlyExpansion?: boolean; nestedTargetOnlyCoreOutputs?: boolean; nestedArrayTargetOnlySearch?: boolean; staleRefreshTimestamp?: boolean; missingRefreshTimestamp?: boolean; nestedRefreshTimestampOnly?: boolean; missingMapMarkers?: boolean; publicThreadMapShape?: boolean; missingMapStatus?: boolean; nestedStatusLookalike?: boolean; topLevelStatusLookalike?: boolean; domainEnvelopeLookalikes?: boolean; alternateTopLevelSearchCollection?: boolean; detailsEnvelope?: boolean } = {}): { bin: string; callsPath: string } {
+function createFakeOpenClaw(dir: string, options: { rawExpansion?: boolean; rawContentEnvelope?: boolean; detailsNotOk?: boolean; directDetailsErrorStatus?: boolean; nestedDetailsResponseNotOk?: boolean; nestedSuccessWrapper?: boolean; directDetailsEnvelope?: boolean; staleSearchAndExpansion?: boolean; nestedTargetOnlyExpansion?: boolean; nestedTargetOnlyCoreOutputs?: boolean; nestedArrayTargetOnlySearch?: boolean; staleRefreshTimestamp?: boolean; missingRefreshTimestamp?: boolean; nestedRefreshTimestampOnly?: boolean; missingMapMarkers?: boolean; publicThreadMapShape?: boolean; missingMapStatus?: boolean; nestedStatusLookalike?: boolean; topLevelStatusLookalike?: boolean; domainEnvelopeLookalikes?: boolean; alternateTopLevelSearchCollection?: boolean; detailsEnvelope?: boolean } = {}): { bin: string; callsPath: string } {
   const callsPath = join(dir, "calls.jsonl");
   const bin = join(dir, "openclaw-refresh-fake.mjs");
   const refreshedAt = options.staleRefreshTimestamp ? "2026-07-01T00:00:30.000Z" : "2026-07-01T00:02:00.000Z";
@@ -189,6 +189,8 @@ function createFakeOpenClaw(dir: string, options: { rawExpansion?: boolean; rawC
       ? output.replace(/^\s*\{/, "{ ok: false,")
       : options.nestedDetailsResponseNotOk
         ? output.replace(/^\s*\{/, "{ response: { ok: false },")
+        : options.directDetailsErrorStatus
+          ? `{ status: "error", result: ${output} }`
         : options.nestedSuccessWrapper
           ? `{ response: { result: ${output} } }`
           : output} }${options.directDetailsEnvelope ? "" : " }"}`
@@ -576,6 +578,38 @@ test("OpenClaw post-action refresh smoke rejects nested native response failures
     assert.equal(report.ok, false);
     assert.equal(report.proofReady, false);
     assert.equal(report.blockers.includes("post_action_thread_map_failed:tool_not_ok"), true);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenClaw post-action refresh smoke rejects direct native error statuses", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-refresh-smoke-direct-error-status-"));
+  const evidenceDir = join(root, "evidence");
+  const liveProofReportPath = join(root, "openclaw-gateway-live-control-smoke-report.json");
+  writeLiveProofReport(liveProofReportPath);
+  const { bin, callsPath } = createFakeOpenClaw(root, {
+    publicThreadMapShape: true,
+    detailsEnvelope: true,
+    directDetailsErrorStatus: true
+  });
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+
+  try {
+    const report = runOpenClawPostActionRefreshSmoke({
+      openclawBin: bin,
+      evidenceDir,
+      liveProofReportPath,
+      threadId: TARGET_THREAD_ID,
+      now: "2026-07-01T00:03:00.000Z"
+    });
+
+    assert.equal(report.ok, false);
+    assert.equal(report.proofReady, false);
+    assert.equal(report.blockers.some((blocker) => blocker.endsWith(":tool_not_ok")), true);
   } finally {
     if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
     else process.env.OPENCLAW_FAKE_CALLS = previous;
