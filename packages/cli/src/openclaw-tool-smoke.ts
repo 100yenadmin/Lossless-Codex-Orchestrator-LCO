@@ -1868,21 +1868,44 @@ function successfulPostCreateProofBlockers(
       ? proof.app_server
       : undefined;
   const index = isRecord(proof.index) ? proof.index : undefined;
+  const preparedState = isRecord(proof.preparedState)
+    ? proof.preparedState
+    : isRecord(proof.prepared_state)
+      ? proof.prepared_state
+      : undefined;
   const appServerThreadRef = appServer
     ? stringPath(appServer, ["threadRef"]) || stringPath(appServer, ["thread_ref"])
     : undefined;
   const indexSourceRef = index
     ? stringPath(index, ["sourceRef"]) || stringPath(index, ["source_ref"])
     : undefined;
-  const reasonCodes = [
-    ...arrayPath(value, ["reasonCodes"]),
-    ...arrayPath(value, ["reason_codes"])
-  ];
+  const reasonCodeAliases = [value.reasonCodes, value.reason_codes]
+    .filter((entry) => entry !== undefined);
+  const reasonCodes = reasonCodeAliases.flatMap((entry) => Array.isArray(entry) ? entry : []);
   const uniqueReasonCodes = [...new Set(reasonCodes)];
+  const normalizedReasonCodeAliases = reasonCodeAliases
+    .filter(Array.isArray)
+    .map((entry) => [...new Set(entry)].sort());
+  const reasonCodeAliasesValid = reasonCodeAliases.length > 0
+    && normalizedReasonCodeAliases.length === reasonCodeAliases.length
+    && normalizedReasonCodeAliases.every((entry) => entry.every((code) => typeof code === "string"))
+    && normalizedReasonCodeAliases.every((entry) => JSON.stringify(entry) === JSON.stringify(normalizedReasonCodeAliases[0]));
+  const preparedCardAvailable = preparedState?.cardAvailable === true || preparedState?.card_available === true;
+  const preparedCardMissing = preparedState?.cardAvailable === false || preparedState?.card_available === false;
+  const preparedCardCurrent = preparedState?.cardCurrent === true || preparedState?.card_current === true;
+  const hasPreparedAvailableCode = uniqueReasonCodes.includes("prepared_card_available");
+  const hasPreparedMissingCode = uniqueReasonCodes.includes("prepared_card_missing");
+  const hasPreparedStaleCode = uniqueReasonCodes.includes("prepared_card_stale_or_not_ready");
+  const preparedReasonCodesValid = hasPreparedAvailableCode !== hasPreparedMissingCode
+    && hasPreparedAvailableCode === preparedCardAvailable
+    && hasPreparedMissingCode === preparedCardMissing
+    && hasPreparedStaleCode === (preparedCardAvailable && !preparedCardCurrent);
   const reasonCodesValid = [...REQUIRED_SUCCESSFUL_POST_CREATE_REASON_CODES]
     .every((reasonCode) => uniqueReasonCodes.includes(reasonCode))
+    && reasonCodeAliasesValid
     && uniqueReasonCodes.every((reasonCode) => typeof reasonCode === "string"
-      && ALLOWED_SUCCESSFUL_POST_CREATE_REASON_CODES.has(reasonCode));
+      && ALLOWED_SUCCESSFUL_POST_CREATE_REASON_CODES.has(reasonCode))
+    && preparedReasonCodesValid;
   const checks: Array<[boolean, string]> = [
     [value.schema === "lco.codex.startThreadPostCreateProof.v1", "post_create_proof_schema_invalid"],
     [value.publicSafe === true || value.public_safe === true, "post_create_proof_public_safe_missing"],
