@@ -1890,13 +1890,25 @@ function successfulPostCreateProofBlockers(
     && normalizedReasonCodeAliases.length === reasonCodeAliases.length
     && normalizedReasonCodeAliases.every((entry) => entry.every((code) => typeof code === "string"))
     && normalizedReasonCodeAliases.every((entry) => JSON.stringify(entry) === JSON.stringify(normalizedReasonCodeAliases[0]));
-  const preparedCardAvailable = preparedState?.cardAvailable === true || preparedState?.card_available === true;
-  const preparedCardMissing = preparedState?.cardAvailable === false || preparedState?.card_available === false;
-  const preparedCardCurrent = preparedState?.cardCurrent === true || preparedState?.card_current === true;
+  const preparedAvailableAliases = preparedState
+    ? [preparedState.cardAvailable, preparedState.card_available].filter((entry) => entry !== undefined)
+    : [];
+  const preparedCurrentAliases = preparedState
+    ? [preparedState.cardCurrent, preparedState.card_current].filter((entry) => entry !== undefined)
+    : [];
+  const preparedStateAliasesValid = preparedAvailableAliases.length > 0
+    && preparedCurrentAliases.length > 0
+    && preparedAvailableAliases.every((entry) => typeof entry === "boolean" && entry === preparedAvailableAliases[0])
+    && preparedCurrentAliases.every((entry) => typeof entry === "boolean" && entry === preparedCurrentAliases[0]);
+  const preparedCardAvailable = preparedAvailableAliases[0] === true;
+  const preparedCardMissing = preparedAvailableAliases[0] === false;
+  const preparedCardCurrent = preparedCurrentAliases[0] === true;
   const hasPreparedAvailableCode = uniqueReasonCodes.includes("prepared_card_available");
   const hasPreparedMissingCode = uniqueReasonCodes.includes("prepared_card_missing");
   const hasPreparedStaleCode = uniqueReasonCodes.includes("prepared_card_stale_or_not_ready");
   const preparedReasonCodesValid = hasPreparedAvailableCode !== hasPreparedMissingCode
+    && preparedStateAliasesValid
+    && (!preparedCardCurrent || preparedCardAvailable)
     && hasPreparedAvailableCode === preparedCardAvailable
     && hasPreparedMissingCode === preparedCardMissing
     && hasPreparedStaleCode === (preparedCardAvailable && !preparedCardCurrent);
