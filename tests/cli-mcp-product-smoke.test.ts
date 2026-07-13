@@ -36,6 +36,8 @@ function writeFakeMcpServer(path: string, toolNames: string[], options: {
   responseToolName?: string;
   requireIsolatedRuntime?: boolean;
   stallToolsCall?: boolean;
+  initializeDelayMs?: number;
+  toolsListDelayMs?: number;
 } = {}): void {
   writeExecutable(path, [
     "#!/usr/bin/env node",
@@ -52,6 +54,8 @@ function writeFakeMcpServer(path: string, toolNames: string[], options: {
     `const responseToolName = ${JSON.stringify(options.responseToolName ?? null)};`,
     `const requireIsolatedRuntime = ${JSON.stringify(options.requireIsolatedRuntime === true)};`,
     `const stallToolsCall = ${JSON.stringify(options.stallToolsCall === true)};`,
+    `const initializeDelayMs = ${JSON.stringify(options.initializeDelayMs ?? 0)};`,
+    `const toolsListDelayMs = ${JSON.stringify(options.toolsListDelayMs ?? 0)};`,
     `const ambientHome = ${JSON.stringify(process.env.HOME ?? process.env.USERPROFILE ?? "")};`,
     "const runtimeRoot = process.env.HOME || process.env.USERPROFILE || '';",
     "const runtimeIsolated = runtimeRoot !== '' && runtimeRoot !== ambientHome && process.env.HOME === runtimeRoot && process.env.USERPROFILE === runtimeRoot && (process.env.LCO_DB_PATH || '').startsWith(runtimeRoot) && (process.env.LCO_AUDIT_PATH || '').startsWith(runtimeRoot) && !process.env.SECRET_TOKEN;",
@@ -62,11 +66,13 @@ function writeFakeMcpServer(path: string, toolNames: string[], options: {
     "  const message = JSON.parse(line);",
     "  if (message.method === 'initialize') {",
     "    if (initializeError) { send({ id: message.id, error: { code: -32000, message: 'init failed' } }); return; }",
-    "    send({ id: message.id, result: { protocolVersion: '2025-11-25', serverInfo: { name: 'fake-lco', version: '1.3.0' }, capabilities: { tools: {} } } });",
+    "    const reply = () => send({ id: message.id, result: { protocolVersion: '2025-11-25', serverInfo: { name: 'fake-lco', version: '1.3.0' }, capabilities: { tools: {} } } });",
+    "    if (initializeDelayMs > 0) setTimeout(reply, initializeDelayMs); else reply();",
     "    return;",
     "  }",
     "  if (message.method === 'tools/list') {",
-    "    send({ id: message.id, result: { tools } });",
+    "    const reply = () => send({ id: message.id, result: { tools } });",
+    "    if (toolsListDelayMs > 0) setTimeout(reply, toolsListDelayMs); else reply();",
     "    if (exitAfterToolsList) setImmediate(() => process.exit(0));",
     "    return;",
     "  }",
@@ -172,7 +178,11 @@ test("loo qa-lab cli-mcp-smoke preserves tools/list evidence when tools/call tim
     const cliBin = join(dir, "loo");
     const mcpBin = join(dir, "lco-mcp-server");
     writeFakeCli(cliBin);
-    writeFakeMcpServer(mcpBin, ["lco_doctor"], { stallToolsCall: true });
+    writeFakeMcpServer(mcpBin, ["lco_doctor"], {
+      stallToolsCall: true,
+      initializeDelayMs: 1750,
+      toolsListDelayMs: 1750
+    });
 
     const result = spawnSync(process.execPath, [
       "--import",
@@ -193,7 +203,7 @@ test("loo qa-lab cli-mcp-smoke preserves tools/list evidence when tools/call tim
       "--tool-call",
       "lco_doctor",
       "--timeout-ms",
-      "1000",
+      "3000",
       "--strict"
     ], {
       cwd: repoRoot,
@@ -209,7 +219,7 @@ test("loo qa-lab cli-mcp-smoke preserves tools/list evidence when tools/call tim
       blockers: string[];
       toolCallProbe: { errorCode: string | null };
     };
-    assert.equal(report.mcpReady, true);
+    assert.equal(report.mcpReady, true, JSON.stringify(report));
     assert.equal(report.toolsListed, 1);
     assert.deepEqual(report.requiredToolsPresent, ["lco_doctor"]);
     assert.deepEqual(report.blockers, ["mcp_tools_call_timeout"]);

@@ -146,7 +146,7 @@ export async function createCliMcpProductSmokeReport(options: CliMcpProductSmoke
       screenshotsCaptured: false
     },
     privateDataExclusions: PRIVATE_DATA_EXCLUSIONS,
-    proofBoundary: "This public-safe QA Lab product smoke proves CLI --help, MCP tools/list, and MCP tools/call for one safe representative tool from the selected published/fresh-install candidate binaries. The MCP child runs with an isolated temporary home, database, audit store, and Codex home so ambient user runtime size or state cannot substitute for package readiness. The default representative call is lco_doctor with empty arguments, so deeper tools should be covered by workflow-specific QA Lab lanes. The CLI and MCP probes run sequentially with the configured timeout applied per probe. The smoke initializes MCP with protocolVersion 2025-11-25; initialize failures are reported as package/protocol-drift defects for the candidate under test. JSON-RPC id pairing is the primary request/response binding; name-mismatch detection applies only when a non-standard server echoes result.name or result.toolName. It does not run live Codex control, mutate a desktop GUI, capture screenshots, publish npm, create a GitHub Release, store raw CLI output, or store raw MCP output.",
+    proofBoundary: "This public-safe QA Lab product smoke proves CLI --help, MCP tools/list, and MCP tools/call for one safe representative tool from the selected published/fresh-install candidate binaries. The MCP child runs with an isolated temporary home, database, audit store, and Codex home so ambient user runtime size or state cannot substitute for package readiness. The default representative call is lco_doctor with empty arguments, so deeper tools should be covered by workflow-specific QA Lab lanes. The CLI and MCP probes run sequentially; the configured timeout applies to the CLI probe and is re-applied to each MCP initialize, tools/list, and tools/call stage. The smoke initializes MCP with protocolVersion 2025-11-25; initialize failures are reported as package/protocol-drift defects for the candidate under test. JSON-RPC id pairing is the primary request/response binding; name-mismatch detection applies only when a non-standard server echoes result.name or result.toolName. It does not run live Codex control, mutate a desktop GUI, capture screenshots, publish npm, create a GitHub Release, store raw CLI output, or store raw MCP output.",
     nextSafeCommands: [
       `loo qa-lab cli-mcp-smoke --evidence-dir <dir> --package-version ${options.packageVersion} --strict`,
       "loo --help",
@@ -232,23 +232,25 @@ function probeMcpToolsListAndCall(
       terminateChild();
       resolve(result);
     };
-
-    timer = setTimeout(() => {
-      const errorCode = stage === "initialize"
-        ? "mcp_initialize_timeout"
-        : stage === "tools_list"
-          ? "mcp_tools_list_timeout"
-          : "mcp_tools_call_timeout";
-      finish({
-        ready: stage === "tools_call" && listedTools.length > 0,
-        setupBlockers: [],
-        blockers: [errorCode],
-        warnings: [],
-        tools: listedTools,
-        toolCall: failedToolCall(toolCallName, errorCode)
-      });
-    }, timeoutMs);
-    timer.unref?.();
+    const armStageTimeout = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        const errorCode = stage === "initialize"
+          ? "mcp_initialize_timeout"
+          : stage === "tools_list"
+            ? "mcp_tools_list_timeout"
+            : "mcp_tools_call_timeout";
+        finish({
+          ready: stage === "tools_call" && listedTools.length > 0,
+          setupBlockers: [],
+          blockers: [errorCode],
+          warnings: [],
+          tools: listedTools,
+          toolCall: failedToolCall(toolCallName, errorCode)
+        });
+      }, timeoutMs);
+      timer.unref?.();
+    };
 
     const writeMessage = (payload: Record<string, unknown>, failureCode: string): boolean => {
       try {
@@ -298,6 +300,7 @@ function probeMcpToolsListAndCall(
         }
         if (parsed.id === 1 && isRecord(parsed.result)) {
           stage = "tools_list";
+          armStageTimeout();
           if (!writeMessage({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }, "mcp_initialized_notification_failed")) return;
           if (!writeMessage({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }, "mcp_tools_list_write_failed")) return;
           continue;
@@ -325,6 +328,7 @@ function probeMcpToolsListAndCall(
             return;
           }
           stage = "tools_call";
+          armStageTimeout();
           if (!writeMessage({
             jsonrpc: "2.0",
             id: 3,
@@ -359,6 +363,7 @@ function probeMcpToolsListAndCall(
       }
     });
 
+    armStageTimeout();
     writeMessage({
       jsonrpc: "2.0",
       id: 1,
