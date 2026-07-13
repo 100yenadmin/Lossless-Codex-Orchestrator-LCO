@@ -1799,12 +1799,14 @@ function summarizeInvocation(
     : [];
   const successfulPostCreateProof = toolName === "loo_codex_start_thread_post_create_proof"
     && postCreateProofValidationBlockers.length === 0;
+  const postCreateProofBlockersToSurface = isRecord(postCreateProofValue) && postCreateProofValue.status === "persisted"
+    ? postCreateProofValidationBlockers
+    : postCreateProofValidationBlockers.filter((blocker) => blocker === "post_create_proof_restricted_action_present");
   if (!successfulPostCreateProof
     && isRecord(postCreateProofValue)
     && postCreateProofValue.schema === "lco.codex.startThreadPostCreateProof.v1"
-    && postCreateProofValue.status === "persisted"
     && !blockers.includes(`openclaw_tool_result_not_ok:${toolName}`)) {
-    blockers.push(...postCreateProofValidationBlockers.filter((blocker) => !blockers.includes(blocker)));
+    blockers.push(...postCreateProofBlockersToSurface.filter((blocker) => !blockers.includes(blocker)));
   }
   const effectiveDisposition = successfulPostCreateProof ? "successful_invocation" : disposition;
   if (disposition === "expected_fail_closed" && !successfulPostCreateProof) {
@@ -1867,8 +1869,9 @@ function successfulPostCreateProofBlockers(
     ...arrayPath(value, ["reasonCodes"]),
     ...arrayPath(value, ["reason_codes"])
   ];
+  const uniqueReasonCodes = [...new Set(reasonCodes)];
   const reasonCodesValid = reasonCodes.length > 0
-    && reasonCodes.every((reasonCode) => typeof reasonCode === "string"
+    && uniqueReasonCodes.every((reasonCode) => typeof reasonCode === "string"
       && SUCCESSFUL_POST_CREATE_REASON_CODES.has(reasonCode));
   const checks: Array<[boolean, string]> = [
     [value.schema === "lco.codex.startThreadPostCreateProof.v1", "post_create_proof_schema_invalid"],
