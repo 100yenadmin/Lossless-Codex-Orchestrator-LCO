@@ -113,8 +113,15 @@ function createFakeOpenClaw(
     missingSuccessfulPostCreateReasonCodes?: boolean;
     unknownSuccessfulPostCreateReasonCode?: boolean;
     mixedSuccessfulPostCreateReasonCodes?: boolean;
+    splitSuccessfulPostCreateReasonCodes?: boolean;
     camelCaseSuccessfulPostCreateProof?: boolean;
     subsetSuccessfulPostCreateReasonCodes?: boolean;
+    conflictingSuccessfulPostCreatePreparedReasonCodes?: boolean;
+    orphanSuccessfulPostCreateStaleReasonCode?: boolean;
+    impossibleMissingCurrentPreparedState?: boolean;
+    conflictingSuccessfulPostCreatePreparedStateAliases?: boolean;
+    missingSuccessfulPostCreateCurrentState?: boolean;
+    conflictingSuccessfulPostCreatePreparedStateObjects?: boolean;
     malformedCurrentPostCreatePublicSafe?: boolean;
     notOkSuccessfulPostCreateProof?: boolean;
     successfulPostCreateRestrictedAction?: boolean;
@@ -521,9 +528,13 @@ if (method === "tools.invoke") {
   }
   if (name === "loo_codex_start_thread_post_create_proof") {
     if (${options.successfulPostCreateProof ? "true" : "false"}) {
+      if (${options.conflictingSuccessfulPostCreatePreparedStateObjects ? "true" : "false"}) {
+        console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { details: { schema: "lco.codex.startThreadPostCreateProof.v1", public_safe: true, read_only: true, status: "persisted", created_thread_ref: toolArgs.created_thread_ref, proof: { app_server: { found: true, read_probe_ok: true, thread_ref: toolArgs.created_thread_ref }, index: { found: true, described: true, source_ref: toolArgs.created_thread_ref }, preparedState: { cardAvailable: true, cardCurrent: false }, prepared_state: { card_available: false, card_current: false } }, reason_codes: ["read_only_app_server_signal", "read_probe_found_thread", "indexed_session_found", "indexed_description_available", "prepared_card_available", "prepared_card_stale_or_not_ready"], actions_performed: { live_codex_control_run: false, desktop_gui_action_run: false, raw_transcript_read: false, source_store_mutation: false, npm_publish: false, github_release: false } } } }));
+        process.exit(0);
+      }
       console.log(JSON.stringify({ ok: true, toolName: name, source: "plugin", output: { details: ${options.camelCaseSuccessfulPostCreateProof
-        ? `{ schema: "lco.codex.startThreadPostCreateProof.v1", publicSafe: true, readOnly: true, status: "persisted", createdThreadRef: toolArgs.created_thread_ref, proof: { appServer: { found: true, readProbeOk: true, threadRef: toolArgs.created_thread_ref }, index: { found: true, described: true, sourceRef: toolArgs.created_thread_ref } }, reasonCodes: ["read_only_app_server_signal", "read_probe_found_thread", "indexed_session_found", "indexed_description_available"], actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, sourceStoreMutation: false, npmPublished: false, githubReleaseCreated: false } }`
-        : `{ ${options.notOkSuccessfulPostCreateProof ? "ok: false," : ""} schema: "lco.codex.startThreadPostCreateProof.v1", public_safe: true, read_only: true, status: "persisted", created_thread_ref: toolArgs.created_thread_ref, proof: { app_server: { found: ${options.malformedSuccessfulPostCreateAppServerFound ? '"false"' : "true"}, read_probe_ok: true, thread_ref: ${options.mismatchedSuccessfulPostCreateNestedRef ? '"codex_thread:other-thread"' : "toolArgs.created_thread_ref"} }, index: { found: true, described: true, source_ref: ${options.mismatchedSuccessfulPostCreateNestedRef || options.mismatchedSuccessfulPostCreateIndexRef ? '"codex_thread:other-thread"' : "toolArgs.created_thread_ref"} }, prepared_state: { card_available: ${options.successfulPostCreatePreparedCard === false ? "false" : "true"} } }, ${options.mixedSuccessfulPostCreateReasonCodes ? 'reasonCodes: ["read_only_app_server_signal"],' : ""} reason_codes: ${options.missingSuccessfulPostCreateReasonCodes ? "[]" : options.unknownSuccessfulPostCreateReasonCode || options.mixedSuccessfulPostCreateReasonCodes ? '["unrecognized_reason"]' : options.subsetSuccessfulPostCreateReasonCodes ? '["read_only_app_server_signal"]' : '["read_only_app_server_signal", "read_probe_found_thread", "indexed_session_found", "indexed_description_available"]'}, actions_performed: { ${options.inconsistentSuccessfulPostCreateActionAlias ? 'liveCodexControlRun: "false",' : ""} live_codex_control_run: ${options.successfulPostCreateRestrictedAction ? "true" : "false"}, desktop_gui_action_run: false, raw_transcript_read: false, source_store_mutation: false, npm_publish: false, github_release: false } }`} } }));
+        ? `{ schema: "lco.codex.startThreadPostCreateProof.v1", publicSafe: true, readOnly: true, status: "persisted", createdThreadRef: toolArgs.created_thread_ref, proof: { appServer: { found: true, readProbeOk: true, threadRef: toolArgs.created_thread_ref }, index: { found: true, described: true, sourceRef: toolArgs.created_thread_ref }, preparedState: { cardAvailable: true, cardCurrent: false } }, reasonCodes: ["read_only_app_server_signal", "read_probe_found_thread", "indexed_session_found", "indexed_description_available", "prepared_card_available", "prepared_card_stale_or_not_ready"], actionsPerformed: { liveCodexControlRun: false, desktopGuiActionRun: false, rawTranscriptRead: false, sourceStoreMutation: false, npmPublished: false, githubReleaseCreated: false } }`
+        : `{ ${options.notOkSuccessfulPostCreateProof ? "ok: false," : ""} schema: "lco.codex.startThreadPostCreateProof.v1", public_safe: true, read_only: true, status: "persisted", created_thread_ref: toolArgs.created_thread_ref, proof: { app_server: { found: ${options.malformedSuccessfulPostCreateAppServerFound ? '"false"' : "true"}, read_probe_ok: true, thread_ref: ${options.mismatchedSuccessfulPostCreateNestedRef ? '"codex_thread:other-thread"' : "toolArgs.created_thread_ref"} }, index: { found: true, described: true, source_ref: ${options.mismatchedSuccessfulPostCreateNestedRef || options.mismatchedSuccessfulPostCreateIndexRef ? '"codex_thread:other-thread"' : "toolArgs.created_thread_ref"} }, prepared_state: { ${options.conflictingSuccessfulPostCreatePreparedStateAliases ? "cardAvailable: false," : ""} card_available: ${options.successfulPostCreatePreparedCard === false ? "false" : "true"}, ${options.missingSuccessfulPostCreateCurrentState ? "" : options.impossibleMissingCurrentPreparedState ? "card_current: true" : "card_current: false"} } }, ${options.mixedSuccessfulPostCreateReasonCodes ? 'reasonCodes: ["read_only_app_server_signal"],' : options.splitSuccessfulPostCreateReasonCodes ? 'reasonCodes: ["read_only_app_server_signal", "read_probe_found_thread"],' : ""} reason_codes: ${options.missingSuccessfulPostCreateReasonCodes ? "[]" : options.unknownSuccessfulPostCreateReasonCode || options.mixedSuccessfulPostCreateReasonCodes ? '["unrecognized_reason"]' : options.splitSuccessfulPostCreateReasonCodes ? '["indexed_session_found", "indexed_description_available", "prepared_card_available", "prepared_card_stale_or_not_ready"]' : options.subsetSuccessfulPostCreateReasonCodes ? '["read_only_app_server_signal"]' : options.conflictingSuccessfulPostCreatePreparedReasonCodes ? '["read_only_app_server_signal", "read_probe_found_thread", "indexed_session_found", "indexed_description_available", "prepared_card_available", "prepared_card_missing"]' : options.orphanSuccessfulPostCreateStaleReasonCode ? '["read_only_app_server_signal", "read_probe_found_thread", "indexed_session_found", "indexed_description_available", "prepared_card_stale_or_not_ready"]' : options.successfulPostCreatePreparedCard === false ? '["read_only_app_server_signal", "read_probe_found_thread", "indexed_session_found", "indexed_description_available", "prepared_card_missing"]' : '["read_only_app_server_signal", "read_probe_found_thread", "indexed_session_found", "indexed_description_available", "prepared_card_available", "prepared_card_stale_or_not_ready"]'}, actions_performed: { ${options.inconsistentSuccessfulPostCreateActionAlias ? 'liveCodexControlRun: "false",' : ""} live_codex_control_run: ${options.successfulPostCreateRestrictedAction ? "true" : "false"}, desktop_gui_action_run: false, raw_transcript_read: false, source_store_mutation: false, npm_publish: false, github_release: false } }`} } }));
       process.exit(0);
     }
     if (${options.currentProductFailClosedShapes ? "true" : "false"}) {
@@ -1403,6 +1414,7 @@ for (const [name, fixture] of [
   ["missing", { missingSuccessfulPostCreateReasonCodes: true }],
   ["unrecognized", { unknownSuccessfulPostCreateReasonCode: true }],
   ["mixed-casing", { mixedSuccessfulPostCreateReasonCodes: true }],
+  ["split aliases", { splitSuccessfulPostCreateReasonCodes: true }],
   ["incomplete", { subsetSuccessfulPostCreateReasonCodes: true }]
 ] as const) {
   test(`OpenClaw tool smoke rejects ${name} successful post-create reason codes`, () => {
@@ -1424,6 +1436,38 @@ for (const [name, fixture] of [
       assert.equal(report.toolSmokeReady, false);
       assert.equal(report.invocations[0]?.disposition, "expected_fail_closed");
       assert.equal(report.invocations[0]?.productEvidenceClaimed, false);
+      assert.equal(report.invocations[0]?.blockers.includes("post_create_proof_reason_codes_invalid"), true);
+    } finally {
+      if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+      else process.env.OPENCLAW_FAKE_CALLS = previous;
+    }
+  });
+}
+
+for (const [name, fixture] of [
+  ["conflicting availability", { conflictingSuccessfulPostCreatePreparedReasonCodes: true }],
+  ["orphan stale", { orphanSuccessfulPostCreateStaleReasonCode: true }],
+  ["current without available", { successfulPostCreatePreparedCard: false, impossibleMissingCurrentPreparedState: true }],
+  ["conflicting state aliases", { conflictingSuccessfulPostCreatePreparedStateAliases: true }],
+  ["missing current state", { missingSuccessfulPostCreateCurrentState: true }],
+  ["conflicting state objects", { conflictingSuccessfulPostCreatePreparedStateObjects: true }]
+] as const) {
+  test(`OpenClaw tool smoke rejects ${name} prepared-card reason codes`, () => {
+    const dir = mkdtempSync(join(tmpdir(), `loo-openclaw-tool-smoke-post-create-${name.replaceAll(" ", "-")}-`));
+    const toolName = "loo_codex_start_thread_post_create_proof";
+    const { bin, callsPath } = createFakeOpenClaw(dir, [toolName], "flat", {
+      successfulPostCreateProof: true,
+      ...fixture
+    });
+    const previous = process.env.OPENCLAW_FAKE_CALLS;
+    process.env.OPENCLAW_FAKE_CALLS = callsPath;
+    try {
+      const report = runOpenClawToolSmoke({
+        openclawBin: bin,
+        requiredTools: [toolName],
+        threadId: "00000000-0000-4000-8000-000000000001"
+      });
+      assert.equal(report.toolSmokeReady, false);
       assert.equal(report.invocations[0]?.blockers.includes("post_create_proof_reason_codes_invalid"), true);
     } finally {
       if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
