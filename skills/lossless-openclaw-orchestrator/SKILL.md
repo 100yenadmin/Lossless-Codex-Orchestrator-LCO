@@ -94,8 +94,8 @@ inspected instead of hidden behind a single magic command.
 
 ## Describe This Session
 
-1. Use `lco_describe_session` for a known `thread_id`.
-2. Use `lco_describe_ref` for a source-prefixed ref such as `codex_thread:*`.
+1. Use `lco_describe_ref` with `thread_id` for a known Codex thread.
+2. Use `lco_describe_ref` with `source_ref` for a source-prefixed ref such as `codex_thread:*`.
 3. Summarize status, project, likely objective, blockers, latest assistant
    closeout, and next safe action.
 
@@ -178,7 +178,7 @@ Typical live tools after approval are `lco_codex_resume_thread`,
    describe output are not enough.
 5. Use `lco_recent_sessions`, `lco_attention_inbox`, or `lco_project_digest`
    to refresh the operating picture or handoff.
-6. Use `lco_doctor`, `lco_search_sessions`, `lco_describe_session`,
+6. Use `lco_doctor`, `lco_search_sessions`, `lco_describe_ref`,
    `lco_expand_session`, and `lco_codex_extract`
    only as workflow-detail fallbacks when the facade cannot answer the task.
 7. Optionally run `lco_codex_desktop_coherence` when the user asks whether the

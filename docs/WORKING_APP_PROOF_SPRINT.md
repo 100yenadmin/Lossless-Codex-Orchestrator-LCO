@@ -108,7 +108,7 @@ lco openclaw post-action-refresh-smoke \
 The command writes `post-action-refresh-reasoning-v1-1.runtime-proof.json` and
 `post-action-refresh-reasoning-report.json`. It invokes only read/recall tools
 through OpenClaw Gateway: `lco_operating_picture` with `kind: "thread_map"`,
-`lco_search_sessions`, `lco_describe_session`, and `lco_expand_query`. It must
+`lco_search_sessions`, `lco_describe_ref`, and `lco_expand_query`. It must
 not run live Codex control, mutate a GUI, or store raw transcript/prompt text.
 
 ## Working App Claim

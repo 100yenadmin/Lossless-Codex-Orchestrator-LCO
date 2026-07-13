@@ -253,7 +253,7 @@ The local OpenClaw gateway is a first-class beta user. First run metadata-only
 install/tool-declaration coverage from the candidate checkout:
 
 ```bash
-node ./dist/packages/cli/src/index.js openclaw dogfood --profile lco-dogfood --install-source . --link --required-tool lco_doctor --required-tool lco_search_sessions --required-tool lco_describe_session --required-tool lco_expand_session --required-tool lco_expand_query --required-tool lco_codex_extract --required-tool lco_operating_picture --required-tool lco_codex_control_dry_run --evidence-path /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/openclaw-dogfood/plugin-load.json --strict
+node ./dist/packages/cli/src/index.js openclaw dogfood --profile lco-dogfood --install-source . --link --required-tool lco_doctor --required-tool lco_search_sessions --required-tool lco_describe_ref --required-tool lco_expand_session --required-tool lco_expand_query --required-tool lco_codex_extract --required-tool lco_operating_picture --required-tool lco_codex_control_dry_run --evidence-path /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/openclaw-dogfood/plugin-load.json --strict
 ```
 
 Use an isolated profile such as `lco-dogfood` for linked beta proof. Reusing the
@@ -281,7 +281,7 @@ This command verifies:
 Before the OpenClaw user path is called usable, also capture real OpenClaw
 gateway tool-call evidence or record an explicit blocker. That public-safe
 evidence must prove the gateway invoked `lco_doctor`, `lco_search_sessions`,
-`lco_describe_session`, `lco_expand_session`, `lco_expand_query`,
+`lco_describe_ref`, `lco_expand_session`, `lco_expand_query`,
 `lco_codex_extract` for plans/finals, `lco_operating_picture` for thread maps,
 and `lco_codex_control_dry_run`, including dry-run control audit creation
 without mutating a real Codex thread.
@@ -289,7 +289,7 @@ without mutating a real Codex thread.
 Use the narrow gateway tool-call smoke for that proof:
 
 ```bash
-node ./dist/packages/cli/src/index.js openclaw tool-smoke --profile lco-dogfood --session-key agent:main:lco-dogfood --required-tool lco_doctor --required-tool lco_search_sessions --required-tool lco_describe_session --required-tool lco_expand_session --required-tool lco_expand_query --required-tool lco_codex_extract --required-tool lco_operating_picture --required-tool lco_codex_control_dry_run --evidence-path /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/openclaw-dogfood/tool-smoke.json --strict
+node ./dist/packages/cli/src/index.js openclaw tool-smoke --profile lco-dogfood --session-key agent:main:lco-dogfood --required-tool lco_doctor --required-tool lco_search_sessions --required-tool lco_describe_ref --required-tool lco_expand_session --required-tool lco_expand_query --required-tool lco_codex_extract --required-tool lco_operating_picture --required-tool lco_codex_control_dry_run --evidence-path /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/openclaw-dogfood/tool-smoke.json --strict
 ```
 
 This command calls OpenClaw Gateway `tools.catalog` and `tools.invoke`, then

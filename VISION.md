@@ -260,7 +260,7 @@ Expected dogfood checks:
 - Prefer an isolated OpenClaw profile, such as `lco-dogfood`, for linked beta proof so an existing default-profile install does not masquerade as a product failure.
 - Treat `openclaw_gateway_credentials_required` on a fresh profile as first-run setup, not a package defect: `lco openclaw tool-smoke` must emit `setupStatus.classification: "gateway_setup_required"` plus `setupBlockers`/`setupGuidance`; use a provisioned profile, pass a scoped gateway token, or complete local profile/device pairing before claiming gateway tool-smoke failure.
 - Record structured `installOutcome.status` and `installOutcome.guidance` for linked installs, including `installed`, `already_installed`, `link_force_unsupported`, or `failed`, without storing raw OpenClaw stdout/stderr or local profile paths.
-- Call read-only tools such as `lco_doctor`, `lco_index_sessions`, `lco_search_sessions`, `lco_describe_session`, `lco_expand_session`, `lco_expand_query`, and `lco_codex_extract` with the relevant `kind`.
+- Call read-only tools such as `lco_doctor`, `lco_index_sessions`, `lco_search_sessions`, `lco_describe_ref`, `lco_expand_session`, `lco_expand_query`, and `lco_codex_extract` with the relevant `kind`.
 - For approval-gated tools, distinguish catalog exposure from proof-ready invocation. A generic `tools.invoke` call that reaches the tool but returns `ok:false` is fail-closed evidence, not a successful feature proof.
 - Verify dry-run control tools produce audit ids without mutating a real Codex thread.
 - Confirm evidence contains counts, refs, hashes, statuses, and redacted metadata only.

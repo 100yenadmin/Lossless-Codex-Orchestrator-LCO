@@ -481,7 +481,7 @@ The safe loop is:
 
 1. `lco_doctor`
 2. `lco_search_sessions`
-3. `lco_describe_session` or `lco_describe_ref`
+3. `lco_describe_ref` with either `thread_id` or a source-prefixed `source_ref`
 4. `lco_codex_extract` with `kind: "plans"`, `kind: "final_messages"`, and
    `kind: "touched_files"`
 5. `lco_expand_session` or `lco_expand_query`

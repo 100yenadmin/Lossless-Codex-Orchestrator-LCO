@@ -39,7 +39,7 @@ test("OpenClaw agent usage skill teaches bounded recall and approval-gated contr
     /Dry-run steer, send, or resume/i,
     /lco_doctor/,
     /lco_search_sessions/,
-    /lco_describe_session/,
+    /lco_describe_ref/,
     /lco_expand_session/,
     /lco_expand_query/,
     /lco_codex_extract/,

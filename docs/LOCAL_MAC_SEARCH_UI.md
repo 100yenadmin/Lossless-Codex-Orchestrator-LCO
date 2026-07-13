@@ -14,8 +14,8 @@ The first app shell reads from public-safe `lco_*` surfaces:
 
 - `lco_search_sessions` for bounded search results.
 - `lco_grep` for Codex plus optional read-only OpenClaw LCM peer search.
-- `lco_describe_session` for metadata and safe summaries.
-- `lco_describe_ref` for source-prefixed refs such as `codex_thread:*` and `lcm_summary:*`.
+- `lco_describe_ref` with `thread_id` for Codex metadata and safe summaries.
+- `lco_describe_ref` with `source_ref` for source-prefixed refs such as `codex_thread:*` and `lcm_summary:*`.
 - `lco_expand_query` for bounded brief or evidence profiles.
 - `lco_operating_picture` with `kind: "thread_map"` for active, blocked, needs-expansion, archive, fork, and resume lanes.
 - `lco_codex_extract` with `kind: "plans"`, `kind: "final_messages"`, and `kind: "touched_files"` for cited detail views.
