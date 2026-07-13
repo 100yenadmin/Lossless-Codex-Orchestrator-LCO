@@ -18687,7 +18687,7 @@ function searchLcmPeer(db: LooDatabase, path: string, query: string, limit: numb
           ${hasConversations ? "c.title" : "NULL"} AS conversationTitle,
           s.kind,
           s.depth,
-          s.content,
+          SUBSTR(s.content, 1, ${LCM_SUMMARY_CONTENT_MAX_CHARS}) AS content,
           s.token_count AS tokenCount,
           s.model,
           s.created_at AS createdAt,
@@ -19092,7 +19092,10 @@ function normalizeClaudeSessionRef(value: unknown): string | null {
 }
 
 function lcmSummaryRef(path: string, summaryId: string): string {
-  return `lcm_summary:${lcmPeerHash(path)}:${encodeURIComponent(summaryId)}`;
+  const encodedSummaryId = encodeURIComponent(summaryId).replace(/[!'()*]/g, (character) =>
+    `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+  );
+  return `lcm_summary:${lcmPeerHash(path)}:${encodedSummaryId}`;
 }
 
 function lcmPeerHashFromRef(sourceRef: string): string | null {

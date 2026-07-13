@@ -422,7 +422,7 @@ test("LCM peer doctor degrades cyclic summary DAGs", () => {
 
 test("LCM summary DAGs materialize public-safe prepared cards and inbox items", () => {
   const fixture = makeDagFixture();
-  fixture.addSummary("card_root", "Prepared LCM root summary for the next operator.", { kind: "condensed", depth: 1 });
+  fixture.addSummary("card_root", "Prepared LCM root summary for the next operator at /Users/lume/private. Bearer sk-test_1234567890", { kind: "condensed", depth: 1 });
   fixture.addSummary("card_leaf", "Prepared LCM source leaf with bounded evidence.", { kind: "leaf", depth: 0 });
   fixture.addParent("card_root", "card_leaf", 0);
   const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
@@ -441,7 +441,29 @@ test("LCM summary DAGs materialize public-safe prepared cards and inbox items", 
     const inbox = getPreparedInbox(db, { limit: 10 }).items.filter((item) => item.targetRef.startsWith("lcm_summary:"));
     assert.equal(inbox.length, 2);
     assert.equal(inbox.every((item) => item.execute === false), true);
+    const serializedPreparedState = JSON.stringify({ cards, inbox });
+    assert.doesNotMatch(serializedPreparedState, /\/Users\/lume\/private|sk-test_1234567890|Bearer/);
+    assert.doesNotMatch(serializedPreparedState, new RegExp(fixture.root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     assert.deepEqual(peerDbState(fixture.lcmPath), before);
+  } finally {
+    db.close();
+    fixture.close();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("LCM prepared cards accept the full encodeURIComponent unescaped ID set", () => {
+  const fixture = makeDagFixture();
+  fixture.addSummary("valid!*'()", "Prepared LCM summary with a valid public identifier.");
+  const db = createDatabase(join(fixture.root, "orchestrator.sqlite"));
+  try {
+    const indexed = indexCodexSessions(db, { roots: [], lcmDbPaths: [fixture.lcmPath] });
+    assert.deepEqual(indexed.errors, []);
+    const cards = getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary");
+    assert.equal(cards.length, 1);
+    assert.equal(cards[0]?.targetRef.endsWith(":valid%21%2A%27%28%29"), true);
+    const description = describeRecallRef(db, { sourceRef: cards[0]!.targetRef, lcmDbPaths: [fixture.lcmPath] });
+    assert.equal(description?.summaryId, "valid!*'()");
   } finally {
     db.close();
     fixture.close();
@@ -481,7 +503,8 @@ test("empty LCM configuration skips reconciliation when no peer cache exists", (
   const locker = createDatabase(dbPath);
   try {
     locker.exec("BEGIN IMMEDIATE");
-    assert.doesNotThrow(() => indexCodexSessions(db, { roots: [], lcmDbPaths: [] }));
+    const indexed = indexCodexSessions(db, { roots: [], lcmDbPaths: [] });
+    assert.deepEqual(indexed.errors, []);
     locker.exec("ROLLBACK");
   } finally {
     try {
