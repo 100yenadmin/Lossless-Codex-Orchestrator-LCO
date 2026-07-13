@@ -463,9 +463,11 @@ function unwrapToolOutput(value: unknown): unknown {
 
 function resolveNativeEnvelopeDetails(value: unknown): unknown {
   if (!isRecord(value)) return undefined;
-  const output = isRecord(value.output) ? value.output : value;
-  if (!isRecord(output)) return undefined;
-  return Array.isArray(output.content) && "details" in output ? output.details : undefined;
+  if (isRecord(value.output)
+    && Object.keys(value.output).every((key) => ["content", "details"].includes(key))) {
+    return "details" in value.output ? value.output.details : undefined;
+  }
+  return Array.isArray(value.content) && "details" in value ? value.details : undefined;
 }
 
 function unwrapNativeSuccessDetails(value: unknown, depth = 0): unknown {
