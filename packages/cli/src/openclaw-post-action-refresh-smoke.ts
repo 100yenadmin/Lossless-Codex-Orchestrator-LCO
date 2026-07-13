@@ -180,9 +180,9 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
     : null;
   blockers.push(...(expand ? gatewayCallBlockers(expand, "post_action_expand_failed") : []));
 
-  const outputs = [threadMap, search, describe, expand]
-    .flatMap((call) => call?.parsed === undefined ? [] : [unwrapToolOutput(unwrapGatewayPayload(call.parsed))]);
-  const textPreview = outputs.map((output) => JSON.stringify(output)).join("\n");
+  const responseEnvelopes = [catalog, threadMap, search, describe, expand]
+    .flatMap((call) => call?.parsed === undefined ? [] : [call.parsed]);
+  const textPreview = responseEnvelopes.map((output) => JSON.stringify(output)).join("\n");
   const containsRawPrivate = RAW_PRIVATE_PATTERN.test(textPreview);
   if (containsRawPrivate) blockers.push("post_action_refresh_raw_private_output");
 
@@ -200,8 +200,14 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
     .flatMap((output) => output === undefined ? [] : collectSourceRefs(output)))
     .filter((ref) => ref.startsWith("codex_thread:"));
 
-  const refreshedAt = targetThreadMapOutput ? firstString(targetThreadMapOutput, ["refreshedAt", "refreshed_at", "updatedAt", "updated_at"]) : null;
-  const statusBucket = targetThreadMapOutput ? firstString(targetThreadMapOutput, ["statusBucket", "status_bucket", "status"]) ?? (refreshedAt ? "refreshed" : null) : null;
+  const refreshedAt = isRecord(targetThreadMapOutput)
+    ? directString(targetThreadMapOutput, ["refreshedAt", "refreshed_at"])
+    : null;
+  const statusBucket = isRecord(targetThreadMapOutput)
+    ? stringPath(targetThreadMapOutput, ["metadata", "status"])
+      ?? directString(targetThreadMapOutput, ["statusBucket", "status_bucket"])
+      ?? (refreshedAt ? "refreshed" : null)
+    : null;
   const safeSummaryDelta = hasTargetSafeSummaryDelta(targetSearchOutput, targetDescribeOutput, query);
   const boundedExpansionProfile = targetExpandOutput ? firstString(targetExpandOutput, ["profile"]) || expandProfile : null;
   const refreshTimestampValid = refreshedAt ? parseTimestamp(refreshedAt) !== null : false;
@@ -223,6 +229,10 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
   }
 
   const uniqueBlockers = unique(blockers);
+  const needsExternalIndexRefresh = uniqueBlockers.some((blocker) =>
+    blocker === "post_action_refresh_timestamp_missing"
+    || blocker === "post_action_refresh_not_after_live_action"
+  );
   const reportPath = join(options.evidenceDir, "post-action-refresh-reasoning-report.json");
   const runtimeProofPath = join(options.evidenceDir, `${SCENARIO_ID}.runtime-proof.json`);
   const proofReady = uniqueBlockers.length === 0;
@@ -271,6 +281,8 @@ export function runOpenClawPostActionRefreshSmoke(options: OpenClawPostActionRef
     proofBoundary: "This proves one public-tool post-action refresh and safe reasoning loop for a named Codex thread only; it does not prove continuous sync, cloud sync, raw transcript ingestion, or unattended orchestration.",
     nextAction: proofReady
       ? "Run the v1.1 scenario sweep with the #158 and #159 runtime proof markers, then continue the #172 proof packet."
+      : needsExternalIndexRefresh
+      ? "Run loo_index_sessions after the live action, wait for its preparedMaterialization pendingThreads count to reach zero, then rerun this read-only post-action refresh smoke."
       : "Resolve the listed post-action refresh blockers before claiming #159 runtime proof."
   };
   writeJson(reportPath, report);
@@ -287,7 +299,7 @@ function readLiveProof(path: string, targetRef: string): LiveProofSummary {
   }
   const record = isRecord(parsed) ? parsed : {};
   const proofTarget = stringPath(record, ["targetRef"]) || stringPath(record, ["target_ref"]);
-  const actionObservedAt = firstString(record, ["actionObservedAt", "action_observed_at"]) || stringPath(record, ["generatedAt"]) || stringPath(record, ["generated_at"]);
+  const actionObservedAt = stringPath(record, ["live", "actionObservedAt"]) || stringPath(record, ["live", "action_observed_at"]);
   const actionObservedAtTimestamp = actionObservedAt ? parseTimestamp(actionObservedAt) : null;
   const actionRecord = isRecord(record.actionsPerformed) ? record.actionsPerformed : {};
   const authorization = isRecord(record.authorization) ? record.authorization : {};
@@ -370,7 +382,36 @@ function gatewayCallBlockers(call: GatewayCallResult, fallback: string): string[
   if (call.parsed === undefined) return [`${fallback}:invalid_json`];
   const payload = unwrapGatewayPayload(call.parsed);
   if (isRecord(payload) && payload.ok === false) return [`${fallback}:tool_not_ok`];
+  if (hasNativeToolFailure(payload)) return [`${fallback}:tool_not_ok`];
+  const toolOutput = unwrapToolOutput(payload);
+  if (isRecord(toolOutput) && toolOutput.ok === false) return [`${fallback}:tool_not_ok`];
   return [];
+}
+
+function hasNativeToolFailure(value: unknown): boolean {
+  const details = resolveNativeEnvelopeDetails(value);
+  return details !== undefined && hasNativeResultFailure(details, true);
+}
+
+function hasNativeResultFailure(value: unknown, checkDirect = false, depth = 0): boolean {
+  if (!isRecord(value)) return false;
+  if (depth > 4) return true;
+  if (checkDirect && value.ok === false) return true;
+  if (checkDirect && hasNativeFailureStatus(value)) return true;
+  for (const key of ["response", "result"] as const) {
+    const nested = value[key];
+    if (!isRecord(nested)) continue;
+    if (nested.ok === false) return true;
+    if (hasNativeFailureStatus(nested)) return true;
+    if (hasNativeResultFailure(nested, false, depth + 1)) return true;
+  }
+  return false;
+}
+
+function hasNativeFailureStatus(value: Record<string, unknown>): boolean {
+  return typeof value.status === "string"
+    && ["error", "failed", "failure"].includes(value.status.toLowerCase())
+    && (isNativeResultWrapper(value) || isRecord(value.response) || isRecord(value.result));
 }
 
 function gatewayProcessTimeoutMs(timeoutMs: number): number {
@@ -415,10 +456,35 @@ function unwrapGatewayPayload(value: unknown): unknown {
 }
 
 function unwrapToolOutput(value: unknown): unknown {
+  const details = resolveNativeEnvelopeDetails(value);
+  if (details !== undefined) return unwrapNativeSuccessDetails(details);
   if (!isRecord(value)) return value;
-  if ("output" in value) return value.output;
-  if ("result" in value) return value.result;
+  const output = "output" in value ? value.output : value;
+  return output;
+}
+
+function resolveNativeEnvelopeDetails(value: unknown): unknown {
+  if (!isRecord(value)) return undefined;
+  if (isRecord(value.output)
+    && Object.keys(value.output).every((key) => ["ok", "content", "details"].includes(key))) {
+    return "details" in value.output ? value.output.details : undefined;
+  }
+  if (Object.keys(value).every((key) => ["ok", "content", "details"].includes(key))) {
+    return "details" in value ? value.details : undefined;
+  }
+  return undefined;
+}
+
+function unwrapNativeSuccessDetails(value: unknown, depth = 0): unknown {
+  if (!isRecord(value) || depth > 4) return value;
+  if (!isNativeResultWrapper(value)) return value;
+  if (isRecord(value.response)) return unwrapNativeSuccessDetails(value.response, depth + 1);
+  if (isRecord(value.result)) return unwrapNativeSuccessDetails(value.result, depth + 1);
   return value;
+}
+
+function isNativeResultWrapper(value: Record<string, unknown>): boolean {
+  return Object.keys(value).every((key) => ["ok", "status", "response", "result"].includes(key));
 }
 
 function extractCatalogToolNames(value: unknown): string[] {
@@ -541,6 +607,14 @@ function parseTimestamp(value: string): number | null {
 function firstString(value: unknown, keys: string[]): string | null {
   const found = findStrings(value, keys)[0];
   return found ?? null;
+}
+
+function directString(value: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const candidate = value[key];
+    if (typeof candidate === "string" && candidate) return candidate;
+  }
+  return null;
 }
 
 function findStrings(value: unknown, keys: string[]): string[] {

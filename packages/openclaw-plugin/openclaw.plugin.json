@@ -173,6 +173,12 @@
                 "type": "string"
               }
             },
+            "lcm_db_paths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
             "max_files": {
               "type": "integer",
               "minimum": 1,
@@ -237,6 +243,12 @@
               }
             },
             "claude_roots": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "lcm_db_paths": {
               "type": "array",
               "items": {
                 "type": "string"
@@ -1982,6 +1994,12 @@
                 "type": "string"
               }
             },
+            "lcm_db_paths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
             "max_files": {
               "type": "integer",
               "minimum": 1,
@@ -2047,6 +2065,12 @@
               }
             },
             "claude_roots": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "lcm_db_paths": {
               "type": "array",
               "items": {
                 "type": "string"
