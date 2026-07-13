@@ -631,6 +631,19 @@ test("release preflight rejects proof markers with unexpected private fields", (
   assert.deepEqual(payload.blockers, ["approved_live_control_smoke_missing"]);
 });
 
+test("release preflight treats non-object JSON proof shapes as structured blockers", () => {
+  const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-proof-shapes-"));
+  const proofFile = join(evidenceDir, "approved-live-control-smoke.json");
+
+  for (const value of [null, 42, "proof", []]) {
+    writeFileSync(proofFile, `${JSON.stringify(value)}\n`);
+    const payload = runReleasePreflight({ candidateSha, approvedLiveControlEvidence: proofFile });
+    assert.equal(payload.releaseReady, false);
+    assert.equal(payload.checks.liveControlSmoke?.ok, false);
+    assert.deepEqual(payload.blockers, ["approved_live_control_smoke_missing"]);
+  }
+});
+
 test("release preflight fails closed when the OpenClaw runtime extension artifact is missing", () => {
   const rootDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-missing-runtime-root-"));
   const evidenceDir = mkdtempSync(join(tmpdir(), "loo-release-preflight-missing-runtime-evidence-"));

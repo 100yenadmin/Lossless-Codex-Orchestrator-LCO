@@ -347,12 +347,16 @@ function rawArtifactForName(name: string): RawSessionArtifact | null {
 function validateApprovedLiveControlProof(path: string | undefined, expectedCandidateSha?: string): ApprovedLiveControlValidation {
   if (!path) return { check: check(false, "approved live-control evidence was not provided"), candidateMismatch: false };
   if (!existsSync(path)) return { check: check(false, "approved live-control evidence path does not exist"), candidateMismatch: false };
-  let proof: ApprovedLiveControlSmokeProof;
+  let parsedProof: unknown;
   try {
-    proof = JSON.parse(readFileSync(path, "utf8")) as ApprovedLiveControlSmokeProof;
+    parsedProof = JSON.parse(readFileSync(path, "utf8")) as unknown;
   } catch {
     return { check: check(false, "approved live-control evidence must be JSON"), candidateMismatch: false };
   }
+  if (!parsedProof || typeof parsedProof !== "object" || Array.isArray(parsedProof)) {
+    return { check: check(false, "approved live-control evidence must be a JSON object"), candidateMismatch: false };
+  }
+  const proof = parsedProof as ApprovedLiveControlSmokeProof;
   const actionOk = proof.action === "send" || proof.action === "resume" || proof.action === "steer" || proof.action === "interrupt";
   const hashOk = proof.action === "send" || proof.action === "steer" ? isSafeFingerprint(proof.messageHash) : true;
   const allowedKeys = new Set([
