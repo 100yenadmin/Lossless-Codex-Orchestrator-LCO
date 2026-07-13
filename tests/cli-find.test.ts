@@ -221,6 +221,22 @@ test("lco find reports direct LCM peer reads without claiming transcript access"
   assert.equal(report.actionsPerformed.localLcmSourceRead, true);
   assert.equal(report.actionsPerformed.rawTranscriptRead, false);
   assert.equal(report.reasonCodes.includes("lcm_peer_source_read"), true);
+
+  const noMatch = createFindRecallReport({
+    query: "missing peer term",
+    indexed: null,
+    recall: {
+      query: "missing peer term",
+      profile: "brief",
+      matches: [],
+      reasonCodes: ["lcm_peer_source_read"]
+    }
+  });
+  assert.equal(noMatch.resultCount, 0);
+  assert.equal(noMatch.actionsPerformed.localRecallSourceRead, true);
+  assert.equal(noMatch.actionsPerformed.localLcmSourceRead, true);
+  assert.equal(noMatch.actionsPerformed.derivedCacheWrite, false);
+  assert.equal(noMatch.actionsPerformed.rawTranscriptRead, false);
 });
 
 test("lco_find MCP facade indexes then returns the same public-safe find packet", async () => {

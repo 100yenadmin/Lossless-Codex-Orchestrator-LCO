@@ -289,6 +289,10 @@ test("grep -> describe -> expand_query preserves Codex and read-only LCM source 
     const lcmRef = grep.matches.find((match) => match.sourceKind === "lcm_summary")?.sourceRef;
     assert.ok(lcmRef?.startsWith("lcm_summary:"));
 
+    const noPeerMatch = grepRecall(db, { query: "definitely absent peer term", lcmDbPaths: [fixture.lcmPath], limit: 5 });
+    assert.equal(noPeerMatch.matches.some((match) => match.sourceKind === "lcm_summary"), false);
+    assert.equal(noPeerMatch.reasonCodes?.includes("lcm_peer_source_read"), true);
+
     const codexDescription = describeRecallRef(db, {
       sourceRef: "codex_thread:019f-recall-thread",
       lcmDbPaths: [fixture.lcmPath]
@@ -389,6 +393,13 @@ test("LCM peer doctor classifies ready degraded and unavailable without mutation
     rmSync(ready.root, { recursive: true, force: true });
     rmSync(degraded.root, { recursive: true, force: true });
   }
+});
+
+test("LCM peer doctor treats an optional unconfigured peer set as ready", () => {
+  const report = probeLcmPeerDbs([]);
+  assert.equal(report.status, "ready");
+  assert.deepEqual(report.summary, { ready: 0, degraded: 0, unavailable: 0 });
+  assert.deepEqual(report.peers, []);
 });
 
 test("LCM peer doctor degrades cyclic summary DAGs", () => {

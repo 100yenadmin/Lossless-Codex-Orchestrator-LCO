@@ -17561,9 +17561,9 @@ export function probeLcmPeerDbs(paths = configuredLcmPeerDbPaths()): LcmPeerProb
     degraded: peers.filter((peer) => peer.status === "degraded").length,
     unavailable: peers.filter((peer) => peer.status === "unavailable").length
   };
-  const status = peers.length > 0 && summary.ready === peers.length
+  const status = peers.length === 0 || summary.ready === peers.length
     ? "ready"
-    : peers.length > 0 && summary.unavailable === peers.length
+    : summary.unavailable === peers.length
       ? "unavailable"
       : "degraded";
   return { schema: "lco.lcm.peerDoctor.v1", status, readOnly: true, summary, peers };
@@ -17687,8 +17687,8 @@ export function grepRecall(db: LooDatabase, options: {
     ...sessionMatches.filter((match) => !eventSessionRefs.has(match.sourceRef))
   ].slice(0, limit);
   const claudeMatches = searchClaudeSessions(db, { query, limit });
-  const lcmMatches = searchLcmPeers(options.lcmDbPaths ?? [], query, limit);
-  const matches = [...codexMatches, ...claudeMatches, ...lcmMatches].slice(0, limit).map((match, index) => ({ ...match, score: index + 1 }));
+  const lcmSearch = searchLcmPeers(options.lcmDbPaths ?? [], query, limit);
+  const matches = [...codexMatches, ...claudeMatches, ...lcmSearch.matches].slice(0, limit).map((match, index) => ({ ...match, score: index + 1 }));
   if (retrievalTelemetryEnabled(options.telemetry)) {
     recordTelemetrySearchEvent(db, {
       query,
@@ -17697,7 +17697,10 @@ export function grepRecall(db: LooDatabase, options: {
       now: options.now
     });
   }
-  const reasonCodes = unique(eventSearch.reasonCodes);
+  const reasonCodes = unique([
+    ...eventSearch.reasonCodes,
+    lcmSearch.peerRead ? "lcm_peer_source_read" : ""
+  ].filter(Boolean));
   return reasonCodes.length > 0 ? { query, profile, matches, reasonCodes } : { query, profile, matches };
 }
 
@@ -17745,7 +17748,8 @@ export function createFindRecallReport(options: {
   const incrementalIndexAttempted = indexed?.attempted ?? false;
   const localCodexSourceRead = Boolean(indexed?.sourceKinds.includes("codex"));
   const localClaudeSourceRead = Boolean(indexed?.sourceKinds.includes("claude"));
-  const localLcmSourceRead = results.some((result) => result.sourceKind === "lcm_summary");
+  const localLcmSourceRead = options.recall.reasonCodes?.includes("lcm_peer_source_read") === true
+    || results.some((result) => result.sourceKind === "lcm_summary");
   const localRecallSourceRead = incrementalIndexAttempted || localLcmSourceRead;
   const transcriptDerivedContentRead = incrementalIndexAttempted
     || results.some((result) => result.reasonCodes.includes("event_content_fts_match"));
@@ -18582,14 +18586,16 @@ function rawQueryTermCount(query: string): number {
   return query.match(/[\p{L}\p{N}_-]+/gu)?.length ?? 0;
 }
 
-function searchLcmPeers(paths: string[], query: string, limit: number): RecallSearchResult[] {
+function searchLcmPeers(paths: string[], query: string, limit: number): { matches: RecallSearchResult[]; peerRead: boolean } {
   const matches: RecallSearchResult[] = [];
+  let peerRead = false;
   for (const path of paths) {
     if (matches.length >= limit) break;
     let db: LooDatabase | null = null;
     try {
       const normalizedPath = normalizePeerPath(path);
       db = openLcmPeerDb(normalizedPath);
+      peerRead = true;
       matches.push(...searchLcmPeer(db, normalizedPath, query, limit - matches.length));
     } catch {
       // Peer reads are optional and must not break Codex recall.
@@ -18597,7 +18603,7 @@ function searchLcmPeers(paths: string[], query: string, limit: number): RecallSe
       db?.close();
     }
   }
-  return matches;
+  return { matches, peerRead };
 }
 
 function evaluateRetrievalScenario(db: LooDatabase, scenario: RetrievalEvalScenario): RetrievalEvalScenarioResult {
