@@ -242,6 +242,7 @@ test("lco find reports direct LCM peer reads without claiming transcript access"
 test("lco find filters encoded private-looking LCM references", () => {
   const encodedPrivateRef = "lcm_summary:0123456789ab:%252FUsers%252Flume%252Fprivate-summary";
   const recursivelyEncodedPrivateRef = "lcm_summary:0123456789ab:%2525252FUsers%2525252Flume%2525252Fprivate-summary";
+  const malformedEncodedPrivateRef = "lcm_summary:0123456789ab:%252FUsers%252Flume%252Fprivate%25";
   const report = createFindRecallReport({
     query: "private peer",
     indexed: null,
@@ -269,6 +270,16 @@ test("lco find filters encoded private-looking LCM references", () => {
         snippet: "Should not escape either.",
         summaryId: "%25252FUsers%25252Flume%25252Fprivate-summary",
         reasonCodes: ["lcm_summary_match"]
+      }, {
+        sourceKind: "lcm_summary",
+        sourceRef: malformedEncodedPrivateRef,
+        title: "Malformed encoded private peer",
+        summary: "Should fail closed.",
+        updatedAt: null,
+        score: 1,
+        snippet: "Should fail closed.",
+        summaryId: "%2FUsers%2Flume%2Fprivate%",
+        reasonCodes: ["lcm_summary_match"]
       }]
     }
   });
@@ -276,7 +287,7 @@ test("lco find filters encoded private-looking LCM references", () => {
   assert.equal(report.resultCount, 0);
   assert.equal(report.actionsPerformed.localLcmSourceRead, true);
   assert.equal(report.reasonCodes.includes("unsafe_results_filtered"), true);
-  assert.doesNotMatch(JSON.stringify(report), /%2FUsers|%252FUsers|%25252FUsers|private-summary/);
+  assert.doesNotMatch(JSON.stringify(report), /%2FUsers|%252FUsers|%25252FUsers|private-summary|private%25/);
 });
 
 test("lco_find MCP facade indexes then returns the same public-safe find packet", async () => {

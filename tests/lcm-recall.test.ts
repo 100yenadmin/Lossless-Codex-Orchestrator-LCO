@@ -582,6 +582,40 @@ test("LCM prepared cards delete removed peers while retaining an unavailable sym
   }
 });
 
+test("LCM prepared cards reconcile a symlink retarget in one refresh", () => {
+  const firstFixture = makeDagFixture();
+  const secondFixture = makeDagFixture();
+  firstFixture.addSummary("retarget_first", "First peer summary.");
+  secondFixture.addSummary("retarget_second", "Second peer summary.");
+  const root = mkdtempSync(join(tmpdir(), "loo-lcm-peer-retarget-"));
+  const aliasPath = join(root, "configured-peer.sqlite");
+  symlinkSync(firstFixture.lcmPath, aliasPath);
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  try {
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [aliasPath] });
+    assert.equal(getPreparedCards(db, { limit: 10 }).cards.some((card) => card.targetRef.includes("retarget_first")), true);
+
+    rmSync(aliasPath);
+    symlinkSync(secondFixture.lcmPath, aliasPath);
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [aliasPath] });
+
+    const cards = getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary");
+    const inbox = getPreparedInbox(db, { limit: 10 }).items.filter((item) => item.targetRef.startsWith("lcm_summary:"));
+    assert.equal(cards.length, 1);
+    assert.equal(cards[0]?.targetRef.includes("retarget_second"), true);
+    assert.equal(cards.some((card) => card.targetRef.includes("retarget_first")), false);
+    assert.equal(inbox.length, 1);
+    assert.equal(inbox[0]?.targetRef.includes("retarget_second"), true);
+  } finally {
+    db.close();
+    firstFixture.close();
+    secondFixture.close();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(firstFixture.root, { recursive: true, force: true });
+    rmSync(secondFixture.root, { recursive: true, force: true });
+  }
+});
+
 test("LCM prepared cards delete a disabled peer when its replacement is unavailable", () => {
   const fixture = makeDagFixture();
   fixture.addSummary("disabled_root", "Disabled peer summary.");

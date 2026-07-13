@@ -7503,10 +7503,6 @@ function materializePreparedCardsForLcmPeers(
       return [];
     }
   }));
-  const configuredPeerHashes = new Set([
-    ...configuredAliasHashes,
-    ...mappedLcmCanonicalHashes(db, configuredAliasHashes)
-  ]);
   const legacyHashesByCanonicalHash = new Map<string, Set<string>>();
   for (const path of paths) {
     try {
@@ -7566,6 +7562,10 @@ function materializePreparedCardsForLcmPeers(
     }
   }
 
+  const configuredPeerHashes = new Set([
+    ...configuredAliasHashes,
+    ...mappedLcmCanonicalHashes(db, configuredAliasHashes)
+  ]);
   const staleTargets = previousCards.map((row) => row.targetRef).filter((targetRef) => {
     const peerHash = lcmPeerHashFromRef(targetRef);
     return peerHash === null
@@ -9503,7 +9503,10 @@ function decodeBoundedLcmSummaryId(encodedId: string): string | null {
       }
       decoded = next;
     } catch {
-      return pass > 0 && decoded.length <= LCM_SUMMARY_ID_MAX_CHARS ? decoded : null;
+      // A decoded public ID may legitimately contain a literal percent sign.
+      // Fail closed only when a valid encoded byte remains, because that means
+      // recursive decoding was interrupted before the safety check saw it.
+      return !/%[0-9A-Fa-f]{2}/.test(decoded) && decoded.length <= LCM_SUMMARY_ID_MAX_CHARS ? decoded : null;
     }
   }
   return null;
