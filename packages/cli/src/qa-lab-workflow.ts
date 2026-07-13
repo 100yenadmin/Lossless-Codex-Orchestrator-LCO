@@ -184,6 +184,9 @@ export function createQaLabWorkflowReport(options: QaLabWorkflowOptions): QaLabW
   if (gatewayToken && !options.gatewayUrl) {
     addBlocker(blockers, "P1", "workflow_gateway_token_requires_url", "qaLabWorkflow", "A scoped gateway token requires an explicit loopback --gateway-url; omit the token to use configured profile credentials.");
   }
+  if (options.profile && options.gatewayUrl && gatewayToken) {
+    addBlocker(blockers, "P1", "workflow_profile_backend_transport_unsupported", "qaLabWorkflow", "OpenClaw --profile is supported through the configured CLI transport only; omit --profile when using an explicit authenticated backend URL.");
+  }
   if (!candidateShaValid) {
     addBlocker(blockers, "P1", "candidate_sha_invalid", "qaLabWorkflow", "Candidate SHA must be a 40-character hexadecimal commit SHA.");
   }
