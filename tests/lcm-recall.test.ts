@@ -540,6 +540,36 @@ test("LCM prepared cards reconcile disabled peers and retain unavailable peer ca
   }
 });
 
+test("LCM prepared cards delete removed peers while retaining unavailable configured peers", () => {
+  const unavailableFixture = makeDagFixture();
+  const removedFixture = makeDagFixture();
+  unavailableFixture.addSummary("unavailable_root", "Unavailable configured peer summary.");
+  removedFixture.addSummary("removed_root", "Removed peer summary.");
+  const root = mkdtempSync(join(tmpdir(), "loo-lcm-mixed-peer-reconcile-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  let unavailableFixtureClosed = false;
+  try {
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [unavailableFixture.lcmPath, removedFixture.lcmPath] });
+    assert.equal(getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary").length, 2);
+
+    unavailableFixture.close();
+    unavailableFixtureClosed = true;
+    rmSync(unavailableFixture.lcmPath, { force: true });
+    indexCodexSessions(db, { roots: [], lcmDbPaths: [unavailableFixture.lcmPath] });
+
+    const cards = getPreparedCards(db, { limit: 10 }).cards.filter((card) => card.cardKind === "lcm_summary");
+    assert.equal(cards.length, 1);
+    assert.equal(cards[0]?.targetRef.includes("unavailable_root"), true);
+  } finally {
+    db.close();
+    if (!unavailableFixtureClosed) unavailableFixture.close();
+    removedFixture.close();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(unavailableFixture.root, { recursive: true, force: true });
+    rmSync(removedFixture.root, { recursive: true, force: true });
+  }
+});
+
 test("empty LCM configuration skips reconciliation when no peer cache exists", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-lcm-empty-reconcile-"));
   const dbPath = join(root, "orchestrator.sqlite");

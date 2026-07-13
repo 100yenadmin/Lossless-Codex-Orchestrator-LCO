@@ -7500,7 +7500,7 @@ function materializePreparedCardsForLcmPeers(
     }
   }
   const refreshedPeerHashes = new Set<string>();
-  let unavailableConfiguredPeer = false;
+  const unavailableConfiguredPeerHashes = new Set<string>();
   let skippedUnsafeRows = 0;
 
   for (const path of normalizedPaths) {
@@ -7542,17 +7542,28 @@ function materializePreparedCardsForLcmPeers(
     } catch {
       // Retain the last derived cache for an unavailable configured peer. The
       // peer remains fail-closed and doctor reports its unavailable posture.
-      unavailableConfiguredPeer = true;
+      try {
+        unavailableConfiguredPeerHashes.add(lcmPeerHash(path));
+        unavailableConfiguredPeerHashes.add(legacyLcmPeerHash(path));
+      } catch {
+        // The configured peer has no safe hash identity to reconcile.
+      }
     } finally {
       peer?.close();
     }
   }
 
+  const previousPeerHashes = new Set(previousCards.flatMap((row) => {
+    const peerHash = lcmPeerHashFromRef(row.targetRef);
+    return peerHash === null ? [] : [peerHash];
+  }));
+  const hasUnresolvedUnavailableAlias = [...unavailableConfiguredPeerHashes]
+    .some((peerHash) => !previousPeerHashes.has(peerHash));
   const staleTargets = previousCards.map((row) => row.targetRef).filter((targetRef) => {
     const peerHash = lcmPeerHashFromRef(targetRef);
     return peerHash === null
       || refreshedPeerHashes.has(peerHash)
-      || (!configuredPeerHashes.has(peerHash) && !unavailableConfiguredPeer);
+      || (!configuredPeerHashes.has(peerHash) && !hasUnresolvedUnavailableAlias);
   });
   deletePreparedCardsForTargetRefs(db, unique([
     ...staleTargets,
