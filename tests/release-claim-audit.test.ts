@@ -110,7 +110,7 @@ test("public docs include setup, MCP/OpenClaw, demo, and approval-boundary proof
   }
 
   for (const required of [
-    new RegExp(`Allowed ${escapedPackageVersion} Release Candidate Claim`, "i"),
+    new RegExp(`Allowed ${escapedPackageVersion} Stable Claim`, "i"),
     /Forbidden beta claims/i,
     /Claude Code local JSONL read\/recall/i,
     /lco index claude/i,
