@@ -401,6 +401,45 @@ test("OpenClaw post-action refresh smoke fails closed when the refresh predates 
   }
 });
 
+test("OpenClaw post-action refresh smoke requires the live action timestamp instead of generatedAt", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-openclaw-refresh-smoke-live-timestamp-"));
+  const evidenceDir = join(root, "evidence");
+  const liveProofReportPath = join(root, "openclaw-gateway-live-control-smoke-report.json");
+  writeLiveProofReport(liveProofReportPath, {
+    live: {
+      approvalAuditId: "loo_audit_def45678",
+      paramsHash: "a".repeat(64),
+      messageHash: "b".repeat(64),
+      live: true,
+      method: "turn/start",
+      turnStatus: "completed"
+    }
+  });
+  const { bin, callsPath } = createFakeOpenClaw(root);
+  const previous = process.env.OPENCLAW_FAKE_CALLS;
+  process.env.OPENCLAW_FAKE_CALLS = callsPath;
+
+  try {
+    const report = runOpenClawPostActionRefreshSmoke({
+      openclawBin: bin,
+      evidenceDir,
+      liveProofReportPath,
+      threadId: TARGET_THREAD_ID,
+      now: "2026-07-01T00:03:00.000Z"
+    });
+
+    assert.equal(report.ok, false);
+    assert.equal(report.proofReady, false);
+    assert.equal(report.liveProof.actionObservedAt, null);
+    assert.equal(report.refresh.refreshedAfterLiveAction, false);
+    assert.match(report.blockers.join("\n"), /post_action_live_proof_timestamp_missing/);
+  } finally {
+    if (previous === undefined) delete process.env.OPENCLAW_FAKE_CALLS;
+    else process.env.OPENCLAW_FAKE_CALLS = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("OpenClaw post-action refresh smoke binds public thread-map entries by thread id", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-openclaw-refresh-smoke-thread-id-map-"));
   const evidenceDir = join(root, "evidence");

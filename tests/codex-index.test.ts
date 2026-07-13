@@ -1299,16 +1299,15 @@ test("extracts public-safe session metadata and closeout fields", () => {
       .run(staleParseAt, "019f-metadata-thread");
     db.prepare("UPDATE codex_source_files SET last_indexed_at = ? WHERE source_path = ?")
       .run(staleParseAt, threadPath);
-    const refreshStartedAt = new Date().toISOString();
     const refresh = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
     assert.equal(refresh.skippedFiles, 1);
     const sourceRefresh = db.prepare("SELECT last_indexed_at AS lastIndexedAt FROM codex_source_files WHERE source_path = ?")
       .get(threadPath) as { lastIndexedAt: string };
     const sessionParse = db.prepare("SELECT indexed_at AS indexedAt FROM codex_sessions WHERE thread_id = ?")
       .get("019f-metadata-thread") as { indexedAt: string };
-    assert.equal(sourceRefresh.lastIndexedAt >= refreshStartedAt, true);
+    assert.equal(sourceRefresh.lastIndexedAt, staleParseAt);
     assert.equal(sessionParse.indexedAt, staleParseAt);
-    assert.equal(getCodexThreadMap(db, { limit: 10 })[0]?.refreshedAt, sourceRefresh.lastIndexedAt);
+    assert.equal(getCodexThreadMap(db, { limit: 10 })[0]?.refreshedAt, staleParseAt);
 
     const recallDescription = describeRecallRef(db, { sourceRef: "codex_thread:019f-metadata-thread" });
     assert.deepEqual(recallDescription?.metadata, description?.metadata);

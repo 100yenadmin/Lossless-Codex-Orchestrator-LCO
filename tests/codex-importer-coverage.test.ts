@@ -62,8 +62,7 @@ test("indexes active and archived JSONL roots and skips unchanged files with wat
     assert.equal(second.indexedEvents, 0);
     const afterSkip = getSourceFileWatermark(db, activePath);
     assert.ok(afterSkip);
-    assert.ok(Date.parse(afterSkip.lastIndexedAt) > Date.parse(before.lastIndexedAt));
-    assert.deepEqual({ ...afterSkip, lastIndexedAt: before.lastIndexedAt }, before);
+    assert.deepEqual(afterSkip, before);
 
     writeJsonl(activePath, "019f-active", "Active bridge work updated");
     const third = indexCodexSessions(db, { roots: [active, archived], maxFiles: 10 });

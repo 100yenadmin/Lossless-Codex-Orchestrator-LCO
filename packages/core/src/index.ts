@@ -3895,7 +3895,6 @@ export function indexCodexSessions(db: LooDatabase, options: IndexCodexOptions):
       const extractorStateCurrent = watermark ? sourceFileExtractorStateIsCurrent(watermark) : false;
       const eventContentCurrent = !eventContentEnabled || (watermark ? sourceFileEventContentCurrent(db, path) : false);
       if (sameWatermark && extractorStateCurrent && eventContentCurrent && !verify) {
-        refreshSourceFileWatermarkMetadata(db, path, stat);
         result.skippedFiles += 1;
         continue;
       }

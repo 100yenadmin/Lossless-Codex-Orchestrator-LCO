@@ -299,7 +299,7 @@ function readLiveProof(path: string, targetRef: string): LiveProofSummary {
   }
   const record = isRecord(parsed) ? parsed : {};
   const proofTarget = stringPath(record, ["targetRef"]) || stringPath(record, ["target_ref"]);
-  const actionObservedAt = firstString(record, ["actionObservedAt", "action_observed_at"]) || stringPath(record, ["generatedAt"]) || stringPath(record, ["generated_at"]);
+  const actionObservedAt = stringPath(record, ["live", "actionObservedAt"]) || stringPath(record, ["live", "action_observed_at"]);
   const actionObservedAtTimestamp = actionObservedAt ? parseTimestamp(actionObservedAt) : null;
   const actionRecord = isRecord(record.actionsPerformed) ? record.actionsPerformed : {};
   const authorization = isRecord(record.authorization) ? record.authorization : {};
