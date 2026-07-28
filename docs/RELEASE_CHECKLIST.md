@@ -19,6 +19,14 @@ lco release ga-smoke \
   --package-version <version> \
   --candidate-sha <release-candidate-sha> \
   --strict
+
+lco release hermes-readiness \
+  --evidence-dir /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/hermes-readiness \
+  --package-version <version> \
+  --candidate-sha <release-candidate-sha> \
+  --hermes-smoke <hermes-smoke.json> \
+  --package-smoke <cli-mcp-product-smoke.json> \
+  --strict
 ```
 
 These commands write public-safe readiness packets. `ga-smoke` aggregates the
@@ -42,6 +50,7 @@ Use the narrowest claim tier that the evidence proves:
 | Tier | Allowed claim | Required proof |
 | --- | --- | --- |
 | `beta-read-recall` | Codex read/search/describe/expand | index/search/describe/expand smoke, safe summaries, privacy scan |
+| `beta-hermes-mcp` | Hermes can use the required LCO tools over stdio MCP | candidate package smoke, Hermes smoke/readiness, notification silence, structured results, existing-index default search, latency |
 | `beta-agent-gateway` | OpenClaw agent can use Codex recall tools | installed gateway dogfood, agent skill, bounded expansion, dry-run control |
 | `beta-live-send` | one approved live Codex send is proven | matching dry-run approval id, live send marker, audit tail, post-action refresh |
 | `rc-control-matrix` | live control action matrix is proven | send, resume, steer, and interrupt each pass on disposable threads |
@@ -60,6 +69,8 @@ Every beta, RC, and stable release must have public-safe evidence for:
 - GitHub CI and CodeQL success for that SHA
 - `npm run check`
 - `npm pack --dry-run`
+- `lco hermes smoke --strict` and
+  `lco release hermes-readiness --strict` for the exact candidate SHA
 - release preflight, bundle, demo-status, release-status, and scorecard sweep
 - `lco openclaw published-smoke --strict` with a public-safe
   `--binary-probe-report` that proves the candidate package binary rather than
@@ -102,6 +113,9 @@ For a stable/general release, the release must additionally prove:
 
 - fresh npm stable install from the registry, not a linked repo checkout or a
   beta/RC substitute
+- all required Hermes tools register through the published artifact, MCP
+  notifications remain silent, structured results remain object-valid, and
+  warm existing-index search satisfies the release latency threshold
 - clean OpenClaw profile install/load with expected `lco_*` tools visible
 - gateway invocation is ready, not merely `gateway_setup_required`
 - if fresh-profile gateway credentials are missing, published-smoke evidence

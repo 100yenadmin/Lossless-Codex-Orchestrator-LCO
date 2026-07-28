@@ -36,8 +36,8 @@ Use this cadence for beta work:
 2. Open or update the release tracker status on issue #6 and issue #14.
 3. Cut a release candidate from the current `main` commit only after the beta
    gates below have a named evidence directory.
-4. Validate the release candidate through the public CLI, MCP/OpenClaw plugin,
-   scorecard, and claim-audit surfaces.
+4. Validate the release candidate through the public CLI, Hermes/Python MCP
+   client, OpenClaw compatibility plugin, scorecard, and claim-audit surfaces.
 5. Publish npm and create a GitHub Release only after explicit user approval for
    each operation.
 6. After publication, install from the published artifact and rerun the same
@@ -250,10 +250,32 @@ the command also writes `desktop-gui-approval.json`. The proof-report command
 does not run the GUI action; it only validates that the supplied observation is
 public-safe, action-bound, and no-focus.
 
+## Hermes MCP Candidate Smoke
+
+Hermes over stdio MCP is the primary supported agent path. Before OpenClaw
+compatibility smoke, install the packed candidate in an isolated prefix and
+run:
+
+```bash
+lco qa-lab cli-mcp-smoke --evidence-dir <package-smoke-dir> --package-version <version> --candidate-sha <sha> --cli-bin <candidate-prefix>/node_modules/.bin/lco --mcp-bin <candidate-prefix>/node_modules/.bin/lco-mcp-server --strict
+lco hermes smoke --evidence-dir <hermes-smoke-dir> --package-version <version> --candidate-sha <sha> --cli-bin <candidate-prefix>/node_modules/.bin/lco --mcp-bin <candidate-prefix>/node_modules/.bin/lco-mcp-server --strict
+lco release hermes-readiness --evidence-dir <hermes-readiness-dir> --package-version <version> --candidate-sha <sha> --hermes-smoke <hermes-smoke.json> --package-smoke <cli-mcp-product-smoke.json> --strict
+```
+
+The isolated Hermes client canary must use the candidate MCP binary and a
+protected copy of the local LCO database. It records only tool counts, schema
+checks, blocker codes, and aggregate latency. Remove the temporary database
+copy after the run; never place queries, thread IDs, raw results, configuration,
+credentials, or transcripts in shared evidence.
+
+This is PR-readiness evidence for the named SHA. It is not merge, publication,
+an active Hermes profile install, live Eva runtime proof, or native-adapter
+proof.
+
 ## OpenClaw Install And Tool Declaration Smoke
 
-The local OpenClaw gateway is a first-class beta user. First run metadata-only
-install/tool-declaration coverage from the candidate checkout:
+The local OpenClaw gateway is a maintained compatibility user. Run
+metadata-only install/tool-declaration coverage from the candidate checkout:
 
 ```bash
 node ./dist/packages/cli/src/index.js openclaw dogfood --profile lco-dogfood --install-source . --link --required-tool lco_doctor --required-tool lco_search_sessions --required-tool lco_describe_ref --required-tool lco_expand_session --required-tool lco_expand_query --required-tool lco_codex_extract --required-tool lco_operating_picture --required-tool lco_codex_control_dry_run --evidence-path /Volumes/LEXAR/Codex/lossless-openclaw-orchestrator/YYYY-MM-DD/openclaw-dogfood/plugin-load.json --strict

@@ -301,7 +301,7 @@ test("lco find filters encoded private-looking LCM references", () => {
   assert.doesNotMatch(JSON.stringify(report), /%2FUsers|%252FUsers|%25252FUsers|private-summary|private%25|foo%/);
 });
 
-test("lco_find MCP facade indexes then returns the same public-safe find packet", async () => {
+test("lco_find MCP facade indexes explicitly then returns the same public-safe find packet", async () => {
   const root = mkdtempSync(join(tmpdir(), "lco-find-mcp-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
   const audit = createAuditStore(join(root, "audit.jsonl"));
@@ -324,6 +324,7 @@ test("lco_find MCP facade indexes then returns the same public-safe find packet"
     const payload = await findTool.execute({
       query: "spotlight needle",
       limit: 3,
+      index: true,
       roots: [sessions]
     }) as Record<string, any>;
 
@@ -342,7 +343,7 @@ test("lco_find MCP facade indexes then returns the same public-safe find packet"
   }
 });
 
-test("lco_find MCP facade degrades safely when an index root is not a directory", async () => {
+test("lco_find MCP facade degrades safely when an explicit index root is not a directory", async () => {
   const root = mkdtempSync(join(tmpdir(), "lco-find-bad-root-"));
   const db = createDatabase(join(root, "orchestrator.sqlite"));
   const audit = createAuditStore(join(root, "audit.jsonl"));
@@ -362,6 +363,7 @@ test("lco_find MCP facade degrades safely when an index root is not a directory"
     assert.ok(findTool);
     const payload = await findTool.execute({
       query: "needle",
+      index: true,
       roots: [badRoot]
     }) as Record<string, any>;
 
@@ -372,6 +374,51 @@ test("lco_find MCP facade degrades safely when an index root is not a directory"
     assert.equal(payload.actionsPerformed.derivedCacheWrite, true);
     assert.equal(payload.actionsPerformed.rawTranscriptReturned, false);
     assert.doesNotMatch(JSON.stringify(payload), /not-a-directory\.jsonl|ENOTDIR|\/private|\/var|\/tmp|\/Users\/|\/Volumes\//);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("lco_find MCP facade skips indexing by default and distinguishes an explicit false flag", async () => {
+  const root = mkdtempSync(join(tmpdir(), "lco-find-default-no-index-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  try {
+    const sessions = join(root, ".codex", "sessions");
+    writeFindSession(join(sessions, "rollout-2026-07-08T00-00-00-019f-find-default-no-index.jsonl"), "019f-find-default-no-index");
+    const tools = createLooTools({
+      db,
+      audit,
+      codexClient: {
+        request: async () => ({ ok: true })
+      },
+      includeAliases: true
+    });
+    const findTool = tools.find((tool) => tool.name === "lco_find");
+    assert.ok(findTool);
+
+    const defaultPayload = await findTool.execute({
+      query: "spotlight needle",
+      roots: [sessions]
+    }) as Record<string, any>;
+    assert.equal(defaultPayload.indexed.attempted, false);
+    assert.equal(defaultPayload.resultCount, 0);
+    assert.equal(defaultPayload.actionsPerformed.derivedCacheWrite, false);
+    assert.equal(defaultPayload.reasonCodes.includes("index_skipped_by_default"), true);
+    assert.equal(defaultPayload.reasonCodes.includes("index_skipped_by_flag"), false);
+
+    const explicitFalsePayload = await findTool.execute({
+      query: "spotlight needle",
+      index: false,
+      roots: [sessions]
+    }) as Record<string, any>;
+    assert.equal(explicitFalsePayload.indexed.attempted, false);
+    assert.equal(explicitFalsePayload.reasonCodes.includes("index_skipped_by_flag"), true);
+    assert.equal(explicitFalsePayload.reasonCodes.includes("index_skipped_by_default"), false);
+
+    const row = db.prepare("SELECT COUNT(*) AS count FROM codex_sessions").get() as { count: number };
+    assert.equal(row.count, 0);
   } finally {
     db.close();
     rmSync(root, { recursive: true, force: true });

@@ -64,7 +64,7 @@ Codex sessions through the installed `lco_*` tools.
 
 Normal agents should start here:
 
-1. `lco_find` for first-run local indexing and public-safe matches from one query.
+1. `lco_index_sessions` with bounded roots or limits for first-run or stale-index refresh, then `lco_find` for public-safe matches from one query.
 2. `lco_prepared_inbox` for the prepared-state operating picture.
 3. `lco_describe_ref` for the specific source ref or Codex thread.
 4. `lco_expand_query` for one bounded evidence brief when the ref is not known.
@@ -167,8 +167,9 @@ Typical live tools after approval are `lco_codex_resume_thread`,
 
 ## Recommended Agent Loop
 
-1. Start with `lco_find` when the user gives a query, or `lco_prepared_inbox`
-   when the user asks what needs attention.
+1. Start with `lco_find` when the user gives a query and the index is current,
+   or call `lco_index_sessions` first when the database is new or stale. Start
+   with `lco_prepared_inbox` when the user asks what needs attention.
 2. Use `lco_describe_ref` for the selected inbox/source ref.
 3. When resuming a known Codex thread, use `lco_prepared_state_status` with
    `thread_id`; treat `targetCoverage.status=source_present_not_indexed` or

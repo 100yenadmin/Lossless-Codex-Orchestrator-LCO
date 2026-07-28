@@ -4,7 +4,8 @@ One line per released version, newest first. Each line links to the full
 release notes for that version. Draft notes stay outside the released list
 until npm, tag, and GitHub Release truth agree.
 
-- [1.6.0](RELEASE_NOTES_1.6.0.md)
+Draft candidate notes: [1.6.0](RELEASE_NOTES_1.6.0.md)
+
 - [1.5.0](RELEASE_NOTES_1.5.0.md)
 - [1.4.5](RELEASE_NOTES_1.4.5.md)
 - [1.4.4](RELEASE_NOTES_1.4.4.md)

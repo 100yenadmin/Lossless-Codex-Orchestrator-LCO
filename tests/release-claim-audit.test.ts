@@ -191,13 +191,14 @@ test("README and VISION distinguish the published stable package from the active
   const readme = read("README.md");
   const vision = read("VISION.md");
 
-  assert.match(readme, new RegExp("Current stable:\\s+`" + escapedDocumentedStableVersion + "`", "i"));
-  assert.match(readme, new RegExp("`" + escapedDocumentedStableVersion + "`[\\s\\S]{0,240}shipped", "i"));
+  assert.match(readme, /Published stable at this candidate snapshot:\s+`1\.5\.0`[\s\S]{0,120}npm `latest`/i);
+  assert.match(readme, /source tree is a `1\.6\.0` release candidate[\s\S]{0,120}not proof[\s\S]{0,80}published/i);
   assert.match(readme, /npm install -g lossless-codex-orchestrator@latest/i);
   assert.match(readme, /`latest` is the stable public channel/i);
   assert.match(readme, /Stable today:[\s\S]{0,240}prepared cards/i);
   assert.match(readme, /Since 1\.2\.x[\s\S]{0,120}1\.2 prepared-state and summary-leaves lane/i);
-  assert.match(vision, new RegExp("stable[\\s\\S]{0,120}`" + escapedDocumentedStableVersion + "`[\\s\\S]{0,240}shipped", "i"));
+  assert.match(vision, /Published stable at this candidate snapshot:\s+`1\.5\.0`[\s\S]{0,160}Current source candidate:\s+`1\.6\.0`/i);
+  assert.match(vision, /Source metadata is not\s+published release proof/i);
   assert.doesNotMatch(readme, /`1\.3\.[0-9]+` release candidate/i);
   assert.doesNotMatch(vision, /`1\.3\.[0-9]+` release candidate/i);
   assert.doesNotMatch(readme, /release candidate carries post-sprint feature hardening/i);
