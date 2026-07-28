@@ -320,13 +320,19 @@ function probeMcpToolsListAndCall(
       for (const line of lines) {
         const parsed = parseJsonRpcLine(line);
         if (!parsed) continue;
+        const isResponse = Object.prototype.hasOwnProperty.call(parsed, "result")
+          || Object.prototype.hasOwnProperty.call(parsed, "error");
         if (
-          !Object.prototype.hasOwnProperty.call(parsed, "id")
-          || (parsed.id !== 1 && parsed.id !== 2 && parsed.id !== 3)
+          isResponse
+          && (
+            !Object.prototype.hasOwnProperty.call(parsed, "id")
+            || (parsed.id !== 1 && parsed.id !== 2 && parsed.id !== 3)
+          )
         ) {
           invalidNotificationResponseCount += 1;
           continue;
         }
+        if (!Object.prototype.hasOwnProperty.call(parsed, "id")) continue;
         if (parsed.id === 1 && parsed.error) {
           finish({ ...packageDefect("mcp_initialize_failed"), tools: [], toolCall: failedToolCall(toolCallName, "mcp_initialize_failed") });
           return;

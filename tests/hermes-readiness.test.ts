@@ -8,6 +8,7 @@ import { createHermesReadinessReport } from "../packages/cli/src/hermes-readines
 import { runLoo } from "./helpers/run-loo.js";
 
 const CANDIDATE_SHA = "0123456789abcdef0123456789abcdef01234567";
+const PACKAGE_NAME = "lossless-codex-orchestrator";
 
 test("Hermes readiness binds a successful smoke and package probe to one candidate", () => {
   const root = mkdtempSync(join(tmpdir(), "lco-hermes-readiness-"));
@@ -18,6 +19,7 @@ test("Hermes readiness binds a successful smoke and package probe to one candida
       schema: "lco.hermesSmoke.v1",
       ok: true,
       publicSafe: true,
+      packageName: PACKAGE_NAME,
       packageVersion: "1.6.0",
       candidateSha: CANDIDATE_SHA,
       notificationSilenceReady: true,
@@ -30,6 +32,7 @@ test("Hermes readiness binds a successful smoke and package probe to one candida
       schema: "lco.qaLab.cliMcpProductSmoke.v1",
       ok: true,
       publicSafe: true,
+      packageName: PACKAGE_NAME,
       packageVersion: "1.6.0",
       candidateSha: CANDIDATE_SHA,
       actionsPerformed: restrictedActions()
@@ -47,6 +50,7 @@ test("Hermes readiness binds a successful smoke and package probe to one candida
     assert.equal(report.schema, "lco.release.hermesReadiness.v1");
     assert.equal(report.ok, true);
     assert.equal(report.candidateReady, true);
+    assert.equal(report.packageName, PACKAGE_NAME);
     assert.deepEqual(report.blockers, []);
     assert.equal(report.actionsPerformed.npmPublished, false);
     assert.deepEqual(report.requiredEvidence, {
@@ -72,6 +76,7 @@ test("Hermes readiness fails closed on SHA drift and restricted actions", () => 
       schema: "lco.hermesSmoke.v1",
       ok: true,
       publicSafe: true,
+      packageName: "lossless-openclaw-orchestrator",
       packageVersion: "1.6.0",
       candidateSha: "ffffffffffffffffffffffffffffffffffffffff",
       actionsPerformed: restrictedActions()
@@ -80,6 +85,7 @@ test("Hermes readiness fails closed on SHA drift and restricted actions", () => 
       schema: "lco.qaLab.cliMcpProductSmoke.v1",
       ok: true,
       publicSafe: true,
+      packageName: PACKAGE_NAME,
       packageVersion: "1.6.0",
       candidateSha: CANDIDATE_SHA,
       actionsPerformed: { ...restrictedActions(), liveCodexControlRun: true }
@@ -95,6 +101,7 @@ test("Hermes readiness fails closed on SHA drift and restricted actions", () => 
 
     assert.equal(report.ok, false);
     assert.equal(report.candidateReady, false);
+    assert.equal(report.blockers.includes("hermes_smoke_package_name_mismatch"), true);
     assert.equal(report.blockers.includes("hermes_smoke_candidate_sha_mismatch"), true);
     assert.equal(report.blockers.includes("candidate_package_smoke_restricted_actions_performed"), true);
   } finally {

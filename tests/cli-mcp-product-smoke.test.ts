@@ -38,6 +38,7 @@ function writeFakeMcpServer(path: string, toolNames: string[], options: {
   stallToolsCall?: boolean;
   initializeDelayMs?: number;
   toolsListDelayMs?: number;
+  sendUnsolicitedNotification?: boolean;
 } = {}): void {
   writeExecutable(path, [
     "#!/usr/bin/env node",
@@ -56,6 +57,7 @@ function writeFakeMcpServer(path: string, toolNames: string[], options: {
     `const stallToolsCall = ${JSON.stringify(options.stallToolsCall === true)};`,
     `const initializeDelayMs = ${JSON.stringify(options.initializeDelayMs ?? 0)};`,
     `const toolsListDelayMs = ${JSON.stringify(options.toolsListDelayMs ?? 0)};`,
+    `const sendUnsolicitedNotification = ${JSON.stringify(options.sendUnsolicitedNotification === true)};`,
     `const ambientHome = ${JSON.stringify(process.env.HOME ?? process.env.USERPROFILE ?? "")};`,
     "const runtimeRoot = process.env.HOME || process.env.USERPROFILE || '';",
     "const runtimeIsolated = runtimeRoot !== '' && runtimeRoot !== ambientHome && process.env.HOME === runtimeRoot && process.env.USERPROFILE === runtimeRoot && (process.env.LCO_DB_PATH || '').startsWith(runtimeRoot) && (process.env.LCO_AUDIT_PATH || '').startsWith(runtimeRoot) && !process.env.SECRET_TOKEN;",
@@ -79,6 +81,7 @@ function writeFakeMcpServer(path: string, toolNames: string[], options: {
     "  }",
     "  if (message.method === 'tools/call') {",
     "    if (stallToolsCall) return;",
+    "    if (sendUnsolicitedNotification) send({ method: 'notifications/progress', params: { progress: 1 } });",
     "    if (!tools.some((tool) => tool.name === message.params?.name)) {",
     "      send({ id: message.id, error: { code: -32602, message: 'missing tool' } });",
     "      return;",
@@ -137,6 +140,55 @@ test("loo qa-lab cli-mcp-smoke isolates the MCP probe from the ambient user runt
   } finally {
     if (previousSecret === undefined) delete process.env.SECRET_TOKEN;
     else process.env.SECRET_TOKEN = previousSecret;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loo qa-lab cli-mcp-smoke allows unsolicited server notifications", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-cli-mcp-smoke-server-notification-"));
+  try {
+    const cliBin = join(dir, "loo");
+    const mcpBin = join(dir, "lco-mcp-server");
+    writeFakeCli(cliBin);
+    writeFakeMcpServer(mcpBin, ["lco_doctor"], { sendUnsolicitedNotification: true });
+
+    const result = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "qa-lab",
+      "cli-mcp-smoke",
+      "--evidence-dir",
+      join(dir, "evidence"),
+      "--package-version",
+      "1.6.0",
+      "--cli-bin",
+      cliBin,
+      "--mcp-bin",
+      mcpBin,
+      "--required-tool",
+      "lco_doctor",
+      "--tool-call",
+      "lco_doctor",
+      "--timeout-ms",
+      "5000",
+      "--strict"
+    ], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      timeout: 15_000
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const report = JSON.parse(result.stdout) as {
+      ok: boolean;
+      notificationSilenceReady: boolean;
+      invalidNotificationResponseCount: number;
+    };
+    assert.equal(report.ok, true);
+    assert.equal(report.notificationSilenceReady, true);
+    assert.equal(report.invalidNotificationResponseCount, 0);
+  } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });

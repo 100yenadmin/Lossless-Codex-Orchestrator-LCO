@@ -1,8 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
+import { CANONICAL_PACKAGE_NAME, type SupportedPackageName } from "./package-identity.js";
 
 export type HermesReadinessOptions = {
   evidenceDir: string;
+  packageName?: SupportedPackageName;
   packageVersion: string;
   candidateSha: string;
   hermesSmokePath: string;
@@ -16,6 +18,7 @@ export type HermesReadinessReport = {
   candidateReady: boolean;
   publicSafe: true;
   generatedAt: string;
+  packageName: SupportedPackageName;
   packageVersion: string;
   candidateSha: string;
   checks: {
@@ -49,6 +52,7 @@ export function createHermesReadinessReport(options: HermesReadinessOptions): He
   const packageSmokePath = resolve(options.packageSmokePath);
   const hermesSmoke = readJson(hermesSmokePath);
   const packageSmoke = readJson(packageSmokePath);
+  const packageName = options.packageName ?? CANONICAL_PACKAGE_NAME;
   const blockers: string[] = [];
 
   validateReport({
@@ -56,6 +60,7 @@ export function createHermesReadinessReport(options: HermesReadinessOptions): He
     path: hermesSmokePath,
     label: "hermes_smoke",
     expectedSchema: "lco.hermesSmoke.v1",
+    expectedPackageName: packageName,
     expectedVersion: options.packageVersion,
     expectedSha: options.candidateSha,
     blockers
@@ -65,6 +70,7 @@ export function createHermesReadinessReport(options: HermesReadinessOptions): He
     path: packageSmokePath,
     label: "candidate_package_smoke",
     expectedSchema: "lco.qaLab.cliMcpProductSmoke.v1",
+    expectedPackageName: packageName,
     expectedVersion: options.packageVersion,
     expectedSha: options.candidateSha,
     blockers
@@ -72,8 +78,9 @@ export function createHermesReadinessReport(options: HermesReadinessOptions): He
 
   const hermesSmokeReady = reportReady(hermesSmoke, "lco.hermesSmoke.v1");
   const packageSmokeReady = reportReady(packageSmoke, "lco.qaLab.cliMcpProductSmoke.v1");
-  const identityMatch = reportIdentityMatches(hermesSmoke, options)
-    && reportIdentityMatches(packageSmoke, options);
+  const expectedIdentity = { packageName, packageVersion: options.packageVersion, candidateSha: options.candidateSha };
+  const identityMatch = reportIdentityMatches(hermesSmoke, expectedIdentity)
+    && reportIdentityMatches(packageSmoke, expectedIdentity);
   const restrictedActionsAbsent = noRestrictedActions(hermesSmoke)
     && noRestrictedActions(packageSmoke);
   const uniqueBlockers = [...new Set(blockers)];
@@ -88,6 +95,7 @@ export function createHermesReadinessReport(options: HermesReadinessOptions): He
     candidateReady,
     publicSafe: true,
     generatedAt: options.now ?? new Date().toISOString(),
+    packageName,
     packageVersion: options.packageVersion,
     candidateSha: options.candidateSha,
     checks: {
@@ -116,6 +124,7 @@ function validateReport(options: {
   path: string;
   label: string;
   expectedSchema: string;
+  expectedPackageName: SupportedPackageName;
   expectedVersion: string;
   expectedSha: string;
   blockers: string[];
@@ -127,6 +136,7 @@ function validateReport(options: {
   if (options.report.schema !== options.expectedSchema) options.blockers.push(`${options.label}_schema_invalid`);
   if (options.report.publicSafe !== true) options.blockers.push(`${options.label}_not_public_safe`);
   if (options.report.ok !== true) options.blockers.push(`${options.label}_not_ready`);
+  if (options.report.packageName !== options.expectedPackageName) options.blockers.push(`${options.label}_package_name_mismatch`);
   if (options.report.packageVersion !== options.expectedVersion) options.blockers.push(`${options.label}_package_version_mismatch`);
   if (options.report.candidateSha !== options.expectedSha) options.blockers.push(`${options.label}_candidate_sha_mismatch`);
   if (!noRestrictedActions(options.report)) options.blockers.push(`${options.label}_restricted_actions_performed`);
@@ -138,9 +148,11 @@ function reportReady(report: JsonObject, schema: string): boolean {
 
 function reportIdentityMatches(
   report: JsonObject,
-  expected: { packageVersion: string; candidateSha: string }
+  expected: { packageName: SupportedPackageName; packageVersion: string; candidateSha: string }
 ): boolean {
-  return report.packageVersion === expected.packageVersion && report.candidateSha === expected.candidateSha;
+  return report.packageName === expected.packageName
+    && report.packageVersion === expected.packageVersion
+    && report.candidateSha === expected.candidateSha;
 }
 
 function noRestrictedActions(report: JsonObject): boolean {
