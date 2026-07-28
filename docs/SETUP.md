@@ -344,9 +344,12 @@ mcp_servers:
     command: lco-mcp-server
     enabled: true
     env:
-      LCO_DB_PATH: ~/.openclaw/lossless-openclaw-orchestrator/orchestrator.sqlite
       LCO_TOOL_PROFILE: standard
 ```
+
+Omitting `LCO_DB_PATH` uses LCO's home-based default. If you set it explicitly,
+use an expanded absolute path because Hermes does not shell-expand `~` inside an
+environment-variable value.
 
 `lco_find` queries the existing index by default. It does not synchronously
 reindex unless the call explicitly passes `index:true`; `lco_index_sessions`

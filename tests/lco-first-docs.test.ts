@@ -79,6 +79,8 @@ test("setup guide includes per-client MCP mounting examples and multi-client sto
   ]) {
     assert.match(mcpSetup, required);
   }
+  assert.doesNotMatch(mcpSetup, /LCO_DB_PATH:\s*~/);
+  assert.match(mcpSetup, /Hermes does not shell-expand `~`/);
 });
 
 test("adapter-tier docs and Hermes boundary are linked without widening Hermes claims", () => {
