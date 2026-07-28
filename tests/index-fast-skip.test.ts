@@ -814,10 +814,82 @@ test("NULL cached extractor versions in an existing database force backfill once
         FROM codex_source_files
         LIMIT 1
       `).get() as { metadata: string | null; preparedRanges: string | null; summaryLeaves: string | null; preparedCards: string | null };
-      assert.equal(row.metadata, "session-metadata-v4");
+      assert.equal(row.metadata, "session-metadata-v4-final-answer-v2");
       assert.equal(row.preparedRanges, "prepared-source-ranges-v1");
       assert.equal(row.summaryLeaves, "summary-leaves-v1");
       assert.equal(row.preparedCards, "prepared-cards-v2");
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("legacy session extraction forces a full reparse before append authority is trusted", () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-fast-skip-final-authority-upgrade-"));
+  try {
+    const sessionsDir = join(root, "sessions");
+    mkdirSync(sessionsDir, { recursive: true });
+    const threadId = "019f-final-authority-upgrade";
+    const file = join(sessionsDir, `rollout-2026-07-29T00-02-00-${threadId}.jsonl`);
+    const explicitFinal = "SYNTHETIC_ACK_UPGRADE_20260729";
+    writeFileSync(file, [
+      JSON.stringify({ timestamp: "2026-07-29T00:02:00Z", session_meta: { payload: { id: threadId } } }),
+      JSON.stringify({
+        timestamp: "2026-07-29T00:02:01Z",
+        response_item: {
+          type: "message",
+          role: "assistant",
+          phase: "final_answer",
+          content: [{ type: "output_text", text: explicitFinal }]
+        }
+      }),
+      ""
+    ].join("\n"));
+
+    const db = createDatabase(join(root, "orchestrator.sqlite"));
+    try {
+      assert.equal(indexCodexSessions(db, { roots: [sessionsDir], maxFiles: 10 }).indexedFiles, 1);
+      db.prepare(`
+        UPDATE codex_source_files
+        SET metadata_extractor_version = 'session-metadata-v4'
+      `).run();
+      db.prepare(`
+        UPDATE prepared_source_ranges
+        SET reason_codes_json = '["prepared_source_range","metadata_only","range_kind:final_message"]'
+        WHERE range_kind = 'final_message'
+      `).run();
+      appendFileSync(file, JSON.stringify({
+        timestamp: "2026-07-29T00:02:02Z",
+        event_msg: {
+          type: "agent_message",
+          message: "Final legacy append commentary must not replace the explicit answer."
+        }
+      }) + "\n");
+
+      const upgraded = indexCodexSessions(db, { roots: [sessionsDir], maxFiles: 10 });
+      assert.equal(upgraded.indexedFiles, 1);
+      assert.equal(upgraded.appendDeltaIndexedFiles, 0);
+      assert.equal(describeSession(db, threadId)?.finalMessage, explicitFinal);
+
+      const source = db.prepare(`
+        SELECT
+          metadata_extractor_version AS metadataVersion,
+          prepared_range_extractor_version AS preparedRangeVersion
+        FROM codex_source_files
+        WHERE source_path = ?
+      `).get(file) as { metadataVersion: string; preparedRangeVersion: string } | undefined;
+      const authoritative = db.prepare(`
+        SELECT COUNT(*) AS count
+        FROM prepared_source_ranges
+        WHERE thread_id = ?
+          AND range_kind = 'final_message'
+          AND instr(reason_codes_json, '"codex_explicit_final_answer"') > 0
+      `).get(threadId) as { count: number };
+      assert.equal(source?.metadataVersion, "session-metadata-v4-final-answer-v2");
+      assert.equal(source?.preparedRangeVersion, "prepared-source-ranges-v1");
+      assert.equal(authoritative.count, 1);
     } finally {
       db.close();
     }
