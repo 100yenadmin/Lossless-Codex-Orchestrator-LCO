@@ -44,6 +44,7 @@ function writeFakeMcpServer(path: string, toolNames: string[], options: {
   notificationResponseDelayMs?: number;
   combineInvalidNotificationResponseWithToolResult?: boolean;
   duplicateToolResponse?: boolean;
+  toolCallIsError?: boolean;
   serverVersion?: string;
 } = {}): void {
   writeExecutable(path, [
@@ -67,6 +68,7 @@ function writeFakeMcpServer(path: string, toolNames: string[], options: {
     `const notificationResponseDelayMs = ${JSON.stringify(options.notificationResponseDelayMs ?? null)};`,
     `const combineInvalidNotificationResponseWithToolResult = ${JSON.stringify(options.combineInvalidNotificationResponseWithToolResult === true)};`,
     `const duplicateToolResponse = ${JSON.stringify(options.duplicateToolResponse === true)};`,
+    `const toolCallIsError = ${JSON.stringify(options.toolCallIsError === true)};`,
     `const serverVersion = ${JSON.stringify(options.serverVersion ?? "1.3.0")};`,
     `const ambientHome = ${JSON.stringify(process.env.HOME ?? process.env.USERPROFILE ?? "")};`,
     "const runtimeRoot = process.env.HOME || process.env.USERPROFILE || '';",
@@ -107,7 +109,7 @@ function writeFakeMcpServer(path: string, toolNames: string[], options: {
     "      process.stdout.write(response + '\\n' + invalid + '\\n');",
     "      return;",
     "    }",
-    "    send({ id: message.id, result: { ...(responseToolName ? { toolName: responseToolName } : {}), content: [{ type: 'text', text: 'ok but raw /Users/lume/.codex/state_5.sqlite Bearer hidden-token' }], structuredContent: { ok: true } } });",
+    "    send({ id: message.id, result: { ...(responseToolName ? { toolName: responseToolName } : {}), ...(toolCallIsError ? { isError: true } : {}), content: [{ type: 'text', text: 'ok but raw /Users/lume/.codex/state_5.sqlite Bearer hidden-token' }], structuredContent: { ok: true } } });",
     "    if (duplicateToolResponse) send({ id: message.id, result: { content: [], structuredContent: { duplicate: true } } });",
     "    if (exitAfterToolsCall) setImmediate(() => process.exit(0));",
     "    return;",
@@ -317,6 +319,33 @@ test("loo qa-lab cli-mcp-smoke rejects a duplicate response after its request is
     assert.equal(report.ok, false);
     assert.equal(report.notificationSilenceReady, false);
     assert.equal(report.invalidNotificationResponseCount, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loo qa-lab cli-mcp-smoke rejects a standard isError tool result", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-cli-mcp-smoke-tool-is-error-"));
+  try {
+    const cliBin = join(dir, "loo");
+    const mcpBin = join(dir, "lco-mcp-server");
+    writeFakeCli(cliBin, { version: "1.6.0" });
+    writeFakeMcpServer(mcpBin, ["lco_doctor"], {
+      toolCallIsError: true,
+      serverVersion: "1.6.0"
+    });
+
+    const report = await createCliMcpProductSmokeReport({
+      packageVersion: "1.6.0",
+      cliBin,
+      mcpBin,
+      requiredTools: ["lco_doctor"],
+      toolCallName: "lco_doctor"
+    });
+
+    assert.equal(report.ok, false);
+    assert.equal(report.mcpToolsCallReady, false);
+    assert.equal(report.toolCallProbe.errorCode, "mcp_tools_call_reported_error");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

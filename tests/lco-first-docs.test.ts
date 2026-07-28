@@ -56,6 +56,8 @@ test("public first-run docs are lco-first while preserving loo compatibility", (
   assert.match(publicInstallDocs, /`loo`[\s\S]{0,180}compat/i);
   assert.match(publicInstallDocs, /`LOO_\*`[\s\S]{0,180}compat/i);
   assert.match(publicInstallDocs, /at least two minor releases/i);
+  assert.doesNotMatch(readme, /LCO_DB_PATH:\s*~/);
+  assert.match(readme, /Hermes does not shell-expand `~`/);
 });
 
 test("setup guide includes per-client MCP mounting examples and multi-client storage guidance", () => {

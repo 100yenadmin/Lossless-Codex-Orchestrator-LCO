@@ -498,10 +498,13 @@ function successfulToolCall(toolName: string, result: Record<string, unknown>, d
       : null;
   const nameMatches = responseToolName === null || responseToolName === toolName;
   const structuredContentObject = structuredContent !== null;
+  const toolReportedError = result.isError === true;
   const reasonCodes = structuredContent && Array.isArray(structuredContent.reasonCodes)
     ? uniqueStrings(structuredContent.reasonCodes.filter((value): value is string => typeof value === "string" && /^[a-z0-9_]+$/.test(value))).slice(0, 32)
     : [];
-  const errorCode = !nameMatches
+  const errorCode = toolReportedError
+    ? "mcp_tools_call_reported_error"
+    : !nameMatches
     ? "mcp_tools_call_name_mismatch"
     : !structuredContentObject
       ? "mcp_tools_call_structured_content_not_object"
