@@ -89,7 +89,6 @@ const DEFAULT_REQUIRED_TOOLS = [
   "lco_expand_query"
 ];
 const DEFAULT_TIMEOUT_MS = 5_000;
-const NOTIFICATION_QUIET_PERIOD_MS = 100;
 export const MAX_CLI_MCP_PRODUCT_SMOKE_TIMEOUT_MS = 10_000;
 const PRIVATE_DATA_EXCLUSIONS = [
   "raw CLI stdout/stderr",
@@ -354,6 +353,7 @@ function probeMcpToolsListAndCall(
           continue;
         }
         if (!Object.prototype.hasOwnProperty.call(parsed, "id")) continue;
+        if (isResponse) pendingResponseIds.delete(parsed.id);
         if (parsed.id === 1 && parsed.error) {
           finish({ ...packageDefect("mcp_initialize_failed"), tools: [], toolCall: failedToolCall(toolCallName, "mcp_initialize_failed") });
           return;
@@ -429,11 +429,14 @@ function probeMcpToolsListAndCall(
             toolCall
           };
           if (timer) clearTimeout(timer);
+          if (child.stdin && !child.stdin.destroyed && !child.stdin.writableEnded) {
+            child.stdin.end();
+          }
           timer = setTimeout(() => {
             if (pendingSuccess) finish(pendingSuccess);
-          }, NOTIFICATION_QUIET_PERIOD_MS);
+          }, timeoutMs);
           timer.unref?.();
-          return;
+          continue;
         }
       }
     });
