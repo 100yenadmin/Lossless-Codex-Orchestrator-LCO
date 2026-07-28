@@ -3062,6 +3062,7 @@ type ImportedSession = {
   updatedAt: string | null;
   finalMessage: string | null;
   finalMessageExplicit: boolean;
+  finalMessageAuthoritative: boolean;
   plans: string[];
   touchedFiles: string[];
   toolCalls: CodexToolCallDraft[];
@@ -5335,6 +5336,7 @@ function existingCodexSessionSeedForSourcePath(db: LooDatabase, sourcePath: stri
     updatedAt: nullableString(row.updatedAt),
     finalMessage: nullableString(row.finalMessage),
     finalMessageExplicit: existingCodexSessionHasRangeKind(db, threadId, "final_message"),
+    finalMessageAuthoritative: existingCodexSessionHasRangeReasonCode(db, threadId, "codex_explicit_final_answer"),
     plans,
     touchedFiles: getCodexTouchedFiles(db, { threadId }),
     toolCalls,
@@ -5359,6 +5361,18 @@ function existingCodexSessionHasRangeKind(db: LooDatabase, threadId: string, ran
     WHERE thread_id = ? AND range_kind = ?
     LIMIT 1
   `).get(threadId, rangeKind) as { found: number } | undefined;
+  return Boolean(row);
+}
+
+function existingCodexSessionHasRangeReasonCode(db: LooDatabase, threadId: string, reasonCode: string): boolean {
+  const row = db.prepare(`
+    SELECT 1 AS found
+    FROM prepared_source_ranges
+    WHERE thread_id = ?
+      AND range_kind = 'final_message'
+      AND reason_codes_json LIKE ?
+    LIMIT 1
+  `).get(threadId, `%"${reasonCode}"%`) as { found: number } | undefined;
   return Boolean(row);
 }
 
@@ -5462,6 +5476,7 @@ function mergeAppendDeltaSession(seed: ExistingCodexSessionSeed, delta: Imported
     updatedAt: delta.updatedAt ?? seed.updatedAt,
     finalMessage,
     finalMessageExplicit: seed.finalMessageExplicit || delta.finalMessageExplicit,
+    finalMessageAuthoritative: seed.finalMessageAuthoritative || delta.finalMessageAuthoritative,
     plans: [...seed.plans, ...delta.plans],
     touchedFiles: unique([...seed.touchedFiles, ...delta.touchedFiles]).sort(),
     toolCalls: [...seed.toolCalls, ...delta.toolCalls],
@@ -5479,6 +5494,8 @@ function mergeAppendDeltaSession(seed: ExistingCodexSessionSeed, delta: Imported
 }
 
 function mergeAppendDeltaFinalMessage(seed: ExistingCodexSessionSeed, delta: ImportedSession): string | null {
+  if (delta.finalMessageAuthoritative) return delta.finalMessage;
+  if (seed.finalMessageAuthoritative) return seed.finalMessage;
   if (delta.finalMessageExplicit) return delta.finalMessage;
   if (seed.finalMessageExplicit) return seed.finalMessage;
   return delta.finalMessage ?? seed.finalMessage;
@@ -19445,6 +19462,7 @@ function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: num
     updatedAt: null,
     finalMessage: null,
     finalMessageExplicit: false,
+    finalMessageAuthoritative: false,
     plans: [],
     touchedFiles: [],
     toolCalls: [],
@@ -19522,6 +19540,7 @@ function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: num
     }
 
     const textPayloads = extractTextPayloads(item);
+    let authoritativeFinalAnswer = false;
     for (const payload of textPayloads) {
       const metadataText = redactSafeString(payload.trim());
       if (metadataText) {
@@ -19542,10 +19561,15 @@ function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: num
       const plans = extractPlans(clean);
       for (const plan of plans) session.plans.push(plan);
       if (plans.length > 0) rangeKinds.add("proposed_plan");
-      const finalMessage = rangeKind === "assistant_message" && isLikelyFinal(clean);
-      if (finalMessage) {
+      const explicitFinalAnswer = rangeKind === "assistant_message" && isExplicitCodexFinalAnswer(item);
+      const heuristicFinal = rangeKind === "assistant_message" && isLikelyFinal(clean);
+      if (explicitFinalAnswer || (!session.finalMessageAuthoritative && heuristicFinal)) {
         session.finalMessage = clean;
         session.finalMessageExplicit = true;
+        if (explicitFinalAnswer) {
+          session.finalMessageAuthoritative = true;
+          authoritativeFinalAnswer = true;
+        }
         rangeKinds.add("final_message");
       }
       if (containsCloseoutEnvelope(clean)) rangeKinds.add("closeout");
@@ -19570,6 +19594,7 @@ function parseCodexJsonl(sourcePath: string, text: string, maxEventsPerFile: num
       threadId: session.threadId,
       observedAt: timestamp,
       rangeKinds: [...rangeKinds],
+      authoritativeFinalAnswer,
       eventText: eventContentTextForRecord(eventTextParts, item, timestamp)
     }));
   }
@@ -19946,6 +19971,7 @@ function createPreparedSourceEventDraft(input: {
   threadId: string;
   observedAt: string | null;
   rangeKinds: PreparedSourceRangeKind[];
+  authoritativeFinalAnswer: boolean;
   eventText: string;
 }): PreparedSourceEventDraft {
   const contentHash = stableId(input.record.text);
@@ -19977,7 +20003,10 @@ function createPreparedSourceEventDraft(input: {
         rangeKind: rangeKind as PreparedSourceRangeKind,
         contentHash: stableId(`${contentHash}:${rangeKind}`),
         ordinal: input.ordinal * 100 + rangeOrdinal,
-        reasonCodes: preparedRangeReasonCodes(rangeKind)
+        reasonCodes: unique([
+          ...preparedRangeReasonCodes(rangeKind),
+          ...(rangeKind === "final_message" && input.authoritativeFinalAnswer ? ["codex_explicit_final_answer"] : [])
+        ])
       };
     })
   };
@@ -20009,6 +20038,16 @@ function textRangeKind(item: any): PreparedSourceRangeKind {
   if (role === "user" || eventType?.includes("user")) return "user_prompt";
   if (role === "assistant" || eventType?.includes("agent") || eventType?.includes("assistant")) return "assistant_message";
   return "event_metadata";
+}
+
+function isExplicitCodexFinalAnswer(item: any): boolean {
+  const phase = stringOrNull(
+    item.response_item?.phase
+    ?? item.event_msg?.phase
+    ?? item.message?.phase
+    ?? item.payload?.phase
+  )?.toLowerCase();
+  return phase === "final_answer";
 }
 
 function containsCloseoutEnvelope(text: string): boolean {
