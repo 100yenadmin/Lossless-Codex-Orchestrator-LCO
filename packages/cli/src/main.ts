@@ -79,6 +79,8 @@ import { runOpenClawDogfood } from "./openclaw-dogfood.js";
 import { DEFAULT_REQUIRED_TOOL_CALLS, FULL_GATEWAY_SMOKE_TOOL_CALLS, runOpenClawToolSmoke } from "./openclaw-tool-smoke.js";
 import { createPublishedPackageSmokeReport } from "./published-package-smoke.js";
 import { createCliMcpProductSmokeReport, MAX_CLI_MCP_PRODUCT_SMOKE_TIMEOUT_MS } from "./cli-mcp-product-smoke.js";
+import { createHermesSmokeReport } from "./hermes-smoke.js";
+import { createHermesReadinessReport } from "./hermes-readiness.js";
 import { createQaLabRunReport, type QaLabRunArtifact, type QaLabRunSuite } from "./qa-lab-run.js";
 import { createQaLabToolCoverageReport, type QaLabCoveragePolicy } from "./qa-lab-tool-coverage.js";
 import { createQaLabLiveControlMatrixReport } from "./qa-lab-live-control-matrix.js";
@@ -968,6 +970,17 @@ async function main() {
     if (parsed.strict && !report.stableReady) process.exitCode = 1;
     return;
   }
+  if (command === "release" && args[0] === "hermes-readiness") {
+    if (hasHelpFlag(args.slice(1))) {
+      printHermesReadinessHelp();
+      return;
+    }
+    const parsed = parseHermesReadinessArgs(args.slice(1));
+    const report = createHermesReadinessReport(parsed);
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.candidateReady) process.exitCode = 1;
+    return;
+  }
   if (command === "release" && args[0] === "ga-smoke") {
     if (hasHelpFlag(args.slice(1))) {
       printReleaseGaSmokeHelp();
@@ -1061,6 +1074,17 @@ async function main() {
     }
     const parsed = parseQaLabCliMcpSmokeArgs(args.slice(1));
     const report = await createCliMcpProductSmokeReport(parsed);
+    console.log(JSON.stringify(report, null, 2));
+    if (parsed.strict && !report.ok) process.exitCode = 1;
+    return;
+  }
+  if (command === "hermes" && args[0] === "smoke") {
+    if (hasHelpFlag(args.slice(1))) {
+      printHermesSmokeHelp();
+      return;
+    }
+    const parsed = parseHermesSmokeArgs(args.slice(1));
+    const report = await createHermesSmokeReport(parsed);
     console.log(JSON.stringify(report, null, 2));
     if (parsed.strict && !report.ok) process.exitCode = 1;
     return;
@@ -1326,9 +1350,11 @@ function mainUsageText(): string {
     "  loo release status --evidence-dir path --candidate-sha sha [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--root package-root] [--npm-publish-approval-evidence path] [--github-release-approval-evidence path] [--github-ci-evidence path] [--codeql-evidence path] [--desktop-gui-required --desktop-gui-approval-evidence path] [--now iso] [--strict]",
     "  loo release finalization-status --evidence-dir path --candidate-sha sha --npm-publish-evidence path --git-tag-evidence path --github-release-evidence path [--package-name name] [--package-version version] [--expected-dist-tag beta|next|latest] [--expected-github-prerelease true|false] [--now iso] [--strict]",
     "  loo release general-readiness --evidence-dir path [--fresh-npm-evidence path] [--agent-dogfood-evidence path] [--now iso] [--strict]",
+    "  loo release hermes-readiness --evidence-dir path --package-version version --candidate-sha sha --hermes-smoke path --package-smoke path [--now iso] [--strict]",
     "  loo release ga-smoke --evidence-dir path --package-version version --candidate-sha sha [--release-status path] [--release-finalization-status path] [--published-smoke path] [--dogfood-report path] [--tool-smoke-report path] [--scenario-sweep path] [--scorecard-sweep path] [--release-preflight path] [--release-bundle path] [--privacy-scan path] [--qa-lab-run path] [--tool-coverage path] [--live-control-matrix path] [--judge-review path] [--adversarial-review path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--allow-setup-required] [--now iso] [--strict]",
     "  loo release demo-status --evidence-dir path [--candidate-sha sha] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--min-sessions n] [--strict]",
     "  loo qa-lab cli-mcp-smoke --evidence-dir path --package-version version [--candidate-sha sha] [--cli-bin path] [--mcp-bin path] [--required-tool name] [--tool-call name] [--timeout-ms ms] [--now iso] [--strict]",
+    "  loo hermes smoke --evidence-dir path --package-version version --candidate-sha sha [--cli-bin path] [--mcp-bin path] [--timeout-ms ms] [--now iso] [--strict]",
     "  loo qa-lab run --suite ga --artifact published|candidate --evidence-dir path --package-version version --candidate-sha sha [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--tool-coverage path] [--workflow-run path] [--cli-mcp-smoke path] [--desktop-contract path] [--live-control-matrix path] [--scenario-sweep path] [--scorecard-sweep path] [--privacy-scan path] [--now iso] [--strict]",
     "  loo qa-lab tool-coverage --evidence-dir path [--tool-smoke-report path] [--dogfood-report path] [--published-smoke path] [--manifest path] [--package-version version] [--candidate-sha sha] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--coverage-policy full|facade] [--now iso] [--strict]",
     "  loo qa-lab desktop-contract --evidence-dir path --readiness-report path [--action-bound-scratch-proof path] [--package-version version] [--candidate-sha sha] [--now iso] [--strict]",
@@ -2136,6 +2162,36 @@ function printGeneralReleaseReadinessHelp(): void {
     "",
     "Safety boundary:",
     "  The command does not publish npm, does not move npm dist-tags, does not create a GitHub Release, does not run live Codex control, and does not perform desktop GUI mutation."
+  ].join("\n"));
+}
+
+function printHermesReadinessHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo release hermes-readiness --evidence-dir path --package-version version --candidate-sha sha --hermes-smoke path --package-smoke path [--now iso] [--strict]",
+    "",
+    "Aggregates public-safe Hermes compatibility and candidate package evidence for one exact source SHA.",
+    "",
+    "Strict mode:",
+    "  --strict exits non-zero unless both reports are ready, public-safe, action-free, and bound to the requested package version and candidate SHA.",
+    "",
+    "Safety boundary:",
+    "  This command does not publish npm, create tags or GitHub Releases, change a Hermes profile, access Eva's active database, or run live Codex control."
+  ].join("\n"));
+}
+
+function printHermesSmokeHelp(): void {
+  console.log([
+    "Usage:",
+    "  loo hermes smoke --evidence-dir path --package-version version --candidate-sha sha [--cli-bin path] [--mcp-bin path] [--timeout-ms ms] [--now iso] [--strict]",
+    "",
+    "Runs isolated local MCP probes for silent notifications, object-valid structured results, default no-index find behavior at or below 300 ms, and the fourteen required Eva tools.",
+    "",
+    "Strict mode:",
+    "  --strict exits non-zero for protocol, schema, tool-registration, identity, or setup blockers.",
+    "",
+    "Safety boundary:",
+    "  This command does not change a Hermes profile, access Eva's active database, run live Codex control, publish npm, create tags, or create a GitHub Release."
   ].join("\n"));
 }
 
@@ -4449,6 +4505,130 @@ function parseGeneralReleaseReadinessArgs(input: string[]): {
   }
   if (!evidenceDir) throw new Error("release general-readiness requires --evidence-dir");
   return { evidenceDir, freshNpmEvidence, agentDogfoodEvidence, now, strict };
+}
+
+function parseHermesReadinessArgs(input: string[]): {
+  evidenceDir: string;
+  packageVersion: string;
+  candidateSha: string;
+  hermesSmokePath: string;
+  packageSmokePath: string;
+  now?: string;
+  strict: boolean;
+} {
+  let evidenceDir: string | undefined;
+  let packageVersion: string | undefined;
+  let candidateSha: string | undefined;
+  let hermesSmokePath: string | undefined;
+  let packageSmokePath: string | undefined;
+  let now: string | undefined;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--evidence-dir") {
+      evidenceDir = readReleaseStatusPath(input, ++index, "--evidence-dir");
+      continue;
+    }
+    if (arg === "--package-version") {
+      packageVersion = readReleaseStatusValue(input, ++index, "--package-version");
+      continue;
+    }
+    if (arg === "--candidate-sha") {
+      candidateSha = readReleaseStatusValue(input, ++index, "--candidate-sha");
+      continue;
+    }
+    if (arg === "--hermes-smoke") {
+      hermesSmokePath = readReleaseStatusPath(input, ++index, "--hermes-smoke");
+      continue;
+    }
+    if (arg === "--package-smoke") {
+      packageSmokePath = readReleaseStatusPath(input, ++index, "--package-smoke");
+      continue;
+    }
+    if (arg === "--now") {
+      now = readReleaseStatusValue(input, ++index, "--now");
+      continue;
+    }
+    if (arg === "--strict") {
+      strict = true;
+      continue;
+    }
+    throw new Error(`Unknown release hermes-readiness option: ${arg}`);
+  }
+  if (!evidenceDir) throw new Error("release hermes-readiness requires --evidence-dir");
+  if (!packageVersion) throw new Error("release hermes-readiness requires --package-version");
+  if (!candidateSha) throw new Error("release hermes-readiness requires --candidate-sha");
+  if (!hermesSmokePath) throw new Error("release hermes-readiness requires --hermes-smoke");
+  if (!packageSmokePath) throw new Error("release hermes-readiness requires --package-smoke");
+  return {
+    evidenceDir,
+    packageVersion,
+    candidateSha,
+    hermesSmokePath,
+    packageSmokePath,
+    now,
+    strict
+  };
+}
+
+function parseHermesSmokeArgs(input: string[]): {
+  evidenceDir: string;
+  packageVersion: string;
+  candidateSha: string;
+  cliBin?: string;
+  mcpBin?: string;
+  timeoutMs?: number;
+  now?: string;
+  strict: boolean;
+} {
+  let evidenceDir: string | undefined;
+  let packageVersion: string | undefined;
+  let candidateSha: string | undefined;
+  let cliBin: string | undefined;
+  let mcpBin: string | undefined;
+  let timeoutMs: number | undefined;
+  let now: string | undefined;
+  let strict = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = input[index]!;
+    if (arg === "--evidence-dir") {
+      evidenceDir = readReleaseStatusPath(input, ++index, "--evidence-dir");
+      continue;
+    }
+    if (arg === "--package-version") {
+      packageVersion = readReleaseStatusValue(input, ++index, "--package-version");
+      continue;
+    }
+    if (arg === "--candidate-sha") {
+      candidateSha = readReleaseStatusValue(input, ++index, "--candidate-sha");
+      continue;
+    }
+    if (arg === "--cli-bin") {
+      cliBin = readReleaseStatusPath(input, ++index, "--cli-bin");
+      continue;
+    }
+    if (arg === "--mcp-bin") {
+      mcpBin = readReleaseStatusPath(input, ++index, "--mcp-bin");
+      continue;
+    }
+    if (arg === "--timeout-ms") {
+      timeoutMs = parsePositiveInteger(input[++index], "--timeout-ms", MAX_CLI_MCP_PRODUCT_SMOKE_TIMEOUT_MS);
+      continue;
+    }
+    if (arg === "--now") {
+      now = readReleaseStatusValue(input, ++index, "--now");
+      continue;
+    }
+    if (arg === "--strict") {
+      strict = true;
+      continue;
+    }
+    throw new Error(`Unknown hermes smoke option: ${arg}`);
+  }
+  if (!evidenceDir) throw new Error("hermes smoke requires --evidence-dir");
+  if (!packageVersion) throw new Error("hermes smoke requires --package-version");
+  if (!candidateSha) throw new Error("hermes smoke requires --candidate-sha");
+  return { evidenceDir, packageVersion, candidateSha, cliBin, mcpBin, timeoutMs, now, strict };
 }
 
 function parseReleaseGaSmokeArgs(input: string[]): {

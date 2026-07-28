@@ -17853,6 +17853,7 @@ export function createFindRecallReport(options: {
   limit?: number;
   recall: GrepRecallResult;
   indexed?: IndexCodexResult | IndexClaudeResult | RecallIndexSummary | null;
+  indexDecision?: "requested" | "skipped_by_flag" | "skipped_by_default";
 }): FindRecallReport {
   const requestedLimit = options.limit ?? (options.recall.matches.length || 10);
   const limit = clamp(requestedLimit, 1, 100);
@@ -17868,6 +17869,11 @@ export function createFindRecallReport(options: {
   const localRecallSourceRead = incrementalIndexAttempted || localLcmSourceRead;
   const transcriptDerivedContentRead = incrementalIndexAttempted
     || results.some((result) => result.reasonCodes.includes("event_content_fts_match"));
+  const indexReasonCode = incrementalIndexAttempted
+    ? "incremental_index_attempted"
+    : options.indexDecision === "skipped_by_default"
+      ? "index_skipped_by_default"
+      : "index_skipped_by_flag";
   return {
     schema: "lco.find.v1",
     ok: true,
@@ -17905,7 +17911,7 @@ export function createFindRecallReport(options: {
     },
     reasonCodes: unique([
       "find_command",
-      incrementalIndexAttempted ? "incremental_index_attempted" : "index_skipped_by_flag",
+      indexReasonCode,
       localCodexSourceRead ? "codex_index_attempted" : "",
       localClaudeSourceRead ? "claude_index_attempted" : "",
       localLcmSourceRead ? "lcm_peer_source_read" : "",

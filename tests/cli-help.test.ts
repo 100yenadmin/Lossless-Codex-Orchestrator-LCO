@@ -651,6 +651,29 @@ test("loo release general-readiness --help uses version-neutral stable wording",
   assert.equal(result.stderr.trim(), "");
 });
 
+test("loo hermes smoke --help exposes a local-only compatibility gate", () => {
+  const result = runLoo(["hermes", "smoke", "--help"]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Usage:\n  loo hermes smoke/);
+  assert.match(result.stdout, /--package-version version/);
+  assert.match(result.stdout, /--candidate-sha sha/);
+  assert.match(result.stdout, /fourteen required Eva tools/i);
+  assert.match(result.stdout, /does not change a Hermes profile/i);
+  assert.equal(result.stderr.trim(), "");
+});
+
+test("loo release hermes-readiness --help exposes aggregate-only candidate proof", () => {
+  const result = runLoo(["release", "hermes-readiness", "--help"]);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Usage:\n  loo release hermes-readiness/);
+  assert.match(result.stdout, /--hermes-smoke path/);
+  assert.match(result.stdout, /--package-smoke path/);
+  assert.match(result.stdout, /does not publish npm/i);
+  assert.equal(result.stderr.trim(), "");
+});
+
 test("loo release ga-smoke --help exposes aggregate-only GA evidence contract", () => {
   const result = runLoo(["release", "ga-smoke", "--help"]);
 

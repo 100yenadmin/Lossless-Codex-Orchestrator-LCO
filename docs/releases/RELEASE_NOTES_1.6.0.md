@@ -1,9 +1,12 @@
 # Release Notes 1.6.0
 
-`1.6.0` is the Control Plane release for local Codex sessions. It adds bounded
-ways to see what changed, prepare review-then-drive work, verify supported
-Codex actions, and use LCM summary peers without widening access to raw local
-data.
+`1.6.0` is the Control Plane candidate for local Codex sessions. These notes
+describe the candidate; they do not mean `1.6.0` is published. npm dist-tags
+and GitHub Releases remain the release authorities.
+
+It adds bounded ways to see what changed, prepare review-then-drive work, verify
+supported Codex actions, and use LCM summary peers without widening access to
+raw local data.
 
 ## Highlights
 
@@ -34,6 +37,9 @@ data.
   sensitive-ref filtering.
 - Added a side-effect-free Claude availability probe and kept the 1.6 Claude
   control surface dry-run only.
+- Made Hermes the primary supported agent path over stdio MCP, with silent
+  JSON-RPC notifications, object-valid structured results, fast existing-index
+  search by default, and candidate smoke/readiness reports.
 - Made the canonical `lco` help output consistent across both package names and
   allowed QA Lab workflows to target an isolated OpenClaw profile explicitly.
 - Added operator threat-model and dual-package rollback guidance for the
@@ -56,8 +62,9 @@ should use `lossless-codex-orchestrator`.
 
 Release qualification for 1.6 covers GitHub CI and CodeQL, current-head review,
 focused feature and packaging suites, clean installs of both npm package names,
-CLI and MCP invocation, OpenClaw gateway facade coverage, local-agent dogfood,
-and approved disposable-target runtime checks.
+Hermes/Python MCP client compatibility and latency, CLI and MCP invocation,
+OpenClaw compatibility coverage, local-agent dogfood, and approved
+disposable-target runtime checks when those checks are included.
 
 ## Links
 
@@ -70,3 +77,5 @@ and approved disposable-target runtime checks.
 - Post-action refresh QA fix: #761
 - Canonical CLI help: #773
 - QA Lab OpenClaw profile routing: #777
+- Hermes-first stabilization: #791
+- Existing-index `lco_find` default: #790

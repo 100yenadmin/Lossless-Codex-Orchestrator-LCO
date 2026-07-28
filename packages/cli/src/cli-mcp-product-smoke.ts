@@ -11,6 +11,7 @@ export type CliMcpProductSmokeOptions = {
   cliBin?: string;
   mcpBin?: string;
   toolCallName?: string;
+  toolCallArguments?: Record<string, unknown>;
   requiredTools?: string[];
   timeoutMs?: number;
   now?: string;
@@ -31,6 +32,8 @@ export type CliMcpProductSmokeReport = {
   cliReady: boolean;
   mcpReady: boolean;
   mcpToolsCallReady: boolean;
+  notificationSilenceReady: boolean;
+  invalidNotificationResponseCount: number;
   toolsListed: number;
   toolCallProbe: ToolCallProbe;
   requiredTools: string[];
@@ -61,6 +64,8 @@ type ProbeResult = {
 type McpProbeResult = ProbeResult & {
   tools: string[];
   toolCall: ToolCallProbe;
+  notificationSilenceReady?: boolean;
+  invalidNotificationResponseCount?: number;
 };
 
 type ToolCallProbe = {
@@ -69,6 +74,10 @@ type ToolCallProbe = {
   contentItemCount: number;
   contentKinds: string[];
   structuredContentPresent: boolean;
+  structuredContentObject: boolean;
+  structuredContentWrappedResult: boolean;
+  reasonCodes: string[];
+  durationMs: number | null;
   errorCode: string | null;
 };
 
@@ -101,6 +110,7 @@ export async function createCliMcpProductSmokeReport(options: CliMcpProductSmoke
   const mcpProbe = await probeMcpToolsListAndCall(
     options.mcpBin ?? "lco-mcp-server",
     toolCallName,
+    options.toolCallArguments ?? {},
     options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     options.runtimeRootFactory
   );
@@ -115,7 +125,9 @@ export async function createCliMcpProductSmokeReport(options: CliMcpProductSmoke
   const warnings = uniqueStrings([...cliProbe.warnings, ...mcpProbe.warnings]);
   const cliReady = cliProbe.ready;
   const mcpReady = mcpProbe.ready;
-  const mcpToolsCallReady = mcpProbe.toolCall.ok;
+  const notificationSilenceReady = mcpProbe.notificationSilenceReady !== false;
+  const invalidNotificationResponseCount = mcpProbe.invalidNotificationResponseCount ?? 0;
+  const mcpToolsCallReady = mcpProbe.toolCall.ok && notificationSilenceReady;
   const ok = cliReady && mcpReady && mcpToolsCallReady && missingRequiredTools.length === 0 && blockers.length === 0 && setupBlockers.length === 0;
   const report: CliMcpProductSmokeReport = {
     schema: "lco.qaLab.cliMcpProductSmoke.v1",
@@ -130,6 +142,8 @@ export async function createCliMcpProductSmokeReport(options: CliMcpProductSmoke
     cliReady,
     mcpReady,
     mcpToolsCallReady,
+    notificationSilenceReady,
+    invalidNotificationResponseCount,
     toolsListed: mcpProbe.tools.length,
     toolCallProbe: mcpProbe.toolCall,
     requiredTools,
@@ -186,6 +200,7 @@ function probeCliHelp(cliBin: string, timeoutMs: number): ProbeResult {
 function probeMcpToolsListAndCall(
   mcpBin: string,
   toolCallName: string,
+  toolCallArguments: Record<string, unknown>,
   timeoutMs: number,
   runtimeRootFactory: () => string = () => mkdtempSync(join(tmpdir(), "lco-cli-mcp-smoke-"))
 ): Promise<McpProbeResult> {
@@ -193,6 +208,8 @@ function probeMcpToolsListAndCall(
     let resolved = false;
     let stdoutBuffer = "";
     let listedTools: string[] = [];
+    let invalidNotificationResponseCount = 0;
+    let toolCallStartedAt: number | null = null;
     let stage: "initialize" | "tools_list" | "tools_call" = "initialize";
     let timer: ReturnType<typeof setTimeout> | null = null;
     let killTimer: ReturnType<typeof setTimeout> | null = null;
@@ -230,7 +247,16 @@ function probeMcpToolsListAndCall(
       resolved = true;
       if (timer) clearTimeout(timer);
       terminateChild();
-      resolve(result);
+      const notificationSilenceReady = invalidNotificationResponseCount === 0;
+      resolve({
+        ...result,
+        blockers: uniqueStrings([
+          ...result.blockers,
+          ...(notificationSilenceReady ? [] : ["mcp_notification_response_invalid"])
+        ]),
+        notificationSilenceReady,
+        invalidNotificationResponseCount
+      });
     };
     const armStageTimeout = () => {
       if (timer) clearTimeout(timer);
@@ -294,6 +320,13 @@ function probeMcpToolsListAndCall(
       for (const line of lines) {
         const parsed = parseJsonRpcLine(line);
         if (!parsed) continue;
+        if (
+          !Object.prototype.hasOwnProperty.call(parsed, "id")
+          || (parsed.id !== 1 && parsed.id !== 2 && parsed.id !== 3)
+        ) {
+          invalidNotificationResponseCount += 1;
+          continue;
+        }
         if (parsed.id === 1 && parsed.error) {
           finish({ ...packageDefect("mcp_initialize_failed"), tools: [], toolCall: failedToolCall(toolCallName, "mcp_initialize_failed") });
           return;
@@ -328,12 +361,13 @@ function probeMcpToolsListAndCall(
             return;
           }
           stage = "tools_call";
+          toolCallStartedAt = Date.now();
           armStageTimeout();
           if (!writeMessage({
             jsonrpc: "2.0",
             id: 3,
             method: "tools/call",
-            params: { name: toolCallName, arguments: {} }
+            params: { name: toolCallName, arguments: toolCallArguments }
           }, "mcp_tools_call_write_failed")) return;
           continue;
         }
@@ -349,7 +383,11 @@ function probeMcpToolsListAndCall(
           return;
         }
         if (parsed.id === 3 && isRecord(parsed.result)) {
-          const toolCall = successfulToolCall(toolCallName, parsed.result);
+          const toolCall = successfulToolCall(
+            toolCallName,
+            parsed.result,
+            toolCallStartedAt === null ? null : Date.now() - toolCallStartedAt
+          );
           finish({
             ready: true,
             tools: listedTools,
@@ -402,25 +440,43 @@ function failedToolCall(toolName: string, errorCode: string): ToolCallProbe {
     contentItemCount: 0,
     contentKinds: [],
     structuredContentPresent: false,
+    structuredContentObject: false,
+    structuredContentWrappedResult: false,
+    reasonCodes: [],
+    durationMs: null,
     errorCode
   };
 }
 
-function successfulToolCall(toolName: string, result: Record<string, unknown>): ToolCallProbe {
+function successfulToolCall(toolName: string, result: Record<string, unknown>, durationMs: number | null): ToolCallProbe {
   const content = Array.isArray(result.content) ? result.content : [];
+  const structuredContent = isRecord(result.structuredContent) ? result.structuredContent : null;
   const responseToolName = typeof result.toolName === "string"
     ? result.toolName
     : typeof result.name === "string"
       ? result.name
       : null;
   const nameMatches = responseToolName === null || responseToolName === toolName;
+  const structuredContentObject = structuredContent !== null;
+  const reasonCodes = structuredContent && Array.isArray(structuredContent.reasonCodes)
+    ? uniqueStrings(structuredContent.reasonCodes.filter((value): value is string => typeof value === "string" && /^[a-z0-9_]+$/.test(value))).slice(0, 32)
+    : [];
+  const errorCode = !nameMatches
+    ? "mcp_tools_call_name_mismatch"
+    : !structuredContentObject
+      ? "mcp_tools_call_structured_content_not_object"
+      : null;
   return {
     toolName,
-    ok: nameMatches,
+    ok: errorCode === null,
     contentItemCount: content.length,
     contentKinds: uniqueStrings(content.map((item) => safeContentKind(item))).slice(0, 8),
     structuredContentPresent: Object.prototype.hasOwnProperty.call(result, "structuredContent"),
-    errorCode: nameMatches ? null : "mcp_tools_call_name_mismatch"
+    structuredContentObject,
+    structuredContentWrappedResult: Boolean(structuredContent && Object.prototype.hasOwnProperty.call(structuredContent, "result")),
+    reasonCodes,
+    durationMs,
+    errorCode
   };
 }
 

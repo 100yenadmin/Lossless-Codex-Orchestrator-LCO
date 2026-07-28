@@ -4,9 +4,9 @@ This document is the product and eval contract for the public release path. GitH
 
 ## North Star
 
-An OpenClaw agent can understand, search, summarize, and safely coordinate a user's local Codex sessions without reading huge raw transcripts or bypassing Codex permissions.
+A Hermes agent can understand, search, summarize, and safely coordinate a user's local Codex sessions without reading huge raw transcripts or bypassing Codex permissions.
 
-The stable product should feel like a local orchestration cockpit: OpenClaw can see what Codex sessions exist, what each session is working on, which plans and final messages matter, which files were touched, and which next action would be safe to dry-run or execute only after explicit approval.
+The stable product should feel like a local orchestration cockpit: Hermes can see what Codex sessions exist, what each session is working on, which plans and final messages matter, which files were touched, and which next action would be safe to dry-run or execute only after explicit approval.
 
 ## Adapter Tiers
 
@@ -15,19 +15,20 @@ LCO is a **Codex orchestration engine with a runtime-neutral core**. The engine
 no harness-specific coupling; harnesses reach it through adapters. Adapter tiers
 are prioritized:
 
-**Tier 1 - OpenClaw (primary).** First-class native plugin
-(`openclaw.plugin.json`, real plugin-SDK wiring, tiered tool profiles, gateway
-tool-smoke evidence). This is the reference integration and the surface every
-release gate exercises through a real gateway. OpenClaw is where new
-capabilities land and are proven first.
-
-**Tier 2 - Hermes (supported via MCP; native adapter deferred).** Hermes agents
-orchestrate Codex through the generic MCP server today, as a first-class
-mounting path (tested recipe in SETUP). A Hermes-native adapter is deferred
-until a concrete use case justifies it; see
+**Tier 1 - Hermes (primary over stdio MCP; native adapter deferred).** Hermes
+agents orchestrate Codex through the standards-compliant MCP server as the
+primary supported agent path. Candidate releases prove initialization,
+notification silence, tool registration, structured results, default indexed
+search, and latency with Hermes-compatible client evidence. A Hermes-native
+adapter remains separate deeper work; see
 [docs/HERMES_ADAPTER_BOUNDARY.md](docs/HERMES_ADAPTER_BOUNDARY.md).
 
-**Tier 3 - Generic MCP (any harness).** Any MCP-capable client, including
+**Tier 2 - OpenClaw (compatibility supported).** The native plugin
+(`openclaw.plugin.json`, real plugin-SDK wiring, tiered tool profiles, and
+gateway tool-smoke evidence) remains maintained over the same runtime-neutral
+core. OpenClaw-specific evidence proves only the compatibility surface.
+
+**Tier 3 - Generic MCP (any harness).** Any other MCP-capable client, including
 Claude Code, Cursor, or a bespoke harness, mounts `lco-mcp-server` over stdio
 and drives the same tiered `lco_*` tool surface. The protocol boundary is
 deliberate: only `initialize`, `tools/list`, and `tools/call` are implemented.
@@ -50,13 +51,17 @@ Hermes or generic MCP until each is independently proven.
 
 ## Current Release Roadmap: 1.6 Control Plane
 
-Current stable: `1.6.0`, shipped on the npm `latest` channel. The Control Plane release keeps
+Published stable at this candidate snapshot: `1.5.0` on npm `latest` and GitHub
+Release `v1.5.0`. Current source candidate: `1.6.0`. Source metadata is not
+published release proof; npm dist-tags and GitHub Releases remain the
+publication authorities. The Control Plane candidate keeps
 `lossless-codex-orchestrator` as the canonical npm package, keeps
 `lossless-openclaw-orchestrator` as a maintained compatibility package, adds
 bounded session-diff cursors and review-then-drive dry-runs, verifies the Codex
 scratch control matrix under audit and post-action refresh, materializes LCM
-prepared cards with peer diagnostics, and validates Claude as a second target
-family without claiming Claude live control.
+prepared cards with peer diagnostics, validates Claude as a second target
+family without claiming Claude live control, and stabilizes the Hermes stdio
+MCP path.
 
 The stable 1.0.0 through `1.5.0` packages are completed release lines. M11 proved
 the first scoped stable GA-assurance lane, and M12 built the
@@ -69,13 +74,14 @@ Release train status:
 
 - **Milestone 13: LCO 1.5 Coverage & Cockpit Release Train.** Completed and
   administratively closed after the 1.5.0 release.
-- **Milestone 14: LCO 1.6 Control Plane Release Train.** Completed with the
-  1.6.0 dual-package release after exact-head implementation, QA Lab, publication,
-  and runtime verification agreed on the published artifact.
-- **Milestone 15: LCO 1.7 Matrix Stretch Release Train.** Next roadmap lane after
-  the 1.6 closeout for
-  Claude live control, bidirectional flows, Hermes-native integration, watch
-  mode, large-file fallback, and the separately gated recall-v2 evaluation.
+- **Milestone 14: LCO 1.6 Control Plane Release Train.** Active. The current
+  acceptance gate is Hermes-first stabilization, exact-head package smoke, and
+  isolated Hermes-client readiness. Merge, publication, and active-Eva runtime
+  proof remain later gates.
+- **Milestone 15: LCO 1.7 Matrix Stretch Release Train.** Later roadmap lane for
+  Claude live control, bidirectional flows, a native Hermes adapter and
+  watch-daemon work, large-file fallback, and the separately gated recall-v2
+  evaluation.
 
 Current target:
 
@@ -84,9 +90,10 @@ Current target:
   doctrine belongs in [docs/CLAIM_AUDIT.md](docs/CLAIM_AUDIT.md),
   [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md), QA Lab reports, issue
   comments, and [docs/BETA_RELEASE_RUNBOOK.md](docs/BETA_RELEASE_RUNBOOK.md).
-- Keep the 1.6 stable control-plane paths current across CLI, MCP, and
-  OpenClaw: session diff, drive dry-run, Codex audit binding and refresh proof,
-  LCM prepared cards, and peer doctoring.
+- Stabilize the 1.6 candidate across CLI, Hermes/MCP, and OpenClaw
+  compatibility: session diff, drive dry-run, Codex audit binding and refresh
+  proof, LCM prepared cards, peer doctoring, notification-safe JSON-RPC, and
+  bounded default search.
 - Treat `lco qa-lab tool-coverage --coverage-policy full --strict` as the
   full-surface GA gate over the canonical tool surface. Missing product evidence
   is a blocker unless release copy explicitly excludes that tool or workflow.

@@ -199,7 +199,7 @@
       },
       {
         "name": "lco_find",
-        "description": "Find local Codex and Claude Code work from one query; indexes local recall sources first unless index is false.",
+        "description": "Find indexed local Codex and Claude Code work from one query; set index to true to refresh local recall sources first.",
         "safety": {
           "mode": "local_cache_write",
           "source": "local_index",
@@ -2020,7 +2020,7 @@
       },
       {
         "name": "loo_find",
-        "description": "Find local Codex and Claude Code work from one query; indexes local recall sources first unless index is false.",
+        "description": "Find indexed local Codex and Claude Code work from one query; set index to true to refresh local recall sources first.",
         "safety": {
           "mode": "local_cache_write",
           "source": "local_index",

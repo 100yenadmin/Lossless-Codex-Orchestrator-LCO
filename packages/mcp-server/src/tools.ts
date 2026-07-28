@@ -566,7 +566,7 @@ export function createLooTools(options: {
         : null;
       return publicSafeIndexRecallResult({ target, codex, claude });
     }),
-    tool("lco_find", "Find local Codex and Claude Code work from one query; indexes local recall sources first unless index is false.", {
+    tool("lco_find", "Find indexed local Codex and Claude Code work from one query; set index to true to refresh local recall sources first.", {
       query: { type: "string" },
       limit: { type: "integer", minimum: 1, maximum: 100 },
       index: { type: "boolean" },
@@ -579,7 +579,13 @@ export function createLooTools(options: {
       max_events_per_file: { type: "integer", minimum: 1, maximum: 1000000 }
     }, (input) => {
       const limit = optionalBoundedInteger(input.limit, 1, 100) ?? 10;
-      const shouldIndex = optionalBoolean(input.index) !== false;
+      const requestedIndex = optionalBoolean(input.index);
+      const shouldIndex = requestedIndex === true;
+      const indexDecision = shouldIndex
+        ? "requested"
+        : requestedIndex === false
+          ? "skipped_by_flag"
+          : "skipped_by_default";
       const query = requiredString(input.query, "query");
       const indexTarget = optionalRecallIndexTarget(input.index_target, input.roots !== undefined && input.claude_roots === undefined ? "codex" : "all");
       const codex = shouldIndex && (indexTarget === "codex" || indexTarget === "all")
@@ -604,6 +610,7 @@ export function createLooTools(options: {
         query,
         limit,
         indexed,
+        indexDecision,
         recall: grepRecall(options.db, {
           query,
           limit,

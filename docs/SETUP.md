@@ -311,7 +311,9 @@ tool.
 
 ## 7. Connect MCP
 
-LCO works from any MCP-capable agent without OpenClaw. Index first from the CLI:
+Hermes over stdio MCP is LCO's primary supported agent path. Other MCP clients
+use the same server, and OpenClaw remains a compatibility integration. Index
+first from the CLI:
 
 ```bash
 lco index codex "$HOME/.codex/sessions"
@@ -331,6 +333,49 @@ Equivalent CLI entry:
 ```bash
 lco serve
 ```
+
+### Hermes (`config.yaml`)
+
+Add a credential-free local stdio server to the Hermes profile:
+
+```yaml
+mcp_servers:
+  lco:
+    command: lco-mcp-server
+    enabled: true
+    env:
+      LCO_DB_PATH: ~/.openclaw/lossless-openclaw-orchestrator/orchestrator.sqlite
+      LCO_TOOL_PROFILE: standard
+```
+
+`lco_find` queries the existing index by default. It does not synchronously
+reindex unless the call explicitly passes `index:true`; `lco_index_sessions`
+remains the explicit refresh tool.
+
+Maintainers can prove a candidate without writing a Hermes profile:
+
+```bash
+lco hermes smoke \
+  --evidence-dir /tmp/lco-hermes-smoke \
+  --package-version 1.6.0 \
+  --candidate-sha <candidate-sha> \
+  --strict
+
+lco release hermes-readiness \
+  --evidence-dir /tmp/lco-hermes-readiness \
+  --package-version 1.6.0 \
+  --candidate-sha <candidate-sha> \
+  --hermes-smoke /tmp/lco-hermes-smoke/hermes-smoke.json \
+  --package-smoke /tmp/lco-package-smoke/cli-mcp-smoke.json \
+  --strict
+```
+
+The smoke checks initialization, notification silence, Eva's required
+14-tool registration set, object-valid structured results, default search
+behavior, and bounded latency. The readiness report binds that smoke to the
+candidate package probe. Both reports are public-safe candidate evidence only:
+they do not prove publication, an active profile install, or live Eva runtime
+safety.
 
 ### Claude Code (`.mcp.json`)
 

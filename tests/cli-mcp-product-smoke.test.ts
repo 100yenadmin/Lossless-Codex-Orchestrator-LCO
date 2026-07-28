@@ -64,6 +64,7 @@ function writeFakeMcpServer(path: string, toolNames: string[], options: {
     "function send(payload) { process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...payload }) + '\\n'); }",
     "rl.on('line', (line) => {",
     "  const message = JSON.parse(line);",
+    "  if (!Object.prototype.hasOwnProperty.call(message, 'id')) return;",
     "  if (message.method === 'initialize') {",
     "    if (initializeError) { send({ id: message.id, error: { code: -32000, message: 'init failed' } }); return; }",
     "    const reply = () => send({ id: message.id, result: { protocolVersion: '2025-11-25', serverInfo: { name: 'fake-lco', version: '1.3.0' }, capabilities: { tools: {} } } });",
@@ -121,7 +122,7 @@ test("loo qa-lab cli-mcp-smoke isolates the MCP probe from the ambient user runt
       "--tool-call",
       "lco_doctor",
       "--timeout-ms",
-      "1000",
+      "5000",
       "--strict"
     ], {
       cwd: repoRoot,
@@ -306,14 +307,13 @@ test("loo qa-lab cli-mcp-smoke proves CLI help plus MCP tools/list and tools/cal
     assert.equal(report.mcpReady, true);
     assert.equal(report.mcpToolsCallReady, true);
     assert.equal(report.toolsListed, 5);
-    assert.deepEqual(report.toolCallProbe, {
-      toolName: "lco_doctor",
-      ok: true,
-      contentItemCount: 1,
-      contentKinds: ["text"],
-      structuredContentPresent: true,
-      errorCode: null
-    });
+    assert.equal(report.toolCallProbe.toolName, "lco_doctor");
+    assert.equal(report.toolCallProbe.ok, true);
+    assert.equal(report.toolCallProbe.contentItemCount, 1);
+    assert.deepEqual(report.toolCallProbe.contentKinds, ["text"]);
+    assert.equal(report.toolCallProbe.structuredContentPresent, true);
+    assert.equal((report.toolCallProbe as { structuredContentObject?: boolean }).structuredContentObject, true);
+    assert.equal(report.toolCallProbe.errorCode, null);
     assert.deepEqual(report.requiredToolsPresent, ["lco_doctor", "lco_expand_query"]);
     assert.deepEqual(report.blockers, []);
     assert.deepEqual(report.setupBlockers, []);

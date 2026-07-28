@@ -89,14 +89,14 @@ test("adapter-tier docs and Hermes boundary are linked without widening Hermes c
   assert.match(readme, /docs\/HERMES_ADAPTER_BOUNDARY\.md/);
   assert.match(vision, /docs\/HERMES_ADAPTER_BOUNDARY\.md/);
   assert.match(vision, /## Adapter Tiers/);
-  assert.match(vision, /Tier 1[\s\S]{0,160}OpenClaw/i);
-  assert.match(vision, /Tier 2[\s\S]{0,180}Hermes/i);
+  assert.match(vision, /Tier 1[\s\S]{0,160}Hermes/i);
+  assert.match(vision, /Tier 2[\s\S]{0,180}OpenClaw/i);
   assert.match(vision, /Tier 3[\s\S]{0,180}Generic MCP/i);
   assert.match(vision, /`lco_\*`[\s\S]{0,120}`LCO_\*`[\s\S]{0,120}`lco`/);
   assert.match(vision, /`loo_\*`[\s\S]{0,160}compat/i);
 
   assert.match(hermes, /# Hermes Adapter Boundary/);
-  assert.match(hermes, /priority-2 adapter tier/i);
+  assert.match(hermes, /priority-1 agent\s+path/i);
   assert.match(hermes, /lco-mcp-server/);
   assert.match(hermes, /LCO_DB_PATH/);
   assert.match(hermes, /first-class supported path/i);
