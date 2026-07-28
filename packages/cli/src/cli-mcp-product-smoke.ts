@@ -127,7 +127,7 @@ export async function createCliMcpProductSmokeReport(options: CliMcpProductSmoke
   const warnings = uniqueStrings([...cliProbe.warnings, ...mcpProbe.warnings]);
   const cliReady = cliProbe.ready;
   const mcpReady = mcpProbe.ready;
-  const notificationSilenceReady = mcpProbe.notificationSilenceReady !== false;
+  const notificationSilenceReady = mcpProbe.notificationSilenceReady === true;
   const invalidNotificationResponseCount = mcpProbe.invalidNotificationResponseCount ?? 0;
   const mcpToolsCallReady = mcpProbe.toolCall.ok && notificationSilenceReady;
   const ok = cliReady && mcpReady && mcpToolsCallReady && missingRequiredTools.length === 0 && blockers.length === 0 && setupBlockers.length === 0;

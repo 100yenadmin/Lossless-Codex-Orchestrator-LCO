@@ -244,6 +244,7 @@ test("loo qa-lab cli-mcp-smoke reports isolated runtime setup failure without re
 
     assert.equal(report.ok, false);
     assert.equal(report.mcpReady, false);
+    assert.equal(report.notificationSilenceReady, false);
     assert.deepEqual(report.blockers, ["mcp_isolated_runtime_setup_failed"]);
     assert.equal(report.toolCallProbe.errorCode, "mcp_isolated_runtime_setup_failed");
     assert.equal(existsSync(join(evidenceDir, "cli-mcp-product-smoke.json")), true);
