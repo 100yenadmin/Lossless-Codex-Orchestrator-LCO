@@ -25,7 +25,7 @@ lco release hermes-readiness \
   --package-version <version> \
   --candidate-sha <release-candidate-sha> \
   --hermes-smoke <hermes-smoke.json> \
-  --package-smoke <cli-mcp-smoke.json> \
+  --package-smoke <cli-mcp-product-smoke.json> \
   --strict
 ```
 

@@ -156,12 +156,13 @@ function reportIdentityMatches(
 }
 
 function noRestrictedActions(report: JsonObject): boolean {
-  const actions = isRecord(report.actionsPerformed) ? report.actionsPerformed : {};
-  return actions.npmPublished !== true
-    && actions.githubReleaseCreated !== true
-    && actions.liveCodexControlRun !== true
-    && actions.desktopGuiActionRun !== true
-    && actions.screenshotsCaptured !== true;
+  if (!isRecord(report.actionsPerformed)) return false;
+  const actions = report.actionsPerformed;
+  return actions.npmPublished === false
+    && actions.githubReleaseCreated === false
+    && actions.liveCodexControlRun === false
+    && actions.desktopGuiActionRun === false
+    && actions.screenshotsCaptured === false;
 }
 
 function restrictedActions(): HermesReadinessReport["actionsPerformed"] {

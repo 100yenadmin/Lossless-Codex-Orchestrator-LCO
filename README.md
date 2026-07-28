@@ -384,8 +384,9 @@ mcp_servers:
 Before a release, verify the candidate without changing a Hermes profile:
 
 ```bash
-lco hermes smoke --evidence-dir /tmp/lco-hermes-smoke --package-version 1.6.0 --candidate-sha <candidate-sha> --strict
-lco release hermes-readiness --evidence-dir /tmp/lco-hermes-readiness --package-version 1.6.0 --candidate-sha <candidate-sha> --hermes-smoke /tmp/lco-hermes-smoke/hermes-smoke.json --package-smoke /tmp/lco-package-smoke/cli-mcp-smoke.json --strict
+lco qa-lab cli-mcp-smoke --evidence-dir /tmp/lco-package-smoke --package-version 1.6.0 --candidate-sha <candidate-sha> --cli-bin <candidate-prefix>/node_modules/.bin/lco --mcp-bin <candidate-prefix>/node_modules/.bin/lco-mcp-server --strict
+lco hermes smoke --evidence-dir /tmp/lco-hermes-smoke --package-version 1.6.0 --candidate-sha <candidate-sha> --cli-bin <candidate-prefix>/node_modules/.bin/lco --mcp-bin <candidate-prefix>/node_modules/.bin/lco-mcp-server --strict
+lco release hermes-readiness --evidence-dir /tmp/lco-hermes-readiness --package-version 1.6.0 --candidate-sha <candidate-sha> --hermes-smoke /tmp/lco-hermes-smoke/hermes-smoke.json --package-smoke /tmp/lco-package-smoke/cli-mcp-product-smoke.json --strict
 ```
 
 The reports are public-safe candidate evidence. They do not prove publication,

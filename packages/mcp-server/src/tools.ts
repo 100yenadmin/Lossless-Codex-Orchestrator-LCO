@@ -177,7 +177,7 @@ export const LOO_TOOL_SURFACE: Record<string, LooToolSurfaceMetadata> = {
   lco_find: {
     tier: "public_facade",
     operatorPathRank: 1,
-    operatorPathRole: "Find local Codex work from one query with a bounded first-run index pass and public-safe refs."
+    operatorPathRole: "Find existing indexed local work from one query with public-safe refs; refresh first with lco_index_sessions or index:true when needed."
   },
   lco_search_sessions: { tier: "workflow_detail" },
   lco_grep: { tier: "workflow_detail" },

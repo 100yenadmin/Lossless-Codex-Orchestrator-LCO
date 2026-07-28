@@ -89,6 +89,7 @@ const DEFAULT_REQUIRED_TOOLS = [
   "lco_expand_query"
 ];
 const DEFAULT_TIMEOUT_MS = 5_000;
+const NOTIFICATION_QUIET_PERIOD_MS = 100;
 export const MAX_CLI_MCP_PRODUCT_SMOKE_TIMEOUT_MS = 10_000;
 const PRIVATE_DATA_EXCLUSIONS = [
   "raw CLI stdout/stderr",
@@ -105,12 +106,13 @@ const PRIVATE_DATA_EXCLUSIONS = [
 
 export async function createCliMcpProductSmokeReport(options: CliMcpProductSmokeOptions): Promise<CliMcpProductSmokeReport> {
   const requiredTools = uniqueStrings(options.requiredTools?.length ? options.requiredTools : DEFAULT_REQUIRED_TOOLS);
-  const cliProbe = probeCliHelp(options.cliBin ?? "loo", options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  const cliProbe = probeCliCandidate(options.cliBin ?? "loo", options.packageVersion, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   const toolCallName = options.toolCallName ?? "lco_doctor";
   const mcpProbe = await probeMcpToolsListAndCall(
     options.mcpBin ?? "lco-mcp-server",
     toolCallName,
     options.toolCallArguments ?? {},
+    options.packageVersion,
     options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     options.runtimeRootFactory
   );
@@ -160,7 +162,7 @@ export async function createCliMcpProductSmokeReport(options: CliMcpProductSmoke
       screenshotsCaptured: false
     },
     privateDataExclusions: PRIVATE_DATA_EXCLUSIONS,
-    proofBoundary: "This public-safe QA Lab product smoke proves CLI --help, MCP tools/list, and MCP tools/call for one safe representative tool from the selected published/fresh-install candidate binaries. The MCP child runs with an isolated temporary home, database, audit store, and Codex home so ambient user runtime size or state cannot substitute for package readiness. The default representative call is lco_doctor with empty arguments, so deeper tools should be covered by workflow-specific QA Lab lanes. The CLI and MCP probes run sequentially; the configured timeout applies to the CLI probe and is re-applied to each MCP initialize, tools/list, and tools/call stage. The smoke initializes MCP with protocolVersion 2025-11-25; initialize failures are reported as package/protocol-drift defects for the candidate under test. JSON-RPC id pairing is the primary request/response binding; name-mismatch detection applies only when a non-standard server echoes result.name or result.toolName. It does not run live Codex control, mutate a desktop GUI, capture screenshots, publish npm, create a GitHub Release, store raw CLI output, or store raw MCP output.",
+    proofBoundary: "This public-safe QA Lab product smoke proves CLI --help and --version, MCP server version, tools/list, and tools/call for one safe representative tool from the selected published/fresh-install candidate binaries. The MCP child runs with an isolated temporary home, database, audit store, and Codex home so ambient user runtime size or state cannot substitute for package readiness. The default representative call is lco_doctor with empty arguments, so deeper tools should be covered by workflow-specific QA Lab lanes. The CLI and MCP probes run sequentially; the configured timeout applies to the CLI probes and is re-applied to each MCP initialize, tools/list, and tools/call stage. The smoke initializes MCP with protocolVersion 2025-11-25; initialize failures or version drift are reported as package defects for the candidate under test. JSON-RPC id pairing is the primary request/response binding; name-mismatch detection applies only when a non-standard server echoes result.name or result.toolName. It does not cryptographically derive the Git SHA from the package. It does not run live Codex control, mutate a desktop GUI, capture screenshots, publish npm, create a GitHub Release, store raw CLI output, or store raw MCP output.",
     nextSafeCommands: [
       `loo qa-lab cli-mcp-smoke --evidence-dir <dir> --package-version ${options.packageVersion} --strict`,
       "loo --help",
@@ -178,29 +180,41 @@ export function writeCliMcpProductSmokeReport(report: CliMcpProductSmokeReport, 
   return outputPath;
 }
 
-function probeCliHelp(cliBin: string, timeoutMs: number): ProbeResult {
-  const result = spawnSync(cliBin, ["--help"], {
+function probeCliCandidate(cliBin: string, expectedVersion: string, timeoutMs: number): ProbeResult {
+  const help = spawnSync(cliBin, ["--help"], {
     encoding: "utf8",
     maxBuffer: 1024 * 1024,
     timeout: timeoutMs
   });
-  if (result.error) {
-    if (isMissingExecutableError(result.error)) {
+  if (help.error) {
+    if (isMissingExecutableError(help.error)) {
       return setupRequired("cli_binary_not_found_or_not_executable");
     }
-    if (isTimeoutError(result.error)) {
+    if (isTimeoutError(help.error)) {
       return packageDefect("cli_help_timeout");
     }
     return packageDefect("cli_help_spawn_failed");
   }
-  if (result.status === 0) return readyProbe();
-  return packageDefect("cli_help_failed");
+  if (help.status !== 0) return packageDefect("cli_help_failed");
+  const version = spawnSync(cliBin, ["--version"], {
+    encoding: "utf8",
+    maxBuffer: 1024 * 1024,
+    timeout: timeoutMs
+  });
+  if (version.error) {
+    if (isTimeoutError(version.error)) return packageDefect("cli_version_timeout");
+    return packageDefect("cli_version_spawn_failed");
+  }
+  if (version.status !== 0) return packageDefect("cli_version_failed");
+  if (version.stdout.trim() !== expectedVersion) return packageDefect("cli_version_mismatch");
+  return readyProbe();
 }
 
 function probeMcpToolsListAndCall(
   mcpBin: string,
   toolCallName: string,
   toolCallArguments: Record<string, unknown>,
+  expectedVersion: string,
   timeoutMs: number,
   runtimeRootFactory: () => string = () => mkdtempSync(join(tmpdir(), "lco-cli-mcp-smoke-"))
 ): Promise<McpProbeResult> {
@@ -210,6 +224,8 @@ function probeMcpToolsListAndCall(
     let listedTools: string[] = [];
     let invalidNotificationResponseCount = 0;
     let toolCallStartedAt: number | null = null;
+    let pendingSuccess: McpProbeResult | null = null;
+    const pendingResponseIds = new Set<unknown>();
     let stage: "initialize" | "tools_list" | "tools_call" = "initialize";
     let timer: ReturnType<typeof setTimeout> | null = null;
     let killTimer: ReturnType<typeof setTimeout> | null = null;
@@ -281,6 +297,7 @@ function probeMcpToolsListAndCall(
     const writeMessage = (payload: Record<string, unknown>, failureCode: string): boolean => {
       try {
         if (!child.stdin || child.stdin.destroyed || child.stdin.writableEnded) throw new Error("stdin closed");
+        if (Object.prototype.hasOwnProperty.call(payload, "id")) pendingResponseIds.add(payload.id);
         child.stdin.write(`${JSON.stringify(payload)}\n`);
         return true;
       } catch {
@@ -300,6 +317,10 @@ function probeMcpToolsListAndCall(
       cleanupRuntime();
       if (killTimer) clearTimeout(killTimer);
       if (resolved) return;
+      if (pendingSuccess) {
+        finish(pendingSuccess);
+        return;
+      }
       if (listedTools.length > 0) {
         finish({
           ready: true,
@@ -326,7 +347,7 @@ function probeMcpToolsListAndCall(
           isResponse
           && (
             !Object.prototype.hasOwnProperty.call(parsed, "id")
-            || (parsed.id !== 1 && parsed.id !== 2 && parsed.id !== 3)
+            || !pendingResponseIds.has(parsed.id)
           )
         ) {
           invalidNotificationResponseCount += 1;
@@ -338,6 +359,11 @@ function probeMcpToolsListAndCall(
           return;
         }
         if (parsed.id === 1 && isRecord(parsed.result)) {
+          const serverInfo = isRecord(parsed.result.serverInfo) ? parsed.result.serverInfo : {};
+          if (serverInfo.version !== expectedVersion) {
+            finish({ ...packageDefect("mcp_server_version_mismatch"), tools: [], toolCall: failedToolCall(toolCallName, "mcp_server_version_mismatch") });
+            return;
+          }
           stage = "tools_list";
           armStageTimeout();
           if (!writeMessage({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }, "mcp_initialized_notification_failed")) return;
@@ -394,14 +420,19 @@ function probeMcpToolsListAndCall(
             parsed.result,
             toolCallStartedAt === null ? null : Date.now() - toolCallStartedAt
           );
-          finish({
+          pendingSuccess = {
             ready: true,
             tools: listedTools,
             setupBlockers: [],
             blockers: toolCall.ok ? [] : [toolCall.errorCode ?? "mcp_tools_call_failed"],
             warnings: [],
             toolCall
-          });
+          };
+          if (timer) clearTimeout(timer);
+          timer = setTimeout(() => {
+            if (pendingSuccess) finish(pendingSuccess);
+          }, NOTIFICATION_QUIET_PERIOD_MS);
+          timer.unref?.();
           return;
         }
       }

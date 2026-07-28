@@ -138,6 +138,44 @@ test("Hermes readiness reports blockers without strict and exits non-zero with s
   }
 });
 
+test("Hermes readiness requires every restricted action marker to be explicitly false", () => {
+  const root = mkdtempSync(join(tmpdir(), "lco-hermes-readiness-actions-"));
+  try {
+    const hermesSmokePath = join(root, "hermes-smoke.json");
+    const packageSmokePath = join(root, "cli-mcp-product-smoke.json");
+    const base = {
+      ok: true,
+      publicSafe: true,
+      packageName: PACKAGE_NAME,
+      packageVersion: "1.6.0",
+      candidateSha: CANDIDATE_SHA
+    };
+    writeFileSync(hermesSmokePath, `${JSON.stringify({
+      ...base,
+      schema: "lco.hermesSmoke.v1",
+      actionsPerformed: { npmPublished: false }
+    })}\n`);
+    writeFileSync(packageSmokePath, `${JSON.stringify({
+      ...base,
+      schema: "lco.qaLab.cliMcpProductSmoke.v1",
+      actionsPerformed: restrictedActions()
+    })}\n`);
+
+    const report = createHermesReadinessReport({
+      evidenceDir: root,
+      packageVersion: "1.6.0",
+      candidateSha: CANDIDATE_SHA,
+      hermesSmokePath,
+      packageSmokePath
+    });
+
+    assert.equal(report.ok, false);
+    assert.equal(report.blockers.includes("hermes_smoke_restricted_actions_performed"), true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 function restrictedActions(): Record<string, boolean> {
   return {
     npmPublished: false,

@@ -658,6 +658,8 @@ test("loo hermes smoke --help exposes a local-only compatibility gate", () => {
   assert.match(result.stdout, /Usage:\n  loo hermes smoke/);
   assert.match(result.stdout, /--package-version version/);
   assert.match(result.stdout, /--candidate-sha sha/);
+  assert.match(result.stdout, /--find-latency-threshold-ms/);
+  assert.match(result.stdout, /1000 ms by default/i);
   assert.match(result.stdout, /fourteen required Eva tools/i);
   assert.match(result.stdout, /does not change a Hermes profile/i);
   assert.equal(result.stderr.trim(), "");

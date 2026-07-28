@@ -17,6 +17,7 @@ test("Hermes smoke proves the Eva tool set, silent notifications, and object-val
     writeExecutable(cliBin, [
       "#!/usr/bin/env node",
       "if (process.argv.includes('--help')) process.exit(0);",
+      "if (process.argv.includes('--version')) { console.log('1.6.0'); process.exit(0); }",
       "process.exit(2);"
     ]);
     writeExecutable(mcpBin, fakeHermesMcpServer());
@@ -60,9 +61,13 @@ test("Hermes smoke fails closed when a server responds to initialized notificati
     writeExecutable(cliBin, [
       "#!/usr/bin/env node",
       "if (process.argv.includes('--help')) process.exit(0);",
+      "if (process.argv.includes('--version')) { console.log('1.6.0'); process.exit(0); }",
       "process.exit(2);"
     ]);
-    writeExecutable(mcpBin, fakeHermesMcpServer({ invalidNotificationResponse: true }));
+    writeExecutable(mcpBin, fakeHermesMcpServer({
+      invalidNotificationResponse: true,
+      invalidNotificationResponseDelayMs: 50
+    }));
 
     const report = await createHermesSmokeReport({
       evidenceDir: root,
@@ -90,6 +95,7 @@ test("Hermes smoke fails closed for missing tools and malformed structured conte
     writeExecutable(cliBin, [
       "#!/usr/bin/env node",
       "if (process.argv.includes('--help')) process.exit(0);",
+      "if (process.argv.includes('--version')) { console.log('1.6.0'); process.exit(0); }",
       "process.exit(2);"
     ]);
     writeExecutable(mcpBin, fakeHermesMcpServer({
@@ -125,6 +131,7 @@ test("Hermes smoke fails closed when default find exceeds the latency threshold"
     writeExecutable(cliBin, [
       "#!/usr/bin/env node",
       "if (process.argv.includes('--help')) process.exit(0);",
+      "if (process.argv.includes('--version')) { console.log('1.6.0'); process.exit(0); }",
       "process.exit(2);"
     ]);
     writeExecutable(mcpBin, fakeHermesMcpServer({ responseDelayMs: 350 }));
@@ -155,6 +162,7 @@ function writeExecutable(path: string, lines: string[]): void {
 
 function fakeHermesMcpServer(options: {
   invalidNotificationResponse?: boolean;
+  invalidNotificationResponseDelayMs?: number;
   omitRequiredTool?: boolean;
   malformedStructuredContent?: boolean;
   responseDelayMs?: number;
@@ -168,6 +176,7 @@ function fakeHermesMcpServer(options: {
         : [...EVA_HERMES_REQUIRED_LCO_TOOLS]
     )};`,
     `const invalidNotificationResponse = ${JSON.stringify(options.invalidNotificationResponse ?? false)};`,
+    `const invalidNotificationResponseDelayMs = ${JSON.stringify(options.invalidNotificationResponseDelayMs ?? 0)};`,
     `const malformedStructuredContent = ${JSON.stringify(options.malformedStructuredContent ?? false)};`,
     `const responseDelayMs = ${JSON.stringify(options.responseDelayMs ?? 0)};`,
     "const send = (payload) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...payload }) + '\\n');",
@@ -175,7 +184,11 @@ function fakeHermesMcpServer(options: {
     "rl.on('line', (line) => {",
     "  const message = JSON.parse(line);",
     "  if (!Object.prototype.hasOwnProperty.call(message, 'id')) {",
-    "    if (invalidNotificationResponse) send({ id: null, error: { code: -32601, message: 'invalid notification response' } });",
+    "    if (invalidNotificationResponse) {",
+    "      const payload = { id: null, error: { code: -32601, message: 'invalid notification response' } };",
+    "      if (invalidNotificationResponseDelayMs > 0) setTimeout(() => send(payload), invalidNotificationResponseDelayMs);",
+    "      else send(payload);",
+    "    }",
     "    return;",
     "  }",
     "  if (message.method === 'initialize') {",

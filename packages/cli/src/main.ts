@@ -1354,7 +1354,7 @@ function mainUsageText(): string {
     "  loo release ga-smoke --evidence-dir path --package-version version --candidate-sha sha [--release-status path] [--release-finalization-status path] [--published-smoke path] [--dogfood-report path] [--tool-smoke-report path] [--scenario-sweep path] [--scorecard-sweep path] [--release-preflight path] [--release-bundle path] [--privacy-scan path] [--qa-lab-run path] [--tool-coverage path] [--live-control-matrix path] [--judge-review path] [--adversarial-review path] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--allow-setup-required] [--now iso] [--strict]",
     "  loo release demo-status --evidence-dir path [--candidate-sha sha] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--approved-live-control-evidence path] [--runtime-proof-dir path] [--min-sessions n] [--strict]",
     "  loo qa-lab cli-mcp-smoke --evidence-dir path --package-version version [--candidate-sha sha] [--cli-bin path] [--mcp-bin path] [--required-tool name] [--tool-call name] [--timeout-ms ms] [--now iso] [--strict]",
-    "  loo hermes smoke --evidence-dir path --package-version version --candidate-sha sha [--cli-bin path] [--mcp-bin path] [--timeout-ms ms] [--now iso] [--strict]",
+    "  loo hermes smoke --evidence-dir path --package-version version --candidate-sha sha [--cli-bin path] [--mcp-bin path] [--find-latency-threshold-ms ms] [--timeout-ms ms] [--now iso] [--strict]",
     "  loo qa-lab run --suite ga --artifact published|candidate --evidence-dir path --package-version version --candidate-sha sha [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--tool-coverage path] [--workflow-run path] [--cli-mcp-smoke path] [--desktop-contract path] [--live-control-matrix path] [--scenario-sweep path] [--scorecard-sweep path] [--privacy-scan path] [--now iso] [--strict]",
     "  loo qa-lab tool-coverage --evidence-dir path [--tool-smoke-report path] [--dogfood-report path] [--published-smoke path] [--manifest path] [--package-version version] [--candidate-sha sha] [--claim-scope codex-live-control|codex-read-search-expand-dry-run|codex-working-app-proof] [--coverage-policy full|facade] [--now iso] [--strict]",
     "  loo qa-lab desktop-contract --evidence-dir path --readiness-report path [--action-bound-scratch-proof path] [--package-version version] [--candidate-sha sha] [--now iso] [--strict]",
@@ -2183,9 +2183,10 @@ function printHermesReadinessHelp(): void {
 function printHermesSmokeHelp(): void {
   console.log([
     "Usage:",
-    "  loo hermes smoke --evidence-dir path --package-version version --candidate-sha sha [--cli-bin path] [--mcp-bin path] [--timeout-ms ms] [--now iso] [--strict]",
+    "  loo hermes smoke --evidence-dir path --package-version version --candidate-sha sha [--cli-bin path] [--mcp-bin path] [--find-latency-threshold-ms ms] [--timeout-ms ms] [--now iso] [--strict]",
     "",
-    "Runs isolated local MCP probes for silent notifications, object-valid structured results, default no-index find behavior at or below 300 ms, and the fourteen required Eva tools.",
+    "Runs isolated local MCP probes for candidate version identity, silent notifications, object-valid structured results, default no-index find behavior at or below 1000 ms by default, and the fourteen required Eva tools.",
+    "Use --find-latency-threshold-ms to set a stricter environment-specific single-call ceiling; production-scale p95 evidence remains a separate persistent-process canary.",
     "",
     "Strict mode:",
     "  --strict exits non-zero for protocol, schema, tool-registration, identity, or setup blockers.",
@@ -4577,6 +4578,7 @@ function parseHermesSmokeArgs(input: string[]): {
   candidateSha: string;
   cliBin?: string;
   mcpBin?: string;
+  findLatencyThresholdMs?: number;
   timeoutMs?: number;
   now?: string;
   strict: boolean;
@@ -4586,6 +4588,7 @@ function parseHermesSmokeArgs(input: string[]): {
   let candidateSha: string | undefined;
   let cliBin: string | undefined;
   let mcpBin: string | undefined;
+  let findLatencyThresholdMs: number | undefined;
   let timeoutMs: number | undefined;
   let now: string | undefined;
   let strict = false;
@@ -4611,6 +4614,10 @@ function parseHermesSmokeArgs(input: string[]): {
       mcpBin = readReleaseStatusPath(input, ++index, "--mcp-bin");
       continue;
     }
+    if (arg === "--find-latency-threshold-ms") {
+      findLatencyThresholdMs = parsePositiveInteger(input[++index], "--find-latency-threshold-ms", 10_000);
+      continue;
+    }
     if (arg === "--timeout-ms") {
       timeoutMs = parsePositiveInteger(input[++index], "--timeout-ms", MAX_CLI_MCP_PRODUCT_SMOKE_TIMEOUT_MS);
       continue;
@@ -4628,7 +4635,7 @@ function parseHermesSmokeArgs(input: string[]): {
   if (!evidenceDir) throw new Error("hermes smoke requires --evidence-dir");
   if (!packageVersion) throw new Error("hermes smoke requires --package-version");
   if (!candidateSha) throw new Error("hermes smoke requires --candidate-sha");
-  return { evidenceDir, packageVersion, candidateSha, cliBin, mcpBin, timeoutMs, now, strict };
+  return { evidenceDir, packageVersion, candidateSha, cliBin, mcpBin, findLatencyThresholdMs, timeoutMs, now, strict };
 }
 
 function parseReleaseGaSmokeArgs(input: string[]): {

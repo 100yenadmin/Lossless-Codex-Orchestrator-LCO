@@ -257,9 +257,9 @@ compatibility smoke, install the packed candidate in an isolated prefix and
 run:
 
 ```bash
-lco qa-lab cli-mcp-smoke --evidence-dir <package-smoke-dir> --package-version <version> --candidate-sha <sha> --strict
-lco hermes smoke --evidence-dir <hermes-smoke-dir> --package-version <version> --candidate-sha <sha> --strict
-lco release hermes-readiness --evidence-dir <hermes-readiness-dir> --package-version <version> --candidate-sha <sha> --hermes-smoke <hermes-smoke.json> --package-smoke <cli-mcp-smoke.json> --strict
+lco qa-lab cli-mcp-smoke --evidence-dir <package-smoke-dir> --package-version <version> --candidate-sha <sha> --cli-bin <candidate-prefix>/node_modules/.bin/lco --mcp-bin <candidate-prefix>/node_modules/.bin/lco-mcp-server --strict
+lco hermes smoke --evidence-dir <hermes-smoke-dir> --package-version <version> --candidate-sha <sha> --cli-bin <candidate-prefix>/node_modules/.bin/lco --mcp-bin <candidate-prefix>/node_modules/.bin/lco-mcp-server --strict
+lco release hermes-readiness --evidence-dir <hermes-readiness-dir> --package-version <version> --candidate-sha <sha> --hermes-smoke <hermes-smoke.json> --package-smoke <cli-mcp-product-smoke.json> --strict
 ```
 
 The isolated Hermes client canary must use the candidate MCP binary and a

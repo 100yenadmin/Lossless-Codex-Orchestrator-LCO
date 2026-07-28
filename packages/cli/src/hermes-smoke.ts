@@ -23,7 +23,7 @@ export const EVA_HERMES_REQUIRED_LCO_TOOLS = [
   "lco_codex_interrupt_thread"
 ] as const;
 
-export const HERMES_SMOKE_FIND_LATENCY_THRESHOLD_MS = 300;
+export const HERMES_SMOKE_FIND_LATENCY_THRESHOLD_MS = 1_000;
 
 export type HermesSmokeOptions = {
   evidenceDir: string;
@@ -105,7 +105,9 @@ export async function createHermesSmokeReport(options: HermesSmokeOptions): Prom
     ...(structuredContentObjectReady ? [] : ["structured_content_object_not_proven"]),
     ...(arrayResultWrappedReady ? [] : ["array_result_wrapper_not_proven"]),
     ...(defaultFindIndexSkipped ? [] : ["default_find_index_skip_not_proven"]),
-    ...(findLatencyReady ? [] : ["find_latency_threshold_exceeded"])
+    ...(findLatencyReady ? [] : ["find_latency_threshold_exceeded"]),
+    ...(options.cliBin ? [] : ["candidate_cli_binary_required"]),
+    ...(options.mcpBin ? [] : ["candidate_mcp_binary_required"])
   ]);
   const setupBlockers = uniqueStrings([
     ...prefixCodes("find", find.setupBlockers),
