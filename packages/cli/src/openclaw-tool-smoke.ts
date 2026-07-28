@@ -137,11 +137,17 @@ export const FULL_GATEWAY_SMOKE_TOOL_CALLS = [
 const PREPARED_CARD_STATE_SET = new Set<string>(PREPARED_CARD_STATES);
 const MAX_RESTRICTED_ACTION_SCAN_DEPTH = 64;
 const MAX_RESTRICTED_ACTION_SCAN_ENTRIES = 512;
-const SUCCESSFUL_POST_CREATE_REASON_CODES = new Set([
+const REQUIRED_SUCCESSFUL_POST_CREATE_REASON_CODES = new Set([
   "read_only_app_server_signal",
   "read_probe_found_thread",
   "indexed_session_found",
   "indexed_description_available"
+]);
+const ALLOWED_SUCCESSFUL_POST_CREATE_REASON_CODES = new Set([
+  ...REQUIRED_SUCCESSFUL_POST_CREATE_REASON_CODES,
+  "prepared_card_available",
+  "prepared_card_missing",
+  "prepared_card_stale_or_not_ready"
 ]);
 const SAFE_FAIL_CLOSED_REASON_CODES_BY_TOOL = new Map<string, Set<string>>([
   ["loo_codex_start_thread_post_create_proof", new Set([
@@ -1862,20 +1868,61 @@ function successfulPostCreateProofBlockers(
       ? proof.app_server
       : undefined;
   const index = isRecord(proof.index) ? proof.index : undefined;
+  const preparedStateAliases = [proof.preparedState, proof.prepared_state]
+    .filter((entry) => entry !== undefined);
+  const normalizedPreparedStateAliases = preparedStateAliases
+    .filter(isRecord)
+    .map((state) => {
+      const availableAliases = [state.cardAvailable, state.card_available].filter((entry) => entry !== undefined);
+      const currentAliases = [state.cardCurrent, state.card_current].filter((entry) => entry !== undefined);
+      const aliasesValid = availableAliases.length > 0
+        && currentAliases.length > 0
+        && availableAliases.every((entry) => typeof entry === "boolean" && entry === availableAliases[0])
+        && currentAliases.every((entry) => typeof entry === "boolean" && entry === currentAliases[0]);
+      return aliasesValid
+        ? { available: availableAliases[0] === true, current: currentAliases[0] === true }
+        : null;
+    });
+  const preparedStateAliasesValid = preparedStateAliases.length > 0
+    && normalizedPreparedStateAliases.length === preparedStateAliases.length
+    && normalizedPreparedStateAliases.every((entry) => entry !== null
+      && JSON.stringify(entry) === JSON.stringify(normalizedPreparedStateAliases[0]));
+  const preparedState = normalizedPreparedStateAliases[0];
   const appServerThreadRef = appServer
     ? stringPath(appServer, ["threadRef"]) || stringPath(appServer, ["thread_ref"])
     : undefined;
   const indexSourceRef = index
     ? stringPath(index, ["sourceRef"]) || stringPath(index, ["source_ref"])
     : undefined;
-  const reasonCodes = [
-    ...arrayPath(value, ["reasonCodes"]),
-    ...arrayPath(value, ["reason_codes"])
-  ];
+  const reasonCodeAliases = [value.reasonCodes, value.reason_codes]
+    .filter((entry) => entry !== undefined);
+  const reasonCodes = reasonCodeAliases.flatMap((entry) => Array.isArray(entry) ? entry : []);
   const uniqueReasonCodes = [...new Set(reasonCodes)];
-  const reasonCodesValid = uniqueReasonCodes.length === SUCCESSFUL_POST_CREATE_REASON_CODES.size
+  const normalizedReasonCodeAliases = reasonCodeAliases
+    .filter(Array.isArray)
+    .map((entry) => [...new Set(entry)].sort());
+  const reasonCodeAliasesValid = reasonCodeAliases.length > 0
+    && normalizedReasonCodeAliases.length === reasonCodeAliases.length
+    && normalizedReasonCodeAliases.every((entry) => entry.every((code) => typeof code === "string"))
+    && normalizedReasonCodeAliases.every((entry) => JSON.stringify(entry) === JSON.stringify(normalizedReasonCodeAliases[0]));
+  const preparedCardAvailable = preparedState?.available === true;
+  const preparedCardMissing = preparedState?.available === false;
+  const preparedCardCurrent = preparedState?.current === true;
+  const hasPreparedAvailableCode = uniqueReasonCodes.includes("prepared_card_available");
+  const hasPreparedMissingCode = uniqueReasonCodes.includes("prepared_card_missing");
+  const hasPreparedStaleCode = uniqueReasonCodes.includes("prepared_card_stale_or_not_ready");
+  const preparedReasonCodesValid = hasPreparedAvailableCode !== hasPreparedMissingCode
+    && preparedStateAliasesValid
+    && (!preparedCardCurrent || preparedCardAvailable)
+    && hasPreparedAvailableCode === preparedCardAvailable
+    && hasPreparedMissingCode === preparedCardMissing
+    && hasPreparedStaleCode === (preparedCardAvailable && !preparedCardCurrent);
+  const reasonCodesValid = [...REQUIRED_SUCCESSFUL_POST_CREATE_REASON_CODES]
+    .every((reasonCode) => uniqueReasonCodes.includes(reasonCode))
+    && reasonCodeAliasesValid
     && uniqueReasonCodes.every((reasonCode) => typeof reasonCode === "string"
-      && SUCCESSFUL_POST_CREATE_REASON_CODES.has(reasonCode));
+      && ALLOWED_SUCCESSFUL_POST_CREATE_REASON_CODES.has(reasonCode))
+    && preparedReasonCodesValid;
   const checks: Array<[boolean, string]> = [
     [value.schema === "lco.codex.startThreadPostCreateProof.v1", "post_create_proof_schema_invalid"],
     [value.publicSafe === true || value.public_safe === true, "post_create_proof_public_safe_missing"],
