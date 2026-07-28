@@ -15,8 +15,9 @@ function writeExecutable(path: string, source: string): void {
   chmodSync(path, 0o755);
 }
 
-function writeFakeCli(path: string, options: { helpStatus?: number } = {}): void {
+function writeFakeCli(path: string, options: { helpStatus?: number; version?: string } = {}): void {
   const helpStatus = options.helpStatus ?? 0;
+  const version = options.version ?? "1.3.0";
   writeExecutable(path, [
     "#!/usr/bin/env node",
     "if (process.argv.includes('--help')) {",
@@ -24,6 +25,7 @@ function writeFakeCli(path: string, options: { helpStatus?: number } = {}): void
     "  console.log('raw canary /Users/lume/.codex/state_5.sqlite Bearer test-token-secret');",
     `  process.exit(${helpStatus});`,
     "}",
+    `if (process.argv.includes('--version')) { console.log(${JSON.stringify(version)}); process.exit(0); }`,
     "process.exit(2);"
   ].join("\n"));
 }
@@ -38,6 +40,12 @@ function writeFakeMcpServer(path: string, toolNames: string[], options: {
   stallToolsCall?: boolean;
   initializeDelayMs?: number;
   toolsListDelayMs?: number;
+  sendUnsolicitedNotification?: boolean;
+  notificationResponseDelayMs?: number;
+  combineInvalidNotificationResponseWithToolResult?: boolean;
+  duplicateToolResponse?: boolean;
+  toolCallIsError?: boolean;
+  serverVersion?: string;
 } = {}): void {
   writeExecutable(path, [
     "#!/usr/bin/env node",
@@ -56,6 +64,12 @@ function writeFakeMcpServer(path: string, toolNames: string[], options: {
     `const stallToolsCall = ${JSON.stringify(options.stallToolsCall === true)};`,
     `const initializeDelayMs = ${JSON.stringify(options.initializeDelayMs ?? 0)};`,
     `const toolsListDelayMs = ${JSON.stringify(options.toolsListDelayMs ?? 0)};`,
+    `const sendUnsolicitedNotification = ${JSON.stringify(options.sendUnsolicitedNotification === true)};`,
+    `const notificationResponseDelayMs = ${JSON.stringify(options.notificationResponseDelayMs ?? null)};`,
+    `const combineInvalidNotificationResponseWithToolResult = ${JSON.stringify(options.combineInvalidNotificationResponseWithToolResult === true)};`,
+    `const duplicateToolResponse = ${JSON.stringify(options.duplicateToolResponse === true)};`,
+    `const toolCallIsError = ${JSON.stringify(options.toolCallIsError === true)};`,
+    `const serverVersion = ${JSON.stringify(options.serverVersion ?? "1.3.0")};`,
     `const ambientHome = ${JSON.stringify(process.env.HOME ?? process.env.USERPROFILE ?? "")};`,
     "const runtimeRoot = process.env.HOME || process.env.USERPROFILE || '';",
     "const runtimeIsolated = runtimeRoot !== '' && runtimeRoot !== ambientHome && process.env.HOME === runtimeRoot && process.env.USERPROFILE === runtimeRoot && (process.env.LCO_DB_PATH || '').startsWith(runtimeRoot) && (process.env.LCO_AUDIT_PATH || '').startsWith(runtimeRoot) && !process.env.SECRET_TOKEN;",
@@ -64,9 +78,14 @@ function writeFakeMcpServer(path: string, toolNames: string[], options: {
     "function send(payload) { process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...payload }) + '\\n'); }",
     "rl.on('line', (line) => {",
     "  const message = JSON.parse(line);",
+    "  if (message.method === 'notifications/initialized' && notificationResponseDelayMs !== null) {",
+    "    setTimeout(() => send({ result: { notificationResponse: true } }), notificationResponseDelayMs);",
+    "    return;",
+    "  }",
+    "  if (!Object.prototype.hasOwnProperty.call(message, 'id')) return;",
     "  if (message.method === 'initialize') {",
     "    if (initializeError) { send({ id: message.id, error: { code: -32000, message: 'init failed' } }); return; }",
-    "    const reply = () => send({ id: message.id, result: { protocolVersion: '2025-11-25', serverInfo: { name: 'fake-lco', version: '1.3.0' }, capabilities: { tools: {} } } });",
+    "    const reply = () => send({ id: message.id, result: { protocolVersion: '2025-11-25', serverInfo: { name: 'fake-lco', version: serverVersion }, capabilities: { tools: {} } } });",
     "    if (initializeDelayMs > 0) setTimeout(reply, initializeDelayMs); else reply();",
     "    return;",
     "  }",
@@ -78,12 +97,20 @@ function writeFakeMcpServer(path: string, toolNames: string[], options: {
     "  }",
     "  if (message.method === 'tools/call') {",
     "    if (stallToolsCall) return;",
+    "    if (sendUnsolicitedNotification) send({ method: 'notifications/progress', params: { progress: 1 } });",
     "    if (!tools.some((tool) => tool.name === message.params?.name)) {",
     "      send({ id: message.id, error: { code: -32602, message: 'missing tool' } });",
     "      return;",
     "    }",
     "    if (toolsCallError) { send({ id: message.id, error: { code: -32001, message: 'tool call failed' } }); return; }",
-    "    send({ id: message.id, result: { ...(responseToolName ? { toolName: responseToolName } : {}), content: [{ type: 'text', text: 'ok but raw /Users/lume/.codex/state_5.sqlite Bearer hidden-token' }], structuredContent: { ok: true } } });",
+    "    if (combineInvalidNotificationResponseWithToolResult) {",
+    "      const response = JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { content: [{ type: 'text', text: 'ok' }], structuredContent: { ok: true } } });",
+    "      const invalid = JSON.stringify({ jsonrpc: '2.0', result: { notificationResponse: true } });",
+    "      process.stdout.write(response + '\\n' + invalid + '\\n');",
+    "      return;",
+    "    }",
+    "    send({ id: message.id, result: { ...(responseToolName ? { toolName: responseToolName } : {}), ...(toolCallIsError ? { isError: true } : {}), content: [{ type: 'text', text: 'ok but raw /Users/lume/.codex/state_5.sqlite Bearer hidden-token' }], structuredContent: { ok: true } } });",
+    "    if (duplicateToolResponse) send({ id: message.id, result: { content: [], structuredContent: { duplicate: true } } });",
     "    if (exitAfterToolsCall) setImmediate(() => process.exit(0));",
     "    return;",
     "  }",
@@ -99,8 +126,8 @@ test("loo qa-lab cli-mcp-smoke isolates the MCP probe from the ambient user runt
     process.env.SECRET_TOKEN = "must-not-reach-mcp-child";
     const cliBin = join(dir, "loo");
     const mcpBin = join(dir, "lco-mcp-server");
-    writeFakeCli(cliBin);
-    writeFakeMcpServer(mcpBin, ["lco_doctor"], { requireIsolatedRuntime: true });
+    writeFakeCli(cliBin, { version: "1.6.0" });
+    writeFakeMcpServer(mcpBin, ["lco_doctor"], { requireIsolatedRuntime: true, serverVersion: "1.6.0" });
 
     const result = spawnSync(process.execPath, [
       "--import",
@@ -121,7 +148,7 @@ test("loo qa-lab cli-mcp-smoke isolates the MCP probe from the ambient user runt
       "--tool-call",
       "lco_doctor",
       "--timeout-ms",
-      "1000",
+      "5000",
       "--strict"
     ], {
       cwd: repoRoot,
@@ -140,14 +167,222 @@ test("loo qa-lab cli-mcp-smoke isolates the MCP probe from the ambient user runt
   }
 });
 
+test("loo qa-lab cli-mcp-smoke allows unsolicited server notifications", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-cli-mcp-smoke-server-notification-"));
+  try {
+    const cliBin = join(dir, "loo");
+    const mcpBin = join(dir, "lco-mcp-server");
+    writeFakeCli(cliBin, { version: "1.6.0" });
+    writeFakeMcpServer(mcpBin, ["lco_doctor"], { sendUnsolicitedNotification: true, serverVersion: "1.6.0" });
+
+    const result = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "qa-lab",
+      "cli-mcp-smoke",
+      "--evidence-dir",
+      join(dir, "evidence"),
+      "--package-version",
+      "1.6.0",
+      "--cli-bin",
+      cliBin,
+      "--mcp-bin",
+      mcpBin,
+      "--required-tool",
+      "lco_doctor",
+      "--tool-call",
+      "lco_doctor",
+      "--timeout-ms",
+      "5000",
+      "--strict"
+    ], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      timeout: 15_000
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const report = JSON.parse(result.stdout) as {
+      ok: boolean;
+      notificationSilenceReady: boolean;
+      invalidNotificationResponseCount: number;
+    };
+    assert.equal(report.ok, true);
+    assert.equal(report.notificationSilenceReady, true);
+    assert.equal(report.invalidNotificationResponseCount, 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loo qa-lab cli-mcp-smoke rejects an invalid notification response in the tool-result chunk", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-cli-mcp-smoke-invalid-notification-response-"));
+  try {
+    const cliBin = join(dir, "loo");
+    const mcpBin = join(dir, "lco-mcp-server");
+    writeFakeCli(cliBin, { version: "1.6.0" });
+    writeFakeMcpServer(mcpBin, ["lco_doctor"], {
+      combineInvalidNotificationResponseWithToolResult: true,
+      serverVersion: "1.6.0"
+    });
+
+    const result = spawnSync(process.execPath, [
+      "--import",
+      tsxImport,
+      "packages/cli/src/index.ts",
+      "qa-lab",
+      "cli-mcp-smoke",
+      "--evidence-dir",
+      join(dir, "evidence"),
+      "--package-version",
+      "1.6.0",
+      "--cli-bin",
+      cliBin,
+      "--mcp-bin",
+      mcpBin,
+      "--required-tool",
+      "lco_doctor",
+      "--tool-call",
+      "lco_doctor",
+      "--timeout-ms",
+      "5000",
+      "--strict"
+    ], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      timeout: 15_000
+    });
+
+    assert.notEqual(result.status, 0);
+    const report = JSON.parse(result.stdout) as {
+      ok: boolean;
+      notificationSilenceReady: boolean;
+      invalidNotificationResponseCount: number;
+    };
+    assert.equal(report.ok, false);
+    assert.equal(report.notificationSilenceReady, false);
+    assert.equal(report.invalidNotificationResponseCount, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loo qa-lab cli-mcp-smoke drains a delayed notification response before readiness", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-cli-mcp-smoke-delayed-notification-response-"));
+  try {
+    const cliBin = join(dir, "loo");
+    const mcpBin = join(dir, "lco-mcp-server");
+    writeFakeCli(cliBin, { version: "1.6.0" });
+    writeFakeMcpServer(mcpBin, ["lco_doctor"], {
+      notificationResponseDelayMs: 250,
+      serverVersion: "1.6.0"
+    });
+
+    const report = await createCliMcpProductSmokeReport({
+      packageVersion: "1.6.0",
+      cliBin,
+      mcpBin,
+      requiredTools: ["lco_doctor"],
+      toolCallName: "lco_doctor",
+      timeoutMs: 2_000
+    });
+
+    assert.equal(report.ok, false);
+    assert.equal(report.notificationSilenceReady, false);
+    assert.equal(report.invalidNotificationResponseCount, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loo qa-lab cli-mcp-smoke rejects a duplicate response after its request is consumed", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-cli-mcp-smoke-duplicate-response-"));
+  try {
+    const cliBin = join(dir, "loo");
+    const mcpBin = join(dir, "lco-mcp-server");
+    writeFakeCli(cliBin, { version: "1.6.0" });
+    writeFakeMcpServer(mcpBin, ["lco_doctor"], {
+      duplicateToolResponse: true,
+      serverVersion: "1.6.0"
+    });
+
+    const report = await createCliMcpProductSmokeReport({
+      packageVersion: "1.6.0",
+      cliBin,
+      mcpBin,
+      requiredTools: ["lco_doctor"],
+      toolCallName: "lco_doctor",
+      timeoutMs: 5_000
+    });
+
+    assert.equal(report.ok, false);
+    assert.equal(report.notificationSilenceReady, false);
+    assert.equal(report.invalidNotificationResponseCount, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loo qa-lab cli-mcp-smoke rejects a standard isError tool result", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-cli-mcp-smoke-tool-is-error-"));
+  try {
+    const cliBin = join(dir, "loo");
+    const mcpBin = join(dir, "lco-mcp-server");
+    writeFakeCli(cliBin, { version: "1.6.0" });
+    writeFakeMcpServer(mcpBin, ["lco_doctor"], {
+      toolCallIsError: true,
+      serverVersion: "1.6.0"
+    });
+
+    const report = await createCliMcpProductSmokeReport({
+      packageVersion: "1.6.0",
+      cliBin,
+      mcpBin,
+      requiredTools: ["lco_doctor"],
+      toolCallName: "lco_doctor"
+    });
+
+    assert.equal(report.ok, false);
+    assert.equal(report.mcpToolsCallReady, false);
+    assert.equal(report.toolCallProbe.errorCode, "mcp_tools_call_reported_error");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loo qa-lab cli-mcp-smoke rejects candidate binary version drift", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "loo-cli-mcp-smoke-version-drift-"));
+  try {
+    const cliBin = join(dir, "loo");
+    const mcpBin = join(dir, "lco-mcp-server");
+    writeFakeCli(cliBin, { version: "1.5.0" });
+    writeFakeMcpServer(mcpBin, ["lco_doctor"], { serverVersion: "1.5.0" });
+
+    const report = await createCliMcpProductSmokeReport({
+      packageVersion: "1.6.0",
+      cliBin,
+      mcpBin,
+      requiredTools: ["lco_doctor"],
+      toolCallName: "lco_doctor"
+    });
+
+    assert.equal(report.ok, false);
+    assert.equal(report.blockers.includes("cli_version_mismatch"), true);
+    assert.equal(report.blockers.includes("mcp_server_version_mismatch"), true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("loo qa-lab cli-mcp-smoke reports isolated runtime setup failure without rejecting", async () => {
   const dir = mkdtempSync(join(tmpdir(), "loo-cli-mcp-smoke-runtime-setup-failure-"));
   try {
     const cliBin = join(dir, "loo");
     const mcpBin = join(dir, "lco-mcp-server");
     const evidenceDir = join(dir, "evidence");
-    writeFakeCli(cliBin);
-    writeFakeMcpServer(mcpBin, ["lco_doctor"]);
+    writeFakeCli(cliBin, { version: "1.6.0" });
+    writeFakeMcpServer(mcpBin, ["lco_doctor"], { serverVersion: "1.6.0" });
 
     const report = await createCliMcpProductSmokeReport({
       evidenceDir,
@@ -163,6 +398,7 @@ test("loo qa-lab cli-mcp-smoke reports isolated runtime setup failure without re
 
     assert.equal(report.ok, false);
     assert.equal(report.mcpReady, false);
+    assert.equal(report.notificationSilenceReady, false);
     assert.deepEqual(report.blockers, ["mcp_isolated_runtime_setup_failed"]);
     assert.equal(report.toolCallProbe.errorCode, "mcp_isolated_runtime_setup_failed");
     assert.equal(existsSync(join(evidenceDir, "cli-mcp-product-smoke.json")), true);
@@ -177,11 +413,12 @@ test("loo qa-lab cli-mcp-smoke preserves tools/list evidence when tools/call tim
   try {
     const cliBin = join(dir, "loo");
     const mcpBin = join(dir, "lco-mcp-server");
-    writeFakeCli(cliBin);
+    writeFakeCli(cliBin, { version: "1.6.0" });
     writeFakeMcpServer(mcpBin, ["lco_doctor"], {
       stallToolsCall: true,
       initializeDelayMs: 1750,
-      toolsListDelayMs: 1750
+      toolsListDelayMs: 1750,
+      serverVersion: "1.6.0"
     });
 
     const result = spawnSync(process.execPath, [
@@ -306,14 +543,13 @@ test("loo qa-lab cli-mcp-smoke proves CLI help plus MCP tools/list and tools/cal
     assert.equal(report.mcpReady, true);
     assert.equal(report.mcpToolsCallReady, true);
     assert.equal(report.toolsListed, 5);
-    assert.deepEqual(report.toolCallProbe, {
-      toolName: "lco_doctor",
-      ok: true,
-      contentItemCount: 1,
-      contentKinds: ["text"],
-      structuredContentPresent: true,
-      errorCode: null
-    });
+    assert.equal(report.toolCallProbe.toolName, "lco_doctor");
+    assert.equal(report.toolCallProbe.ok, true);
+    assert.equal(report.toolCallProbe.contentItemCount, 1);
+    assert.deepEqual(report.toolCallProbe.contentKinds, ["text"]);
+    assert.equal(report.toolCallProbe.structuredContentPresent, true);
+    assert.equal((report.toolCallProbe as { structuredContentObject?: boolean }).structuredContentObject, true);
+    assert.equal(report.toolCallProbe.errorCode, null);
     assert.deepEqual(report.requiredToolsPresent, ["lco_doctor", "lco_expand_query"]);
     assert.deepEqual(report.blockers, []);
     assert.deepEqual(report.setupBlockers, []);
@@ -326,7 +562,7 @@ test("loo qa-lab cli-mcp-smoke proves CLI help plus MCP tools/list and tools/cal
       screenshotsCaptured: false
     });
     assert.ok(report.privateDataExclusions.includes("raw MCP stdout/stderr"));
-    assert.match(report.proofBoundary, /CLI --help, MCP tools\/list, and MCP tools\/call/i);
+    assert.match(report.proofBoundary, /CLI --help and --version, MCP server version, tools\/list, and tools\/call/i);
     assert.match(report.proofBoundary, /MCP with protocolVersion 2025-11-25/i);
     assert.match(report.proofBoundary, /does not run live Codex control/i);
     assert.ok(report.nextSafeCommands.some((command) => command.includes("loo qa-lab cli-mcp-smoke")));
@@ -708,8 +944,8 @@ test("loo qa-lab cli-mcp-smoke retains MCP readiness when the server exits after
   try {
     const cliBin = join(dir, "loo");
     const mcpBin = join(dir, "loo-mcp-server");
-    writeFakeCli(cliBin);
-    writeFakeMcpServer(mcpBin, ["loo_doctor"], { exitAfterToolsList: true });
+    writeFakeCli(cliBin, { version: "1.6.0" });
+    writeFakeMcpServer(mcpBin, ["loo_doctor"], { exitAfterToolsList: true, serverVersion: "1.6.0" });
 
     const result = spawnSync(process.execPath, [
       "--import",

@@ -12,6 +12,11 @@ import {
   parseLooToolProfile,
   type LooTool
 } from "./tools.js";
+import {
+  hasJsonRpcRequestId,
+  normalizeMcpStructuredContent,
+  serializeMcpTextContent
+} from "./mcp-protocol.js";
 
 const toolProfile = parseLooToolProfile(readEnv("TOOL_PROFILE"), {
   onInvalid: (value) => {
@@ -31,9 +36,16 @@ const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
 rl.on("line", async (line) => {
   if (!line.trim()) return;
   let messageId: unknown = null;
+  let responseAllowed = true;
   try {
-    const message = JSON.parse(line);
-    messageId = message.id ?? null;
+    const parsedMessage = JSON.parse(line) as unknown;
+    if (!parsedMessage || typeof parsedMessage !== "object" || Array.isArray(parsedMessage)) {
+      throw new SyntaxError("JSON-RPC message must be an object");
+    }
+    const message = parsedMessage as Record<string, any>;
+    responseAllowed = hasJsonRpcRequestId(message);
+    if (!responseAllowed) return;
+    messageId = message.id;
     if (message.method === "initialize") {
       send({ id: message.id, result: { protocolVersion: MCP_PROTOCOL_VERSION, serverInfo: { name: "lossless-openclaw-orchestrator", version: SERVER_VERSION }, capabilities: { tools: {} } } });
     } else if (message.method === "tools/list") {
@@ -62,6 +74,7 @@ rl.on("line", async (line) => {
     }
   } catch (error) {
     process.stderr.write("MCP request error returned public-safe JSON-RPC error.\n");
+    if (!responseAllowed) return;
     send({
       id: messageId,
       error: {
@@ -217,7 +230,13 @@ function readPackageVersion(): string {
 }
 
 function sendToolResult(id: unknown, result: unknown): void {
-  send({ id, result: { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], structuredContent: result } });
+  send({
+    id,
+    result: {
+      content: [{ type: "text", text: serializeMcpTextContent(result) }],
+      structuredContent: normalizeMcpStructuredContent(result)
+    }
+  });
 }
 
 function send(payload: unknown) {

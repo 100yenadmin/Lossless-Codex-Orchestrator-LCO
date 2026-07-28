@@ -56,6 +56,8 @@ test("public first-run docs are lco-first while preserving loo compatibility", (
   assert.match(publicInstallDocs, /`loo`[\s\S]{0,180}compat/i);
   assert.match(publicInstallDocs, /`LOO_\*`[\s\S]{0,180}compat/i);
   assert.match(publicInstallDocs, /at least two minor releases/i);
+  assert.doesNotMatch(readme, /LCO_DB_PATH:\s*~/);
+  assert.match(readme, /Hermes does not shell-expand `~`/);
 });
 
 test("setup guide includes per-client MCP mounting examples and multi-client storage guidance", () => {
@@ -77,6 +79,8 @@ test("setup guide includes per-client MCP mounting examples and multi-client sto
   ]) {
     assert.match(mcpSetup, required);
   }
+  assert.doesNotMatch(mcpSetup, /LCO_DB_PATH:\s*~/);
+  assert.match(mcpSetup, /Hermes does not shell-expand `~`/);
 });
 
 test("adapter-tier docs and Hermes boundary are linked without widening Hermes claims", () => {
@@ -89,14 +93,14 @@ test("adapter-tier docs and Hermes boundary are linked without widening Hermes c
   assert.match(readme, /docs\/HERMES_ADAPTER_BOUNDARY\.md/);
   assert.match(vision, /docs\/HERMES_ADAPTER_BOUNDARY\.md/);
   assert.match(vision, /## Adapter Tiers/);
-  assert.match(vision, /Tier 1[\s\S]{0,160}OpenClaw/i);
-  assert.match(vision, /Tier 2[\s\S]{0,180}Hermes/i);
+  assert.match(vision, /Tier 1[\s\S]{0,160}Hermes/i);
+  assert.match(vision, /Tier 2[\s\S]{0,180}OpenClaw/i);
   assert.match(vision, /Tier 3[\s\S]{0,180}Generic MCP/i);
   assert.match(vision, /`lco_\*`[\s\S]{0,120}`LCO_\*`[\s\S]{0,120}`lco`/);
   assert.match(vision, /`loo_\*`[\s\S]{0,160}compat/i);
 
   assert.match(hermes, /# Hermes Adapter Boundary/);
-  assert.match(hermes, /priority-2 adapter tier/i);
+  assert.match(hermes, /priority-1 agent\s+path/i);
   assert.match(hermes, /lco-mcp-server/);
   assert.match(hermes, /LCO_DB_PATH/);
   assert.match(hermes, /first-class supported path/i);

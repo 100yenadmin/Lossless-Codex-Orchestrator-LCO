@@ -7,8 +7,8 @@ you have dozens or hundreds of threads across repos, customer projects, fixes,
 reviews, and follow-ups.
 
 LCO turns that scattered local Codex history into an operating layer your
-OpenClaw agent, MCP client, Hermes-style orchestration agent, or custom agent
-can use. Your agent can find the right project, understand what happened, see
+Hermes agent, MCP client, OpenClaw agent, or custom agent can use. Your agent
+can find the right project, understand what happened, see
 what is blocked, prepare the next action, and keep moving without rereading huge
 transcripts every time.
 
@@ -103,8 +103,8 @@ picture over local Codex work.
 
 **Command layer for orchestrators**
 
-- Exposes the same local registry through CLI commands, an MCP server, and an
-  OpenClaw plugin.
+- Exposes the same local registry through CLI commands, a Hermes-compatible
+  MCP server, and an OpenClaw compatibility plugin.
 - Gives normal agents a compact facade: prepared inbox, recent sessions, project
   digest, attention inbox, bounded expansion, describe, and Codex control dry
   run.
@@ -125,8 +125,8 @@ picture over local Codex work.
 Use LCO if you:
 
 - run Codex across many repos, customer projects, or product lanes
-- use OpenClaw as your main local agent/operator
-- want a Hermes-style or custom orchestrator to manage Codex work through MCP
+- use Hermes as your main local agent/operator
+- want an MCP or OpenClaw orchestrator to manage Codex work
 - need agents to hand off work without rereading massive transcripts
 - want one place to ask "what is active, blocked, stale, finished, or ready?"
 - want project digests and next-action briefs your agents can actually use
@@ -142,7 +142,8 @@ Requirements:
 - Node.js 22.5 or newer
 - npm
 - local Codex session files, usually under `~/.codex/sessions`
-- OpenClaw Desktop/CLI if you want OpenClaw to call the installed `lco_*` tools
+- Hermes if you want the primary supported agent path over stdio MCP
+- OpenClaw Desktop/CLI if you want the compatibility plugin
 
 Stable install:
 
@@ -170,10 +171,15 @@ npm install -g lossless-codex-orchestrator@beta
 
 Package channels:
 
-- Current stable: `1.6.0` shipped on `latest` as the Control Plane release for bounded session-diff cursors, review-then-drive dry-runs with budgets and audit binding, Codex scratch-thread control verification, LCM prepared cards and peer diagnostics, and a Claude adapter validation lane that remains dry-run only.
+- Published stable at this candidate snapshot: `1.5.0` on npm `latest` and
+  GitHub Release `v1.5.0`.
+- This source tree is a `1.6.0` release candidate. It is not proof that `1.6.0`
+  has been published.
 - `latest` is the stable public channel.
 - `beta` is the active prerelease train.
 - `next` is reserved for release candidates.
+- npm dist-tags and GitHub Releases are the publication authorities; source
+  version metadata, merged code, and local package smoke are not release proof.
 
 If npm shows a version or dist-tag but install fails with a selector cutoff
 error such as `ENOVERSIONS` or `ETARGET`, use the npm selector-drift tarball
@@ -298,7 +304,7 @@ For an agent or MCP client, start with the normal operator path:
 
 | Step | Tool | What your agent gets |
 | --- | --- | --- |
-| 1 | `lco_find` | First-run local indexing plus public-safe session/content matches from one query. |
+| 1 | `lco_find` | Fast public-safe session/content matches from the existing index; pass `index:true` only for an explicit synchronous refresh. |
 | 2 | `lco_prepared_inbox` | The best starting view of work that needs attention. |
 | 3 | `lco_describe_ref` | Details for a selected thread, card, leaf, or source ref. |
 | 4 | `lco_expand_query` | A bounded brief when the exact ref is unknown. |
@@ -322,12 +328,14 @@ at least two minor releases.
 | --- | --- | --- |
 | Codex local sessions | Stable | `lco index codex`, `lco search`, `lco describe`, and bounded expansion. |
 | MCP clients | Stable | `lco-mcp-server` exposes the local tool registry over stdio. |
-| OpenClaw | Stable | Install the plugin and let your OpenClaw agent call `lco_*` tools. |
-| Hermes-style and custom agents | MCP-supported, native adapter deferred | Use the MCP surface today; see [docs/HERMES_ADAPTER_BOUNDARY.md](docs/HERMES_ADAPTER_BOUNDARY.md). |
+| Hermes | Primary supported agent path over stdio MCP; native adapter deferred | Mount `lco-mcp-server`, use the canonical `lco_*` tools, and run the Hermes smoke before release. |
+| OpenClaw | Compatibility supported | Install the plugin and let your OpenClaw agent call the same `lco_*` tools. |
+| Other MCP agents | Supported | Mount the standards-compliant stdio server; see [docs/HERMES_ADAPTER_BOUNDARY.md](docs/HERMES_ADAPTER_BOUNDARY.md). |
 
-LCO is OpenClaw-first because that is where the product has been dogfooded, but
-the useful layer is broader: one local Codex memory and command surface that any
-agent harness can call through CLI or MCP.
+LCO is Hermes-first. Hermes uses the standards-compliant stdio MCP surface as
+the primary supported agent path; OpenClaw remains a maintained compatibility
+surface over the same runtime-neutral core. A native Hermes adapter is still a
+separate, deferred claim.
 
 Claude Code users who already run `codex-plugin-cc` can add LCO as a separate
 recall companion:
@@ -359,6 +367,33 @@ Typical MCP client entry:
   }
 }
 ```
+
+Hermes configuration (`config.yaml`) is credential-free because LCO is a local
+stdio server:
+
+```yaml
+mcp_servers:
+  lco:
+    command: lco-mcp-server
+    enabled: true
+    env:
+      LCO_TOOL_PROFILE: standard
+```
+
+Omitting `LCO_DB_PATH` uses LCO's home-based default. If you set it explicitly,
+use an expanded absolute path because Hermes does not shell-expand `~` inside an
+environment-variable value.
+
+Before a release, verify the candidate without changing a Hermes profile:
+
+```bash
+lco qa-lab cli-mcp-smoke --evidence-dir /tmp/lco-package-smoke --package-version 1.6.0 --candidate-sha <candidate-sha> --cli-bin <candidate-prefix>/node_modules/.bin/lco --mcp-bin <candidate-prefix>/node_modules/.bin/lco-mcp-server --strict
+lco hermes smoke --evidence-dir /tmp/lco-hermes-smoke --package-version 1.6.0 --candidate-sha <candidate-sha> --cli-bin <candidate-prefix>/node_modules/.bin/lco --mcp-bin <candidate-prefix>/node_modules/.bin/lco-mcp-server --strict
+lco release hermes-readiness --evidence-dir /tmp/lco-hermes-readiness --package-version 1.6.0 --candidate-sha <candidate-sha> --hermes-smoke /tmp/lco-hermes-smoke/hermes-smoke.json --package-smoke /tmp/lco-package-smoke/cli-mcp-product-smoke.json --strict
+```
+
+The reports are public-safe candidate evidence. They do not prove publication,
+an active Hermes profile install, or Eva runtime safety.
 
 Install the OpenClaw plugin from npm:
 
