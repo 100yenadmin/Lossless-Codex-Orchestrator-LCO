@@ -231,53 +231,64 @@ test("compacted and tool output text cannot overwrite assistant final messages",
   }
 });
 
-test("explicit Codex final_answer phase outranks later assistant commentary", () => {
-  const root = mkdtempSync(join(tmpdir(), "loo-codex-explicit-final-"));
-  const sessions = join(root, "sessions");
-  mkdirSync(sessions, { recursive: true });
-  const threadPath = join(sessions, "rollout-2026-07-29T00-00-00-019f-explicit-final.jsonl");
-  const explicitFinal = "SYNTHETIC_ACK_EXPLICIT_20260729";
-  const lines = [
-    { timestamp: "2026-07-29T00:00:00Z", session_meta: { payload: { id: "019f-explicit-final" } } },
-    {
+for (const fixture of [
+  {
+    shape: "event_msg",
+    finalItem: (text: string) => ({
       timestamp: "2026-07-29T00:00:01Z",
       event_msg: {
         type: "agent_message",
         phase: "final_answer",
-        message: explicitFinal
+        message: text
       }
-    },
-    {
+    })
+  },
+  {
+    shape: "response_item",
+    finalItem: (text: string) => ({
       timestamp: "2026-07-29T00:00:01Z",
       response_item: {
         type: "message",
         role: "assistant",
         phase: "final_answer",
-        content: [{ type: "output_text", text: explicitFinal }]
+        content: [{ type: "output_text", text }]
       }
-    },
-    {
-      timestamp: "2026-07-29T00:00:02Z",
-      event_msg: {
-        type: "agent_message",
-        message: "Final monitoring commentary must not replace the explicit answer."
-      }
-    }
-  ];
-  writeFileSync(threadPath, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
-
-  const db = createDatabase(join(root, "orchestrator.sqlite"));
-  try {
-    const result = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
-    assert.deepEqual(result.errors, []);
-
-    const final = getCodexFinalMessages(db, { threadId: "019f-explicit-final", limit: 5 })[0]?.text ?? "";
-    assert.equal(final, explicitFinal);
-  } finally {
-    db.close();
-    rmSync(root, { recursive: true, force: true });
+    })
   }
-});
+]) {
+  test(`explicit Codex final_answer phase on ${fixture.shape} outranks later assistant commentary`, () => {
+    const root = mkdtempSync(join(tmpdir(), `loo-codex-explicit-final-${fixture.shape}-`));
+    const sessions = join(root, "sessions");
+    mkdirSync(sessions, { recursive: true });
+    const threadId = `019f-explicit-final-${fixture.shape}`;
+    const threadPath = join(sessions, `rollout-2026-07-29T00-00-00-${threadId}.jsonl`);
+    const explicitFinal = `SYNTHETIC_ACK_EXPLICIT_${fixture.shape.toUpperCase()}_20260729`;
+    const lines = [
+      { timestamp: "2026-07-29T00:00:00Z", session_meta: { payload: { id: threadId } } },
+      fixture.finalItem(explicitFinal),
+      {
+        timestamp: "2026-07-29T00:00:02Z",
+        event_msg: {
+          type: "agent_message",
+          message: "Final monitoring commentary must not replace the explicit answer."
+        }
+      }
+    ];
+    writeFileSync(threadPath, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+
+    const db = createDatabase(join(root, "orchestrator.sqlite"));
+    try {
+      const result = indexCodexSessions(db, { roots: [sessions], maxFiles: 10 });
+      assert.deepEqual(result.errors, []);
+
+      const final = getCodexFinalMessages(db, { threadId, limit: 5 })[0]?.text ?? "";
+      assert.equal(final, explicitFinal);
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
 
 test("append indexing preserves an existing explicit Codex final_answer", () => {
   const root = mkdtempSync(join(tmpdir(), "loo-codex-append-explicit-final-"));

@@ -5370,9 +5370,9 @@ function existingCodexSessionHasRangeReasonCode(db: LooDatabase, threadId: strin
     FROM prepared_source_ranges
     WHERE thread_id = ?
       AND range_kind = 'final_message'
-      AND reason_codes_json LIKE ?
+      AND instr(reason_codes_json, ?) > 0
     LIMIT 1
-  `).get(threadId, `%"${reasonCode}"%`) as { found: number } | undefined;
+  `).get(threadId, JSON.stringify(reasonCode)) as { found: number } | undefined;
   return Boolean(row);
 }
 
