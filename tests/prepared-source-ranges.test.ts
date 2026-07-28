@@ -325,7 +325,7 @@ test("prepared source ranges are public-safe opaque refs with hashes and no raw 
       assert.match(range.eventRef, /^codex_event:/);
       assert.match(range.sourcePathRef, /^codex_source:/);
       assert.equal(range.threadId, "019f-prepared-ranges");
-      assert.equal(range.extractorVersion, "prepared-source-ranges-v1");
+      assert.equal(range.extractorVersion, "prepared-source-ranges-v2");
       assert.equal(range.privacyClass, "public_safe_metadata");
       assert.equal(range.omissionStatus, "metadata_only");
       assert.equal(range.sourceHash.length, 32);

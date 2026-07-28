@@ -1834,7 +1834,7 @@ test("prepared-card all-thread refresh batches work-state lookup families", () =
         40,
         2,
         `2026-07-05T12:${minute}:00.000Z`,
-        "prepared-source-ranges-v1",
+        "prepared-source-ranges-v2",
         "public_safe_metadata",
         "metadata_only",
         0.96,

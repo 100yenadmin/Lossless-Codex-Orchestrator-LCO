@@ -412,7 +412,7 @@ export type PreparedSourceRange = {
   ordinal: number;
   sourceHash: string;
   contentHash: string;
-  extractorVersion: "prepared-source-ranges-v1";
+  extractorVersion: "prepared-source-ranges-v2";
   privacyClass: "public_safe_metadata";
   omissionStatus: "metadata_only";
   confidence: number;
@@ -3136,7 +3136,7 @@ const CODEX_RECOVERY_MAX_BYTES_PER_FILE = 1_073_741_824;
 const CODEX_RECOVERY_MAX_EVENTS_PER_FILE = 1_000_000;
 const CODEX_EVENT_CONTENT_CHAR_LIMIT = 8000;
 const CODEX_EVENT_CONTENT_REBUILD_COMMAND = 'loo index codex "$HOME/.codex/sessions" "$HOME/.codex/archived_sessions"';
-const PREPARED_SOURCE_EXTRACTOR_VERSION = "prepared-source-ranges-v1" as const;
+const PREPARED_SOURCE_EXTRACTOR_VERSION = "prepared-source-ranges-v2" as const;
 const SUMMARY_LEAF_EXTRACTOR_VERSION = "summary-leaves-v1" as const;
 const PREPARED_CARD_EXTRACTOR_VERSION = "prepared-cards-v2" as const;
 const SUMMARY_LEAF_EDGE_DELETE_BATCH_SIZE = 400;
@@ -10640,7 +10640,7 @@ type PreparedSourceRangeRow = {
   ordinal: number;
   sourceHash: string;
   contentHash: string;
-  extractorVersion: "prepared-source-ranges-v1";
+  extractorVersion: "prepared-source-ranges-v2";
   privacyClass: "public_safe_metadata";
   omissionStatus: "metadata_only";
   confidence: number;
