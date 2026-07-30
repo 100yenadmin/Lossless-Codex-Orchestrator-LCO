@@ -1686,7 +1686,7 @@ function dispatchControl(control: ReturnType<typeof createCodexControl>, input: 
   const action = requiredString(input.action, "action");
   if (action === "start") return control.startThread({ dryRun });
   const common = {
-    threadId: requiredString(input.thread_id, "thread_id"),
+    threadId: requiredControlThreadId(input.thread_id),
     message: action === "send" || action === "steer"
       ? requiredString(input.message, "message")
       : optionalString(input.message) ?? "continue",
@@ -1726,7 +1726,7 @@ function startControlSchema(): Record<string, unknown> {
 
 function controlInput(input: Record<string, unknown>, message = false, expectedTurn = false) {
   return {
-    threadId: requiredString(input.thread_id, "thread_id"),
+    threadId: requiredControlThreadId(input.thread_id),
     ...(message ? { message: requiredString(input.message, "message") } : {}),
     ...(expectedTurn ? { expectedTurnId: optionalString(input.expected_turn_id), turnWaitMs: optionalNumber(input.turn_wait_ms) } : {}),
     dryRun: input.dry_run !== false,
@@ -1743,13 +1743,21 @@ function startControlInput(input: Record<string, unknown>) {
 
 function messageControlInput(input: Record<string, unknown>, expectedTurn = false, turnWait = false) {
   return {
-    threadId: requiredString(input.thread_id, "thread_id"),
+    threadId: requiredControlThreadId(input.thread_id),
     message: requiredString(input.message, "message"),
     ...(expectedTurn ? { expectedTurnId: requiredString(input.expected_turn_id, "expected_turn_id") } : {}),
     ...(turnWait ? { turnWaitMs: optionalNumber(input.turn_wait_ms) } : {}),
     dryRun: input.dry_run !== false,
     approvalAuditId: optionalString(input.approval_audit_id)
   };
+}
+
+function requiredControlThreadId(value: unknown): string {
+  const threadId = requiredString(value, "thread_id");
+  return requiredString(
+    threadId.startsWith("codex_thread:") ? threadId.slice("codex_thread:".length) : threadId,
+    "thread_id"
+  );
 }
 
 async function snakeCaseControlResult(value: Promise<any>) {

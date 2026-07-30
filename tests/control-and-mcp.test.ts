@@ -239,6 +239,77 @@ test("Codex control requires dry-run audit before live message, steer, resume, o
   }
 });
 
+test("MCP Codex control normalizes public codex_thread refs before approval hashing and transport", async () => {
+  const root = mkdtempSync(join(tmpdir(), "lco-control-thread-ref-"));
+  const db = createDatabase(join(root, "orchestrator.sqlite"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const sequenceCalls: CodexControlStep[][] = [];
+  const sequenceOptions: CodexControlSequenceOptions[] = [];
+  const tools = createLooTools({
+    db,
+    audit,
+    includeAliases: false,
+    codexClient: {
+      request: async () => ({ ok: true }),
+      requestSequenceUntilTurnResolved: async (steps, options) => {
+        sequenceCalls.push(steps);
+        sequenceOptions.push(options);
+        return {
+          responses: [
+            { ok: true, result: { thread: { id: "thr_public_ref", loaded: true } } },
+            { ok: true, result: { turn: { id: "turn_public_ref", status: "completed" } } }
+          ],
+          turn: {
+            id: "turn_public_ref",
+            status: "completed",
+            completed: true,
+            notificationMethods: ["turn/completed"],
+            approvalRequestCount: 0,
+            serverRequestCount: 0
+          }
+        };
+      }
+    }
+  });
+
+  try {
+    const dryRunTool = tools.find((tool) => tool.name === "lco_codex_control_dry_run");
+    const sendTool = tools.find((tool) => tool.name === "lco_codex_send_message");
+    assert.ok(dryRunTool);
+    assert.ok(sendTool);
+
+    const dryRun = await dryRunTool.execute({
+      action: "send",
+      thread_id: "codex_thread:thr_public_ref",
+      message: "continue"
+    }) as { approval_audit_id: string; thread_id: string };
+    assert.equal(dryRun.thread_id, "thr_public_ref");
+
+    const live = await sendTool.execute({
+      thread_id: "thr_public_ref",
+      message: "continue",
+      dry_run: false,
+      approval_audit_id: dryRun.approval_audit_id,
+      turn_wait_ms: 25
+    }) as { live: boolean; thread_id: string; status: string };
+
+    assert.equal(live.live, true);
+    assert.equal(live.thread_id, "thr_public_ref");
+    assert.equal(live.status, "completed");
+    assert.deepEqual(sequenceCalls[0]?.map((step) => ({
+      method: step.method,
+      threadId: step.params.threadId
+    })), [
+      { method: "thread/resume", threadId: "thr_public_ref" },
+      { method: "turn/start", threadId: "thr_public_ref" }
+    ]);
+    assert.equal(sequenceOptions[0]?.threadId, "thr_public_ref");
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Codex control redacts live transport responses before returning them through tools", async () => {
   const root = mkdtempSync(join(tmpdir(), "loo-control-redaction-"));
   const audit = createAuditStore(join(root, "audit.jsonl"));
