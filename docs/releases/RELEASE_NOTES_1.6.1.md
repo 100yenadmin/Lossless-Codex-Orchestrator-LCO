@@ -1,8 +1,8 @@
 # Release Notes 1.6.1
 
-`1.6.1` is a focused Hermes live-control hotfix.
+`1.6.1` is a focused Hermes live-control hotfix for local Codex sessions.
 
-## Fixed
+## Highlights
 
 - Canonical MCP control tools now accept the public-safe
   `codex_thread:<thread-id>` references returned by `lco_recent_sessions`.
@@ -24,6 +24,11 @@ the stdio MCP integration into a native Hermes adapter.
 npm install -g lossless-codex-orchestrator@latest
 lco doctor
 ```
+
+## Validation
+
+The candidate is covered by MCP control regression tests for public and raw
+thread references, including approval-audit matching and transport inputs.
 
 ## Links
 

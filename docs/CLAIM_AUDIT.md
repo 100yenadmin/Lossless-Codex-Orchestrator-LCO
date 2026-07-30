@@ -1,6 +1,6 @@
 # Public Claim Audit
 
-## Allowed 1.6.0 Stable Claim
+## Allowed 1.6.1 Stable Claim
 
 This wording becomes allowed only after npm, Git tag, and GitHub Release
 publication truth agree for the exact candidate. The current source version
@@ -102,7 +102,7 @@ blockers instead of allowing a working-app claim.
 
 Install stable releases through the `latest` dist-tag, public betas through the
 `beta` dist-tag, and release candidates through `next`. The stable channel
-target for this package version is `1.6.0`; npm `latest` must move only after
+target for this package version is `1.6.1`; npm `latest` must move only after
 the separate stable-promotion gate proves the exact candidate. Keep beta and
 other prereleases on prerelease tags. Do not publish a fake stable package just
 to move a dist-tag.

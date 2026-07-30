@@ -51,10 +51,10 @@ Hermes or generic MCP until each is independently proven.
 
 ## Current Release Roadmap: 1.6 Control Plane
 
-Published stable at this candidate snapshot: `1.5.0` on npm `latest` and GitHub
-Release `v1.5.0`. Current source candidate: `1.6.0`. Source metadata is not
-published release proof; npm dist-tags and GitHub Releases remain the
-publication authorities. The Control Plane candidate keeps
+The published stable release is whatever npm `latest` and GitHub Releases show
+for the same version. A version in the source tree remains a candidate until
+those publication authorities agree; source metadata is not published release
+proof. The Control Plane candidate keeps
 `lossless-codex-orchestrator` as the canonical npm package, keeps
 `lossless-openclaw-orchestrator` as a maintained compatibility package, adds
 bounded session-diff cursors and review-then-drive dry-runs, verifies the Codex
@@ -63,7 +63,8 @@ prepared cards with peer diagnostics, validates Claude as a second target
 family without claiming Claude live control, and stabilizes the Hermes stdio
 MCP path.
 
-The stable 1.0.0 through `1.5.0` packages are completed release lines. M11 proved
+The stable packages through the latest published release are completed release
+lines. M11 proved
 the first scoped stable GA-assurance lane, and M12 built the
 release-assurance foundation: fresh npm install checks, OpenClaw gateway
 dogfood, QA Lab coverage, release aggregation, public-safe evidence rules, and
