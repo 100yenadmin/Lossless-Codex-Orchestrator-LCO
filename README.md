@@ -171,10 +171,9 @@ npm install -g lossless-codex-orchestrator@beta
 
 Package channels:
 
-- Published stable at this candidate snapshot: `1.5.0` on npm `latest` and
-  GitHub Release `v1.5.0`.
-- This source tree is a `1.6.0` release candidate. It is not proof that `1.6.0`
-  has been published.
+- npm `latest` and GitHub Releases are the stable publication authorities.
+- A version in the source tree is a candidate until those publication
+  authorities show the same version; merged source alone is not release proof.
 - `latest` is the stable public channel.
 - `beta` is the active prerelease train.
 - `next` is reserved for release candidates.
@@ -387,9 +386,9 @@ environment-variable value.
 Before a release, verify the candidate without changing a Hermes profile:
 
 ```bash
-lco qa-lab cli-mcp-smoke --evidence-dir /tmp/lco-package-smoke --package-version 1.6.0 --candidate-sha <candidate-sha> --cli-bin <candidate-prefix>/node_modules/.bin/lco --mcp-bin <candidate-prefix>/node_modules/.bin/lco-mcp-server --strict
-lco hermes smoke --evidence-dir /tmp/lco-hermes-smoke --package-version 1.6.0 --candidate-sha <candidate-sha> --cli-bin <candidate-prefix>/node_modules/.bin/lco --mcp-bin <candidate-prefix>/node_modules/.bin/lco-mcp-server --strict
-lco release hermes-readiness --evidence-dir /tmp/lco-hermes-readiness --package-version 1.6.0 --candidate-sha <candidate-sha> --hermes-smoke /tmp/lco-hermes-smoke/hermes-smoke.json --package-smoke /tmp/lco-package-smoke/cli-mcp-product-smoke.json --strict
+lco qa-lab cli-mcp-smoke --evidence-dir /tmp/lco-package-smoke --package-version <package-version> --candidate-sha <candidate-sha> --cli-bin <candidate-prefix>/node_modules/.bin/lco --mcp-bin <candidate-prefix>/node_modules/.bin/lco-mcp-server --strict
+lco hermes smoke --evidence-dir /tmp/lco-hermes-smoke --package-version <package-version> --candidate-sha <candidate-sha> --cli-bin <candidate-prefix>/node_modules/.bin/lco --mcp-bin <candidate-prefix>/node_modules/.bin/lco-mcp-server --strict
+lco release hermes-readiness --evidence-dir /tmp/lco-hermes-readiness --package-version <package-version> --candidate-sha <candidate-sha> --hermes-smoke /tmp/lco-hermes-smoke/hermes-smoke.json --package-smoke /tmp/lco-package-smoke/cli-mcp-product-smoke.json --strict
 ```
 
 The reports are public-safe candidate evidence. They do not prove publication,

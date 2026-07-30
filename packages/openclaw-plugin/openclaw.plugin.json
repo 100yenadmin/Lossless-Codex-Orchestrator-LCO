@@ -2,7 +2,7 @@
   "id": "lossless-openclaw-orchestrator",
   "name": "Lossless OpenClaw Orchestrator",
   "description": "Index, search, and prepare local Codex sessions for OpenClaw with approval-gated dry-runs and optional Codex controls.",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "kind": "tool",
   "tools": {
     "prefix": "lco_"

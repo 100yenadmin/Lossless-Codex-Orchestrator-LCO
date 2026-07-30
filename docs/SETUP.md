@@ -360,7 +360,7 @@ Maintainers can prove a candidate without writing a Hermes profile:
 ```bash
 lco qa-lab cli-mcp-smoke \
   --evidence-dir /tmp/lco-package-smoke \
-  --package-version 1.6.0 \
+  --package-version <package-version> \
   --candidate-sha <candidate-sha> \
   --cli-bin <candidate-prefix>/node_modules/.bin/lco \
   --mcp-bin <candidate-prefix>/node_modules/.bin/lco-mcp-server \
@@ -368,7 +368,7 @@ lco qa-lab cli-mcp-smoke \
 
 lco hermes smoke \
   --evidence-dir /tmp/lco-hermes-smoke \
-  --package-version 1.6.0 \
+  --package-version <package-version> \
   --candidate-sha <candidate-sha> \
   --cli-bin <candidate-prefix>/node_modules/.bin/lco \
   --mcp-bin <candidate-prefix>/node_modules/.bin/lco-mcp-server \
@@ -376,7 +376,7 @@ lco hermes smoke \
 
 lco release hermes-readiness \
   --evidence-dir /tmp/lco-hermes-readiness \
-  --package-version 1.6.0 \
+  --package-version <package-version> \
   --candidate-sha <candidate-sha> \
   --hermes-smoke /tmp/lco-hermes-smoke/hermes-smoke.json \
   --package-smoke /tmp/lco-package-smoke/cli-mcp-product-smoke.json \
