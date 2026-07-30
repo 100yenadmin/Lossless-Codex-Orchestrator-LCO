@@ -36,7 +36,7 @@ test("Hermes smoke proves the Eva tool set, silent notifications, and object-val
     assert.equal(report.schema, "lco.hermesSmoke.v1");
     assert.equal(report.ok, true);
     assert.equal(report.requiredToolsPresent, true);
-    assert.equal(report.requiredTools.length, 14);
+    assert.equal(report.requiredTools.length, 16);
     assert.equal(report.notificationSilenceReady, true);
     assert.equal(report.structuredContentObjectReady, true);
     assert.equal(report.arrayResultWrappedReady, true);

@@ -1,6 +1,6 @@
 # Public Claim Audit
 
-## Allowed 1.6.1 Stable Claim
+## Allowed 1.7.0 Stable Claim
 
 This wording becomes allowed only after npm, Git tag, and GitHub Release
 publication truth agree for the exact candidate. The current source version
@@ -8,8 +8,9 @@ alone does not authorize it.
 
 Coordinate local Codex work through Hermes/MCP, with OpenClaw compatibility,
 using bounded recall and session diffs, audited review-then-drive dry-runs,
-approved disposable-target Codex controls, and read-only LCM prepared state;
-Claude targeting remains dry-run only.
+approval-bound daemon/CLI task routing and delivery, Hermes Computer Use for
+Desktop-owned tasks, and read-only LCM prepared state; Claude targeting remains
+dry-run only.
 
 This claim covers the stable local recall and control-plane paths with tests and smoke coverage: Codex indexing/search/describe/expand, session-diff cursors, review-then-drive dry-run packets with budgets, Claude Code read/recall and dry-run adapter states, prepared cards/inbox and summary leaves, read-only LCM peer DAG expansion and peer diagnostics, and approval-bound Codex scratch controls with post-action refresh proof where the release evidence records them.
 
@@ -56,6 +57,11 @@ across the orchestrator surfaces that share the same local index.
   through `lco hermes smoke` plus `lco release hermes-readiness`.
 - A Hermes readiness pass is candidate evidence. It is not publication, an
   active profile install, live Eva runtime safety, or native-adapter proof.
+- Daemon control is opt-in, local-only, and binds an expiring opaque target to
+  an already-running managed Codex daemon. It does not start or restart Codex,
+  enable Remote Control, expose raw identifiers, or own Desktop turns.
+- Desktop-owned tasks remain on Hermes Computer Use and require window,
+  composer, and direction verification in the named Eva runtime canary.
 - Live Codex control is approval-gated by a dry-run audit id; the public demo stops at dry-run unless the user explicitly approves a target thread.
 - CUA Driver is the preferred fallback backend, but no no-focus behavior is claimed without local proof.
 - Peekaboo is a secondary macOS fallback for permission diagnostics and guarded snapshots; desktop action remains dry-run-only.
@@ -102,7 +108,7 @@ blockers instead of allowing a working-app claim.
 
 Install stable releases through the `latest` dist-tag, public betas through the
 `beta` dist-tag, and release candidates through `next`. The stable channel
-target for this package version is `1.6.1`; npm `latest` must move only after
+target for this package version is `1.7.0`; npm `latest` must move only after
 the separate stable-promotion gate proves the exact candidate. Keep beta and
 other prereleases on prerelease tags. Do not publish a fake stable package just
 to move a dist-tag.

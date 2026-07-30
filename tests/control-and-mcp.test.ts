@@ -480,10 +480,46 @@ test("Codex control rejects failed same-connection sequence responses before liv
       /control sequence step failed.*thread\/resume/i
     );
 
-    const auditRecords = readFileSync(audit.path, "utf8").split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as { live: boolean });
-    assert.equal(auditRecords.length, 2);
+    const auditRecords = readFileSync(audit.path, "utf8").split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as {
+      approvalAuditId?: string;
+      approvalState?: string;
+      live: boolean;
+    });
+    assert.equal(auditRecords.length, 4);
     assert.equal(auditRecords[0]?.live, false);
     assert.equal(auditRecords[1]?.live, false);
+    assert.equal(auditRecords[1]?.approvalState, "claimed");
+    assert.equal(auditRecords[1]?.approvalAuditId, dryRun.approvalAuditId);
+    assert.equal(auditRecords[2]?.live, false);
+    assert.equal(auditRecords[3]?.live, false);
+    assert.equal(auditRecords[3]?.approvalState, "claimed");
+    assert.equal(auditRecords[3]?.approvalAuditId, collisionDryRun.approvalAuditId);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Codex direct control keeps deterministic pre-send errors distinct from indeterminate delivery", async () => {
+  const root = mkdtempSync(join(tmpdir(), "loo-control-direct-error-classification-"));
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const control = createCodexControl({
+    audit,
+    client: {
+      request: async () => {
+        throw new Error("Codex daemon transport requires an absolute Unix socket path");
+      }
+    }
+  });
+
+  try {
+    const dryRun = await control.startThread({ dryRun: true });
+    await assert.rejects(
+      () => control.startThread({
+        dryRun: false,
+        approvalAuditId: dryRun.approvalAuditId
+      }),
+      /requires an absolute Unix socket path/
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -526,9 +562,16 @@ test("Codex control returns structured proof when active runtime posture blocks 
     assert.match(blocked.proofState.callerInstruction, /control was not sent/);
     assert.equal((blocked.response as any).code, "safe_runtime_posture_unproven");
 
-    const auditRecords = readFileSync(audit.path, "utf8").split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as { live: boolean });
-    assert.equal(auditRecords.length, 1);
+    const auditRecords = readFileSync(audit.path, "utf8").split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as {
+      approvalAuditId?: string;
+      approvalState?: string;
+      live: boolean;
+    });
+    assert.equal(auditRecords.length, 2);
     assert.equal(auditRecords[0]?.live, false);
+    assert.equal(auditRecords[1]?.live, false);
+    assert.equal(auditRecords[1]?.approvalState, "claimed");
+    assert.equal(auditRecords[1]?.approvalAuditId, dryRun.approvalAuditId);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -1618,6 +1661,8 @@ test("MCP tool registry exposes lco-prefixed canonical tools with loo compatibil
     assert.equal(toolNames.includes("lco_codex_start_thread"), true);
     assert.equal(toolNames.includes("lco_codex_send_message"), true);
     assert.equal(toolNames.includes("lco_drive"), true);
+    assert.equal(toolNames.includes("lco_codex_control_route"), true);
+    assert.equal(toolNames.includes("lco_codex_deliver"), true);
     assert.equal(toolNames.includes("lco_desktop_proof"), true);
     assert.deepEqual(toolNames.filter((name) => !LOO_COMMAND_POLICY[name]), []);
     for (const declaration of createLooToolDeclarations()) {
@@ -1647,6 +1692,10 @@ test("MCP tool registry exposes lco-prefixed canonical tools with loo compatibil
     assert.equal(LOO_COMMAND_POLICY.lco_index_sessions.mutationClasses.includes("live_control"), false);
     assert.equal(LOO_COMMAND_POLICY.lco_codex_control_dry_run.mode, "local_cache_write");
     assert.deepEqual(LOO_COMMAND_POLICY.lco_codex_control_dry_run.mutationClasses, ["derived_cache"]);
+    assert.equal(LOO_COMMAND_POLICY.lco_codex_control_route.mode, "read_only");
+    assert.deepEqual(LOO_COMMAND_POLICY.lco_codex_control_route.mutationClasses, []);
+    assert.equal(LOO_COMMAND_POLICY.lco_codex_deliver.mode, "approval_gated_control");
+    assert.deepEqual(LOO_COMMAND_POLICY.lco_codex_deliver.mutationClasses, ["derived_cache", "live_control"]);
     assert.equal(LOO_COMMAND_POLICY.lco_drive.mode, "local_cache_write");
     assert.deepEqual(LOO_COMMAND_POLICY.lco_drive.mutationClasses, ["derived_cache"]);
     assert.deepEqual(LOO_COMMAND_POLICY.lco_codex_start_thread.mutationClasses, ["derived_cache", "live_control"]);
@@ -1854,7 +1903,17 @@ test("MCP tool registry exposes lco-prefixed canonical tools with loo compatibil
     assert.deepEqual(steerTool.inputSchema.required, ["thread_id", "message", "expected_turn_id"]);
     const interruptTool = tools.find((tool) => tool.name === "lco_codex_interrupt_thread");
     assert.ok(interruptTool);
-    assert.deepEqual(interruptTool.inputSchema.required, ["thread_id", "expected_turn_id"]);
+    assert.ok((interruptTool.inputSchema.properties as Record<string, unknown>).target_ref);
+    assert.deepEqual(interruptTool.inputSchema.anyOf, [
+      { required: ["target_ref"] },
+      { required: ["thread_id", "expected_turn_id"] }
+    ]);
+    const missingInterruptTarget = await executeLooToolForOpenClaw(interruptTool, {}) as {
+      ok: boolean;
+      error?: { message?: string };
+    };
+    assert.equal(missingInterruptTarget.ok, false);
+    assert.equal(missingInterruptTarget.error?.message, "one supported target form is required");
     const dryRunToolSchema = dryRunTool.inputSchema.properties as Record<string, unknown>;
     assert.ok(dryRunToolSchema.expected_turn_id);
     assert.throws(

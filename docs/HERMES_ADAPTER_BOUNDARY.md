@@ -9,7 +9,7 @@ index, safe-summary recall, and approval/audit patterns used by other
 MCP-capable harnesses. OpenClaw remains a supported compatibility surface.
 
 This document does not prove a native Hermes adapter, Hermes-specific indexing,
-Hermes control surfaces, parity, GUI mutation, or cloud sync.
+unrestricted control parity, generic GUI mutation, or cloud sync.
 
 ## What "Hermes support" means today
 
@@ -27,6 +27,20 @@ mounts LCO exactly as any generic MCP client does:
    proof) with the same approval-gated dry-run/control boundaries Codex and
    OpenClaw get.
 
+For Eva-owned CLI tasks, set `LCO_CODEX_TRANSPORT=daemon`. The MCP server then
+connects to the already-running local managed Codex daemon over its Unix socket.
+`lco_codex_control_route` returns an expiring opaque target and
+`lco_codex_deliver` chooses idle send or matching active-turn steer. The public
+result never returns raw thread or turn identifiers, transcript items, or the
+socket path. LCO does not start or restart Codex, enable Remote Control, or
+silently fall back to stdio when daemon mode is requested.
+
+Codex Desktop remains a separate ownership boundary. When LCO returns
+`desktop_observation_required`, Hermes uses its existing `computer_use`
+integration for window identification, visual verification, composer input,
+and the Desktop-owned turn. LCO does not claim the managed daemon owns that
+turn and does not enable generic `lco_desktop_act`.
+
 This is the primary first-class supported path: the Hermes and
 generic-MCP mounting recipes are covered by [SETUP.md](SETUP.md). Release candidates exercise
 initialization, silent notifications, tool listing and calls, structured-result
@@ -38,7 +52,8 @@ is not is a Hermes-native integration with Hermes-specific ergonomics.
 - No native Hermes adapter, plugin manifest, or Hermes-side install command.
 - No Hermes session indexing. LCO indexes Codex sessions; Hermes agents read
   that Codex index through LCO, they are not themselves an indexed source.
-- No Hermes-specific control, GUI mutation, or remote-control surface.
+- No native Hermes control protocol or generic GUI mutation. Hermes can invoke
+  the shared LCO daemon-control tools and its own Computer Use integration.
 - No claim that Hermes-specific auth, scopes, or lifecycle events are wired.
 - The generic-MCP protocol boundary applies: only `initialize`, `tools/list`,
   and `tools/call` are implemented; no MCP resources, prompts, or sampling.

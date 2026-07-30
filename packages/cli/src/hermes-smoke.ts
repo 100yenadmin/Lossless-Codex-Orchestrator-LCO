@@ -15,6 +15,8 @@ export const EVA_HERMES_REQUIRED_LCO_TOOLS = [
   "lco_attention_inbox",
   "lco_project_digest",
   "lco_codex_extract",
+  "lco_codex_control_route",
+  "lco_codex_deliver",
   "lco_codex_control_dry_run",
   "lco_codex_start_thread",
   "lco_codex_resume_thread",

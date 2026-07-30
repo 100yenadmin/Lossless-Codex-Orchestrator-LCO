@@ -2,7 +2,7 @@
   "id": "lossless-openclaw-orchestrator",
   "name": "Lossless OpenClaw Orchestrator",
   "description": "Index, search, and prepare local Codex sessions for OpenClaw with approval-gated dry-runs and optional Codex controls.",
-  "version": "1.6.1",
+  "version": "1.7.0",
   "kind": "tool",
   "tools": {
     "prefix": "lco_"
@@ -53,6 +53,8 @@
       "lco_codex_sqlite_stores",
       "lco_lcm_peer_dbs",
       "lco_drive",
+      "lco_codex_control_route",
+      "lco_codex_deliver",
       "lco_codex_control_dry_run",
       "lco_codex_start_thread",
       "lco_codex_resume_thread",
@@ -90,6 +92,8 @@
       "loo_codex_sqlite_stores",
       "loo_lcm_peer_dbs",
       "loo_drive",
+      "loo_codex_control_route",
+      "loo_codex_deliver",
       "loo_codex_control_dry_run",
       "loo_codex_start_thread",
       "loo_codex_resume_thread",
@@ -1323,9 +1327,7 @@
           ]
         },
         "metadata": {
-          "tier": "public_facade",
-          "operatorPathRank": 8,
-          "operatorPathRole": "Create a bounded review-then-drive plan and real target-adapter dry-run audit packet."
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -1383,6 +1385,77 @@
               "type": "string"
             }
           }
+        }
+      },
+      {
+        "name": "lco_codex_control_route",
+        "description": "Resolve one daemon-owned Codex task to an expiring opaque target, or require Desktop observation without mutation.",
+        "safety": {
+          "mode": "read_only",
+          "source": "codex_direct",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "public_facade",
+          "operatorPathRank": 8,
+          "operatorPathRole": "Resolve one daemon-owned Codex target or return the explicit Desktop observation route without exposing raw identifiers."
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "hint": {
+              "type": "string",
+              "maxLength": 240
+            }
+          }
+        }
+      },
+      {
+        "name": "lco_codex_deliver",
+        "description": "Deliver to an opaque Codex target: start a turn when idle or steer the matching active turn. Dry-run is the default.",
+        "safety": {
+          "mode": "approval_gated_control",
+          "source": "codex_direct",
+          "requiresApproval": true,
+          "mutationClasses": [
+            "derived_cache",
+            "live_control"
+          ]
+        },
+        "metadata": {
+          "tier": "public_facade",
+          "operatorPathRank": 9,
+          "operatorPathRole": "Deliver through the opaque target using idle send or active steer under the existing dry-run approval audit."
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "target_ref": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "turn_wait_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 600000
+            },
+            "dry_run": {
+              "type": "boolean",
+              "default": true
+            },
+            "approval_audit_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "target_ref",
+            "message"
+          ]
         }
       },
       {
@@ -1467,9 +1540,7 @@
           ]
         },
         "metadata": {
-          "tier": "public_facade",
-          "operatorPathRank": 9,
-          "operatorPathRole": "Run the approved resume action only after a matching dry-run audit id."
+          "tier": "workflow_detail"
         },
         "inputSchema": {
           "type": "object",
@@ -1578,7 +1649,7 @@
       },
       {
         "name": "lco_codex_interrupt_thread",
-        "description": "Rejoin and interrupt a Codex thread under LCO's fixed never-approve, read-only posture. Live mode requires approval_audit_id and expected_turn_id.",
+        "description": "Interrupt a matching opaque target or rejoin and interrupt a raw Codex thread under LCO's fixed never-approve, read-only posture.",
         "safety": {
           "mode": "approval_gated_control",
           "source": "codex_direct",
@@ -1612,11 +1683,23 @@
             },
             "approval_audit_id": {
               "type": "string"
+            },
+            "target_ref": {
+              "type": "string"
             }
           },
-          "required": [
-            "thread_id",
-            "expected_turn_id"
+          "anyOf": [
+            {
+              "required": [
+                "target_ref"
+              ]
+            },
+            {
+              "required": [
+                "thread_id",
+                "expected_turn_id"
+              ]
+            }
           ]
         }
       },
@@ -3167,9 +3250,7 @@
           ]
         },
         "metadata": {
-          "tier": "public_facade",
-          "operatorPathRank": 8,
-          "operatorPathRole": "Create a bounded review-then-drive plan and real target-adapter dry-run audit packet.",
+          "tier": "workflow_detail",
           "aliasOf": "lco_drive"
         },
         "inputSchema": {
@@ -3228,6 +3309,79 @@
               "type": "string"
             }
           }
+        }
+      },
+      {
+        "name": "loo_codex_control_route",
+        "description": "Resolve one daemon-owned Codex task to an expiring opaque target, or require Desktop observation without mutation.",
+        "safety": {
+          "mode": "read_only",
+          "source": "codex_direct",
+          "requiresApproval": false,
+          "mutationClasses": []
+        },
+        "metadata": {
+          "tier": "public_facade",
+          "operatorPathRank": 8,
+          "operatorPathRole": "Resolve one daemon-owned Codex target or return the explicit Desktop observation route without exposing raw identifiers.",
+          "aliasOf": "lco_codex_control_route"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "hint": {
+              "type": "string",
+              "maxLength": 240
+            }
+          }
+        }
+      },
+      {
+        "name": "loo_codex_deliver",
+        "description": "Deliver to an opaque Codex target: start a turn when idle or steer the matching active turn. Dry-run is the default.",
+        "safety": {
+          "mode": "approval_gated_control",
+          "source": "codex_direct",
+          "requiresApproval": true,
+          "mutationClasses": [
+            "derived_cache",
+            "live_control"
+          ]
+        },
+        "metadata": {
+          "tier": "public_facade",
+          "operatorPathRank": 9,
+          "operatorPathRole": "Deliver through the opaque target using idle send or active steer under the existing dry-run approval audit.",
+          "aliasOf": "lco_codex_deliver"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "target_ref": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "turn_wait_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 600000
+            },
+            "dry_run": {
+              "type": "boolean",
+              "default": true
+            },
+            "approval_audit_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "target_ref",
+            "message"
+          ]
         }
       },
       {
@@ -3314,9 +3468,7 @@
           ]
         },
         "metadata": {
-          "tier": "public_facade",
-          "operatorPathRank": 9,
-          "operatorPathRole": "Run the approved resume action only after a matching dry-run audit id.",
+          "tier": "workflow_detail",
           "aliasOf": "lco_codex_resume_thread"
         },
         "inputSchema": {
@@ -3428,7 +3580,7 @@
       },
       {
         "name": "loo_codex_interrupt_thread",
-        "description": "Rejoin and interrupt a Codex thread under LCO's fixed never-approve, read-only posture. Live mode requires approval_audit_id and expected_turn_id.",
+        "description": "Interrupt a matching opaque target or rejoin and interrupt a raw Codex thread under LCO's fixed never-approve, read-only posture.",
         "safety": {
           "mode": "approval_gated_control",
           "source": "codex_direct",
@@ -3463,11 +3615,23 @@
             },
             "approval_audit_id": {
               "type": "string"
+            },
+            "target_ref": {
+              "type": "string"
             }
           },
-          "required": [
-            "thread_id",
-            "expected_turn_id"
+          "anyOf": [
+            {
+              "required": [
+                "target_ref"
+              ]
+            },
+            {
+              "required": [
+                "thread_id",
+                "expected_turn_id"
+              ]
+            }
           ]
         }
       },
@@ -6911,8 +7075,8 @@
         "lco_recent_sessions",
         "lco_attention_inbox",
         "lco_project_digest",
-        "lco_drive",
-        "lco_codex_resume_thread"
+        "lco_codex_control_route",
+        "lco_codex_deliver"
       ],
       "namingPolicy": {
         "publicProductAbbreviation": "LCO",

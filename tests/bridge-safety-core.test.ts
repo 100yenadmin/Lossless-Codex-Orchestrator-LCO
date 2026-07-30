@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { createServer } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
+import { WebSocketServer } from "ws";
 
 import {
   CODEX_CONTROL_METHODS,
@@ -12,9 +14,11 @@ import {
   CodexJsonRpcClient,
   LineProcessTransport,
   LoopbackWebSocketTransport,
+  UnixSocketWebSocketTransport,
   assertCodexMethodAllowed,
   buildLoopbackWebSocketConfig,
   codexTransportStatus,
+  createCodexAppServerDaemonClient,
   createCodexAppServerWebSocketClient,
   createCodexMcpStdioClient,
   createCodexControl,
@@ -158,6 +162,32 @@ test("Codex JSON-RPC client initializes, sends initialized notification, buffers
     { id: 2, method: "thread/list", params: {} }
   ]);
   assert.equal(transport.closed, true);
+});
+
+test("persistent Codex JSON-RPC responses keep notifications operation-local and method-only", async () => {
+  const transport = new FakeTransport([
+    { jsonrpc: "2.0", id: 1, result: { serverInfo: { name: "fake-codex" } } },
+    {
+      jsonrpc: "2.0",
+      method: "item/agentMessage/delta",
+      params: { delta: "PRIVATE_NOTIFICATION_CANARY" }
+    },
+    { jsonrpc: "2.0", id: 2, result: { data: [] } },
+    { jsonrpc: "2.0", id: 3, result: { data: [] } }
+  ]);
+  const client = new CodexJsonRpcClient(() => transport, { timeoutMs: 50 });
+
+  await client.connect();
+  const first = await client.request("thread/list", {});
+  const second = await client.request("thread/list", {});
+  await client.close();
+
+  assert.deepEqual(first.notifications, [
+    { method: "item/agentMessage/delta", params: {} }
+  ]);
+  assert.equal(JSON.stringify(first).includes("PRIVATE_NOTIFICATION_CANARY"), false);
+  assert.deepEqual(second.notifications, []);
+  assert.equal(client.notifications.length, 0);
 });
 
 test("Codex JSON-RPC client reports timeout and redacts JSON-RPC errors", async () => {
@@ -852,6 +882,91 @@ test("Codex loopback WebSocket close drains a pending read without leaking a wai
   } finally {
     Object.assign(globalThis, { WebSocket: OriginalWebSocket });
   }
+});
+
+test("Codex daemon UDS client initializes, exchanges JSON-RPC frames, and reconnects", async () => {
+  const root = mkdtempSync(join(tmpdir(), "lco-codex-uds-"));
+  const socketPath = join(root, "app-server.sock");
+  const server = createServer();
+  const websocketServer = new WebSocketServer({ server });
+  const methods: string[] = [];
+  let connectionCount = 0;
+  const extensionHeaders: Array<string | string[] | undefined> = [];
+  const sockets: Array<{ close(): void }> = [];
+
+  server.on("upgrade", (request) => extensionHeaders.push(request.headers["sec-websocket-extensions"]));
+  websocketServer.on("connection", (socket) => {
+    connectionCount += 1;
+    sockets.push(socket);
+    socket.on("message", (raw) => {
+      const payload = JSON.parse(raw.toString()) as Record<string, unknown>;
+      if (typeof payload.method === "string") methods.push(payload.method);
+      if (payload.id === undefined) return;
+      socket.send(JSON.stringify({
+        id: payload.id,
+        result: payload.method === "initialize"
+          ? { serverInfo: {} }
+          : { data: ["opaque-fixture-id"] }
+      }));
+    });
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+
+  try {
+    const client = createCodexAppServerDaemonClient({
+      socketPath,
+      surface: "read",
+      timeoutMs: 250
+    });
+    const first = await client.request("thread/loaded/list", {});
+    const second = await client.request("thread/loaded/list", {});
+    assert.equal(first.ok, true);
+    assert.equal(second.ok, true);
+    assert.equal(connectionCount, 1);
+    assert.deepEqual(extensionHeaders, [undefined]);
+    assert.deepEqual(methods, [
+      "initialize", "initialized", "thread/loaded/list", "thread/loaded/list"
+    ]);
+    sockets[0]?.close();
+    await delay(10);
+    const afterReconnect = await client.request("thread/loaded/list", {});
+    assert.equal(afterReconnect.ok, true);
+    assert.equal(connectionCount, 2);
+    assert.deepEqual(extensionHeaders, [undefined, undefined]);
+    assert.deepEqual(methods.slice(-3), ["initialize", "initialized", "thread/loaded/list"]);
+  } finally {
+    for (const socket of sockets) socket.close();
+    await delay(10);
+    await new Promise<void>((resolve) => websocketServer.close(() => resolve()));
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Codex daemon UDS transport rejects non-absolute and unavailable socket paths without exposing them", async () => {
+  assert.throws(
+    () => new UnixSocketWebSocketTransport("relative/app-server.sock", 20),
+    /absolute Unix socket path/
+  );
+
+  const unavailablePath = join(tmpdir(), "lco-does-not-exist", "private-app-server.sock");
+  const client = createCodexAppServerDaemonClient({
+    socketPath: unavailablePath,
+    surface: "read",
+    timeoutMs: 20
+  });
+  await assert.rejects(
+    client.request("thread/loaded/list", {}),
+    (error: unknown) => {
+      assert.match(String(error), /daemon WebSocket connection failed/);
+      assert.equal(String(error).includes(unavailablePath), false);
+      return true;
+    }
+  );
 });
 
 test("Codex transport status reports command availability without starting a live session", () => {

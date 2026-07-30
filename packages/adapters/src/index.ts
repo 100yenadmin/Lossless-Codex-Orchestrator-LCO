@@ -670,7 +670,9 @@ export type AuditStore = Omit<ReturnType<typeof createAuditStore>, "deriveSubkey
   deriveSubkeyIfConfigured?(domain: string): string | null;
   fingerprintTextIfConfigured?(value: string): string | null;
 };
-type ControlAuditStore = Pick<AuditStore, "path" | "append" | "find" | "fingerprintText" | "fingerprintValue">;
+type ControlAuditStore = Pick<AuditStore, "path" | "append" | "find" | "fingerprintText" | "fingerprintValue"> & {
+  hasApprovalUse?(approvalAuditId: string): boolean;
+};
 
 export type TargetControlExecuteSpec = {
   action: string;
@@ -703,6 +705,7 @@ export type AuditRecord = {
   paramsHash: string;
   messageHash?: string;
   approvalAuditId?: string;
+  approvalState?: "dry_run" | "claimed" | "completed";
   live: boolean;
   createdAt: string;
 };
@@ -755,6 +758,19 @@ export function createAuditStore(path: string) {
       }
       return null;
     },
+    hasApprovalUse(approvalAuditId: string): boolean {
+      if (!existsSync(path)) return false;
+      const lines = readFileSync(path, "utf8").split(/\r?\n/).filter(Boolean);
+      for (let index = lines.length - 1; index >= 0; index -= 1) {
+        try {
+          const parsed = JSON.parse(lines[index]!) as AuditRecord;
+          if (parsed.approvalAuditId === approvalAuditId) return true;
+        } catch {
+          // Ignore corrupt partial writes so earlier durable claims remain discoverable.
+        }
+      }
+      return false;
+    },
     tail(limit = 20): AuditRecord[] {
       if (!existsSync(path)) return [];
       const boundedLimit = Math.max(1, Math.min(limit, 1000));
@@ -804,6 +820,7 @@ export function createTargetControl(options: { targetName: string; methodPolicy:
         target: spec.threadId,
         paramsHash,
         messageHash,
+        approvalState: "dry_run",
         live: false
       });
       return {
@@ -829,7 +846,7 @@ export function createTargetControl(options: { targetName: string; methodPolicy:
     if (!previous) {
       throw new Error("approval_audit_id was not found in the local audit log");
     }
-    if (previous.live !== false) {
+    if (previous.live !== false || previous.approvalAuditId || previous.approvalState === "claimed") {
       throw new Error("approval_audit_id must reference a dry-run Codex control audit record");
     }
     if (previous.action !== spec.action || previous.target !== spec.threadId || previous.paramsHash !== paramsHash) {
@@ -839,16 +856,38 @@ export function createTargetControl(options: { targetName: string; methodPolicy:
     if (!Number.isFinite(dryRunCreatedAtMs) || dryRunCreatedAtMs + CODEX_CONTROL_DRY_RUN_TTL_MS <= Date.now()) {
       throw new Error("approval_audit_id dry-run record expired");
     }
-    const sequenceResult = requiresSequence
-      ? await requestCodexControlSequence(options.client, steps, spec.turnResolution
-        ? {
-            threadId: spec.threadId,
-            expectedTurnId: spec.turnResolution.expectedTurnId,
-            turnWaitMs: resolveCodexTurnWaitMs(spec.turnResolution.turnWaitMs),
-            ...(spec.turnResolution.requireSafeActiveRuntime ? { requireSafeActiveRuntime: true } : {})
-          }
-        : undefined)
-      : undefined;
+    assertCodexControlTransportCapability(options.client, requiresSequence, Boolean(spec.turnResolution));
+    if (!options.audit.hasApprovalUse) {
+      throw new Error("approval consumption lookup is unavailable");
+    }
+    if (options.audit.hasApprovalUse(previous.id)) {
+      throw new Error("approval_audit_id has already been used");
+    }
+    options.audit.append({
+      action: spec.action,
+      target: spec.threadId,
+      paramsHash,
+      messageHash,
+      approvalAuditId: previous.id,
+      approvalState: "claimed",
+      live: false
+    });
+    let sequenceResult: CodexControlSequenceResult | undefined;
+    try {
+      sequenceResult = requiresSequence
+        ? await requestCodexControlSequence(options.client, steps, spec.turnResolution
+          ? {
+              threadId: spec.threadId,
+              expectedTurnId: spec.turnResolution.expectedTurnId,
+              turnWaitMs: resolveCodexTurnWaitMs(spec.turnResolution.turnWaitMs),
+              ...(spec.turnResolution.requireSafeActiveRuntime ? { requireSafeActiveRuntime: true } : {})
+            }
+          : undefined)
+        : undefined;
+    } catch (error) {
+      if (!isIndeterminateControlError(error)) throw error;
+      throw new Error("codex_control_attempt_indeterminate");
+    }
     const safeRuntimeBlock = safeRuntimeBlockFromSequence(sequenceResult);
     if (safeRuntimeBlock) {
       return {
@@ -877,9 +916,41 @@ export function createTargetControl(options: { targetName: string; methodPolicy:
         response: sanitizeCodexControlResponse(safeRuntimeBlock)
       };
     }
-    const rawResponse = sequenceResult
-      ? sequenceResult.responses.at(-1) ?? { ok: true }
-      : await options.client.request(spec.method, spec.params);
+    let rawResponse: unknown;
+    try {
+      rawResponse = sequenceResult
+        ? sequenceResult.responses.at(-1) ?? { ok: true }
+        : await options.client.request(spec.method, spec.params);
+    } catch (error) {
+      if (!isIndeterminateControlError(error)) throw error;
+      throw new Error("codex_control_attempt_indeterminate");
+    }
+    if (isIndeterminateControlResponse(rawResponse)) {
+      throw new Error("codex_control_attempt_indeterminate");
+    }
+    if (asRecord(rawResponse)?.ok === false) {
+      const response = sanitizeCodexControlResponse(rawResponse);
+      return {
+        action: spec.action,
+        threadId: spec.threadId,
+        live: true,
+        approvalAuditId: previous.id,
+        paramsHash,
+        messageHash,
+        method: spec.method,
+        methodSequence,
+        connectionScope,
+        controlSent: false,
+        expectedTurnId: spec.expectedTurnId,
+        proofState: liveProofState({
+          method: spec.method,
+          methodSequence,
+          threadId: spec.threadId,
+          response
+        }),
+        response
+      };
+    }
     const response = responseWithTurnResolution(rawResponse, sequenceResult?.turn);
     const liveRecord = options.audit.append({
       action: spec.action,
@@ -887,6 +958,7 @@ export function createTargetControl(options: { targetName: string; methodPolicy:
       paramsHash,
       messageHash,
       approvalAuditId: previous.id,
+      approvalState: "completed",
       live: true
     });
     const createdThreadCandidateId = spec.createdThreadFromResponse ? extractControlThreadId(response) : undefined;
@@ -955,7 +1027,7 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
         createdThreadFromResponse: true
       });
     },
-    sendMessage(input: { threadId: string; message: string; dryRun?: boolean; approvalAuditId?: string; turnWaitMs?: number }) {
+    sendMessage(input: { threadId: string; message: string; dryRun?: boolean; approvalAuditId?: string; turnWaitMs?: number; loadedThread?: boolean; awaitTurn?: boolean }) {
       const resumeParams = safeCodexResumeParams(input.threadId);
       // A new turn pins its own restrictive posture. Unlike steer/interrupt,
       // it does not act inside an already-running turn whose posture is fixed.
@@ -973,14 +1045,18 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
         dryRun: input.dryRun,
         approvalAuditId: input.approvalAuditId,
         params: turnStartParams,
-        steps: [
-          { method: "thread/resume", params: resumeParams },
-          { method: "turn/start", params: turnStartParams }
-        ],
+        steps: input.loadedThread
+          ? [{ method: "turn/start", params: turnStartParams }]
+          : [
+              { method: "thread/resume", params: resumeParams },
+              { method: "turn/start", params: turnStartParams }
+            ],
         loadedThreadReusable: true,
-        turnResolution: {
-          turnWaitMs: input.turnWaitMs
-        }
+        turnResolution: input.awaitTurn === false
+          ? undefined
+          : {
+              turnWaitMs: input.turnWaitMs
+            }
       });
     },
     resumeThread(input: { threadId: string; dryRun?: boolean; approvalAuditId?: string }) {
@@ -1314,18 +1390,51 @@ async function requestCodexControlSequence(
   return { responses };
 }
 
+function assertCodexControlTransportCapability(
+  client: CodexClient,
+  requiresSequence: boolean,
+  requiresTurnResolution: boolean
+): void {
+  if (!requiresSequence) return;
+  if (requiresTurnResolution && !client.requestSequenceUntilTurnResolved) {
+    throw new Error("turn lifecycle proof is required for this Codex control action");
+  }
+  if (!requiresTurnResolution && !client.requestSequence) {
+    throw new Error("same-connection control sequence is required for this Codex control action");
+  }
+}
+
 function assertCodexControlSequenceResponses(responses: unknown[], steps: CodexControlStep[]): void {
   for (let index = 0; index < responses.length; index += 1) {
     const response = asRecord(responses[index]);
     const isLcoSafetyBlock = response?.code === "safe_runtime_posture_unproven"
       && response.origin === "lco_safety_gate";
     if (response?.ok === false && !isLcoSafetyBlock) {
+      if (isIndeterminateControlResponse(response)) {
+        throw new Error("codex_control_attempt_indeterminate");
+      }
+      if (JSON.stringify(response).includes("activeTurnNotSteerable")) {
+        throw new Error("active_turn_not_steerable");
+      }
       throw new Error(`Codex control sequence step failed: ${steps[index]?.method ?? "unknown"}`);
     }
   }
   if (responses.length !== steps.length) {
     throw new Error(`Codex control sequence returned ${responses.length} response(s) for ${steps.length} step(s)`);
   }
+}
+
+function isIndeterminateControlResponse(value: unknown): boolean {
+  const response = asRecord(value);
+  if (response?.ok !== false) return false;
+  const error = typeof response.error === "string" ? response.error : JSON.stringify(response.error ?? "");
+  return /timed out waiting|connection (?:failed|closed|lost)|socket (?:hang up|closed|is not open)|websocket (?:closed|is not open)|econnreset|epipe|broken pipe/i.test(error);
+}
+
+function isIndeterminateControlError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message === "codex_control_attempt_indeterminate"
+    || /timed out waiting|connection (?:failed|closed|lost)|socket (?:hang up|closed|is not open)|websocket (?:closed|is not open)|econnreset|epipe|broken pipe/i.test(message);
 }
 
 function safeRuntimeBlockFromSequence(sequence: CodexControlSequenceResult | undefined): Record<string, unknown> | null {
