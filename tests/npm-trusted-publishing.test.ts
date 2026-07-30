@@ -7,10 +7,13 @@ import test from "node:test";
 const repoRoot = path.resolve(import.meta.dirname, "..");
 
 test("Trusted Publishing workflow is OIDC-only and fail-closed before dual publication", async () => {
-  const workflow = await readFile(
-    path.join(repoRoot, ".github", "workflows", "publish-npm.yml"),
-    "utf8",
-  );
+  const [workflow, ciWorkflow] = await Promise.all([
+    readFile(
+      path.join(repoRoot, ".github", "workflows", "publish-npm.yml"),
+      "utf8",
+    ),
+    readFile(path.join(repoRoot, ".github", "workflows", "ci.yml"), "utf8"),
+  ]);
 
   assert.match(workflow, /tags:\s*\n\s*-\s*["']v\*["']/);
   assert.match(workflow, /runs-on:\s*ubuntu-latest/);
@@ -18,6 +21,7 @@ test("Trusted Publishing workflow is OIDC-only and fail-closed before dual publi
   assert.match(workflow, /id-token:\s*write/);
   assert.match(workflow, /actions:\s*read/);
   assert.match(workflow, /npm install --global npm@11\.17\.0/);
+  assert.match(ciWorkflow, /npm install --global npm@11\.17\.0/);
   assert.doesNotMatch(workflow, /NODE_AUTH_TOKEN|NPM_TOKEN|secrets\./);
 
   const checkIndex = workflow.indexOf("npm run check");
