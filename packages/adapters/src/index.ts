@@ -927,6 +927,29 @@ export function createTargetControl(options: { targetName: string; methodPolicy:
     if (isIndeterminateControlResponse(rawResponse)) {
       throw new Error("codex_control_attempt_indeterminate");
     }
+    if (asRecord(rawResponse)?.ok === false) {
+      const response = sanitizeCodexControlResponse(rawResponse);
+      return {
+        action: spec.action,
+        threadId: spec.threadId,
+        live: true,
+        approvalAuditId: previous.id,
+        paramsHash,
+        messageHash,
+        method: spec.method,
+        methodSequence,
+        connectionScope,
+        controlSent: false,
+        expectedTurnId: spec.expectedTurnId,
+        proofState: liveProofState({
+          method: spec.method,
+          methodSequence,
+          threadId: spec.threadId,
+          response
+        }),
+        response
+      };
+    }
     const response = responseWithTurnResolution(rawResponse, sequenceResult?.turn);
     const liveRecord = options.audit.append({
       action: spec.action,

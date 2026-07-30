@@ -299,17 +299,18 @@ function publicDeliveryResult(
   const live = result.live === true;
   const proof = recordValue(result.proofState);
   const completed = proof?.completed === true || proof?.status === "completed";
+  const controlSent = result.controlSent === true;
   return {
     schema: "lco.codex.delivery.v1",
-    status: live ? completed ? "completed" : "accepted" : "dry_run_ready",
+    status: live ? controlSent ? completed ? "completed" : "accepted" : "blocked" : "dry_run_ready",
     action,
     target_ref: targetRef,
     live,
-    control_sent: result.controlSent === true,
+    control_sent: controlSent,
     ...(typeof result.approvalAuditId === "string" ? { approval_audit_id: result.approvalAuditId } : {}),
     ...(typeof result.paramsHash === "string" ? { params_hash: result.paramsHash } : {}),
     ...(typeof result.messageHash === "string" ? { message_hash: result.messageHash } : {}),
-    reason_codes: [],
+    reason_codes: live && !controlSent ? ["control_rejected"] : [],
     public_safe: true,
     raw_transcript_returned: false
   };

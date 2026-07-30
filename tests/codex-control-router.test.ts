@@ -20,7 +20,10 @@ type FixtureThread = {
   turnId?: string;
 };
 
-function fixtureClient(threads: FixtureThread[], sequenceFailure?: "active_turn_not_steerable" | "transport_failure") {
+function fixtureClient(
+  threads: FixtureThread[],
+  sequenceFailure?: "active_turn_not_steerable" | "transport_failure" | "request_rejected"
+) {
   let current = threads;
   const requestCalls: Array<{ method: string; params: Record<string, unknown> }> = [];
   const sequenceCalls: Array<{ steps: CodexControlStep[]; options: CodexControlSequenceOptions }> = [];
@@ -51,6 +54,9 @@ function fixtureClient(threads: FixtureThread[], sequenceFailure?: "active_turn_
         };
       }
       if (method === "turn/start") {
+        if (sequenceFailure === "request_rejected") {
+          return { ok: false, error: "turn rejected", notifications: [] };
+        }
         return {
           ok: true,
           result: { turn: { id: "turn-new", status: "inProgress" } },
@@ -446,6 +452,41 @@ test("delivery consumes approval before transport and reports an indeterminate d
     assert.equal(replay.control_sent, false);
     assert.deepEqual(replay.reason_codes, ["approval_or_control_rejected"]);
     assert.equal(fixture.sequenceCalls.length, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("idle delivery never reports a rejected one-shot turn start as accepted", async () => {
+  const root = mkdtempSync(join(tmpdir(), "lco-router-request-rejected-"));
+  const fixture = fixtureClient([{
+    id: "thread-idle",
+    name: "Idle task",
+    state: "idle"
+  }], "request_rejected");
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const router = createCodexControlRouter({
+    client: fixture.client,
+    control: createCodexControl({ audit, client: fixture.client }),
+    createRef: () => "lco_target_idle"
+  });
+
+  try {
+    const route = await router.route({});
+    const dryRun = await router.deliver({
+      targetRef: route.target_ref!,
+      message: "Start safely"
+    });
+    const rejected = await router.deliver({
+      targetRef: route.target_ref!,
+      message: "Start safely",
+      dryRun: false,
+      approvalAuditId: dryRun.approval_audit_id
+    });
+    assert.equal(rejected.status, "blocked");
+    assert.equal(rejected.control_sent, false);
+    assert.deepEqual(rejected.reason_codes, ["control_rejected"]);
+    assert.equal(fixture.requestCalls.filter((call) => call.method === "turn/start").length, 1);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -106,6 +106,7 @@ export class CodexJsonRpcClient {
 
   async request(method: string, params: Record<string, unknown> = {}): Promise<CodexJsonRpcResponse> {
     assertCodexMethodAllowed(method, this.surface);
+    this.resetObservationBuffers();
     return this.requestRaw(method, params);
   }
 
@@ -113,6 +114,7 @@ export class CodexJsonRpcClient {
     predicate: (notification: JsonRpcNotification) => boolean,
     options: { timeoutMs?: number; stopOnServerRequest?: boolean } = {}
   ): Promise<NotificationWaitResult> {
+    this.resetObservationBuffers();
     const transport = this.requireTransport();
     const deadline = Date.now() + (options.timeoutMs ?? this.timeoutMs);
     const notifications: JsonRpcNotification[] = [];
@@ -188,14 +190,26 @@ export class CodexJsonRpcClient {
 
       if (payload.id !== id) continue;
       if ("error" in payload) {
-        return { ok: false, error: JSON.stringify(redactValue(payload.error)), notifications: [...this.notifications] };
+        return { ok: false, error: JSON.stringify(redactValue(payload.error)), notifications: this.publicNotifications() };
       }
       if ("result" in payload) {
-        return { ok: true, result: payload.result, notifications: [...this.notifications] };
+        return { ok: true, result: payload.result, notifications: this.publicNotifications() };
       }
-      return { ok: true, result: payload, notifications: [...this.notifications] };
+      return { ok: true, result: payload, notifications: this.publicNotifications() };
     }
-    return { ok: false, error: `Timed out waiting for ${method}`, notifications: [...this.notifications] };
+    return { ok: false, error: `Timed out waiting for ${method}`, notifications: this.publicNotifications() };
+  }
+
+  private resetObservationBuffers(): void {
+    this.notifications.length = 0;
+    this.serverRequests.length = 0;
+  }
+
+  private publicNotifications(): JsonRpcNotification[] {
+    return this.notifications.map((notification) => ({
+      method: notification.method,
+      params: {}
+    }));
   }
 
   private requireTransport(): JsonRpcTransport {

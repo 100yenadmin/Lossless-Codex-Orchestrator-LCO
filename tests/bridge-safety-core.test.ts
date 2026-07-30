@@ -164,6 +164,32 @@ test("Codex JSON-RPC client initializes, sends initialized notification, buffers
   assert.equal(transport.closed, true);
 });
 
+test("persistent Codex JSON-RPC responses keep notifications operation-local and method-only", async () => {
+  const transport = new FakeTransport([
+    { jsonrpc: "2.0", id: 1, result: { serverInfo: { name: "fake-codex" } } },
+    {
+      jsonrpc: "2.0",
+      method: "item/agentMessage/delta",
+      params: { delta: "PRIVATE_NOTIFICATION_CANARY" }
+    },
+    { jsonrpc: "2.0", id: 2, result: { data: [] } },
+    { jsonrpc: "2.0", id: 3, result: { data: [] } }
+  ]);
+  const client = new CodexJsonRpcClient(() => transport, { timeoutMs: 50 });
+
+  await client.connect();
+  const first = await client.request("thread/list", {});
+  const second = await client.request("thread/list", {});
+  await client.close();
+
+  assert.deepEqual(first.notifications, [
+    { method: "item/agentMessage/delta", params: {} }
+  ]);
+  assert.equal(JSON.stringify(first).includes("PRIVATE_NOTIFICATION_CANARY"), false);
+  assert.deepEqual(second.notifications, []);
+  assert.equal(client.notifications.length, 0);
+});
+
 test("Codex JSON-RPC client reports timeout and redacts JSON-RPC errors", async () => {
   const timeoutClient = new CodexJsonRpcClient(() => new FakeTransport([
     { jsonrpc: "2.0", id: 1, result: {} }
