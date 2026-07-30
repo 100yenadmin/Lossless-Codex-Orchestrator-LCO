@@ -20,7 +20,7 @@ type FixtureThread = {
   turnId?: string;
 };
 
-function fixtureClient(threads: FixtureThread[], sequenceFailure?: "active_turn_not_steerable") {
+function fixtureClient(threads: FixtureThread[], sequenceFailure?: "active_turn_not_steerable" | "transport_failure") {
   let current = threads;
   const requestCalls: Array<{ method: string; params: Record<string, unknown> }> = [];
   const sequenceCalls: Array<{ steps: CodexControlStep[]; options: CodexControlSequenceOptions }> = [];
@@ -61,6 +61,9 @@ function fixtureClient(threads: FixtureThread[], sequenceFailure?: "active_turn_
     },
     async requestSequenceUntilTurnResolved(steps, options) {
       sequenceCalls.push({ steps, options });
+      if (sequenceFailure === "transport_failure") {
+        throw new Error("socket closed after write");
+      }
       if (sequenceFailure === "active_turn_not_steerable") {
         return {
           responses: [
@@ -253,6 +256,16 @@ test("delivery sends to idle targets and interrupt accepts the same opaque activ
     assert.equal(idleLive.status, "accepted");
     assert.equal(idleFixture.requestCalls.some((call) => call.method === "turn/start"), true);
     assert.equal(idleFixture.sequenceCalls.length, 0);
+    const replay = await idleRouter.deliver({
+      targetRef: idleRoute.target_ref!,
+      message: "Start work",
+      dryRun: false,
+      approvalAuditId: idleDryRun.approval_audit_id
+    });
+    assert.equal(replay.status, "blocked");
+    assert.equal(replay.control_sent, false);
+    assert.deepEqual(replay.reason_codes, ["approval_or_control_rejected"]);
+    assert.equal(idleFixture.requestCalls.filter((call) => call.method === "turn/start").length, 1);
 
     const activeRoute = await activeRouter.route({});
     const interruptDryRun = await activeRouter.interrupt({ targetRef: activeRoute.target_ref! });
@@ -376,6 +389,53 @@ test("delivery returns the specific non-steerable blocker from Codex", async () 
     assert.equal(live.status, "blocked");
     assert.equal(live.control_sent, false);
     assert.deepEqual(live.reason_codes, ["active_turn_not_steerable"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("delivery consumes approval before transport and reports an indeterminate disconnect without retrying", async () => {
+  const root = mkdtempSync(join(tmpdir(), "lco-router-indeterminate-"));
+  const fixture = fixtureClient([{
+    id: "thread-active",
+    name: "Active task",
+    state: "active",
+    turnId: "turn-active"
+  }], "transport_failure");
+  const audit = createAuditStore(join(root, "audit.jsonl"));
+  const router = createCodexControlRouter({
+    client: fixture.client,
+    control: createCodexControl({ audit, client: fixture.client }),
+    createRef: () => "lco_target_active"
+  });
+
+  try {
+    const route = await router.route({});
+    const dryRun = await router.deliver({
+      targetRef: route.target_ref!,
+      message: "Steer safely"
+    });
+    const first = await router.deliver({
+      targetRef: route.target_ref!,
+      message: "Steer safely",
+      dryRun: false,
+      approvalAuditId: dryRun.approval_audit_id
+    });
+    assert.equal(first.status, "blocked");
+    assert.equal(first.control_sent, null);
+    assert.deepEqual(first.reason_codes, ["control_attempt_indeterminate", "approval_consumed_do_not_retry"]);
+    assert.equal(fixture.sequenceCalls.length, 1);
+
+    const replay = await router.deliver({
+      targetRef: route.target_ref!,
+      message: "Steer safely",
+      dryRun: false,
+      approvalAuditId: dryRun.approval_audit_id
+    });
+    assert.equal(replay.status, "blocked");
+    assert.equal(replay.control_sent, false);
+    assert.deepEqual(replay.reason_codes, ["approval_or_control_rejected"]);
+    assert.equal(fixture.sequenceCalls.length, 1);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

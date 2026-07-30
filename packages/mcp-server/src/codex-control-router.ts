@@ -42,7 +42,7 @@ export type CodexDeliveryResult = {
   action: "send" | "steer" | "interrupt" | null;
   target_ref: string;
   live: boolean;
-  control_sent: boolean;
+  control_sent: boolean | null;
   approval_audit_id?: string;
   params_hash?: string;
   message_hash?: string;
@@ -127,6 +127,9 @@ export function createCodexControlRouter(options: {
           });
       return publicDeliveryResult(input.targetRef, action, result);
     } catch (error) {
+      if (String(error).includes("codex_control_attempt_indeterminate")) {
+        return indeterminateDelivery(input.targetRef, action);
+      }
       const reason = String(error).includes("active_turn_not_steerable")
         ? "active_turn_not_steerable"
         : "approval_or_control_rejected";
@@ -155,7 +158,10 @@ export function createCodexControlRouter(options: {
         turnWaitMs: input.turnWaitMs
       });
       return publicDeliveryResult(input.targetRef, "interrupt", result);
-    } catch {
+    } catch (error) {
+      if (String(error).includes("codex_control_attempt_indeterminate")) {
+        return indeterminateDelivery(input.targetRef, "interrupt");
+      }
       return blockedDelivery(input.targetRef, "interrupt", input.dryRun === false, "approval_or_control_rejected");
     }
   }
@@ -323,6 +329,23 @@ function blockedDelivery(
     live,
     control_sent: false,
     reason_codes: [reason],
+    public_safe: true,
+    raw_transcript_returned: false
+  };
+}
+
+function indeterminateDelivery(
+  targetRef: string,
+  action: Exclude<CodexDeliveryResult["action"], null>
+): CodexDeliveryResult {
+  return {
+    schema: "lco.codex.delivery.v1",
+    status: "blocked",
+    action,
+    target_ref: targetRef,
+    live: true,
+    control_sent: null,
+    reason_codes: ["control_attempt_indeterminate", "approval_consumed_do_not_retry"],
     public_safe: true,
     raw_transcript_returned: false
   };

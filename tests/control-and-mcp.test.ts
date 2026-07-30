@@ -480,10 +480,20 @@ test("Codex control rejects failed same-connection sequence responses before liv
       /control sequence step failed.*thread\/resume/i
     );
 
-    const auditRecords = readFileSync(audit.path, "utf8").split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as { live: boolean });
-    assert.equal(auditRecords.length, 2);
+    const auditRecords = readFileSync(audit.path, "utf8").split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as {
+      approvalAuditId?: string;
+      approvalState?: string;
+      live: boolean;
+    });
+    assert.equal(auditRecords.length, 4);
     assert.equal(auditRecords[0]?.live, false);
     assert.equal(auditRecords[1]?.live, false);
+    assert.equal(auditRecords[1]?.approvalState, "claimed");
+    assert.equal(auditRecords[1]?.approvalAuditId, dryRun.approvalAuditId);
+    assert.equal(auditRecords[2]?.live, false);
+    assert.equal(auditRecords[3]?.live, false);
+    assert.equal(auditRecords[3]?.approvalState, "claimed");
+    assert.equal(auditRecords[3]?.approvalAuditId, collisionDryRun.approvalAuditId);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -526,9 +536,16 @@ test("Codex control returns structured proof when active runtime posture blocks 
     assert.match(blocked.proofState.callerInstruction, /control was not sent/);
     assert.equal((blocked.response as any).code, "safe_runtime_posture_unproven");
 
-    const auditRecords = readFileSync(audit.path, "utf8").split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as { live: boolean });
-    assert.equal(auditRecords.length, 1);
+    const auditRecords = readFileSync(audit.path, "utf8").split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as {
+      approvalAuditId?: string;
+      approvalState?: string;
+      live: boolean;
+    });
+    assert.equal(auditRecords.length, 2);
     assert.equal(auditRecords[0]?.live, false);
+    assert.equal(auditRecords[1]?.live, false);
+    assert.equal(auditRecords[1]?.approvalState, "claimed");
+    assert.equal(auditRecords[1]?.approvalAuditId, dryRun.approvalAuditId);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
