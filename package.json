@@ -1,6 +1,6 @@
 {
   "name": "lossless-openclaw-orchestrator",
-  "version": "1.6.1",
+  "version": "1.7.0",
   "description": "Index, search, and prepare local Codex sessions for Hermes and MCP clients, with OpenClaw compatibility, approval-gated dry-runs, and optional Codex controls.",
   "type": "module",
   "license": "PolyForm-Noncommercial-1.0.0",
@@ -75,7 +75,11 @@
   ],
   "devDependencies": {
     "@types/node": "^26.0.0",
+    "@types/ws": "^8.18.1",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "ws": "^8.21.1"
   }
 }

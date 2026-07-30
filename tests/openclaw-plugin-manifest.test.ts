@@ -151,7 +151,7 @@ test("OpenClaw plugin contracts classify every tool into an operator surface tie
   const lcoAliases = aliases.filter((declaration) => declaration.name.startsWith("lco_"));
   const compatibilityAliases = aliases.filter((declaration) => declaration.name.startsWith("loo_"));
   assert.deepEqual(lcoAliases, []);
-  assert.equal(compatibilityAliases.length, 68);
+  assert.equal(compatibilityAliases.length, 70);
   for (const alias of compatibilityAliases) {
     assert.equal(baseDeclarations.some((declaration) => declaration.name === alias.metadata?.aliasOf), true);
   }

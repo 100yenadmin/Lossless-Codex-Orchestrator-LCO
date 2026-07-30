@@ -1618,6 +1618,8 @@ test("MCP tool registry exposes lco-prefixed canonical tools with loo compatibil
     assert.equal(toolNames.includes("lco_codex_start_thread"), true);
     assert.equal(toolNames.includes("lco_codex_send_message"), true);
     assert.equal(toolNames.includes("lco_drive"), true);
+    assert.equal(toolNames.includes("lco_codex_control_route"), true);
+    assert.equal(toolNames.includes("lco_codex_deliver"), true);
     assert.equal(toolNames.includes("lco_desktop_proof"), true);
     assert.deepEqual(toolNames.filter((name) => !LOO_COMMAND_POLICY[name]), []);
     for (const declaration of createLooToolDeclarations()) {
@@ -1647,6 +1649,10 @@ test("MCP tool registry exposes lco-prefixed canonical tools with loo compatibil
     assert.equal(LOO_COMMAND_POLICY.lco_index_sessions.mutationClasses.includes("live_control"), false);
     assert.equal(LOO_COMMAND_POLICY.lco_codex_control_dry_run.mode, "local_cache_write");
     assert.deepEqual(LOO_COMMAND_POLICY.lco_codex_control_dry_run.mutationClasses, ["derived_cache"]);
+    assert.equal(LOO_COMMAND_POLICY.lco_codex_control_route.mode, "read_only");
+    assert.deepEqual(LOO_COMMAND_POLICY.lco_codex_control_route.mutationClasses, []);
+    assert.equal(LOO_COMMAND_POLICY.lco_codex_deliver.mode, "approval_gated_control");
+    assert.deepEqual(LOO_COMMAND_POLICY.lco_codex_deliver.mutationClasses, ["derived_cache", "live_control"]);
     assert.equal(LOO_COMMAND_POLICY.lco_drive.mode, "local_cache_write");
     assert.deepEqual(LOO_COMMAND_POLICY.lco_drive.mutationClasses, ["derived_cache"]);
     assert.deepEqual(LOO_COMMAND_POLICY.lco_codex_start_thread.mutationClasses, ["derived_cache", "live_control"]);
@@ -1854,7 +1860,17 @@ test("MCP tool registry exposes lco-prefixed canonical tools with loo compatibil
     assert.deepEqual(steerTool.inputSchema.required, ["thread_id", "message", "expected_turn_id"]);
     const interruptTool = tools.find((tool) => tool.name === "lco_codex_interrupt_thread");
     assert.ok(interruptTool);
-    assert.deepEqual(interruptTool.inputSchema.required, ["thread_id", "expected_turn_id"]);
+    assert.ok((interruptTool.inputSchema.properties as Record<string, unknown>).target_ref);
+    assert.deepEqual(interruptTool.inputSchema.anyOf, [
+      { required: ["target_ref"] },
+      { required: ["thread_id", "expected_turn_id"] }
+    ]);
+    const missingInterruptTarget = await executeLooToolForOpenClaw(interruptTool, {}) as {
+      ok: boolean;
+      error?: { message?: string };
+    };
+    assert.equal(missingInterruptTarget.ok, false);
+    assert.equal(missingInterruptTarget.error?.message, "one supported target form is required");
     const dryRunToolSchema = dryRunTool.inputSchema.properties as Record<string, unknown>;
     assert.ok(dryRunToolSchema.expected_turn_id);
     assert.throws(

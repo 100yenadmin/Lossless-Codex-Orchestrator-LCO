@@ -310,8 +310,10 @@ For an agent or MCP client, start with the normal operator path:
 | 5 | `lco_recent_sessions` | Recent and active Codex work as compact cards. |
 | 6 | `lco_attention_inbox` | Blocked, waiting, stale, approval-needed, or ready-for-review work. |
 | 7 | `lco_project_digest` | A project-level handoff brief. |
-| 8 | `lco_codex_control_dry_run` | A preview packet for the exact Codex action. |
-| 9 | `lco_codex_resume_thread` | Resume a Codex thread after the dry-run packet is approved. |
+| 8 | `lco_codex_control_route` | An expiring opaque reference for one daemon-owned Codex task, or an explicit Desktop-observation blocker. |
+| 9 | `lco_codex_deliver` | A dry-run-first delivery that sends when idle or steers the matching active turn. |
+| 10 | `lco_codex_control_dry_run` | A preview packet for a lower-level exact Codex action. |
+| 11 | `lco_codex_resume_thread` | Resume a Codex thread after the dry-run packet is approved. |
 
 The packaged agent playbook is
 [skills/lossless-openclaw-orchestrator/SKILL.md](skills/lossless-openclaw-orchestrator/SKILL.md).
@@ -377,11 +379,27 @@ mcp_servers:
     enabled: true
     env:
       LCO_TOOL_PROFILE: standard
+      LCO_CODEX_TRANSPORT: daemon
 ```
 
 Omitting `LCO_DB_PATH` uses LCO's home-based default. If you set it explicitly,
 use an expanded absolute path because Hermes does not shell-expand `~` inside an
 environment-variable value.
+
+`LCO_CODEX_TRANSPORT` defaults to `stdio` for compatibility. The opt-in
+`daemon` mode connects only to the already-running local Codex managed daemon
+through its Unix socket. LCO does not start or restart the daemon and does not
+enable Codex Remote Control. Set `LCO_CODEX_DAEMON_SOCKET` only for an explicit
+absolute local override; `LCO_CODEX_APP_SERVER_ARGS` remains stdio-only.
+
+For remote operation, Eva should call `lco_codex_control_route` first. A
+selected `app_server` route is safe for LCO daemon/CLI task control. A
+`desktop_observation_required` result means Hermes must use its own
+`computer_use` integration to identify and operate the Codex Desktop task;
+LCO must not silently redirect that task to the managed daemon. Telegram
+direction is user to Eva for instructions and Eva to the same user for results.
+An operator should not type a bot message into Telegram as though it came from
+Eva.
 
 Before a release, verify the candidate without changing a Hermes profile:
 

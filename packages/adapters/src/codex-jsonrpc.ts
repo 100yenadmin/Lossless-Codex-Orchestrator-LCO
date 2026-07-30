@@ -1,6 +1,9 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { createConnection } from "node:net";
+import { isAbsolute, join } from "node:path";
 import { createInterface, type Interface } from "node:readline";
 import { URL } from "node:url";
+import NodeWebSocket from "ws";
 import { assertCodexMethodAllowed, type CodexMethodSurface } from "./policy.js";
 import { redactDiagnosticString, redactValue } from "./redaction.js";
 
@@ -8,6 +11,7 @@ export type JsonRpcTransport = {
   sendJson(payload: unknown): void | Promise<void>;
   readLine(deadline: number): string | null | Promise<string | null>;
   close(): void | Promise<void>;
+  isClosed?(): boolean;
 };
 
 export type CodexJsonRpcResponse = {
@@ -150,6 +154,10 @@ export class CodexJsonRpcClient {
     const transport = this.transport;
     this.transport = null;
     await transport.close();
+  }
+
+  isTransportClosed(): boolean {
+    return !this.transport || this.transport.isClosed?.() === true;
   }
 
   private async sendNotification(method: string): Promise<void> {
@@ -362,6 +370,103 @@ export class LoopbackWebSocketTransport implements JsonRpcTransport {
   }
 }
 
+export class UnixSocketWebSocketTransport implements JsonRpcTransport {
+  private readonly socket: NodeWebSocket;
+  private readonly lines: string[] = [];
+  private readonly waiters: Array<(line: string | null) => void> = [];
+  private closed = false;
+  private readonly ready: Promise<void>;
+  private connectTimer: ReturnType<typeof setTimeout> | undefined;
+
+  constructor(socketPath: string, private readonly timeoutMs = DEFAULT_TIMEOUT_MS) {
+    if (!isAbsolute(socketPath)) {
+      throw new Error("Codex daemon transport requires an absolute Unix socket path");
+    }
+    this.socket = new NodeWebSocket("ws://localhost/", {
+      perMessageDeflate: false,
+      createConnection: () => createConnection(socketPath)
+    });
+    this.ready = new Promise((resolve, reject) => {
+      this.connectTimer = setTimeout(() => {
+        this.close();
+        reject(new Error("Codex daemon WebSocket connect timed out"));
+      }, this.timeoutMs);
+      this.socket.once("open", () => {
+        this.clearConnectTimer();
+        resolve();
+      });
+      this.socket.once("error", () => {
+        this.clearConnectTimer();
+        reject(new Error("Codex daemon WebSocket connection failed"));
+      });
+    });
+    void this.ready.catch(() => undefined);
+    this.socket.on("message", (data) => this.pushLine(data.toString()));
+    this.socket.on("close", () => this.finishOutput());
+  }
+
+  async sendJson(payload: unknown): Promise<void> {
+    await this.ready;
+    this.socket.send(JSON.stringify(payload));
+  }
+
+  readLine(deadline: number): Promise<string | null> {
+    const existing = this.lines.shift();
+    if (existing !== undefined) return Promise.resolve(existing);
+    if (this.closed) return Promise.resolve(null);
+    const remaining = Math.max(1, Math.min(this.timeoutMs, deadline - Date.now()));
+    return new Promise((resolve) => {
+      let timer: ReturnType<typeof setTimeout>;
+      const waiter = (line: string | null) => {
+        clearTimeout(timer);
+        resolve(line);
+      };
+      timer = setTimeout(() => {
+        const index = this.waiters.indexOf(waiter);
+        if (index >= 0) this.waiters.splice(index, 1);
+        resolve(null);
+      }, remaining);
+      this.waiters.push(waiter);
+    });
+  }
+
+  close(): void {
+    this.clearConnectTimer();
+    this.finishOutput();
+    if (this.socket.readyState === NodeWebSocket.CONNECTING) {
+      this.socket.terminate();
+    } else if (this.socket.readyState === NodeWebSocket.OPEN) {
+      this.socket.close();
+    }
+  }
+
+  isClosed(): boolean {
+    return this.closed;
+  }
+
+  private clearConnectTimer(): void {
+    if (this.connectTimer === undefined) return;
+    clearTimeout(this.connectTimer);
+    this.connectTimer = undefined;
+  }
+
+  private pushLine(line: string): void {
+    const waiter = this.waiters.shift();
+    if (waiter) waiter(line);
+    else this.lines.push(line);
+  }
+
+  private finishOutput(): void {
+    if (this.closed) return;
+    this.closed = true;
+    let waiter = this.waiters.shift();
+    while (waiter) {
+      waiter(null);
+      waiter = this.waiters.shift();
+    }
+  }
+}
+
 export function createCodexMcpStdioClient(options: {
   command?: string;
   args?: string[];
@@ -382,32 +487,72 @@ export function createCodexAppServerWebSocketClient(options: {
   return createCodexClientFromTransport(() => new LoopbackWebSocketTransport(options.url, options.timeoutMs), options);
 }
 
+export function createCodexAppServerDaemonClient(options: {
+  socketPath: string;
+  timeoutMs?: number;
+  surface?: CodexMethodSurface;
+}) {
+  return createCodexClientFromTransport(
+    () => new UnixSocketWebSocketTransport(options.socketPath, options.timeoutMs),
+    { ...options, persistent: true }
+  );
+}
+
+export function resolveCodexDaemonSocketPath(codexHome: string): string {
+  if (!isAbsolute(codexHome)) throw new Error("CODEX_HOME must be absolute for daemon transport");
+  return join(codexHome, "app-server-control", "app-server-control.sock");
+}
+
 function createCodexClientFromTransport(
   transportFactory: () => JsonRpcTransport,
-  options: { timeoutMs?: number; surface?: CodexMethodSurface }
+  options: { timeoutMs?: number; surface?: CodexMethodSurface; persistent?: boolean }
 ) {
-  return {
-    async request(method: string, params: Record<string, unknown>) {
+  let persistentClient: CodexJsonRpcClient | null = null;
+  let operationQueue: Promise<void> = Promise.resolve();
+
+  async function withClient<T>(operation: (client: CodexJsonRpcClient) => Promise<T>): Promise<T> {
+    if (!options.persistent) {
       const client = new CodexJsonRpcClient(
         transportFactory,
         { timeoutMs: options.timeoutMs, surface: options.surface ?? "control" }
       );
       try {
         await client.connect();
-        return await client.request(method, params);
+        return await operation(client);
       } finally {
         await client.close();
       }
+    }
+
+    const queued = operationQueue.then(async () => {
+      if (!persistentClient || persistentClient.isTransportClosed()) {
+        if (persistentClient) await persistentClient.close();
+        persistentClient = new CodexJsonRpcClient(
+          transportFactory,
+          { timeoutMs: options.timeoutMs, surface: options.surface ?? "control" }
+        );
+        await persistentClient.connect();
+      }
+      try {
+        return await operation(persistentClient);
+      } catch (error) {
+        await persistentClient.close();
+        persistentClient = null;
+        throw error;
+      }
+    });
+    operationQueue = queued.then(() => undefined, () => undefined);
+    return queued;
+  }
+
+  return {
+    async request(method: string, params: Record<string, unknown>) {
+      return withClient((client) => client.request(method, params));
     },
     async requestSequence(steps: Array<{ method: string; params: Record<string, unknown> }>) {
       const surface = options.surface ?? "control";
       for (const step of steps) assertCodexMethodAllowed(step.method, surface);
-      const client = new CodexJsonRpcClient(
-        transportFactory,
-        { timeoutMs: options.timeoutMs, surface }
-      );
-      try {
-        await client.connect();
+      return withClient(async (client) => {
         const responses: CodexJsonRpcResponse[] = [];
         for (const step of steps) {
           const response = await client.request(step.method, step.params);
@@ -415,9 +560,7 @@ function createCodexClientFromTransport(
           if (!response.ok) break;
         }
         return responses;
-      } finally {
-        await client.close();
-      }
+      });
     },
     async requestSequenceUntilTurnResolved(
       steps: Array<{ method: string; params: Record<string, unknown> }>,
@@ -431,12 +574,7 @@ function createCodexClientFromTransport(
       if (turnOptions.requireSafeActiveRuntime && steps.some((step) => step.params.threadId !== turnOptions.threadId)) {
         throw new Error("Codex safe active-runtime proof requires every sequence step to target the requested thread");
       }
-      const client = new CodexJsonRpcClient(
-        transportFactory,
-        { timeoutMs: options.timeoutMs, surface }
-      );
-      try {
-        await client.connect();
+      return withClient(async (client) => {
         const responses: CodexJsonRpcResponse[] = [];
         let turnId = turnOptions.expectedTurnId;
         let latestStatus: string | null = null;
@@ -470,9 +608,7 @@ function createCodexClientFromTransport(
           timeoutMs: turnOptions.turnWaitMs
         });
         return { responses, turn };
-      } finally {
-        await client.close();
-      }
+      });
     }
   };
 }

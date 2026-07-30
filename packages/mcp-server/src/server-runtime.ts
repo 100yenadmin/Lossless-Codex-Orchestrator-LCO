@@ -2,9 +2,9 @@ import { createInterface } from "node:readline";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createAuditStore, createCodexAppServerStdioClient } from "../../adapters/src/index.js";
+import { createAuditStore } from "../../adapters/src/index.js";
 import { createDatabase, defaultDatabasePath } from "../../core/src/index.js";
-import { readEnv, readEnvWithFallback, resolveHomeDir } from "../../runtime/src/env.js";
+import { readEnv, resolveHomeDir } from "../../runtime/src/env.js";
 import {
   createLooToolDeclarations,
   createLooTools,
@@ -17,6 +17,7 @@ import {
   normalizeMcpStructuredContent,
   serializeMcpTextContent
 } from "./mcp-protocol.js";
+import { createConfiguredCodexClients } from "./codex-runtime-transport.js";
 
 const toolProfile = parseLooToolProfile(readEnv("TOOL_PROFILE"), {
   onInvalid: (value) => {
@@ -99,21 +100,8 @@ function getRuntimeState(): RuntimeState {
     return { ok: false, failure: createStartupUnavailableResult("audit_unavailable") };
   }
 
-  const codexCommand = readEnvWithFallback("CODEX_BIN", "codex");
-  const codexArgs = (readEnv("CODEX_APP_SERVER_ARGS") || "app-server --stdio").split(/\s+/).filter(Boolean);
-  const codexClient = createCodexAppServerStdioClient({
-    command: codexCommand,
-    args: codexArgs,
-    surface: "control"
-  });
-  const codexReadClient = createCodexAppServerStdioClient({
-    command: codexCommand,
-    args: codexArgs,
-    surface: "read"
-  });
-
-
   try {
+    const codexClients = createConfiguredCodexClients();
     runtimeState = {
       ok: true,
       tools: createLooTools({
@@ -121,8 +109,8 @@ function getRuntimeState(): RuntimeState {
         dbPath,
         audit,
         includeAliases: true,
-        codexClient,
-        codexReadClient,
+        codexClient: codexClients.control,
+        codexReadClient: codexClients.read,
         invocationSurface: "mcp"
       })
     };

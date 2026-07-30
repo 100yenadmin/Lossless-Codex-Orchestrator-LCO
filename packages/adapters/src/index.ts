@@ -955,7 +955,7 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
         createdThreadFromResponse: true
       });
     },
-    sendMessage(input: { threadId: string; message: string; dryRun?: boolean; approvalAuditId?: string; turnWaitMs?: number }) {
+    sendMessage(input: { threadId: string; message: string; dryRun?: boolean; approvalAuditId?: string; turnWaitMs?: number; loadedThread?: boolean; awaitTurn?: boolean }) {
       const resumeParams = safeCodexResumeParams(input.threadId);
       // A new turn pins its own restrictive posture. Unlike steer/interrupt,
       // it does not act inside an already-running turn whose posture is fixed.
@@ -973,14 +973,18 @@ export function createCodexControl(options: { audit: ControlAuditStore; client: 
         dryRun: input.dryRun,
         approvalAuditId: input.approvalAuditId,
         params: turnStartParams,
-        steps: [
-          { method: "thread/resume", params: resumeParams },
-          { method: "turn/start", params: turnStartParams }
-        ],
+        steps: input.loadedThread
+          ? [{ method: "turn/start", params: turnStartParams }]
+          : [
+              { method: "thread/resume", params: resumeParams },
+              { method: "turn/start", params: turnStartParams }
+            ],
         loadedThreadReusable: true,
-        turnResolution: {
-          turnWaitMs: input.turnWaitMs
-        }
+        turnResolution: input.awaitTurn === false
+          ? undefined
+          : {
+              turnWaitMs: input.turnWaitMs
+            }
       });
     },
     resumeThread(input: { threadId: string; dryRun?: boolean; approvalAuditId?: string }) {
@@ -1320,6 +1324,9 @@ function assertCodexControlSequenceResponses(responses: unknown[], steps: CodexC
     const isLcoSafetyBlock = response?.code === "safe_runtime_posture_unproven"
       && response.origin === "lco_safety_gate";
     if (response?.ok === false && !isLcoSafetyBlock) {
+      if (JSON.stringify(response).includes("activeTurnNotSteerable")) {
+        throw new Error("active_turn_not_steerable");
+      }
       throw new Error(`Codex control sequence step failed: ${steps[index]?.method ?? "unknown"}`);
     }
   }

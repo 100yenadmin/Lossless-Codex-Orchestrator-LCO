@@ -93,6 +93,7 @@ import {
 } from "../../adapters/src/index.js";
 import { probeClaudeDryRunAvailability } from "../../adapters/src/claude.js";
 import { readEnv, readEnvWithFallback, resolveHomeDir } from "../../runtime/src/env.js";
+import { createCodexControlRouter } from "./codex-control-router.js";
 
 export type LooTool = {
   name: string;
@@ -228,17 +229,21 @@ export const LOO_TOOL_SURFACE: Record<string, LooToolSurfaceMetadata> = {
   lco_session_sanitizer: { tier: "proof_debug" },
   lco_codex_sqlite_stores: { tier: "internal_low_level" },
   lco_lcm_peer_dbs: { tier: "internal_low_level" },
-  lco_drive: {
+  lco_drive: { tier: "workflow_detail" },
+  lco_codex_control_route: {
     tier: "public_facade",
     operatorPathRank: 8,
-    operatorPathRole: "Create a bounded review-then-drive plan and real target-adapter dry-run audit packet."
+    operatorPathRole: "Resolve one daemon-owned Codex target or return the explicit Desktop observation route without exposing raw identifiers."
+  },
+  lco_codex_deliver: {
+    tier: "public_facade",
+    operatorPathRank: 9,
+    operatorPathRole: "Deliver through the opaque target using idle send or active steer under the existing dry-run approval audit."
   },
   lco_codex_control_dry_run: { tier: "workflow_detail" },
   lco_codex_start_thread: { tier: "workflow_detail" },
   lco_codex_resume_thread: {
-    tier: "public_facade",
-    operatorPathRank: 9,
-    operatorPathRole: "Run the approved resume action only after a matching dry-run audit id."
+    tier: "workflow_detail"
   },
   lco_codex_send_message: { tier: "workflow_detail" },
   lco_codex_steer_thread: { tier: "workflow_detail" },
@@ -462,6 +467,16 @@ function validateOpenClawToolInput(schema: Record<string, unknown>, input: Recor
   if (!isRecordValue(input)) return "value must be an object";
   const properties = isRecordValue(schema.properties) ? schema.properties : {};
   const requiredFields = Array.isArray(schema.required) ? schema.required.filter((value): value is string => typeof value === "string") : [];
+  const alternatives = Array.isArray(schema.anyOf)
+    ? schema.anyOf
+      .map((value) => isRecordValue(value) && Array.isArray(value.required)
+        ? value.required.filter((field): field is string => typeof field === "string")
+        : [])
+      .filter((fields) => fields.length > 0)
+    : [];
+  if (alternatives.length > 0 && !alternatives.some((fields) => fields.every((field) => input[field] !== undefined))) {
+    return "one supported target form is required";
+  }
   for (const key of requiredFields) {
     if (input[key] === undefined) return `${publicSafeInputField(key)} is required`;
   }
@@ -535,6 +550,10 @@ export function createLooTools(options: {
 }): LooTool[] {
   const control = createCodexControl({ audit: options.audit, client: options.codexClient });
   const codexReadClient = options.codexReadClient ?? options.codexClient;
+  const codexRouter = createCodexControlRouter({
+    client: codexReadClient,
+    control
+  });
   const telemetryEnabled = options.telemetryEnabled ?? readEnv("TELEMETRY") === "1";
   const tools: LooTool[] = [
     tool("lco_index_sessions", "Index local Codex and Claude Code session JSONL files into the local orchestrator database.", {
@@ -1083,6 +1102,24 @@ export function createLooTools(options: {
         now: optionalString(input.now)
       });
     }),
+    tool("lco_codex_control_route", "Resolve one daemon-owned Codex task to an expiring opaque target, or require Desktop observation without mutation.", {
+      hint: { type: "string", maxLength: 240 }
+    }, (input) => codexRouter.route({
+      hint: optionalString(input.hint)
+    })),
+    tool("lco_codex_deliver", "Deliver to an opaque Codex target: start a turn when idle or steer the matching active turn. Dry-run is the default.", {
+      target_ref: { type: "string" },
+      message: { type: "string" },
+      turn_wait_ms: { type: "integer", minimum: 1, maximum: 600000 },
+      dry_run: { type: "boolean", default: true },
+      approval_audit_id: { type: "string" }
+    }, (input) => codexRouter.deliver({
+      targetRef: requiredString(input.target_ref, "target_ref"),
+      message: requiredString(input.message, "message"),
+      turnWaitMs: optionalNumber(input.turn_wait_ms),
+      dryRun: input.dry_run !== false,
+      approvalAuditId: optionalString(input.approval_audit_id)
+    }), ["target_ref", "message"]),
     tool("lco_codex_control_dry_run", "Create a dry-run audit id for a Codex control action under LCO's fixed never-approve, read-only runtime posture.", {
       action: { type: "string", enum: ["start", "send", "resume", "steer", "interrupt"] },
       thread_id: { type: "string" },
@@ -1093,7 +1130,22 @@ export function createLooTools(options: {
     tool("lco_codex_resume_thread", "Resume or rejoin a Codex thread under LCO's fixed never-approve, read-only posture without starting a turn. Live mode requires approval_audit_id.", controlSchema(), (input) => snakeCaseControlResult(control.resumeThread(controlInput(input)))),
     tool("lco_codex_send_message", "Send a message under LCO's fixed never-approve, read-only posture. Live mode requires approval_audit_id and waits for bounded turn proof.", controlSchema(true, false, true), (input) => snakeCaseControlResult(control.sendMessage(messageControlInput(input, false, true)))),
     tool("lco_codex_steer_thread", "Rejoin and steer a running Codex thread under LCO's fixed never-approve, read-only posture. Live mode requires approval_audit_id and expected_turn_id.", controlSchema(true, true, true), (input) => snakeCaseControlResult(control.steerThread(messageControlInput(input, true, true))), ["thread_id", "message", "expected_turn_id"]),
-    tool("lco_codex_interrupt_thread", "Rejoin and interrupt a Codex thread under LCO's fixed never-approve, read-only posture. Live mode requires approval_audit_id and expected_turn_id.", controlSchema(false, true, true), (input) => snakeCaseControlResult(control.interruptThread(controlInput(input, false, true))), ["thread_id", "expected_turn_id"]),
+    tool("lco_codex_interrupt_thread", "Interrupt a matching opaque target or rejoin and interrupt a raw Codex thread under LCO's fixed never-approve, read-only posture.", {
+      ...controlSchema(false, true, true),
+      target_ref: { type: "string" }
+    }, (input) => optionalString(input.target_ref)
+      ? codexRouter.interrupt({
+          targetRef: requiredString(input.target_ref, "target_ref"),
+          turnWaitMs: optionalNumber(input.turn_wait_ms),
+          dryRun: input.dry_run !== false,
+          approvalAuditId: optionalString(input.approval_audit_id)
+        })
+      : snakeCaseControlResult(control.interruptThread(controlInput(input, false, true))), [], {
+        anyOf: [
+          { required: ["target_ref"] },
+          { required: ["thread_id", "expected_turn_id"] }
+        ]
+      }),
     tool("lco_desktop_act", "Dry-run desktop fallback action for CUA/Peekaboo; live requests return structured missing-proof blockers.", {
       backend: { type: "string", enum: ["direct", "cua-driver", "peekaboo"] },
       action: { type: "string" },
@@ -1575,7 +1627,8 @@ function tool(
   description: string,
   properties: Record<string, unknown>,
   execute: LooTool["execute"],
-  required: string[] = []
+  required: string[] = [],
+  schemaExtras: Record<string, unknown> = {}
 ): LooTool {
   const safety = LOO_COMMAND_POLICY[name];
   if (!safety) throw new Error(`Missing LOO command policy for ${name}`);
@@ -1590,7 +1643,8 @@ function tool(
       type: "object",
       additionalProperties: false,
       properties,
-      ...(required.length > 0 ? { required } : {})
+      ...(required.length > 0 ? { required } : {}),
+      ...schemaExtras
     },
     execute
   };

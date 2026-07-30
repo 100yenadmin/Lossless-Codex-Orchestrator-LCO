@@ -345,11 +345,37 @@ mcp_servers:
     enabled: true
     env:
       LCO_TOOL_PROFILE: standard
+      LCO_CODEX_TRANSPORT: daemon
 ```
 
 Omitting `LCO_DB_PATH` uses LCO's home-based default. If you set it explicitly,
 use an expanded absolute path because Hermes does not shell-expand `~` inside an
 environment-variable value.
+
+`LCO_CODEX_TRANSPORT` defaults to `stdio`. Set it to `daemon` only when the
+local managed Codex daemon is already running. LCO connects through the
+standard socket under `CODEX_HOME`, or an explicit absolute
+`LCO_CODEX_DAEMON_SOCKET`. It never starts or restarts Codex, never enables
+Codex Remote Control, and never falls back from a requested daemon to stdio.
+`LCO_CODEX_APP_SERVER_ARGS` applies only to stdio mode.
+
+The remote-control loop is:
+
+1. Call `lco_codex_control_route`, optionally with a title hint.
+2. If it selects `app_server`, call `lco_codex_deliver` in its default dry-run
+   mode and show the approval packet.
+3. Repeat the exact call with `dry_run:false` and the matching
+   `approval_audit_id`. LCO sends to an idle task or steers the matching active
+   turn after revalidating ownership and state.
+4. Use `lco_codex_interrupt_thread` with the same opaque `target_ref` for an
+   approved interrupt.
+5. If the route is `desktop_observation_required`, use Hermes
+   `computer_use` to verify and operate the Codex Desktop window. Do not assume
+   the managed daemon owns a Desktop task.
+
+For Telegram, the remote instruction must originate from the user and arrive
+at Eva. Eva returns the result to that same conversation. Typing a Telegram
+message as Eva is not a valid inbound-control test.
 
 `lco_find` queries the existing index by default. It does not synchronously
 reindex unless the call explicitly passes `index:true`; `lco_index_sessions`
@@ -384,7 +410,7 @@ lco release hermes-readiness \
 ```
 
 The smoke checks initialization, notification silence, Eva's required
-14-tool registration set, object-valid structured results, default search
+16-tool registration set, object-valid structured results, default search
 behavior, and bounded latency. The readiness report binds that smoke to the
 candidate package probe. Both reports are public-safe candidate evidence only:
 they do not prove publication, an active profile install, or live Eva runtime
@@ -565,10 +591,13 @@ The safe loop is:
 4. `lco_codex_extract` with `kind: "plans"`, `kind: "final_messages"`, and
    `kind: "touched_files"`
 5. `lco_expand_session` or `lco_expand_query`
-6. `lco_codex_control_dry_run` only when action is needed
-7. `lco_codex_start_thread` only after dry-run approval when a new Codex thread
+6. `lco_codex_control_route` for the current daemon-owned task
+7. `lco_codex_deliver` in dry-run mode, then live with the exact matching
+   approval id
+8. `lco_codex_control_dry_run` for lower-level explicit actions
+9. `lco_codex_start_thread` only after dry-run approval when a new Codex thread
    is needed
-8. live action only with a matching `approval_audit_id`
+10. live action only with a matching `approval_audit_id`
 
 Live start/send/steer/interrupt results distinguish `accepted_by_transport`,
 `started`, `completed`, `persisted`, and `unverified_pending`. If a result is
