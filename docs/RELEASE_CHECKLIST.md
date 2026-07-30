@@ -167,6 +167,33 @@ published-smoke, `lco release general-readiness --strict`, and
 `lco release ga-smoke --strict`; the stable issue is not complete until those
 post-publish gates pass.
 
+## Automated npm Publication Gate
+
+The normal dual-package publish path is
+`.github/workflows/publish-npm.yml` with npm Trusted Publishing. Before pushing
+the exact version tag:
+
+- both npm packages must trust this repository, `publish-npm.yml`, and the
+  `npm-release` GitHub environment
+- the release tracker and approval evidence must authorize npm publication
+- the tag commit must already be on `main` with successful exact-SHA CI and
+  CodeQL runs
+- `package.json` version, the `v<version>` tag, and `publishConfig.tag` must
+  agree
+
+The workflow reruns `npm run check`, creates canonical and compatibility
+tarballs from one checkout, proves payload parity, runs package and Hermes
+smokes, checks that neither registry version exists, and dry-runs both
+publications before the protected publish job can request OIDC. It does not
+replace the pre-tag release status, live/runtime canaries, GitHub Release, or
+post-publish finalization and clean-install gates.
+
+Do not store an npm write token in GitHub. Manual `npm publish` is a documented
+emergency fallback, not the routine path. The fallback must use the two exact
+tarballs and dist-tag recorded in `dual-package-manifest.json`, publish canonical
+before compatibility, verify both registry integrities and dist-tag targets, and
+stop on a partial result without rebuilding either artifact.
+
 ## Blocking Signals
 
 Treat these as hard blockers:
