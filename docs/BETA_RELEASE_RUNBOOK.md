@@ -454,14 +454,76 @@ fail-closed guard against accidental untagged publication. Stable branches carry
 `package.json` `publishConfig.tag` set to `latest`. Do not run untagged
 `npm publish` for any prerelease lane.
 
+## npm Trusted Publishing
+
+Routine dual-package publication uses `.github/workflows/publish-npm.yml` and
+npm Trusted Publishing. The workflow is the only automated npm writer. It runs
+on GitHub-hosted runners, requests `id-token: write` only in the publish job,
+and stores no npm write token.
+
+Configure each package once with the same repository, workflow filename, and
+GitHub environment:
+
+```bash
+npm trust github lossless-codex-orchestrator \
+  --file publish-npm.yml \
+  --repo 100yenadmin/Lossless-Codex-Orchestrator-LCO \
+  --env npm-release \
+  --allow-publish \
+  --yes
+
+npm trust github lossless-openclaw-orchestrator \
+  --file publish-npm.yml \
+  --repo 100yenadmin/Lossless-Codex-Orchestrator-LCO \
+  --env npm-release \
+  --allow-publish \
+  --yes
+```
+
+The one-time trust setup requires an authenticated maintainer with account 2FA.
+Future workflow publishes use short-lived OIDC credentials and automatic npm
+provenance. Keep `npm-release` as a protected GitHub environment so the final
+human action is one GitHub deployment approval after validation, not separate
+npm authentication for each package.
+
+Before creating the tag, the release tracker and release-status evidence must
+already record the explicit npm publication authorization. Pushing the exact
+`v<package-version>` tag starts the workflow. Its validation job then:
+
+- proves the tagged commit is on `main`
+- requires successful exact-SHA CI and CodeQL runs
+- runs `npm run check`
+- prepares both npm identities from one packed checkout
+- rejects any payload difference beyond the package `name`
+- installs and runs the package, Hermes, and Hermes-readiness smokes
+- proves both package/version registry slots are unused
+- dry-runs both publications
+
+Only after those steps pass can the protected `npm-release` job receive an OIDC
+credential. It verifies the transferred tarball checksums, repeats the registry
+slot check, publishes the canonical package followed by the compatibility
+package, and verifies both identities. The workflow does not choose a version,
+create a tag, create a GitHub Release, change release notes, or run
+post-publication finalization and runtime gates.
+
+Manual publication remains the emergency fallback. Do not add `NPM_TOKEN`,
+`NODE_AUTH_TOKEN`, or another npm write secret to the workflow. If the canonical
+publish succeeds and compatibility publication fails, stop, record the partial
+release, and use [Release Rollback](RELEASE_ROLLBACK.md); do not silently retry
+with a different artifact.
+
 ## Public Release Steps
 
 Only after the approval gates are satisfied:
 
 1. Confirm the release candidate commit and tag name.
 2. Run the final release status command with approved evidence paths.
-3. Create the Git tag.
-4. Publish npm only if the approval covers npm publication. Use
+3. Create and push the Git tag. The normal path lets
+   `.github/workflows/publish-npm.yml` validate and publish both npm package
+   identities through the protected `npm-release` environment.
+4. If Trusted Publishing is unavailable and the release tracker authorizes the
+   emergency manual path, publish npm only if the approval covers npm
+   publication. Use
    `npm publish --tag beta` for beta releases, `npm publish --tag next` for
    release candidates, and `npm publish --tag latest` for stable releases. For
    release candidates, verify `package.json` `publishConfig.tag` is `next`

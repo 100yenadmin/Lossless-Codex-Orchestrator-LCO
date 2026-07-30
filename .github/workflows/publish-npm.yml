@@ -1,0 +1,231 @@
+name: Publish npm packages
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate tagged release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      package_version: ${{ steps.release.outputs.package_version }}
+      dist_tag: ${{ steps.release.outputs.dist_tag }}
+      canonical_tarball: ${{ steps.release.outputs.canonical_tarball }}
+      compatibility_tarball: ${{ steps.release.outputs.compatibility_tarball }}
+    steps:
+      - name: Checkout exact tag
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Use supported release Node and npm
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+
+      - name: Pin an npm version with Trusted Publishing support
+        run: npm install --global npm@11.17.0
+
+      - name: Verify tag ownership and exact-sha repository gates
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          package_version="$(node -p "require('./package.json').version")"
+          test "$GITHUB_REF_NAME" = "v$package_version"
+          for workflow_name in CI CodeQL; do
+            successful_runs="$(
+              gh run list \
+                --commit "$GITHUB_SHA" \
+                --workflow "$workflow_name" \
+                --status completed \
+                --limit 20 \
+                --json conclusion \
+                --jq '[.[] | select(.conclusion == "success")] | length'
+            )"
+            test "$successful_runs" -ge 1
+          done
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Run the full repository release check
+        run: npm run check
+
+      - name: Prepare equivalent canonical and compatibility packages
+        id: release
+        run: |
+          set -euo pipefail
+          release_root="$RUNNER_TEMP/lco-npm-release"
+          node scripts/prepare-dual-npm-release.mjs \
+            --source-dir "$GITHUB_WORKSPACE" \
+            --output-dir "$release_root" \
+            --release-tag "$GITHUB_REF_NAME"
+          package_version="$(node -p "require('$release_root/dual-package-manifest.json').version")"
+          dist_tag="$(node -p "require('$release_root/dual-package-manifest.json').distTag")"
+          canonical_file="$(node -p "require('$release_root/dual-package-manifest.json').packages[0].file")"
+          compatibility_file="$(node -p "require('$release_root/dual-package-manifest.json').packages[1].file")"
+          {
+            echo "package_version=$package_version"
+            echo "dist_tag=$dist_tag"
+            echo "canonical_tarball=$canonical_file"
+            echo "compatibility_tarball=$compatibility_file"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install and smoke the packed canonical candidate
+        run: |
+          set -euo pipefail
+          release_root="$RUNNER_TEMP/lco-npm-release"
+          candidate_prefix="$RUNNER_TEMP/lco-candidate-prefix"
+          evidence_root="$release_root/evidence"
+          canonical_tarball="$release_root/${{ steps.release.outputs.canonical_tarball }}"
+          npm install --global --prefix "$candidate_prefix" "$canonical_tarball"
+          export LCO_DB_PATH="$RUNNER_TEMP/lco-release-smoke.sqlite"
+          "$candidate_prefix/bin/lco" qa-lab cli-mcp-smoke \
+            --evidence-dir "$evidence_root/package-smoke" \
+            --package-version "${{ steps.release.outputs.package_version }}" \
+            --candidate-sha "$GITHUB_SHA" \
+            --cli-bin "$candidate_prefix/bin/lco" \
+            --mcp-bin "$candidate_prefix/bin/lco-mcp-server" \
+            --strict
+          "$candidate_prefix/bin/lco" hermes smoke \
+            --evidence-dir "$evidence_root/hermes-smoke" \
+            --package-version "${{ steps.release.outputs.package_version }}" \
+            --candidate-sha "$GITHUB_SHA" \
+            --cli-bin "$candidate_prefix/bin/lco" \
+            --mcp-bin "$candidate_prefix/bin/lco-mcp-server" \
+            --strict
+          "$candidate_prefix/bin/lco" release hermes-readiness \
+            --evidence-dir "$evidence_root/hermes-readiness" \
+            --package-version "${{ steps.release.outputs.package_version }}" \
+            --candidate-sha "$GITHUB_SHA" \
+            --hermes-smoke "$evidence_root/hermes-smoke/hermes-smoke.json" \
+            --package-smoke "$evidence_root/package-smoke/cli-mcp-product-smoke.json" \
+            --strict
+
+      - name: Prove both registry slots are unused
+        run: |
+          set -euo pipefail
+          package_version="${{ steps.release.outputs.package_version }}"
+          for package_name in lossless-codex-orchestrator lossless-openclaw-orchestrator; do
+            diagnostic="$RUNNER_TEMP/npm-view-${package_name}.log"
+            if npm view "$package_name@$package_version" version --json > /dev/null 2> "$diagnostic"; then
+              echo "::error::$package_name@$package_version is already published"
+              exit 1
+            fi
+            if ! grep -Eq 'E404|404 Not Found' "$diagnostic"; then
+              echo "::error::Registry availability check failed for $package_name"
+              exit 1
+            fi
+          done
+
+      - name: Dry-run both prepared publications
+        run: |
+          set -euo pipefail
+          release_root="$RUNNER_TEMP/lco-npm-release"
+          npm publish "$release_root/${{ steps.release.outputs.canonical_tarball }}" \
+            --tag "${{ steps.release.outputs.dist_tag }}" \
+            --access public \
+            --dry-run
+          npm publish "$release_root/${{ steps.release.outputs.compatibility_tarball }}" \
+            --tag "${{ steps.release.outputs.dist_tag }}" \
+            --access public \
+            --dry-run
+
+      - name: Preserve the exact validated release inputs
+        uses: actions/upload-artifact@v7
+        with:
+          name: npm-release-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/lco-npm-release/artifacts/*.tgz
+            ${{ runner.temp }}/lco-npm-release/dual-package-manifest.json
+            ${{ runner.temp }}/lco-npm-release/evidence
+
+  publish:
+    name: Publish through npm OIDC
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm-release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout the trusted workflow source
+        uses: actions/checkout@v7
+
+      - name: Use npm Trusted Publishing runtime
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+
+      - name: Pin an npm version with Trusted Publishing support
+        run: npm install --global npm@11.17.0
+
+      - name: Download the exact validated packages
+        uses: actions/download-artifact@v7
+        with:
+          name: npm-release-${{ github.sha }}
+          path: ${{ runner.temp }}/lco-npm-release
+
+      - name: Verify artifact identity and checksums after transfer
+        run: |
+          set -euo pipefail
+          node scripts/prepare-dual-npm-release.mjs \
+            --verify-output-dir "$RUNNER_TEMP/lco-npm-release"
+
+      - name: Recheck both registry slots immediately before publication
+        run: |
+          set -euo pipefail
+          package_version="${{ needs.validate.outputs.package_version }}"
+          for package_name in lossless-codex-orchestrator lossless-openclaw-orchestrator; do
+            diagnostic="$RUNNER_TEMP/npm-view-${package_name}.log"
+            if npm view "$package_name@$package_version" version --json > /dev/null 2> "$diagnostic"; then
+              echo "::error::$package_name@$package_version is already published"
+              exit 1
+            fi
+            if ! grep -Eq 'E404|404 Not Found' "$diagnostic"; then
+              echo "::error::Registry availability check failed for $package_name"
+              exit 1
+            fi
+          done
+
+      - name: Publish canonical then compatibility package
+        run: |
+          set -euo pipefail
+          release_root="$RUNNER_TEMP/lco-npm-release"
+          canonical_tarball="$release_root/${{ needs.validate.outputs.canonical_tarball }}"
+          compatibility_tarball="$release_root/${{ needs.validate.outputs.compatibility_tarball }}"
+          dist_tag="${{ needs.validate.outputs.dist_tag }}"
+          npm publish "$canonical_tarball" --tag "$dist_tag" --access public
+          npm publish "$compatibility_tarball" --tag "$dist_tag" --access public
+
+      - name: Verify both published identities
+        run: |
+          set -euo pipefail
+          package_version="${{ needs.validate.outputs.package_version }}"
+          for package_name in lossless-codex-orchestrator lossless-openclaw-orchestrator; do
+            published_version="$(npm view "$package_name@$package_version" version)"
+            test "$published_version" = "$package_version"
+          done
